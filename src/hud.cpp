@@ -13,6 +13,10 @@
 // their own text (lap times), so each string they print is anchored by its x position instead. The laps-left
 // number is printed earlier in the frame by a sprite callback (func_800B9D48) and takes the anchor of the HUD
 // widget it's drawn over (the track map).
+//
+// Fill widgets that cover the whole screen (the pause menu's translucent dimming) are stretched to the window's
+// edges in every mode. The game places them at the overscan inset (12,10) and its 2D scissor clips them to the
+// inset, which left an undimmed frame around the 3D view now that it extends to the framebuffer edges.
 
 #include <algorithm>
 #include <cstdint>
@@ -46,6 +50,12 @@ namespace {
     constexpr uint8_t flag_callback = 0x80;
 
     constexpr int32_t screen_width = 320;
+    constexpr int32_t screen_height = 240;
+    constexpr int32_t inset_x = 12; // Overscan inset of the game's 2D scissor.
+    constexpr int32_t inset_y = 10;
+
+    // current_origin while a widget is stretched to the window; never equal to a real origin.
+    constexpr uint16_t origin_stretched = 0xFFFF;
 
     // Whether each widget slot was last allocated by the race HUD setup.
     bool hud_slot[max_widgets];
@@ -78,24 +88,28 @@ namespace {
         MEM_W(0, (int32_t)dl_2d_cursor) = cursor + (int32_t)(count * 8);
     }
 
+    // Enables the extended GBI and, if `widen_scissor`, widens the scissor to the whole window until the widget loop
+    // ends (the game's scissor covers the 4:3 area, which would clip anchored widgets). Returns the command count.
+    uint32_t begin_rect_align(GfxCommand* cmds, bool widen_scissor) {
+        // The extended GBI is enabled every time because RT64 disables it at the start of every display list task.
+        uint32_t count = 0;
+        gEXEnable(&cmds[count++]);
+        if (widen_scissor && !scissor_widened) {
+            gEXPushScissor(&cmds[count++]);
+            gEXSetScissor(&cmds[count], G_SC_NON_INTERLACE, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, 0, 0, screen_height);
+            count += 2;
+            scissor_widened = true;
+        }
+        return count;
+    }
+
     void set_rect_origin(uint8_t* rdram, uint16_t origin) {
         if (origin == current_origin) {
             return;
         }
 
-        // The extended GBI is enabled every time because RT64 disables it at the start of every display list task.
         GfxCommand cmds[6];
-        uint32_t count = 0;
-        gEXEnable(&cmds[count++]);
-
-        // The game's scissor covers the 4:3 area, which would clip anchored widgets. Widen it to the whole window
-        // until the widget loop ends.
-        if (origin != G_EX_ORIGIN_NONE && !scissor_widened) {
-            gEXPushScissor(&cmds[count++]);
-            gEXSetScissor(&cmds[count], G_SC_NON_INTERLACE, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, 0, 0, 240);
-            count += 2;
-            scissor_widened = true;
-        }
+        uint32_t count = begin_rect_align(cmds, origin != G_EX_ORIGIN_NONE);
 
         // Rectangle coordinates are relative to the origin, so right-anchored ones are offset by the screen width.
         int32_t offset = (origin == G_EX_ORIGIN_RIGHT) ? -screen_width * 4 : 0;
@@ -103,6 +117,27 @@ namespace {
         count += 2;
         write_2d_commands(rdram, cmds, count);
         current_origin = origin;
+    }
+
+    // Stretches the next rectangles to cover the whole window. The game clips rectangles to its 2D clip rect before
+    // drawing them, so instead of mapping exact coordinates, the offsets move each edge past the window's edge (left
+    // edges are relative to the window's left edge, right edges to its right edge) and the widened scissor clips them.
+    void stretch_rect(uint8_t* rdram) {
+        GfxCommand cmds[6];
+        uint32_t count = begin_rect_align(cmds, true);
+        gEXSetRectAlign(&cmds[count], G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, -screen_width * 4, -screen_height * 4, 0, screen_height * 4);
+        count += 2;
+        write_2d_commands(rdram, cmds, count);
+        current_origin = origin_stretched;
+    }
+
+    // Whether a widget is a fill that covers the screen inside the overscan inset.
+    bool is_screen_fill(uint8_t* rdram, int32_t widget) {
+        int32_t x = MEM_H(widget_x, widget);
+        int32_t y = MEM_H(widget_y, widget);
+        return MEM_W(widget_image, widget) == 0 && (MEM_BU(widget_flags, widget) & flag_callback) == 0 &&
+            x <= inset_x && y <= inset_y &&
+            x + MEM_H(widget_w, widget) >= screen_width - inset_x && y + MEM_H(widget_h, widget) >= screen_height - inset_y;
     }
 
     // Origin for an x position (in 320-wide screen coordinates) by the screen third it falls in.
@@ -238,6 +273,10 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
     }
 
     in_hud_callback = hud_slot[slot] && (MEM_BU(widget_flags, widget) & flag_callback) != 0;
+    if (is_screen_fill(rdram, widget)) {
+        stretch_rect(rdram);
+        return;
+    }
     set_rect_origin(rdram, slot_origin[slot]);
 }
 

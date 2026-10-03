@@ -114,6 +114,13 @@ func = "func_800B45B4"
 before_vram = 0x800B4998
 text = "    rush2_frame_clear_end(rdram, ctx);"
 
+# Menu background (src/widescreen.cpp): extends the animated "RUSH2" mesh past the 4:3 edges. func_8007AA48 is
+# about to emit the G_DL for a node's model, $fp = model display list.
+[[patches.hook]]
+func = "func_8007AA48"
+before_vram = 0x8007AF84
+text = "    rush2_model_draw(rdram, ctx);"
+
 
 # Rumble alongside the Controller Pak. On hardware a port holds either a Controller Pak or a Rumble Pak, and
 # the game's pak thread only enables rumble for a port when osPfsInitPak fails with an ID/device error and
