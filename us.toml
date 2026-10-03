@@ -100,6 +100,20 @@ func = "func_8007C624"
 before_vram = 0x8007C7B4
 text = "    if ((int32_t)ctx->r10 <= 12 && (int32_t)ctx->r12 >= 308) { ctx->r10 = 0; ctx->r12 = 320; } if ((int32_t)ctx->r11 <= 10) { ctx->r11 = 0; } if ((int32_t)ctx->r13 >= 230) { ctx->r13 = 240; }"
 
+# The frame setup clears to the fog color inside the overscan inset and fills the border black, which shows through
+# skies that are just the clear color now that views extend over the border. Zero the insets (D_80023058/5A) while
+# the clear and border fills are emitted (src/widescreen.cpp): from loading them for the clear rect until the call
+# that follows the right border fill.
+[[patches.hook]]
+func = "func_800B45B4"
+before_vram = 0x800B47E8
+text = "    rush2_frame_clear_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B45B4"
+before_vram = 0x800B4998
+text = "    rush2_frame_clear_end(rdram, ctx);"
+
 
 # Rumble alongside the Controller Pak. On hardware a port holds either a Controller Pak or a Rumble Pak, and
 # the game's pak thread only enables rumble for a port when osPfsInitPak fails with an ID/device error and
