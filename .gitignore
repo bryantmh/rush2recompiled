@@ -1,0 +1,16 @@
+# ROMs and anything derived from them
+*.z64
+*.n64
+*.v64
+build/
+ref/
+RecompiledFuncs/
+rsp/*.cpp
+analysis/out_*/
+__pycache__/
+build.log
+run.log
+run.err
+.tools/
+configure.log
+build-n64recomp/

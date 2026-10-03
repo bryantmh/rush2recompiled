@@ -1,0 +1,93 @@
+# N64Recomp config for Rush 2: Extreme Racing USA (NR2E).
+# Run tools/extract.py and tools/gen_syms.py first.
+
+[input]
+entrypoint = 0x80000400
+# Paths are relative to the location of this config file.
+output_func_path = "RecompiledFuncs"
+symbols_file_path = "syms/rush2.us.syms.toml"
+rom_file_path = "rush2.us.recomp.z64"
+recomp_include = "#include \"recomp.h\"\n#include \"rush2_hooks.h\""
+
+[patches]
+stubs = [
+    # 64DD interrupt helper that pokes PI registers directly; never reached.
+    "func_80017324",
+    # libultra internals only reachable from functions the runtime reimplements
+    # (VI manager thread, motor/pfs helpers, 64DD thread handling).
+    "func_80006968",
+    "func_8000CC30",
+    "func_8000E4A8",
+    "func_8000E570",
+    "func_8001740C",
+    "func_800159E4",
+    "func_800162EC",
+    "func_80016AF4",
+    "__osBlockSum",
+]
+
+ignored = [
+    # Handwritten ll/sc atomic bit set/clear helpers; reimplemented in src/atomics.cpp.
+    "func_80003B34",
+    "func_80003B54",
+    # Copy of __osGetId called directly by the game's pak thread; reimplemented in src/atomics.cpp.
+    "func_8000D090",
+    # osStartThread/osStopThread; reimplemented with libultra semantics in src/threads.cpp.
+    "rush2_osStartThread",
+    "rush2_osStopThread",
+]
+
+# The game inflates its code segments itself (func_800059D4). Tell the runtime
+# about the code once each segment has been decompressed into RDRAM.
+
+# Main code: inflated by the boot thread to 0x800539E0.
+[[patches.hook]]
+func = "func_800005D8"
+before_vram = 0x8000071C
+text = "    load_overlays(0x01000000, (int32_t)0x800539E0, 0x691D0);"
+
+# Overlay: inflated to 0x803AA800 by func_800A62C0.
+[[patches.hook]]
+func = "func_800A62C0"
+before_vram = 0x800A6314
+text = "    load_overlays(0x01080000, (int32_t)0x803AA800, 0x1C190);"
+
+# Boot main reads 16 words from cart address 0xFFB000 (past the end of the 12MB ROM) into a
+# stack buffer that is never used. Skip the read so the runtime doesn't read out of bounds.
+[[patches.instruction]]
+func = "func_80000450"
+vram = 0x80000484
+value = 0x00000000 # jal osPiRawReadIo -> nop
+
+# Busy-wait loops on the pending graphics task counter (D_8001AA9C, updated by the scheduler thread
+# when tasks complete). Game threads are cooperative under the runtime, so yield inside each loop.
+[[patches.hook]]
+func = "func_800834F4"
+before_vram = 0x80083554
+text = "    yield_self_1ms(rdram);"
+
+[[patches.hook]]
+func = "func_8009FB40"
+before_vram = 0x8009FB74
+text = "    yield_self_1ms(rdram);"
+
+[[patches.hook]]
+func = "func_800A4B04"
+before_vram = 0x800A4B78
+text = "    yield_self_1ms(rdram);"
+
+[[patches.hook]]
+func = "func_800AB878"
+before_vram = 0x800AB8A4
+text = "    yield_self_1ms(rdram);"
+
+# Widescreen and no letterboxing: each player view's 3D scissor is inset by the overscan border,
+# e.g. (12,10)-(308,230) in single player. RT64 only widens projections whose scissor spans the
+# framebuffer, so extend views that touch the border to the framebuffer edges (320x240). Geometry past
+# the viewport edge is still rasterized (N64 guard band), so the top/bottom bars fill in without zooming.
+# $t2..$t5 hold ulx, uly, lrx, lry in pixels here.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007C7B4
+text = "    if ((int32_t)ctx->r10 <= 12 && (int32_t)ctx->r12 >= 308) { ctx->r10 = 0; ctx->r12 = 320; } if ((int32_t)ctx->r11 <= 10) { ctx->r11 = 0; } if ((int32_t)ctx->r13 >= 230) { ctx->r13 = 240; }"
+
