@@ -17,7 +17,9 @@ No game assets are included; you need your own ROM.
   the left/right third of the screen get an RT64 rect alignment so they move outward, grouped with any widgets they
   touch so multi-part elements stay together; menus are untouched (`src/hud.cpp`, hooks in `us.toml`).
 - High framerate (Settings > Graphics > Framerate = Display): the game runs at 30 fps and RT64 interpolates to
-  the display's refresh rate, matching objects between frames automatically (untagged matrices use `G_EX_ID_AUTO`).
+  the display's refresh rate. Every 3D matrix is tagged with a stable RT64 matrix group ID (scene graph node index,
+  camera per view, world-space polygon slot), so identical cars and their wheels are never mixed up; IDs change on
+  teleports and camera cuts so those snap instead of sweeping (`src/interpolation.cpp`, hooks in `us.toml`).
 - Controller Pak saves (players and their records): controller 1 has an emulated Controller Pak stored as a standard
   32KB `.mpk` image in `%LOCALAPPDATA%\Rush2Recompiled\saves\rush2.n64.us.mpk` (same format as emulator `.mpk` files).
   Controllers 2-4 report a Rumble Pak. Controller 1 rumbles as well: a hook in the game's pak thread registers the

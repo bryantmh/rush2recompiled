@@ -27,6 +27,18 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx);
 
+// Frame interpolation matrix group tagging (src/interpolation.cpp).
+void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_projection(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_root_modelview(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_poly(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_view_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_level_enter(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_level_exit(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_node_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx);
+void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx);
+
 #ifdef __cplusplus
 }
 #endif
