@@ -43,6 +43,7 @@
 #include "librecomp/rsp.hpp"
 
 #include "rush2.h"
+#include "wings.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -166,6 +167,7 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
         swap_buffer[i + 0 + duplicated_input_frames * input_channels] = audio_data[i + 1] * (0.5f / 32768.0f) * cur_main_volume;
         swap_buffer[i + 1 + duplicated_input_frames * input_channels] = audio_data[i + 0] * (0.5f / 32768.0f) * cur_main_volume;
     }
+    rush2::wings::mix_sound(&swap_buffer[duplicated_input_frames * input_channels], sample_count, sample_rate, (0.5f / 32768.0f) * cur_main_volume);
 
     if (sample_count <= duplicated_input_frames * input_channels) {
         return;
@@ -468,6 +470,7 @@ int main(int argc, char** argv) {
     recompui::register_primary_font("InterVariable.ttf", "Inter Variable");
 
     recomp::register_config_path(recompui::file::get_app_folder_path());
+    rush2::install_font_pack();
 
     for (const auto& game : supported_games) {
         recomp::register_game(game);

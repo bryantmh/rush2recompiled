@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 13" width="128" height="104">
+  <title>small digits 1 (dba11365f6941ec8), stored upside down as the game draws it flipped</title>
+  <defs>
+    <linearGradient id="body" gradientUnits="userSpaceOnUse" x1="0" y1="12" x2="0" y2="2">
+      <stop offset="0" stop-color="rgb(219,219,0)"/>
+      <stop offset="0.5" stop-color="rgb(231,231,0)"/>
+      <stop offset="1" stop-color="rgb(244,244,0)"/>
+    </linearGradient>
+  </defs>
+  <path fill="rgb(0,0,0)" fill-rule="nonzero" d="M12.500,11.500 L10.922,1.500 L6.890,1.500 L8.082,9.050 L8.061,9.050 L4.500,7.688 L4.864,9.997 L8.791,11.500 Z"/>
+  <path fill="url(#body)" fill-rule="nonzero" d="M11.000,12.000 L9.422,2.000 L5.390,2.000 L6.582,9.550 L6.561,9.550 L3.000,8.188 L3.364,10.497 L7.291,12.000 Z"/>
+</svg>

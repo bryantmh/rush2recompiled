@@ -27,10 +27,25 @@ No game assets are included; you need your own ROM.
 - Level of detail (Settings > Graphics): **Original** or **Off**. Off draws every model at its most detailed LOD and
   turns off the per-model cull distance from its LOD table, by zeroing the camera distance the model draw function
   computes. Models whose LOD the game selects explicitly are untouched (`src/lod.cpp`, hook in `us.toml`).
+- Fonts (Settings > Graphics): **Original** or **High Resolution** (default). High Resolution enables a built-in RT64
+  texture pack (`assets/rush2_hires_fonts.rtz`, copied into the mods folder at startup) with every font and the race
+  HUD's numbers and "MPH" label redrawn as vector art; no original pixels are packed. Regular fonts use Inter with each
+  font's weight, outline and layout fitted to the original sheet, the squared fonts use a hand-made squared glyph set,
+  and the HUD digits are Inter with a fitted slant, gradient and drop shadow. The game's image loader is hooked to
+  clamp tiles in T, since its tiles are taller than the images and RT64 would otherwise hash leftover TMEM
+  (`src/fonts.cpp`). The SVGs live in `tools/font_pack/svg` and `tools/font_pack/hud_svg`; `tools/build_font_pack.py`
+  regenerates them (from a font table dump, `RUSH2_DUMP_FONT_TABLES=<path>`, and RT64 texture dumps for the HUD) and
+  builds the pack.
 - Controller Pak saves (players and their records): controller 1 has an emulated Controller Pak stored as a standard
   32KB `.mpk` image in `%LOCALAPPDATA%\Rush2Recompiled\saves\rush2.n64.us.mpk` (same format as emulator `.mpk` files).
   Controllers 2-4 report a Rumble Pak. Controller 1 rumbles as well: a hook in the game's pak thread registers the
   port with the rumble code when its Controller Pak initializes (`src/pak.cpp`, `us.toml`).
+- Rush 2049 wings (Settings > Rush 2049): select your own San Francisco Rush 2049 (USA) ROM on the tab, then turn on
+  **Wings**. Hold the WINGS button (a row added to the game's Controls screen while Wings is on, default C-left) while
+  all four wheels are more than 5 ft off the ground to spread the wings, and steer pitch and roll with the stick. The
+  physics, the three wing styles (one per player, chosen on the tab), the slide-out animation, the flames and the wind
+  sound match Rush 2049's code. The wing model and sound are read from the 2049 ROM at runtime (`src/wings*.cpp`,
+  hooks in `us.toml`).
 
 Threading notes: game threads are cooperative under the runtime, so the four busy-wait loops on the pending
 graphics task counter yield (hooks in `us.toml`), and `osStartThread`/`osStopThread` use libultra semantics

@@ -1,0 +1,260 @@
+{
+    "sets": {
+        "small digits": {
+            "style": "digits",
+            "flipped": true,
+            "hidden_top_rows": 1
+        },
+        "large digits": {
+            "style": "digits",
+            "flipped": true,
+            "hidden_top_rows": 1
+        },
+        "mph": {
+            "style": "label",
+            "flipped": true
+        },
+        "digit silhouettes": {
+            "style": "alpha tile",
+            "flipped": true
+        }
+    },
+    "textures": [
+        {
+            "hash": "16a55388090d432c",
+            "char": "/",
+            "set": "small digits"
+        },
+        {
+            "hash": "47e787f2875c0ed2",
+            "char": "9",
+            "set": "small digits"
+        },
+        {
+            "hash": "0dcdcd0d54044add",
+            "char": "8",
+            "set": "small digits"
+        },
+        {
+            "hash": "4f097b7c9e9ad2a6",
+            "char": "7",
+            "set": "small digits"
+        },
+        {
+            "hash": "6c57bfc0f94f0247",
+            "char": "6",
+            "set": "small digits"
+        },
+        {
+            "hash": "8d982ec543f6107c",
+            "char": "5",
+            "set": "small digits"
+        },
+        {
+            "hash": "95bddd48911f980d",
+            "char": "4",
+            "set": "small digits"
+        },
+        {
+            "hash": "e3c27a4ee1b9b045",
+            "char": "3",
+            "set": "small digits"
+        },
+        {
+            "hash": "1d6338cc5c3c3071",
+            "char": "2",
+            "set": "small digits"
+        },
+        {
+            "hash": "dba11365f6941ec8",
+            "char": "1",
+            "set": "small digits"
+        },
+        {
+            "hash": "65037c99b072a7c6",
+            "char": "0",
+            "set": "small digits"
+        },
+        {
+            "hash": "b60fbb61bdd11c8e",
+            "char": "9",
+            "set": "large digits"
+        },
+        {
+            "hash": "1f17f32429158675",
+            "char": "8",
+            "set": "large digits"
+        },
+        {
+            "hash": "7a82874622deb576",
+            "char": "7",
+            "set": "large digits"
+        },
+        {
+            "hash": "48fc8ab9be7d8e8f",
+            "char": "6",
+            "set": "large digits"
+        },
+        {
+            "hash": "bbc47378b3904eb5",
+            "char": "5",
+            "set": "large digits"
+        },
+        {
+            "hash": "f40fd0dd849d2def",
+            "char": "4",
+            "set": "large digits"
+        },
+        {
+            "hash": "bd6cdc90ac49ffbc",
+            "char": "3",
+            "set": "large digits"
+        },
+        {
+            "hash": "e87a80a9b9b0f2c6",
+            "char": "2",
+            "set": "large digits"
+        },
+        {
+            "hash": "30955e5894c69a8c",
+            "char": "1",
+            "set": "large digits"
+        },
+        {
+            "hash": "49a5bcef1a6f82c2",
+            "char": "0",
+            "set": "large digits"
+        },
+        {
+            "hash": "c0e8f113ea996301",
+            "char": "MPH",
+            "set": "mph"
+        },
+        {
+            "hash": "3a85e98370c881df",
+            "char": "3",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "3bbc7826ac8280bb",
+            "char": "8",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "416a8e1f0c4375ac",
+            "char": "4",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "4b36f48bee5714d5",
+            "char": "9",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "5eba9ce724e08395",
+            "char": "8",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "655ef38482684a80",
+            "char": "1",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "684fcc84695d01e4",
+            "char": "5",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "72f16749412c7e06",
+            "char": "6",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "74b55f9e42e30ee5",
+            "char": "1",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "a2d0e515c4359bad",
+            "char": "5",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "acdbe2302d9c6a13",
+            "char": "4",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "b3adc1ea92588701",
+            "char": "2",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "c964c6a03048ff4b",
+            "char": "0",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "e6edf5222c504c35",
+            "char": "6",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "e6f28b5b127b1801",
+            "char": "3",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "e81dab9294e362bd",
+            "char": "2",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "ea71ef05b9a247bd",
+            "char": "/",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "eda8473d505b34df",
+            "char": "7",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "f72120a136773ff1",
+            "char": "9",
+            "set": "digit silhouettes",
+            "of": "small digits"
+        },
+        {
+            "hash": "fab2374046762e87",
+            "char": "7",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        },
+        {
+            "hash": "fe23c35d454d8337",
+            "char": "0",
+            "set": "digit silhouettes",
+            "of": "large digits"
+        }
+    ]
+}

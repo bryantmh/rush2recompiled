@@ -157,4 +157,6 @@ extern "C" void rush2_model_draw(uint8_t* rdram, recomp_context* ctx) {
         bool widescreen = ultramodern::renderer::get_graphics_config().ar_option != ultramodern::renderer::AspectRatio::Original;
         extend_menu_background(rdram, dl, widescreen ? bg_extend : 0);
     }
+    // Rush 2049 wings on car bodies (src/wings_render.cpp).
+    rush2_wings_model_draw(rdram, ctx);
 }

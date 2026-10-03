@@ -264,6 +264,13 @@ void rush2_interp_view_end(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(0, (int32_t)main_dl_head) = (int32_t)(head + 8);
 }
 
+// The current view and the generation of the node being drawn, for other code that adds matrices under it
+// (src/wings_render.cpp).
+void rush2_interp_get_generation(uint32_t* view, uint32_t* gen) {
+    *view = cur_view;
+    *gen = views[cur_view].gen + ((depth >= 0 && depth < max_depth) ? level_current[depth] : 0);
+}
+
 // func_8007B518 entry: one scene graph level deeper.
 void rush2_interp_level_enter(uint8_t* rdram, recomp_context* ctx) {
     int parent = depth;
