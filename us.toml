@@ -145,3 +145,62 @@ text = "    rush2_hud_draw_widget(rdram, ctx);"
 func = "func_8007D9DC"
 before_vram = 0x8007F0DC
 text = "    rush2_hud_draw_end(rdram, ctx);"
+
+# Frame interpolation: stable RT64 matrix group IDs for everything the 3D renderer draws (src/interpolation.cpp).
+# func_8007C624 draws one player view; func_8007B518 recursively draws a scene graph level.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007C624
+text = "    rush2_interp_view_begin(rdram, ctx);"
+
+# Projection G_MTX written at $v0.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007CBB4
+text = "    rush2_interp_projection(rdram, ctx);"
+
+# Root modelview G_MTX written at $v0.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007CF50
+text = "    rush2_interp_root_modelview(rdram, ctx);"
+
+# G_RDPPIPESYNC starting a world-space polygon written at $v0, $fp = polygon.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007D03C
+text = "    rush2_interp_poly(rdram, ctx);"
+
+# Function exit (reached by both paths after the deferred scene graph draw).
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007D9CC
+text = "    rush2_interp_view_end(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8007B518"
+before_vram = 0x8007B518
+text = "    rush2_interp_level_enter(rdram, ctx);"
+
+# Loop head, once per sibling node.
+[[patches.hook]]
+func = "func_8007B518"
+before_vram = 0x8007B5AC
+text = "    rush2_interp_node_begin(rdram, ctx);"
+
+# Node G_MTX written at $v0, $s7 = node.
+[[patches.hook]]
+func = "func_8007B518"
+before_vram = 0x8007B91C
+text = "    rush2_interp_node_matrix(rdram, ctx);"
+
+# After a pushed node: G_POPMTX written (if $s2 != 0) or the node's G_MTX rolled back.
+[[patches.hook]]
+func = "func_8007B518"
+before_vram = 0x8007BD7C
+text = "    rush2_interp_node_pop(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8007B518"
+before_vram = 0x8007BDC8
+text = "    rush2_interp_level_exit(rdram, ctx);"
