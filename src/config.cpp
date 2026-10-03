@@ -33,8 +33,20 @@ static void customize_graphics_options(recomp::config::Config& config) {
     };
     aspect_enum.default_value = static_cast<uint32_t>(ultramodern::renderer::AspectRatio::Expand);
 
-    // HUD placement only affects games that use RT64's extended GBI, which Rush 2 doesn't.
-    const_cast<ConfigOption&>(config.get_option(options::hr_option)).hidden = true;
+    // HUD placement moves the race HUD's left and right elements toward the screen edges (src/hud.cpp).
+    // The option keys stay the frontend's so saved settings carry over.
+    auto& hud_option = const_cast<ConfigOption&>(config.get_option(options::hr_option));
+    hud_option.description =
+        "Sets how far the race HUD spreads out on wide screens. "
+        "<recomp-color primary>Original</recomp-color> keeps it in the centered 4:3 area. "
+        "<recomp-color primary>16:9</recomp-color> moves the left and right elements to the edges of a 16:9 area. "
+        "<recomp-color primary>Edge</recomp-color> moves them to the edges of the game window.";
+    auto& hud_enum = std::get<ConfigOptionEnum>(hud_option.variant);
+    hud_enum.options = {
+        { ultramodern::renderer::HUDRatioMode::Original, "Original", "Original (4:3)" },
+        { ultramodern::renderer::HUDRatioMode::Clamp16x9, "Clamp16x9", "16:9" },
+        { ultramodern::renderer::HUDRatioMode::Full, "Expand", "Edge" },
+    };
 }
 
 void rush2::init_config() {
