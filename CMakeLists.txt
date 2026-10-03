@@ -81,9 +81,17 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/hud.cpp
     ${CMAKE_SOURCE_DIR}/src/interpolation.cpp
     ${CMAKE_SOURCE_DIR}/src/lod.cpp
+    ${CMAKE_SOURCE_DIR}/src/cheats.cpp
+    ${CMAKE_SOURCE_DIR}/src/fonts.cpp
     ${CMAKE_SOURCE_DIR}/src/widescreen.cpp
     ${CMAKE_SOURCE_DIR}/src/input.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
+    ${CMAKE_SOURCE_DIR}/src/wings.cpp
+    ${CMAKE_SOURCE_DIR}/src/wings_rom.cpp
+    ${CMAKE_SOURCE_DIR}/src/wings_menu.cpp
+    ${CMAKE_SOURCE_DIR}/src/wings_state.cpp
+    ${CMAKE_SOURCE_DIR}/src/wings_render.cpp
+    ${CMAKE_SOURCE_DIR}/src/wings_sound.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
 )
 

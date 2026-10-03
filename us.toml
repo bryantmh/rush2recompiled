@@ -249,3 +249,138 @@ text = "    rush2_hud_laps_begin(rdram, ctx);"
 func = "func_800B9D48"
 before_vram = 0x800BA150
 text = "    rush2_hud_laps_end(rdram, ctx);"
+
+# High-resolution fonts (src/fonts.cpp). func_80055F78 loads a 2D image (font glyph sheets included) into the 2D
+# display list and returns only through 0x80058584; the hooks bracket it so its intensity tiles can be clamped.
+[[patches.hook]]
+func = "func_80055F78"
+before_vram = 0x80055F78
+text = "    rush2_font_load_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_80055F78"
+before_vram = 0x8005857C
+text = "    rush2_font_load_end(rdram, ctx);"
+
+# Cheats tab (src/cheats.cpp). Top of the game thread's main loop, once per frame in menus and races.
+[[patches.hook]]
+func = "func_800B0228"
+before_vram = 0x800B02A4
+text = "    rush2_cheats_frame(rdram, ctx);"
+
+# WINGS row in the Controller Setup screen (src/wings_menu.cpp). func_800AD7E4 runs the screen, func_800AF598 is
+# its button icon callback and func_800B6134 draws its text.
+[[patches.hook]]
+func = "func_800AD7E4"
+before_vram = 0x800ADA24
+text = "    rush2_wings_menu_widgets(rdram, ctx);"
+
+[[patches.instruction]]
+func = "func_800AD7E4"
+vram = 0x800ADA30
+value = 0x00000000 # addiu a3, zero, 0x29 -> nop: the hook above sets the widget count
+
+[[patches.instruction]]
+func = "func_800AD7E4"
+vram = 0x800ADBB0
+value = 0x240E0009 # cursor wraps up from row 0 to row 9
+
+[[patches.instruction]]
+func = "func_800AD7E4"
+vram = 0x800ADBF8
+value = 0x29A1000A # cursor wraps down after row 9
+
+# Without wings the cursor wraps at row 8 as before (L_800ADC0C, where the up/down paths meet).
+[[patches.hook]]
+func = "func_800AD7E4"
+before_vram = 0x800ADC0C
+text = "    rush2_wings_menu_cursor(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800AD7E4"
+before_vram = 0x800ADC98
+text = "    rush2_wings_menu_defaults(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800AD7E4"
+before_vram = 0x800ADCA0
+text = "    if (rush2_wings_menu_edit(rdram, ctx)) { ctx->r2 = ctx->r16; goto L_800ADDAC; }"
+
+[[patches.hook]]
+func = "func_800AD7E4"
+before_vram = 0x800ADEF4
+text = "    rush2_wings_menu_conflicts(rdram, ctx);"
+
+# Exit checks scan conflict flags 0-8 instead of 0-7 (a WINGS/HORN conflict only flags HORN).
+[[patches.instruction]]
+func = "func_800AD7E4"
+vram = 0x800ADF20
+value = 0x24425661
+
+[[patches.instruction]]
+func = "func_800AD7E4"
+vram = 0x800ADF98
+value = 0x25AD5661
+
+[[patches.instruction]]
+func = "func_800AFD44"
+vram = 0x800AFD98
+value = 0x26945661
+
+[[patches.instruction]]
+func = "func_800AFD44"
+vram = 0x800AFF48
+value = 0x27395661
+
+[[patches.hook]]
+func = "func_800AF598"
+before_vram = 0x800AF61C
+text = "    rush2_wings_menu_icon_conflict(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800AF598"
+before_vram = 0x800AF7A8
+text = "    rush2_wings_menu_icon_binding(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B6134"
+before_vram = 0x800B62F4
+text = "    rush2_wings_menu_labels(rdram, ctx);"
+
+# Up to ten label rows; the hook ends the loop after nine without wings, or moves the rows 15 pixels apart with them.
+[[patches.instruction]]
+func = "func_800B6134"
+vram = 0x800B6560
+value = 0x2A61000A
+
+[[patches.hook]]
+func = "func_800B6134"
+before_vram = 0x800B6560
+text = "    rush2_wings_menu_label_row(rdram, ctx);"
+
+# Rush 2049 wings physics (src/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is
+# part of rush2_model_draw.
+[[patches.hook]]
+func = "func_800706D0"
+before_vram = 0x80070704
+text = "    rush2_wings_torque(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800706D0"
+before_vram = 0x80070714
+text = "    rush2_wings_save_position(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8006A02C"
+before_vram = 0x8006A0E0
+text = "    rush2_wings_gravity(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8006AFD8"
+before_vram = 0x8006B5E4
+text = "    rush2_wings_drag(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8008DBA0"
+before_vram = 0x8008DF84
+text = "    rush2_wings_car_init(rdram, ctx);"

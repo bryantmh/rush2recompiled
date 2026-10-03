@@ -1,0 +1,9 @@
+{
+    "0": { "name": "Tiny", "style": "block", "inclusive": true },
+    "1": { "name": "Pixel", "style": "block", "inclusive": true },
+    "5": { "name": "Block", "style": "block", "gap": 0.75 },
+    "8": { "name": "Small", "style": "vector", "optical_size": 14, "trace": [42, 60, 62, 91] },
+    "9": { "name": "Medium", "style": "vector", "optical_size": 14, "trace": [42, 60, 62] },
+    "10": { "name": "Large", "style": "vector", "optical_size": 32 },
+    "11": { "name": "Large digits", "style": "vector", "optical_size": 32 }
+}

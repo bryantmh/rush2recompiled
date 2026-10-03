@@ -32,6 +32,10 @@ namespace {
     // Instance ID of the SDL controller assigned to each port. Written on the game thread, read by the VI thread.
     std::atomic<SDL_JoystickID> port_controllers[num_ports] = { no_controller, no_controller, no_controller, no_controller };
 
+    // Exponent applied to stick X before the game's steering. The game cubes the normalized stick X (func_80076694),
+    // which was tuned for the stiff N64 stick; |x|^p with p < 1 cancels part (p = 1/3: all) of that curve.
+    std::atomic<float> steering_exponent = 1.0f;
+
     std::atomic_bool rumble_active[num_ports] = {};
     std::array<float, num_ports> cur_rumble{}; // VI thread only.
     std::array<bool, num_ports> rumble_failed{}; // VI thread only.
@@ -205,6 +209,7 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     float x = get_analog(profile_index, GameInput::X_AXIS_POS, controller) - get_analog(profile_index, GameInput::X_AXIS_NEG, controller);
     float y = get_analog(profile_index, GameInput::Y_AXIS_POS, controller) - get_analog(profile_index, GameInput::Y_AXIS_NEG, controller);
     recompinput::apply_joystick_deadzone(x, y, &x, &y);
+    x = std::copysign(std::pow(std::fabs(x), steering_exponent.load()), x);
 
     if (use_keyboard) {
         x += get_keyboard_analog(GameInput::X_AXIS_POS) - get_keyboard_analog(GameInput::X_AXIS_NEG);
@@ -215,6 +220,10 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     *x_out = std::clamp(x, -1.0f, 1.0f);
     *y_out = std::clamp(y, -1.0f, 1.0f);
     return true;
+}
+
+void rush2::input::set_steering_exponent(float exponent) {
+    steering_exponent = exponent;
 }
 
 void rush2::input::set_rumble(int port, bool on) {

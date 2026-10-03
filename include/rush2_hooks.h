@@ -50,6 +50,32 @@ void rush2_model_draw(uint8_t* rdram, recomp_context* ctx);
 // Level of detail override (src/lod.cpp).
 void rush2_lod_select(uint8_t* rdram, recomp_context* ctx);
 
+// Applies the Cheats tab's settings once per frame (src/cheats.cpp).
+void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx);
+
+// High-resolution font tile clamping around the 2D image loader (src/fonts.cpp).
+void rush2_font_load_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_font_load_end(uint8_t* rdram, recomp_context* ctx);
+
+// WINGS row in the Controller Setup screen (src/wings_menu.cpp).
+void rush2_wings_menu_widgets(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_menu_defaults(uint8_t* rdram, recomp_context* ctx);
+int rush2_wings_menu_edit(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_menu_conflicts(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_menu_icon_conflict(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_menu_icon_binding(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_menu_labels(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_menu_cursor(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx);
+
+// Rush 2049 wings physics and drawing (src/wings_state.cpp, src/wings_render.cpp).
+void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_save_position(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_gravity(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_drag(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_car_init(uint8_t* rdram, recomp_context* ctx);
+void rush2_wings_model_draw(uint8_t* rdram, recomp_context* ctx);
+
 #ifdef __cplusplus
 }
 #endif
