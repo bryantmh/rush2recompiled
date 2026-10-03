@@ -26,6 +26,9 @@ void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_print(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_laps_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_laps_end(uint8_t* rdram, recomp_context* ctx);
 
 // Frame interpolation matrix group tagging (src/interpolation.cpp).
 void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx);
@@ -38,6 +41,9 @@ void rush2_interp_level_exit(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_node_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx);
+
+// Level of detail override (src/lod.cpp).
+void rush2_lod_select(uint8_t* rdram, recomp_context* ctx);
 
 #ifdef __cplusplus
 }
