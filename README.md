@@ -12,7 +12,10 @@ No game assets are included; you need your own ROM.
 - Uses the standard N64: Recompiled launcher and config menu ([RecompFrontend](https://github.com/N64Recomp/RecompFrontend)).
 - Aspect ratio (Settings > Graphics): **Original (4:3)**, **16:9**, or **Fill** (matches the window, any width).
   The 3D view is widened by extending each player view's scissor to the full framebuffer (hook in `us.toml`),
-  which also removes the original top/bottom overscan border; 2D menus stay in the centered 4:3 area.
+  which also removes the original top/bottom overscan border; 2D menus stay in the centered 4:3 area. The animated
+  "RUSH2" menu background is a 3D mesh that ends just past the 4:3 edges, so its outer vertex columns are moved out
+  (texture coordinates included) to continue the pattern to the window edges (`src/widescreen.cpp`, hook in
+  `us.toml`). Full-screen fill widgets such as the pause menu's dimming are stretched to the window (`src/hud.cpp`).
 - HUD placement (Settings > Graphics): **Original (4:3)**, **16:9**, or **Edge** (window edges). Race HUD widgets in
   the left/right third of the screen get an RT64 rect alignment so they move outward, grouped with any widgets they
   touch so multi-part elements stay together; text the HUD prints itself (laps left, lap times) is anchored by

@@ -42,9 +42,10 @@ void rush2_interp_node_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx);
 
-// Full-screen frame clear for widescreen (src/widescreen.cpp).
+// Full-screen frame clear and menu background for widescreen (src/widescreen.cpp).
 void rush2_frame_clear_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_frame_clear_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_model_draw(uint8_t* rdram, recomp_context* ctx);
 
 // Level of detail override (src/lod.cpp).
 void rush2_lod_select(uint8_t* rdram, recomp_context* ctx);
