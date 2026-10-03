@@ -49,6 +49,36 @@ static void customize_graphics_options(recomp::config::Config& config) {
     };
 }
 
+namespace lod_option {
+    const std::string id = "lod_mode";
+    enum class LODMode : uint32_t { Original, Off };
+}
+
+// Level of detail: the game swaps distant models for simpler ones and stops drawing them past a distance (src/lod.cpp).
+static void add_lod_option(recomp::config::Config& config) {
+    using lod_option::LODMode;
+
+    config.add_enum_option(
+        lod_option::id,
+        "Level of Detail",
+        "Sets whether distant models use simpler versions. "
+        "<recomp-color primary>Original</recomp-color> matches the original game. "
+        "<recomp-color primary>Off</recomp-color> always draws every model at full detail and stops models from "
+        "disappearing in the distance.",
+        {
+            { LODMode::Original, "Original", "Original" },
+            { LODMode::Off, "Off", "Off" },
+        },
+        LODMode::Original
+    );
+
+    // Called when the config loads and on every change, including previews in the menu.
+    config.add_option_change_callback(lod_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::set_lod_disabled(static_cast<LODMode>(std::get<uint32_t>(cur_value)) == LODMode::Off);
+        });
+}
+
 void rush2::init_config() {
     std::filesystem::path recomp_dir = recompui::file::get_app_folder_path();
     if (!recomp_dir.empty()) {
@@ -63,6 +93,7 @@ void rush2::init_config() {
 
     auto& graphics_config = recompui::config::create_graphics_tab();
     customize_graphics_options(graphics_config);
+    add_lod_option(graphics_config);
 
     recompui::config::create_controls_tab();
     recompui::config::create_sound_tab();

@@ -9,7 +9,10 @@
 //
 // Only widgets created by the race HUD setup (func_800A06F8) are anchored, so menus keep their layout. Widgets
 // that touch or overlap are grouped and anchored together by their combined bounds, so multi-part elements
-// (a panel and its digits, a box and its borders) never split apart.
+// (a panel and its digits, a box and its borders) never split apart. Callback widgets have no bounds and print
+// their own text (lap times), so each string they print is anchored by its x position instead. The laps-left
+// number is printed earlier in the frame by a sprite callback (func_800B9D48) and takes the anchor of the HUD
+// widget it's drawn over (the track map).
 
 #include <algorithm>
 #include <cstdint>
@@ -51,10 +54,16 @@ namespace {
     uint16_t slot_origin[max_widgets];
     uint16_t current_origin = G_EX_ORIGIN_NONE;
     bool scissor_widened = false;
+    bool in_hud_callback = false;
 
     struct Rect {
         int32_t x0, y0, x1, y1;
     };
+
+    // Bounds of the anchored HUD widgets as of the last widget loop.
+    Rect widget_rect[max_widgets];
+    bool widget_anchored[max_widgets];
+    uint32_t widgets_checked = 0;
 
     void write_2d_commands(uint8_t* rdram, const GfxCommand* cmds, uint32_t count) {
         int32_t cursor = MEM_W(0, (int32_t)dl_2d_cursor);
@@ -96,6 +105,28 @@ namespace {
         current_origin = origin;
     }
 
+    // Origin for an x position (in 320-wide screen coordinates) by the screen third it falls in.
+    uint16_t origin_for_x(int32_t x) {
+        if (3 * x < screen_width) {
+            return G_EX_ORIGIN_LEFT;
+        }
+        if (3 * x > 2 * screen_width) {
+            return G_EX_ORIGIN_RIGHT;
+        }
+        return G_EX_ORIGIN_NONE;
+    }
+
+    // Restores the default alignment and the game's scissor after anchored draws.
+    void end_anchoring(uint8_t* rdram) {
+        set_rect_origin(rdram, G_EX_ORIGIN_NONE);
+        if (scissor_widened) {
+            GfxCommand cmd;
+            gEXPopScissor(&cmd);
+            write_2d_commands(rdram, &cmd, 1);
+            scissor_widened = false;
+        }
+    }
+
     int find_group(int* parent, int i) {
         while (parent[i] != i) {
             parent[i] = parent[parent[i]];
@@ -133,9 +164,10 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
     uint32_t count = (uint32_t)MEM_W(0, (int32_t)widget_count);
     count = std::min(count, max_widgets);
 
-    Rect rects[max_widgets];
+    Rect* rects = widget_rect;
+    bool* anchored = widget_anchored;
     int parent[max_widgets];
-    bool anchored[max_widgets];
+    widgets_checked = count;
     for (uint32_t i = 0; i < count; i++) {
         int32_t widget = (int32_t)(widget_array + i * widget_size);
         uint32_t image = (uint32_t)MEM_W(widget_image, widget);
@@ -188,13 +220,7 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
     for (uint32_t i = 0; i < count; i++) {
         if (anchored[i]) {
             int root = find_group(parent, (int)i);
-            int32_t center_x3 = 3 * (group_x0[root] + group_x1[root]) / 2;
-            if (center_x3 < screen_width) {
-                slot_origin[i] = G_EX_ORIGIN_LEFT;
-            }
-            else if (center_x3 > 2 * screen_width) {
-                slot_origin[i] = G_EX_ORIGIN_RIGHT;
-            }
+            slot_origin[i] = origin_for_x((group_x0[root] + group_x1[root]) / 2);
         }
     }
 
@@ -206,22 +232,50 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
 void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
     int32_t widget = (int32_t)ctx->r30;
     uint32_t slot = ((uint32_t)widget - widget_array) / widget_size;
+    in_hud_callback = false;
     if (slot >= max_widgets || MEM_B(widget_hidden, widget) != 0) {
         return;
     }
 
+    in_hud_callback = hud_slot[slot] && (MEM_BU(widget_flags, widget) & flag_callback) != 0;
     set_rect_origin(rdram, slot_origin[slot]);
+}
+
+// func_800734E0 entry (prints a string at ($a0, $a1), justified around $a0). Anchors text printed by HUD callback
+// widgets.
+void rush2_hud_print(uint8_t* rdram, recomp_context* ctx) {
+    if (in_hud_callback) {
+        set_rect_origin(rdram, origin_for_x((int16_t)ctx->r4));
+    }
 }
 
 // func_8007D9DC, after the widget draw loop.
 void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
-    set_rect_origin(rdram, G_EX_ORIGIN_NONE);
-    if (scissor_widened) {
-        GfxCommand cmd;
-        gEXPopScissor(&cmd);
-        write_2d_commands(rdram, &cmd, 1);
-        scissor_widened = false;
+    in_hud_callback = false;
+    end_anchoring(rdram);
+}
+
+// func_800B9D48, around its printf of the laps-left number at ($a0, $a1). The text sits on the track map, so it
+// takes the map widget's origin (from the last widget loop), or its screen third if no HUD widget is under it.
+void rush2_hud_laps_begin(uint8_t* rdram, recomp_context* ctx) {
+    int32_t x = (int16_t)ctx->r4;
+    int32_t y = (int16_t)ctx->r5;
+    uint16_t origin = origin_for_x(x);
+    for (uint32_t i = 0; i < widgets_checked; i++) {
+        const Rect& r = widget_rect[i];
+        if (widget_anchored[i] && x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) {
+            origin = slot_origin[i];
+            break;
+        }
     }
+
+    current_origin = G_EX_ORIGIN_NONE;
+    scissor_widened = false;
+    set_rect_origin(rdram, origin);
+}
+
+void rush2_hud_laps_end(uint8_t* rdram, recomp_context* ctx) {
+    end_anchoring(rdram);
 }
 
 }

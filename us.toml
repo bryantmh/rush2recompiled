@@ -204,3 +204,27 @@ text = "    rush2_interp_node_pop(rdram, ctx);"
 func = "func_8007B518"
 before_vram = 0x8007BDC8
 text = "    rush2_interp_level_exit(rdram, ctx);"
+
+# Level of detail override (src/lod.cpp). func_8007AA48 draws a node's model; every path has stored the node's
+# camera distance in D_80117490 by here, and it is read only to cull and pick the LOD. $s7 = node.
+[[patches.hook]]
+func = "func_8007AA48"
+before_vram = 0x8007ABB8
+text = "    rush2_lod_select(rdram, ctx);"
+
+# Text printed by HUD callback widgets (laps left, lap times). $a0 = x.
+[[patches.hook]]
+func = "func_800734E0"
+before_vram = 0x800734E0
+text = "    rush2_hud_print(rdram, ctx);"
+
+# Laps-left number, printed by the sprite callback func_800B9D48 through a printf wrapper. $a0/$a1 = x/y.
+[[patches.hook]]
+func = "func_800B9D48"
+before_vram = 0x800BA148
+text = "    rush2_hud_laps_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B9D48"
+before_vram = 0x800BA150
+text = "    rush2_hud_laps_end(rdram, ctx);"

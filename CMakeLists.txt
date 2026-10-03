@@ -80,6 +80,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/pak.cpp
     ${CMAKE_SOURCE_DIR}/src/hud.cpp
     ${CMAKE_SOURCE_DIR}/src/interpolation.cpp
+    ${CMAKE_SOURCE_DIR}/src/lod.cpp
+    ${CMAKE_SOURCE_DIR}/src/input.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
 )

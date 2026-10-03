@@ -78,7 +78,7 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
 }
 
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
-    if (recompinput::players::is_single_player_mode() || recompinput::players::get_player_is_assigned(controller_num)) {
+    if (rush2::input::is_port_connected(controller_num)) {
         return ultramodern::input::connected_device_info_t{
             .connected_device = ultramodern::input::Device::Controller,
             .connected_pak = ultramodern::input::Pak::RumblePak,
@@ -384,7 +384,7 @@ static void parse_input_script(const std::string& script) {
 }
 
 static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
-    bool ret = recompinput::profiles::get_n64_input(controller_num, buttons, x, y);
+    bool ret = rush2::input::get_n64_input(controller_num, buttons, x, y);
     if (controller_num == 0 && !input_script.empty()) {
         double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - launch_time).count();
         for (const auto& press : input_script) {
@@ -516,14 +516,14 @@ int main(int argc, char** argv) {
     };
 
     ultramodern::input::callbacks_t input_callbacks{
-        .poll_input = recompinput::poll_inputs,
+        .poll_input = rush2::input::poll,
         .get_input = get_n64_input,
-        .set_rumble = recompinput::set_rumble,
+        .set_rumble = rush2::input::set_rumble,
         .get_connected_device_info = get_connected_device_info,
     };
 
     ultramodern::events::callbacks_t thread_callbacks{
-        .vi_callback = recompinput::update_rumble,
+        .vi_callback = rush2::input::update_rumble,
         .gfx_init_callback = nullptr,
     };
 
