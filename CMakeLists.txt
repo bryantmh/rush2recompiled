@@ -77,6 +77,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/config.cpp
     ${CMAKE_SOURCE_DIR}/src/atomics.cpp
     ${CMAKE_SOURCE_DIR}/src/threads.cpp
+    ${CMAKE_SOURCE_DIR}/src/pak.cpp
+    ${CMAKE_SOURCE_DIR}/src/hud.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
 )
@@ -85,6 +87,7 @@ target_include_directories(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/sse2neon
+    ${CMAKE_SOURCE_DIR}/lib/rt64/include
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/hlslpp/include
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/dxc/inc

@@ -35,6 +35,15 @@ ignored = [
     # osStartThread/osStopThread; reimplemented with libultra semantics in src/threads.cpp.
     "rush2_osStartThread",
     "rush2_osStopThread",
+    # Controller Pak file system functions; reimplemented on top of a .mpk file in src/pak.cpp.
+    "rush2_osPfsInitPak",
+    "rush2_osPfsFindFile",
+    "rush2_osPfsFileState",
+    "rush2_osPfsDeleteFile",
+    "rush2_osPfsAllocateFile",
+    "rush2_osPfsReadWriteFile",
+    "rush2_osPfsFreeBlocks",
+    "rush2_osPfsChecker",
 ]
 
 # The game inflates its code segments itself (func_800059D4). Tell the runtime
@@ -91,3 +100,48 @@ func = "func_8007C624"
 before_vram = 0x8007C7B4
 text = "    if ((int32_t)ctx->r10 <= 12 && (int32_t)ctx->r12 >= 308) { ctx->r10 = 0; ctx->r12 = 320; } if ((int32_t)ctx->r11 <= 10) { ctx->r11 = 0; } if ((int32_t)ctx->r13 >= 230) { ctx->r13 = 240; }"
 
+
+# Rumble alongside the Controller Pak. On hardware a port holds either a Controller Pak or a Rumble Pak, and
+# the game's pak thread only enables rumble for a port when osPfsInitPak fails with an ID/device error and
+# osMotorInit succeeds. Right after a Controller Pak initializes successfully (L_80099458), also register the
+# port with the rumble code. $s1 = port, the initialized OSPfs is at $sp+0xD0.
+[[patches.hook]]
+func = "func_80098D14"
+before_vram = 0x80099458
+text = "    rush2_enable_pak_rumble(rdram, ctx);"
+
+# HUD edge anchoring (src/hud.cpp). The race HUD setup func_800A06F8 creates the HUD's widgets through the widget
+# allocator func_800541F8, and the widget loop in func_8007D9DC draws them with an RT64 rect alignment per widget.
+[[patches.hook]]
+func = "func_800A06F8"
+before_vram = 0x800A06F8
+text = "    rush2_hud_build_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A06F8"
+before_vram = 0x800A0DF4
+text = "    rush2_hud_build_end(rdram, ctx);"
+
+# Widget initialized: $v1 = slot, $a0 = widget.
+[[patches.hook]]
+func = "func_800541F8"
+before_vram = 0x800542D0
+text = "    rush2_hud_widget_created(rdram, ctx);"
+
+# Before the widget draw loop.
+[[patches.hook]]
+func = "func_8007D9DC"
+before_vram = 0x8007EAD4
+text = "    rush2_hud_draw_begin(rdram, ctx);"
+
+# Top of the widget draw loop, $fp = widget.
+[[patches.hook]]
+func = "func_8007D9DC"
+before_vram = 0x8007EAD8
+text = "    rush2_hud_draw_widget(rdram, ctx);"
+
+# After the widget draw loop.
+[[patches.hook]]
+func = "func_8007D9DC"
+before_vram = 0x8007F0DC
+text = "    rush2_hud_draw_end(rdram, ctx);"

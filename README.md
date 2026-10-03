@@ -12,10 +12,16 @@ No game assets are included; you need your own ROM.
 - Uses the standard N64: Recompiled launcher and config menu ([RecompFrontend](https://github.com/N64Recomp/RecompFrontend)).
 - Aspect ratio (Settings > Graphics): **Original (4:3)**, **16:9**, or **Fill** (matches the window, any width).
   The 3D view is widened by extending each player view's scissor to the full framebuffer (hook in `us.toml`),
-  which also removes the original top/bottom overscan border; 2D menus and HUD stay in the centered 4:3 area.
+  which also removes the original top/bottom overscan border; 2D menus stay in the centered 4:3 area.
+- HUD placement (Settings > Graphics): **Original (4:3)**, **16:9**, or **Edge** (window edges). Race HUD widgets in
+  the left/right third of the screen get an RT64 rect alignment so they move outward, grouped with any widgets they
+  touch so multi-part elements stay together; menus are untouched (`src/hud.cpp`, hooks in `us.toml`).
 - High framerate (Settings > Graphics > Framerate = Display): the game runs at 30 fps and RT64 interpolates to
   the display's refresh rate, matching objects between frames automatically (untagged matrices use `G_EX_ID_AUTO`).
-- Not yet done: HUD edge anchoring, Controller Pak saves.
+- Controller Pak saves (players and their records): controller 1 has an emulated Controller Pak stored as a standard
+  32KB `.mpk` image in `%LOCALAPPDATA%\Rush2Recompiled\saves\rush2.n64.us.mpk` (same format as emulator `.mpk` files).
+  Controllers 2-4 report a Rumble Pak. Controller 1 rumbles as well: a hook in the game's pak thread registers the
+  port with the rumble code when its Controller Pak initializes (`src/pak.cpp`, `us.toml`).
 
 Threading notes: game threads are cooperative under the runtime, so the four busy-wait loops on the pending
 graphics task counter yield (hooks in `us.toml`), and `osStartThread`/`osStopThread` use libultra semantics

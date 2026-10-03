@@ -24,8 +24,9 @@ extern "C" void func_80003B54(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = (gpr)(int32_t)(old & bits);
 }
 
-// s32 __osGetId(OSPfs* pfs), called directly by the game's controller pak thread (func_80098D14).
-// The runtime doesn't emulate the Controller Pak yet, so report no pack like librecomp's osPfs* functions.
+// s32 __osGetId(OSPfs* pfs), called directly by the game's controller pak thread (func_80098D14) to retry
+// a pak whose ID area is unreadable. The emulated Controller Pak (src/pak.cpp) never reports an ID error,
+// so this is unreachable; report no pack.
 extern "C" void func_8000D090(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = 1; // PFS_ERR_NOPACK
 }

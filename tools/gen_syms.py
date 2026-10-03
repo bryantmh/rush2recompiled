@@ -46,6 +46,16 @@ MANUAL_NAMES = {
     # libultra semantics instead of the runtime's reimplementations (see src/threads.cpp).
     0x80005FD0: "rush2_osStartThread",
     0x8000F640: "rush2_osStopThread",
+    # The runtime's osPfs* functions always report no Controller Pak. Route these to the file-backed
+    # implementation in src/pak.cpp.
+    0x8000C650: "rush2_osPfsInitPak",
+    0x8000D2F0: "rush2_osPfsFindFile",
+    0x8000D4B0: "rush2_osPfsFileState",
+    0x8000D7A0: "rush2_osPfsDeleteFile",
+    0x8000DDC0: "rush2_osPfsAllocateFile",
+    0x8000E66C: "rush2_osPfsReadWriteFile",
+    0x8000EA90: "rush2_osPfsFreeBlocks",
+    0x8000EBE0: "rush2_osPfsChecker",
 }
 # Function starts spimdisasm misses (only reached via computed jumps).
 EXTRA_FUNCTION_STARTS = {
