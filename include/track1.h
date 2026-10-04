@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -52,6 +53,10 @@ namespace rush2::track1 {
             std::vector<std::array<int16_t, 3>> checkpoints;
         };
         Timing timing[2];
+        // Breakables (src/track1.cpp redirects Rush 2's model lookups during the race): placement record name -> the
+        // model it draws instead of its class's Rush 2 model, and Rush 2 breakable piece name -> Rush 1 piece model.
+        std::map<std::string, std::string> record_models;
+        std::map<std::string, std::string> piece_models;
     };
     // t: Rush 1 track 0-6. prefix: the host slot's track prefix (the placement tree and <prefix>FINISH model names).
     bool convert_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix, ConvertedTrack& out,

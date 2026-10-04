@@ -117,6 +117,18 @@ void rush2_wings_drag(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_car_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_model_draw(uint8_t* rdram, recomp_context* ctx);
 
+// SF Rush music (src/track1_audio.cpp).
+void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_music(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx);
+int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx);
+
+// SF Rush breakables (src/track1.cpp).
+void rush2_track1_record_model(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_model_name(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_breakable_model(uint8_t* rdram, recomp_context* ctx);
+
 #ifdef __cplusplus
 }
 #endif

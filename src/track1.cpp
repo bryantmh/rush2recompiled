@@ -13,12 +13,18 @@
 // - Visibility: the converted table lives in recomp memory like the 2049 one. Rush 1's section chain can be longer
 //   than its region count (track 2: 126 sections, 111 regions); regions past the table see everything.
 // - Fog: Rush 1's fog colour is a game option (default grey 0x9696BE), not per track; that default is used.
+// - Breakables: Rush 1's cones, meters, trees, flags, fences, gas signs, windows, traffic lights and trash munchers are Rush 2 breakable
+//   class records (src/track1_convert.cpp). While the track is applied, the placement walker's lookup of a class model
+//   is redirected to the record's own Rush 1 model, and Rush 2's breakable pieces (CONE1O1, FENCEO1-12, ...) to Rush
+//   1's (rush2_track1_record_model, rush2_track1_model_name).
+// - Music and the fireworks sound are Rush 1's (src/track1_audio.cpp).
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -26,6 +32,7 @@
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 #include "assets.h"
+#include "rush2_hooks.h"
 #include "track1.h"
 #include "track2049.h"
 
@@ -60,7 +67,19 @@ namespace {
     bool applied = false;
     int applied_backward = -1;
     uint32_t pvs_table = 0;   // In recomp memory.
+    std::atomic<uint32_t> pvs_camera = 0;   // Camera position of the view func_8007C27C is working on.
     uint32_t demo_table = 0;
+    // Model lookups redirected while the track is applied: name -> address of the replacement name in RDRAM.
+    constexpr size_t name_pool_size = 0x1000;
+    uint32_t name_pool = 0;
+    std::map<std::string, uint32_t> record_redirects, piece_redirects;
+    // Breakables' own models (rush2_track1_breakable_model), by breakable address; cleared when the track is applied.
+    struct BreakableModel {
+        uint32_t node;
+        int16_t id;
+        uint16_t model;
+    };
+    std::map<uint32_t, BreakableModel> breakable_models;
     float lap_seconds[rush2::track1::track_count][2] = {};
 
     struct Saved {
@@ -130,6 +149,23 @@ namespace {
         for (size_t i = 0; i < track.pvs.size() && i < 128 * 16; i++) {
             MEM_B(0, (int32_t)(pvs_table + i)) = track.pvs[i];
         }
+        if (name_pool == 0) {
+            name_pool = (uint32_t)((uint8_t*)recomp::alloc(rdram, name_pool_size) - rdram) + 0x80000000;
+        }
+        record_redirects.clear();
+        piece_redirects.clear();
+        breakable_models.clear();
+        uint32_t at = name_pool;
+        auto add = [&](std::map<std::string, uint32_t>& to, const std::string& from, const std::string& name) {
+            if (at + 16 > name_pool + name_pool_size) return;
+            for (size_t i = 0; i < 16; i++) {
+                MEM_B(0, (int32_t)(at + i)) = i < name.size() ? name[i] : 0;
+            }
+            to[from] = at;
+            at += 16;
+        };
+        for (const auto& [from, name] : track.record_models) add(record_redirects, from, name);
+        for (const auto& [from, name] : track.piece_models) add(piece_redirects, from, name);
         applied = true;
         applied_backward = backward;
     }
@@ -155,8 +191,20 @@ namespace {
             MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4)) = saved.demo_list[b];
             MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2)) = saved.demo_count[b];
         }
+        record_redirects.clear();
+        piece_redirects.clear();
         applied = false;
         applied_backward = -1;
+    }
+
+    std::string read_name(uint8_t* rdram, uint32_t addr) {
+        std::string s;
+        for (int i = 0; i < 16; i++) {
+            char c = (char)MEM_B(0, (int32_t)(addr + i));
+            if (c == 0) break;
+            s.push_back(c);
+        }
+        return s;
     }
 
     bool convert(uint8_t* rdram, int k) {
@@ -226,14 +274,52 @@ bool rush2::track1::pvs(uint8_t* rdram, uint32_t sp) {
     if (!applied || MEM_B(0, (int32_t)track_id) != host_slot) {
         return false;
     }
-    int32_t region = (int32_t)MEM_W(0, (int32_t)(sp + 0x78));
+    // Rush 1's region (func_80064544), not Rush 2's: the top-level record whose box holds the camera in x and z and
+    // whose top is above it (no bottom test; Rush 2 tests the bottom and not the top, so high in the air it can pick
+    // a lower section whose mask leaves out the ground below), the one with the least |dx| + |dz|.
+    constexpr uint32_t records = 0x8010C15C;   // Placement record base.
+    int32_t region = -1;
+    uint32_t base = (uint32_t)MEM_W(0, (int32_t)records);
+    if (base != 0 && pvs_camera != 0) {
+        auto f = [&](uint32_t addr) {
+            uint32_t w = (uint32_t)MEM_W(0, (int32_t)addr);
+            float v;
+            memcpy(&v, &w, 4);
+            return v;
+        };
+        float cam[3] = { f(pvs_camera), f(pvs_camera + 4), f(pvs_camera + 8) };
+        float best = 0.0f;
+        uint32_t rec = base;
+        for (int k = 0; k < 1024; k++) {
+            float dx = cam[0] - f(rec + 0x34), dy = cam[1] - f(rec + 0x38), dz = cam[2] - f(rec + 0x3C);
+            if (f(rec + 0x4C) <= dx && dx <= f(rec + 0x58) && dy <= f(rec + 0x5C) && f(rec + 0x54) <= dz &&
+                dz <= f(rec + 0x60)) {
+                float score = std::fabs(dz) + std::fabs(dx);
+                if (region < 0 || score < best) {
+                    best = score;
+                    region = k;
+                }
+            }
+            int16_t next = (int16_t)MEM_H(0, (int32_t)(rec + 0x44));
+            if (next < 0) {
+                break;
+            }
+            rec = base + (uint32_t)next * 0x64;
+        }
+    }
+    // No region, or one past the table (track 2 has more sections than regions): everything is visible.
     if (region >= 0 && region < track.pvs_count) {
         MEM_W(0, (int32_t)(sp + 0x5C)) = pvs_table + region * 16;
     }
-    else if (region >= 0) {
+    else {
         MEM_W(0, (int32_t)(sp + 0x5C)) = all_visible;
     }
     return true;
+}
+
+// Start of func_8007C27C (the section mask for a view): $a1 = the camera position.
+extern "C" void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx) {
+    pvs_camera = (uint32_t)ctx->r5;
 }
 
 // Rush 1's race timer (func_800B9F8C start, func_8009FFCC checkpoints; docs/rush1_research.md):
@@ -290,4 +376,56 @@ float rush2::track1::record_seed(int k, bool backward) {
         }
     }
     return s;
+}
+
+// func_80081790 at 0x8008194C, the placement walker's model lookup ($a0 = the record's model name, or its class's
+// Rush 2 model): a Rush 1 breakable record draws its own model (record name at 0x800D5790).
+extern "C" void rush2_track1_record_model(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t current_record = 0x800D5790;
+    std::lock_guard lock{ track_mutex };
+    if (record_redirects.empty()) {
+        return;
+    }
+    uint32_t record = (uint32_t)MEM_W(0, (int32_t)current_record);
+    auto it = record_redirects.find(read_name(rdram, record));
+    if (it != record_redirects.end()) {
+        ctx->r4 = (int32_t)it->second;
+    }
+}
+
+// Start of func_8005BE3C (model lookup by name, $a0): Rush 2 breakable pieces resolve to the Rush 1 track's own.
+extern "C" void rush2_track1_model_name(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ track_mutex };
+    uint32_t name = (uint32_t)ctx->r4;
+    if (piece_redirects.empty() || name == 0) {
+        return;
+    }
+    auto it = piece_redirects.find(read_name(rdram, name));
+    if (it != piece_redirects.end()) {
+        ctx->r4 = (int32_t)it->second;
+    }
+}
+
+// func_8008A01C at 0x8008A0CC, the per-frame breakable update ($s0 = the breakable, $t3 = its node, $a0 = the model
+// about to be set): Rush 2 draws a breakable with the model of its +0x62 id (the class's CONE1O1, METERO1,
+// TREEHIT1O1, ...), which on a Rush 1 track would replace the record's own Rush 1 model (a traffic light would draw
+// as a meter, a trash muncher as a tree). While the id is still the one the breakable started with (not hit), the
+// node keeps the model it was created with.
+extern "C" void rush2_track1_breakable_model(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ track_mutex };
+    if (record_redirects.empty()) {
+        return;
+    }
+    uint32_t breakable = (uint32_t)ctx->r16;
+    uint32_t node = (uint32_t)ctx->r11;
+    int16_t id = (int16_t)MEM_H(0, (int32_t)(breakable + 0x62));
+    auto it = breakable_models.find(breakable);
+    if (it == breakable_models.end() || it->second.node != node) {
+        // First update since the breakable was created: the node still has its own model.
+        it = breakable_models.insert_or_assign(breakable,
+            BreakableModel{ node, id, (uint16_t)MEM_HU(0, (int32_t)(node + 0xC)) }).first;
+    }
+    if (id == it->second.id) {
+        ctx->r4 = it->second.model;
+    }
 }
