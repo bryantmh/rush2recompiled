@@ -151,8 +151,17 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   and its roof pushed down (hook at func_8005CFB0, each race car's per-frame callback), as 2049 dents its single body;
   repairs restore it.
 - **Computer cars.** func_800A37F4's random drone car (0-15) also draws types 23-35 when the 2049 cars are on.
-- **Damage textures.** func_800843EC builds texture names from the per-type prefix table 0x800C64C4 (22 entries);
-  its read moves to a 36-entry copy where the 2049 types get a prefix no texture has.
+- **Damage textures.** Rush 2's damaged panels (D1 models) use its D1 textures: copies of the D0 ones whose paint
+  indices are mottled lighter and darker in blotches. func_800843EC builds those names from the per-type prefix
+  table 0x800C64C4 (22 entries); its read moves to a 36-entry copy where the 2049 types get a prefix no texture has.
+  2049 has no damage textures (its car files hold only FRAME1, HOOD and SHEEN), so the converted body gets them: each
+  painted CI8 texture (10% or more of its texels in the paint ramps 32-127) gets a scuffed copy (blotches of +-8 ramp
+  steps, a few bright scrapes; other texels kept), and the body's lists (both LODs) are rewritten with every load of
+  such a texture inlined before the triangles of each panel it textures (panel by triangle centroid: top above half
+  the height, else front/rear by z, right/left by x), a G_TRI2 split where its halves differ. The relocator rebases
+  the inlined G_SETTIMGs (pristine); the dent hook points each panel's at the scuffed copy while that panel is
+  damaged. This makes the cars up to about 0xF000 bytes, so the car slot size word 0x8001CF28 (0xD1F0, the largest
+  Rush 2 car; func_800A37F4 allocates each slot at it + 0x400) is raised to the largest car at boot.
 - **Options.** See ยง9.
 - **Saves.** The extra types' per-car options live in side slots (16 x 0xC0 at 0x80222E00, one per player record),
   kept in `car2049.json` and keyed by record address: the active players' records (0x8010D740 + k * 0x6C0) and the
@@ -184,8 +193,9 @@ damping and a suspension curve, func_8009A264), TIRES (S0 D0 .. S2 D2, HALF / FU
 grip), DURABILITY (record byte / 100: the weight). The 2049 cars keep Rush 2's list:
 
 - **ENGINE** -> 2049 ENGINE. A different kind of effect (Rush 2's is a sound): for 2049 cars the row is the power
-  level, shown as ENGINE 1-6 (the value's text, func_803BC048, and its wrap, func_803B9478), and the car keeps its
-  default engine sound (func_8009E6DC).
+  level, shown as ENGINE 1-6 (the value's text, func_803BC048, and its wrap, func_803B9478). In 2049 the ENGINE
+  level also picks the engine sound (audio.md ง7), so a 2049 car plays 2049's engine for its level
+  (src/engine2049.cpp); Rush 2's sound byte (func_8009E6DC) keeps the car's default.
 - **DURABILITY** -> 2049 FRAME: the durability value is the frame weight (a car's default is its own frame).
 - **SUSPENSION** and **TIRES** keep their full Rush 2 effect (yaw damping and suspension curve; steering, yaw and
   off-road grip, from the analogue's base values). 2049's HANDLING stays at each car's own setup; its 0x801116D0 +9

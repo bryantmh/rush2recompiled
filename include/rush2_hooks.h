@@ -109,6 +109,10 @@ void rush2_engine_preview_car_select(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine_preview_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine_preview_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine_preview_stop(uint8_t* rdram, recomp_context* ctx);
+// Rush 2049 engine sounds for the 2049 cars (src/engine2049.cpp).
+int rush2_engine49_start(uint8_t* rdram, recomp_context* ctx);
+void rush2_engine49_stop(uint8_t* rdram, recomp_context* ctx);
+void rush2_engine49_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_record(uint8_t* rdram, recomp_context* ctx);
 int rush2_car49_dirty(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx);

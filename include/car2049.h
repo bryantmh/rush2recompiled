@@ -32,6 +32,19 @@ namespace rush2::car2049 {
     // The engine sound (0-9) a car of this type plays for ENGINE row value `value`: the value itself for a Rush 2
     // car, the type's default sound for a 2049 car (whose ENGINE row is its power level).
     int engine_sound(uint8_t* rdram, int type, int value);
+    // Rush 2049's engine sound (src/engine2049.cpp): per ENGINE level (0-5), up to two looping layers (table
+    // 0x8010FD80), each pitched 1 + (rpm - base) / span and with a volume running through three rpm points.
+    struct EngineLayer {
+        int sound = -1; // 2049 sound effect id, or -1 for none
+        float base = 0, span = 1;
+        float rpm[3] = {};
+        float volume[3] = {};
+    };
+    // The ENGINE level of the car whose physics struct is at `car` (its player's choice, or the drone setup's), or -1
+    // if it isn't a 2049 car.
+    int engine_level(uint8_t* rdram, uint32_t car);
+    // ENGINE level `level`'s layers; false without the 2049 ROM.
+    bool engine_layers(int level, EngineLayer out[2]);
     // Forgets the 2049 car options and selected car kept for the player record at `record` (a deleted player), so a
     // player created in its place starts fresh.
     void forget_record(uint8_t* rdram, uint32_t record);

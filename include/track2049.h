@@ -75,6 +75,9 @@ namespace rush2::track2049 {
     void update_object_sounds(uint8_t* rdram, const std::vector<ObjectSound>& sounds);
     void stop_object_sounds();
     void mix_audio(float* samples, size_t sample_count, uint32_t sample_rate, float scale);
+    // 2049 sound effects are muted while nothing updates them (the game is paused). Effects other than the object
+    // sounds (src/engine2049.cpp) call this each frame they run, which also refreshes the effects volume.
+    void effects_running(uint8_t* rdram);
     // Rush 2049 songs for src/music.cpp. music_ready starts loading the sound banks (once per ROM) and says whether
     // they are loaded. queue_race_song makes the race's next "music off" stop command start the song instead.
     // play_song_now / stop_song_now play or stop a song at once at the game's music volume; playing_song is the

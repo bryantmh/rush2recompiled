@@ -91,11 +91,12 @@ namespace {
         // audio2049's gain 1 is Rush 2049's default mix (master volume 114/127); Rush 2's full volume (40) maps to
         // Rush 2049's full volume.
         constexpr float full = 127.0f / 114.0f;
-        // The music gets back the 6 dB of headroom audio2049 leaves (its full voice gain is 0.5), which left it
-        // quieter than Rush 2's songs.
-        constexpr float music_boost = 2.0f;
-        music_gain = (int8_t)MEM_B(0, (int32_t)music_volume) / 40.0f * full * music_boost * fade;
-        sfx_gain = (int8_t)MEM_B(0, (int32_t)sfx_volume) / 40.0f * full;
+        // Music and effects get back the 6 dB of headroom audio2049 leaves (its full voice gain is 0.5), and 3 dB
+        // more: at that alone they still sounded quieter than Rush 2's own (its engine voices run near full gain).
+        // Peaks are soft-limited in mix_audio.
+        constexpr float boost = 2.8f;
+        music_gain = (int8_t)MEM_B(0, (int32_t)music_volume) / 40.0f * full * boost * fade;
+        sfx_gain = (int8_t)MEM_B(0, (int32_t)sfx_volume) / 40.0f * full * boost;
     }
 
     // Per moving object: the sound effect it plays and the loop it waits to start.
@@ -223,6 +224,11 @@ void rush2::track2049::update_object_sounds(uint8_t* rdram, const std::vector<Ob
     }
 }
 
+void rush2::track2049::effects_running(uint8_t* rdram) {
+    update_gains(rdram);
+    sounds_updated_ms = now_ms();
+}
+
 void rush2::track2049::stop_object_sounds() {
     std::lock_guard lock{ objects_mutex };
     for (ObjectVoice& v : object_voices) {
@@ -237,8 +243,12 @@ void rush2::track2049::mix_audio(float* samples, size_t sample_count, uint32_t s
     }
     bool paused = now_ms() - sounds_updated_ms.load() > 100;
     audio::mix(samples, sample_count / 2, sample_rate, music_gain.load() * scale, paused ? 0.0f : sfx_gain.load() * scale);
-    // Loud passages can pass full scale.
+    // Loud passages can pass full scale: a soft knee above 0.9 keeps them from clipping hard.
+    constexpr float knee = 0.9f, headroom = 1.0f - knee;
     for (size_t i = 0; i < sample_count; i++) {
-        samples[i] = std::clamp(samples[i], -1.0f, 1.0f);
+        float a = std::fabs(samples[i]);
+        if (a > knee) {
+            samples[i] = std::copysign(knee + headroom * std::tanh((a - knee) / headroom), samples[i]);
+        }
     }
 }

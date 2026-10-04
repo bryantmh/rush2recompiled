@@ -97,6 +97,7 @@ namespace {
     constexpr uint32_t asset_sizes = 0x80222C00;
     constexpr int old_assets = 0x71;
     constexpr int first_car_asset = 0x71;
+    constexpr uint32_t car_slot_size = 0x8001CF28; // largest car asset (0xD1F0); func_800A37F4 allocates each slot
 
     // Per-type 16-byte tables: car boxes {front, rear, half width, height} (0x800CAC6C, 22 entries) and a second table
     // (0x800CADCC, 23 entries: entry 22 is a special case func_80059D24 picks), moved to 36 entries.
@@ -173,6 +174,15 @@ namespace {
         std::vector<uint32_t> vertices;
         std::vector<std::array<int16_t, 3>> rest;
         float extent[3] = { 1.0f, 1.0f, 1.0f }; // half width, height, half length
+        // Damage textures: the body's texture loads, each serving one panel (0 FR, 1 FL, 2 RR, 3 RL, 4 top), whose
+        // G_SETTIMG reads the pristine texels or their scuffed copy by that panel's damage.
+        struct DamageLoad {
+            uint32_t at;        // file offset of the G_SETTIMG
+            uint32_t pristine;  // file offsets of the texels
+            uint32_t damaged;
+            int panel;
+        };
+        std::vector<DamageLoad> damage_loads;
         // Rocket ZX exhaust flames (ROKTFLAMEG1-3): their vertices as modelled (at the origin, pointing back), and the
         // tile sizes of the scrolled flame texture's load list.
         struct Flame {
@@ -206,6 +216,8 @@ namespace {
         float frame_weight[6];   // 0x80111274 [FRAME]
         int colours[car_count][3]; // 0x80111604 / 0x80111648 / 0x8011168C: each car's COLOR 1-3 (func_800BB140)
         int rims[car_count];       // 0x8011157C: each car's TIRE RIMS (RIM01 + value, as in Rush 2)
+        int engine[car_count];     // 0x80111080: the drones' ENGINE (row C)
+        rush2::car2049::EngineLayer engine_sounds[8][2]; // 0x8010FD80 [ENGINE]
     };
     Setup49 setup49;
     bool is_2049(int type) {
@@ -496,6 +508,224 @@ namespace {
         for (int i = 0; i < 3; i++) p.extent[i] = std::max(1.0f, std::max(-lo[i], hi[i]));
     }
 
+    // A scuffed copy of a painted CI8 texture, as Rush 2's D1 panel textures are of its D0 ones: the paint (2049's
+    // ramps, entries 32-127, each a colour stepping towards black, §8 Paint) is mottled darker and lighter in blotches
+    // a few texels wide, with a few bright scrapes. Other texels (glass, lights, trim) are kept.
+    std::vector<uint8_t> scuff(const uint8_t* texels, uint32_t size, uint32_t width, uint32_t seed) {
+        auto hash = [seed](int x, int y) {
+            uint32_t h = uint32_t(x) * 73856093u ^ uint32_t(y) * 19349663u ^ seed * 83492791u;
+            h ^= h >> 13;
+            h *= 0x5BD1E995u;
+            h ^= h >> 15;
+            return float(h & 0xFFFF) / 65535.0f;
+        };
+        auto noise = [&](float x, float y) {
+            int x0 = int(std::floor(x)), y0 = int(std::floor(y));
+            float fx = x - x0, fy = y - y0;
+            fx = fx * fx * (3.0f - 2.0f * fx);
+            fy = fy * fy * (3.0f - 2.0f * fy);
+            float a = hash(x0, y0) + (hash(x0 + 1, y0) - hash(x0, y0)) * fx;
+            float b = hash(x0, y0 + 1) + (hash(x0 + 1, y0 + 1) - hash(x0, y0 + 1)) * fx;
+            return a + (b - a) * fy;
+        };
+        std::vector<uint8_t> out(texels, texels + size);
+        uint32_t height = std::max(1u, size / std::max(1u, width));
+        std::vector<int> shift(size, 0);
+        for (uint32_t i = 0; i < size; i++) {
+            float x = float(i % width), y = float(i / width);
+            float d = (noise(x / 5.0f, y / 4.0f) - 0.5f) * 11.0f + (noise(x / 2.0f + 17.0f, y / 2.0f + 5.0f) - 0.5f) * 5.0f;
+            shift[i] = int(std::lround(d + 1.5f));
+        }
+        // Scrapes: short streaks of bare, bright paint, about one per 512 texels.
+        uint32_t scrapes = std::max(1u, size / 512);
+        for (uint32_t s = 0; s < scrapes; s++) {
+            float x = hash(int(s), 101) * width, y = hash(int(s), 202) * height;
+            float angle = (hash(int(s), 303) - 0.5f) * 1.2f;
+            int length = 4 + int(hash(int(s), 404) * float(std::min(width, 12u)));
+            for (int t = 0; t < length; t++) {
+                int px = int(x + std::cos(angle) * t), py = int(y + std::sin(angle) * t);
+                if (px < 0 || py < 0 || px >= int(width) || py >= int(height)) break;
+                shift[py * width + px] = -6;
+            }
+        }
+        for (uint32_t i = 0; i < size; i++) {
+            int v = texels[i];
+            if (v < 32 || v >= 128) continue;
+            int first = v & ~31, last = first == 96 ? 126 : first + 31;
+            out[i] = uint8_t(std::clamp(v + shift[i], first, last));
+        }
+        return out;
+    }
+
+    // Gives the body (FRAME1, both LODs) damage textures. Its lists call a texture-load list (in the file's [7]..[8]
+    // range) before each run of triangles; they are rewritten (appended to the file) with every load of a painted
+    // texture inlined before the triangles of each panel it textures, so each load can be pointed at the pristine
+    // texels or at their scuffed copy (appended too) on its own. The relocator rebases the inlined G_SETTIMGs with
+    // the list (they start pristine); rush2_car49_dent switches them.
+    void add_damage_textures(std::vector<uint8_t>& car, const std::string& model, int car_index, Paint& p) {
+        uint32_t models = be32(car, 0), names = be32(car, 4), count = be32(car, 16);
+        uint32_t txld_start = be32(car, 28), txld_end = be32(car, 32);
+        uint32_t record = 0;
+        for (uint32_t m = 0; m < count; m++) {
+            if (strncmp(reinterpret_cast<const char*>(&car[names + m * 0x18]), model.c_str(), 16) == 0) {
+                record = models + m * 0x34;
+            }
+        }
+        if (record == 0) return;
+        auto align = [&car] { while (car.size() % 8) car.push_back(0); };
+
+        // A texture-load list's commands (without its G_ENDDL), and the painted CI8 texels its G_SETTIMG loads.
+        struct Load {
+            std::vector<uint8_t> commands;
+            int settimg = -1;      // offset in `commands`
+            uint32_t texels = 0, damaged = 0;
+        };
+        std::map<uint32_t, Load> loads;
+        std::map<uint32_t, uint32_t> scuffed; // pristine texels -> copy
+        auto load_at = [&](uint32_t list) -> const Load& {
+            auto it = loads.find(list);
+            if (it != loads.end()) return it->second;
+            Load l;
+            uint32_t size = 0, width = 0;
+            bool ci8 = false;
+            for (uint32_t o = list; o + 8 <= txld_end && car[o] != 0xDF; o += 8) {
+                uint32_t w0 = be32(car, o), w1 = be32(car, o + 4);
+                switch (w0 >> 24) {
+                case 0xFD:
+                    if (l.settimg < 0) {
+                        l.settimg = int(l.commands.size());
+                        l.texels = w1 & 0xFFFFFF;
+                    }
+                    else {
+                        l.settimg = -2; // more than one image: left alone
+                    }
+                    break;
+                case 0xF3: // G_LOADBLOCK: lrs + 1 texels of the G_SETTIMG's size
+                    if (l.settimg < 0) break;
+                    size =((((w1 >> 12) & 0xFFF) + 1) << ((be32(car, list + l.settimg) >> 19) & 3)) >> 1;
+                    break;
+                case 0xF5: // the render tile: CI 8-bit, line in 64-bit words
+                    if (((w1 >> 24) & 7) == 0) {
+                        ci8 = ((w0 >> 21) & 7) == 2 && ((w0 >> 19) & 3) == 1;
+                        width = ((w0 >> 9) & 0x1FF) * 8;
+                    }
+                    break;
+                }
+                l.commands.insert(l.commands.end(), car.begin() + o, car.begin() + o + 8);
+            }
+            if (l.settimg >= 0 && ci8 && width > 0 && size > 0 && l.texels + size <= car.size()) {
+                uint32_t painted = 0;
+                for (uint32_t i = 0; i < size; i++) painted += car[l.texels + i] >= 32 && car[l.texels + i] < 128;
+                if (painted * 10 >= size) {
+                    auto s = scuffed.find(l.texels);
+                    if (s == scuffed.end()) {
+                        std::vector<uint8_t> copy = scuff(&car[l.texels], size, width, l.texels * 31u + uint32_t(car_index));
+                        align();
+                        s = scuffed.emplace(l.texels, uint32_t(car.size())).first;
+                        car.insert(car.end(), copy.begin(), copy.end());
+                    }
+                    l.damaged = s->second;
+                }
+            }
+            return loads.emplace(list, std::move(l)).first->second;
+        };
+
+        // Panels: 0 front right, 1 front left, 2 rear right, 3 rear left, 4 top (+z is the front, +x the right side).
+        auto panel_of = [&](const std::array<int16_t, 3>* v[3]) {
+            float x = 0, y = 0, z = 0;
+            for (int i = 0; i < 3; i++) {
+                x += (*v[i])[0];
+                y += (*v[i])[1];
+                z += (*v[i])[2];
+            }
+            x /= 3.0f * p.extent[0];
+            y /= 3.0f * p.extent[1];
+            z /= 3.0f * p.extent[2];
+            if (y > 0.5f) return 4;
+            return (z > 0 ? 0 : 2) + (x > 0 ? 0 : 1);
+        };
+
+        uint32_t lods = std::min(be32(car, record), 4u);
+        for (uint32_t lod = 0; lod < lods; lod++) {
+            uint32_t list = be32(car, record + 4 + lod * 12 + 8);
+            std::vector<uint8_t> out;
+            std::vector<std::pair<uint32_t, int>> sites; // offset in `out` of an inlined G_SETTIMG, panel
+            std::vector<std::pair<uint32_t, const Load*>> site_loads;
+            std::array<int16_t, 3> buffer[64] = {};
+            const Load* current = nullptr;
+            int loaded_panel = -1;
+            auto emit = [&out](uint32_t w0, uint32_t w1) {
+                for (int i = 0; i < 4; i++) out.push_back(uint8_t(w0 >> (24 - 8 * i)));
+                for (int i = 0; i < 4; i++) out.push_back(uint8_t(w1 >> (24 - 8 * i)));
+            };
+            // Indices are vertex * 2 (F3DEX2).
+            auto panel = [&](uint32_t a, uint32_t b, uint32_t c) {
+                const std::array<int16_t, 3>* v[3] = { &buffer[(a / 2) & 63], &buffer[(b / 2) & 63], &buffer[(c / 2) & 63] };
+                return panel_of(v);
+            };
+            auto load_for = [&](int panel) {
+                if (panel == loaded_panel) return;
+                uint32_t at = uint32_t(out.size());
+                out.insert(out.end(), current->commands.begin(), current->commands.end());
+                site_loads.push_back({ at + current->settimg, current });
+                sites.push_back({ at + current->settimg, panel });
+                loaded_panel = panel;
+            };
+            for (uint32_t pc = list; pc + 8 <= car.size(); pc += 8) {
+                uint32_t w0 = be32(car, pc), w1 = be32(car, pc + 4);
+                uint8_t op = uint8_t(w0 >> 24);
+                if (op == 0x01) { // G_VTX
+                    uint32_t n = (w0 >> 12) & 0xFF, end = (w0 >> 1) & 0x7F, at = w1 & 0xFFFFFF;
+                    for (uint32_t i = 0; i < n && end >= n && at + i * 16 + 6 <= car.size(); i++) {
+                        buffer[(end - n + i) & 63] = vertex_at(car, at + i * 16);
+                    }
+                }
+                if (op == 0xDE && (w1 & 0xFFFFFF) >= txld_start && (w1 & 0xFFFFFF) < txld_end) {
+                    const Load& l = load_at(w1 & 0xFFFFFF);
+                    if (l.damaged != 0) {
+                        current = &l; // inlined before the triangles it textures
+                        loaded_panel = -1;
+                        continue;
+                    }
+                    current = nullptr;
+                }
+                if ((op == 0x05 || op == 0x06) && current != nullptr) {
+                    int first = panel((w0 >> 16) & 0xFF, (w0 >> 8) & 0xFF, w0 & 0xFF);
+                    load_for(first);
+                    if (op == 0x06) {
+                        int second = panel((w1 >> 16) & 0xFF, (w1 >> 8) & 0xFF, w1 & 0xFF);
+                        if (second != first) { // split into two G_TRI1s
+                            emit(0x05000000 | (w0 & 0xFFFFFF), 0);
+                            load_for(second);
+                            emit(0x05000000 | (w1 & 0xFFFFFF), 0);
+                            continue;
+                        }
+                    }
+                }
+                emit(w0, w1);
+                if (op == 0xDF) break;
+            }
+            if (sites.empty()) continue;
+            align();
+            uint32_t base = uint32_t(car.size());
+            car.insert(car.end(), out.begin(), out.end());
+            put32(car, record + 4 + lod * 12 + 8, base);
+            for (size_t i = 0; i < sites.size(); i++) {
+                const Load* l = site_loads[i].second;
+                p.damage_loads.push_back({ base + sites[i].first, l->texels, l->damaged, sites[i].second });
+            }
+        }
+    }
+
+    // Points each panel's body texture loads at the pristine or scuffed texels (asset copy at `base`), as the
+    // relocator would: 24-bit, rebased.
+    void set_damage_textures(uint8_t* rdram, uint32_t base, const Paint& p, const float level[5]) {
+        for (const Paint::DamageLoad& d : p.damage_loads) {
+            uint32_t texels = level[d.panel] > 0.0f ? d.damaged : d.pristine;
+            MEM_W(0, (int32_t)(base + d.at + 4)) = (int32_t)((base + texels) & 0xFFFFFF);
+        }
+    }
+
     // Finds the 2049 car whose asset copy race car `car` (0-7) uses, from its texture bank. Returns its asset base.
     const Paint* bank_instance(uint8_t* rdram, int bank, uint32_t& base);
     const Paint* car_instance(uint8_t* rdram, int id, uint32_t& base) {
@@ -567,7 +797,12 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
                 p.colours.assign(car.begin() + p.palette, car.begin() + p.palette + 512);
             }
             collect_body_vertices(car, "CAR" + std::to_string(k + 1), p);
+            add_damage_textures(car, "CAR" + std::to_string(k + 1) + "FRAME1", k, p);
             collect_flames(car, p);
+            // func_800A37F4 preallocates every car slot at this size (+ 0x400): the largest car asset.
+            if (car.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
+                MEM_W(0, (int32_t)car_slot_size) = (int32_t)((car.size() + 15) & ~15u);
+            }
             rush2::assets::replace(rdram, first_car_asset + k, car);
         }
         else {
@@ -800,6 +1035,22 @@ namespace {
         s.k_frame0 = m.f(k_eng0);
         s.k_frame1 = m.f(k_eng1);
         s.k_yaw = m.f(k_yawi);
+        // Engine sounds (func_800D5E64 / func_800E0050): per ENGINE level, two 0x20-byte layers {s32 sound,
+        // u16 base rpm, u16 span, u16 rpm points [3], u16, f32 volumes [3], f32}.
+        for (int e = 0; e < 8; e++) {
+            for (int l = 0; l < 2; l++) {
+                uint32_t at = 0x8010FD80 + e * 0x40 + l * 0x20;
+                EngineLayer& layer = s.engine_sounds[e][l];
+                layer.sound = int32_t(m.w(at));
+                layer.base = float(m.w(at + 4) >> 16);
+                layer.span = float(m.w(at + 4) & 0xFFFF);
+                layer.rpm[0] = float(m.w(at + 8) >> 16);
+                layer.rpm[1] = float(m.w(at + 8) & 0xFFFF);
+                layer.rpm[2] = float(m.w(at + 12) >> 16);
+                for (int i = 0; i < 3; i++) layer.volume[i] = m.f(at + 16 + 4 * i);
+            }
+        }
+        for (int k = 0; k < car_count; k++) s.engine[k] = std::clamp<int>(m.b(0x80111080 + k), 0, engine_levels - 1);
         s.loaded = true;
         // The Rush 2 car each 2049 car is closest to in kind (Formula 1 -> FORM1, 8-Ball -> HOTROD, Rocket ZX ->
         // GT90, Magnum -> CAMARO, Super GT -> VETTE, Bruiser -> PICKUP, Locust LX -> INTEG, GX-2 -> CONCPT, Mini XS ->
@@ -1032,7 +1283,8 @@ extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
 // Rush 2 shows damage by swapping panel models; a 2049 car has one body, so it is dented instead, as 2049 does: the
 // body around each damaged corner (front/rear, left/right) is crushed towards the middle, and the roof down, by the
 // panel's damage level (Rush 2's 2-bit levels at car + 0xE4, masks 0x800CE188 / shifts 0x800CE180; collisions raise
-// a panel to 1, func_8006B730 / func_8009A264 / func_800715E8), and restored when it is repaired.
+// a panel to 1, func_8006B730 / func_8009A264 / func_800715E8), and restored when it is repaired. A damaged panel's
+// textures also turn to their scuffed copies, as Rush 2's damaged panels use its D1 textures.
 extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
     int car = (int16_t)MEM_H(0, (int32_t)((uint32_t)ctx->r4 + 0xE));
     if (car < 0 || car >= 8) {
@@ -1057,8 +1309,9 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     dented[base] = key;
-    // Panels: 0 front right, 1 front left, 2 rear right, 3 rear left, 4 top. +z is the front, -x the right side.
-    constexpr float corner_x[4] = { -1.0f, 1.0f, -1.0f, 1.0f }, corner_z[4] = { 1.0f, 1.0f, -1.0f, -1.0f };
+    set_damage_textures(rdram, base, *p, level);
+    // Panels: 0 front right, 1 front left, 2 rear right, 3 rear left, 4 top. +z is the front, +x the right side.
+    constexpr float corner_x[4] = { 1.0f, -1.0f, 1.0f, -1.0f }, corner_z[4] = { 1.0f, 1.0f, -1.0f, -1.0f };
     for (size_t i = 0; i < p->vertices.size(); i++) {
         const auto& r = p->rest[i];
         float x = r[0] / p->extent[0], y = r[1] / p->extent[1], z = r[2] / p->extent[2];
@@ -1502,4 +1755,22 @@ extern "C" void rush2_car49_bars_end(uint8_t* rdram, recomp_context* ctx) {
         MEM_W(0, (int32_t)bar_swap.mass_at) = (int32_t)bar_swap.mass;
     }
     bar_swap.active = false;
+}
+
+int rush2::car2049::engine_level(uint8_t* rdram, uint32_t car) {
+    int type = MEM_BU(0, (int32_t)(car + 0x7EA));
+    if (!is_2049(type)) {
+        return -1;
+    }
+    int row = car_row(rdram, car);
+    return row == 0 ? setup49.engine[type - first_type] : choices_of(rdram, row, type).engine;
+}
+
+bool rush2::car2049::engine_layers(int level, EngineLayer out[2]) {
+    if (!setup49.loaded || level < 0 || level >= 8) {
+        return false;
+    }
+    out[0] = setup49.engine_sounds[level][0];
+    out[1] = setup49.engine_sounds[level][1];
+    return true;
 }

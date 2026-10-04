@@ -214,3 +214,53 @@ I purpose].
 Keymaps, layers, PlayMacro, portamento (CC65 is never set), traps/messages, variables, LFOs, tremolo, pitch ADSR, DLS
 ADSRs, curve tables, reverb/chorus, song sections and the RSP mixer itself (output scale 0.5, see §4). Pitch and volume
 updates follow MusyX's job timing (pitch every 15 ms, volume every 5 ms, ramped).
+
+## 7. Engine sounds
+
+Port: `src/engine2049.cpp`. [V] unless marked.
+
+Rush 2049 picks a car's engine sound by its **ENGINE setting** (physics car +0xC, 0-5), not by the car: func_800D5E64
+(race start) points the car's engine state (0x80140420 + car * 0x54: +0 table, then two 0x14-byte layers {+0 handle,
++4 last volume, +8 last pitch}) at 0x8010FD80 + ENGINE * 0x40 and starts each layer's sound: the local player's
+car (+0x7CC == 2) without position (func_800D5C90), other cars as 3D emitters (func_800AED64: range 400, volume
+0-1, priority 0x80). A layer is 0x20 bytes {s32 sound (-1 none), u16 base rpm, u16 span, u16 rpm points [3], u16,
+f32 volumes [3], f32}:
+
+| ENGINE | Layer 0: sound, base / span, points, volumes | Layer 1 |
+|---|---|---|
+| 1 | 0x66, 2900 / 4000, 3000 4500 6000, 1.0 0.8 0.0 | 0x73, 5000 / 5000, 3000 4500 6000, 0.25 1.0 1.0 |
+| 2 | 0x69, 4000 / 4000, 3000 3000 6000, 1.0 1.0 0.0 | 0x6A, 5000 / 5000, 2000 3500 6000, 0.25 1.0 1.0 |
+| 3 | 0x6D, 3000 / 3000, 3000 4500 6000, 1.0 1.0 0.0 | 0x6C, 5000 / 5000, 2000 5000 5000, 0.25 1.0 1.0 |
+| 4 | 0x71, 2500 / 3000, 3000 3000 6000, 1.0 1.0 0.0 | 0x72, 5000 / 5000, 2000 5000 5000, 0.25 1.0 1.0 |
+| 5 | 0x6E, 5000 / 5000, 1500 3000 5000, 1.0 1.0 1.0 | none |
+| 6 | 0x74, 2500 / 3000, 2000 3000 6000, 0.5 0.75 0.0 | 0x6B, 5000 / 5000, 900 3000 5000, 1.0 1.0 1.0 |
+
+(Entries 6 and 7, sounds 0x68 and 0x70 / 0x6F, aren't reachable from the setup.)
+
+func_800E0050 (from func_800E05F0, every other frame) updates each layer from rpm = |car +0x7D0| (engine rad/s
+(+0x408) x 9.549 x 0.9, func_800D03AC):
+- pitch = 1 + (rpm - base) / span, clamped to 0-2;
+- volume = v0 below point 0, linear v0 -> v1 -> v2 up to point 2, v2 above; times the load factor
+  0.85 + (+0x404 + 200) / 900 x 0.15 (+0x404 is the engine torque);
+- the local player's car: volume x (0.8 - 0.05 x players), pitch and volume sent only when they change;
+- other cars: volume x 0.75 as the emitter's maximum volume (func_800BF2B8), at the car's position (+0x22C).
+
+Outside races (0x801174B4 without 0x400000) other cars' rpm is held at 890, and they also play a random sound
+0x62-0x64 (1 in 5 per update, range 400, volume 0.8) [I: the race bit's meaning].
+
+Rush 2 keeps the same rpm at its car +0x7F0 (func_80069254, the same 9.549 x 0.9) and the torque at +0x3F4, and plays
+engines only for the local players (src/engine_preview.cpp has its slot mechanism), so the port plays 2049's engine
+for a local player driving a 2049 car, in place of that slot's Rush 2 engine, as 2049 plays its own car.
+
+**Other cars (port, `src/car_engines.cpp`, Sound tab option "Other Cars' Engines", on by default).** Rush 2 has
+engine voices only for the two local players (func_80062CC4 loops over slots 0-1; its track emitters, func_80099C20 /
+func_80064D24, are at most 20 fixed points, two sounding at once, volume (r^2 - d^2) / r^2 without pan), so its
+computer cars are silent. The port gives every car not driven by a local player its engine with Rush 2049's emitter
+law (range 400, 0.75 of the engine volume, split screen summed over the local players). A 2049 car plays 2049's
+engine through `audio2049` (2049's drone setup has ENGINE 1 for every car: row C at 0x80111080 is all zero). A Rush 2
+car plays Rush 2's engine for its type's default sound with Rush 2's law: sound 0x800BD1FC [engine * 2 + layer],
+pitch min(r / 0x800BD15C [same], 2), volume (int)((int)(A[layer][min(r / 1000, 10)] x B[layer][clamp((l + 80) x 0.025,
+0, 12)] x 2000 + 24000) x 0x800D577A / 40) with A = 0x800BD338, B = 0x800BD29C, r = |car +0x7F0| x [0x800E7BA4] and
+l = car +0x3F4 x [0x800E7BAC] (as u16 & 0x7FFF, func_800650DC). Its samples (VADPCM, the ALSound list of the
+sound effect ALInstrument at 0x800D2478; the engine sounds have key base 40, no detune, full volume and sustain) are
+decoded from the ROM and mixed on the host at pitch samples per output frame, as libaudio's sound player plays them.

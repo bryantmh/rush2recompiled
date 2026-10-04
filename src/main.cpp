@@ -46,6 +46,7 @@
 #include "rush2.h"
 #include "wings.h"
 #include "track2049.h"
+#include "car_engines.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -194,6 +195,7 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
     }
     rush2::wings::mix_sound(&swap_buffer[duplicated_input_frames * input_channels], sample_count, sample_rate, (0.5f / 32768.0f) * cur_main_volume);
     rush2::track2049::mix_audio(&swap_buffer[duplicated_input_frames * input_channels], sample_count, sample_rate, 0.5f * cur_main_volume);
+    rush2::car_engines::mix(&swap_buffer[duplicated_input_frames * input_channels], sample_count, sample_rate, (0.5f / 32768.0f) * cur_main_volume);
 
     if (sample_count <= duplicated_input_frames * input_channels) {
         return;
