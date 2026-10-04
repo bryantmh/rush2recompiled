@@ -38,10 +38,21 @@ No game assets are included; you need your own ROM.
   builds the pack.
 - Controller Pak saves (players and their records): controller 1 has an emulated Controller Pak stored as a standard
   32KB `.mpk` image in `%LOCALAPPDATA%\Rush2Recompiled\saves\rush2.n64.us.mpk` (same format as emulator `.mpk` files).
-  Controllers 2-4 report a Rumble Pak. Controller 1 rumbles as well: a hook in the game's pak thread registers the
+  Controller 2 reports a Rumble Pak. Controller 1 rumbles as well: a hook in the game's pak thread registers the
   port with the rumble code when its Controller Pak initializes (`src/pak.cpp`, `us.toml`).
+- Players (Settings > Players, replacing the frontend's Controls tab): each of the two players gets a controller
+  (**Auto**: the first unassigned controller to press a button; **None**; or a specific controller, remembered across
+  launches by GUID and serial) and the keyboard goes to either player or neither. Choosing the other player's
+  controller swaps the two (`src/input.cpp`, `src/players_tab.cpp`, saved to `players.json`).
+- Controls (the game's Controls screen, from Setup or the pause menu): A on a row waits for the next button, trigger,
+  stick direction or key on that player's controller or keyboard and binds it; an input another row used moves to this
+  row's old input. Keyboard steering takes a left and a right key. SAVE / RESET / CANCEL sit under the rows (Start
+  saves, B cancels, L+R resets). Rows show the bound input's PlayStation, Xbox or keyboard glyph, rendered from
+  PromptFont by `tools/build_button_glyphs.py` into `assets/button_glyphs.bin` and drawn as RT64 texture rectangles.
+  The game's own binding table is locked to its default N64 layout; in races each player's bindings are turned into
+  that layout, and menus use a fixed layout (`src/controls.cpp`, `src/controls_menu.cpp`, saved to `bindings.json`).
 - Rush 2049 wings (Settings > Rush 2049): select your own San Francisco Rush 2049 (USA) ROM on the tab, then turn on
-  **Wings**. Hold the WINGS button (a row added to the game's Controls screen while Wings is on, default C-left) while
+  **Wings**. Hold the WINGS button (a row added to the game's Controls screen while Wings is on) while
   all four wheels are more than 5 ft off the ground to spread the wings, and steer pitch and roll with the stick. The
   physics, the three wing styles (one per player, chosen on the tab), the slide-out animation, the flames and the wind
   sound match Rush 2049's code. The wing model and sound are read from the 2049 ROM at runtime (`src/wings*.cpp`,
@@ -102,5 +113,6 @@ build/Rush2Recompiled.exe [path/to/rom] [--show-console] [--autostart]
 ```
 
 A ROM next to the executable (or in its parent folder) is imported automatically; otherwise use the launcher.
-Settings and the ROM copy live in `%LOCALAPPDATA%\Rush2Recompiled`. Controls are configured in the launcher.
+Settings and the ROM copy live in `%LOCALAPPDATA%\Rush2Recompiled`. Players are assigned in the config menu's Players
+tab and buttons are bound in the game's own Controls screen.
 `--autostart` skips the launcher (useful for testing).

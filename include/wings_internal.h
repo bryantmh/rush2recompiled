@@ -18,9 +18,8 @@ namespace rush2::wings {
     // Decompressed Rush 2049 file 77, the wing and flame models.
     bool read_wing_model_file(const std::vector<uint8_t>& rom, std::vector<uint8_t>& out);
 
-    // Controller Setup WINGS row (src/wings_menu.cpp).
-    void load_controls();
-    // True if player (0 or 1, the game's player struct index) holds the WINGS button and the game isn't paused.
+    // True if player (0 or 1, the game's player struct index) holds the WINGS button and the game isn't paused
+    // (src/controls_menu.cpp).
     bool button_held(uint8_t* rdram, int player);
 
     // Wing state (src/wings_state.cpp).

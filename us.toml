@@ -268,79 +268,36 @@ func = "func_800B0228"
 before_vram = 0x800B02A4
 text = "    rush2_cheats_frame(rdram, ctx);"
 
-# WINGS row in the Controller Setup screen (src/wings_menu.cpp). func_800AD7E4 runs the screen, func_800AF598 is
-# its button icon callback and func_800B6134 draws its text.
+# Bindings (src/controls.cpp, src/controls_menu.cpp). Every frame the game's binding table is locked to its default
+# layout and input learns whether a race is running.
+[[patches.hook]]
+func = "func_800B0228"
+before_vram = 0x800B02AC
+text = "    rush2_controls_frame(rdram, ctx);"
+
+# Controller Setup screen (src/controls_menu.cpp). func_800AD7E4 runs the screen and func_800B6134 draws its text.
+# The widget hook replaces the screen's widgets (it sets the count, so the instruction that did is patched out), and
+# the update hook runs the screen in place of the game's player loop.
 [[patches.hook]]
 func = "func_800AD7E4"
 before_vram = 0x800ADA24
-text = "    rush2_wings_menu_widgets(rdram, ctx);"
+text = "    rush2_controls_menu_widgets(rdram, ctx);"
 
 [[patches.instruction]]
 func = "func_800AD7E4"
 vram = 0x800ADA30
 value = 0x00000000 # addiu a3, zero, 0x29 -> nop: the hook above sets the widget count
 
-[[patches.instruction]]
-func = "func_800AD7E4"
-vram = 0x800ADBB0
-value = 0x240E0009 # cursor wraps up from row 0 to row 9
-
-[[patches.instruction]]
-func = "func_800AD7E4"
-vram = 0x800ADBF8
-value = 0x29A1000A # cursor wraps down after row 9
-
-# Without wings the cursor wraps at row 8 as before (L_800ADC0C, where the up/down paths meet).
 [[patches.hook]]
 func = "func_800AD7E4"
-before_vram = 0x800ADC0C
-text = "    rush2_wings_menu_cursor(rdram, ctx);"
+before_vram = 0x800ADA80
+text = "    if (rush2_controls_menu_update(rdram, ctx)) goto L_800AE0A4;"
 
+# Leaving the screen from the pause menu happens when the screen asks, not on B or Start.
 [[patches.hook]]
-func = "func_800AD7E4"
-before_vram = 0x800ADC98
-text = "    rush2_wings_menu_defaults(rdram, ctx);"
-
-[[patches.hook]]
-func = "func_800AD7E4"
-before_vram = 0x800ADCA0
-text = "    if (rush2_wings_menu_edit(rdram, ctx)) { ctx->r2 = ctx->r16; goto L_800ADDAC; }"
-
-[[patches.hook]]
-func = "func_800AD7E4"
-before_vram = 0x800ADEF4
-text = "    rush2_wings_menu_conflicts(rdram, ctx);"
-
-# Exit checks scan conflict flags 0-8 instead of 0-7 (a WINGS/HORN conflict only flags HORN).
-[[patches.instruction]]
-func = "func_800AD7E4"
-vram = 0x800ADF20
-value = 0x24425661
-
-[[patches.instruction]]
-func = "func_800AD7E4"
-vram = 0x800ADF98
-value = 0x25AD5661
-
-[[patches.instruction]]
 func = "func_800AFD44"
-vram = 0x800AFD98
-value = 0x26945661
-
-[[patches.instruction]]
-func = "func_800AFD44"
-vram = 0x800AFF48
-value = 0x27395661
-
-[[patches.hook]]
-func = "func_800AF598"
-before_vram = 0x800AF61C
-text = "    rush2_wings_menu_icon_conflict(rdram, ctx);"
-
-[[patches.hook]]
-func = "func_800AF598"
-before_vram = 0x800AF7A8
-text = "    rush2_wings_menu_icon_binding(rdram, ctx);"
+before_vram = 0x800AFF04
+text = "    ctx->r25 = rush2_controls_menu_pause_exit(rdram, ctx);"
 
 [[patches.hook]]
 func = "func_800B6134"
@@ -357,6 +314,17 @@ value = 0x2A61000A
 func = "func_800B6134"
 before_vram = 0x800B6560
 text = "    rush2_wings_menu_label_row(rdram, ctx);"
+
+# The "L+R: DEFAULTS" footer isn't printed (jal 0x800734E0 -> nop); the draw hook prints SAVE, RESET and CANCEL.
+[[patches.instruction]]
+func = "func_800B6134"
+vram = 0x800B65C8
+value = 0x00000000
+
+[[patches.hook]]
+func = "func_800B6134"
+before_vram = 0x800B65E8
+text = "    rush2_controls_menu_draw(rdram, ctx);"
 
 # Rush 2049 wings physics (src/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is
 # part of rush2_model_draw.
