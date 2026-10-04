@@ -46,6 +46,7 @@
 #include "music.h"
 #include "track1.h"
 #include "track2049.h"
+#include "car_engines.h"
 #include "wings.h"
 
 extern "C" void func_80061E10(uint8_t* rdram, recomp_context* ctx);   // Stops the song.
@@ -56,6 +57,10 @@ namespace {
     using namespace recompui;
 
     constexpr uint32_t track_id = 0x8010C3F0;
+    // The other cars' engine sounds (src/car_engines.cpp).
+    constexpr const char* other_engines_id = "other_engines";
+    constexpr const char* other_engines_description =
+        "Hear the computer cars' engines around you, as Rush 2049 does (Rush 2 plays only your own).";
     constexpr uint32_t track_songs = 0x800CC37C;    // s16[12]: index into the song table per track.
     constexpr uint32_t song_table = 0x800CC394;     // s16[8]: sequence per Rush 2 race song.
     constexpr uint32_t requested_song = 0x800F9550; // Sequence func_80061E68 last queued for the loader.
@@ -519,6 +524,25 @@ namespace {
                 recompui::config::get_sound_config().set_option_value(recompui::config::sound::options::main_volume, value);
             });
 
+            // Other cars' engines: a switch on the setting's row, lined up with the song switches.
+            Element* engines_row = context.create_element<PageRow>(list);
+            engines_row->set_display(Display::Flex);
+            engines_row->set_flex_direction(FlexDirection::Row);
+            engines_row->set_align_items(AlignItems::Center);
+            engines_row->set_padding(12.0f);
+            Element* engines_title = context.create_element<Element>(engines_row, 0, "div", false);
+            engines_title->set_display(Display::Flex);
+            engines_title->set_flex_direction(FlexDirection::Column);
+            engines_title->set_flex_grow(1.0f);
+            context.create_element<Label>(engines_title, "Other Cars' Engines", theme::Typography::LabelMD);
+            Label* engines_note = context.create_element<Label>(engines_title, other_engines_description, theme::Typography::Body);
+            engines_note->set_color(theme::color::TextDim);
+            Toggle* engines = context.create_element<Toggle>(engines_row, ToggleSize::Medium);
+            engines->set_checked(std::get<bool>(config.get_option_value(other_engines_id)));
+            engines->add_checked_callback([](bool checked) {
+                recompui::config::get_sound_config().set_option_value(other_engines_id, checked);
+            });
+
             for (int i = 0; i < song_count; i++) {
                 const Song& s = songs[i];
                 if (i == 0 || songs[i - 1].game != s.game) {
@@ -619,6 +643,11 @@ namespace {
 
 void rush2::music::create_sound_tab() {
     recomp::config::Config& config = recompui::config::create_sound_tab();
+    config.add_bool_option(other_engines_id, "Other Cars' Engines", other_engines_description, true, true);
+    config.add_option_change_callback(other_engines_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::car_engines::set_enabled(std::get<bool>(cur_value));
+        });
     for (Game g : games) {
         std::vector<recomp::config::ConfigOptionEnumOption> choices;
         for (Mode m : game_modes(g)) {
@@ -668,6 +697,7 @@ void rush2::music::create_sound_tab() {
 
 void rush2::music::load_config() {
     recomp::config::Config& config = recompui::config::get_sound_config();
+    rush2::car_engines::set_enabled(std::get<bool>(config.get_option_value(other_engines_id)));
     for (Game g : games) {
         modes[(int)g] = std::get<uint32_t>(config.get_option_value(mode_option_id(g)));
     }

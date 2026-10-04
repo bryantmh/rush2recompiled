@@ -7267,9 +7267,27 @@ func = "func_8009E6DC"
 before_vram = 0x8009E9C8
 text = "    rush2_car49_select_get(rdram, ctx);"
 
+# Rush 2049 engine sounds (src/engine2049.cpp): a local player slot driving a 2049 car skips Rush 2's engine start
+# (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame
+# (func_80064F70); func_8008C49C (pause, race end) stops it.
+[[patches.hook]]
+func = "func_8008C61C"
+before_vram = 0x8008C684
+text = "    if (rush2_engine49_start(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_8008C49C"
+before_vram = 0x8008C49C
+text = "    rush2_engine49_stop(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_80064F70"
+before_vram = 0x80064F70
+text = "    rush2_engine49_tick(rdram, ctx);"
+
 # Car options on the 2049 cars (src/car2049.cpp): a player's ENGINE and DURABILITY choices apply Rush 2049's ENGINE
-# and FRAME (car init, func_8008DBA0); the engine sound stays at the car's default; the car select's ENGINE row offers
-# ENGINE 1-6.
+# and FRAME (car init, func_8008DBA0) and pick its engine sound (src/engine2049.cpp); the car select's ENGINE row
+# offers ENGINE 1-6.
 [[patches.hook]]
 func = "func_8008DBA0"
 before_vram = 0x8008DC1C

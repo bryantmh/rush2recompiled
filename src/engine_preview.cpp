@@ -10,7 +10,8 @@
 //
 // Here a change on the ENGINE row (or its reset, like the horn) starts that engine on the player's slot and the main
 // loop (func_800AE670, once per frame) revs it up and back down for 1.6 s, then stops it. The rev also stops as soon
-// as the car select stops running, and before race setup starts the race's engines.
+// as the car select stops running, and before race setup starts the race's engines. A 2049 car revs Rush 2049's
+// engine for its ENGINE level instead (src/engine2049.cpp).
 
 #include <chrono>
 #include <cstring>
@@ -18,6 +19,7 @@
 #include "recomp.h"
 
 #include "car2049.h"
+#include "engine2049.h"
 #include "rush2_hooks.h"
 
 extern "C" void func_8008C61C(uint8_t* rdram, recomp_context* ctx); // Starts engine a0 on slot a1.
@@ -35,6 +37,7 @@ namespace {
 
     struct Rev {
         bool active = false;
+        bool rush2049 = false; // a 2049 car's engine (src/engine2049.cpp)
         Clock::time_point start;
     };
     Rev revs[2];
@@ -61,6 +64,10 @@ namespace {
     }
 
     void set_rev(uint8_t* rdram, int slot, float rpm, float load) {
+        if (revs[slot].rush2049) {
+            rush2::engine2049::preview_update(rdram, slot, rpm, (load - idle_load) / (peak_load - idle_load));
+            return;
+        }
         put_f32(rdram, engine_rpm + slot * 4, rpm);
         put_f32(rdram, engine_load + slot * 4, load);
     }
@@ -68,6 +75,10 @@ namespace {
     // Stops one slot's engine: func_8008C49C stops only the slots with an engine set, so the other is hidden from it.
     void stop(uint8_t* rdram, recomp_context* ctx, int slot) {
         revs[slot].active = false;
+        if (revs[slot].rush2049) {
+            rush2::engine2049::preview_stop(slot);
+            return;
+        }
         uint32_t other = engine_ids + (slot ^ 1) * 4;
         int32_t kept = MEM_W(0, (int32_t)other);
         MEM_W(0, (int32_t)other) = 0;
@@ -100,17 +111,29 @@ extern "C" void rush2_engine_preview_start(uint8_t* rdram, recomp_context* ctx) 
     if (slot < 0 || slot > 1) {
         return;
     }
-    int engine = rush2::car2049::engine_sound(rdram, (int)(int8_t)ctx->r7, (int)(int8_t)ctx->r2);
+    int type = (int)(int8_t)ctx->r7;
+    int engine = rush2::car2049::engine_sound(rdram, type, (int)(int8_t)ctx->r2);
     if (engine < 0 || engine >= engines) {
         return;
     }
     if (revs[slot].active) {
         stop(rdram, ctx, slot);
     }
+    if (type >= rush2::car2049::first_type && type < rush2::car2049::types) {
+        rush2::engine2049::preview_start(rdram, slot, (int)(int8_t)ctx->r2);
+        revs[slot].rush2049 = true;
+        set_rev(rdram, slot, idle_rpm, idle_load);
+        revs[slot].active = true;
+        revs[slot].start = Clock::now();
+        return;
+    }
+    revs[slot].rush2049 = false;
     set_rev(rdram, slot, idle_rpm, idle_load);
     put_f32(rdram, engine_boost + slot * 4, 0.0f);
     MEM_W(0, (int32_t)(engine_ramp + slot * 4)) = 0;
+    rush2::engine2049::set_preview_call(true);
     call(rdram, ctx, func_8008C61C, engine, slot);
+    rush2::engine2049::set_preview_call(false);
     revs[slot].active = true;
     revs[slot].start = Clock::now();
 }
