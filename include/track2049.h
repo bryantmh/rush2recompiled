@@ -20,11 +20,6 @@ namespace rush2::track2049 {
     void set_option(bool enabled);
     bool available();
 
-    // The Rush 2049 Music option (Rush 2049 tab, on by default): the 2049 tracks play their Rush 2049 songs, else
-    // Rush 2 songs.
-    void set_music_option(bool enabled);
-    bool music_option();
-
     // Menu art (src/track2049_art.cpp). Builds asset 3 (the track select's diorama container) with a diorama model
     // R49TRACKn and a name logo texture R49LOGOn for each 2049 track, appended to Rush 2's own asset 3.
     bool build_menu_container(const std::vector<uint8_t>& rush2_asset3, const std::vector<uint8_t>& rom2049,
@@ -68,6 +63,15 @@ namespace rush2::track2049 {
     void update_object_sounds(uint8_t* rdram, const std::vector<ObjectSound>& sounds);
     void stop_object_sounds();
     void mix_audio(float* samples, size_t sample_count, uint32_t sample_rate, float scale);
+    // Rush 2049 songs for src/music.cpp. music_ready starts loading the sound banks (once per ROM) and says whether
+    // they are loaded. queue_race_song makes the race's next "music off" stop command start the song instead.
+    // play_song_now / stop_song_now play or stop a song at once at the game's music volume; playing_song is the
+    // song playing, or -1.
+    bool music_ready();
+    void queue_race_song(int song);
+    void play_song_now(uint8_t* rdram, int song);
+    void stop_song_now();
+    int playing_song();
     // Clears the 2049 and SF Rush records of profile p (pak * 5 + record) and drops its saved block
     // (src/track2049_records.cpp).
     void clear_profile_records(uint8_t* rdram, int p);

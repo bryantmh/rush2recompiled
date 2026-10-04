@@ -204,18 +204,6 @@ void rush2::track2049::set_option(bool enabled) {
     option_enabled = enabled;
 }
 
-namespace {
-    std::atomic<bool> music_enabled = true;
-}
-
-void rush2::track2049::set_music_option(bool enabled) {
-    music_enabled = enabled;
-}
-
-bool rush2::track2049::music_option() {
-    return music_enabled.load(std::memory_order_relaxed);
-}
-
 bool rush2::track2049::available() {
     return option_enabled && rush2::wings::rom_available();
 }

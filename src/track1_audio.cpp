@@ -12,8 +12,8 @@
 //   decodes to noise). Before a song is attached to the sequence player (func_8007733C, the music loader thread),
 //   the player gets the bank of the song's game (alSeqpSetBank); the player is stopped there.
 // - Choice: SF Rush has no per-track songs; with its music on "random" it picks one of 9 race songs (func_80099E44,
-//   table 0x800D2910). With Rush 2's music setting on "per track", an SF Rush track does the same. The fixed-song
-//   settings keep Rush 2's songs.
+//   table 0x800D2910). src/music.cpp picks each race's song (by default an SF Rush track does the same) and asks
+//   here for an SF Rush song's sequence number.
 // - Sound effects: SF Rush's track emitters play samples Rush 2 has too, except FIRECRK's fireworks. Rush 2's sound
 //   effect instrument gets a copy with SF Rush's fireworks as sound 116 (func_80062264's bound is raised in us.toml),
 //   and on an SF Rush track the FIRECRCK emitter plays it as SF Rush does.
@@ -21,7 +21,6 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
-#include <random>
 #include <span>
 #include <vector>
 
@@ -29,6 +28,7 @@
 #include "librecomp/game.hpp"
 #include "librecomp/addresses.hpp"
 #include "rush2_hooks.h"
+#include "music.h"
 #include "track1.h"
 #include "track2049.h"
 
@@ -52,7 +52,6 @@ namespace {
     constexpr uint32_t r1_ctl_size = 0x5DF380 - r1_block;
     constexpr uint32_t r1_songs = 0x6F80A0;
     constexpr int r1_song_count = 16;
-    constexpr int r1_race_songs[9] = { 0, 1, 2, 7, 3, 10, 6, 12, 15 };
 
     std::mutex mutex;
     uint32_t block_rom = 0;          // Where the block is in the ROM image, or 0.
@@ -75,7 +74,6 @@ namespace {
     constexpr int rush2_sfx_count = 0x74;               // func_80062264 accepts sound ids below this (us.toml: 0x75).
     constexpr int fireworks_sound = rush2_sfx_count;    // SF Rush's fireworks as sound 116.
     bool sfx_installed = false;
-    std::mt19937 rng{ std::random_device{}() };
 
     uint32_t alloc(uint8_t* rdram, size_t size) {
         return (uint32_t)((uint8_t*)recomp::alloc(rdram, (size + 15) & ~size_t(15)) - rdram) + 0x80000000;
@@ -216,20 +214,15 @@ extern "C" void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx) {
     fill_block();
 }
 
-// func_8008C370 at 0x8008C46C: $v0 = the race song Rush 2 chose (a song number); the setting is at 0x1C($sp).
-extern "C" void rush2_track1_music(uint8_t* rdram, recomp_context* ctx) {
-    uint8_t setting = (uint8_t)MEM_W(0, (int32_t)(ctx->r29 + 0x1C));
-    if (setting != 1 || rush2::track1::race_track() == 0 ||
-        MEM_B(0, (int32_t)track_id) != rush2::track2049::host_slot) {
-        return;
+int rush2::track1::song_sequence(uint8_t* rdram, recomp_context* ctx, int song) {
+    if (song < 0 || song >= r1_song_count) {
+        return -1;
     }
     std::lock_guard lock{ mutex };
     if (!install(rdram, ctx)) {
-        return;
+        return -1;
     }
-    int song = r1_race_songs[std::uniform_int_distribution<int>(0, 8)(rng)];
-    ctx->r2 = rush2_song_count + song;
-    fprintf(stderr, "[Rush1] Playing SF Rush song %d\n", song);
+    return rush2_song_count + song;
 }
 
 // func_8007733C at 0x80077424, before alSeqpSetSeq: gives the player the bank of the song being attached.
