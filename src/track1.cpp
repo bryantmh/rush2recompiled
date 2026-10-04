@@ -429,3 +429,30 @@ extern "C" void rush2_track1_breakable_model(uint8_t* rdram, recomp_context* ctx
         ctx->r4 = it->second.model;
     }
 }
+
+// Start of func_8008B0CC, the car hit test for a breakable ($a0 = the car, $a1 = the breakable): on a Rush 1 track,
+// Rush 1's rule (func_8008602C): the breakable's point in the car's frame within the car's footprint, |z| < 7 and
+// |x| < 3.5 (Rush 1 3), at any height. Rush 2 also wants it within about 2 units of the car's height, which on Rush
+// 1's hills misses traffic lights and trees the car drives straight through. Windows (0x722) keep Rush 2's test.
+extern "C" int rush2_track1_breakable_hit(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ track_mutex };
+    uint32_t breakable = (uint32_t)ctx->r5;
+    if (record_redirects.empty() || MEM_H(0, (int32_t)(breakable + 0x52)) == 0x722) {
+        return 0;
+    }
+    auto f = [&](uint32_t addr) {
+        uint32_t w = (uint32_t)MEM_W(0, (int32_t)addr);
+        float v;
+        memcpy(&v, &w, 4);
+        return v;
+    };
+    constexpr uint32_t cars = 0x801124A0;   // Car state, 0x354 each: position, then the rotation rows at +0x24.
+    uint32_t car = cars + (int16_t)ctx->r4 * 0x354;
+    float d[3];
+    for (int i = 0; i < 3; i++) {
+        d[i] = f(breakable + 0x2C + i * 4) - f(car + i * 4);
+    }
+    auto row = [&](int r) { return f(car + 0x24 + r * 12) * d[0] + f(car + 0x28 + r * 12) * d[1] + f(car + 0x2C + r * 12) * d[2]; };
+    ctx->r2 = std::fabs(row(2)) < 7.0f && std::fabs(row(0)) < 3.5f;
+    return 1;
+}
