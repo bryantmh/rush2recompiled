@@ -295,7 +295,6 @@ void rush2::wings::create_tab() {
 // Runs after recompui::config::finalize() has registered the config path.
 void rush2::wings::load_config() {
     wings_config.load_config();
-    load_controls();
 
     std::vector<uint8_t> data;
     std::filesystem::path path = stored_rom_path();

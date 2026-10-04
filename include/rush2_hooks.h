@@ -57,15 +57,13 @@ void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_font_load_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_font_load_end(uint8_t* rdram, recomp_context* ctx);
 
-// WINGS row in the Controller Setup screen (src/wings_menu.cpp).
-void rush2_wings_menu_widgets(uint8_t* rdram, recomp_context* ctx);
-void rush2_wings_menu_defaults(uint8_t* rdram, recomp_context* ctx);
-int rush2_wings_menu_edit(uint8_t* rdram, recomp_context* ctx);
-void rush2_wings_menu_conflicts(uint8_t* rdram, recomp_context* ctx);
-void rush2_wings_menu_icon_conflict(uint8_t* rdram, recomp_context* ctx);
-void rush2_wings_menu_icon_binding(uint8_t* rdram, recomp_context* ctx);
+// Bindings and the Controller Setup screen (src/controls_menu.cpp).
+void rush2_controls_frame(uint8_t* rdram, recomp_context* ctx);
+void rush2_controls_menu_widgets(uint8_t* rdram, recomp_context* ctx);
+int rush2_controls_menu_update(uint8_t* rdram, recomp_context* ctx);
+int rush2_controls_menu_pause_exit(uint8_t* rdram, recomp_context* ctx);
+void rush2_controls_menu_draw(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_labels(uint8_t* rdram, recomp_context* ctx);
-void rush2_wings_menu_cursor(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx);
 
 // Rush 2049 wings physics and drawing (src/wings_state.cpp, src/wings_render.cpp).

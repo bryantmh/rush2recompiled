@@ -170,12 +170,15 @@ void rush2::init_config() {
     add_lod_option(graphics_config);
     add_font_option(graphics_config);
 
-    recompui::config::create_controls_tab();
+    // The frontend's Controls tab is replaced by the Players tab and the game's own Controller Setup screen.
+    rush2::players::create_tab();
     recompui::config::create_sound_tab();
     rush2::cheats::create_tab();
     rush2::wings::create_tab();
     recompui::config::create_mods_tab();
 
     recompui::config::finalize();
+    rush2::input::load_players();
+    rush2::controls::load();
     rush2::wings::load_config();
 }
