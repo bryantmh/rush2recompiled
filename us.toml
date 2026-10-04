@@ -66,7 +66,7 @@ text = "    rush2_analog_pedals(rdram, ctx);"
 [[patches.hook]]
 func = "func_800A62C0"
 before_vram = 0x800A6314
-text = "    load_overlays(0x01080000, (int32_t)0x803AA800, 0x1C190); rush2_track49_overlay_loaded(rdram, ctx);"
+text = "    load_overlays(0x01080000, (int32_t)0x803AA800, 0x1C190); rush2_track49_overlay_loaded(rdram, ctx); rush2_pak_menu_overlay_loaded(rdram, ctx);"
 
 # Boot main reads 16 words from cart address 0xFFB000 (past the end of the 12MB ROM) into a
 # stack buffer that is never used. Skip the read so the runtime doesn't read out of bounds.
@@ -694,7 +694,7 @@ text = "    rush2_track49_records_clear(rdram, ctx);"
 [[patches.hook]]
 func = "func_800B306C"
 before_vram = 0x800B306C
-text = "    rush2_track49_records_clear(rdram, ctx);"
+text = "    rush2_player_deleted(rdram, ctx);"
 
 # Rush 2049 moving track objects (src/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's
 # subway trains move), func_800706D0 runs a car's physics (here after its wheel probes).
@@ -7558,3 +7558,18 @@ value = 0x26B54100 # addiu -> 80224100 (physics descriptor pointers)
 func = "func_803B7F7C"
 vram = 0x803B806C
 value = 0x3C158022 # lui -> 8022
+
+# Save menu without Controller Paks (src/pak.cpp): the select player screen's state setter ($s0 = player,
+# $a0 = state) skips the controller list. Its stack frame isn't set up yet at the hook.
+[[patches.hook]]
+func = "func_803B2BB4"
+before_vram = 0x803B2BB4
+text = "    if (rush2_pak_menu_state(rdram, ctx)) return;"
+
+# Deleting a player from the select player screen's delete list (hold L+R, func_803B3CAC) clears the record's in-use
+# bit right here, $s2 = the record. Like func_800B306C (Records > DELETE PLAYER), it also forgets the player's 2049
+# records and car options (src/pak.cpp).
+[[patches.hook]]
+func = "func_803B3CAC"
+before_vram = 0x803B3F74
+text = "    rush2_player_deleted_from_list(rdram, ctx);"

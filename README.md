@@ -23,13 +23,14 @@ If you also own **San Francisco Rush 2049** for the N64 (US version), you can po
 - **Wings.** Hold the Wings button when you're airborne to pop out wings and glide. They handle just like they did in 2049.
 - **The 2049 tracks.** All six race tracks from Rush 2049 show up in the track select
 - **The 2049 cars.** All thirteen Rush 2049 cars join the car select after Rush 2's own.
+- **The 2049 music.** Each of the six 2049 tracks plays its own Rush 2049 song.
 
 ### San Francisco Rush extras
 
 If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version), you can point the game at that ROM on the SF Rush tab and unlock:
 
 - **The Rush 1 tracks.** All seven race tracks from the original San Francisco Rush
-- **The Rush 1 music.** 
+- **The Rush 1 music.** The nine Rush 1 race songs play on its tracks, picked at random.
 
 
 ## What you need

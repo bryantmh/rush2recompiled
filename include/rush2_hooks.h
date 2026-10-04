@@ -19,6 +19,12 @@ void yield_self_1ms(uint8_t* rdram);
 // Called by the game's pak thread when a Controller Pak initializes, so the port also rumbles (src/pak.cpp).
 void rush2_enable_pak_rumble(uint8_t* rdram, recomp_context* ctx);
 
+// Save menu without Controller Paks (src/pak.cpp).
+int rush2_pak_menu_state(uint8_t* rdram, recomp_context* ctx);
+void rush2_player_deleted(uint8_t* rdram, recomp_context* ctx);
+void rush2_player_deleted_from_list(uint8_t* rdram, recomp_context* ctx);
+void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
+
 // Scales the car's throttle and brake by trigger pressure (src/input.cpp).
 void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx);
 

@@ -9,12 +9,9 @@ rsp/*.cpp
 analysis/out_*/
 __pycache__/
 build.log
-run.log
 run.err
 .tools/
-configure.log
-cmake.log
-regen.log
+*.log
 build-n64recomp/
 .release/
 tools/rush2049/m2c/

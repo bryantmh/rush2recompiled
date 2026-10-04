@@ -29,6 +29,9 @@ namespace rush2::car2049 {
     // The engine sound (0-9) a car of this type plays for ENGINE row value `value`: the value itself for a Rush 2
     // car, the type's default sound for a 2049 car (whose ENGINE row is its power level).
     int engine_sound(uint8_t* rdram, int type, int value);
+    // Forgets the 2049 car options and selected car kept for the player record at `record` (a deleted player), so a
+    // player created in its place starts fresh.
+    void forget_record(uint8_t* rdram, uint32_t record);
     // Animates the loaded 2049 cars' effects (the Rocket ZX's exhaust flames). Called while models are drawn; it
     // runs at most once per 1/60 s.
     void animate(uint8_t* rdram);
