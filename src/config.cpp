@@ -177,6 +177,36 @@ static void add_steering_option(recomp::config::Config& config) {
         });
 }
 
+namespace reverse_option {
+    const std::string id = "reverse_control";
+    enum class ReverseControl : uint32_t { Gear, Hold };
+}
+
+// Reverse control: the game's REVERSE button only selects the reverse gear while it's held, so the car needs gas
+// too (src/input.cpp).
+static void add_reverse_option(recomp::config::Config& config) {
+    using reverse_option::ReverseControl;
+
+    config.add_enum_option(
+        reverse_option::id,
+        "Reverse Control",
+        "Sets how the Reverse button works. "
+        "<recomp-color primary>Gear</recomp-color> matches the original game: Reverse selects the reverse gear while "
+        "it's held, and the car backs up when the gas is pressed too. "
+        "<recomp-color primary>Hold</recomp-color> drives the car backward whenever Reverse is held, without needing the gas.",
+        {
+            { ReverseControl::Gear, "Gear", "Gear" },
+            { ReverseControl::Hold, "Hold", "Hold" },
+        },
+        ReverseControl::Gear
+    );
+
+    config.add_option_change_callback(reverse_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::input::set_reverse_holds_gas(static_cast<ReverseControl>(std::get<uint32_t>(cur_value)) == ReverseControl::Hold);
+        });
+}
+
 namespace data_location_option {
     const std::string id = "data_location";
     enum class DataLocation : uint32_t { AppData, Portable };
@@ -232,6 +262,7 @@ void rush2::init_config() {
     auto& general_config = recompui::config::create_general_tab(general_options);
     customize_general_options(general_config);
     add_steering_option(general_config);
+    add_reverse_option(general_config);
     add_data_location_option(general_config);
 
     auto& graphics_config = recompui::config::create_graphics_tab();

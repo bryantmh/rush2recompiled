@@ -68,6 +68,9 @@ namespace {
     // which was tuned for the stiff N64 stick; |x|^p with p < 1 cancels part (p = 1/3: all) of that curve.
     std::atomic<float> steering_exponent = 1.0f;
 
+    // Holding REVERSE (C-down in the race layout) presses GAS too, instead of only selecting the reverse gear.
+    std::atomic_bool reverse_holds_gas = false;
+
     std::atomic_bool rumble_active[num_ports] = {};
     std::array<float, num_ports> cur_rumble{}; // VI thread only.
     std::array<bool, num_ports> rumble_failed{}; // VI thread only.
@@ -88,6 +91,7 @@ namespace {
     // The game's pedal function (func_80076854) and its player and car structs.
     constexpr uint16_t n64_a = 0x8000;
     constexpr uint16_t n64_b = 0x4000;
+    constexpr uint16_t n64_c_down = 0x0004;
     constexpr int player_gas_mask = 0xC;
     constexpr int player_brake_mask = 0xE;
     constexpr int car_throttle = 0x734;
@@ -452,6 +456,11 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     state.held_over &= buttons;
     buttons &= ~state.held_over;
 
+    if (race && reverse_holds_gas.load() && (buttons & n64_c_down) && !(buttons & n64_a)) {
+        buttons |= n64_a;
+        gas = 1.0f;
+    }
+
     pedal_gas[port] = (buttons & n64_a) ? gas : 0.0f;
     pedal_brake[port] = (buttons & n64_b) ? brake : 0.0f;
 
@@ -463,6 +472,10 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
 
 void rush2::input::set_steering_exponent(float exponent) {
     steering_exponent = exponent;
+}
+
+void rush2::input::set_reverse_holds_gas(bool enabled) {
+    reverse_holds_gas = enabled;
 }
 
 void rush2::input::set_rumble(int port, bool on) {
@@ -521,20 +534,6 @@ extern "C" void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx) {
     int port = MEM_BU(1, player);
     if (port >= num_ports) {
         return;
-    }
-    { // TEMP-DEBUG
-        static int dbg_n = 0;
-        if (port == 0 && (dbg_n++ % 20) == 0) {
-            FILE* f = fopen("reverse_debug.log", "a");
-            if (f) {
-                fprintf(f, "held=%04X pressed=%04X masks:", MEM_HU(4, player), MEM_HU(6, player));
-                for (int o = 0xC; o <= 0x1C; o += 2) fprintf(f, " %04X", MEM_HU(o, player));
-                fprintf(f, " tbl:");
-                for (int i = 0; i < 9; i++) fprintf(f, " %d", (int)MEM_B(0, (int32_t)(0x80125A70 + i)));
-                fprintf(f, "\n");
-                fclose(f);
-            }
-        }
     }
     auto scale = [&](int offset, float pressure) {
         uint32_t bits = MEM_W(offset, car);

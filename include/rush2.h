@@ -51,6 +51,8 @@ namespace rush2 {
         void press_pedals(int port, uint16_t buttons);
         // Response curve for controller stick X: x is replaced by sign(x) * |x|^exponent.
         void set_steering_exponent(float exponent);
+        // With this on, holding REVERSE also presses the gas, so the car backs up without it.
+        void set_reverse_holds_gas(bool enabled);
         void set_rumble(int port, bool on);
         void update_rumble();
 
