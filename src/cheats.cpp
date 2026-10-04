@@ -14,7 +14,15 @@
 // - Changes made in the in-game cheat menu are copied back into this tab and saved. The config isn't thread safe, so
 //   that only happens while no menu is open; the UI only uses the config while a menu is open, and game input (and
 //   so the in-game cheat menu) is disabled then anyway.
+//
+// The tab also has two unlocks, which change nothing that is saved:
+// - Unlock All Tracks forces the PIPE (0x800E7D50) and MIDWAY (0x800E7D19) availability bytes on every frame. The
+//   game recomputes both from the save data in func_80094F1C, which is called again when the option is turned off.
+// - Unlock All Cars replaces each player's car list once car select (func_803B81F0) has built it. The game lists
+//   cars 0-15, cars 16-19 for every 3 keys found on the current track, car 20 once 0x800C20D8 (or the profile's
+//   +0x4B4) is set, and car 21 once all 4 cans on the current track are found.
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <string>
@@ -29,11 +37,22 @@
 #include "rush2_hooks.h"
 #include "rush2.h"
 
+extern "C" void func_80094F1C(uint8_t* rdram, recomp_context* ctx);
+
 namespace {
     constexpr uint32_t cheat_menu_flag = 0x800C213C;
     constexpr uint32_t cheat_unlocked = 0x800C20E8;
     constexpr uint32_t cheat_display = 0x800C2104;
     constexpr int num_menu_items = 27;
+
+    constexpr uint32_t pipe_unlocked = 0x800E7D50;
+    constexpr uint32_t midway_unlocked = 0x800E7D19;
+
+    constexpr uint32_t num_players = 0x8010C3E2;  // s16
+    constexpr uint32_t car_list = 0x803CB368;     // u8 [22][2]: car i of player p at + 2 * i + p.
+    constexpr uint32_t car_list_size = 0x803CB398; // s16 [2]
+    constexpr int num_cars = 22;
+    constexpr int max_car_players = 2;
 
     struct Choice {
         const char* label;
@@ -182,6 +201,13 @@ namespace {
     std::atomic<bool> cheat_menu_enabled = false;
     std::atomic<bool> cheat_menu_restore_pending = false;
 
+    const std::string unlock_tracks_id = "unlock_all_tracks";
+    std::atomic<bool> unlock_tracks_enabled = false;
+    std::atomic<bool> unlock_tracks_restore_pending = false;
+
+    const std::string unlock_cars_id = "unlock_all_cars";
+    std::atomic<bool> unlock_cars_enabled = false;
+
     void write_choice(uint8_t* rdram, const Cheat& cheat, const Choice& choice) {
         MEM_B(0, (int32_t)cheat.address) = choice.value;
         if (cheat.address2 != 0) {
@@ -249,6 +275,33 @@ void rush2::cheats::create_tab() {
             }
         });
 
+    config.add_bool_option(
+        unlock_tracks_id,
+        "Unlock All Tracks",
+        "Makes the <recomp-color primary>Pipe</recomp-color> and <recomp-color primary>Midway</recomp-color> tracks "
+        "available without earning them. Nothing is saved, so turning this off locks them again.",
+        false
+    );
+    config.add_option_change_callback(unlock_tracks_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            bool enabled = std::get<bool>(cur_value);
+            if (unlock_tracks_enabled.exchange(enabled) && !enabled) {
+                unlock_tracks_restore_pending = true;
+            }
+        });
+
+    config.add_bool_option(
+        unlock_cars_id,
+        "Unlock All Cars",
+        "Lists every car in car select, including the ones unlocked by finding keys and cans on each track. Nothing is "
+        "saved, so turning this off hides them again.",
+        false
+    );
+    config.add_option_change_callback(unlock_cars_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            unlock_cars_enabled = std::get<bool>(cur_value);
+        });
+
     for (size_t i = 0; i < cheat_list.size(); i++) {
         const Cheat& cheat = cheat_list[i];
 
@@ -288,6 +341,16 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
+    if (unlock_tracks_enabled.load(std::memory_order_relaxed)) {
+        MEM_B(0, (int32_t)pipe_unlocked) = 1;
+        MEM_B(0, (int32_t)midway_unlocked) = 1;
+    }
+    else if (unlock_tracks_restore_pending.exchange(false)) {
+        // Recompute them from the save data. Called on a copy of the context, from the top of the main loop.
+        recomp_context unlock_ctx = *ctx;
+        func_80094F1C(rdram, &unlock_ctx);
+    }
+
     for (size_t i = 0; i < cheat_list.size(); i++) {
         const Cheat& cheat = cheat_list[i];
         int choice = pending_choice[i].exchange(no_write);
@@ -312,5 +375,19 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
 
     if (has_unsynced && !recompui::is_any_context_shown()) {
         sync_config();
+    }
+}
+
+// func_803B81F0 (car select setup) after each player's car list is built.
+extern "C" void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx) {
+    if (!unlock_cars_enabled.load(std::memory_order_relaxed)) {
+        return;
+    }
+    int players = std::min<int>(MEM_H(0, (int32_t)num_players), max_car_players);
+    for (int p = 0; p < players; p++) {
+        for (int car = 0; car < num_cars; car++) {
+            MEM_B(2 * car + p, (int32_t)car_list) = car;
+        }
+        MEM_H(2 * p, (int32_t)car_list_size) = num_cars;
     }
 }

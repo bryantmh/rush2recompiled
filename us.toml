@@ -283,6 +283,12 @@ func = "func_800B0228"
 before_vram = 0x800B02A4
 text = "    rush2_cheats_frame(rdram, ctx);"
 
+# Unlock All Cars (src/cheats.cpp). Car select setup, after every player's car list is built.
+[[patches.hook]]
+func = "func_803B81F0"
+before_vram = 0x803B8760
+text = "    rush2_cheats_car_list(rdram, ctx);"
+
 # Bindings (src/controls.cpp, src/controls_menu.cpp). Every frame the game's binding table is locked to its default
 # layout and input learns whether a race is running.
 [[patches.hook]]
