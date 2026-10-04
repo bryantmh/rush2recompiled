@@ -15,6 +15,7 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -33,6 +34,7 @@
 #include "recompui/config.h"
 
 #include "rush2.h"
+#include "rush2_hooks.h"
 
 using rush2::input::num_ports;
 using rush2::input::PortChoice;
@@ -41,11 +43,15 @@ namespace {
     constexpr SDL_JoystickID no_controller = -1;
 
     // Game addresses.
-    // Game state: 0 = front menus, 1 = track select, 2 = car select, 7/10/9 = loading a race, 3 = racing. The game's
-    // pause menu (func_800AFD44) only runs in states 3 and 10, so those are the ones that use the race layout.
+    // Game state: 0 = front menus, 1 = track select, 2 = car select, 7 = loading a race, 10 = race intro, 9 = countdown
+    // (set when the intro timer runs out, func_800AE7xx), 3 = racing. 10, 9 and 3 use the race layout, so gas held
+    // through the countdown keeps working when the race starts. The pause menu (func_800AFD44) only runs in 3 and 10.
     constexpr uint32_t game_mode = 0x8010C0D0;
     constexpr int32_t mode_racing = 3;
     constexpr int32_t mode_race_start = 10;
+    constexpr int32_t mode_countdown = 9;
+    // GAS (A) and BRAKE (B) in the race layout. They're held, not pressed, so holding them into a race is fine.
+    constexpr uint16_t race_held_buttons = 0x8000 | 0x4000;
     constexpr uint32_t pause_state = 0x8002305C; // Nonzero while the pause menu (or one of its screens) is open.
 
     std::atomic<uint8_t*> game_rdram = nullptr;
@@ -73,6 +79,20 @@ namespace {
     };
     std::array<PortState, num_ports> port_states{};
     std::array<std::atomic_bool, num_ports> blocked_until_release{};
+
+    // How far GAS and BRAKE were pressed in the input last given to the game (0 when their buttons weren't sent).
+    // Written by get_n64_input, read by the pedal hook; both run on the game thread.
+    std::array<float, num_ports> pedal_gas{};
+    std::array<float, num_ports> pedal_brake{};
+
+    // The game's pedal function (func_80076854) and its player and car structs.
+    constexpr uint16_t n64_a = 0x8000;
+    constexpr uint16_t n64_b = 0x4000;
+    constexpr int player_gas_mask = 0xC;
+    constexpr int player_brake_mask = 0xE;
+    constexpr int car_throttle = 0x734;
+    constexpr int car_brake = 0x730;
+    constexpr uint32_t brake_disabled = 0x80125C64; // Nonzero: the game holds the brake at 0.
 
     // Returns the controller for a joystick ID if it's still connected. The frontend never closes controllers, so the
     // pointer stays valid after a disconnect; it's just no longer returned here.
@@ -233,7 +253,7 @@ namespace {
             return false;
         }
         int32_t mode = MEM_W(0, (int32_t)game_mode);
-        return (mode == mode_racing || mode == mode_race_start) && MEM_B(0, (int32_t)pause_state) == 0;
+        return (mode == mode_racing || mode == mode_race_start || mode == mode_countdown) && MEM_B(0, (int32_t)pause_state) == 0;
     }
 
     std::filesystem::path save_path() {
@@ -384,6 +404,10 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     *buttons_out = 0;
     *x_out = 0.0f;
     *y_out = 0.0f;
+    if (port >= 0 && port < num_ports) {
+        pedal_gas[port] = 0.0f;
+        pedal_brake[port] = 0.0f;
+    }
 
     if (!is_port_connected(port)) {
         return false;
@@ -407,23 +431,29 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
 
     uint16_t buttons;
     float x, y;
+    float gas = 0.0f;
+    float brake = 0.0f;
     bool race = in_race();
     if (race) {
-        rush2::controls::get_race_input(port, &buttons, &x, &y, steering_exponent.load());
+        rush2::controls::get_race_input(port, &buttons, &x, &y, steering_exponent.load(), &gas, &brake);
     }
     else {
         rush2::controls::get_menu_input(port, &buttons, &x, &y);
     }
 
     // A button held while switching between the menu and race layouts (Start to pause, A to resume) stays released
-    // until it's let go, so it doesn't press whatever it's bound to in the other layout.
+    // until it's let go, so it doesn't press whatever it's bound to in the other layout. Gas and brake are exempt when
+    // entering a race: holding gas while the race loads should drive the car as soon as it can move.
     PortState& state = port_states[port];
     if (race != state.last_race) {
-        state.held_over = buttons;
+        state.held_over = race ? (buttons & ~race_held_buttons) : buttons;
         state.last_race = race;
     }
     state.held_over &= buttons;
     buttons &= ~state.held_over;
+
+    pedal_gas[port] = (buttons & n64_a) ? gas : 0.0f;
+    pedal_brake[port] = (buttons & n64_b) ? brake : 0.0f;
 
     *buttons_out = buttons;
     *x_out = x;
@@ -472,5 +502,32 @@ void rush2::input::update_rumble() {
         if (SDL_GameControllerRumble(controller, 0, strength, duration_ms) != 0) {
             rumble_failed[port] = true;
         }
+    }
+}
+
+// End of func_80076854, after it set the car's pedals from the player's held buttons: $s0 = car, $s1 = player.
+// A pressed GAS or BRAKE button sets its pedal to 1.0; this scales it by how far the bound trigger is pressed. Pedals
+// bound to the game's own stick modes (masks other than A and B) are left alone.
+extern "C" void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx) {
+    gpr player = ctx->r17;
+    gpr car = ctx->r16;
+    int port = MEM_BU(1, player);
+    if (port >= num_ports) {
+        return;
+    }
+    auto scale = [&](int offset, float pressure) {
+        uint32_t bits = MEM_W(offset, car);
+        float value;
+        memcpy(&value, &bits, sizeof(value));
+        if (value == 1.0f) {
+            memcpy(&bits, &pressure, sizeof(bits));
+            MEM_W(offset, car) = bits;
+        }
+    };
+    if (MEM_HU(player_gas_mask, player) == n64_a) {
+        scale(car_throttle, pedal_gas[port]);
+    }
+    if (MEM_HU(player_brake_mask, player) == n64_b && MEM_B(0, (int32_t)brake_disabled) == 0) {
+        scale(car_brake, pedal_brake[port]);
     }
 }

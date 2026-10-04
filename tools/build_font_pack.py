@@ -1115,6 +1115,9 @@ def pack():
         }
         for name, data in (('rt64.json', database), ('mod.json', MANIFEST)):
             rtz.writestr(zipfile.ZipInfo(name, stamp), json.dumps(data, indent=4), zipfile.ZIP_DEFLATED)
+        # Mod menu thumbnail, drawn by tools/build_icons.py.
+        with open(os.path.join(PACK_DIR, 'thumb.png'), 'rb') as thumb:
+            rtz.writestr(zipfile.ZipInfo('thumb.png', stamp), thumb.read(), zipfile.ZIP_STORED)
     with open(OUTPUT, 'wb') as f:
         f.write(buffer.getvalue())
     print(f'Wrote {len(textures)} sheets to {OUTPUT} ({len(buffer.getvalue()) // 1024} KiB)')

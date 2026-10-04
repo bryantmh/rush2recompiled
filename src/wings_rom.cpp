@@ -14,7 +14,7 @@
 #include "wings_internal.h"
 
 namespace {
-    // ROM offsets of the Rush 2049 files used here (from the file table at 0x8010B5BC + 4 * index), with the offset of
+    // ROM offsets of the Rush 2049 files used here (from the file table at 0x8011B5BC + 4 * index), with the offset of
     // the following file to give the compressed size.
     struct RomFile {
         uint32_t start;

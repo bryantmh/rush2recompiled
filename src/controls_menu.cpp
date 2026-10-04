@@ -133,7 +133,7 @@ namespace {
     constexpr int footer_gap = 5;
 
     // Glyph images and the display lists that draw them, in spare RDRAM below 16MB (display list addresses are 24
-    // bits). src/interpolation.cpp uses 0x80900000-0x80A00000, src/wings_render.cpp 0x80A00000-0x80B10000.
+    // bits). src/interpolation.cpp uses 0x80B00000-0x80C00000, src/wings_render.cpp 0x80D00000-0x80E10000.
     constexpr uint32_t glyph_images = 0x80C00000;
     constexpr uint32_t glyph_size = rush2::controls::glyph_width * rush2::controls::glyph_height;
     constexpr uint32_t glyph_dl_start = 0x80C80000;

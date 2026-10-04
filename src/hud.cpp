@@ -8,7 +8,7 @@
 // the edges are (Original = 4:3, Clamp16x9 = 16:9, Full = the window's edges).
 //
 // Only widgets created by the race HUD setup (func_800A06F8) are anchored, so menus keep their layout. Widgets
-// that touch or overlap are grouped and anchored together by their combined bounds, so multi-part elements
+// that make up one element are grouped and anchored together by their combined bounds, so multi-part elements
 // (a panel and its digits, a box and its borders) never split apart. Callback widgets have no bounds and print
 // their own text (lap times), so each string they print is anchored by its x position instead. The laps-left
 // number is printed earlier in the frame by a sprite callback (func_800B9D48) and takes the anchor of the HUD
@@ -68,6 +68,7 @@ namespace {
 
     struct Rect {
         int32_t x0, y0, x1, y1;
+        bool fill;
     };
 
     // Bounds of the anchored HUD widgets as of the last widget loop.
@@ -173,6 +174,28 @@ namespace {
     bool touching(const Rect& a, const Rect& b) {
         return a.x0 <= b.x1 + 1 && b.x0 <= a.x1 + 1 && a.y0 <= b.y1 + 1 && b.y0 <= a.y1 + 1;
     }
+
+    // Whether two widgets are parts of one element. Fills are linked when they touch (a box is built from fills
+    // that share edges). Images are linked when the smaller one's center lies on the larger (digits on a panel,
+    // dots and the flag on the track map), so an element that only overlaps another's corner stays separate: the
+    // blinking bonus time banner overlaps the track map's corner, and grouping them pulled the map to the center
+    // whenever the banner was visible. Fills and images are never linked.
+    bool same_element(const Rect& a, const Rect& b) {
+        if (a.fill != b.fill || !touching(a, b)) {
+            return false;
+        }
+        if (a.fill) {
+            return true;
+        }
+
+        int64_t area_a = (int64_t)(a.x1 - a.x0 + 1) * (a.y1 - a.y0 + 1);
+        int64_t area_b = (int64_t)(b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1);
+        const Rect& small = area_a <= area_b ? a : b;
+        const Rect& large = area_a <= area_b ? b : a;
+        int32_t cx = (small.x0 + small.x1) / 2;
+        int32_t cy = (small.y0 + small.y1) / 2;
+        return cx >= large.x0 && cx <= large.x1 && cy >= large.y0 && cy <= large.y1;
+    }
 }
 
 extern "C" {
@@ -220,7 +243,8 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         Rect& r = rects[i];
         r.x0 = MEM_H(widget_x, widget);
         r.y0 = MEM_H(widget_y, widget);
-        if (image == 0) {
+        r.fill = image == 0;
+        if (r.fill) {
             r.x1 = r.x0 + w - 1;
             r.y1 = r.y0 + h - 1;
         }
@@ -230,7 +254,7 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         }
 
         for (uint32_t j = 0; j < i; j++) {
-            if (anchored[j] && touching(rects[i], rects[j])) {
+            if (anchored[j] && same_element(rects[i], rects[j])) {
                 parent[find_group(parent, (int)i)] = find_group(parent, (int)j);
             }
         }

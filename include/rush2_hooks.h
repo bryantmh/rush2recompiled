@@ -19,6 +19,9 @@ void yield_self_1ms(uint8_t* rdram);
 // Called by the game's pak thread when a Controller Pak initializes, so the port also rumbles (src/pak.cpp).
 void rush2_enable_pak_rumble(uint8_t* rdram, recomp_context* ctx);
 
+// Scales the car's throttle and brake by trigger pressure (src/input.cpp).
+void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx);
+
 // HUD edge anchoring (src/hud.cpp).
 void rush2_hud_build_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_build_end(uint8_t* rdram, recomp_context* ctx);
@@ -42,7 +45,9 @@ void rush2_interp_node_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx);
 
-// Full-screen frame clear and menu background for widescreen (src/widescreen.cpp).
+// Player view scissors, full-screen frame clear and menu background for widescreen (src/widescreen.cpp).
+void rush2_view_scissor(uint8_t* rdram, recomp_context* ctx);
+void rush2_view_scissor_written(uint8_t* rdram, recomp_context* ctx);
 void rush2_frame_clear_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_frame_clear_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_model_draw(uint8_t* rdram, recomp_context* ctx);
@@ -56,6 +61,43 @@ void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx);
 // High-resolution font tile clamping around the 2D image loader (src/fonts.cpp).
 void rush2_font_load_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_font_load_end(uint8_t* rdram, recomp_context* ctx);
+
+// Replacement asset files and the relocated game heap (src/assets.cpp).
+int rush2_asset_decompress(uint8_t* rdram, recomp_context* ctx);
+void rush2_heap_init(uint8_t* rdram, recomp_context* ctx);
+
+// Rush 2049 tracks raced in a borrowed track slot (src/track2049.cpp).
+void rush2_track49_load(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx);
+int rush2_track49_select_available(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_select_wrap(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_select_save_p1(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_select_save_p2(uint8_t* rdram, recomp_context* ctx);
+int rush2_track49_keys(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_race_start(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_music(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_movers_probe_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_movers_probe(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_movers_pads(uint8_t* rdram, recomp_context* ctx);
+
+// Rush 2049 track records (src/track2049_records.cpp).
+void rush2_track49_records_stats(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_times(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_enter(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_exit(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_seed(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_clear(uint8_t* rdram, recomp_context* ctx);
 
 // Bindings and the Controller Setup screen (src/controls_menu.cpp).
 void rush2_controls_frame(uint8_t* rdram, recomp_context* ctx);

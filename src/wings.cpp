@@ -30,11 +30,14 @@
 #include "config/ui_config_page_options_menu.h"
 
 #include "rush2.h"
+#include "track2049.h"
 #include "wings_internal.h"
 
 namespace {
     const std::string config_id = "rush2049";
     const std::string wings_option_id = "wings";
+    const std::string tracks_option_id = "tracks";
+    const std::string music_option_id = "tracks_music";
     const std::string style_option_p1 = "wing_style_p1";
     const std::string style_option_p2 = "wing_style_p2";
     const char* rom_file_name = "rush2049.z64";
@@ -168,13 +171,15 @@ namespace {
 
     std::string rom_status_text() {
         return rush2::wings::rom_available()
-            ? "Rush 2049 ROM: found. Wings can be enabled below."
-            : "Rush 2049 ROM: not found. Select a San Francisco Rush 2049 (USA) ROM to enable wings.";
+            ? "Rush 2049 ROM: found. Its tracks and wings can be enabled below."
+            : "Rush 2049 ROM: not found. Select a San Francisco Rush 2049 (USA) ROM to enable its tracks and wings.";
     }
 
     void update_rom_ui() {
         bool disabled = !rush2::wings::rom_available();
         wings_config.update_option_disabled(wings_option_id, disabled);
+        wings_config.update_option_disabled(tracks_option_id, disabled);
+        wings_config.update_option_disabled(music_option_id, !rush2::track2049::available());
         wings_config.update_option_disabled(style_option_p1, disabled);
         wings_config.update_option_disabled(style_option_p2, disabled);
         if (rom_status_label != nullptr) {
@@ -256,6 +261,30 @@ void rush2::wings::create_tab() {
     wings_config.add_option_change_callback(wings_option_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             wings_option = std::get<bool>(cur_value);
+        });
+
+    wings_config.add_bool_option(
+        tracks_option_id,
+        "Rush 2049 Tracks",
+        "Adds the six race tracks of San Francisco Rush 2049 to the track select, after Rush 2's own tracks. "
+        "Requires a Rush 2049 (USA) ROM.",
+        true
+    );
+    wings_config.add_option_change_callback(tracks_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::track2049::set_option(std::get<bool>(cur_value));
+            update_rom_ui();
+        });
+    wings_config.add_bool_option(
+        music_option_id,
+        "Rush 2049 Music",
+        "Plays each Rush 2049 track's own Rush 2049 song when the game's music setting is on its default (a song per "
+        "track). When off, the Rush 2049 tracks play Rush 2 songs. Requires a Rush 2049 (USA) ROM.",
+        true
+    );
+    wings_config.add_option_change_callback(music_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::track2049::set_music_option(std::get<bool>(cur_value));
         });
 
     // Rush 2049 has each player pick one of three wings on the car setup screen.

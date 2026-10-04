@@ -32,11 +32,12 @@
 #include "wings_internal.h"
 
 namespace {
-    // Spare RDRAM above the game's 4MB, below 16MB so display list addresses fit in 24 bits. Interpolation uses
-    // 0x80900000-0x80A00000.
-    constexpr uint32_t side_start = 0x80A00000;
-    constexpr uint32_t side_end = 0x80B00000;
-    constexpr uint32_t model_address = 0x80B00000;
+    // Spare RDRAM above the game's heap, below 16MB so display list addresses fit in 24 bits. The game heap ends at
+    // 0x80B00000 (src/assets.cpp), interpolation uses 0x80B00000-0x80C00000 and the Controls screen's glyphs
+    // 0x80C00000-0x80C90000.
+    constexpr uint32_t side_start = 0x80D00000;
+    constexpr uint32_t side_end = 0x80E00000;
+    constexpr uint32_t model_address = 0x80E00000;
     constexpr uint32_t model_max_size = 0x10000;
     uint32_t side_cursor = side_start;
 
@@ -46,6 +47,7 @@ namespace {
     constexpr uint32_t car_body_node = 0x80113F90; // Body node index of car i at + i * 0x134.
     constexpr uint32_t car_body_node_stride = 0x134;
     constexpr uint32_t lighting_cache = 0x800E7DE1; // func_8007AA48: nonzero while G_LIGHTING is on.
+    constexpr uint32_t palette_cache = 0x80111954; // func_80078190: palette last loaded into TMEM, 0 for none.
 
     constexpr uint32_t G_DL_CALL = 0xDE000000;
     constexpr uint32_t G_ENDDL_W0 = 0xDF000000;
@@ -65,11 +67,14 @@ namespace {
         { 0xD9FFFFFF, 0x00210005 }, // set ZBUFFER | SHADE | SHADING_SMOOTH | FOG
         { 0xD7000002, 0xFFFFFFFF }, // G_TEXTURE on, scale 1
     };
-    // Undoes the othermode the wing lists change: texture LOD back to tile, TLUT back to Rush 2's RGBA16.
+    // Undoes the state the wing lists change that Rush 2's car lists rely on: texture LOD back to tile, TLUT back
+    // to RGBA16, RGB dither and G_TEXTURE back to what Rush 2's init lists set (dither off, one level).
     constexpr uint32_t epilogue[][2] = {
         { 0xE7000000, 0x00000000 },
         { 0xE3000F00, 0x00000000 }, // TEXTLOD = TILE
         { 0xE3001001, 0x00008000 }, // TEXTLUT = RGBA16
+        { 0xE3001801, 0x000000C0 }, // RGBDITHER = DISABLE
+        { 0xD7000002, 0xFFFFFFFF }, // G_TEXTURE on, tile 0, no mip levels, scale 1
     };
 
     std::mutex model_mutex;
@@ -379,6 +384,9 @@ void rush2::wings::draw_car_body(uint8_t* rdram, recomp_context* ctx) {
     if (MEM_BU(0, (int32_t)lighting_cache) != 0) {
         dl.cmd(0xD9FFFFFF, 0x00020000);
     }
+    // The wing lists load their own palettes over the car's in TMEM. func_80078190 skips the TLUT load when a
+    // node's palette is the one it loaded last, so the car's next parts would draw with the wing palette.
+    MEM_W(0, (int32_t)palette_cache) = 0;
     // The car's paint: the primitive and environment colors func_8007AA48 set from the body node (+0x30, +0x34),
     // which the car's other parts draw with. The flames change both.
     uint32_t node = (uint32_t)ctx->r23;

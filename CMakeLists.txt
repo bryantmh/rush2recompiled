@@ -75,6 +75,7 @@ add_executable(Rush2Recompiled)
 target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/main.cpp
     ${CMAKE_SOURCE_DIR}/src/config.cpp
+    ${CMAKE_SOURCE_DIR}/src/data_location.cpp
     ${CMAKE_SOURCE_DIR}/src/atomics.cpp
     ${CMAKE_SOURCE_DIR}/src/threads.cpp
     ${CMAKE_SOURCE_DIR}/src/pak.cpp
@@ -89,6 +90,18 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/controls_menu.cpp
     ${CMAKE_SOURCE_DIR}/src/players_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
+    ${CMAKE_SOURCE_DIR}/src/assets.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049_rom.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049_art.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049_convert.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049_menu.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049_records.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049_movers.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049_movers_logic.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049_audio.cpp
+    ${CMAKE_SOURCE_DIR}/src/track2049_texanim.cpp
+    ${CMAKE_SOURCE_DIR}/src/audio2049.cpp
     ${CMAKE_SOURCE_DIR}/src/wings.cpp
     ${CMAKE_SOURCE_DIR}/src/wings_rom.cpp
     ${CMAKE_SOURCE_DIR}/src/wings_state.cpp
@@ -156,6 +169,9 @@ if (WIN32)
         LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
     )
     target_link_libraries(Rush2Recompiled PRIVATE SDL2 Winmm.lib)
+
+    # Executable icon (drawn by tools/build_icons.py). SDL also uses it for the window.
+    target_sources(Rush2Recompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
 else()
     find_package(SDL2 REQUIRED)
     add_compile_definitions("PLUME_SDL_VULKAN_ENABLED")

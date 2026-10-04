@@ -81,6 +81,10 @@ namespace {
     constexpr uint16_t n64_c_right = 0x0001;
 
     constexpr float digital_threshold = 0.5f;
+    // GAS and BRAKE are analog pedals: a trigger counts as pressed past the deadzone, and the hook in src/input.cpp
+    // scales the game's pedal by how far it's pressed. Pressure from the deadzone to near the end maps to 0..1.
+    constexpr float pedal_deadzone = 0.06f;
+    constexpr float pedal_full = 0.95f;
     // Listening needs a firmer push, so a resting trigger or a drifting stick doesn't get bound.
     constexpr float listen_threshold = 0.75f;
     constexpr auto listen_timeout = std::chrono::seconds(6);
@@ -178,15 +182,25 @@ namespace {
         }
     }
 
-    bool action_held(const PortDevices& d, const PortBindings& b, Action action) {
+    // How far an action is pressed, 0 to 1: the furthest of its bound inputs.
+    float action_value(const PortDevices& d, const PortBindings& b, Action action) {
+        float value = 0.0f;
         for (int device = 0; device < rush2::controls::device_count; device++) {
             for (const Input& in : b[device][static_cast<int>(action)]) {
-                if (input_value(d, in) >= digital_threshold) {
-                    return true;
-                }
+                value = std::max(value, input_value(d, in));
             }
         }
-        return false;
+        return value;
+    }
+
+    bool action_held(const PortDevices& d, const PortBindings& b, Action action) {
+        return action_value(d, b, action) >= digital_threshold;
+    }
+
+    // An analog pedal's pressure past the deadzone, 0 to 1.
+    float pedal_value(const PortDevices& d, const PortBindings& b, Action action) {
+        float v = action_value(d, b, action);
+        return v <= pedal_deadzone ? 0.0f : std::min((v - pedal_deadzone) / (pedal_full - pedal_deadzone), 1.0f);
     }
 
     void stick_axes(SDL_GameController* c, int stick_id, float* x, float* y) {
@@ -592,7 +606,8 @@ bool rush2::controls::any_input_held(int port) {
     return false;
 }
 
-void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_out, float* y_out, float steering_exponent) {
+void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_out, float* y_out, float steering_exponent,
+                                     float* gas_out, float* brake_out) {
     PortBindings b;
     {
         std::lock_guard lock{ bindings_mutex };
@@ -602,10 +617,19 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
 
     uint16_t buttons = 0;
     for (int a = 0; a < action_count; a++) {
-        if (a != static_cast<int>(Action::Steering) && action_held(d, b, static_cast<Action>(a))) {
+        if (a != static_cast<int>(Action::Steering) && a != static_cast<int>(Action::Gas) &&
+            a != static_cast<int>(Action::Brake) && action_held(d, b, static_cast<Action>(a))) {
             buttons |= action_buttons[a];
         }
     }
+    // Pedals press their button as soon as they leave the deadzone; the game then sees their pressure.
+    float gas = pedal_value(d, b, Action::Gas);
+    float brake = pedal_value(d, b, Action::Brake);
+    buttons |= gas > 0.0f ? action_buttons[static_cast<int>(Action::Gas)] : 0;
+    buttons |= brake > 0.0f ? action_buttons[static_cast<int>(Action::Brake)] : 0;
+    *gas_out = gas;
+    *brake_out = brake;
+
     if (button_down(d, SDL_CONTROLLER_BUTTON_START) || key_down(d, SDL_SCANCODE_RETURN)) {
         buttons |= n64_start;
     }
