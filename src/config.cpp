@@ -10,6 +10,7 @@
 #include "util/file.h"
 
 #include "rush2.h"
+#include "track1.h"
 #include "wings.h"
 
 // Changes the default of an option the frontend already added. add_option() copies the default into the stored values,
@@ -243,6 +244,7 @@ void rush2::init_config() {
     recompui::config::create_sound_tab();
     rush2::cheats::create_tab();
     rush2::wings::create_tab();
+    rush2::track1::create_tab();
     recompui::config::create_mods_tab();
 
     recompui::config::finalize();
@@ -257,4 +259,5 @@ void rush2::init_config() {
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();
+    rush2::track1::load_config();
 }

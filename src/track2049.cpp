@@ -32,6 +32,7 @@
 #include "librecomp/game.hpp"
 #include "rush2_hooks.h"
 #include "assets.h"
+#include "track1.h"
 #include "track2049.h"
 #include "track2049_convert.h"
 #include "rush2049_rom.h"
@@ -234,6 +235,10 @@ void rush2::track2049::set_race_track(int k) {
 
 // Start of func_800A4C98, which queues the race's track files.
 extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
+    // SF Rush tracks race in the same slot (src/track1.cpp); it puts the slot's own values back first.
+    if (rush2::track1::load(rdram)) {
+        return;
+    }
     std::lock_guard lock{ track_mutex };
     int k = raced_track;
     if (k == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
@@ -265,6 +270,9 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
 // func_8007C27C at 0x8007C480: 0x5C($sp) = the section mask chosen for the camera's region 0x78($sp) (-1 = none,
 // which uses the all-visible default).
 extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track1::pvs(rdram, (uint32_t)ctx->r29)) {
+        return;
+    }
     if (!hosting(rdram)) {
         return;
     }
@@ -300,6 +308,10 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t header = 0x8010BCE8;       // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
     constexpr uint32_t path_pointer = 0x800D575C; // The loaded path file.
     constexpr float rush2_lane_speed = 139.3f;    // Distance-weighted lane 0 speed of Rush 2's 9 race paths, both ways.
+    // SF Rush tracks get SF Rush's own times (src/track1.cpp).
+    if (rush2::track1::race_time(rdram)) {
+        return;
+    }
     if (rush2::track2049::race_track() == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
         return;
     }

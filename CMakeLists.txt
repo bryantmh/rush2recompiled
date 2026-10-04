@@ -92,6 +92,9 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/src/assets.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049_rom.cpp
+    ${CMAKE_SOURCE_DIR}/src/track1.cpp
+    ${CMAKE_SOURCE_DIR}/src/track1_convert.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush1_rom.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_art.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_convert.cpp

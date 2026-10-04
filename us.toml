@@ -456,7 +456,8 @@ before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
 # Rush 2049 track select entries (src/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
-# func_803ABE0C (per frame); its tables and carousel array are repointed to 18-entry copies at 0x80300000.
+# func_803ABE0C (per frame); its tables and carousel array are repointed to 25-entry copies at 0x80300000 (Rush 2's 12
+# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24).
 [[patches.hook]]
 func = "func_803AB294"
 before_vram = 0x803AB5C0
@@ -610,17 +611,17 @@ value = 0x304E001F # andi    $t6, $v0, 0x1F
 [[patches.instruction]]
 func = "func_803AB294"
 vram = 0x803AB67C
-value = 0x2A210012 # slti    $at, $s1, 0x12
+value = 0x2A210019 # slti    $at, $s1, 0x19
 
 [[patches.instruction]]
 func = "func_803AB294"
 vram = 0x803AB6D0
-value = 0x241E0012 # addiu    $fp, $zero, 0x12
+value = 0x241E0019 # addiu    $fp, $zero, 0x19
 
 [[patches.instruction]]
 func = "func_803ABE0C"
 vram = 0x803AC0FC
-value = 0x28C10012 # slti    $at, $a2, 0x12
+value = 0x28C10019 # slti    $at, $a2, 0x19
 
 # Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
@@ -734,8 +735,8 @@ before_vram = 0x80062F50
 text = "    rush2_track49_music_command(rdram, ctx);"
 
 # Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
-# Rush 2's 0-6 and the 2049 tracks, and the circuit screen (func_803B6260) instances its dioramas from the 18-entry
-# name table into an 18-entry array at 0x80300600 (was 7 at 0x803C7A44), with the 18-entry scale, cloud height and
+# Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
+# 25-entry name table into a 25-entry array at 0x80300700 (was 7 at 0x803C7A44), with the 25-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
 [[patches.hook]]
 func = "func_800A7DCC"
@@ -760,12 +761,12 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B62AC
-value = 0x26310648 # addiu $s1, $s1, 0x648
+value = 0x26310764 # addiu $s1, $s1, 0x764
 
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B62B0
-value = 0x26100600 # addiu $s0, $s0, 0x600
+value = 0x26100700 # addiu $s0, $s0, 0x700
 
 [[patches.instruction]]
 func = "func_803B6260"
@@ -785,7 +786,7 @@ value = 0x26310000 # addiu $s1, $s1, 0
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B642C
-value = 0x26100600 # addiu $s0, $s0, 0x600
+value = 0x26100700 # addiu $s0, $s0, 0x700
 
 [[patches.instruction]]
 func = "func_803B6260"
@@ -795,7 +796,7 @@ value = 0x3C188030 # lui $t8, 0x8030
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B64B0
-value = 0x27180048 # addiu $t8, $t8, 0x48
+value = 0x27180064 # addiu $t8, $t8, 0x64
 
 [[patches.instruction]]
 func = "func_803B6260"
@@ -815,7 +816,7 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B6A14
-value = 0x26310600 # addiu $s1, $s1, 0x600
+value = 0x26310700 # addiu $s1, $s1, 0x700
 
 [[patches.instruction]]
 func = "func_803B6260"

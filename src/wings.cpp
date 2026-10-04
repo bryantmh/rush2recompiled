@@ -337,3 +337,12 @@ void rush2::wings::load_config() {
     }
     update_rom_ui();
 }
+
+// Shared with the SF Rush tab (src/rush1_rom.cpp).
+std::array<uint8_t, 20> rush2::wings::rom_sha1(const std::vector<uint8_t>& data) {
+    return sha1(data);
+}
+
+bool rush2::wings::rom_to_big_endian(std::vector<uint8_t>& data) {
+    return to_big_endian(data);
+}

@@ -1,0 +1,293 @@
+// San Francisco Rush (Rush 1) race tracks, raced in the borrowed Rush 2 track slot the Rush 2049 tracks use (the
+// host slot, rush2::track2049::host_slot).
+//
+// The track select offers the Rush 1 tracks as extra entries (src/track2049_menu.cpp). When one is raced, the race
+// setup hook turns its menu id into the host slot's id; the track is converted from the user's Rush 1 ROM
+// (src/track1_convert.cpp) and replaces the host slot's five files (geometry, placement, collision, forward and
+// backward AI paths), its entries in the per-track tables the race code reads, and its in-race logo, as for a 2049
+// track (src/track2049.cpp). The host's own values are put back before anything else is raced there.
+//
+// Differences from the 2049 tracks:
+// - Rush 1 has a collision file per direction, so the collision served depends on the race's backward flag.
+// - The sky is Rush 2's procedural dome (Rush 1 uses the same, with the same texture names); no sky hooks apply.
+// - Visibility: the converted table lives in recomp memory like the 2049 one. Rush 1's section chain can be longer
+//   than its region count (track 2: 126 sections, 111 regions); regions past the table see everything.
+// - Fog: Rush 1's fog colour is a game option (default grey 0x9696BE), not per track; that default is used.
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "recomp.h"
+#include "librecomp/addresses.hpp"
+#include "assets.h"
+#include "track1.h"
+#include "track2049.h"
+
+using rush2::track2049::host_slot;
+
+namespace {
+    constexpr uint32_t track_id = 0x8010C3F0;
+    constexpr uint32_t backward_flag = 0x80119848;
+    constexpr uint32_t fog_colours = 0x800C1D7C;    // 3 bytes per slot.
+    constexpr uint32_t cloud_scroll = 0x800C1D14;   // f32 per slot.
+    constexpr uint32_t sky_parallax = 0x800C1D44;   // f32 per slot.
+    constexpr uint32_t pvs_counts = 0x800CA1A8;     // u8 per slot.
+    constexpr uint32_t flag_nudge_x = 0x800C3F84;   // s32 per slot.
+    constexpr uint32_t flag_nudge_y = 0x800C3FB4;   // s32 per slot.
+    constexpr uint32_t prop_lists = 0x800C5D2C;     // ptr per slot.
+    constexpr uint32_t demo_lists = 0x800C456C;     // ptr per slot + 12 * backward.
+    constexpr uint32_t demo_counts = 0x800C45CC;    // s16 per slot + 12 * backward.
+    constexpr uint32_t songs = 0x800CC37C;          // s16 per slot.
+    constexpr uint32_t all_visible = 0x800CA1B8;    // The game's default mask (every section visible).
+
+    const std::string prefix_of_host = "HAWAII";
+    constexpr uint8_t fog[3] = { 0x96, 0x96, 0xBE };
+    // Rush 2 songs (indices into 0x800CC394) for the Rush 1 tracks.
+    constexpr int16_t track_songs[rush2::track1::track_count] = { 1, 0, 4, 2, 3, 5, 6 };
+
+    std::mutex track_mutex;
+    std::atomic_int raced_track = 0;   // 1-7, or 0 for none.
+    int loaded_track = 0;               // The Rush 1 track in `track`.
+    const std::vector<uint8_t>* loaded_rom = nullptr;
+    rush2::track1::ConvertedTrack track;
+    std::vector<uint8_t> race_logo;
+    bool applied = false;
+    int applied_backward = -1;
+    uint32_t pvs_table = 0;   // In recomp memory.
+    uint32_t demo_table = 0;
+    float lap_seconds[rush2::track1::track_count][2] = {};
+
+    struct Saved {
+        uint8_t fog[3];
+        uint32_t cloud, parallax, nudge_x, nudge_y, props;
+        uint16_t song;
+        uint32_t demo_list[2];
+        uint16_t demo_count[2];
+        uint8_t pvs_count;
+    };
+    Saved saved;
+
+    void save_tables(uint8_t* rdram) {
+        for (int i = 0; i < 3; i++) {
+            saved.fog[i] = MEM_B(0, (int32_t)(fog_colours + host_slot * 3 + i));
+        }
+        saved.cloud = MEM_W(0, (int32_t)(cloud_scroll + host_slot * 4));
+        saved.parallax = MEM_W(0, (int32_t)(sky_parallax + host_slot * 4));
+        saved.nudge_x = MEM_W(0, (int32_t)(flag_nudge_x + host_slot * 4));
+        saved.nudge_y = MEM_W(0, (int32_t)(flag_nudge_y + host_slot * 4));
+        saved.props = MEM_W(0, (int32_t)(prop_lists + host_slot * 4));
+        saved.pvs_count = MEM_B(0, (int32_t)(pvs_counts + host_slot));
+        saved.song = MEM_H(0, (int32_t)(songs + host_slot * 2));
+        for (int b = 0; b < 2; b++) {
+            saved.demo_list[b] = MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4));
+            saved.demo_count[b] = MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2));
+        }
+    }
+
+    void apply(uint8_t* rdram, int backward) {
+        if (!applied) {
+            save_tables(rdram);
+        }
+        if (!race_logo.empty()) {
+            rush2::assets::replace(rdram, 4 + host_slot, race_logo);
+        }
+        rush2::assets::replace(rdram, 0x33 + host_slot, track.geometry);
+        rush2::assets::replace(rdram, 0x3F + host_slot, track.placement);
+        rush2::assets::replace(rdram, 0x4B + host_slot, track.collision[backward]);
+        rush2::assets::replace(rdram, 0x57 + host_slot, track.path[0]);
+        rush2::assets::replace(rdram, 0x63 + host_slot, track.path[1]);
+        for (int i = 0; i < 3; i++) {
+            MEM_B(0, (int32_t)(fog_colours + host_slot * 3 + i)) = fog[i];
+        }
+        MEM_W(0, (int32_t)(cloud_scroll + host_slot * 4)) = 0x3E4CCCCD;   // 0.2, as most Rush 2 tracks
+        MEM_W(0, (int32_t)(sky_parallax + host_slot * 4)) = 0;
+        MEM_W(0, (int32_t)(flag_nudge_x + host_slot * 4)) = 0;
+        MEM_W(0, (int32_t)(flag_nudge_y + host_slot * 4)) = 0;
+        MEM_W(0, (int32_t)(prop_lists + host_slot * 4)) = 0;
+        MEM_B(0, (int32_t)(pvs_counts + host_slot)) = track.pvs_count;
+        MEM_H(0, (int32_t)(songs + host_slot * 2)) = track_songs[loaded_track - 1];
+        if (demo_table == 0) {
+            demo_table = (uint32_t)((uint8_t*)recomp::alloc(rdram, 2 * 32 * 2) - rdram) + 0x80000000;
+        }
+        for (int b = 0; b < 2; b++) {
+            uint32_t list = demo_table + b * 64;
+            size_t n = std::min<size_t>(track.demo_starts[b].size(), 32);
+            for (size_t i = 0; i < n; i++) {
+                MEM_H(0, (int32_t)(list + i * 2)) = track.demo_starts[b][i];
+            }
+            MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4)) = list;
+            MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2)) = (int16_t)n;
+        }
+        if (pvs_table == 0) {
+            pvs_table = (uint32_t)((uint8_t*)recomp::alloc(rdram, 128 * 16) - rdram) + 0x80000000;
+        }
+        for (size_t i = 0; i < track.pvs.size() && i < 128 * 16; i++) {
+            MEM_B(0, (int32_t)(pvs_table + i)) = track.pvs[i];
+        }
+        applied = true;
+        applied_backward = backward;
+    }
+
+    void restore(uint8_t* rdram) {
+        if (!applied) {
+            return;
+        }
+        for (int index : { 0x33, 0x3F, 0x4B, 0x57, 0x63, 4 }) {
+            rush2::assets::restore(rdram, index + host_slot);
+        }
+        for (int i = 0; i < 3; i++) {
+            MEM_B(0, (int32_t)(fog_colours + host_slot * 3 + i)) = saved.fog[i];
+        }
+        MEM_W(0, (int32_t)(cloud_scroll + host_slot * 4)) = saved.cloud;
+        MEM_W(0, (int32_t)(sky_parallax + host_slot * 4)) = saved.parallax;
+        MEM_W(0, (int32_t)(flag_nudge_x + host_slot * 4)) = saved.nudge_x;
+        MEM_W(0, (int32_t)(flag_nudge_y + host_slot * 4)) = saved.nudge_y;
+        MEM_W(0, (int32_t)(prop_lists + host_slot * 4)) = saved.props;
+        MEM_B(0, (int32_t)(pvs_counts + host_slot)) = saved.pvs_count;
+        MEM_H(0, (int32_t)(songs + host_slot * 2)) = saved.song;
+        for (int b = 0; b < 2; b++) {
+            MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4)) = saved.demo_list[b];
+            MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2)) = saved.demo_count[b];
+        }
+        applied = false;
+        applied_backward = -1;
+    }
+
+    bool convert(uint8_t* rdram, int k) {
+        auto rom = rush2::track1::get_rom();
+        if (rom == nullptr) {
+            return false;
+        }
+        std::string error;
+        if (!rush2::track1::convert_track(*rom, k - 1, prefix_of_host, track, error)) {
+            printf("[Rush1] Couldn't convert track %d: %s\n", k, error.c_str());
+            return false;
+        }
+        lap_seconds[k - 1][0] = track.lap_seconds[0];
+        lap_seconds[k - 1][1] = track.lap_seconds[1];
+        race_logo.clear();
+        std::vector<uint8_t> logo;
+        if (!rush2::assets::read_original(rdram, 4 + host_slot, logo) ||
+            !rush2::track1::build_race_logo(logo, *rom, k - 1, race_logo)) {
+            race_logo.clear();
+        }
+        return true;
+    }
+}
+
+int rush2::track1::race_track() {
+    return raced_track;
+}
+
+void rush2::track1::set_race_track(int k) {
+    raced_track = k;
+}
+
+void rush2::track1::restore_host(uint8_t* rdram) {
+    std::lock_guard lock{ track_mutex };
+    restore(rdram);
+}
+
+bool rush2::track1::load(uint8_t* rdram) {
+    int k = raced_track;
+    if (k == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
+        restore_host(rdram);
+        return false;
+    }
+    // The 2049 tracks share the host slot: put its own values back before saving them.
+    rush2::track2049::restore_host(rdram);
+    std::lock_guard lock{ track_mutex };
+    auto rom = get_rom();
+    if (loaded_track != k || loaded_rom != rom.get()) {
+        loaded_track = 0;
+        loaded_rom = nullptr;
+        if (!convert(rdram, k)) {
+            printf("[Rush1] Track %d isn't available; racing the host track\n", k);
+            raced_track = 0;
+            restore(rdram);
+            return false;
+        }
+        loaded_track = k;
+        loaded_rom = rom.get();
+    }
+    int backward = MEM_B(0, (int32_t)backward_flag) != 0 ? 1 : 0;
+    apply(rdram, backward);
+    return true;
+}
+
+bool rush2::track1::pvs(uint8_t* rdram, uint32_t sp) {
+    std::lock_guard lock{ track_mutex };
+    if (!applied || MEM_B(0, (int32_t)track_id) != host_slot) {
+        return false;
+    }
+    int32_t region = (int32_t)MEM_W(0, (int32_t)(sp + 0x78));
+    if (region >= 0 && region < track.pvs_count) {
+        MEM_W(0, (int32_t)(sp + 0x5C)) = pvs_table + region * 16;
+    }
+    else if (region >= 0) {
+        MEM_W(0, (int32_t)(sp + 0x5C)) = all_visible;
+    }
+    return true;
+}
+
+// Rush 1's race timer (func_800B9F8C start, func_8009FFCC checkpoints; docs/rush1_research.md):
+//   start = base - 4 x difficulty + 4 x laps + 16, unscaled;
+//   reaching checkpoint i adds time[lap](i) x (1 + (5 - difficulty) x 0.05), time[2] from lap 3 on.
+// Rush 2 (func_800AE670, func_8008F220) multiplies the start (header +0) and the passed checkpoint's extension (+0x1E
+// on lap 1, +0x20 after) by 1 + (5 - difficulty) x 0.075, so the fields get Rush 1's values divided by that. Both
+// games start the race with checkpoint 0 passed, and grant a checkpoint's time when it is passed. Rush 2 has no
+// lap-3 field; Rush 1's lap 2 and lap 3 times are the same on every track.
+bool rush2::track1::race_time(uint8_t* rdram) {
+    constexpr uint32_t header = 0x8010BCE8;     // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
+    constexpr uint32_t difficulty = 0x8010C211; // 0-5.
+    constexpr uint32_t laps = 0x8010C0E2;
+    std::lock_guard lock{ track_mutex };
+    if (!applied || raced_track == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
+        return false;
+    }
+    const ConvertedTrack::Timing& timing = track.timing[applied_backward == 1 ? 1 : 0];
+    int count = (int16_t)MEM_H(0, (int32_t)(header + 8));
+    if (count != (int)timing.checkpoints.size()) {
+        return true;
+    }
+    int d = std::clamp((int)(int8_t)MEM_B(0, (int32_t)difficulty), 0, 5);
+    int lap_count = std::max((int)(int16_t)MEM_H(0, (int32_t)laps), 1);
+    double rush1_factor = 1.0 + (5 - d) * 0.05;
+    double rush2_factor = 1.0 + (5 - d) * 0.075;
+    auto put = [&](uint32_t addr, double seconds) {
+        MEM_H(0, (int32_t)addr) = (int16_t)std::max(std::lround(seconds / rush2_factor), 0L);
+    };
+    put(header, timing.start - 4 * d + 4 * lap_count + 16);
+    for (int i = 0; i < count; i++) {
+        uint32_t cp = header + 0xC + i * 0x50;
+        put(cp + 0x1E, timing.checkpoints[i][0] * rush1_factor);
+        put(cp + 0x20, timing.checkpoints[i][1] * rush1_factor);
+    }
+    return true;
+}
+
+float rush2::track1::record_seed(int k, bool backward) {
+    if (k < 1 || k > track_count) {
+        return 0.0f;
+    }
+    std::lock_guard lock{ track_mutex };
+    float s = lap_seconds[k - 1][backward ? 1 : 0];
+    if (s <= 0.0f) {
+        // Not converted yet in this session: convert just the times.
+        auto rom = get_rom();
+        ConvertedTrack ct;
+        std::string error;
+        if (rom != nullptr && convert_track(*rom, k - 1, prefix_of_host, ct, error)) {
+            lap_seconds[k - 1][0] = ct.lap_seconds[0];
+            lap_seconds[k - 1][1] = ct.lap_seconds[1];
+            s = lap_seconds[k - 1][backward ? 1 : 0];
+        }
+    }
+    return s;
+}

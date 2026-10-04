@@ -3,6 +3,7 @@
 
 // Shared between the src/wings*.cpp files.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -12,6 +13,11 @@
 
 namespace rush2::wings {
     constexpr int max_cars = 8;
+
+    // ROM helpers of the Rush 2049 tab (src/wings.cpp): SHA-1, and .v64/.n64 or little-endian images to big-endian
+    // (false if the data isn't an N64 ROM).
+    std::array<uint8_t, 20> rom_sha1(const std::vector<uint8_t>& data);
+    bool rom_to_big_endian(std::vector<uint8_t>& data);
 
     // Rush 2049's LZ decompressor (src/wings_rom.cpp). Returns false on truncated data.
     bool lz_decompress(const uint8_t* src, size_t src_size, std::vector<uint8_t>& out);
