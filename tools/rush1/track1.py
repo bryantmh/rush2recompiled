@@ -288,19 +288,25 @@ class Builder:
                     at.add(self.sources[ref[1]][1] + ref[2] + k * 16)
         return at
 
-    def base_origin(self, name):
-        """Moves a model's vertices up so its lowest is at y 0 (Rush 2's breakable models have their origin at the
+    def base_origin(self, placed, family):
+        """Moves the models `family` (placed models with their animation frames and pieces, which share their origin)
+        up so the lowest vertex of the `placed` ones is at y 0 (Rush 2's breakable models have their origin at the
         base); returns the shift in vertex units."""
-        model = [m for m in self.models if m[0] == name]
-        if not model:
-            raise ConvertError('no model %s to move' % name)
-        mine = self.vertices_of(model[-1])
-        if not mine:
+        mine, base = set(), set()
+        for name in sorted(family):
+            model = [m for m in self.models if m[0] == name]
+            if not model:
+                raise ConvertError('no model %s to move' % name)
+            v = self.vertices_of(model[-1])
+            mine |= v
+            if name in placed:
+                base |= v
+        if not base:
             return 0
         for m in self.models:
-            if m is not model[-1] and mine & self.vertices_of(m):
-                raise ConvertError('model %s shares vertices with %s' % (name, m[0]))
-        lowest = min(struct.unpack_from('>h', self.out, a + 2)[0] for a in mine)
+            if m[0] not in family and mine & self.vertices_of(m):
+                raise ConvertError('model %s shares vertices with %s' % (m[0], min(family)))
+        lowest = min(struct.unpack_from('>h', self.out, a + 2)[0] for a in base)
         for a in mine:
             struct.pack_into('>h', self.out, a + 2, struct.unpack_from('>h', self.out, a + 2)[0] - lowest)
         return -lowest
@@ -452,11 +458,17 @@ def convert_geometry(r, t, prefix):
         if n not in names:
             raise ConvertError('object model %s missing' % n)
     shifts = {}
+    families = {}
     for n in sorted(placed_objects(r, t)):
         c = object_class(n)
         if c is not None and n in names:
             b.kinds[names[n]] = c[2]
-            shifts[n] = b.base_origin(names[n])
+            families.setdefault(n.rstrip('0123456789'), set()).add(n)
+    for f, placed in sorted(families.items()):
+        family = {new for old, new in names.items() if old.rstrip('0123456789') == f}
+        shift = b.base_origin({names[n] for n in placed}, family)
+        for n in placed:
+            shifts[n] = shift
     b.add_empty_model('R1EMPTY')
     for i in range(track.n_tex):
         if track.texture(i)[0] == 'CHKPOINT':

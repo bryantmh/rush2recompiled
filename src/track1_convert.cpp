@@ -597,24 +597,30 @@ namespace {
             return at;
         }
 
-        // Moves model `name`'s vertices up so that its lowest one is at y 0, as Rush 2's breakable models are built
-        // (their placement point is their base); returns the shift in vertex units (1/16 of a world unit).
-        int base_origin(const std::string& name) {
-            const ModelOut* model = nullptr;
-            for (const ModelOut& m : models) {
-                if (m.name == name) model = &m;
+        // Moves the models `family` (placed models with their animation frames and pieces, which share their origin) up
+        // so that the lowest vertex of the `placed` ones is at y 0, as Rush 2's breakable models are built (their
+        // placement point is their base); returns the shift in vertex units (1/16 of a world unit).
+        int base_origin(const std::set<std::string>& placed, const std::set<std::string>& family) {
+            std::set<size_t> mine, base;
+            for (const std::string& name : family) {
+                const ModelOut* model = nullptr;
+                for (const ModelOut& m : models) {
+                    if (m.name == name) model = &m;
+                }
+                if (model == nullptr) fail("no model " + name + " to move");
+                std::set<size_t> v = vertices_of(*model);
+                mine.insert(v.begin(), v.end());
+                if (placed.count(name)) base.insert(v.begin(), v.end());
             }
-            if (model == nullptr) fail("no model " + name + " to move");
-            std::set<size_t> mine = vertices_of(*model);
-            if (mine.empty()) return 0;
+            if (base.empty()) return 0;
             for (const ModelOut& m : models) {
-                if (&m == model) continue;
+                if (family.count(m.name)) continue;
                 for (size_t a : vertices_of(m)) {
-                    if (mine.count(a)) fail("model " + name + " shares vertices with " + m.name);
+                    if (mine.count(a)) fail("model " + m.name + " shares vertices with " + *family.begin());
                 }
             }
             int lowest = 0x7FFF;
-            for (size_t a : mine) lowest = std::min(lowest, int(s16(out, a + 2)));
+            for (size_t a : base) lowest = std::min(lowest, int(s16(out, a + 2)));
             int shift = -lowest;
             for (size_t a : mine) put16(out, a + 2, uint16_t(int16_t(s16(out, a + 2) + shift)));
             return shift;
@@ -755,8 +761,11 @@ namespace {
         // Placed breakables get the behaviour id of the Rush 2 model they stand in for, and their origin at their base
         // like Rush 2's breakable models (Rush 1's are centred): Rush 2 knocks an object over about its origin, and its
         // car hit test (func_8008B0CC) takes the placement point within about 3 world units of the car's height, so a
-        // centred traffic light, tree or trash muncher would never be hit. The records move down to match.
+        // centred traffic light, tree or trash muncher would never be hit. The records move down to match, and so do
+        // the models of the same family (the name without its number: FLAG2L0-9 animation frames, WINDOWBL1-7 pieces).
         base_shifts.clear();
+        auto family_of = [](const std::string& n) { return n.substr(0, n.find_last_not_of("0123456789") + 1); };
+        std::map<std::string, std::set<std::string>> placed_families;
         for (const std::string& n : placed_objects(rom, t)) {
             const ObjectClass* c = object_class(n);
             auto it = names.find(n);
@@ -764,7 +773,16 @@ namespace {
             for (auto& m : b.models) {
                 if (m.name == it->second) m.kind = c->kind;
             }
-            base_shifts[n] = b.base_origin(it->second);
+            placed_families[family_of(n)].insert(n);
+        }
+        for (const auto& [f, placed] : placed_families) {
+            std::set<std::string> placed_models, family;
+            for (const std::string& n : placed) placed_models.insert(names.at(n));
+            for (const auto& [n, renamed] : names) {
+                if (family_of(n) == f) family.insert(renamed);
+            }
+            int shift = b.base_origin(placed_models, family);
+            for (const std::string& n : placed) base_shifts[n] = shift;
         }
         b.add_empty_model("R1EMPTY");
         for (uint32_t i = 0; i < track.n_tex; i++) {

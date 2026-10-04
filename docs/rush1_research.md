@@ -161,7 +161,14 @@ Named textures:
     2's car hit test (`func_8008B0CC`) takes the placement point in the car's frame within |y − 1.25| < 2.25, so a
     centred traffic light (centre 9.6 up), trash muncher (7.5) or tree (12.5) was never hit. The converter moves each
     placed breakable model's vertices up to put its base at the origin and lowers the record by the same amount / 16,
-    which also makes Rush 2's knock-over pivot about the base.
+    which also makes Rush 2's knock-over pivot about the base. The other models of the same family (the name without
+    its number) move by the same amount, since they share the placed model's origin: the flag's animation frames
+    FLAG2L0-9 (moving only the placed FLAG2L0 made the flag jump on every loop), WINDOWBL1-7 and FENCEL1-12 pieces.
+  - Rush 1's own hit test (`func_8008602C`, from the loop at 0x800860FC) has no height test: the point in the car's
+    frame within |z| < 7, |x| < 3. Behaviour 9 (window, type 0x19D) also hits on a sphere of a third of its radius.
+    Rush 2's height test still missed objects on Rush 1's hills (a traffic light based at y 31.6 under a car at 36.2),
+    so on Rush 1 tracks `rush2_track1_breakable_hit` (func_8008B0CC entry) applies Rush 1's rule with Rush 2's width
+    (3.5); windows (0x722) keep Rush 2's test.
   - Checked in game: track 2 creates 124 breakable instances (89 cones, 15 trash munchers, 15 traffic lights, a window, 4 flags), track 3
     112 (44 cones, 52 meters, 16 trees); cones knock over. Rush 2 allows 0x82.
 - **Emitters** (no node; ids from the bytes at 0x800CF774) map to the Rush 2 emitter with the same sound and range:
