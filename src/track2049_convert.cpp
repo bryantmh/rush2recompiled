@@ -448,6 +448,163 @@ namespace {
         return out;
     }
 
+    // A 2049 model container holding only the objects named `keep` from `d`, with just the data they reach: their
+    // lists and vertices, and the texture-load lists those call with the texels and palettes they load. Used to take
+    // a few models from a big shared file.
+    Bytes subset_model49(const Bytes& d, const std::set<std::string>& keep) {
+        Model49 m = parse_model49(d);
+        auto [txld, txld_size] = m.c["TXLD"];
+        auto [objs, objs_size] = m.c["OBJS"];
+        auto in_txld = [&](size_t a) { return a >= txld && a < (size_t)txld + txld_size; };
+        auto in_objs = [&](size_t a) { return a >= objs && a < (size_t)objs + objs_size; };
+        // Old [start, end) ranges kept, per output chunk.
+        std::map<size_t, size_t> imag_r, txld_r, objs_r;
+        auto add = [](std::map<size_t, size_t>& r, size_t s, size_t e) {
+            auto it = r.find(s);
+            if (it == r.end() || it->second < e) r[s] = e;
+        };
+        // Texels and palettes a texture-load list loads: each G_SETTIMG to the end of the load that follows it.
+        auto add_loads = [&](size_t list) {
+            size_t e = list_end(d, list);
+            for (size_t o = list; o < e; o += 8) {
+                if (d[o] != 0xFD) continue;
+                uint32_t w0 = u32(d, o);
+                size_t a = (u32(d, o + 4) & 0xFFFFFF) + m.imag;
+                double bpp = std::array<double, 4>{ 0.5, 1, 2, 4 }[(w0 >> 19) & 3];
+                size_t bytes = 8;
+                for (size_t p = o + 8; p < e && d[p] != 0xFD; p += 8) {
+                    uint32_t c1 = u32(d, p + 4);
+                    if (d[p] == 0xF3) bytes = std::max(bytes, (size_t)((((c1 >> 12) & 0xFFF) + 1) * bpp));
+                    if (d[p] == 0xF4) bytes = std::max(bytes, (size_t)(((c1 & 0xFFF) / 4 + 1) * ((w0 & 0xFFF) + 1) * bpp));
+                    if (d[p] == 0xF0) bytes = std::max(bytes, (size_t)((((c1 >> 14) & 0x3FF) + 1) * 2));
+                }
+                add(imag_r, a, (a + bytes + 7) & ~(size_t)7);
+            }
+            add(txld_r, list, e + 8);
+        };
+        std::vector<const Object49*> kept;
+        for (const Object49& ob : m.objects) {
+            if (!keep.contains(ob.name)) continue;
+            kept.push_back(&ob);
+            for (int j = 0; j < slice4(ob.lod_count); j++) {
+                const Lod49& l = ob.lods[j];
+                if (!l.dl) continue;
+                size_t e = list_end(d, l.dl);
+                add(objs_r, l.dl, e + 8);
+                size_t lo = l.vertices ? l.vertices : SIZE_MAX, hi = 0;
+                for (size_t o = l.dl; o < e; o += 8) {
+                    size_t a = u32(d, o + 4) & 0xFFFFFF;
+                    if (d[o] == 0x01) {
+                        lo = std::min(lo, a);
+                        hi = std::max(hi, a + ((u32(d, o) >> 12) & 0xFF) * 16);
+                    }
+                    if (d[o] == 0xDE && in_txld(a)) add_loads(a);
+                    if (d[o] == 0xDE && in_objs(a)) add(objs_r, a, list_end(d, a) + 8);
+                }
+                if (hi > lo) add(objs_r, lo, hi);
+            }
+        }
+
+        // Layout: 8-byte header, IMAG, TXLD, OBHD, PLHD, TXHD, OBJS, chunk directory.
+        Bytes out(8, 0);
+        struct Seg {
+            size_t start, end, to;
+        };
+        std::vector<Seg> segs;
+        auto place = [&](const std::map<size_t, size_t>& r) {
+            size_t chunk = out.size();
+            size_t s = 0, e = 0;
+            auto flush = [&]() {
+                if (e > s) {
+                    need(d, s, e - s);
+                    segs.push_back({ s, e, out.size() });
+                    out.insert(out.end(), d.begin() + s, d.begin() + e);
+                    align8(out);
+                }
+            };
+            for (auto [a, b] : r) { // merge overlapping ranges
+                if (a <= e && e > s) { e = std::max(e, b); continue; }
+                flush();
+                s = a;
+                e = b;
+            }
+            flush();
+            std::pair<size_t, size_t> placed{ chunk, out.size() - chunk };
+            // A gap after each chunk: merge_models maps a chunk's end address into that chunk, so the next chunk must
+            // not start there.
+            out.resize(out.size() + 8, 0);
+            return placed;
+        };
+        auto map = [&](size_t a) -> size_t {
+            for (const Seg& s : segs) {
+                if (a >= s.start && a < s.end) return a - s.start + s.to;
+            }
+            fail("subset: " + hex(a) + " not kept");
+        };
+        auto imag = place(imag_r);
+        auto txld_new = place(txld_r);
+        size_t new_imag = imag.first;
+        size_t obhd = out.size();
+        out.resize(obhd + kept.size() * 0x58, 0);
+        size_t plhd = out.size();
+        // No texture or palette records: the kept lists call their texture loads directly, and an extra record would
+        // change the texture table Rush 2's car code walks.
+        size_t txhd = out.size();
+        auto objs_new = place(objs_r);
+        // Pointers: model lists hold file offsets, texture-load lists IMAG-relative ones.
+        for (const Object49* ob : kept) {
+            for (int j = 0; j < slice4(ob->lod_count); j++) {
+                if (!ob->lods[j].dl) continue;
+                std::vector<size_t> lists = { ob->lods[j].dl };
+                for (size_t o = ob->lods[j].dl; o < list_end(d, ob->lods[j].dl); o += 8) {
+                    if (d[o] == 0xDE && in_objs(u32(d, o + 4) & 0xFFFFFF)) lists.push_back(u32(d, o + 4) & 0xFFFFFF);
+                }
+                for (size_t l : lists) {
+                    RelocWalk w = walk_reloc(d, l);
+                    std::vector<size_t> words = w.ptrs;
+                    for (size_t c : w.conds) words.push_back(c + 4);
+                    for (size_t p : words) {
+                        uint32_t v = u32(d, p);
+                        put32(out, map(p), (v & 0xFF000000) | (uint32_t)map(v & 0xFFFFFF));
+                    }
+                }
+            }
+        }
+        for (auto [s, e] : txld_r) {
+            for (size_t o = s; o + 8 <= e; o += 8) {
+                if (d[o] == 0xFD || (d[o] == 0xE1 && o + 8 < e && d[o + 8] == 0x04)) {
+                    uint32_t v = u32(d, o + 4);
+                    put32(out, map(o + 4), (v & 0xFF000000) | (uint32_t)(map((v & 0xFFFFFF) + m.imag) - new_imag));
+                }
+            }
+        }
+        for (size_t k = 0; k < kept.size(); k++) {
+            size_t r = obhd + k * 0x58;
+            size_t rec = m.c["OBHD"].first + (size_t)(kept[k] - m.objects.data()) * 0x58;
+            std::copy(d.begin() + rec, d.begin() + rec + 0x58, out.begin() + r);
+            for (int j = 0; j < 4; j++) {
+                const Lod49& l = kept[k]->lods[j];
+                put32(out, r + 0x18 + j * 16 + 8, l.dl && j < slice4(kept[k]->lod_count) ? (uint32_t)map(l.dl) : 0);
+                put32(out, r + 0x18 + j * 16 + 12, l.vertices && j < slice4(kept[k]->lod_count) ? (uint32_t)map(l.vertices) : 0);
+            }
+        }
+        size_t dir = out.size();
+        auto chunk = [&](const char* tag, size_t o, size_t n) {
+            out.insert(out.end(), tag, tag + 4);
+            add32(out, (uint32_t)o);
+            add32(out, (uint32_t)n);
+        };
+        chunk("IMAG", imag.first, imag.second);
+        chunk("TXLD", txld_new.first, txld_new.second);
+        chunk("OBHD", obhd, kept.size());
+        chunk("PLHD", plhd, 0);
+        chunk("TXHD", txhd, 0);
+        chunk("OBJS", objs_new.first, objs_new.second);
+        add32(out, 0);
+        put32(out, 0, (uint32_t)dir);
+        return out;
+    }
+
     // ------------------------------------------------------------------------------------------------------------
     // Geometry: 2049 model containers merged into one Rush 2 container (track.merge_models)
 
@@ -456,6 +613,9 @@ namespace {
         std::vector<std::string> dummies;         // Extra empty models.
         std::vector<std::string> dummy_textures;  // Extra textures whose load list is an empty list.
         const std::set<std::string>* exclude;     // Models left out (their data stays, unreferenced).
+        std::multimap<std::string, std::string> aliases; // 2049 object -> extra names drawing the same lists.
+        // Model (output name) -> 2049 object whose first list each of the model's lists also calls at its end.
+        std::multimap<std::string, std::string> appends;
     };
 
     Bytes merge_models(const std::vector<const Bytes*>& files, const MergeOptions& opt, std::set<std::string>& names) {
@@ -588,6 +748,7 @@ namespace {
             std::string name;
             size_t file;
             const Object49* ob; // Null for a dummy.
+            bool alias = false; // Draws another entry's lists, through copies of them.
         };
         std::vector<Entry> entries;
         std::set<std::string> have;
@@ -600,6 +761,13 @@ namespace {
                 }
                 have.insert(n);
                 entries.push_back({ n, i, &ob });
+                auto [lo, hi] = opt.aliases.equal_range(ob.name);
+                for (auto it = lo; it != hi; ++it) {
+                    std::string alias = first15(it->second);
+                    if (have.insert(alias).second) {
+                        entries.push_back({ alias, i, &ob, true });
+                    }
+                }
             }
         }
         for (const std::string& dummy : opt.dummies) {
@@ -609,6 +777,104 @@ namespace {
             }
         }
         std::stable_sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) { return a.name < b.name; });
+
+        // Rush 2's loader rebases the pointers of each model's lists (func_8007786C), so a list two models share would
+        // be rebased twice: an alias gets its own copy of each list (the vertices and texture loads stay shared).
+        auto copy_list = [&](size_t s) {
+            size_t e = list_end(out, s);
+            size_t ns = out.size();
+            RelocWalk w = walk_reloc(out, s);
+            Bytes body(out.begin() + s, out.begin() + e);
+            std::vector<size_t> words = w.ptrs;
+            for (size_t c : w.conds) {
+                words.push_back(c + 4);
+            }
+            for (size_t p : words) {
+                if (p < s || p >= e) {
+                    continue;
+                }
+                uint32_t v = u32(out, p);
+                size_t target = v & 0xFFFFFF;
+                if (s <= target && target <= e) {
+                    put32(body, p - s, (v & 0xFF000000) | (uint32_t)(target - s + ns));
+                }
+            }
+            out.insert(out.end(), body.begin(), body.end());
+            add32(out, 0xDF000000);
+            add32(out, 0);
+            return ns;
+        };
+        // The relocated (and restored) list of a source object's LOD.
+        auto final_list = [&](size_t file, uint32_t dl) -> size_t {
+            auto it = dl ? lod_lists.find({ file, dl }) : lod_lists.end();
+            if (it == lod_lists.end()) {
+                return 0;
+            }
+            auto rs = restored.find(it->second);
+            return rs != restored.end() ? rs->second : it->second;
+        };
+        // A copy of list s that calls `calls` before its end, then sets s's first render mode and combiner again.
+        auto extend_list = [&](size_t s, const std::vector<size_t>& calls) {
+            size_t ns = copy_list(s);
+            out.resize(out.size() - 8); // the copy's G_ENDDL
+            for (size_t c : calls) {
+                add32(out, 0xDE000000);
+                add32(out, (uint32_t)c);
+            }
+            for (uint8_t op : { 0xE2, 0xFC }) {
+                for (size_t o = s; o < list_end(out, s); o += 8) {
+                    if (out[o] == op) {
+                        add32(out, u32(out, o));
+                        add32(out, u32(out, o + 4));
+                        break;
+                    }
+                }
+            }
+            add32(out, 0xDF000000);
+            add32(out, 0);
+            return ns;
+        };
+        std::map<std::pair<std::string, int>, size_t> alias_lists;
+        for (const Entry& e : entries) {
+            if (!e.alias) {
+                continue;
+            }
+            for (int j = 0; j < std::min(4, (int)e.ob->lod_count); j++) {
+                uint32_t dl = e.ob->lods[j].dl;
+                auto it = dl ? lod_lists.find({ e.file, dl }) : lod_lists.end();
+                if (it == lod_lists.end()) {
+                    continue;
+                }
+                size_t ndl = it->second;
+                auto rs = restored.find(ndl);
+                alias_lists[{ e.name, j }] = copy_list(rs != restored.end() ? rs->second : ndl);
+            }
+        }
+        std::map<std::pair<std::string, int>, size_t> append_lists;
+        for (const Entry& e : entries) {
+            auto [lo, hi] = opt.appends.equal_range(e.name);
+            if (e.ob == nullptr || lo == hi) {
+                continue;
+            }
+            std::vector<size_t> calls;
+            for (auto it = lo; it != hi; ++it) {
+                for (size_t i = 0; i < srcs.size(); i++) {
+                    for (const Object49& ob : srcs[i].objects) {
+                        size_t l = ob.name == it->second && ob.lod_count > 0 ? final_list(i, ob.lods[0].dl) : 0;
+                        if (l != 0) {
+                            calls.push_back(l);
+                        }
+                    }
+                }
+            }
+            for (int j = 0; j < std::min(4, (int)e.ob->lod_count); j++) {
+                auto al = alias_lists.find({ e.name, j });
+                size_t s = al != alias_lists.end() ? al->second : final_list(e.file, e.ob->lods[j].dl);
+                if (s != 0 && !calls.empty()) {
+                    append_lists[{ e.name, j }] = extend_list(s, calls);
+                }
+            }
+        }
 
         size_t model_off = out.size();
         for (const Entry& e : entries) {
@@ -634,6 +900,14 @@ namespace {
                         auto rs = restored.find(ndl);
                         if (rs != restored.end()) {
                             ndl = rs->second;
+                        }
+                        auto al = alias_lists.find({ e.name, j });
+                        if (al != alias_lists.end()) {
+                            ndl = al->second;
+                        }
+                        auto ap = append_lists.find({ e.name, j });
+                        if (ap != append_lists.end()) {
+                            ndl = ap->second;
                         }
                     }
                     add16(rec, l.texture);
@@ -2055,7 +2329,7 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         // Models Rush 2's shared assets also define (breakable glass and flags) are left to Rush 2: placement maps
         // those objects to Rush 2's breakable classes, whose behaviour comes from Rush 2's name records. The sky gets
         // the name Rush 2's sky code looks up; FINISH models and CHKPNT/FINISH textures are looked up unchecked.
-        MergeOptions opt;
+        MergeOptions opt{};
         opt.rename = { { "SKYSKY", "SKYO1" } };
         opt.dummies = { prefix + "FINISH", prefix + "FINISHB" };
         opt.dummy_textures = { "CHKPNT", "FINISH" };
@@ -2093,6 +2367,104 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
     catch (const ConvertError& e) {
         error = e.message;
         return false;
+    }
+    return true;
+}
+
+// A Rush 2049 car (files 88-100) as a Rush 2 car asset for the car type named `name` (Rush 2's car names, table
+// 0x800C0764). Rush 2 builds 39 part names from the car name and the suffixes at 0x800C6180 and uses their handles
+// unchecked (func_80086700): the frame, five body panels (four corners and the roof) in damage stages, and headlights.
+// A 2049 car is one body that 2049 dents by moving its vertices: the body becomes the frame and the panels and lights
+// are empty, so the car draws once whatever damage stage Rush 2 picks.
+bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, const std::string& name,
+                                   std::vector<uint8_t>& out, std::string& error) {
+    static const char* const parts[] = {
+        "FRAME1", "D0_FR1", "D2_FR1", "D0_FL1", "D2_FL1", "D0_RR1", "D2_RR1", "D0_RL1", "D2_RL1", "D0_TOP1",
+        "D1_TOP1", "D0_DFR1", "D2_DFR1", "D0_DFL1", "D2_DFL1", "D0_DRR1", "D2_DRR1", "D0_DRL1", "D2_DRL1", "D0_DTOP1",
+        "D0_D2FR2", "D2_D2FR2", "D0_D2FL2", "D2_D2FL2", "D0_D2RR2", "D2_D2RR2", "D0_D2RL2", "D2_D2RL2", "D0_D2TOP2",
+        "H0_L", "H2_L", "H0_R", "H2_R", "H0D_L", "H2D_L", "H0D_R", "H2D_R",
+    };
+    if (car < 1 || car > 13) {
+        error = "no Rush 2049 car " + std::to_string(car);
+        return false;
+    }
+    Bytes file, effects;
+    if (!rush2::rom2049::read_file(rom, 87 + car, file)) {
+        error = "can't read Rush 2049 file " + std::to_string(87 + car);
+        return false;
+    }
+    try {
+        std::string prefix = "CAR" + std::to_string(car);
+        MergeOptions opt{};
+        opt.rename = { { prefix + "FRAME1", name + "FRAME1" } };
+        for (const char* part : parts) {
+            opt.dummies.push_back(name + part);
+        }
+        // HOOD is the hood 2049 throws off a wrecked car (FRAME1 has its own), SHEEN a reflection pass Rush 2 can't
+        // draw: neither is drawn.
+        std::set<std::string> exclude = { prefix + "HOOD", prefix + "SHEEN" };
+        std::vector<const Bytes*> files = { &file };
+        // The Rocket ZX's exhaust flames: three effect models (file 62) 2049 attaches behind it (func_800AF690) and
+        // rescales every frame (func_800930A4). They are drawn with the body; src/car2049.cpp places and animates them.
+        Bytes flames;
+        if (car == rocket_car && rush2::rom2049::read_file(rom, effects_file, effects)) {
+            std::set<std::string> keep = { "ROKTFLAMEG1", "ROKTFLAMEG2", "ROKTFLAMEG3" };
+            flames = subset_model49(effects, keep);
+            for (const std::string& n : keep) {
+                opt.appends.insert({ name + "FRAME1", n });
+            }
+            files.push_back(&flames);
+        }
+        opt.exclude = &exclude;
+        std::set<std::string> names;
+        out = merge_models(files, opt, names);
+    }
+    catch (const ConvertError& e) {
+        error = e.message;
+        return false;
+    }
+    // 2049 paints the body in the combiner's second cycle (TEXEL0 * SHADE, then * PRIM = paint colour). Rush 2 leaves
+    // PRIM to whatever was drawn last, so drop the PRIM multiply; the paint is applied to the car's palette instead
+    // (src/car2049.cpp).
+    static const uint8_t painted[8] = { 0xFC, 0x12, 0x7E, 0x03, 0xFF, 0x0F, 0xF3, 0xFF };
+    static const uint8_t unpainted[8] = { 0xFC, 0x12, 0x7F, 0xFF, 0xFF, 0xFF, 0xF2, 0x38 };
+    for (size_t o = 0; o + 8 <= out.size(); o += 8) {
+        if (memcmp(&out[o], painted, 8) == 0) {
+            memcpy(&out[o], unpainted, 8);
+        }
+    }
+    // 2049 lights its cars at runtime over a flat grey (0x88) vertex colour; Rush 2's car vertices are white, so do
+    // the same here.
+    std::set<uint32_t> seen;
+    std::function<void(uint32_t)> whiten = [&](uint32_t pc) {
+        for (; pc + 8 <= out.size() && seen.insert(pc).second; pc += 8) {
+            uint32_t w0 = u32(out, pc), w1 = u32(out, pc + 4) & 0xFFFFFF;
+            uint8_t op = uint8_t(w0 >> 24);
+            if (op == 0xDF) return;
+            if (op == 0xDE) whiten(w1);
+            if (op == 0x01) {
+                uint32_t n = (w0 >> 12) & 0xFF;
+                for (uint32_t v = 0; v < n && w1 + v * 16 + 16 <= out.size(); v++) {
+                    out[w1 + v * 16 + 12] = out[w1 + v * 16 + 13] = out[w1 + v * 16 + 14] = 0xFF;
+                }
+            }
+        }
+    };
+    // The flames keep their own colours (their lists are marked walked; the body's lists call them).
+    uint32_t models = u32(out, 0), model_names = u32(out, 4), model_count = u32(out, 16);
+    for (uint32_t m = 0; m < model_count; m++) {
+        uint32_t r = models + m * 0x34;
+        if (cstr(out, model_names + m * 0x18, 16).rfind("ROKTFLAME", 0) == 0) {
+            for (uint32_t l = 0; l < u32(out, r) && l < 4; l++) {
+                seen.insert(u32(out, r + 4 + l * 12 + 8));
+            }
+        }
+    }
+    for (uint32_t m = 0; m < model_count; m++) {
+        uint32_t r = models + m * 0x34;
+        for (uint32_t l = 0; l < u32(out, r) && l < 4; l++) {
+            whiten(u32(out, r + 4 + l * 12 + 8));
+        }
     }
     return true;
 }
