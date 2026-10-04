@@ -1,4 +1,8 @@
-// Records for the Rush 2049 tracks (docs/rush2049_research/records.md).
+// Records for the Rush 2049 and SF Rush tracks (docs/rush2049_research/records.md).
+//
+// Both kinds of added track race in the host slot; below, "2049 track" stands for either. Internally the added
+// tracks are numbered 1-6 (Rush 2049) and 7-13 (SF Rush tracks 1-7); track2049_records.json keeps the SF Rush ones
+// as { "game": "sfrush", "track": 1-7 }, so files written before they existed still load.
 //
 // A 2049 track is raced in the host slot (HAWAII, src/track2049.cpp), and Rush 2 indexes its records by track, so
 // without this file a 2049 race would read and write HAWAII's records. Rush 2 keeps three kinds of records, at
@@ -47,6 +51,7 @@
 #include "librecomp/addresses.hpp"
 #include "util/file.h"
 #include "rush2_hooks.h"
+#include "track1.h"
 #include "track2049.h"
 #include "wings.h"
 
@@ -87,8 +92,10 @@ namespace {
     constexpr int host_record_slot[2] = { host_slot, host_slot + 12 - 1 };
     constexpr int host_no_profile_slot[2] = { host_slot, host_slot + 12 };
 
-    // The 2049 tracks forward and backward: course = (track - 1) + 6 * backward.
-    constexpr int courses = track_count * 2;
+    // The added tracks forward and backward: course = (track - 1) + 13 * backward.
+    constexpr int r1_count = rush2::track1::track_count;
+    constexpr int extra_tracks = track_count + r1_count;
+    constexpr int courses = extra_tracks * 2;
 
     // A side block in RDRAM per player-record position: the stats of each course, then its two pages of times.
     constexpr uint32_t block_times = courses * stats_size;
@@ -134,16 +141,23 @@ namespace {
     int swapped = 0;              // The 2049 track whose rows are swapped in, or 0.
 
     int course_of(int k, int backward) {
-        return (k - 1) + track_count * backward;
+        return (k - 1) + extra_tracks * backward;
     }
 
-    // The 2049 track hosted by the current race (1-6), or 0.
+    // The added track hosted by the current race (1-6 Rush 2049, 7-13 SF Rush), or 0.
     int hosted(uint8_t* rdram) {
-        int k = rush2::track2049::race_track();
-        if (k < 1 || k > track_count || MEM_B(0, (int32_t)track_id) != host_slot) {
+        if (MEM_B(0, (int32_t)track_id) != host_slot) {
             return 0;
         }
-        return k;
+        int k = rush2::track2049::race_track();
+        if (k >= 1 && k <= track_count) {
+            return k;
+        }
+        int r = rush2::track1::race_track();
+        if (r >= 1 && r <= r1_count) {
+            return track_count + r;
+        }
+        return 0;
     }
 
     uint32_t record(int p) {
@@ -274,8 +288,12 @@ namespace {
                 }
                 int k = cj["track"].get<int>();
                 int backward = cj.value("backward", false) ? 1 : 0;
-                if (k < 1 || k > track_count) {
+                bool sfrush = cj.contains("game") && cj["game"].is_string() && cj["game"].get<std::string>() == "sfrush";
+                if (k < 1 || k > (sfrush ? r1_count : track_count)) {
                     continue;
+                }
+                if (sfrush) {
+                    k += track_count;
                 }
                 Course& c = profile[course_of(k, backward)];
                 if (cj.contains("stats") && cj["stats"].is_string()) {
@@ -310,11 +328,16 @@ namespace {
                                                                      : nlohmann::json(nullptr));
                     }
                 }
-                course_list.push_back({ { "track", course % track_count + 1 },
-                                        { "backward", course >= track_count },
-                                        { "race", pages[0] },
-                                        { "lap", pages[1] },
-                                        { "stats", to_hex(c.stats, sizeof(c.stats)) } });
+                int k = course % extra_tracks + 1;
+                nlohmann::json entry = { { "track", k > track_count ? k - track_count : k },
+                                         { "backward", course >= extra_tracks },
+                                         { "race", pages[0] },
+                                         { "lap", pages[1] },
+                                         { "stats", to_hex(c.stats, sizeof(c.stats)) } };
+                if (k > track_count) {
+                    entry["game"] = "sfrush";
+                }
+                course_list.push_back(entry);
             }
             if (!course_list.empty()) {
                 list.push_back({ { "name", printable(name) },
@@ -636,6 +659,11 @@ namespace {
     }
 
     float seed_2049(int k, int backward) {
+        if (k > track_count) {
+            // SF Rush keeps no seed times: the AI lanes' lap time stands in.
+            float s = rush2::track1::record_seed(k - track_count, backward != 0);
+            return s > 1.0f ? s : 90.0f;
+        }
         auto rom = rush2::wings::get_rom();
         uint32_t at = seeds_2049_rom + (uint32_t)((k - 1) + 19 * backward) * 4;
         if (rom != nullptr && rom->size() >= at + 4) {

@@ -15,3 +15,6 @@ run.err
 configure.log
 build-n64recomp/
 .release/
+tools/rush2049/m2c/
+tools/rush1/out/
+tools/rush1/cpp_test/out/

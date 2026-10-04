@@ -27,7 +27,7 @@ lane 0 speed is 139.3 on average over Rush 2's 9 race paths (both directions), a
 the computed start time and extensions are multiplied by the path's lane 0 speed ÷ 139.3 when that is above 1, which
 is what they would be at Rush 2's lane speeds. Track 1 forward then starts with 19 (23 s at difficulty 2).
 
-## 1. Summary
+## 1. Summary (superseded by §0: the 90 / 45 values below are overwritten from the AI lanes; they are NOT the race times)
 
 - **Rush 2 has no per-track checkpoint time.** Every race on every track, a 2049 track in the host slot included,
   gets the same time:
@@ -59,7 +59,7 @@ is what they would be at Rush 2's lane speeds. Track 1 forward then starts with 
   guess. §7 lists what to check in game and an optional hook if 2049 races should be untimed, the way Rush 2049
   plays them.
 
-## 2. Rush 2 timing [V]
+## 2. Rush 2 timing (superseded by §0 for the values) [V]
 
 | Step | Code | What it does |
 |---|---|---|
