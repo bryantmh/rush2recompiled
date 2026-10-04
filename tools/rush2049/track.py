@@ -1,6 +1,7 @@
 """Builds every Rush 2 file a converted Rush 2049 race track needs (prototype of the runtime converter).
 
-    python track.py K SLOT OUTDIR     K = 2049 race track 1-6, SLOT = Rush 2 track slot it replaces
+    python track.py K SLOT OUTDIR     K = 2049 track id + 1 (race tracks 1-6, stunt arenas 15-18),
+                                      SLOT = Rush 2 track slot it replaces
 
 Writes OUTDIR/geometry.bin (asset 0x33+slot), placement.bin (0x3F+slot), collision.bin (0x4B+slot),
 path.bin (0x57+slot), pathb.bin (0x63+slot), pvs.bin (the slot's visibility table), tables.txt (per-track table
@@ -30,6 +31,7 @@ FOG_COLOURS_2049 = 0x80114658      # 3 bytes per 2049 track id
 DEMO_LISTS_2049 = 0x801173D8       # ptr[12]: forward 0-5, backward 6-11
 DEMO_COUNTS_2049 = 0x80117408      # s16[12]
 RECORD_SEEDS_2049 = 0x8002E870     # boot segment, f32[t + 19 * backward]
+STUNT_FIRST = 15                   # k of stunt arena 1 (2049 track id 14)
 
 
 BLEND_RUSH2 = (0xF9000000, 0x00000010)   # G_SETBLENDCOLOR as Rush 2's frame setup leaves it (0x80020178)
@@ -237,6 +239,17 @@ def merge_models(files, rename=None, dummies=(), dummy_textures=(), exclude=()):
     return bytes(out), report
 
 
+def path_files(k):
+    """2049 AI path files (forward, backward) of 2049 track id k - 1. Race tracks have both; the stunt arenas only
+    one, which serves both ways (Rush 2 has no backward stunt races). 2049's loader takes file 0x9E + id (func_800BB9B0)
+    for both, so stunt arena n is file 171 + n, although the editor names inside the files run the other way."""
+    if k <= 6:
+        return 157 + k, 176 + k
+    if STUNT_FIRST <= k < STUNT_FIRST + 4:
+        return 157 + k, 157 + k
+    raise ValueError('no paths for 2049 track %d' % k)
+
+
 def build(k, slot, outdir, static_paths=True):
     q = roms.Rush2049()
     r2 = roms.Rush2()
@@ -249,8 +262,8 @@ def build(k, slot, outdir, static_paths=True):
     shared = set()
     for a in (0x12, 0x14):
         shared |= {m['name'] for m in model.R2Model(r2.asset(a)).models}
-    geo_files = [q.file(100 + k), q.file(81 + k)] + [q.file(f) for f in SHARED_MODEL_FILES]
-    geometry, grep = merge_models(geo_files, rename={'SKYSKY': 'SKYO1'},
+    geo_files = [q.file(100 + k)] + ([q.file(81 + k)] if k <= 6 else []) + [q.file(f) for f in SHARED_MODEL_FILES]
+    geometry, grep = merge_models(geo_files, rename={'SKYSKY': 'SKYO1', 'STUNTSKYSKY': 'SKYO1'},
                                   dummies=[prefix + 'FINISH', prefix + 'FINISHB'],
                                   dummy_textures=['CHKPNT', 'FINISH'], exclude=shared)
     gm = model.R2Model(geometry)
@@ -271,8 +284,12 @@ def build(k, slot, outdir, static_paths=True):
 
     crep = {}
     coll = collision.convert(q.file(138 + k), report=crep)
-    fwd = paths.convert(q.file(157 + k))
-    bwd = paths.convert(q.file(176 + k))
+    fwd, bwd = path_files(k)
+    fwd = paths.convert(q.file(fwd))
+    bwd = paths.convert(q.file(bwd))
+    if k > 6:
+        fwd = bwd = paths.spine_lanes(fwd, q.file(138 + k))
+        problems += ['path: ' + e for e in paths.validate(paths.parse(fwd))]
     pvs = model.pvs_rush2_bytes(model.pvs_2049(q, k))
     npvs = q.main[model.R49_PVS_COUNT - q.MAIN_VRAM + k - 1]
 
@@ -299,4 +316,6 @@ if __name__ == '__main__':
     ok = True
     for k in range(1, 7):
         ok &= build(k, 2, os.path.join('out', 'track%d' % k))
+    for k in range(STUNT_FIRST, STUNT_FIRST + 4):
+        ok &= build(k, 11, os.path.join('out', 'stunt%d' % (k - STUNT_FIRST + 1)))
     sys.exit(0 if ok else 1)

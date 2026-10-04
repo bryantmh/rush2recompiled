@@ -75,7 +75,12 @@ namespace rush2::track2049 {
         TexAnims tex_anims;                  // Animated textures, as patch sites in `geometry`.
     };
 
-    // rom2049: the big-endian Rush 2049 (USA) ROM. k: 2049 race track 1-6. prefix: the Rush 2 slot's track prefix
+    // The stunt arenas' k for convert_track: stunt arena n (1-4) is k = stunt_first + n - 1 (2049 track id 14 + n - 1).
+    constexpr int stunt_first = 15;
+    constexpr int stunt_count = 4;
+
+    // rom2049: the big-endian Rush 2049 (USA) ROM. k: 2049 track id + 1, race tracks 1-6 or stunt arenas
+    // stunt_first.. (which have no demo starts and one AI path, used both ways). prefix: the Rush 2 slot's track prefix
     // (e.g. "HAWAII", table 0x800C182C). shared_models: names of the models in Rush 2's shared assets 0x12 and 0x14,
     // which are left out of the merged geometry (rush2_shared_model_names). static_paths: also place every 2049
     // path-following object at its spawn nodes, as world-space top-level records after the sections (listed in

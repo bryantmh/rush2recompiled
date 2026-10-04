@@ -538,7 +538,8 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
     // Animated textures don't depend on the moving objects being set up.
     rush2::track2049::texanim_tick(rdram, read_f(rdram, (uint32_t)((int32_t)ctx->r29 + 0x18)));
     std::lock_guard lock{ movers_mutex };
-    if (rush2::track2049::race_track() == 0 || MEM_B(0, (int32_t)track_id) != rush2::track2049::host_slot) {
+    int slot = rush2::track2049::loaded_slot();
+    if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot) {
         if (active) {
             rush2::track2049::stop_object_sounds();
         }

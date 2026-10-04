@@ -456,8 +456,8 @@ before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
 # Rush 2049 track select entries (src/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
-# func_803ABE0C (per frame); its tables and carousel array are repointed to 25-entry copies at 0x80300000 (Rush 2's 12
-# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24).
+# func_803ABE0C (per frame); its tables and carousel array are repointed to 29-entry copies at 0x80300000 (Rush 2's 12
+# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28).
 [[patches.hook]]
 func = "func_803AB294"
 before_vram = 0x803AB5C0
@@ -492,6 +492,49 @@ text = "    rush2_track49_select_save_p2(rdram, ctx);"
 func = "func_803B1AB0"
 before_vram = 0x803B1AB0
 text = "    if (rush2_track49_keys(rdram, ctx)) return;"
+
+# The menus' tests for the stunt track (11) treat the stunt arenas' ids 25-28 as 11: settings copy (backward and
+# mirror off), stunt mode (func_800AE670, which also means no drones), greyed track select options, and the option
+# list's drawing.
+[[patches.hook]]
+func = "func_800AE670"
+before_vram = 0x800AE78C
+text = "    rush2_track49_stunt_mode(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_80094698"
+before_vram = 0x80094754
+text = "    rush2_track49_stunt_settings_t8(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_80094698"
+before_vram = 0x800947F0
+text = "    rush2_track49_stunt_settings_t6(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803ABE0C"
+before_vram = 0x803ABFBC
+text = "    rush2_track49_stunt_select(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803ABE0C"
+before_vram = 0x803AC554
+text = "    rush2_track49_stunt_select(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C6268"
+before_vram = 0x803C6354
+text = "    rush2_track49_stunt_options(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C5798"
+before_vram = 0x803C5930
+text = "    rush2_track49_stunt_option_t9(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C5798"
+before_vram = 0x803C5978
+text = "    rush2_track49_stunt_option_t8(rdram, ctx);"
 
 [[patches.hook]]
 func = "func_800A5ADC"
@@ -611,17 +654,17 @@ value = 0x304E001F # andi    $t6, $v0, 0x1F
 [[patches.instruction]]
 func = "func_803AB294"
 vram = 0x803AB67C
-value = 0x2A210019 # slti    $at, $s1, 0x19
+value = 0x2A21001D # slti    $at, $s1, 0x1D
 
 [[patches.instruction]]
 func = "func_803AB294"
 vram = 0x803AB6D0
-value = 0x241E0019 # addiu    $fp, $zero, 0x19
+value = 0x241E001D # addiu    $fp, $zero, 0x1D
 
 [[patches.instruction]]
 func = "func_803ABE0C"
 vram = 0x803AC0FC
-value = 0x28C10019 # slti    $at, $a2, 0x19
+value = 0x28C1001D # slti    $at, $a2, 0x1D
 
 # Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
@@ -804,7 +847,7 @@ value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 
 # Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
 # Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
-# 25-entry name table into a 25-entry array at 0x80300700 (was 7 at 0x803C7A44), with the 25-entry scale, cloud height and
+# 29-entry name table into a 29-entry array at 0x80300780 (was 7 at 0x803C7A44), with the 29-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
 [[patches.hook]]
 func = "func_800A7DCC"
@@ -829,12 +872,12 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B62AC
-value = 0x26310764 # addiu $s1, $s1, 0x764
+value = 0x263107F4 # addiu $s1, $s1, 0x7F4
 
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B62B0
-value = 0x26100700 # addiu $s0, $s0, 0x700
+value = 0x26100780 # addiu $s0, $s0, 0x780
 
 [[patches.instruction]]
 func = "func_803B6260"
@@ -854,7 +897,7 @@ value = 0x26310000 # addiu $s1, $s1, 0
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B642C
-value = 0x26100700 # addiu $s0, $s0, 0x700
+value = 0x26100780 # addiu $s0, $s0, 0x780
 
 [[patches.instruction]]
 func = "func_803B6260"
@@ -864,7 +907,7 @@ value = 0x3C188030 # lui $t8, 0x8030
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B64B0
-value = 0x27180064 # addiu $t8, $t8, 0x64
+value = 0x27180074 # addiu $t8, $t8, 0x74
 
 [[patches.instruction]]
 func = "func_803B6260"
@@ -884,7 +927,7 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B6A14
-value = 0x26310700 # addiu $s1, $s1, 0x700
+value = 0x26310780 # addiu $s1, $s1, 0x780
 
 [[patches.instruction]]
 func = "func_803B6260"

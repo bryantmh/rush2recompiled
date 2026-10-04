@@ -116,6 +116,13 @@ void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_stunt_mode(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_stunt_settings_t8(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_stunt_settings_t6(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_stunt_select(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_stunt_options(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_stunt_option_t9(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ctx);
 
 // Race music and song previews (src/music.cpp).
 void rush2_music_race(uint8_t* rdram, recomp_context* ctx);

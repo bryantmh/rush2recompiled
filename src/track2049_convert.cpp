@@ -1,7 +1,8 @@
 // Converts a Rush 2049 race track into the files of a Rush 2 track slot. This is the C++ port of the prototype in
 // tools/rush2049 (track.py and the parts of model.py, placement.py, collision.py and paths.py it calls) and gives
 // byte-identical output. Format details and evidence are in docs/rush2049_research (geometry.md, placement.md,
-// collision.md, race.md). All data is big-endian. 2049 track k (1-6) uses these 2049 files:
+// collision.md, race.md). All data is big-endian. 2049 track k (= 2049 track id + 1: race tracks 1-6, stunt arenas
+// 15-18) uses these 2049 files:
 //
 // Geometry (100+k track, 81+k track objects, 78 shared flags/triggers -> one Rush 2 model container)
 //     2049 container: word 0 = offset of a directory of {tag, offset, size or count} entries. IMAG texels, TXLD
@@ -22,7 +23,9 @@
 //     model or dropped. Children of a dropped record move up. Kept models under a parent are made parent-relative.
 // Collision (138+k): Rush 2049's layout with a 0x10-byte header, a MOVER section and 32-bit leaf offsets, rewritten
 //     as Rush 2's; if the leaf section doesn't fit 16-bit offsets, bottom quadtree nodes are merged.
-// AI paths (157+k forward, 176+k backward): same format in both games; validated and kept as they are.
+// AI paths (157+k forward, 176+k backward; a stunt arena's one path, 157+k as 2049's loader picks it although the
+//     editor names inside the files run the other way, serves both): same format in both games;
+//     validated and kept as they are, except that a stunt arena's stub AI lanes are replaced with its spine. Stunt arenas have no per-track object file (81+k).
 // PVS, fog colour: per-track tables in 2049's main data, which is raw deflate at ROM 0xB0CB10, loaded at 0x80086A50.
 //
 // Matching the Python: floats are computed in double and rounded to float when written, as struct.pack('>f') does;
@@ -2083,6 +2086,136 @@ namespace {
         }
     }
 
+    // The surfaces of a Rush 2049 collision file over and under points (paths.floor_heights): each polygon as a fan of
+    // triangles, with its x/z bounds.
+    struct FloorTriangle {
+        double v[3][3];
+        double x0, x1, z0, z1;
+    };
+
+    std::vector<FloorTriangle> floor_triangles(const Bytes& collision_2049) {
+        Collision c;
+        parse_collision49(collision_2049, c);
+        auto vertex = [&](int k, double* out) {
+            const uint8_t* r = c.verts.at((size_t)k);
+            int16_t x = (int16_t)((r[0] << 8) | r[1]), y = (int16_t)((r[2] << 8) | r[3]), z = (int16_t)((r[4] << 8) | r[5]);
+            uint16_t f = (uint16_t)((r[6] << 8) | r[7]);
+            out[0] = (x * 32 + ((f >> 10) & 31)) / 32.0;
+            out[1] = (y * 32 + ((f >> 5) & 31)) / 32.0;
+            out[2] = (z * 32 + (f & 31)) / 32.0;
+        };
+        std::vector<FloorTriangle> tris;
+        for (const CPoly& p : c.polys) {
+            for (size_t i = 1; i + 1 < p.verts.size(); i++) {
+                FloorTriangle t;
+                vertex(p.verts[0], t.v[0]);
+                vertex(p.verts[i], t.v[1]);
+                vertex(p.verts[i + 1], t.v[2]);
+                t.x0 = std::min({ t.v[0][0], t.v[1][0], t.v[2][0] });
+                t.x1 = std::max({ t.v[0][0], t.v[1][0], t.v[2][0] });
+                t.z0 = std::min({ t.v[0][2], t.v[1][2], t.v[2][2] });
+                t.z1 = std::max({ t.v[0][2], t.v[1][2], t.v[2][2] });
+                tris.push_back(t);
+            }
+        }
+        return tris;
+    }
+
+    std::vector<double> floor_heights(const std::vector<FloorTriangle>& tris, double x, double z) {
+        std::vector<double> out;
+        for (const FloorTriangle& t : tris) {
+            if (x < t.x0 || x > t.x1 || z < t.z0 || z > t.z1) {
+                continue;
+            }
+            double xa = t.v[0][0], ya = t.v[0][1], za = t.v[0][2];
+            double xb = t.v[1][0], yb = t.v[1][1], zb = t.v[1][2];
+            double xc = t.v[2][0], yc = t.v[2][1], zc = t.v[2][2];
+            double d = (zb - zc) * (xa - xc) + (xc - xb) * (za - zc);
+            if (d == 0) {
+                continue;
+            }
+            double u = ((zb - zc) * (x - xc) + (xc - xb) * (z - zc)) / d;
+            double v = ((zc - za) * (x - xc) + (xa - xc) * (z - zc)) / d;
+            double w = 1 - u - v;
+            if (u < -1e-6 || v < -1e-6 || w < -1e-6) {
+                continue;
+            }
+            out.push_back(u * ya + v * yb + w * yc);
+        }
+        return out;
+    }
+
+    // A stunt arena's path (paths.spine_lanes). Rush 2 starts a stunt race at spine point 0, facing point 1, at the
+    // spine's height (func_800A34A8), and puts a crashed car back on its lanes. The arenas' spines don't always lie
+    // on the floor (stunt 3's is under its terrain, stunt 2's starts off the edge of a platform), so each spine point
+    // is put on the highest surface under it (up to floor_slack above), or failing that on the lowest surface at most
+    // floor_reach above it, rounded up. The spine is rotated to start at the first point that, with its successor,
+    // already lay on the floor (within floor_slack), or failing that has floor under it (the spine is a closed loop on
+    // every arena).
+    // Rush 2049 runs no AI on its arenas, and their four lanes are stubs of 3-4 points whose load-time crossings
+    // (func_80092D6C) all land on the last point; func_8006DB00 then steps a lane from its last point to that same
+    // point, and Rush 2's lane follower (func_80074990) never gets past it. Each lane is replaced with the spine, with
+    // the stubs' speed 100 and flags 2. A validated file has no branches and its lanes last.
+    Bytes spine_lanes(const Bytes& d, const Bytes& collision_2049) {
+        constexpr size_t route = 0x32C;
+        constexpr double floor_slack = 2, floor_reach = 64;
+        size_t n_spine = u16(d, route);
+        if (u8(d, route + 8) != 0) {
+            fail("path: stunt arena path has branches");
+        }
+        size_t spine = route + 16 + 2;
+        std::vector<FloorTriangle> tris = floor_triangles(collision_2049);
+        std::vector<std::array<int16_t, 3>> pts;
+        std::vector<int> grounded;
+        for (size_t i = 0; i < n_spine; i++) {
+            int x = s16(d, spine + 6 * i), y = s16(d, spine + 6 * i + 2), z = s16(d, spine + 6 * i + 4);
+            std::vector<double> hs = floor_heights(tris, x, z);
+            std::optional<double> below, above;
+            for (double h : hs) {
+                if (h <= y + floor_slack) {
+                    if (!below || h > *below) below = h;
+                }
+                else if (h <= y + floor_reach) {
+                    if (!above || h < *above) above = h;
+                }
+            }
+            int on = 0;
+            if (below || above) {
+                double floor = below ? *below : *above;
+                on = y - floor_slack <= floor ? 2 : 1;
+                y = (int)std::clamp(std::ceil(floor), -32768.0, 32767.0);
+            }
+            pts.push_back({ (int16_t)x, (int16_t)y, (int16_t)z });
+            grounded.push_back(on);
+        }
+        size_t first = 0;
+        bool found = false;
+        for (int q : { 2, 1 }) {
+            for (size_t i = 0; i < n_spine && !found; i++) {
+                if (std::min(grounded[i], grounded[(i + 1) % n_spine]) >= q) {
+                    first = i;
+                    found = true;
+                }
+            }
+        }
+        std::rotate(pts.begin(), pts.begin() + (ptrdiff_t)first, pts.end());
+        Bytes out(d.begin(), d.begin() + (ptrdiff_t)spine);
+        for (const auto& p : pts) {
+            for (int16_t v : p) add16(out, (uint16_t)v);
+        }
+        for (int lane = 0; lane < 4; lane++) {
+            add16(out, (uint32_t)n_spine);
+            add16(out, 0);
+            add32(out, 0);
+            for (const auto& p : pts) {
+                for (int16_t v : p) add16(out, (uint16_t)v);
+                out.push_back(100);
+                out.push_back(2);
+            }
+        }
+        return out;
+    }
+
     // ------------------------------------------------------------------------------------------------------------
     // Tables in 2049's main data
 
@@ -2301,8 +2434,9 @@ bool rush2::track2049::rush2_shared_model_names(const std::vector<uint8_t>& rom,
 bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, const std::string& prefix,
                                      const std::set<std::string>& shared_models, bool static_paths,
                                      ConvertedTrack& out, std::string& error) {
-    if (k < 1 || k > 6) {
-        error = "no such 2049 race track";
+    bool race = k >= 1 && k <= 6;
+    if (!race && (k < stunt_first || k >= stunt_first + stunt_count)) {
+        error = "no such 2049 track";
         return false;
     }
     Bytes main;
@@ -2310,11 +2444,12 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         error = "can't read the Rush 2049 main code";
         return false;
     }
-    // 2049 files of race track k.
-    const int file_numbers[] = { 100 + k, 81 + k, shared_model_file, 119 + k, 138 + k, 157 + k, 176 + k };
+    // 2049 files of track k (-1: none).
+    const int file_numbers[] = { 100 + k, race ? 81 + k : -1, shared_model_file, 119 + k, 138 + k,
+                                 157 + k, race ? 176 + k : 157 + k };
     Bytes files[7];
     for (int i = 0; i < 7; i++) {
-        if (!rush2::rom2049::read_file(rom, file_numbers[i], files[i])) {
+        if (file_numbers[i] >= 0 && !rush2::rom2049::read_file(rom, file_numbers[i], files[i])) {
             error = "can't read Rush 2049 file " + std::to_string(file_numbers[i]);
             return false;
         }
@@ -2330,12 +2465,17 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         // those objects to Rush 2's breakable classes, whose behaviour comes from Rush 2's name records. The sky gets
         // the name Rush 2's sky code looks up; FINISH models and CHKPNT/FINISH textures are looked up unchecked.
         MergeOptions opt{};
-        opt.rename = { { "SKYSKY", "SKYO1" } };
+        opt.rename = { { "SKYSKY", "SKYO1" }, { "STUNTSKYSKY", "SKYO1" } };  // stunt arena 4 names its sky STUNTSKYSKY
         opt.dummies = { prefix + "FINISH", prefix + "FINISHB" };
         opt.dummy_textures = { "CHKPNT", "FINISH" };
         opt.exclude = &shared_models;
         std::set<std::string> names;
-        out.geometry = merge_models({ &track, &track_objects, &shared }, opt, names);
+        std::vector<const Bytes*> geometry_files = { &track };
+        if (race) {
+            geometry_files.push_back(&track_objects);
+        }
+        geometry_files.push_back(&shared);
+        out.geometry = merge_models(geometry_files, opt, names);
 
         std::vector<Type49> types = read_types(main);
         out.path_records.clear();
@@ -2345,19 +2485,20 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         out.collision = convert_collision(collision);
         validate_path(files[5]);
         validate_path(files[6]);
-        out.path = files[5];
-        out.path_backward = files[6];
+        out.path = race ? files[5] : spine_lanes(files[5], collision);
+        out.path_backward = race ? files[6] : out.path;
 
         out.pvs_count = u8(main, pvs_counts_vram - main_vram + k - 1);
         out.pvs = convert_pvs(main, k, out.pvs_count);
         for (int i = 0; i < 3; i++) {
             out.fog[i] = u8(main, fog_colours_vram - main_vram + (k - 1) * 3 + i);
         }
-        for (int b = 0; b < 2; b++) {
+        out.demo_starts[0].clear();
+        out.demo_starts[1].clear();
+        for (int b = 0; b < 2 && race; b++) {
             int entry = k - 1 + 6 * b;
             uint32_t list = u32(main, demo_lists_vram - main_vram + entry * 4);
             int count = s16(main, demo_counts_vram - main_vram + entry * 2);
-            out.demo_starts[b].clear();
             for (int i = 0; i < count; i++) {
                 out.demo_starts[b].push_back(s16(main, list - main_vram + i * 2));
             }
