@@ -1355,6 +1355,10 @@ extern "C" void rush2_car49_engine_value(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = (uint64_t)value;
 }
 
+int rush2::car2049::engine_sound(uint8_t* rdram, int type, int value) {
+    return is_2049(type) ? (int8_t)MEM_B(0, (int32_t)(t_engine + type)) : value;
+}
+
 // Car select, func_803BC048: 0x803BC4F0 starts the ENGINE row's value text (the horn and engine names share one string
 // table, so the row is told by its case); at 0x803BC63C the text is in $s0 (player $s2, the players' current types at
 // $s6). A 2049 car's ENGINE row reads ENGINE 1-6.

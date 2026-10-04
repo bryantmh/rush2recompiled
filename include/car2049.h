@@ -26,6 +26,9 @@ namespace rush2::car2049 {
     void set_option(bool enabled);
     // True when the option is on and the Rush 2049 ROM is available.
     bool available();
+    // The engine sound (0-9) a car of this type plays for ENGINE row value `value`: the value itself for a Rush 2
+    // car, the type's default sound for a 2049 car (whose ENGINE row is its power level).
+    int engine_sound(uint8_t* rdram, int type, int value);
     // Animates the loaded 2049 cars' effects (the Rocket ZX's exhaust flames). Called while models are drawn; it
     // runs at most once per 1/60 s.
     void animate(uint8_t* rdram);

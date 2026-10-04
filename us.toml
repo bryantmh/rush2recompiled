@@ -7246,6 +7246,27 @@ func = "func_803B9478"
 before_vram = 0x803B9E78
 text = "    rush2_car49_engine_value(rdram, ctx);"
 
+# Car select ENGINE row: rev the chosen engine as the HORN row plays its horn (src/engine_preview.cpp).
+[[patches.hook]]
+func = "func_803B9478"
+before_vram = 0x803B94B8
+text = "    rush2_engine_preview_car_select(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803B9478"
+before_vram = 0x803B9EBC
+text = "    rush2_engine_preview_start(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800AE670"
+before_vram = 0x800AE670
+text = "    rush2_engine_preview_frame(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8009E6DC"
+before_vram = 0x8009E6DC
+text = "    rush2_engine_preview_stop(rdram, ctx);"
+
 [[patches.hook]]
 func = "func_803BC048"
 before_vram = 0x803BC4F0
