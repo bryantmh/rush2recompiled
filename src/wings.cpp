@@ -38,8 +38,8 @@ namespace {
     const std::string config_id = "rush2049";
     const std::string wings_option_id = "wings";
     const std::string tracks_option_id = "tracks";
-    const std::string music_option_id = "tracks_music";
     const std::string cars_option_id = "cars";
+    const std::string drones_option_id = "computer_cars";
     const std::string style_option_p1 = "wing_style_p1";
     const std::string style_option_p2 = "wing_style_p2";
     const char* rom_file_name = "rush2049.z64";
@@ -181,8 +181,8 @@ namespace {
         bool disabled = !rush2::wings::rom_available();
         wings_config.update_option_disabled(wings_option_id, disabled);
         wings_config.update_option_disabled(tracks_option_id, disabled);
-        wings_config.update_option_disabled(music_option_id, !rush2::track2049::available());
         wings_config.update_option_disabled(cars_option_id, disabled);
+        wings_config.update_option_disabled(drones_option_id, disabled);
         wings_config.update_option_disabled(style_option_p1, disabled);
         wings_config.update_option_disabled(style_option_p2, disabled);
         if (rom_status_label != nullptr) {
@@ -279,18 +279,6 @@ void rush2::wings::create_tab() {
             update_rom_ui();
         });
     wings_config.add_bool_option(
-        music_option_id,
-        "Rush 2049 Music",
-        "Plays each Rush 2049 track's own Rush 2049 song when the game's music setting is on its default (a song per "
-        "track). When off, the Rush 2049 tracks play Rush 2 songs. Requires a Rush 2049 (USA) ROM.",
-        true
-    );
-    wings_config.add_option_change_callback(music_option_id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::track2049::set_music_option(std::get<bool>(cur_value));
-        });
-
-    wings_config.add_bool_option(
         cars_option_id,
         "Rush 2049 Cars",
         "Adds the thirteen cars of San Francisco Rush 2049 to the car select, after Rush 2's own cars, for players "
@@ -300,6 +288,28 @@ void rush2::wings::create_tab() {
     wings_config.add_option_change_callback(cars_option_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::car2049::set_option(std::get<bool>(cur_value));
+        });
+
+    wings_config.add_enum_option(
+        drones_option_id,
+        "Rush 2049 Computer Cars",
+        "Sets where the computer cars drive Rush 2049 cars (with Rush 2049 Cars on). "
+        "<recomp-color primary>All Tracks</recomp-color> picks the computer cars from Rush 2's and Rush 2049's cars on "
+        "every track. "
+        "<recomp-color primary>Rush 2049 Tracks</recomp-color> races only Rush 2049 cars on the Rush 2049 tracks and "
+        "only Rush 2 cars on the others. "
+        "<recomp-color primary>Off</recomp-color> keeps the computer cars to Rush 2's cars; players can still pick "
+        "Rush 2049 cars. Requires a Rush 2049 (USA) ROM.",
+        {
+            { rush2::car2049::DroneCars::AllTracks, "AllTracks", "All Tracks" },
+            { rush2::car2049::DroneCars::Rush2049Tracks, "Rush2049Tracks", "Rush 2049 Tracks" },
+            { rush2::car2049::DroneCars::Off, "Off", "Off" },
+        },
+        rush2::car2049::DroneCars::AllTracks
+    );
+    wings_config.add_option_change_callback(drones_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::car2049::set_drone_cars(static_cast<rush2::car2049::DroneCars>(std::get<uint32_t>(cur_value)));
         });
 
     // Rush 2049 has each player pick one of three wings on the car setup screen.

@@ -723,11 +723,12 @@ func = "func_800706D0"
 before_vram = 0x800706EC
 text = "    rush2_track49_movers_pads(rdram, ctx);"
 
-# Rush 2049 music on the 2049 tracks (src/track2049_audio.cpp): the race's song choice, and Rush 2's music commands.
+# Race music (src/music.cpp): the race's song choice, and Rush 2049 songs on Rush 2's music commands
+# (src/track2049_audio.cpp).
 [[patches.hook]]
 func = "func_8008C370"
 before_vram = 0x8008C370
-text = "    rush2_track49_music(rdram, ctx);"
+text = "    rush2_music_race(rdram, ctx);"
 
 [[patches.hook]]
 func = "func_80062F50"
@@ -735,8 +736,8 @@ before_vram = 0x80062F50
 text = "    rush2_track49_music_command(rdram, ctx);"
 
 # SF Rush's own music on the SF Rush tracks (src/track1_audio.cpp): its music block is added to the ROM image and
-# its bank loaded after Rush 2's (func_800B3B78), the race song becomes an SF Rush song (func_8008C370, $v0 = song),
-# and the music loader gives the sequence player the song's bank before attaching it (func_8007733C).
+# its bank loaded after Rush 2's (func_800B3B78), the race's sequence is the one src/music.cpp chose (func_8008C370,
+# $v0 = sequence), and the music loader gives the sequence player the song's bank before attaching it (func_8007733C).
 [[patches.hook]]
 func = "func_800B3B78"
 before_vram = 0x800B4000
@@ -745,12 +746,18 @@ text = "    rush2_track1_audio_init(rdram, ctx);"
 [[patches.hook]]
 func = "func_8008C370"
 before_vram = 0x8008C46C
-text = "    rush2_track1_music(rdram, ctx);"
+text = "    rush2_music_race_sequence(rdram, ctx);"
 
 [[patches.hook]]
 func = "func_8007733C"
 before_vram = 0x80077424
 text = "    rush2_track1_song_bank(rdram, ctx);"
+
+# Song previews on the Sound tab (src/music.cpp), on the audio thread before it takes queued music commands.
+[[patches.hook]]
+func = "func_800631A4"
+before_vram = 0x80063AA0
+text = "    rush2_music_preview(rdram, ctx);"
 
 # SF Rush breakables (src/track1.cpp): Rush 2 breakable class records draw the SF Rush model named for the record
 # (placement walker func_80081790, before its model lookup), and Rush 2 breakable pieces resolve to SF Rush's

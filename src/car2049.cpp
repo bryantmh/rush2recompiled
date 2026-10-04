@@ -29,6 +29,7 @@
 #include "assets.h"
 #include "car2049.h"
 #include "track2049_convert.h"
+#include "track2049.h"
 #include "wings.h"
 
 using namespace rush2::car2049;
@@ -984,22 +985,45 @@ void rush2::car2049::set_option(bool enabled) {
     cars_option = enabled;
 }
 
+namespace {
+    std::atomic<uint32_t> drone_cars = (uint32_t)rush2::car2049::DroneCars::AllTracks;
+}
+
+void rush2::car2049::set_drone_cars(DroneCars mode) {
+    drone_cars = (uint32_t)mode;
+}
+
 bool rush2::car2049::available() {
     return cars_available();
 }
 
 // func_800A37F4, after a drone's random car type (0-15, $t7) is drawn from the seed just stepped ($a0) and before it
 // is stored and checked against the cars already chosen: with the 2049 cars available the draw covers them too
-// (types 23-35 after Rush 2's 16).
+// (types 23-35 after Rush 2's 16), as the Rush 2049 Computer Cars option allows. On a 2049 track with "Rush 2049
+// Tracks" it covers only them (13 types, enough for the 7 drones to differ).
 extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
-    if (!cars_available()) {
+    using rush2::car2049::DroneCars;
+    DroneCars mode = (DroneCars)drone_cars.load();
+    if (!cars_available() || mode == DroneCars::Off) {
         return;
     }
     constexpr int rush2_drone_types = 16;
     uint32_t seed = (uint32_t)ctx->r4;
-    int pick = (int)(((seed >> 16) & 0x7FFF) * uint32_t(rush2_drone_types + car_count) / 32768);
-    if (pick >= rush2_drone_types) {
-        pick = first_type + pick - rush2_drone_types;
+    uint32_t draw = (seed >> 16) & 0x7FFF;
+    int pick;
+    if (mode == DroneCars::Rush2049Tracks) {
+        bool track_2049 = rush2::track2049::race_track() > 0 &&
+            MEM_B(0, (int32_t)0x8010C3F0) == rush2::track2049::host_slot;
+        if (!track_2049) {
+            return;
+        }
+        pick = first_type + (int)(draw * uint32_t(car_count) / 32768);
+    }
+    else {
+        pick = (int)(draw * uint32_t(rush2_drone_types + car_count) / 32768);
+        if (pick >= rush2_drone_types) {
+            pick = first_type + pick - rush2_drone_types;
+        }
     }
     ctx->r15 = (uint64_t)pick;
 }

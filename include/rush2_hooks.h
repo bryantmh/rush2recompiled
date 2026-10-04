@@ -87,7 +87,6 @@ void rush2_track49_select_save_p2(uint8_t* rdram, recomp_context* ctx);
 int rush2_track49_keys(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_race_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx);
-void rush2_track49_music(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_list(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_logo(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx);
@@ -118,9 +117,13 @@ void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx);
 
+// Race music and song previews (src/music.cpp).
+void rush2_music_race(uint8_t* rdram, recomp_context* ctx);
+void rush2_music_race_sequence(uint8_t* rdram, recomp_context* ctx);
+void rush2_music_preview(uint8_t* rdram, recomp_context* ctx);
+
 // SF Rush music (src/track1_audio.cpp).
 void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx);
-void rush2_track1_music(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx);
 int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx);
 

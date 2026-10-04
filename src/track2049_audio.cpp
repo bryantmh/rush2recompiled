@@ -1,11 +1,10 @@
 // Rush 2049's music and moving-object sounds on the 2049 tracks (engine: src/audio2049.cpp).
 //
-// Music: Rush 2 picks a race's song in func_8008C370(2, option), where option is the music setting (byte 0x800D5775:
-// 0 off, 1 per track, 2-9 a fixed song), and sends its music thread commands through func_80062F50: (sequence << 16)
-// | 0xFFFF plays a sequence, 0x40000000 stops, 0xC0000000 applies the fade factor at 0x800BD150. The volume is
-// (byte 0x800D5773 / 40) x fade at full scale. On a 2049 track with the per-track setting, the hook turns the call
-// into Rush 2's "music off" case, whose stop command then starts the track's 2049 song instead; any later play or
-// stop command (results jingle, menus, quitting) ends it, and fade commands follow along.
+// Music: src/music.cpp picks each race's song. Rush 2 sends its music thread commands through func_80062F50:
+// (sequence << 16) | 0xFFFF plays a sequence, 0x40000000 stops, 0xC0000000 applies the fade factor at 0x800BD150.
+// The volume is (byte 0x800D5773 / 40) x fade at full scale. For a Rush 2049 song, src/music.cpp queues it here and
+// turns the race's music call into Rush 2's "music off" case, whose stop command then starts the 2049 song instead;
+// any later play or stop command (results jingle, menus, quitting) ends it, and fade commands follow along.
 //
 // Object sounds: the follower logic (src/track2049_movers_logic.cpp) reports each moving object's sound requests
 // (start, loop, stop: type table +0x1C/+0x20/+0x24); src/track2049_movers.cpp passes them here with the object's
@@ -30,8 +29,6 @@
 namespace audio = rush2::audio2049;
 
 namespace {
-    constexpr uint32_t track_id = 0x8010C3F0;
-    constexpr uint32_t music_setting = 0x800D5775;  // u8: 0 off, 1 per track, 2-9 a fixed song
     constexpr uint32_t music_volume = 0x800D5773;   // s8: 0-40
     constexpr uint32_t sfx_volume = 0x800D5774;     // s8: 0-40
     constexpr uint32_t music_fade = 0x800BD150;     // f32
@@ -39,9 +36,6 @@ namespace {
                                                     // position +0x24.
     constexpr uint32_t player_car = 0x800F5470;      // Car 0's physics struct; +0x224 = position.
     constexpr uint32_t cmd_stop = 0x40000000;
-
-    // Rush 2049's song per race track (0x8010FFD4).
-    constexpr int track_songs[rush2::track2049::track_count] = { 0, 1, 4, 2, 3, 7 };
 
     std::mutex load_mutex;
     std::shared_ptr<const std::vector<uint8_t>> loaded_rom;
@@ -89,10 +83,6 @@ namespace {
         return loaded;
     }
 
-    bool racing_2049(uint8_t* rdram) {
-        return rush2::track2049::race_track() > 0 && MEM_B(0, (int32_t)track_id) == rush2::track2049::host_slot;
-    }
-
     void update_gains(uint8_t* rdram) {
         float fade = read_f(rdram, music_fade);
         if (!(fade >= 0.0f && fade <= 1.0f)) {
@@ -118,15 +108,30 @@ namespace {
     std::vector<ObjectVoice> object_voices;
 }
 
-// func_8008C370 entry: $a0 = 2 to start the race's music with setting $a1.
-extern "C" void rush2_track49_music(uint8_t* rdram, recomp_context* ctx) {
-    pending_song = -1;
-    if ((int32_t)ctx->r4 != 2 || (ctx->r5 & 0xFF) != 1 || !racing_2049(rdram) ||
-        !rush2::track2049::music_option() || !ready()) {
+bool rush2::track2049::music_ready() {
+    return ready();
+}
+
+void rush2::track2049::queue_race_song(int song) {
+    pending_song = song;
+}
+
+void rush2::track2049::play_song_now(uint8_t* rdram, int song) {
+    if (!ready()) {
         return;
     }
-    pending_song = track_songs[rush2::track2049::race_track() - 1];
-    ctx->r5 = 0;
+    update_gains(rdram);
+    audio::play_song(song);
+}
+
+void rush2::track2049::stop_song_now() {
+    if (loaded) {
+        audio::stop_song(0.0f);
+    }
+}
+
+int rush2::track2049::playing_song() {
+    return loaded && audio::song_playing() ? audio::current_song() : -1;
 }
 
 // func_80062F50 entry: queues music command $a0.

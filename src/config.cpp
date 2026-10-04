@@ -10,6 +10,7 @@
 #include "util/file.h"
 
 #include "rush2.h"
+#include "music.h"
 #include "track1.h"
 #include "wings.h"
 
@@ -272,7 +273,7 @@ void rush2::init_config() {
 
     // The frontend's Controls tab is replaced by the Players tab and the game's own Controller Setup screen.
     rush2::players::create_tab();
-    recompui::config::create_sound_tab();
+    rush2::music::create_sound_tab();
     rush2::cheats::create_tab();
     rush2::wings::create_tab();
     rush2::track1::create_tab();
@@ -291,4 +292,5 @@ void rush2::init_config() {
     rush2::controls::load();
     rush2::wings::load_config();
     rush2::track1::load_config();
+    rush2::music::load_config();
 }
