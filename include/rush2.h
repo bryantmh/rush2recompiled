@@ -22,6 +22,17 @@ namespace rush2 {
     void install_font_pack();
     void set_hires_fonts_enabled(bool enabled);
 
+    // Where settings and saves are stored (src/data_location.cpp): the user's app data folder, or the program's folder
+    // in portable mode (portable.txt next to the executable). Switching takes effect on the next launch.
+    namespace data_location {
+        bool is_portable();
+        // Creates or removes portable.txt and schedules this session's data to be copied to the new folder on the next
+        // launch. Returns false if the files couldn't be written.
+        bool set_portable(bool portable);
+        // Performs a copy scheduled by set_portable. Call at startup, before the config path is registered.
+        void apply_pending_move();
+    }
+
     // Cheats tab: the in-game cheat menu and forced cheats (src/cheats.cpp).
     namespace cheats {
         void create_tab();
@@ -119,8 +130,9 @@ namespace rush2 {
         int listen_slot(int port);
         bool update_listen(int port);
 
-        // The game's N64 buttons and stick for a port during a race.
-        void get_race_input(int port, uint16_t* buttons, float* x, float* y, float steering_exponent);
+        // The game's N64 buttons and stick for a port during a race, and how far GAS and BRAKE are pressed (0 to 1).
+        void get_race_input(int port, uint16_t* buttons, float* x, float* y, float steering_exponent, float* gas,
+                            float* brake);
         // The fixed menu layout.
         void get_menu_input(int port, uint16_t* buttons, float* x, float* y);
         // True if an input on the port's devices is held (used to wait for releases).

@@ -37,8 +37,8 @@ namespace {
 
     // Side buffer for the wrapped commands, in unused RDRAM above the game's 4MB. RT64 reads display lists
     // asynchronously, so this is a ring large enough to hold many frames (a race uses a few KB per frame).
-    constexpr uint32_t side_start = 0x80900000;
-    constexpr uint32_t side_end = 0x80A00000;
+    constexpr uint32_t side_start = 0x80B00000;
+    constexpr uint32_t side_end = 0x80C00000;
     uint32_t side_cursor = side_start;
 
     // F3DEX2 commands.

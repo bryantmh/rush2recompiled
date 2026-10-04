@@ -1,0 +1,90 @@
+Rush 2049 track records (src/track2049_records.cpp, docs/rush2049_research/records.md).
+
+=== include/rush2_hooks.h (next to the other rush2_track49_* declarations) ===
+
+// Rush 2049 track records (src/track2049_records.cpp).
+void rush2_track49_records_stats(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_times(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_enter(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_exit(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_seed(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_records_clear(uint8_t* rdram, recomp_context* ctx);
+
+=== CMakeLists.txt ===
+
+Add src/track2049_records.cpp to the Rush2Recompiled sources, next to src/track2049_menu.cpp.
+
+=== us.toml (append after the Rush 2049 track select / race start hooks) ===
+
+# Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
+# list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
+# post-race and high-score screen functions run. None of these instructions is a delay slot.
+[[patches.hook]]
+func = "func_80065360"
+before_vram = 0x80065428
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8006544C"
+before_vram = 0x80065514
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A9164"
+before_vram = 0x800A922C
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A9250"
+before_vram = 0x800A93B4
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A7804"
+before_vram = 0x800A78E4
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A7804"
+before_vram = 0x800A78F8
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A952C"
+before_vram = 0x800A99C8
+text = "    rush2_track49_records_times(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A952C"
+before_vram = 0x800A952C
+text = "    rush2_track49_records_enter(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A952C"
+before_vram = 0x800AA964
+text = "    rush2_track49_records_exit(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800606A8"
+before_vram = 0x800606A8
+text = "    rush2_track49_records_enter(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800606A8"
+before_vram = 0x80060DA0
+text = "    rush2_track49_records_exit(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800606A8"
+before_vram = 0x800608A4
+text = "    rush2_track49_records_seed(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B3110"
+before_vram = 0x800B3110
+text = "    rush2_track49_records_clear(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B306C"
+before_vram = 0x800B306C
+text = "    rush2_track49_records_clear(rdram, ctx);"

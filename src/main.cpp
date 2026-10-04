@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -44,6 +45,7 @@
 
 #include "rush2.h"
 #include "wings.h"
+#include "track2049.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -78,8 +80,10 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     return {};
 }
 
+static bool script_uses_controller2 = false; // Set by an --input-script with P2 presses.
+
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
-    if (rush2::input::is_port_connected(controller_num)) {
+    if (rush2::input::is_port_connected(controller_num) || (controller_num == 1 && script_uses_controller2)) {
         return ultramodern::input::connected_device_info_t{
             .connected_device = ultramodern::input::Device::Controller,
             .connected_pak = ultramodern::input::Pak::RumblePak,
@@ -93,6 +97,22 @@ ultramodern::input::connected_device_info_t get_connected_device_info(int contro
 }
 
 SDL_Window* window;
+
+// Window icon: raw 128x128 RGBA pixels written by tools/build_icons.py.
+[[maybe_unused]] static void set_window_icon(SDL_Window* window) {
+    constexpr int icon_size = 128;
+    std::ifstream file{ recompui::file::get_program_path() / "assets" / "icon_128.rgba", std::ios::binary };
+    std::vector<char> pixels(icon_size * icon_size * 4);
+    if (!file.read(pixels.data(), (std::streamsize)pixels.size())) {
+        return;
+    }
+    SDL_Surface* icon = SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(), icon_size, icon_size, 32, icon_size * 4,
+                                                           SDL_PIXELFORMAT_RGBA32);
+    if (icon != nullptr) {
+        SDL_SetWindowIcon(window, icon);
+        SDL_FreeSurface(icon);
+    }
+}
 
 ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::gfx_data_t) {
     uint32_t flags = SDL_WINDOW_RESIZABLE;
@@ -108,6 +128,11 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
     if (window == nullptr) {
         exit_error("Failed to create window: %s\n", SDL_GetError());
     }
+
+#if !defined(_WIN32)
+    // On Windows, SDL takes the window icon from the executable's icon resource (icons/app.rc).
+    set_window_icon(window);
+#endif
 
     SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
@@ -168,6 +193,7 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
         swap_buffer[i + 1 + duplicated_input_frames * input_channels] = audio_data[i + 0] * (0.5f / 32768.0f) * cur_main_volume;
     }
     rush2::wings::mix_sound(&swap_buffer[duplicated_input_frames * input_channels], sample_count, sample_rate, (0.5f / 32768.0f) * cur_main_volume);
+    rush2::track2049::mix_audio(&swap_buffer[duplicated_input_frames * input_channels], sample_count, sample_rate, 0.5f * cur_main_volume);
 
     if (sample_count <= duplicated_input_frames * input_channels) {
         return;
@@ -345,11 +371,13 @@ void reorder_texture_pack(recomp::mods::ModContext&) {
 }
 
 // --input-script "<seconds>:<button>[:<hold seconds>],..." presses N64 buttons at fixed times after
-// launch, on top of real input (used for automated testing). Buttons: A B Z START L R CU CD CL CR DU DD DL DR.
+// launch, on top of real input (used for automated testing). Buttons: A B Z START L R CU CD CL CR DU DD DL DR, for
+// controller 1, or with a P2 prefix (P2START) for controller 2.
 struct ScriptedPress {
     double time;
     double duration;
     uint16_t button;
+    int controller;
 };
 static std::vector<ScriptedPress> input_script;
 static std::chrono::steady_clock::time_point launch_time = std::chrono::steady_clock::now();
@@ -369,12 +397,17 @@ static void parse_input_script(const std::string& script) {
         if (colon == std::string::npos) {
             continue;
         }
-        ScriptedPress press{ std::stod(entry.substr(0, colon)), 0.15, 0 };
+        ScriptedPress press{ std::stod(entry.substr(0, colon)), 0.15, 0, 0 };
         std::string name = entry.substr(colon + 1);
         size_t colon2 = name.find(':');
         if (colon2 != std::string::npos) {
             press.duration = std::stod(name.substr(colon2 + 1));
             name = name.substr(0, colon2);
+        }
+        if (name.rfind("P2", 0) == 0) {
+            press.controller = 1;
+            script_uses_controller2 = true;
+            name = name.substr(2);
         }
         for (const auto& [button_name, mask] : buttons) {
             if (name == button_name) {
@@ -387,10 +420,10 @@ static void parse_input_script(const std::string& script) {
 
 static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     bool ret = rush2::input::get_n64_input(controller_num, buttons, x, y);
-    if (controller_num == 0 && !input_script.empty()) {
+    if (!input_script.empty()) {
         double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - launch_time).count();
         for (const auto& press : input_script) {
-            if (now >= press.time && now < press.time + press.duration) {
+            if (press.controller == controller_num && now >= press.time && now < press.time + press.duration) {
                 *buttons |= press.button;
                 ret = true;
             }
@@ -399,21 +432,27 @@ static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float
     return ret;
 }
 
-// --autostart skips the launcher and starts the game immediately (used for testing).
-static bool autostart = false;
+// The launcher only appears when no valid ROM is stored, offering to locate one. Once a ROM is valid (found at startup
+// or just picked), the game starts right away.
+static void launcher_init(recompui::LauncherMenu* menu) {
+    const recomp::GameEntry& game = supported_games[0];
+    auto game_options_menu = menu->init_game_options_menu(game.game_id, game.mod_game_id, game.display_name,
+                                                          game.thumbnail_bytes, recompui::GameOptionsMenuLayout::Center);
+    game_options_menu->add_start_game_or_load_rom_option("Locate ROM", "Start Game");
+    game_options_menu->add_exit_option();
+}
 
 static void launcher_update(recompui::LauncherMenu*) {
-    if (!autostart) {
-        return;
-    }
-    autostart = false;
+    static bool started = false;
     const recomp::GameEntry& game = supported_games[0];
     std::u8string game_id = game.game_id;
-    if (recomp::is_rom_valid(game_id)) {
-        recompui::update_game_mod_id(game.mod_game_id);
-        recomp::start_game(game_id, {});
-        recompui::hide_all_contexts();
+    if (started || !recomp::is_rom_valid(game_id)) {
+        return;
     }
+    started = true;
+    recompui::update_game_mod_id(game.mod_game_id);
+    recomp::start_game(game_id, {});
+    recompui::hide_all_contexts();
 }
 
 int main(int argc, char** argv) {
@@ -469,6 +508,7 @@ int main(int argc, char** argv) {
 
     recompui::register_primary_font("InterVariable.ttf", "Inter Variable");
 
+    rush2::data_location::apply_pending_move();
     recomp::register_config_path(recompui::file::get_app_folder_path());
     rush2::install_font_pack();
 
@@ -486,13 +526,11 @@ int main(int argc, char** argv) {
     rush2::init_config();
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--autostart") == 0) {
-            autostart = true;
-        }
-        else if (strcmp(argv[i], "--input-script") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--input-script") == 0 && i + 1 < argc) {
             parse_input_script(argv[++i]);
         }
     }
+    recompui::register_launcher_init_callback(launcher_init);
     recompui::register_launcher_update_callback(launcher_update);
 
     recomp::rsp::callbacks_t rsp_callbacks{

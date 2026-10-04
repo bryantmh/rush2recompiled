@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <type_traits>
 #include <variant>
 
 #include "recompui/recompui.h"
@@ -10,6 +11,21 @@
 
 #include "rush2.h"
 #include "wings.h"
+
+// Changes the default of an option the frontend already added. add_option() copies the default into the stored values,
+// which is what a fresh install (no saved config file) keeps, so both need changing. Must run before finalize().
+template <typename OptionType>
+static void set_option_default(recomp::config::Config& config, const std::string& id, recomp::config::ConfigValueVariant value) {
+    auto& option = const_cast<recomp::config::ConfigOption&>(config.get_option(id));
+    if constexpr (std::is_same_v<OptionType, recomp::config::ConfigOptionNumber>) {
+        std::get<OptionType>(option.variant).default_value = std::get<double>(value);
+    }
+    else {
+        std::get<OptionType>(option.variant).default_value = std::get<uint32_t>(value);
+    }
+    auto& storage = const_cast<recomp::config::ConfigStorage&>(config.get_config_storage());
+    storage.value_map[id] = value;
+}
 
 // The graphics tab only offers Original/Expand aspect ratios. Rush 2 offers three:
 // Original (4:3), 16:9 (RT64's manual aspect, whose default target is 16:9) and Fill (expand to the window).
@@ -32,7 +48,7 @@ static void customize_graphics_options(recomp::config::Config& config) {
         { ultramodern::renderer::AspectRatio::Manual, "Manual", "16:9" },
         { ultramodern::renderer::AspectRatio::Expand, "Expand", "Fill" },
     };
-    aspect_enum.default_value = static_cast<uint32_t>(ultramodern::renderer::AspectRatio::Expand);
+    set_option_default<ConfigOptionEnum>(config, options::ar_option, static_cast<uint32_t>(ultramodern::renderer::AspectRatio::Expand));
 
     // HUD placement moves the race HUD's left and right elements toward the screen edges (src/hud.cpp).
     // The option keys stay the frontend's so saved settings carry over.
@@ -48,6 +64,14 @@ static void customize_graphics_options(recomp::config::Config& config) {
         { ultramodern::renderer::HUDRatioMode::Clamp16x9, "Clamp16x9", "16:9" },
         { ultramodern::renderer::HUDRatioMode::Full, "Expand", "Edge" },
     };
+    set_option_default<ConfigOptionEnum>(config, options::hr_option, static_cast<uint32_t>(ultramodern::renderer::HUDRatioMode::Full));
+
+    // Resolution (Auto) and Framerate (Display) already default to what Rush 2 wants.
+}
+
+// Rumble defaults to full strength instead of the frontend's 25%.
+static void customize_general_options(recomp::config::Config& config) {
+    set_option_default<recomp::config::ConfigOptionNumber>(config, recompui::config::general::options::rumble_strength, 100.0);
 }
 
 namespace lod_option {
@@ -70,7 +94,7 @@ static void add_lod_option(recomp::config::Config& config) {
             { LODMode::Original, "Original", "Original" },
             { LODMode::Off, "Off", "Off" },
         },
-        LODMode::Original
+        LODMode::Off
     );
 
     // Called when the config loads and on every change, including previews in the menu.
@@ -152,6 +176,48 @@ static void add_steering_option(recomp::config::Config& config) {
         });
 }
 
+namespace data_location_option {
+    const std::string id = "data_location";
+    enum class DataLocation : uint32_t { AppData, Portable };
+}
+
+// Data location: portable mode stores settings and saves in the program's folder (src/data_location.cpp). The real
+// setting is portable.txt, so the saved value is ignored and the option always shows the mode this session started in.
+static void add_data_location_option(recomp::config::Config& config) {
+    using data_location_option::DataLocation;
+    DataLocation current = rush2::data_location::is_portable() ? DataLocation::Portable : DataLocation::AppData;
+
+    config.add_enum_option(
+        data_location_option::id,
+        "Data Location",
+        "Sets where settings, saves and mods are stored. "
+        "<recomp-color primary>App Data</recomp-color> uses the user's app data folder. "
+        "<recomp-color primary>Portable</recomp-color> uses the game's own folder, so the game can be moved or run "
+        "from a USB drive with its data. "
+        "Takes effect after restarting the game, which copies the current data to the new location.",
+        {
+            { DataLocation::AppData, "AppData", "App Data" },
+            { DataLocation::Portable, "Portable", "Portable" },
+        },
+        current
+    );
+
+    config.on_json_parse_option(data_location_option::id, [current](const nlohmann::json&) -> recomp::config::ConfigValueVariant {
+        return static_cast<uint32_t>(current);
+    });
+
+    config.add_option_change_callback(data_location_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext context) {
+            if (context != recomp::config::OptionChangeContext::Permanent) {
+                return;
+            }
+            if (!rush2::data_location::set_portable(static_cast<DataLocation>(std::get<uint32_t>(cur_value)) == DataLocation::Portable)) {
+                recompui::file::show_error_message_box("Data Location",
+                    "The data location couldn't be changed because the game's folder isn't writable.");
+            }
+        });
+}
+
 void rush2::init_config() {
     std::filesystem::path recomp_dir = recompui::file::get_app_folder_path();
     if (!recomp_dir.empty()) {
@@ -163,7 +229,9 @@ void rush2::init_config() {
     general_options.has_gyro_sensitivity = false;
     general_options.has_mouse_sensitivity = false;
     auto& general_config = recompui::config::create_general_tab(general_options);
+    customize_general_options(general_config);
     add_steering_option(general_config);
+    add_data_location_option(general_config);
 
     auto& graphics_config = recompui::config::create_graphics_tab();
     customize_graphics_options(graphics_config);
@@ -178,6 +246,14 @@ void rush2::init_config() {
     recompui::config::create_mods_tab();
 
     recompui::config::finalize();
+
+    // A fresh install loads without calling option change callbacks, so apply these from the loaded values. The tab
+    // references from create_*_tab() may have moved as later tabs were added, so look the config up again.
+    auto& loaded_graphics_config = recompui::config::get_graphics_config();
+    rush2::set_lod_disabled(static_cast<lod_option::LODMode>(
+        std::get<uint32_t>(loaded_graphics_config.get_option_value(lod_option::id))) == lod_option::LODMode::Off);
+    rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
+        std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

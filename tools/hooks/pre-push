@@ -1,0 +1,11 @@
+#!/bin/sh
+# Builds and publishes a GitHub release when master is pushed (tools/release.py). Skip with `git push --no-verify`.
+# Enable once per clone: git config core.hooksPath tools/hooks
+remote="$1"
+zero=0000000000000000000000000000000000000000
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_ref" = "refs/heads/master" ] && [ "$local_sha" != "$zero" ]; then
+        py tools/release.py "$remote" "$local_sha" "$remote_sha" < /dev/null || exit 1
+    fi
+done
+exit 0

@@ -1,0 +1,52 @@
+'vswhere.exe' is not recognized as an internal or external command,
+operable program or batch file.
+CMake Warning (deprecated) at lib/rt64/src/contrib/nativefiledialog-extended/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+nfd Platform: PLATFORM_WIN32
+nfd Compiler: COMPILER_CLANGCL
+CMake Warning (deprecated) at lib/rt64/src/contrib/zstd/build/cmake/CMakeLists.txt:10 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- ZSTD VERSION: 1.5.6
+-- CMAKE_INSTALL_PREFIX: C:/Program Files (x86)/Rush2Recompiled
+-- CMAKE_INSTALL_LIBDIR: lib
+-- ZSTD_LEGACY_SUPPORT not defined!
+-- ZSTD_MULTITHREAD_SUPPORT is enabled
+-- Plume - Building with backends: Vulkan=1 Metal= D3D12=1
+-- Plume - SDL Vulkan integration: OFF
+-- Plume - D3D12 Agility SDK: OFF
+-- Plume - Building examples: OFF
+-- C:/Users/Bryant/Documents/Code/rush2-recomp/lib/rt64/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include SDL2;SDL2main
+CMake Warning (deprecated) at lib/N64ModernRuntime/thirdparty/miniz/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- {fmt} version: 11.1.0
+-- Build type: RelWithDebInfo
+-- Using plutovg submodule.
+-- Found Freetype::Freetype - Freetype font engine enabled
+-- Found lunasvg::lunasvg - SVG plugin enabled
+-- Configuring done (1.1s)
+-- Generating done (0.4s)
+-- Build files have been written to: C:/Users/Bryant/Documents/Code/rush2-recomp/build

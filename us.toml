@@ -55,11 +55,18 @@ func = "func_800005D8"
 before_vram = 0x8000071C
 text = "    load_overlays(0x01000000, (int32_t)0x800539E0, 0x691D0);"
 
+# Analog pedals: at the exit of the function that sets the car's throttle (+0x734) and brake (+0x730) from the held
+# buttons, scale a pressed pedal by trigger pressure (src/input.cpp). $s0 = car, $s1 = player.
+[[patches.hook]]
+func = "func_80076854"
+before_vram = 0x800769F0
+text = "    rush2_analog_pedals(rdram, ctx);"
+
 # Overlay: inflated to 0x803AA800 by func_800A62C0.
 [[patches.hook]]
 func = "func_800A62C0"
 before_vram = 0x800A6314
-text = "    load_overlays(0x01080000, (int32_t)0x803AA800, 0x1C190);"
+text = "    load_overlays(0x01080000, (int32_t)0x803AA800, 0x1C190); rush2_track49_overlay_loaded(rdram, ctx);"
 
 # Boot main reads 16 words from cart address 0xFFB000 (past the end of the 12MB ROM) into a
 # stack buffer that is never used. Skip the read so the runtime doesn't read out of bounds.
@@ -94,11 +101,19 @@ text = "    yield_self_1ms(rdram);"
 # e.g. (12,10)-(308,230) in single player. RT64 only widens projections whose scissor spans the
 # framebuffer, so extend views that touch the border to the framebuffer edges (320x240). Geometry past
 # the viewport edge is still rasterized (N64 guard band), so the top/bottom bars fill in without zooming.
-# $t2..$t5 hold ulx, uly, lrx, lry in pixels here.
+# Views touching only one side (the 2 player car select's halves) get an extended GBI scissor anchored to that
+# window edge instead, and a viewport inset from an edge the scissor now reaches (the top view of a 2 player race)
+# is moved back to it (src/widescreen.cpp). $t2..$t5 hold ulx, uly, lrx, lry in pixels here, $s1 = viewport.
 [[patches.hook]]
 func = "func_8007C624"
 before_vram = 0x8007C7B4
-text = "    if ((int32_t)ctx->r10 <= 12 && (int32_t)ctx->r12 >= 308) { ctx->r10 = 0; ctx->r12 = 320; } if ((int32_t)ctx->r11 <= 10) { ctx->r11 = 0; } if ((int32_t)ctx->r13 >= 230) { ctx->r13 = 240; }"
+text = "    rush2_view_scissor(rdram, ctx);"
+
+# G_SETSCISSOR written at $a1.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007C8D4
+text = "    rush2_view_scissor_written(rdram, ctx);"
 
 # The frame setup clears to the fog color inside the overscan inset and fills the border black, which shows through
 # skies that are just the clear color now that views extend over the border. Zero the insets (D_80023058/5A) while
@@ -352,3 +367,482 @@ text = "    rush2_wings_drag(rdram, ctx);"
 func = "func_8008DBA0"
 before_vram = 0x8008DF84
 text = "    rush2_wings_car_init(rdram, ctx);"
+
+# Replacement asset files (src/assets.cpp): func_80077F20 inflates and func_80077F84 un-LZs an asset given its ROM
+# offset ($a0) and destination ($a1), returning the size.
+[[patches.hook]]
+func = "func_80077F20"
+before_vram = 0x80077F20
+text = "    if (rush2_asset_decompress(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_80077F84"
+before_vram = 0x80077F84
+text = "    if (rush2_asset_decompress(rdram, ctx)) return;"
+
+# Game heap moved to 0x80400000-0x80B00000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
+# resets the heap and func_800A62C0 loads the menu overlay, both of which set the heap top.
+[[patches.hook]]
+func = "func_800AF3B0"
+before_vram = 0x800AF450
+text = "    rush2_heap_init(rdram, ctx);"
+
+[[patches.instruction]]
+func = "func_800AF3B0"
+vram = 0x800AF41C
+value = 0x3C0C80B0 # lui $t4, 0x80B0
+
+[[patches.instruction]]
+func = "func_800AF3B0"
+vram = 0x800AF428
+value = 0x358C0000 # ori $t4, $t4, 0
+
+[[patches.instruction]]
+func = "func_8009FB40"
+vram = 0x8009FBC0
+value = 0x3C1880B0 # lui $t8, 0x80B0
+
+[[patches.instruction]]
+func = "func_8009FB40"
+vram = 0x8009FBCC
+value = 0x37180000 # ori $t8, $t8, 0
+
+[[patches.instruction]]
+func = "func_8009FB40"
+vram = 0x8009FBDC
+value = 0x3C0E80B0 # lui $t6, 0x80B0
+
+[[patches.instruction]]
+func = "func_8009FB40"
+vram = 0x8009FBE8
+value = 0x35CE0000 # ori $t6, $t6, 0
+
+[[patches.instruction]]
+func = "func_800A62C0"
+vram = 0x800A62E8
+value = 0x3C1880B0 # lui $t8, 0x80B0
+
+[[patches.instruction]]
+func = "func_800A62C0"
+vram = 0x800A62EC
+value = 0x37180000 # ori $t8, $t8, 0
+
+# Rush 2049 tracks (src/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the
+# visible sections for the camera's region, func_800A45A8 builds the sky.
+[[patches.hook]]
+func = "func_800A4C98"
+before_vram = 0x800A4C98
+text = "    rush2_track49_load(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8007C27C"
+before_vram = 0x8007C480
+text = "    rush2_track49_pvs(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A45A8"
+before_vram = 0x800A4644
+text = "    rush2_track49_sky(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A45A8"
+before_vram = 0x800A4600
+text = "    rush2_track49_sky_players(rdram, ctx);"
+
+# Rush 2049 track select entries (src/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
+# func_803ABE0C (per frame); its tables and carousel array are repointed to 18-entry copies at 0x80300000.
+[[patches.hook]]
+func = "func_803AB294"
+before_vram = 0x803AB5C0
+text = "    rush2_track49_select_init(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803AB294"
+before_vram = 0x803AB6C8
+text = "    rush2_track49_select_count(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803AB01C"
+before_vram = 0x803AB01C
+text = "    if (rush2_track49_select_available(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_803ABE0C"
+before_vram = 0x803AC104
+text = "    rush2_track49_select_wrap(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803ABE0C"
+before_vram = 0x803AC670
+text = "    rush2_track49_select_save_p1(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803ABE0C"
+before_vram = 0x803AC6B8
+text = "    rush2_track49_select_save_p2(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803B1AB0"
+before_vram = 0x803B1AB0
+text = "    if (rush2_track49_keys(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_800A5ADC"
+before_vram = 0x800A5B2C
+text = "    rush2_track49_race_start(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A5110"
+before_vram = 0x800A5110
+text = "    rush2_track49_race_start(rdram, ctx);"
+
+[[patches.instruction]]
+func = "func_803AB0E4"
+vram = 0x803AB0EC
+value = 0x3C038030 # lui     $v1, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB0E4"
+vram = 0x803AB104
+value = 0x80630400 # lb     $v1, 0x400($v1)
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB6F0
+value = 0x3C198030 # lui     $t9, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB6F4
+value = 0x27390400 # addiu    $t9, $t9, 0x400
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB88C
+value = 0x3C0F8030 # lui     $t7, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB8A4
+value = 0x81EF0400 # lb     $t7, 0x400($t7)
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803ABAC4
+value = 0x3C0E8030 # lui     $t6, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803ABAC8
+value = 0x25CE0400 # addiu    $t6, $t6, 0x400
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803ABCD0
+value = 0x3C0E8030 # lui     $t6, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803ABCD4
+value = 0x25CE0400 # addiu    $t6, $t6, 0x400
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB7B8
+value = 0x3C048030 # lui     $a0, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB7D0
+value = 0x8C840000 # lw     $a0, 0x0($a0)
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803ABB0C
+value = 0x3C128030 # lui     $s2, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803ABB14
+value = 0x26520080 # addiu    $s2, $s2, 0x80
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB890
+value = 0x3C018030 # lui     $at, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB8B0
+value = 0xC42A0100 # lwc1    $f10, 0x100($at)
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803ABCF0
+value = 0x3C018030 # lui     $at, 0x8030
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803ABD00
+value = 0xC4260100 # lwc1    $f6, 0x100($at)
+
+[[patches.instruction]]
+func = "func_803C6208"
+vram = 0x803C6234
+value = 0x3C058030 # lui     $a1, 0x8030
+
+[[patches.instruction]]
+func = "func_803C6208"
+vram = 0x803C6248
+value = 0x8CA50180 # lw     $a1, 0x180($a1)
+
+[[patches.instruction]]
+func = "func_803C6208"
+vram = 0x803C6220
+value = 0x304E001F # andi    $t6, $v0, 0x1F
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB67C
+value = 0x2A210012 # slti    $at, $s1, 0x12
+
+[[patches.instruction]]
+func = "func_803AB294"
+vram = 0x803AB6D0
+value = 0x241E0012 # addiu    $fp, $zero, 0x12
+
+[[patches.instruction]]
+func = "func_803ABE0C"
+vram = 0x803AC0FC
+value = 0x28C10012 # slti    $at, $a2, 0x12
+
+# Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
+# list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
+# post-race and high-score screen functions run. None of these instructions is a delay slot.
+[[patches.hook]]
+func = "func_80065360"
+before_vram = 0x80065428
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8006544C"
+before_vram = 0x80065514
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A9164"
+before_vram = 0x800A922C
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A9250"
+before_vram = 0x800A93B4
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A7804"
+before_vram = 0x800A78E4
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A7804"
+before_vram = 0x800A78F8
+text = "    rush2_track49_records_stats(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A952C"
+before_vram = 0x800A99C8
+text = "    rush2_track49_records_times(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A952C"
+before_vram = 0x800A952C
+text = "    rush2_track49_records_enter(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A952C"
+before_vram = 0x800AA964
+text = "    rush2_track49_records_exit(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800606A8"
+before_vram = 0x800606A8
+text = "    rush2_track49_records_enter(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800606A8"
+before_vram = 0x80060DA0
+text = "    rush2_track49_records_exit(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800606A8"
+before_vram = 0x800608A4
+text = "    rush2_track49_records_seed(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B3110"
+before_vram = 0x800B3110
+text = "    rush2_track49_records_clear(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B306C"
+before_vram = 0x800B306C
+text = "    rush2_track49_records_clear(rdram, ctx);"
+
+# Rush 2049 moving track objects (src/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's
+# subway trains move), func_800706D0 runs a car's physics (here after its wheel probes).
+[[patches.hook]]
+func = "func_80076578"
+before_vram = 0x800765F4
+text = "    rush2_track49_movers_tick(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800706D0"
+before_vram = 0x800706E4
+text = "    rush2_track49_movers_car(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800706D0"
+before_vram = 0x800706DC
+text = "    rush2_track49_movers_probe_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8006F704"
+before_vram = 0x8006F99C
+text = "    rush2_track49_movers_probe(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800706D0"
+before_vram = 0x800706EC
+text = "    rush2_track49_movers_pads(rdram, ctx);"
+
+# Rush 2049 music on the 2049 tracks (src/track2049_audio.cpp): the race's song choice, and Rush 2's music commands.
+[[patches.hook]]
+func = "func_8008C370"
+before_vram = 0x8008C370
+text = "    rush2_track49_music(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_80062F50"
+before_vram = 0x80062F50
+text = "    rush2_track49_music_command(rdram, ctx);"
+
+# Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
+# Rush 2's 0-6 and the 2049 tracks, and the circuit screen (func_803B6260) instances its dioramas from the 18-entry
+# name table into an 18-entry array at 0x80300600 (was 7 at 0x803C7A44), with the 18-entry scale, cloud height and
+# logo tables (the logo callback is func_803BE528).
+[[patches.hook]]
+func = "func_800A7DCC"
+before_vram = 0x800A8588
+text = "    rush2_track49_circuit(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803B6260"
+before_vram = 0x803B6260
+text = "    rush2_track49_circuit_screen(rdram, ctx);"
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B62A4
+value = 0x3C108030 # lui $s0, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B62A8
+value = 0x3C118030 # lui $s1, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B62AC
+value = 0x26310648 # addiu $s1, $s1, 0x648
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B62B0
+value = 0x26100600 # addiu $s0, $s0, 0x600
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B640C
+value = 0x3C108030 # lui $s0, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6410
+value = 0x3C118030 # lui $s1, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6428
+value = 0x26310000 # addiu $s1, $s1, 0
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B642C
+value = 0x26100600 # addiu $s0, $s0, 0x600
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B64AC
+value = 0x3C188030 # lui $t8, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B64B0
+value = 0x27180048 # addiu $t8, $t8, 0x48
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B64D8
+value = 0x3C018030 # lui $at, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B64EC
+value = 0xC4260100 # lwc1 $f6, 0x100($at)
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6A10
+value = 0x3C118030 # lui $s1, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6A14
+value = 0x26310600 # addiu $s1, $s1, 0x600
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6A80
+value = 0x3C018030 # lui $at, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6A8C
+value = 0xC4240100 # lwc1 $f4, 0x100($at)
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6AA8
+value = 0x3C068030 # lui $a2, 0x8030
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6ABC
+value = 0x8CC60080 # lw $a2, 0x80($a2)
+
+[[patches.instruction]]
+func = "func_803BE528"
+vram = 0x803BE584
+value = 0x3C058030 # lui $a1, 0x8030
+
+[[patches.instruction]]
+func = "func_803BE528"
+vram = 0x803BE598
+value = 0x8CA50180 # lw $a1, 0x180($a1)
+
+# Rush 2049 tracks: scale the race time Rush 2 works out from the path's AI lane speeds (src/track2049.cpp).
+[[patches.hook]]
+func = "func_80093048"
+before_vram = 0x80093298
+text = "    rush2_track49_race_time(rdram, ctx);"

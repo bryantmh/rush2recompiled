@@ -1,118 +1,68 @@
 # Rush 2 Recompiled
 
-A static recompilation of **Rush 2: Extreme Racing USA** (N64, NTSC-U, `NR2E`) to native PC code using
-[N64Recomp](https://github.com/N64Recomp/N64Recomp), [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime)
-and the [RT64](https://github.com/rt64/rt64) renderer.
+Rush 2: Extreme Racing USA, the 1998 N64 racer, running natively on your PC with widescreen and ultrawide support, high framerates, sharp text, and improved controller support
 
-No game assets are included; you need your own ROM.
+You need to bring your own copy of the game. Nothing from the original cartridge is included here.
 
-## Status
+## What you get
 
-- Game code recompiles (1,596 functions across 3 code segments) and is playable through menus and races.
-- Uses the standard N64: Recompiled launcher and config menu ([RecompFrontend](https://github.com/N64Recomp/RecompFrontend)).
-- Aspect ratio (Settings > Graphics): **Original (4:3)**, **16:9**, or **Fill** (matches the window, any width).
-  The 3D view is widened by extending each player view's scissor to the full framebuffer (hook in `us.toml`),
-  which also removes the original top/bottom overscan border; 2D menus stay in the centered 4:3 area. The animated
-  "RUSH2" menu background is a 3D mesh that ends just past the 4:3 edges, so its outer vertex columns are moved out
-  (texture coordinates included) to continue the pattern to the window edges (`src/widescreen.cpp`, hook in
-  `us.toml`). Full-screen fill widgets such as the pause menu's dimming are stretched to the window (`src/hud.cpp`).
-- HUD placement (Settings > Graphics): **Original (4:3)**, **16:9**, or **Edge** (window edges). Race HUD widgets in
-  the left/right third of the screen get an RT64 rect alignment so they move outward, grouped with any widgets they
-  touch so multi-part elements stay together; text the HUD prints itself (laps left, lap times) is anchored by
-  its position. Menus are untouched (`src/hud.cpp`, hooks in `us.toml`).
-- High framerate (Settings > Graphics > Framerate = Display): the game runs at 30 fps and RT64 interpolates to
-  the display's refresh rate. Every 3D matrix is tagged with a stable RT64 matrix group ID (scene graph node index,
-  camera per view, world-space polygon slot), so identical cars and their wheels are never mixed up; IDs change on
-  teleports and camera cuts so those snap instead of sweeping (`src/interpolation.cpp`, hooks in `us.toml`).
-- Level of detail (Settings > Graphics): **Original** or **Off**. Off draws every model at its most detailed LOD and
-  turns off the per-model cull distance from its LOD table, by zeroing the camera distance the model draw function
-  computes. Models whose LOD the game selects explicitly are untouched (`src/lod.cpp`, hook in `us.toml`).
-- Fonts (Settings > Graphics): **Original** or **High Resolution** (default). High Resolution enables a built-in RT64
-  texture pack (`assets/rush2_hires_fonts.rtz`, copied into the mods folder at startup) with every font and the race
-  HUD's numbers and "MPH" label redrawn as vector art; no original pixels are packed. Regular fonts use Inter with each
-  font's weight, outline and layout fitted to the original sheet, the squared fonts use a hand-made squared glyph set,
-  and the HUD digits are Inter with a fitted slant, gradient and drop shadow. The game's image loader is hooked to
-  clamp tiles in T, since its tiles are taller than the images and RT64 would otherwise hash leftover TMEM
-  (`src/fonts.cpp`). The SVGs live in `tools/font_pack/svg` and `tools/font_pack/hud_svg`; `tools/build_font_pack.py`
-  regenerates them (from a font table dump, `RUSH2_DUMP_FONT_TABLES=<path>`, and RT64 texture dumps for the HUD) and
-  builds the pack.
-- Controller Pak saves (players and their records): controller 1 has an emulated Controller Pak stored as a standard
-  32KB `.mpk` image in `%LOCALAPPDATA%\Rush2Recompiled\saves\rush2.n64.us.mpk` (same format as emulator `.mpk` files).
-  Controller 2 reports a Rumble Pak. Controller 1 rumbles as well: a hook in the game's pak thread registers the
-  port with the rumble code when its Controller Pak initializes (`src/pak.cpp`, `us.toml`).
-- Players (Settings > Players, replacing the frontend's Controls tab): each of the two players gets a controller
-  (**Auto**: the first unassigned controller to press a button; **None**; or a specific controller, remembered across
-  launches by GUID and serial) and the keyboard goes to either player or neither. Choosing the other player's
-  controller swaps the two (`src/input.cpp`, `src/players_tab.cpp`, saved to `players.json`).
-- Controls (the game's Controls screen, from Setup or the pause menu): A on a row waits for the next button, trigger,
-  stick direction or key on that player's controller or keyboard and binds it; an input another row used moves to this
-  row's old input. Keyboard steering takes a left and a right key. SAVE / RESET / CANCEL sit under the rows (Start
-  saves, B cancels, L+R resets). Rows show the bound input's PlayStation, Xbox or keyboard glyph, rendered from
-  PromptFont by `tools/build_button_glyphs.py` into `assets/button_glyphs.bin` and drawn as RT64 texture rectangles.
-  The game's own binding table is locked to its default N64 layout; in races each player's bindings are turned into
-  that layout, and menus use a fixed layout (`src/controls.cpp`, `src/controls_menu.cpp`, saved to `bindings.json`).
-- Rush 2049 wings (Settings > Rush 2049): select your own San Francisco Rush 2049 (USA) ROM on the tab, then turn on
-  **Wings**. Hold the WINGS button (a row added to the game's Controls screen while Wings is on) while
-  all four wheels are more than 5 ft off the ground to spread the wings, and steer pitch and roll with the stick. The
-  physics, the three wing styles (one per player, chosen on the tab), the slide-out animation, the flames and the wind
-  sound match Rush 2049's code. The wing model and sound are read from the 2049 ROM at runtime (`src/wings*.cpp`,
-  hooks in `us.toml`).
+- **Widescreen.** Play in 4:3 like the original, 16:9, or expand the view to fill whatever window size you like.
+- **Smooth framerate.** The game still runs at its original speed of 30fps but interpolated up to any arbitrary framerate
+- **HUD where you want it.** Keep the speedometer and lap info in the classic 4:3 spot, or push it out to the edges of the screen.
+- **No pop-in.** Turn off level of detail and every car and building is drawn at full quality, no matter how far away it is.
+- **Crisp fonts.** All the menu text and HUD numbers have been redrawn so they stay sharp at any resolution. You can switch back to the original blurry ones if you miss them.
+- **Saves that just work.** Your players and records are kept on a virtual Controller Pak using the save file uses the same format as emulators.
+- **Rumble.** Supported on any controller that can rumble and at the same time as saves
+- **Two players, any controllers.** Xbox, PlayStation and most other controllers work, plus keyboard. Pick which controller belongs to which player and the game remembers it next time.
+- **Rebind everything.** The game's own Controls screen now lets you map any button, trigger, stick or key. It shows the right button icons for your controller.
 
-Threading notes: game threads are cooperative under the runtime, so the four busy-wait loops on the pending
-graphics task counter yield (hooks in `us.toml`), and `osStartThread`/`osStopThread` use libultra semantics
-(`src/threads.cpp`) because the game stops/starts other threads around critical sections.
+### Rush 2049 extras
 
-## How the ROM is laid out
+If you also own **San Francisco Rush 2049** for the N64 (US version), you can point the game at that ROM and unlock a couple of additional features:
 
-| Segment | ROM | RAM | Notes |
-|---|---|---|---|
-| boot | `0x1000` (uncompressed) | `0x80000400` | libultra, libaudio, inflate routine; text ends at `0x80018800` |
-| main | `0xAFD0C0` (raw deflate) | `0x800539E0` | game code, inflated by the boot thread; text to `0x800BCBB0`, bss to `0x80125C90` |
-| ovl | `0xB3D20E` (raw deflate) | `0x803AA800` | dynamically loaded/unloaded by `func_800A62C0` |
+- **Wings.** Hold the Wings button when you're airborne to pop out wings and glide. They handle just like they did in 2049, flames and wind sound included, and each player can pick their own wing style.
+- **The 2049 tracks.** All six race tracks from Rush 2049 show up in the track select, right after Rush 2's own tracks, each with a miniature of the real track. They come with their moving trains, trolleys, trap doors, boost pads and windmills, their blinking signs, their sounds, and Rush 2049's own music (switch the music off on the Rush 2049 tab to hear Rush 2's songs instead).
 
-Microcode: graphics is F3DEX2 (`F3DEX.NoN fifo 2.07`, text `0x800196F0`), handled by RT64.
-Audio is libultra `aspMain` (text `0x800188D0`, data `0x8001C680`), recompiled with RSPRecomp.
 
-Because the game decompresses its own code, `tools/extract.py` builds `rush2.us.recomp.z64`: the original ROM
-with the code segments appended uncompressed at fake ROM addresses (`0x01000000`, `0x01080000`). The symbol file
-places the sections there, and hooks in `us.toml` call `load_overlays` with those fake addresses right after the game
-inflates each segment, so function pointer lookups resolve.
+## What you need
 
-## Building (Windows)
+- A Windows 10 or 11 PC
+- A graphics card that supports DirectX 12 or Vulkan (anything from the last several years should be fine)
+- Your own ROM of **Rush 2: Extreme Racing USA** (North American version). `.z64`, `.n64` and `.v64` files all work.
+- Optional: a ROM of **San Francisco Rush 2049** (North American version) for the extras above
 
-Requirements: Visual Studio 2022+ Build Tools (C++), LLVM/clang-cl, CMake, Ninja, Python 3 with `spimdisasm`.
-Submodule versions (runtime, RT64, RecompFrontend) match BanjoRecomp's, and the recompiler must be built from
-`lib/N64ModernRuntime/N64Recomp` so its output matches the runtime's `recomp.h`.
+## Getting started
 
-```sh
-# 1. Tools
-git clone --recurse-submodules https://github.com/N64Recomp/N64Recomp ref/N64Recomp
-git clone https://github.com/shygoo/n64sym ref/n64sym      # signature database for libultra naming
-cmake -S lib/N64ModernRuntime/N64Recomp -B build-n64recomp -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build-n64recomp --target N64RecompCLI RSPRecomp   # copy the exes to .tools/
+1. Put `Rush2Recompiled.exe` somewhere you like.
+2. Run it.
+3. The first time, it'll ask you to find your Rush 2 ROM. Point it at the file and you're in.
 
-# 2. Prepare ROM images and symbols
-py tools/extract.py "Rush 2 - Extreme Racing.n64"
-py tools/gen_syms.py          # only needed if syms/ changes
+After that the game starts right away. It keeps its own copy of the ROM, so you can move or delete the original file if you want.
 
-# 3. Recompile
-.tools/N64Recomp.exe us.toml
-.tools/RSPRecomp.exe aspMain.us.toml
+Shortcut: if you drop the ROM in the same folder as the exe, it'll find it on its own and skip the question.
 
-# 4. Build the executable
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl
-cmake --build build
-```
+## Setting things up
 
-`tools/vsenv.bat <command>` runs a command inside the MSVC x64 developer environment.
+Most options live in the settings menu (press Escape, or select).
 
-## Running
+- **Graphics:** aspect ratio, HUD placement, framerate, level of detail and fonts
+- **Players:** choose which controller (or the keyboard) each player uses. Leave it on Auto and whoever presses a button first gets that player.
+- **Rush 2049:** pick your 2049 ROM, then turn on Wings and the extra tracks
 
-```sh
-build/Rush2Recompiled.exe [path/to/rom] [--show-console] [--autostart]
-```
+To change your button layout, use the game's own **Controls** screen, under Setup or from the pause menu. Pick a row, press A, then press the button you want for it.
 
-A ROM next to the executable (or in its parent folder) is imported automatically; otherwise use the launcher.
-Settings and the ROM copy live in `%LOCALAPPDATA%\Rush2Recompiled`. Players are assigned in the config menu's Players
-tab and buttons are bound in the game's own Controls screen.
-`--autostart` skips the launcher (useful for testing).
+## Where your stuff is saved
+
+Settings and saves live in `%LOCALAPPDATA%\Rush2Recompiled`. Paste that into the File Explorer address bar to get there.
+
+Your save file is `saves\rush2.n64.us.mpk`. Back it up if you care about your records.
+
+Want to keep everything on a USB stick or next to the game? Turn on portable mode in the General tab under Data Location. Your data moves into the game's folder the next time you launch.
+
+## Credits
+
+Built with [N64Recomp](https://github.com/N64Recomp/N64Recomp), [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime), [RecompFrontend](https://github.com/N64Recomp/RecompFrontend) and the [RT64](https://github.com/rt64/rt64) renderer. Big thanks to everyone behind those projects.
+
+Rush 2 and Rush 2049 belong to their respective owners. This project isn't affiliated with them and doesn't include any of their game data.
+
+Curious how it works or want to build it yourself? See [docs/BUILDING.md](docs/BUILDING.md).
