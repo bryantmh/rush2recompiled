@@ -9,12 +9,16 @@
 
 // Rush 2049 race tracks added to Rush 2 (src/track2049*.cpp).
 //
-// The track select offers ids 12-17 after Rush 2's 12 tracks. During a race the game runs on a Rush 2 track id, the
-// host slot, whose files and per-track table entries are swapped for the 2049 track's while it is raced.
+// The track select offers ids 12-17 after Rush 2's 12 tracks, and Rush 2049's four stunt arenas as ids 25-28 (after
+// the SF Rush tracks). During a race the game runs on a Rush 2 track id, the host slot, whose files and per-track
+// table entries are swapped for the 2049 track's while it is raced. Stunt arenas are hosted by Rush 2's own stunt
+// track, STUNT1, so they are played with Rush 2's stunt rules and scoring.
 namespace rush2::track2049 {
     constexpr int track_count = 6;
     constexpr int first_menu_id = 12;   // Track select id of 2049 track 1.
     constexpr int host_slot = 2;        // HAWAII: no hardcoded per-track behaviour beyond its tables.
+    constexpr int stunt_menu_id = 25;   // Track select id of stunt arena 1.
+    constexpr int stunt_host_slot = 11; // STUNT1: Rush 2's stunt track.
 
     // The Rush 2049 Tracks option (Rush 2049 tab). Tracks are offered when it is on and the 2049 ROM is present.
     void set_option(bool enabled);
@@ -31,6 +35,14 @@ namespace rush2::track2049 {
     // The 2049 track (1-6) being raced, or 0 (src/track2049.cpp).
     int race_track();
     void set_race_track(int k);
+    // The 2049 stunt arena (1-4) being played, or 0.
+    int stunt_arena();
+    void set_stunt_arena(int n);
+    // The Rush 2 slot the raced 2049 track or stunt arena is loaded in (host_slot or stunt_host_slot), or -1.
+    int loaded_slot();
+    // Track select names of track k's diorama model and logo texture (k as for convert_track).
+    std::string menu_model_name(int k);
+    std::string menu_logo_name(int k);
     // Puts the host slot's own files and table entries back (call from a game thread).
     void restore_host(uint8_t* rdram);
 

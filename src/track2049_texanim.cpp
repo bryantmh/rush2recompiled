@@ -80,9 +80,9 @@ namespace {
         return ((w1 + base) & 0xFFFFFF) | (w1 & 0x0F000000);
     }
 
-    // The load address of the host slot's geometry (asset 0x33 + slot), or 0.
+    // The load address of the 2049 track's slot's geometry (asset 0x33 + slot), or 0.
     uint32_t find_geometry(uint8_t* rdram) {
-        int asset = geometry_asset + rush2::track2049::host_slot;
+        int asset = geometry_asset + rush2::track2049::loaded_slot();
         int32_t index = (int32_t)read32(rdram, geometry_record);
         if (index >= 0 && index < slot_record_count) {
             uint32_t r = slot_records + (uint32_t)index * slot_record_size;
@@ -222,7 +222,8 @@ void rush2::track2049::texanim_reset() {
 
 void rush2::track2049::texanim_tick(uint8_t* rdram, float dt) {
     std::lock_guard lock{ texanim_mutex };
-    if (race_track() == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
+    int slot = loaded_slot();
+    if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot) {
         active = false;
         return;
     }

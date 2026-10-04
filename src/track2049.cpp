@@ -7,6 +7,11 @@
 // tables the race code reads, and the slot's in-race logo. The original values are put back before a Rush 2 track is
 // raced, so the host track itself is unchanged.
 //
+// Rush 2049's stunt arenas are hosted the same way by Rush 2's stunt track (slot 11, STUNT1), whose literal track
+// tests give the race Rush 2's stunt mode: stunt scoring, start on the path's spine, no backward or mirror, no
+// drones. An arena has one AI path, used both ways, and no visibility table (Rush 2049 draws every section of it);
+// it keeps Rush 2's stunt song and STUNT1's records.
+//
 // Code support for things the files can't express:
 // - Visibility: func_8007C27C picks a 16-byte section mask per camera region from a per-track table that is sized
 //   for the slot's own track, so the converted table lives in recomp memory and the hook at 0x8007C480 points the
@@ -39,6 +44,7 @@
 #include "wings.h"
 
 using rush2::track2049::host_slot;
+using rush2::track2049::stunt_host_slot;
 
 namespace {
 
@@ -57,12 +63,18 @@ namespace {
 
     // Rush 2049's per-track song choice (0x8010FFD4), which happens to index Rush 2's eight songs too.
     constexpr int16_t track_songs[rush2::track2049::track_count] = { 0, 1, 4, 2, 3, 7 };
-    const std::string prefix_of_host = "HAWAII";    // The host slot's track prefix (0x800C182C).
+    // The host slots' track prefixes (0x800C182C).
+    std::string prefix_of(int slot) {
+        return slot == stunt_host_slot ? "STUNT1" : "HAWAII";
+    }
 
     std::mutex track_mutex;
     std::atomic_bool option_enabled = true;
     std::atomic_int raced_track = 0;  // 1-6, or 0 for none.
-    int loaded_track = 0;              // The 2049 track in `track`.
+    std::atomic_int raced_stunt = 0;  // Stunt arena 1-4, or 0 for none.
+    int loaded_track = 0;              // The 2049 track in `track`, as convert_track's k.
+    int slot = host_slot;              // The slot `track` is applied to.
+    std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
     rush2::track2049::ConvertedTrack track;
     std::set<std::string> shared_models;   // Rush 2's shared model names, read once.
     std::vector<uint8_t> race_logo;
@@ -81,7 +93,7 @@ namespace {
     };
     Saved saved;
 
-    // Converts 2049 track k from the user's ROM.
+    // Converts 2049 track k (convert_track's k) from the user's ROM for the slot in `slot`.
     bool convert(uint8_t* rdram, int k) {
         auto rom = rush2::wings::get_rom();
         if (rom == nullptr) {
@@ -94,7 +106,7 @@ namespace {
                 (uint32_t)MEM_W(0, (int32_t)(asset_offsets + 0x14 * 4)), shared_models);
         }
         std::string error;
-        if (!rush2::track2049::convert_track(*rom, k, prefix_of_host, shared_models, true, track, error)) {
+        if (!rush2::track2049::convert_track(*rom, k, prefix_of(slot), shared_models, true, track, error)) {
             printf("[2049] Couldn't convert track %d: %s\n", k, error.c_str());
             return false;
         }
@@ -112,18 +124,18 @@ namespace {
 
     void save_tables(uint8_t* rdram) {
         for (int i = 0; i < 3; i++) {
-            saved.fog[i] = MEM_B(0, (int32_t)(fog_colours + host_slot * 3 + i));
+            saved.fog[i] = MEM_B(0, (int32_t)(fog_colours + slot * 3 + i));
         }
-        saved.cloud = MEM_W(0, (int32_t)(cloud_scroll + host_slot * 4));
-        saved.parallax = MEM_W(0, (int32_t)(sky_parallax + host_slot * 4));
-        saved.nudge_x = MEM_W(0, (int32_t)(flag_nudge_x + host_slot * 4));
-        saved.nudge_y = MEM_W(0, (int32_t)(flag_nudge_y + host_slot * 4));
-        saved.props = MEM_W(0, (int32_t)(prop_lists + host_slot * 4));
-        saved.pvs_count = MEM_B(0, (int32_t)(pvs_counts + host_slot));
-        saved.song = MEM_H(0, (int32_t)(songs + host_slot * 2));
+        saved.cloud = MEM_W(0, (int32_t)(cloud_scroll + slot * 4));
+        saved.parallax = MEM_W(0, (int32_t)(sky_parallax + slot * 4));
+        saved.nudge_x = MEM_W(0, (int32_t)(flag_nudge_x + slot * 4));
+        saved.nudge_y = MEM_W(0, (int32_t)(flag_nudge_y + slot * 4));
+        saved.props = MEM_W(0, (int32_t)(prop_lists + slot * 4));
+        saved.pvs_count = MEM_B(0, (int32_t)(pvs_counts + slot));
+        saved.song = MEM_H(0, (int32_t)(songs + slot * 2));
         for (int b = 0; b < 2; b++) {
-            saved.demo_list[b] = MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4));
-            saved.demo_count[b] = MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2));
+            saved.demo_list[b] = MEM_W(0, (int32_t)(demo_lists + (slot + 12 * b) * 4));
+            saved.demo_count[b] = MEM_H(0, (int32_t)(demo_counts + (slot + 12 * b) * 2));
         }
     }
 
@@ -132,23 +144,25 @@ namespace {
             save_tables(rdram);
         }
         if (!race_logo.empty()) {
-            rush2::assets::replace(rdram, 4 + host_slot, race_logo);
+            rush2::assets::replace(rdram, 4 + slot, race_logo);
         }
-        rush2::assets::replace(rdram, 0x33 + host_slot, track.geometry);
-        rush2::assets::replace(rdram, 0x3F + host_slot, track.placement);
-        rush2::assets::replace(rdram, 0x4B + host_slot, track.collision);
-        rush2::assets::replace(rdram, 0x57 + host_slot, track.path);
-        rush2::assets::replace(rdram, 0x63 + host_slot, track.path_backward);
+        rush2::assets::replace(rdram, 0x33 + slot, track.geometry);
+        rush2::assets::replace(rdram, 0x3F + slot, track.placement);
+        rush2::assets::replace(rdram, 0x4B + slot, track.collision);
+        rush2::assets::replace(rdram, 0x57 + slot, track.path);
+        rush2::assets::replace(rdram, 0x63 + slot, track.path_backward);
         for (int i = 0; i < 3; i++) {
-            MEM_B(0, (int32_t)(fog_colours + host_slot * 3 + i)) = track.fog[i];
+            MEM_B(0, (int32_t)(fog_colours + slot * 3 + i)) = track.fog[i];
         }
-        MEM_W(0, (int32_t)(cloud_scroll + host_slot * 4)) = 0;
-        MEM_W(0, (int32_t)(sky_parallax + host_slot * 4)) = 0;
-        MEM_W(0, (int32_t)(flag_nudge_x + host_slot * 4)) = 0;
-        MEM_W(0, (int32_t)(flag_nudge_y + host_slot * 4)) = 0;
-        MEM_W(0, (int32_t)(prop_lists + host_slot * 4)) = 0;
-        MEM_B(0, (int32_t)(pvs_counts + host_slot)) = track.pvs_count;
-        MEM_H(0, (int32_t)(songs + host_slot * 2)) = track_songs[loaded_track - 1];
+        MEM_W(0, (int32_t)(cloud_scroll + slot * 4)) = 0;
+        MEM_W(0, (int32_t)(sky_parallax + slot * 4)) = 0;
+        MEM_W(0, (int32_t)(flag_nudge_x + slot * 4)) = 0;
+        MEM_W(0, (int32_t)(flag_nudge_y + slot * 4)) = 0;
+        MEM_W(0, (int32_t)(prop_lists + slot * 4)) = 0;
+        MEM_B(0, (int32_t)(pvs_counts + slot)) = track.pvs_count;
+        if (loaded_track <= rush2::track2049::track_count) {
+            MEM_H(0, (int32_t)(songs + slot * 2)) = track_songs[loaded_track - 1];
+        }
         if (demo_table == 0) {
             demo_table = (uint32_t)((uint8_t*)recomp::alloc(rdram, 2 * 32 * 2) - rdram) + 0x80000000;
         }
@@ -158,8 +172,13 @@ namespace {
             for (size_t i = 0; i < n; i++) {
                 MEM_H(0, (int32_t)(list + i * 2)) = track.demo_starts[b][i];
             }
-            MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4)) = list;
-            MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2)) = (int16_t)n;
+            if (n == 0) {
+                // Stunt arenas have no demo starts: the path's first spine point.
+                MEM_H(0, (int32_t)list) = 0;
+                n = 1;
+            }
+            MEM_W(0, (int32_t)(demo_lists + (slot + 12 * b) * 4)) = list;
+            MEM_H(0, (int32_t)(demo_counts + (slot + 12 * b) * 2)) = (int16_t)n;
         }
 
         if (pvs_table == 0) {
@@ -169,6 +188,7 @@ namespace {
             MEM_B(0, (int32_t)(pvs_table + i)) = track.pvs[i];
         }
         applied = true;
+        applied_slot = slot;
     }
 
     void restore(uint8_t* rdram) {
@@ -176,27 +196,28 @@ namespace {
             return;
         }
         for (int index : { 0x33, 0x3F, 0x4B, 0x57, 0x63, 4 }) {
-            rush2::assets::restore(rdram, index + host_slot);
+            rush2::assets::restore(rdram, index + slot);
         }
         for (int i = 0; i < 3; i++) {
-            MEM_B(0, (int32_t)(fog_colours + host_slot * 3 + i)) = saved.fog[i];
+            MEM_B(0, (int32_t)(fog_colours + slot * 3 + i)) = saved.fog[i];
         }
-        MEM_W(0, (int32_t)(cloud_scroll + host_slot * 4)) = saved.cloud;
-        MEM_W(0, (int32_t)(sky_parallax + host_slot * 4)) = saved.parallax;
-        MEM_W(0, (int32_t)(flag_nudge_x + host_slot * 4)) = saved.nudge_x;
-        MEM_W(0, (int32_t)(flag_nudge_y + host_slot * 4)) = saved.nudge_y;
-        MEM_W(0, (int32_t)(prop_lists + host_slot * 4)) = saved.props;
-        MEM_B(0, (int32_t)(pvs_counts + host_slot)) = saved.pvs_count;
-        MEM_H(0, (int32_t)(songs + host_slot * 2)) = saved.song;
+        MEM_W(0, (int32_t)(cloud_scroll + slot * 4)) = saved.cloud;
+        MEM_W(0, (int32_t)(sky_parallax + slot * 4)) = saved.parallax;
+        MEM_W(0, (int32_t)(flag_nudge_x + slot * 4)) = saved.nudge_x;
+        MEM_W(0, (int32_t)(flag_nudge_y + slot * 4)) = saved.nudge_y;
+        MEM_W(0, (int32_t)(prop_lists + slot * 4)) = saved.props;
+        MEM_B(0, (int32_t)(pvs_counts + slot)) = saved.pvs_count;
+        MEM_H(0, (int32_t)(songs + slot * 2)) = saved.song;
         for (int b = 0; b < 2; b++) {
-            MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4)) = saved.demo_list[b];
-            MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2)) = saved.demo_count[b];
+            MEM_W(0, (int32_t)(demo_lists + (slot + 12 * b) * 4)) = saved.demo_list[b];
+            MEM_H(0, (int32_t)(demo_counts + (slot + 12 * b) * 2)) = saved.demo_count[b];
         }
         applied = false;
+        applied_slot = -1;
     }
 
     bool hosting(uint8_t* rdram) {
-        return applied && MEM_B(0, (int32_t)track_id) == host_slot;
+        return applied && MEM_B(0, (int32_t)track_id) == slot;
     }
 }
 
@@ -221,6 +242,18 @@ void rush2::track2049::set_race_track(int k) {
     raced_track = k;
 }
 
+int rush2::track2049::stunt_arena() {
+    return raced_stunt;
+}
+
+void rush2::track2049::set_stunt_arena(int n) {
+    raced_stunt = n;
+}
+
+int rush2::track2049::loaded_slot() {
+    return applied_slot;
+}
+
 // Start of func_800A4C98, which queues the race's track files.
 extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
     // SF Rush tracks race in the same slot (src/track1.cpp); it puts the slot's own values back first.
@@ -228,23 +261,40 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     std::lock_guard lock{ track_mutex };
-    int k = raced_track;
-    if (k == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
+    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int k = 0, want_slot = -1;
+    if (raced_track != 0 && t == host_slot) {
+        k = raced_track;
+        want_slot = host_slot;
+    }
+    else if (raced_stunt != 0 && t == stunt_host_slot) {
+        k = rush2::track2049::stunt_first + raced_stunt - 1;
+        want_slot = stunt_host_slot;
+    }
+    if (k == 0 || (applied && slot != want_slot)) {
         restore(rdram);
+    }
+    if (k == 0) {
         return;
+    }
+    if (slot != want_slot) {
+        slot = want_slot;
+        loaded_track = 0;   // The conversion depends on the slot's track prefix.
     }
     if (loaded_track != k) {
         loaded_track = 0;
         if (!convert(rdram, k)) {
             printf("[2049] Track %d isn't available; racing the host track\n", k);
-            raced_track = 0; // Everything (records included) then treats the race as the host track's.
+            // Everything (records included) then treats the race as the host track's.
+            raced_track = 0;
+            raced_stunt = 0;
             restore(rdram);
             return;
         }
         race_logo.clear();
         std::vector<uint8_t> logo;
         auto rom = rush2::wings::get_rom();
-        if (rom == nullptr || !rush2::assets::read_original(rdram, 4 + host_slot, logo) ||
+        if (rom == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
             !rush2::track2049::build_race_logo(logo, *rom, k, race_logo)) {
             race_logo.clear();
         }

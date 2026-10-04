@@ -25,7 +25,8 @@ unless marked "2049". Tools: `tools/rush2049/paths.py` (path parser, converter, 
 - **2049 file map [V]** (from the loader `func_800BB9B0` (2049) and the editor strings left in each file):
   - 158–163 = race tracks 1–6, forward
   - 164–171 = battle arenas DM1, DM6, DM5, DM8, DM3, DM7, DM4, DM2 (in that file order)
-  - 172–175 = stunt 4, 3, 2, 1
+  - 172–175 = stunt 1–4 (the loader's 0x9E + track id; the editor names inside the files say stunt 4–1, but the
+    floor fit of each path to each arena's collision agrees with the loader)
   - 176 = obstacle 1
   - 177–182 = race tracks 1–6, backward
 

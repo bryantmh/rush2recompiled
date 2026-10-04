@@ -73,7 +73,7 @@ namespace {
     };
 
     // In each game's own order: Rush 2's MUSIC setting, SF Rush's random table, Rush 2049's tracks.
-    constexpr std::array<Song, 23> songs = {{
+    constexpr std::array<Song, 25> songs = {{
         { Game::Rush2, 0, "r2_0", "Head Thumpin'", "Lower Manhattan" },
         { Game::Rush2, 1, "r2_1", "Tinkle Toon", "Las Vegas" },
         { Game::Rush2, 2, "r2_2", "Drums N Hula", "Honolulu" },
@@ -97,6 +97,8 @@ namespace {
         { Game::Rush2049, 2, "r49_2", "Song 4", "Rush 2049 Track 4" },
         { Game::Rush2049, 3, "r49_3", "Song 5", "Rush 2049 Track 5" },
         { Game::Rush2049, 7, "r49_7", "Song 6", "Rush 2049 Track 6" },
+        { Game::Rush2049, 8, "r49_8", "Song 7", "Rush 2049 Stunt 1 and 2" },
+        { Game::Rush2049, 9, "r49_9", "Song 8", "Rush 2049 Stunt 3 and 4" },
     }};
     constexpr int song_count = (int)songs.size();
     constexpr int first_rush1 = 8;      // Catalog index of SF Rush's first song.
@@ -222,6 +224,11 @@ namespace {
         if (host && rush2::track2049::race_track() > 0) {
             g = Game::Rush2049;
             original = first_rush2049 + rush2::track2049::race_track() - 1;
+        }
+        else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::stunt_arena() > 0) {
+            // Rush 2049's per-track songs (0x8010FFD4): 8 for stunt arenas 1 and 2, 9 for 3 and 4.
+            g = Game::Rush2049;
+            original = find_song(Game::Rush2049, rush2::track2049::stunt_arena() <= 2 ? 8 : 9);
         }
         else if (host && rush2::track1::race_track() > 0) {
             g = Game::Rush1;

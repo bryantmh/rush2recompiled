@@ -220,6 +220,87 @@ def convert(path_2049):
     return bytes(path_2049)
 
 
+FLOOR_SLACK = 2     # a floor at most this far above a spine point counts as under it
+FLOOR_REACH = 64    # a spine point under the floor is lifted onto it from at most this far below
+
+
+def floor_heights(collision_2049):
+    """The triangles (fans of each polygon) of a Rush 2049 collision file, as a function giving the heights of the
+    surfaces over or under a point (x, z)."""
+    import collision
+    c = collision.Collision.parse(collision_2049, collision.R49)
+    vs = [collision.vert_xyz(v) for v in c.verts]
+    tris = []
+    for poly in c.polys:
+        vv = [vs[k] for k in poly['verts']]
+        for i in range(1, len(vv) - 1):
+            t = (vv[0], vv[i], vv[i + 1])
+            tris.append((t, min(v[0] for v in t), max(v[0] for v in t), min(v[2] for v in t), max(v[2] for v in t)))
+
+    def heights(x, z):
+        out = []
+        for t, x0, x1, z0, z1 in tris:
+            if x < x0 or x > x1 or z < z0 or z > z1:
+                continue
+            (xa, ya, za), (xb, yb, zb), (xc, yc, zc) = t
+            d = (zb - zc) * (xa - xc) + (xc - xb) * (za - zc)
+            if d == 0:
+                continue
+            u = ((zb - zc) * (x - xc) + (xc - xb) * (z - zc)) / d
+            v = ((zc - za) * (x - xc) + (xa - xc) * (z - zc)) / d
+            w = 1 - u - v
+            if u < -1e-6 or v < -1e-6 or w < -1e-6:
+                continue
+            out.append(u * ya + v * yb + w * yc)
+        return out
+    return heights
+
+
+def spine_lanes(path, collision_2049):
+    """A stunt arena's path for Rush 2. Rush 2 starts a stunt race at spine point 0, facing point 1, at the spine's
+    height (func_800A34A8), and puts a crashed car back on its lanes. The arenas' spines don't always lie on the
+    floor (stunt 3's is under its terrain, stunt 2's starts off the edge of a platform), so each spine point is put
+    on the highest surface under it (up to FLOOR_SLACK above), or failing that on the lowest surface at most
+    FLOOR_REACH above it, rounded up. The spine is rotated to start at the first point that, with its successor,
+    already lay on the floor (within FLOOR_SLACK), or failing that has floor under it (the spine is a closed loop
+    on every arena).
+    Rush 2049 runs no AI on its arenas, and their four lanes are stubs of 3-4 points whose load-time crossings
+    (func_80092D6C) all land on the last point; func_8006DB00 then steps a lane from its last point to that same
+    point, and Rush 2's lane follower (func_80074990) never gets past it. Each lane is replaced with the spine, with
+    the stubs' speed 100 and flags 2."""
+    import math
+    d = bytes(path)
+    n_spine = _u16(d, ROUTE)
+    if d[ROUTE + 8]:
+        raise ValueError('stunt arena path has branches')
+    spine = ROUTE + 16 + 2
+    heights = floor_heights(collision_2049)
+    pts, grounded = [], []
+    for i in range(n_spine):
+        x, y, z = struct.unpack_from('>3h', d, spine + 6 * i)
+        hs = heights(x, z)
+        below = [h for h in hs if h <= y + FLOOR_SLACK]
+        above = [h for h in hs if y + FLOOR_SLACK < h <= y + FLOOR_REACH]
+        on = 0
+        if below or above:
+            floor = max(below) if below else min(above)
+            on = 2 if y - FLOOR_SLACK <= floor else 1
+            y = max(-32768, min(32767, math.ceil(floor)))
+        pts.append((x, y, z))
+        grounded.append(on)
+    first = next((i for q in (2, 1) for i in range(n_spine)
+                  if min(grounded[i], grounded[(i + 1) % n_spine]) >= q), 0)
+    pts = pts[first:] + pts[:first]
+    out = bytearray(d[:spine])
+    for pt in pts:
+        out += struct.pack('>3h', *pt)
+    for _ in range(4):
+        out += struct.pack('>HHI', n_spine, 0, 0)
+        for pt in pts:
+            out += struct.pack('>3hBB', *pt, 100, 2)
+    return bytes(out)
+
+
 # Rush 2049 file -> (track index 0..18, direction). Track index = file - 158 (forward) or file - 177 (backward).
 FILES_2049 = {158 + i: ('race%d' % (i + 1), 'fwd') for i in range(6)}
 FILES_2049.update({177 + i: ('race%d' % (i + 1), 'back') for i in range(6)})

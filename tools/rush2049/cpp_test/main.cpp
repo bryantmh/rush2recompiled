@@ -88,8 +88,14 @@ int main(int argc, char** argv) {
     fs::path test_dir = repo / "tools" / "rush2049" / "cpp_test" / "out";
     int matched = 0, total = 0;
     for (bool static_paths : { true, false }) {
-        for (int k = 1; k <= 6; k++) {
-            std::string track = "track" + std::to_string(k);
+        std::vector<int> ks = { 1, 2, 3, 4, 5, 6 };
+        for (int n = 0; n < rush2::track2049::stunt_count; n++) {
+            ks.push_back(rush2::track2049::stunt_first + n);
+        }
+        for (int k : ks) {
+            bool stunt = k >= rush2::track2049::stunt_first;
+            std::string track = stunt ? "stunt" + std::to_string(k - rush2::track2049::stunt_first + 1)
+                                      : "track" + std::to_string(k);
             fs::path dir = test_dir / (static_paths ? "static" : "nostatic") / track;
             fs::path ref = static_paths ? repo / "tools" / "rush2049" / "out" / track : test_dir / "ref_nostatic" / track;
             fs::create_directories(dir);
@@ -97,7 +103,7 @@ int main(int argc, char** argv) {
             rush2::track2049::ConvertedTrack t;
             std::string error;
             auto start = std::chrono::steady_clock::now();
-            bool ok = rush2::track2049::convert_track(rom49, k, "HAWAII", shared, static_paths, t, error);
+            bool ok = rush2::track2049::convert_track(rom49, k, stunt ? "STUNT1" : "HAWAII", shared, static_paths, t, error);
             double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             total++;
             if (!ok) {
