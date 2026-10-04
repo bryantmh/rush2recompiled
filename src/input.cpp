@@ -505,6 +505,13 @@ void rush2::input::update_rumble() {
     }
 }
 
+void rush2::input::press_pedals(int port, uint16_t buttons) {
+    if (port >= 0 && port < num_ports) {
+        if (buttons & n64_a) pedal_gas[port] = 1.0f;
+        if (buttons & n64_b) pedal_brake[port] = 1.0f;
+    }
+}
+
 // End of func_80076854, after it set the car's pedals from the player's held buttons: $s0 = car, $s1 = player.
 // A pressed GAS or BRAKE button sets its pedal to 1.0; this scales it by how far the bound trigger is pressed. Pedals
 // bound to the game's own stick modes (masks other than A and B) are left alone.
@@ -514,6 +521,20 @@ extern "C" void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx) {
     int port = MEM_BU(1, player);
     if (port >= num_ports) {
         return;
+    }
+    { // TEMP-DEBUG
+        static int dbg_n = 0;
+        if (port == 0 && (dbg_n++ % 20) == 0) {
+            FILE* f = fopen("reverse_debug.log", "a");
+            if (f) {
+                fprintf(f, "held=%04X pressed=%04X masks:", MEM_HU(4, player), MEM_HU(6, player));
+                for (int o = 0xC; o <= 0x1C; o += 2) fprintf(f, " %04X", MEM_HU(o, player));
+                fprintf(f, " tbl:");
+                for (int i = 0; i < 9; i++) fprintf(f, " %d", (int)MEM_B(0, (int32_t)(0x80125A70 + i)));
+                fprintf(f, "\n");
+                fclose(f);
+            }
+        }
     }
     auto scale = [&](int offset, float pressure) {
         uint32_t bits = MEM_W(offset, car);

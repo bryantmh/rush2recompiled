@@ -31,6 +31,7 @@
 
 #include "recomp.h"
 #include "rush2_hooks.h"
+#include "car2049.h"
 
 #include <cstdlib>
 
@@ -297,4 +298,6 @@ extern "C" void rush2_model_draw(uint8_t* rdram, recomp_context* ctx) {
     }
     // Rush 2049 wings on car bodies (src/wings_render.cpp).
     rush2_wings_model_draw(rdram, ctx);
+    // Rush 2049 car effects (src/car2049.cpp).
+    rush2::car2049::animate(rdram);
 }

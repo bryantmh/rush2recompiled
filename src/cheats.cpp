@@ -36,6 +36,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "rush2.h"
+#include "car2049.h"
 
 extern "C" void func_80094F1C(uint8_t* rdram, recomp_context* ctx);
 
@@ -49,7 +50,7 @@ namespace {
     constexpr uint32_t midway_unlocked = 0x800E7D19;
 
     constexpr uint32_t num_players = 0x8010C3E2;  // s16
-    constexpr uint32_t car_list = 0x803CB368;     // u8 [22][2]: car i of player p at + 2 * i + p.
+    constexpr uint32_t car_list = rush2::car2049::car_list; // u8 [36][2]: car i of player p at + 2 * i + p.
     constexpr uint32_t car_list_size = 0x803CB398; // s16 [2]
     constexpr int num_cars = 22;
     constexpr int max_car_players = 2;
@@ -389,5 +390,6 @@ extern "C" void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx) {
             MEM_B(2 * car + p, (int32_t)car_list) = car;
         }
         MEM_H(2 * p, (int32_t)car_list_size) = num_cars;
+        rush2::car2049::append_to_car_list(rdram, p);
     }
 }

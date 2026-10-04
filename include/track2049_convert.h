@@ -80,6 +80,13 @@ namespace rush2::track2049 {
     // which are left out of the merged geometry (rush2_shared_model_names). static_paths: also place every 2049
     // path-following object at its spawn nodes, as world-space top-level records after the sections (listed in
     // path_records). Returns false with a message in error if the track can't be converted.
+    // Rush 2049 car `car` (1-13) as a Rush 2 car asset (asset 0x1D + type) for the Rush 2 car named `name`.
+    // The Rocket ZX (car 3) also gets its exhaust flames, models ROKTFLAMEG1-3 of effects file 62.
+    constexpr int rocket_car = 3;
+    constexpr int effects_file = 62;
+    bool convert_car(const std::vector<uint8_t>& rom2049, int car, const std::string& name, std::vector<uint8_t>& out,
+                     std::string& error);
+
     bool convert_track(const std::vector<uint8_t>& rom2049, int k, const std::string& prefix,
                        const std::set<std::string>& shared_models, bool static_paths, ConvertedTrack& out,
                        std::string& error);

@@ -44,7 +44,7 @@ namespace {
     // Game addresses.
     constexpr uint32_t node_pool = 0x800D9E90;
     constexpr uint32_t node_size = 0x38;
-    constexpr uint32_t car_body_node = 0x80113F90; // Body node index of car i at + i * 0x134.
+    constexpr uint32_t car_body_node = 0x80219DD0; // Body node index of car i at + i * 0x134 (moved from 0x80113F90, src/car2049.cpp).
     constexpr uint32_t car_body_node_stride = 0x134;
     constexpr uint32_t lighting_cache = 0x800E7DE1; // func_8007AA48: nonzero while G_LIGHTING is on.
     constexpr uint32_t palette_cache = 0x80111954; // func_80078190: palette last loaded into TMEM, 0 for none.

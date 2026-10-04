@@ -82,11 +82,41 @@ int rush2_track49_keys(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_race_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_music(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_list(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_logo(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_setup_mass(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_engine_before(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_engine_value(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_engine_text(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_option_text(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_bars_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_select_set(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_select_get(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_asset(uint8_t* rdram, recomp_context* ctx, uint64_t* reg);
+void rush2_car49_record(uint8_t* rdram, recomp_context* ctx);
+int rush2_car49_dirty(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx);
+
+// SF Rush music (src/track1_audio.cpp).
+void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_music(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx);
+int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx);
+
+// SF Rush breakables (src/track1.cpp).
+void rush2_track1_record_model(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_model_name(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_breakable_model(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_probe_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_probe(uint8_t* rdram, recomp_context* ctx);
@@ -116,18 +146,6 @@ void rush2_wings_gravity(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_drag(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_car_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_model_draw(uint8_t* rdram, recomp_context* ctx);
-
-// SF Rush music (src/track1_audio.cpp).
-void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx);
-void rush2_track1_music(uint8_t* rdram, recomp_context* ctx);
-void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx);
-int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx);
-
-// SF Rush breakables (src/track1.cpp).
-void rush2_track1_record_model(uint8_t* rdram, recomp_context* ctx);
-void rush2_track1_model_name(uint8_t* rdram, recomp_context* ctx);
-void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx);
-void rush2_track1_breakable_model(uint8_t* rdram, recomp_context* ctx);
 
 #ifdef __cplusplus
 }

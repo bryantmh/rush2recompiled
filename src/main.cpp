@@ -425,6 +425,7 @@ static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float
         for (const auto& press : input_script) {
             if (press.controller == controller_num && now >= press.time && now < press.time + press.duration) {
                 *buttons |= press.button;
+                rush2::input::press_pedals(controller_num, press.button);
                 ret = true;
             }
         }

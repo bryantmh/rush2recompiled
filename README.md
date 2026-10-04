@@ -20,8 +20,16 @@ You need to bring your own copy of the game. Nothing from the original cartridge
 
 If you also own **San Francisco Rush 2049** for the N64 (US version), you can point the game at that ROM and unlock a couple of additional features:
 
-- **Wings.** Hold the Wings button when you're airborne to pop out wings and glide. They handle just like they did in 2049, flames and wind sound included, and each player can pick their own wing style.
-- **The 2049 tracks.** All six race tracks from Rush 2049 show up in the track select, right after Rush 2's own tracks, each with a miniature of the real track. They come with their moving trains, trolleys, trap doors, boost pads and windmills, their blinking signs, their sounds, and Rush 2049's own music (switch the music off on the Rush 2049 tab to hear Rush 2's songs instead).
+- **Wings.** Hold the Wings button when you're airborne to pop out wings and glide. They handle just like they did in 2049.
+- **The 2049 tracks.** All six race tracks from Rush 2049 show up in the track select
+- **The 2049 cars.** All thirteen Rush 2049 cars join the car select after Rush 2's own.
+
+### San Francisco Rush extras
+
+If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version), you can point the game at that ROM on the SF Rush tab and unlock:
+
+- **The Rush 1 tracks.** All seven race tracks from the original San Francisco Rush
+- **The Rush 1 music.** 
 
 
 ## What you need
@@ -29,7 +37,8 @@ If you also own **San Francisco Rush 2049** for the N64 (US version), you can po
 - A Windows 10 or 11 PC
 - A graphics card that supports DirectX 12 or Vulkan (anything from the last several years should be fine)
 - Your own ROM of **Rush 2: Extreme Racing USA** (North American version). `.z64`, `.n64` and `.v64` files all work.
-- Optional: a ROM of **San Francisco Rush 2049** (North American version) for the extras above
+- Optional: a ROM of **San Francisco Rush 2049** (North American version) for the Rush 2049 extras
+- Optional: a ROM of **San Francisco Rush: Extreme Racing** (North American version) for the Rush 1 tracks
 
 ## Getting started
 
@@ -47,7 +56,8 @@ Most options live in the settings menu (press Escape, or select).
 
 - **Graphics:** aspect ratio, HUD placement, framerate, level of detail and fonts
 - **Players:** choose which controller (or the keyboard) each player uses. Leave it on Auto and whoever presses a button first gets that player.
-- **Rush 2049:** pick your 2049 ROM, then turn on Wings and the extra tracks
+- **Rush 2049:** pick your 2049 ROM, then turn on Wings and the extra tracks and cars
+- **SF Rush:** pick your San Francisco Rush ROM, then turn on its tracks
 
 To change your button layout, use the game's own **Controls** screen, under Setup or from the pause menu. Pick a row, press A, then press the button you want for it.
 

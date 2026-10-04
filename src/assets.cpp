@@ -25,10 +25,14 @@
 #include "librecomp/game.hpp"
 #include "rush2_hooks.h"
 #include "assets.h"
+#include "car2049.h"
+#include "track2049_convert.h"
 
 namespace {
-    constexpr uint32_t asset_offsets = 0x800C185C;
-    constexpr uint32_t asset_sizes = 0x8001CD64;
+    // The asset tables (0x800C185C ROM offsets, 0x8001CD64 sizes, 0x71 entries) moved to copies with room for the
+    // Rush 2049 cars (src/car2049.cpp, us.toml).
+    constexpr uint32_t asset_offsets = 0x80222A00;
+    constexpr uint32_t asset_sizes = 0x80222C00;
     constexpr uint32_t fake_rom_base = 0x40000000;
 
     constexpr uint32_t heap_low = 0x8010C438;
@@ -100,6 +104,11 @@ bool rush2::assets::read_original(uint8_t* rdram, int index, std::vector<uint8_t
     if (rom >= full.size()) {
         return false;
     }
+    // Rush 2's LZ files (func_80077FE0's list): 0x12, 0x13, 0x15-0x18 and the cars 0x1D-0x32.
+    bool lz = index == 0x12 || index == 0x13 || (index >= 0x15 && index <= 0x18) || (index >= 0x1D && index <= 0x32);
+    if (lz) {
+        return rush2::track2049::rush2_lz_decompress(full.data() + rom, full.size() - rom, out);
+    }
     return inflate_raw(full.data() + rom, full.size() - rom, out);
 }
 
@@ -136,4 +145,8 @@ extern "C" void rush2_heap_init(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(0, (int32_t)heap_mark) = new_heap_base;
     MEM_W(0, (int32_t)heap_high) = new_heap_top;
     MEM_W(0, (int32_t)heap_top) = new_heap_top;
+    // The per-car-type tables move to 35-entry copies at the same time (src/car2049.cpp).
+    rush2::car2049::init_tables(rdram);
+    rush2::car2049::init_assets(rdram);
+    rush2::car2049::init_physics(rdram);
 }

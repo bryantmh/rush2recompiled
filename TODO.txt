@@ -18,6 +18,7 @@ San Francisco Rush 2049:
 11) Parts upgrade system for coin unlocks
 12) Engine sounds: port 2049's engine audio for the 2049 cars (trace how 2049 picks the engine sound, and whether its ENGINE setting changes it).
 13) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
+14) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
 
 General:
 1) left-right splitscreen options
