@@ -30,13 +30,23 @@ R2_PREFIXES = ['MARKER', 'TIME', 'COLLISION', 'CONE1', 'FENCE', 'FLAG2', 'GASIGN
                'NYTREEHT', 'GRANDWIN', 'GLAMPHIT', 'CHAIRHIT', 'DESKHIT', 'MAPSIGN', 'SRFBRD', 'USFLAG', 'UMBRELLA',
                'RATCONE', 'P737', 'PJET', 'F23', 'ENGTABLE', 'DOTHEDEW', 'NYLGATE']
 
-# Rush 1 objects that are Rush 2 objects too: placement name prefix -> Rush 2 record name (a Rush 2 class, which draws
-# Rush 2's model and runs Rush 2's behaviour), or None to leave the record out. Rush 1 sound emitters (no node in
-# either game) become the matching Rush 2 emitter.
-R1_OBJECTS = [('CONE1L', 'CONE1'), ('METERL', 'METER'), ('TREEHIT', 'TREEHIT'), ('FLAG2L', 'FLAG2'),
-              ('WINDOWBL', 'SHATPANE'), ('KEYL', None), ('MARKER', None), ('TIME', None)]
-R1_EMITTERS = {'CCAR': 'CABLECAR', 'FIRECRK': 'FIRECRCK', 'SMALLHOOT': 'SMLHOOT', 'BIGCHEER': 'BIGCHR1',
-               'BIGCHEER2': 'BIGCHR2'}
+# Rush 1 breakables raced as Rush 2 breakable classes, drawn with Rush 1's models: (Rush 1 model prefix, replacement for
+# the prefix in the record name or None to keep it, behaviour id of the Rush 2 class model). The class gives the sound
+# and debris handling; src/track1.cpp redirects Rush 2's lookup of the class model to the record's own model.
+R1_CLASSES = [('CONE1L', None, 2), ('METERL', None, 5), ('TREEHIT', None, 5), ('FLAG2L', None, 23), ('FENCEL', None, 4),
+              ('GASIGNL', None, 7), ('WINDOWBL', 'SHATPANEBL', 9), ('PMUNCH_01L', 'CURVEHITPMUNCH', 5),
+              ('TMUNCHL', 'TREEHITTMUNCH', 5)]
+# Rush 2 breakable pieces (resolved by name at race start) -> Rush 1's: (Rush 2 prefix, Rush 1 prefix, count, shift);
+# tree pieces TREEHITnO1 -> TREEHITnL1.
+R1_PIECES = [('CONE1O', 'CONE1L', 1, 0), ('METERO', 'METERL', 1, 0), ('SHATPANEO', 'WINDOWBL', 7, 0),
+             ('FENCEO', 'FENCEL', 12, 0), ('FLAG2O', 'FLAG2L', 10, -1), ('GASIGNO', 'GASIGNL', 3, 0)]
+# Rush 1 models from the shared object file (asset 12) that the classes use.
+R1_SHARED_OBJECTS = ['CONE1L1', 'METERL1', 'TREEHIT1L1', 'TREEHIT4L1']
+# Left out: keys need Rush 2's key system; MARKER and TIME are unknown.
+R1_DROPPED = ['KEYL', 'MARKER', 'TIME', 'BIGCHEER2']
+# Rush 1 sound emitters -> the Rush 2 emitters with the same sound and range (SMALLHOOT behaves as BIGCHR1, BIGCHEER as
+# BIGCHR2; FIRECRK gets Rush 1's own sound at run time). BIGCHEER2 does nothing in Rush 1 and is left out.
+R1_EMITTERS = {'CCAR': 'CABLECAR', 'FIRECRK': 'FIRECRCK', 'SMALLHOOT': 'BIGCHR1', 'BIGCHEER': 'BIGCHR2'}
 
 
 class ConvertError(Exception):
@@ -178,6 +188,7 @@ class Builder:
         self.models = []           # (name, lod_count, [(flags, dist, list bytes, fixups)], radius)
         self.textures = []         # (name, record bytes, data kind, data ref, palette name)
         self.palettes = []         # (name, record bytes, source)
+        self.kinds = {}            # model name -> behaviour id (name record +0x14)
 
     def add_source(self, c):
         while len(self.out) % 8:
@@ -262,6 +273,37 @@ class Builder:
             body += RESTORE_STATE + struct.pack('>II', 0xDF000000, 0)
             out.append((flags & 0x7, dist, body, fx))
         self.models.append((name, count, out, c.radius(i)))
+
+    def vertices_of(self, model):
+        """Output offsets of the vertices a model loads (G_VTX fixups into the sources' copies)."""
+        at = set()
+        for flags, dist, body, fx in model[2]:
+            if body is None:
+                continue
+            for pos, ref in fx:
+                if ref[0] != 'src' or pos < 4 or body[pos - 4] != 0x01:
+                    continue
+                n = (struct.unpack_from('>I', body, pos - 4)[0] >> 12) & 0xFF
+                for k in range(n):
+                    at.add(self.sources[ref[1]][1] + ref[2] + k * 16)
+        return at
+
+    def base_origin(self, name):
+        """Moves a model's vertices up so its lowest is at y 0 (Rush 2's breakable models have their origin at the
+        base); returns the shift in vertex units."""
+        model = [m for m in self.models if m[0] == name]
+        if not model:
+            raise ConvertError('no model %s to move' % name)
+        mine = self.vertices_of(model[-1])
+        if not mine:
+            return 0
+        for m in self.models:
+            if m is not model[-1] and mine & self.vertices_of(m):
+                raise ConvertError('model %s shares vertices with %s' % (name, m[0]))
+        lowest = min(struct.unpack_from('>h', self.out, a + 2)[0] for a in mine)
+        for a in mine:
+            struct.pack_into('>h', self.out, a + 2, struct.unpack_from('>h', self.out, a + 2)[0] - lowest)
+        return -lowest
 
     def add_empty_model(self, name):
         self.models.append((name, 1, [(0, 0.0, struct.pack('>II', 0xDF000000, 0), []), (0, 0.0, None, None),
@@ -354,10 +396,35 @@ class Builder:
             out += r
         name_at = len(out)
         for name, count, lods, radius in models:
-            out += name.encode().ljust(16, b'\0') + struct.pack('>fHH', radius, 0, 0)
+            out += name.encode().ljust(16, b'\0') + struct.pack('>fHH', radius, self.kinds.get(name, 0), 0)
         struct.pack_into('>10I', out, 0, model_at, name_at, tex_at, pal_at, len(models), len(textures),
                          len(palettes), start7, end8, 0)
         return bytes(out)
+
+
+def object_class(name):
+    for c in R1_CLASSES:
+        if name.startswith(c[0]):
+            return c
+    return None
+
+
+def placed_objects(r, t):
+    d = r.asset(PLACEMENT + t)
+    base = u32(d, 4)
+    return {cname(d, o) for o in range(base, len(d) - 0x63, 0x64)}
+
+
+def piece_models(names):
+    out = {}
+    for r2, r1, count, shift in R1_PIECES:
+        for k in range(1, count + 1):
+            if r1 + str(k + shift) in names:
+                out[r2 + str(k)] = names[r1 + str(k + shift)]
+    for k in range(1, 5):
+        if 'TREEHIT%dL1' % k in names:
+            out['TREEHIT%dO1' % k] = names['TREEHIT%dL1' % k]
+    return out
 
 
 def convert_geometry(r, t, prefix):
@@ -375,6 +442,21 @@ def convert_geometry(r, t, prefix):
         b.add_model(st, i, new)
     if finish not in names:
         raise ConvertError('finish model %s missing' % finish)
+    for n in R1_SHARED_OBJECTS:
+        if n in names:
+            continue
+        for i in range(objects.n_models):
+            if objects.name(i) == n:
+                names[n] = safe_name(n)
+                b.add_model(so, i, names[n])
+        if n not in names:
+            raise ConvertError('object model %s missing' % n)
+    shifts = {}
+    for n in sorted(placed_objects(r, t)):
+        c = object_class(n)
+        if c is not None and n in names:
+            b.kinds[names[n]] = c[2]
+            shifts[n] = b.base_origin(names[n])
     b.add_empty_model('R1EMPTY')
     for i in range(track.n_tex):
         if track.texture(i)[0] == 'CHKPOINT':
@@ -386,16 +468,18 @@ def convert_geometry(r, t, prefix):
             b.add_palette(so, 'FINISH', 'FINISH')
     if len(b.textures) != 2:
         raise ConvertError('CHKPOINT/FINISH textures missing')
-    return b.build(), names
+    return b.build(), names, shifts
 
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Placement
 
-def convert_placement(r, t, prefix, names):
+def convert_placement(r, t, prefix, names, record_models=None, shifts=None):
     """Rush 1 placement (Rush 2's record layout, 0x64 bytes; children positions relative to their unrotated parent)
     as a Rush 2 placement with tree name `prefix`. The top-level chain (the track sections; their order is the
     visibility region order) is kept as it is."""
+    if record_models is None:
+        record_models = {}
     d = r.asset(PLACEMENT + t)
     if u32(d, 0) != 1:
         raise ConvertError('placement has %d trees' % u32(d, 0))
@@ -430,21 +514,26 @@ def convert_placement(r, t, prefix, names):
             world = False
             if n in R1_EMITTERS:
                 new, world = R1_EMITTERS[n], True
+            elif any(n.startswith(p) for p in R1_DROPPED):
+                new = None
             else:
-                new = n
-                for p, mapped in R1_OBJECTS:
-                    if n.startswith(p):
-                        new, world = mapped, True
-                        break
-                else:
-                    if n not in names:
-                        raise ConvertError('object %s has no model' % n)
-                    new = names[n]
+                if n not in names:
+                    raise ConvertError('object %s has no model' % n)
+                new = names[n]
+                oc = object_class(n)
+                if oc is not None:
+                    record = oc[1] + n[len(oc[0]):] if oc[1] else n
+                    if len(record) > 15 or not r2_classified(record):
+                        raise ConvertError('no class record for ' + n)
+                    record_models[record] = names[n]
+                    new, world = record, True
             if new is not None:
                 k[0:16] = new.encode().ljust(16, b'\0')
                 if world:
                     pos = struct.unpack_from('>3f', k, 0x34)
-                    struct.pack_into('>3f', k, 0x34, *(a + b for a, b in zip(pos, ppos)))
+                    down = (shifts or {}).get(n, 0) / 16.0
+                    struct.pack_into('>3f', k, 0x34, *(a + b - (down if i == 1 else 0.0)
+                                                       for i, (a, b) in enumerate(zip(pos, ppos))))
                 struct.pack_into('>I', k, 0x40, (u32(k, 0x40) & ~0x1000) if not world else 0x40)
                 struct.pack_into('>I', k, 0x48, 0)
                 struct.pack_into('>6f', k, 0x4C, 0, 0, 0, 0, 0, 0)
@@ -690,8 +779,8 @@ def pvs(r, t):
 
 
 def convert(r, t, prefix='HAWAII', backward=False):
-    geometry, names = convert_geometry(r, t, prefix)
-    placement = convert_placement(r, t, prefix, names)
+    geometry, names, shifts = convert_geometry(r, t, prefix)
+    placement = convert_placement(r, t, prefix, names, None, shifts)
     collision = convert_collision(r.asset((COLLISION_BACK if backward else COLLISION) + t))
     path, demo = convert_path(r, t, backward)
     table, count = pvs(r, t)

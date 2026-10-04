@@ -126,11 +126,55 @@ Named textures:
 
 **Conversion:**
 - The chain and its order are kept.
-- Rush 1 objects that Rush 2 has map to Rush 2 classes with world positions: CONE1L → CONE1, METERL → METER,
-  TREEHIT → TREEHIT, FLAG2L → FLAG2, WINDOWBL → SHATPANE. Rush 2 draws its own model for these.
-- Emitters map to Rush 2's: CCAR → CABLECAR, FIRECRK → FIRECRCK, SMALLHOOT → SMLHOOT, BIGCHEER(2) → BIGCHR1(2).
+- **Breakables** become Rush 2 breakable class records, drawn with Rush 1's own models:
+
+  | Rush 1 model | Record | Rush 2 class | Behaviour id given to the model |
+  |---|---|---|---|
+  | CONE1L1 | same name | CONE1 | 2 |
+  | METERL1 | same name | METER | 5 |
+  | TREEHIT1L1-4L1 | same name | TREEHIT | 5 |
+  | FLAG2L0 | same name | FLAG2 | 23 |
+  | FENCEL1 | same name | FENCE | 4 |
+  | GASIGNL1 | same name | GASIGN | 7 |
+  | WINDOWBL1 | SHATPANEBL1 | SHATPANE | 9 |
+  | PMUNCH_01L1 (traffic light) | CURVEHITPMUNCH1 | CURVEHIT (metal sign) | 5 |
+  | TMUNCHL1 (trash muncher) | TREEHITTMUNCH1 | TREEHIT | 5 |
+
+  - The class gives the sound (0x80125C54) and debris handling. The behaviour runs from the model's name-record id
+    (+0x14), set to that of the Rush 2 model the class normally draws (CONE1O1, METERO1, TREEHIT1O1, ...).
+  - Rush 2 looks a class's model up by its debris name, and its shared object files (0x12, 0x14) load before the
+    track, so their models would win (`func_8005BE3C` searches slots upward). `src/track1.cpp` redirects the
+    placement walker's lookup (func_80081790 at 0x8008194C) to the record's own model.
+  - Rush 2's breakable pieces, resolved by name at race start, are redirected to Rush 1's: CONE1O1 → CONE1L1,
+    METERO1 → METERL1, TREEHITnO1 → TREEHITnL1, SHATPANEO1-7 → WINDOWBL1-7, FENCEO1-12 → FENCEL1-12,
+    FLAG2O1-10 → FLAG2L0-9, GASIGNO1-3 → GASIGNL1-3 (`func_8005BE3C` entry).
+  - Rush 1's behaviour table (0x800CC81C, set at 0x80086348) has Rush 2's layout (0x800C526C): the same ids, the
+    callbacks in the same order and of similar sizes. Rush 1 ids: 2 cone, 3 meter, 4 fence, 5 traffic light (PMUNCH),
+    6 tree / trash muncher, 7 gas sign, 8 key, 9 window, 23 flag.
+  - Rush 2's per-frame breakable update (`func_8008A01C`) sets each breakable's model from its +0x62 id (the class's
+    CONE1O1, METERO1, ...), and the METER id (0x717) also gets node flag 0x8000 (drawn as a camera-facing card, like
+    Rush 2's flat meter). On Rush 1 tracks a breakable keeps the model it was created with until its id changes (hit):
+    `rush2_track1_breakable_model` at 0x8008A0CC. Without it, traffic lights drew as floating meter cards and trash
+    munchers as trees.
+  - Rush 1 models are centred and drawn at 1/16 scale (vertex units / 16 = world units), and their records sit at
+    the object's centre; Rush 2's breakable models have their origin at the base and their records on the ground. Rush
+    2's car hit test (`func_8008B0CC`) takes the placement point in the car's frame within |y − 1.25| < 2.25, so a
+    centred traffic light (centre 9.6 up), trash muncher (7.5) or tree (12.5) was never hit. The converter moves each
+    placed breakable model's vertices up to put its base at the origin and lowers the record by the same amount / 16,
+    which also makes Rush 2's knock-over pivot about the base.
+  - Checked in game: track 2 creates 124 breakable instances (89 cones, 15 trash munchers, 15 traffic lights, a window, 4 flags), track 3
+    112 (44 cones, 52 meters, 16 trees); cones knock over. Rush 2 allows 0x82.
+- **Emitters** (no node; ids from the bytes at 0x800CF774) map to the Rush 2 emitter with the same sound and range:
+
+  | Rush 1 | id | Rush 1 sound, range | Rush 2 emitter | Rush 2 sound, range |
+  |---|---|---|---|---|
+  | CCAR | 0x0A | 0x1E, 200 | CABLECAR | 0x4F, 200 (same sample) |
+  | SMALLHOOT | 0x10 | 0x21, 400 | BIGCHR1 | 0x51, 400 (same sample) |
+  | BIGCHEER | 0x11 | 0x21, 300 | BIGCHR2 | 0x51, 300 (same sample) |
+  | FIRECRK | 0x0D | 0x3E, 100 | FIRECRCK, replaced at run time by Rush 1's sound (§9) | |
+  | BIGCHEER2 | 0x00 | none (behaviour 0 returns) | left out | |
+
 - KEYL, MARKER and TIME are dropped.
-- Other objects stay static Rush 1 models: fences, trash cans, gas signs, parking munchers. Cars pass through them.
 
 ## 4. Visibility [V]
 
@@ -144,7 +188,16 @@ Named textures:
 **Region counts:** u8 at 0x800CF77C, values 57, 111, 89, 111, 100, 70, 75.
 - Track 2 has 126 sections for 111 regions; regions past the table see everything.
 
-**Conversion:** the masks are used verbatim.
+**Region choice differs from Rush 2's:**
+- Rush 1 (`func_80064544`): a top-level record whose box holds the camera in x and z, with dy ≤ box top (no bottom
+  test); the least |dx| + |dz| wins; none → everything visible.
+- Rush 2 (`func_8007C06C`): box bottom ≤ dy (no top test); score √(dx² + dz²), plus dy − bottom when dy is above
+  0.75 × top; the least score wins.
+- With Rush 2's rule, a camera high above track 2's hill (x 1167, z 2300) picks region 102, whose mask hides section 91
+  under it (the ground vanishes mid-jump): 14 of 1155 lane-0 points at +400. Rush 1's rule hides nothing there.
+
+**Conversion:** the masks are used verbatim, and Rush 1 tracks use Rush 1's region choice (`src/track1.cpp`, with the
+camera position from the start of `func_8007C27C`).
 
 ## 5. Collision [V]
 
@@ -237,14 +290,38 @@ Named textures:
 |---|---|
 | Fog | 0x9696BE. Rush 1's fog colour is a game option (0x800C7FFC by option), not per track. |
 | Sky | Rush 2's procedural dome. Rush 1 uses the same with the same texture names, SKY01 and SKYFOUR. |
-| Songs | Rush 2 songs 1, 0, 4, 2, 3, 5, 6. |
+| Songs | Rush 1's own (§9). Rush 2 songs 1, 0, 4, 2, 3, 5, 6 if its music isn't available. |
 | Demo starts | spine quarters |
 | Record seeds | lane 1's lap time at its target speeds |
 | Checkpoint times | Rush 1's own (`rush2::track1::race_time`, hooked into `rush2_track49_race_time`): header +0 and checkpoint +0x1E / +0x20 get Rush 1's start and lap 1 / lap 2 times, divided by Rush 2's factor 1 + (5 − difficulty) × 0.075. Rush 2 otherwise works them out from the AI lane speeds (`func_800924E4`), never 45 s. |
 
 ## 8. Open items
 
-- The Rush 1 versions of breakables (fences, trash cans, gas signs) are static. Making them breakable needs Rush 2's
-  debris names, or code.
+- Keys (KEYL1, behaviour 8) are dropped; they need Rush 2's key system and unlockables.
+- MARKER and TIME (behaviours 0x0F, 0x15) are not understood.
 - Checkpoint flag 4 (track 6) is not understood.
 - The cars (assets 25-35) aren't ported. All 11 are already Rush 2 cars.
+
+## 9. Audio [V]
+
+Both games use libaudio: a song file (ALSeqFile, LZ-compressed type 0 MIDI files) played by an ALSeqPlayer with one
+music bank, and a sound effect bank for an ALSndPlayer. The banks (`B1`, one bank each) have the same layout.
+
+| | Rush 1 ROM | Rush 2 ROM |
+|---|---|---|
+| Music bank .ctl / .tbl | 0x5D9350 (52 instruments + percussion) / 0x5DF380 | 0x7A1170 (116) / 0x7A8DE0 |
+| Songs | 0x6F80A0, 16 | 0x96A360, 13 |
+| Sound effect bank .ctl / .tbl | 0x70A1D0 (68 sounds) / 0x70DCC0-0x7A7930 | 0x97AE40 (116 sounds) / 0x981180 |
+
+- Rush 1 loads them in `func_800BC2B0`; Rush 2 in `func_800B3B78`.
+- Rush 1's race music: `func_80099E44(2, setting)`, setting 0 off, 1 random of 9 race songs (table 0x800D2910:
+  0, 1, 2, 7, 3, 10, 6, 12, 15), 2+ a fixed song. There are no per-track songs.
+- Rush 1's music bank has empty instrument slots (offset 0). `alBnkfNew` rebases them anyway and patches the bank
+  header as an instrument: harmless on the console, out of bounds in the recomp, so they are pointed at an empty
+  instrument first.
+- The audio microcode reads ADPCM codebooks from the bank with 24-bit addresses: a bank copy above 16 MB of RDRAM
+  plays as noise.
+- Port (`src/track1_audio.cpp`): Rush 1's ROM 0x5D9350-0x7A7930 is appended to the runtime's ROM image; Rush 2's song
+  header gets Rush 1's 16 songs as 13-28; the player switches banks per song; Rush 2's sound effect instrument gets
+  Rush 1's fireworks (sound 62) as sound 116, played by FIRECRCK on Rush 1 tracks.
+- Sound effects: 42 of Rush 1's 68 samples are byte-identical in Rush 2, including all the emitters' but fireworks.

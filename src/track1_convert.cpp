@@ -25,6 +25,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -52,13 +53,41 @@ namespace {
         "SLOWHIT", "NYTREEHT", "GRANDWIN", "GLAMPHIT", "CHAIRHIT", "DESKHIT", "MAPSIGN", "SRFBRD", "USFLAG", "UMBRELLA",
         "RATCONE", "P737", "PJET", "F23", "ENGTABLE", "DOTHEDEW", "NYLGATE" };
 
-    // Rush 1 objects that Rush 2 also has: name prefix -> Rush 2 class (Rush 2's model and behaviour), or "" to leave
-    // the record out; Rush 1 sound emitters -> Rush 2 emitters.
-    const std::pair<const char*, const char*> r1_objects[] = { { "CONE1L", "CONE1" }, { "METERL", "METER" },
-        { "TREEHIT", "TREEHIT" }, { "FLAG2L", "FLAG2" }, { "WINDOWBL", "SHATPANE" }, { "KEYL", "" }, { "MARKER", "" },
-        { "TIME", "" } };
+    // Rush 1 breakables raced as Rush 2 breakable classes, drawn with Rush 1's models. A record keeps its model name when
+    // that already selects the Rush 2 class (CONE1L1 -> CONE1), else its prefix is replaced to select one; the class
+    // gives the sound and debris handling, and the model's name record gets the behaviour id of the Rush 2 model it
+    // stands in for (src/track1.cpp redirects Rush 2's lookups of the class model to the record's own model).
+    struct ObjectClass {
+        const char* prefix;     // Rush 1 model name prefix.
+        const char* record;     // Replacement for the prefix in the record name, or null to keep it.
+        int16_t kind;           // Behaviour id of the Rush 2 class model (CONE1O1, METERO1, TREEHIT1O1, ...).
+    };
+    const ObjectClass r1_classes[] = { { "CONE1L", nullptr, 2 }, { "METERL", nullptr, 5 }, { "TREEHIT", nullptr, 5 },
+        { "FLAG2L", nullptr, 23 }, { "FENCEL", nullptr, 4 }, { "GASIGNL", nullptr, 7 }, { "WINDOWBL", "SHATPANEBL", 9 },
+        { "PMUNCH_01L", "CURVEHITPMUNCH", 5 }, { "TMUNCHL", "TREEHITTMUNCH", 5 } };
+    // Rush 2's breakable pieces (resolved by name at race start, func_8008A1FC) -> Rush 1's: {Rush 2 prefix, Rush 1
+    // prefix, Rush 2 numbers, offset to Rush 1's number}.
+    struct PieceSet {
+        const char* rush2;
+        const char* rush1;
+        int count;
+        int shift;
+    };
+    const PieceSet r1_pieces[] = { { "CONE1O", "CONE1L", 1, 0 }, { "METERO", "METERL", 1, 0 },
+        { "SHATPANEO", "WINDOWBL", 7, 0 }, { "FENCEO", "FENCEL", 12, 0 }, { "FLAG2O", "FLAG2L", 10, -1 },
+        { "GASIGNO", "GASIGNL", 3, 0 } };
+    // Tree pieces TREEHITnO1 -> TREEHITnL1 (n 1-4).
+    // Rush 1 models from the shared object file (asset 12) that the classes use.
+    const char* const r1_shared_objects[] = { "CONE1L1", "METERL1", "TREEHIT1L1", "TREEHIT4L1" };
+
+    // Rush 1 placement objects that are left out (keys need Rush 2's key system; MARKER and TIME are unknown; BIGCHEER2
+    // is silent in Rush 1).
+    const char* const r1_dropped[] = { "KEYL", "MARKER", "TIME", "BIGCHEER2" };
+    // Rush 1 sound emitters -> the Rush 2 emitters that play the same sound at the same range (the behaviour ids differ:
+    // SMALLHOOT's is Rush 2's BIGCHR1 and BIGCHEER's BIGCHR2, a crowd cheer at 400 and 300). FIRECRK's fireworks sound
+    // is Rush 1's own (src/track1_audio.cpp). BIGCHEER2's behaviour (id 0) does nothing, so it is left out.
     const std::pair<const char*, const char*> r1_emitters[] = { { "CCAR", "CABLECAR" }, { "FIRECRK", "FIRECRCK" },
-        { "SMALLHOOT", "SMLHOOT" }, { "BIGCHEER", "BIGCHR1" }, { "BIGCHEER2", "BIGCHR2" } };
+        { "SMALLHOOT", "BIGCHR1" }, { "BIGCHEER", "BIGCHR2" } };
 
     struct ConvertError {
         std::string message;
@@ -276,6 +305,7 @@ namespace {
             uint16_t flags[4];
             float dist[4];
             float radius;
+            int16_t kind = 0;   // Behaviour id (name record +0x14).
         };
         struct TextureOut {
             std::string name;
@@ -514,6 +544,7 @@ namespace {
                 }
                 put_name(name_rec, 0, m.name);
                 putf(name_rec, 16, m.radius);
+                put16(name_rec, 20, uint16_t(m.kind));
                 raw_models.push_back({ m.name, rec, name_rec });
             }
             auto by_name = [](const auto& a, const auto& b) { return name_less(a.name, b.name); };
@@ -548,6 +579,45 @@ namespace {
             put32(out, 20, uint32_t(raw_textures.size()));
             put32(out, 24, uint32_t(raw_palettes.size()));
             return std::move(out);
+        }
+
+        // The output offsets of the vertices model m loads (G_VTX fixups into the sources' copies).
+        std::set<size_t> vertices_of(const ModelOut& m) const {
+            std::set<size_t> at;
+            for (const auto& lod : m.lods) {
+                if (!lod) continue;
+                for (const Fixup& f : lod->fixups) {
+                    if (f.ref.load || f.pos < 4 || lod->bytes[f.pos - 4] != 0x01) continue;
+                    uint32_t n = (u32(lod->bytes, f.pos - 4) >> 12) & 0xFF;
+                    for (uint32_t k = 0; k < n; k++) {
+                        at.insert(sources[size_t(f.ref.index)].second + f.ref.offset + k * 16);
+                    }
+                }
+            }
+            return at;
+        }
+
+        // Moves model `name`'s vertices up so that its lowest one is at y 0, as Rush 2's breakable models are built
+        // (their placement point is their base); returns the shift in vertex units (1/16 of a world unit).
+        int base_origin(const std::string& name) {
+            const ModelOut* model = nullptr;
+            for (const ModelOut& m : models) {
+                if (m.name == name) model = &m;
+            }
+            if (model == nullptr) fail("no model " + name + " to move");
+            std::set<size_t> mine = vertices_of(*model);
+            if (mine.empty()) return 0;
+            for (const ModelOut& m : models) {
+                if (&m == model) continue;
+                for (size_t a : vertices_of(m)) {
+                    if (mine.count(a)) fail("model " + name + " shares vertices with " + m.name);
+                }
+            }
+            int lowest = 0x7FFF;
+            for (size_t a : mine) lowest = std::min(lowest, int(s16(out, a + 2)));
+            int shift = -lowest;
+            for (size_t a : mine) put16(out, a + 2, uint16_t(int16_t(s16(out, a + 2) + shift)));
+            return shift;
         }
 
         uint32_t resolve(const Ref& ref, const std::vector<uint32_t>& load_at) const {
@@ -620,6 +690,7 @@ namespace {
                 out.resize(o + 0x18, 0);
                 put_name(out, o, m.name);
                 putf(out, o + 16, m.radius);
+                put16(out, o + 20, uint16_t(m.kind));
             }
             uint32_t h[10] = { model_at, name_at, tex_at, pal_at, uint32_t(models.size()), uint32_t(textures.size()),
                                uint32_t(palettes.size()), start7, end8, 0 };
@@ -638,8 +709,24 @@ namespace {
         return out;
     }
 
+    const ObjectClass* object_class(const std::string& name) {
+        for (const ObjectClass& c : r1_classes) {
+            if (starts_with(name, c.prefix)) return &c;
+        }
+        return nullptr;
+    }
+
+    // Names of every record in track t's placement.
+    std::set<std::string> placed_objects(const std::vector<uint8_t>& rom, int t) {
+        Bytes d = asset(rom, placement_asset + t);
+        uint32_t base = u32(d, 4);
+        std::set<std::string> out;
+        for (size_t o = base; o + 0x64 <= d.size(); o += 0x64) out.insert(cname(d, o));
+        return out;
+    }
+
     Bytes convert_geometry(const std::vector<uint8_t>& rom, const Main& main, int t, const std::string& prefix,
-                           std::map<std::string, std::string>& names) {
+                           std::map<std::string, std::string>& names, std::map<std::string, int>& base_shifts) {
         Bytes track_data = asset(rom, geometry_asset + t), bank = asset(rom, texture_bank_asset);
         track_data.insert(track_data.end(), bank.begin(), bank.end());
         Container track(std::move(track_data));
@@ -655,6 +742,30 @@ namespace {
             b.add_model(st, i, renamed);
         }
         if (!names.count(finish)) fail("finish model " + finish + " missing");
+        for (const char* n : r1_shared_objects) {
+            if (names.count(n)) continue;
+            for (uint32_t i = 0; i < objects.n_models; i++) {
+                if (objects.name(i) == n) {
+                    names[n] = safe_name(n);
+                    b.add_model(so, i, names[n]);
+                }
+            }
+            if (!names.count(n)) fail(std::string("object model ") + n + " missing");
+        }
+        // Placed breakables get the behaviour id of the Rush 2 model they stand in for, and their origin at their base
+        // like Rush 2's breakable models (Rush 1's are centred): Rush 2 knocks an object over about its origin, and its
+        // car hit test (func_8008B0CC) takes the placement point within about 3 world units of the car's height, so a
+        // centred traffic light, tree or trash muncher would never be hit. The records move down to match.
+        base_shifts.clear();
+        for (const std::string& n : placed_objects(rom, t)) {
+            const ObjectClass* c = object_class(n);
+            auto it = names.find(n);
+            if (c == nullptr || it == names.end()) continue;
+            for (auto& m : b.models) {
+                if (m.name == it->second) m.kind = c->kind;
+            }
+            base_shifts[n] = b.base_origin(it->second);
+        }
         b.add_empty_model("R1EMPTY");
         for (uint32_t i = 0; i < track.n_tex; i++) {
             if (track.texture_name(i) == "CHKPOINT") {
@@ -676,7 +787,10 @@ namespace {
     // Placement
 
     Bytes convert_placement(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
-                            const std::map<std::string, std::string>& names) {
+                            const std::map<std::string, std::string>& names,
+                            const std::map<std::string, int>& base_shifts,
+                            std::map<std::string, std::string>& record_models) {
+        record_models.clear();
         Bytes d = asset(rom, placement_asset + t);
         if (u32(d, 0) != 1) fail("placement has " + std::to_string(u32(d, 0)) + " trees");
         uint32_t base = u32(d, 4);
@@ -717,26 +831,28 @@ namespace {
                 for (auto [from, to] : r1_emitters) {
                     if (n == from) { renamed = to; world = true; }
                 }
-                if (!world) {
-                    bool matched = false;
-                    for (auto [p, mapped] : r1_objects) {
-                        if (starts_with(n, p)) {
-                            matched = true;
-                            world = true;
-                            if (*mapped) renamed = mapped;
-                            break;
-                        }
-                    }
-                    if (!matched) {
-                        auto nt = names.find(n);
-                        if (nt == names.end()) fail("object " + n + " has no model");
-                        renamed = nt->second;
+                bool dropped = false;
+                for (const char* p : r1_dropped) dropped = dropped || starts_with(n, p);
+                if (!world && !dropped) {
+                    auto nt = names.find(n);
+                    if (nt == names.end()) fail("object " + n + " has no model");
+                    renamed = nt->second;
+                    if (const ObjectClass* oc = object_class(n)) {
+                        std::string record = oc->record ? oc->record + n.substr(strlen(oc->prefix)) : n;
+                        if (record.size() > 15 || !r2_classified(record)) fail("no class record for " + n);
+                        record_models[record] = nt->second;
+                        renamed = record;
+                        world = true;
                     }
                 }
                 if (!renamed) continue;
                 put_name(k, 0, *renamed);
                 if (world) {
-                    for (int a = 0; a < 3; a++) putf(k, 0x34 + a * 4, double(f32(k, 0x34 + a * 4)) + double(ppos[a]));
+                    auto shift = base_shifts.find(n);
+                    double down = shift == base_shifts.end() ? 0.0 : shift->second / 16.0;
+                    for (int a = 0; a < 3; a++) {
+                        putf(k, 0x34 + a * 4, double(f32(k, 0x34 + a * 4)) + double(ppos[a]) - (a == 1 ? down : 0.0));
+                    }
                 }
                 put32(k, 0x40, world ? 0x40 : (u32(k, 0x40) & ~0x1000u));
                 put32(k, 0x48, 0);
@@ -1120,8 +1236,20 @@ bool rush2::track1::convert_track(const std::vector<uint8_t>& rom, int t, const 
     try {
         Main main{ *main_data };
         std::map<std::string, std::string> names;
-        out.geometry = convert_geometry(rom, main, t, prefix, names);
-        out.placement = convert_placement(rom, t, prefix, names);
+        std::map<std::string, int> base_shifts;
+        out.geometry = convert_geometry(rom, main, t, prefix, names, base_shifts);
+        out.placement = convert_placement(rom, t, prefix, names, base_shifts, out.record_models);
+        out.piece_models.clear();
+        auto piece = [&](const std::string& rush2, const std::string& rush1) {
+            auto it = names.find(rush1);
+            if (it != names.end()) out.piece_models[rush2] = it->second;
+        };
+        for (const PieceSet& p : r1_pieces) {
+            for (int k = 1; k <= p.count; k++) piece(p.rush2 + std::to_string(k), p.rush1 + std::to_string(k + p.shift));
+        }
+        for (int k = 1; k <= 4; k++) {
+            piece("TREEHIT" + std::to_string(k) + "O1", "TREEHIT" + std::to_string(k) + "L1");
+        }
         out.collision[0] = convert_collision(asset(rom, collision_asset + t));
         out.collision[1] = convert_collision(asset(rom, collision_back_asset + t));
         for (int b = 0; b < 2; b++) {

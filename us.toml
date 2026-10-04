@@ -734,6 +734,61 @@ func = "func_80062F50"
 before_vram = 0x80062F50
 text = "    rush2_track49_music_command(rdram, ctx);"
 
+# SF Rush's own music on the SF Rush tracks (src/track1_audio.cpp): its music block is added to the ROM image and
+# its bank loaded after Rush 2's (func_800B3B78), the race song becomes an SF Rush song (func_8008C370, $v0 = song),
+# and the music loader gives the sequence player the song's bank before attaching it (func_8007733C).
+[[patches.hook]]
+func = "func_800B3B78"
+before_vram = 0x800B4000
+text = "    rush2_track1_audio_init(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8008C370"
+before_vram = 0x8008C46C
+text = "    rush2_track1_music(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8007733C"
+before_vram = 0x80077424
+text = "    rush2_track1_song_bank(rdram, ctx);"
+
+# SF Rush breakables (src/track1.cpp): Rush 2 breakable class records draw the SF Rush model named for the record
+# (placement walker func_80081790, before its model lookup), and Rush 2 breakable pieces resolve to SF Rush's
+# (func_8005BE3C, the model lookup by name).
+[[patches.hook]]
+func = "func_80081790"
+before_vram = 0x8008194C
+text = "    rush2_track1_record_model(rdram, ctx);"
+
+# SF Rush visibility (src/track1.cpp): the camera position, for SF Rush's own region choice in rush2_track49_pvs.
+[[patches.hook]]
+func = "func_8007C27C"
+before_vram = 0x8007C27C
+text = "    rush2_track1_pvs_camera(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8005BE3C"
+before_vram = 0x8005BE3C
+text = "    rush2_track1_model_name(rdram, ctx);"
+
+# ...and keep their own models: the per-frame breakable update draws each with its class id's model (src/track1.cpp).
+[[patches.hook]]
+func = "func_8008A01C"
+before_vram = 0x8008A0CC
+text = "    rush2_track1_breakable_model(rdram, ctx);"
+
+# SF Rush fireworks (src/track1_audio.cpp): on an SF Rush track the FIRECRCK emitter is SF Rush's looped fireworks
+# sound, added to Rush 2's sound effect instrument as sound 116, so func_80062264 accepts sound ids up to 116.
+[[patches.hook]]
+func = "func_800BBB04"
+before_vram = 0x800BBB04
+text = "    if (rush2_track1_fireworks(rdram, ctx)) return;"
+
+[[patches.instruction]]
+func = "func_80062264"
+vram = 0x800622A0
+value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
+
 # Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
 # Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
 # 25-entry name table into a 25-entry array at 0x80300700 (was 7 at 0x803C7A44), with the 25-entry scale, cloud height and

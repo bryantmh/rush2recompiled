@@ -13,6 +13,8 @@ run.log
 run.err
 .tools/
 configure.log
+cmake.log
+regen.log
 build-n64recomp/
 .release/
 tools/rush2049/m2c/
