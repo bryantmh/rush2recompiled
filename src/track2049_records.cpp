@@ -724,11 +724,14 @@ extern "C" void rush2_track49_records_exit(uint8_t* rdram, recomp_context* ctx) 
     save_changes(rdram);
 }
 
-// Start of func_800B3110 (records screen: clear a profile's records) and func_800B306C (delete a profile): $a0 = the
-// profile index. Clears that profile's 2049 records too.
+// Start of func_800B3110 (records screen: clear a profile's records): $a0 = the profile index. Clears that profile's
+// 2049 records too. Deleting a profile does the same (src/pak.cpp).
 extern "C" void rush2_track49_records_clear(uint8_t* rdram, recomp_context* ctx) {
+    rush2::track2049::clear_profile_records(rdram, (int32_t)ctx->r4);
+}
+
+void rush2::track2049::clear_profile_records(uint8_t* rdram, int p) {
     std::lock_guard lock{ records_mutex };
-    int p = (int32_t)ctx->r4;
     if (p < 0 || p >= profiles) {
         return;
     }

@@ -68,6 +68,9 @@ namespace rush2::track2049 {
     void update_object_sounds(uint8_t* rdram, const std::vector<ObjectSound>& sounds);
     void stop_object_sounds();
     void mix_audio(float* samples, size_t sample_count, uint32_t sample_rate, float scale);
+    // Clears the 2049 and SF Rush records of profile p (pak * 5 + record) and drops its saved block
+    // (src/track2049_records.cpp).
+    void clear_profile_records(uint8_t* rdram, int p);
 }
 
 #endif

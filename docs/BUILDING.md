@@ -36,6 +36,10 @@ How the port works, how the ROM is laid out, and how to build it. For the player
   32KB `.mpk` image in `%LOCALAPPDATA%\Rush2Recompiled\saves\rush2.n64.us.mpk` (same format as emulator `.mpk` files).
   Controller 2 reports a Rumble Pak. Controller 1 rumbles as well: a hook in the game's pak thread registers the
   port with the rumble code when its Controller Pak initializes (`src/pak.cpp`, `us.toml`).
+  The save menu hides the pak: CREATE PLAYER skips the controller list and goes to name entry (creating the Rush 2
+  note without asking), and player names and prompts drop the pak number and Controller Pak wording (`src/pak.cpp`).
+  Deleting a player (Records > DELETE PLAYER, or L+R in the list the full-slots prompt opens) also drops its 2049
+  car options (`car2049.json`) and 2049/SF Rush records (`track2049_records.json`).
 - Players (Settings > Players, replacing the frontend's Controls tab): each of the two players gets a controller
   (**Auto**: the first unassigned controller to press a button; **None**; or a specific controller, remembered across
   launches by GUID and serial) and the keyboard goes to either player or neither. Choosing the other player's

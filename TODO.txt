@@ -19,13 +19,10 @@ San Francisco Rush 2049:
 12) Engine sounds: port 2049's engine audio for the 2049 cars (trace how 2049 picks the engine sound, and whether its ENGINE setting changes it).
 13) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
 14) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
+15) Damage textures
 
 General:
 1) left-right splitscreen options
 2) 4-player splitscreen options
 3) Better lighting?
 4) Potential sound popping
-5) Setting for 2049 cars on 2049 tracks only + no rush 2 cars
-6) Play the engine sound when selected just like the horn
-7) Simplify save menu. No controller pack stuff
-8) Music track selection

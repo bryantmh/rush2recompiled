@@ -26,6 +26,8 @@
 
 #include "recomp.h"
 #include "rush2_hooks.h"
+#include "car2049.h"
+#include "track2049.h"
 #include "ultramodern/ultramodern.hpp"
 #include "librecomp/files.hpp"
 
@@ -629,4 +631,106 @@ extern "C" void rush2_enable_pak_rumble(uint8_t* rdram, recomp_context* ctx) {
         MEM_W(i, dst) = MEM_W(i, src);
     }
     MEM_B(0, rumble_mask) = (int8_t)((uint8_t)MEM_B(0, rumble_mask) | (1 << port));
+}
+
+// Save menu without Controller Paks. There is only one pak (port 1), so the select player screen (input
+// func_803B4D88, drawing func_803C1F44) skips everything that is about choosing or managing one:
+// - CREATE PLAYER normally opens a controller list (state 2) where A on a controller decides, from its pak status,
+//   between "no Rush 2 note, create one?" (3, whose YES is func_803B36A8: create the note, then name entry),
+//   "no more entries, delete a player?" (4) and name entry on that pak (8). Port 1 is picked and that decision is
+//   made right away, with the note created without asking.
+// - Every way back that returns to the controller list returns to the player list (1) instead.
+// - Player names and prompts drop the pak number and the Controller Pak wording.
+namespace {
+    constexpr gpr menu_state = (gpr)(int32_t)0x803D0598;    // s32 per player.
+    constexpr gpr menu_pak = (gpr)(int32_t)0x803D05C8;      // s16 per player: the chosen controller.
+    constexpr gpr pak_status = (gpr)(int32_t)0x800D9D98;    // 8 bytes per port, filled by func_800B22B8.
+    constexpr int status_present = 0;
+    constexpr int status_has_note = 2;
+    constexpr int status_entries_left = 6;                  // s16.
+
+    enum MenuState {
+        state_player_list = 1,
+        state_controller_list = 2,
+        state_entries_full = 4,
+        state_name_entry = 8,
+    };
+
+    void write_string(uint8_t* rdram, uint32_t addr, const char* text) {
+        size_t i = 0;
+        do {
+            MEM_B(0, (gpr)(int32_t)(addr + i)) = (int8_t)text[i];
+        } while (text[i++] != '\0');
+    }
+}
+
+extern "C" void func_800B22B8(uint8_t* rdram, recomp_context* ctx); // Fills the pak status table from the pak flags.
+extern "C" void func_803B36A8(uint8_t* rdram, recomp_context* ctx); // Creates the note for the player in $s0.
+
+// func_803B2BB4 entry: sets the state of the player in $s0 to $a0 and runs its setup. Returns nonzero when the state
+// change was replaced and func_803B2BB4 must return right away.
+extern "C" int rush2_pak_menu_state(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)ctx->r4 != state_controller_list) {
+        return 0;
+    }
+    int player = (int)ctx->r16;
+    int32_t current = MEM_W(player * 4, menu_state);
+    // The status table is only refreshed while the controller list is up.
+    recomp_context saved = *ctx;
+    func_800B22B8(rdram, ctx);
+    *ctx = saved;
+    gpr status = pak_status + pak_port * 8;
+    if (current != state_player_list || MEM_BU(status_present, status) == 0) {
+        ctx->r4 = state_player_list;
+        return 0;
+    }
+    MEM_H(player * 2, menu_pak) = (int16_t)pak_port;
+    if (MEM_BU(status_has_note, status) == 0) {
+        func_803B36A8(rdram, ctx);
+        *ctx = saved;
+        return 1;
+    }
+    ctx->r4 = MEM_H(status_entries_left, status) == 0 ? state_entries_full : state_name_entry;
+    return 0;
+}
+
+// func_800A62C0 after the menu overlay is loaded.
+extern "C" void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ctx) {
+    write_string(rdram, 0x803CA010, "%s");          // Player list: "%s (%d)", name and pak number.
+    write_string(rdram, 0x803CA1E8, "%s");          // Records player choice: "%s (PAK %d)".
+    write_string(rdram, 0x803CA294, "?");           // Clear records / delete player prompt: " %s %d%s", ON CTLR PAK n?
+    write_string(rdram, 0x800CD170, "THERE ARE NO MORE ENTRIES AVAILABLE.");
+}
+
+// Deleting a player: the 2049 car options and selected car kept for its record (car2049.json, by record address) and
+// its 2049 and SF Rush records (track2049_records.json, by name) go too, so a player created in its place or with
+// its name starts fresh.
+namespace {
+    constexpr uint32_t pak_records = 0x8004B220;        // 4 paks of 0x2200 bytes: 5 player records of 0x6C0 each.
+    constexpr uint32_t pak_stride = 0x2200;
+    constexpr uint32_t record_size = 0x6C0;
+    constexpr int records_per_pak = 5;
+
+    void forget_player(uint8_t* rdram, int profile) {
+        uint32_t record = pak_records + (profile / records_per_pak) * pak_stride + (profile % records_per_pak) * record_size;
+        rush2::car2049::forget_record(rdram, record);
+        rush2::track2049::clear_profile_records(rdram, profile);
+    }
+}
+
+// Start of func_800B306C (Records > DELETE PLAYER): $a0 = the profile index (pak * 5 + record).
+extern "C" void rush2_player_deleted(uint8_t* rdram, recomp_context* ctx) {
+    int profile = (int32_t)ctx->r4;
+    if (profile >= 0 && profile < 4 * records_per_pak) {
+        forget_player(rdram, profile);
+    }
+}
+
+// func_803B3CAC (the select player screen's delete list) at 0x803B3F74: $s2 = the record being deleted.
+extern "C" void rush2_player_deleted_from_list(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t offset = (uint32_t)ctx->r18 - pak_records;
+    if (offset < 4 * pak_stride && offset % pak_stride < records_per_pak * record_size &&
+        offset % pak_stride % record_size == 0) {
+        forget_player(rdram, (offset / pak_stride) * records_per_pak + offset % pak_stride / record_size);
+    }
 }

@@ -119,6 +119,7 @@ namespace {
     constexpr int max_side_slots = 16;
     // Player records, 0x6C0 bytes each: the active players' (func_80097FCC) and the Controller Pak image's (4 paks of
     // 0x2200 bytes, src/track2049_records.cpp). Side slots are keyed by record address in these ranges.
+    constexpr uint32_t record_size = 0x6C0;
     constexpr uint32_t player_records = 0x8010D740, player_records_end = 0x8010D740 + 8 * 0x6C0;
     constexpr uint32_t pak_records = 0x8004B220, pak_records_end = 0x8004B220 + 4 * 0x2200;
     bool in_save_area(uint32_t at) {
@@ -705,7 +706,14 @@ extern "C" void rush2_car49_record(uint8_t* rdram, recomp_context* ctx) {
     auto it = side_slot_of.find(record);
     int slot;
     if (it == side_slot_of.end()) {
+        // The lowest slot no record holds (a deleted player's slot is freed).
         slot = (int)side_slot_of.size() % max_side_slots;
+        for (int s = 0; s < max_side_slots; s++) {
+            if (std::none_of(side_slot_of.begin(), side_slot_of.end(), [s](const auto& e) { return e.second == s; })) {
+                slot = s;
+                break;
+            }
+        }
         side_slot_of[record] = slot;
         // New slot: every extra type starts with the record's Pickup options, the car's own durability (2049 frame
         // weight, record byte +10 = weight x 100) and ENGINE 1.
@@ -741,6 +749,18 @@ extern "C" int rush2_car49_dirty(uint8_t* rdram, recomp_context* ctx) {
         return 1;
     }
     return 0;
+}
+
+void rush2::car2049::forget_record(uint8_t* rdram, uint32_t record) {
+    std::lock_guard lock{ side_mutex };
+    load_side_slots(rdram);
+    bool changed = side_slot_of.erase(record) != 0;
+    changed |= std::erase_if(selected_type_of, [record](const auto& e) {
+        return e.first >= record && e.first < record + record_size;
+    }) != 0;
+    if (changed) {
+        save_side_slots(rdram);
+    }
 }
 
 namespace {
