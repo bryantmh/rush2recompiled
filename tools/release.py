@@ -7,7 +7,8 @@ in .release/build, so uncommitted changes in the working tree never end up in a 
 lib is linked to the working tree's lib, which must be checked out at the commits the release commit records.
 
 After a successful build the commit is pushed (the push that triggered the hook then has nothing left to do), and
-the zipped game folder is uploaded as release r<commit count>.
+the zipped game folder is uploaded as a release. VERSION holds the major.minor version and is only changed by hand: the
+first release of a version is tagged v<major>.<minor>, and each later one gets the next patch number, up to .999.
 """
 import io
 import os
@@ -26,6 +27,7 @@ BUILD = WORK / "build"
 PACKAGE_FILES = ["Rush2Recompiled.exe", "SDL2.dll", "dxil.dll", "dxcompiler.dll", "recompcontrollerdb.txt"]
 ROM_FILES = ["rush2.us.z64", "rush2.us.recomp.z64"]
 NULL_SHA = "0" * 40
+MAX_PATCH = 999
 
 
 def git(*args, cwd=ROOT):
@@ -122,6 +124,22 @@ def github_repo(remote):
     return m.group(1)
 
 
+def next_tag(repo, sha):
+    """Returns the tag for the next release of the major.minor version in the commit's VERSION file."""
+    base = git("show", f"{sha}:VERSION")
+    if not re.fullmatch(r"\d+\.\d+", base):
+        raise SystemExit(f"VERSION must be <major>.<minor>, not {base!r}")
+    tags = subprocess.run(["gh", "release", "list", "--repo", repo, "--limit", "10000", "--json", "tagName",
+                           "--jq", ".[].tagName"], check=True, capture_output=True, text=True).stdout.split()
+    patches = [int(m.group(1) or 0) for t in tags if (m := re.fullmatch(rf"v{re.escape(base)}(?:\.(\d+))?", t))]
+    if not patches:
+        return f"v{base}"
+    patch = max(patches) + 1
+    if patch > MAX_PATCH:
+        raise SystemExit(f"v{base} has used all {MAX_PATCH} patch versions; bump the minor or major version in VERSION")
+    return f"v{base}.{patch}"
+
+
 def main():
     if len(sys.argv) not in (3, 4):
         raise SystemExit(__doc__)
@@ -129,13 +147,13 @@ def main():
     previous = sys.argv[3] if len(sys.argv) == 4 and sys.argv[3] != NULL_SHA else None
     repo = github_repo(remote)
     short = sha[:7]
-    tag = f"r{git('rev-list', '--count', sha)}"
+    tag = next_tag(repo, sha)
 
     check_submodules(sha)
     SRC.mkdir(parents=True, exist_ok=True)
     export(sha)
     build()
-    zip_path = package(f"Rush2Recompiled-{tag}")
+    zip_path = package(f"Rush2Recompiled-{tag[1:]}")
 
     log_range = [f"{previous}..{sha}"] if previous else ["-1", sha]
     changes = git("log", "--format=- %s", *log_range)
@@ -145,7 +163,7 @@ def main():
     # Push the commit now so the release tag can point at it; the outer push then finds master up to date.
     run(["git", "push", "--no-verify", remote, f"{sha}:refs/heads/master"], ROOT)
     run(["gh", "release", "create", tag, str(zip_path), "--repo", repo, "--target", sha,
-         "--title", f"Build {tag} ({short})", "--notes", notes, "--latest"], ROOT)
+         "--title", f"Build {tag[1:]} ({short})", "--notes", notes, "--latest"], ROOT)
     zip_path.unlink()
 
 
