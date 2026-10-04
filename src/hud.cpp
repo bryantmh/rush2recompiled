@@ -10,9 +10,10 @@
 // Only widgets created by the race HUD setup (func_800A06F8) are anchored, so menus keep their layout. Widgets
 // that make up one element are grouped and anchored together by their combined bounds, so multi-part elements
 // (a panel and its digits, a box and its borders) never split apart. Callback widgets have no bounds and print
-// their own text (lap times), so each string they print is anchored by its x position instead. The laps-left
-// number is printed earlier in the frame by a sprite callback (func_800B9D48) and takes the anchor of the HUD
-// widget it's drawn over (the track map).
+// their own text (lap times, the best averages' names and title), so each string they print takes the anchor of
+// the HUD widget it's drawn over, or its screen third if it isn't over one: anchoring text by its x alone split
+// the best averages' names (left third) from their boxes (centered). The laps-left number is printed earlier in
+// the frame by a sprite callback (func_800B9D48) and is anchored the same way (it sits on the track map).
 //
 // Fill widgets that cover the whole screen (the pause menu's translucent dimming) are stretched to the window's
 // edges in every mode. The game places them at the overscan inset (12,10) and its 2D scissor clips them to the
@@ -69,7 +70,11 @@ namespace {
     struct Rect {
         int32_t x0, y0, x1, y1;
         bool fill;
+        bool screen_fill;
     };
+
+    // How far text may start outside the widget it's printed on (justified text, outlines).
+    constexpr int32_t text_margin = 4;
 
     // Bounds of the anchored HUD widgets as of the last widget loop.
     Rect widget_rect[max_widgets];
@@ -163,6 +168,27 @@ namespace {
         }
     }
 
+    // Origin for text printed at (x, y): that of the smallest anchored widget under it as of the last widget loop,
+    // or the screen third of x if there is none. Screen fills (the pause dimming) are skipped, as they cover all
+    // text and are stretched rather than anchored.
+    uint16_t origin_at(int32_t x, int32_t y) {
+        uint16_t origin = origin_for_x(x);
+        int64_t best_area = INT64_MAX;
+        for (uint32_t i = 0; i < widgets_checked; i++) {
+            const Rect& r = widget_rect[i];
+            if (!widget_anchored[i] || r.screen_fill ||
+                x < r.x0 - text_margin || x > r.x1 + text_margin || y < r.y0 - text_margin || y > r.y1 + text_margin) {
+                continue;
+            }
+            int64_t area = (int64_t)(r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1);
+            if (area < best_area) {
+                best_area = area;
+                origin = slot_origin[i];
+            }
+        }
+        return origin;
+    }
+
     int find_group(int* parent, int i) {
         while (parent[i] != i) {
             parent[i] = parent[parent[i]];
@@ -244,6 +270,7 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         r.x0 = MEM_H(widget_x, widget);
         r.y0 = MEM_H(widget_y, widget);
         r.fill = image == 0;
+        r.screen_fill = is_screen_fill(rdram, widget);
         if (r.fill) {
             r.x1 = r.x0 + w - 1;
             r.y1 = r.y0 + h - 1;
@@ -308,7 +335,7 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
 // widgets.
 void rush2_hud_print(uint8_t* rdram, recomp_context* ctx) {
     if (in_hud_callback) {
-        set_rect_origin(rdram, origin_for_x((int16_t)ctx->r4));
+        set_rect_origin(rdram, origin_at((int16_t)ctx->r4, (int16_t)ctx->r5));
     }
 }
 
@@ -319,19 +346,9 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_800B9D48, around its printf of the laps-left number at ($a0, $a1). The text sits on the track map, so it
-// takes the map widget's origin (from the last widget loop), or its screen third if no HUD widget is under it.
+// takes the map widget's origin (from the last widget loop).
 void rush2_hud_laps_begin(uint8_t* rdram, recomp_context* ctx) {
-    int32_t x = (int16_t)ctx->r4;
-    int32_t y = (int16_t)ctx->r5;
-    uint16_t origin = origin_for_x(x);
-    for (uint32_t i = 0; i < widgets_checked; i++) {
-        const Rect& r = widget_rect[i];
-        if (widget_anchored[i] && x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) {
-            origin = slot_origin[i];
-            break;
-        }
-    }
-
+    uint16_t origin = origin_at((int16_t)ctx->r4, (int16_t)ctx->r5);
     current_origin = G_EX_ORIGIN_NONE;
     scissor_widened = false;
     set_rect_origin(rdram, origin);
