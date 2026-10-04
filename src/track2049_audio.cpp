@@ -23,6 +23,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "audio2049.h"
+#include "music.h"
 #include "track2049.h"
 #include "wings.h"
 
@@ -117,6 +118,10 @@ void rush2::track2049::queue_race_song(int song) {
     pending_song = song;
 }
 
+int rush2::track2049::queued_race_song() {
+    return pending_song;
+}
+
 void rush2::track2049::play_song_now(uint8_t* rdram, int song) {
     if (!ready()) {
         return;
@@ -137,6 +142,7 @@ int rush2::track2049::playing_song() {
 
 // func_80062F50 entry: queues music command $a0.
 extern "C" void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx) {
+    rush2::music::game_command(rdram, ctx); // May turn a play or stop into a volume update while a preview plays.
     uint32_t cmd = (uint32_t)ctx->r4;
     if (cmd == cmd_stop) {
         int song = pending_song.exchange(-1);

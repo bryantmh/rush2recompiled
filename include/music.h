@@ -13,6 +13,9 @@ namespace rush2::music {
     void create_sound_tab();
     // Applies the loaded settings. Call after finalize().
     void load_config();
+    // Start of func_80062F50 (queues music command $a0): notes the music the game asks for, and while a song preview
+    // plays holds it by turning $a0 into a volume update. Returns true if it held the command.
+    bool game_command(uint8_t* rdram, recomp_context* ctx);
 }
 
 namespace rush2::track1 {

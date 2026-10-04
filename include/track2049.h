@@ -84,6 +84,7 @@ namespace rush2::track2049 {
     // song playing, or -1.
     bool music_ready();
     void queue_race_song(int song);
+    int queued_race_song();
     void play_song_now(uint8_t* rdram, int song);
     void stop_song_now();
     int playing_song();

@@ -18,9 +18,11 @@
 //
 // Preview: the Sound tab's play buttons. The game keeps running while the menu is open, so the preview runs on its
 // audio thread (func_800631A4, before it takes queued music commands): Rush 2 and SF Rush songs start with
-// func_80061E68 (which reports busy while the loader is still changing songs, so the request waits), Rush 2049 songs
-// on the host player, each stopping the other. Stopping the preview (or closing the tab) brings back the song that
-// was playing before, if the preview is still what plays.
+// func_80061E68 (0 while it is still stopping or loading the old song, so the request waits; 2 if that song already
+// plays), Rush 2049 songs on the host player, each stopping the other. Every music command the game queues
+// (func_80062F50) is noted as the music the game wants; while a preview plays, its plays and stops are held (turned
+// into a volume update, as are any still in the queue when the preview starts), so the game can't take the music
+// back. Stopping the preview (or closing the tab) then plays what the game last asked for.
 
 // As in src/wings.cpp: librecomp's nlohmann::json first.
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
@@ -167,14 +169,25 @@ namespace {
     std::atomic<int> preview_request = no_request;
     std::atomic<int> previewing = -1;   // Catalog index the UI shows as playing.
 
-    // Audio thread state for the preview.
+    // Preview state (audio thread) and the music the game's commands last asked for (any thread that queues one);
+    // both under preview_mutex.
+    std::mutex preview_mutex;
     struct PreviewState {
         bool active = false;
         int song = -1;              // Catalog index playing.
         int sequence = -1;          // Its Rush 2 sequence, or -1 for a 2049 song.
-        int saved_sequence = -1;    // What played before the preview.
-        int saved_2049 = -1;
     } preview;
+    struct GameMusic {
+        int sequence = -1;          // A Rush 2 sequence,
+        int song_2049 = -1;         // or a Rush 2049 song (a race's "music off" stop that plays one), or neither.
+    } game_music;
+
+    // Music command queue (func_80062F50): 16 commands, read and write indices.
+    constexpr uint32_t command_queue = 0x800D4AD0;
+    constexpr uint32_t command_read = 0x800D43A8;
+    constexpr uint32_t command_write = 0x800D4418;
+    constexpr uint32_t command_volume = 0xC0000000;   // Applies the music volume and fade.
+    constexpr uint32_t current_song = 0x8010BCD8;    // u8: the loaded sequence (0xFF none), then the one loading.
 
     bool game_available(Game g) {
         switch (g) {
@@ -323,26 +336,45 @@ namespace {
         return true;
     }
 
-    // Ends the preview and brings back what played before, if the preview is still playing.
+    // Starts holding the game's music commands: the ones still queued become volume updates (game_music already has
+    // them). A Rush 2 song the game asked for that has ended (a jingle) isn't brought back.
+    void begin_preview(uint8_t* rdram, recomp_context* ctx) {
+        preview.active = true;
+        uint16_t read = (uint16_t)MEM_H(0, (int32_t)command_read);
+        uint16_t write = (uint16_t)MEM_H(0, (int32_t)command_write);
+        bool queued = false;
+        for (uint16_t i = read & 15; i != (write & 15); i = (i + 1) & 15) {
+            uint32_t entry = command_queue + i * 4;
+            if (((uint32_t)MEM_W(0, (int32_t)entry) >> 30) != 3) {
+                MEM_W(0, (int32_t)entry) = (int32_t)command_volume;
+                queued = true;
+            }
+        }
+        uint8_t loaded = (uint8_t)MEM_B(0, (int32_t)current_song);
+        uint8_t loading = (uint8_t)MEM_B(0, (int32_t)(current_song + 1));
+        if (!queued && game_music.sequence >= 0 && game_music.sequence == loaded && loading == loaded &&
+            !rush2_song_playing(rdram, ctx)) {
+            game_music.sequence = -1;
+        }
+    }
+
+    // Ends the preview and plays what the game last asked for. False to try again (loader busy).
     bool end_preview(uint8_t* rdram, recomp_context* ctx) {
-        bool still_ours = preview.sequence >= 0
-            ? (int32_t)MEM_W(0, (int32_t)requested_song) == preview.sequence
-            : preview.song >= 0 && rush2::track2049::playing_song() == songs[preview.song].id;
-        if (still_ours) {
-            if (preview.saved_2049 >= 0) {
-                stop_rush2_song(rdram, ctx);
-                rush2::track2049::play_song_now(rdram, preview.saved_2049);
+        if (game_music.song_2049 >= 0) {
+            stop_rush2_song(rdram, ctx);
+            if (rush2::track2049::playing_song() != game_music.song_2049) {
+                rush2::track2049::play_song_now(rdram, game_music.song_2049);
             }
-            else if (preview.saved_sequence >= 0) {
-                rush2::track2049::stop_song_now();
-                if (!play_rush2_song(rdram, ctx, preview.saved_sequence)) {
-                    return false;
-                }
+        }
+        else if (game_music.sequence >= 0) {
+            rush2::track2049::stop_song_now();
+            if (!play_rush2_song(rdram, ctx, game_music.sequence)) {
+                return false;
             }
-            else {
-                rush2::track2049::stop_song_now();
-                stop_rush2_song(rdram, ctx);
-            }
+        }
+        else {
+            rush2::track2049::stop_song_now();
+            stop_rush2_song(rdram, ctx);
         }
         preview = PreviewState{};
         previewing = -1;
@@ -749,12 +781,39 @@ extern "C" void rush2_music_race_sequence(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+bool rush2::music::game_command(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t cmd = (uint32_t)ctx->r4;
+    uint32_t kind = cmd >> 30;
+    if (kind == 3) {
+        return false; // Volume and fade.
+    }
+    std::lock_guard lock{ preview_mutex };
+    if (kind == 0) {
+        game_music = { (int)(cmd >> 16), -1 };
+    }
+    else if (kind == 2) {
+        game_music = { (int)(cmd & 0x7FFF), -1 };
+    }
+    else {
+        game_music = { -1, rush2::track2049::queued_race_song() };
+    }
+    if (!preview.active) {
+        return false;
+    }
+    if (kind == 1) {
+        rush2::track2049::queue_race_song(-1);
+    }
+    ctx->r4 = (int32_t)command_volume;
+    return true;
+}
+
 // func_800631A4 (the audio thread) at 0x80063AA0, before it takes the queued music commands: runs preview requests.
 extern "C" void rush2_music_preview(uint8_t* rdram, recomp_context* ctx) {
     int request = preview_request.load();
     if (request == no_request) {
         return;
     }
+    std::lock_guard lock{ preview_mutex };
     if (request == stop_request) {
         if (!preview.active || end_preview(rdram, ctx)) {
             preview_request.compare_exchange_strong(request, no_request);
@@ -766,9 +825,7 @@ extern "C" void rush2_music_preview(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     if (!preview.active) {
-        preview.saved_2049 = rush2::track2049::playing_song();
-        preview.saved_sequence = rush2_song_playing(rdram, ctx) ? (int32_t)MEM_W(0, (int32_t)requested_song) : -1;
-        preview.active = true;
+        begin_preview(rdram, ctx);
     }
     if (start_preview(rdram, ctx, request)) {
         preview_request.compare_exchange_strong(request, no_request);
