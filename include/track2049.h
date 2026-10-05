@@ -89,6 +89,10 @@ namespace rush2::track2049 {
     // 2049 sound effects are muted while nothing updates them (the game is paused). Effects other than the object
     // sounds (src/engine2049.cpp) call this each frame they run, which also refreshes the effects volume.
     void effects_running(uint8_t* rdram);
+    // Whether sounds last updated at `updated_ms` (steady clock) should go quiet: the pause menu is open and nothing
+    // has updated them for 100 ms, or nothing has for a second (the race is over). A hitch, like the one as a race
+    // starts, doesn't silence them.
+    bool sounds_paused(uint8_t* rdram, int64_t updated_ms);
     // Rush 2049 songs for src/music.cpp. music_ready starts loading the sound banks (once per ROM) and says whether
     // they are loaded. queue_race_song makes the race's next "music off" stop command start the song instead.
     // play_song_now / stop_song_now play or stop a song at once at the game's music volume; playing_song is the

@@ -213,7 +213,8 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
         throw std::runtime_error("Error using SDL audio converter");
     }
 
-    uint64_t cur_queued_microseconds = uint64_t(SDL_GetQueuedAudioSize(audio_device)) / bytes_per_frame * 1000000 / sample_rate;
+    // The queue holds converted audio, so measure it at the output rate (the game runs at 22050 Hz).
+    uint64_t cur_queued_microseconds = uint64_t(SDL_GetQueuedAudioSize(audio_device)) / (output_channels * sizeof(float)) * 1000000 / output_sample_rate;
     uint32_t num_bytes_to_queue = audio_convert.len_cvt - output_channels * discarded_output_frames * sizeof(swap_buffer[0]);
     float* samples_to_queue = swap_buffer.data() + output_channels * discarded_output_frames / 2;
 
@@ -232,7 +233,10 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
 }
 
 size_t get_frames_remaining() {
-    constexpr float buffer_offset_frames = 1.0f;
+    // Rush 2 sizes each audio frame from osAiGetLength and lets the queue run down to near empty before topping it
+    // up. At 1 VI the SDL queue regularly ran dry (silence padding = small random pops in the music); 2 VIs keeps
+    // it at 20 ms or more.
+    constexpr float buffer_offset_frames = 2.0f;
     uint64_t buffered_byte_count = SDL_GetQueuedAudioSize(audio_device);
     buffered_byte_count = buffered_byte_count * 2 * sample_rate / output_sample_rate / output_channels;
 
