@@ -445,6 +445,7 @@ static void parse_input_script(const std::string& script) {
         if (name.size() > 2 && name[0] == 'P' && name[1] >= '2' && name[1] <= '4') {
             press.controller = name[1] - '1';
             script_uses_controller[press.controller] = true;
+            rush2::input::set_port_scripted(press.controller);
             name = name.substr(2);
         }
         for (const auto& [button_name, mask] : buttons) {

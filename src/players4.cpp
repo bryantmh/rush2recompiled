@@ -238,6 +238,13 @@ namespace {
                 return HudRole::Radar;
             case 0x800B5A90: // place once finished (the finish overlay)
                 return HudRole::Banner;
+            case 0x800B9C44: // deaths count
+            case 0x800B9CC0: // its skull
+                return HudRole::Deaths;
+            case 0x800B94C0: // time left (shared)
+                return HudRole::TimeLeft;
+            case 0x800B8188: // track map (shared)
+                return HudRole::Map;
             default:
                 return HudRole::Other;
         }
@@ -769,9 +776,11 @@ void rush2_players4_frame_buffers(uint8_t* rdram, recomp_context* ctx) {
     // The controller thread (func_80076DE0) reads only the ports its map (D_8010C150, -1 = none) had a controller on
     // when it last scanned: at boot (where the runtime's scan reports only one port present) and when the Controller
     // Pak code asks it to (D_80023060, not set from here: that would break the pak code's exchange with it). A port
-    // whose controller is assigned or found later was never read, so the map follows the ports' controllers.
+    // whose controller is assigned or found later was never read, so the map follows the ports' controllers (and the
+    // ports an input script presses on, which test players may also sit on).
     for (int port = 0; port < ports; port++) {
-        MEM_B(port, (int32_t)controller_map) = (int8_t)(rush2::input::is_port_connected(port) ? port : -1);
+        bool read = rush2::input::is_port_connected(port) || rush2::input::is_port_scripted(port);
+        MEM_B(port, (int32_t)controller_map) = (int8_t)(read ? port : -1);
     }
 }
 
