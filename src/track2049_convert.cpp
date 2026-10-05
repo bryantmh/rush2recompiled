@@ -2154,14 +2154,16 @@ namespace {
         }
     }
 
-    // The surfaces of a Rush 2049 collision file over and under points (paths.floor_heights): each polygon as a fan of
-    // triangles, with its x/z bounds.
+    // The floors of a Rush 2049 collision file over and under points (paths.floor_heights): each upward-facing,
+    // non-wall polygon as a fan of triangles, with its x/z bounds. A polygon's vertex 0 is its world origin and the
+    // rest are in its local frame, whose axes are the rows of its matrix (row 1 is the normal).
     struct FloorTriangle {
         double v[3][3];
         double x0, x1, z0, z1;
     };
 
     std::vector<FloorTriangle> floor_triangles(const Bytes& collision_2049) {
+        constexpr double min_normal_y = 0.25;
         Collision c;
         parse_collision49(collision_2049, c);
         auto vertex = [&](int k, double* out) {
@@ -2174,11 +2176,29 @@ namespace {
         };
         std::vector<FloorTriangle> tris;
         for (const CPoly& p : c.polys) {
-            for (size_t i = 1; i + 1 < p.verts.size(); i++) {
+            int type = p.flags & 0xF;
+            if (p.verts.size() < 3 || type == 5 || type == 6 || p.matrix[4] / 16384.0 < min_normal_y) {
+                continue;
+            }
+            std::vector<std::array<double, 3>> w(p.verts.size());
+            vertex(p.verts[0], w[0].data());
+            for (size_t i = 1; i < p.verts.size(); i++) {
+                double l[3];
+                vertex(p.verts[i], l);
+                for (int a = 0; a < 3; a++) {
+                    w[i][a] = w[0][a];
+                    for (int r = 0; r < 3; r++) {
+                        w[i][a] += l[r] * p.matrix[3 * r + a] / 16384.0;
+                    }
+                }
+            }
+            for (size_t i = 1; i + 1 < w.size(); i++) {
                 FloorTriangle t;
-                vertex(p.verts[0], t.v[0]);
-                vertex(p.verts[i], t.v[1]);
-                vertex(p.verts[i + 1], t.v[2]);
+                for (int a = 0; a < 3; a++) {
+                    t.v[0][a] = w[0][a];
+                    t.v[1][a] = w[i][a];
+                    t.v[2][a] = w[i + 1][a];
+                }
                 t.x0 = std::min({ t.v[0][0], t.v[1][0], t.v[2][0] });
                 t.x1 = std::max({ t.v[0][0], t.v[1][0], t.v[2][0] });
                 t.z0 = std::min({ t.v[0][2], t.v[1][2], t.v[2][2] });
@@ -2214,10 +2234,10 @@ namespace {
     }
 
     // A stunt arena's path (paths.spine_lanes). Rush 2 starts a stunt race at spine point 0, facing point 1, at the
-    // spine's height (func_800A34A8), and puts a crashed car back on its lanes. The arenas' spines don't always lie
-    // on the floor (stunt 3's is under its terrain, stunt 2's starts off the edge of a platform), so each spine point
-    // is put on the highest surface under it (up to floor_slack above), or failing that on the lowest surface at most
-    // floor_reach above it, rounded up. The spine is rotated to start at the first point that, with its successor,
+    // spine's height (func_800A34A8), and puts a crashed car back on the nearest point of its lanes (func_80090A40).
+    // The arenas' spines lie on their floors already; as a safeguard each spine point is put on the highest floor
+    // under it (up to floor_slack above), or failing that on the lowest floor at most floor_reach above it, rounded
+    // up. The spine is rotated to start at the first point that, with its successor,
     // already lay on the floor (within floor_slack), or failing that has floor under it (the spine is a closed loop on
     // every arena).
     // Rush 2049 runs no AI on its arenas, and their four lanes are stubs of 3-4 points whose load-time crossings

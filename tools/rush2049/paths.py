@@ -222,17 +222,24 @@ def convert(path_2049):
 
 FLOOR_SLACK = 2     # a floor at most this far above a spine point counts as under it
 FLOOR_REACH = 64    # a spine point under the floor is lifted onto it from at most this far below
+MIN_NORMAL_Y = 0.25  # a collision polygon whose normal points up at least this much is a floor
 
 
 def floor_heights(collision_2049):
-    """The triangles (fans of each polygon) of a Rush 2049 collision file, as a function giving the heights of the
-    surfaces over or under a point (x, z)."""
+    """The floors (upward-facing, non-wall polygons, as triangle fans) of a Rush 2049 collision file, as a function
+    giving the heights of the floors over or under a point (x, z). A polygon's vertex 0 is its world origin and the
+    rest are in its local frame, whose axes are the rows of its matrix (row 1 is the normal)."""
     import collision
     c = collision.Collision.parse(collision_2049, collision.R49)
     vs = [collision.vert_xyz(v) for v in c.verts]
     tris = []
     for poly in c.polys:
-        vv = [vs[k] for k in poly['verts']]
+        m = [v / 16384 for v in poly['matrix']]
+        if len(poly['verts']) < 3 or poly['flags'] & 0xF in collision.TYPE_WALL or m[4] < MIN_NORMAL_Y:
+            continue
+        o = vs[poly['verts'][0]]
+        vv = [o] + [tuple(o[a] + sum(vs[k][r] * m[3 * r + a] for r in range(3)) for a in range(3))
+                    for k in poly['verts'][1:]]
         for i in range(1, len(vv) - 1):
             t = (vv[0], vv[i], vv[i + 1])
             tris.append((t, min(v[0] for v in t), max(v[0] for v in t), min(v[2] for v in t), max(v[2] for v in t)))
@@ -258,10 +265,9 @@ def floor_heights(collision_2049):
 
 def spine_lanes(path, collision_2049):
     """A stunt arena's path for Rush 2. Rush 2 starts a stunt race at spine point 0, facing point 1, at the spine's
-    height (func_800A34A8), and puts a crashed car back on its lanes. The arenas' spines don't always lie on the
-    floor (stunt 3's is under its terrain, stunt 2's starts off the edge of a platform), so each spine point is put
-    on the highest surface under it (up to FLOOR_SLACK above), or failing that on the lowest surface at most
-    FLOOR_REACH above it, rounded up. The spine is rotated to start at the first point that, with its successor,
+    height (func_800A34A8), and puts a crashed car back on the nearest point of its lanes (func_80090A40). The
+    arenas' spines lie on their floors already; as a safeguard each spine point is put on the highest floor under it
+    (up to FLOOR_SLACK above), or failing that on the lowest floor at most FLOOR_REACH above it, rounded up. The spine is rotated to start at the first point that, with its successor,
     already lay on the floor (within FLOOR_SLACK), or failing that has floor under it (the spine is a closed loop
     on every arena).
     Rush 2049 runs no AI on its arenas, and their four lanes are stubs of 3-4 points whose load-time crossings
