@@ -27,7 +27,12 @@
 // track map) and are centered on the line between the side by side halves. Text printed by callbacks moves with the
 // widget under it, or by its own position if there is none. In widescreen each half's elements are anchored to that
 // half: those on its outer side to the window's edge, those in its middle to the middle of the half (an RT64 origin
-// at a quarter of the window), and those on its inner side stay at the screen's center.
+// at a quarter of the window), and those on its inner side stay at the screen's center. Each player's time,
+// speedometer, position, deaths skull and radar are laid out by place_role, the same margin from the screen's edges and
+// the lines between the views, measured to their opaque texels (the panels and the track map have transparent edges);
+// the shared time left sits centered above the track map. With 3 or 4 players the skull is drawn at half size, and the
+// bottom row's speedometers sit at the top of their quadrants. The game's 2D clip inset is lifted for the draw loop so
+// the HUD can sit closer to the edges than the overscan border.
 
 #include <algorithm>
 #include <cmath>
@@ -69,6 +74,8 @@ namespace {
     constexpr int32_t screen_height = 240;
     constexpr int32_t inset_x = 12; // Overscan inset of the game's 2D scissor.
     constexpr int32_t inset_y = 10;
+    constexpr uint32_t clip_inset_x = 0x80023058; // s16: the game clips 2D rectangles to this inset (func_80058AFC).
+    constexpr uint32_t clip_inset_y = 0x8002305A;
 
     // Each player's area of the screen with the views stacked (top, bottom) and side by side (left, right).
     struct Area {
@@ -109,6 +116,26 @@ namespace {
     bool slot_moved[max_widgets];
     int16_t saved_x[max_widgets];
     int16_t saved_y[max_widgets];
+    // Split, the clip inset is lifted for the draw loop (the HUD sits closer to the edges), and restored after.
+    bool inset_lifted = false;
+    // With 3 or 4 players, the deaths skull is drawn at half size (a quadrant is too short for it, the time and the
+    // radar): its texture rectangles are scaled after the game writes them, from half_start to the 2D cursor.
+    bool slot_half[max_widgets];
+    bool half_pending = false;
+    int32_t half_start = 0;
+    // Where the track map moved to as of the last widget loop: the laps-left number printed above it follows it.
+    bool map_known = false;
+    // The laps-left number's position as printed (before it follows the map), from this frame, and the height of its
+    // text: the time left goes above both.
+    bool laps_known = false;
+    int32_t laps_y = 0;
+    constexpr int32_t laps_height = 8;
+    constexpr int32_t lifted_inset = 64;
+    int32_t map_dx = 0;
+    int32_t map_dy = 0;
+    uint16_t map_origin = G_EX_ORIGIN_NONE;
+    int16_t saved_inset_x;
+    int16_t saved_inset_y;
     uint16_t current_origin = G_EX_ORIGIN_NONE;
     bool scissor_widened = false;
     bool in_hud_callback = false;
@@ -181,6 +208,140 @@ namespace {
         count += 2;
         write_2d_commands(rdram, cmds, count);
         current_origin = origin_stretched;
+    }
+
+    // Image fields.
+    constexpr int32_t image_width = 0x10;
+    constexpr int32_t image_size = 0x14;    // G_IM_SIZ
+    constexpr int32_t image_format = 0x15;  // G_IM_FMT
+    constexpr int32_t image_palette = 0x16; // s16 index into the palette table, if the widget names no palette.
+    constexpr int32_t image_pixels = 0x18;
+    constexpr int32_t widget_palette = 0x0; // Palette (its colors at +0x14), or 0.
+    constexpr int32_t widget_palette_bank = 0x8; // u16, >> 10 selects the palette table.
+    constexpr uint32_t palette_tables = 0x80119428; // 8 bytes each, a pointer to 0x18 byte palettes.
+    constexpr int32_t palette_colors = 0x14;
+
+    bool is_rdram(uint32_t address) {
+        return address >= 0x80000000 && address < 0x80800000;
+    }
+
+    // Whether a texel of a widget's image is opaque (alpha above zero). Formats the HUD doesn't use count as opaque.
+    // palette = the colors of a color indexed image (RGBA16).
+    bool texel_opaque(uint8_t* rdram, uint32_t pixels, uint32_t palette, int fmt, int siz, int32_t index) {
+        switch (fmt) {
+            case 2: { // CI
+                int32_t i = siz == 0 ? (MEM_BU(0, (int32_t)(pixels + index / 2)) >> ((index & 1) ? 0 : 4)) & 0xF
+                    : MEM_BU(index, (int32_t)pixels);
+                return palette == 0 || (MEM_HU(i * 2, (int32_t)palette) & 1) != 0;
+            }
+            case 0: // RGBA
+                return siz == 3 ? MEM_BU(index * 4 + 3, (int32_t)pixels) != 0 : (MEM_HU(index * 2, (int32_t)pixels) & 1) != 0;
+            case 3: // IA
+                if (siz == 0) {
+                    return ((MEM_BU(0, (int32_t)(pixels + index / 2)) >> ((index & 1) ? 0 : 4)) & 1) != 0;
+                }
+                return siz == 1 ? (MEM_BU(index, (int32_t)pixels) & 0xF) != 0 : MEM_BU(index * 2 + 1, (int32_t)pixels) != 0;
+            default:
+                return true;
+        }
+    }
+
+    // Shrinks an image widget's bounds to its opaque texels: the HUD's panels have transparent columns (the position
+    // and speedometer panels on their right, the track map around the track), which made margins and centering look
+    // uneven. Leaves the bounds as they are if the image can't be read or has no opaque texels.
+    void trim_to_opaque(uint8_t* rdram, int32_t widget, Rect& r) {
+        uint32_t image = (uint32_t)MEM_W(widget_image, widget);
+        if (!is_rdram(image)) {
+            return;
+        }
+        uint32_t pixels = (uint32_t)MEM_W(image_pixels, (int32_t)image);
+        int fmt = MEM_BU(image_format, (int32_t)image);
+        int siz = MEM_BU(image_size, (int32_t)image);
+        int32_t stride = MEM_HU(image_width, (int32_t)image);
+        if (!is_rdram(pixels) || stride <= 0) {
+            return;
+        }
+        uint32_t palette = 0;
+        if (fmt == 2) {
+            uint32_t named = (uint32_t)MEM_W(widget_palette, widget);
+            int32_t index = MEM_H(image_palette, (int32_t)image);
+            if (is_rdram(named)) {
+                palette = (uint32_t)MEM_W(palette_colors, (int32_t)named);
+            }
+            else if (index >= 0) {
+                uint32_t table = (uint32_t)MEM_W((MEM_HU(widget_palette_bank, widget) >> 10) * 8, (int32_t)palette_tables);
+                if (is_rdram(table)) {
+                    palette = (uint32_t)MEM_W(index * 0x18 + palette_colors, (int32_t)table);
+                }
+            }
+            if (!is_rdram(palette)) {
+                return;
+            }
+        }
+        int32_t sx0 = MEM_H(widget_src_x0, widget);
+        int32_t sy0 = MEM_H(widget_src_y0, widget);
+        int32_t w = r.x1 - r.x0 + 1;
+        int32_t h = r.y1 - r.y0 + 1;
+        int32_t x0 = INT32_MAX, y0 = INT32_MAX, x1 = INT32_MIN, y1 = INT32_MIN;
+        for (int32_t y = 0; y < h; y++) {
+            for (int32_t x = 0; x < w; x++) {
+                if (texel_opaque(rdram, pixels, palette, fmt, siz, (sy0 + y) * stride + sx0 + x)) {
+                    x0 = std::min(x0, x);
+                    x1 = std::max(x1, x);
+                    y0 = std::min(y0, y);
+                    y1 = std::max(y1, y);
+                }
+            }
+        }
+        if (x0 <= x1) {
+            r.x1 = r.x0 + x1;
+            r.x0 += x0;
+            r.y1 = r.y0 + y1;
+            r.y0 += y0;
+        }
+    }
+
+    // Halves the texture rectangles written to the 2D display list since half_start, about the first one's top left
+    // corner (the image's), doubling their texture steps.
+    void finish_half(uint8_t* rdram) {
+        if (!half_pending) {
+            return;
+        }
+        half_pending = false;
+        int32_t end = MEM_W(0, (int32_t)dl_2d_cursor);
+        bool anchored = false;
+        uint32_t ax = 0;
+        uint32_t ay = 0;
+        for (int32_t c = half_start; c + 24 <= end; c += 8) {
+            uint32_t w0 = (uint32_t)MEM_W(0, c);
+            uint32_t op = w0 >> 24;
+            if (op != 0xE4 && op != 0xE5) {
+                continue;
+            }
+            uint32_t w1 = (uint32_t)MEM_W(4, c);
+            uint32_t x1 = (w0 >> 12) & 0xFFF;
+            uint32_t y1 = w0 & 0xFFF;
+            uint32_t x0 = (w1 >> 12) & 0xFFF;
+            uint32_t y0 = w1 & 0xFFF;
+            if (!anchored) {
+                ax = x0;
+                ay = y0;
+                anchored = true;
+            }
+            x0 = ax + (x0 - ax) / 2;
+            y0 = ay + (y0 - ay) / 2;
+            x1 = ax + (x1 - ax) / 2;
+            y1 = ay + (y1 - ay) / 2;
+            MEM_W(0, c) = (int32_t)((op << 24) | (x1 << 12) | y1);
+            MEM_W(4, c) = (int32_t)((w1 & 0xFF000000u) | (x0 << 12) | y0);
+            // G_RDPHALF_2 with the steps (s5.10 each) follows the G_RDPHALF_1 with the texture coordinates.
+            int32_t steps = c + 16;
+            uint32_t st = (uint32_t)MEM_W(4, steps);
+            uint32_t dsdx = ((st >> 16) * 2) & 0xFFFF;
+            uint32_t dtdy = ((st & 0xFFFF) * 2) & 0xFFFF;
+            MEM_W(4, steps) = (int32_t)((dsdx << 16) | dtdy);
+            c += 16;
+        }
     }
 
     // Whether a widget is a fill that covers the screen inside the overscan inset.
@@ -269,56 +430,109 @@ namespace {
         dy = move_vertically(r.y0, r.y1, from, to);
     }
 
-    // Where a player's time, speedometer, position and radar go in their half (side by side) or quadrant: the time at
-    // the outer top (bottom row: bottom) left, the speedometer at its middle, the position at its right; the radar
-    // against the middle of the screen (side by side and the top row: the bottom; the bottom row: the top), on the
-    // half's or quadrant's outer side. Each keeps its distance from the edges as placed for stacked views. Returns
-    // false for other elements.
-    bool place_role(rush2::players4::HudRole role, int player, const Rect& g, int32_t& dx, int32_t& dy) {
+    // A player's half (side by side) or quadrant out to the screen's edges: the split views reach the framebuffer's
+    // edges, so the HUD keeps the same margin from the screen's edges as from the lines between the views.
+    Area split_edges(int player) {
+        bool right_column = (player & 1) != 0;
+        bool bottom_row = quad_views && player >= 2;
+        Area a;
+        a.x0 = right_column ? screen_width / 2 + 1 : 0;
+        a.x1 = right_column ? screen_width - 1 : screen_width / 2 - 1;
+        a.y0 = bottom_row ? screen_height / 2 + 1 : 0;
+        a.y1 = quad_views && !bottom_row ? screen_height / 2 - 1 : screen_height - 1;
+        return a;
+    }
+
+    // Margin of a player's HUD from the edges of their half or quadrant.
+    constexpr int32_t split_margin = 5;
+    // Gap between the time left and the track map under it.
+    constexpr int32_t stack_gap = 2;
+    // Gap between the deaths skull and the time or position above it.
+    constexpr int32_t deaths_gap = 5;
+
+    bool valid(const Rect& r) {
+        return r.x0 <= r.x1 && r.y0 <= r.y1;
+    }
+
+    // Where a player's elements go in their half (side by side) or quadrant, each the same margin from its edges: the
+    // time, speedometer and position along the outer edge (top, or the bottom row's bottom), the time at the left, the
+    // position at the right and the speedometer between them (centered in rush2_hud_draw_begin), all with their tops
+    // (bottom row: bottoms) lined up; the deaths skull on the outer side under the time (right column: the position;
+    // bottom row: above them); the radar against the middle of the screen (side by side and the top row: the bottom;
+    // the bottom row: the top), on the outer side, or beside the skull if a quadrant is too short for both. roles =
+    // the bounds of each of the player's roles. Returns false for other elements.
+    bool place_role(rush2::players4::HudRole role, int player, const Rect* roles, int32_t& dx, int32_t& dy) {
         using rush2::players4::HudRole;
         if (role == HudRole::Other || player < 0 || player > 3 || (!quad_views && player > 1)) {
             return false;
         }
-        const Area& from = stacked_area[player == 0 ? 0 : 1];
-        const Area& to = quad_views ? quad_area[player] : side_area[player];
+        const Rect& g = roles[(int)role];
+        const Area a = split_edges(player);
         bool bottom_row = quad_views && player >= 2;
         bool right_column = (player & 1) != 0;
         int32_t w = g.x1 - g.x0;
         int32_t h = g.y1 - g.y0;
-        // Distance from the outer (top or bottom) edge.
-        auto outer_y = [&](int32_t margin) {
-            return bottom_row ? to.y1 - margin - h : to.y0 + margin;
+        // The top row's edge (bottom row: its bottom edge).
+        auto outer_y = [&](int32_t height) {
+            return bottom_row ? a.y1 - split_margin - height : a.y0 + split_margin;
         };
-        constexpr int32_t edge_margin = 4;
+        // Where the deaths skull goes (its top left corner).
+        auto deaths_at = [&](int32_t& x, int32_t& y) {
+            const Rect& d = roles[(int)HudRole::Deaths];
+            const Rect& above = roles[(int)(right_column ? HudRole::Position : HudRole::Time)];
+            int32_t ah = valid(above) ? above.y1 - above.y0 + 1 + deaths_gap : 0;
+            x = right_column ? a.x1 - split_margin - (d.x1 - d.x0) : a.x0 + split_margin;
+            y = bottom_row ? outer_y(d.y1 - d.y0) - ah : outer_y(d.y1 - d.y0) + ah;
+        };
         int32_t x0 = g.x0;
         int32_t y0 = g.y0;
         switch (role) {
             case HudRole::Time:
-                x0 = to.x0 + (g.x0 - from.x0);
-                y0 = outer_y(g.y0 - from.y0);
+                x0 = a.x0 + split_margin;
+                y0 = outer_y(h);
                 break;
             case HudRole::Speed:
-                x0 = (to.x0 + to.x1) / 2 - w / 2;
-                y0 = outer_y(g.y0 - from.y0);
+                // The bottom row's at the top of the quadrant, clear of the time and position at its bottom.
+                x0 = (a.x0 + a.x1) / 2 - w / 2;
+                y0 = bottom_row ? a.y0 + split_margin : outer_y(h);
                 break;
             case HudRole::Position:
-                x0 = to.x1 - (from.x1 - g.x1) - w;
-                y0 = outer_y(edge_margin);
+                x0 = a.x1 - split_margin - w;
+                y0 = outer_y(h);
                 break;
-            case HudRole::Radar:
-                x0 = right_column ? to.x1 - (g.x0 - from.x0) - w : to.x0 + (g.x0 - from.x0);
-                y0 = bottom_row ? to.y0 + edge_margin : to.y1 - edge_margin - h;
+            case HudRole::Deaths:
+                deaths_at(x0, y0);
                 break;
+            case HudRole::Radar: {
+                x0 = right_column ? a.x1 - split_margin - w : a.x0 + split_margin;
+                y0 = bottom_row ? a.y0 + split_margin : a.y1 - split_margin - h;
+                const Rect& d = roles[(int)HudRole::Deaths];
+                if (valid(d)) {
+                    int32_t dx0, dy0;
+                    deaths_at(dx0, dy0);
+                    if (dy0 <= y0 + h + deaths_gap && y0 <= dy0 + (d.y1 - d.y0) + deaths_gap) {
+                        int32_t step = d.x1 - d.x0 + 1 + deaths_gap;
+                        x0 += right_column ? -step : step;
+                    }
+                }
+                break;
+            }
             case HudRole::Banner:
                 // The place once finished: its parts move together, like any other element.
                 move_to_side(g, dx, dy, player);
                 return true;
             default:
-                break;
+                return false;
         }
         dx = x0 - g.x0;
         dy = y0 - g.y0;
         return true;
+    }
+
+    // How far a 320-wide screen position with an RT64 origin is drawn from where it would be without one, for HUD
+    // width `spread` past 320.
+    int32_t screen_offset(uint16_t origin, float spread) {
+        return origin < G_EX_ORIGIN_NONE ? (int32_t)std::lround((origin / (float)G_EX_ORIGIN_RIGHT - 0.5f) * spread) : 0;
     }
 
     // Origin for an element centered at x side by side: its half's outer edge, middle or inner edge (the center).
@@ -457,6 +671,7 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         int32_t w = MEM_H(widget_w, widget);
         int32_t h = MEM_H(widget_h, widget);
         slot_origin[i] = G_EX_ORIGIN_NONE;
+        slot_half[i] = false;
         slot_dx[i] = 0;
         slot_dy[i] = 0;
         parent[i] = (int)i;
@@ -479,14 +694,28 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         else {
             r.x1 = r.x0 + MEM_H(widget_src_x1, widget) - MEM_H(widget_src_x0, widget);
             r.y1 = r.y0 + MEM_H(widget_src_y1, widget) - MEM_H(widget_src_y0, widget);
+            if (split) {
+                trim_to_opaque(rdram, widget, r);
+            }
+            slot_half[i] = quad_views && rush2::players4::hud_widget_role((int)i) == rush2::players4::HudRole::Deaths;
+            if (slot_half[i]) {
+                int32_t wx = MEM_H(widget_x, widget);
+                int32_t wy = MEM_H(widget_y, widget);
+                r.x0 = wx + (r.x0 - wx) / 2;
+                r.x1 = wx + (r.x1 - wx) / 2;
+                r.y0 = wy + (r.y0 - wy) / 2;
+                r.y1 = wy + (r.y1 - wy) / 2;
+            }
         }
 
         for (uint32_t j = 0; j < i; j++) {
             // Split, each player's time, speedometer, position and radar move on their own (players 3 and 4's start
-            // out on top of player 2's).
+            // out on top of player 2's). Shared elements group by bounds alone (the track map and its car dots).
+            int player_i = rush2::players4::hud_widget_player((int)i);
             if (anchored[j] && same_element(rects[i], rects[j]) &&
-                (!split || (rush2::players4::hud_widget_player((int)i) == rush2::players4::hud_widget_player((int)j) &&
-                            rush2::players4::hud_widget_role((int)i) == rush2::players4::hud_widget_role((int)j)))) {
+                (!split || (player_i == rush2::players4::hud_widget_player((int)j) &&
+                            (player_i < 0 ||
+                             rush2::players4::hud_widget_role((int)i) == rush2::players4::hud_widget_role((int)j))))) {
                 parent[find_group(parent, (int)i)] = find_group(parent, (int)j);
             }
         }
@@ -497,9 +726,13 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
     Rect group[max_widgets];
     int group_player[max_widgets];
     rush2::players4::HudRole group_role[max_widgets];
-    // Bounds of each player's time, speedometer, position and radar (each can be more than one group).
-    constexpr int roles = 6;
-    Rect role_rect[4][roles];
+    // Bounds of each player's time, speedometer, position and radar (each can be more than one group), and of the
+    // shared elements' roles (the time left, the track map) at [shared].
+    using rush2::players4::HudRole;
+    constexpr int roles = (int)HudRole::Count;
+    constexpr int shared = 4;
+    Rect role_rect[5][roles];
+    bool has_role[max_widgets][2] = {}; // Whether each shared group holds the time left, the track map.
     for (auto& player_rects : role_rect) {
         for (Rect& r : player_rects) {
             r = Rect{ INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN, false, false };
@@ -519,8 +752,8 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             }
             int player = rush2::players4::hud_widget_player((int)i);
             int role = (int)rush2::players4::hud_widget_role((int)i);
-            if (split && player >= 0 && player < 4 && role != 0) {
-                Rect& r = role_rect[player][role];
+            if (split && player < 4 && role != 0) {
+                Rect& r = role_rect[player < 0 ? shared : player][role];
                 r.x0 = std::min(r.x0, rects[i].x0);
                 r.y0 = std::min(r.y0, rects[i].y0);
                 r.x1 = std::max(r.x1, rects[i].x1);
@@ -532,6 +765,25 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             g.x1 = std::max(g.x1, rects[i].x1);
             g.y1 = std::max(g.y1, rects[i].y1);
             g.screen_fill = g.screen_fill || rects[i].screen_fill;
+            has_role[root][0] = has_role[root][0] || (player < 0 && role == (int)HudRole::TimeLeft);
+            has_role[root][1] = has_role[root][1] || (player < 0 && role == (int)HudRole::Map);
+        }
+    }
+    // A role the game hides for a while (the position while a player's car is wrecked) keeps its last bounds, so the
+    // elements laid out around it (the skull under it, the speedometer beside it) stay put.
+    static Rect last_role_rect[5][roles];
+    static bool last_role_known[5][roles];
+    if (split) {
+        for (int p = 0; p < 5; p++) {
+            for (int role = 1; role < roles; role++) {
+                if (valid(role_rect[p][role])) {
+                    last_role_rect[p][role] = role_rect[p][role];
+                    last_role_known[p][role] = true;
+                }
+                else if (last_role_known[p][role]) {
+                    role_rect[p][role] = last_role_rect[p][role];
+                }
+            }
         }
     }
 
@@ -540,6 +792,11 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
     int32_t group_dx[max_widgets];
     int32_t group_dy[max_widgets];
     uint16_t group_origin[max_widgets];
+    bool map_moved = false;
+    Rect map_rect{};
+    map_dx = 0;
+    map_dy = 0;
+    map_origin = G_EX_ORIGIN_NONE;
     for (uint32_t i = 0; i < count; i++) {
         const Rect& g = group[i];
         group_dx[i] = 0;
@@ -551,14 +808,21 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             int player = group_player[i];
             // A role's groups (the parts of a player's time, place...) move and anchor as one block.
             const Rect* block = &g;
-            if (player >= 0 && player <= 3 && group_role[i] != rush2::players4::HudRole::Other &&
-                place_role(group_role[i], player, role_rect[player][(int)group_role[i]], group_dx[i], group_dy[i])) {
+            if (player >= 0 && player <= 3 && group_role[i] != HudRole::Other &&
+                place_role(group_role[i], player, role_rect[player], group_dx[i], group_dy[i])) {
                 block = &role_rect[player][(int)group_role[i]];
             }
             else {
                 move_to_side(g, group_dx[i], group_dy[i], group_player[i]);
             }
             group_origin[i] = side_origin_for_x((block->x0 + block->x1) / 2 + group_dx[i]);
+            if (player < 0 && has_role[i][1]) {
+                map_moved = true;
+                map_rect = Rect{ g.x0 + group_dx[i], g.y0 + group_dy[i], g.x1 + group_dx[i], g.y1 + group_dy[i], false, false };
+                map_dx = group_dx[i];
+                map_dy = group_dy[i];
+                map_origin = group_origin[i];
+            }
         }
         else {
             group_origin[i] = origin_for_x((g.x0 + g.x1) / 2);
@@ -567,19 +831,95 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
 
     // Side by side, a half is narrow, so a centered element can run into one at the half's edge (in 4:3, the timer
     // and the speedometer): it slides away from it, as placed on the screen with their anchors.
-    if (side_by_side || quad_views) {
+    if (split) {
         constexpr int32_t gap = 2;
         float spread = rush2::splitscreen::hud_width() - screen_width;
         auto screen_offset = [&](uint16_t origin) {
-            return origin < G_EX_ORIGIN_NONE ? (int32_t)std::lround((origin / (float)G_EX_ORIGIN_RIGHT - 0.5f) * spread) : 0;
+            return ::screen_offset(origin, spread);
         };
+
+        // The time left is shared by the players: centered on the screen, just above the track map (without a map:
+        // side by side, at the top; in quadrants, on the cross between them).
+        const Rect& left = role_rect[shared][(int)HudRole::TimeLeft];
+        if (valid(left)) {
+            int32_t cx = screen_width / 2 - (left.x0 + left.x1 + 1) / 2;
+            int32_t map_top = map_rect.y0;
+            if (laps_known) {
+                map_top = std::min(map_top, laps_y + map_dy);
+            }
+            int32_t y0 = map_moved ? map_top - stack_gap - (left.y1 - left.y0 + 1)
+                : quad_views ? screen_height / 2 - (left.y1 - left.y0 + 1) / 2 : split_margin;
+            for (uint32_t i = 0; i < count; i++) {
+                if (anchored[i] && find_group(parent, (int)i) == (int)i && has_role[i][0]) {
+                    group_dx[i] = cx;
+                    group_dy[i] = y0 - left.y0;
+                    group_origin[i] = G_EX_ORIGIN_NONE;
+                }
+            }
+        }
+
+        // Each player's speedometer is centered between their time and position as drawn (with widescreen anchors,
+        // the time and position move apart).
+        for (int player = 0; player < (quad_views ? 4 : 2); player++) {
+            const Rect* r = role_rect[player];
+            const Rect& time = r[(int)HudRole::Time];
+            const Rect& speed = r[(int)HudRole::Speed];
+            const Rect& place = r[(int)HudRole::Position];
+            if (!valid(time) || !valid(speed) || !valid(place)) {
+                continue;
+            }
+            // A role's groups all move by the same amount and share an origin, so any group of it gives them.
+            int32_t time_x1 = INT32_MIN;
+            int32_t place_x0 = INT32_MIN;
+            int speed_root = -1;
+            for (uint32_t i = 0; i < count; i++) {
+                if (!anchored[i] || find_group(parent, (int)i) != (int)i || group_player[i] != player) {
+                    continue;
+                }
+                if (group_role[i] == HudRole::Time) {
+                    time_x1 = time.x1 + group_dx[i] + screen_offset(group_origin[i]);
+                }
+                else if (group_role[i] == HudRole::Position) {
+                    place_x0 = place.x0 + group_dx[i] + screen_offset(group_origin[i]);
+                }
+                else if (group_role[i] == HudRole::Speed) {
+                    speed_root = (int)i;
+                }
+            }
+            // The time or position hidden for now: where it would be.
+            auto placed_x = [&](HudRole role, int32_t x) {
+                int32_t dx = 0;
+                int32_t dy = 0;
+                place_role(role, player, r, dx, dy);
+                const Rect& b = r[(int)role];
+                return x + dx + screen_offset(side_origin_for_x((b.x0 + b.x1) / 2 + dx));
+            };
+            if (time_x1 == INT32_MIN) {
+                time_x1 = placed_x(HudRole::Time, time.x1);
+            }
+            if (place_x0 == INT32_MIN) {
+                place_x0 = placed_x(HudRole::Position, place.x0);
+            }
+            if (speed_root < 0) {
+                continue;
+            }
+            int32_t x0 = (time_x1 + 1 + place_x0) / 2 - (speed.x1 - speed.x0 + 1) / 2 -
+                screen_offset(group_origin[speed_root]);
+            for (uint32_t i = 0; i < count; i++) {
+                if (anchored[i] && find_group(parent, (int)i) == (int)i && group_player[i] == player &&
+                    group_role[i] == HudRole::Speed) {
+                    group_dx[i] = x0 - speed.x0;
+                }
+            }
+        }
+
         auto centered = [](uint16_t origin) {
             return origin == origin_left_half || origin == origin_right_half;
         };
         for (uint32_t m = 0; m < count; m++) {
             // Elements of more than one group (a player's time, place...) don't slide, so their parts stay together.
             if (!anchored[m] || find_group(parent, (int)m) != (int)m || !centered(group_origin[m]) ||
-                (group_role[m] != rush2::players4::HudRole::Other && group_role[m] != rush2::players4::HudRole::Speed)) {
+                (group_role[m] != HudRole::Other && group_role[m] != HudRole::Speed)) {
                 continue;
             }
             for (uint32_t e = 0; e < count; e++) {
@@ -610,6 +950,15 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
+    if (split && !inset_lifted) {
+        saved_inset_x = MEM_H(0, (int32_t)clip_inset_x);
+        saved_inset_y = MEM_H(0, (int32_t)clip_inset_y);
+        // Past the screen's edges: the half size skull is clipped at its full size before it's scaled.
+        MEM_H(0, (int32_t)clip_inset_x) = -lifted_inset;
+        MEM_H(0, (int32_t)clip_inset_y) = -lifted_inset;
+        inset_lifted = true;
+    }
+
     // Move the widgets for the draw loop.
     for (uint32_t i = 0; i < count; i++) {
         if (slot_dx[i] != 0 || slot_dy[i] != 0) {
@@ -622,6 +971,8 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
+    map_known = map_moved;
+    half_pending = false;
     current_origin = G_EX_ORIGIN_NONE;
     scissor_widened = false;
 }
@@ -631,6 +982,7 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
     int32_t widget = (int32_t)ctx->r30;
     uint32_t slot = ((uint32_t)widget - widget_array) / widget_size;
     in_hud_callback = false;
+    finish_half(rdram);
     if (slot >= max_widgets || MEM_B(widget_hidden, widget) != 0) {
         return;
     }
@@ -641,6 +993,10 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     set_rect_origin(rdram, slot_origin[slot]);
+    if (slot_half[slot] && (MEM_BU(widget_flags, widget) & flag_callback) == 0) {
+        half_pending = true;
+        half_start = MEM_W(0, (int32_t)dl_2d_cursor);
+    }
 }
 
 // func_800734E0 entry (prints a string at ($a0, $a1), justified around $a0). Anchors text printed by HUD callback
@@ -658,7 +1014,14 @@ void rush2_hud_print(uint8_t* rdram, recomp_context* ctx) {
 // func_8007D9DC, after the widget draw loop. Puts moved widgets back, and draws the menus' join hint for players 3 and 4.
 void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
     in_hud_callback = false;
+    finish_half(rdram);
+    laps_known = false; // Printed again before the next widget loop, if it's shown.
     end_anchoring(rdram);
+    if (inset_lifted) {
+        MEM_H(0, (int32_t)clip_inset_x) = saved_inset_x;
+        MEM_H(0, (int32_t)clip_inset_y) = saved_inset_y;
+        inset_lifted = false;
+    }
     for (uint32_t i = 0; i < max_widgets; i++) {
         if (slot_moved[i]) {
             int32_t widget = (int32_t)(widget_array + i * widget_size);
@@ -670,12 +1033,23 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
     rush2::players4::draw_join_hint(rdram, ctx);
 }
 
-// func_800B9D48, around its printf of the laps-left number at ($a0, $a1). The text sits on the track map, so it
-// takes the map widget's origin (from the last widget loop), and moves with it side by side.
+// func_800B9D48, around its printf of the laps-left number at ($a0, $a1). The text sits on the track map (above its
+// start), so it takes the map widget's origin (from the last widget loop), and split, moves with the map: it's
+// printed outside the map's bounds, where it was matched to whichever element was nearest.
 void rush2_hud_laps_begin(uint8_t* rdram, recomp_context* ctx) {
     int32_t x = (int16_t)ctx->r4;
     int32_t y = (int16_t)ctx->r5;
-    uint16_t origin = origin_at(x, y);
+    laps_known = true;
+    laps_y = y - laps_height;
+    uint16_t origin;
+    if ((side_by_side || quad_views) && map_known) {
+        x += map_dx;
+        y += map_dy;
+        origin = map_origin;
+    }
+    else {
+        origin = origin_at(x, y);
+    }
     ctx->r4 = x;
     ctx->r5 = y;
     current_origin = G_EX_ORIGIN_NONE;

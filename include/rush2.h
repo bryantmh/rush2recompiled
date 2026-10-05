@@ -63,6 +63,9 @@ namespace rush2 {
 
         void poll();
         bool is_port_connected(int port);
+        // Ports an --input-script presses buttons on (src/main.cpp): the game reads them like a connected controller.
+        void set_port_scripted(int port);
+        bool is_port_scripted(int port);
         // Whether a controller or the keyboard drives the port.
         bool port_has_device(int port);
         bool get_n64_input(int port, uint16_t* buttons, float* x, float* y);

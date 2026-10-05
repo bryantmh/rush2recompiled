@@ -413,6 +413,18 @@ bool rush2::input::port_has_device(int port) {
     return port >= 0 && port < num_ports && (port_controllers[port].load() != no_controller || get_keyboard_port() == port);
 }
 
+static std::atomic<bool> port_scripted[rush2::input::num_ports];
+
+void rush2::input::set_port_scripted(int port) {
+    if (port >= 0 && port < num_ports) {
+        port_scripted[port] = true;
+    }
+}
+
+bool rush2::input::is_port_scripted(int port) {
+    return port >= 0 && port < num_ports && port_scripted[port].load();
+}
+
 bool rush2::input::is_port_connected(int port) {
     // Port 1 is always connected so the game always has a player 1.
     return port == 0 || port_has_device(port);
