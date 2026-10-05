@@ -15,6 +15,8 @@ You need to bring your own copy of the game. Nothing from the original cartridge
 - **Rumble.** Supported on any controller that can rumble and at the same time as saves
 - **Two players, any controllers.** Xbox, PlayStation and most other controllers work, plus keyboard. Pick which controller belongs to which player and the game remembers it next time.
 - **Rebind everything.** The game's own Controls screen now lets you map any button, trigger, stick or key. It shows the right button icons for your controller.
+- **Split screen.** Two player races can run side by side in addition to the original top and bottom.
+- **Three and four players (experimental).** After player 2, press START on any free controller to join.
 
 ### Rush 2049 extras
 
@@ -24,13 +26,16 @@ If you also own **San Francisco Rush 2049** for the N64 (US version), you can po
 - **The 2049 tracks.** All six race tracks from Rush 2049 show up in the track select
 - **The 2049 cars.** All thirteen Rush 2049 cars join the car select after Rush 2's own.
 - **The 2049 music.** Each of the six 2049 tracks plays its own Rush 2049 song.
+- **The 2049 stunt arenas.** The stunt arenas are playable from the track select.
+- **Coins.** Collect 2049's coins, which are counted per player in the Progress tab and will later be used for unlocks.
 
 ### San Francisco Rush extras
 
-If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version), you can point the game at that ROM on the SF Rush tab and unlock:
+If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version), you can point the game at that ROM on the Games tab and unlock:
 
 - **The Rush 1 tracks.** All seven race tracks from the original San Francisco Rush
 - **The Rush 1 music.** The nine Rush 1 race songs play on its tracks, picked at random.
+- **Keys.** Collect the keys hidden on the Rush 1 tracks, which are counted per player in the Progress tab and will later be used for unlocks.
 
 
 ## What you need
@@ -55,10 +60,13 @@ Shortcut: if you drop the ROM in the same folder as the exe, it'll find it on it
 
 Most options live in the settings menu (press Escape, or select).
 
-- **Graphics:** aspect ratio, HUD placement, framerate, level of detail and fonts
+- **General:** rumble strength, stick deadzone, steering and reverse options, background input, and data location
+- **Graphics:** window mode, resolution, aspect ratio, framerate, anti-aliasing, level of detail and fonts
+- **Sound:** race music per game, plus whether other cars' engines are heard
 - **Players:** choose which controller (or the keyboard) each player uses. Leave it on Auto and whoever presses a button first gets that player.
-- **Rush 2049:** pick your 2049 ROM, then turn on Wings and the extra tracks and cars
-- **SF Rush:** pick your San Francisco Rush ROM, then turn on its tracks
+- **Progress:** see the keys and coins you've collected
+- **Games:** pick your Rush 2049 and San Francisco Rush ROMs, then turn on their tracks, cars and Wings
+- **Cheats:** unlock all tracks and cars, plus driving, survival, race and visual cheats. Enable the cheat menu first.
 
 To change your button layout, use the game's own **Controls** screen, under Setup or from the pause menu. Pick a row, press A, then press the button you want for it.
 
