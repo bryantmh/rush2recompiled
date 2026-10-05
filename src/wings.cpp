@@ -40,6 +40,7 @@ namespace {
     const std::string tracks_option_id = "tracks";
     const std::string cars_option_id = "cars";
     const std::string drones_option_id = "computer_cars";
+    const std::string speeds_option_id = "car_speeds";
     const std::string style_option_p1 = "wing_style_p1";
     const std::string style_option_p2 = "wing_style_p2";
     const char* rom_file_name = "rush2049.z64";
@@ -299,6 +300,25 @@ void rush2::wings::init_config() {
             rush2::car2049::set_drone_cars(static_cast<rush2::car2049::DroneCars>(std::get<uint32_t>(cur_value)));
         });
 
+    wings_config.add_enum_option(
+        speeds_option_id,
+        "Car Speeds",
+        "Rush 2049's cars and computer cars are faster than Rush 2's. "
+        "<recomp-color primary>Rush 2</recomp-color> runs every car and the computer cars on every track at Rush 2's "
+        "speed. "
+        "<recomp-color primary>Rush 2049</recomp-color> runs them all at Rush 2049's speed. "
+        "Takes effect at the next race.",
+        {
+            { rush2::car2049::SpeedMode::Rush2, "Rush2", "Rush 2" },
+            { rush2::car2049::SpeedMode::Rush2049, "Rush2049", "Rush 2049" },
+        },
+        rush2::car2049::SpeedMode::Rush2
+    );
+    wings_config.add_option_change_callback(speeds_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::car2049::set_speed_mode(static_cast<rush2::car2049::SpeedMode>(std::get<uint32_t>(cur_value)));
+        });
+
     // Rush 2049 has each player pick one of three wings on the car setup screen.
     for (int player = 0; player < 2; player++) {
         std::string id = player == 0 ? style_option_p1 : style_option_p2;
@@ -329,7 +349,8 @@ void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function
     rush2::ui::OptionsPage::Heading heading = page->add_heading("Rush 2049", rom_status_text());
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
     button->add_pressed_callback(select_rom);
-    for (const std::string& id : { wings_option_id, tracks_option_id, cars_option_id, drones_option_id }) {
+    for (const std::string& id : { wings_option_id, tracks_option_id, cars_option_id, drones_option_id,
+                                    speeds_option_id }) {
         page->add_option(wings_config, id);
     }
     refresh = [note = heading.note, shown = rush2::wings::rom_available()]() mutable {
