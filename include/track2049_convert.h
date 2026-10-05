@@ -22,6 +22,16 @@ namespace rush2::track2049 {
         int sub;    // 2049 type sub-kind (3-5), which selects the rate
     };
 
+    // A placement record of a Rush 2049 object that a car knocks over: kind 2 props (CONE1, GASPUMP, RAT, RATCONE), signs
+    // (kind 0, sub-kinds 1-2) and CACTUS. The record draws the 2049 model renamed X49<model>; poses are world space.
+    struct PropRecord {
+        int record;         // record index in the placement file
+        int type;           // row of 2049's type table (main 0x80117530)
+        int direction;      // 0 both directions, 1 forward races only (_FW), 2 backward only (_BW)
+        float m[9], pos[3]; // the object's pose
+        float parent_m[9], parent_pos[3]; // its parent record's pose (identity and 0 for a top-level record)
+    };
+
     // Rush 2049's animated track textures (docs/rush2049_research/texanim.md), as patch sites in the converted
     // geometry. Offsets and addresses are geometry-relative; Rush 2 loads the file at some base and rebases each
     // G_SETTIMG w1 of the texture-load lists to ((w1 + base) & 0xFFFFFF) | (w1 & 0x0F000000).
@@ -71,6 +81,7 @@ namespace rush2::track2049 {
         uint8_t pvs_count;                  // Camera regions under visibility control.
         std::vector<PathRecord> path_records;
         std::vector<SpinRecord> spin_records;
+        std::vector<PropRecord> prop_records;
         std::vector<int16_t> demo_starts[2]; // Attract-mode start spine indices, forward and backward.
         TexAnims tex_anims;                  // Animated textures, as patch sites in `geometry`.
     };

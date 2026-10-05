@@ -215,6 +215,8 @@ namespace rush2::track2049::movers {
     // In-place animations (func_8010E694: TROLLEY2 sub-kind 3, WINDMILL 4, WINDMILL2 5): rotates a placement
     // object's matrix by its sub-kind's rate x dt (func_800D03DC). Other sub-kinds are left unchanged.
     void rotate_in_place(float m[9], int sub_kind, float dt);
+    // func_800D03DC: rotates a matrix in its own frame by a[1] about y, then a[0] about x, then a[2] about z.
+    void rotate_angles(float m[9], const float a[3]);
 
     // 2049's math library, bit-exact (libultra sinf/cosf, func_8009C3F8 acosf, func_800BFBE8, func_800BFD8C).
     float sinf2049(float x);

@@ -230,6 +230,21 @@ void rush2::track2049::update_object_sounds(uint8_t* rdram, const std::vector<Ob
     }
 }
 
+void rush2::track2049::play_effect(uint8_t* rdram, int id, const float pos[3], float range) {
+    if (id < 0 || !ready()) {
+        return;
+    }
+    update_gains(rdram);
+    sounds_updated_ms = now_ms();
+    float cam[9], car[3];
+    for (int i = 0; i < 9; i++) cam[i] = read_f(rdram, cameras + i * 4);
+    for (int i = 0; i < 3; i++) car[i] = read_f(rdram, player_car + 0x224 + i * 4);
+    audio::EmitterParams e = audio::emitter_mix(pos, car, &cam[6], &cam[3], range);
+    if (e.volume > 0.0f) {
+        audio::sfx_start(id, e.volume, e.pan, 1.0f, e.surround);
+    }
+}
+
 void rush2::track2049::effects_running(uint8_t* rdram) {
     update_gains(rdram);
     sounds_updated_ms = now_ms();

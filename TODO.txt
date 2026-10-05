@@ -11,13 +11,11 @@ San Francisco Rush 2049:
 4) Battle weapons and items: WEPICON_* pickups, WPR_MINE and the battle spawn rules are dropped.
 5) Stunt arenas (ids 25-28, hosted by STUNT1): they share STUNT1's records.
 6) Obstacle course: file 138 is not converted or selectable.
-7) Props: RAT, RATCONE, BULB and GUARDRAIL are dropped.
-8) Prop physics: GASPUMP and CACTUS are static stand-ins without 2049's physics, and signs and cones use Rush 2's models.
-9) Flag bit 0x400000 on placement records isn't understood and is stripped.
-10) Revisit checkpoint timing
-11) Parts upgrade system for coin unlocks
-12) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
-13) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
+7) Flag bit 0x400000 on placement records isn't understood and is stripped.
+8) Revisit checkpoint timing
+9) Parts upgrade system for coin unlocks
+10) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
+11) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
 
 General:
 1) left-right splitscreen options

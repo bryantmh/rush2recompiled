@@ -21,6 +21,9 @@
 //     Records are Rush 2's 100-byte records plus a dynamic-object id. 2049 dynamic objects are classified by 2049's
 //     own type table (main data 0x80117530) and kept, mapped to a Rush 2 breakable name, placed as their static
 //     model or dropped. Children of a dropped record move up. Kept models under a parent are made parent-relative.
+//     Knock-over props, signs and cacti keep their 2049 models, renamed X49<model> so Rush 2's prefix classifier
+//     doesn't take CONE1G1 or STOPHITG1 for its own breakables, and are listed as prop records for
+//     src/track2049_props.cpp.
 // Collision (138+k): Rush 2049's layout with a 0x10-byte header, a MOVER section and 32-bit leaf offsets, rewritten
 //     as Rush 2's; if the leaf section doesn't fit 16-bit offsets, bottom quadtree nodes are merged.
 // AI paths (157+k forward, 176+k backward; a stunt arena's one path, 157+k as 2049's loader picks it although the
@@ -1124,20 +1127,31 @@ namespace {
 
     // 2049 dynamic type -> Rush 2 placement name, resolved by Rush 2's breakable table to a model in its shared assets.
     const std::map<std::string, std::string> r49_to_r2 = {
-        { "CONE1", "CONE1" }, { "BUMPHIT", "BUMPHIT" }, { "CURVEHIT", "CURVEHIT" }, { "METER", "METER" },
-        { "MPH45HIT", "MPH45HIT" }, { "MPH75HIT", "MPH75HIT" }, { "SLOWHIT", "SLOWHIT" }, { "STOPHIT", "STOPHIT" },
-        { "THINKHIT", "THINKHIT" }, { "YIELDHIT", "YIELDHIT" }, { "NOPARK", "NOPASHIT" }, { "GETOFF", "ZONEHIT" },
-        { "SHATPANE", "SHATPANE" }, { "FLAG2", "FLAG2" }, { "COLLISION", "COLLISION" },
+        { "YIELDHIT", "YIELDHIT" }, { "SHATPANE", "SHATPANE" }, { "FLAG2", "FLAG2" }, { "COLLISION", "COLLISION" },
     };
-    // Types dropped: 2049-only game systems, or nothing to show (WEPICON* by prefix, coins by kind 6).
+    // Types dropped: 2049-only game systems, or nothing to show (WEPICON* by prefix, coins by kind 6). BULB and
+    // GUARDRAIL have no model and type flags 0x60004, which 2049's spawner (func_800ABCC8) refuses: they do nothing
+    // in 2049 either.
     const std::set<std::string> r49_drop = {
-        "GOLDCOIN", "SILVERCOIN", "BULB", "GUARDRAIL", "WPR_MINE", "RAT", "RATCONE", "TRIGGER",
+        "GOLDCOIN", "SILVERCOIN", "BULB", "GUARDRAIL", "WPR_MINE", "TRIGGER",
     };
+
+    // Objects 2049 knocks over when a car hits them (src/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT, RATCONE),
+    // the signs (kind 0, sub-kinds 1-2) and CACTUS.
+    bool is_prop(const Type49& t) {
+        return t.kind == 2 || (t.kind == 0 && (t.sub == 1 || t.sub == 2)) || t.name == "CACTUS";
+    }
+
+    // A prop's model in the converted geometry.
+    std::string prop_model(const std::string& model) {
+        return ("X49" + model).substr(0, 15);
+    }
 
     Bytes convert_placement(const Bytes& data, const Bytes& geometry, const std::string& prefix,
                             const std::vector<Type49>& types, const std::set<std::string>& extra_models,
                             bool static_paths, std::vector<rush2::track2049::PathRecord>* path_records,
-                            std::vector<rush2::track2049::SpinRecord>* spin_records) {
+                            std::vector<rush2::track2049::SpinRecord>* spin_records,
+                            std::vector<rush2::track2049::PropRecord>* prop_records) {
         // 2049 file: u32 directory offset, u32 chunk count; WHDR = Rush 2's header (count, {offset, name[16]}),
         // WOBJ = 0x68-byte records (Rush 2's 0x64 with a dynamic-object id at +0x4C, the box moved to +0x50).
         constexpr size_t rec49 = 0x68;
@@ -1204,6 +1218,7 @@ namespace {
         enum class How { kept, mapped, model };
         std::map<int, std::pair<std::string, How>> keep;
         std::map<int, int> spin_sub; // Record index -> sub-kind of objects that turn in place (func_8010E694).
+        std::map<int, int> prop_type; // Record index -> type row of props.
         for (const Record& r : recs) {
             const Type49* t = classify(types, r.name);
             if (t == nullptr) {
@@ -1213,6 +1228,13 @@ namespace {
                 continue;
             }
             if (r49_drop.contains(t->name) || starts_with(t->name, "WEPICON") || t->kind == 6) {
+                continue;
+            }
+            if (is_prop(*t)) {
+                if (!t->model.empty() && model_ok(prop_model(t->model))) {
+                    keep[r.index] = { prop_model(t->model), How::model };
+                    prop_type[r.index] = (int)(t - types.data());
+                }
                 continue;
             }
             auto mapped = r49_to_r2.find(t->name);
@@ -1320,6 +1342,9 @@ namespace {
             int parent;
             int path = -1, node = -1;
             int spin = 0;
+            int prop = -1;                  // Type row of a prop.
+            const Record* source = nullptr; // The 2049 record (world pose).
+            const Record* parent_source = nullptr;
         };
         std::vector<Item> items;
         std::vector<int> top;
@@ -1368,6 +1393,10 @@ namespace {
             it.parent = par;
             auto spin = spin_sub.find(r->index);
             it.spin = spin == spin_sub.end() ? 0 : spin->second;
+            auto prop = prop_type.find(r->index);
+            it.prop = prop == prop_type.end() ? -1 : prop->second;
+            it.source = r;
+            it.parent_source = par >= 0 ? order[par].first : nullptr;
             items.push_back(it);
         }
         // Path objects are world-space top-level records after the sections, like Rush 2049's unparented objects:
@@ -1429,6 +1458,28 @@ namespace {
                 if (it.spin != 0 && spin_records != nullptr) {
                     spin_records->push_back({ (int)n, it.spin });
                 }
+            }
+        }
+        if (prop_records != nullptr) {
+            for (size_t n = 0; n < new_order.size(); n++) {
+                const Item& it = items[new_order[n]];
+                if (it.prop < 0) {
+                    continue;
+                }
+                rush2::track2049::PropRecord p{};
+                p.record = (int)n;
+                p.type = it.prop;
+                const std::string& name = it.source->name;
+                p.direction = name.find("_FW") != std::string::npos ? 1 : name.find("_BW") != std::string::npos ? 2 : 0;
+                for (int a = 0; a < 9; a++) {
+                    p.m[a] = (float)it.source->m[a];
+                    p.parent_m[a] = it.parent_source != nullptr ? (float)it.parent_source->m[a] : (a % 4 == 0 ? 1.0f : 0.0f);
+                }
+                for (int a = 0; a < 3; a++) {
+                    p.pos[a] = (float)it.source->pos[a];
+                    p.parent_pos[a] = it.parent_source != nullptr ? (float)it.parent_source->pos[a] : 0.0f;
+                }
+                prop_records->push_back(p);
             }
         }
 
@@ -2469,6 +2520,12 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         opt.dummies = { prefix + "FINISH", prefix + "FINISHB" };
         opt.dummy_textures = { "CHKPNT", "FINISH" };
         opt.exclude = &shared_models;
+        std::vector<Type49> types = read_types(main);
+        for (const Type49& t : types) {
+            if (is_prop(t) && !t.model.empty()) {
+                opt.rename[t.model] = prop_model(t.model);
+            }
+        }
         std::set<std::string> names;
         std::vector<const Bytes*> geometry_files = { &track };
         if (race) {
@@ -2477,11 +2534,11 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         geometry_files.push_back(&shared);
         out.geometry = merge_models(geometry_files, opt, names);
 
-        std::vector<Type49> types = read_types(main);
         out.path_records.clear();
         out.spin_records.clear();
+        out.prop_records.clear();
         out.placement = convert_placement(placement, track, prefix, types, names, static_paths, &out.path_records,
-                                          &out.spin_records);
+                                          &out.spin_records, &out.prop_records);
         out.collision = convert_collision(collision);
         validate_path(files[5]);
         validate_path(files[6]);

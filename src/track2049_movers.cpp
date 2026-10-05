@@ -18,6 +18,7 @@
 //   Boost pads and ride-on platforms (func_800E1F80) act on the polygon a wheel probe found under the car.
 // - Placement objects that turn in place (TROLLEY2, WINDMILL, WINDMILL2: func_8010E694) have their records' matrices
 //   rotated each tick.
+// - The tick and car hooks also run the knock-over props (src/track2049_props.cpp) and animated textures.
 
 #include <algorithm>
 #include <cmath>
@@ -537,6 +538,7 @@ void rush2::track2049::reset_movers() {
 extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
     // Animated textures don't depend on the moving objects being set up.
     rush2::track2049::texanim_tick(rdram, read_f(rdram, (uint32_t)((int32_t)ctx->r29 + 0x18)));
+    rush2::track2049::props_tick(rdram, read_f(rdram, (uint32_t)((int32_t)ctx->r29 + 0x18)));
     std::lock_guard lock{ movers_mutex };
     int slot = rush2::track2049::loaded_slot();
     if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot) {
@@ -605,6 +607,7 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
 
 // func_800706D0 at 0x800706E4, per car after its wheel probes: $s0 = the car.
 extern "C" void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx) {
+    rush2::track2049::props_car(rdram, (uint32_t)ctx->r16);
     std::lock_guard lock{ movers_mutex };
     if (!active) {
         return;

@@ -241,15 +241,15 @@ push cars, and elevators/ramps carry cars on moving polygons.
 | 2049 | Rush 2 | Notes |
 |---|---|---|
 | static sections `TRACKnLxxxxx`, sky, G1 props | plain records (type 0) | lossless; names must exist in the converted geometry |
-| CONE1(_FW/_BW) | CONE1(_F/_B) | Rush 2 cone (CONE1O1, asset 0x14), same knock-over idea, Rush 2 model and sound |
-| BUMPHIT CURVEHIT METER MPH45HIT MPH75HIT SLOWHIT STOPHIT THINKHIT YIELDHIT | same names | Rush 2 sign models (asset 0x14) |
-| NOPARK, GETOFF | NOPASHIT, ZONEHIT | nearest Rush 2 sign, different artwork |
+| CONE1 GASPUMP RAT RATCONE (kind 2), BUMPHIT CURVEHIT METER MPH45HIT MPH75HIT NOPARK SLOWHIT STOPHIT THINKHIT GETOFF (kind 0, sub 1-2), CACTUS | `X49<model>` records (2049 model, renamed so Rush 2's prefix classifier doesn't take CONE1G1 / STOPHITG1 for its own breakables) | prop records; 2049's reactions run in src/track2049_props.cpp (�7) |
+| YIELDHIT | YIELDHIT | Rush 2 sign (none in the race tracks; in 2049 the type has no model and is refused) |
 | SHATPANE | SHATPANE | Rush 2 glass (SHATPANEO1-7 in 0x14) |
 | FLAG2_* | FLAG2* | Rush 2 flag (FLAG2O1 in 0x14) |
 | COLLISION | COLLISION | same meaning (collision cylinder from the record) [I for 2049 side] |
-| GASPUMP, CACTUS, TROLLEY2, WINDMILL(2/3), all path objects | static stand-in records named after the 2049 model | need the 2049 models merged into the converted geometry (files 82-87, 78) |
-| FENCE, RATCONE, RAT | dropped | Rush 2 debris (FENCEO1, RATCONEO3) is not loaded on every slot; FENCE could map to FENCE on slots 2/5 only |
-| GOLDCOIN, SILVERCOIN, WEPICON_*, WPR_MINE, BULB, GUARDRAIL | dropped | 2049-only systems (GUARDRAIL is a no-model collision helper) |
+| TROLLEY2, WINDMILL(2/3), all path objects | records named after the 2049 model | animated by src/track2049_movers.cpp |
+| FENCE | static FENCEG1 record | none in the race tracks or stunt arenas |
+| GOLDCOIN, SILVERCOIN, WEPICON_*, WPR_MINE | dropped | 2049-only systems |
+| BULB, GUARDRAIL | dropped | no model, type flags 0x60004: func_800ABCC8 refuses `(low flags & ~4) == 0`, so they do nothing in 2049 either (editor helpers; GUARDRAIL_FW x6 on track 2, BULB in no race track) |
 | GDAT/GTLD, dynamic ids | dropped | Rush 2 builds its own breakable list |
 | Rush 2-only | — | no ambient sound emitters exist in 2049 placements (could be added by hand) |
 
@@ -274,8 +274,7 @@ tracks convert to 147-313 records (e.g. TRACK1 → 167 records: 117 sections, 17
 33 static stand-ins, 16 coins dropped, 29 animated objects).
 
 **Lossless:** section placement, matrices, positions, culling boxes, late-pass flag, tree structure, direction
-variants, collision volumes. **Lost or approximated:** coins, battle items, 2049 knock-over prop models (Rush 2 models
-used instead) and GASPUMP/CACTUS physics, flag bit 0x400000, GDAT/GTLD, every motion (static at the spawn pose),
+variants, collision volumes. **Lost or approximated:** coins, battle items, flag bit 0x400000, GDAT/GTLD, every motion (static at the spawn pose),
 moving/switching collision, triggers, flip-book animation, 2049 object sounds.
 
 ---------------------------------------------------------------------------------------------------------------------
@@ -314,3 +313,36 @@ moving/switching collision, triggers, flip-book animation, 2049 object sounds.
    movers (only Rush 2 breakables are skipped).
 6. **In-place animations** (WINDMILL, WINDMILL2, TROLLEY2, flip-books F1FLAG/SHARK): rotate about the local axis or
    swap the node's model handle (+0xC) on a timer.
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 7. Knock-over props **[V]**
+
+Port: src/track2049_props.cpp. Records: the converter's `PropRecord` list (record index, type row, direction, world
+pose and the parent's pose).
+
+**Hit test.** Type flags high s16 = car callback slot; props use slot 0 = 0x8010C6C8. func_800BEAA0 (per car,
+per frame) walks the GDAT leaf around the car and, for objects with flags 2 (armed) and 8 (car callbacks), calls
+`slot(&car, obj+0x44, obj+0x54, 0)`: hit when `|car pos (0x80152818 + 0x3B8*car, +8) - obj+0x44|^2 <= (r + 3.5)^2`
+and the car is active (+0x7EA). obj+0x44 = the node's world position (func_800ABBD0), obj+0x54 = type +0x18 or, if
+that is -1, the model's OBHD radius (func_800ABB58). On a hit: obj flags |= 4, obj+0x5C = car, type init (+8) runs;
+the init clears flags 2 and 4 so it hits once. Props never push the car.
+
+**Reactions** (all per rendered frame; car velocity = 0x80152818 struct +0x14):
+- Kind 2 (CONE1, GASPUMP, RAT, RATCONE), func_8010DCFC: pooled block obj+0x6C = {spin[3], vel[3]} (pool 0x80150E98,
+  24 bytes). vel = car vel x 0.125; obj matrix = func_8008B4C4(vel) (z row = vel normalised, x row = (vz, 0, -vx)
+  normalised or (1,0,0) if its length <= 0.01, y = z x x, x = y x z); vel.y += 2, or 1 for models 0xED RATG1 and
+  0x153 RATCONEG1; spin = (0, 12, 15); sound type +0x1C via func_800FEA00(id, car, pos, 2); instance timer 5.0.
+  Update func_8010E4E4: `vel += g x 0.15; pos += vel + g x 0.15` with g = 0x80121DDC = (0, -0.25, 0), then
+  func_800D03DC(spin x dt) (rotate y, then x, then z, in the object's frame); timer -= dt; at 0: type flag 0x2000
+  (CONE1, GASPUMP) -> node removed (func_80090088); the object is freed. No ground collision.
+  (D_8013FECC / D_8013FECD branches for model 0xEC, the cone, are a 2049-only mode and not ported.)
+- Kind 0 sub 1-2 signs, func_8010E72C: obj matrix = func_8008B4C4(car vel); obj+0x5A = 4; update func_8010E828
+  rotates by the sub-kind's angles (kind table 0x80118DDC[0] = 0x80118D70, 12-byte entries: sub 1 (-0.38397, 0, 0),
+  sub 2 (-0.37525, 0, 0)) once per frame for 4 frames; the sign stays down.
+- CACTUS, func_8010D9CC: obj+0x5A = 7; obj matrix = func_8008B4C4(car vel x 0.125); instance timer 1/30 (0x801249BC);
+  update func_80094888 (generic flip-book): timer -= dt; at <= 0: frame++, timer = 1/16; at frame >= 7: type flag
+  0x1000 -> stop on the last frame (CACTUS), else 0x2000 -> remove, else loop; model = handle table entry
+  (obj+0x58 anim base + frame): CACTUS 263 = CACTUSG2..G8 (names 0x8011AD68).
+
+The port scales the per-frame steps by the tick length in 30 Hz frames.

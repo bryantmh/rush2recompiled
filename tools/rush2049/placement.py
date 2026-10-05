@@ -337,17 +337,25 @@ class R49Types:
 # 2049 dynamic type -> Rush 2 placement name prefix (resolved by Rush 2's own breakable table to a model in asset
 # 0x14 or 0x12, which Rush 2 always loads for a race). Debris models FENCEO1, GASIGNO1, ... live in some Rush 2 track
 # geometries only, so FENCE etc. are not mapped.
-R49_TO_R2 = {
-    'CONE1': 'CONE1', 'BUMPHIT': 'BUMPHIT', 'CURVEHIT': 'CURVEHIT', 'METER': 'METER', 'MPH45HIT': 'MPH45HIT',
-    'MPH75HIT': 'MPH75HIT', 'SLOWHIT': 'SLOWHIT', 'STOPHIT': 'STOPHIT', 'THINKHIT': 'THINKHIT',
-    'YIELDHIT': 'YIELDHIT', 'NOPARK': 'NOPASHIT', 'GETOFF': 'ZONEHIT', 'SHATPANE': 'SHATPANE', 'FLAG2': 'FLAG2',
-    'COLLISION': 'COLLISION',
-}
-# Types that are dropped (2049-only game systems, or nothing to show).
-R49_DROP = {'GOLDCOIN', 'SILVERCOIN', 'BULB', 'GUARDRAIL', 'WPR_MINE', 'RAT', 'RATCONE', 'TRIGGER'} | \
+R49_TO_R2 = {'YIELDHIT': 'YIELDHIT', 'SHATPANE': 'SHATPANE', 'FLAG2': 'FLAG2', 'COLLISION': 'COLLISION'}
+# Types that are dropped (2049-only game systems, or nothing to show). BULB and GUARDRAIL have no model and type flags
+# 0x60004, which 2049's spawner (func_800ABCC8) refuses: they do nothing in 2049 either.
+R49_DROP = {'GOLDCOIN', 'SILVERCOIN', 'BULB', 'GUARDRAIL', 'WPR_MINE', 'TRIGGER'} | \
     {t for t in ['WEPICON_CANN', 'WEPICON_GATT', 'WEPICON_GREN', 'WEPICON_HEAL', 'WEPICON_INVS', 'WEPICON_MINE',
                  'WEPICON_MISS', 'WEPICON_RAM', 'WEPICON_ROCK', 'WEPICON_SHLD', 'WEPICON_SONC', 'WEPICON_POWUP']}
 R2_SAFE_DEBRIS_ASSETS = (0x12, 0x14)       # loaded for every race (func_800A4C98)
+
+
+def is_prop(t):
+    """Objects 2049 knocks over when a car hits them (src/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT,
+    RATCONE), the signs (kind 0, sub-kinds 1-2) and CACTUS."""
+    return t['kind'] == 2 or (t['kind'] == 0 and t['sub'] in (1, 2)) or t['name'] == 'CACTUS'
+
+
+def prop_model(model):
+    """A prop's model in the converted geometry: X49<model>, which Rush 2's prefix classifier doesn't take for one of
+    its breakables (CONE1G1 would be a CONE1, STOPHITG1 a STOPHIT)."""
+    return ('X49' + model)[:15]
 
 
 def _mat3(m):
@@ -417,6 +425,12 @@ def convert_ex(placement_2049, geometry_2049, prefix=None, types=None, extra_mod
         tn = t['name']
         if tn in R49_DROP or tn.startswith('WEPICON') or t['kind'] == 6:
             report['dropped'].append((r.name, '2049-only (%s)' % types.KINDS.get(t['kind'], t['kind'])))
+            continue
+        if is_prop(t):
+            if t['model'] and model_ok(prop_model(t['model'])):
+                keep[r.index] = (prop_model(t['model']), 'static')
+            else:
+                report['dropped'].append((r.name, 'model %s not available' % t['model']))
             continue
         if tn in R49_TO_R2:
             new = R49_TO_R2[tn]
