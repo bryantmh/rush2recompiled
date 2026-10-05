@@ -181,7 +181,10 @@ Named textures:
   | FIRECRK | 0x0D | 0x3E, 100 | FIRECRCK, replaced at run time by Rush 1's sound (§9) | |
   | BIGCHEER2 | 0x00 | none (behaviour 0 returns) | left out | |
 
-- KEYL, MARKER and TIME are dropped.
+- KEYL1 records (key number 1-8 at +0x4A) become Rush 2 key records KEY1-8 drawn with Rush 1's KEYL1 (behaviour 8),
+  kept per profile by src/collectibles.cpp. Rush 1 saves them as a u8 mask per track at player record + 0x1C0 +
+  track * 0x16 + 7 (`func_8006C2E8`); half a track's keys give its car 8 (TAXI), all of them car 9 (HOTROD).
+- MARKER and TIME are dropped.
 
 ## 4. Visibility [V]
 
@@ -304,7 +307,7 @@ camera position from the start of `func_8007C27C`).
 
 ## 8. Open items
 
-- Keys (KEYL1, behaviour 8) are dropped; they need Rush 2's key system and unlockables.
+- What the keys unlock is undecided (docs/unlocks_plan.md).
 - MARKER and TIME (behaviours 0x0F, 0x15) are not understood.
 - Checkpoint flag 4 (track 6) is not understood.
 - The cars (assets 25-35) aren't ported. All 11 are already Rush 2 cars.

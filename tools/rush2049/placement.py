@@ -338,9 +338,13 @@ class R49Types:
 # 0x14 or 0x12, which Rush 2 always loads for a race). Debris models FENCEO1, GASIGNO1, ... live in some Rush 2 track
 # geometries only, so FENCE etc. are not mapped.
 R49_TO_R2 = {'YIELDHIT': 'YIELDHIT', 'SHATPANE': 'SHATPANE', 'FLAG2': 'FLAG2', 'COLLISION': 'COLLISION'}
+# Coins become Rush 2 key records (the KEY class, behaviour 8): silver coins KEYS0-7 and gold coins KEYG0-7, numbered
+# per kind in record order. src/collectibles.cpp gives each its bit (silver 0-7, gold 8-15) and draws 2049's coin model.
+R49_COINS = {'SILVERCOIN': 'KEYS', 'GOLDCOIN': 'KEYG'}
+R49_COINS_PER_KIND = 8
 # Types that are dropped (2049-only game systems, or nothing to show). BULB and GUARDRAIL have no model and type flags
 # 0x60004, which 2049's spawner (func_800ABCC8) refuses: they do nothing in 2049 either.
-R49_DROP = {'GOLDCOIN', 'SILVERCOIN', 'BULB', 'GUARDRAIL', 'WPR_MINE', 'TRIGGER'} | \
+R49_DROP = {'BULB', 'GUARDRAIL', 'WPR_MINE', 'TRIGGER'} | \
     {t for t in ['WEPICON_CANN', 'WEPICON_GATT', 'WEPICON_GREN', 'WEPICON_HEAL', 'WEPICON_INVS', 'WEPICON_MINE',
                  'WEPICON_MISS', 'WEPICON_RAM', 'WEPICON_ROCK', 'WEPICON_SHLD', 'WEPICON_SONC', 'WEPICON_POWUP']}
 R2_SAFE_DEBRIS_ASSETS = (0x12, 0x14)       # loaded for every race (func_800A4C98)
@@ -414,6 +418,7 @@ def convert_ex(placement_2049, geometry_2049, prefix=None, types=None, extra_mod
         return n in geo_names or n[:15] in geo_names
 
     keep = {}
+    coins = {k: 0 for k in R49_COINS}
     for r in recs:
         t = types.classify(r.name)
         if t is None:
@@ -423,6 +428,13 @@ def convert_ex(placement_2049, geometry_2049, prefix=None, types=None, extra_mod
             keep[r.index] = (r.name, 'kept')
             continue
         tn = t['name']
+        if tn in R49_COINS:
+            if coins[tn] >= R49_COINS_PER_KIND:
+                report['dropped'].append((r.name, 'more than %d coins of a kind' % R49_COINS_PER_KIND))
+                continue
+            keep[r.index] = ('%s%d' % (R49_COINS[tn], coins[tn]), 'mapped')
+            coins[tn] += 1
+            continue
         if tn in R49_DROP or tn.startswith('WEPICON') or t['kind'] == 6:
             report['dropped'].append((r.name, '2049-only (%s)' % types.KINDS.get(t['kind'], t['kind'])))
             continue

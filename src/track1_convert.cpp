@@ -77,12 +77,17 @@ namespace {
         { "SHATPANEO", "WINDOWBL", 7, 0 }, { "FENCEO", "FENCEL", 12, 0 }, { "FLAG2O", "FLAG2L", 10, -1 },
         { "GASIGNO", "GASIGNL", 3, 0 } };
     // Tree pieces TREEHITnO1 -> TREEHITnL1 (n 1-4).
-    // Rush 1 models from the shared object file (asset 12) that the classes use.
-    const char* const r1_shared_objects[] = { "CONE1L1", "METERL1", "TREEHIT1L1", "TREEHIT4L1" };
+    // Rush 1 models from the shared object file (asset 12) that the classes and keys use.
+    const char* const r1_shared_objects[] = { "CONE1L1", "METERL1", "TREEHIT1L1", "TREEHIT4L1", "KEYL1" };
+    // Keys (KEYL1, key number 1-8 at record +0x4A) become Rush 2 key records KEY1-8 (the KEY class, behaviour 8) drawn
+    // with Rush 1's key model; src/collectibles.cpp gives key n bit n - 1.
+    constexpr const char* r1_key = "KEYL";
+    constexpr const char* r1_key_model = "KEYL1";
+    constexpr int r1_keys_max = 8;
+    constexpr int16_t key_behaviour = 8;
 
-    // Rush 1 placement objects that are left out (keys need Rush 2's key system; MARKER and TIME are unknown; BIGCHEER2
-    // is silent in Rush 1).
-    const char* const r1_dropped[] = { "KEYL", "MARKER", "TIME", "BIGCHEER2" };
+    // Rush 1 placement objects that are left out (MARKER and TIME are unknown; BIGCHEER2 is silent in Rush 1).
+    const char* const r1_dropped[] = { "MARKER", "TIME", "BIGCHEER2" };
     // Rush 1 sound emitters -> the Rush 2 emitters that play the same sound at the same range (the behaviour ids differ:
     // SMALLHOOT's is Rush 2's BIGCHR1 and BIGCHEER's BIGCHR2, a crowd cheer at 400 and 300). FIRECRK's fireworks sound
     // is Rush 1's own (src/track1_audio.cpp). BIGCHEER2's behaviour (id 0) does nothing, so it is left out.
@@ -763,6 +768,9 @@ namespace {
         // car hit test (func_8008B0CC) takes the placement point within about 3 world units of the car's height, so a
         // centred traffic light, tree or trash muncher would never be hit. The records move down to match, and so do
         // the models of the same family (the name without its number: FLAG2L0-9 animation frames, WINDOWBL1-7 pieces).
+        for (auto& m : b.models) {
+            if (m.name == names.at(r1_key_model)) m.kind = key_behaviour;
+        }
         base_shifts.clear();
         auto family_of = [](const std::string& n) { return n.substr(0, n.find_last_not_of("0123456789") + 1); };
         std::map<std::string, std::set<std::string>> placed_families;
@@ -827,6 +835,7 @@ namespace {
         }
         struct Section { Bytes rec; std::vector<Bytes> kids; };
         std::vector<Section> sections;
+        std::set<int> keys;
         for (int i : top) {
             auto it = names.find(name(i));
             if (it == names.end()) fail("section " + name(i) + " has no model");
@@ -848,6 +857,15 @@ namespace {
                 bool world = false;
                 for (auto [from, to] : r1_emitters) {
                     if (n == from) { renamed = to; world = true; }
+                }
+                if (!world && starts_with(n, r1_key)) {
+                    int number = s16(k, 0x4A);
+                    if (number < 1 || number > r1_keys_max || !keys.insert(number).second) {
+                        fail("key " + n + " has number " + std::to_string(number));
+                    }
+                    renamed = "KEY" + std::to_string(number);
+                    record_models[*renamed] = names.at(r1_key_model);
+                    world = true;
                 }
                 bool dropped = false;
                 for (const char* p : r1_dropped) dropped = dropped || starts_with(n, p);

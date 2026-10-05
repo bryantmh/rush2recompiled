@@ -27,6 +27,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "car2049.h"
+#include "collectibles.h"
 #include "track2049.h"
 #include "ultramodern/ultramodern.hpp"
 #include "librecomp/files.hpp"
@@ -702,9 +703,9 @@ extern "C" void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ct
     write_string(rdram, 0x800CD170, "THERE ARE NO MORE ENTRIES AVAILABLE.");
 }
 
-// Deleting a player: the 2049 car options and selected car kept for its record (car2049.json, by record address) and
-// its 2049 and SF Rush records (track2049_records.json, by name) go too, so a player created in its place or with
-// its name starts fresh.
+// Deleting a player: the 2049 car options and selected car kept for its record (car2049.json, by record address), its
+// 2049 and SF Rush records (track2049_records.json, by name) and its SF Rush keys and 2049 coins (collectibles.json,
+// by name) go too, so a player created in its place or with its name starts fresh.
 namespace {
     constexpr uint32_t pak_records = 0x8004B220;        // 4 paks of 0x2200 bytes: 5 player records of 0x6C0 each.
     constexpr uint32_t pak_stride = 0x2200;
@@ -715,6 +716,7 @@ namespace {
         uint32_t record = pak_records + (profile / records_per_pak) * pak_stride + (profile % records_per_pak) * record_size;
         rush2::car2049::forget_record(rdram, record);
         rush2::track2049::clear_profile_records(rdram, profile);
+        rush2::collectibles::clear_profile(rdram, profile);
     }
 }
 

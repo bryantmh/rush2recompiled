@@ -6,6 +6,14 @@ tab, later in game.
 
 **[V]** verified in the disassembly or ROM data, **[I]** inferred.
 
+**Status.** The keys and coins are in (src/collectibles.cpp, src/progress_tab.cpp):
+- SF Rush keys and 2049 coins (race tracks and stunt arenas) are picked up through Rush 2's key code (§2.2).
+- They are kept per profile name in `collectibles.json`.
+- The recomp menu's Progress tab shows them, along with Rush 2's own keys and Dew cans (read from its save once per
+  frame; the game itself only shows one track's keys, on car select).
+
+What they unlock (§2.3-2.4, and the store or ladder idea) is still undecided.
+
 ---------------------------------------------------------------------------------------------------------------------
 
 ## 1. Research
@@ -79,18 +87,45 @@ tab, later in game.
 
   - Index → name is probably the CAR1-13 order (FORMULA 1 ... PANTHER) [I]. Check it against 2049's car select
     before shipping.
-  - **Only cars are gated by coins.** The same function sets the track (0x80150DD8), mode (0x80150E88) and parts
-    (0x80150EB8 / ED8 / F00 / F40) tables from points and stunt-score totals, not from coins. TODO.txt's "tracks
-    gated behind coin counts" is wrong. Parts (TODO 11) are a separate system.
+  - **Only cars are gated by coins.** The same function sets the track, mode and parts tables from points and
+    stunt-score totals (§1.4), not from coins. TODO.txt's "tracks gated behind coin counts" is wrong.
   - 0x801164C2 and 0x801164C4 are 2049's unlock-all flags.
 - **Coins are global, not per track.** Unlike keys, totals add up over every course.
+
+### 1.4 Rush 2049 part unlocks [V for the rules, I for which row is which]
+
+`func_800F2A28` also sets four per-player part tables. They come from one value, not from coins:
+P = (sum of the u32 at profile +0xE4 + k·0x60, k = 0-11) / 10. P is probably race points [I].
+
+| Table (per player) | Size | Always | Unlocked at P ≥ | Probable row [I] |
+|---|---|---|---|---|
+| 0x80150F40 | 6 | 0-2 | 150, 400, 700 | ENGINE (6 levels) |
+| 0x80150F00 | 5 | 0 | 1: 300, 2: 1200, 3: 100, 4: 600 | TIRES (5) |
+| 0x80150EB8 | 8 | 0, 1 | 2-3: 200, 4-5: 500; 6-7 never | ? (6 and 7 are never set: cheat or unused) |
+| 0x80150ED8 | 9 | 0-2 | 250, 500, 800, 1200, 1600, 2000 | ? |
+
+- FRAME also has 6 levels, so 0x80150F40 could be FRAME instead. Settle this by finding the setup screen's reader.
+  - The accessors (`func_800F75B0` F40, `func_800F75D0` F00, `func_800F75EC` EB8, `func_800F7604` ED8,
+    `func_800F7620` cars) have no `jal` callers in main or any ROM file. They are reached through pointers, or from
+    code not yet disassembled.
+- The tables are copied to 0x801426A0.. before a race (0x800F6040) and compared afterwards (0x80103DC0) for the
+  "new part unlocked" message.
+- The same function also unlocks tracks: battle arenas from battle stats (P ≥ 100 / 250 / 500 / 1000 on profile
+  +0x60C) and stunt arenas 2-4 + the obstacle course from stunt scores (≥ 100k / 250k / 500k / 1M on +0x50C). None
+  of those are ported yet.
+- 0x801164C4 unlocks all parts. 0x801164C2 unlocks all tracks.
+- **In this port.** 2049 cars use Rush 2's option rows (ENGINE = 2049 ENGINE 1-6, DURABILITY = FRAME;
+  docs/rush2049_research/cars.md §9). Gating parts means:
+  - recording P (+0xE4 isn't tracked; 2049 races write Rush 2 stats slots);
+  - limiting those rows' values for 2049 cars;
+  - TODO 11.
 - **Sound.** The coin sound is 2049 sfx group 0x06 (docs/rush2049_research/audio.md).
 
 ---------------------------------------------------------------------------------------------------------------------
 
 ## 2. Design
 
-### 2.1 Storage: `unlocks.json`, keyed by profile name
+### 2.1 Storage: `collectibles.json`, keyed by profile name
 
 The `.mpk` layout is fixed, and hosted races run in HAWAII's slot, so neither SF Rush keys nor 2049 coins can go in
 the record. Store them like `track2049_records.json`:
@@ -171,7 +206,7 @@ pickup effect and the sound. So:
 
 ## 3. Phases
 
-1. **Storage.** Shared name-bound block helper, `unlocks.json`, clear on delete, guest block.
+1. **Storage.** Shared name-bound block helper, `collectibles.json`, clear on delete, guest block.
 2. **SF Rush keys.**
    - Converter (py + C++ parity) and the key model.
    - Redirect hooks.
@@ -184,9 +219,14 @@ pickup effect and the sound. So:
    - Coin sound.
    - Unlock evaluation and car-select gating, behind the option.
    - Test: same as phase 2, plus totals.
-4. **Progress tab** (phase A UI).
-5. **In-game UI** (phase B).
-6. **Docs.** Update docs/rush1_research.md §8, TODO.txt (SF Rush 1, 2049 1-2) and placement.md's dropped list.
+4. **2049 parts** (§1.4).
+   - Find which setup row each table gates.
+   - Record P for each profile in `collectibles.json`. First pin down what +0xE4 counts and how 2049 awards it per race.
+   - Limit ENGINE / DURABILITY (and any other matching rows) on 2049 cars to unlocked values. "Unlock All Cars" or a
+     parts cheat lifts the limit.
+5. **Progress tab** (phase A UI). It also shows P and the parts each threshold unlocks.
+6. **In-game UI** (phase B).
+7. **Docs.** Update docs/rush1_research.md §8, TODO.txt (SF Rush 1, 2049 1-2) and placement.md's dropped list.
 
 ---------------------------------------------------------------------------------------------------------------------
 

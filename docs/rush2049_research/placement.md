@@ -241,14 +241,15 @@ push cars, and elevators/ramps carry cars on moving polygons.
 | 2049 | Rush 2 | Notes |
 |---|---|---|
 | static sections `TRACKnLxxxxx`, sky, G1 props | plain records (type 0) | lossless; names must exist in the converted geometry |
-| CONE1 GASPUMP RAT RATCONE (kind 2), BUMPHIT CURVEHIT METER MPH45HIT MPH75HIT NOPARK SLOWHIT STOPHIT THINKHIT GETOFF (kind 0, sub 1-2), CACTUS | `X49<model>` records (2049 model, renamed so Rush 2's prefix classifier doesn't take CONE1G1 / STOPHITG1 for its own breakables) | prop records; 2049's reactions run in src/track2049_props.cpp (�7) |
+| CONE1 GASPUMP RAT RATCONE (kind 2), BUMPHIT CURVEHIT METER MPH45HIT MPH75HIT NOPARK SLOWHIT STOPHIT THINKHIT GETOFF (kind 0, sub 1-2), CACTUS | `X49<model>` records (2049 model, renamed so Rush 2's prefix classifier doesn't take CONE1G1 / STOPHITG1 for its own breakables) | prop records; 2049's reactions run in src/track2049_props.cpp (§7) |
 | YIELDHIT | YIELDHIT | Rush 2 sign (none in the race tracks; in 2049 the type has no model and is refused) |
 | SHATPANE | SHATPANE | Rush 2 glass (SHATPANEO1-7 in 0x14) |
 | FLAG2_* | FLAG2* | Rush 2 flag (FLAG2O1 in 0x14) |
 | COLLISION | COLLISION | same meaning (collision cylinder from the record) [I for 2049 side] |
 | TROLLEY2, WINDMILL(2/3), all path objects | records named after the 2049 model | animated by src/track2049_movers.cpp |
 | FENCE | static FENCEG1 record | none in the race tracks or stunt arenas |
-| GOLDCOIN, SILVERCOIN, WEPICON_*, WPR_MINE | dropped | 2049-only systems |
+| GOLDCOIN, SILVERCOIN | KEYG0-7, KEYS0-7 | Rush 2 key records (behaviour 8), numbered per kind in record order; drawn with 2049's coin models (file 68, merged into the geometry with behaviour 8) and kept per profile by src/collectibles.cpp |
+| WEPICON_*, WPR_MINE | dropped | battle only |
 | BULB, GUARDRAIL | dropped | no model, type flags 0x60004: func_800ABCC8 refuses `(low flags & ~4) == 0`, so they do nothing in 2049 either (editor helpers; GUARDRAIL_FW x6 on track 2, BULB in no race track) |
 | GDAT/GTLD, dynamic ids | dropped | Rush 2 builds its own breakable list |
 | Rush 2-only | — | no ambient sound emitters exist in 2049 placements (could be added by hand) |
@@ -271,10 +272,10 @@ push cars, and elevators/ramps carry cars on moving polygons.
 
 Self-check results: all 12 Rush 2 files and all 19 2049 files parse; 0 unresolved names in either game; the six race
 tracks convert to 147-313 records (e.g. TRACK1 → 167 records: 117 sections, 17 Rush 2 breakables/signs,
-33 static stand-ins, 16 coins dropped, 29 animated objects).
+33 static stand-ins, 16 coins, 29 animated objects).
 
 **Lossless:** section placement, matrices, positions, culling boxes, late-pass flag, tree structure, direction
-variants, collision volumes. **Lost or approximated:** coins, battle items, flag bit 0x400000, GDAT/GTLD, every motion (static at the spawn pose),
+variants, collision volumes. **Lost or approximated:** battle items, flag bit 0x400000, GDAT/GTLD, every motion (static at the spawn pose),
 moving/switching collision, triggers, flip-book animation, 2049 object sounds.
 
 ---------------------------------------------------------------------------------------------------------------------

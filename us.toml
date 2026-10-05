@@ -808,7 +808,7 @@ text = "    rush2_music_preview(rdram, ctx);"
 [[patches.hook]]
 func = "func_80081790"
 before_vram = 0x8008194C
-text = "    rush2_track1_record_model(rdram, ctx);"
+text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rdram, ctx);"
 
 # SF Rush visibility (src/track1.cpp): the camera position, for SF Rush's own region choice in rush2_track49_pvs.
 [[patches.hook]]
@@ -825,13 +825,13 @@ text = "    rush2_track1_model_name(rdram, ctx);"
 [[patches.hook]]
 func = "func_8008A01C"
 before_vram = 0x8008A0CC
-text = "    rush2_track1_breakable_model(rdram, ctx);"
+text = "    rush2_track1_breakable_model(rdram, ctx); rush2_collect_breakable_model(rdram, ctx);"
 
 # ...and are hit as in Rush 1, at any height in the car's footprint (src/track1.cpp).
 [[patches.hook]]
 func = "func_8008B0CC"
 before_vram = 0x8008B0CC
-text = "    if (rush2_track1_breakable_hit(rdram, ctx)) return;"
+text = "    if (rush2_track1_breakable_hit(rdram, ctx) || rush2_collect_hit(rdram, ctx)) return;"
 
 # SF Rush fireworks (src/track1_audio.cpp): on an SF Rush track the FIRECRCK emitter is SF Rush's looped fireworks
 # sound, added to Rush 2's sound effect instrument as sound 116, so func_80062264 accepts sound ids up to 116.
@@ -7641,3 +7641,32 @@ text = "    if (rush2_pak_menu_state(rdram, ctx)) return;"
 func = "func_803B3CAC"
 before_vram = 0x803B3F74
 text = "    rush2_player_deleted_from_list(rdram, ctx);"
+
+# SF Rush keys and Rush 2049 coins on the added tracks (src/collectibles.cpp): Rush 2 key records whose bits come from
+# their names and whose masks live in collectibles.json while an added track is hosted. Coins draw 2049's coin models
+# through the record-model and breakable-model hooks above.
+[[patches.hook]]
+func = "func_8008BC64"
+before_vram = 0x8008BC64
+text = "    rush2_collect_race_reset(rdram, ctx);"
+
+# Rush 2's key masks for the Progress tab, once per frame (top of the game thread's main loop).
+[[patches.hook]]
+func = "func_800B0228"
+before_vram = 0x800B02B4
+text = "    rush2_collect_frame(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800BC3F8"
+before_vram = 0x800BC490
+text = "    rush2_collect_number(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8005F00C"
+before_vram = 0x8005F00C
+text = "    if (rush2_collect_taken(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_8005F418"
+before_vram = 0x8005F418
+text = "    if (rush2_collect_take(rdram, ctx)) return;"

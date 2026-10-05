@@ -157,6 +157,16 @@ void rush2_track49_records_exit(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_seed(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_clear(uint8_t* rdram, recomp_context* ctx);
 
+// SF Rush keys and Rush 2049 coins on the added tracks (src/collectibles.cpp).
+void rush2_collect_race_reset(uint8_t* rdram, recomp_context* ctx);
+void rush2_collect_frame(uint8_t* rdram, recomp_context* ctx);
+void rush2_collect_number(uint8_t* rdram, recomp_context* ctx);
+int rush2_collect_taken(uint8_t* rdram, recomp_context* ctx);
+int rush2_collect_take(uint8_t* rdram, recomp_context* ctx);
+int rush2_collect_hit(uint8_t* rdram, recomp_context* ctx);
+void rush2_collect_record_model(uint8_t* rdram, recomp_context* ctx);
+void rush2_collect_breakable_model(uint8_t* rdram, recomp_context* ctx);
+
 // Bindings and the Controller Setup screen (src/controls_menu.cpp).
 void rush2_controls_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_controls_menu_widgets(uint8_t* rdram, recomp_context* ctx);
