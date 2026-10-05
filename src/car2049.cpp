@@ -1023,6 +1023,85 @@ void rush2::car2049::forget_record(uint8_t* rdram, uint32_t record) {
     }
 }
 
+// Car speeds (docs/rush2049_research/cars.md §10). Both games share the torque map (above 2300 rpm), final drive and
+// drag; they differ in the torque scale per gear and the gear ratios. build_physics maps Rush 2049's roster onto Rush
+// 2's: per gear, the torque scale x (Rush 2's mean / 2049's mean) and each gear ratio x (Rush 2's mean / 2049's mean),
+// over Rush 2's 21 cars (all but the secret ROCKET) and 2049's 13 in their stock setups. Each 2049 car keeps its place
+// among the 2049 cars, and the roster lands on Rush 2's average car.
+// The AI (the same driver code in both games) aims for its lane's speed, so where a lane is above what its car can do
+// it drives flat out. Rush 2's lanes stay below its cars' top speed (1% of their distance at 170 mph or more), 2049's
+// run above its cars' on 40% of theirs. So the lane speeds are mapped by percentile: each speed becomes the other
+// game's speed at the same percentile of the race paths' lane speeds (distance-weighted, tools/rush2049/lanemap.py),
+// which gives 2049's lanes Rush 2's speed profile (180 -> 157, 120 -> 118). The Rush2049 mode applies the inverse to
+// every car and the reverse map to the other games' lanes instead.
+namespace {
+    std::atomic<uint32_t> speed_mode = (uint32_t)rush2::car2049::SpeedMode::Rush2;
+    constexpr int secret_rocket = 20;
+    // Rush 2 mean over 2049 mean: torque scale for gears 1, 2, 3+ (descriptor +0xB8..+0xC0) and gear ratios
+    // (+0xC8..+0xDC: reverse, neutral, 1-4). build_physics reads them from the ROMs; these are their values.
+    float torque_to_rush2[3] = { 1.8202f / 2.2f, 1.8416f / 2.2f, 1.8855f / 2.2f };
+    float gears_to_rush2[6] = { 1.0f / 1.1f, 1.0f, 3.0952f / 3.41f, 1.7543f / 1.958f, 1.2538f / 1.419f, 0.9562f / 1.1f };
+    // Lane speed (mph) maps, from tools/rush2049/lanemap.py: 2049's onto Rush 2's profile and Rush 2's onto 2049's.
+    constexpr uint8_t lane_to_rush2[256] = {
+          0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  14,  15,  16,
+         17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,  32,
+         33,  34,  35,  36,  37,  38,  40,  41,  42,  43,  44,  45,  46,  47,  48,  49,
+         50,  51,  52,  53,  54,  55,  56,  57,  58,  59,  60,  61,  62,  63,  64,  66,
+         67,  68,  69,  70,  71,  72,  73,  74,  75,  76,  77,  78,  79,  80,  81,  82,
+         83,  84,  85,  86,  87,  88,  89,  91,  92,  93,  94,  95,  96,  97,  98,  99,
+        100, 101, 102, 103, 104, 105, 105, 106, 106, 107, 107, 108, 108, 109, 109, 110,
+        111, 111, 112, 113, 114, 115, 115, 116, 118, 119, 120, 120, 121, 122, 122, 123,
+        124, 124, 125, 125, 126, 127, 128, 129, 130, 131, 131, 132, 132, 133, 135, 135,
+        136, 136, 137, 137, 139, 140, 141, 142, 142, 142, 143, 143, 143, 143, 143, 143,
+        148, 152, 152, 152, 152, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153,
+        154, 154, 154, 154, 157, 161, 161, 161, 161, 161, 161, 162, 163, 163, 164, 165,
+        166, 167, 168, 169, 169, 170, 171, 172, 173, 174, 175, 175, 176, 177, 178, 179,
+        180, 181, 182, 182, 183, 184, 185, 186, 187, 188, 188, 189, 190, 191, 192, 193,
+        194, 194, 195, 196, 197, 198, 199, 200, 201, 201, 202, 203, 204, 205, 206, 207,
+        207, 208, 209, 210, 211, 212, 213, 214, 214, 215, 216, 217, 218, 219, 220, 220,
+    };
+    constexpr uint8_t lane_to_2049[256] = {
+          0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  12,  13,  14,
+         15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,
+         31,  32,  33,  34,  35,  36,  37,  37,  38,  39,  40,  41,  42,  43,  44,  45,
+         46,  47,  48,  49,  50,  51,  52,  53,  54,  55,  56,  57,  58,  59,  60,  61,
+         62,  62,  63,  64,  65,  66,  67,  68,  69,  70,  71,  72,  73,  74,  75,  76,
+         77,  78,  79,  80,  81,  82,  83,  84,  85,  86,  87,  87,  88,  89,  90,  91,
+         92,  93,  94,  95,  96,  97,  98,  99, 100, 102, 103, 105, 107, 109, 111, 112,
+        114, 115, 116, 117, 119, 120, 120, 121, 123, 124, 126, 127, 129, 130, 132, 133,
+        134, 135, 136, 137, 140, 141, 141, 143, 144, 146, 147, 148, 149, 150, 152, 156,
+        159, 159, 160, 160, 160, 160, 160, 161, 161, 170, 179, 179, 180, 180, 180, 180,
+        181, 185, 187, 189, 190, 191, 192, 193, 194, 196, 197, 198, 199, 200, 201, 202,
+        204, 205, 206, 207, 208, 209, 211, 212, 213, 214, 215, 216, 217, 219, 220, 221,
+        222, 223, 224, 226, 227, 228, 229, 230, 231, 233, 234, 235, 236, 237, 238, 239,
+        241, 242, 243, 244, 245, 246, 248, 249, 250, 251, 252, 253, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    };
+    // Rush 2's mean lane 0 speed after lane_to_2049 over before (lanemap.py: 142.8 / 134.8).
+    constexpr float rush2_lanes_to_2049 = 142.8f / 134.8f;
+
+    bool speeds_2049() {
+        return (rush2::car2049::SpeedMode)speed_mode.load() == rush2::car2049::SpeedMode::Rush2049;
+    }
+}
+
+void rush2::car2049::set_speed_mode(SpeedMode mode) {
+    speed_mode = (uint32_t)mode;
+}
+
+int rush2::car2049::map_lane_speed(int speed, bool rush2049_path) {
+    speed = std::clamp(speed, 0, 255);
+    if (speeds_2049()) {
+        return rush2049_path ? speed : lane_to_2049[speed];
+    }
+    return rush2049_path ? lane_to_rush2[speed] : speed;
+}
+
+float rush2::car2049::rush2_lane_scale() {
+    return speeds_2049() ? rush2_lanes_to_2049 : 1.0f;
+}
+
 namespace {
     uint32_t fbits(float f) {
         uint32_t v;
@@ -1076,10 +1155,35 @@ namespace {
         }
         for (int k = 0; k < car_count; k++) s.engine[k] = std::clamp<int>(m.b(0x80111080 + k), 0, engine_levels - 1);
         s.loaded = true;
-        // The Rush 2 car each 2049 car is closest to in kind (Formula 1 -> FORM1, 8-Ball -> HOTROD, Rocket ZX ->
-        // GT90, Magnum -> CAMARO, Super GT -> VETTE, Bruiser -> PICKUP, Locust LX -> INTEG, GX-2 -> CONCPT, Mini XS ->
-        // VWBUG, Venom -> VIPER, Crusher -> SUV, Euro LX -> BMW, Panther -> BUGAT).
-        constexpr int analogue[car_count] = { 18, 17, 19, 5, 2, 0, 1, 11, 10, 9, 15, 4, 7 };
+        // Car speeds: the two rosters' mean torque scales and gear ratios (2049's cars in their drone setup: torque
+        // trans[B]+8 x 0x801110C4[C][B] in every gear, gears set 0 x trans[B]+0xC).
+        auto f32_of = [&](uint32_t addr) {
+            uint32_t v = (uint32_t)MEM_W(0, (int32_t)addr);
+            float f;
+            memcpy(&f, &v, 4);
+            return f;
+        };
+        double r2_torque[4] = {}, r2_gears[6] = {}, r49_torque = 0.0, r49_gears[6] = {};
+        int r2_cars = 0;
+        for (int t = 0; t < rush2_types; t++) {
+            if (t == secret_rocket) {
+                continue;
+            }
+            uint32_t d = (uint32_t)MEM_W(0, (int32_t)(old_desc_ptrs + MEM_B(0, (int32_t)(0x800C07E8 + t)) * 4));
+            for (int i = 0; i < 4; i++) r2_torque[i] += f32_of(d + 0xB8 + 4 * i);
+            for (int i = 0; i < 6; i++) r2_gears[i] += f32_of(d + 0xC8 + 4 * i);
+            r2_cars++;
+        }
+        for (int k = 0; k < car_count; k++) {
+            int b = std::clamp<int>(m.b(setup_b + k), 0, 2), c = std::clamp<int>(m.b(0x80111080 + k), 0, 5);
+            r49_torque += m.f(trans_t + 0x2C * b + 8) * m.f(0x801110C4 + 12 * c + 4 * b);
+            for (int i = 0; i < 6; i++) r49_gears[i] += m.f(gears_t + 4 * i) * m.f(trans_t + 0x2C * b + 0xC);
+        }
+        for (int i = 0; i < 3; i++) torque_to_rush2[i] = float((r2_torque[i] / r2_cars) / (r49_torque / car_count));
+        for (int i = 0; i < 6; i++) {
+            gears_to_rush2[i] = r49_gears[i] != 0.0 ? float((r2_gears[i] / r2_cars) / (r49_gears[i] / car_count)) : 1.0f;
+        }
+        float common_torque = float(r2_torque[3] / r2_cars);
         for (int k = 0; k < car_count; k++) {
             int type = first_type + k;
             uint32_t d49 = m.w(desc_table + k * 4);
@@ -1118,11 +1222,14 @@ namespace {
             put(0xAC, m.w(d49 + 0xA0));                                                  // drivetrain inertia
             put(0xB0, m.w(d49 + 0xA4));                                                  // final drive
             put(0xB4, m.w(d49 + 0xA8));                                                  // clutch
-            // Torque scale per gear: the analogue's. 2049's (trans+8 x 0x801110C4, 2.2 for every car) is above all
-            // of Rush 2's (1.8-2.05), and the car select's ACCELERATION bar reads it (func_803B7F7C).
-            uint32_t analogue_desc = (uint32_t)MEM_W(0, (int32_t)(old_desc_ptrs + MEM_B(0, (int32_t)(0x800C07E8 + analogue[k])) * 4));
-            for (uint32_t o = 0xB8; o <= 0xC4; o += 4) put(o, MEM_W(0, (int32_t)(analogue_desc + o)));
-            for (int i = 0; i < 6; i++) putf(0xC8 + 4 * i, m.f(gears_t + 4 * i) * tr[3]); // gear ratios (set 0)
+            // Torque scale (gears 1, 2, 3+) and gear ratios: 2049's for the drone setup (trans+8 x 0x801110C4 and
+            // gear set 0 x trans+0xC), mapped onto Rush 2's roster (Car speeds, above). +0xC4, the scale on Rush 2's
+            // common map, has no 2049 counterpart: Rush 2's mean (1.3, the same in every car).
+            int C = m.b(0x80111080 + k);
+            float torque = tr[2] * m.f(0x801110C4 + 12 * std::clamp(C, 0, 5) + 4 * B);
+            for (int i = 0; i < 3; i++) putf(0xB8 + 4 * i, torque * torque_to_rush2[i]);
+            putf(0xC4, common_torque);
+            for (int i = 0; i < 6; i++) putf(0xC8 + 4 * i, m.f(gears_t + 4 * i) * tr[3] * gears_to_rush2[i]);
             MEM_H(0, (int32_t)(out + 0xE0)) = 4;                                         // top gear
             MEM_H(0, (int32_t)(out + 0xE2)) = 0;
             put(0xE4, m.w(d49 + 0xAC));                                                  // shift thresholds
@@ -1151,15 +1258,29 @@ namespace {
             for (int row = 0; row < 5; row++) {
                 MEM_W(0, (int32_t)(t_weight + (row * types + type) * 4)) = fbits(eng);
             }
-            // Steering, yaw damping, suspension setting and tire grip: Rush 2 tuning 2049 has no counterpart for (they
-            // were the Pickup's for every 2049 car), taken from the analogue so the cars handle, and the car select's
-            // bars read, differently.
+            // Steering, yaw damping, suspension setting and handling setting (0x800C06B4, 0x800C070C, 0x800C0D68,
+            // 0x800C0DAC, default row) are Rush 2 tuning 2049 has no counterpart for: 2049's cars differ only in
+            // mass, inertia, wheel positions and box, so each gets Rush 2's roster mean, like the drivetrain.
             for (const Table& t : tables) {
-                if (t.old_base == 0x800C06B4 || t.old_base == 0x800C070C || t.old_base == 0x800C0D68 ||
-                    t.old_base == 0x800C0DAC) {
-                    for (int row = 0; row < new_rows(t); row++) {
-                        copy_entry(rdram, t, row, analogue[k], type);
+                if (t.old_base != 0x800C06B4 && t.old_base != 0x800C070C && t.old_base != 0x800C0D68 &&
+                    t.old_base != 0x800C0DAC) {
+                    continue;
+                }
+                double sum = 0.0;
+                for (int r2 = 0; r2 < rush2_types; r2++) {
+                    if (r2 == secret_rocket) {
+                        continue;
                     }
+                    uint32_t at = t.old_base + r2 * t.size;
+                    sum += t.size == 4 ? f32_of(at) : (double)MEM_BU(0, (int32_t)at);
+                }
+                double avg = sum / r2_cars;
+                uint32_t dst = t.new_base + type * t.size;
+                if (t.size == 4) {
+                    MEM_W(0, (int32_t)dst) = fbits(float(avg));
+                }
+                else {
+                    MEM_B(0, (int32_t)dst) = (int8_t)std::lround(avg);
                 }
             }
         }
@@ -1267,6 +1388,7 @@ namespace {
 void rush2::car2049::set_drone_cars(DroneCars mode) {
     drone_cars = (uint32_t)mode;
 }
+
 
 bool rush2::car2049::available() {
     return cars_available();
@@ -1615,27 +1737,32 @@ namespace {
 }
 
 // func_8008DBA0 (car init) at 0x8008DC1C, after it stored the car's descriptor ($fp) at car + 0 ($s2): a 2049 car
-// driven by a player gets its own copy with the ENGINE choice applied.
+// driven by a player gets its own copy with the ENGINE choice applied, and with Car Speeds at Rush 2049 every car's
+// copy runs at 2049's speed (torque scales / torque_to_rush2, gear ratios / gears_to_rush2).
 extern "C" void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx) {
     uint32_t car = (uint32_t)ctx->r18;
     int type = MEM_BU(0, (int32_t)(car + 0x7EA));
     int slot = int((car - physics_cars) / physics_car_size);
-    if (!is_2049(type) || slot < 0 || slot >= 8) {
+    if (slot < 0 || slot >= 8) {
         return;
     }
-    int row = car_row(rdram, car);
-    if (row == 0) {
+    int row = is_2049(type) ? car_row(rdram, car) : 0;
+    bool fast = speeds_2049();
+    if (row == 0 && !fast) {
         return;
     }
-    Choices c = choices_of(rdram, row, type);
     uint32_t desc = (uint32_t)ctx->r30;
     uint32_t copy = car_descs + slot * desc_size;
     for (uint32_t o = 0; o < desc_size; o += 4) {
         MEM_W(0, (int32_t)(copy + o)) = MEM_W(0, (int32_t)(desc + o));
     }
-    float torque = engine_torque(type, c.engine);
-    for (uint32_t o = 0xB8; o <= 0xC4; o += 4) {
-        put_f32(rdram, copy + o, f32_at(rdram, copy + o) * torque);
+    float torque = row != 0 ? engine_torque(type, choices_of(rdram, row, type).engine) : 1.0f;
+    for (int i = 0; i < 4; i++) {
+        float f = fast ? torque / torque_to_rush2[std::min(i, 2)] : torque;
+        put_f32(rdram, copy + 0xB8 + 4 * i, f32_at(rdram, copy + 0xB8 + 4 * i) * f);
+    }
+    for (int i = 0; fast && i < 6; i++) {
+        put_f32(rdram, copy + 0xC8 + 4 * i, f32_at(rdram, copy + 0xC8 + 4 * i) / gears_to_rush2[i]);
     }
     MEM_W(0, (int32_t)car) = (int32_t)copy;
     ctx->r30 = (uint64_t)(int64_t)(int32_t)copy;

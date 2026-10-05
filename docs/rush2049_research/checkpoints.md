@@ -25,7 +25,8 @@ lane 0 speed is 139.3 on average over Rush 2's 9 race paths (both directions), a
 
 **Fix** (`rush2_track49_race_time` in `src/track2049.cpp`, hook in `func_80093048` at 0x80093298): on a 2049 track
 the computed start time and extensions are multiplied by the path's lane 0 speed ÷ 139.3 when that is above 1, which
-is what they would be at Rush 2's lane speeds. Track 1 forward then starts with 19 (23 s at difficulty 2).
+is what they would be at Rush 2's lane speeds. Both speeds are in the current Car Speeds mode (cars.md §10): the 2049
+lanes already have Rush 2's speed profile with Rush 2 speeds, so only paths faster than Rush 2's average still get more time.
 
 ## 1. Summary (superseded by §0: the 90 / 45 values below are overwritten from the AI lanes; they are NOT the race times)
 

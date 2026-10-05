@@ -999,6 +999,12 @@ func = "func_803BE528"
 vram = 0x803BE598
 value = 0x8CA50180 # lw $a1, 0x180($a1)
 
+# Car Speeds: map the path's AI lane speeds before the race time is worked out from them (src/track2049.cpp).
+[[patches.hook]]
+func = "func_80093048"
+before_vram = 0x80093290
+text = "    rush2_race_lane_speeds(rdram, ctx);"
+
 # Rush 2049 tracks: scale the race time Rush 2 works out from the path's AI lane speeds (src/track2049.cpp).
 [[patches.hook]]
 func = "func_80093048"

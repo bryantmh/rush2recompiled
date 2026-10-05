@@ -42,7 +42,5 @@ General:
       src/car_engines.cpp as other cars (heard from players 1-2's listeners), and have no rumble.
    f) 3 players: the 4th quadrant is black and the track map's translucent outline is invisible over it (maybe a
       grey fill or a spectator view of the leader).
-   g) Test Players are idle (cars stay on the grid); no AI driving for them.
-   h) docs/BUILDING.md split screen paragraph still describes only side by side; nothing committed yet.
-   j) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players
+   g) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players
       1 and 2's screen; ports 3-4 use default bindings).

@@ -31,6 +31,14 @@ namespace rush2::car2049 {
     // The "Rush 2049 Computer Cars" option (Games tab): where the computer cars may be 2049 cars.
     enum class DroneCars : uint32_t { AllTracks, Rush2049Tracks, Off };
     void set_drone_cars(DroneCars mode);
+    // The "Car Speeds" option (Games tab). Rush 2049's cars and AI lanes are faster than Rush 2's; Rush2 runs every
+    // car and lane at Rush 2's speed, Rush2049 at Rush 2049's (docs/rush2049_research/cars.md §10).
+    enum class SpeedMode : uint32_t { Rush2, Rush2049 };
+    void set_speed_mode(SpeedMode mode);
+    // An AI lane speed (u8 mph) of a Rush 2049 path (rush2049_path) or of any other, in the current mode.
+    int map_lane_speed(int speed, bool rush2049_path);
+    // How much the current mode raises Rush 2's mean lane speed (1 with Rush 2 speeds).
+    float rush2_lane_scale();
     // The engine sound (0-9) a car of this type plays for ENGINE row value `value`: the value itself for a Rush 2
     // car, the type's default sound for a 2049 car (whose ENGINE row is its power level).
     int engine_sound(uint8_t* rdram, int type, int value);

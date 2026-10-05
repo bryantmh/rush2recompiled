@@ -137,13 +137,12 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   name through the overlay table 0x803C7688) get 128x32 "R49CARn" images drawn in Rush 2's logo style.
 - **Physics.** Rush 2 0xEC-byte descriptors are built from 2049's 0xB4-byte ones with each car's drone setup
   (cars.py `to_r2`), plus mass, inertia, preload, drive flags and box. 2049's cars differ little among themselves
-  (mass, inertia, wheel positions; 2049 tells them apart by setup), and 2049's torque scale (2.2) is above all of
-  Rush 2's (1.8-2.05). So each 2049 car takes a Rush 2 analogue (Formula 1 -> FORM1, 8-Ball -> HOTROD, Rocket ZX ->
-  GT90, Magnum -> CAMARO, Super GT -> VETTE, Bruiser -> PICKUP, Locust LX -> INTEG, GX-2 -> CONCPT, Mini XS -> VWBUG,
-  Venom -> VIPER, Crusher -> SUV, Euro LX -> BMW, Panther -> BUGAT) for what 2049 has no counterpart of: the per-gear
-  torque scale and the steering, yaw-damping, suspension and tire rows. The car select's stat bars (func_803B7F7C:
-  ACCELERATION from the weight and torque scale, TOP SPEED from torque / top gear, CONTROL from steering, DRIFTING
-  from yaw damping and rear grip) then differ per car and sit in Rush 2's range.
+  (mass, inertia, wheel positions; 2049 tells them apart by setup). The torque scale and gear ratios are 2049's for
+  the drone setup mapped onto Rush 2's roster by a fixed formula (§10). The steering, yaw-damping, suspension-setting
+  and handling-setting rows, Rush 2 tuning 2049 has no counterpart for, are the means of Rush 2's roster. The car
+  select's stat bars (func_803B7F7C: ACCELERATION from the weight and torque scale, TOP
+  SPEED from torque / top gear, CONTROL from steering, DRIFTING from yaw damping and rear grip) then sit in Rush 2's
+  range and differ between 2049 cars only by weight and ENGINE, as in 2049.
 - **Damage.** Rush 2 swaps panel models by five 2-bit damage levels (car struct 0x801124A0 + car * 0x354, +0xE4;
   masks 0x800CE188, shifts 0x800CE180; panels FR, FL, RR, RL, top; copied from the physics car's +0x7F4 by
   func_8009A264). Collisions raise a panel to level 1 only (func_8006B730, func_8009A264 and func_800715E8 all stop at
@@ -221,3 +220,82 @@ STANDARD's time over the curve's, TOP SPEED x (rpm / STANDARD's)^2 (its bar term
 hardest below about 3500 and above 7000 rpm, HIGH only between about 5200 and 6600, which the cars pass through
 without settling, so HIGH comes out slightly behind STANDARD on both. a 2049 car's mass entry stands in
 for its FRAME mass. CONTROL and DRIFTING already follow TIRES and SUSPENSION.
+
+## 10. Car speeds [V]
+
+Rush 2049's cars are faster than Rush 2's, and its AI lanes are set for them. The "Car Speeds" option (Games tab,
+Rush 2049 section) runs everything at one game's speed: **Rush 2** (default) or **Rush 2049**.
+
+**Drivetrain formulas (both games).** Engine torque = torque map (rpm, throttle) x torque scale (Rush 2: descriptor
++0xB8 gear 1, +0xBC gear 2, +0xC0 gear 3+, func_80070DB8; 2049: trans+8 x 0x801110C4[ENGINE][HANDLING], all gears,
+func_800E2D18). Axle torque = engine torque x gear ratio x final drive (3.3 in every car of both games, func_800709E8 /
+func_80070730). Rear wheel radius 1.0 ft (tire curve +0, func_8008D950), so wheel force = axle torque. Drag =
+0.0135 v^2 + 30 + 75 (func_8006AFD8; same constants in every car of both games). rpm = 9.549 x wheel rad/s x gear x
+final drive; up-shift at 6325 rpm. 2049's torque map (0x8011F724) is Rush 2's STANDARD map (0x800CA96C) above 2300 rpm
+(more torque below). So the games differ in the torque scale per gear and the gear ratios.
+
+**The rosters.** Rush 2: 21 cars (all 22 types but the secret ROCKET, type 20, whose steering and yaw rows are 0).
+2049: its 13 cars in their stock (drone) setup, all on ENGINE 1, HANDLING 0 (torque scale 2.2 in every gear, gears
+3.41 / 1.958 / 1.419 / 1.1). They differ only in mass, inertia, wheel positions and box.
+
+| | torque gear 1 / 2 / 3+ | gears 1 / 2 / 3 / 4 | mass (slugs) |
+|---|---|---|---|
+| Rush 2 mean | 1.820 / 1.842 / 1.886 | 3.095 / 1.754 / 1.254 / 0.956 | 108.4 |
+| 2049 mean | 2.2 / 2.2 / 2.2 | 3.41 / 1.958 / 1.419 / 1.1 | 102.5 |
+
+**Cars.** Each 2049 car's torque scale per gear is x (Rush 2 mean / 2049 mean) for that gear (0.827, 0.837, 0.857),
+and each gear ratio likewise (reverse 0.909, 1st 0.908, 2nd 0.896, 3rd 0.884, 4th 0.869) (`build_physics`, means
+read from the ROMs at boot). The 2049 roster's average lands on Rush 2's average car, and each 2049 car keeps its
+place among the 2049 cars; ENGINE's levels keep their ratios to level 1. Masses stay each car's own. +0xC4 (Rush 2's
+common-map scale, 1.3 in every Rush 2 car) has no 2049 counterpart: Rush 2's mean. The steering, yaw damping,
+suspension setting and handling setting rows (0x800C06B4, 0x800C070C, 0x800C0D68, 0x800C0DAC) are Rush 2's roster
+means too (543, 30.7, 1, 5). With Rush 2049 speeds, every race car (Rush 2's, 2049's, drones') gets a descriptor copy
+at car init (0x80225000 + slot x 0xEC, `rush2_car49_setup_desc`) with the inverse factors, so 2049 cars run native and
+Rush 2's cars move up the same way.
+
+From these formulas (1/60 s steps, full throttle, flat ground, traction not limiting):
+
+| setup | top speed | 0-60 / 0-100 / 0-150 mph |
+|---|---|---|
+| Rush 2 average car (108.4 slugs) | 168 mph | 2.7 / 6.0 / 14.3 s |
+| 2049 average car, native (102.5) | 157 mph | 1.9 / 4.5 / 12.0 s |
+| 2049 average car, mapped (102.5) | 168 mph | 2.5 / 5.6 / 13.5 s |
+
+2049's edge is acceleration: its shorter gears reach the end of the torque map (0 at 9200 rpm) earlier.
+
+**AI.** The drones are physics cars like the players'. Their driver (func_80074990) aims for the lane's target speed
+(u8 mph at lane point +6, x 1.4667 ft/s) x 1.05 x the rubber band (+0x808, func_800A1A98), at least 75/90/135/180
+ft/s (0x800C3FFC[0x800E7D22]), and works the throttle and brake to hold it. Rush 2049's driver (func_800E4B58),
+rubber band (func_800F93A0, without the per-track factor), minimum speeds and drone speed hint (polygon flags bits
+8-11, x (1 + 0.02 n)) are the same code and constants; its hint points (0x801108B0, func_800EB690) are aim targets,
+not speed limits. Its road drag (func_800E23A4) is Rush 2's for stock cars (wings, off-road tires and surfaces 1-2 add
+terms). So the lanes alone carry each game's AI pace.
+
+Where a lane is below what the drone's car can do, the drone holds back, and a player can catch it; where it is above,
+the drone drives flat out on its line and cannot be caught. The two games set their lanes differently against their
+cars (distance-weighted over all four lanes of the race paths: Rush 2's 7 circuit tracks and 2049's 6 race tracks,
+both directions):
+
+| | 10th / 50th / 90th / 95th percentile | distance at >= 160 / >= 170 / >= 180 mph |
+|---|---|---|
+| Rush 2 | 111 / 140 / 160 / 162 mph | 10% / 1% / 0% |
+| 2049 | 113 / 150 / 180 / 190 mph | 43% / 22% / 20% |
+
+Rush 2's lanes stay under its cars' top speed (168 mph flat), so its drones hold back on every straight. 2049's run
+above its cars' (157) on about 40% of the lap, so its drones drive the straights flat out. A uniform scale by the
+cars' speed ratio (0.925) left those stretches at 166-176 mph, still at or above the mapped cars' top speed, and the
+drones unbeatable.
+
+**Lane map.** So each lane speed is mapped by percentile (`tools/rush2049/lanemap.py`): a 2049 speed becomes the Rush
+2 speed at the same percentile (mid-rank, linear between sampled speeds; below the 5th and above the 95th percentile,
+proportional to the two profiles' speeds there, since a single long 247 mph stretch is 2049's top 1.9%). 2049's lanes
+then have Rush 2's speed profile:
+
+| 2049 lane | 100 | 120 | 140 | 150 | 160 | 170 | 180 | 190 | 247 |
+|---|---|---|---|---|---|---|---|---|---|
+| Rush 2 speeds | 104 | 118 | 132 | 141 | 148 | 153 | 157 | 164 | 214 |
+
+With Rush 2 speeds, `rush2_race_lane_speeds` (before func_800924E4 works out the race time from the lanes) puts every
+2049 path's lanes through `lane_to_rush2`; with Rush 2049 speeds the other paths (Rush 2's, SF Rush's) go through the
+reverse map `lane_to_2049` (Rush 2 140 -> 149, 160 -> 181) and 2049's stay native. Lane 0 means: 2049 146.0 -> 137.0;
+Rush 2 134.8 -> 142.8.

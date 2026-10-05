@@ -142,6 +142,7 @@ void rush2_engine49_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_record(uint8_t* rdram, recomp_context* ctx);
 int rush2_car49_dirty(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx);
+void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx);

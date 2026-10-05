@@ -40,6 +40,7 @@
 #include "track1.h"
 #include "track2049.h"
 #include "track2049_convert.h"
+#include "car2049.h"
 #include "rush2049_rom.h"
 #include "wings.h"
 
@@ -339,11 +340,52 @@ extern "C" void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// func_80093048 at 0x80093290, after it found the path's 4 AI lanes (pointers 0x800D57A0, counts 0x800D5780) and
+// before func_800924E4 works out the race's time from them: the lanes' target speeds (u8 mph at point + 6) go through
+// the Car Speeds lane map (src/car2049.cpp): Rush 2049's lanes are set for its faster cars. The drones' driver
+// (func_80074990) aims for the lane speed x 1.05 x their rubber band (+0x808). The path file can stay
+// loaded from one race to the next, so the lanes scaled last are remembered and not scaled again.
+namespace {
+    struct ScaledLane {
+        uint32_t points = 0;
+        std::vector<uint8_t> speeds;
+    };
+    ScaledLane scaled_lanes[4];
+}
+
+extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t lane_points = 0x800D57A0, lane_counts = 0x800D5780;
+    bool rush2049_path = rush2::track2049::race_track() != 0 && MEM_B(0, (int32_t)track_id) == host_slot;
+    for (int lane = 0; lane < 4; lane++) {
+        uint32_t points = (uint32_t)MEM_W(0, (int32_t)(lane_points + lane * 4));
+        uint32_t count = MEM_HU(0, (int32_t)(lane_counts + lane * 2));
+        ScaledLane& last = scaled_lanes[lane];
+        bool again = last.points == points && last.speeds.size() == count;
+        for (uint32_t i = 0; again && i < count; i++) {
+            again = MEM_BU(0, (int32_t)(points + i * 8 + 6)) == last.speeds[i];
+        }
+        if (again || points == 0 || count > 4096) {
+            continue;
+        }
+        last.points = points;
+        last.speeds.resize(count);
+        for (uint32_t i = 0; i < count; i++) {
+            uint32_t at = points + i * 8 + 6;
+            int speed = MEM_BU(0, (int32_t)at);
+            if (speed > 0) {
+                speed = std::max(1, rush2::car2049::map_lane_speed(speed, rush2049_path));
+                MEM_B(0, (int32_t)at) = (int8_t)speed;
+            }
+            last.speeds[i] = (uint8_t)speed;
+        }
+    }
+}
+
 // func_80093048 at 0x80093298, after func_800924E4 worked out the race's time: the start time (path header +0) and
 // each checkpoint's lap-1 and later-lap extensions (+0x1E/+0x20) are the time to drive each stretch at the speeds of
-// the path's AI lanes. Rush 2049's lanes are set for its faster cars (it has no countdown), up to 1.3 times Rush 2's,
-// so the times are scaled by how much faster this path's first lane is than Rush 2's lanes on average
-// (docs/rush2049_research/checkpoints.md).
+// the path's AI lanes. Some of Rush 2049's lanes run faster than Rush 2's average even after the Car Speeds lane map
+// (rush2_race_lane_speeds), so the times are scaled by how much faster this path's first lane is than Rush 2's lanes
+// on average in the same Car Speeds mode (docs/rush2049_research/checkpoints.md).
 extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t header = 0x8010BCE8;       // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
     constexpr uint32_t path_pointer = 0x800D575C; // The loaded path file.
@@ -387,7 +429,7 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     if (time <= 0.0) {
         return;
     }
-    float scale = float(length / time) / rush2_lane_speed;
+    float scale = float(length / time) / (rush2_lane_speed * rush2::car2049::rush2_lane_scale());
     if (scale <= 1.0f) {
         return;
     }
