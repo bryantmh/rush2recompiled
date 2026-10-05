@@ -63,6 +63,8 @@ namespace rush2 {
 
         void poll();
         bool is_port_connected(int port);
+        // Whether a controller or the keyboard drives the port.
+        bool port_has_device(int port);
         bool get_n64_input(int port, uint16_t* buttons, float* x, float* y);
         // Scripted presses (--input-script) of GAS (A) or BRAKE (B) count as fully pressed pedals.
         void press_pedals(int port, uint16_t buttons);

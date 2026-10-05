@@ -690,6 +690,20 @@ void rush2_players4_menu(uint8_t* rdram, recomp_context* ctx) {
     update_joining(rdram, ctx);
 }
 
+// func_800A6B58 (START on the title screen), once it has found the port that pressed START ($s0, and $s1 = port * 2):
+// player 1 is the first port with a controller or the keyboard in the Players tab, whichever device pressed START.
+// Otherwise, after a race, START from the device set up as player 2 or 3 (pressed to get through the results) made it
+// player 1, and it then did nothing on "PRESS START TO JOIN".
+void rush2_players4_title_port(uint8_t* rdram, recomp_context* ctx) {
+    for (int port = 0; port < ports; port++) {
+        if (rush2::input::port_has_device(port)) {
+            ctx->r16 = port;
+            ctx->r17 = port * 2;
+            return;
+        }
+    }
+}
+
 // func_800AE670 (the game's state machine), each frame.
 void rush2_players4_state(uint8_t* rdram, recomp_context* ctx) {
     int32_t state = MEM_W(0, (int32_t)game_state);

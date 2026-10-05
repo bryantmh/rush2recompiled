@@ -70,6 +70,7 @@ int rush2_players4_all_finished(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_car_label(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_menu(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_state(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_title_port(uint8_t* rdram, recomp_context* ctx);
 int rush2_players4_skip_finish_box(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_race_views(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx);

@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <string>
 
 #ifdef _WIN32
 #include "SDL.h"
@@ -408,9 +409,13 @@ void rush2::input::poll() {
     update_port_assignments();
 }
 
+bool rush2::input::port_has_device(int port) {
+    return port >= 0 && port < num_ports && (port_controllers[port].load() != no_controller || get_keyboard_port() == port);
+}
+
 bool rush2::input::is_port_connected(int port) {
     // Port 1 is always connected so the game always has a player 1.
-    return port == 0 || (port > 0 && port < num_ports && (port_controllers[port].load() != no_controller || get_keyboard_port() == port));
+    return port == 0 || port_has_device(port);
 }
 
 bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, float* y_out) {
