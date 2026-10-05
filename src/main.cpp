@@ -71,9 +71,10 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-    // Xbox controllers otherwise open through SDL's RawInput driver, which reported no button state from an Xbox Elite
-    // controller; XInput / Windows.Gaming.Input report them.
+    // Xbox controllers otherwise open through SDL's RawInput driver, which got only the triggers (from XInput) and no
+    // buttons from an Xbox Elite controller on the Xbox Wireless Adapter; XInput reports all of them.
     SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_THREAD, "1");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) > 0) {
         exit_error("Failed to initialize SDL2: %s\n", SDL_GetError());

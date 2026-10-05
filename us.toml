@@ -7748,6 +7748,13 @@ func = "func_803AA92C"
 before_vram = 0x803AA92C
 text = "    rush2_players4_menu(rdram, ctx);"
 
+# START on the title screen (func_800A6B58), once it has found the port that pressed it ($s0): player 1 is the first
+# port set up with a controller or the keyboard instead.
+[[patches.hook]]
+func = "func_800A6B58"
+before_vram = 0x800A6D14
+text = "    rush2_players4_title_port(rdram, ctx);"
+
 # Car select (func_803B9478): with 3 or 4 players, players 3 and 4 choose in a second round. Once every player has
 # chosen (before the race is started, 0x803B96D4) or one backs out (0x803B9564), the round may change instead.
 [[patches.hook]]
