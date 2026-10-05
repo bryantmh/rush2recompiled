@@ -51,6 +51,7 @@
 #include "librecomp/addresses.hpp"
 #include "util/file.h"
 #include "rush2_hooks.h"
+#include "collectibles.h"
 #include "track1.h"
 #include "track2049.h"
 #include "wings.h"
@@ -725,9 +726,11 @@ extern "C" void rush2_track49_records_exit(uint8_t* rdram, recomp_context* ctx) 
 }
 
 // Start of func_800B3110 (records screen: clear a profile's records): $a0 = the profile index. Clears that profile's
-// 2049 records too. Deleting a profile does the same (src/pak.cpp).
+// 2049 records too, and, as the game clears its keys there, its SF Rush keys and 2049 coins. Deleting a profile does
+// the same (src/pak.cpp).
 extern "C" void rush2_track49_records_clear(uint8_t* rdram, recomp_context* ctx) {
     rush2::track2049::clear_profile_records(rdram, (int32_t)ctx->r4);
+    rush2::collectibles::clear_profile(rdram, (int32_t)ctx->r4);
 }
 
 void rush2::track2049::clear_profile_records(uint8_t* rdram, int p) {

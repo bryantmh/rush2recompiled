@@ -26,7 +26,9 @@ from model import u32, u16, M49, walk_reloc, end_state, list_end, load_flags, G_
 
 PREFIXES = ['VEGAS', 'NYONE', 'HAWAII', 'NYTWO', 'ALCATRAZ', 'LA', 'SEATTLE', 'HALFPIPE', 'CRASH', 'PIPE', 'ATARI',
             'STUNT1']
-SHARED_MODEL_FILES = [78]          # F1FLAG / F2FLAG frames, TRIGGEROFF / TRIGGERON
+SHARED_MODEL_FILES = [78, 68]      # F1FLAG / F2FLAG frames, TRIGGEROFF / TRIGGERON; GOLDCOIN / SILVERCOIN
+# The coins' models run Rush 2's key behaviour (8): the placement makes coins KEY records (placement.R49_COINS).
+COIN_KINDS = {'GOLDCOING_COIN': 8, 'SILVERCOINS_COI': 8}
 FOG_COLOURS_2049 = 0x80114658      # 3 bytes per 2049 track id
 DEMO_LISTS_2049 = 0x801173D8       # ptr[12]: forward 0-5, backward 6-11
 DEMO_COUNTS_2049 = 0x80117408      # s16[12]
@@ -62,9 +64,10 @@ def end_blend(d, start, flags):
     raise model.DLError('list %#x does not end' % start)
 
 
-def merge_models(files, rename=None, dummies=(), dummy_textures=(), exclude=()):
+def merge_models(files, rename=None, dummies=(), dummy_textures=(), exclude=(), kinds=None):
     """Merges 2049 model containers into one Rush 2 container. Returns (bytes, report). Models named in exclude are
-    left out (their data stays in the file, unreferenced)."""
+    left out (their data stays in the file, unreferenced). kinds: output model name -> behaviour id of its name record
+    (default: the 2049 object's)."""
     rename = rename or {}
     report = Counter()
     srcs = [M49(d) for d in files]
@@ -229,7 +232,7 @@ def merge_models(files, rename=None, dummies=(), dummy_textures=(), exclude=()):
         rec = bytearray(0x18)
         rec[:16] = n.ljust(16, b'\0')
         if ob is not None:
-            struct.pack_into('>fHH', rec, 16, ob['radius'], ob['kind'], 0)
+            struct.pack_into('>fHH', rec, 16, ob['radius'], (kinds or {}).get(n.decode('latin1'), ob['kind']), 0)
         out.extend(rec)
     struct.pack_into('>10I', out, 0, model_off, name_off, tex_off, pal_off, len(entries), len(textures), len(pals),
                      txld_start, txld_end, 0)
@@ -269,7 +272,7 @@ def build(k, slot, outdir, static_paths=True):
     rename.update({t['model']: placement.prop_model(t['model']) for t in types.types if placement.is_prop(t) and t['model']})
     geometry, grep = merge_models(geo_files, rename=rename,
                                   dummies=[prefix + 'FINISH', prefix + 'FINISHB'],
-                                  dummy_textures=['CHKPNT', 'FINISH'], exclude=shared)
+                                  dummy_textures=['CHKPNT', 'FINISH'], exclude=shared, kinds=COIN_KINDS)
     gm = model.R2Model(geometry)
     errs, _ = gm.check()
     errs += model.load_test(geometry)

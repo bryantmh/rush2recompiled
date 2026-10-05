@@ -40,10 +40,16 @@ R1_CLASSES = [('CONE1L', None, 2), ('METERL', None, 5), ('TREEHIT', None, 5), ('
 # tree pieces TREEHITnO1 -> TREEHITnL1.
 R1_PIECES = [('CONE1O', 'CONE1L', 1, 0), ('METERO', 'METERL', 1, 0), ('SHATPANEO', 'WINDOWBL', 7, 0),
              ('FENCEO', 'FENCEL', 12, 0), ('FLAG2O', 'FLAG2L', 10, -1), ('GASIGNO', 'GASIGNL', 3, 0)]
-# Rush 1 models from the shared object file (asset 12) that the classes use.
-R1_SHARED_OBJECTS = ['CONE1L1', 'METERL1', 'TREEHIT1L1', 'TREEHIT4L1']
-# Left out: keys need Rush 2's key system; MARKER and TIME are unknown.
-R1_DROPPED = ['KEYL', 'MARKER', 'TIME', 'BIGCHEER2']
+# Rush 1 models from the shared object file (asset 12) that the classes and keys use.
+R1_SHARED_OBJECTS = ['CONE1L1', 'METERL1', 'TREEHIT1L1', 'TREEHIT4L1', 'KEYL1']
+# Keys (KEYL1, key number 1-8 at record +0x4A) become Rush 2 key records KEY1-8 (the KEY class, behaviour 8) drawn with
+# Rush 1's key model; src/collectibles.cpp gives key n bit n - 1.
+R1_KEY = 'KEYL'
+R1_KEY_MODEL = 'KEYL1'
+R1_KEYS_MAX = 8
+KEY_BEHAVIOUR = 8
+# Left out: MARKER and TIME are unknown.
+R1_DROPPED = ['MARKER', 'TIME', 'BIGCHEER2']
 # Rush 1 sound emitters -> the Rush 2 emitters with the same sound and range (SMALLHOOT behaves as BIGCHR1, BIGCHEER as
 # BIGCHR2; FIRECRK gets Rush 1's own sound at run time). BIGCHEER2 does nothing in Rush 1 and is left out.
 R1_EMITTERS = {'CCAR': 'CABLECAR', 'FIRECRK': 'FIRECRCK', 'SMALLHOOT': 'BIGCHR1', 'BIGCHEER': 'BIGCHR2'}
@@ -457,6 +463,7 @@ def convert_geometry(r, t, prefix):
                 b.add_model(so, i, names[n])
         if n not in names:
             raise ConvertError('object model %s missing' % n)
+    b.kinds[names[R1_KEY_MODEL]] = KEY_BEHAVIOUR
     shifts = {}
     families = {}
     for n in sorted(placed_objects(r, t)):
@@ -506,6 +513,7 @@ def convert_placement(r, t, prefix, names, record_models=None, shifts=None):
         top.append(i)
         i = nxt(i)
     out_recs = []   # (record bytes, children list of record bytes)
+    keys = set()
     for i in top:
         if name(i) not in names:
             raise ConvertError('section %s has no model' % name(i))
@@ -526,6 +534,13 @@ def convert_placement(r, t, prefix, names, record_models=None, shifts=None):
             world = False
             if n in R1_EMITTERS:
                 new, world = R1_EMITTERS[n], True
+            elif n.startswith(R1_KEY):
+                number = s16(k, 0x4A)
+                if not 1 <= number <= R1_KEYS_MAX or number in keys:
+                    raise ConvertError('key %s has number %d' % (n, number))
+                keys.add(number)
+                new, world = 'KEY%d' % number, True
+                record_models[new] = names[R1_KEY_MODEL]
             elif any(n.startswith(p) for p in R1_DROPPED):
                 new = None
             else:

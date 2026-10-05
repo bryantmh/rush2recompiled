@@ -4,7 +4,7 @@
 // collision.md, race.md). All data is big-endian. 2049 track k (= 2049 track id + 1: race tracks 1-6, stunt arenas
 // 15-18) uses these 2049 files:
 //
-// Geometry (100+k track, 81+k track objects, 78 shared flags/triggers -> one Rush 2 model container)
+// Geometry (100+k track, 81+k track objects, 78 shared flags/triggers, 68 coins -> one Rush 2 model container)
 //     2049 container: word 0 = offset of a directory of {tag, offset, size or count} entries. IMAG texels, TXLD
 //     texture-load lists, OBJS object lists and vertices, OBHD 0x58-byte object records {name[16], f32 radius,
 //     u16 kind, s16 lod count, {u16 texture, u16 flags, f32 distance, u32 list, u32 vertices}[4]}, TXHD 0x24-byte
@@ -21,9 +21,9 @@
 //     Records are Rush 2's 100-byte records plus a dynamic-object id. 2049 dynamic objects are classified by 2049's
 //     own type table (main data 0x80117530) and kept, mapped to a Rush 2 breakable name, placed as their static
 //     model or dropped. Children of a dropped record move up. Kept models under a parent are made parent-relative.
-//     Knock-over props, signs and cacti keep their 2049 models, renamed X49<model> so Rush 2's prefix classifier
-//     doesn't take CONE1G1 or STOPHITG1 for its own breakables, and are listed as prop records for
-//     src/track2049_props.cpp.
+//     Coins become Rush 2 key records (KEYS0-7 silver, KEYG0-7 gold; src/collectibles.cpp). Knock-over props, signs
+//     and cacti keep their 2049 models, renamed X49<model> so Rush 2's prefix classifier doesn't take CONE1G1 or
+//     STOPHITG1 for its own breakables, and are listed as prop records for src/track2049_props.cpp.
 // Collision (138+k): Rush 2049's layout with a 0x10-byte header, a MOVER section and 32-bit leaf offsets, rewritten
 //     as Rush 2's; if the leaf section doesn't fit 16-bit offsets, bottom quadtree nodes are merged.
 // AI paths (157+k forward, 176+k backward; a stunt arena's one path, 157+k as 2049's loader picks it although the
@@ -622,6 +622,7 @@ namespace {
         std::multimap<std::string, std::string> aliases; // 2049 object -> extra names drawing the same lists.
         // Model (output name) -> 2049 object whose first list each of the model's lists also calls at its end.
         std::multimap<std::string, std::string> appends;
+        std::map<std::string, uint16_t> kinds;    // Model (output name) -> behaviour id (default: the 2049 object's).
     };
 
     Bytes merge_models(const std::vector<const Bytes*>& files, const MergeOptions& opt, std::set<std::string>& names) {
@@ -988,7 +989,8 @@ namespace {
             add_name(out, e.name);
             if (e.ob != nullptr) {
                 add32(out, e.ob->radius);
-                add16(out, e.ob->kind);
+                auto kind = opt.kinds.find(e.name);
+                add16(out, kind != opt.kinds.end() ? kind->second : e.ob->kind);
                 add16(out, 0);
             }
             else {
@@ -1129,11 +1131,16 @@ namespace {
     const std::map<std::string, std::string> r49_to_r2 = {
         { "YIELDHIT", "YIELDHIT" }, { "SHATPANE", "SHATPANE" }, { "FLAG2", "FLAG2" }, { "COLLISION", "COLLISION" },
     };
-    // Types dropped: 2049-only game systems, or nothing to show (WEPICON* by prefix, coins by kind 6). BULB and
+    // Coins become Rush 2 key records (the KEY class, behaviour 8): silver coins KEYS0-7 and gold coins KEYG0-7,
+    // numbered per kind in record order. src/collectibles.cpp gives each its bit (silver 0-7, gold 8-15) and draws
+    // 2049's coin model.
+    const std::map<std::string, std::string> r49_coins = { { "SILVERCOIN", "KEYS" }, { "GOLDCOIN", "KEYG" } };
+    constexpr int coins_per_kind = 8;
+    // Types dropped: 2049-only game systems, or nothing to show (WEPICON* by prefix, other kind 6 objects). BULB and
     // GUARDRAIL have no model and type flags 0x60004, which 2049's spawner (func_800ABCC8) refuses: they do nothing
     // in 2049 either.
     const std::set<std::string> r49_drop = {
-        "GOLDCOIN", "SILVERCOIN", "BULB", "GUARDRAIL", "WPR_MINE", "TRIGGER",
+        "BULB", "GUARDRAIL", "WPR_MINE", "TRIGGER",
     };
 
     // Objects 2049 knocks over when a car hits them (src/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT, RATCONE),
@@ -1219,11 +1226,21 @@ namespace {
         std::map<int, std::pair<std::string, How>> keep;
         std::map<int, int> spin_sub; // Record index -> sub-kind of objects that turn in place (func_8010E694).
         std::map<int, int> prop_type; // Record index -> type row of props.
+        std::map<std::string, int> coins;
         for (const Record& r : recs) {
             const Type49* t = classify(types, r.name);
             if (t == nullptr) {
                 if (model_ok(r.name)) {
                     keep[r.index] = { r.name, How::kept };
+                }
+                continue;
+            }
+            auto coin = r49_coins.find(t->name);
+            if (coin != r49_coins.end()) {
+                int& n = coins[t->name];
+                if (n < coins_per_kind) {
+                    keep[r.index] = { coin->second + std::to_string(n), How::mapped };
+                    n++;
                 }
                 continue;
             }
@@ -2277,6 +2294,8 @@ namespace {
     constexpr uint32_t demo_counts_vram = 0x80117408; // s16 per race track + 6 * backward.
     constexpr uint32_t pvs_vram[6] = { 0x8011B898, 0x8011BFE8, 0x8011C738, 0x8011CE88, 0x8011D618, 0x8011DC88 };
     constexpr int shared_model_file = 78; // F1FLAG / F2FLAG frames, TRIGGEROFF / TRIGGERON.
+    constexpr int coin_model_file = 68;   // GOLDCOIN / SILVERCOIN; their models run Rush 2's key behaviour (8).
+    const std::map<std::string, uint16_t> coin_kinds = { { "GOLDCOING_COIN", 8 }, { "SILVERCOINS_COI", 8 } };
 
     // 2049 PVS entry: four u32, bit (i & 31) of word i >> 5 = section i visible. Rush 2 entry: two u64, sections
     // 0-63 then 64-127. So the words go out in the order 1, 0, 3, 2.
@@ -2497,9 +2516,9 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
     }
     // 2049 files of track k (-1: none).
     const int file_numbers[] = { 100 + k, race ? 81 + k : -1, shared_model_file, 119 + k, 138 + k,
-                                 157 + k, race ? 176 + k : 157 + k };
-    Bytes files[7];
-    for (int i = 0; i < 7; i++) {
+                                 157 + k, race ? 176 + k : 157 + k, coin_model_file };
+    Bytes files[8];
+    for (int i = 0; i < 8; i++) {
         if (file_numbers[i] >= 0 && !rush2::rom2049::read_file(rom, file_numbers[i], files[i])) {
             error = "can't read Rush 2049 file " + std::to_string(file_numbers[i]);
             return false;
@@ -2510,6 +2529,7 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
     const Bytes& shared = files[2];
     const Bytes& placement = files[3];
     const Bytes& collision = files[4];
+    const Bytes& coins = files[7];
 
     try {
         // Models Rush 2's shared assets also define (breakable glass and flags) are left to Rush 2: placement maps
@@ -2520,6 +2540,7 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         opt.dummies = { prefix + "FINISH", prefix + "FINISHB" };
         opt.dummy_textures = { "CHKPNT", "FINISH" };
         opt.exclude = &shared_models;
+        opt.kinds = coin_kinds;
         std::vector<Type49> types = read_types(main);
         for (const Type49& t : types) {
             if (is_prop(t) && !t.model.empty()) {
@@ -2532,6 +2553,7 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
             geometry_files.push_back(&track_objects);
         }
         geometry_files.push_back(&shared);
+        geometry_files.push_back(&coins);
         out.geometry = merge_models(geometry_files, opt, names);
 
         out.path_records.clear();
