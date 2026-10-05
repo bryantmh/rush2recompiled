@@ -18,7 +18,9 @@ combiner turns into the text's outline. Each character is replaced by the same c
 (assets/InterVariable.ttf, SIL Open Font License), close to the Helvetica-style originals, drawn as an SVG path with
 the core as its fill and the halo as an outer stroke, clipped to the character's cell so nothing spills into its
 neighbors. Per font, the Inter weight, how far the outlines sit inside each glyph's ink box, and the halo's intensity
-and width are fitted by least squares so the redrawn sheet, averaged back down to texels, matches the original.
+and width are fitted by least squares so the redrawn sheet, averaged back down to texels, matches the original. The
+halo always stays inside the ink box: the game draws exactly each character's cell, which the ink often fills, so a
+halo reaching past it is cut off flat.
 
 Squared fonts (the tiny, pixel and segmented ones) are too small to trace or match to a vector font, so they're drawn
 from a hand-made squared font (BLOCK_GLYPHS): each character's strokes swept by a rectangular pen measured from the
@@ -455,7 +457,11 @@ def choose_style(font, collected):
                 evaluate(candidate, inset)
         _, weight, inset = min((r[0], w, i) for (w, i), r in results.items() if i == inset)
     error, halo, fill_level, stroke_level = results[(weight, inset)]
-    return {'weight': weight, 'inset': inset, 'halo': halo, 'fill': fill_level, 'stroke': stroke_level,
+
+    # The best match usually has the halo reaching past the ink box, where the cell cuts it off flat (the original's
+    # outermost texels mix the core's edge with the halo). Move the outlines in until the halo fits, keeping the fitted
+    # weight and halo: refitting either at the smaller size thins the letters well below the originals' boldness.
+    return {'weight': weight, 'inset': max(inset, halo), 'halo': halo, 'fill': fill_level, 'stroke': stroke_level,
             'error': error}
 
 
@@ -617,10 +623,15 @@ def block_layout(font, collected):
     return float(np.median(tops)), float(np.median(bottoms))
 
 
-def block_boxes(cells, layout):
-    """Each block glyph's box: its ink's horizontal extent and the font's letter height."""
+def block_boxes(cells, layout, inset):
+    """Each block glyph's box: its ink's horizontal extent and the font's letter height, shrunk by inset texels."""
     top, bottom = layout
-    return [(char, rect, (box[0], rect[1] + top, box[2], rect[1] + bottom)) for char, rect, box in cells]
+    boxes = []
+    for char, rect, box in cells:
+        x0, y0, x1, y1 = box[0] + inset, rect[1] + top + inset, box[2] - inset, rect[1] + bottom - inset
+        cx, cy = (box[0] + box[2]) / 2, rect[1] + (top + bottom) / 2
+        boxes.append((char, rect, (min(x0, cx), min(y0, cy), max(x1, cx), max(y1, cy))))
+    return boxes
 
 
 def stroke_thickness(cells, fill_level, axis):
@@ -655,26 +666,29 @@ def fit_block_style(font, collected):
     pw, ph = font.get('pen') or (stroke_thickness(letters, fill_level, axis=1),
                                  stroke_thickness(letters, fill_level, axis=0))
     gap = font.get('gap', 0.0)
-    core, rings = [], {w: [] for w in FIT_HALO_WIDTHS}
-    for sheet, (char, rect, box) in cells:
-        _, _, glyph_box = block_boxes([(char, rect, box)], layout)[0]
-        x0, y0, x1, y1 = rect
-        margin = 2
-        rows, cols = (y1 - y0 + 2 * margin) * FIT_RES, (x1 - x0 + 2 * margin) * FIT_RES
-        mask = np.zeros((rows, cols), np.uint8)
-        for polygon in block_polygons(char, glyph_box, (pw, ph), gap):
-            local = (polygon - (x0 - margin, y0 - margin)) * FIT_RES * 16  # 4 fractional bits.
-            cv2.fillConvexPoly(mask, np.round(local).astype(np.int32), 1, cv2.LINE_8, 4)
-        inside = mask.astype(bool)
-        distance = cv2.distanceTransform((~inside).astype(np.uint8), cv2.DIST_L2, 5) / FIT_RES
-        crop = (slice(margin * FIT_RES, rows - margin * FIT_RES), slice(margin * FIT_RES, cols - margin * FIT_RES))
-        core.append(texel_average(inside[crop].astype(np.float32), FIT_RES).ravel())
-        for w in FIT_HALO_WIDTHS:
-            rings[w].append(texel_average((~inside & (distance <= w))[crop].astype(np.float32), FIT_RES).ravel())
-    residual = original - fill_level * np.concatenate(core)
     best = None
-    for w in FIT_HALO_WIDTHS:
-        ring = np.concatenate(rings[w])
+    # The ink box includes the halo, so each halo width draws the strokes in the box shrunk by that width, keeping the
+    # halo inside the cell (the game draws only the cell, so anything past it is cut off). Width 0 is for fonts
+    # without a halo, whose ink is all stroke.
+    for w in (0.0, *FIT_HALO_WIDTHS):
+        core, ring = [], []
+        for sheet, (char, rect, box) in cells:
+            _, _, glyph_box = block_boxes([(char, rect, box)], layout, w)[0]
+            x0, y0, x1, y1 = rect
+            margin = 2
+            rows, cols = (y1 - y0 + 2 * margin) * FIT_RES, (x1 - x0 + 2 * margin) * FIT_RES
+            mask = np.zeros((rows, cols), np.uint8)
+            for polygon in block_polygons(char, glyph_box, (pw, ph), gap):
+                local = (polygon - (x0 - margin, y0 - margin)) * FIT_RES * 16  # 4 fractional bits.
+                cv2.fillConvexPoly(mask, np.round(local).astype(np.int32), 1, cv2.LINE_8, 4)
+            inside = mask.astype(bool)
+            distance = cv2.distanceTransform((~inside).astype(np.uint8), cv2.DIST_L2, 5) / FIT_RES
+            crop = (slice(margin * FIT_RES, rows - margin * FIT_RES),
+                    slice(margin * FIT_RES, cols - margin * FIT_RES))
+            core.append(texel_average(inside[crop].astype(np.float32), FIT_RES).ravel())
+            ring.append(texel_average((~inside & (distance <= w))[crop].astype(np.float32), FIT_RES).ravel())
+        residual = original - fill_level * np.concatenate(core)
+        ring = np.concatenate(ring)
         stroke = float(np.clip(np.dot(ring, residual) / max(np.dot(ring, ring), 1e-9), 0, fill_level))
         error = float(np.mean((residual - stroke * ring) ** 2))
         if best is None or error < best['error']:
@@ -687,7 +701,7 @@ def block_elements(style, sheet, block_cells, traced_cells, uncovered):
     look = {'fill': style['fill'], 'stroke': style['stroke'], 'halo': style['halo']}
     elements = traced_elements(style, sheet, uncovered, squared=True)
     elements += traced_elements(style, sheet, traced_cells, squared=True, clear=True)
-    for char, rect, box in block_boxes(block_cells, style['layout']):
+    for char, rect, box in block_boxes(block_cells, style['layout'], style['halo']):
         polygons = block_polygons(char, box, style['pen'], style['gap'])
         elements += [clear_element(rect), dict(look, d=polygons_path(polygons), rule='nonzero', clip=rect)]
     return elements
