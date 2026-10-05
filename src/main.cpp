@@ -156,7 +156,34 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
 #endif
 }
 
+// recompui ignores mouse motion while a controller is the active input, so opening the menu with Escape left the
+// cursor hidden until a click. When Escape is about to open the menu, queue an X2 button press behind it: recompui
+// treats any button press as switching to the mouse, and RmlUi only clicks on the left button, so nothing is pressed.
+static void show_cursor_on_escape_menu() {
+    if (!ultramodern::is_game_started() || recompui::is_context_shown(recompui::config::get_config_context_id())) {
+        return;
+    }
+    SDL_PumpEvents();
+    SDL_Event events[32];
+    int count = SDL_PeepEvents(events, 32, SDL_PEEKEVENT, SDL_KEYDOWN, SDL_KEYDOWN);
+    for (int i = 0; i < count; i++) {
+        if (events[i].key.keysym.scancode == SDL_SCANCODE_ESCAPE && !events[i].key.repeat) {
+            SDL_Event button{};
+            button.button.type = SDL_MOUSEBUTTONDOWN;
+            button.button.windowID = events[i].key.windowID;
+            button.button.button = SDL_BUTTON_X2;
+            button.button.state = SDL_PRESSED;
+            SDL_PushEvent(&button);
+            button.button.type = SDL_MOUSEBUTTONUP;
+            button.button.state = SDL_RELEASED;
+            SDL_PushEvent(&button);
+            return;
+        }
+    }
+}
+
 void update_gfx(void*) {
+    show_cursor_on_escape_menu();
     recompinput::handle_events();
 }
 
