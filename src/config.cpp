@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <filesystem>
 #include <type_traits>
 #include <variant>
@@ -13,7 +14,46 @@
 #include "music.h"
 #include "track1.h"
 #include "collectibles.h"
+#include "options_page.h"
 #include "wings.h"
+
+// Adds every option of the config that the page doesn't have yet, in the config's order (hidden ones stay hidden).
+static void add_remaining_options(rush2::ui::OptionsPage* page, recomp::config::Config& config, const std::vector<std::string>& added) {
+    for (const auto& option : config.get_config_schema().options) {
+        if (std::find(added.begin(), added.end(), option.id) == added.end()) {
+            page->add_option(config, option.id);
+        }
+    }
+}
+
+// Shows a config's options under headings, replacing the frontend's tab for it (which lists them in the order they
+// were added, and is hidden by the caller). Each section is a heading and its option ids; options not listed go last.
+static void create_ordered_tab(const std::string& name, const std::string& tab_id, const std::string& config_id,
+                               std::vector<std::pair<std::string, std::vector<std::string>>> sections) {
+    recompui::config::create_tab(name, tab_id,
+        [config_id, sections](recompui::ContextId context, recompui::Element* parent) {
+            recomp::config::Config& config = recompui::config::get_config(config_id);
+            auto* page = context.create_element<rush2::ui::OptionsPage>(parent);
+            std::vector<std::string> added;
+            for (const auto& [heading, ids] : sections) {
+                page->add_heading(heading);
+                for (const std::string& id : ids) {
+                    page->add_option(config, id);
+                    added.push_back(id);
+                }
+            }
+            add_remaining_options(page, config, added);
+        },
+        [config_id, name](recompui::TabCloseContext close_context) {
+            return rush2::ui::confirm_close(config_id, name, close_context);
+        },
+        [config_id](recompui::TabCloseContext) {
+            recomp::config::Config& config = recompui::config::get_config(config_id);
+            if (!config.requires_confirmation) {
+                config.save_config();
+            }
+        });
+}
 
 // Changes the default of an option the frontend already added. add_option() copies the default into the stored values,
 // which is what a fresh install (no saved config file) keeps, so both need changing. Must run before finalize().
@@ -257,6 +297,25 @@ void rush2::init_config() {
         std::filesystem::create_directories(recomp_dir);
     }
 
+    // Tabs, grouped: settings, then players and their progress, then what changes the game. The frontend's General
+    // and Graphics tabs are replaced by ones that order their options under headings (added first: the menu opens
+    // on the first tab, hidden or not), and its Controls tab by the Players tab and the game's own Controller Setup
+    // screen.
+    {
+        namespace general = recompui::config::general;
+        create_ordered_tab(general::tab_name, "rush2_general", general::id, {
+            { "Controls", { general::options::rumble_strength, general::options::joystick_deadzone,
+                            steering_option::id, reverse_option::id } },
+            { "System", { general::options::background_input_mode, data_location_option::id } },
+        });
+        namespace graphics = recompui::config::graphics;
+        create_ordered_tab(graphics::tab_name, "rush2_graphics", graphics::id, {
+            { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ar_option,
+                           graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
+            { "Quality", { graphics::options::msaa_option, graphics::options::ds_option, lod_option::id, font_option::id } },
+        });
+    }
+
     recompui::config::GeneralTabOptions general_options{};
     general_options.has_rumble_strength = true;
     general_options.has_gyro_sensitivity = false;
@@ -271,14 +330,14 @@ void rush2::init_config() {
     customize_graphics_options(graphics_config);
     add_lod_option(graphics_config);
     add_font_option(graphics_config);
+    recompui::config::set_tab_visible(recompui::config::general::id, false);
+    recompui::config::set_tab_visible(recompui::config::graphics::id, false);
 
-    // The frontend's Controls tab is replaced by the Players tab and the game's own Controller Setup screen.
-    rush2::players::create_tab();
     rush2::music::create_sound_tab();
-    rush2::cheats::create_tab();
-    rush2::wings::create_tab();
-    rush2::track1::create_tab();
+    rush2::players::create_tab();
     rush2::collectibles::create_tab();
+    rush2::games::create_tab();
+    rush2::cheats::create_tab();
     recompui::config::create_mods_tab();
 
     recompui::config::finalize();

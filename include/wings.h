@@ -2,14 +2,26 @@
 #define __WINGS_H__
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
 // Rush 2049 wings (src/wings*.cpp).
+namespace rush2::ui {
+    class OptionsPage;
+}
+
 namespace rush2::wings {
-    // Adds the Rush 2049 tab. Call from init_config before recompui::config::finalize().
-    void create_tab();
-    // Loads the tab's saved settings and the stored Rush 2049 ROM. Call after recompui::config::finalize().
+    // The Rush 2049 settings, shown in the Games tab (src/games_tab.cpp) and the wing styles in the Players tab.
+    // init_config adds them; call it before recompui::config::finalize().
+    void init_config();
+    // Adds the Rush 2049 section (ROM picker and options) to the Games tab; refresh keeps its ROM status current.
+    void add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh);
+    void save_config();
+    // A player's (0 or 1) wing style option, 0-2; setting it saves the settings.
+    int get_style_option(int player);
+    void set_style_option(int player, int style);
+    // Loads the saved settings and the stored Rush 2049 ROM. Call after recompui::config::finalize().
     void load_config();
 
     // The big-endian Rush 2049 (USA) ROM, or null if none has been provided.

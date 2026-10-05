@@ -20,7 +20,7 @@ namespace rush2::track2049 {
     constexpr int stunt_menu_id = 25;   // Track select id of stunt arena 1.
     constexpr int stunt_host_slot = 11; // STUNT1: Rush 2's stunt track.
 
-    // The Rush 2049 Tracks option (Rush 2049 tab). Tracks are offered when it is on and the 2049 ROM is present.
+    // The Rush 2049 Tracks option (Games tab). Tracks are offered when it is on and the 2049 ROM is present.
     void set_option(bool enabled);
     bool available();
 

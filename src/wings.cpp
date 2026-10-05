@@ -1,8 +1,8 @@
-// Rush 2049 wings: settings tab and Rush 2049 ROM handling.
+// Rush 2049 wings: settings (shown in the Games and Players tabs) and Rush 2049 ROM handling.
 //
 // San Francisco Rush 2049 lets cars deploy wings while airborne. This port reads the wing models and sound from the
 // user's own Rush 2049 ROM (NTSC-U), so nothing from that game ships with the recomp. The ROM is chosen with a button
-// on the Rush 2049 tab, checked, and copied in big-endian (.z64) byte order to the app folder as rush2049.z64. The
+// on the Games tab, checked, and copied in big-endian (.z64) byte order to the app folder as rush2049.z64. The
 // Wings option stays disabled until a valid ROM is present.
 //
 // The ability itself lives in src/wings_*.cpp.
@@ -27,7 +27,7 @@
 #include "util/file.h"
 #include "elements/ui_button.h"
 #include "elements/ui_label.h"
-#include "config/ui_config_page_options_menu.h"
+#include "options_page.h"
 
 #include "rush2.h"
 #include "car2049.h"
@@ -51,14 +51,13 @@ namespace {
         0xdb, 0x2a, 0xa1, 0xa9, 0x0c, 0xfe, 0x55, 0xd1, 0x92, 0x2c,
     };
 
-    // Owned here instead of through create_config_tab so the tab can show the ROM picker above the options.
+    // Owned here instead of through create_config_tab: its options are shown in the Games tab (src/games_tab.cpp)
+    // under the ROM picker, and the wing styles in the Players tab.
     recomp::config::Config wings_config{ "Rush 2049", config_id, false };
 
     std::mutex rom_mutex;
     std::shared_ptr<const std::vector<uint8_t>> rom_data; // Big-endian ROM, null until a valid one is loaded.
     std::atomic_bool wings_option = false;
-
-    recompui::Label* rom_status_label = nullptr;
 
     std::array<uint8_t, 20> sha1(const std::vector<uint8_t>& data) {
         uint32_t h[5] = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0 };
@@ -173,8 +172,8 @@ namespace {
 
     std::string rom_status_text() {
         return rush2::wings::rom_available()
-            ? "Rush 2049 ROM: found. Its tracks, cars and wings can be enabled below."
-            : "Rush 2049 ROM: not found. Select a San Francisco Rush 2049 (USA) ROM to enable its tracks, cars and wings.";
+            ? "ROM found."
+            : "Needs a San Francisco Rush 2049 (USA) ROM for its tracks, cars and wings.";
     }
 
     void update_rom_ui() {
@@ -185,9 +184,6 @@ namespace {
         wings_config.update_option_disabled(drones_option_id, disabled);
         wings_config.update_option_disabled(style_option_p1, disabled);
         wings_config.update_option_disabled(style_option_p2, disabled);
-        if (rom_status_label != nullptr) {
-            rom_status_label->set_text(rom_status_text());
-        }
     }
 
     void select_rom() {
@@ -227,15 +223,6 @@ namespace {
             update_rom_ui();
         });
     }
-
-    void create_tab_contents(recompui::ContextId context, recompui::Element* parent) {
-        auto* page = context.create_element<recompui::ConfigPageOptionsMenu>(parent, &wings_config, true);
-        recompui::ConfigHeaderFooter* header = page->add_header();
-
-        rom_status_label = context.create_element<recompui::Label>(header->get_left(), rom_status_text(), recompui::LabelStyle::Normal);
-        auto* button = context.create_element<recompui::Button>(header->get_right(), "Select Rush 2049 ROM", recompui::ButtonStyle::Secondary);
-        button->add_pressed_callback(select_rom);
-    }
 }
 
 std::shared_ptr<const std::vector<uint8_t>> rush2::wings::get_rom() {
@@ -252,7 +239,7 @@ bool rush2::wings::enabled() {
     return wings_option.load(std::memory_order_relaxed) && rom_available();
 }
 
-void rush2::wings::create_tab() {
+void rush2::wings::init_config() {
     wings_config.add_bool_option(
         wings_option_id,
         "Wings",
@@ -327,23 +314,43 @@ void rush2::wings::create_tab() {
                 { 1u, "Style2", "Style 2" },
                 { 2u, "Style3", "Style 3" },
             },
-            0u
+            0u,
+            true    // Shown in the Players tab (src/players_tab.cpp).
         );
         wings_config.add_option_change_callback(id,
             [player](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
                 rush2::wings::set_player_style(player, (int)std::get<uint32_t>(cur_value));
             });
     }
+}
 
-    recompui::config::create_tab(
-        wings_config.name,
-        config_id,
-        create_tab_contents,
-        nullptr,
-        [](recompui::TabCloseContext) {
-            wings_config.save_config();
+void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
+    recompui::ContextId context = recompui::get_current_context();
+    rush2::ui::OptionsPage::Heading heading = page->add_heading("Rush 2049", rom_status_text());
+    auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
+    button->add_pressed_callback(select_rom);
+    for (const std::string& id : { wings_option_id, tracks_option_id, cars_option_id, drones_option_id }) {
+        page->add_option(wings_config, id);
+    }
+    refresh = [note = heading.note, shown = rush2::wings::rom_available()]() mutable {
+        if (rush2::wings::rom_available() != shown) {
+            shown = !shown;
+            note->set_text(rom_status_text());
         }
-    );
+    };
+}
+
+void rush2::wings::save_config() {
+    wings_config.save_config();
+}
+
+int rush2::wings::get_style_option(int player) {
+    return (int)std::get<uint32_t>(wings_config.get_option_value(player == 0 ? style_option_p1 : style_option_p2));
+}
+
+void rush2::wings::set_style_option(int player, int style) {
+    wings_config.update_option_value(player == 0 ? style_option_p1 : style_option_p2, (uint32_t)style);
+    wings_config.save_config();
 }
 
 // Runs after recompui::config::finalize() has registered the config path.
@@ -363,7 +370,7 @@ void rush2::wings::load_config() {
     update_rom_ui();
 }
 
-// Shared with the SF Rush tab (src/rush1_rom.cpp).
+// Shared with the SF Rush ROM picker (src/rush1_rom.cpp).
 std::array<uint8_t, 20> rush2::wings::rom_sha1(const std::vector<uint8_t>& data) {
     return sha1(data);
 }

@@ -143,8 +143,14 @@ namespace rush2 {
         bool any_input_held(int port);
     }
 
-    // Players tab: which controller and keyboard each player uses (src/players_tab.cpp).
+    // Players tab: which controller and keyboard each player uses, their wings and the split screen layout
+    // (src/players_tab.cpp).
     namespace players {
+        void create_tab();
+    }
+
+    // Games tab: the Rush 2049 and SF Rush ROMs and what they add (src/games_tab.cpp).
+    namespace games {
         void create_tab();
     }
 }

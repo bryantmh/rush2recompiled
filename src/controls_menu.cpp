@@ -19,7 +19,7 @@
 // callback, built into objects by func_800604FC) is replaced by one holding only the text callback (func_800B6134),
 // which draws the labels and, through draw(), everything else. The game's "L+R: DEFAULTS" footer text isn't printed.
 //
-// With wings enabled (Rush 2049 tab) a tenth row, WINGS, is added: the text callback's label table (0x800C4B08) is
+// With wings enabled (Games tab) a tenth row, WINGS, is added: the text callback's label table (0x800C4B08) is
 // copied with "WINGS" appended, an instruction patch lets its label loop run 10 rows, and the rows are moved 15
 // pixels apart instead of 17 so everything fits in the panel. Whether the row is there is decided when the screen
 // opens.

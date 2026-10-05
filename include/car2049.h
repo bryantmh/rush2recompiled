@@ -22,11 +22,11 @@ namespace rush2::car2049 {
     void init_assets(uint8_t* rdram);
     // Fills the 2049 types' physics: descriptors, per-type table entries and boxes. Call after init_tables.
     void init_physics(uint8_t* rdram);
-    // The "Rush 2049 Cars" option (Rush 2049 tab): whether the car select offers the 2049 cars.
+    // The "Rush 2049 Cars" option (Games tab): whether the car select offers the 2049 cars.
     void set_option(bool enabled);
     // True when the option is on and the Rush 2049 ROM is available.
     bool available();
-    // The "Rush 2049 Computer Cars" option (Rush 2049 tab): where the computer cars may be 2049 cars.
+    // The "Rush 2049 Computer Cars" option (Games tab): where the computer cars may be 2049 cars.
     enum class DroneCars : uint32_t { AllTracks, Rush2049Tracks, Off };
     void set_drone_cars(DroneCars mode);
     // The engine sound (0-9) a car of this type plays for ENGINE row value `value`: the value itself for a Rush 2

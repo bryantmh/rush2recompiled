@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <functional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -32,6 +33,11 @@
 #include "recompui/recompui.h"
 #include "recompui/config.h"
 #include "librecomp/config.hpp"
+#include "elements/ui_button.h"
+#include "elements/ui_config_page.h"
+#include "elements/ui_label.h"
+#include "elements/ui_select.h"
+#include "elements/ui_toggle.h"
 
 #include "recomp.h"
 #include "rush2_hooks.h"
@@ -250,6 +256,238 @@ namespace {
         config.save_config();
         has_unsynced = false;
     }
+
+    // The tab's page: every option at once, in groups over three columns, with the hovered or focused option's
+    // description below them. The config is the frontend's (create_config_tab), whose own tab is hidden.
+    struct Group {
+        const char* title;
+        std::vector<std::string> ids;
+    };
+
+    const std::vector<std::vector<Group>> page_columns = {
+        {
+            { "Unlocks", { cheat_menu_id, unlock_tracks_id, unlock_cars_id } },
+            { "Driving", { "cheat_super_speed", "cheat_super_tires", "cheat_no_brakes", "cheat_mass", "cheat_gravity",
+                           "cheat_levitation", "cheat_no_car_collisions" } },
+        },
+        {
+            { "Survival", { "cheat_invincible", "cheat_no_damage", "cheat_auto_abort", "cheat_resurrect_in_place",
+                            "cheat_no_game_timer" } },
+            { "Race", { "cheat_suicide_mode", "cheat_stunts_all_tracks", "cheat_cone_mines", "cheat_car_mines",
+                        "cheat_killer_rats" } },
+        },
+        {
+            { "Looks", { "cheat_invisible_car", "cheat_invisible_track", "cheat_upside_down", "cheat_inside_out_car",
+                         "cheat_burning_wreck", "cheat_frame_scale", "cheat_tire_scaling", "cheat_fog_color",
+                         "cheat_new_york_cabs", "cheat_do_the_dew" } },
+        },
+    };
+
+    const std::string page_description =
+        "Cheats apply to every race until they're turned off. Changes made in the game's own Cheats screen show up "
+        "here too.";
+
+    // Controls that report when they're hovered or focused, to show their option's description.
+    class CheatToggle : public recompui::Toggle {
+    public:
+        CheatToggle(recompui::ResourceId rid, recompui::Element* parent, std::function<void()> on_focus)
+            : Toggle(rid, parent, recompui::ToggleSize::Medium), on_focus(std::move(on_focus)) {}
+
+    protected:
+        void process_event(const recompui::Event& e) override {
+            Toggle::process_event(e);
+            if ((e.type == recompui::EventType::Focus && std::get<recompui::EventFocus>(e.variant).active) ||
+                (e.type == recompui::EventType::Hover && std::get<recompui::EventHover>(e.variant).active)) {
+                on_focus();
+            }
+        }
+
+    private:
+        std::function<void()> on_focus;
+    };
+
+    class CheatSelect : public recompui::Select {
+    public:
+        CheatSelect(recompui::ResourceId rid, recompui::Element* parent, std::vector<recompui::SelectOption> options,
+                    std::string selected, std::function<void()> on_focus)
+            : Select(rid, parent, std::move(options), std::move(selected)), on_focus(std::move(on_focus)) {}
+
+    protected:
+        void process_event(const recompui::Event& e) override {
+            Select::process_event(e);
+            if ((e.type == recompui::EventType::Focus && std::get<recompui::EventFocus>(e.variant).active) ||
+                (e.type == recompui::EventType::Hover && std::get<recompui::EventHover>(e.variant).active)) {
+                on_focus();
+            }
+        }
+
+    private:
+        std::function<void()> on_focus;
+    };
+
+    class CheatsPage : public recompui::ConfigPage {
+    public:
+        CheatsPage(recompui::ResourceId rid, recompui::Element* parent)
+            : ConfigPage(rid, parent, recompui::Events(recompui::EventType::Update)) {
+            using namespace recompui;
+            ContextId context = get_current_context();
+            recomp::config::Config& config = recompui::config::get_config(config_id);
+            set_as_navigation_container(NavigationType::Vertical);
+
+            // One full-width side: the columns, then the description.
+            body->get_right()->set_display(Display::None);
+            Element* left = body->get_left();
+            left->set_display(Display::Flex);
+            left->set_flex_direction(FlexDirection::Column);
+            left->set_padding(16.0f);
+            left->set_gap(8.0f);
+
+            ConfigHeaderFooter* top = add_header();
+            Label* intro = context.create_element<Label>(top->get_left(), page_description, theme::Typography::Body);
+            intro->set_color(theme::color::TextDim);
+            Button* reset = context.create_element<Button>(top->get_right(), "Reset Cheats", ButtonStyle::Secondary);
+            reset->add_pressed_callback([this]() { reset_cheats(); });
+
+            Element* grid = context.create_element<Element>(left, 0, "div", false);
+            grid->set_display(Display::Flex);
+            grid->set_flex_direction(FlexDirection::Row);
+            grid->set_gap(32.0f);
+            grid->set_width(100.0f, Unit::Percent);
+            grid->set_as_navigation_container(NavigationType::Horizontal);
+
+            for (const auto& groups : page_columns) {
+                Element* column = context.create_element<Element>(grid, 0, "div", false);
+                column->set_display(Display::Flex);
+                column->set_flex_direction(FlexDirection::Column);
+                column->set_flex_grow(1.0f);
+                column->set_flex_basis(0.0f);
+                column->set_as_navigation_container(NavigationType::Vertical);
+                for (const Group& group : groups) {
+                    Label* title = context.create_element<Label>(column, group.title, theme::Typography::LabelLG);
+                    title->set_padding_top(column_has_rows(column) ? 16.0f : 0.0f);
+                    title->set_padding_bottom(6.0f);
+                    title->set_margin_bottom(4.0f);
+                    title->set_border_bottom_width(1.0f);
+                    title->set_border_bottom_color(theme::color::Border);
+                    for (const std::string& id : group.ids) {
+                        add_row(column, config, id);
+                    }
+                }
+            }
+
+            description = context.create_element<Element>(left, 0, "p", true);
+            description->set_typography(theme::Typography::Body);
+            description->set_line_height(28.0f);
+            description->set_padding_top(8.0f);
+            description->set_min_height(64.0f);
+            description->set_color(theme::color::TextDim);
+
+            queue_update();
+        }
+
+    protected:
+        std::string_view get_type_name() override { return "CheatsPage"; }
+
+        void process_event(const recompui::Event& e) override {
+            if (e.type == recompui::EventType::Update) {
+                // Follow changes made elsewhere: the game's Cheats screen, or Reset Cheats.
+                recomp::config::Config& config = recompui::config::get_config(config_id);
+                config.clear_config_option_updates();
+                for (Row& row : rows) {
+                    recomp::config::ConfigValueVariant value = config.get_option_value(row.id);
+                    if (value == row.shown) {
+                        continue;
+                    }
+                    row.shown = value;
+                    if (row.toggle != nullptr) {
+                        row.toggle->set_checked(std::get<bool>(value));
+                    }
+                    else {
+                        row.select->set_selection(std::to_string(std::get<uint32_t>(value)));
+                    }
+                }
+                queue_update();
+            }
+        }
+
+    private:
+        struct Row {
+            std::string id;
+            recompui::Toggle* toggle = nullptr;
+            recompui::Select* select = nullptr;
+            recomp::config::ConfigValueVariant shown;
+        };
+        std::vector<Row> rows;
+        recompui::Element* description = nullptr;
+        std::vector<recompui::Element*> columns_with_rows;
+
+        bool column_has_rows(recompui::Element* column) {
+            return std::find(columns_with_rows.begin(), columns_with_rows.end(), column) != columns_with_rows.end();
+        }
+
+        void add_row(recompui::Element* column, recomp::config::Config& config, const std::string& id) {
+            using namespace recompui;
+            ContextId context = get_current_context();
+            columns_with_rows.push_back(column);
+            const recomp::config::ConfigOption& option = config.get_option(id);
+
+            Element* row = context.create_element<Element>(column, 0, "div", false);
+            row->set_display(Display::Flex);
+            row->set_flex_direction(FlexDirection::Row);
+            row->set_align_items(AlignItems::Center);
+            row->set_gap(12.0f);
+            row->set_height(48.0f);
+            row->set_as_navigation_container(NavigationType::Horizontal);
+            Label* name = context.create_element<Label>(row, option.name, theme::Typography::LabelMD);
+            name->set_flex_grow(1.0f);
+            name->set_white_space(WhiteSpace::Nowrap);
+
+            std::function<void()> on_focus = [this, &config, id]() {
+                description->set_text_unsafe(config.get_option(id).description);
+            };
+            Row r{ id };
+            r.shown = config.get_option_value(id);
+            if (option.type == recomp::config::ConfigOptionType::Bool) {
+                CheatToggle* toggle = context.create_element<CheatToggle>(row, on_focus);
+                toggle->set_checked(std::get<bool>(r.shown));
+                toggle->add_checked_callback([id](bool checked) {
+                    recompui::config::get_config(config_id).set_option_value(id, checked);
+                });
+                r.toggle = toggle;
+            }
+            else {
+                std::vector<SelectOption> options;
+                for (const auto& choice : std::get<recomp::config::ConfigOptionEnum>(option.variant).options) {
+                    options.emplace_back(choice.name, std::to_string(choice.value));
+                }
+                // The select fills its parent's width, so it gets a parent of its own.
+                Element* holder = context.create_element<Element>(row, 0, "div", false);
+                holder->set_width(192.0f);    // The select's minimum width.
+                holder->set_flex_shrink(0.0f);
+                CheatSelect* select = context.create_element<CheatSelect>(holder, options,
+                    std::to_string(std::get<uint32_t>(r.shown)), on_focus);
+                select->add_change_callback([id](SelectOption& choice, int) {
+                    recompui::config::get_config(config_id).set_option_value(id, (uint32_t)std::stoul(choice.value));
+                });
+                r.select = select;
+            }
+            rows.push_back(r);
+        }
+
+        // Puts every cheat back to its boot default; the unlocks stay as they are.
+        void reset_cheats() {
+            recomp::config::Config& config = recompui::config::get_config(config_id);
+            for (const Cheat& cheat : cheat_list) {
+                if (is_checkbox(cheat)) {
+                    config.set_option_value(cheat.id, false);
+                }
+                else {
+                    config.set_option_value(cheat.id, cheat.default_choice);
+                }
+            }
+            config.save_config();
+        }
+    };
 }
 
 void rush2::cheats::create_tab() {
@@ -259,7 +497,17 @@ void rush2::cheats::create_tab() {
     last_value.fill(no_write);
     unsynced_choice.fill(no_write);
 
+    // The frontend's tab for the config lists the options one per row; the Cheats tab shows them in groups instead.
     recomp::config::Config& config = recompui::config::create_config_tab("Cheats", config_id, false);
+    recompui::config::set_tab_visible(config_id, false);
+    recompui::config::create_tab("Cheats", "rush2_cheats",
+        [](recompui::ContextId context, recompui::Element* parent) {
+            context.create_element<CheatsPage>(parent);
+        },
+        nullptr,
+        [](recompui::TabCloseContext) {
+            recompui::config::get_config(config_id).save_config();
+        });
 
     config.add_bool_option(
         cheat_menu_id,

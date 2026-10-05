@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -14,6 +15,10 @@
 // The track select offers ids 18-24 after Rush 2's 12 tracks and Rush 2049's 6. A race runs in the same borrowed
 // slot as the Rush 2049 tracks (rush2::track2049::host_slot); its files and per-track table entries are swapped for
 // the Rush 1 track's while it is raced.
+namespace rush2::ui {
+    class OptionsPage;
+}
+
 namespace rush2::track1 {
     constexpr int track_count = 7;
     constexpr int first_menu_id = 18;   // Track select id of Rush 1 track 1.
@@ -21,8 +26,11 @@ namespace rush2::track1 {
     // The user's Rush 1 ROM (src/rush1_rom.cpp): San Francisco Rush (USA), big-endian, or null.
     std::shared_ptr<const std::vector<uint8_t>> get_rom();
     bool rom_available();
-    // The SF Rush settings tab, and loading its settings and stored ROM (after the config path is registered).
-    void create_tab();
+    // The SF Rush settings, shown in the Games tab (src/games_tab.cpp): adding them (before
+    // recompui::config::finalize()), the tab's section, saving, and loading them and the stored ROM (after finalize).
+    void init_config();
+    void add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh);
+    void save_config();
     void load_config();
 
     // The SF Rush Tracks option. Tracks are offered when it is on and the ROM is present.

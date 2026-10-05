@@ -89,6 +89,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/controls.cpp
     ${CMAKE_SOURCE_DIR}/src/controls_menu.cpp
     ${CMAKE_SOURCE_DIR}/src/players_tab.cpp
+    ${CMAKE_SOURCE_DIR}/src/games_tab.cpp
+    ${CMAKE_SOURCE_DIR}/src/options_page.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/src/assets.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049_rom.cpp

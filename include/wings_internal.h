@@ -14,7 +14,7 @@
 namespace rush2::wings {
     constexpr int max_cars = 8;
 
-    // ROM helpers of the Rush 2049 tab (src/wings.cpp): SHA-1, and .v64/.n64 or little-endian images to big-endian
+    // ROM helpers of the Rush 2049 ROM picker (src/wings.cpp): SHA-1, and .v64/.n64 or little-endian images to big-endian
     // (false if the data isn't an N64 ROM).
     std::array<uint8_t, 20> rom_sha1(const std::vector<uint8_t>& data);
     bool rom_to_big_endian(std::vector<uint8_t>& data);
