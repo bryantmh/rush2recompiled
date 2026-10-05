@@ -42,8 +42,17 @@ namespace {
         uint32_t old_base;
         uint32_t new_base;
         int size; // bytes per entry
-        int rows;
+        int rows; // in Rush 2's table; the copies of the per-player tables (3 rows) have 5, for players 3 and 4
     };
+
+    // Rows in a table's copy: the per-player tables get rows for players 3 and 4 (src/players4.cpp), which start as
+    // copies of players 1 and 2's.
+    constexpr int new_rows(const Table& t) {
+        return t.rows == 3 ? 5 : t.rows;
+    }
+    constexpr int old_row(int row) {
+        return row < 3 ? row : row - 2;
+    }
 
     // tools/rush2049/cartypes.py layout.
     constexpr Table tables[] = {
@@ -56,19 +65,19 @@ namespace {
         { 0x800C08B0, 0x802002F8, 4, 1 }, // pitch/roll inertia
         { 0x800C090C, 0x80200388, 4, 1 }, // yaw inertia
         { 0x800C0964, 0x80200418, 4, 3 }, // setup weight value
-        { 0x800C0A6C, 0x802005C8, 4, 3 }, // front wheel scale
-        { 0x800C0B74, 0x80200778, 4, 3 }, // rear wheel scale
-        { 0x800C0C7C, 0x80200928, 1, 3 }, // u8 setting
-        { 0x800C0CD0, 0x80200998, 1, 3 }, // engine torque map index
-        { 0x800C0D14, 0x80200A08, 1, 3 }, // drive flags
-        { 0x800C0D68, 0x80200A78, 1, 3 }, // setting (yaw damping)
-        { 0x800C0DAC, 0x80200AE8, 1, 3 }, // handling 0..10
-        { 0x800C0E48, 0x80200B58, 1, 3 }, // car+0x59E
-        { 0x800C0E8C, 0x80200BC8, 1, 3 }, // u8 setting
-        { 0x800C0ED0, 0x80200C38, 1, 3 }, // u8 setting
-        { 0x800C0F14, 0x80200CA8, 1, 3 }, // u8 setting
-        { 0x800C0F58, 0x80200D18, 1, 3 }, // u8 setting
-        { 0x800C0F9C, 0x80200D88, 1, 3 }, // u8 setting
+        { 0x800C0A6C, 0x802006E8, 4, 3 }, // front wheel scale
+        { 0x800C0B74, 0x802009B8, 4, 3 }, // rear wheel scale
+        { 0x800C0C7C, 0x80200C88, 1, 3 }, // u8 setting
+        { 0x800C0CD0, 0x80200D40, 1, 3 }, // engine torque map index
+        { 0x800C0D14, 0x80200DF8, 1, 3 }, // drive flags
+        { 0x800C0D68, 0x80200EB0, 1, 3 }, // setting (yaw damping)
+        { 0x800C0DAC, 0x80200F68, 1, 3 }, // handling 0..10
+        { 0x800C0E48, 0x80201020, 1, 3 }, // car+0x59E
+        { 0x800C0E8C, 0x802010D8, 1, 3 }, // u8 setting
+        { 0x800C0ED0, 0x80201190, 1, 3 }, // u8 setting
+        { 0x800C0F14, 0x80201248, 1, 3 }, // u8 setting
+        { 0x800C0F58, 0x80201300, 1, 3 }, // u8 setting
+        { 0x800C0F9C, 0x802013B8, 1, 3 }, // u8 setting
     };
 
     // Race per-car arrays the car select also indexes by preview id (player * 36 + type): 44 entries moved to 72
@@ -139,8 +148,8 @@ namespace {
     constexpr uint32_t desc_size = 0xEC;
     // Relocated per-type tables (tools/rush2049/cartypes.py layout).
     constexpr uint32_t t_desc_index = 0x802001B0, t_preload = 0x802001D8, t_mass = 0x80200268, t_inertia = 0x802002F8,
-                       t_yaw_inertia = 0x80200388, t_drive = 0x80200A08, t_weight = 0x80200418,
-                       t_engine = 0x80200928;
+                       t_yaw_inertia = 0x80200388, t_drive = 0x80200DF8, t_weight = 0x80200418,
+                       t_engine = 0x80200C88;
 
     // Rush 2049 main code/data (inflated at 0x80086A50).
     constexpr uint32_t main49_rom = 0xB0CB10;
@@ -229,7 +238,7 @@ namespace {
     }
 
     void copy_entry(uint8_t* rdram, const Table& t, int row, int from_type, int to_type) {
-        uint32_t src = t.old_base + (row * old_types + from_type) * t.size;
+        uint32_t src = t.old_base + (old_row(row) * old_types + from_type) * t.size;
         uint32_t dst = t.new_base + (row * new_types + to_type) * t.size;
         for (int i = 0; i < t.size; i++) {
             MEM_B(0, (int32_t)(dst + i)) = MEM_B(0, (int32_t)(src + i));
@@ -261,7 +270,7 @@ void rush2::car2049::init_tables(uint8_t* rdram) {
         MEM_B(0, (int32_t)(no_prefix + i)) = none[i];
     }
     for (const Table& t : tables) {
-        for (int row = 0; row < t.rows; row++) {
+        for (int row = 0; row < new_rows(t); row++) {
             for (int type = 0; type < new_types; type++) {
                 // Type 22 and the 2049 types start as copies of the Pickup until the 2049 cars' data is filled in.
                 copy_entry(rdram, t, row, type < old_types ? type : 0, type);
@@ -831,6 +840,21 @@ void rush2::car2049::append_to_car_list(uint8_t* rdram, int player) {
     MEM_H(0, (int32_t)count_at) = (int16_t)count;
 }
 
+void rush2::car2049::swap_player_rows(uint8_t* rdram, int a, int b) {
+    for (const Table& t : tables) {
+        if (new_rows(t) <= std::max(a, b) + 1) {
+            continue;
+        }
+        uint32_t row_a = t.new_base + (a + 1) * new_types * t.size;
+        uint32_t row_b = t.new_base + (b + 1) * new_types * t.size;
+        for (uint32_t i = 0; i < (uint32_t)(new_types * t.size); i++) {
+            int8_t x = MEM_B(0, (int32_t)(row_a + i));
+            MEM_B(0, (int32_t)(row_a + i)) = MEM_B(0, (int32_t)(row_b + i));
+            MEM_B(0, (int32_t)(row_b + i)) = x;
+        }
+    }
+}
+
 // func_803B81F0 at 0x803B873C, after it listed a player's selectable Rush 2 cars: $a1 = player. The 2049 cars
 // follow them (Unlock All Cars, src/cheats.cpp, rebuilds the list afterwards and appends them again).
 extern "C" void rush2_car49_list(uint8_t* rdram, recomp_context* ctx) {
@@ -1110,7 +1134,7 @@ namespace {
             MEM_W(0, (int32_t)(t_inertia + type * 4)) = fbits(inertia);
             MEM_W(0, (int32_t)(t_yaw_inertia + type * 4)) = fbits(yaw_inertia);
             uint8_t drive = (uint8_t)m.b(drive_t + k);
-            for (int row = 0; row < 3; row++) {
+            for (int row = 0; row < 5; row++) {
                 MEM_B(0, (int32_t)(t_drive + row * types + type)) = drive;
             }
             for (int i = 0; i < 4; i++) {
@@ -1118,13 +1142,13 @@ namespace {
             }
             // MAIN, ACCENT, STRIPE COLOR and TIRE RIMS start as the car's 2049 COLOR 1-3 and rims (2049's rims are
             // Rush 2's RIM01-RIM21, its palettes only darkened for its lighting).
-            constexpr uint32_t t_colours[3] = { 0x80200C38, 0x80200CA8, 0x80200D88 }, t_rims = 0x80200B58;
-            for (int row = 0; row < 3; row++) {
+            constexpr uint32_t t_colours[3] = { 0x80201190, 0x80201248, 0x802013B8 }, t_rims = 0x80201020;
+            for (int row = 0; row < 5; row++) {
                 for (int i = 0; i < 3; i++) MEM_B(0, (int32_t)(t_colours[i] + row * types + type)) = (int8_t)s.colours[k][i];
                 MEM_B(0, (int32_t)(t_rims + row * types + type)) = (int8_t)s.rims[k];
             }
             // DURABILITY is 2049's FRAME (rush2_car49_setup_mass): its default is the car's own frame weight.
-            for (int row = 0; row < 3; row++) {
+            for (int row = 0; row < 5; row++) {
                 MEM_W(0, (int32_t)(t_weight + (row * types + type) * 4)) = fbits(eng);
             }
             // Steering, yaw damping, suspension setting and tire grip: Rush 2 tuning 2049 has no counterpart for (they
@@ -1133,7 +1157,7 @@ namespace {
             for (const Table& t : tables) {
                 if (t.old_base == 0x800C06B4 || t.old_base == 0x800C070C || t.old_base == 0x800C0D68 ||
                     t.old_base == 0x800C0DAC) {
-                    for (int row = 0; row < t.rows; row++) {
+                    for (int row = 0; row < new_rows(t); row++) {
                         copy_entry(rdram, t, row, analogue[k], type);
                     }
                 }
@@ -1696,7 +1720,7 @@ extern "C" void rush2_car49_option_text(uint8_t* rdram, recomp_context* ctx) {
 namespace {
     constexpr uint32_t bar_types = 0x803CB362;
     constexpr uint32_t bar_descs = 0x80225A00;      // 2 x 0xEC
-    constexpr uint32_t t_torque = 0x80200998;
+    constexpr uint32_t t_torque = 0x80200D40;
     struct BarSwap {
         bool active = false;
         uint32_t ptr_at = 0, ptr = 0, mass_at = 0, mass = 0;

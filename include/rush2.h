@@ -33,16 +33,33 @@ namespace rush2 {
         void apply_pending_move();
     }
 
+    // Split screen layout of 2 player races (src/splitscreen.cpp).
+    namespace splitscreen {
+        enum class Layout : uint32_t { TopBottom, SideBySide };
+        // Takes effect when the next race sets up its views.
+        void set_layout(Layout layout);
+        // The Split Screen option (src/config.cpp, shown in the Players tab); setting it saves it.
+        Layout get_layout_option();
+        void set_layout_option(Layout layout);
+        // True while a 2 player race is drawn side by side.
+        bool is_side_by_side(uint8_t* rdram);
+        // The number of views (3 or 4) while a race is drawn in quadrants, otherwise 0.
+        int quadrant_views(uint8_t* rdram);
+        // The width, in 4:3 screen pixels (320 at 4:3), that RT64 spreads HUD elements anchored to the window's
+        // edges over (Settings > Graphics > HUD Placement).
+        float hud_width();
+    }
+
     // Cheats tab: the in-game cheat menu and forced cheats (src/cheats.cpp).
     namespace cheats {
         void create_tab();
     }
 
-    // Per-port input (src/input.cpp). Each player (N64 port 1 or 2) gets a controller and optionally the keyboard,
+    // Per-port input (src/input.cpp). Each player (N64 ports 1-4) gets a controller and optionally the keyboard,
     // either chosen in the Players tab (src/players_tab.cpp) or, for a port left on Auto, the first unassigned
     // controller to press a button.
     namespace input {
-        constexpr int num_ports = 2;
+        constexpr int num_ports = 4;
 
         void poll();
         bool is_port_connected(int port);

@@ -68,7 +68,7 @@ namespace {
     constexpr uint32_t engine_bases = 0x800BD15C;  // f32 [10][2]
     constexpr uint32_t rpm_table = 0x800BD338;     // f32 [2][11]
     constexpr uint32_t load_table = 0x800BD29C;    // f32 [2][13]
-    constexpr uint32_t default_engines = 0x80200928; // s8 [36]: each type's engine sound (src/car2049.cpp)
+    constexpr uint32_t default_engines = 0x80200C88; // s8 [36]: each type's engine sound (src/car2049.cpp)
     constexpr int turbo_sound = 0xC;
     constexpr float range = 400.0f;
     // Rush 2049 uses 0.75 (func_800E0050), but with up to seven cars around that drowned out the player's own.

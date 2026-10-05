@@ -11,6 +11,7 @@
 #include "util/file.h"
 
 #include "rush2.h"
+#include "players4.h"
 #include "music.h"
 #include "track1.h"
 #include "collectibles.h"
@@ -144,6 +145,89 @@ static void add_lod_option(recomp::config::Config& config) {
     config.add_option_change_callback(lod_option::id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::set_lod_disabled(static_cast<LODMode>(std::get<uint32_t>(cur_value)) == LODMode::Off);
+        });
+}
+
+namespace split_option {
+    const std::string id = "split_screen";
+}
+
+// Split screen layout of 2 player races (src/splitscreen.cpp).
+static void add_split_option(recomp::config::Config& config) {
+    using rush2::splitscreen::Layout;
+
+    config.add_enum_option(
+        split_option::id,
+        "Split Screen",
+        "Sets how the screen is split in 2 player races. "
+        "<recomp-color primary>Top and Bottom</recomp-color> matches the original game. "
+        "<recomp-color primary>Side by Side</recomp-color> gives each player a half of the screen's width. "
+        "Takes effect at the start of the next race.",
+        {
+            { Layout::TopBottom, "TopBottom", "Top and Bottom" },
+            { Layout::SideBySide, "SideBySide", "Side by Side" },
+        },
+        Layout::TopBottom,
+        true    // Shown in the Players tab (src/players_tab.cpp).
+    );
+
+    config.add_option_change_callback(split_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::splitscreen::set_layout(static_cast<Layout>(std::get<uint32_t>(cur_value)));
+        });
+}
+
+rush2::splitscreen::Layout rush2::splitscreen::get_layout_option() {
+    return static_cast<Layout>(std::get<uint32_t>(recompui::config::get_graphics_config().get_option_value(split_option::id)));
+}
+
+// The option lives in the graphics settings, which hold changes until they're applied. The Graphics tab can't have
+// unapplied changes while the Players tab is open, so saving applies only this one.
+void rush2::splitscreen::set_layout_option(Layout layout) {
+    recomp::config::Config& config = recompui::config::get_graphics_config();
+    config.set_option_value(split_option::id, static_cast<uint32_t>(layout));
+    config.save_config();
+}
+
+namespace test_players_option {
+    const std::string id = "test_players";
+    enum class TestPlayers : uint32_t { Off, Three, Four };
+}
+
+// Test players: fills the empty player 3 and 4 slots with idle players (src/players4.cpp), to try the 3 and 4 player
+// screens with fewer controllers.
+static void add_test_players_option(recomp::config::Config& config) {
+    using test_players_option::TestPlayers;
+
+    config.add_enum_option(
+        test_players_option::id,
+        "Test Players",
+        "Adds idle players so the 3 and 4 player screens can be tried with fewer controllers. Once player 2 joins in "
+        "the menus, the empty player slots up to the chosen count are filled with players on controller ports that have "
+        "nothing plugged in; their cars stay on the starting grid. "
+        "<recomp-color primary>Off</recomp-color> leaves joining to real controllers.",
+        {
+            { TestPlayers::Off, "Off", "Off" },
+            { TestPlayers::Three, "Three", "Fill to 3 Players" },
+            { TestPlayers::Four, "Four", "Fill to 4 Players" },
+        },
+        TestPlayers::Off
+    );
+
+    config.add_option_change_callback(test_players_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            switch (static_cast<TestPlayers>(std::get<uint32_t>(cur_value))) {
+                default:
+                case TestPlayers::Off:
+                    rush2::players4::set_test_players(0);
+                    break;
+                case TestPlayers::Three:
+                    rush2::players4::set_test_players(3);
+                    break;
+                case TestPlayers::Four:
+                    rush2::players4::set_test_players(4);
+                    break;
+            }
         });
 }
 
@@ -325,11 +409,13 @@ void rush2::init_config() {
     add_steering_option(general_config);
     add_reverse_option(general_config);
     add_data_location_option(general_config);
+    add_test_players_option(general_config);
 
     auto& graphics_config = recompui::config::create_graphics_tab();
     customize_graphics_options(graphics_config);
     add_lod_option(graphics_config);
     add_font_option(graphics_config);
+    add_split_option(graphics_config);
     recompui::config::set_tab_visible(recompui::config::general::id, false);
     recompui::config::set_tab_visible(recompui::config::graphics::id, false);
 
@@ -349,6 +435,8 @@ void rush2::init_config() {
         std::get<uint32_t>(loaded_graphics_config.get_option_value(lod_option::id))) == lod_option::LODMode::Off);
     rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
+    rush2::splitscreen::set_layout(static_cast<rush2::splitscreen::Layout>(
+        std::get<uint32_t>(loaded_graphics_config.get_option_value(split_option::id))));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

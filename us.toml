@@ -129,6 +129,24 @@ func = "func_800B45B4"
 before_vram = 0x800B4998
 text = "    rush2_frame_clear_end(rdram, ctx);"
 
+# Split screen layout (src/splitscreen.cpp). func_80054BB0 sets up the race views ($a0 = count, or 0 to return the
+# split flag, which the frame setup does every frame); the views are rewritten side by side at its return.
+[[patches.hook]]
+func = "func_80054BB0"
+before_vram = 0x80054BB0
+text = "    rush2_split_views_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_80054BB0"
+before_vram = 0x80054D8C
+text = "    rush2_split_views_end(rdram, ctx);"
+
+# The frame setup's black line between the stacked views (G_FILLRECT at $v1 when $v0, the split flag, is set).
+[[patches.hook]]
+func = "func_800B45B4"
+before_vram = 0x800B4A0C
+text = "    rush2_split_divider(rdram, ctx);"
+
 # Menu background (src/widescreen.cpp): extends the animated "RUSH2" mesh past the 4:3 edges. func_8007AA48 is
 # about to emit the G_DL for a node's model, $fp = model display list.
 [[patches.hook]]
@@ -157,6 +175,28 @@ text = "    rush2_hud_build_begin(rdram, ctx);"
 func = "func_800A06F8"
 before_vram = 0x800A0DF4
 text = "    rush2_hud_build_end(rdram, ctx);"
+
+# The race's finish overlay (func_800A0FB4 builds each player's place from 0x800BF328): laid out like the HUD, with
+# players 3 and 4's added (src/players4.cpp).
+[[patches.hook]]
+func = "func_800A0FB4"
+before_vram = 0x800A1210
+text = "    if (rush2_players4_skip_finish_box(rdram, ctx)) goto L_800A121C;"
+
+[[patches.hook]]
+func = "func_800A0FB4"
+before_vram = 0x800A124C
+text = "    if (rush2_players4_skip_finish_box(rdram, ctx)) goto L_800A1254;"
+
+[[patches.hook]]
+func = "func_800A0FB4"
+before_vram = 0x800A1254
+text = "    rush2_hud_finish_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A0FB4"
+before_vram = 0x800A126C
+text = "    rush2_hud_finish_end(rdram, ctx);"
 
 # Widget initialized: $v1 = slot, $a0 = widget.
 [[patches.hook]]
@@ -1002,7 +1042,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8005A598"
 vram = 0x8005AAF4
-value = 0x80420B58 # lb $v0, 0xE48($v0) -> 80200B58
+value = 0x80421020 # lb $v0, 0xE48($v0) -> 80201020
 
 [[patches.instruction]]
 func = "func_8005A598"
@@ -1037,7 +1077,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8005A598"
 vram = 0x8005ABA4
-value = 0xC4200778 # lwc1 $f0, 0xB74($at) -> 80200778
+value = 0xC42009B8 # lwc1 $f0, 0xB74($at) -> 802009B8
 
 [[patches.instruction]]
 func = "func_8005A598"
@@ -1072,7 +1112,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8005A598"
 vram = 0x8005AC04
-value = 0xC42005C8 # lwc1 $f0, 0xA6C($at) -> 802005C8
+value = 0xC42006E8 # lwc1 $f0, 0xA6C($at) -> 802006E8
 
 [[patches.instruction]]
 func = "func_8005B978"
@@ -1117,7 +1157,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_80067358"
 vram = 0x8006754C
-value = 0x81EF0BEC # lb $t7, 0xEA2($t7) -> 80200BEC
+value = 0x81EF10FC # lb $t7, 0xEA2($t7) -> 802010FC
 
 [[patches.instruction]]
 func = "func_80085FD0"
@@ -1152,7 +1192,7 @@ value = 0x0018C000 # row stride 22 -> 36 ($t8 = $s5 * 36 * 1)
 [[patches.instruction]]
 func = "func_80085FD0"
 vram = 0x800865C8
-value = 0x83390B58 # lb $t9, 0xE48($t9) -> 80200B58
+value = 0x83391020 # lb $t9, 0xE48($t9) -> 80201020
 
 [[patches.instruction]]
 func = "func_80086700"
@@ -1197,7 +1237,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_80087290"
 vram = 0x800875F4
-value = 0x83390B58 # lb $t9, 0xE48($t9) -> 80200B58
+value = 0x83391020 # lb $t9, 0xE48($t9) -> 80201020
 
 [[patches.instruction]]
 func = "func_800878C8"
@@ -1267,7 +1307,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "func_800878C8"
 vram = 0x800879F4
-value = 0xC4200808 # lwc1 $f0, 0xBCC($at) -> 80200808
+value = 0xC4200A48 # lwc1 $f0, 0xBCC($at) -> 80200A48
 
 [[patches.instruction]]
 func = "func_800878C8"
@@ -1277,7 +1317,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "func_800878C8"
 vram = 0x80087A34
-value = 0xC4200658 # lwc1 $f0, 0xAC4($at) -> 80200658
+value = 0xC4200778 # lwc1 $f0, 0xAC4($at) -> 80200778
 
 [[patches.instruction]]
 func = "func_8008813C"
@@ -1312,7 +1352,7 @@ value = 0x0019C800 # row stride 22 -> 36 ($t9 = $t8 * 36 * 1)
 [[patches.instruction]]
 func = "func_8008813C"
 vram = 0x800888A0
-value = 0x80420B7C # lb $v0, 0xE5E($v0) -> 80200B7C
+value = 0x80421044 # lb $v0, 0xE5E($v0) -> 80201044
 
 [[patches.instruction]]
 func = "func_8008813C"
@@ -1347,7 +1387,7 @@ value = 0x000F7800 # row stride 22 -> 36 ($t7 = $t6 * 36 * 4)
 [[patches.instruction]]
 func = "func_8008813C"
 vram = 0x8008890C
-value = 0xC4200658 # lwc1 $f0, 0xAC4($at) -> 80200658
+value = 0xC4200778 # lwc1 $f0, 0xAC4($at) -> 80200778
 
 [[patches.instruction]]
 func = "func_8008813C"
@@ -1357,7 +1397,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8008813C"
 vram = 0x80088938
-value = 0xC4240808 # lwc1 $f4, 0xBCC($at) -> 80200808
+value = 0xC4240A48 # lwc1 $f4, 0xBCC($at) -> 80200A48
 
 [[patches.instruction]]
 func = "func_8008813C"
@@ -1392,7 +1432,7 @@ value = 0x0018C000 # row stride 22 -> 36 ($t8 = $t6 * 36 * 4)
 [[patches.instruction]]
 func = "func_8008813C"
 vram = 0x80088974
-value = 0xC4260808 # lwc1 $f6, 0xBCC($at) -> 80200808
+value = 0xC4260A48 # lwc1 $f6, 0xBCC($at) -> 80200A48
 
 [[patches.instruction]]
 func = "func_8008D984"
@@ -1427,7 +1467,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8008D984"
 vram = 0x8008D9A4
-value = 0x83390AE8 # lb $t9, 0xDAC($t9) -> 80200AE8
+value = 0x83390F68 # lb $t9, 0xDAC($t9) -> 80200F68
 
 [[patches.instruction]]
 func = "func_8008D984"
@@ -1467,7 +1507,7 @@ value = 0x000F7800 # row stride 22 -> 36 ($t7 = $a0 * 36 * 1)
 [[patches.instruction]]
 func = "func_8008D9EC"
 vram = 0x8008DA00
-value = 0x24420A78 # addiu $v0, $v0, 0xD68 -> 80200A78
+value = 0x24420EB0 # addiu $v0, $v0, 0xD68 -> 80200EB0
 
 [[patches.instruction]]
 func = "func_8008D9EC"
@@ -1512,7 +1552,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8008D9EC"
 vram = 0x8008DA60
-value = 0x81EF0AE8 # lb $t7, 0xDAC($t7) -> 80200AE8
+value = 0x81EF0F68 # lb $t7, 0xDAC($t7) -> 80200F68
 
 [[patches.instruction]]
 func = "func_8008D9EC"
@@ -1552,7 +1592,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8008DAA0"
 vram = 0x8008DAC0
-value = 0x80420AE8 # lb $v0, 0xDAC($v0) -> 80200AE8
+value = 0x80420F68 # lb $v0, 0xDAC($v0) -> 80200F68
 
 [[patches.instruction]]
 func = "func_8008DB04"
@@ -1692,7 +1732,7 @@ value = 0x3C0D8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8008DBA0"
 vram = 0x8008DC98
-value = 0x25AD0A08 # addiu $t5, $t5, 0xD14 -> 80200A08
+value = 0x25AD0DF8 # addiu $t5, $t5, 0xD14 -> 80200DF8
 
 [[patches.instruction]]
 func = "func_8008DBA0"
@@ -1742,7 +1782,7 @@ value = 0x01D17021 # row stride 22 -> 36 ($t6 = $s1 * 36 * 1)
 [[patches.instruction]]
 func = "func_8008DBA0"
 vram = 0x8008DD20
-value = 0x814A0998 # lb $t2, 0xCD0($t2) -> 80200998
+value = 0x814A0D40 # lb $t2, 0xCD0($t2) -> 80200D40
 
 [[patches.instruction]]
 func = "func_8008DBA0"
@@ -1767,7 +1807,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "func_8008DBA0"
 vram = 0x8008DD50
-value = 0x83180B58 # lb $t8, 0xE48($t8) -> 80200B58
+value = 0x83181020 # lb $t8, 0xE48($t8) -> 80201020
 
 [[patches.instruction]]
 func = "func_8008DBA0"
@@ -1787,7 +1827,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097AA8
-value = 0x25CE0928 # addiu $t6, $t6, 0xC7C -> 80200928
+value = 0x25CE0C88 # addiu $t6, $t6, 0xC7C -> 80200C88
 
 [[patches.instruction]]
 func = "func_80097AA0"
@@ -1802,12 +1842,12 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097ABC
-value = 0x27180A78 # addiu $t8, $t8, 0xD68 -> 80200A78
+value = 0x27180EB0 # addiu $t8, $t8, 0xD68 -> 80200EB0
 
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097AC0
-value = 0x25EF0998 # addiu $t7, $t7, 0xCD0 -> 80200998
+value = 0x25EF0D40 # addiu $t7, $t7, 0xCD0 -> 80200D40
 
 [[patches.instruction]]
 func = "func_80097AA0"
@@ -1822,7 +1862,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097AD4
-value = 0x27390AE8 # addiu $t9, $t9, 0xDAC -> 80200AE8
+value = 0x27390F68 # addiu $t9, $t9, 0xDAC -> 80200F68
 
 [[patches.instruction]]
 func = "func_80097AA0"
@@ -1842,12 +1882,12 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097B20
-value = 0x25EF05C8 # addiu $t7, $t7, 0xA6C -> 802005C8
+value = 0x25EF06E8 # addiu $t7, $t7, 0xA6C -> 802006E8
 
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097B24
-value = 0x27180778 # addiu $t8, $t8, 0xB74 -> 80200778
+value = 0x271809B8 # addiu $t8, $t8, 0xB74 -> 802009B8
 
 [[patches.instruction]]
 func = "func_80097AA0"
@@ -1882,32 +1922,32 @@ value = 0x3C1E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097B50
-value = 0x27DE0BC8 # addiu $fp, $fp, 0xE8C -> 80200BC8
+value = 0x27DE10D8 # addiu $fp, $fp, 0xE8C -> 802010D8
 
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097B54
-value = 0x26F70B58 # addiu $s7, $s7, 0xE48 -> 80200B58
+value = 0x26F71020 # addiu $s7, $s7, 0xE48 -> 80201020
 
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097B58
-value = 0x26D60D88 # addiu $s6, $s6, 0xF9C -> 80200D88
+value = 0x26D613B8 # addiu $s6, $s6, 0xF9C -> 802013B8
 
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097B5C
-value = 0x26B50D18 # addiu $s5, $s5, 0xF58 -> 80200D18
+value = 0x26B51300 # addiu $s5, $s5, 0xF58 -> 80201300
 
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097B60
-value = 0x26940CA8 # addiu $s4, $s4, 0xF14 -> 80200CA8
+value = 0x26941248 # addiu $s4, $s4, 0xF14 -> 80201248
 
 [[patches.instruction]]
 func = "func_80097AA0"
 vram = 0x80097B64
-value = 0x26730C38 # addiu $s3, $s3, 0xED0 -> 80200C38
+value = 0x26731190 # addiu $s3, $s3, 0xED0 -> 80201190
 
 [[patches.instruction]]
 func = "func_8009A264"
@@ -1942,7 +1982,7 @@ value = 0x000B5800 # row stride 22 -> 36 ($t3 = $v0 * 36 * 1)
 [[patches.instruction]]
 func = "func_8009A264"
 vram = 0x8009A43C
-value = 0x81AD0A78 # lb $t5, 0xD68($t5) -> 80200A78
+value = 0x81AD0EB0 # lb $t5, 0xD68($t5) -> 80200EB0
 
 [[patches.instruction]]
 func = "func_8009E6DC"
@@ -1977,7 +2017,7 @@ value = 0x0019C800 # row stride 22 -> 36 ($t9 = $v0 * 36 * 1)
 [[patches.instruction]]
 func = "func_8009E6DC"
 vram = 0x8009E988
-value = 0x814A0928 # lb $t2, 0xC7C($t2) -> 80200928
+value = 0x814A0C88 # lb $t2, 0xC7C($t2) -> 80200C88
 
 [[patches.instruction]]
 func = "func_8009E6DC"
@@ -2012,7 +2052,7 @@ value = 0x000B5800 # row stride 22 -> 36 ($t3 = $v0 * 36 * 1)
 [[patches.instruction]]
 func = "func_8009E6DC"
 vram = 0x8009EA2C
-value = 0x81CE094C # lb $t6, 0xC92($t6) -> 8020094C
+value = 0x81CE0CAC # lb $t6, 0xC92($t6) -> 80200CAC
 
 [[patches.instruction]]
 func = "func_800AB360"
@@ -2087,22 +2127,22 @@ value = 0x3C038020 # lui -> 8020
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB570
-value = 0x24630778 # addiu $v1, $v1, 0xB74 -> 80200778
+value = 0x246309B8 # addiu $v1, $v1, 0xB74 -> 802009B8
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB574
-value = 0x261005C8 # addiu $s0, $s0, 0xA6C -> 802005C8
+value = 0x261006E8 # addiu $s0, $s0, 0xA6C -> 802006E8
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB578
-value = 0x27FF0BC8 # addiu $ra, $ra, 0xE8C -> 80200BC8
+value = 0x27FF10D8 # addiu $ra, $ra, 0xE8C -> 802010D8
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB57C
-value = 0x25AD0B58 # addiu $t5, $t5, 0xE48 -> 80200B58
+value = 0x25AD1020 # addiu $t5, $t5, 0xE48 -> 80201020
 
 [[patches.instruction]]
 func = "func_800AB360"
@@ -2112,47 +2152,47 @@ value = 0x258C0418 # addiu $t4, $t4, 0x964 -> 80200418
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB584
-value = 0x256B0AE8 # addiu $t3, $t3, 0xDAC -> 80200AE8
+value = 0x256B0F68 # addiu $t3, $t3, 0xDAC -> 80200F68
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB588
-value = 0x254A0A78 # addiu $t2, $t2, 0xD68 -> 80200A78
+value = 0x254A0EB0 # addiu $t2, $t2, 0xD68 -> 80200EB0
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB58C
-value = 0x25290998 # addiu $t1, $t1, 0xCD0 -> 80200998
+value = 0x25290D40 # addiu $t1, $t1, 0xCD0 -> 80200D40
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB590
-value = 0x25080928 # addiu $t0, $t0, 0xC7C -> 80200928
+value = 0x25080C88 # addiu $t0, $t0, 0xC7C -> 80200C88
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB594
-value = 0x24E70D88 # addiu $a3, $a3, 0xF9C -> 80200D88
+value = 0x24E713B8 # addiu $a3, $a3, 0xF9C -> 802013B8
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB598
-value = 0x24C60D18 # addiu $a2, $a2, 0xF58 -> 80200D18
+value = 0x24C61300 # addiu $a2, $a2, 0xF58 -> 80201300
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB59C
-value = 0x24A50CA8 # addiu $a1, $a1, 0xF14 -> 80200CA8
+value = 0x24A51248 # addiu $a1, $a1, 0xF14 -> 80201248
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB5A0
-value = 0x24840C38 # addiu $a0, $a0, 0xED0 -> 80200C38
+value = 0x24841190 # addiu $a0, $a0, 0xED0 -> 80201190
 
 [[patches.instruction]]
 func = "func_800AB360"
 vram = 0x800AB5A4
-value = 0x26D60808 # addiu $s6, $s6, 0xBCC -> 80200808
+value = 0x26D60A48 # addiu $s6, $s6, 0xBCC -> 80200A48
 
 [[patches.instruction]]
 func = "func_800AB360"
@@ -2637,22 +2677,22 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8A58
-value = 0x27390D18 # addiu $t9, $t9, 0xF58 -> 80200D18
+value = 0x27391300 # addiu $t9, $t9, 0xF58 -> 80201300
 
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8A5C
-value = 0x25CE0CA8 # addiu $t6, $t6, 0xF14 -> 80200CA8
+value = 0x25CE1248 # addiu $t6, $t6, 0xF14 -> 80201248
 
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8A60
-value = 0x27180C38 # addiu $t8, $t8, 0xED0 -> 80200C38
+value = 0x27181190 # addiu $t8, $t8, 0xED0 -> 80201190
 
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8A64
-value = 0x25EF0D88 # addiu $t7, $t7, 0xF9C -> 80200D88
+value = 0x25EF13B8 # addiu $t7, $t7, 0xF9C -> 802013B8
 
 [[patches.instruction]]
 func = "func_803B81F0"
@@ -2677,7 +2717,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8A88
-value = 0x25EF05C8 # addiu $t7, $t7, 0xA6C -> 802005C8
+value = 0x25EF06E8 # addiu $t7, $t7, 0xA6C -> 802006E8
 
 [[patches.instruction]]
 func = "func_803B81F0"
@@ -2687,12 +2727,12 @@ value = 0x27180418 # addiu $t8, $t8, 0x964 -> 80200418
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8A90
-value = 0x25CE0B58 # addiu $t6, $t6, 0xE48 -> 80200B58
+value = 0x25CE1020 # addiu $t6, $t6, 0xE48 -> 80201020
 
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8A94
-value = 0x27390BC8 # addiu $t9, $t9, 0xE8C -> 80200BC8
+value = 0x273910D8 # addiu $t9, $t9, 0xE8C -> 802010D8
 
 [[patches.instruction]]
 func = "func_803B81F0"
@@ -2722,27 +2762,27 @@ value = 0x3C058020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8AC8
-value = 0x24A50AE8 # addiu $a1, $a1, 0xDAC -> 80200AE8
+value = 0x24A50F68 # addiu $a1, $a1, 0xDAC -> 80200F68
 
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8ACC
-value = 0x24840A78 # addiu $a0, $a0, 0xD68 -> 80200A78
+value = 0x24840EB0 # addiu $a0, $a0, 0xD68 -> 80200EB0
 
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8AD0
-value = 0x24630998 # addiu $v1, $v1, 0xCD0 -> 80200998
+value = 0x24630D40 # addiu $v1, $v1, 0xCD0 -> 80200D40
 
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8AD4
-value = 0x24420928 # addiu $v0, $v0, 0xC7C -> 80200928
+value = 0x24420C88 # addiu $v0, $v0, 0xC7C -> 80200C88
 
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B8AE0
-value = 0x27180778 # addiu $t8, $t8, 0xB74 -> 80200778
+value = 0x271809B8 # addiu $t8, $t8, 0xB74 -> 802009B8
 
 [[patches.instruction]]
 func = "func_803B81F0"
@@ -2907,7 +2947,7 @@ value = 0x0018C000 # row stride 22 -> 36 ($t8 = $a2 * 36 * 1)
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B911C
-value = 0x25CE0C38 # addiu $t6, $t6, 0xED0 -> 80200C38
+value = 0x25CE1190 # addiu $t6, $t6, 0xED0 -> 80201190
 
 [[patches.instruction]]
 func = "func_803B81F0"
@@ -2917,7 +2957,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B9140
-value = 0x27180CA8 # addiu $t8, $t8, 0xF14 -> 80200CA8
+value = 0x27181248 # addiu $t8, $t8, 0xF14 -> 80201248
 
 [[patches.instruction]]
 func = "func_803B81F0"
@@ -2972,7 +3012,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B917C
-value = 0x25EF0D18 # addiu $t7, $t7, 0xF58 -> 80200D18
+value = 0x25EF1300 # addiu $t7, $t7, 0xF58 -> 80201300
 
 [[patches.instruction]]
 func = "func_803B81F0"
@@ -3007,7 +3047,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B81F0"
 vram = 0x803B919C
-value = 0x27390D88 # addiu $t9, $t9, 0xF9C -> 80200D88
+value = 0x273913B8 # addiu $t9, $t9, 0xF9C -> 802013B8
 
 [[patches.instruction]]
 func = "func_803B81F0"
@@ -3077,7 +3117,7 @@ value = 0x0337C821 # row stride 22 -> 36 ($t9 = $s7 * 36 * 1)
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9634
-value = 0x83180C5C # lb $t8, 0xEE6($t8) -> 80200C5C
+value = 0x831811B4 # lb $t8, 0xEE6($t8) -> 802011B4
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3102,7 +3142,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9654
-value = 0x81EF0CCC # lb $t7, 0xF2A($t7) -> 80200CCC
+value = 0x81EF126C # lb $t7, 0xF2A($t7) -> 8020126C
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3152,7 +3192,7 @@ value = 0x000F7880 # row stride 22 -> 36 ($t7 = $s7 * 36 * 1)
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9688
-value = 0x81CE0D3C # lb $t6, 0xF6E($t6) -> 80200D3C
+value = 0x81CE1324 # lb $t6, 0xF6E($t6) -> 80201324
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3172,7 +3212,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B96A4
-value = 0x83390DAC # lb $t9, 0xFB2($t9) -> 80200DAC
+value = 0x833913DC # lb $t9, 0xFB2($t9) -> 802013DC
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3207,7 +3247,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9988
-value = 0x25CE0C38 # addiu $t6, $t6, 0xED0 -> 80200C38
+value = 0x25CE1190 # addiu $t6, $t6, 0xED0 -> 80201190
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3272,7 +3312,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B99E8
-value = 0x27390C38 # addiu $t9, $t9, 0xED0 -> 80200C38
+value = 0x27391190 # addiu $t9, $t9, 0xED0 -> 80201190
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3322,7 +3362,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9A48
-value = 0x25EF0CA8 # addiu $t7, $t7, 0xF14 -> 80200CA8
+value = 0x25EF1248 # addiu $t7, $t7, 0xF14 -> 80201248
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3387,7 +3427,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9AA8
-value = 0x25CE0CA8 # addiu $t6, $t6, 0xF14 -> 80200CA8
+value = 0x25CE1248 # addiu $t6, $t6, 0xF14 -> 80201248
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3437,7 +3477,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9B08
-value = 0x27180D18 # addiu $t8, $t8, 0xF58 -> 80200D18
+value = 0x27181300 # addiu $t8, $t8, 0xF58 -> 80201300
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3502,7 +3542,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9B68
-value = 0x25EF0D18 # addiu $t7, $t7, 0xF58 -> 80200D18
+value = 0x25EF1300 # addiu $t7, $t7, 0xF58 -> 80201300
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3552,7 +3592,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9BC8
-value = 0x27390D88 # addiu $t9, $t9, 0xF9C -> 80200D88
+value = 0x273913B8 # addiu $t9, $t9, 0xF9C -> 802013B8
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3617,7 +3657,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9C28
-value = 0x27180D88 # addiu $t8, $t8, 0xF9C -> 80200D88
+value = 0x271813B8 # addiu $t8, $t8, 0xF9C -> 802013B8
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3667,7 +3707,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9C88
-value = 0x25CE0B58 # addiu $t6, $t6, 0xE48 -> 80200B58
+value = 0x25CE1020 # addiu $t6, $t6, 0xE48 -> 80201020
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3732,7 +3772,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9CE8
-value = 0x27390B58 # addiu $t9, $t9, 0xE48 -> 80200B58
+value = 0x27391020 # addiu $t9, $t9, 0xE48 -> 80201020
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3777,7 +3817,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9D44
-value = 0x27390BC8 # addiu $t9, $t9, 0xE8C -> 80200BC8
+value = 0x273910D8 # addiu $t9, $t9, 0xE8C -> 802010D8
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3837,7 +3877,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9DA4
-value = 0x25EF0BC8 # addiu $t7, $t7, 0xE8C -> 80200BC8
+value = 0x25EF10D8 # addiu $t7, $t7, 0xE8C -> 802010D8
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3902,7 +3942,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9E30
-value = 0x25CE0928 # addiu $t6, $t6, 0xC7C -> 80200928
+value = 0x25CE0C88 # addiu $t6, $t6, 0xC7C -> 80200C88
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -3997,7 +4037,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9EF8
-value = 0x27180998 # addiu $t8, $t8, 0xCD0 -> 80200998
+value = 0x27180D40 # addiu $t8, $t8, 0xCD0 -> 80200D40
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4092,7 +4132,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803B9FC0
-value = 0x25CE0A78 # addiu $t6, $t6, 0xD68 -> 80200A78
+value = 0x25CE0EB0 # addiu $t6, $t6, 0xD68 -> 80200EB0
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4157,7 +4197,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803BA050
-value = 0x25CE0A78 # addiu $t6, $t6, 0xD68 -> 80200A78
+value = 0x25CE0EB0 # addiu $t6, $t6, 0xD68 -> 80200EB0
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4207,7 +4247,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803BA0B0
-value = 0x27180AE8 # addiu $t8, $t8, 0xDAC -> 80200AE8
+value = 0x27180F68 # addiu $t8, $t8, 0xDAC -> 80200F68
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4272,7 +4312,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803BA110
-value = 0x25EF0AE8 # addiu $t7, $t7, 0xDAC -> 80200AE8
+value = 0x25EF0F68 # addiu $t7, $t7, 0xDAC -> 80200F68
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4437,7 +4477,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803BA32C
-value = 0x25CE05C8 # addiu $t6, $t6, 0xA6C -> 802005C8
+value = 0x25CE06E8 # addiu $t6, $t6, 0xA6C -> 802006E8
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4492,7 +4532,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803BA3B4
-value = 0x25CE05C8 # addiu $t6, $t6, 0xA6C -> 802005C8
+value = 0x25CE06E8 # addiu $t6, $t6, 0xA6C -> 802006E8
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4552,7 +4592,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803BA4DC
-value = 0x25CE0778 # addiu $t6, $t6, 0xB74 -> 80200778
+value = 0x25CE09B8 # addiu $t6, $t6, 0xB74 -> 802009B8
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4607,7 +4647,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803B9478"
 vram = 0x803BA564
-value = 0x25CE0778 # addiu $t6, $t6, 0xB74 -> 80200778
+value = 0x25CE09B8 # addiu $t6, $t6, 0xB74 -> 802009B8
 
 [[patches.instruction]]
 func = "func_803B9478"
@@ -4667,7 +4707,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BAA44"
 vram = 0x803BAB50
-value = 0x80420C5C # lb $v0, 0xEE6($v0) -> 80200C5C
+value = 0x804211B4 # lb $v0, 0xEE6($v0) -> 802011B4
 
 [[patches.instruction]]
 func = "func_803BAA44"
@@ -4702,7 +4742,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BAA44"
 vram = 0x803BAB90
-value = 0x80420CCC # lb $v0, 0xF2A($v0) -> 80200CCC
+value = 0x8042126C # lb $v0, 0xF2A($v0) -> 8020126C
 
 [[patches.instruction]]
 func = "func_803BAA44"
@@ -4737,7 +4777,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BAA44"
 vram = 0x803BABD0
-value = 0x80420DAC # lb $v0, 0xFB2($v0) -> 80200DAC
+value = 0x804213DC # lb $v0, 0xFB2($v0) -> 802013DC
 
 [[patches.instruction]]
 func = "func_803BACF8"
@@ -4782,7 +4822,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BACF8"
 vram = 0x803BAED0
-value = 0xC4320658 # lwc1 $f18, 0xAC4($at) -> 80200658
+value = 0xC4320778 # lwc1 $f18, 0xAC4($at) -> 80200778
 
 [[patches.instruction]]
 func = "func_803BACF8"
@@ -4792,7 +4832,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BACF8"
 vram = 0x803BAF5C
-value = 0xC4240808 # lwc1 $f4, 0xBCC($at) -> 80200808
+value = 0xC4240A48 # lwc1 $f4, 0xBCC($at) -> 80200A48
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -4822,7 +4862,7 @@ value = 0x0018C000 # row stride 22 -> 36 ($t8 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBB14
-value = 0x24C60C38 # addiu $a2, $a2, 0xED0 -> 80200C38
+value = 0x24C61190 # addiu $a2, $a2, 0xED0 -> 80201190
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -4862,7 +4902,7 @@ value = 0x000C6000 # row stride 22 -> 36 ($t4 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBB68
-value = 0x24C60CA8 # addiu $a2, $a2, 0xF14 -> 80200CA8
+value = 0x24C61248 # addiu $a2, $a2, 0xF14 -> 80201248
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -4902,7 +4942,7 @@ value = 0x00084000 # row stride 22 -> 36 ($t0 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBBBC
-value = 0x24C60D18 # addiu $a2, $a2, 0xF58 -> 80200D18
+value = 0x24C61300 # addiu $a2, $a2, 0xF58 -> 80201300
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -4942,7 +4982,7 @@ value = 0x000E7000 # row stride 22 -> 36 ($t6 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBC10
-value = 0x24C60D88 # addiu $a2, $a2, 0xF9C -> 80200D88
+value = 0x24C613B8 # addiu $a2, $a2, 0xF9C -> 802013B8
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -4982,7 +5022,7 @@ value = 0x00094800 # row stride 22 -> 36 ($t1 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBC64
-value = 0x24C60B58 # addiu $a2, $a2, 0xE48 -> 80200B58
+value = 0x24C61020 # addiu $a2, $a2, 0xE48 -> 80201020
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -5022,7 +5062,7 @@ value = 0x000F7800 # row stride 22 -> 36 ($t7 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBCB8
-value = 0x24C60BC8 # addiu $a2, $a2, 0xE8C -> 80200BC8
+value = 0x24C610D8 # addiu $a2, $a2, 0xE8C -> 802010D8
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -5062,7 +5102,7 @@ value = 0x000B5800 # row stride 22 -> 36 ($t3 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBD0C
-value = 0x24C60928 # addiu $a2, $a2, 0xC7C -> 80200928
+value = 0x24C60C88 # addiu $a2, $a2, 0xC7C -> 80200C88
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -5102,7 +5142,7 @@ value = 0x0019C800 # row stride 22 -> 36 ($t9 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBD60
-value = 0x24C60998 # addiu $a2, $a2, 0xCD0 -> 80200998
+value = 0x24C60D40 # addiu $a2, $a2, 0xCD0 -> 80200D40
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -5142,7 +5182,7 @@ value = 0x000D6800 # row stride 22 -> 36 ($t5 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBDB4
-value = 0x24C60A78 # addiu $a2, $a2, 0xD68 -> 80200A78
+value = 0x24C60EB0 # addiu $a2, $a2, 0xD68 -> 80200EB0
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -5182,7 +5222,7 @@ value = 0x000A5000 # row stride 22 -> 36 ($t2 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBE08
-value = 0x24C60AE8 # addiu $a2, $a2, 0xDAC -> 80200AE8
+value = 0x24C60F68 # addiu $a2, $a2, 0xDAC -> 80200F68
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -5262,7 +5302,7 @@ value = 0x000C6000 # row stride 22 -> 36 ($t4 = $v1 * 36 * 4)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBEC8
-value = 0x24C605C8 # addiu $a2, $a2, 0xA6C -> 802005C8
+value = 0x24C606E8 # addiu $a2, $a2, 0xA6C -> 802006E8
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -5302,7 +5342,7 @@ value = 0x0019C800 # row stride 22 -> 36 ($t9 = $v1 * 36 * 4)
 [[patches.instruction]]
 func = "func_803BB9F8"
 vram = 0x803BBF34
-value = 0x24C60778 # addiu $a2, $a2, 0xB74 -> 80200778
+value = 0x24C609B8 # addiu $a2, $a2, 0xB74 -> 802009B8
 
 [[patches.instruction]]
 func = "func_803BB9F8"
@@ -5347,7 +5387,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BC048"
 vram = 0x803BC41C
-value = 0x816B0D3C # lb $t3, 0xF6E($t3) -> 80200D3C
+value = 0x816B1324 # lb $t3, 0xF6E($t3) -> 80201324
 
 [[patches.instruction]]
 func = "func_803BC048"
@@ -5382,7 +5422,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BC048"
 vram = 0x803BC470
-value = 0x816B0B7C # lb $t3, 0xE5E($t3) -> 80200B7C
+value = 0x816B1044 # lb $t3, 0xE5E($t3) -> 80201044
 
 [[patches.instruction]]
 func = "func_803BC048"
@@ -5417,7 +5457,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BC048"
 vram = 0x803BC4C8
-value = 0x816B0BEC # lb $t3, 0xEA2($t3) -> 80200BEC
+value = 0x816B10FC # lb $t3, 0xEA2($t3) -> 802010FC
 
 [[patches.instruction]]
 func = "func_803BC048"
@@ -5452,7 +5492,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BC048"
 vram = 0x803BC51C
-value = 0x816B094C # lb $t3, 0xC92($t3) -> 8020094C
+value = 0x816B0CAC # lb $t3, 0xC92($t3) -> 80200CAC
 
 [[patches.instruction]]
 func = "func_803BC048"
@@ -5487,7 +5527,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BC048"
 vram = 0x803BC56C
-value = 0x816B09BC # lb $t3, 0xCE6($t3) -> 802009BC
+value = 0x816B0D64 # lb $t3, 0xCE6($t3) -> 80200D64
 
 [[patches.instruction]]
 func = "func_803BC048"
@@ -5522,7 +5562,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BC048"
 vram = 0x803BC5B8
-value = 0x816B0A9C # lb $t3, 0xD7E($t3) -> 80200A9C
+value = 0x816B0ED4 # lb $t3, 0xD7E($t3) -> 80200ED4
 
 [[patches.instruction]]
 func = "func_803BC048"
@@ -5557,8 +5597,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "func_803BC048"
 vram = 0x803BC60C
-value = 0x816B0B0C # lb $t3, 0xDC2($t3) -> 80200B0C
-
+value = 0x816B0F8C # lb $t3, 0xDC2($t3) -> 80200F8C
 
 # Car preview ids (car select: id = player * 36 + type, was * 22) index the race per-car arrays, which move to 72-entry
 # copies at 0x80218000-0x80221EE8 (tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic
@@ -7670,3 +7709,2660 @@ text = "    if (rush2_collect_taken(rdram, ctx)) return;"
 func = "func_8005F418"
 before_vram = 0x8005F418
 text = "    if (rush2_collect_take(rdram, ctx)) return;"
+
+# The N64 screen centering (hold L + R and move the stick, func_800B4214; kept in the Controller Pak save and loaded by
+# func_800B3528) only pushes the picture off center here and is easy to set by accident: both offsets (D_80022FEC x,
+# D_80022FEE y) stay 0, so saves keep 0 too.
+[[patches.hook]]
+func = "func_800B4214"
+before_vram = 0x800B45AC
+text = "    MEM_H(0, (int32_t)0x80022FEC) = 0; MEM_H(0, (int32_t)0x80022FEE) = 0;"
+
+[[patches.hook]]
+func = "func_800B3528"
+before_vram = 0x800B39A4
+text = "    MEM_H(0, (int32_t)0x80022FEC) = 0; MEM_H(0, (int32_t)0x80022FEE) = 0;"
+
+# Three and four player races (src/players4.cpp). At startup (func_800B4EB0, once the frame tasks are set up), copy
+# the arrays moved by the "4 player relocations" block below and point the frame tasks at bigger graphics buffers.
+[[patches.hook]]
+func = "func_800B4EB0"
+before_vram = 0x800B5080
+text = "    rush2_players4_init(rdram, ctx);"
+
+# Frame setup, after the graphics buffer pointers are set from the task: move the matrix pool past the display list.
+[[patches.hook]]
+func = "func_800B45B4"
+before_vram = 0x800B45FC
+text = "    rush2_players4_frame_buffers(rdram, ctx);"
+
+# Race start (func_800AE670), before the cars are set up for the players (func_800A580C).
+[[patches.hook]]
+func = "func_800AE670"
+before_vram = 0x800AE7C0
+text = "    rush2_players4_race_start(rdram, ctx);"
+
+# Each menu screen's per-frame step (func_803AA92C): players 3 and 4 join.
+[[patches.hook]]
+func = "func_803AA92C"
+before_vram = 0x803AA92C
+text = "    rush2_players4_menu(rdram, ctx);"
+
+# Car select (func_803B9478): with 3 or 4 players, players 3 and 4 choose in a second round. Once every player has
+# chosen (before the race is started, 0x803B96D4) or one backs out (0x803B9564), the round may change instead.
+[[patches.hook]]
+func = "func_803B9478"
+before_vram = 0x803B96D4
+text = "    if (rush2_players4_cars_chosen(rdram, ctx)) goto L_803BA884;"
+
+[[patches.hook]]
+func = "func_803B9478"
+before_vram = 0x803B9564
+text = "    if (rush2_players4_cars_back(rdram, ctx)) goto L_803BA884;"
+
+# Rush 2's engine voices (func_8009E664 -> func_8008C61C) exist for two local players' slots: the car setup
+# (func_8009E6DC, car index in $s4) starts slot 0 for player 1 and slot 1 for every other player, so players 3 and 4
+# get none (src/car_engines.cpp plays their cars like the other cars) instead of restarting player 2's.
+[[patches.hook]]
+func = "func_8009E664"
+before_vram = 0x8009E664
+text = "    if ((int16_t)ctx->r4 >= 2 || (int32_t)ctx->r20 >= 2) return;"
+
+# Car select (func_803BC048), after a panel's "PLAYER %d" label is formatted at $sp + 0x6C: in the second round it
+# names players 3 and 4.
+[[patches.hook]]
+func = "func_803BC048"
+before_vram = 0x803BC228
+text = "    rush2_players4_car_label(rdram, ctx);"
+
+# The game's per-frame state machine (func_800AE670): after a race with 3 or 4 players, the counts go back to 2 for the
+# race over screens, which are built for two players.
+[[patches.hook]]
+func = "func_800AE670"
+before_vram = 0x800AE674
+text = "    rush2_players4_state(rdram, ctx);"
+
+# Race end (func_800AE670): once players 1 and 2 have finished (0x800AEF14), the race also waits for players 3 and 4.
+[[patches.hook]]
+func = "func_800AE670"
+before_vram = 0x800AEF14
+text = "    if (!rush2_players4_all_finished(rdram, ctx)) goto L_800AEED0;"
+
+# After the race setup sets up the fog of views 0 and 1 (func_80081074), and after the per-frame update of it.
+[[patches.hook]]
+func = "func_800A5ADC"
+before_vram = 0x800A609C
+text = "    rush2_players4_race_views(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800AE670"
+before_vram = 0x800AF148
+text = "    rush2_players4_frame_views(rdram, ctx);"
+
+# The race HUD's element and widget pools grow from 200 to 400 entries (moved by the relocation block below; four
+# players' HUDs use about 230).
+[[patches.instruction]]
+func = "func_80060418"
+vram = 0x8006042C
+value = 0x28410190 # slti $at, $v0, 400 (elements)
+
+[[patches.instruction]]
+func = "func_800541F8"
+vram = 0x80054224
+value = 0x28610190 # slti $at, $v1, 400 (widgets)
+
+[[patches.instruction]]
+func = "func_800541F8"
+vram = 0x80054238
+value = 0x28610190 # slti $at, $v1, 400 (widgets)
+
+[[patches.instruction]]
+func = "func_80081008"
+vram = 0x8008101C
+value = 0x24050190 # addiu $a1, $zero, 400 (element pool setup)
+
+# The per-view fog setup indexes tables by the number of players, which have rows for 1 and 2 players: read the count
+# clamped to 2 (rush2::players4::clamped_players, 0x8024F000) instead.
+[[patches.instruction]]
+func = "func_80081074"
+vram = 0x800810E8
+value = 0x3C0A8025 # lui $t2, 0x8025
+
+[[patches.instruction]]
+func = "func_80081074"
+vram = 0x800810EC
+value = 0x254AF000 # addiu $t2, $t2, -0x1000 -> 8024F000
+
+# The frame's vertex buffer that every view appends its sky and background vertices to (func_8007D9DC sets
+# D_800E7D1C = 0x800FF3D8 + frame * 0x6400) overflows with four views, into the music's loop count (0x8010BCC8) and the
+# game state: two buffers of 0xC800 at 0x802D0000 (free RDRAM after src/players4.cpp's frame blocks) instead.
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E8D4
+value = 0x3C18802D # lui $t8, 0x802D
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E8D8
+value = 0x27180000 # addiu $t8, $t8, 0
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E8F4
+value = 0x000F7AC0 # sll $t7, $t7, 11 (frame * 0xC800)
+
+# Per-view matrices in the frame's graphics buffer, moved from a two-view layout to a four-view one: viewports +0x00,
+# sky vertices +0x40 (was +0x20), projections +0x80 (+0x40), root modelviews +0x180 (+0xC0), shared modelview +0x280
+# (+0x140).
+[[patches.instruction]]
+func = "func_8007B518"
+vram = 0x8007B674
+value = 0x27190040 # addiu $t9, $t8, 0x40 (sky vertex)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CAC4
+value = 0x24840080 # addiu $a0, $a0, 0x80 (projection)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CB38
+value = 0x24840080 # addiu $a0, $a0, 0x80 (projection)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CBAC
+value = 0x25EE0080 # addiu $t6, $t7, 0x80 (projection)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CE50
+value = 0xA5F80040 # sh $t8, 0x40($t7) (sky vertex)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CE70
+value = 0xA5F90042 # sh $t9, 0x42($t7)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CE90
+value = 0xA5F80044 # sh $t8, 0x44($t7)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CE9C
+value = 0xA7200040 # sh $zero, 0x40($t9)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CEA8
+value = 0xA5E00042 # sh $zero, 0x42($t7)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CEB4
+value = 0xA7200044 # sh $zero, 0x44($t9)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CEC8
+value = 0x24A50180 # addiu $a1, $a1, 0x180 (root modelview)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CEEC
+value = 0x270F0180 # addiu $t7, $t8, 0x180 (root modelview)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CEFC
+value = 0x24840280 # addiu $a0, $a0, 0x280 (shared modelview)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CF20
+value = 0xAF190280 # sw $t9, 0x280($t8)
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CF48
+value = 0x27380280 # addiu $t8, $t9, 0x280
+
+# Scene lists for views 2 and 3. The scene graph keeps one draw list per view, linked through per-view fields of each
+# node (D_800D9E90, 0x38 bytes) that exist for two views only, so views 2 and 3 draw the lists of views 0 and 1 (all
+# culling happens as they're drawn, with each view's own camera): in func_8007B518, the node link offset (view * 2)
+# and per-view hide bit (0x100 << view) use view & 1, and world polygons (D_800FAF00, a view mask each) for view 0 or 1
+# are drawn in view 2 or 3 too.
+[[patches.hook]]
+func = "func_8007B518"
+before_vram = 0x8007B5A4
+text = "    rush2_players4_list_offset(rdram, ctx);"
+
+[[patches.instruction]]
+func = "func_8007B518"
+vram = 0x8007B628
+value = 0x0010C842 # lw $t9, 0x118($sp) (view) -> srl $t9, $s0, 1 (view & 1)
+
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007D00C
+text = "    rush2_players4_poly_mask(rdram, ctx);"
+
+# BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)
+[[patches.instruction]]
+func = "func_80053A6C"
+vram = 0x80053AA4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80053A6C"
+vram = 0x80053AAC
+value = 0xE42C022C # swc1 $f12, 0x18C4($at) -> 8024022C
+
+[[patches.instruction]]
+func = "func_80053A6C"
+vram = 0x80053AC8
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80053A6C"
+vram = 0x80053ACC
+value = 0x273901F0 # addiu $t9, $t9, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_800540F8"
+vram = 0x80054100
+value = 0x3C0F802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_800540F8"
+vram = 0x80054104
+value = 0x25EF6C00 # addiu $t7, $t7, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_800540F8"
+vram = 0x80054120
+value = 0x3C09802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_800540F8"
+vram = 0x80054124
+value = 0x25296C00 # addiu $t1, $t1, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_80054140"
+vram = 0x80054148
+value = 0x3C0F802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80054140"
+vram = 0x8005414C
+value = 0x25EF6C00 # addiu $t7, $t7, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_80054140"
+vram = 0x80054168
+value = 0x3C09802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80054140"
+vram = 0x8005416C
+value = 0x25296C00 # addiu $t1, $t1, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_80054188"
+vram = 0x800541A4
+value = 0x3C01802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80054188"
+vram = 0x800541AC
+value = 0xA02F6C16 # sb $t7, -0x6A92($at) -> 802F6C16
+
+[[patches.instruction]]
+func = "func_800541B8"
+vram = 0x800541B8
+value = 0x3C0F802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_800541B8"
+vram = 0x800541BC
+value = 0x25EF6C00 # addiu $t7, $t7, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_800541F8"
+vram = 0x80054208
+value = 0x3C04802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_800541F8"
+vram = 0x80054214
+value = 0x24846C00 # addiu $a0, $a0, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_800541F8"
+vram = 0x8005424C
+value = 0x3C18802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_800541F8"
+vram = 0x80054250
+value = 0x27186C00 # addiu $t8, $t8, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_800542E8"
+vram = 0x800542E8
+value = 0x3C18802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_800542E8"
+vram = 0x800542EC
+value = 0x27186C00 # addiu $t8, $t8, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_80054348"
+vram = 0x80054350
+value = 0x3C0F802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80054348"
+vram = 0x80054354
+value = 0x25EF6C00 # addiu $t7, $t7, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_80054348"
+vram = 0x80054368
+value = 0x3C19802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80054348"
+vram = 0x8005436C
+value = 0x27396C00 # addiu $t9, $t9, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_80054430"
+vram = 0x80054440
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054430"
+vram = 0x80054444
+value = 0x25EF01F0 # addiu $t7, $t7, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_800544E8"
+vram = 0x80054580
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800544E8"
+vram = 0x8005458C
+value = 0x271801F0 # addiu $t8, $t8, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_800546B0"
+vram = 0x800546C0
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800546B0"
+vram = 0x800546C4
+value = 0x25EF01F0 # addiu $t7, $t7, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80054A50"
+vram = 0x80054A6C
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054A50"
+vram = 0x80054A74
+value = 0x25EF01F0 # addiu $t7, $t7, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80054BB0"
+vram = 0x80054C24
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054BB0"
+vram = 0x80054C28
+value = 0x250801F0 # addiu $t0, $t0, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80054BB0"
+vram = 0x80054CE0
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054BB0"
+vram = 0x80054CEC
+value = 0x250801F0 # addiu $t0, $t0, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80054BB0"
+vram = 0x80054D44
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054BB0"
+vram = 0x80054D48
+value = 0x250801F0 # addiu $t0, $t0, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80054DCC"
+vram = 0x80054DD0
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054DCC"
+vram = 0x80054DD4
+value = 0x258C01F0 # addiu $t4, $t4, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80054E5C"
+vram = 0x80054E70
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054E5C"
+vram = 0x80054E80
+value = 0x25CE01F0 # addiu $t6, $t6, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80054EA8"
+vram = 0x80054EC0
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054EA8"
+vram = 0x80054EC8
+value = 0x25EF01F0 # addiu $t7, $t7, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80054EF4"
+vram = 0x80054F0C
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80054EF4"
+vram = 0x80054F14
+value = 0x25EF01F0 # addiu $t7, $t7, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80059B9C"
+vram = 0x80059C4C
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80059B9C"
+vram = 0x80059C50
+value = 0x250800F0 # addiu $t0, $t0, 0x7A58 -> 802400F0
+
+[[patches.instruction]]
+func = "func_8005A598"
+vram = 0x8005A9F8
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8005A598"
+vram = 0x8005A9FC
+value = 0x25CE0450 # addiu $t6, $t6, 0x7AF0 -> 80240450
+
+[[patches.instruction]]
+func = "func_8005ACC8"
+vram = 0x8005AD94
+value = 0x3C058024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8005ACC8"
+vram = 0x8005AD98
+value = 0x24A50642 # addiu $a1, $a1, 0x2498 -> 80240642
+
+[[patches.instruction]]
+func = "func_8005E7EC"
+vram = 0x8005E804
+value = 0x3C078024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8005E7EC"
+vram = 0x8005E818
+value = 0x24E70642 # addiu $a3, $a3, 0x2498 -> 80240642
+
+[[patches.instruction]]
+func = "func_8005FED8"
+vram = 0x8005FEE0
+value = 0x3C09802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8005FED8"
+vram = 0x8005FEE4
+value = 0x3C08802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8005FED8"
+vram = 0x8005FEF8
+value = 0x25086400 # addiu $t0, $t0, -0x3570 -> 802F6400
+
+[[patches.instruction]]
+func = "func_8005FED8"
+vram = 0x8005FEFC
+value = 0x25296C00 # addiu $t1, $t1, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_8005FED8"
+vram = 0x8005FF10
+value = 0x3C05802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8005FED8"
+vram = 0x8005FF14
+value = 0x24A56400 # addiu $a1, $a1, -0x3570 -> 802F6400
+
+[[patches.instruction]]
+func = "func_80060104"
+vram = 0x80060114
+value = 0x3C0F802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80060104"
+vram = 0x80060118
+value = 0x25EF6C00 # addiu $t7, $t7, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_80060418"
+vram = 0x80060450
+value = 0x3C10802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80060418"
+vram = 0x80060458
+value = 0x8E106400 # lw $s0, -0x3570($s0) -> 802F6400
+
+[[patches.instruction]]
+func = "func_800606A8"
+vram = 0x800608F8
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800606A8"
+vram = 0x80060970
+value = 0x8F390004 # lw $t9, 0x2194($t9) -> 80240004
+
+[[patches.instruction]]
+func = "func_80065270"
+vram = 0x8006528C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80065270"
+vram = 0x80065298
+value = 0xE4240730 # swc1 $f4, -0x3F28($at) -> 80240730
+
+[[patches.instruction]]
+func = "func_800663CC"
+vram = 0x80066494
+value = 0x3C0E8025 # lui -> 8025
+
+[[patches.instruction]]
+func = "func_800663CC"
+vram = 0x800664A8
+value = 0x85CEF000 # lh $t6, -0x3C1E($t6) -> 8024F000
+
+[[patches.instruction]]
+func = "func_8006722C"
+vram = 0x80067248
+value = 0x3C0F8025 # lui -> 8025
+
+[[patches.instruction]]
+func = "func_8006722C"
+vram = 0x8006725C
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8006722C"
+vram = 0x80067260
+value = 0x24420360 # addiu $v0, $v0, 0x3F68 -> 80240360
+
+[[patches.instruction]]
+func = "func_8006722C"
+vram = 0x800672AC
+value = 0x85EFF000 # lh $t7, -0x3C1E($t7) -> 8024F000
+
+[[patches.instruction]]
+func = "func_8006722C"
+vram = 0x800672D4
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8006722C"
+vram = 0x800672D8
+value = 0x24420360 # addiu $v0, $v0, 0x3F68 -> 80240360
+
+[[patches.instruction]]
+func = "func_80067358"
+vram = 0x8006735C
+value = 0x3C0E8025 # lui -> 8025
+
+[[patches.instruction]]
+func = "func_80067358"
+vram = 0x80067360
+value = 0x85CEF000 # lh $t6, -0x3C1E($t6) -> 8024F000
+
+[[patches.instruction]]
+func = "func_80067358"
+vram = 0x800673A0
+value = 0x3C1E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80067358"
+vram = 0x800673AC
+value = 0x27DE0360 # addiu $fp, $fp, 0x3F68 -> 80240360
+
+[[patches.instruction]]
+func = "func_80067358"
+vram = 0x800673CC
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80067358"
+vram = 0x800673D4
+value = 0x256B0350 # addiu $t3, $t3, 0x100C -> 80240350
+
+[[patches.instruction]]
+func = "func_80067358"
+vram = 0x80067A68
+value = 0x3C098025 # lui -> 8025
+
+[[patches.instruction]]
+func = "func_80067358"
+vram = 0x80067A6C
+value = 0x8529F000 # lh $t1, -0x3C1E($t1) -> 8024F000
+
+[[patches.instruction]]
+func = "func_80067D9C"
+vram = 0x80067DA0
+value = 0x3C0E8025 # lui -> 8025
+
+[[patches.instruction]]
+func = "func_80067D9C"
+vram = 0x80067DA4
+value = 0x85CEF000 # lh $t6, -0x3C1E($t6) -> 8024F000
+
+[[patches.instruction]]
+func = "func_80067D9C"
+vram = 0x80068628
+value = 0x3C0C8025 # lui -> 8025
+
+[[patches.instruction]]
+func = "func_80067D9C"
+vram = 0x8006862C
+value = 0x858CF000 # lh $t4, -0x3C1E($t4) -> 8024F000
+
+[[patches.instruction]]
+func = "func_8006890C"
+vram = 0x80068958
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8006890C"
+vram = 0x80068964
+value = 0x244204F0 # addiu $v0, $v0, 0x7B18 -> 802404F0
+
+[[patches.instruction]]
+func = "func_80072DA4"
+vram = 0x80072E30
+value = 0x3C058024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80072DA4"
+vram = 0x80072E64
+value = 0x24A500E0 # addiu $a1, $a1, 0x7A50 -> 802400E0
+
+[[patches.instruction]]
+func = "func_80072DA4"
+vram = 0x80072EE0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80072DA4"
+vram = 0x80072F14
+value = 0xC42800E0 # lwc1 $f8, 0x7A50($at) -> 802400E0
+
+[[patches.instruction]]
+func = "func_80072DA4"
+vram = 0x800730F0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80072DA4"
+vram = 0x800730F4
+value = 0xC42400E0 # lwc1 $f4, 0x7A50($at) -> 802400E0
+
+[[patches.instruction]]
+func = "func_80072DA4"
+vram = 0x800730FC
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80072DA4"
+vram = 0x8007311C
+value = 0xE42000E0 # swc1 $f0, 0x7A50($at) -> 802400E0
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007C654
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007C658
+value = 0x273901F0 # addiu $t9, $t9, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CF40
+value = 0x3C098024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007C624"
+vram = 0x8007CF64
+value = 0x852906B0 # lh $t1, -0x5164($t1) -> 802406B0
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DAB4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DAB8
+value = 0xC4240230 # lwc1 $f4, 0x18C8($at) -> 80240230
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DABC
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DAC0
+value = 0xC426022C # lwc1 $f6, 0x18C4($at) -> 8024022C
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DB68
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DB6C
+value = 0xC4240234 # lwc1 $f4, 0x18CC($at) -> 80240234
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DB70
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DB78
+value = 0xC428022C # lwc1 $f8, 0x18C4($at) -> 8024022C
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DC14
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DC18
+value = 0xC4240238 # lwc1 $f4, 0x18D0($at) -> 80240238
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DC1C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DC24
+value = 0xC42A022C # lwc1 $f10, 0x18C4($at) -> 8024022C
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DD70
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DD74
+value = 0xC42C022C # lwc1 $f12, 0x18C4($at) -> 8024022C
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DD78
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DD7C
+value = 0xC4240230 # lwc1 $f4, 0x18C8($at) -> 80240230
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DE20
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DE24
+value = 0xC4240234 # lwc1 $f4, 0x18CC($at) -> 80240234
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DEBC
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007DEC0
+value = 0xC4240238 # lwc1 $f4, 0x18D0($at) -> 80240238
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E218
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E21C
+value = 0xC42C022C # lwc1 $f12, 0x18C4($at) -> 8024022C
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E220
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E224
+value = 0xC4280230 # lwc1 $f8, 0x18C8($at) -> 80240230
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E2C8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E2CC
+value = 0xC4280234 # lwc1 $f8, 0x18CC($at) -> 80240234
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E364
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007E368
+value = 0xC4280238 # lwc1 $f8, 0x18D0($at) -> 80240238
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EAC4
+value = 0x3C1E802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EAC8
+value = 0x27DE6C00 # addiu $fp, $fp, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EAEC
+value = 0x3C19802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EAF0
+value = 0x27396C00 # addiu $t9, $t9, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EB28
+value = 0x3C19802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EB2C
+value = 0x27396C00 # addiu $t9, $t9, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EBCC
+value = 0x3C19802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EBD0
+value = 0x27396C00 # addiu $t9, $t9, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EC3C
+value = 0x3C0F802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007EC40
+value = 0x25EF6C00 # addiu $t7, $t7, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007F0BC
+value = 0x3C18802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_8007D9DC"
+vram = 0x8007F0C0
+value = 0x27186C00 # addiu $t8, $t8, -0x6AA8 -> 802F6C00
+
+[[patches.instruction]]
+func = "func_8007F268"
+vram = 0x8007F3B0
+value = 0x3C108024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007F268"
+vram = 0x8007F3B4
+value = 0x261006B0 # addiu $s0, $s0, -0x5164 -> 802406B0
+
+[[patches.instruction]]
+func = "func_8007F570"
+vram = 0x8007F5CC
+value = 0x3C168024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007F570"
+vram = 0x8007F5D0
+value = 0x26D606B0 # addiu $s6, $s6, -0x5164 -> 802406B0
+
+[[patches.instruction]]
+func = "func_8007FAB4"
+vram = 0x8007FAE8
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007FAB4"
+vram = 0x8007FAEC
+value = 0x3C038024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007FAB4"
+vram = 0x8007FAF8
+value = 0x246306B8 # addiu $v1, $v1, -0x5160 -> 802406B8
+
+[[patches.instruction]]
+func = "func_8007FAB4"
+vram = 0x8007FAFC
+value = 0x244206B0 # addiu $v0, $v0, -0x5164 -> 802406B0
+
+[[patches.instruction]]
+func = "func_8007FB50"
+vram = 0x8007FBB4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007FB50"
+vram = 0x8007FBBC
+value = 0xA42206B0 # sh $v0, -0x5164($at) -> 802406B0
+
+[[patches.instruction]]
+func = "func_8007FBD8"
+vram = 0x8007FC00
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8007FBD8"
+vram = 0x8007FC0C
+value = 0x844206B2 # lh $v0, -0x5162($v0) -> 802406B2
+
+[[patches.instruction]]
+func = "func_80080F48"
+vram = 0x80080F68
+value = 0x3C11802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80080F48"
+vram = 0x80080F6C
+value = 0x26316400 # addiu $s1, $s1, -0x3570 -> 802F6400
+
+[[patches.instruction]]
+func = "func_80080F48"
+vram = 0x80080FB0
+value = 0x3C19802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80080F48"
+vram = 0x80080FB4
+value = 0x27396400 # addiu $t9, $t9, -0x3570 -> 802F6400
+
+[[patches.instruction]]
+func = "func_80080F48"
+vram = 0x80080FD0
+value = 0x3C09802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80080F48"
+vram = 0x80080FD4
+value = 0x25296400 # addiu $t1, $t1, -0x3570 -> 802F6400
+
+[[patches.instruction]]
+func = "func_80081008"
+vram = 0x80081008
+value = 0x3C03802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80081008"
+vram = 0x8008100C
+value = 0x3C04802F # lui -> 802F
+
+[[patches.instruction]]
+func = "func_80081008"
+vram = 0x80081010
+value = 0x24840000 # addiu $a0, $a0, -0x6778 -> 802F0000
+
+[[patches.instruction]]
+func = "func_80081008"
+vram = 0x80081014
+value = 0x24636400 # addiu $v1, $v1, -0x3570 -> 802F6400
+
+[[patches.instruction]]
+func = "func_80081074"
+vram = 0x800810B8
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80081074"
+vram = 0x800810BC
+value = 0x25EF01F0 # addiu $t7, $t7, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80081074"
+vram = 0x8008113C
+value = 0x3C0D8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80081074"
+vram = 0x80081144
+value = 0x25AD01F0 # addiu $t5, $t5, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_8008813C"
+vram = 0x800887A8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8008813C"
+vram = 0x800887B0
+value = 0xC42006A4 # lwc1 $f0, -0x380($at) -> 802406A4
+
+[[patches.instruction]]
+func = "func_80088AC8"
+vram = 0x80088AF4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80088AC8"
+vram = 0x80088B20
+value = 0xA0390380 # sb $t9, 0x7B9C($at) -> 80240380
+
+[[patches.instruction]]
+func = "func_80088DF0"
+vram = 0x80088E58
+value = 0x3C148024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80088DF0"
+vram = 0x80088E6C
+value = 0x26940340 # addiu $s4, $s4, -0x3FC0 -> 80240340
+
+[[patches.instruction]]
+func = "func_80088DF0"
+vram = 0x80088E9C
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80088DF0"
+vram = 0x80088EAC
+value = 0x25EF00F0 # addiu $t7, $t7, 0x7A58 -> 802400F0
+
+[[patches.instruction]]
+func = "func_8008918C"
+vram = 0x80089214
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8008918C"
+vram = 0x80089218
+value = 0x273901F0 # addiu $t9, $t9, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80089564"
+vram = 0x80089594
+value = 0x3C108024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80089564"
+vram = 0x800895A8
+value = 0x261000F0 # addiu $s0, $s0, 0x7A58 -> 802400F0
+
+[[patches.instruction]]
+func = "func_8008965C"
+vram = 0x80089684
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8008965C"
+vram = 0x80089698
+value = 0xA0220380 # sb $v0, 0x7B9C($at) -> 80240380
+
+[[patches.instruction]]
+func = "func_800896CC"
+vram = 0x800896EC
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800896CC"
+vram = 0x800896F4
+value = 0x93390380 # lbu $t9, 0x7B9C($t9) -> 80240380
+
+[[patches.instruction]]
+func = "func_80089C98"
+vram = 0x80089D40
+value = 0x3C058024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80089C98"
+vram = 0x80089D44
+value = 0x24A501F0 # addiu $a1, $a1, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80089C98"
+vram = 0x80089D94
+value = 0x3C058024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80089C98"
+vram = 0x80089D9C
+value = 0x24A501F0 # addiu $a1, $a1, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_80089C98"
+vram = 0x80089FB0
+value = 0x3C048024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_80089C98"
+vram = 0x80089FBC
+value = 0x248401F0 # addiu $a0, $a0, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_8008A1FC"
+vram = 0x8008A578
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8008A1FC"
+vram = 0x8008A57C
+value = 0x3C038024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8008A1FC"
+vram = 0x8008A584
+value = 0x24630460 # addiu $v1, $v1, 0x7AF8 -> 80240460
+
+[[patches.instruction]]
+func = "func_8008A1FC"
+vram = 0x8008A588
+value = 0x24420450 # addiu $v0, $v0, 0x7AF0 -> 80240450
+
+[[patches.instruction]]
+func = "func_8008E40C"
+vram = 0x8008E5D0
+value = 0x3C0D8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8008E40C"
+vram = 0x8008E5D4
+value = 0x25AD0390 # addiu $t5, $t5, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8008EFF4"
+vram = 0x8008F008
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8008EFF4"
+vram = 0x8008F020
+value = 0xE42806C0 # swc1 $f8, 0x35E8($at) -> 802406C0
+
+[[patches.instruction]]
+func = "func_8008EFF4"
+vram = 0x8008F02C
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8008EFF4"
+vram = 0x8008F038
+value = 0x27180710 # addiu $t8, $t8, 0x39B8 -> 80240710
+
+[[patches.instruction]]
+func = "func_8009ABDC"
+vram = 0x8009AC00
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009ABDC"
+vram = 0x8009AC14
+value = 0xC42006A4 # lwc1 $f0, -0x380($at) -> 802406A4
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009ACD8
+value = 0x3C098024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009ACE0
+value = 0x252904D0 # addiu $t1, $t1, 0x7D30 -> 802404D0
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009ACF8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009AD00
+value = 0xC42604E0 # lwc1 $f6, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009AD1C
+value = 0x3C0A8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009AD20
+value = 0x254A04D0 # addiu $t2, $t2, 0x7D30 -> 802404D0
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009ADC4
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009ADC8
+value = 0x25EF0390 # addiu $t7, $t7, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009AE2C
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AC74"
+vram = 0x8009AE30
+value = 0x27390390 # addiu $t9, $t9, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AEA4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AEC4
+value = 0xA42A0660 # sh $t2, -0x7088($at) -> 80240660
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AED8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AEE0
+value = 0xA42B0650 # sh $t3, -0x75B4($at) -> 80240650
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AEE8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AEF0
+value = 0xE4280670 # swc1 $f8, -0x7060($at) -> 80240670
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AEF4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF00
+value = 0xE42A0680 # swc1 $f10, -0x7050($at) -> 80240680
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF04
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF0C
+value = 0x258C0670 # addiu $t4, $t4, -0x7060 -> 80240670
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF6C
+value = 0x3C138024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF70
+value = 0x3C0D8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF80
+value = 0x25AD0680 # addiu $t5, $t5, -0x7050 -> 80240680
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF84
+value = 0x86730650 # lh $s3, -0x75B4($s3) -> 80240650
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF8C
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009AF90
+value = 0x27180660 # addiu $t8, $t8, -0x7088 -> 80240660
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009B104
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009AE54"
+vram = 0x8009B144
+value = 0xE42404E0 # swc1 $f4, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009B180"
+vram = 0x8009B3E4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B180"
+vram = 0x8009B3F0
+value = 0xE43804E0 # swc1 $f24, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009B180"
+vram = 0x8009B404
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B180"
+vram = 0x8009B414
+value = 0xE42A04E0 # swc1 $f10, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009B180"
+vram = 0x8009B438
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B180"
+vram = 0x8009B450
+value = 0xE42804E0 # swc1 $f8, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009B180"
+vram = 0x8009B454
+value = 0xE43804E0 # swc1 $f24, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B4D0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B4E0
+value = 0xE42404B0 # swc1 $f4, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B4E8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B4F0
+value = 0xE42604B0 # swc1 $f6, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B504
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B510
+value = 0xE42804C0 # swc1 $f8, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B518
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B524
+value = 0xE42A04C0 # swc1 $f10, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B560
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B570
+value = 0xE43004B0 # swc1 $f16, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B57C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B584
+value = 0xE43204B0 # swc1 $f18, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B590
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B598
+value = 0xE42404C0 # swc1 $f4, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B59C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B480"
+vram = 0x8009B5AC
+value = 0xA02B0460 # sb $t3, 0x7BD0($at) -> 80240460
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B61C
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B620
+value = 0x273905E0 # addiu $t9, $t9, 0x2458 -> 802405E0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B644
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B648
+value = 0x25EF0390 # addiu $t7, $t7, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B6C4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B6D0
+value = 0xA43805D0 # sh $t8, 0x2450($at) -> 802405D0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B6D4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B6E0
+value = 0xA0200640 # sb $zero, 0x2496($at) -> 80240640
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B6E4
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B6E8
+value = 0x25EF05D0 # addiu $t7, $t7, 0x2450 -> 802405D0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B6F8
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B708
+value = 0x93180640 # lbu $t8, 0x2496($t8) -> 80240640
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B738
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B744
+value = 0xC43604C0 # lwc1 $f22, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B748
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B750
+value = 0xC43A04B0 # lwc1 $f26, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B79C
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B7A0
+value = 0x25EF05E0 # addiu $t7, $t7, 0x2458 -> 802405E0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B7D0
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B7E0
+value = 0x25CE0610 # addiu $t6, $t6, 0x2478 -> 80240610
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B8C8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B8D4
+value = 0xC43604C0 # lwc1 $f22, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B8D8
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B8DC
+value = 0x27390640 # addiu $t9, $t9, 0x2496 -> 80240640
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B8E0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B8F0
+value = 0xC43A04B0 # lwc1 $f26, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B93C
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B940
+value = 0x271805E0 # addiu $t8, $t8, 0x2458 -> 802405E0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B95C
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B960
+value = 0x25EF0610 # addiu $t7, $t7, 0x2478 -> 80240610
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B9D4
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B9D8
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B9DC
+value = 0x27390610 # addiu $t9, $t9, 0x2478 -> 80240610
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009B9E0
+value = 0x271805E0 # addiu $t8, $t8, 0x2458 -> 802405E0
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009BA28
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009B5B0"
+vram = 0x8009BA70
+value = 0xE42604E0 # swc1 $f6, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009BAC0"
+vram = 0x8009BAF4
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009BAC0"
+vram = 0x8009BAF8
+value = 0x273905A0 # addiu $t9, $t9, 0xBE0 -> 802405A0
+
+[[patches.instruction]]
+func = "func_8009BAC0"
+vram = 0x8009BB24
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009BAC0"
+vram = 0x8009BB28
+value = 0x258C05A0 # addiu $t4, $t4, 0xBE0 -> 802405A0
+
+[[patches.instruction]]
+func = "func_8009BAC0"
+vram = 0x8009BB4C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009BAC0"
+vram = 0x8009BB7C
+value = 0xE42404E0 # swc1 $f4, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009BB9C"
+vram = 0x8009BE58
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009BB9C"
+vram = 0x8009BE7C
+value = 0xE42804E0 # swc1 $f8, 0x7D48($at) -> 802404E0
+
+[[patches.instruction]]
+func = "func_8009BE90"
+vram = 0x8009BEF8
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009BE90"
+vram = 0x8009BF00
+value = 0x273904D0 # addiu $t9, $t9, 0x7D30 -> 802404D0
+
+[[patches.instruction]]
+func = "func_8009BE90"
+vram = 0x8009BF44
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009BE90"
+vram = 0x8009BF50
+value = 0x25EF0390 # addiu $t7, $t7, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009BE90"
+vram = 0x8009BFF8
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009BE90"
+vram = 0x8009BFFC
+value = 0x27390390 # addiu $t9, $t9, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C0C0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C0C8
+value = 0xC43604C0 # lwc1 $f22, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C0CC
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C0D4
+value = 0xC43A04B0 # lwc1 $f26, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C104
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C120
+value = 0xC42804C0 # lwc1 $f8, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C124
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C12C
+value = 0xC42A04B0 # lwc1 $f10, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C168
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C184
+value = 0xC43604C0 # lwc1 $f22, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C188
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C190
+value = 0xC42A04B0 # lwc1 $f10, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C1A8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C1B0
+value = 0xC43604C0 # lwc1 $f22, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C1B4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C050"
+vram = 0x8009C1BC
+value = 0xC43A04B0 # lwc1 $f26, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C23C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C24C
+value = 0xC42404C0 # lwc1 $f4, 0x7D10($at) -> 802404C0
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C250
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C258
+value = 0xC42604B0 # lwc1 $f6, 0x7CC0($at) -> 802404B0
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C284
+value = 0x3C0E8025 # lui -> 8025
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C294
+value = 0x85CEF000 # lh $t6, -0x3C1E($t6) -> 8024F000
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C3D4
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C3D8
+value = 0x256B0460 # addiu $t3, $t3, 0x7BD0 -> 80240460
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C498
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C4A0
+value = 0xC4260470 # lwc1 $f6, 0x7C20($at) -> 80240470
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C4A8
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C4B8
+value = 0x25CE0580 # addiu $t6, $t6, -0x3ED0 -> 80240580
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C510
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C514
+value = 0x25EF0580 # addiu $t7, $t7, -0x3ED0 -> 80240580
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C530
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C538
+value = 0x27180580 # addiu $t8, $t8, -0x3ED0 -> 80240580
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C5B8
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C5BC
+value = 0x27390590 # addiu $t9, $t9, -0x3EB8 -> 80240590
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C5E0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C5E8
+value = 0xC42A0470 # lwc1 $f10, 0x7C20($at) -> 80240470
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C60C
+value = 0x3C0A8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C610
+value = 0x254A0590 # addiu $t2, $t2, -0x3EB8 -> 80240590
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C668
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C66C
+value = 0x256B0590 # addiu $t3, $t3, -0x3EB8 -> 80240590
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C698
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C69C
+value = 0x258C0590 # addiu $t4, $t4, -0x3EB8 -> 80240590
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C958
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009C97C
+value = 0x27180520 # addiu $t8, $t8, -0x3F10 -> 80240520
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CA54
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CA58
+value = 0x256B0520 # addiu $t3, $t3, -0x3F10 -> 80240520
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CBD4
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CBE8
+value = 0x25CE0550 # addiu $t6, $t6, -0x3EF0 -> 80240550
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CCC8
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CCD4
+value = 0x27180550 # addiu $t8, $t8, -0x3EF0 -> 80240550
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CCDC
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CCEC
+value = 0x256B0390 # addiu $t3, $t3, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CD84
+value = 0x3C0C8025 # lui -> 8025
+
+[[patches.instruction]]
+func = "func_8009C228"
+vram = 0x8009CD88
+value = 0x858CF000 # lh $t4, -0x3C1E($t4) -> 8024F000
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D2A4
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D2B0
+value = 0x27180480 # addiu $t8, $t8, 0x7C38 -> 80240480
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D318
+value = 0x3C0A8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D31C
+value = 0x254A0480 # addiu $t2, $t2, 0x7C38 -> 80240480
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D33C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D34C
+value = 0xC4280450 # lwc1 $f8, 0x7AF0($at) -> 80240450
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D458
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D45C
+value = 0x25CE0390 # addiu $t6, $t6, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D550
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D554
+value = 0x25CE0390 # addiu $t6, $t6, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D5C4
+value = 0x3C098024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D5C8
+value = 0x25290390 # addiu $t1, $t1, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D624
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D628
+value = 0x256B0390 # addiu $t3, $t3, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D6A0
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D6A4
+value = 0x27180390 # addiu $t8, $t8, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D6F8
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D6FC
+value = 0x27390390 # addiu $t9, $t9, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D750
+value = 0x3C0D8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D754
+value = 0x25AD0390 # addiu $t5, $t5, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D7A8
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D7AC
+value = 0x27180390 # addiu $t8, $t8, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D814
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D02C"
+vram = 0x8009D818
+value = 0x258C04F0 # addiu $t4, $t4, 0x7B18 -> 802404F0
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DA68
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DA80
+value = 0x90420380 # lbu $v0, 0x7B9C($v0) -> 80240380
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DAEC
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DAF0
+value = 0x258C0690 # addiu $t4, $t4, -0x38C -> 80240690
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DB04
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DB08
+value = 0x256B06A0 # addiu $t3, $t3, -0x384 -> 802406A0
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DC6C
+value = 0x3C0D8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DC70
+value = 0x25AD0480 # addiu $t5, $t5, 0x7C38 -> 80240480
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DD94
+value = 0x3C0A8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DD98
+value = 0x254A0480 # addiu $t2, $t2, 0x7C38 -> 80240480
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DDD4
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DDE4
+value = 0x258C0390 # addiu $t4, $t4, 0x7B38 -> 80240390
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DE60
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009D9F4"
+vram = 0x8009DE64
+value = 0x25EF0470 # addiu $t7, $t7, 0x7C20 -> 80240470
+
+[[patches.instruction]]
+func = "func_8009E138"
+vram = 0x8009E154
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009E138"
+vram = 0x8009E15C
+value = 0x25080480 # addiu $t0, $t0, 0x7C38 -> 80240480
+
+[[patches.instruction]]
+func = "func_8009E45C"
+vram = 0x8009E5B8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_8009E45C"
+vram = 0x8009E5BC
+value = 0xA0220380 # sb $v0, 0x7B9C($at) -> 80240380
+
+[[patches.instruction]]
+func = "func_800A06F8"
+vram = 0x800A072C
+value = 0x3C038024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800A06F8"
+vram = 0x800A0730
+value = 0x3C048024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800A06F8"
+vram = 0x800A0734
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800A06F8"
+vram = 0x800A0738
+value = 0x3C058024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800A06F8"
+vram = 0x800A073C
+value = 0x24A506F0 # addiu $a1, $a1, 0x3AF8 -> 802406F0
+
+[[patches.instruction]]
+func = "func_800A06F8"
+vram = 0x800A0740
+value = 0x244206E0 # addiu $v0, $v0, 0x3AF0 -> 802406E0
+
+[[patches.instruction]]
+func = "func_800A06F8"
+vram = 0x800A0744
+value = 0x248406D0 # addiu $a0, $a0, 0x3A38 -> 802406D0
+
+[[patches.instruction]]
+func = "func_800A06F8"
+vram = 0x800A0748
+value = 0x246306C0 # addiu $v1, $v1, 0x35E8 -> 802406C0
+
+[[patches.instruction]]
+func = "func_800A3690"
+vram = 0x800A36C8
+value = 0x3C128024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800A3690"
+vram = 0x800A36D4
+value = 0x26520380 # addiu $s2, $s2, 0x7B9C -> 80240380
+
+[[patches.instruction]]
+func = "func_800A6E60"
+vram = 0x800A74D0
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800A6E60"
+vram = 0x800A74D4
+value = 0x8F390000 # lw $t9, 0x2190($t9) -> 80240000
+
+[[patches.instruction]]
+func = "func_800AB91C"
+vram = 0x800ABA5C
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800AB91C"
+vram = 0x800ABA60
+value = 0x244201F0 # addiu $v0, $v0, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_800ABAD4"
+vram = 0x800ABCCC
+value = 0x3C078024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800ABAD4"
+vram = 0x800ABCE8
+value = 0x24E701F0 # addiu $a3, $a3, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_800ABE7C"
+vram = 0x800ABF6C
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800ABE7C"
+vram = 0x800ABF74
+value = 0x250801F0 # addiu $t0, $t0, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_800ABE7C"
+vram = 0x800AC380
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800ABE7C"
+vram = 0x800AC388
+value = 0x250801F0 # addiu $t0, $t0, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "func_800B667C"
+vram = 0x800B6760
+value = 0x3C158024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B667C"
+vram = 0x800B6764
+value = 0x26B50000 # addiu $s5, $s5, 0x2190 -> 80240000
+
+[[patches.instruction]]
+func = "func_800B7654"
+vram = 0x800B77F0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B7654"
+vram = 0x800B77F8
+value = 0xC4280730 # lwc1 $f8, -0x3F28($at) -> 80240730
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C34
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C3C
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C54
+value = 0xC43006E0 # lwc1 $f16, 0x3AF0($at) -> 802406E0
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C58
+value = 0x25EF06D0 # addiu $t7, $t7, 0x3A38 -> 802406D0
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C74
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C7C
+value = 0xE42C06E0 # swc1 $f12, 0x3AF0($at) -> 802406E0
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C80
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C88
+value = 0xC42C06D0 # lwc1 $f12, 0x3A38($at) -> 802406D0
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C8C
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B7B1C"
+vram = 0x800B7C90
+value = 0x273906F0 # addiu $t9, $t9, 0x3968 -> 802406F0
+
+[[patches.instruction]]
+func = "func_800B9754"
+vram = 0x800B987C
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B9754"
+vram = 0x800B9884
+value = 0x933906F0 # lbu $t9, 0x3968($t9) -> 802406F0
+
+[[patches.instruction]]
+func = "func_800B9754"
+vram = 0x800B993C
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B9754"
+vram = 0x800B9944
+value = 0x904206F0 # lbu $v0, 0x3968($v0) -> 802406F0
+
+[[patches.instruction]]
+func = "func_800B9978"
+vram = 0x800B9984
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B9978"
+vram = 0x800B99B4
+value = 0xC42406C0 # lwc1 $f4, 0x35E8($at) -> 802406C0
+
+[[patches.instruction]]
+func = "func_800B9978"
+vram = 0x800B9A8C
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B9978"
+vram = 0x800B9A94
+value = 0x91CE0710 # lbu $t6, 0x39B8($t6) -> 80240710
+
+[[patches.instruction]]
+func = "func_800B9978"
+vram = 0x800B9B34
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800B9978"
+vram = 0x800B9B3C
+value = 0x90420710 # lbu $v0, 0x39B8($v0) -> 80240710
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BA8C4
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BA8CC
+value = 0x256B0740 # addiu $t3, $t3, -0x3C24 -> 80240740
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BAA40
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BAA60
+value = 0xA0200750 # sb $zero, 0x5AAA($at) -> 80240750
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BAA6C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BAA78
+value = 0xA02D0750 # sb $t5, 0x5AAA($at) -> 80240750
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BAB40
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BAB50
+value = 0x27180740 # addiu $t8, $t8, -0x3C24 -> 80240740
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BAC80
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_800BA868"
+vram = 0x800BAC84
+value = 0x25EF0740 # addiu $t7, $t7, -0x3C24 -> 80240740
+
+[[patches.instruction]]
+func = "func_803AE55C"
+vram = 0x803AE648
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803AE55C"
+vram = 0x803AE64C
+value = 0xC4240218 # lwc1 $f4, 0x18B0($at) -> 80240218
+
+[[patches.instruction]]
+func = "func_803AE55C"
+vram = 0x803AE650
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803AE55C"
+vram = 0x803AE658
+value = 0xC426021C # lwc1 $f6, 0x18B4($at) -> 8024021C
+
+[[patches.instruction]]
+func = "func_803AE55C"
+vram = 0x803AE65C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803AE55C"
+vram = 0x803AE660
+value = 0xC4280220 # lwc1 $f8, 0x18B8($at) -> 80240220
+
+[[patches.instruction]]
+func = "func_803AE55C"
+vram = 0x803AE664
+value = 0x3C078024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803AE55C"
+vram = 0x803AE66C
+value = 0x8CE70214 # lw $a3, 0x18AC($a3) -> 80240214
+
+[[patches.instruction]]
+func = "func_803B0270"
+vram = 0x803B02D0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803B0270"
+vram = 0x803B02D4
+value = 0xC4240218 # lwc1 $f4, 0x18B0($at) -> 80240218
+
+[[patches.instruction]]
+func = "func_803B0270"
+vram = 0x803B02D8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803B0270"
+vram = 0x803B02DC
+value = 0xC426021C # lwc1 $f6, 0x18B4($at) -> 8024021C
+
+[[patches.instruction]]
+func = "func_803B0270"
+vram = 0x803B02E0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803B0270"
+vram = 0x803B02E4
+value = 0xC4280220 # lwc1 $f8, 0x18B8($at) -> 80240220
+
+[[patches.instruction]]
+func = "func_803B0270"
+vram = 0x803B02E8
+value = 0x3C078024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803B0270"
+vram = 0x803B02EC
+value = 0x8CE70214 # lw $a3, 0x18AC($a3) -> 80240214
+
+[[patches.instruction]]
+func = "func_803B30A0"
+vram = 0x803B3490
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803B30A0"
+vram = 0x803B3494
+value = 0x8DCE0000 # lw $t6, 0x2190($t6) -> 80240000
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B65B4
+value = 0x3C068024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B65B8
+value = 0x24C60130 # addiu $a2, $a2, 0x7A98 -> 80240130
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B6848
+value = 0x3C068024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803B6260"
+vram = 0x803B684C
+value = 0x24C60130 # addiu $a2, $a2, 0x7A98 -> 80240130
+
+[[patches.instruction]]
+func = "func_803BE5B0"
+vram = 0x803BEA94
+value = 0x3C058024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803BE5B0"
+vram = 0x803BEAA8
+value = 0x8CA50004 # lw $a1, 0x2194($a1) -> 80240004
+
+[[patches.instruction]]
+func = "func_803C189C"
+vram = 0x803C19B0
+value = 0x3C168024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803C189C"
+vram = 0x803C19B4
+value = 0x26D60000 # addiu $s6, $s6, 0x2190 -> 80240000
+
+[[patches.instruction]]
+func = "func_803C430C"
+vram = 0x803C46D4
+value = 0x3C058024 # lui -> 8024
+
+[[patches.instruction]]
+func = "func_803C430C"
+vram = 0x803C46FC
+value = 0x8CA50004 # lw $a1, 0x2194($a1) -> 80240004
+
+# END 4 player relocations

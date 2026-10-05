@@ -71,6 +71,9 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    // Xbox controllers otherwise open through SDL's RawInput driver, which reported no button state from an Xbox Elite
+    // controller; XInput / Windows.Gaming.Input report them.
+    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) > 0) {
         exit_error("Failed to initialize SDL2: %s\n", SDL_GetError());
@@ -81,10 +84,11 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     return {};
 }
 
-static bool script_uses_controller2 = false; // Set by an --input-script with P2 presses.
+static bool script_uses_controller[4] = {}; // Set by an --input-script with P2-P4 presses.
 
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
-    if (rush2::input::is_port_connected(controller_num) || (controller_num == 1 && script_uses_controller2)) {
+    if (rush2::input::is_port_connected(controller_num) ||
+        (controller_num >= 0 && controller_num < 4 && script_uses_controller[controller_num])) {
         return ultramodern::input::connected_device_info_t{
             .connected_device = ultramodern::input::Device::Controller,
             .connected_pak = ultramodern::input::Pak::RumblePak,
@@ -378,7 +382,7 @@ void reorder_texture_pack(recomp::mods::ModContext&) {
 
 // --input-script "<seconds>:<button>[:<hold seconds>],..." presses N64 buttons at fixed times after
 // launch, on top of real input (used for automated testing). Buttons: A B Z START L R CU CD CL CR DU DD DL DR, for
-// controller 1, or with a P2 prefix (P2START) for controller 2.
+// controller 1, or with a P2-P4 prefix (P2START) for controllers 2-4.
 struct ScriptedPress {
     double time;
     double duration;
@@ -410,9 +414,9 @@ static void parse_input_script(const std::string& script) {
             press.duration = std::stod(name.substr(colon2 + 1));
             name = name.substr(0, colon2);
         }
-        if (name.rfind("P2", 0) == 0) {
-            press.controller = 1;
-            script_uses_controller2 = true;
+        if (name.size() > 2 && name[0] == 'P' && name[1] >= '2' && name[1] <= '4') {
+            press.controller = name[1] - '1';
+            script_uses_controller[press.controller] = true;
             name = name.substr(2);
         }
         for (const auto& [button_name, mask] : buttons) {
@@ -426,6 +430,10 @@ static void parse_input_script(const std::string& script) {
 
 static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     bool ret = rush2::input::get_n64_input(controller_num, buttons, x, y);
+    // A port the script presses on is a connected controller from the start, so the game doesn't pause for it.
+    if (controller_num >= 0 && controller_num < 4 && script_uses_controller[controller_num]) {
+        ret = true;
+    }
     if (!input_script.empty()) {
         double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - launch_time).count();
         for (const auto& press : input_script) {
