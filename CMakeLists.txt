@@ -84,6 +84,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/lod.cpp
     ${CMAKE_SOURCE_DIR}/src/cheats.cpp
     ${CMAKE_SOURCE_DIR}/src/fonts.cpp
+    ${CMAKE_SOURCE_DIR}/src/players4.cpp
+    ${CMAKE_SOURCE_DIR}/src/splitscreen.cpp
     ${CMAKE_SOURCE_DIR}/src/widescreen.cpp
     ${CMAKE_SOURCE_DIR}/src/input.cpp
     ${CMAKE_SOURCE_DIR}/src/controls.cpp

@@ -15,6 +15,8 @@ namespace rush2::car2049 {
     constexpr uint32_t car_list = 0x80222000;
     // Appends the 2049 cars (when available) to player p's car list.
     void append_to_car_list(uint8_t* rdram, int player);
+    // Swaps two players' rows (0-3) of the per-player car tables (src/players4.cpp's second car select round).
+    void swap_player_rows(uint8_t* rdram, int a, int b);
 
     // Builds the 36-entry per-type tables (us.toml points the game at them). Call once at boot.
     void init_tables(uint8_t* rdram);

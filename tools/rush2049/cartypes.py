@@ -15,7 +15,9 @@ import refscan
 N_OLD, N_NEW = 22, 36
 NEW_BASE = 0x80200000
 
-# (old address, element size, rows, meaning). Rows are: 0 = defaults/drones, 1 = player 1, 2 = player 2.
+# (old address, element size, rows, meaning). Rows are: 0 = defaults/drones, 1 = player 1, 2 = player 2. The copies
+# of the per-player tables get two more rows, for players 3 and 4 (src/players4.cpp): the rows are indexed by human
+# car + 1.
 TABLES = [
     (0x800C06B4, 4, 1, 'steer/yaw force base'),
     (0x800C070C, 4, 1, 'yaw damping base'),
@@ -42,11 +44,18 @@ TABLES = [
 ]
 
 
+NEW_PLAYER_ROWS = 5
+
+
+def new_rows(rows):
+    return NEW_PLAYER_ROWS if rows == 3 else rows
+
+
 def layout():
     out, at = [], NEW_BASE
     for old, size, rows, meaning in TABLES:
         out.append((old, at, size, rows, meaning))
-        at += (N_NEW * size * rows + 7) & ~7
+        at += (N_NEW * size * new_rows(rows) + 7) & ~7
     return out
 
 

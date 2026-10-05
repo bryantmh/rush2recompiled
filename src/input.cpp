@@ -1,6 +1,6 @@
 // Per-port input for Rush 2.
 //
-// Rush 2 has two players, on N64 ports 1 and 2. The Players tab (src/players_tab.cpp) sets each port's controller to
+// Rush 2 has up to four players (two in the original game, src/players4.cpp), on N64 ports 1-4. The Players tab (src/players_tab.cpp) sets each port's controller to
 // Auto, None or one specific controller, and picks the port the keyboard drives (port 1 by default):
 // - A specific controller takes its port whenever it's connected, and is remembered across launches by its GUID and
 //   serial number.
@@ -62,7 +62,8 @@ namespace {
     int keyboard_port = 0;
 
     // Instance ID of the SDL controller driving each port. Written on the game thread, read by the VI and UI threads.
-    std::array<std::atomic<SDL_JoystickID>, num_ports> port_controllers = { no_controller, no_controller };
+    std::array<std::atomic<SDL_JoystickID>, num_ports> port_controllers = { no_controller, no_controller, no_controller,
+                                                                            no_controller };
 
     // Exponent applied to stick X before the game's steering. The game cubes the normalized stick X (func_80076694),
     // which was tuned for the stiff N64 stick; |x|^p with p < 1 cancels part (p = 1/3: all) of that curve.
@@ -185,6 +186,14 @@ namespace {
         }
         for (const Connected& c : connected) {
             if (key_guid(c.key) == key_guid(key) && free(c.id)) {
+                return c.id;
+            }
+        }
+        // Or the same vendor and product: the GUID's checksum and driver bytes change when SDL opens the controller
+        // through another driver (RawInput, XInput, HIDAPI).
+        for (const Connected& c : connected) {
+            if (key_guid(c.key).size() >= 24 && key_guid(key).size() >= 24 &&
+                key_guid(c.key).substr(8, 16) == key_guid(key).substr(8, 16) && free(c.id)) {
                 return c.id;
             }
         }

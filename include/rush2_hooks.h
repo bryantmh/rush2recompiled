@@ -31,6 +31,8 @@ void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx);
 // HUD edge anchoring (src/hud.cpp).
 void rush2_hud_build_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_build_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_finish_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_finish_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx);
@@ -57,6 +59,27 @@ void rush2_view_scissor_written(uint8_t* rdram, recomp_context* ctx);
 void rush2_frame_clear_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_frame_clear_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_model_draw(uint8_t* rdram, recomp_context* ctx);
+
+// Three and four player races (src/players4.cpp).
+void rush2_players4_init(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_frame_buffers(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_race_start(uint8_t* rdram, recomp_context* ctx);
+int rush2_players4_cars_chosen(uint8_t* rdram, recomp_context* ctx);
+int rush2_players4_cars_back(uint8_t* rdram, recomp_context* ctx);
+int rush2_players4_all_finished(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_car_label(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_menu(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_state(uint8_t* rdram, recomp_context* ctx);
+int rush2_players4_skip_finish_box(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_race_views(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_list_offset(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_poly_mask(uint8_t* rdram, recomp_context* ctx);
+
+// Split screen layout (src/splitscreen.cpp).
+void rush2_split_views_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_split_views_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_split_divider(uint8_t* rdram, recomp_context* ctx);
 
 // Level of detail override (src/lod.cpp).
 void rush2_lod_select(uint8_t* rdram, recomp_context* ctx);

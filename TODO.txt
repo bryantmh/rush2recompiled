@@ -16,12 +16,34 @@ San Francisco Rush 2049:
 9) Parts upgrade system for coin unlocks
 10) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
 11) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
+12) rocket car plume renders underneath certain effects like the car's shadow
 
 General:
-1) left-right splitscreen options
-2) 4-player splitscreen options
-3) Better lighting?
-4) The game thread hitches ~130 ms as a race starts (seen on SF Rush track 6 with the Crusher). Cause unknown:
+1) Better lighting?
+2) The game thread hitches ~130 ms as a race starts (seen on SF Rush track 6 with the Crusher). Cause unknown:
    time the frames around race start (suspects: first-use shader/texture work in the renderer, our own one-time
    loading like Rush 1 track data or engine samples decoded in src/car_engines.cpp, or the game's own race setup).
    Sounds no longer cut out over it (track2049::sounds_paused), but the frame drop is still there.
+3) Best averages numbers aren't properly aligned
+4) Organize tracks better
+5) Split screen and 3-4 players (src/splitscreen.cpp, src/players4.cpp, src/hud.cpp). Done: Side by Side option,
+   3-4 player races (join with START on a free controller after player 2, two-round car select, quadrant views),
+   HUD layout (time/place on the outer edge, radar against the middle, map centered), Test Players option
+   (Settings > General) for idle players 3/4. Remaining:
+   a) "1st/2nd PLACE" finish banners only show for players 1 and 2; players 3 and 4's copies are built
+      (players4::finish_overlay_built) but don't appear yet.
+   b) Bonus time banner centering in 3-4 player (not checked yet).
+   c) Race over / results screens are 2 player: at race over (game state 4) the counts drop back to 2
+      (rush2_players4_state); players 3 and 4 aren't in them. Keeping 4 there crashed (bad audio sample read).
+   d) Players 3 and 4 skip Select Player: they race with their controller's record or the profile already chosen
+      on that port; no profile pick or Create Player for them.
+   e) Engines/rumble: Rush 2 has engine voices and rumble for 2 local players; players 3 and 4's cars play through
+      src/car_engines.cpp as other cars (heard from players 1-2's listeners), and have no rumble.
+   f) 3 players: the 4th quadrant is black and the track map's translucent outline is invisible over it (maybe a
+      grey fill or a spectator view of the leader).
+   g) Test Players are idle (cars stay on the grid); no AI driving for them.
+   h) docs/BUILDING.md split screen paragraph still describes only side by side; nothing committed yet.
+   i) An Xbox Elite controller on port 3 gives no input: SDL opens it through its RawInput driver and reports no
+      button state. Turning RawInput off (SDL_HINT_JOYSTICK_RAWINPUT 0) fixed the input but coincided with race HUD
+      widgets left on the menus after the attract demo, so it was reverted; needs a proper look. Also the runtime's
+      boot controller scan reports only one port present (ultramodern input.cpp: `*pattern = 1 << controller`).

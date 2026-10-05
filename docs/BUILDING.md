@@ -23,6 +23,13 @@ How the port works, how the ROM is laid out, and how to build it. For the player
 - Level of detail (Settings > Graphics): **Original** or **Off**. Off draws every model at its most detailed LOD and
   turns off the per-model cull distance from its LOD table, by zeroing the camera distance the model draw function
   computes. Models whose LOD the game selects explicitly are untouched (`src/lod.cpp`, hook in `us.toml`).
+- Split screen (Settings > Graphics): **Top and Bottom** (original) or **Side by Side** for 2 player races, taking
+  effect at the next race. Side by side rewrites the two race views after the game sets them up into halves that keep
+  the single player view's vertical field of view and, in widescreen, are each sized to half of the widened screen;
+  the black line between the views becomes a column. The 2 player HUD moves with them: each element goes from its
+  place in its player's top or bottom half to the same place in their left or right half, the shared track map is
+  centered on the line, and in widescreen each half's elements anchor to that half (`src/splitscreen.cpp`,
+  `src/hud.cpp`, hooks in `us.toml`).
 - Fonts (Settings > Graphics): **Original** or **High Resolution** (default). High Resolution enables a built-in RT64
   texture pack (`assets/rush2_hires_fonts.rtz`, copied into the mods folder at startup) with every font and the race
   HUD's numbers and "MPH" label redrawn as vector art; no original pixels are packed. Regular fonts use Inter with each
