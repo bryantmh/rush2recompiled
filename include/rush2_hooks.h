@@ -21,6 +21,7 @@ void rush2_enable_pak_rumble(uint8_t* rdram, recomp_context* ctx);
 
 // Save menu without Controller Paks (src/pak.cpp).
 int rush2_pak_menu_state(uint8_t* rdram, recomp_context* ctx);
+void rush2_pak_menu_default_player(uint8_t* rdram, recomp_context* ctx);
 void rush2_player_deleted(uint8_t* rdram, recomp_context* ctx);
 void rush2_player_deleted_from_list(uint8_t* rdram, recomp_context* ctx);
 void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
