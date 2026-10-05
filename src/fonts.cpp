@@ -14,7 +14,8 @@
 // clamped), but other images aren't: the race HUD's digits sample past their tile's width on purpose (a second tile
 // reads each row at double S to reach the high nibble of every CI8 texel).
 //
-// Set RUSH2_DUMP_FONT_TABLES=<path> to dump the font tables the pack is built from (see dump_font_tables).
+// Set RUSH2_DUMP_FONT_TABLES=<path> to dump the font tables the pack is built from (see dump_font_tables), and
+// RUSH2_DUMP_IMAGES=<path> to dump every 2D image the game loads (see dump_image_load).
 
 #include <atomic>
 #include <cstdint>
@@ -23,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -35,6 +37,8 @@
 
 namespace {
     constexpr uint32_t dl_2d_cursor = 0x80125ABC; // Next free command in the 2D display list.
+    constexpr uint32_t g_settimg = 0xFD;
+    constexpr uint32_t g_loadtlut = 0xF0;
     constexpr uint32_t g_settile = 0xF5;
     constexpr uint32_t g_settilesize = 0xF2;
     constexpr uint32_t g_tx_loadtile = 7;
@@ -111,6 +115,65 @@ static void dump_font_tables(uint8_t* rdram) {
     fclose(f);
 }
 
+// Display list commands from start to end as a JSON array of [word0, word1], adding 4 KiB (enough to fill TMEM) from
+// every texture image they set to images.
+static std::string dump_commands(uint8_t* rdram, int32_t start, int32_t end, std::string& images) {
+    std::string out = "[";
+    for (int32_t cmd = start; cmd < end; cmd += 8) {
+        uint32_t word0 = (uint32_t)MEM_W(0, cmd);
+        uint32_t word1 = (uint32_t)MEM_W(4, cmd);
+        char text[32];
+        snprintf(text, sizeof(text), "%s[%u,%u]", cmd == start ? "" : ",", word0, word1);
+        out += text;
+        if ((word0 >> 24) == g_settimg && (word1 & 0x00FFFFFF) < 0x800000 - 0x1000) {
+            snprintf(text, sizeof(text), "%s\"%u\":\"", images.empty() ? "" : ",", word1);
+            images += text;
+            int32_t address = (int32_t)(0x80000000u | (word1 & 0x00FFFFFF));
+            for (int i = 0; i < 0x1000; i++) {
+                snprintf(text, sizeof(text), "%02x", MEM_BU(i, address));
+                images += text;
+            }
+            images += "\"";
+        }
+    }
+    return out + "]";
+}
+
+// Appends each distinct image load as a JSON line to the path in RUSH2_DUMP_IMAGES, for tools/build_font_pack.py to
+// find and hash images to redraw: the commands func_80055F78 wrote, the commands of the last palette load before them,
+// the commands that followed up to the next image load (CI images can get their palette there, before the draw), and
+// the texture images all of them point to. Each load is written at the next one, once the commands after it exist.
+static void dump_image_load(uint8_t* rdram, int32_t start, int32_t end) {
+    static std::set<std::string> seen;
+    static int32_t pending_start = 0, pending_end = 0;
+    static const char* path = getenv("RUSH2_DUMP_IMAGES");
+    if (path == nullptr) {
+        return;
+    }
+
+    if (pending_start != 0 && start > pending_end && start - pending_end < 0x800) {
+        std::string images;
+        std::string line = "{\"cmds\":" + dump_commands(rdram, pending_start, pending_end, images);
+        for (int32_t cmd = pending_start - 8; cmd >= pending_start - 0x2000; cmd -= 8) {
+            if (((uint32_t)MEM_W(0, cmd) >> 24) == g_loadtlut) {
+                line += ",\"tlut\":" + dump_commands(rdram, cmd - 0x20, cmd + 8, images);
+                break;
+            }
+        }
+        line += ",\"after\":" + dump_commands(rdram, pending_end, start, images);
+        line += ",\"images\":{" + images + "}}\n";
+        if (seen.insert(line).second) {
+            FILE* f = fopen(path, "a");
+            if (f != nullptr) {
+                fputs(line.c_str(), f);
+                fclose(f);
+            }
+        }
+    }
+    pending_start = start;
+    pending_end = end;
+}
+
 extern "C" {
 
 // func_80055F78 entry: loads a 2D image into the 2D display list.
@@ -122,7 +185,11 @@ void rush2_font_load_begin(uint8_t* rdram, recomp_context* ctx) {
 // func_80055F78 exit. Clamps font sheet tiles, and other tiles whose height is smaller than their mask.
 void rush2_font_load_end(uint8_t* rdram, recomp_context* ctx) {
     int32_t end = MEM_W(0, (int32_t)dl_2d_cursor);
-    if (!hires_fonts_enabled || font_load_start == 0 || end < font_load_start || end - font_load_start > 0x400) {
+    if (font_load_start == 0 || end < font_load_start || end - font_load_start > 0x400) {
+        return;
+    }
+    dump_image_load(rdram, font_load_start, end);
+    if (!hires_fonts_enabled) {
         return;
     }
 

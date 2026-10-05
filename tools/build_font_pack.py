@@ -8,6 +8,7 @@ game's own pixels are packed.
   python tools/build_font_pack.py trace <font_tables.json>        Redraw every font sheet as an SVG.
   python tools/build_font_pack.py trace-hud <texture dump dir>...  Redraw the HUD images listed in hud.json.
   python tools/build_font_pack.py pack                            Rasterize the SVGs and write the .rtz.
+  python tools/build_font_pack.py images <image dump> <out dir>   Write every dumped 2D image as <RT64 hash>.png.
 
 font_tables.json comes from running the game with RUSH2_DUMP_FONT_TABLES=<path> (src/fonts.cpp). It holds each font's
 pages: the sheet's pixels and the rectangle of every character in it. The HUD images come from RT64 texture dumps
@@ -30,7 +31,7 @@ Characters neither set covers (the game's cursor, block, diamond and (c)/(r) sha
 character uses, are traced instead: bicubic upsampling, a contour between the core and halo levels, simplification,
 and sharp corners kept while gentle turns become curves (all corners for squared fonts).
 
-HUD images: see the HUD images section.
+HUD images: see the HUD images section. Menu images (the blinking selection arrows): see the Image dumps section.
 
 Packing renders the SVGs at SCALE times the original size with supersampling. Font sheets are stored as RGBA with every
 channel equal to the intensity, which is how RT64 samples I4 textures; HUD images as RGBA. Font sheet hashes are
@@ -60,6 +61,10 @@ SVG_DIR = os.path.join(PACK_DIR, 'svg')
 FONT_LIST = os.path.join(PACK_DIR, 'fonts.json')
 HUD_LIST = os.path.join(PACK_DIR, 'hud.json')
 HUD_SVG_DIR = os.path.join(PACK_DIR, 'hud_svg')
+# Menu images, drawn by tools/font_pack/draw_arrows.py (never cleared here). The selection arrows are drawn flipped
+# vertically starting at their last row, which RT64 samples from texel centers, so the bottom stored row never shows and
+# the clamped edge past row 0 shows below them: their drawings fit between y = 0.25 and 12, leaving that edge clear.
+MENU_SVG_DIR = os.path.join(PACK_DIR, 'menu_svg')
 VECTOR_FONT = os.path.join(ROOT, 'assets', 'InterVariable.ttf')
 OUTPUT = os.path.join(ROOT, 'assets', 'rush2_hires_fonts.rtz')
 
@@ -1039,6 +1044,193 @@ def render_color_svg(text):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Image dumps
+#
+# Menu images (tools/font_pack/menu_svg) are drawn by hand, named by their RT64 hash. To find an image's hash, run the
+# game with RUSH2_DUMP_IMAGES=<path> (src/fonts.cpp) and pass the dump to the images command: it replays each load
+# into TMEM the way RT64 does (rt64_rdp.cpp) and writes every distinct image as <hash>.png.
+
+TMEM_MASK = 0xFFF
+
+
+class DumpTile:
+    def __init__(self):
+        self.fmt = self.siz = self.line = self.tmem = self.palette = 0
+        self.cms = self.cmt = self.masks = self.maskt = 0
+        self.uls = self.ult = self.lrs = self.lrt = 0
+
+
+def replay(cmds, images, tmem, tiles, state):
+    """Runs a dumped command list's tile setup and texture loads into tmem."""
+    for w0, w1 in cmds:
+        op = w0 >> 24
+        if op == 0xFD:  # SetTImg
+            state['timg'] = ((w0 >> 19) & 3, (w0 & 0xFFF) + 1, images[str(w1)])
+            continue
+        tile = tiles[(w1 >> 24) & 7]
+        if op == 0xF5:  # SetTile
+            tile.fmt, tile.siz, tile.line, tile.tmem = (w0 >> 21) & 7, (w0 >> 19) & 3, (w0 >> 9) & 0x1FF, w0 & 0x1FF
+            tile.palette, tile.cmt, tile.maskt = (w1 >> 20) & 0xF, (w1 >> 18) & 3, (w1 >> 14) & 0xF
+            tile.cms, tile.masks = (w1 >> 8) & 3, (w1 >> 4) & 0xF
+        elif op == 0xF2:  # SetTileSize
+            tile.uls, tile.ult, tile.lrs, tile.lrt = (w0 >> 12) & 0xFFF, w0 & 0xFFF, (w1 >> 12) & 0xFFF, w1 & 0xFFF
+        elif op in (0xF3, 0xF0, 0xF4):
+            siz, width, src = state['timg']
+            uls, ult, lrs, lrt = (w0 >> 12) & 0xFFF, w0 & 0xFFF, (w1 >> 12) & 0xFFF, w1 & 0xFFF
+            row_bytes = width << siz >> 1
+
+            def put(address, value):
+                tmem[address & TMEM_MASK] = value
+
+            def byte(offset):
+                return src[offset] if offset < len(src) else 0
+
+            if op == 0xF3:  # LoadBlock: one run of words, odd lines (by dxt) word-swapped.
+                source, address, swap, counter = (uls << siz >> 1) + row_bytes * ult, tile.tmem << 3, 0, 0
+                for _ in range(((lrs - uls) >> (4 - tile.siz)) + 1):
+                    for i in range(8):
+                        put((address + i) ^ swap, byte(source + i))
+                    counter += lrt
+                    while counter >= 0x800:
+                        address += tile.line << 3
+                        counter -= 0x800
+                        swap ^= 4
+                    source += 8
+                    address += 8
+            elif op == 0xF0:  # LoadTLUT: each 16-bit entry fills a 64-bit word.
+                source = ((uls >> 2) << siz >> 1) + row_bytes * (ult >> 2)
+                for entry in range((lrs >> 2) - (uls >> 2) + 1):
+                    for i in range(8):
+                        put((tile.tmem << 3) + entry * 8 + i, byte(source + entry * 2 + (i & 1)))
+            else:  # LoadTile: rows at the tile's line stride, odd rows word-swapped.
+                source = ((uls >> 2) << siz >> 1) + row_bytes * (ult >> 2)
+                words = (((lrs >> 2) - (uls >> 2)) >> (4 - tile.siz)) + 1
+                for row in range((lrt >> 2) - (ult >> 2) + 1):
+                    for i in range(words * 8):
+                        put((tile.tmem << 3) + row * (tile.line << 3) + (i ^ (4 if row & 1 else 0)),
+                            byte(source + row * row_bytes + i))
+
+
+def tmem_hash(tmem, tile, width, height, tlut):
+    """RT64's TMEMHasher (version 5), with its TLUT bitset."""
+    rgba32 = tile.siz == 3 and tile.fmt == 0
+    size = 2048 if rgba32 or tlut else 4096
+    row_bytes = max(width << (2 if rgba32 else tile.siz) >> 1, 1)
+    start = (tile.tmem << 3) & (size - 1)
+    h = xxhash.xxh3_64()
+    used = [0, 0, 0, 0]
+
+    def update(data):
+        h.update(bytes(data))
+        for v in data if tlut else ():
+            if tile.siz == 0:
+                used[0] |= (1 << (v & 0xF)) | (1 << (v >> 4))
+            else:
+                used[v >> 6] |= 1 << (v & 0x3F)
+
+    def hash_range(base, count, odd_row):
+        if base + count > size:
+            update(tmem[base:size])
+            count = min(count - (size - base), base)
+            base = 0
+        if odd_row:
+            words = count // 8 * 8
+            update(tmem[base:base + words])
+            base, count = base + words, count - words
+            if count > 4:
+                update(tmem[base:base + count - 4])
+                update(tmem[base + 4:base + 8])
+            elif count > 0:
+                update(tmem[base + 4:base + 4 + count])
+        else:
+            update(tmem[base:base + count])
+
+    if (tile.line << 3) > row_bytes:
+        for y in range(height):
+            hash_range((start + y * (tile.line << 3)) & (size - 1), row_bytes, y & 1)
+    else:
+        hash_range(start, (tile.line << 3) * (height - 1) + row_bytes, False)
+    if tlut:
+        ci4 = tile.siz == 0
+        palette = 2048 + (tile.palette << 7 if ci4 else 0)
+        if ci4 and used[0] == 0xFFFF:
+            h.update(bytes(tmem[palette:palette + 0x80]))
+        else:
+            for i in range(1 if ci4 else 4):
+                if used[i] == (1 << 64) - 1:
+                    h.update(bytes(tmem[palette + i * 0x200:palette + (i + 1) * 0x200]))
+                else:
+                    for bit in range(64):
+                        if used[i] >> bit & 1:
+                            entry = palette + (i * 64 + bit) * 8
+                            h.update(bytes(tmem[entry:entry + 8]))
+    h.update(struct.pack('<HHIHBB', width, height, tlut, tile.line, tile.siz, tile.fmt))
+    return f'{h.intdigest():016x}'
+
+
+def decode_tmem(tmem, tile, width, height):
+    """RGBA of a CI, I4 or RGBA16 tile in tmem."""
+    out = np.zeros((height, width, 4), np.uint8)
+
+    def rgba16(e):
+        expand = lambda v: (v << 3) | (v >> 2)
+        return expand(e >> 11 & 31), expand(e >> 6 & 31), expand(e >> 1 & 31), 255 if e & 1 else 0
+
+    for y in range(height):
+        for x in range(width):
+            rel = y * (tile.line << 3) + ((x << tile.siz) >> 1)
+            if y & 1:
+                rel ^= 4
+            address = (tile.tmem << 3) + rel
+            value = tmem[address & (0x7FF if tile.fmt == 2 else TMEM_MASK)]
+            nibble = (value >> (0 if x & 1 else 4)) & 0xF
+            if tile.fmt == 2:
+                index = (tile.palette << 4) | nibble if tile.siz == 0 else value
+                out[y, x] = rgba16((tmem[0x800 + index * 8] << 8) | tmem[0x801 + index * 8])
+            elif tile.fmt == 4 and tile.siz == 0:
+                out[y, x] = (nibble * 17,) * 4
+            elif tile.fmt == 0 and tile.siz == 2:
+                out[y, x] = rgba16((value << 8) | tmem[(address + 1) & TMEM_MASK])
+    return out
+
+
+def dumped_image(load):
+    """(hash, RGBA) of a dumped image load as RT64 sees it when drawn with tile 0."""
+    images = {k: bytes.fromhex(v) for k, v in load['images'].items()}
+    tmem, tiles, state = bytearray(4096), [DumpTile() for _ in range(8)], {}
+    replay(load.get('tlut', []) + load['cmds'], images, tmem, tiles, state)
+    tile = tiles[0]
+    # src/fonts.cpp's clamps: font sheets on both axes, other images on T when loaded shorter than their mask.
+    if tile.fmt == 4:
+        tile.cms |= 2
+        tile.cmt |= 2
+    elif tile.maskt and (tile.lrt - tile.ult) // 4 + 1 < (1 << tile.maskt):
+        tile.cmt |= 2
+    # RT64's sample size: the tile size where clamped, capped by the mask.
+    width = min(max((tile.lrs - tile.uls + 4) // 4, 1) if tile.masks == 0 or tile.cms & 2 else 0xFFFF,
+                (1 << tile.masks) if tile.masks else 0xFFFF)
+    height = min(max((tile.lrt - tile.ult + 4) // 4, 1) if tile.maskt == 0 or tile.cmt & 2 else 0xFFFF,
+                 (1 << tile.maskt) if tile.maskt else 0xFFFF)
+    if width > 1024 or height > 1024:
+        return None, None
+    # The game sets the RGBA16 palette mode outside the loads, for every CI image.
+    tlut = 0x8000 if tile.fmt == 2 else 0
+    return tmem_hash(tmem, tile, width, height, tlut), decode_tmem(tmem, tile, width, height)
+
+
+def dump_images(dump_path, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+    written = set()
+    for line in open(dump_path):
+        hash_name, rgba = dumped_image(json.loads(line))
+        if hash_name is None or hash_name in written:
+            continue
+        written.add(hash_name)
+        cv2.imwrite(os.path.join(out_dir, hash_name + '.png'), cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA))
+    print(f'Wrote {len(written)} images to {out_dir}')
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # Commands
 
 
@@ -1116,13 +1308,14 @@ def pack():
             # No half-texel shift: the redraw is aligned to the cells, and shifting would sample the neighbors.
             textures.append({'path': f'fonts/{hash_name}', 'hashes': {'rt64': hash_name}, 'operation': 'preload',
                              'shift': 'none'})
-        for path in sorted(glob.glob(os.path.join(HUD_SVG_DIR, '*.svg'))):
-            hash_name = os.path.splitext(os.path.basename(path))[0]
-            ok, png = cv2.imencode('.png', cv2.cvtColor(render_color_svg(open(path).read()), cv2.COLOR_RGBA2BGRA))
-            assert ok
-            rtz.writestr(zipfile.ZipInfo(f'hud/{hash_name}.png', stamp), png.tobytes(), zipfile.ZIP_DEFLATED)
-            textures.append({'path': f'hud/{hash_name}', 'hashes': {'rt64': hash_name}, 'operation': 'preload',
-                             'shift': 'none'})
+        for folder, svg_dir in (('hud', HUD_SVG_DIR), ('menu', MENU_SVG_DIR)):
+            for path in sorted(glob.glob(os.path.join(svg_dir, '*.svg'))):
+                hash_name = os.path.splitext(os.path.basename(path))[0]
+                ok, png = cv2.imencode('.png', cv2.cvtColor(render_color_svg(open(path).read()), cv2.COLOR_RGBA2BGRA))
+                assert ok
+                rtz.writestr(zipfile.ZipInfo(f'{folder}/{hash_name}.png', stamp), png.tobytes(), zipfile.ZIP_DEFLATED)
+                textures.append({'path': f'{folder}/{hash_name}', 'hashes': {'rt64': hash_name},
+                                 'operation': 'preload', 'shift': 'none'})
         database = {
             'configuration': {'autoPath': 'rt64', 'configurationVersion': 3, 'hashVersion': 5},
             'textures': textures,
@@ -1144,5 +1337,7 @@ if __name__ == '__main__':
         trace_hud(sys.argv[2:])
     elif len(sys.argv) == 2 and sys.argv[1] == 'pack':
         pack()
+    elif len(sys.argv) == 4 and sys.argv[1] == 'images':
+        dump_images(sys.argv[2], sys.argv[3])
     else:
         sys.exit(__doc__)
