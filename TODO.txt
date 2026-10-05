@@ -43,7 +43,5 @@ General:
       grey fill or a spectator view of the leader).
    g) Test Players are idle (cars stay on the grid); no AI driving for them.
    h) docs/BUILDING.md split screen paragraph still describes only side by side; nothing committed yet.
-   i) An Xbox Elite controller on port 3 gives no input: SDL opens it through its RawInput driver and reports no
-      button state. Turning RawInput off (SDL_HINT_JOYSTICK_RAWINPUT 0) fixed the input but coincided with race HUD
-      widgets left on the menus after the attract demo, so it was reverted; needs a proper look. Also the runtime's
-      boot controller scan reports only one port present (ultramodern input.cpp: `*pattern = 1 << controller`).
+   j) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players
+      1 and 2's screen; ports 3-4 use default bindings).

@@ -28,11 +28,20 @@
 // seamlessly past the window edges: the next column in has the same color, so the stretched triangles look like the
 // rest of the grid and the fade moves off screen. The frames are recognized by their geometry when drawn (models are
 // loaded into different banks per menu), and moved back for the original aspect ratio.
+//
+// Intro title for widescreen.
+//
+// The attract demo races on the title itself: the track is the tire track strip behind the logo, the buildings are
+// the chrome letters, and at the end the camera rises to frame the logo. The tiled "RUSH2" background is one
+// rectangle below the letters, and the strip ends a little past the 4:3 edges. The rectangle's corners are scaled
+// outward about its center with their texture coordinates, and the track is drawn twice more, one length ahead and
+// one behind, by a side display list called after its own G_DL.
 
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "car2049.h"
 
+#include <cmath>
 #include <cstdlib>
 
 #include "ultramodern/config.hpp"
@@ -93,12 +102,12 @@ namespace {
     // Calls fn(address, count) for each G_VTX at the top level of a model display list. Returns false if the list
     // uses a segment other than 0 (the menu background doesn't).
     template <typename Fn>
-    bool for_each_vertex_load(uint8_t* rdram, uint32_t dl, Fn&& fn) {
+    bool for_each_vertex_load(uint8_t* rdram, uint32_t dl, Fn&& fn, uint32_t max_commands = max_model_commands) {
         if ((dl & 0x0F000000) != 0) {
             return false;
         }
         dl = 0x80000000 | (dl & 0x00FFFFFF);
-        for (uint32_t i = 0; i < max_model_commands; i++, dl += 8) {
+        for (uint32_t i = 0; i < max_commands; i++, dl += 8) {
             uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)dl);
             uint32_t w1 = (uint32_t)MEM_W(4, (int32_t)dl);
             switch (w0 >> 24) {
@@ -171,6 +180,142 @@ namespace {
                 MEM_H(vtx_s, v) = (int16_t)(MEM_H(vtx_s, v) + delta * 128 / 5);
             }
         });
+    }
+
+    // Space for side display lists and matrices in the ring, 8-byte aligned.
+    uint32_t alloc_side(uint32_t bytes) {
+        bytes = (bytes + 7) & ~7u;
+        if (view_dl_cursor + bytes > view_dl_end) {
+            view_dl_cursor = view_dl_start;
+        }
+        uint32_t addr = view_dl_cursor;
+        view_dl_cursor += bytes;
+        return addr;
+    }
+
+    void write_command(uint8_t* rdram, uint32_t& addr, uint32_t w0, uint32_t w1) {
+        MEM_W(0, (int32_t)addr) = (int32_t)w0;
+        MEM_W(4, (int32_t)addr) = (int32_t)w1;
+        addr += 8;
+    }
+
+    // Intro scene models, recognized by the first vertex of their first G_VTX.
+    struct IntroModel {
+        int16_t x, y, z, s, t;
+    };
+    constexpr IntroModel intro_track = { 34, 20, -2084, -50, -20 };
+    constexpr IntroModel intro_letters = { 85, -57, 1628, -54, -12880 };
+
+    bool is_intro_model(uint8_t* rdram, uint32_t dl, const IntroModel& model) {
+        if ((dl & 0x0F000000) != 0) {
+            return false;
+        }
+        int32_t cmd = (int32_t)(0x80000000 | (dl & 0x00FFFFFF));
+        uint32_t w0 = (uint32_t)MEM_W(0, cmd);
+        uint32_t w1 = (uint32_t)MEM_W(4, cmd);
+        if ((w0 >> 24) != 0x01 || (w1 & 0x0F000000) != 0) {
+            return false;
+        }
+        int32_t v = (int32_t)(0x80000000 | (w1 & 0x00FFFFFF));
+        return MEM_H(vtx_x, v) == model.x && MEM_H(vtx_y, v) == model.y && MEM_H(vtx_z, v) == model.z &&
+            MEM_H(vtx_s, v) == model.s && MEM_H(vtx_t, v) == model.t;
+    }
+
+    // The intro track is the title's tire track strip, intro_track_length long along z. Widescreen draws it again one
+    // length ahead and one behind.
+    constexpr int32_t intro_track_length = 4783; // z -2374 to 2409
+
+    // Writes a matrix translating by z (s15.16, integer halves then fraction halves, row-major).
+    uint32_t write_translate_z(uint8_t* rdram, int32_t z) {
+        uint32_t mtx = alloc_side(64);
+        for (int i = 0; i < 32; i++) {
+            MEM_H(i * 2, (int32_t)mtx) = 0;
+        }
+        MEM_H(0 * 2, (int32_t)mtx) = 1;
+        MEM_H(5 * 2, (int32_t)mtx) = 1;
+        MEM_H(10 * 2, (int32_t)mtx) = 1;
+        MEM_H(15 * 2, (int32_t)mtx) = 1;
+        MEM_H(14 * 2, (int32_t)mtx) = (int16_t)z;
+        return mtx;
+    }
+
+    // Side list drawing the track at both neighboring positions.
+    uint32_t build_track_copies(uint8_t* rdram, uint32_t track_dl) {
+        uint32_t ahead = write_translate_z(rdram, intro_track_length);
+        uint32_t behind = write_translate_z(rdram, -intro_track_length);
+        uint32_t dl = alloc_side(7 * 8);
+        uint32_t cmd = dl;
+        for (uint32_t mtx : { ahead, behind }) {
+            write_command(rdram, cmd, 0xDA380000, mtx);      // G_MTX: modelview, multiply, push
+            write_command(rdram, cmd, 0xDE000000, track_dl); // G_DL
+            write_command(rdram, cmd, 0xD8380002, 64);       // G_POPMTX
+        }
+        write_command(rdram, cmd, 0xDF000000, 0);
+        return dl;
+    }
+
+    // The title's tiled "RUSH2" background is a rectangle at y = -319 in the letters model. Widescreen scales its
+    // corners about its center, with their texture coordinates (a linear function of position), by intro_bg_scale.
+    constexpr int32_t intro_bg_y = -319;
+    constexpr int32_t intro_bg_x[2] = { -2080, 1760 };
+    constexpr int32_t intro_bg_z[2] = { -2627, 2653 };
+    constexpr int32_t intro_bg_cx = (intro_bg_x[0] + intro_bg_x[1]) / 2;
+    constexpr int32_t intro_bg_cz = (intro_bg_z[0] + intro_bg_z[1]) / 2;
+    constexpr int32_t intro_bg_scale = 3; // keeps s and t within s16
+
+    int32_t scale_about(int32_t value, int32_t center, int32_t scale) {
+        return center + (value - center) * scale;
+    }
+
+    void scale_intro_background(uint8_t* rdram, uint32_t dl, int32_t scale) {
+        // The corners and the scale they're at now.
+        int32_t corners[4];
+        int32_t corner_scale[4];
+        uint32_t found = 0;
+        for_each_vertex_load(rdram, dl, [&](uint32_t addr, uint32_t count) {
+            for (uint32_t i = 0; i < count && found < 4; i++) {
+                int32_t v = (int32_t)(addr + i * vtx_size);
+                if (MEM_H(vtx_y, v) != intro_bg_y) {
+                    continue;
+                }
+                int32_t x = MEM_H(vtx_x, v);
+                int32_t z = MEM_H(vtx_z, v);
+                for (int32_t at : { 1, intro_bg_scale }) {
+                    bool corner_x = x == scale_about(intro_bg_x[0], intro_bg_cx, at) || x == scale_about(intro_bg_x[1], intro_bg_cx, at);
+                    bool corner_z = z == scale_about(intro_bg_z[0], intro_bg_cz, at) || z == scale_about(intro_bg_z[1], intro_bg_cz, at);
+                    if (corner_x && corner_z) {
+                        corners[found] = v;
+                        corner_scale[found] = at;
+                        found++;
+                        break;
+                    }
+                }
+            }
+        }, 4096);
+        if (found != 4 || corner_scale[0] == scale) {
+            return;
+        }
+        for (uint32_t i = 1; i < 4; i++) {
+            if (corner_scale[i] != corner_scale[0]) {
+                return;
+            }
+        }
+
+        // The center's texture coordinates are the corners' average at any scale.
+        double cs = 0, ct = 0;
+        for (int32_t v : corners) {
+            cs += MEM_H(vtx_s, v) / 4.0;
+            ct += MEM_H(vtx_t, v) / 4.0;
+        }
+        double ratio = (double)scale / corner_scale[0];
+        for (int32_t v : corners) {
+            int32_t x = MEM_H(vtx_x, v);
+            int32_t z = MEM_H(vtx_z, v);
+            MEM_H(vtx_x, v) = (int16_t)(intro_bg_cx + (x - intro_bg_cx) * scale / corner_scale[0]);
+            MEM_H(vtx_z, v) = (int16_t)(intro_bg_cz + (z - intro_bg_cz) * scale / corner_scale[0]);
+            MEM_H(vtx_s, v) = (int16_t)std::lround(cs + (MEM_H(vtx_s, v) - cs) * ratio);
+            MEM_H(vtx_t, v) = (int16_t)std::lround(ct + (MEM_H(vtx_t, v) - ct) * ratio);
+        }
     }
 }
 
@@ -258,18 +403,12 @@ extern "C" void rush2_view_scissor_written(uint8_t* rdram, recomp_context* ctx) 
     gEXEnable(&cmds[0]);
     gEXSetScissor(&cmds[1], mode, pending_left_origin, pending_right_origin, ulx, uly, lrx, lry);
 
-    uint32_t bytes = (count + 1) * 8;
-    if (view_dl_cursor + bytes > view_dl_end) {
-        view_dl_cursor = view_dl_start;
-    }
-    uint32_t dl = view_dl_cursor;
+    uint32_t dl = alloc_side((count + 1) * 8);
+    uint32_t cmd = dl;
     for (uint32_t i = 0; i < count; i++) {
-        MEM_W(0, (int32_t)(dl + i * 8 + 0)) = (int32_t)cmds[i].values.word0;
-        MEM_W(0, (int32_t)(dl + i * 8 + 4)) = (int32_t)cmds[i].values.word1;
+        write_command(rdram, cmd, cmds[i].values.word0, cmds[i].values.word1);
     }
-    MEM_W(0, (int32_t)(dl + count * 8 + 0)) = (int32_t)0xDF000000; // G_ENDDL
-    MEM_W(0, (int32_t)(dl + count * 8 + 4)) = 0;
-    view_dl_cursor += bytes;
+    write_command(rdram, cmd, 0xDF000000, 0); // G_ENDDL
 
     MEM_W(0, (int32_t)(cmd_addr + 0)) = (int32_t)0xDE000000; // G_DL (call)
     MEM_W(0, (int32_t)(cmd_addr + 4)) = (int32_t)dl;
@@ -292,9 +431,19 @@ extern "C" void rush2_frame_clear_end(uint8_t* rdram, recomp_context* ctx) {
 // func_8007AA48, before it emits the G_DL for a scene graph node's model. $fp = model display list.
 extern "C" void rush2_model_draw(uint8_t* rdram, recomp_context* ctx) {
     uint32_t dl = (uint32_t)ctx->r30;
+    bool widescreen = ultramodern::renderer::get_graphics_config().ar_option != ultramodern::renderer::AspectRatio::Original;
     if (is_menu_background(rdram, dl)) {
-        bool widescreen = ultramodern::renderer::get_graphics_config().ar_option != ultramodern::renderer::AspectRatio::Original;
         extend_menu_background(rdram, dl, widescreen ? bg_extend : 0);
+    }
+    else if (is_intro_model(rdram, dl, intro_letters)) {
+        scale_intro_background(rdram, dl, widescreen ? intro_bg_scale : 1);
+    }
+    else if (widescreen && is_intro_model(rdram, dl, intro_track)) {
+        // The G_DL for the model goes in the slot before the cursor at $sp+0x84; the copies follow it.
+        int32_t sp = (int32_t)ctx->r29;
+        uint32_t cursor = (uint32_t)MEM_W(0x84, sp);
+        write_command(rdram, cursor, 0xDE000000, build_track_copies(rdram, dl));
+        MEM_W(0x84, sp) = (int32_t)cursor;
     }
     // Rush 2049 wings on car bodies (src/wings_render.cpp).
     rush2_wings_model_draw(rdram, ctx);
