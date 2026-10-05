@@ -263,7 +263,11 @@ def build(k, slot, outdir, static_paths=True):
     for a in (0x12, 0x14):
         shared |= {m['name'] for m in model.R2Model(r2.asset(a)).models}
     geo_files = [q.file(100 + k)] + ([q.file(81 + k)] if k <= 6 else []) + [q.file(f) for f in SHARED_MODEL_FILES]
-    geometry, grep = merge_models(geo_files, rename={'SKYSKY': 'SKYO1', 'STUNTSKYSKY': 'SKYO1'},
+    types = placement.R49Types(q)
+    rename = {'SKYSKY': 'SKYO1', 'STUNTSKYSKY': 'SKYO1'}
+    # Props keep their 2049 models under names Rush 2's prefix classifier doesn't take for its breakables.
+    rename.update({t['model']: placement.prop_model(t['model']) for t in types.types if placement.is_prop(t) and t['model']})
+    geometry, grep = merge_models(geo_files, rename=rename,
                                   dummies=[prefix + 'FINISH', prefix + 'FINISHB'],
                                   dummy_textures=['CHKPNT', 'FINISH'], exclude=shared)
     gm = model.R2Model(geometry)
@@ -272,7 +276,6 @@ def build(k, slot, outdir, static_paths=True):
     problems += ['geometry: ' + e for e in errs[:20]]
     names = {m['name'] for m in gm.models}
 
-    types = placement.R49Types(q)
     place, prep = placement.convert_ex(q.file(119 + k), q.file(100 + k), prefix, types, extra_models=names,
                                        static_paths=static_paths, r2_rules=placement.R2Rules(r2))
     problems += ['placement: ' + w for w in prep['warnings']]

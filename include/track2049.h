@@ -54,6 +54,15 @@ namespace rush2::track2049 {
                         const std::vector<std::string>& model_names);
     void reset_movers();
 
+    // Props a car knocks over (src/track2049_props.cpp): cones, gas pumps, rats, signs and cacti with Rush 2049's
+    // reactions. set_prop_data hands over the raced track's prop records and its converted geometry (for model names
+    // and radii); reset_props sets them up again on the race's next physics tick; props_tick runs once per physics
+    // tick and props_car once per car and tick.
+    void set_prop_data(const std::vector<PropRecord>& records, const std::vector<uint8_t>& converted_geometry);
+    void reset_props();
+    void props_tick(uint8_t* rdram, float dt);
+    void props_car(uint8_t* rdram, uint32_t car);
+
     // Animated textures (src/track2049_texanim.cpp): Rush 2049's flip-books and scrolls, run on the loaded converted
     // geometry. set_texanim_data hands over the raced track's ConvertedTrack::tex_anims; texanim_reset (race setup)
     // makes the next tick find the loaded geometry again; texanim_tick runs once per physics tick of a race, with the
@@ -74,6 +83,8 @@ namespace rush2::track2049 {
     };
     void update_object_sounds(uint8_t* rdram, const std::vector<ObjectSound>& sounds);
     void stop_object_sounds();
+    // Plays 2049 sound effect `id` once from pos, heard from player 1's car with the emitter law and `range`.
+    void play_effect(uint8_t* rdram, int id, const float pos[3], float range);
     void mix_audio(float* samples, size_t sample_count, uint32_t sample_rate, float scale);
     // 2049 sound effects are muted while nothing updates them (the game is paused). Effects other than the object
     // sounds (src/engine2049.cpp) call this each frame they run, which also refreshes the effects volume.

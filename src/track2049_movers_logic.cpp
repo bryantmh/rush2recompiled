@@ -547,6 +547,10 @@ namespace rush2::track2049::movers {
         for (int i = 0; i < 3; i++) {
             a[i] = rate[i] * dt;
         }
+        rotate_angles(m, a);
+    }
+
+    void rotate_angles(float m[9], const float a[3]) {
         rotate_y(m, a[1]);
         rotate_x(m, a[0]);
         rotate_z(m, a[2]);

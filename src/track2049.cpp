@@ -119,6 +119,7 @@ namespace {
         rush2::track2049::set_mover_data(geometry_2049, collision_2049, track.path_records, track.spin_records,
                                          std::vector<std::string>(names.begin(), names.end()));
         rush2::track2049::set_texanim_data(track.tex_anims);
+        rush2::track2049::set_prop_data(track.prop_records, track.geometry);
         return true;
     }
 
@@ -302,6 +303,7 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
     }
     apply(rdram);
     rush2::track2049::reset_movers();
+    rush2::track2049::reset_props();
     rush2::track2049::texanim_reset();
 }
 
