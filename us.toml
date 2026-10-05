@@ -7306,6 +7306,13 @@ func = "func_8009E6DC"
 before_vram = 0x8009E9C8
 text = "    rush2_car49_select_get(rdram, ctx);"
 
+# The car select's starting cursor (func_803B81F0 reads the record's 5-bit type with func_8009E6D0, $a0 = the byte):
+# the full type, so a remembered 2049 car (types 32-35 wrap to 0-3) is the one selected.
+[[patches.hook]]
+func = "func_803B81F0"
+before_vram = 0x803B8CE4
+text = "    rush2_car49_select_cursor(rdram, ctx);"
+
 # Rush 2049 engine sounds (src/engine2049.cpp): a local player slot driving a 2049 car skips Rush 2's engine start
 # (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame
 # (func_80064F70); func_8008C49C (pause, race end) stops it.

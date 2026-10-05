@@ -126,6 +126,7 @@ void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_bars_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_select_set(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_select_get(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_select_cursor(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_asset(uint8_t* rdram, recomp_context* ctx, uint64_t* reg);
 
 // The car select's engine rev (src/engine_preview.cpp).

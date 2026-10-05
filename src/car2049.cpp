@@ -1394,6 +1394,19 @@ extern "C" void rush2_car49_select_set(uint8_t* rdram, recomp_context* ctx) {
     save_side_slots(rdram);
 }
 
+// func_803B81F0 at 0x803B8CE4, after func_8009E6D0 read the record's selected type ($v0, 5 bits) for the car select's
+// starting cursor ($a0 = the record's selected-type byte): the full type when a 2049 car was selected.
+extern "C" void rush2_car49_select_cursor(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t at = (uint32_t)ctx->r4;
+    int type = (int)(ctx->r2 & 0xFF);
+    std::lock_guard lock{ side_mutex };
+    load_side_slots(rdram);
+    auto it = selected_type_of.find(at);
+    if (it != selected_type_of.end() && (it->second & 0x1F) == type && it->second < types) {
+        ctx->r2 = (uint64_t)it->second;
+    }
+}
+
 // func_8009E6DC, after it copied the record's selected type (5 bits, at $v1) to the player ($s0 + 0x7EA): the full
 // type when a 2049 car was selected, or the Pickup when the 2049 cars are off.
 extern "C" void rush2_car49_select_get(uint8_t* rdram, recomp_context* ctx) {
