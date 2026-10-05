@@ -1,7 +1,7 @@
-// SF Rush settings tab and San Francisco Rush (Rush 1) ROM handling.
+// SF Rush settings (shown in the Games tab) and San Francisco Rush (Rush 1) ROM handling.
 //
 // The Rush 1 tracks are converted from the user's own San Francisco Rush (USA) ROM, so nothing from that game ships
-// with the recomp. The ROM is chosen with a button on the SF Rush tab, checked, and copied in big-endian (.z64) byte
+// with the recomp. The ROM is chosen with a button on the Games tab, checked, and copied in big-endian (.z64) byte
 // order to the app folder as rush1.z64; the SF Rush Tracks option stays disabled until a valid ROM is present.
 //
 // Rush 1's main code is LZ compressed (Rush 2's variant) at ROM 0x7A7930 and runs at 0x8005BB10. Its 72 assets are
@@ -25,7 +25,7 @@
 #include "util/file.h"
 #include "elements/ui_button.h"
 #include "elements/ui_label.h"
-#include "config/ui_config_page_options_menu.h"
+#include "options_page.h"
 
 #include "track1.h"
 #include "track2049_convert.h"
@@ -51,7 +51,6 @@ namespace {
     std::mutex rom_mutex;
     std::shared_ptr<const std::vector<uint8_t>> rom_data;
     std::atomic_bool tracks_option = true;
-    recompui::Label* rom_status_label = nullptr;
 
     std::mutex main_mutex;
     const std::vector<uint8_t>* main_rom_data = nullptr;
@@ -97,15 +96,12 @@ namespace {
 
     std::string rom_status_text() {
         return rush2::track1::rom_available()
-            ? "SF Rush ROM: found. Its tracks can be enabled below."
-            : "SF Rush ROM: not found. Select a San Francisco Rush (USA) ROM to enable its tracks.";
+            ? "ROM found."
+            : "Needs a San Francisco Rush (USA) ROM for its tracks.";
     }
 
     void update_rom_ui() {
         rush1_config.update_option_disabled(tracks_option_id, !rush2::track1::rom_available());
-        if (rom_status_label != nullptr) {
-            rom_status_label->set_text(rom_status_text());
-        }
     }
 
     void select_rom() {
@@ -144,15 +140,6 @@ namespace {
             set_rom(data);
             update_rom_ui();
         });
-    }
-
-    void create_tab_contents(recompui::ContextId context, recompui::Element* parent) {
-        auto* page = context.create_element<recompui::ConfigPageOptionsMenu>(parent, &rush1_config, true);
-        recompui::ConfigHeaderFooter* header = page->add_header();
-
-        rom_status_label = context.create_element<recompui::Label>(header->get_left(), rom_status_text(), recompui::LabelStyle::Normal);
-        auto* button = context.create_element<recompui::Button>(header->get_right(), "Select SF Rush ROM", recompui::ButtonStyle::Secondary);
-        button->add_pressed_callback(select_rom);
     }
 
     uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
@@ -210,7 +197,7 @@ bool rush2::track1::read_asset(const std::vector<uint8_t>& rom, int index, std::
     return true;
 }
 
-void rush2::track1::create_tab() {
+void rush2::track1::init_config() {
     rush1_config.add_bool_option(
         tracks_option_id,
         "SF Rush Tracks",
@@ -222,16 +209,24 @@ void rush2::track1::create_tab() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::track1::set_option(std::get<bool>(cur_value));
         });
+}
 
-    recompui::config::create_tab(
-        rush1_config.name,
-        config_id,
-        create_tab_contents,
-        nullptr,
-        [](recompui::TabCloseContext) {
-            rush1_config.save_config();
+void rush2::track1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
+    recompui::ContextId context = recompui::get_current_context();
+    rush2::ui::OptionsPage::Heading heading = page->add_heading("San Francisco Rush", rom_status_text());
+    auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
+    button->add_pressed_callback(select_rom);
+    page->add_option(rush1_config, tracks_option_id);
+    refresh = [note = heading.note, shown = rush2::track1::rom_available()]() mutable {
+        if (rush2::track1::rom_available() != shown) {
+            shown = !shown;
+            note->set_text(rom_status_text());
         }
-    );
+    };
+}
+
+void rush2::track1::save_config() {
+    rush1_config.save_config();
 }
 
 // Runs after recompui::config::finalize() has registered the config path.

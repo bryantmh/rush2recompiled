@@ -59,6 +59,42 @@ namespace {
         return s;
     }
 
+    std::string of(int found, int all) {
+        return std::to_string(found) + "/" + std::to_string(all);
+    }
+
+    // A game's section. It takes focus, so a controller can move through the sections and scroll the list.
+    class Section : public Element {
+    public:
+        Section(ResourceId rid, Element* parent) : Element(rid, parent, Events(EventType::Focus, EventType::Hover), "div", false) {
+            enable_focus();
+            set_display(Display::Flex);
+            set_flex_direction(FlexDirection::Column);
+            set_padding(12.0f);
+            set_gap(8.0f);
+            set_border_radius(theme::border::radius_sm);
+            set_background_color(theme::color::Transparent);
+            focus_style.set_background_color(theme::color::Elevated);
+            add_style(&focus_style, focus_state);
+        }
+
+    protected:
+        std::string_view get_type_name() override { return "ProgressSection"; }
+
+        void process_event(const Event& e) override {
+            if (e.type == EventType::Focus) {
+                bool active = std::get<EventFocus>(e.variant).active;
+                set_style_enabled(focus_state, active);
+                if (active) {
+                    scroll_into_view();
+                }
+            }
+        }
+
+    private:
+        Style focus_style;
+    };
+
     class ProgressPage : public ConfigPage {
     public:
         ProgressPage(ResourceId rid, Element* parent) : ConfigPage(rid, parent, Events(EventType::Update)) {
@@ -80,14 +116,17 @@ namespace {
             column->set_as_navigation_container(NavigationType::Vertical);
             picker = context.create_element<Element>(column, 0, "div", false);
             picker->set_display(Display::Flex);
-            picker->set_flex_direction(FlexDirection::Column);
+            picker->set_flex_direction(FlexDirection::Row);
+            picker->set_align_items(AlignItems::Center);
             picker->set_padding(12.0f);
-            picker->set_gap(8.0f);
-            picker->set_as_navigation_container(NavigationType::Vertical);
+            picker->set_gap(16.0f);
+            picker->set_as_navigation_container(NavigationType::Horizontal);
             content = context.create_element<Element>(column, 0, "div", false);
             content->set_display(Display::Flex);
             content->set_flex_direction(FlexDirection::Column);
             content->set_width(100.0f, Unit::Percent);
+            content->set_gap(4.0f);
+            content->set_as_navigation_container(NavigationType::Vertical);
 
             Element* text = context.create_element<Element>(body->get_right(), 0, "p", true);
             text->set_typography(theme::Typography::Body);
@@ -114,6 +153,12 @@ namespace {
         }
 
     private:
+        // One track's line: its name, then a count per kind of find (dim until all are found).
+        struct Line {
+            std::string name;
+            std::vector<std::pair<int, int>> counts;    // Found, all.
+        };
+
         Element* picker = nullptr;
         Element* content = nullptr;
         std::vector<Progress> list;
@@ -163,19 +208,65 @@ namespace {
             });
         }
 
-        void add_section(const std::string& title, const std::vector<std::string>& lines, const std::string& total) {
+        // A section: the game's title and totals, then its tracks in two columns (the second starting at line split,
+        // or halfway).
+        void add_section(const std::string& title, const std::vector<std::string>& kinds, const std::vector<Line>& lines,
+                         size_t split = 0) {
             ContextId context = get_current_context();
-            Element* section = context.create_element<Element>(content, 0, "div", false);
-            section->set_display(Display::Flex);
-            section->set_flex_direction(FlexDirection::Column);
-            section->set_padding(12.0f);
-            section->set_gap(4.0f);
-            context.create_element<Label>(section, title, theme::Typography::LabelMD);
-            for (const std::string& line : lines) {
-                context.create_element<Label>(section, line, theme::Typography::Body);
+            Section* section = context.create_element<Section>(content);
+
+            std::vector<std::pair<int, int>> totals(kinds.size());
+            for (const Line& line : lines) {
+                for (size_t k = 0; k < kinds.size(); k++) {
+                    totals[k].first += line.counts[k].first;
+                    totals[k].second += line.counts[k].second;
+                }
             }
-            Label* sum = context.create_element<Label>(section, total, theme::Typography::Body);
-            sum->set_color(theme::color::TextDim);
+            Element* head = context.create_element<Element>(section, 0, "div", false);
+            head->set_display(Display::Flex);
+            head->set_flex_direction(FlexDirection::Row);
+            head->set_align_items(AlignItems::Center);
+            head->set_gap(16.0f);
+            head->set_padding_bottom(6.0f);
+            head->set_border_bottom_width(1.0f);
+            head->set_border_bottom_color(theme::color::Border);
+            Label* name = context.create_element<Label>(head, title, theme::Typography::LabelLG);
+            name->set_flex_grow(1.0f);
+            name->set_white_space(WhiteSpace::Nowrap);
+            for (size_t k = 0; k < kinds.size(); k++) {
+                Label* total = context.create_element<Label>(head, of(totals[k].first, totals[k].second) + " " + kinds[k],
+                                                             theme::Typography::LabelMD);
+                total->set_white_space(WhiteSpace::Nowrap);
+            }
+
+            Element* grid = context.create_element<Element>(section, 0, "div", false);
+            grid->set_display(Display::Flex);
+            grid->set_flex_direction(FlexDirection::Row);
+            grid->set_gap(32.0f);
+            size_t half = split != 0 ? split : (lines.size() + 1) / 2;
+            for (size_t c = 0; c < 2; c++) {
+                Element* column = context.create_element<Element>(grid, 0, "div", false);
+                column->set_display(Display::Flex);
+                column->set_flex_direction(FlexDirection::Column);
+                column->set_flex_grow(1.0f);
+                column->set_flex_basis(0.0f);
+                column->set_gap(2.0f);
+                for (size_t i = c == 0 ? 0 : half; i < (c == 0 ? half : lines.size()); i++) {
+                    const Line& line = lines[i];
+                    Element* row = context.create_element<Element>(column, 0, "div", false);
+                    row->set_display(Display::Flex);
+                    row->set_flex_direction(FlexDirection::Row);
+                    row->set_gap(12.0f);
+                    Label* track = context.create_element<Label>(row, line.name, theme::Typography::Body);
+                    track->set_flex_grow(1.0f);
+                    for (const auto& [found, all] : line.counts) {
+                        Label* count = context.create_element<Label>(row, of(found, all), theme::Typography::Body);
+                        count->set_min_width(44.0f);
+                        count->set_text_align(TextAlign::Right);
+                        count->set_color(found == all ? theme::color::Text : theme::color::TextDim);
+                    }
+                }
+            }
         }
 
         void build_content() {
@@ -192,49 +283,32 @@ namespace {
             using namespace rush2::collectibles;
             auto count = [](uint16_t m) { return std::popcount((unsigned)m); };
 
-            std::vector<std::string> rush2_lines;
-            int keys = 0, cans = 0;
+            std::vector<Line> lines;
             for (int t = 0; t < rush2_courses; t++) {
-                int k = count(p->rush2[t] & rush2_key_bits), c = count(p->rush2[t] & rush2_can_bits);
-                rush2_lines.push_back(std::string(rush2_tracks[t]) + ": " + std::to_string(k) + " of " +
-                                      std::to_string(rush2::collectibles::rush2_keys) + " keys, " + std::to_string(c) +
-                                      " of " + std::to_string(rush2_cans) + " Dew cans");
-                keys += k;
-                cans += c;
+                lines.push_back({ rush2_tracks[t], {
+                    { count(p->rush2[t] & rush2_key_bits), rush2::collectibles::rush2_keys },
+                    { count(p->rush2[t] & rush2_can_bits), rush2_cans } } });
             }
-            add_section("Rush 2 Keys and Dew Cans", rush2_lines,
-                        "All tracks: " + std::to_string(keys) + " of " +
-                        std::to_string(rush2_courses * rush2::collectibles::rush2_keys) + " keys, " +
-                        std::to_string(cans) + " of " + std::to_string(rush2_courses * rush2_cans) + " Dew cans");
+            add_section("Rush 2", { "keys", "Dew cans" }, lines);
 
-            std::vector<std::string> lines;
-            int found = 0, all = 0;
+            lines.clear();
             for (int t = 0; t < sfrush_courses; t++) {
-                int n = count(p->sfrush[t]);
-                lines.push_back("Track " + std::to_string(t + 1) + ": " + std::to_string(n) + " of " +
-                                std::to_string(sfrush_keys[t]) + " keys");
-                found += n;
-                all += sfrush_keys[t];
+                lines.push_back({ "Track " + std::to_string(t + 1), { { count(p->sfrush[t]), sfrush_keys[t] } } });
             }
-            add_section("SF Rush Keys", lines, "All tracks: " + std::to_string(found) + " of " + std::to_string(all));
+            add_section("SF Rush", { "keys" }, lines);
 
-            auto coins = [&](const std::string& title, const std::string& course, const uint16_t* masks, int n) {
-                std::vector<std::string> coin_lines;
-                int silver = 0, gold = 0;
+            // Race tracks in the left column, stunt arenas in the right.
+            lines.clear();
+            auto coins = [&](const std::string& course, const uint16_t* masks, int n) {
                 for (int t = 0; t < n; t++) {
-                    int s = count(masks[t] & silver_bits), g = count(masks[t] & gold_bits);
-                    coin_lines.push_back(course + " " + std::to_string(t + 1) + ": " + std::to_string(s) + " of " +
-                                         std::to_string(coins_per_kind) + " silver, " + std::to_string(g) + " of " +
-                                         std::to_string(coins_per_kind) + " gold");
-                    silver += s;
-                    gold += g;
+                    lines.push_back({ course + " " + std::to_string(t + 1), {
+                        { count(masks[t] & silver_bits), coins_per_kind },
+                        { count(masks[t] & gold_bits), coins_per_kind } } });
                 }
-                std::string of = std::to_string(n * coins_per_kind);
-                add_section(title, coin_lines, "All: " + std::to_string(silver) + " of " + of + " silver, " +
-                                               std::to_string(gold) + " of " + of + " gold");
             };
-            coins("Rush 2049 Coins", "Track", p->rush2049.data(), rush2049_courses);
-            coins("Rush 2049 Stunt Arena Coins", "Arena", p->stunt2049.data(), stunt2049_courses);
+            coins("Track", p->rush2049.data(), rush2049_courses);
+            coins("Arena", p->stunt2049.data(), stunt2049_courses);
+            add_section("Rush 2049", { "silver", "gold" }, lines, rush2049_courses);
         }
     };
 }

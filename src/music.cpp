@@ -392,7 +392,9 @@ namespace {
         "<recomp-color primary>Shuffle All</recomp-color> plays a random song from all three games.\n\n"
         "Switch songs off below to keep them out of races, or a whole game with the switch by its name (its songs "
         "keep their own switches for when it's back on). Press a song's play button to hear it. SF Rush and "
-        "Rush 2049 songs need their ROMs (SF Rush and Rush 2049 tabs).";
+        "Rush 2049 songs need their ROMs (Games tab).\n\n"
+        "<recomp-color primary>Other Cars' Engines</recomp-color> plays the computer cars' engines around you, as "
+        "Rush 2049 does; Rush 2 plays only your own.";
 
     // A row of the page: scrolls itself into view when something in it takes focus, so the list follows the d-pad.
     class PageRow : public Element {
@@ -567,8 +569,6 @@ namespace {
             engines_title->set_flex_direction(FlexDirection::Column);
             engines_title->set_flex_grow(1.0f);
             context.create_element<Label>(engines_title, "Other Cars' Engines", theme::Typography::LabelMD);
-            Label* engines_note = context.create_element<Label>(engines_title, other_engines_description, theme::Typography::Body);
-            engines_note->set_color(theme::color::TextDim);
             Toggle* engines = context.create_element<Toggle>(engines_row, ToggleSize::Medium);
             engines->set_checked(std::get<bool>(config.get_option_value(other_engines_id)));
             engines->add_checked_callback([](bool checked) {
@@ -586,7 +586,10 @@ namespace {
                     header->set_padding_left(12.0f);
                     header->set_padding_right(12.0f);
                     header->set_padding_top(24.0f);
-                    header->set_padding_bottom(4.0f);
+                    header->set_padding_bottom(8.0f);
+                    header->set_margin_bottom(4.0f);
+                    header->set_border_bottom_width(1.0f);
+                    header->set_border_bottom_color(theme::color::Border);
                     Element* title = context.create_element<Element>(header, 0, "div", false);
                     title->set_display(Display::Flex);
                     title->set_flex_direction(FlexDirection::Column);
@@ -595,8 +598,8 @@ namespace {
                     Header& h = headers[(int)s.game];
                     if (s.game != Game::Rush2) {
                         h.note = context.create_element<Label>(title,
-                            s.game == Game::Rush1 ? "Needs a San Francisco Rush (USA) ROM (SF Rush tab)."
-                                                  : "Needs a Rush 2049 (USA) ROM (Rush 2049 tab).",
+                            s.game == Game::Rush1 ? "Needs a San Francisco Rush (USA) ROM (Games tab)."
+                                                  : "Needs a Rush 2049 (USA) ROM (Games tab).",
                             theme::Typography::Body);
                         h.note->set_color(theme::color::TextDim);
                     }
