@@ -695,6 +695,15 @@ extern "C" int rush2_pak_menu_state(uint8_t* rdram, recomp_context* ctx) {
     return 0;
 }
 
+// func_803B276C (the player list's setup) at 0x803B2A44, after the cursor ($t4) is placed: on the remembered player,
+// or else on JUST PLAY (0). The list ($v1 entries) starts with JUST PLAY and CREATE PLAYER, then the saved players;
+// when there are any, the first one is picked instead of JUST PLAY.
+extern "C" void rush2_pak_menu_default_player(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_H(0, ctx->r12) == 0 && (int32_t)ctx->r3 > 2) {
+        MEM_H(0, ctx->r12) = 2;
+    }
+}
+
 // func_800A62C0 after the menu overlay is loaded.
 extern "C" void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ctx) {
     write_string(rdram, 0x803CA010, "%s");          // Player list: "%s (%d)", name and pak number.
