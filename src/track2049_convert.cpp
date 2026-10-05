@@ -969,6 +969,9 @@ namespace {
                 textures.push_back({ n, 0, 0, 0xFFFF, empty_dl, 0 });
             }
         }
+        // func_800601F8 binary-searches this table by name (func_8005BCB4), so merged and dummy entries must be sorted.
+        std::stable_sort(textures.begin(), textures.end(),
+                         [](const Texture& a, const Texture& b) { return a.name < b.name; });
         size_t tex_off = out.size();
         for (const Texture& t : textures) {
             add_name(out, t.name);
