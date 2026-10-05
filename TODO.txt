@@ -21,4 +21,7 @@ General:
 1) left-right splitscreen options
 2) 4-player splitscreen options
 3) Better lighting?
-4) Potential sound popping
+4) The game thread hitches ~130 ms as a race starts (seen on SF Rush track 6 with the Crusher). Cause unknown:
+   time the frames around race start (suspects: first-use shader/texture work in the renderer, our own one-time
+   loading like Rush 1 track data or engine samples decoded in src/car_engines.cpp, or the game's own race setup).
+   Sounds no longer cut out over it (track2049::sounds_paused), but the frame drop is still there.

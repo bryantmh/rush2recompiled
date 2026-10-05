@@ -71,7 +71,8 @@ namespace {
     constexpr uint32_t default_engines = 0x80200928; // s8 [36]: each type's engine sound (src/car2049.cpp)
     constexpr int turbo_sound = 0xC;
     constexpr float range = 400.0f;
-    constexpr float other_car_volume = 0.75f;      // Rush 2049's (func_800E0050)
+    // Rush 2049 uses 0.75 (func_800E0050), but with up to seven cars around that drowned out the player's own.
+    constexpr float other_car_volume = 0.4f;
 
     std::atomic_bool option = true;
 
@@ -174,6 +175,7 @@ namespace {
     int handles49[max_cars][2];                     // 2049 cars' sound handles
     int levels49[max_cars];
     std::atomic<int64_t> updated_ms = 0;
+    std::atomic<uint8_t*> updated_rdram = nullptr;
 
     int64_t now_ms() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -340,6 +342,7 @@ void rush2::car_engines::update(uint8_t* rdram) {
         }
         update_rush2(rdram, car, engine, c, pos, listeners);
     }
+    updated_rdram = rdram;
     updated_ms = now_ms();
 }
 
@@ -350,7 +353,7 @@ void rush2::car_engines::stop() {
 
 void rush2::car_engines::mix(float* out, size_t sample_count, uint32_t, float scale) {
     // Silent while nothing updates them (paused).
-    if (now_ms() - updated_ms.load() > 100) return;
+    if (rush2::track2049::sounds_paused(updated_rdram.load(), updated_ms.load())) return;
     std::lock_guard lock{ mutex };
     size_t frames = sample_count / 2;
     constexpr float ramp = 1.0f / 256.0f; // about 5 ms
