@@ -59,6 +59,8 @@ namespace rush2::track1 {
         struct Timing {
             int16_t start = 0;
             std::vector<std::array<int16_t, 3>> checkpoints;
+            // Checkpoints with Rush 1's flag 4: no wrong-way warning while one is the car's last or next checkpoint.
+            uint16_t no_wrong_way = 0;
         };
         Timing timing[2];
         // Breakables (src/track1.cpp redirects Rush 2's model lookups during the race): placement record name -> the

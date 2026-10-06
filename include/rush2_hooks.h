@@ -201,6 +201,7 @@ int rush2_track1_breakable_hit(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_probe_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_probe(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_wrong_way(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_pads(uint8_t* rdram, recomp_context* ctx);
 
 // Rush 2049 track records (src/track2049_records.cpp).

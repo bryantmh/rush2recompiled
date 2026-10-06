@@ -1,23 +1,16 @@
 San Francisco Rush:
-1) Key unlocks: the keys are collected and kept per profile (src/collectibles.cpp, Progress tab); what they unlock is undecided (docs/unlocks_plan.md).
-2) MARKER and TIME placement objects are dropped; find out what they do in SF Rush.
-3) Checkpoint flag 4 (track 6) isn't understood.
-4) Cars?
+1) MARKER and TIME placement objects are dropped; find out what they do in SF Rush.
+2) Car unique texture patterns as stripes
 
 San Francisco Rush 2049:
-1) Coins: collected and kept per profile with 2049's pickup sound (src/collectibles.cpp, Progress tab), but no HUD counter.
-2) Coin unlocks: undecided (docs/unlocks_plan.md). 2049 gates cars behind coin counts, and parts behind points (not coins).
+1) Coins: missing HUD counter.
+2) Mileage Counter.
 3) Battle arenas: DM1-DM8 (ROM files 126-133) are not converted or selectable.
 4) Battle weapons and items: WEPICON_* pickups, WPR_MINE and the battle spawn rules are dropped.
-5) Stunt arenas (ids 25-28, hosted by STUNT1): they share STUNT1's records.
-6) Obstacle course: file 138 is not converted or selectable.
-7) Flag bit 0x400000 on placement records isn't understood and is stripped.
-9) Parts upgrade system for coin unlocks
-10) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
-11) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
-12) Rocket car plume renders underneath certain effects like the car's shadow
-13) Panther front wheels clip through body
-14) Sky fog blend: the sky (SKYO1) is drawn without fog and ends ~12 degrees above the horizon (track 1), with the
+5) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
+6) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
+7) Panther front wheels clip through body
+8) Sky fog blend: the sky (SKYO1) is drawn without fog and ends ~12 degrees above the horizon (track 1), with the
     fog-colored clear below it, so fogged hills show as lavender (fog 150,150,190) against an orange sunset sky. Plan:
     when a track is applied (src/track2049.cpp), patch a copy of the geometry's SKYO1 list: slice the opaque sky
     triangles (E200001C 0F0A4000) by horizontal planes across a ~10 degree band above max(dome bottom, 0), set vertex
@@ -25,21 +18,17 @@ San Francisco Rush 2049:
     before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
-14) Car balancing and bars
-15) Ghost races: port 2049's ghost recording/playback (func_800CC50C, func_800F6AB8, max times 0x80111754) as logic
-    translated from its code, like the movers. Remap the car-state reads to Rush 2's car struct, draw the ghost as
-    a spare drone slot made translucent with no collision/standings/HUD/minimap, and save ghosts to files instead
-    of the Controller Pak. Add a GHOST RACE entry to Select Mode.
+9) Car balancing and bars
+10) Main menu music as an option
 
 General:
-1) Better lighting?
+1) Better lighting? Bloom for emmissives?
 2) The game thread hitches ~130 ms as a race starts (seen on SF Rush track 6 with the Crusher). Cause unknown:
    time the frames around race start (suspects: first-use shader/texture work in the renderer, our own one-time
    loading like Rush 1 track data or engine samples decoded in src/car_engines.cpp, or the game's own race setup).
    Sounds no longer cut out over it (track2049::sounds_paused), but the frame drop is still there.
 3) Best averages numbers aren't properly aligned
-4) Organize tracks better. perhaps filters?
-5) Split screen and 3-4 players
+4) Split screen and 3-4 players
    a) "1st/2nd PLACE" finish banners only show for players 1 and 2; players 3 and 4's copies are built
       (players4::finish_overlay_built) but don't appear yet.
    b) Race over / results screens are 2 player: at race over (game state 4) the counts drop back to 2
@@ -52,8 +41,26 @@ General:
       grey fill or a spectator view of the leader).
    f) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players
       1 and 2's screen; ports 3-4 use default bindings).
-6) Music skip track in pause menu
-8) If a player joins, and there are no other saves it should jump to just play not create player
-9) Occasional tire sizing bugs
-10) Strange culling bug bottom of screen
-11) LOD setting not working as intended. still a lot of popin
+5) Music skip track in pause menu feature. Currently music switches every time paused. this is not what we want
+6) Occasional tire sizing bugs
+7) Overhaul main menu UI groupings a bit due to all the new menus. Make it like 2049?
+
+
+Next:
+
+Hide the stunt course variables that don't do anything
+
+Determine the significance of the data in these todos:
+Flag bit 0x400000 on placement records isn't understood and is stripped. (2049)
+
+Ghost races: port 2049's ghost recording/playback (func_800CC50C, func_800F6AB8, max times 0x80111754) as logic
+    translated from its code, like the movers. Remap the car-state reads to Rush 2's car struct, draw the ghost as
+    a spare drone slot made translucent with no collision/standings/HUD/minimap, and save ghosts to files instead
+    of the Controller Pak. Add a GHOST RACE entry to Select Mode. It would just be a new item in the main menu above "Stunt"
+
+Unlock system (src/unlocks.cpp, src/unlocks_shop.cpp): add items as their 2049 content is ported. Suggested costs
+    (table 2): battle arenas Downtown 5, Plaza 5, Roadkill 10, Factory 15; tires, transmissions and frames once they are
+    real part rows (DURABILITY is a slider, so frames stay out until then). Rush 2049's race tracks 4-6 are the locked
+    ones (2049 locks Mission, Presidio and Gauntlet; check which file each is).
+
+Opening progress stutters. reset should be in progress not players

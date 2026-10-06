@@ -1039,6 +1039,13 @@ value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 # Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
 # 30-entry name table into a 30-entry array at 0x80300780 (was 7 at 0x803C7A44), with the 30-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
+# SF Rush wrong-way warning (src/track1.cpp): off while the car is next to a checkpoint SF Rush flags for it
+# (flag 4, track 6's figure 8), after func_8008CDA4 stores the angle.
+[[patches.hook]]
+func = "func_8008CDA4"
+before_vram = 0x8008D3A4
+text = "    rush2_track1_wrong_way(rdram, ctx);"
+
 [[patches.hook]]
 func = "func_800A7DCC"
 before_vram = 0x800A8588
