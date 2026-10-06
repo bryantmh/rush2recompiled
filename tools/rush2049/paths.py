@@ -263,13 +263,13 @@ def floor_heights(collision_2049):
     return heights
 
 
-def spine_lanes(path, collision_2049):
+def spine_lanes(path, collision_2049, loop=True):
     """A stunt arena's path for Rush 2. Rush 2 starts a stunt race at spine point 0, facing point 1, at the spine's
     height (func_800A34A8), and puts a crashed car back on the nearest point of its lanes (func_80090A40). The
     arenas' spines lie on their floors already; as a safeguard each spine point is put on the highest floor under it
     (up to FLOOR_SLACK above), or failing that on the lowest floor at most FLOOR_REACH above it, rounded up. The spine is rotated to start at the first point that, with its successor,
     already lay on the floor (within FLOOR_SLACK), or failing that has floor under it (the spine is a closed loop
-    on every arena).
+    on every arena). The obstacle course's spine runs from its start to its finish (loop=False) and keeps its start.
     Rush 2049 runs no AI on its arenas, and their four lanes are stubs of 3-4 points whose load-time crossings
     (func_80092D6C) all land on the last point; func_8006DB00 then steps a lane from its last point to that same
     point, and Rush 2's lane follower (func_80074990) never gets past it. Each lane is replaced with the spine, with
@@ -295,7 +295,7 @@ def spine_lanes(path, collision_2049):
         pts.append((x, y, z))
         grounded.append(on)
     first = next((i for q in (2, 1) for i in range(n_spine)
-                  if min(grounded[i], grounded[(i + 1) % n_spine]) >= q), 0)
+                  if min(grounded[i], grounded[(i + 1) % n_spine]) >= q), 0) if loop else 0
     pts = pts[first:] + pts[:first]
     out = bytearray(d[:spine])
     for pt in pts:

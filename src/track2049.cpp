@@ -12,19 +12,26 @@
 // drones. An arena has one AI path, used both ways, and no visibility table (Rush 2049 draws every section of it);
 // it keeps Rush 2's stunt song and STUNT1's records.
 //
+// Rush 2049's obstacle course runs from a start to a finish line against a 5-minute clock, with no stunt scoring, so
+// it is hosted like a race track (raced_track = obstacle) and raced as Rush 2's one-race mode would race it: one lap,
+// no drones, no backward or mirror, and checkpoints on, whose clock is set to Rush 2049's 5 minutes with no
+// extensions (rush2_track49_obstacle_settings, rush2_track49_obstacle_clock, rush2_track49_race_time).
+//
 // Code support for things the files can't express:
 // - Visibility: func_8007C27C picks a 16-byte section mask per camera region from a per-track table that is sized
 //   for the slot's own track, so the converted table lives in recomp memory and the hook at 0x8007C480 points the
 //   game at it.
 // - Sky: Rush 2049 draws its tracks' sky as a model, which Rush 2 only does for Las Vegas (func_800A45A8); the
 //   converted geometry names it SKYO1, and the hook at 0x800A4644 sends the host slot down Las Vegas's branch.
-//   Rush 2 also builds no sky in split screen, while Rush 2049 does (hook at 0x800A4600).
+//   Rush 2 also builds no sky in split screen, while Rush 2049 does (hook at 0x800A4600). The obstacle course has
+//   no sky model (Rush 2049 shows its black fog colour around it), so it takes the split-screen path: no sky.
 
 #include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 
 
 #include <mutex>
@@ -72,12 +79,13 @@ namespace {
 
     std::mutex track_mutex;
     std::atomic_bool option_enabled = true;
-    std::atomic_int raced_track = 0;  // 1-6, or 0 for none.
+    std::atomic_int raced_track = 0;  // 1-6 or obstacle, or 0 for none.
     std::atomic_int raced_stunt = 0;  // Stunt arena 1-4, or 0 for none.
     int loaded_track = 0;              // The 2049 track in `track`, as convert_track's k.
     int slot = host_slot;              // The slot `track` is applied to.
     std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
     rush2::track2049::ConvertedTrack track;
+    bool track_has_sky = false;        // The converted geometry has a SKYO1 model.
     std::set<std::string> shared_models;   // Rush 2's shared model names, read once.
     std::vector<uint8_t> race_logo;
     bool applied = false;
@@ -118,6 +126,7 @@ namespace {
             return false;
         }
         std::set<std::string> names = rush2::track2049::model_names(track.geometry);
+        track_has_sky = names.contains("SKYO1");
         rush2::track2049::set_mover_data(geometry_2049, collision_2049, track.path_records, track.spin_records,
                                          std::vector<std::string>(names.begin(), names.end()));
         rush2::track2049::set_texanim_data(track.tex_anims);
@@ -257,6 +266,35 @@ int rush2::track2049::loaded_slot() {
     return applied_slot;
 }
 
+bool rush2::track2049::obstacle_race(uint8_t* rdram) {
+    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    // The track select's id before the race setup turns it into the host slot's.
+    return t == obstacle_menu_id || (t == host_slot && raced_track == obstacle);
+}
+
+rush2::track2049::GameType rush2::track2049::game_type(uint8_t* rdram) {
+    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    if (t == host_slot && raced_track == obstacle) return GameType::obstacle;
+    if (t == host_slot && raced_track != 0) return GameType::race;
+    if (t == stunt_host_slot && raced_stunt != 0) return GameType::stunt;
+    return GameType::none;
+}
+
+bool rush2::track2049::stuck_reset_off(uint8_t* rdram) {
+    GameType g = game_type(rdram);
+    return g == GameType::stunt || g == GameType::obstacle || g == GameType::battle;
+}
+
+bool rush2::track2049::quick_respawn(uint8_t* rdram) {
+    GameType g = game_type(rdram);
+    return g == GameType::obstacle || g == GameType::battle;
+}
+
+bool rush2::track2049::no_map(uint8_t* rdram) {
+    GameType g = game_type(rdram);
+    return g == GameType::obstacle || g == GameType::battle;
+}
+
 // Start of func_800A4C98, which queues the race's track files.
 extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
     // SF Rush tracks race in the same slot (src/track1.cpp); it puts the slot's own values back first.
@@ -337,10 +375,10 @@ extern "C" void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx) {
 
 
 // func_800A45A8 at 0x800A4600: $t8 = the player count; the sky is only built for one player. Rush 2049 draws its
-// sky in split screen too.
+// sky in split screen too. A track without a sky model builds none, as in split screen.
 extern "C" void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx) {
     if (hosting(rdram)) {
-        ctx->r24 = 1;
+        ctx->r24 = track_has_sky ? 1 : 2;
     }
 }
 
@@ -406,9 +444,18 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     if (file == 0 || count <= 0 || count > 10) {
         return;
     }
+    if (rush2::track2049::race_track() == rush2::track2049::obstacle) {
+        // Rush 2049's obstacle course gives no time at checkpoints (rush2_track49_obstacle_clock sets the clock).
+        MEM_H(0, (int32_t)header) = (int16_t)rush2::track2049::obstacle_time;
+        for (int i = 0; i < count; i++) {
+            MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x1E)) = 0;
+            MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x20)) = 0;
+        }
+        return;
+    }
     auto u16 = [&](uint32_t o) { return (uint32_t)MEM_HU(0, (int32_t)(file + o)); };
     auto s16 = [&](uint32_t o) { return (int)(int16_t)MEM_H(0, (int32_t)(file + o)); };
-    // Routes (race.md §3.3): header, branch records, total count, spine and branch points, then 4 lanes of
+    // Routes (race.md ï¿½3.3): header, branch records, total count, spine and branch points, then 4 lanes of
     // {u16 count, u8, u8, 4 bytes} + count x {s16 x, y, z, u8 speed, u8}.
     constexpr uint32_t route = 0x32C;
     uint32_t spine = u16(route), branches = MEM_BU(0, (int32_t)(file + route + 8));
@@ -446,4 +493,74 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
         scale_field(header + 0xC + i * 0x50 + 0x1E);
         scale_field(header + 0xC + i * 0x50 + 0x20);
     }
+}
+
+// End of func_80094698, which copied the race options into the race's settings: the obstacle course is raced alone
+// over one lap, forwards and unmirrored, with checkpoints on (Rush 2049 has no such options for it).
+extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t laps = 0x8010C0E2;          // s16
+    constexpr uint32_t drones = 0x800D3E90;        // s16
+    constexpr uint32_t checkpoints = 0x8010C17B;   // u8: the race is against the clock
+    constexpr uint32_t backward = 0x80119848;
+    constexpr uint32_t mirror = 0x800D0190;
+    if (!rush2::track2049::obstacle_race(rdram)) {
+        return;
+    }
+    MEM_H(0, (int32_t)laps) = 1;
+    MEM_H(0, (int32_t)drones) = 0;
+    MEM_B(0, (int32_t)checkpoints) = 1;
+    MEM_B(0, (int32_t)backward) = 0;
+    MEM_B(0, (int32_t)mirror) = 0;
+}
+
+// func_800AE670 at 0x800AEB20, at race start with checkpoints on: the time allowed (0x8010C204) was just set from the
+// path's start time and the difficulty. The obstacle course gets Rush 2049's 5 minutes whatever the difficulty.
+extern "C" void rush2_track49_obstacle_clock(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t time_allowed = 0x8010C204;  // f32
+    if (!rush2::track2049::obstacle_race(rdram)) {
+        return;
+    }
+    float t = rush2::track2049::obstacle_time;
+    uint32_t bits;
+    std::memcpy(&bits, &t, sizeof(bits));
+    MEM_W(0, (int32_t)time_allowed) = (int32_t)bits;
+}
+
+// func_8008CDA4 at 0x8008D014, for car $s0 that hasn't fallen below y -190: about to run the stuck timer (+0x7F8, the
+// time the car became slow; 0 = not slow), which resets the car once it has been slow for 6 s. Rush 2049 skips that
+// timer for its stunt, obstacle and battle types (0x800CF830): clearing the start time each frame keeps it from
+// running. Rush 2's stunt mode skips it already.
+extern "C" void rush2_track49_stuck_timer(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::stuck_reset_off(rdram)) {
+        MEM_W(0, (int32_t)((uint32_t)ctx->r16 + 0x7F8)) = 0;
+    }
+}
+
+// func_8008E40C at 0x8008E678, a wrecked player waiting to be put back: $f16 = 3.5, the seconds since the wreck
+// after which the car is put back. Rush 2049 waits 0.6 s for its obstacle and battle types (0x800E5BF8, constant
+// 0x80124480) and 5 s otherwise.
+extern "C" void rush2_track49_respawn_delay(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::quick_respawn(rdram)) {
+        ctx->f16.fl = 0.6f;
+    }
+}
+
+// The HUD's track map (func_800B8188 at 0x800B81D8, $s4), its car dots (func_800B8900 at 0x800B8950, $a1), its
+// finish flag (func_800B9D48 at 0x800B9D70, $t0) and the radar (func_800B920C at 0x800B9260, $t0; its dots
+// func_800B8CC8 at 0x800B8D24, $t2) hide themselves on the stunt track (11), whose id is about to be tested. Courses
+// Rush 2049 shows neither on count as it.
+extern "C" void rush2_track49_map_s4(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::no_map(rdram)) ctx->r20 = stunt_host_slot;
+}
+
+extern "C" void rush2_track49_map_a1(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::no_map(rdram)) ctx->r5 = stunt_host_slot;
+}
+
+extern "C" void rush2_track49_map_t0(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::no_map(rdram)) ctx->r8 = stunt_host_slot;
+}
+
+extern "C" void rush2_track49_map_t2(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::no_map(rdram)) ctx->r10 = stunt_host_slot;
 }

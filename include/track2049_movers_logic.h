@@ -152,7 +152,8 @@ namespace rush2::track2049::movers {
         bool backward = false;      // 2049 0x80152570 (Rush 2 0x80119848)
         bool expansion = true;      // 2049 0x80156994 (osMemSize > 4 MB): spawn everything
         bool restricted = false;    // 2049 0x801174B4 & 8 [I: multiplayer]: without expansion nothing spawns
-        int mode = 0;               // 2049 0x8014A110; 2 = battle-only nodes [I]; race tracks use neither 2 nor 5
+        int mode = 0;               // 2049 0x8014A110 (rush2::track2049::GameType): 5 = obstacle course; 2 = some
+                                    // nodes and groups left out (meaning unknown, no hosted course uses it)
     };
 
     class World {
@@ -163,6 +164,10 @@ namespace rush2::track2049::movers {
 
         // func_800C0AC0 for every object in 2049's instance-list order, once per rendered frame with the frame time.
         void update(float dt);
+
+        // Car 0's position (2049 0x80152818 + 8), which mode 5 measures its group moves' range from. Set it before
+        // update().
+        void set_focus(const float pos[3]);
 
         // Code at 0x8010C2E4 (callback slot 5: TRIGGER, T3POD, T3TEETER), per object with `cars` set and car:
         // `on` = one of the car's four wheel surface polygons (last found, even airborne) has info bit 0x20 and
@@ -190,6 +195,7 @@ namespace rush2::track2049::movers {
         void step(Object& o, float dt);
         void position(Object& o, float dt);
         void rotation(Object& o);
+        bool near_focus(const Object& o, float range2) const;
         void sound_start(Object& o);
         void sound_stop(Object& o);
         void sound_moving(Object& o);
@@ -200,6 +206,7 @@ namespace rush2::track2049::movers {
         std::vector<int> order_;    // update order
         std::vector<GroupOp> ops_;
         Options options_;
+        float focus_[3] = {};
         int body_count_ = 0;
     };
 

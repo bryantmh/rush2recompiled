@@ -1,4 +1,5 @@
-"""Writes the Python reference for static_paths=False to cpp_test/out/ref_nostatic/track1..6 (slot 2, HAWAII) and stunt1..4 (slot 11, STUNT1).
+"""Writes the Python reference for static_paths=False to cpp_test/out/ref_nostatic/track1..6 (slot 2, HAWAII) stunt1..4 (slot 11, STUNT1)
+and obstacle (slot 2).
 The static_paths=True reference is tools/rush2049/out (python track.py)."""
 import os, sys
 
@@ -13,3 +14,4 @@ for k in range(1, 7):
 for n in range(1, 5):
     track.build(track.STUNT_FIRST + n - 1, 11, os.path.join(HERE, 'out', 'ref_nostatic', 'stunt%d' % n),
                 static_paths=False)
+track.build(track.OBSTACLE, 2, os.path.join(HERE, 'out', 'ref_nostatic', 'obstacle'), static_paths=False)

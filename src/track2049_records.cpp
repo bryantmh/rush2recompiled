@@ -1,8 +1,9 @@
 // Records for the Rush 2049 and SF Rush tracks (docs/rush2049_research/records.md).
 //
-// Both kinds of added track race in the host slot; below, "2049 track" stands for either. Internally the added
-// tracks are numbered 1-6 (Rush 2049) and 7-13 (SF Rush tracks 1-7); track2049_records.json keeps the SF Rush ones
-// as { "game": "sfrush", "track": 1-7 }, so files written before they existed still load.
+// Both kinds of added track race in the host slot, and so does Rush 2049's obstacle course; below, "2049 track" stands
+// for any of them. Internally the added tracks are numbered 1-6 (Rush 2049), 7-13 (SF Rush tracks 1-7) and 14 (the
+// obstacle course); track2049_records.json keeps the SF Rush ones as { "game": "sfrush", "track": 1-7 } and the
+// obstacle course as { "track": "obstacle" }, so files written before they existed still load.
 //
 // A 2049 track is raced in the host slot (HAWAII, src/track2049.cpp), and Rush 2 indexes its records by track, so
 // without this file a 2049 race would read and write HAWAII's records. Rush 2 keeps three kinds of records, at
@@ -93,9 +94,10 @@ namespace {
     constexpr int host_record_slot[2] = { host_slot, host_slot + 12 - 1 };
     constexpr int host_no_profile_slot[2] = { host_slot, host_slot + 12 };
 
-    // The added tracks forward and backward: course = (track - 1) + 13 * backward.
+    // The added tracks forward and backward: course = (track - 1) + 14 * backward.
     constexpr int r1_count = rush2::track1::track_count;
-    constexpr int extra_tracks = track_count + r1_count;
+    constexpr int obstacle_track = track_count + r1_count + 1;     // The obstacle course (forward only).
+    constexpr int extra_tracks = obstacle_track;
     constexpr int courses = extra_tracks * 2;
 
     // A side block in RDRAM per player-record position: the stats of each course, then its two pages of times.
@@ -106,6 +108,7 @@ namespace {
     // when the ROM can't be read.
     constexpr uint32_t seeds_2049_rom = 0x1000 + (0x8002E870 - 0x80000400);
     constexpr float seeds_2049[2][track_count] = { { 47, 81, 65, 97, 78, 117 }, { 48, 79, 76, 104, 86, 119 } };
+    constexpr float obstacle_seed = 68;
 
     struct Course {
         uint8_t stats[stats_size] = {};
@@ -145,7 +148,7 @@ namespace {
         return (k - 1) + extra_tracks * backward;
     }
 
-    // The added track hosted by the current race (1-6 Rush 2049, 7-13 SF Rush), or 0.
+    // The added track hosted by the current race (1-6 Rush 2049, 7-13 SF Rush, 14 the obstacle course), or 0.
     int hosted(uint8_t* rdram) {
         if (MEM_B(0, (int32_t)track_id) != host_slot) {
             return 0;
@@ -153,6 +156,9 @@ namespace {
         int k = rush2::track2049::race_track();
         if (k >= 1 && k <= track_count) {
             return k;
+        }
+        if (k == rush2::track2049::obstacle) {
+            return obstacle_track;
         }
         int r = rush2::track1::race_track();
         if (r >= 1 && r <= r1_count) {
@@ -284,17 +290,26 @@ namespace {
             }
             Profile& profile = store[name];
             for (const auto& cj : pj["courses"]) {
-                if (!cj.is_object() || !cj.contains("track") || !cj["track"].is_number_integer()) {
+                if (!cj.is_object() || !cj.contains("track")) {
                     continue;
                 }
-                int k = cj["track"].get<int>();
+                int k;
                 int backward = cj.value("backward", false) ? 1 : 0;
-                bool sfrush = cj.contains("game") && cj["game"].is_string() && cj["game"].get<std::string>() == "sfrush";
-                if (k < 1 || k > (sfrush ? r1_count : track_count)) {
-                    continue;
+                if (cj["track"].is_string() && cj["track"].get<std::string>() == "obstacle") {
+                    k = obstacle_track;
                 }
-                if (sfrush) {
-                    k += track_count;
+                else if (cj["track"].is_number_integer()) {
+                    k = cj["track"].get<int>();
+                    bool sfrush = cj.contains("game") && cj["game"].is_string() && cj["game"].get<std::string>() == "sfrush";
+                    if (k < 1 || k > (sfrush ? r1_count : track_count)) {
+                        continue;
+                    }
+                    if (sfrush) {
+                        k += track_count;
+                    }
+                }
+                else {
+                    continue;
                 }
                 Course& c = profile[course_of(k, backward)];
                 if (cj.contains("stats") && cj["stats"].is_string()) {
@@ -335,7 +350,10 @@ namespace {
                                          { "race", pages[0] },
                                          { "lap", pages[1] },
                                          { "stats", to_hex(c.stats, sizeof(c.stats)) } };
-                if (k > track_count) {
+                if (k == obstacle_track) {
+                    entry["track"] = "obstacle";
+                }
+                else if (k > track_count) {
                     entry["game"] = "sfrush";
                 }
                 course_list.push_back(entry);
@@ -660,13 +678,15 @@ namespace {
     }
 
     float seed_2049(int k, int backward) {
-        if (k > track_count) {
+        // The table is indexed by Rush 2049's track id: 0-5 race tracks, 18 the obstacle course.
+        int id = k == obstacle_track ? rush2::track2049::obstacle - 1 : k - 1;
+        if (k > track_count && k != obstacle_track) {
             // SF Rush keeps no seed times: the AI lanes' lap time stands in.
             float s = rush2::track1::record_seed(k - track_count, backward != 0);
             return s > 1.0f ? s : 90.0f;
         }
         auto rom = rush2::wings::get_rom();
-        uint32_t at = seeds_2049_rom + (uint32_t)((k - 1) + 19 * backward) * 4;
+        uint32_t at = seeds_2049_rom + (uint32_t)(id + 19 * backward) * 4;
         if (rom != nullptr && rom->size() >= at + 4) {
             uint32_t bits = ((*rom)[at] << 24) | ((*rom)[at + 1] << 16) | ((*rom)[at + 2] << 8) | (*rom)[at + 3];
             float f;
@@ -675,7 +695,7 @@ namespace {
                 return f;
             }
         }
-        return seeds_2049[backward][k - 1];
+        return k == obstacle_track ? obstacle_seed : seeds_2049[backward][k - 1];
     }
 }
 

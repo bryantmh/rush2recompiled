@@ -544,8 +544,8 @@ before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
 # Rush 2049 track select entries (src/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
-# func_803ABE0C (per frame); its tables and carousel array are repointed to 29-entry copies at 0x80300000 (Rush 2's 12
-# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28).
+# func_803ABE0C (per frame); its tables and carousel array are repointed to 30-entry copies at 0x80300000 (Rush 2's 12
+# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29).
 [[patches.hook]]
 func = "func_803AB294"
 before_vram = 0x803AB5C0
@@ -589,6 +589,55 @@ func = "func_800AE670"
 before_vram = 0x800AE78C
 text = "    rush2_track49_stunt_mode(rdram, ctx);"
 
+# Rush 2049's obstacle course (src/track2049.cpp): raced alone over one lap with checkpoints on (end of
+# func_80094698), against a 5-minute clock (func_800AE670 just after it set the time allowed, 0x8010C204).
+[[patches.hook]]
+func = "func_80094698"
+before_vram = 0x80094A30
+text = "    rush2_track49_obstacle_settings(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800AE670"
+before_vram = 0x800AEB20
+text = "    rush2_track49_obstacle_clock(rdram, ctx);"
+
+# Rush 2049 rules by game type (src/track2049.cpp): no stuck reset, quick respawn after a wreck, and no track map or
+# radar (their stunt track tests).
+[[patches.hook]]
+func = "func_8008CDA4"
+before_vram = 0x8008D014
+text = "    rush2_track49_stuck_timer(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8008E40C"
+before_vram = 0x8008E678
+text = "    rush2_track49_respawn_delay(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B8188"
+before_vram = 0x800B81D8
+text = "    rush2_track49_map_s4(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B8900"
+before_vram = 0x800B8950
+text = "    rush2_track49_map_a1(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B920C"
+before_vram = 0x800B9260
+text = "    rush2_track49_map_t0(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B8CC8"
+before_vram = 0x800B8D24
+text = "    rush2_track49_map_t2(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B9D48"
+before_vram = 0x800B9D70
+text = "    rush2_track49_map_t0(rdram, ctx);"
+
 [[patches.hook]]
 func = "func_80094698"
 before_vram = 0x80094754
@@ -613,6 +662,17 @@ text = "    rush2_track49_stunt_select(rdram, ctx);"
 func = "func_803C6268"
 before_vram = 0x803C6354
 text = "    rush2_track49_stunt_options(rdram, ctx);"
+
+# The obstacle course keeps DEATHS open (its value isn't greyed like STUNT1's).
+[[patches.hook]]
+func = "func_803C6268"
+before_vram = 0x803C6858
+text = "    rush2_track49_deaths_value_t4(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C6268"
+before_vram = 0x803C68AC
+text = "    rush2_track49_deaths_value_t0(rdram, ctx);"
 
 [[patches.hook]]
 func = "func_803C5798"
@@ -784,17 +844,17 @@ value = 0x304E001F # andi    $t6, $v0, 0x1F
 [[patches.instruction]]
 func = "func_803AB294"
 vram = 0x803AB67C
-value = 0x2A21001D # slti    $at, $s1, 0x1D
+value = 0x2A21001E # slti    $at, $s1, 0x1E
 
 [[patches.instruction]]
 func = "func_803AB294"
 vram = 0x803AB6D0
-value = 0x241E001D # addiu    $fp, $zero, 0x1D
+value = 0x241E001E # addiu    $fp, $zero, 0x1E
 
 [[patches.instruction]]
 func = "func_803ABE0C"
 vram = 0x803AC0FC
-value = 0x28C1001D # slti    $at, $a2, 0x1D
+value = 0x28C1001E # slti    $at, $a2, 0x1E
 
 # Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
@@ -977,7 +1037,7 @@ value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 
 # Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
 # Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
-# 29-entry name table into a 29-entry array at 0x80300780 (was 7 at 0x803C7A44), with the 29-entry scale, cloud height and
+# 30-entry name table into a 30-entry array at 0x80300780 (was 7 at 0x803C7A44), with the 30-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
 [[patches.hook]]
 func = "func_800A7DCC"
@@ -1002,7 +1062,7 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B62AC
-value = 0x263107F4 # addiu $s1, $s1, 0x7F4
+value = 0x263107F8 # addiu $s1, $s1, 0x7F8
 
 [[patches.instruction]]
 func = "func_803B6260"
@@ -1037,7 +1097,7 @@ value = 0x3C188030 # lui $t8, 0x8030
 [[patches.instruction]]
 func = "func_803B6260"
 vram = 0x803B64B0
-value = 0x27180074 # addiu $t8, $t8, 0x74
+value = 0x27180078 # addiu $t8, $t8, 0x78
 
 [[patches.instruction]]
 func = "func_803B6260"

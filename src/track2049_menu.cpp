@@ -2,27 +2,30 @@
 //
 // Rush 2's track select (menu overlay: func_803AB294 init and draw, func_803ABE0C per frame) cycles the track id byte
 // through 0-11 and shows a carousel of dioramas built from 12-entry tables. With Rush 2049 tracks available it
-// offers ids 12-17 after them and Rush 2049's stunt arenas as ids 25-28, and with SF Rush (Rush 1) tracks available
-// ids 18-24:
+// offers ids 12-17 after them, Rush 2049's stunt arenas as ids 25-28 and its obstacle course as id 29, and with SF
+// Rush (Rush 1) tracks available ids 18-24:
 // - The per-track tables the screen reads (diorama names 0x803C91E0, scales 0x803C9180, cloud heights 0x803C91B0,
 //   logo names 0x803C9668) and its carousel array (0x803D0698, 0x1C bytes per entry) only have room for 12. Copies
-//   with 29 entries live in the memory the game heap used before it moved (src/assets.cpp), and us.toml repoints the
-//   instructions that address them. The loop bounds and wraps go from 12 to 29; func_803AB01C, which says whether a
-//   track is unlocked, offers 12-17, 25-28 and 18-24 only while those tracks are available.
+//   with 30 entries live in the memory the game heap used before it moved (src/assets.cpp), and us.toml repoints the
+//   instructions that address them. The loop bounds and wraps go from 12 to 30; func_803AB01C, which says whether a
+//   track is unlocked, offers 12-17, 25-29 and 18-24 only while those tracks are available.
 // - The menus test for the stunt track (11) by id: its options other than TRACK, FOG and WIND are greyed and
-//   func_80094698 turns backward and mirror off. Hooks make those tests treat the stunt arenas' ids as 11.
+//   func_80094698 turns backward and mirror off. Hooks make those tests treat the stunt arenas' and the obstacle
+//   course's ids as 11, except the test that sets stunt mode: the obstacle course is raced (src/track2049.cpp).
 // - The dioramas and logos come from a generated copy of asset 3 (src/track2049_art.cpp, then
 //   rush2::track1::extend_menu_container for the Rush 1 ones).
 // - The screen saves the chosen track as the low nibble of byte +0x30 of the player's save record, which can't hold
-//   12-28, so such a choice leaves the nibble alone and is kept in track2049.json instead, and restored when the
+//   12-29, so such a choice leaves the nibble alone and is kept in track2049.json instead, and restored when the
 //   screen opens.
 // - Car select counts the track's collected keys from 12-entry tables (func_803B1AB0); added tracks have none.
-// - The Start Game menu has a STUNT row after PRACTICE. Through it the track select offers STUNT1 and the stunt
-//   arenas only, remembered apart (track2049.json "stunt"); through the other rows it leaves them out.
+// - The Start Game menu has a STUNT row after PRACTICE. Through it the track select offers STUNT1, the stunt arenas
+//   and the obstacle course only, remembered apart (track2049.json "stunt"); through the other rows it leaves them
+//   out.
 //
-// When a race starts on id 12-28, the id becomes the host slot's (STUNT1's for a stunt arena) and the added track is
+// When a race starts on id 12-29, the id becomes the host slot's (STUNT1's for a stunt arena) and the added track is
 // noted for the track hooks (src/track2049.cpp, src/track1.cpp). The host slot keeps its id through restarts; opening
-// the track select clears it again. Circuits never pick a stunt arena, as they never pick STUNT1.
+// the track select clears it again. Circuits never pick a stunt arena or the obstacle course, as they never pick
+// STUNT1.
 
 #include <atomic>
 #include <cstdio>
@@ -56,14 +59,14 @@ namespace {
     constexpr uint32_t cloud_heights = 0x803C91B0;
     constexpr uint32_t logo_names = 0x803C9668;
 
-    // Their 29-entry copies (us.toml points the screen at these).
+    // Their 30-entry copies (us.toml points the screen at these).
     constexpr uint32_t menu_data = 0x80300000;
     constexpr uint32_t new_diorama_names = menu_data + 0x000;
     constexpr uint32_t new_diorama_scales = menu_data + 0x080;
     constexpr uint32_t new_cloud_heights = menu_data + 0x100;
     constexpr uint32_t new_logo_names = menu_data + 0x180;
-    // new carousel array at menu_data + 0x400 (29 x 0x1C)
-    constexpr uint32_t new_circuit_instances = menu_data + 0x780; // 29 x s32, the circuit screen's dioramas
+    // new carousel array at menu_data + 0x400 (30 x 0x1C)
+    constexpr uint32_t new_circuit_instances = menu_data + 0x780; // 30 x s32, the circuit screen's dioramas
     constexpr uint32_t new_strings = menu_data + 0x800;           // 32 bytes per added track
     constexpr uint32_t stunt_label = menu_data + 0xC00;           // "STUNT", the Start Game menu's added row
     constexpr uint32_t stunt_label_ptr = menu_data + 0xC10;       // char* to it, read as the row's table entry
@@ -85,32 +88,55 @@ namespace {
     constexpr int rush2_tracks = 12;
     constexpr int r1_first = rush2::track1::first_menu_id;               // 18
     constexpr int r1_end = r1_first + rush2::track1::track_count;       // 25
-    constexpr int menu_tracks = stunt_menu_id + stunt_count;            // 29
-    constexpr int added_tracks = menu_tracks - first_menu_id;           // 2049, Rush 1 and stunt arena entries
+    constexpr int menu_tracks = obstacle_menu_id + 1;                   // 30
+    constexpr int added_tracks = menu_tracks - first_menu_id;           // 2049, Rush 1, stunt arena and obstacle entries
     static_assert(first_menu_id + track_count == r1_first);
     static_assert(r1_end == stunt_menu_id);
+    static_assert(stunt_menu_id + stunt_count == obstacle_menu_id);
 
     bool is_arena(int t) {
-        return t >= stunt_menu_id && t < menu_tracks;
+        return t >= stunt_menu_id && t < stunt_menu_id + stunt_count;
     }
 
-    // Whether added track select entry t (12-28) can be chosen.
+    // A stunt arena or the obstacle course: the entries the STUNT row offers besides STUNT1, whose options the menus
+    // grey as STUNT1's.
+    bool is_stunt_course(int t) {
+        return is_arena(t) || t == obstacle_menu_id;
+    }
+
+    // The track select's options (0x803D05D8[row], row = the cursor 0x803D05BC): 0 TRACK, 3 FOG, 4 WIND, 10 DEATHS.
+    constexpr uint32_t option_rows = 0x803D05D8;
+    constexpr uint32_t option_cursor = 0x803D05BC;
+    constexpr int option_deaths = 10;
+
+    // Whether option `option` stays open on track t although STUNT1 greys it: the obstacle course is raced (a car
+    // can die on it), so DEATHS stays.
+    bool option_open(int t, int option) {
+        return t == obstacle_menu_id && option == option_deaths;
+    }
+
+    int cursor_option(uint8_t* rdram) {
+        int row = (int32_t)MEM_W(0, (int32_t)option_cursor);
+        return (int32_t)MEM_W(0, (int32_t)(option_rows + row * 4));
+    }
+
+    // Whether added track select entry t (12-29) can be chosen.
     bool entry_available(int t) {
         if (t >= first_menu_id && t < r1_first) return available();
         if (t >= r1_first && t < r1_end) return rush2::track1::available();
-        if (is_arena(t)) return available();
+        if (is_stunt_course(t)) return available();
         return false;
     }
 
     bool is_stunt_track(int t) {
-        return t == stunt_host_slot || is_arena(t);
+        return t == stunt_host_slot || is_stunt_course(t);
     }
 
-    // Whether the track select was reached through the Start Game menu's STUNT row. It then offers STUNT1 and the
-    // stunt arenas only, and otherwise leaves them out.
+    // Whether the track select was reached through the Start Game menu's STUNT row. It then offers STUNT1, the stunt
+    // arenas and the obstacle course only, and otherwise leaves them out.
     std::atomic<bool> stunt_select = false;
 
-    // Whether the track select offers track t (0-28): func_803AB01C's unlocks, the added tracks, and the stunt
+    // Whether the track select offers track t (0-29): func_803AB01C's unlocks, the added tracks, and the stunt
     // filter.
     bool track_selectable(uint8_t* rdram, int t) {
         bool unlocked;
@@ -124,7 +150,7 @@ namespace {
 
     std::mutex menu_mutex;
     int selection = -1;            // Added track (id - 12) last chosen on the track select, or -1.
-    int stunt_selection = -1;      // Track (11 or 25-28) last chosen on the stunt track select, or -1.
+    int stunt_selection = -1;      // Track (11 or 25-29) last chosen on the stunt track select, or -1.
     bool selection_loaded = false;
     std::vector<uint8_t> menu_container;
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom;    // 2049 ROM the container was built with.
@@ -186,8 +212,8 @@ namespace {
         }
     }
 
-    // Fills the 29-entry tables: Rush 2's 12 entries, then the 2049 tracks', the Rush 1 tracks' and the stunt
-    // arenas'.
+    // Fills the 30-entry tables: Rush 2's 12 entries, then the 2049 tracks', the Rush 1 tracks', the stunt arenas' and
+    // the obstacle course's.
     void write_tables(uint8_t* rdram) {
         for (int t = 0; t < rush2_tracks; t++) {
             MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = MEM_W(0, (int32_t)(diorama_names + t * 4));
@@ -226,6 +252,7 @@ namespace {
         std::vector<std::pair<int, int>> entries; // (menu id, convert_track's k)
         for (int k = 1; k <= track_count; k++) entries.push_back({ first_menu_id + k - 1, k });
         for (int n = 0; n < stunt_count; n++) entries.push_back({ stunt_menu_id + n, stunt_first + n });
+        entries.push_back({ obstacle_menu_id, obstacle });
         for (auto [t, k] : entries) {
             std::string model = menu_model_name(k), logo = menu_logo_name(k);
             write_string(rdram, s, model);
@@ -299,6 +326,12 @@ namespace {
             rush2::track1::set_race_track(0);
             set_stunt_arena(t - stunt_menu_id + 1);
             MEM_B(0, (int32_t)track_id) = stunt_host_slot;
+        }
+        else if (t == obstacle_menu_id) {
+            set_race_track(obstacle);
+            rush2::track1::set_race_track(0);
+            set_stunt_arena(0);
+            MEM_B(0, (int32_t)track_id) = host_slot;
         }
         else {
             if (t != host_slot) {
@@ -430,7 +463,7 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     std::vector<int> pool;
     for (int t = 0; t < circuit_stock_tracks; t++) pool.push_back(t);
     for (int t = first_menu_id; t < menu_tracks; t++) {
-        if (entry_available(t) && !is_arena(t)) pool.push_back(t);
+        if (entry_available(t) && !is_stunt_course(t)) pool.push_back(t);
     }
     // Seeded from the game's random state ($s0 points at it), so the same circuit seed gives the same races.
     std::mt19937 rng{ (uint32_t)MEM_W(0, (int32_t)ctx->r16) };
@@ -459,7 +492,8 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-// The menus' stunt track tests (see the top of this file): a stunt arena's id counts as STUNT1's.
+// The menus' stunt track tests (see the top of this file): a stunt arena's id counts as STUNT1's, and so does the
+// obstacle course's except for stunt mode.
 
 // func_800AE670 at 0x800AE78C: $t7 = the track, about to be compared with 11 to set stunt mode (game mode 2, in which
 // func_80094698 sets no drones and the race scores stunts).
@@ -470,34 +504,46 @@ extern "C" void rush2_track49_stunt_mode(uint8_t* rdram, recomp_context* ctx) {
 // func_80094698 at 0x80094754 / 0x800947F0: $t8 / $t6 = the track, about to be compared with 11 (backward and mirror
 // are forced off on it).
 extern "C" void rush2_track49_stunt_settings_t8(uint8_t* rdram, recomp_context* ctx) {
-    if (is_arena((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;
+    if (is_stunt_course((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;
 }
 
 extern "C" void rush2_track49_stunt_settings_t6(uint8_t* rdram, recomp_context* ctx) {
-    if (is_arena((int32_t)ctx->r14)) ctx->r14 = stunt_host_slot;
+    if (is_stunt_course((int32_t)ctx->r14)) ctx->r14 = stunt_host_slot;
 }
 
 // func_803ABE0C at 0x803ABFBC and 0x803AC554: $a2 = the track and $t0 = 11, about to be compared to grey the options
 // other than TRACK, FOG and WIND. $a2 is used as the track afterwards, so $t0 takes the arena's id instead ($t0 is
-// set again before its next use).
+// set again before its next use). Options a course keeps open (option_open) aren't greyed.
 extern "C" void rush2_track49_stunt_select(uint8_t* rdram, recomp_context* ctx) {
-    if (is_arena((int32_t)ctx->r6)) ctx->r8 = ctx->r6;
+    int t = (int32_t)ctx->r6;
+    if (is_stunt_course(t) && !option_open(t, cursor_option(rdram))) ctx->r8 = ctx->r6;
+}
+
+// func_803C6268, the DEATHS value (option 10's case) at 0x803C6858 ($t4) / 0x803C68AC ($t0): the track, about to be
+// compared with $s5 (11, or the stunt course's id, rush2_track49_stunt_options) to grey the value. Not on a course
+// where DEATHS stays open.
+extern "C" void rush2_track49_deaths_value_t4(uint8_t* rdram, recomp_context* ctx) {
+    if (option_open((int32_t)ctx->r12, option_deaths)) ctx->r12 = 0;
+}
+
+extern "C" void rush2_track49_deaths_value_t0(uint8_t* rdram, recomp_context* ctx) {
+    if (option_open((int32_t)ctx->r8, option_deaths)) ctx->r8 = 0;
 }
 
 // func_803C6268 at 0x803C6354: $s5 = 11, which the option list compares with the track to grey options.
 extern "C" void rush2_track49_stunt_options(uint8_t* rdram, recomp_context* ctx) {
     int t = (int8_t)MEM_B(0, (int32_t)track_id);
-    if (is_arena(t)) ctx->r21 = (uint64_t)(int64_t)t;
+    if (is_stunt_course(t)) ctx->r21 = (uint64_t)(int64_t)t;
 }
 
 // func_803C5798 at 0x803C5930 / 0x803C5978: $t9 / $t8 = the track, about to be compared with 11 (an option's value
 // is moved off screen on it).
 extern "C" void rush2_track49_stunt_option_t9(uint8_t* rdram, recomp_context* ctx) {
-    if (is_arena((int32_t)ctx->r25)) ctx->r25 = stunt_host_slot;
+    if (is_stunt_course((int32_t)ctx->r25)) ctx->r25 = stunt_host_slot;
 }
 
 extern "C" void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ctx) {
-    if (is_arena((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;
+    if (is_stunt_course((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;
 }
 
 // The Start Game menu's STUNT row (func_803B12C8, labels drawn by func_803C364C). us.toml lets the cursor (s16

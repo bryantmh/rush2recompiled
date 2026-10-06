@@ -92,9 +92,12 @@ int main(int argc, char** argv) {
         for (int n = 0; n < rush2::track2049::stunt_count; n++) {
             ks.push_back(rush2::track2049::stunt_first + n);
         }
+        ks.push_back(rush2::track2049::obstacle);
         for (int k : ks) {
-            bool stunt = k >= rush2::track2049::stunt_first;
-            std::string track = stunt ? "stunt" + std::to_string(k - rush2::track2049::stunt_first + 1)
+            bool obstacle = k == rush2::track2049::obstacle;
+            bool stunt = k >= rush2::track2049::stunt_first && !obstacle;
+            std::string track = obstacle ? "obstacle"
+                              : stunt ? "stunt" + std::to_string(k - rush2::track2049::stunt_first + 1)
                                       : "track" + std::to_string(k);
             fs::path dir = test_dir / (static_paths ? "static" : "nostatic") / track;
             fs::path ref = static_paths ? repo / "tools" / "rush2049" / "out" / track : test_dir / "ref_nostatic" / track;
