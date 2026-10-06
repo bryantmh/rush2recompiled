@@ -723,6 +723,100 @@ def checkpoints(r, t, backward):
     raise ConvertError('checkpoint list has no end')
 
 
+def path_branches(spine, lanes, d2):
+    """Branches for the lanes' own routes. Rush 2 tracks a car on the spine, and only looks at branches when the car
+    is over 40 ft from it (func_80090570); its wrong-way check, respawn point and checkpoint window all come from
+    that. Rush 1 tracks 4 and 5 have alternate routes that only some lanes drive: each stretch of a lane over 40 ft
+    from the spine and the branches so far that gets over 100 ft from them (an alternate route, not a lane on the
+    far side of a wide road) becomes a branch, extended until it is back within 20 ft (at most 30 points each way).
+    Rush 2 links branch ends to the nearest spine or branch point at load (func_80092060) and walks branches forward
+    when it moves a respawn point on, so a stretch that would rejoin the spine behind where it left (the lanes
+    closing their lap on track 6) is left out."""
+    out = []
+    for pts in lanes[1:]:
+        ref = [spine] + out
+        dd = [min(d2(p, q) for r_ in ref for q in r_) for p in pts]
+        k = 0
+        while k < len(pts):
+            if dd[k] <= 1600:
+                k += 1
+                continue
+            a = k
+            while k < len(pts) and dd[k] > 1600:
+                k += 1
+            b = k - 1
+            if max(dd[a:b + 1]) <= 10000:
+                continue
+            s = a
+            while s > 0 and a - s < 30 and dd[s] > 400:
+                s -= 1
+            e = b
+            while e < len(pts) - 1 and e - b < 30 and dd[e] > 400:
+                e += 1
+            leave = min(range(len(spine)), key=lambda j: d2(spine[j], pts[s]))
+            rejoin = min(range(len(spine)), key=lambda j: d2(spine[j], pts[e]))
+            if 0 < rejoin - leave < len(spine) // 2 and len(out) < r2paths.MAX_BRANCH:
+                out.append(pts[s:e + 1])
+    return out
+
+
+GATE_RADII = (300, 250, 200, 160, 130, 100, 80)
+GATE_MARGIN = 30
+
+
+def widen_gates(gates, paths, es):
+    """Rush 1 counts a checkpoint once the car's place on the track passes it, however far to the side the car is
+    (func_8009FFCC); Rush 2's gate also needs the car within its radius, and a missed gate keeps the car's checkpoint
+    window (and so its respawn point) behind it. Each gate gets the largest of GATE_RADII that keeps every crossing
+    where it was and that no path crosses (within the radius plus a margin) on its way from the previous gate."""
+    if len(gates) < 2:
+        return
+
+    def ok(i):
+        g = gates[i]
+        prev = gates[i - 1]
+        lim = (math.sqrt(g['r2']) + GATE_MARGIN) ** 2
+        for pts, lp, l in paths:
+            c = r2paths.crossing(g, pts)
+            if abs(c - (g['k'] if l is None else es[i][l])) > 40:
+                return False
+            j = r2paths.crossing(prev, pts)
+            for _ in range(len(pts)):
+                nx = j + 1 if j + 1 < len(pts) else lp
+                if nx == c:
+                    break
+                p, q = pts[j], pts[nx]
+                sp = (p[0] - g['pos'][0]) * g['dir'][0] + (p[2] - g['pos'][2]) * g['dir'][2]
+                sq = (q[0] - g['pos'][0]) * g['dir'][0] + (q[2] - g['pos'][2]) * g['dir'][2]
+                if (sp < 0) != (sq < 0):
+                    dp = (p[0] - g['pos'][0]) ** 2 + (p[2] - g['pos'][2]) ** 2
+                    dq = (q[0] - g['pos'][0]) ** 2 + (q[2] - g['pos'][2]) ** 2
+                    if min(dp, dq) <= lim:
+                        return False
+                j = nx
+            else:
+                return False
+        return True
+
+    base = [g['r2'] for g in gates]
+    for i, g in enumerate(gates):
+        for rad in GATE_RADII:
+            if rad * rad <= base[i]:
+                break
+            g['r2'] = rad * rad
+            if ok(i):
+                break
+            g['r2'] = base[i]
+    # Widening a gate moves its crossings, which bound the next gate's stretch: put back any gate that no longer holds.
+    changed = True
+    while changed:
+        changed = False
+        for i, g in enumerate(gates):
+            if g['r2'] != base[i] and not ok(i):
+                g['r2'] = base[i]
+                changed = True
+
+
 def convert_path(r, t, backward):
     """Rush 1 lanes (the race loop ends at point `end` and continues at point `loop`) and checkpoint list as a Rush 2
     path: spine = lane 0, lanes = the four lanes, one lap each ([0, end)), checkpoints on the spine with Rush 2 flags
@@ -731,16 +825,19 @@ def convert_path(r, t, backward):
     cps, loop_cp = checkpoints(r, t, backward)
     if not 1 <= len(cps) <= 10:
         raise ConvertError('%d checkpoints' % len(cps))
-    lane_pts = []
+    lane_pts, loops = [], []
     for ln in L:
         end = ln['end'] if 2 <= ln['end'] <= len(ln['points']) else len(ln['points'])
         lane_pts.append([p for p in ln['points'][:end]])
+        loops.append(ln['loop'] if 0 <= ln['loop'] < end else 0)
     spine = [p[:3] for p in lane_pts[0]]
     n = len(spine)
     lane_xyz = [[q[:3] for q in pts] for pts in lane_pts]
 
     def d2(p, q):
         return (p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]) + (p[2] - q[2]) * (p[2] - q[2])
+
+    branches = path_branches(spine, lane_xyz, d2)
 
     def nearest(pts, pos, lo, hi):
         return min(range(lo, max(hi, lo + 1)), key=lambda j: d2(pts[j], pos))
@@ -794,9 +891,14 @@ def convert_path(r, t, backward):
                 break
         if found is None:
             raise ConvertError('no gate for checkpoint %d' % i)
+        found['k'] = kk
         out_cps.append(found)
+    widen_gates(out_cps, [(spine, loops[0], None)] + [(pts, loops[l], l) for l, pts in enumerate(lane_xyz)], es)
+    for g in out_cps:
+        del g['k']
     p = dict(base_time=90, loop_cp=0, finish_cp=0, arm_cp=0, n_cp=len(out_cps), hdr_pad=0, cps=out_cps,
-             spine=[tuple(int(x) for x in s) for s in spine], branches=[],
+             spine=[tuple(int(x) for x in s) for s in spine],
+             branches=[dict(alt=0, points=[tuple(int(x) for x in q) for q in b]) for b in branches],
              lanes=[dict(points=[(int(q[0]), int(q[1]), int(q[2]), q[3], q[4]) for q in pts], unk2=0, unk3=0)
                     for pts in lane_pts], raw=b'')
     data = r2paths.build(p, clear_runtime=True)

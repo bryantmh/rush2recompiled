@@ -322,6 +322,29 @@ extern "C" void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx) {
     pvs_camera = (uint32_t)ctx->r5;
 }
 
+// func_8008CDA4 at 0x8008D3A4, just after it stores a human's wrong-way angle ($s0 = the car's state, +0x34C the
+// angle, +0x338 the time it started looking). Rush 1 (func_8009BE68) skips the check while the car's last or next
+// checkpoint has flag 4 (track 6's figure 8), clearing both, as Rush 2 does for a car it doesn't check.
+extern "C" void rush2_track1_wrong_way(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t states = 0x801124A0, cars = 0x800F5470;
+    if (raced_track == 0) {
+        return;
+    }
+    uint32_t state = (uint32_t)ctx->r16;
+    uint32_t car = cars + (state - states) / 0x354 * 0x81C;
+    int last = (int16_t)MEM_H(0, (int32_t)(car + 0x7FE)), next = (int16_t)MEM_H(0, (int32_t)(car + 0x800));
+    std::lock_guard lock{ track_mutex };
+    if (!applied || MEM_B(0, (int32_t)track_id) != host_slot) {
+        return;
+    }
+    uint16_t mask = track.timing[applied_backward == 1 ? 1 : 0].no_wrong_way;
+    auto flagged = [&](int i) { return i >= 0 && i < 16 && (mask >> i & 1) != 0; };
+    if (flagged(last) || flagged(next)) {
+        MEM_W(0, (int32_t)(state + 0x338)) = 0;
+        MEM_W(0, (int32_t)(state + 0x34C)) = 0;
+    }
+}
+
 // Rush 1's race timer (func_800B9F8C start, func_8009FFCC checkpoints; docs/rush1_research.md):
 //   start = base - 4 x difficulty + 4 x laps + 16, unscaled;
 //   reaching checkpoint i adds time[lap](i) x (1 + (5 - difficulty) x 0.05), time[2] from lap 3 on.

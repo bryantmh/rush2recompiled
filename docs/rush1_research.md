@@ -278,8 +278,14 @@ camera position from the start of `func_8007C27C`).
 - **Flags (`func_8009D818`):**
   - 2 = the lap line
   - 1 = the last checkpoint before it, which triggers the FINISH banner
-  - 4 = unknown (track 6)
+  - 4 = no wrong-way warning: `func_8009BE68` skips its check while the car's last or next checkpoint (car
+    +0xA4C / +0xA4E, the 0x44-byte checkpoint copies at *0x800F3A80, flags at +0x3A) has it. Only track 6 (the
+    figure 8) uses it.
 - **Progress:** Rush 1 snaps checkpoints to the collision segment chain, which acts as its spine (`func_800A8F18`).
+  The chain is linear (`func_8009DF90` / `func_8009E090` step ±1), and a checkpoint counts once the car's place on
+  it passes the checkpoint's (`func_8009FFCC`), however far to the side the car is.
+- **Wrong way:** `func_8009BE68` maps the car's segment to a lane 0 point (tables 0x800E4E28 / 0x800E66F8) and
+  compares the car's heading with the point 5 ahead, like Rush 2's `func_8008CDA4`.
 
 ### Conversion to a Rush 2 path file
 
@@ -287,10 +293,23 @@ camera position from the start of `func_8007C27C`).
 |---|---|
 | Spine | lane 0's lap |
 | Lanes | the four laps |
-| Branches | none |
+| Branches | the lanes' alternate routes (below) |
 | Checkpoints | gates on spine points, in race order (the nearest point after the previous checkpoint's) |
 
-- **Gate width:** wide enough for every lane.
+- **Branches:** Rush 2 tracks a car on the spine, and only on branches when it is over 40 ft from the spine
+  (`func_80090570`). Its wrong-way angle, respawn point (`func_80090A40`) and checkpoint window come from that, so
+  with lane 0 alone, the alternate routes of tracks 4 and 5 (lanes up to 850 ft from lane 0) read as wrong way. Each
+  lane stretch over 40 ft from the spine and earlier branches that gets over 100 ft away becomes a branch,
+  extended until it is back within 20 ft (at most 30 points each way), if it rejoins the spine ahead of where it
+  leaves (Rush 2 walks branches forward when it moves a respawn point on). Rush 2 links the ends at load. Result:
+  3 branches on track 4 each way, 2 / 1 on track 5, none elsewhere. A car driven along every lane through Rush 2's
+  tracker and wrong-way test reads wrong way at 13-42 points per lane on tracks 4 and 5 without them, and at only
+  one point (the fork on track 5 forward, still inside 40 ft) with them.
+- **Gate width:** wide enough for every lane, then widened to the largest of 300, 250, 200, 160, 130, 100 or 80 ft
+  that keeps every crossing in place and that no path crosses within the radius + 30 ft on its way from the
+  previous gate. Lane-only gates were 60 ft, so a car driving wide of the lanes missed gates, and a missed gate keeps
+  Rush 2's respawn search in the stretch before it (`func_80090570`): crash respawns jumped back up to half a lap.
+  Rush 2's own gates are 35-890 ft.
 - **Gate placement:** a gate moves along the spine until Rush 2's crossing search (first side change inside the
   radius) finds the intended pass on every path. Track 6 is a figure 8.
 - **Flags:** 2 (arm) on checkpoint 0, 4 on Rush 1's loop start, 1 on Rush 1's lap line. This is NYONE's intro
@@ -311,7 +330,6 @@ camera position from the start of `func_8007C27C`).
 
 - What the keys unlock is undecided (docs/unlocks_plan.md).
 - MARKER and TIME (behaviours 0x0F, 0x15) are not understood.
-- Checkpoint flag 4 (track 6) is not understood.
 - The cars (assets 25-35) aren't ported. All 11 are already Rush 2 cars.
 
 ## 9. Audio [V]

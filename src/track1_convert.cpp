@@ -1071,6 +1071,7 @@ namespace {
         double dir[3];
         uint32_t r2;
         int flags;
+        long k = 0; // the spine point it sits on
     };
 
     double dist2(const LanePoint& p, const double* q) {
@@ -1099,14 +1100,137 @@ namespace {
         }
     }
 
+    int64_t dist2(const LanePoint& p, const LanePoint& q) {
+        int64_t dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    // Branches for the lanes' own routes. Rush 2 tracks a car on the spine, and only looks at branches when the car is
+    // over 40 ft from it (func_80090570); its wrong-way check, respawn point and checkpoint window all come from that.
+    // Rush 1 tracks 4 and 5 have alternate routes that only some lanes drive: each stretch of a lane over 40 ft from
+    // the spine and the branches so far that gets over 100 ft from them (an alternate route, not a lane on the far side
+    // of a wide road) becomes a branch, extended until it is back within 20 ft (at most 30 points each way). Rush 2
+    // links branch ends to the nearest spine or branch point at load (func_80092060) and walks branches forward when it
+    // moves a respawn point on, so a stretch that would rejoin the spine behind where it left (the lanes closing their
+    // lap on track 6) is left out.
+    std::vector<std::vector<LanePoint>> path_branches(const std::vector<std::vector<LanePoint>>& lanes) {
+        const auto& spine = lanes[0];
+        std::vector<std::vector<LanePoint>> out;
+        auto nearest_spine = [&](const LanePoint& p) {
+            size_t best = 0;
+            for (size_t j = 1; j < spine.size(); j++) {
+                if (dist2(spine[j], p) < dist2(spine[best], p)) best = j;
+            }
+            return long(best);
+        };
+        for (size_t l = 1; l < lanes.size(); l++) {
+            const auto& pts = lanes[l];
+            std::vector<int64_t> dd(pts.size());
+            for (size_t k = 0; k < pts.size(); k++) {
+                int64_t best = INT64_MAX;
+                for (const LanePoint& q : spine) best = std::min(best, dist2(pts[k], q));
+                for (const auto& b : out) {
+                    for (const LanePoint& q : b) best = std::min(best, dist2(pts[k], q));
+                }
+                dd[k] = best;
+            }
+            size_t k = 0;
+            while (k < pts.size()) {
+                if (dd[k] <= 1600) {
+                    k++;
+                    continue;
+                }
+                size_t a = k;
+                while (k < pts.size() && dd[k] > 1600) k++;
+                size_t b = k - 1;
+                if (*std::max_element(dd.begin() + long(a), dd.begin() + long(b) + 1) <= 10000) continue;
+                size_t s = a, e = b;
+                while (s > 0 && a - s < 30 && dd[s] > 400) s--;
+                while (e < pts.size() - 1 && e - b < 30 && dd[e] > 400) e++;
+                long leave = nearest_spine(pts[s]), rejoin = nearest_spine(pts[e]);
+                if (0 < rejoin - leave && rejoin - leave < long(spine.size() / 2) && out.size() < 15) {
+                    out.emplace_back(pts.begin() + long(s), pts.begin() + long(e) + 1);
+                }
+            }
+        }
+        return out;
+    }
+
+    // Rush 1 counts a checkpoint once the car's place on the track passes it, however far to the side the car is
+    // (func_8009FFCC); Rush 2's gate also needs the car within its radius, and a missed gate keeps the car's checkpoint
+    // window (and so its respawn point) behind it. Each gate gets the largest of these radii that keeps every crossing
+    // where it was and that no path crosses (within the radius plus a margin) on its way from the previous gate.
+    void widen_gates(std::vector<Gate>& gates, const std::vector<std::vector<LanePoint>>& lanes,
+                     const std::vector<size_t>& loops, const std::vector<std::array<size_t, 4>>& es) {
+        constexpr int radii[] = { 300, 250, 200, 160, 130, 100, 80 };
+        constexpr double margin = 30.0;
+        if (gates.size() < 2) return;
+        auto ok = [&](size_t i) {
+            const Gate& g = gates[i];
+            const Gate& prev = gates[i == 0 ? gates.size() - 1 : i - 1];
+            double lim = std::sqrt(double(g.r2)) + margin;
+            lim *= lim;
+            // Path 0 is the spine (lane 0), 1-4 the lanes.
+            for (size_t path = 0; path < 5; path++) {
+                size_t l = path == 0 ? 0 : path - 1;
+                const auto& pts = lanes[l];
+                int c = crossing(g, pts);
+                if (std::abs(c - (path == 0 ? g.k : long(es[i][l]))) > 40) return false;
+                size_t j = size_t(crossing(prev, pts));
+                bool reached = false;
+                for (size_t step = 0; step < pts.size(); step++) {
+                    size_t nx = j + 1 < pts.size() ? j + 1 : loops[l];
+                    if (long(nx) == c) {
+                        reached = true;
+                        break;
+                    }
+                    const LanePoint& p = pts[j];
+                    const LanePoint& q = pts[nx];
+                    double sp = (p.x - g.pos[0]) * g.dir[0] + (p.z - g.pos[2]) * g.dir[2];
+                    double sq = (q.x - g.pos[0]) * g.dir[0] + (q.z - g.pos[2]) * g.dir[2];
+                    if ((sp < 0) != (sq < 0)) {
+                        double dp = (p.x - g.pos[0]) * (p.x - g.pos[0]) + (p.z - g.pos[2]) * (p.z - g.pos[2]);
+                        double dq = (q.x - g.pos[0]) * (q.x - g.pos[0]) + (q.z - g.pos[2]) * (q.z - g.pos[2]);
+                        if (std::min(dp, dq) <= lim) return false;
+                    }
+                    j = nx;
+                }
+                if (!reached) return false;
+            }
+            return true;
+        };
+        std::vector<uint32_t> base;
+        for (const Gate& g : gates) base.push_back(g.r2);
+        for (size_t i = 0; i < gates.size(); i++) {
+            for (int rad : radii) {
+                if (uint32_t(rad * rad) <= base[i]) break;
+                gates[i].r2 = uint32_t(rad * rad);
+                if (ok(i)) break;
+                gates[i].r2 = base[i];
+            }
+        }
+        // Widening a gate moves its crossings, which bound the next gate's stretch: put back any gate that no longer
+        // holds.
+        for (bool changed = true; changed;) {
+            changed = false;
+            for (size_t i = 0; i < gates.size(); i++) {
+                if (gates[i].r2 != base[i] && !ok(i)) {
+                    gates[i].r2 = base[i];
+                    changed = true;
+                }
+            }
+        }
+    }
+
     Bytes convert_path(const std::vector<uint8_t>& rom, const Main& main, int t, bool backward,
                        std::vector<int16_t>& demo, float& lap_seconds,
                        rush2::track1::ConvertedTrack::Timing& timing) {
         Bytes d = asset(rom, (backward ? path_back_asset : path_asset) + t);
         std::vector<std::vector<LanePoint>> lanes;
+        std::vector<size_t> loops;
         size_t o = 0;
         for (int l = 0; l < 4; l++) {
-            int n = s16(d, o), end = s16(d, o + 4);
+            int n = s16(d, o), loop = s16(d, o + 2), end = s16(d, o + 4);
             if (n < 0) fail("bad lane");
             std::vector<LanePoint> pts;
             for (int k = 0; k < n; k++) {
@@ -1117,6 +1241,7 @@ namespace {
             o += 8 + size_t(n) * 10;
             if (!(2 <= end && end <= n)) end = n;
             pts.resize(size_t(end));
+            loops.push_back(0 <= loop && loop < end ? size_t(loop) : 0);
             lanes.push_back(std::move(pts));
         }
         if (o != d.size()) fail("path size mismatch");
@@ -1126,6 +1251,7 @@ namespace {
         std::vector<Checkpoint> cps;
         int loop_cp = 0;
         timing.checkpoints.clear();
+        timing.no_wrong_way = 0;
         uint32_t list = main.w(checkpoint_lists[backward ? 1 : 0] + t * 4);
         for (int i = 0;; i++) {
             if (i >= 13) fail("checkpoint list has no end");
@@ -1136,6 +1262,7 @@ namespace {
                 loop_cp = int16_t(main.w(r + 20) >> 16);
                 break;
             }
+            if (flags & 4) timing.no_wrong_way |= uint16_t(1u << timing.checkpoints.size());
             timing.checkpoints.push_back({ int16_t(main.w(r + 16)), int16_t(main.w(r + 20) >> 16),
                                            int16_t(main.w(r + 20)) });
             uint32_t bits[3] = { main.w(r), main.w(r + 4), main.w(r + 8) };
@@ -1152,6 +1279,7 @@ namespace {
 
         const std::vector<LanePoint>& spine = lanes[0];
         size_t n = spine.size();
+        std::vector<std::vector<LanePoint>> branches = path_branches(lanes);
         auto nearest = [](const std::vector<LanePoint>& pts, const double* pos, size_t lo, size_t hi) {
             hi = std::max(hi, lo + 1);
             size_t best = lo;
@@ -1211,11 +1339,15 @@ namespace {
                 g.r2 = uint32_t(rad * rad);
                 bool ok = std::abs(crossing(g, spine) - kk) <= 40;
                 for (int l = 0; l < 4 && ok; l++) ok = std::abs(crossing(g, lanes[l]) - long(es[i][l])) <= 40;
-                if (ok) found = g;
+                if (ok) {
+                    found = g;
+                    found->k = kk;
+                }
             }
             if (!found) fail("no gate for checkpoint " + std::to_string(i));
             gates.push_back(*found);
         }
+        widen_gates(gates, lanes, loops, es);
 
         // Rush 2's path file (tools/rush2049/paths.py build, runtime fields cleared).
         Bytes out(0x32C, 0);
@@ -1234,10 +1366,24 @@ namespace {
         }
         Bytes route(16, 0);
         put16(route, 0, uint16_t(n));
+        route[8] = uint8_t(branches.size());
         out.insert(out.end(), route.begin(), route.end());
-        add16(out, uint16_t(n));
+        size_t total = n;
+        for (const auto& b : branches) {
+            // alt 0; from, to and checkpoint -1 (linked at load); point count
+            Bytes rec{ 0, 0xFF, 0, 0, 0xFF, 0, 0, 0, 0xFF, 0, 0, 0, 0, 0, 0, 0 };
+            put16(rec, 0xA, uint16_t(b.size()));
+            out.insert(out.end(), rec.begin(), rec.end());
+            total += b.size();
+        }
+        add16(out, uint16_t(total));
         for (const LanePoint& p : spine) {
             add16(out, uint16_t(int16_t(p.x))); add16(out, uint16_t(int16_t(p.y))); add16(out, uint16_t(int16_t(p.z)));
+        }
+        for (const auto& b : branches) {
+            for (const LanePoint& p : b) {
+                add16(out, uint16_t(int16_t(p.x))); add16(out, uint16_t(int16_t(p.y))); add16(out, uint16_t(int16_t(p.z)));
+            }
         }
         for (const auto& pts : lanes) {
             add16(out, uint16_t(pts.size()));
