@@ -263,6 +263,11 @@ From these formulas (1/60 s steps, full throttle, flat ground, traction not limi
 
 2049's edge is acceleration: its shorter gears reach the end of the torque map (0 at 9200 rpm) earlier.
 
+**Speedometers.** Both read the rear wheels' speed in mph (Rush 2 car+0x76C, 2049 car+0x758: wheel spin x radius x
+2.7273 = mph x 4, copied to car-state +0xE0 / +0xF8). Rush 2's HUD (func_800BA2A8) shows it as is; 2049's
+(func_800EF5B0) shows it x 1.2 (0x801245AC; x 1.61 more in km/h). A default Rocket ZX reading 183 in 2049 is doing
+152.5 mph, what these formulas give it 15 s into a straight from rest (the 157 above takes 30 s or more).
+
 **AI.** The drones are physics cars like the players'. Their driver (func_80074990) aims for the lane's target speed
 (u8 mph at lane point +6, x 1.4667 ft/s) x 1.05 x the rubber band (+0x808, func_800A1A98), at least 75/90/135/180
 ft/s (0x800C3FFC[0x800E7D22]), and works the throttle and brake to hold it. Rush 2049's driver (func_800E4B58),
@@ -272,30 +277,21 @@ not speed limits. Its road drag (func_800E23A4) is Rush 2's for stock cars (wing
 terms). So the lanes alone carry each game's AI pace.
 
 Where a lane is below what the drone's car can do, the drone holds back, and a player can catch it; where it is above,
-the drone drives flat out on its line and cannot be caught. The two games set their lanes differently against their
-cars (distance-weighted over all four lanes of the race paths: Rush 2's 7 circuit tracks and 2049's 6 race tracks,
-both directions):
+the drone drives flat out on its line and cannot be caught. Lane speeds (distance-weighted over all four lanes of the
+race paths: Rush 2's 7 circuit tracks and 2049's 6 race tracks, both directions):
 
-| | 10th / 50th / 90th / 95th percentile | distance at >= 160 / >= 170 / >= 180 mph |
-|---|---|---|
-| Rush 2 | 111 / 140 / 160 / 162 mph | 10% / 1% / 0% |
-| 2049 | 113 / 150 / 180 / 190 mph | 43% / 22% / 20% |
+| | 10th / 50th / 90th / 95th percentile |
+|---|---|
+| Rush 2 | 111 / 140 / 160 / 162 mph |
+| 2049 | 113 / 150 / 180 / 190 |
+| 2049 / 1.2 | 94 / 125 / 150 / 158 mph |
 
-Rush 2's lanes stay under its cars' top speed (168 mph flat), so its drones hold back on every straight. 2049's run
-above its cars' (157) on about 40% of the lap, so its drones drive the straights flat out. A uniform scale by the
-cars' speed ratio (0.925) left those stretches at 166-176 mph, still at or above the mapped cars' top speed, and the
-drones unbeatable.
+**Lane units.** Rush 2's lanes are in true mph: its straights (160-162) sit at its cars' top speed. 2049's are in the
+mph its speedometer shows: its straights' 180-190 are its cars' true top speed (about 155) x 1.2, and no 2049 car can
+drive 180 true mph on the flat. The shared driver code reads both as true mph, so 2049's own drones aim 20% over the
+speeds the lanes were set to and drive its straights flat out.
 
-**Lane map.** So each lane speed is mapped by percentile (`tools/rush2049/lanemap.py`): a 2049 speed becomes the Rush
-2 speed at the same percentile (mid-rank, linear between sampled speeds; below the 5th and above the 95th percentile,
-proportional to the two profiles' speeds there, since a single long 247 mph stretch is 2049's top 1.9%). 2049's lanes
-then have Rush 2's speed profile:
-
-| 2049 lane | 100 | 120 | 140 | 150 | 160 | 170 | 180 | 190 | 247 |
-|---|---|---|---|---|---|---|---|---|---|
-| Rush 2 speeds | 104 | 118 | 132 | 141 | 148 | 153 | 157 | 164 | 214 |
-
-With Rush 2 speeds, `rush2_race_lane_speeds` (before func_800924E4 works out the race time from the lanes) puts every
-2049 path's lanes through `lane_to_rush2`; with Rush 2049 speeds the other paths (Rush 2's, SF Rush's) go through the
-reverse map `lane_to_2049` (Rush 2 140 -> 149, 160 -> 181) and 2049's stay native. Lane 0 means: 2049 146.0 -> 137.0;
-Rush 2 134.8 -> 142.8.
+**Lane map.** So a 2049 lane speed / 1.2 (read from 0x801245AC at boot) is its Rush 2 lane speed: 180 -> 150,
+190 -> 158, 120 -> 100. With Rush 2 speeds, `rush2_race_lane_speeds` (before func_800924E4 works out the race time
+from the lanes) divides every 2049 path's lane speeds by it; with Rush 2049 speeds the other paths (Rush 2's,
+SF Rush's) are multiplied by it and 2049's stay native.

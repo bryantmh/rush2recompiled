@@ -303,10 +303,12 @@ void rush2::wings::init_config() {
     wings_config.add_enum_option(
         speeds_option_id,
         "Car Speeds",
-        "Rush 2049's cars and computer cars are faster than Rush 2's. "
-        "<recomp-color primary>Rush 2</recomp-color> runs every car and the computer cars on every track at Rush 2's "
-        "speed. "
-        "<recomp-color primary>Rush 2049</recomp-color> runs them all at Rush 2049's speed. "
+        "Rush 2049's cars accelerate harder than Rush 2's but top out lower, its computer cars drive faster for "
+        "their cars, and its speedometer reads 20% over true speed. "
+        "<recomp-color primary>Rush 2</recomp-color> tunes every car and the computer cars on every track to Rush "
+        "2's. "
+        "<recomp-color primary>Rush 2049</recomp-color> tunes them all to Rush 2049's, and the speedometer reads "
+        "like Rush 2049's. "
         "Takes effect at the next race.",
         {
             { rush2::car2049::SpeedMode::Rush2, "Rush2", "Rush 2" },
