@@ -1877,7 +1877,10 @@ namespace {
                     saved += (int64_t)c.raws[leaf.raw].size();
                 }
             }
-            if (polys.size() > 255) {
+            // The queries expand a leaf into a u16[36] stack buffer with no bound check (func_8006CF00, func_8006F704,
+            // func_8008BDC0); longer leaves overwrite the callers' locals, e.g. func_8006FC94's saved point pointer at
+            // sp+0x15C, crashing in func_8006C670. Rush 2's own tracks reach 34.
+            if (polys.size() > 36) {
                 return std::nullopt;
             }
             Candidate cand;

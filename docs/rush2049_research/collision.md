@@ -219,7 +219,11 @@ The same in both games: compare `func_8006F704`/`func_8006FC94` with `func_800C6
 - **File 141 (2049 track 3):** the leaf section is 99 492 bytes, which exceeds 16-bit offsets.
   - `merge_leaves()` greedily collapses 1022 bottom nodes into their parents to reach 65 533 bytes.
   - Every source leaf maps to an output leaf containing a superset of its polygons (checked).
-  - Max leaf length goes from 26 to 59 polygons.
+  - Merged leaves are capped at 36 polygons (65 523 bytes; max leaf 26 → 36). The four queries copy a leaf into an
+    unchecked u16[36] stack buffer: the next local sits 72 bytes in for `func_8006CF00` (sp+0x94 → 0xDC),
+    `func_8006F704` (0xA4 → 0xEC) and `func_8008BDC0` (0x108 → 0x150); `func_8006FC94` has 40 (0xF4 → 0x144).
+    The old 255 cap gave a 59-polygon leaf that overwrote `func_8006FC94`'s saved point pointer (sp+0x15C), crashing
+    in `func_8006C670`. Rush 2's own tracks reach 34.
   - Point queries test every listed polygon exactly, so results are unchanged; only CPU work changes.
   - **Alternative:** a 4-line patch for the 0x10<<q bit at the leaf fetch in `func_8006CF00`, `func_8006F704`,
     `func_8006FC94` and `func_8008BDC0`. It would allow an unmodified tree.
