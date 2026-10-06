@@ -256,7 +256,9 @@ camera position from the start of `func_8007C27C`).
 
 ### AI lanes (assets 58+t / 65+t, loader `func_800A804C`)
 
-- **File layout:** 4 × { `s16 count, loop, end, x` + count × { `s16 x, y, z` (collision space), `u8 speed` (mph),
+- **File layout:** 4 × { `s16 count, loop, end, x` + count × { `s16 x, y, z` (collision space), `u8 speed` (ft/s: the driver,
+  `func_8007CDD4`, compares lane × 1.05 × rubber band with the car's speed, where Rush 2 converts mph × 1.4667; the
+  converter stores round(speed × 15 / 22) mph),
   `u8 behaviour`, `s16 index` } }.
 - **Lap structure:** a lap runs from point 0 to `end` and continues at `loop`. Tracks 1, 4 and 6 have an intro before
   the loop.

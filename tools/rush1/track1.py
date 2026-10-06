@@ -692,6 +692,12 @@ def encode_vert(x, y, z):
 # ---------------------------------------------------------------------------------------------------------------------
 # AI path
 
+def lane_mph(fps):
+    """Rush 1's lane speeds are in ft/s (its driver, func_8007CDD4, compares lane x 1.05 with the car's speed); Rush 2's
+    are in mph (x 1.4667 = 22 / 15, func_80074990). Rounded, and a moving point stays moving."""
+    return 0 if fps == 0 else max(1, (fps * 30 + 22) // 44)
+
+
 def lanes(d):
     o = 0; out = []
     for l in range(4):
@@ -699,7 +705,7 @@ def lanes(d):
         pts = []
         for k in range(n):
             c0, c1, c2, sp, be, ix = struct.unpack_from('>hhhBBh', d, o + 8 + k * 10)
-            pts.append((c1, -c2, c0, sp, be))
+            pts.append((c1, -c2, c0, lane_mph(sp), be))
         out.append(dict(loop=loop, end=end, points=pts)); o += 8 + n * 10
     if o != len(d):
         raise ConvertError('path size mismatch')
