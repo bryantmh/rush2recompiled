@@ -177,6 +177,9 @@ void rush2_track49_map_a1(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_map_t0(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_map_t2(uint8_t* rdram, recomp_context* ctx);
 void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx);
+void rush2_mode_menu_last_row(uint8_t* rdram, recomp_context* ctx);
+void rush2_mode_menu_below(uint8_t* rdram, recomp_context* ctx);
+void rush2_mode_menu_label_count(uint8_t* rdram, recomp_context* ctx);
 void rush2_mode_menu_label_t3(uint8_t* rdram, recomp_context* ctx);
 void rush2_mode_menu_label_t1(uint8_t* rdram, recomp_context* ctx);
 void rush2_mode_menu_box(uint8_t* rdram, recomp_context* ctx);
@@ -211,6 +214,17 @@ void rush2_track49_records_enter(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_exit(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_seed(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_clear(uint8_t* rdram, recomp_context* ctx);
+
+// The unlock system's shop (src/unlocks_shop.cpp).
+int rush2_unlocks_track_select(uint8_t* rdram, recomp_context* ctx);
+void rush2_unlocks_list_text_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_unlocks_list_text_end(uint8_t* rdram, recomp_context* ctx);
+int rush2_unlocks_list_choose(uint8_t* rdram, recomp_context* ctx);
+int rush2_unlocks_carousel_car(uint8_t* rdram, recomp_context* ctx);
+void rush2_unlocks_list_cursor(uint8_t* rdram, recomp_context* ctx);
+int rush2_unlocks_shop_frame(uint8_t* rdram, recomp_context* ctx);
+void rush2_unlocks_widgets(uint8_t* rdram, recomp_context* ctx);
+int rush2_unlocks_text(uint8_t* rdram, recomp_context* ctx);
 
 // SF Rush keys and Rush 2049 coins on the added tracks (src/collectibles.cpp).
 void rush2_collect_race_reset(uint8_t* rdram, recomp_context* ctx);

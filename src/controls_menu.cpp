@@ -33,6 +33,7 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -397,7 +398,7 @@ namespace {
             cursor = start;
         }
 
-        void add(Glyph glyph, uint32_t rgba, int x, int y) {
+        void add(Glyph glyph, uint32_t rgba, int x, int y, int draw_w = glyph_w, int draw_h = glyph_h) {
             if ((int)glyph >= glyph_count || cursor + 0x100 > start + glyph_dl_size) {
                 return;
             }
@@ -421,10 +422,10 @@ namespace {
             cmd(0xE7000000, 0);                                                     // PipeSync
             cmd(0xF5000000 | (fmt_i << 21) | (siz_8b << 19) | (((w + 7) / 8) << 9), tile_clamp); // SetTile: tile 0
             cmd(0xF2000000, (((w - 1) << 2) << 12) | ((h - 1) << 2));               // SetTileSize
-            uint32_t ulx = x * 4, uly = y * 4, lrx = (x + glyph_w) * 4, lry = (y + glyph_h) * 4;
+            uint32_t ulx = x * 4, uly = y * 4, lrx = (x + draw_w) * 4, lry = (y + draw_h) * 4;
             cmd(0xE4000000 | (lrx << 12) | lry, (ulx << 12) | uly);                 // TextureRectangle
             cmd(0xE1000000, 0);                                                     // s, t = 0
-            uint32_t dsdx = (w << 10) / glyph_w, dtdy = (h << 10) / glyph_h;
+            uint32_t dsdx = (w << 10) / draw_w, dtdy = (h << 10) / draw_h;
             cmd(0xF1000000, (dsdx << 16) | dtdy);
         }
 
@@ -652,6 +653,44 @@ namespace {
             print(rdram, ctx, selected ? text_selected : text_normal, fx, footer_y, items[i]);
             fx += widths[i] + footer_gap;
         }
+    }
+}
+
+// Menu button glyphs for other screens (the unlock system's shop): the fixed menu layout's buttons
+// (rush2::controls::get_menu_input), as the port's controller or keyboard shows them.
+namespace {
+    std::optional<GlyphList> menu_glyphs;
+}
+
+void rush2::controls::begin_menu_glyphs(uint8_t* rdram) {
+    load_glyphs(rdram);
+    menu_glyphs.emplace(rdram);
+}
+
+void rush2::controls::add_menu_glyph(uint8_t* rdram, int port, MenuButton button, int x, int y, int w, int h) {
+    if (!menu_glyphs || port < 0 || port >= rush2::input::num_ports) {
+        return;
+    }
+    Input in;
+    if (shown_device(port) == Device::Keyboard) {
+        constexpr SDL_Scancode keys[] = { SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_Q, SDL_SCANCODE_E };
+        in = { Input::Type::Key, keys[(int)button] };
+    }
+    else {
+        constexpr SDL_GameControllerButton buttons[] = { SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B,
+            SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER };
+        in = { Input::Type::Button, buttons[(int)button] };
+    }
+    GlyphColor g = glyph_for(in, rush2::input::port_has_playstation_controller(port));
+    if (g.glyph != Glyph::None) {
+        menu_glyphs->add(g.glyph, g.rgba, x, y, w, h);
+    }
+}
+
+void rush2::controls::end_menu_glyphs(uint8_t* rdram) {
+    if (menu_glyphs) {
+        menu_glyphs->finish();
+        menu_glyphs.reset();
     }
 }
 

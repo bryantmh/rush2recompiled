@@ -28,6 +28,7 @@
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "car2049.h"
+#include "unlocks.h"
 #include "track2049_convert.h"
 #include "track2049.h"
 #include "wings.h"
@@ -110,6 +111,8 @@ namespace {
     constexpr uint32_t asset_sizes = 0x80222C00;
     constexpr int old_assets = 0x71;
     constexpr int first_car_asset = 0x71;
+    constexpr int parts_asset = rush2::car2049::parts_asset;
+    std::vector<std::array<float, 3>> part_centers;
     constexpr uint32_t car_slot_size = 0x8001CF28; // largest car asset (0xD1F0); func_800A37F4 allocates each slot
 
     // Per-type 16-byte tables: car boxes {front, rear, half width, height} (0x800CAC6C, 22 entries) and a second table
@@ -221,7 +224,7 @@ namespace {
     // Rush 2049's setup tables (docs/rush2049_research/cars.md �9), for applying a player's car options.
     struct Setup49 {
         bool loaded = false;
-        float torque[6][3];      // 0x801110C4 [ENGINE][HANDLING]
+        float torque[9][3];      // 0x801110C4 [ENGINE][HANDLING]
         float trans[3][11];      // 0x801116D0 [HANDLING]: +1 mass, +2 torque, +3 gear ratio, +7 rear grip factors
         float gears[6];          // 0x80110EBC gear set 0
         float rear_grip[5];      // 0x8011121C [TIRES]
@@ -232,7 +235,7 @@ namespace {
         int colours[car_count][3]; // 0x80111604 / 0x80111648 / 0x8011168C: each car's COLOR 1-3 (func_800BB140)
         int rims[car_count];       // 0x8011157C: each car's TIRE RIMS (RIM01 + value, as in Rush 2)
         int engine[car_count];     // 0x80111080: the drones' ENGINE (row C)
-        rush2::car2049::EngineLayer engine_sounds[8][2]; // 0x8010FD80 [ENGINE]
+        rush2::car2049::EngineLayer engine_sounds[9][2]; // 0x8010FD80 [ENGINE]
     };
     Setup49 setup49;
     bool is_2049(int type) {
@@ -257,8 +260,8 @@ namespace {
     constexpr uint32_t old_prefixes = 0x800C64C4;   // texture name prefix per type ("TRK_", ...)
     constexpr uint32_t prefixes = 0x80224F00;       // 36 entries
     constexpr uint32_t no_prefix = 0x80224F90;      // "R49X_": matches no texture
-    constexpr uint32_t engine_labels = 0x80225800;  // "ENGINE 1".."ENGINE 6", 16 bytes each (car options)
-    constexpr int engine_levels = 6;
+    constexpr uint32_t engine_labels = 0x80225800;  // the ENGINE names, 16 bytes each (car options)
+    using rush2::car2049::engine_levels;
 }
 
 void rush2::car2049::init_tables(uint8_t* rdram) {
@@ -266,7 +269,7 @@ void rush2::car2049::init_tables(uint8_t* rdram) {
         MEM_W(0, (int32_t)(prefixes + t * 4)) = t < rush2_types ? MEM_W(0, (int32_t)(old_prefixes + t * 4)) : (int32_t)no_prefix;
     }
     for (int i = 0; i < engine_levels; i++) {
-        std::string label = "ENGINE " + std::to_string(i + 1);
+        std::string label = rush2::car2049::engine_name(i);
         for (size_t j = 0; j < 16; j++) {
             MEM_B(0, (int32_t)(engine_labels + i * 16 + j)) = j < label.size() ? label[j] : 0;
         }
@@ -781,6 +784,8 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
         MEM_W(0, (int32_t)(asset_offsets + (first_car_asset + k) * 4)) = 0;
         MEM_W(0, (int32_t)(asset_sizes + (first_car_asset + k) * 4)) = 0;
     }
+    MEM_W(0, (int32_t)(asset_offsets + parts_asset * 4)) = 0;
+    MEM_W(0, (int32_t)(asset_sizes + parts_asset * 4)) = 0;
     // Part name prefixes of the 2049 types, in the relocated name table.
     for (int k = 0; k < car_count; k++) {
         std::string name = "CAR" + std::to_string(k + 1);
@@ -831,7 +836,36 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
             fprintf(stderr, "[2049] Couldn't convert car %d: %s\n", k + 1, error.c_str());
         }
     }
+    // The engine models the unlock system's shop shows (src/unlocks_shop.cpp).
+    std::vector<uint8_t> parts;
+    std::string error;
+    std::vector<std::string> names;
+    for (int i = 0; i < part_models; i++) {
+        names.push_back(part_model_name(i));
+    }
+    if (rush2::track2049::convert_parts(*rom, first_part_model, names, parts, part_centers, error)) {
+        rush2::assets::replace(rdram, parts_asset, parts);
+    }
+    else {
+        fprintf(stderr, "[2049] Couldn't convert the engine models: %s\n", error.c_str());
+    }
 }
+
+std::array<float, 3> rush2::car2049::part_center(int i) {
+    return i >= 0 && i < (int)part_centers.size() ? part_centers[i] : std::array<float, 3>{};
+}
+
+// Rush 2049's ENGINE names (its setup screen's strings), by level.
+const char* rush2::car2049::engine_name(int level) {
+    static constexpr const char* names[engine_levels] = { "3.2L HP V6", "TURBO 350", "6.2L V8", "5.0L HP V6",
+                                                          "TURBO 400", "7.0L V8", "6.5L HP V8", "TURBO 500", "8.0L V10" };
+    return level >= 0 && level < engine_levels ? names[level] : "";
+}
+
+std::string rush2::car2049::part_model_name(int i) {
+    return "R49ENGINE" + std::to_string(i + 1);
+}
+
 
 // Car asset index = type + 0x1D (func_80087E88, func_800A37F4, func_80089CE4's caller): 2049 types use 0x71 + n.
 extern "C" void rush2_car49_asset(uint8_t* rdram, recomp_context* ctx, uint64_t* reg) {
@@ -1109,8 +1143,10 @@ namespace {
         }
         uint32_t pickup = (uint32_t)MEM_W(0, (int32_t)(old_desc_ptrs + MEM_B(0, (int32_t)0x800C07E8) * 4));
         Setup49& s = setup49;
-        for (int c = 0; c < 6; c++) {
+        for (int c = 0; c < engine_levels; c++) {
             for (int b = 0; b < 3; b++) s.torque[c][b] = m.f(0x801110C4 + 12 * c + 4 * b);
+        }
+        for (int c = 0; c < 6; c++) {
             s.gears[c] = m.f(gears_t + 4 * c);
             s.frame_weight[c] = m.f(engine_t + 4 * c);
         }
@@ -1124,7 +1160,7 @@ namespace {
         s.k_yaw = m.f(k_yawi);
         // Engine sounds (func_800D5E64 / func_800E0050): per ENGINE level, two 0x20-byte layers {s32 sound,
         // u16 base rpm, u16 span, u16 rpm points [3], u16, f32 volumes [3], f32}.
-        for (int e = 0; e < 8; e++) {
+        for (int e = 0; e < engine_levels; e++) {
             for (int l = 0; l < 2; l++) {
                 uint32_t at = 0x8010FD80 + e * 0x40 + l * 0x20;
                 EngineLayer& layer = s.engine_sounds[e][l];
@@ -1506,6 +1542,10 @@ extern "C" void rush2_car49_select_set(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_car49_select_cursor(uint8_t* rdram, recomp_context* ctx) {
     uint32_t at = (uint32_t)ctx->r4;
     int type = (int)(ctx->r2 & 0xFF);
+    if (rush2::unlocks::shop_car() >= 0) {
+        ctx->r2 = (uint64_t)rush2::unlocks::shop_car();
+        return;
+    }
     std::lock_guard lock{ side_mutex };
     load_side_slots(rdram);
     auto it = selected_type_of.find(at);
@@ -1530,6 +1570,9 @@ extern "C" void rush2_car49_select_get(uint8_t* rdram, recomp_context* ctx) {
     }
     if (type >= rush2_types && (!cars_available() || type >= types)) {
         type = 0;
+    }
+    if (rush2::unlocks::shop_car() >= 0) {
+        type = rush2::unlocks::shop_car();
     }
     MEM_B(0, (int32_t)(player + 0x7EA)) = (int8_t)type;
     // The engine sound (+0x7E9) was read from the ENGINE row with the 5-bit type; a 2049 car's ENGINE row is its power
@@ -1817,7 +1860,7 @@ void rush2::car2049::animate(uint8_t* rdram) {
 
 // Car options on the 2049 cars (docs/rush2049_research/cars.md §9). Rush 2's rows map onto Rush 2049's setup:
 //   ENGINE     -> 2049 ENGINE (power level 1-6: torque 0x801110C4 rows). Rush 2's engine is a sound, a different kind
-//                 of effect: the 2049 cars keep their default sound and the row shows ENGINE 1-6.
+//                 of effect: the 2049 cars keep their default sound and the row shows 2049's engine names.
 //   SUSPENSION -> 2049 HANDLING (0x801116D0: gear ratio factor, torque column). Rush 2's yaw damping and suspension
 //                 curve (incl. WHEELIE) are dropped for these cars.
 //   TIRES      -> 2049 TIRES (rear grip 0x8011121C) from the D (drift) digit of S0 D0 .. S2 D2; the off-road tires
@@ -1925,8 +1968,8 @@ extern "C" void rush2_car49_setup_mass(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // Car select, func_803B9478: changing a player's ENGINE value. At 0x803B9E3C the row byte is at $v1 + 0x24 (type $a3,
-// direction $a1); at 0x803B9E78 the new value is in $v0, after Rush 2's wrap at 10 and its skip of a locked engine.
-// The 2049 cars have 6 engines, none locked.
+// direction $a1, player $s7); at 0x803B9E78 the new value is in $v0, after Rush 2's wrap at 10 and its skip of a
+// locked engine. The 2049 cars have 9 engines; the unlock system may lock levels 3-8 (src/unlocks.cpp).
 namespace {
     int engine_before = -1;
 }
@@ -1943,9 +1986,24 @@ extern "C" void rush2_car49_engine_value(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     int step = (int64_t)ctx->r5 > 0 ? 1 : -1;
-    int value = (std::clamp(before, 0, engine_levels - 1) + step + engine_levels) % engine_levels;
+    int player = (int)ctx->r23;
+    int value = std::clamp(before, 0, engine_levels - 1);
+    do {
+        value = (value + step + engine_levels) % engine_levels;
+    } while (value != 0 && !rush2::unlocks::engine_open(rdram, player, value));
     MEM_B(0, (int32_t)((uint32_t)ctx->r3 + 0x24)) = (int8_t)value;
     ctx->r2 = (uint64_t)value;
+}
+
+void rush2::car2049::limit_engines(uint8_t* rdram, int player) {
+    for (int type = first_type; type < types; type++) {
+        uint32_t at = t_engine + (player + 1) * types + type;
+        int value = std::clamp<int>((int8_t)MEM_B(0, (int32_t)at), 0, engine_levels - 1);
+        while (value > 0 && !rush2::unlocks::engine_open(rdram, player, value)) {
+            value--;
+        }
+        MEM_B(0, (int32_t)at) = (int8_t)value;
+    }
 }
 
 int rush2::car2049::engine_sound(uint8_t* rdram, int type, int value) {
@@ -1954,7 +2012,7 @@ int rush2::car2049::engine_sound(uint8_t* rdram, int type, int value) {
 
 // Car select, func_803BC048: 0x803BC4F0 starts the ENGINE row's value text (the horn and engine names share one string
 // table, so the row is told by its case); at 0x803BC63C the text is in $s0 (player $s2, the players' current types at
-// $s6). A 2049 car's ENGINE row reads ENGINE 1-6.
+// $s6). A 2049 car's ENGINE row reads 2049's engine names.
 namespace {
     bool engine_row_text = false;
 }
@@ -2063,10 +2121,21 @@ int rush2::car2049::engine_level(uint8_t* rdram, uint32_t car) {
 }
 
 bool rush2::car2049::engine_layers(int level, EngineLayer out[2]) {
-    if (!setup49.loaded || level < 0 || level >= 8) {
+    if (!setup49.loaded || level < 0 || level >= engine_levels) {
         return false;
     }
     out[0] = setup49.engine_sounds[level][0];
     out[1] = setup49.engine_sounds[level][1];
     return true;
+}
+
+int rush2::car2049::saved_type(uint8_t* rdram, uint32_t at) {
+    int type = MEM_BU(0, (int32_t)at) & 0x1F;
+    std::lock_guard lock{ side_mutex };
+    load_side_slots(rdram);
+    auto it = selected_type_of.find(at);
+    if (it != selected_type_of.end() && (it->second & 0x1F) == type && it->second < types) {
+        type = it->second;
+    }
+    return type;
 }

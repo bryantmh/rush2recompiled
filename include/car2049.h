@@ -1,7 +1,9 @@
 #ifndef __CAR2049_H__
 #define __CAR2049_H__
 
+#include <array>
 #include <cstdint>
+#include <string>
 
 // Rush 2049 cars as Rush 2 car types 23-35 (src/car2049.cpp); type 22 is Rush 2's "no car" marker.
 namespace rush2::car2049 {
@@ -15,12 +17,26 @@ namespace rush2::car2049 {
     constexpr uint32_t car_list = 0x80222000;
     // Appends the 2049 cars (when available) to player p's car list.
     void append_to_car_list(uint8_t* rdram, int player);
+    // Lowers player p's ENGINE choices on the 2049 cars to levels the unlock system offers them.
+    void limit_engines(uint8_t* rdram, int player);
     // Swaps two players' rows (0-3) of the per-player car tables (src/players4.cpp's second car select round).
     void swap_player_rows(uint8_t* rdram, int a, int b);
 
     // Builds the 36-entry per-type tables (us.toml points the game at them). Call once at boot.
     void init_tables(uint8_t* rdram);
-    // Builds the extended asset tables and serves the converted 2049 cars (assets 0x71 + n). Call once at boot.
+    // Builds the extended asset tables and serves the converted 2049 cars (assets 0x71 + n) and engine models (asset
+    // parts_asset: models part_model_name(i), Rush 2049's ENGINE0<first_part_model + i>G1). Call once at boot.
+    constexpr int parts_asset = 0x7E;
+    constexpr int first_part_model = 1;
+    constexpr int part_models = 5;
+    // Rush 2049's ENGINE levels (setup row C): their names, and the model its setup screen shows for one
+    // (level % part_models, as its overlay's part drawing at 0x8039E7F0 picks it).
+    constexpr int engine_levels = 9;
+    const char* engine_name(int level);
+    std::string part_model_name(int i);
+    std::array<float, 3> part_center(int i);
+    // A player record's selected car (the byte at record + 0x31, with the 2049 types kept beside it).
+    int saved_type(uint8_t* rdram, uint32_t at);
     void init_assets(uint8_t* rdram);
     // Fills the 2049 types' physics: descriptors, per-type table entries and boxes. Call after init_tables.
     void init_physics(uint8_t* rdram);

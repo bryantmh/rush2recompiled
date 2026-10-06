@@ -44,6 +44,7 @@
 #include "assets.h"
 #include "track1.h"
 #include "track2049.h"
+#include "unlocks.h"
 #include "wings.h"
 
 using namespace rush2::track2049;
@@ -70,6 +71,8 @@ namespace {
     constexpr uint32_t new_strings = menu_data + 0x800;           // 32 bytes per added track
     constexpr uint32_t stunt_label = menu_data + 0xC00;           // "STUNT", the Start Game menu's added row
     constexpr uint32_t stunt_label_ptr = menu_data + 0xC10;       // char* to it, read as the row's table entry
+    constexpr uint32_t unlocks_label = menu_data + 0xC20;         // "UNLOCKS", the row of the unlock system's shop
+    constexpr uint32_t unlocks_label_ptr = menu_data + 0xC30;
 
     // Unlock bytes of PIPE (9) and ATARI (10) (func_803AB01C).
     constexpr uint32_t pipe_unlocked = 0x800E7D50;
@@ -141,10 +144,10 @@ namespace {
     bool track_selectable(uint8_t* rdram, int t) {
         bool unlocked;
         if (t < 9) unlocked = true;
-        else if (t == 9) unlocked = MEM_BU(0, (int32_t)pipe_unlocked) != 0;
-        else if (t == 10) unlocked = MEM_BU(0, (int32_t)atari_unlocked) != 0;
+        else if (t == 9) unlocked = rush2::unlocks::track_open(rdram, t, MEM_BU(0, (int32_t)pipe_unlocked) != 0);
+        else if (t == 10) unlocked = rush2::unlocks::track_open(rdram, t, MEM_BU(0, (int32_t)atari_unlocked) != 0);
         else if (t == stunt_host_slot) unlocked = true;
-        else unlocked = entry_available(t);
+        else unlocked = entry_available(t) && rush2::unlocks::track_open(rdram, t);
         return unlocked && is_stunt_track(t) == stunt_select.load();
     }
 
@@ -347,6 +350,23 @@ namespace {
 
 // func_803AB294 at 0x803AB5C0, once per track select visit: the initial track is chosen and the screen's assets are
 // about to load. $s0 = &track id.
+void rush2::track2049::prepare_menu_art(uint8_t* rdram) {
+    std::lock_guard lock{ menu_mutex };
+    write_tables(rdram);
+    serve_menu_container(rdram);
+}
+
+uint32_t rush2::track2049::diorama_name(uint8_t* rdram, int t) {
+    return (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4));
+}
+
+float rush2::track2049::diorama_scale(uint8_t* rdram, int t) {
+    uint32_t bits = (uint32_t)MEM_W(0, (int32_t)(new_diorama_scales + t * 4));
+    float f;
+    memcpy(&f, &bits, 4);
+    return f;
+}
+
 extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ menu_mutex };
     load_selection();
@@ -418,13 +438,15 @@ extern "C" void rush2_track49_select_save_p2(uint8_t* rdram, recomp_context* ctx
     }
 }
 
-// Start of func_803B1AB0 (car select): stores the number of keys collected on the current track at $a1. Returns
-// true for the 2049 tracks, which have none.
+// Start of func_803B1AB0 (car select, $a0 = player, $a2 = count Dew cans instead): stores the number of keys collected
+// on the current track at $a1. On the added tracks the unlock system decides (rush2::unlocks::added_track_keys).
 extern "C" int rush2_track49_keys(uint8_t* rdram, recomp_context* ctx) {
-    if ((int8_t)MEM_B(0, (int32_t)track_id) < rush2_tracks) {
+    int count;
+    if (!rush2::unlocks::added_track_keys(rdram, (int32_t)ctx->r4, (int8_t)MEM_B(0, (int32_t)track_id),
+                                          (ctx->r6 & 0xFF) != 0, count)) {
         return 0;
     }
-    MEM_B(0, (int32_t)ctx->r5) = 0;
+    MEM_B(0, (int32_t)ctx->r5) = (int8_t)count;
     return 1;
 }
 
@@ -442,6 +464,8 @@ extern "C" void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx
     }
     write_string(rdram, stunt_label, "STUNT");
     MEM_W(0, (int32_t)stunt_label_ptr) = stunt_label;
+    write_string(rdram, unlocks_label, "UNLOCKS");
+    MEM_W(0, (int32_t)unlocks_label_ptr) = unlocks_label;
 }
 
 // Start of func_803B6260, the circuit screen (every frame). It shows the dioramas and logos of the circuit's races
@@ -463,7 +487,7 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     std::vector<int> pool;
     for (int t = 0; t < circuit_stock_tracks; t++) pool.push_back(t);
     for (int t = first_menu_id; t < menu_tracks; t++) {
-        if (entry_available(t) && !is_stunt_course(t)) pool.push_back(t);
+        if (entry_available(t) && !is_stunt_course(t) && rush2::unlocks::track_open(rdram, t)) pool.push_back(t);
     }
     // Seeded from the game's random state ($s0 points at it), so the same circuit seed gives the same races.
     std::mt19937 rng{ (uint32_t)MEM_W(0, (int32_t)ctx->r16) };
@@ -546,18 +570,56 @@ extern "C" void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ct
     if (is_stunt_course((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;
 }
 
-// The Start Game menu's STUNT row (func_803B12C8, labels drawn by func_803C364C). us.toml lets the cursor (s16
-// 0x80023064) reach 6 rows and draws 6 labels; these hooks give the STUNT row its label, map the other rows back to
-// the stock options, and make the menu's box and bottom bar one row longer.
+// The Start Game menu's STUNT row and, while the unlock system is on, its UNLOCKS row (func_803B12C8, labels drawn by
+// func_803C364C): ONE RACE, CIRCUIT, PRACTICE, STUNT, RECORDS, UNLOCKS, SETUP. Hooks after the cursor's wraps and the
+// label loop's count make the menu 6 or 7 rows long; these hooks give the added rows their labels, map the other rows
+// back to the stock options, and make the menu's box and bottom bar longer.
+namespace {
+    constexpr int stock_rows = 5;
+    constexpr int stock_records = 3;
+
+    int mode_menu_rows() {
+        return stock_rows + 1 + (rush2::unlocks::menu_row_shown() ? 1 : 0);
+    }
+
+    // The UNLOCKS row, or -1 while it is hidden.
+    int unlocks_row() {
+        return rush2::unlocks::menu_row_shown() ? stunt_row + 2 : -1;
+    }
+
+    // The stock option a row stands for (STUNT and UNLOCKS: the one whose path they take).
+    int stock_row(int row) {
+        int unlocks = unlocks_row();
+        if (row == stunt_row) return 0;
+        if (row == unlocks) return stock_records;                   // RECORDS: its profile list, then the shop
+        if (row > stunt_row) return row - 1 - (unlocks >= 0 && row > unlocks ? 1 : 0);
+        return row;
+    }
+}
 
 // func_803B12C8 at 0x803B14B8: A or START was pressed, $t2 = the cursor, about to pick the stock option's code.
 // STUNT takes ONE RACE's (game mode 0; a race on a stunt track becomes stunt mode, see rush2_track49_stunt_mode).
+// UNLOCKS takes RECORDS' (its profile list, which then opens the shop: src/unlocks_shop.cpp).
 extern "C" void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx) {
     int row = (int32_t)ctx->r10;
     stunt_select = row == stunt_row;
-    if (row >= stunt_row) {
-        ctx->r10 = row == stunt_row ? 0 : row - 1;
-    }
+    rush2::unlocks::set_shop_chosen(row == unlocks_row());
+    ctx->r10 = stock_row(row);
+}
+
+// func_803B12C8 at 0x803B15FC (the cursor wrapped above the first row; $t8 is the row it goes to) and 0x803B1654
+// ($at = whether the cursor, $t3, is still within the rows after moving down).
+extern "C" void rush2_mode_menu_last_row(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r24 = mode_menu_rows() - 1;
+}
+
+extern "C" void rush2_mode_menu_below(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r1 = (int32_t)ctx->r11 < mode_menu_rows() ? 1 : 0;
+}
+
+// func_803C364C at 0x803C3754, the top of its label loop: $s7 = the number of labels drawn.
+extern "C" void rush2_mode_menu_label_count(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r23 = mode_menu_rows();
 }
 
 namespace {
@@ -567,14 +629,15 @@ namespace {
         if (row == stunt_row) {
             base = (uint64_t)(int64_t)(int32_t)(stunt_label_ptr - (uint32_t)ctx->r17);
         }
+        else if (row == unlocks_row()) {
+            base = (uint64_t)(int64_t)(int32_t)(unlocks_label_ptr - (uint32_t)ctx->r17);
+        }
         else if (row > stunt_row) {
-            base -= 4;
+            base -= 4 * (row - stock_row(row));
         }
     }
 }
 
-// func_803C364C at 0x803C37C4 / 0x803C380C: $t3 / $t1 = the language's label table (0x800C4B30 + language x 20),
-// about to be indexed by $s1 for the label's width / drawing.
 extern "C" void rush2_mode_menu_label_t3(uint8_t* rdram, recomp_context* ctx) {
     label_table(rdram, ctx, ctx->r11);
 }
@@ -584,12 +647,13 @@ extern "C" void rush2_mode_menu_label_t1(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_803C3560 at 0x803C35D0: $t8 = 10 x the font height ($v0), the menu box's height less 20 (5 rows 2 lines
-// apart). One more row.
+// apart). The added rows.
 extern "C" void rush2_mode_menu_box(uint8_t* rdram, recomp_context* ctx) {
-    ctx->r24 += 2 * ctx->r2;
+    ctx->r24 += 2 * ctx->r2 * (mode_menu_rows() - stock_rows);
 }
 
-// func_803C3560 at 0x803C3624: $t7 = the bottom bar's y less 0x42, from 10 x the font height ($t0). One row lower.
+// func_803C3560 at 0x803C3624: $t7 = the bottom bar's y less 0x42, from 10 x the font height ($t0). Lower by the
+// added rows.
 extern "C" void rush2_mode_menu_bar(uint8_t* rdram, recomp_context* ctx) {
-    ctx->r15 += 2 * ctx->r8;
+    ctx->r15 += 2 * ctx->r8 * (mode_menu_rows() - stock_rows);
 }

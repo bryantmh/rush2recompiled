@@ -1,6 +1,7 @@
 #ifndef __TRACK2049_CONVERT_H__
 #define __TRACK2049_CONVERT_H__
 
+#include <array>
 #include <cstdint>
 #include <set>
 #include <string>
@@ -105,6 +106,11 @@ namespace rush2::track2049 {
     constexpr int effects_file = 62;
     bool convert_car(const std::vector<uint8_t>& rom2049, int car, const std::string& name, std::vector<uint8_t>& out,
                      std::string& error);
+
+    // Rush 2049's engine models ENGINE0<first>G1.. (setup screen file 56) as a Rush 2 model container, named `names`,
+    // and each one's center (the middle of its vertices, in model units).
+    bool convert_parts(const std::vector<uint8_t>& rom2049, int first, const std::vector<std::string>& names,
+                       std::vector<uint8_t>& out, std::vector<std::array<float, 3>>& centers, std::string& error);
 
     bool convert_track(const std::vector<uint8_t>& rom2049, int k, const std::string& prefix,
                        const std::set<std::string>& shared_models, bool static_paths, ConvertedTrack& out,

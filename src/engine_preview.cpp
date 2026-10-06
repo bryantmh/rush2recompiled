@@ -99,9 +99,42 @@ namespace {
     }
 }
 
+namespace {
+    // The rev's rpm at t seconds after its start.
+    float rev_rpm(float t) {
+        if (t < t_rise || t >= t_idle) return idle_rpm;
+        if (t < t_peak) return lerp(idle_rpm, peak_rpm, (t - t_rise) / (t_peak - t_rise));
+        if (t < t_fall) return peak_rpm;
+        return lerp(peak_rpm, idle_rpm, (t - t_fall) / (t_idle - t_fall));
+    }
+}
+
 // Car select, func_803B9478, once per frame.
 extern "C" void rush2_engine_preview_car_select(uint8_t*, recomp_context*) {
     car_select_ran = true;
+}
+
+void rush2::engine2049::shop_frame() {
+    car_select_ran = true;
+}
+
+void rush2::engine2049::shop_rev(uint8_t* rdram, recomp_context* ctx, int level) {
+    if (revs[0].active) {
+        stop(rdram, ctx, 0);
+    }
+    preview_start(rdram, 0, level);
+    revs[0].rush2049 = true;
+    set_rev(rdram, 0, idle_rpm, idle_load);
+    revs[0].active = true;
+    revs[0].start = Clock::now();
+}
+
+float rush2::engine2049::shop_rev_amount() {
+    if (!revs[0].active) {
+        return 0.0f;
+    }
+    float t = std::chrono::duration<float>(Clock::now() - revs[0].start).count();
+    return (rev_rpm(t) - idle_rpm) / (peak_rpm - idle_rpm);
 }
 
 // Car select, func_803B9478 at 0x803B9EBC: the ENGINE row's new value is set (player $s7, type $a3, value $v0), right

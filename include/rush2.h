@@ -63,6 +63,12 @@ namespace rush2 {
     // Cheats tab: the in-game cheat menu and forced cheats (src/cheats.cpp).
     namespace cheats {
         void create_tab();
+        // The Cheats tab's unlocks, and the unlock system's option (shown on the Progress tab; src/unlocks.cpp).
+        bool unlock_all_cars();
+        bool unlock_all_tracks();
+        bool unlock_all_parts();
+        bool unlock_system();
+        void set_unlock_system(bool enabled);
     }
 
     // Per-port input (src/input.cpp). Each player (N64 ports 1-4) gets a controller and optionally the keyboard,
@@ -173,6 +179,14 @@ namespace rush2 {
         void get_menu_input(int port, uint16_t* buttons, float* x, float* y);
         // True if an input on the port's devices is held (used to wait for releases).
         bool any_input_held(int port);
+
+        // Glyphs of the menu layout's buttons, as port's controller or keyboard shows them (src/controls_menu.cpp),
+        // drawn from a widget's text callback: begin, add any number (x, y: top left; w x h pixels, 16x14 the
+        // Controller Setup screen's size), end.
+        enum class MenuButton : uint8_t { A, B, L, R };
+        void begin_menu_glyphs(uint8_t* rdram);
+        void add_menu_glyph(uint8_t* rdram, int port, MenuButton button, int x, int y, int w, int h);
+        void end_menu_glyphs(uint8_t* rdram);
     }
 
     // Players tab: which controller and keyboard each player uses, their wings and the split screen layout

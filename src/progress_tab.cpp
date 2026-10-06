@@ -1,17 +1,23 @@
 // Progress tab: the Rush 2 keys and Dew cans, SF Rush keys and Rush 2049 coins each profile has found
-// (src/collectibles.cpp). Read only; the page follows the game's save, collectibles.json and this session's
-// no-profile players as they change.
+// (src/collectibles.cpp), the unlock system's points and what each profile bought with them (src/unlocks.cpp), with a
+// button that takes a profile's purchases back, and the Unlock System option. The page follows the game's save, collectibles.json and this session's no-profile
+// players as they change.
 
 #include <bit>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "recompui/config.h"
+#include "elements/ui_button.h"
 #include "elements/ui_config_page.h"
 #include "elements/ui_label.h"
 #include "elements/ui_select.h"
+#include "elements/ui_toggle.h"
 
+#include "rush2.h"
 #include "collectibles.h"
+#include "unlocks.h"
 
 namespace {
     using namespace recompui;
@@ -22,14 +28,17 @@ namespace {
     const std::string no_profile = "No profile (this session)";
 
     const std::string description =
-        "Keys, Dew cans and coins found on every track, by player profile.\n\n"
-        "Each Rush 2 track hides 12 keys and 4 Dew cans: every 3 keys found on a track unlock one of its 4 mystery cars "
-        "there, and all 4 cans its Dew car. SF Rush tracks hide keys as in San Francisco Rush, and Rush 2049 tracks and "
-        "stunt arenas hide 8 silver and 8 gold coins each. All of them are only out in one-player races, and once "
-        "found they stay gone.\n\n"
-        "Players without a profile share their finds until the game is closed. Clearing or deleting a profile in the "
-        "Records menu clears its finds.\n\n"
-        "The SF Rush keys and Rush 2049 coins don't unlock anything yet.";
+        "Keys, Dew cans and coins found on every track, by player profile, and what they bought.\n\n"
+        "Each Rush 2 track hides 12 keys and 4 Dew cans, SF Rush tracks hide keys as in San Francisco Rush, and Rush "
+        "2049 tracks and stunt arenas hide 8 silver and 8 gold coins each. All of them are only out in one-player "
+        "races, and once found they stay gone.\n\n"
+        "With the Unlock System on, every key and silver coin is worth 1 point and every Dew can and gold coin 2. "
+        "Spend them on cars, tracks and engines in the game's UNLOCKS menu (Start Game). With it off, each game's own "
+        "rules unlock its cars: Rush 2's keys and cans on each track, SF Rush's keys, and Rush 2049's coin totals.\n\n"
+        "Reset Purchases (press it twice) takes back everything the profile bought, returning its points to spend "
+        "again; its keys and coins stay found.\n\n"
+        "Players without a profile share their finds and purchases until the game is closed. Clearing or deleting a "
+        "profile in the Records menu clears them.";
 
     // Rush 2's full track names (0x800C4C40).
     const char* const rush2_tracks[rush2::collectibles::rush2_courses] = { "Las Vegas", "Lower Manhattan", "Honolulu",
@@ -47,9 +56,10 @@ namespace {
     }
 
     std::string state_of(const std::vector<Progress>& list) {
-        std::string s;
+        std::string s = rush2::unlocks::enabled() ? "on;" : "off;";
         for (const Progress& p : list) {
-            s += label_of(p) + ":";
+            s += label_of(p) + ":" + std::to_string(rush2::collectibles::points(p.name)) + ":";
+            for (const std::string& id : rush2::collectibles::purchases(p.name)) s += id + ",";
             for (uint16_t m : p.rush2) s += std::to_string(m) + ",";
             for (uint16_t m : p.sfrush) s += std::to_string(m) + ",";
             for (uint16_t m : p.rush2049) s += std::to_string(m) + ",";
@@ -68,10 +78,9 @@ namespace {
     public:
         Section(ResourceId rid, Element* parent) : Element(rid, parent, Events(EventType::Focus, EventType::Hover), "div", false) {
             enable_focus();
-            set_display(Display::Flex);
-            set_flex_direction(FlexDirection::Column);
+            set_display(Display::Block);
             set_padding(12.0f);
-            set_gap(8.0f);
+            set_margin_bottom(4.0f);
             set_border_radius(theme::border::radius_sm);
             set_background_color(theme::color::Transparent);
             focus_style.set_background_color(theme::color::Elevated);
@@ -95,6 +104,22 @@ namespace {
         Style focus_style;
     };
 
+    // A row above the sections (the Unlock System option, the profile picker): scrolls itself into view when something
+    // in it takes focus, so moving back up with the d-pad scrolls the list back to the top.
+    class Row : public Element {
+    public:
+        Row(ResourceId rid, Element* parent) : Element(rid, parent, Events(EventType::Focus), "div", false) {}
+
+    protected:
+        std::string_view get_type_name() override { return "ProgressRow"; }
+
+        void process_event(const Event& e) override {
+            if (e.type == EventType::Focus && std::get<EventFocus>(e.variant).active) {
+                scroll_into_view();
+            }
+        }
+    };
+
     class ProgressPage : public ConfigPage {
     public:
         ProgressPage(ResourceId rid, Element* parent) : ConfigPage(rid, parent, Events(EventType::Update)) {
@@ -114,7 +139,22 @@ namespace {
             column->set_padding(16.0f);
             column->set_overflow_y(Overflow::Auto);
             column->set_as_navigation_container(NavigationType::Vertical);
-            picker = context.create_element<Element>(column, 0, "div", false);
+            Element* option = context.create_element<Row>(column);
+            option->set_display(Display::Flex);
+            option->set_flex_direction(FlexDirection::Row);
+            option->set_align_items(AlignItems::Center);
+            option->set_padding(12.0f);
+            option->set_gap(16.0f);
+            option->set_as_navigation_container(NavigationType::Horizontal);
+            Label* option_name = context.create_element<Label>(option, "Unlock System", theme::Typography::LabelMD);
+            option_name->set_flex_grow(1.0f);
+            system_toggle = context.create_element<Toggle>(option, ToggleSize::Medium);
+            system_toggle->set_checked(rush2::unlocks::enabled());
+            system_toggle->add_checked_callback([this](bool checked) {
+                rush2::cheats::set_unlock_system(checked);
+                shown_state.clear();
+            });
+            picker = context.create_element<Row>(column);
             picker->set_display(Display::Flex);
             picker->set_flex_direction(FlexDirection::Row);
             picker->set_align_items(AlignItems::Center);
@@ -122,10 +162,8 @@ namespace {
             picker->set_gap(16.0f);
             picker->set_as_navigation_container(NavigationType::Horizontal);
             content = context.create_element<Element>(column, 0, "div", false);
-            content->set_display(Display::Flex);
-            content->set_flex_direction(FlexDirection::Column);
+            content->set_display(Display::Block);
             content->set_width(100.0f, Unit::Percent);
-            content->set_gap(4.0f);
             content->set_as_navigation_container(NavigationType::Vertical);
 
             Element* text = context.create_element<Element>(body->get_right(), 0, "p", true);
@@ -160,18 +198,23 @@ namespace {
         };
 
         Element* picker = nullptr;
+        Toggle* system_toggle = nullptr;
         Element* content = nullptr;
         std::vector<Progress> list;
         std::string shown_names;
         std::string shown_state;
         std::string selected = no_profile;
         bool picked = false;    // The profile was chosen in the picker; until then the first one is shown.
+        bool reset_armed = false;   // Reset Purchases was pressed once.
 
         void refresh() {
             std::vector<Progress> now = rush2::collectibles::progress();
             std::string state = state_of(now) + "|" + selected;
             if (state == shown_state) {
                 return;
+            }
+            if (system_toggle != nullptr && system_toggle->is_checked() != rush2::unlocks::enabled()) {
+                system_toggle->set_checked(rush2::unlocks::enabled());
             }
             list = std::move(now);
             shown_state = state;
@@ -204,6 +247,7 @@ namespace {
             select->add_change_callback([this](SelectOption& option, int) {
                 selected = option.value;
                 picked = true;
+                reset_armed = false;
                 shown_state.clear();
             });
         }
@@ -228,6 +272,7 @@ namespace {
             head->set_align_items(AlignItems::Center);
             head->set_gap(16.0f);
             head->set_padding_bottom(6.0f);
+            head->set_margin_bottom(8.0f);
             head->set_border_bottom_width(1.0f);
             head->set_border_bottom_color(theme::color::Border);
             Label* name = context.create_element<Label>(head, title, theme::Typography::LabelLG);
@@ -246,17 +291,16 @@ namespace {
             size_t half = split != 0 ? split : (lines.size() + 1) / 2;
             for (size_t c = 0; c < 2; c++) {
                 Element* column = context.create_element<Element>(grid, 0, "div", false);
-                column->set_display(Display::Flex);
-                column->set_flex_direction(FlexDirection::Column);
+                column->set_display(Display::Block);
                 column->set_flex_grow(1.0f);
                 column->set_flex_basis(0.0f);
-                column->set_gap(2.0f);
                 for (size_t i = c == 0 ? 0 : half; i < (c == 0 ? half : lines.size()); i++) {
                     const Line& line = lines[i];
                     Element* row = context.create_element<Element>(column, 0, "div", false);
                     row->set_display(Display::Flex);
                     row->set_flex_direction(FlexDirection::Row);
                     row->set_gap(12.0f);
+                    row->set_margin_bottom(2.0f);
                     Label* track = context.create_element<Label>(row, line.name, theme::Typography::Body);
                     track->set_flex_grow(1.0f);
                     for (const auto& [found, all] : line.counts) {
@@ -267,6 +311,84 @@ namespace {
                     }
                 }
             }
+        }
+
+        // The unlock system: points earned and left, then every item with its cost, bought ones bright.
+        void add_unlocks(const Progress& p) {
+            ContextId context = get_current_context();
+            Section* section = context.create_element<Section>(content);
+            std::set<std::string> bought = rush2::collectibles::purchases(p.name);
+            int points = rush2::collectibles::points(p.name);
+            int spent = rush2::unlocks::spent(bought);
+
+            Element* head = context.create_element<Element>(section, 0, "div", false);
+            head->set_display(Display::Flex);
+            head->set_flex_direction(FlexDirection::Row);
+            head->set_align_items(AlignItems::Center);
+            head->set_gap(16.0f);
+            head->set_padding_bottom(6.0f);
+            head->set_margin_bottom(8.0f);
+            head->set_border_bottom_width(1.0f);
+            head->set_border_bottom_color(theme::color::Border);
+            Label* name = context.create_element<Label>(head, "Unlocks", theme::Typography::LabelLG);
+            name->set_flex_grow(1.0f);
+            Label* found = context.create_element<Label>(head, std::to_string(points) + "/" +
+                std::to_string(rush2::collectibles::max_points()) + " points found", theme::Typography::LabelMD);
+            found->set_white_space(WhiteSpace::Nowrap);
+            Label* left = context.create_element<Label>(head, std::to_string(points - spent) + " to spend",
+                                                        theme::Typography::LabelMD);
+            left->set_white_space(WhiteSpace::Nowrap);
+
+            Element* grid = context.create_element<Element>(section, 0, "div", false);
+            grid->set_display(Display::Flex);
+            grid->set_flex_direction(FlexDirection::Row);
+            grid->set_gap(32.0f);
+            const rush2::unlocks::Kind columns[2][2] = { { rush2::unlocks::Kind::Car, rush2::unlocks::Kind::Car },
+                                                          { rush2::unlocks::Kind::Track, rush2::unlocks::Kind::Part } };
+            for (const auto& kinds : columns) {
+                Element* column = context.create_element<Element>(grid, 0, "div", false);
+                column->set_display(Display::Block);
+                column->set_flex_grow(1.0f);
+                column->set_flex_basis(0.0f);
+                for (const auto& item : rush2::unlocks::items()) {
+                    bool in_column = item.kind == kinds[0] || item.kind == kinds[1];
+                    if (!in_column || !rush2::unlocks::item_available(item)) continue;
+                    bool owned = bought.contains(item.id);
+                    Element* row = context.create_element<Element>(column, 0, "div", false);
+                    row->set_display(Display::Flex);
+                    row->set_flex_direction(FlexDirection::Row);
+                    row->set_gap(12.0f);
+                    row->set_margin_bottom(2.0f);
+                    std::string title = std::string(item.name) + " (" + item.game + ")";
+                    Label* label = context.create_element<Label>(row, title, theme::Typography::Body);
+                    label->set_flex_grow(1.0f);
+                    label->set_color(owned ? theme::color::Text : theme::color::TextDim);
+                    Label* cost = context.create_element<Label>(row, owned ? "Owned" : std::to_string(item.cost) + " pts",
+                                                                theme::Typography::Body);
+                    cost->set_min_width(64.0f);
+                    cost->set_text_align(TextAlign::Right);
+                    cost->set_color(owned ? theme::color::Text : theme::color::TextDim);
+                }
+            }
+            Element* footer = context.create_element<Element>(section, 0, "div", false);
+            footer->set_display(Display::Flex);
+            footer->set_flex_direction(FlexDirection::Row);
+            footer->set_justify_content(JustifyContent::FlexEnd);
+            footer->set_margin_top(8.0f);
+            Button* reset = context.create_element<Button>(footer, reset_armed ? "Press Again to Reset" : "Reset Purchases",
+                                                           ButtonStyle::Secondary);
+            reset->set_enabled(!bought.empty());
+            std::string profile = p.name;
+            reset->add_pressed_callback([this, reset, profile]() {
+                if (!reset_armed) {
+                    reset_armed = true;
+                    reset->set_text("Press Again to Reset");
+                    return;
+                }
+                reset_armed = false;
+                rush2::collectibles::reset_purchases(profile);
+                shown_state.clear();
+            });
         }
 
         void build_content() {
@@ -282,6 +404,9 @@ namespace {
             }
             using namespace rush2::collectibles;
             auto count = [](uint16_t m) { return std::popcount((unsigned)m); };
+            if (rush2::unlocks::enabled()) {
+                add_unlocks(*p);
+            }
 
             std::vector<Line> lines;
             for (int t = 0; t < rush2_courses; t++) {

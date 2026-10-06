@@ -701,6 +701,22 @@ func = "func_803B12C8"
 before_vram = 0x803B14B8
 text = "    rush2_mode_menu_choose(rdram, ctx);"
 
+# The row count follows the unlock system's UNLOCKS row (6 or 7 rows; src/track2049_menu.cpp).
+[[patches.hook]]
+func = "func_803B12C8"
+before_vram = 0x803B15FC
+text = "    rush2_mode_menu_last_row(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803B12C8"
+before_vram = 0x803B1654
+text = "    rush2_mode_menu_below(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C364C"
+before_vram = 0x803C3754
+text = "    rush2_mode_menu_label_count(rdram, ctx);"
+
 [[patches.instruction]]
 func = "func_803C364C"
 vram = 0x803C3750
@@ -10563,3 +10579,51 @@ vram = 0x803C46FC
 value = 0x8CA50004 # lw $a1, 0x2194($a1) -> 80240004
 
 # END 4 player relocations
+
+# The unlock system's shop (src/unlocks_shop.cpp): the Start Game menu's UNLOCKS row leads to the records' profile
+# list, whose labels read as the shop's and whose A leaves for the track select, which opens the car select as the
+# shop, whose frame takes the players' buttons.
+[[patches.hook]]
+func = "func_8008813C"
+before_vram = 0x8008813C
+text = "    if (rush2_unlocks_carousel_car(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_803B23C8"
+before_vram = 0x803B25EC
+text = "    rush2_unlocks_list_cursor(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C2E2C"
+before_vram = 0x803C2E2C
+text = "    rush2_unlocks_list_text_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C2E2C"
+before_vram = 0x803C321C
+text = "    rush2_unlocks_list_text_end(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803B23C8"
+before_vram = 0x803B2668
+text = "    if (rush2_unlocks_list_choose(rdram, ctx)) goto L_803B26D4;"
+
+[[patches.hook]]
+func = "func_803ABE0C"
+before_vram = 0x803ABE0C
+text = "    if (rush2_unlocks_track_select(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_803B9478"
+before_vram = 0x803B9478
+text = "    if (rush2_unlocks_shop_frame(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_800604FC"
+before_vram = 0x800604FC
+text = "    rush2_unlocks_widgets(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803BC048"
+before_vram = 0x803BC048
+text = "    if (rush2_unlocks_text(rdram, ctx)) return;"

@@ -2714,3 +2714,91 @@ bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, con
     }
     return true;
 }
+
+// Rush 2049's engine models (setup screen file 56: ENGINE01G1-ENGINE05G1) as a Rush 2 model container, for the unlock
+// system's shop (src/unlocks_shop.cpp): model `names[i]` draws ENGINE0<first + i>G1.
+bool rush2::track2049::convert_parts(const std::vector<uint8_t>& rom, int first, const std::vector<std::string>& names,
+                                     std::vector<uint8_t>& out, std::vector<std::array<float, 3>>& centers,
+                                     std::string& error) {
+    constexpr int setup_file = 56;
+    Bytes file;
+    if (!rush2::rom2049::read_file(rom, setup_file, file)) {
+        error = "can't read Rush 2049 file " + std::to_string(setup_file);
+        return false;
+    }
+    try {
+        std::set<std::string> keep;
+        MergeOptions opt{};
+        for (size_t i = 0; i < names.size(); i++) {
+            std::string model = "ENGINE0" + std::to_string(first + (int)i) + "G1";
+            keep.insert(model);
+            opt.rename[model] = names[i];
+        }
+        Bytes parts = subset_model49(file, keep);
+        std::vector<const Bytes*> files = { &parts };
+        std::set<std::string> merged;
+        out = merge_models(files, opt, merged);
+    }
+    catch (const ConvertError& e) {
+        error = e.message;
+        return false;
+    }
+    // As the cars (convert_car): no PRIM multiply. 2049 lights these models at runtime (their vertex colors are
+    // normals, their textures WHITE, BLACK and MIRROR), so the light its setup screen gives the selected part (overlay
+    // 0x8038A400's lights at 0x803B2880: red ambient, a white 0xC0 light from the camera) is baked into the vertex
+    // colors, with the light above and in front. Each model's center is the middle of the vertices its lists load.
+    static const uint8_t painted[8] = { 0xFC, 0x12, 0x7E, 0x03, 0xFF, 0x0F, 0xF3, 0xFF };
+    static const uint8_t unpainted[8] = { 0xFC, 0x12, 0x7F, 0xFF, 0xFF, 0xFF, 0xF2, 0x38 };
+    for (size_t o = 0; o + 8 <= out.size(); o += 8) {
+        if (memcmp(&out[o], painted, 8) == 0) {
+            memcpy(&out[o], unpainted, 8);
+        }
+    }
+    float lo[3], hi[3];
+    std::set<uint32_t> seen;
+    std::function<void(uint32_t)> whiten = [&](uint32_t pc) {
+        for (; pc + 8 <= out.size() && seen.insert(pc).second; pc += 8) {
+            uint32_t w0 = u32(out, pc), w1 = u32(out, pc + 4) & 0xFFFFFF;
+            uint8_t op = uint8_t(w0 >> 24);
+            if (op == 0xDF) return;
+            if (op == 0xDE) whiten(w1);
+            if (op == 0x01) {
+                uint32_t n = (w0 >> 12) & 0xFF;
+                for (uint32_t v = 0; v < n && w1 + v * 16 + 16 <= out.size(); v++) {
+                    uint32_t at = w1 + v * 16;
+                    float nx = (int8_t)out[at + 12], ny = (int8_t)out[at + 13], nz = (int8_t)out[at + 14];
+                    float len = std::sqrt(nx * nx + ny * ny + nz * nz);
+                    float lit = len > 0 ? std::max(0.0f, (nx * 0.35f + ny * 0.8f + nz * 0.48f) / len) : 0.5f;
+                    uint8_t shade = (uint8_t)std::clamp(192.0f * lit, 0.0f, 255.0f);
+                    out[at + 12] = 0xFF;
+                    out[at + 13] = out[at + 14] = shade;
+                    for (int k = 0; k < 3; k++) {
+                        float c = (float)(int16_t)((out[at + k * 2] << 8) | out[at + k * 2 + 1]);
+                        lo[k] = std::min(lo[k], c);
+                        hi[k] = std::max(hi[k], c);
+                    }
+                }
+            }
+        }
+    };
+    uint32_t models = u32(out, 0), model_names = u32(out, 4), model_count = u32(out, 16);
+    centers.assign(names.size(), { 0.0f, 0.0f, 0.0f });
+    for (uint32_t m = 0; m < model_count; m++) {
+        uint32_t r = models + m * 0x34;
+        for (int k = 0; k < 3; k++) {
+            lo[k] = 1e9f;
+            hi[k] = -1e9f;
+        }
+        seen.clear();
+        for (uint32_t l = 0; l < u32(out, r) && l < 4; l++) {
+            whiten(u32(out, r + 4 + l * 12 + 8));
+        }
+        std::string name = cstr(out, model_names + m * 0x18, 16);
+        for (size_t i = 0; i < names.size(); i++) {
+            if (names[i] == name && lo[0] <= hi[0]) {
+                centers[i] = { (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2 };
+            }
+        }
+    }
+    return true;
+}
