@@ -17,12 +17,15 @@ namespace rush2 {
     // Forces every model to its most detailed LOD and turns off LOD distance culling (src/lod.cpp).
     void set_lod_disabled(bool disabled);
 
-    // Draw distance factor (src/draw_distance.cpp): 1 is the original. Scales the projection's near and far planes,
-    // the placed object and LOD cull distances, and above 1 draws every track section regardless of visibility.
+    // Draw distance factor (src/draw_distance.cpp): 1 is the original. Scales the projection's near (up to 2x) and
+    // far planes and the placed object and LOD cull distances; above 1 it draws every track section regardless of
+    // visibility and gives nodes past the fixed-point matrix range float matrices.
     void set_draw_distance(float factor);
     float draw_distance();
     // Visibility hook helper: picks the all-visible section mask when the draw distance is extended.
     bool draw_distance_pvs(uint8_t* rdram, uint32_t sp);
+    // True (once) if the node matrix at addr was written as floats, so its G_MTX must become a gEXMatrixFloat.
+    bool draw_distance_take_float_matrix(uint32_t addr);
 
     // High-resolution fonts (src/fonts.cpp). install_font_pack copies the built-in pack into the mods folder and must
     // run after the config path is registered. set_hires_fonts_enabled turns the pack and its tile clamping on or off.

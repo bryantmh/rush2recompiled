@@ -300,6 +300,18 @@ func = "func_8007B518"
 before_vram = 0x8007BA50
 text = "    rush2_draw_distance_cull(rdram, ctx);"
 
+# Draw distance: the node matrix builders reject nodes past +-2048 units from the camera (the fixed-point matrix's
+# range); past it they write a float matrix instead and return 1.
+[[patches.hook]]
+func = "func_8007B00C"
+before_vram = 0x8007B00C
+text = "    if (rush2_draw_distance_matrix_rows(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_8007B290"
+before_vram = 0x8007B290
+text = "    if (rush2_draw_distance_matrix_cols(rdram, ctx)) return;"
+
 # Text printed by HUD callback widgets (laps left, lap times). $a0 = x.
 [[patches.hook]]
 func = "func_800734E0"

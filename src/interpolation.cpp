@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include "recomp.h"
+#include "rush2.h"
 
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
@@ -300,7 +301,23 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     uint32_t cmd_addr = (uint32_t)ctx->r2;
     uint32_t node = (uint32_t)ctx->r23;
     uint32_t index = (node - node_pool) / node_size;
+
+    // Nodes past the fixed-point range under an extended draw distance have float matrices (src/draw_distance.cpp).
+    // F3DEX2 stores the G_MTX params XORed with G_MTX_PUSH; gEXMatrixFloat takes them the same way.
+    GfxCommand mtx[2];
+    uint32_t mtx_count = 1;
+    mtx[0] = read_command(rdram, cmd_addr);
+    uint32_t params = mtx[0].values.word0 & 0xFF;
+    uint32_t matrix = mtx[0].values.word1;
+    if (rush2::draw_distance_take_float_matrix(matrix)) {
+        gEXMatrixFloat(&mtx[0], matrix, params);
+        mtx_count = 2;
+    }
+
     if (index >= max_nodes || depth < 0 || depth >= max_depth) {
+        if (mtx_count == 2) {
+            replace_with_call(rdram, cmd_addr, write_side_dl(rdram, mtx, mtx_count));
+        }
         return;
     }
 
@@ -318,12 +335,13 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     uint32_t gen = level_base[depth] + state.gen;
     level_current[depth] = gen;
 
-    // F3DEX2 stores the G_MTX params XORed with G_MTX_PUSH.
-    GfxCommand cmds[3];
-    cmds[2] = read_command(rdram, cmd_addr);
-    uint32_t push = ((cmds[2].values.word0 & 0xFF) ^ 1) & 1;
+    GfxCommand cmds[4];
+    uint32_t push = (params ^ 1) & 1;
     object_group(&cmds[0], node_id(cur_view, views[cur_view].gen + gen, index), push, G_EX_COMPONENT_SKIP);
-    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 3));
+    for (uint32_t i = 0; i < mtx_count; i++) {
+        cmds[2 + i] = mtx[i];
+    }
+    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 2 + mtx_count));
 }
 
 // func_8007B518, after a pushed node finishes (L_8007BD7C). If anything was drawn ($s2 != 0) the game wrote a
