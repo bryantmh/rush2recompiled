@@ -148,6 +148,43 @@ static void add_lod_option(recomp::config::Config& config) {
         });
 }
 
+namespace draw_distance_option {
+    const std::string id = "draw_distance";
+    enum class DrawDistance : uint32_t { Original, Double, Triple, Quadruple };
+
+    float factor(recomp::config::ConfigValueVariant value) {
+        constexpr float factors[] = { 1.0f, 2.0f, 3.0f, 4.0f };
+        uint32_t i = std::get<uint32_t>(value);
+        return i < 4 ? factors[i] : 1.0f;
+    }
+}
+
+// Draw distance: how far the track, its objects and the fog reach (src/draw_distance.cpp).
+static void add_draw_distance_option(recomp::config::Config& config) {
+    using draw_distance_option::DrawDistance;
+
+    config.add_enum_option(
+        draw_distance_option::id,
+        "Draw Distance",
+        "Sets how far away the track and its objects are drawn, with the fog moved out to match. "
+        "<recomp-color primary>Original</recomp-color> matches the original game, which hides parts of the track "
+        "out of sight of where the camera is. The others draw the whole track, as far as the given multiple of the "
+        "original distance.",
+        {
+            { DrawDistance::Original, "Original", "Original" },
+            { DrawDistance::Double, "Double", "2x" },
+            { DrawDistance::Triple, "Triple", "3x" },
+            { DrawDistance::Quadruple, "Quadruple", "4x" },
+        },
+        DrawDistance::Double
+    );
+
+    config.add_option_change_callback(draw_distance_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::set_draw_distance(draw_distance_option::factor(cur_value));
+        });
+}
+
 namespace split_option {
     const std::string id = "split_screen";
 }
@@ -396,7 +433,7 @@ void rush2::init_config() {
         create_ordered_tab(graphics::tab_name, "rush2_graphics", graphics::id, {
             { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
-            { "Quality", { graphics::options::msaa_option, graphics::options::ds_option, lod_option::id, font_option::id } },
+            { "Quality", { graphics::options::msaa_option, graphics::options::ds_option, lod_option::id, draw_distance_option::id, font_option::id } },
         });
     }
 
@@ -414,6 +451,7 @@ void rush2::init_config() {
     auto& graphics_config = recompui::config::create_graphics_tab();
     customize_graphics_options(graphics_config);
     add_lod_option(graphics_config);
+    add_draw_distance_option(graphics_config);
     add_font_option(graphics_config);
     add_split_option(graphics_config);
     recompui::config::set_tab_visible(recompui::config::general::id, false);
@@ -433,6 +471,8 @@ void rush2::init_config() {
     auto& loaded_graphics_config = recompui::config::get_graphics_config();
     rush2::set_lod_disabled(static_cast<lod_option::LODMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(lod_option::id))) == lod_option::LODMode::Off);
+    rush2::set_draw_distance(draw_distance_option::factor(
+        loaded_graphics_config.get_option_value(draw_distance_option::id)));
     rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
     rush2::splitscreen::set_layout(static_cast<rush2::splitscreen::Layout>(
