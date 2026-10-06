@@ -247,6 +247,18 @@ func = "func_8007C624"
 before_vram = 0x8007D03C
 text = "    rush2_interp_poly(rdram, ctx);"
 
+# Sky polygon clipping (src/interpolation.cpp): the G_VTX of a world-space polygon allocated at $v0, and the end of
+# the polygon's commands (L_8007D890). $fp = polygon.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007D740
+text = "    rush2_interp_poly_vtx(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007D890
+text = "    rush2_interp_poly_end(rdram, ctx);"
+
 # Rocket ZX flames (src/car2049.cpp): queued while the scene graph draws, drawn after the world-space polygons
 # (shadows, skids, particles) so those don't paint over them. $s6 = display list cursor at L_8007D980.
 [[patches.hook]]

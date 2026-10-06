@@ -206,6 +206,70 @@ namespace {
     uint32_t kseg0(uint32_t addr) {
         return 0x80000000u | (addr & 0x00FFFFFF);
     }
+
+    // Sky clipping (see rush2_interp_poly_end).
+    uint32_t view_projection[max_views]; // The view's projection G_MTX address.
+    uint32_t clip_poly = 0;              // The polygon whose G_VTX is at clip_vtx_cmd.
+    uint32_t clip_vtx_cmd = 0;
+
+    // Clip-space w below which the sky's triangles are cut, in polygon units (16x world units, camera-relative).
+    // The dome is thousands of units away, so this plane only removes parts more than ~80 degrees off the view
+    // direction, which are never on screen; it stays in front of the camera through the rotation of RT64's
+    // interpolated frames.
+    constexpr float sky_clip_w = 4096.0f;
+
+    struct ClipVtx {
+        float pos[3];
+        float tc[2];
+        float col[4];
+        float w;
+    };
+
+    ClipVtx read_vtx(uint8_t* rdram, uint32_t addr, const float m[4][4]) {
+        ClipVtx v;
+        for (int i = 0; i < 3; i++) {
+            v.pos[i] = (float)(int16_t)MEM_H(i * 2, (int32_t)addr);
+        }
+        v.tc[0] = (float)(int16_t)MEM_H(8, (int32_t)addr);
+        v.tc[1] = (float)(int16_t)MEM_H(10, (int32_t)addr);
+        for (int i = 0; i < 4; i++) {
+            v.col[i] = (float)MEM_BU(12 + i, (int32_t)addr);
+        }
+        v.w = v.pos[0] * m[0][3] + v.pos[1] * m[1][3] + v.pos[2] * m[2][3] + m[3][3];
+        return v;
+    }
+
+    ClipVtx lerp_vtx(const ClipVtx& a, const ClipVtx& b, float t) {
+        ClipVtx v;
+        for (int i = 0; i < 3; i++) v.pos[i] = a.pos[i] + (b.pos[i] - a.pos[i]) * t;
+        for (int i = 0; i < 2; i++) v.tc[i] = a.tc[i] + (b.tc[i] - a.tc[i]) * t;
+        for (int i = 0; i < 4; i++) v.col[i] = a.col[i] + (b.col[i] - a.col[i]) * t;
+        v.w = a.w + (b.w - a.w) * t;
+        return v;
+    }
+
+    void write_vtx(uint8_t* rdram, uint32_t addr, const ClipVtx& v) {
+        for (int i = 0; i < 3; i++) {
+            MEM_H(i * 2, (int32_t)addr) = (int16_t)std::lround(v.pos[i]);
+        }
+        MEM_H(6, (int32_t)addr) = 0;
+        MEM_H(8, (int32_t)addr) = (int16_t)std::lround(v.tc[0]);
+        MEM_H(10, (int32_t)addr) = (int16_t)std::lround(v.tc[1]);
+        for (int i = 0; i < 4; i++) {
+            MEM_B(12 + i, (int32_t)addr) = (uint8_t)std::lround(std::fmin(std::fmax(v.col[i], 0.0f), 255.0f));
+        }
+    }
+
+    // Reserves bytes (8-aligned) in the side buffer.
+    uint32_t side_alloc(uint32_t bytes) {
+        bytes = (bytes + 7) & ~7u;
+        if (side_cursor + bytes > side_end) {
+            side_cursor = side_start;
+        }
+        uint32_t addr = side_cursor;
+        side_cursor += bytes;
+        return addr;
+    }
 }
 
 extern "C" {
@@ -243,6 +307,7 @@ void rush2_interp_projection(uint8_t* rdram, recomp_context* ctx) {
         G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO, G_EX_ORDER_LINEAR, G_EX_EDIT_NONE, G_EX_ASPECT_AUTO,
         G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO);
     cmds[3] = read_command(rdram, cmd_addr);
+    view_projection[cur_view] = cmds[3].values.word1;
     replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 4));
 }
 
@@ -282,6 +347,151 @@ void rush2_interp_poly(uint8_t* rdram, recomp_context* ctx) {
     cmds[3].values.word0 = G_MTX_LOAD_MODELVIEW_W0;
     cmds[3].values.word1 = views[cur_view].root_mtx;
     replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 4));
+}
+
+// func_8007C624 at 0x8007D740, after the G_VTX of a world-space polygon is allocated at $v0. $fp = polygon.
+void rush2_interp_poly_vtx(uint8_t* rdram, recomp_context* ctx) {
+    clip_poly = (uint32_t)ctx->r30;
+    clip_vtx_cmd = (uint32_t)ctx->r2;
+}
+
+// func_8007C624 at L_8007D890, after a world-space polygon's G_VTX and triangles. $fp = polygon.
+//
+// The sky dome's polygons (flag 0x2000) are drawn at the primitive depth 0x7FFF so they stay behind everything.
+// RT64 outputs prim depth as z = 0.99997 * w, so the GPU's near clip (z >= 0) lands on the camera plane (w = 0)
+// instead of the projection's near plane. The dome surrounds the camera, so many of its triangles have a vertex
+// beside or behind it: the overhead cap's center is within a few degrees of the camera plane whenever the camera is
+// level, and the lower rings wrap around past the widescreen edges. Those triangles get cut into vertices at w = 0
+// that project to infinity, and draw stretched (striped) or drop out, flickering as the camera pitches and turns.
+// The RSP clips them at the real near plane instead. Triangles with a vertex below sky_clip_w are clipped here
+// and redrawn from a side display list, with their texture coordinates and colors interpolated along the edges.
+void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t poly = (uint32_t)ctx->r30;
+    uint32_t vtx_cmd = clip_vtx_cmd;
+    bool ours = clip_poly == poly;
+    clip_poly = 0;
+    if (!ours || (MEM_H(2, (int32_t)poly) & 0x2000) == 0) {
+        return;
+    }
+    uint32_t root = views[cur_view].root_mtx;
+    uint32_t proj = view_projection[cur_view];
+    if (root == 0 || proj == 0) {
+        return;
+    }
+
+    // G_VTX: 0x01 nnn0 eeee (n vertices, e = end index * 2), then the triangles up to the display list cursor.
+    GfxCommand vtx = read_command(rdram, vtx_cmd);
+    uint32_t n = (vtx.values.word0 >> 12) & 0xFF;
+    uint32_t head = (uint32_t)MEM_W(0, (int32_t)main_dl_head);
+    if ((vtx.values.word0 >> 24) != 0x01 || n == 0 || n > 4 || head <= vtx_cmd + 8 || head - vtx_cmd > 8 * 4) {
+        return;
+    }
+    uint32_t first = ((vtx.values.word0 >> 1) & 0x7F) - n;
+
+    float mv[4][4], p[4][4], m[4][4];
+    read_mtx(rdram, kseg0(root), false, mv);
+    read_mtx(rdram, kseg0(proj), false, p);
+    mul_mtx(mv, p, m);
+
+    ClipVtx in[4];
+    bool any_near = false;
+    for (uint32_t i = 0; i < n; i++) {
+        in[i] = read_vtx(rdram, kseg0(vtx.values.word1) + i * 16, m);
+        any_near |= in[i].w < sky_clip_w;
+    }
+    if (!any_near) {
+        return;
+    }
+
+    // The triangles, in the game's winding.
+    int tris[4][3];
+    int tri_count = 0;
+    auto add_tri = [&](uint32_t word) {
+        int a = (int)((word >> 16) & 0xFF) / 2 - (int)first;
+        int b = (int)((word >> 8) & 0xFF) / 2 - (int)first;
+        int c = (int)(word & 0xFF) / 2 - (int)first;
+        if (a < 0 || b < 0 || c < 0 || a >= (int)n || b >= (int)n || c >= (int)n || tri_count >= 4) {
+            return false;
+        }
+        tris[tri_count][0] = a;
+        tris[tri_count][1] = b;
+        tris[tri_count][2] = c;
+        tri_count++;
+        return true;
+    };
+    for (uint32_t addr = vtx_cmd + 8; addr < head; addr += 8) {
+        GfxCommand cmd = read_command(rdram, addr);
+        uint32_t op = cmd.values.word0 >> 24;
+        if (op == 0x05) {
+            if (!add_tri(cmd.values.word0)) return;
+        }
+        else if (op == 0x06) {
+            if (!add_tri(cmd.values.word0) || !add_tri(cmd.values.word1)) return;
+        }
+        else {
+            return;
+        }
+    }
+
+    // Clip each triangle against w >= sky_clip_w (Sutherland-Hodgman: at most 4 vertices each), as a fan.
+    ClipVtx out[16];
+    int out_count = 0;
+    int out_tris[8][3];
+    int out_tri_count = 0;
+    for (int t = 0; t < tri_count; t++) {
+        ClipVtx poly_in[3] = { in[tris[t][0]], in[tris[t][1]], in[tris[t][2]] };
+        ClipVtx clipped[4];
+        int k = 0;
+        for (int i = 0; i < 3; i++) {
+            const ClipVtx& a = poly_in[i];
+            const ClipVtx& b = poly_in[(i + 1) % 3];
+            bool a_in = a.w >= sky_clip_w;
+            bool b_in = b.w >= sky_clip_w;
+            if (a_in) {
+                clipped[k++] = a;
+            }
+            if (a_in != b_in) {
+                clipped[k++] = lerp_vtx(a, b, (sky_clip_w - a.w) / (b.w - a.w));
+            }
+        }
+        if (k < 3) {
+            continue;
+        }
+        int base = out_count;
+        for (int i = 0; i < k; i++) {
+            out[out_count++] = clipped[i];
+        }
+        for (int i = 1; i + 1 < k; i++) {
+            out_tris[out_tri_count][0] = base;
+            out_tris[out_tri_count][1] = base + i;
+            out_tris[out_tri_count][2] = base + i + 1;
+            out_tri_count++;
+        }
+    }
+
+    // The original triangles become no-ops; the G_VTX calls the clipped vertices and triangles.
+    for (uint32_t addr = vtx_cmd + 8; addr < head; addr += 8) {
+        MEM_W(0, (int32_t)addr) = (int32_t)0xE7000000; // G_RDPPIPESYNC
+        MEM_W(4, (int32_t)addr) = 0;
+    }
+    if (out_tri_count == 0) {
+        MEM_W(0, (int32_t)vtx_cmd) = (int32_t)0xE7000000;
+        MEM_W(4, (int32_t)vtx_cmd) = 0;
+        return;
+    }
+
+    uint32_t vtx_addr = side_alloc(out_count * 16);
+    for (int i = 0; i < out_count; i++) {
+        write_vtx(rdram, vtx_addr + i * 16, out[i]);
+    }
+    GfxCommand cmds[1 + 8];
+    cmds[0].values.word0 = 0x01000000u | ((uint32_t)out_count << 12) | ((uint32_t)out_count << 1);
+    cmds[0].values.word1 = vtx_addr;
+    for (int i = 0; i < out_tri_count; i++) {
+        cmds[1 + i].values.word0 = 0x05000000u | (out_tris[i][0] * 2 << 16) | (out_tris[i][1] * 2 << 8) | (out_tris[i][2] * 2);
+        cmds[1 + i].values.word1 = 0;
+    }
+    replace_with_call(rdram, vtx_cmd, write_side_dl(rdram, cmds, 1 + out_tri_count));
 }
 
 // func_8007C624 exit. Resets the group IDs so later draws (HUD, other views) don't inherit them.
