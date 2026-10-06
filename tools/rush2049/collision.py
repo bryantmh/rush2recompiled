@@ -315,7 +315,7 @@ class Collision:
             if i == 0 or n.get('dead') or not all(child_is_leaf(n, q) for q in range(4)):
                 return None
             polys = sorted({p for q in range(4) if not n['mask'] & (1 << q) for p in leaf_polys(n['leaf'][q])})
-            if len(polys) > 255:
+            if len(polys) > 36:     # the queries' unchecked stack buffers hold 36 (func_8008BDC0); Rush 2 reaches 34
                 return None
             raw = encode_leaf(polys)
             saved = sum(len(self.leaves[n['leaf'][q]][1]) for q in range(4)
