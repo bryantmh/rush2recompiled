@@ -1055,6 +1055,12 @@ namespace {
         uint8_t speed, behaviour;
     };
 
+    // Rush 1's lane speeds are in ft/s (its driver, func_8007CDD4, compares lane x 1.05 with the car's speed); Rush 2's
+    // are in mph (x 1.4667 = 22 / 15, func_80074990). Rounded, and a moving point stays moving.
+    uint8_t lane_mph(uint8_t fps) {
+        return fps == 0 ? 0 : uint8_t(std::max(1, (fps * 30 + 22) / 44));
+    }
+
     struct Checkpoint {
         double pos[3];
         int flags;
@@ -1106,7 +1112,7 @@ namespace {
             for (int k = 0; k < n; k++) {
                 size_t p = o + 8 + size_t(k) * 10;
                 int c0 = s16(d, p), c1 = s16(d, p + 2), c2 = s16(d, p + 4);
-                pts.push_back({ c1, -c2, c0, d[p + 6], d[p + 7] });
+                pts.push_back({ c1, -c2, c0, lane_mph(d[p + 6]), d[p + 7] });
             }
             o += 8 + size_t(n) * 10;
             if (!(2 <= end && end <= n)) end = n;

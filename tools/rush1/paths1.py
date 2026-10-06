@@ -1,7 +1,7 @@
 """Rush 1 AI lane files (assets 58-64 forward, 65-71 backward) and per-track checkpoint tables (research aid).
 
 Lane file: 4 x { s16 count, s16 loop_index, s16 a, s16 b; count x { s16 x, y, z (collision space: render z, x, -y);
-u8 speed (mph); u8 behaviour; s16 index } }. Checkpoint tables: 0x800C7B6C (forward) / 0x800C7B88 (backward), ptr per
+u8 speed (ft/s: the driver func_8007CDD4 compares lane x 1.05 with the car speed); u8 behaviour; s16 index } }. Checkpoint tables: 0x800C7B6C (forward) / 0x800C7B88 (backward), ptr per
 track to 0x18-byte records { f32 x, y, z (render space), f32 0; s16 flags (-1 ends); s16 time[3] }.
 """
 import struct, math
