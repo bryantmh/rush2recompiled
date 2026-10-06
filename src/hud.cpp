@@ -30,7 +30,8 @@
 // at a quarter of the window), and those on its inner side stay at the screen's center. Each player's time,
 // speedometer, position, deaths skull and radar are laid out by place_role, the same margin from the screen's edges and
 // the lines between the views, measured to their opaque texels (the panels and the track map have transparent edges);
-// the shared time left sits centered above the track map. With 3 or 4 players the skull is drawn at half size, and the
+// the shared time left sits centered above the track map. In manual, each player's tachometer moves with their
+// speedometer and their gear sits on the inner side under the top panels. With 3 or 4 players the skull is drawn at half size, and the
 // bottom row's speedometers sit at the top of their quadrants. The game's 2D clip inset is lifted for the draw loop so
 // the HUD can sit closer to the edges than the overscan border.
 
@@ -132,6 +133,8 @@ namespace {
     constexpr int32_t laps_height = 8;
     constexpr int32_t lifted_inset = 64;
     int32_t map_dx = 0;
+    // Top of each player's lap (checkpoint) time box, part of their time under the race time, as of this frame.
+    int32_t lap_top[4];
     int32_t map_dy = 0;
     uint16_t map_origin = G_EX_ORIGIN_NONE;
     int16_t saved_inset_x;
@@ -459,7 +462,8 @@ namespace {
     // position at the right and the speedometer between them (centered in rush2_hud_draw_begin), all with their tops
     // (bottom row: bottoms) lined up; the deaths skull on the outer side under the time (right column: the position;
     // bottom row: above them); the radar against the middle of the screen (side by side and the top row: the bottom;
-    // the bottom row: the top), on the outer side, or beside the skull if a quadrant is too short for both. roles =
+    // the bottom row: the top), on the outer side, or beside the skull if a quadrant is too short for both; the gear (manual)
+// on the inner side under the top panels' height, the same in every half or quadrant. roles =
     // the bounds of each of the player's roles. Returns false for other elements.
     bool place_role(rush2::players4::HudRole role, int player, const Rect* roles, int32_t& dx, int32_t& dy) {
         using rush2::players4::HudRole;
@@ -483,6 +487,14 @@ namespace {
             int32_t ah = valid(above) ? above.y1 - above.y0 + 1 + deaths_gap : 0;
             x = right_column ? a.x1 - split_margin - (d.x1 - d.x0) : a.x0 + split_margin;
             y = bottom_row ? outer_y(d.y1 - d.y0) - ah : outer_y(d.y1 - d.y0) + ah;
+            // In the top row of quadrants, there's no room for the skull under the lap time box (shown after a
+            // checkpoint) and above the radar: it goes under the race time, and the box covers it while it's shown.
+            const Rect& radar = roles[(int)HudRole::Radar];
+            if (quad_views && !bottom_row && !right_column && valid(above) && valid(radar) &&
+                lap_top[player] > above.y0 && lap_top[player] <= above.y1 &&
+                y + (d.y1 - d.y0) + 1 >= a.y1 - split_margin - (radar.y1 - radar.y0)) {
+                y = outer_y(d.y1 - d.y0) + lap_top[player] - above.y0 + deaths_gap;
+            }
         };
         int32_t x0 = g.x0;
         int32_t y0 = g.y0;
@@ -503,6 +515,23 @@ namespace {
             case HudRole::Deaths:
                 deaths_at(x0, y0);
                 break;
+            case HudRole::Gear: {
+                // The gear (manual only) on the inner side, the side the skull isn't on, under the top row's panel there
+                // (the position; right column: the time), lined up with the panel's edge away from the screen's middle:
+                // centered, it ran into the time left's panel there. It clears the taller of the time and position, so
+                // every player's gear is at the same height in their half or quadrant.
+                const Rect& above = roles[(int)(right_column ? HudRole::Time : HudRole::Position)];
+                const Rect& other = roles[(int)(right_column ? HudRole::Position : HudRole::Time)];
+                if (!valid(above)) {
+                    return false;
+                }
+                int32_t aw = above.x1 - above.x0;
+                int32_t ah = std::max(above.y1 - above.y0, valid(other) ? other.y1 - other.y0 : 0) + 1 + deaths_gap;
+                int32_t ax0 = right_column ? a.x0 + split_margin : a.x1 - split_margin - aw;
+                x0 = right_column ? ax0 + aw - w : ax0;
+                y0 = a.y0 + split_margin + ah;
+                break;
+            }
             case HudRole::Radar: {
                 x0 = right_column ? a.x1 - split_margin - w : a.x0 + split_margin;
                 y0 = bottom_row ? a.y0 + split_margin : a.y1 - split_margin - h;
@@ -510,7 +539,9 @@ namespace {
                 if (valid(d)) {
                     int32_t dx0, dy0;
                     deaths_at(dx0, dy0);
-                    if (dy0 <= y0 + h + deaths_gap && y0 <= dy0 + (d.y1 - d.y0) + deaths_gap) {
+                    // Only if they overlap: the skull under the right column's taller position panel ends just
+                    // short of the radar, and moving the radar for that left it off the edge.
+                    if (dy0 <= y0 + h + 1 && y0 <= dy0 + (d.y1 - d.y0) + 1) {
                         int32_t step = d.x1 - d.x0 + 1 + deaths_gap;
                         x0 += right_column ? -step : step;
                     }
@@ -659,6 +690,9 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
     uint32_t count = (uint32_t)MEM_W(0, (int32_t)widget_count);
     count = std::min(count, max_widgets);
     side_by_side = rush2::splitscreen::is_side_by_side(rdram);
+    for (int32_t& top : lap_top) {
+        top = INT32_MAX;
+    }
     quad_views = rush2::splitscreen::quadrant_views(rdram);
     bool split = side_by_side || quad_views;
     Rect* rects = widget_rect;
@@ -754,6 +788,9 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             int role = (int)rush2::players4::hud_widget_role((int)i);
             if (split && player < 4 && role != 0) {
                 Rect& r = role_rect[player < 0 ? shared : player][role];
+                if (player >= 0 && rush2::players4::hud_widget_lap_time((int)i)) {
+                    lap_top[player] = std::min(lap_top[player], rects[i].y0);
+                }
                 r.x0 = std::min(r.x0, rects[i].x0);
                 r.y0 = std::min(r.y0, rects[i].y0);
                 r.x1 = std::max(r.x1, rects[i].x1);
@@ -767,6 +804,62 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             g.screen_fill = g.screen_fill || rects[i].screen_fill;
             has_role[root][0] = has_role[root][0] || (player < 0 && role == (int)HudRole::TimeLeft);
             has_role[root][1] = has_role[root][1] || (player < 0 && role == (int)HudRole::Map);
+        }
+    }
+    // The time, speedometer and position count their hidden widgets too: the speedometer and position are hidden
+    // through most of the countdown, and the time's checkpoint (lap) time box under the race time shows only after a
+    // checkpoint, so the elements laid out from them (the tachometer, the gear, the skull, the speedometer between the
+    // time and position) jumped when they appeared. Their widgets keep their layout positions while hidden.
+    if (split) {
+        for (uint32_t i = 0; i < count; i++) {
+            int32_t widget = (int32_t)(widget_array + i * widget_size);
+            HudRole role = rush2::players4::hud_widget_role((int)i);
+            int player = rush2::players4::hud_widget_player((int)i);
+            if (anchored[i] || !hud_slot[i] || (role != HudRole::Time && role != HudRole::Speed && role != HudRole::Position) || player < 0 ||
+                player > 3 || (MEM_BU(widget_flags, widget) & flag_callback) != 0 || MEM_H(widget_w, widget) == 0 ||
+                MEM_H(widget_h, widget) == 0) {
+                continue;
+            }
+            Rect b;
+            b.x0 = MEM_H(widget_x, widget);
+            b.y0 = MEM_H(widget_y, widget);
+            if (MEM_W(widget_image, widget) == 0) {
+                b.x1 = b.x0 + MEM_H(widget_w, widget) - 1;
+                b.y1 = b.y0 + MEM_H(widget_h, widget) - 1;
+            }
+            else {
+                b.x1 = b.x0 + MEM_H(widget_src_x1, widget) - MEM_H(widget_src_x0, widget);
+                b.y1 = b.y0 + MEM_H(widget_src_y1, widget) - MEM_H(widget_src_y0, widget);
+                // A hidden digit's source is its whole digit strip (the speed's 16 x 143, the time's 96 x 11), not
+                // one digit. The digits sit on their panels, which give the bounds: a widget whose top left corner
+                // is on another widget of its role and player, further up and left, is left out.
+                bool on_panel = false;
+                for (uint32_t j = 0; j < count && !on_panel; j++) {
+                    int32_t other = (int32_t)(widget_array + j * widget_size);
+                    if (j == i || !hud_slot[j] || rush2::players4::hud_widget_role((int)j) != role ||
+                        rush2::players4::hud_widget_player((int)j) != player || MEM_W(widget_image, other) == 0 ||
+                        (MEM_BU(widget_flags, other) & flag_callback) != 0) {
+                        continue;
+                    }
+                    int32_t ox = MEM_H(widget_x, other);
+                    int32_t oy = MEM_H(widget_y, other);
+                    int32_t ox1 = ox + MEM_H(widget_src_x1, other) - MEM_H(widget_src_x0, other);
+                    int32_t oy1 = oy + MEM_H(widget_src_y1, other) - MEM_H(widget_src_y0, other);
+                    on_panel = ox <= b.x0 && oy <= b.y0 && (ox != b.x0 || oy != b.y0) && b.x0 <= ox1 && b.y0 <= oy1;
+                }
+                if (on_panel) {
+                    continue;
+                }
+                trim_to_opaque(rdram, widget, b);
+            }
+            Rect& r = role_rect[player][(int)role];
+            if (rush2::players4::hud_widget_lap_time((int)i)) {
+                lap_top[player] = std::min(lap_top[player], b.y0);
+            }
+            r.x0 = std::min(r.x0, b.x0);
+            r.y0 = std::min(r.y0, b.y0);
+            r.x1 = std::max(r.x1, b.x1);
+            r.y1 = std::max(r.y1, b.y1);
         }
     }
     // A role the game hides for a while (the position while a player's car is wrecked) keeps its last bounds, so the
@@ -816,6 +909,16 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
                 move_to_side(g, group_dx[i], group_dy[i], group_player[i]);
             }
             group_origin[i] = side_origin_for_x((block->x0 + block->x1) / 2 + group_dx[i]);
+            if (group_role[i] == HudRole::Gear && block != &g) {
+                // The gear is lined up with the panel above it, so it takes that panel's anchor.
+                HudRole panel = (player & 1) ? HudRole::Time : HudRole::Position;
+                int32_t pdx = 0;
+                int32_t pdy = 0;
+                if (place_role(panel, player, role_rect[player], pdx, pdy)) {
+                    const Rect& b = role_rect[player][(int)panel];
+                    group_origin[i] = side_origin_for_x((b.x0 + b.x1) / 2 + pdx);
+                }
+            }
             if (player < 0 && has_role[i][1]) {
                 map_moved = true;
                 map_rect = Rect{ g.x0 + group_dx[i], g.y0 + group_dy[i], g.x1 + group_dx[i], g.y1 + group_dy[i], false, false };
@@ -859,7 +962,11 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         }
 
         // Each player's speedometer is centered between their time and position as drawn (with widescreen anchors,
-        // the time and position move apart).
+        // the time and position move apart). Where it goes is kept for the tachometer, also while it's hidden.
+        int32_t speed_dx[4] = {};
+        int32_t speed_dy[4] = {};
+        uint16_t speed_origin[4] = {};
+        bool speed_placed[4] = {};
         for (int player = 0; player < (quad_views ? 4 : 2); player++) {
             const Rect* r = role_rect[player];
             const Rect& time = r[(int)HudRole::Time];
@@ -900,11 +1007,19 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             if (place_x0 == INT32_MIN) {
                 place_x0 = placed_x(HudRole::Position, place.x0);
             }
-            if (speed_root < 0) {
-                continue;
+            if (speed_root >= 0) {
+                speed_origin[player] = group_origin[speed_root];
+                speed_dy[player] = group_dy[speed_root];
+            }
+            else {
+                int32_t dx = 0;
+                place_role(HudRole::Speed, player, r, dx, speed_dy[player]);
+                speed_origin[player] = side_origin_for_x((speed.x0 + speed.x1) / 2 + dx);
             }
             int32_t x0 = (time_x1 + 1 + place_x0) / 2 - (speed.x1 - speed.x0 + 1) / 2 -
-                screen_offset(group_origin[speed_root]);
+                screen_offset(speed_origin[player]);
+            speed_dx[player] = x0 - speed.x0;
+            speed_placed[player] = true;
             for (uint32_t i = 0; i < count; i++) {
                 if (anchored[i] && find_group(parent, (int)i) == (int)i && group_player[i] == player &&
                     group_role[i] == HudRole::Speed) {
@@ -923,8 +1038,10 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
                 continue;
             }
             for (uint32_t e = 0; e < count; e++) {
+                // The tachometers move with the speedometers (below), and the gears come and go with the
+                // transmission, so they don't push them.
                 if (!anchored[e] || find_group(parent, (int)e) != (int)e || centered(group_origin[e]) ||
-                    group[e].screen_fill) {
+                    group[e].screen_fill || group_role[e] == HudRole::Tach || group_role[e] == HudRole::Gear) {
                     continue;
                 }
                 int32_t m0 = group[m].x0 + group_dx[m] + screen_offset(group_origin[m]);
@@ -937,6 +1054,47 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
                     continue;
                 }
                 group_dx[m] += (e0 + e1 < m0 + m1) ? e1 + gap + 1 - m0 : e0 - gap - 1 - m1;
+            }
+        }
+
+        // Each player's tachometer (shown in manual) hangs under their speedometer's panel: it moves with the panel
+        // (the speedometer's largest group), or where the speedometer would go while it's hidden.
+        for (int player = 0; player < (quad_views ? 4 : 2); player++) {
+            int speed_root = -1;
+            int64_t speed_area = -1;
+            for (uint32_t i = 0; i < count; i++) {
+                if (anchored[i] && find_group(parent, (int)i) == (int)i && group_player[i] == player &&
+                    group_role[i] == HudRole::Speed) {
+                    int64_t area = (int64_t)(group[i].x1 - group[i].x0 + 1) * (group[i].y1 - group[i].y0 + 1);
+                    if (area > speed_area) {
+                        speed_area = area;
+                        speed_root = (int)i;
+                    }
+                }
+            }
+            int32_t dx = 0;
+            int32_t dy = 0;
+            uint16_t origin;
+            if (speed_root >= 0) {
+                dx = group_dx[speed_root];
+                dy = group_dy[speed_root];
+                origin = group_origin[speed_root];
+            }
+            else if (speed_placed[player]) {
+                dx = speed_dx[player];
+                dy = speed_dy[player];
+                origin = speed_origin[player];
+            }
+            else {
+                continue;
+            }
+            for (uint32_t i = 0; i < count; i++) {
+                if (anchored[i] && find_group(parent, (int)i) == (int)i && group_player[i] == player &&
+                    group_role[i] == HudRole::Tach) {
+                    group_dx[i] = dx;
+                    group_dy[i] = dy;
+                    group_origin[i] = origin;
+                }
             }
         }
     }

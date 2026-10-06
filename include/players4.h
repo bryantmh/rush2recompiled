@@ -43,8 +43,10 @@ namespace rush2::players4 {
     // The player a race HUD widget belongs to, or -1 for shared ones.
     int hud_widget_player(int slot);
     // What a race HUD widget is part of, for the split screen layouts (src/hud.cpp).
-    enum class HudRole { Other, Time, Speed, Position, Radar, Banner, Deaths, TimeLeft, Map, Count };
+    enum class HudRole { Other, Time, Speed, Position, Radar, Banner, Deaths, TimeLeft, Map, Tach, Gear, Count };
     HudRole hud_widget_role(int slot);
+    // Whether a race HUD widget is part of a player's lap (checkpoint) time box, under their race time (HudRole::Time).
+    bool hud_widget_lap_time(int slot);
 }
 
 #endif
