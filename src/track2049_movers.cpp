@@ -55,6 +55,7 @@ namespace {
     constexpr uint32_t cars = 0x800F5470;
     constexpr uint32_t car_size = 0x81C;
     constexpr int max_cars = 8;
+    constexpr uint32_t player_slots = 0x800C2140; // Local player slots, 0x28 bytes: +0 = car index.
     constexpr uint32_t wreck_option = 0x80119628;  // s8: 1 = any contact wrecks.
 
     // Rush 2 car fields (movers.md §7).
@@ -293,6 +294,7 @@ namespace {
         }
         movers::Options options;
         options.backward = MEM_B(0, (int32_t)backward_flag) != 0;
+        options.mode = std::max(0, (int)rush2::track2049::game_type(rdram));
         world = movers::World();
         world.init(std::move(paths), types, options);
 
@@ -557,6 +559,13 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
     }
     float dt = read_f(rdram, (uint32_t)((int32_t)ctx->r29 + 0x18));
     tick++;
+    {
+        // Player 1's car (local player slot 0 at 0x800C2140, +0 = car index), as 2049's car 0.
+        uint32_t car = cars + MEM_BU(0, (int32_t)player_slots) * car_size;
+        float focus[3];
+        for (int i = 0; i < 3; i++) focus[i] = read_f(rdram, car + car_position + i * 4);
+        world.set_focus(focus);
+    }
     world.update(dt);
     // Objects that turn in place (func_8010E694), on their records' matrices.
     uint32_t base = (uint32_t)MEM_W(0, (int32_t)record_base);

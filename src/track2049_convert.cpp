@@ -2,7 +2,7 @@
 // tools/rush2049 (track.py and the parts of model.py, placement.py, collision.py and paths.py it calls) and gives
 // byte-identical output. Format details and evidence are in docs/rush2049_research (geometry.md, placement.md,
 // collision.md, race.md). All data is big-endian. 2049 track k (= 2049 track id + 1: race tracks 1-6, stunt arenas
-// 15-18) uses these 2049 files:
+// 15-18, obstacle course 19) uses these 2049 files:
 //
 // Geometry (100+k track, 81+k track objects, 78 shared flags/triggers, 68 coins -> one Rush 2 model container)
 //     2049 container: word 0 = offset of a directory of {tag, offset, size or count} entries. IMAG texels, TXLD
@@ -27,8 +27,9 @@
 // Collision (138+k): Rush 2049's layout with a 0x10-byte header, a MOVER section and 32-bit leaf offsets, rewritten
 //     as Rush 2's; if the leaf section doesn't fit 16-bit offsets, bottom quadtree nodes are merged.
 // AI paths (157+k forward, 176+k backward; a stunt arena's one path, 157+k as 2049's loader picks it although the
-//     editor names inside the files run the other way, serves both): same format in both games;
-//     validated and kept as they are, except that a stunt arena's stub AI lanes are replaced with its spine. Stunt arenas have no per-track object file (81+k).
+//     editor names inside the files run the other way, serves both; so does the obstacle course's): same format in both
+//     games; validated and kept as they are, except that a stunt arena's or the obstacle course's stub AI lanes are
+//     replaced with its spine. Neither has a per-track object file (81+k).
 // PVS, fog colour: per-track tables in 2049's main data, which is raw deflate at ROM 0xB0CB10, loaded at 0x80086A50.
 //
 // Matching the Python: floats are computed in double and rounded to float when written, as struct.pack('>f') does;
@@ -2242,12 +2243,12 @@ namespace {
     // under it (up to floor_slack above), or failing that on the lowest floor at most floor_reach above it, rounded
     // up. The spine is rotated to start at the first point that, with its successor,
     // already lay on the floor (within floor_slack), or failing that has floor under it (the spine is a closed loop on
-    // every arena).
+    // every arena). The obstacle course's spine runs from its start to its finish (loop false) and keeps its start.
     // Rush 2049 runs no AI on its arenas, and their four lanes are stubs of 3-4 points whose load-time crossings
     // (func_80092D6C) all land on the last point; func_8006DB00 then steps a lane from its last point to that same
     // point, and Rush 2's lane follower (func_80074990) never gets past it. Each lane is replaced with the spine, with
     // the stubs' speed 100 and flags 2. A validated file has no branches and its lanes last.
-    Bytes spine_lanes(const Bytes& d, const Bytes& collision_2049) {
+    Bytes spine_lanes(const Bytes& d, const Bytes& collision_2049, bool loop) {
         constexpr size_t route = 0x32C;
         constexpr double floor_slack = 2, floor_reach = 64;
         size_t n_spine = u16(d, route);
@@ -2282,7 +2283,7 @@ namespace {
         size_t first = 0;
         bool found = false;
         for (int q : { 2, 1 }) {
-            for (size_t i = 0; i < n_spine && !found; i++) {
+            for (size_t i = 0; i < n_spine && !found && loop; i++) {
                 if (std::min(grounded[i], grounded[(i + 1) % n_spine]) >= q) {
                     first = i;
                     found = true;
@@ -2316,6 +2317,7 @@ namespace {
     constexpr uint32_t demo_lists_vram = 0x801173D8;  // ptr per race track + 6 * backward: demo start spine indices.
     constexpr uint32_t demo_counts_vram = 0x80117408; // s16 per race track + 6 * backward.
     constexpr uint32_t pvs_vram[6] = { 0x8011B898, 0x8011BFE8, 0x8011C738, 0x8011CE88, 0x8011D618, 0x8011DC88 };
+    constexpr uint32_t obstacle_pvs_vram = 0x8011E5B8; // The obstacle course's (func_8009EBC0); stunt arenas have none.
     constexpr int shared_model_file = 78; // F1FLAG / F2FLAG frames, TRIGGEROFF / TRIGGERON.
     constexpr int coin_model_file = 68;   // GOLDCOIN / SILVERCOIN; their models run Rush 2's key behaviour (8).
     const std::map<std::string, uint16_t> coin_kinds = { { "GOLDCOING_COIN", 8 }, { "SILVERCOINS_COI", 8 } };
@@ -2325,7 +2327,8 @@ namespace {
     Bytes convert_pvs(const Bytes& main, int k, int count) {
         Bytes out;
         for (int reg = 0; reg < count; reg++) {
-            size_t o = pvs_vram[k - 1] - main_vram + (size_t)reg * 16;
+            uint32_t table = k <= 6 ? pvs_vram[k - 1] : obstacle_pvs_vram;
+            size_t o = table - main_vram + (size_t)reg * 16;
             for (int j : { 1, 0, 3, 2 }) {
                 add32(out, u32(main, o + j * 4));
             }
@@ -2528,7 +2531,7 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
                                      const std::set<std::string>& shared_models, bool static_paths,
                                      ConvertedTrack& out, std::string& error) {
     bool race = k >= 1 && k <= 6;
-    if (!race && (k < stunt_first || k >= stunt_first + stunt_count)) {
+    if (!race && (k < stunt_first || k >= stunt_first + stunt_count) && k != obstacle) {
         error = "no such 2049 track";
         return false;
     }
@@ -2587,7 +2590,7 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         out.collision = convert_collision(collision);
         validate_path(files[5]);
         validate_path(files[6]);
-        out.path = race ? files[5] : spine_lanes(files[5], collision);
+        out.path = race ? files[5] : spine_lanes(files[5], collision, k != obstacle);
         out.path_backward = race ? files[6] : out.path;
 
         out.pvs_count = u8(main, pvs_counts_vram - main_vram + k - 1);

@@ -104,7 +104,7 @@ namespace {
         { Game::Rush2049, 2, "r49_2", "Song 4", "Rush 2049 Track 4" },
         { Game::Rush2049, 3, "r49_3", "Song 5", "Rush 2049 Track 5" },
         { Game::Rush2049, 7, "r49_7", "Song 6", "Rush 2049 Track 6" },
-        { Game::Rush2049, 8, "r49_8", "Song 7", "Rush 2049 Stunt 1 and 2" },
+        { Game::Rush2049, 8, "r49_8", "Song 7", "Rush 2049 Stunt 1, 2 and Obstacle" },
         { Game::Rush2049, 9, "r49_9", "Song 8", "Rush 2049 Stunt 3 and 4" },
     }};
     constexpr int song_count = (int)songs.size();
@@ -239,7 +239,12 @@ namespace {
         bool host = t == rush2::track2049::host_slot;
         Game g = Game::Rush2;
         int original = -1;
-        if (host && rush2::track2049::race_track() > 0) {
+        if (host && rush2::track2049::race_track() == rush2::track2049::obstacle) {
+            // Rush 2049's per-track songs (0x8010FFD4): 8 for the obstacle course.
+            g = Game::Rush2049;
+            original = find_song(Game::Rush2049, 8);
+        }
+        else if (host && rush2::track2049::race_track() > 0) {
             g = Game::Rush2049;
             original = first_rush2049 + rush2::track2049::race_track() - 1;
         }

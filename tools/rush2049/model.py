@@ -569,6 +569,7 @@ R2_PVS = [0x800C6538, 0x800C6A78, 0x800C7048, 0x800C7788, 0x800C7F38, 0x800C8588
           0x800C9508, 0x800C9818, 0x800C9BA8, 0x800C9F18]   # func_8007C27C jump table 0x800CF9A4
 R2_PVS_COUNT = 0x800CA1A8                                   # u8 per track: sections under PVS control
 R49_PVS = [0x8011B898, 0x8011BFE8, 0x8011C738, 0x8011CE88, 0x8011D618, 0x8011DC88]  # func_8009EBC0, tracks 1-6
+R49_PVS_OBSTACLE = 0x8011E5B8                               # func_8009EBC0, the obstacle course (k 19)
 R49_PVS_COUNT = 0x8011E748                                  # u8 per 2049 track id (0-18)
 
 
@@ -584,11 +585,13 @@ def pvs_rush2(r2, t):
 
 
 def pvs_2049(q, k):
-    """2049 PVS of race track k (1-6). Entry = four big-endian u32, bit (i & 31) of word i >> 5."""
+    """2049 PVS of 2049 track id k - 1: race tracks 1-6 and the obstacle course (19) have one, the stunt arenas none.
+    Entry = four big-endian u32, bit (i & 31) of word i >> 5."""
     n = q.main[R49_PVS_COUNT - q.MAIN_VRAM + k - 1]
+    base = R49_PVS[k - 1] if n and k <= 6 else R49_PVS_OBSTACLE
     out = []
     for reg in range(n):
-        w = [q.w(R49_PVS[k - 1] + reg * 16 + 4 * j) for j in range(4)]
+        w = [q.w(base + reg * 16 + 4 * j) for j in range(4)]
         out.append(w[0] | (w[1] << 32) | (w[2] << 64) | (w[3] << 96))
     return out
 

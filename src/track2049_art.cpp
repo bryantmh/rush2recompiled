@@ -12,7 +12,8 @@
 //   spine and the branches that really leave it). The notes below up to "Size" describe this miniature;
 // - a logo with the track's screenshot shrunk to an icon and its name, "TRACK n" as Rush 2049's code calls them.
 // The stunt arenas (k = stunt_first.., src/track2049_convert.cpp) get the same from their own AI path (157+k) and
-// screenshot (SPICn), named R49STUNTn / R49SLOGOn and "STUNT n". The miniature is for race tracks only.
+// screenshot (SPICn), named R49STUNTn / R49SLOGOn and "STUNT n", and the obstacle course (k = obstacle) from its
+// path (176) and OPIC1, named R49OBSTACLE / R49OLOGO and "OBSTACLE". The miniature is for race tracks only.
 //
 // Both go into a copy of asset 3, whose tables are rebuilt after the appended data; the screen looks models and
 // textures up by name, so the copy works wherever asset 3 is loaded.
@@ -75,9 +76,10 @@ namespace {
 
     using Bytes = std::vector<uint8_t>;
 
-    bool is_stunt(int k) { return k >= rush2::track2049::stunt_first; }
-    // The number in the track's name: race track k, or stunt arena 1-4.
-    int number_of(int k) { return is_stunt(k) ? k - rush2::track2049::stunt_first + 1 : k; }
+    bool is_obstacle(int k) { return k == rush2::track2049::obstacle; }
+    bool is_stunt(int k) { return k >= rush2::track2049::stunt_first && !is_obstacle(k); }
+    // The number in the track's name: race track k, stunt arena 1-4, or 1 for the obstacle course.
+    int number_of(int k) { return is_stunt(k) ? k - rush2::track2049::stunt_first + 1 : is_obstacle(k) ? 1 : k; }
 
     uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
         return (uint32_t(d[o]) << 24) | (uint32_t(d[o + 1]) << 16) | (uint32_t(d[o + 2]) << 8) | d[o + 3];
@@ -1900,7 +1902,7 @@ namespace {
     }
 
     bool build_track_model(const Bytes& rom, int k, TrackModel& m) {
-        return use_miniature && !is_stunt(k) ? build_miniature(rom, k, m) : build_tube(rom, k, m);
+        return use_miniature && k <= rush2::track2049::track_count ? build_miniature(rom, k, m) : build_tube(rom, k, m);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -1910,9 +1912,11 @@ namespace {
 
     // 5x7 capitals and digits, one byte per row, bit 4 = leftmost column.
     const std::map<char, std::array<uint8_t, 7>> font = {
-        { 'A', { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } }, { 'C', { 0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E } },
+        { 'A', { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } }, { 'B', { 0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E } },
+        { 'C', { 0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E } }, { 'E', { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F } },
         { 'H', { 0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } }, { 'K', { 0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11 } },
-        { 'N', { 0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11 } },
+        { 'L', { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F } }, { 'N', { 0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11 } },
+        { 'O', { 0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E } },
         { 'R', { 0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11 } }, { 'S', { 0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E } },
         { 'T', { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 } }, { 'U', { 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E } },
         { '0', { 0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E } }, { '1', { 0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E } },
@@ -1924,7 +1928,9 @@ namespace {
     // Palette: 0 transparent, 1-3 text, 32-255 a 7x8x4 colour cube for the icon.
     constexpr uint8_t ink_big = 1, ink_small = 2, ink_outline = 3, cube_base = 32;
 
-    void draw_text(std::array<uint8_t, logo_w * logo_h>& img, const std::string& text, int x0, int y0, int scale, uint8_t ink) {
+    // advance: pixels from one character to the next, 0 for 6 x scale.
+    void draw_text(std::array<uint8_t, logo_w * logo_h>& img, const std::string& text, int x0, int y0, int scale, uint8_t ink,
+                   int advance = 0) {
         int x = x0;
         for (char ch : text) {
             auto g = font.find(ch);
@@ -1943,11 +1949,11 @@ namespace {
                     }
                 }
             }
-            x += 6 * scale;
+            x += advance > 0 ? advance : 6 * scale;
         }
     }
 
-    // TPICk (stunt arena n: SPICn) as RGBA, upright (2049 stores its thumbnails bottom-up). Returns false if not found.
+    // TPICk (stunt arena n: SPICn, the obstacle course: OPIC1) as RGBA, upright (2049 stores its thumbnails bottom-up). Returns false if not found.
     bool read_thumbnail(const std::vector<uint8_t>& ui, int k, std::vector<std::array<uint8_t, 4>>& rgba, int& w, int& h) {
         if (ui.size() < 4) return false;
         // Chunk directory: IMAG, TXHD, PLHD (docs/rush2049_research/geometry.md §3).
@@ -1960,7 +1966,7 @@ namespace {
             if (tag == "TXHD") { txhd = be32(ui, o + 4); txhd_n = be32(ui, o + 8); }
             if (tag == "PLHD") { plhd = be32(ui, o + 4); plhd_n = be32(ui, o + 8); }
         }
-        std::string name = (is_stunt(k) ? "SPIC" : "TPIC") + std::to_string(number_of(k));
+        std::string name = (is_obstacle(k) ? "OPIC" : is_stunt(k) ? "SPIC" : "TPIC") + std::to_string(number_of(k));
         auto name_at = [&](uint32_t o) { return std::string(reinterpret_cast<const char*>(&ui[o]), strnlen(reinterpret_cast<const char*>(&ui[o]), 16)); };
         for (uint32_t i = 0; i < txhd_n; i++) {
             uint32_t r = txhd + i * 0x24;
@@ -2021,7 +2027,12 @@ namespace {
         // Name, with a one-pixel outline around the text.
         std::array<uint8_t, logo_w * logo_h> text{};
         draw_text(text, "RUSH 2049", 38, 2, 1, ink_small);
-        draw_text(text, (is_stunt(k) ? "STUNT " : "TRACK ") + std::to_string(number_of(k)), 36, 13, 2, ink_big);
+        if (is_obstacle(k)) {
+            draw_text(text, "OBSTACLE", 36, 13, 2, ink_big, 11);  // one pixel apart, to fit
+        }
+        else {
+            draw_text(text, (is_stunt(k) ? "STUNT " : "TRACK ") + std::to_string(number_of(k)), 36, 13, 2, ink_big);
+        }
         for (int y = 0; y < logo_h; y++) {
             for (int x = 34; x < logo_w; x++) {
                 if (text[y * logo_w + x]) {
@@ -2072,10 +2083,12 @@ namespace {
 }
 
 std::string rush2::track2049::menu_model_name(int k) {
+    if (is_obstacle(k)) return "R49OBSTACLE";
     return (is_stunt(k) ? "R49STUNT" : "R49TRACK") + std::to_string(number_of(k));
 }
 
 std::string rush2::track2049::menu_logo_name(int k) {
+    if (is_obstacle(k)) return "R49OLOGO";
     return (is_stunt(k) ? "R49SLOGO" : "R49LOGO") + std::to_string(number_of(k));
 }
 
@@ -2098,6 +2111,7 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
     std::vector<int> ks;
     for (int k = 1; k <= track_count; k++) ks.push_back(k);
     for (int n = 0; n < stunt_count; n++) ks.push_back(stunt_first + n);
+    ks.push_back(obstacle);
     std::vector<TrackModel> tracks(ks.size());
     for (size_t i = 0; i < ks.size(); i++) {
         if (!build_track_model(rom2049, ks[i], tracks[i])) {

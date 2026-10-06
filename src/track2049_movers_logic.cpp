@@ -841,8 +841,8 @@ namespace rush2::track2049::movers {
         float zz = d[2] * d[2];
         float sum = zz + xy;
         f.speed = std::sqrt(sum) / dt;
-        // Mode 5 also skips this beyond 450 units of car 0; race tracks don't use mode 5.
-        if (p.flags & path_moves_group) {
+        // Mode 5 (the obstacle course) skips this beyond 450 units of car 0 (0x800C0784, 0x80123E88 = 450^2).
+        if ((p.flags & path_moves_group) && near_focus(o, 202500.0f)) {
             GroupOp op = {};
             op.kind = GroupOp::translate;
             op.group = p.group;
@@ -877,7 +877,8 @@ namespace rush2::track2049::movers {
                 quat_to_matrix(o.m, q);
             }
         }
-        if (p.flags & path_moves_group) {
+        // Mode 5 (the obstacle course) skips this beyond 150 units of car 0 (0x800C01E8, 0x80123E84 = 150^2).
+        if ((p.flags & path_moves_group) && near_focus(o, 22500.0f)) {
             GroupOp op = {};
             op.kind = GroupOp::rotate;
             op.group = p.group;
@@ -886,6 +887,23 @@ namespace rush2::track2049::movers {
             std::memcpy(op.m, o.m, sizeof(op.m));
             ops_.push_back(op);
         }
+    }
+
+    bool World::near_focus(const Object& o, float range2) const {
+        if (options_.mode != 5) {
+            return true;
+        }
+        float d[3];
+        for (int i = 0; i < 3; i++) {
+            d[i] = o.pos[i] - focus_[i];
+        }
+        float xy = d[0] * d[0] + d[1] * d[1];
+        float sum = d[2] * d[2] + xy;
+        return !(range2 < sum);
+    }
+
+    void World::set_focus(const float pos[3]) {
+        std::memcpy(focus_, pos, sizeof(focus_));
     }
 
     void World::update(float dt) {
