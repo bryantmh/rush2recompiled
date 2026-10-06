@@ -12,7 +12,38 @@ tab, later in game.
 - The recomp menu's Progress tab shows them, along with Rush 2's own keys and Dew cans (read from its save once per
   frame; the game itself only shows one track's keys, on car select).
 
-What they unlock (§2.3-2.4, and the store or ladder idea) is still undecided.
+**Unlocks (done).** The store design was chosen; §2.3-2.4 below are the earlier per-game plans, kept for the
+original rules the port follows with the unlock system off.
+- **Points.** 1 per key and silver coin, 2 per Dew can and gold coin, over every game (533 in all), per profile
+  (`rush2::collectibles::points`). Purchases are item ids in the profile's `collectibles.json` block (`"unlocks"`).
+- **Items** (src/unlocks.cpp, table 2 of the user's suggestions, about half the points): Rush 2's six mystery cars,
+  Rush 2049 cars 7-13 (LOCUST LX added at 10), MIDWAY, PIPE, SF Rush track 7, Rush 2049 tracks 4-6, stunt arenas
+  2-4, the obstacle course, and six of Rush 2049's nine engines on the 2049 cars (3.2L HP V6, TURBO 350 and 6.2L V8
+  are free, as in 2049; 5.0L HP V6, TURBO 400, 7.0L V8, 6.5L HP V8, TURBO 500 and 8.0L V10 are bought in 2049's
+  unlock order, each needing the one before). Not yet: battle arenas, tires, transmissions, frames (TODO.txt).
+- **Engines** [V]: 2049's ENGINE is setup row C (0x80111080) with 9 levels: torque 0x801110C4 [9][3], sounds
+  0x8010FD80 [9], unlock table 0x80150ED8 (9 per player, 0-2 always; func_800F7604), names in file 0's strings.
+  Its setup screen (overlay at ROM 0xB5C534, vram 0x8038A400) shows model ENGINE0(level % 5 + 1)G1 for a level.
+- **Unlock System on** (Progress tab, default): car select lists cars 0-15, 2049 cars 1-6 and what the player's
+  profile bought, on every track; track select offers a locked track once any player in the game bought it; the
+  ENGINE row (which reads 2049's engine names) skips engines the player hasn't bought.
+- **Unlock System off**: Rush 2's own rules; on an SF Rush track half its keys give the Taxi and all of them every
+  mystery car and the Dew car; all 16 coins of a 2049 track or arena do the same; the 2049 cars follow 2049's coin
+  totals (§1.3). Tracks and ENGINE levels are open (2049's miles, circuits and stunt points aren't kept).
+- **Shop** (src/unlocks_shop.cpp): the Start Game menu's UNLOCKS row takes RECORDS' profile list (titled UNLOCKS,
+  without VIEW TOTALS), then runs in the car select's state with its own widgets, text, input and previews. Cars
+  are the car select's carousel holding the shop's cars, which slides between them; tracks are the track select's
+  dioramas; engines are Rush 2049's setup screen models (file 56, converted to asset 0x7E), lit red and pulsing in
+  size as 2049 shows the selected part (overlay 0x8038A400 at 0x8039E830: scale 1 + 0.1 x a 2 Hz triangle wave).
+  Every model is made when the scene is built and swapped by shrinking, so switching costs nothing. Buttons show
+  as the player's controller glyphs.
+- **Cheats**: Unlock All Cars / Tracks / Parts open everything either way. The Progress tab resets a profile's
+  purchases.
+- **Gotcha**: the car select loads the car the player record selects (record + 0x31), so the shop writes it and puts
+  it back. The record's first section (+1..+0x33) has a byte sum at +0 (func_80096E68, checked by func_80098190 when
+  the Controller Pak is read); writing the byte without it damages the note.
+- **Gotcha**: the carousel only loads the cars near the selected one; the others' node handles (0x80219DD0 +
+  (36 + type) x 0x134) are 0, which is the menus' background node. Touching node 0 blacks the background out.
 
 ---------------------------------------------------------------------------------------------------------------------
 

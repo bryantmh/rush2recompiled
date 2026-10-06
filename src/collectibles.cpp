@@ -22,7 +22,8 @@
 // Controller Pak image's profiles, the race players' records and the no-profile table, for the Progress tab.
 // Masks are kept per profile name in collectibles.json in the app folder. Players without a profile share one
 // session-only set, like Rush 2's no-profile keys. As in Rush 2, keys are only placed with one player (the placement
-// walker skips class records when racing with more). Nothing unlocks with them yet.
+// walker skips class records when racing with more).
+// What they buy (src/unlocks.cpp) is kept with them: each profile's purchases, by item id, in the same file.
 
 #include <algorithm>
 #include <cstdio>
@@ -31,6 +32,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -84,6 +86,8 @@ namespace {
     std::mutex collect_mutex;
     std::map<std::string, Masks> store;     // By profile name, as in collectibles.json.
     Masks guest{};                          // Players without a profile, this session.
+    std::map<std::string, std::set<std::string>> bought;   // Unlock system purchases by profile name.
+    std::set<std::string> guest_bought;
     bool store_loaded = false;
 
     // Coin models in RDRAM for the placement walker's lookup: gold, then silver.
@@ -198,8 +202,8 @@ namespace {
     }
 
     // collectibles.json: { "version": 1, "profiles": [ { "name": "BOB", "key": "424f42", "sfrush": [7 masks],
-    // "rush2049": [6 masks], "stunt2049": [4 masks] } ] }. key is the name's bytes (the game's character set isn't
-    // always ASCII); name is only for reading.
+    // "rush2049": [6 masks], "stunt2049": [4 masks], "unlocks": [item ids] } ] }. key is the name's bytes (the game's
+    // character set isn't always ASCII); name is only for reading.
     struct Section {
         const char* key;
         int first;
@@ -229,6 +233,13 @@ namespace {
                 continue;
             }
             Masks& m = store[name];
+            if (pj.contains("unlocks") && pj["unlocks"].is_array()) {
+                for (const auto& id : pj["unlocks"]) {
+                    if (id.is_string()) {
+                        bought[name].insert(id.get<std::string>());
+                    }
+                }
+            }
             for (const Section& s : sections) {
                 if (!pj.contains(s.key) || !pj[s.key].is_array()) {
                     continue;
@@ -245,13 +256,23 @@ namespace {
 
     void save_store() {
         nlohmann::json list = nlohmann::json::array();
+        std::set<std::string> names;
         for (const auto& [name, m] : store) {
-            if (m == Masks{}) {
-                continue;
-            }
+            if (m != Masks{}) names.insert(name);
+        }
+        for (const auto& [name, ids] : bought) {
+            if (!ids.empty()) names.insert(name);
+        }
+        for (const std::string& name : names) {
+            auto it = store.find(name);
+            Masks m = it != store.end() ? it->second : Masks{};
             nlohmann::json pj = { { "name", printable(name) }, { "key", to_hex(name) } };
             for (const Section& s : sections) {
                 pj[s.key] = std::vector<uint16_t>(m.begin() + s.first, m.begin() + s.first + s.count);
+            }
+            auto ids = bought.find(name);
+            if (ids != bought.end() && !ids->second.empty()) {
+                pj["unlocks"] = std::vector<std::string>(ids->second.begin(), ids->second.end());
             }
             list.push_back(pj);
         }
@@ -273,20 +294,80 @@ namespace {
         }
     }
 
-    // A race player's masks: its profile's (by name), or the no-profile set. profile_name gets the name, or "".
-    Masks& masks_of(uint8_t* rdram, int player, std::string& profile_name) {
+    // A player's profile name, or "" without a profile.
+    std::string name_of_player(uint8_t* rdram, int player) {
         uint32_t slot = player_slots + (uint32_t)player * player_slot_size;
         uint8_t profile_slot = MEM_BU(0, (int32_t)(slot + 1));
-        profile_name.clear();
-        if ((int16_t)MEM_H(0, (int32_t)(profile_of_slot + profile_slot * 2)) != -1) {
-            uint32_t record = (uint32_t)MEM_W(0, (int32_t)(slot + 0x24));
-            profile_name = read_name(rdram, record + rec_name, name_size);
+        if (profile_slot >= profiles || (int16_t)MEM_H(0, (int32_t)(profile_of_slot + profile_slot * 2)) == -1) {
+            return "";
         }
+        uint32_t record = (uint32_t)MEM_W(0, (int32_t)(slot + 0x24));
+        if (record < 0x80000000 || record >= 0x80800000) {
+            return "";
+        }
+        return read_name(rdram, record + rec_name, name_size);
+    }
+
+    // A race player's masks: its profile's (by name), or the no-profile set. profile_name gets the name, or "".
+    Masks& masks_of(uint8_t* rdram, int player, std::string& profile_name) {
+        profile_name = name_of_player(rdram, player);
         if (profile_name.empty()) {
             return guest;
         }
         load_store();
         return store[profile_name];
+    }
+
+    int bits(uint32_t v) {
+        int n = 0;
+        for (; v != 0; v &= v - 1) n++;
+        return n;
+    }
+
+    // Points: 1 per key and silver coin, 2 per Dew can and gold coin.
+    int points_of(const Rush2Masks& r2, const Masks& m) {
+        int p = 0;
+        for (uint16_t mask : r2) {
+            p += bits(mask & rush2_key_bits) + 2 * bits(mask & rush2_can_bits);
+        }
+        for (int c = 0; c < first_rush2049; c++) {
+            p += bits(m[c] & ((1u << sfrush_keys[c]) - 1));
+        }
+        for (int c = first_rush2049; c < courses; c++) {
+            p += bits(m[c] & silver_bits) + 2 * bits(m[c] & gold_bits);
+        }
+        return p;
+    }
+
+    // Rush 2's masks of a profile (or of players without one) from the last frame's copy.
+    Rush2Masks rush2_masks_of(const std::string& name) {
+        if (name.empty()) {
+            return rush2_snapshot.guest;
+        }
+        for (const auto& [listed, masks] : rush2_snapshot.profiles) {
+            if (listed == name) {
+                return masks;
+            }
+        }
+        return Rush2Masks{};
+    }
+
+    Masks side_masks_of(const std::string& name) {
+        if (name.empty()) {
+            return guest;
+        }
+        auto it = store.find(name);
+        return it != store.end() ? it->second : Masks{};
+    }
+
+    Progress progress_of(const std::string& name, const Rush2Masks& r2, const Masks& m) {
+        Progress p;
+        p.name = name;
+        p.rush2 = r2;
+        std::copy(m.begin(), m.begin() + sfrush_courses, p.sfrush.begin());
+        std::copy(m.begin() + first_rush2049, m.begin() + first_stunt, p.rush2049.begin());
+        std::copy(m.begin() + first_stunt, m.end(), p.stunt2049.begin());
+        return p;
     }
 }
 
@@ -295,13 +376,7 @@ std::vector<Progress> rush2::collectibles::progress() {
     load_store();
     std::vector<Progress> out;
     auto add = [&](const std::string& name, const Rush2Masks& r2, const Masks& m) {
-        Progress p;
-        p.name = name;
-        p.rush2 = r2;
-        std::copy(m.begin(), m.begin() + sfrush_courses, p.sfrush.begin());
-        std::copy(m.begin() + first_rush2049, m.begin() + first_stunt, p.rush2049.begin());
-        std::copy(m.begin() + first_stunt, m.end(), p.stunt2049.begin());
-        out.push_back(p);
+        out.push_back(progress_of(name, r2, m));
     };
     for (const auto& [name, r2] : rush2_snapshot.profiles) {
         auto it = store.find(name);
@@ -326,9 +401,71 @@ void rush2::collectibles::clear_profile(uint8_t* rdram, int p) {
     std::string name = read_name(rdram, record + rec_name, name_size);
     std::lock_guard lock{ collect_mutex };
     load_store();
-    if (!name.empty() && store.erase(name) != 0) {
+    bool erased = !name.empty() && store.erase(name) != 0;
+    erased = (!name.empty() && bought.erase(name) != 0) || erased;
+    if (erased) {
         save_store();
     }
+}
+
+std::string rush2::collectibles::player_name(uint8_t* rdram, int player) {
+    return name_of_player(rdram, player);
+}
+
+Progress rush2::collectibles::player_progress(uint8_t* rdram, int player) {
+    std::lock_guard lock{ collect_mutex };
+    std::string name;
+    Masks m = masks_of(rdram, player, name);
+    return progress_of(name, rush2_masks_of(name), m);
+}
+
+int rush2::collectibles::points(const std::string& name) {
+    std::lock_guard lock{ collect_mutex };
+    load_store();
+    return points_of(rush2_masks_of(name), side_masks_of(name));
+}
+
+int rush2::collectibles::max_points() {
+    Rush2Masks r2;
+    r2.fill(0xFFFF);
+    Masks m;
+    m.fill(0xFFFF);
+    return points_of(r2, m);
+}
+
+std::set<std::string> rush2::collectibles::purchases(const std::string& name) {
+    std::lock_guard lock{ collect_mutex };
+    load_store();
+    if (name.empty()) {
+        return guest_bought;
+    }
+    auto it = bought.find(name);
+    return it != bought.end() ? it->second : std::set<std::string>{};
+}
+
+void rush2::collectibles::reset_purchases(const std::string& name) {
+    std::lock_guard lock{ collect_mutex };
+    load_store();
+    if (name.empty()) {
+        guest_bought.clear();
+    }
+    else if (bought.erase(name) != 0) {
+        save_store();
+    }
+}
+
+bool rush2::collectibles::purchase(const std::string& name, const std::string& id, int cost, int spent) {
+    std::lock_guard lock{ collect_mutex };
+    load_store();
+    std::set<std::string>& ids = name.empty() ? guest_bought : bought[name];
+    if (ids.contains(id) || points_of(rush2_masks_of(name), side_masks_of(name)) - spent < cost) {
+        return false;
+    }
+    ids.insert(id);
+    if (!name.empty()) {
+        save_store();
+    }
+    return true;
 }
 
 // func_800B0228 at 0x800B02B4, the top of the game thread's main loop (every frame): copies Rush 2's key masks for

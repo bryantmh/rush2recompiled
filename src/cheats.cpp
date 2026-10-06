@@ -15,12 +15,16 @@
 //   that only happens while no menu is open; the UI only uses the config while a menu is open, and game input (and
 //   so the in-game cheat menu) is disabled then anyway.
 //
-// The tab also has two unlocks, which change nothing that is saved:
+// The tab also has three unlocks, which change nothing that is saved:
 // - Unlock All Tracks forces the PIPE (0x800E7D50) and MIDWAY (0x800E7D19) availability bytes on every frame. The
 //   game recomputes both from the save data in func_80094F1C, which is called again when the option is turned off.
+//   It also opens the added tracks the unlock system locks (src/unlocks.cpp).
 // - Unlock All Cars replaces each player's car list once car select (func_803B81F0) has built it. The game lists
 //   cars 0-15, cars 16-19 for every 3 keys found on the current track, car 20 once 0x800C20D8 (or the profile's
-//   +0x4B4) is set, and car 21 once all 4 cans on the current track are found.
+//   +0x4B4) is set, and car 21 once all 4 cans on the current track are found; the Rush 2049 cars follow.
+// - Unlock All Parts offers every ENGINE level on the Rush 2049 cars.
+// Otherwise the unlock system decides what each player's car list holds (src/unlocks.cpp). Its own option, Unlock
+// System, is kept in this tab's config but shown on the Progress tab.
 
 #include <algorithm>
 #include <array>
@@ -43,6 +47,7 @@
 #include "rush2_hooks.h"
 #include "rush2.h"
 #include "car2049.h"
+#include "unlocks.h"
 
 extern "C" void func_80094F1C(uint8_t* rdram, recomp_context* ctx);
 
@@ -215,6 +220,12 @@ namespace {
     const std::string unlock_cars_id = "unlock_all_cars";
     std::atomic<bool> unlock_cars_enabled = false;
 
+    const std::string unlock_parts_id = "unlock_all_parts";
+    std::atomic<bool> unlock_parts_enabled = false;
+
+    const std::string unlock_system_id = "unlock_system";
+    std::atomic<bool> unlock_system_enabled = true;
+
     void write_choice(uint8_t* rdram, const Cheat& cheat, const Choice& choice) {
         MEM_B(0, (int32_t)cheat.address) = choice.value;
         if (cheat.address2 != 0) {
@@ -266,7 +277,7 @@ namespace {
 
     const std::vector<std::vector<Group>> page_columns = {
         {
-            { "Unlocks", { cheat_menu_id, unlock_tracks_id, unlock_cars_id } },
+            { "Unlocks", { cheat_menu_id, unlock_tracks_id, unlock_cars_id, unlock_parts_id } },
             { "Driving", { "cheat_super_speed", "cheat_super_tires", "cheat_no_brakes", "cheat_mass", "cheat_gravity",
                            "cheat_levitation", "cheat_no_car_collisions" } },
         },
@@ -527,8 +538,9 @@ void rush2::cheats::create_tab() {
     config.add_bool_option(
         unlock_tracks_id,
         "Unlock All Tracks",
-        "Makes the <recomp-color primary>Pipe</recomp-color> and <recomp-color primary>Midway</recomp-color> tracks "
-        "available without earning them. Nothing is saved, so turning this off locks them again.",
+        "Makes every track available without earning or buying it: <recomp-color primary>Pipe</recomp-color>, "
+        "<recomp-color primary>Midway</recomp-color> and the SF Rush and Rush 2049 tracks the unlock system locks. "
+        "Nothing is saved, so turning this off locks them again.",
         false
     );
     config.add_option_change_callback(unlock_tracks_id,
@@ -542,13 +554,36 @@ void rush2::cheats::create_tab() {
     config.add_bool_option(
         unlock_cars_id,
         "Unlock All Cars",
-        "Lists every car in car select, including the ones unlocked by finding keys and cans on each track. Nothing is "
-        "saved, so turning this off hides them again.",
+        "Lists every car in car select, Rush 2's mystery cars and the Rush 2049 cars included, without earning or "
+        "buying them. Nothing is saved, so turning this off hides them again.",
         false
     );
     config.add_option_change_callback(unlock_cars_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             unlock_cars_enabled = std::get<bool>(cur_value);
+        });
+
+    config.add_bool_option(
+        unlock_parts_id,
+        "Unlock All Parts",
+        "Offers every <recomp-color primary>ENGINE</recomp-color> level on the Rush 2049 cars without buying them. "
+        "Nothing is saved, so turning this off locks them again.",
+        false
+    );
+    config.add_option_change_callback(unlock_parts_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            unlock_parts_enabled = std::get<bool>(cur_value);
+        });
+
+    config.add_bool_option(
+        unlock_system_id,
+        "Unlock System",
+        "Keys, Dew cans and coins earn points to buy cars, tracks and parts in the UNLOCKS menu.",
+        true
+    );
+    config.add_option_change_callback(unlock_system_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            unlock_system_enabled = std::get<bool>(cur_value);
         });
 
     for (size_t i = 0; i < cheat_list.size(); i++) {
@@ -627,17 +662,40 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-// func_803B81F0 (car select setup) after each player's car list is built.
+bool rush2::cheats::unlock_all_cars() {
+    return unlock_cars_enabled.load(std::memory_order_relaxed);
+}
+
+bool rush2::cheats::unlock_all_tracks() {
+    return unlock_tracks_enabled.load(std::memory_order_relaxed);
+}
+
+bool rush2::cheats::unlock_all_parts() {
+    return unlock_parts_enabled.load(std::memory_order_relaxed);
+}
+
+bool rush2::cheats::unlock_system() {
+    return unlock_system_enabled.load(std::memory_order_relaxed);
+}
+
+void rush2::cheats::set_unlock_system(bool enabled) {
+    recomp::config::Config& config = recompui::config::get_config(config_id);
+    config.set_option_value(unlock_system_id, enabled);
+    config.save_config();
+}
+
+// func_803B81F0 (car select setup) after each player's car list is built: every car with Unlock All Cars, then the
+// unlock system's choice (src/unlocks.cpp).
 extern "C" void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx) {
-    if (!unlock_cars_enabled.load(std::memory_order_relaxed)) {
-        return;
-    }
     int players = std::min<int>(MEM_H(0, (int32_t)num_players), max_car_players);
     for (int p = 0; p < players; p++) {
-        for (int car = 0; car < num_cars; car++) {
-            MEM_B(2 * car + p, (int32_t)car_list) = car;
+        if (unlock_cars_enabled.load(std::memory_order_relaxed)) {
+            for (int car = 0; car < num_cars; car++) {
+                MEM_B(2 * car + p, (int32_t)car_list) = car;
+            }
+            MEM_H(2 * p, (int32_t)car_list_size) = num_cars;
+            rush2::car2049::append_to_car_list(rdram, p);
         }
-        MEM_H(2 * p, (int32_t)car_list_size) = num_cars;
-        rush2::car2049::append_to_car_list(rdram, p);
+        rush2::unlocks::filter_car_list(rdram, p);
     }
 }
