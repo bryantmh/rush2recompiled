@@ -17,6 +17,8 @@
 //   12-28, so such a choice leaves the nibble alone and is kept in track2049.json instead, and restored when the
 //   screen opens.
 // - Car select counts the track's collected keys from 12-entry tables (func_803B1AB0); added tracks have none.
+// - The Start Game menu has a STUNT row after PRACTICE. Through it the track select offers STUNT1 and the stunt
+//   arenas only, remembered apart (track2049.json "stunt"); through the other rows it leaves them out.
 //
 // When a race starts on id 12-28, the id becomes the host slot's (STUNT1's for a stunt arena) and the added track is
 // noted for the track hooks (src/track2049.cpp, src/track1.cpp). The host slot keeps its id through restarts; opening
@@ -63,6 +65,16 @@ namespace {
     // new carousel array at menu_data + 0x400 (29 x 0x1C)
     constexpr uint32_t new_circuit_instances = menu_data + 0x780; // 29 x s32, the circuit screen's dioramas
     constexpr uint32_t new_strings = menu_data + 0x800;           // 32 bytes per added track
+    constexpr uint32_t stunt_label = menu_data + 0xC00;           // "STUNT", the Start Game menu's added row
+    constexpr uint32_t stunt_label_ptr = menu_data + 0xC10;       // char* to it, read as the row's table entry
+
+    // Unlock bytes of PIPE (9) and ATARI (10) (func_803AB01C).
+    constexpr uint32_t pipe_unlocked = 0x800E7D50;
+    constexpr uint32_t atari_unlocked = 0x800E7D19;
+
+    // Start Game menu rows: ONE RACE, CIRCUIT, PRACTICE, STUNT, RECORDS, SETUP. The stock menu has the five without
+    // STUNT; the rows after it map back to the stock options.
+    constexpr int stunt_row = 3;
 
     // Circuit mode: the race list func_800A7DCC generates, 4 bytes per race (track, direction bits, fog, wind).
     constexpr uint32_t circuit_races = 0x800D3A60;
@@ -90,8 +102,29 @@ namespace {
         return false;
     }
 
+    bool is_stunt_track(int t) {
+        return t == stunt_host_slot || is_arena(t);
+    }
+
+    // Whether the track select was reached through the Start Game menu's STUNT row. It then offers STUNT1 and the
+    // stunt arenas only, and otherwise leaves them out.
+    std::atomic<bool> stunt_select = false;
+
+    // Whether the track select offers track t (0-28): func_803AB01C's unlocks, the added tracks, and the stunt
+    // filter.
+    bool track_selectable(uint8_t* rdram, int t) {
+        bool unlocked;
+        if (t < 9) unlocked = true;
+        else if (t == 9) unlocked = MEM_BU(0, (int32_t)pipe_unlocked) != 0;
+        else if (t == 10) unlocked = MEM_BU(0, (int32_t)atari_unlocked) != 0;
+        else if (t == stunt_host_slot) unlocked = true;
+        else unlocked = entry_available(t);
+        return unlocked && is_stunt_track(t) == stunt_select.load();
+    }
+
     std::mutex menu_mutex;
     int selection = -1;            // Added track (id - 12) last chosen on the track select, or -1.
+    int stunt_selection = -1;      // Track (11 or 25-28) last chosen on the stunt track select, or -1.
     bool selection_loaded = false;
     std::vector<uint8_t> menu_container;
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom;    // 2049 ROM the container was built with.
@@ -109,13 +142,26 @@ namespace {
         selection_loaded = true;
         std::ifstream f(selection_path());
         std::string text((std::istreambuf_iterator<char>(f)), {});
-        size_t at = text.find("\"selected\"");
-        if (at != std::string::npos && (at = text.find(':', at)) != std::string::npos) {
-            selection = std::atoi(text.c_str() + at + 1);
-            if (selection < -1 || selection >= added_tracks) {
-                selection = -1;
+        auto read = [&](const char* key) {
+            size_t at = text.find(key);
+            if (at != std::string::npos && (at = text.find(':', at)) != std::string::npos) {
+                return std::atoi(text.c_str() + at + 1);
             }
+            return -1;
+        };
+        selection = read("\"selected\"");
+        if (selection < -1 || selection >= added_tracks) {
+            selection = -1;
         }
+        stunt_selection = read("\"stunt\"");
+        if (!is_stunt_track(stunt_selection)) {
+            stunt_selection = -1;
+        }
+    }
+
+    void write_selection() {
+        std::ofstream f(selection_path());
+        f << "{ \"selected\": " << selection << ", \"stunt\": " << stunt_selection << " }\n";
     }
 
     void save_selection(int value) {
@@ -123,8 +169,15 @@ namespace {
             return;
         }
         selection = value;
-        std::ofstream f(selection_path());
-        f << "{ \"selected\": " << selection << " }\n";
+        write_selection();
+    }
+
+    void save_stunt_selection(int value) {
+        if (value == stunt_selection) {
+            return;
+        }
+        stunt_selection = value;
+        write_selection();
     }
 
     void write_string(uint8_t* rdram, uint32_t addr, const std::string& s) {
@@ -271,29 +324,33 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     rush2::track1::restore_host(rdram);
     write_tables(rdram);
     serve_menu_container(rdram);
-    if (selection >= 0 && entry_available(first_menu_id + selection) && MEM_W(0, (int32_t)game_mode) != 1) {
-        MEM_B(0, (int32_t)track_id) = uint8_t(first_menu_id + selection);
-        MEM_H(0, (int32_t)shown_track) = int16_t(first_menu_id + selection);
+    int t = -1;
+    if (stunt_select) {
+        // The game's choice (from the save record's nibble) is a race track, which this select doesn't offer.
+        t = stunt_selection >= 0 && track_selectable(rdram, stunt_selection) ? stunt_selection : stunt_host_slot;
+    }
+    else if (selection >= 0 && entry_available(first_menu_id + selection) && MEM_W(0, (int32_t)game_mode) != 1) {
+        t = first_menu_id + selection;
+    }
+    if (t >= 0) {
+        MEM_B(0, (int32_t)track_id) = uint8_t(t);
+        MEM_H(0, (int32_t)shown_track) = int16_t(t);
     }
 }
 
-// func_803AB294 at 0x803AB6C8: $t7 = the number of carousel entries (10 + unlocked PIPE and ATARI).
+// func_803AB294 at 0x803AB6C8: $t7 = the number of carousel entries (10 + unlocked PIPE and ATARI), which must be
+// the number of tracks the build loop finds selectable.
 extern "C" void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx) {
-    if (available()) {
-        ctx->r15 += track_count + stunt_count;
+    int count = 0;
+    for (int t = 0; t < menu_tracks; t++) {
+        if (track_selectable(rdram, t)) count++;
     }
-    if (rush2::track1::available()) {
-        ctx->r15 += rush2::track1::track_count;
-    }
+    ctx->r15 = count;
 }
 
-// Start of func_803AB01C: whether track $a0 can be chosen. Returns true with $v0 set for the added ids.
+// Start of func_803AB01C: whether track $a0 can be chosen. Replaces the function.
 extern "C" int rush2_track49_select_available(uint8_t* rdram, recomp_context* ctx) {
-    int t = (int32_t)ctx->r4;
-    if (t < rush2_tracks) {
-        return 0;
-    }
-    ctx->r2 = entry_available(t) ? 1 : 0;
+    ctx->r2 = track_selectable(rdram, (int32_t)ctx->r4) ? 1 : 0;
     return 1;
 }
 
@@ -304,11 +361,16 @@ extern "C" void rush2_track49_select_wrap(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_803ABE0C at 0x803AC670 (player 1) / 0x803AC6B8 (player 2): about to store the save record byte with the
-// chosen track ($a2 / $t9) in its low nibble ($t9 / $t6, from the old byte $t7). 2049 ids keep the old byte.
+// chosen track ($a2 / $t9) in its low nibble ($t9 / $t6, from the old byte $t7). 2049 ids keep the old byte, and so
+// does the stunt select, which keeps its choice apart so the race select's isn't lost to it.
 extern "C" void rush2_track49_select_save_p1(uint8_t* rdram, recomp_context* ctx) {
     int t = (int32_t)ctx->r6;
     std::lock_guard lock{ menu_mutex };
-    if (t >= first_menu_id) {
+    if (stunt_select) {
+        ctx->r25 = ctx->r15;
+        save_stunt_selection(t);
+    }
+    else if (t >= first_menu_id) {
         ctx->r25 = ctx->r15;
         save_selection(t - first_menu_id);
     }
@@ -318,7 +380,7 @@ extern "C" void rush2_track49_select_save_p1(uint8_t* rdram, recomp_context* ctx
 }
 
 extern "C" void rush2_track49_select_save_p2(uint8_t* rdram, recomp_context* ctx) {
-    if ((int32_t)ctx->r25 >= first_menu_id) {
+    if (stunt_select || (int32_t)ctx->r25 >= first_menu_id) {
         ctx->r14 = ctx->r15;
     }
 }
@@ -345,6 +407,8 @@ extern "C" void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx
     for (int t = 0; t < menu_tracks; t++) {
         MEM_W(0, (int32_t)(new_circuit_instances + t * 4)) = 0xFFFFFFFF;
     }
+    write_string(rdram, stunt_label, "STUNT");
+    MEM_W(0, (int32_t)stunt_label_ptr) = stunt_label;
 }
 
 // Start of func_803B6260, the circuit screen (every frame). It shows the dioramas and logos of the circuit's races
@@ -434,4 +498,52 @@ extern "C" void rush2_track49_stunt_option_t9(uint8_t* rdram, recomp_context* ct
 
 extern "C" void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ctx) {
     if (is_arena((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;
+}
+
+// The Start Game menu's STUNT row (func_803B12C8, labels drawn by func_803C364C). us.toml lets the cursor (s16
+// 0x80023064) reach 6 rows and draws 6 labels; these hooks give the STUNT row its label, map the other rows back to
+// the stock options, and make the menu's box and bottom bar one row longer.
+
+// func_803B12C8 at 0x803B14B8: A or START was pressed, $t2 = the cursor, about to pick the stock option's code.
+// STUNT takes ONE RACE's (game mode 0; a race on a stunt track becomes stunt mode, see rush2_track49_stunt_mode).
+extern "C" void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx) {
+    int row = (int32_t)ctx->r10;
+    stunt_select = row == stunt_row;
+    if (row >= stunt_row) {
+        ctx->r10 = row == stunt_row ? 0 : row - 1;
+    }
+}
+
+namespace {
+    // $s0 = the row; *base + $s1 (row x 4) is about to be read as the label of language table base.
+    void label_table(uint8_t* rdram, recomp_context* ctx, uint64_t& base) {
+        int row = (int32_t)ctx->r16;
+        if (row == stunt_row) {
+            base = (uint64_t)(int64_t)(int32_t)(stunt_label_ptr - (uint32_t)ctx->r17);
+        }
+        else if (row > stunt_row) {
+            base -= 4;
+        }
+    }
+}
+
+// func_803C364C at 0x803C37C4 / 0x803C380C: $t3 / $t1 = the language's label table (0x800C4B30 + language x 20),
+// about to be indexed by $s1 for the label's width / drawing.
+extern "C" void rush2_mode_menu_label_t3(uint8_t* rdram, recomp_context* ctx) {
+    label_table(rdram, ctx, ctx->r11);
+}
+
+extern "C" void rush2_mode_menu_label_t1(uint8_t* rdram, recomp_context* ctx) {
+    label_table(rdram, ctx, ctx->r9);
+}
+
+// func_803C3560 at 0x803C35D0: $t8 = 10 x the font height ($v0), the menu box's height less 20 (5 rows 2 lines
+// apart). One more row.
+extern "C" void rush2_mode_menu_box(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r24 += 2 * ctx->r2;
+}
+
+// func_803C3560 at 0x803C3624: $t7 = the bottom bar's y less 0x42, from 10 x the font height ($t0). One row lower.
+extern "C" void rush2_mode_menu_bar(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r15 += 2 * ctx->r8;
 }

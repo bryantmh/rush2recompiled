@@ -588,6 +588,48 @@ func = "func_803C5798"
 before_vram = 0x803C5978
 text = "    rush2_track49_stunt_option_t8(rdram, ctx);"
 
+# Start Game menu (func_803B12C8, labels drawn by func_803C364C): a STUNT row after PRACTICE (src/track2049_menu.cpp).
+# The cursor counts the 6 rows; the choice maps them back to the 5 stock options, STUNT taking ONE RACE's path.
+[[patches.instruction]]
+func = "func_803B12C8"
+vram = 0x803B15F8
+value = 0x24180005 # addiu $t8, $zero, 4 -> 5 (wrap above the first row)
+
+[[patches.instruction]]
+func = "func_803B12C8"
+vram = 0x803B1650
+value = 0x29610006 # slti $at, $t3, 5 -> 6 (wrap below the last row)
+
+[[patches.hook]]
+func = "func_803B12C8"
+before_vram = 0x803B14B8
+text = "    rush2_mode_menu_choose(rdram, ctx);"
+
+[[patches.instruction]]
+func = "func_803C364C"
+vram = 0x803C3750
+value = 0x24170006 # addiu $s7, $zero, 5 -> 6 (labels drawn)
+
+[[patches.hook]]
+func = "func_803C364C"
+before_vram = 0x803C37C4
+text = "    rush2_mode_menu_label_t3(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C364C"
+before_vram = 0x803C380C
+text = "    rush2_mode_menu_label_t1(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C3560"
+before_vram = 0x803C35D0
+text = "    rush2_mode_menu_box(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803C3560"
+before_vram = 0x803C3624
+text = "    rush2_mode_menu_bar(rdram, ctx);"
+
 [[patches.hook]]
 func = "func_800A5ADC"
 before_vram = 0x800A5B2C

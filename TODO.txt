@@ -3,7 +3,6 @@ San Francisco Rush:
 2) MARKER and TIME placement objects are dropped; find out what they do in SF Rush.
 3) Checkpoint flag 4 (track 6) isn't understood.
 4) Cars?
-5) AI timing
 
 San Francisco Rush 2049:
 1) Coins: collected and kept per profile with 2049's pickup sound (src/collectibles.cpp, Progress tab), but no HUD counter.
@@ -13,7 +12,6 @@ San Francisco Rush 2049:
 5) Stunt arenas (ids 25-28, hosted by STUNT1): they share STUNT1's records.
 6) Obstacle course: file 138 is not converted or selectable.
 7) Flag bit 0x400000 on placement records isn't understood and is stripped.
-8) Checkpoint and AI timing
 9) Parts upgrade system for coin unlocks
 10) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
 11) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
@@ -28,6 +26,10 @@ San Francisco Rush 2049:
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
 14) Car balancing and bars
+15) Ghost races: port 2049's ghost recording/playback (func_800CC50C, func_800F6AB8, max times 0x80111754) as logic
+    translated from its code, like the movers. Remap the car-state reads to Rush 2's car struct, draw the ghost as
+    a spare drone slot made translucent with no collision/standings/HUD/minimap, and save ghosts to files instead
+    of the Controller Pak. Add a GHOST RACE entry to Select Mode.
 
 General:
 1) Better lighting?
@@ -53,3 +55,5 @@ General:
 6) Music skip track in pause menu
 8) If a player joins, and there are no other saves it should jump to just play not create player
 9) Occasional tire sizing bugs
+10) Strange culling bug bottom of screen
+11) LOD setting not working as intended. still a lot of popin
