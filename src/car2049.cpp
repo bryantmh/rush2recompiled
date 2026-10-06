@@ -1028,12 +1028,10 @@ void rush2::car2049::forget_record(uint8_t* rdram, uint32_t record) {
 // 2's: per gear, the torque scale x (Rush 2's mean / 2049's mean) and each gear ratio x (Rush 2's mean / 2049's mean),
 // over Rush 2's 21 cars (all but the secret ROCKET) and 2049's 13 in their stock setups. Each 2049 car keeps its place
 // among the 2049 cars, and the roster lands on Rush 2's average car.
-// The AI (the same driver code in both games) aims for its lane's speed, so where a lane is above what its car can do
-// it drives flat out. Rush 2's lanes stay below its cars' top speed (1% of their distance at 170 mph or more), 2049's
-// run above its cars' on 40% of theirs. So the lane speeds are mapped by percentile: each speed becomes the other
-// game's speed at the same percentile of the race paths' lane speeds (distance-weighted, tools/rush2049/lanemap.py),
-// which gives 2049's lanes Rush 2's speed profile (180 -> 157, 120 -> 118). The Rush2049 mode applies the inverse to
-// every car and the reverse map to the other games' lanes instead.
+// The AI (the same driver code in both games) aims for its lane's speed in mph x 1.4667 ft/s. Rush 2's lanes are in
+// true mph; Rush 2049's are in the mph its speedometer shows, true mph x 1.2 (0x801245AC, func_800EF5B0): its straights'
+// 180-190 are its cars' true top speed (about 155) as displayed. So a 2049 lane speed / 1.2 is the Rush 2 lane speed,
+// and the Rush2049 mode applies the inverse to every car and x 1.2 to the other games' lanes instead.
 namespace {
     std::atomic<uint32_t> speed_mode = (uint32_t)rush2::car2049::SpeedMode::Rush2;
     constexpr int secret_rocket = 20;
@@ -1041,45 +1039,8 @@ namespace {
     // (+0xC8..+0xDC: reverse, neutral, 1-4). build_physics reads them from the ROMs; these are their values.
     float torque_to_rush2[3] = { 1.8202f / 2.2f, 1.8416f / 2.2f, 1.8855f / 2.2f };
     float gears_to_rush2[6] = { 1.0f / 1.1f, 1.0f, 3.0952f / 3.41f, 1.7543f / 1.958f, 1.2538f / 1.419f, 0.9562f / 1.1f };
-    // Lane speed (mph) maps, from tools/rush2049/lanemap.py: 2049's onto Rush 2's profile and Rush 2's onto 2049's.
-    constexpr uint8_t lane_to_rush2[256] = {
-          0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  14,  15,  16,
-         17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,  32,
-         33,  34,  35,  36,  37,  38,  40,  41,  42,  43,  44,  45,  46,  47,  48,  49,
-         50,  51,  52,  53,  54,  55,  56,  57,  58,  59,  60,  61,  62,  63,  64,  66,
-         67,  68,  69,  70,  71,  72,  73,  74,  75,  76,  77,  78,  79,  80,  81,  82,
-         83,  84,  85,  86,  87,  88,  89,  91,  92,  93,  94,  95,  96,  97,  98,  99,
-        100, 101, 102, 103, 104, 105, 105, 106, 106, 107, 107, 108, 108, 109, 109, 110,
-        111, 111, 112, 113, 114, 115, 115, 116, 118, 119, 120, 120, 121, 122, 122, 123,
-        124, 124, 125, 125, 126, 127, 128, 129, 130, 131, 131, 132, 132, 133, 135, 135,
-        136, 136, 137, 137, 139, 140, 141, 142, 142, 142, 143, 143, 143, 143, 143, 143,
-        148, 152, 152, 152, 152, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153,
-        154, 154, 154, 154, 157, 161, 161, 161, 161, 161, 161, 162, 163, 163, 164, 165,
-        166, 167, 168, 169, 169, 170, 171, 172, 173, 174, 175, 175, 176, 177, 178, 179,
-        180, 181, 182, 182, 183, 184, 185, 186, 187, 188, 188, 189, 190, 191, 192, 193,
-        194, 194, 195, 196, 197, 198, 199, 200, 201, 201, 202, 203, 204, 205, 206, 207,
-        207, 208, 209, 210, 211, 212, 213, 214, 214, 215, 216, 217, 218, 219, 220, 220,
-    };
-    constexpr uint8_t lane_to_2049[256] = {
-          0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  12,  13,  14,
-         15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,
-         31,  32,  33,  34,  35,  36,  37,  37,  38,  39,  40,  41,  42,  43,  44,  45,
-         46,  47,  48,  49,  50,  51,  52,  53,  54,  55,  56,  57,  58,  59,  60,  61,
-         62,  62,  63,  64,  65,  66,  67,  68,  69,  70,  71,  72,  73,  74,  75,  76,
-         77,  78,  79,  80,  81,  82,  83,  84,  85,  86,  87,  87,  88,  89,  90,  91,
-         92,  93,  94,  95,  96,  97,  98,  99, 100, 102, 103, 105, 107, 109, 111, 112,
-        114, 115, 116, 117, 119, 120, 120, 121, 123, 124, 126, 127, 129, 130, 132, 133,
-        134, 135, 136, 137, 140, 141, 141, 143, 144, 146, 147, 148, 149, 150, 152, 156,
-        159, 159, 160, 160, 160, 160, 160, 161, 161, 170, 179, 179, 180, 180, 180, 180,
-        181, 185, 187, 189, 190, 191, 192, 193, 194, 196, 197, 198, 199, 200, 201, 202,
-        204, 205, 206, 207, 208, 209, 211, 212, 213, 214, 215, 216, 217, 219, 220, 221,
-        222, 223, 224, 226, 227, 228, 229, 230, 231, 233, 234, 235, 236, 237, 238, 239,
-        241, 242, 243, 244, 245, 246, 248, 249, 250, 251, 252, 253, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-    };
-    // Rush 2's mean lane 0 speed after lane_to_2049 over before (lanemap.py: 142.8 / 134.8).
-    constexpr float rush2_lanes_to_2049 = 142.8f / 134.8f;
+    // Rush 2049's speedometer reading over true mph (0x801245AC), the unit of its AI lane speeds. build_physics reads it.
+    float display_mph = 1.2f;
 
     bool speeds_2049() {
         return (rush2::car2049::SpeedMode)speed_mode.load() == rush2::car2049::SpeedMode::Rush2049;
@@ -1092,14 +1053,24 @@ void rush2::car2049::set_speed_mode(SpeedMode mode) {
 
 int rush2::car2049::map_lane_speed(int speed, bool rush2049_path) {
     speed = std::clamp(speed, 0, 255);
-    if (speeds_2049()) {
-        return rush2049_path ? speed : lane_to_2049[speed];
+    if (rush2049_path == speeds_2049()) {
+        return speed;
     }
-    return rush2049_path ? lane_to_rush2[speed] : speed;
+    float mapped = rush2049_path ? speed / display_mph : speed * display_mph;
+    return std::clamp((int)std::lround(mapped), 1, 255);
 }
 
 float rush2::car2049::rush2_lane_scale() {
-    return speeds_2049() ? rush2_lanes_to_2049 : 1.0f;
+    return speeds_2049() ? display_mph : 1.0f;
+}
+
+// func_800BA2A8 at 0x800BA3F8: $v0 = the speed the HUD is about to draw (mph, or km/h). With Rush 2049 speeds it reads
+// like Rush 2049's speedometer, true speed x 1.2 (func_800EF5B0).
+extern "C" void rush2_speedometer(uint8_t* rdram, recomp_context* ctx) {
+    (void)rdram;
+    if (speeds_2049()) {
+        ctx->r2 = (int16_t)(int32_t)((int16_t)ctx->r2 * display_mph);
+    }
 }
 
 namespace {
@@ -1155,6 +1126,7 @@ namespace {
         }
         for (int k = 0; k < car_count; k++) s.engine[k] = std::clamp<int>(m.b(0x80111080 + k), 0, engine_levels - 1);
         s.loaded = true;
+        display_mph = m.f(0x801245AC);
         // Car speeds: the two rosters' mean torque scales and gear ratios (2049's cars in their drone setup: torque
         // trans[B]+8 x 0x801110C4[C][B] in every gear, gears set 0 x trans[B]+0xC).
         auto f32_of = [&](uint32_t addr) {

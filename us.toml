@@ -1017,6 +1017,12 @@ func = "func_80093048"
 before_vram = 0x80093290
 text = "    rush2_race_lane_speeds(rdram, ctx);"
 
+# Car Speeds: with Rush 2049 speeds the speedometer reads like Rush 2049's, true speed x 1.2 (src/car2049.cpp).
+[[patches.hook]]
+func = "func_800BA2A8"
+before_vram = 0x800BA3F8
+text = "    rush2_speedometer(rdram, ctx);"
+
 # Rush 2049 tracks: scale the race time Rush 2 works out from the path's AI lane speeds (src/track2049.cpp).
 [[patches.hook]]
 func = "func_80093048"
