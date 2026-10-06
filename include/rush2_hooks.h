@@ -159,6 +159,11 @@ void rush2_track49_stunt_select(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_options(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_option_t9(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ctx);
+void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx);
+void rush2_mode_menu_label_t3(uint8_t* rdram, recomp_context* ctx);
+void rush2_mode_menu_label_t1(uint8_t* rdram, recomp_context* ctx);
+void rush2_mode_menu_box(uint8_t* rdram, recomp_context* ctx);
+void rush2_mode_menu_bar(uint8_t* rdram, recomp_context* ctx);
 
 // Race music and song previews (src/music.cpp).
 void rush2_music_race(uint8_t* rdram, recomp_context* ctx);
