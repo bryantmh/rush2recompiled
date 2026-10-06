@@ -7777,6 +7777,13 @@ func = "func_803B276C"
 before_vram = 0x803B2A44
 text = "    rush2_pak_menu_default_player(rdram, ctx);"
 
+# Picking a saved player the other player's cursor is on moves that cursor off it; up from the first saved player
+# would land on CREATE PLAYER, so it goes on to JUST PLAY.
+[[patches.hook]]
+func = "func_803B44E8"
+before_vram = 0x803B46B4
+text = "    rush2_pak_menu_move_other(rdram, ctx);"
+
 # Deleting a player from the select player screen's delete list (hold L+R, func_803B3CAC) clears the record's in-use
 # bit right here, $s2 = the record. Like func_800B306C (Records > DELETE PLAYER), it also forgets the player's 2049
 # records and car options (src/pak.cpp).

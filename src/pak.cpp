@@ -704,6 +704,24 @@ extern "C" void rush2_pak_menu_default_player(uint8_t* rdram, recomp_context* ct
     }
 }
 
+extern "C" void func_803B4740(uint8_t* rdram, recomp_context* ctx); // The player list's up/down input for player $a0.
+
+// func_803B44E8 (a player picks from the list) at 0x803B46B4: the other player ($a0), on the same saved player, is
+// moved off it by a press of up (0x800) or down (0x400) put in its record. Up from the first saved player (2) lands on
+// CREATE PLAYER; it is moved up once more here so it lands on JUST PLAY.
+extern "C" void rush2_pak_menu_move_other(uint8_t* rdram, recomp_context* ctx) {
+    constexpr gpr records = (gpr)(int32_t)0x800C2140; // 0x28 bytes per player, buttons pressed at +2.
+    constexpr gpr menu_cursor = (gpr)(int32_t)0x803D05C0; // s16 per player.
+    constexpr uint16_t button_up = 0x800;
+    int other = (int)ctx->r4;
+    if (other < 0 || other > 1 || MEM_HU(2, records + other * 0x28) != button_up || MEM_H(other * 2, menu_cursor) != 2) {
+        return;
+    }
+    recomp_context saved = *ctx;
+    func_803B4740(rdram, ctx);
+    *ctx = saved;
+}
+
 // func_800A62C0 after the menu overlay is loaded.
 extern "C" void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ctx) {
     write_string(rdram, 0x803CA010, "%s");          // Player list: "%s (%d)", name and pak number.
