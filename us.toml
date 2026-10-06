@@ -288,6 +288,18 @@ func = "func_8007AA48"
 before_vram = 0x8007ABB8
 text = "    rush2_lod_select(rdram, ctx);"
 
+# Draw distance (src/draw_distance.cpp): before guPerspective, $f8 = the view's far plane and 0x10($sp) = near * 16.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007CB5C
+text = "    rush2_draw_distance_projection(rdram, ctx);"
+
+# Draw distance: the scene walker's placed object cull distance (0x80110040) was just loaded into $f8.
+[[patches.hook]]
+func = "func_8007B518"
+before_vram = 0x8007BA50
+text = "    rush2_draw_distance_cull(rdram, ctx);"
+
 # Text printed by HUD callback widgets (laps left, lap times). $a0 = x.
 [[patches.hook]]
 func = "func_800734E0"

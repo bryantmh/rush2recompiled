@@ -4,11 +4,13 @@
 // detailed, each with a distance multiplied by the node's scale: LOD i is drawn up to its distance, and the model
 // isn't drawn past the last LOD's distance (0 = no limit). The function stores the node's distance from the camera
 // in D_80117490 and reads it only to cull and pick the LOD. With LOD disabled, the hook in us.toml zeroes that
-// distance, so every model draws its most detailed LOD and is never culled by its LOD table.
+// distance, so every model draws its most detailed LOD and is never culled by its LOD table. Otherwise the distance is
+// divided by the Draw Distance factor (src/draw_distance.cpp), moving LOD switches and culls out with it.
 //
 // Nodes with flag 0x4 select their LOD explicitly (flags & 3) instead of by distance; those are left alone.
 
 #include <atomic>
+#include <cstring>
 
 #include "recomp.h"
 #include "rush2_hooks.h"
@@ -27,12 +29,23 @@ void rush2::set_lod_disabled(bool disabled) {
 
 // After the LOD distance is computed: $s7 = node.
 extern "C" void rush2_lod_select(uint8_t* rdram, recomp_context* ctx) {
-    if (!lod_disabled.load(std::memory_order_relaxed)) {
+    uint32_t flags = (uint32_t)MEM_W(0, (int32_t)ctx->r23);
+    if ((flags & node_fixed_lod) != 0) {
         return;
     }
 
-    uint32_t flags = (uint32_t)MEM_W(0, (int32_t)ctx->r23);
-    if ((flags & node_fixed_lod) == 0) {
+    if (lod_disabled.load(std::memory_order_relaxed)) {
         MEM_W(0, (int32_t)lod_distance) = 0; // 0.0f
+        return;
+    }
+
+    float k = rush2::draw_distance();
+    if (k != 1.0f) {
+        uint32_t bits = (uint32_t)MEM_W(0, (int32_t)lod_distance);
+        float distance;
+        memcpy(&distance, &bits, sizeof(distance));
+        distance /= k;
+        memcpy(&bits, &distance, sizeof(bits));
+        MEM_W(0, (int32_t)lod_distance) = bits;
     }
 }

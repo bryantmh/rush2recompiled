@@ -86,6 +86,10 @@ void rush2_split_divider(uint8_t* rdram, recomp_context* ctx);
 // Level of detail override (src/lod.cpp).
 void rush2_lod_select(uint8_t* rdram, recomp_context* ctx);
 
+// Draw distance (src/draw_distance.cpp).
+void rush2_draw_distance_projection(uint8_t* rdram, recomp_context* ctx);
+void rush2_draw_distance_cull(uint8_t* rdram, recomp_context* ctx);
+
 // Applies the Cheats tab's settings once per frame (src/cheats.cpp).
 void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx);

@@ -36,6 +36,7 @@
 #include "librecomp/addresses.hpp"
 #include "librecomp/game.hpp"
 #include "rush2_hooks.h"
+#include "rush2.h"
 #include "assets.h"
 #include "track1.h"
 #include "track2049.h"
@@ -311,6 +312,9 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
 // func_8007C27C at 0x8007C480: 0x5C($sp) = the section mask chosen for the camera's region 0x78($sp) (-1 = none,
 // which uses the all-visible default).
 extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::draw_distance_pvs(rdram, (uint32_t)ctx->r29)) {
+        return;
+    }
     if (rush2::track1::pvs(rdram, (uint32_t)ctx->r29)) {
         return;
     }

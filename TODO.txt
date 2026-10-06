@@ -18,6 +18,14 @@ San Francisco Rush 2049:
 11) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
 12) rocket car plume renders underneath certain effects like the car's shadow
 13) Panther front wheels clip through body
+14) Sky fog blend: the sky (SKYO1) is drawn without fog and ends ~12 degrees above the horizon (track 1), with the
+    fog-colored clear below it, so fogged hills show as lavender (fog 150,150,190) against an orange sunset sky. Plan:
+    when a track is applied (src/track2049.cpp), patch a copy of the geometry's SKYO1 list: slice the opaque sky
+    triangles (E200001C 0F0A4000) by horizontal planes across a ~10 degree band above max(dome bottom, 0), set vertex
+    alpha from elevation, and switch cycle 1 to G_RM_FOG_SHADE_A (mode 0xCB024000); load each batch's vertices right
+    before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
+    other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
+    (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
 
 General:
 1) Better lighting?
