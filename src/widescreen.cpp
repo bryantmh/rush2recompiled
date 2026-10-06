@@ -445,6 +445,8 @@ extern "C" void rush2_model_draw(uint8_t* rdram, recomp_context* ctx) {
         write_command(rdram, cursor, 0xDE000000, build_track_copies(rdram, dl));
         MEM_W(0x84, sp) = (int32_t)cursor;
     }
+    // Rush 2049 Rocket ZX flames (src/car2049.cpp), before the wings swap the display list.
+    rush2::car2049::draw_model(rdram, dl);
     // Rush 2049 wings on car bodies (src/wings_render.cpp).
     rush2_wings_model_draw(rdram, ctx);
     // Rush 2049 car effects (src/car2049.cpp).

@@ -53,6 +53,8 @@ namespace rush2::wings {
 extern "C" {
     // The view index and scene graph generation of the node being drawn (src/interpolation.cpp).
     void rush2_interp_get_generation(uint32_t* view, uint32_t* gen);
+    // The modelview of the node being drawn (src/interpolation.cpp).
+    bool rush2_interp_get_modelview(uint8_t* rdram, float out[4][4]);
 }
 
 #endif

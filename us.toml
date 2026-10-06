@@ -247,6 +247,18 @@ func = "func_8007C624"
 before_vram = 0x8007D03C
 text = "    rush2_interp_poly(rdram, ctx);"
 
+# Rocket ZX flames (src/car2049.cpp): queued while the scene graph draws, drawn after the world-space polygons
+# (shadows, skids, particles) so those don't paint over them. $s6 = display list cursor at L_8007D980.
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007C628
+text = "    rush2_car49_flames_view_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007D980
+text = "    rush2_car49_flames_draw(rdram, ctx);"
+
 # Function exit (reached by both paths after the deferred scene graph draw).
 [[patches.hook]]
 func = "func_8007C624"
