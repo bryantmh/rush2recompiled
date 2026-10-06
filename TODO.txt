@@ -3,6 +3,7 @@ San Francisco Rush:
 2) MARKER and TIME placement objects are dropped; find out what they do in SF Rush.
 3) Checkpoint flag 4 (track 6) isn't understood.
 4) Cars?
+5) AI timing
 
 San Francisco Rush 2049:
 1) Coins: collected and kept per profile with 2049's pickup sound (src/collectibles.cpp, Progress tab), but no HUD counter.
@@ -12,11 +13,11 @@ San Francisco Rush 2049:
 5) Stunt arenas (ids 25-28, hosted by STUNT1): they share STUNT1's records.
 6) Obstacle course: file 138 is not converted or selectable.
 7) Flag bit 0x400000 on placement records isn't understood and is stripped.
-8) Revisit checkpoint timing
+8) Checkpoint and AI timing
 9) Parts upgrade system for coin unlocks
 10) HANDLING: revisit 2049's HANDLING (SUSPENSION is Rush 2's for now): trace its untraced trans-table value (1.0 / 0.5 / 0.0) to see if it's a real handling/shock effect worth adding as an extra row.
 11) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
-12) rocket car plume renders underneath certain effects like the car's shadow
+12) Rocket car plume renders underneath certain effects like the car's shadow
 13) Panther front wheels clip through body
 14) Sky fog blend: the sky (SKYO1) is drawn without fog and ends ~12 degrees above the horizon (track 1), with the
     fog-colored clear below it, so fogged hills show as lavender (fog 150,150,190) against an orange sunset sky. Plan:
@@ -26,6 +27,7 @@ San Francisco Rush 2049:
     before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
+14) Car balancing and bars
 
 General:
 1) Better lighting?
@@ -34,21 +36,20 @@ General:
    loading like Rush 1 track data or engine samples decoded in src/car_engines.cpp, or the game's own race setup).
    Sounds no longer cut out over it (track2049::sounds_paused), but the frame drop is still there.
 3) Best averages numbers aren't properly aligned
-4) Organize tracks better
-5) Split screen and 3-4 players (src/splitscreen.cpp, src/players4.cpp, src/hud.cpp). Done: Side by Side option,
-   3-4 player races (join with START on a free controller after player 2, two-round car select, quadrant views),
-   HUD layout (time/place on the outer edge, radar against the middle, map centered), Test Players option
-   (Settings > General) for idle players 3/4. Remaining:
+4) Organize tracks better. perhaps filters?
+5) Split screen and 3-4 players
    a) "1st/2nd PLACE" finish banners only show for players 1 and 2; players 3 and 4's copies are built
       (players4::finish_overlay_built) but don't appear yet.
-   b) Bonus time banner centering in 3-4 player (not checked yet).
-   c) Race over / results screens are 2 player: at race over (game state 4) the counts drop back to 2
+   b) Race over / results screens are 2 player: at race over (game state 4) the counts drop back to 2
       (rush2_players4_state); players 3 and 4 aren't in them. Keeping 4 there crashed (bad audio sample read).
-   d) Players 3 and 4 skip Select Player: they race with their controller's record or the profile already chosen
+   c) Players 3 and 4 skip Select Player: they race with their controller's record or the profile already chosen
       on that port; no profile pick or Create Player for them.
-   e) Engines/rumble: Rush 2 has engine voices and rumble for 2 local players; players 3 and 4's cars play through
+   d) Engines/rumble: Rush 2 has engine voices and rumble for 2 local players; players 3 and 4's cars play through
       src/car_engines.cpp as other cars (heard from players 1-2's listeners), and have no rumble.
-   f) 3 players: the 4th quadrant is black and the track map's translucent outline is invisible over it (maybe a
+   e) 3 players: the 4th quadrant is black and the track map's translucent outline is invisible over it (maybe a
       grey fill or a spectator view of the leader).
-   g) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players
+   f) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players
       1 and 2's screen; ports 3-4 use default bindings).
+6) Music skip track in pause menu
+8) If a player joins, and there are no other saves it should jump to just play not create player
+9) Occasional tire sizing bugs

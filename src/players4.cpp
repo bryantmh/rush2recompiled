@@ -190,7 +190,7 @@ namespace {
     constexpr uint32_t byte_player_callbacks[] = { 0x800BA2A8, 0x800B9754, 0x800B9978, 0x800BA608, 0x800B92F4,
                                                    0x800BA868, 0x800B8CC8, 0x800B5A90 };
     // The elements copied for players 3 and 4: all of player 2's (us.toml doubles the element and widget pools for
-    // them): messages, speedometer, race and lap times, position, radar and the off-screen car arrows.
+    // them): tachometer, speedometer, race and lap times, position, radar and the off-screen car arrows.
     constexpr uint32_t cloned_callbacks[] = { 0x800B7B1C, 0x800B7E88, 0x800BA2A8, 0x800B9754, 0x800B9978, 0x800BA608,
                                               0x800B92F4, 0x800BA868, 0x800B9C44, 0x800B9CC0, 0x800B920C, 0x800B8CC8 };
 
@@ -222,6 +222,7 @@ namespace {
     uint32_t built_list = 0;
     int8_t widget_players[max_widgets];
     rush2::players4::HudRole widget_roles[max_widgets];
+    bool widget_lap_time[max_widgets];
 
     rush2::players4::HudRole element_role(uint32_t callback) {
         using rush2::players4::HudRole;
@@ -231,6 +232,11 @@ namespace {
                 return HudRole::Time;
             case 0x800BA2A8:
                 return HudRole::Speed;
+            case 0x800B7B1C: // tachometer's dim background (translucent), under the speedometer (shown in manual)
+            case 0x800B7E88: // tachometer's lit part and its tip
+                return HudRole::Tach;
+            case 0x800B92F4: // gear (shown in manual)
+                return HudRole::Gear;
             case 0x800BA608:
                 return HudRole::Position;
             case 0x800B920C: // radar
@@ -260,6 +266,7 @@ namespace {
             if (slot >= 0 && slot < max_widgets) {
                 widget_players[slot] = (int8_t)element_player(callback, (uint32_t)MEM_W(element_param, (int32_t)e));
                 widget_roles[slot] = element_role(callback);
+                widget_lap_time[slot] = callback == 0x800B9978;
             }
         }
     }
@@ -352,6 +359,7 @@ namespace rush2::players4 {
         for (int slot = 0; slot < max_widgets; slot++) {
             widget_players[slot] = -1;
             widget_roles[slot] = rush2::players4::HudRole::Other;
+            widget_lap_time[slot] = false;
         }
         tag_widgets(rdram, head);
         built_list = head;
@@ -359,6 +367,10 @@ namespace rush2::players4 {
 
     int hud_widget_player(int slot) {
         return slot >= 0 && slot < max_widgets ? widget_players[slot] : -1;
+    }
+
+    bool hud_widget_lap_time(int slot) {
+        return slot >= 0 && slot < max_widgets && widget_lap_time[slot];
     }
 
     HudRole hud_widget_role(int slot) {
@@ -403,6 +415,8 @@ namespace {
     constexpr uint32_t controller_map = 0x8010C150; // s8 per port: the controller read for it, -1 for none
     constexpr uint32_t hint_text = 0x8024F100; // The join hint's string (free RDRAM, include/players4.h).
     constexpr int hint_style = 0xA;            // Text style the menus print with (func_800737E4).
+    constexpr uint32_t menu_screen = 0x800E7BC4; // s16: the front end screen up (func_800AE0D4 runs its step).
+    constexpr int16_t screen_select_player = 1;  // func_803B4D88
 
     // Game states (D_8010C0D0) of the menus where players may join: the front end and the track select.
     bool joining_allowed(int32_t state) {
@@ -546,12 +560,13 @@ namespace rush2::players4 {
         test_players = count;
     }
 
-    // On the front end's screens (Start Game, Select Player; joining also works on the track select, whose panel fills
-    // the bottom of the screen), once player 2 is in: which of players 3 and 4 can still press START.
+    // On the Select Player screen, where player 2 joins, once player 2 is in: which of players 3 and 4 can still press
+    // START. Joining also works on Start Game and the track select, but player 2 stays in after backing out of Select
+    // Player to Start Game, whose one player layout made the hint look stuck there.
     void draw_join_hint(uint8_t* rdram, recomp_context* ctx) {
         char text[40];
         int32_t center_x = 160;
-        int32_t y = 200;
+        int32_t y = 190; // Above the screen's bottom bars.
         if (car_round != 0 && MEM_W(0, (int32_t)game_state) == 2 && player_count(rdram) == 1) {
             // Player 3 alone in the car select's second round: its one player layout has no label, so it gets one at
             // the right end of the title bar.
@@ -560,7 +575,8 @@ namespace rush2::players4 {
             y = 24;
         }
         else {
-            if (MEM_W(0, (int32_t)game_state) != 0 || port_of(rdram, 1) == no_port || player_count(rdram) < 2) {
+            if (MEM_W(0, (int32_t)game_state) != 0 || MEM_H(0, (int32_t)menu_screen) != screen_select_player ||
+                port_of(rdram, 1) == no_port || player_count(rdram) < 2) {
                 return;
             }
             int next = joined_players(rdram);
