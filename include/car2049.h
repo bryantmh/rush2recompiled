@@ -61,6 +61,8 @@ namespace rush2::car2049 {
     // Animates the loaded 2049 cars' effects (the Rocket ZX's exhaust flames). Called while models are drawn; it
     // runs at most once per 1/60 s.
     void animate(uint8_t* rdram);
+    // Called before func_8007AA48 draws model display list `dl`: queues the Rocket ZX's flames when it is the body.
+    void draw_model(uint8_t* rdram, uint32_t dl);
 }
 
 #endif

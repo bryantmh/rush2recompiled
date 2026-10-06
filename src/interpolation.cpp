@@ -171,6 +171,41 @@ namespace {
     int depth = -1;
     uint32_t level_base[max_depth];    // Generation inherited by nodes at this level.
     uint32_t level_current[max_depth]; // Generation of the node currently being drawn at this level.
+    GfxCommand level_mtx[max_depth];   // G_MTX of the node currently being drawn at this level (word1 0: none).
+    bool level_mtx_float[max_depth];   // Its matrix is floats (src/draw_distance.cpp).
+
+    // N64 fixed point matrix (s15.16, row vectors): integer halves then fractions. Or 16 floats by rows.
+    void read_mtx(uint8_t* rdram, uint32_t addr, bool is_float, float m[4][4]) {
+        if (is_float) {
+            for (int i = 0; i < 16; i++) {
+                m[i / 4][i % 4] = read_f32(rdram, addr + i * 4);
+            }
+            return;
+        }
+        for (int i = 0; i < 8; i++) {
+            uint32_t hi = (uint32_t)MEM_W(0, (int32_t)(addr + i * 4));
+            uint32_t lo = (uint32_t)MEM_W(0, (int32_t)(addr + 0x20 + i * 4));
+            int32_t a = (int32_t)((hi & 0xFFFF0000) | (lo >> 16));
+            int32_t b = (int32_t)((hi << 16) | (lo & 0xFFFF));
+            m[(i * 2) / 4][(i * 2) % 4] = a / 65536.0f;
+            m[(i * 2 + 1) / 4][(i * 2 + 1) % 4] = b / 65536.0f;
+        }
+    }
+
+    // out = a * b (G_MTX_MUL with a as the argument and b the current matrix).
+    void mul_mtx(const float a[4][4], const float b[4][4], float out[4][4]) {
+        float r[4][4];
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < 4; j++) {
+                r[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j];
+            }
+        }
+        memcpy(out, r, sizeof(r));
+    }
+
+    uint32_t kseg0(uint32_t addr) {
+        return 0x80000000u | (addr & 0x00FFFFFF);
+    }
 }
 
 extern "C" {
@@ -293,7 +328,31 @@ void rush2_interp_level_exit(uint8_t* rdram, recomp_context* ctx) {
 void rush2_interp_node_begin(uint8_t* rdram, recomp_context* ctx) {
     if (depth >= 0 && depth < max_depth) {
         level_current[depth] = level_base[depth];
+        level_mtx[depth].values.word1 = 0;
     }
+}
+
+// The modelview the RSP has while the current node draws: the view's root modelview times the G_MTXs of the nodes
+// down the scene graph path. For drawing parts of a node later in the view (src/car2049.cpp).
+bool rush2_interp_get_modelview(uint8_t* rdram, float out[4][4]) {
+    if (views[cur_view].root_mtx == 0 || depth < 0 || depth >= max_depth) {
+        return false;
+    }
+    read_mtx(rdram, kseg0(views[cur_view].root_mtx), false, out);
+    for (int d = 0; d <= depth; d++) {
+        if (level_mtx[d].values.word1 == 0) {
+            continue;
+        }
+        float m[4][4];
+        read_mtx(rdram, kseg0(level_mtx[d].values.word1), level_mtx_float[d], m);
+        if (level_mtx[d].values.word0 & 2) { // G_MTX_LOAD
+            memcpy(out, m, sizeof(m));
+        }
+        else {
+            mul_mtx(m, out, out);
+        }
+    }
+    return true;
 }
 
 // func_8007B518, after a node's G_MTX (push or no-push) is written at $v0. $s7 = node.
@@ -320,6 +379,8 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
         }
         return;
     }
+    level_mtx[depth] = read_command(rdram, cmd_addr);
+    level_mtx_float[depth] = mtx_count == 2;
 
     // The node's transform (+0x4): 3x3 rotation, then the translation at +0x24 (world space for root nodes).
     // A different transform means the node was reused for another object.

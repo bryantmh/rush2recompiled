@@ -2648,14 +2648,11 @@ bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, con
         std::set<std::string> exclude = { prefix + "HOOD", prefix + "SHEEN" };
         std::vector<const Bytes*> files = { &file };
         // The Rocket ZX's exhaust flames: three effect models (file 62) 2049 attaches behind it (func_800AF690) and
-        // rescales every frame (func_800930A4). They are drawn with the body; src/car2049.cpp places and animates them.
+        // rescales every frame (func_800930A4). They stay models of their own: src/car2049.cpp places and animates
+        // them, and draws them after the view's shadows when the body draws.
         Bytes flames;
         if (car == rocket_car && rush2::rom2049::read_file(rom, effects_file, effects)) {
-            std::set<std::string> keep = { "ROKTFLAMEG1", "ROKTFLAMEG2", "ROKTFLAMEG3" };
-            flames = subset_model49(effects, keep);
-            for (const std::string& n : keep) {
-                opt.appends.insert({ name + "FRAME1", n });
-            }
+            flames = subset_model49(effects, { "ROKTFLAMEG1", "ROKTFLAMEG2", "ROKTFLAMEG3" });
             files.push_back(&flames);
         }
         opt.exclude = &exclude;
@@ -2693,7 +2690,7 @@ bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, con
             }
         }
     };
-    // The flames keep their own colours (their lists are marked walked; the body's lists call them).
+    // The flames keep their own colors (their lists are marked walked).
     uint32_t models = u32(out, 0), model_names = u32(out, 4), model_count = u32(out, 16);
     for (uint32_t m = 0; m < model_count; m++) {
         uint32_t r = models + m * 0x34;

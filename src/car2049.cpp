@@ -31,6 +31,10 @@
 #include "track2049_convert.h"
 #include "track2049.h"
 #include "wings.h"
+#include "wings_internal.h"
+
+#define F3DEX_GBI_2
+#include "rt64_extended_gbi.h"
 
 using namespace rush2::car2049;
 
@@ -200,6 +204,8 @@ namespace {
         };
         std::vector<Flame> flames;
         std::vector<std::pair<uint32_t, uint32_t>> flame_tiles; // G_SETTILESIZE offset, its w1
+        std::vector<uint32_t> flame_lists;  // file offsets of the flames' display lists
+        std::vector<uint32_t> body_lists;   // file offsets of the body's (FRAME1) display lists, every LOD
     };
     Paint paints[car_count];
     constexpr uint32_t car_banks = 0x80221750;      // s16 texture bank per preview id (moved from 0x800D9D40)
@@ -473,8 +479,14 @@ namespace {
     }
 
     // The flame models, and the G_SETTILESIZEs of the texture-load list their lists call (the ROKTFLAME texture).
-    void collect_flames(const std::vector<uint8_t>& car, Paint& p) {
+    void collect_flames(const std::vector<uint8_t>& car, const std::string& body, Paint& p) {
         uint32_t models = be32(car, 0), names = be32(car, 4), count = be32(car, 16);
+        for (uint32_t m = 0; m < count; m++) {
+            if (strncmp(reinterpret_cast<const char*>(&car[names + m * 0x18]), body.c_str(), 16) != 0) continue;
+            for (uint32_t l = 0; l < be32(car, models + m * 0x34) && l < 4; l++) {
+                p.body_lists.push_back(be32(car, models + m * 0x34 + 4 + l * 12 + 8));
+            }
+        }
         uint32_t txld_start = be32(car, 28), txld_end = be32(car, 32);
         std::set<uint32_t> loads;
         for (const char* name : { "ROKTFLAMEG1", "ROKTFLAMEG2", "ROKTFLAMEG3" }) {
@@ -487,6 +499,7 @@ namespace {
             p.flames.push_back(std::move(f));
             for (uint32_t m = 0; m < count; m++) {
                 if (strncmp(reinterpret_cast<const char*>(&car[names + m * 0x18]), name, 16) != 0) continue;
+                p.flame_lists.push_back(be32(car, models + m * 0x34 + 4 + 8));
                 for (uint32_t o = be32(car, models + m * 0x34 + 4 + 8); o + 8 <= car.size() && car[o] != 0xDF; o += 8) {
                     uint32_t target = be32(car, o + 4) & 0xFFFFFF;
                     if (car[o] == 0xDE && target >= txld_start && target < txld_end) loads.insert(target);
@@ -807,7 +820,7 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
             }
             collect_body_vertices(car, "CAR" + std::to_string(k + 1), p);
             add_damage_textures(car, "CAR" + std::to_string(k + 1) + "FRAME1", k, p);
-            collect_flames(car, p);
+            collect_flames(car, "CAR" + std::to_string(k + 1) + "FRAME1", p);
             // func_800A37F4 preallocates every car slot at this size (+ 0x400): the largest car asset.
             if (car.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
                 MEM_W(0, (int32_t)car_slot_size) = (int32_t)((car.size() + 15) & ~15u);
@@ -1601,6 +1614,151 @@ namespace {
             MEM_W(0, (int32_t)addr) = (int32_t)((w0 & 0xFF000FFF) | (((uint32_t)value & 0xFFF) << 12));
         }
     }
+
+    // Drawing the flames. They are translucent and don't write Z, so drawn with the body they would be painted over
+    // by the shadows, skid marks and particles that func_8007C624 draws after the scene graph. Instead, when a Rocket
+    // ZX body draws, its modelview is kept, and the flames are drawn under it once the view's world-space polygons are
+    // done (before the game's own deferred scene graph pass).
+    struct FlameInstance {
+        uint32_t base;
+        const Paint* paint;
+        int bank;
+    };
+    std::vector<FlameInstance> flame_instances;   // loaded asset copies with flames, refreshed by animate()
+
+    struct QueuedFlames {
+        float mtx[4][4];
+        uint32_t id;
+        uint32_t base;
+        const Paint* paint;
+    };
+    std::vector<QueuedFlames> queued_flames;
+
+    // Spare RDRAM for the flames' display lists and matrices (the other users are listed in src/controls_menu.cpp).
+    constexpr uint32_t flame_side_start = 0x80CA0000;
+    constexpr uint32_t flame_side_end = 0x80CB0000;
+    uint32_t flame_side_cursor = flame_side_start;
+
+    constexpr uint32_t lighting_cache = 0x800E7DE1; // func_8007AA48: nonzero while G_LIGHTING is on.
+    constexpr uint32_t palette_cache = 0x80111954;  // func_80078190: palette last loaded into TMEM, 0 for none.
+
+    // Render state 2049 has in place when it draws a model (as src/wings_render.cpp): 2-cycle mode, perspective
+    // correct bilinear texturing, Z buffer, smooth shading and fog with no lighting, and texturing on. Then the state
+    // the flame lists change, put back the way Rush 2 has it.
+    constexpr uint32_t flame_prologue[][2] = {
+        { 0xE7000000, 0x00000000 }, // G_RDPPIPESYNC
+        { 0xE3000A01, 0x00100000 }, // CYCLETYPE = 2CYCLE
+        { 0xE3000C00, 0x00080000 }, // TEXTPERSP = PERSP
+        { 0xE3001201, 0x00002000 }, // TEXTFILT = BILERP
+        { 0xD9F9FFFF, 0x00000000 }, // clear LIGHTING | TEXTURE_GEN
+        { 0xD9FFFFFF, 0x00210005 }, // set ZBUFFER | SHADE | SHADING_SMOOTH | FOG
+        { 0xD7000002, 0xFFFFFFFF }, // G_TEXTURE on, scale 1
+    };
+    constexpr uint32_t flame_epilogue[][2] = {
+        { 0xE7000000, 0x00000000 },
+        { 0xE3000F00, 0x00000000 }, // TEXTLOD = TILE
+        { 0xE3001001, 0x00008000 }, // TEXTLUT = RGBA16
+        { 0xE3001801, 0x000000C0 }, // RGBDITHER = DISABLE
+        { 0xD7000002, 0xFFFFFFFF }, // G_TEXTURE on, tile 0, no mip levels, scale 1
+    };
+
+    uint32_t flame_side_alloc(uint32_t bytes) {
+        bytes = (bytes + 63) & ~63u;
+        if (flame_side_cursor + bytes > flame_side_end) {
+            flame_side_cursor = flame_side_start;
+        }
+        uint32_t addr = flame_side_cursor;
+        flame_side_cursor += bytes;
+        return addr;
+    }
+}
+
+// func_8007AA48, before the G_DL to a model's display list `dl`: queues the flames of a Rocket ZX body.
+void rush2::car2049::draw_model(uint8_t* rdram, uint32_t dl) {
+    for (const FlameInstance& f : flame_instances) {
+        for (uint32_t list : f.paint->body_lists) {
+            if (((f.base + list) & 0x1FFFFFFF) != (dl & 0x1FFFFFFF)) {
+                continue;
+            }
+            QueuedFlames q;
+            if (!rush2_interp_get_modelview(rdram, q.mtx)) {
+                return;
+            }
+            uint32_t view = 0, gen = 0;
+            rush2_interp_get_generation(&view, &gen);
+            // Matrix group IDs 0101 vvgg gggg gggg gggg gggg bbbb bbbb (b = texture bank), apart from
+            // src/interpolation.cpp's and src/wings_render.cpp's.
+            q.id = 0x50000000u | ((view & 3) << 26) | ((gen & 0x3FFFF) << 8) | (uint32_t(f.bank) & 0xFF);
+            q.base = f.base;
+            q.paint = f.paint;
+            queued_flames.push_back(q);
+            return;
+        }
+    }
+}
+
+// func_8007C624 entry: a new view.
+extern "C" void rush2_car49_flames_view_begin(uint8_t* rdram, recomp_context* ctx) {
+    queued_flames.clear();
+}
+
+// func_8007C624 at L_8007D980, after the world-space polygons: draws the queued flames. $s6 = display list cursor.
+extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
+    if (queued_flames.empty()) {
+        return;
+    }
+    uint32_t count = 0, dl = flame_side_alloc(uint32_t(32 + queued_flames.size() * 16) * 8);
+    auto cmd = [&](uint32_t w0, uint32_t w1) {
+        MEM_W(0, (int32_t)(dl + count * 8)) = (int32_t)w0;
+        MEM_W(0, (int32_t)(dl + count * 8 + 4)) = (int32_t)w1;
+        count++;
+    };
+    auto gfx = [&](const GfxCommand& c) { cmd(c.values.word0, c.values.word1); };
+    for (const auto& c : flame_prologue) {
+        cmd(c[0], c[1]);
+    }
+    for (const QueuedFlames& q : queued_flames) {
+        uint32_t mtx = flame_side_alloc(64);
+        for (int i = 0; i < 16; i++) {
+            uint32_t bits;
+            memcpy(&bits, &q.mtx[i / 4][i % 4], 4);
+            MEM_W(0, (int32_t)(mtx + i * 4)) = (int32_t)bits;
+        }
+        GfxCommand c[2];
+        gEXMatrixGroup(c, q.id, G_EX_INTERPOLATE_DECOMPOSE, G_EX_PUSH, 0 /* modelview */,
+            G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_AUTO,
+            G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO, G_EX_ORDER_LINEAR, G_EX_EDIT_NONE, G_EX_ASPECT_AUTO,
+            G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO);
+        gfx(c[0]);
+        gfx(c[1]);
+        // G_MTX_PUSH | G_MTX_LOAD, stored XORed with G_MTX_PUSH as F3DEX2 does.
+        gEXMatrixFloat(c, mtx, 2);
+        gfx(c[0]);
+        gfx(c[1]);
+        for (uint32_t list : q.paint->flame_lists) {
+            cmd(0xDE000000, q.base + list);
+        }
+        cmd(0xD8380002, 0x40); // G_POPMTX
+        gEXPopMatrixGroup(c, 0);
+        gfx(c[0]);
+    }
+    for (const auto& c : flame_epilogue) {
+        cmd(c[0], c[1]);
+    }
+    // func_8007AA48 only emits G_LIGHTING changes when a model's lighting differs from what it last set.
+    if (MEM_BU(0, (int32_t)lighting_cache) != 0) {
+        cmd(0xD9FFFFFF, 0x00020000);
+    }
+    // The flame lists load their own texture over whatever palette func_80078190 thinks is in TMEM.
+    MEM_W(0, (int32_t)palette_cache) = 0;
+    cmd(0xDF000000, 0);
+    queued_flames.clear();
+
+    uint32_t cursor_ptr = (uint32_t)ctx->r22;
+    uint32_t cursor = (uint32_t)MEM_W(0, (int32_t)cursor_ptr);
+    MEM_W(0, (int32_t)cursor) = (int32_t)0xDE000000;
+    MEM_W(4, (int32_t)cursor) = (int32_t)dl;
+    MEM_W(0, (int32_t)cursor_ptr) = (int32_t)(cursor + 8);
 }
 
 void rush2::car2049::animate(uint8_t* rdram) {
@@ -1639,12 +1797,14 @@ void rush2::car2049::animate(uint8_t* rdram) {
         }
     }
     int banks = MEM_BU(0, (int32_t)0x800D5788);
+    flame_instances.clear();
     for (int bank = 0; bank < banks; bank++) {
         uint32_t base;
         const Paint* p = bank_instance(rdram, bank, base);
         if (p == nullptr || p->flames.empty()) {
             continue;
         }
+        flame_instances.push_back({ base, p, bank });
         FlameState& s = flame_states[base];
         if (step) {
             auto g = gas_of.find(base);
