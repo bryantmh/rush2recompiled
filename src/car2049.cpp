@@ -30,6 +30,7 @@
 #include "data_files.h"
 #include "rush2_hooks.h"
 #include "assets.h"
+#include "rush2.h"
 #include "car2049.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
@@ -159,7 +160,14 @@ namespace {
     // Relocated per-type tables (tools/rush2049/cartypes.py layout).
     constexpr uint32_t t_desc_index = 0x802001B0, t_preload = 0x802001D8, t_mass = 0x80200268, t_inertia = 0x802002F8,
                        t_yaw_inertia = 0x80200388, t_drive = 0x80200DF8, t_weight = 0x80200418,
-                       t_engine = 0x80200C88;
+                       t_engine = 0x80200C88, t_torque = 0x80200D40, t_susp = 0x80200EB0, t_tires = 0x80200F68;
+    // TIRES row values: Rush 2's 0-10 (S0 D0 .. S2 D2, 9 HALF OFFRD, 10 FULL OFFRD), then the two tires of Rush 2049
+    // that Rush 2 has no match for, SLICKS and PRO SLICKS (2049's RADIALS, ALL TERRAIN and OFF ROAD are Rush 2's street
+    // sets, HALF OFFRD and FULL OFFRD: the same off-road factor and rear grip). Every car offers all of them.
+    constexpr int slicks = 11, pro_slicks = 12;
+    constexpr int tires49[5] = { 4, slicks, pro_slicks, 9, 10 };     // RADIALS, SLICKS, PRO SLICKS, ALL TERRAIN, OFF ROAD
+    constexpr int tires49_count = 5;
+    constexpr int handling_count = 3;                                // NORMAL, ADVANCED, EXTREME
 
     // Rush 2049 main code/data (inflated at 0x80086A50).
     constexpr uint32_t main49_rom = 0xB0CB10;
@@ -264,6 +272,8 @@ namespace {
     constexpr uint32_t prefixes = 0x80224F00;       // 36 entries
     constexpr uint32_t no_prefix = 0x80224F90;      // "R49X_": matches no texture
     constexpr uint32_t engine_labels = 0x80225800;  // the ENGINE names, 16 bytes each (car options)
+    constexpr uint32_t tire_labels = 0x802258C0;    // 2049's TIRES names, 16 bytes each
+    constexpr const char* tire_names[tires49_count] = { "RADIALS", "SLICKS", "PRO SLICKS", "ALL TERRAIN", "OFF ROAD" };
     using rush2::car2049::engine_levels;
 }
 
@@ -271,11 +281,16 @@ void rush2::car2049::init_tables(uint8_t* rdram) {
     for (int t = 0; t < types; t++) {
         MEM_W(0, (int32_t)(prefixes + t * 4)) = t < rush2_types ? MEM_W(0, (int32_t)(old_prefixes + t * 4)) : (int32_t)no_prefix;
     }
-    for (int i = 0; i < engine_levels; i++) {
-        std::string label = rush2::car2049::engine_name(i);
+    auto put_label = [&](uint32_t at, const std::string& label) {
         for (size_t j = 0; j < 16; j++) {
-            MEM_B(0, (int32_t)(engine_labels + i * 16 + j)) = j < label.size() ? label[j] : 0;
+            MEM_B(0, (int32_t)(at + j)) = j < label.size() ? label[j] : 0;
         }
+    };
+    for (int i = 0; i < engine_levels; i++) {
+        put_label(engine_labels + i * 16, rush2::car2049::engine_name(i));
+    }
+    for (int i = 0; i < tires49_count; i++) {
+        put_label(tire_labels + i * 16, tire_names[i]);
     }
     const char* none = "R49X_";
     for (int i = 0; i <= 5; i++) {
@@ -839,18 +854,21 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
             fprintf(stderr, "[2049] Couldn't convert car %d: %s\n", k + 1, error.c_str());
         }
     }
-    // The engine models the unlock system's shop shows (src/unlocks_shop.cpp).
+    // The engine and tire models the unlock system's shop shows (src/unlocks_shop.cpp).
     std::vector<uint8_t> parts;
     std::string error;
     std::vector<std::string> names;
-    for (int i = 0; i < part_models; i++) {
+    std::vector<std::string> sources;
+    for (int i = 0; i < part_models + tire_models; i++) {
         names.push_back(part_model_name(i));
+        sources.push_back(i < part_models ? "ENGINE0" + std::to_string(first_part_model + i) + "G1"
+                                          : "TIRE0" + std::to_string(i - part_models + 1) + "G1");
     }
-    if (rush2::track2049::convert_parts(*rom, first_part_model, names, parts, part_centers, error)) {
+    if (rush2::track2049::convert_parts(*rom, sources, names, parts, part_centers, error)) {
         rush2::assets::replace(rdram, parts_asset, parts);
     }
     else {
-        fprintf(stderr, "[2049] Couldn't convert the engine models: %s\n", error.c_str());
+        fprintf(stderr, "[2049] Couldn't convert the part models: %s\n", error.c_str());
     }
 }
 
@@ -866,7 +884,7 @@ const char* rush2::car2049::engine_name(int level) {
 }
 
 std::string rush2::car2049::part_model_name(int i) {
-    return "R49ENGINE" + std::to_string(i + 1);
+    return i < part_models ? "R49ENGINE" + std::to_string(i + 1) : "R49TIRE" + std::to_string(i - part_models + 1);
 }
 
 
@@ -1877,29 +1895,49 @@ namespace {
     void put_f32(uint8_t* rdram, uint32_t addr, float f) {
         MEM_W(0, (int32_t)addr) = (int32_t)fbits(f);
     }
-    // A car's 2049 options from its table row (0 = the defaults, 1-2 = the players'): ENGINE (power level) and the
-    // DURABILITY value as 2049's FRAME weight. HANDLING stays the car's own 2049 setup; TIRES and SUSPENSION are
-    // Rush 2's rows with their Rush 2 effect.
+    int row_byte(uint8_t* rdram, uint32_t table, int row, int type) {
+        return (int8_t)MEM_B(0, (int32_t)(table + row * types + type));
+    }
+    // A TIRES value as one of 2049's tires (0 RADIALS .. 4 OFF ROAD); Rush 2's street sets count as RADIALS.
+    int tires49_index(int value) {
+        for (int i = 0; i < tires49_count; i++) {
+            if (tires49[i] == value) {
+                return i;
+            }
+        }
+        return 0;
+    }
+    // A car's 2049 options from its table row (0 = the defaults, 1-4 = the players'): ENGINE (power level), TIRES as
+    // 2049's tire (1 or 2 for the slicks, else 0) and the DURABILITY value as 2049's FRAME weight. HANDLING stays the
+    // car's drone setup (NORMAL on every car): 2049 pays for ADVANCED and EXTREME's torque and taller gears with less
+    // of its steering's stability aid, which Rush 2's steering doesn't have, so here they would be free power.
+    // SUSPENSION is Rush 2's row with its Rush 2 effect. Row 0 is the car's drone setup.
     struct Choices {
         int engine;
+        int handling;
+        int tires;
         float frame;
     };
     Choices choices_of(uint8_t* rdram, int row, int type) {
         Choices c{};
         int k = type - first_type;
+        c.handling = std::clamp(setup49.handling[k], 0, handling_count - 1);
         if (row == 0) {
             c.frame = setup49.frame_weight[setup49.frame[k]];
             return c;
         }
-        c.engine = std::clamp<int>((int8_t)MEM_B(0, (int32_t)(t_engine + row * types + type)), 0, engine_levels - 1);
+        c.engine = std::clamp(row_byte(rdram, t_engine, row, type), 0, engine_levels - 1);
+        int tires = row_byte(rdram, t_tires, row, type);
+        c.tires = tires >= slicks ? tires49_index(tires) : 0;
         c.frame = std::clamp(f32_at(rdram, t_weight + (row * types + type) * 4), 0.0f, 1.0f);
         return c;
     }
-    // ENGINE's torque scale: 2049's torque for the power level over level 1's, with the car's own HANDLING column.
-    float engine_torque(int type, int engine) {
+    // A 2049 car's torque scale for an ENGINE and HANDLING (trans+8 x 0x801110C4 [ENGINE][HANDLING]) over that of its
+    // drone setup, which its descriptor carries.
+    float engine_torque(int type, int engine, int handling) {
         const Setup49& s = setup49;
-        int h = s.handling[type - first_type];
-        return s.torque[engine][h] / s.torque[0][h];
+        int h0 = std::clamp(s.handling[type - first_type], 0, handling_count - 1);
+        return s.trans[handling][2] * s.torque[engine][handling] / (s.trans[h0][2] * s.torque[0][h0]);
     }
     // func_8008DBA0's row: the player's (1 + player index) for a human-driven car, else 0.
     int car_row(uint8_t* rdram, uint32_t car) {
@@ -1917,10 +1955,11 @@ extern "C" void func_800712EC(uint8_t* rdram, recomp_context* ctx);     // drive
 extern "C" void func_8006A2FC(uint8_t* rdram, recomp_context* ctx);     // one tire's forces
 extern "C" void func_80069E74(uint8_t* rdram, recomp_context* ctx);     // steering yaw torques
 
-// func_8008DBA0 (car init) at 0x8008DC1C, after it stored the car's descriptor ($fp) at car + 0 ($s2): a 2049 car
-// driven by a player gets its own copy with the ENGINE choice applied, and with Car Speeds at Rush 2049 every car's
-// copy runs at 2049's speed (torque scales / torque_to_rush2, gear ratios / gears_to_rush2). The torque maps get the
-// Torque Rebalance option's state.
+// func_8008DBA0 (car init) at 0x8008DC1C, after it stored the car's descriptor ($fp) at car + 0 ($s2): the car gets its
+// own copy when its options change it, and with Car Speeds at Rush 2049 every car's copy runs at 2049's speed (torque
+// scales / torque_to_rush2, gear ratios / gears_to_rush2). A 2049 car driven by a player: its ENGINE sets the torque
+// scales. Any car on SLICKS or PRO SLICKS: its rear tires' side grip (+0x78) x
+// 2049's 0.9 or 0.8 (0x8011121C [TIRES]). The torque maps get the Torque Rebalance option's state.
 extern "C" void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx) {
     apply_torque_rebalance(rdram);
     uint32_t car = (uint32_t)ctx->r18;
@@ -1929,9 +1968,12 @@ extern "C" void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx) {
     if (slot < 0 || slot >= 8) {
         return;
     }
-    int row = is_2049(type) ? car_row(rdram, car) : 0;
+    int row = car_row(rdram, car);
+    bool car49 = is_2049(type) && row != 0;
+    int tires = row_byte(rdram, t_tires, row, type);
+    bool slick = (tires == slicks || tires == pro_slicks) && setup49.loaded;
     bool fast = speeds_2049();
-    if (row == 0 && !fast) {
+    if (!car49 && !slick && !fast) {
         return;
     }
     uint32_t desc = (uint32_t)ctx->r30;
@@ -1939,7 +1981,15 @@ extern "C" void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx) {
     for (uint32_t o = 0; o < desc_size; o += 4) {
         MEM_W(0, (int32_t)(copy + o)) = MEM_W(0, (int32_t)(desc + o));
     }
-    float torque = row != 0 ? engine_torque(type, choices_of(rdram, row, type).engine) : 1.0f;
+    float torque = 1.0f;
+    const Setup49& s = setup49;
+    if (car49) {
+        Choices c = choices_of(rdram, row, type);
+        torque = engine_torque(type, c.engine, c.handling);
+    }
+    if (slick) {
+        put_f32(rdram, copy + 0x78, f32_at(rdram, copy + 0x78) * s.rear_grip[tires49_index(tires)]);
+    }
     for (int i = 0; i < 4; i++) {
         float f = fast ? torque / torque_to_rush2[std::min(i, 2)] : torque;
         put_f32(rdram, copy + 0xB8 + 4 * i, f32_at(rdram, copy + 0xB8 + 4 * i) * f);
@@ -1967,7 +2017,7 @@ extern "C" void rush2_car49_setup_mass(uint8_t* rdram, recomp_context* ctx) {
     const Setup49& s = setup49;
     int k = type - first_type;
     float weight_delta = f32_at(rdram, t_weight + (row * types + type) * 4) - f32_at(rdram, t_weight + type * 4);
-    float mass49 = (s.mass[k] + (c.frame - s.k_frame0) * s.k_mass) * s.trans[s.handling[k]][1];
+    float mass49 = (s.mass[k] + (c.frame - s.k_frame0) * s.k_mass) * s.trans[c.handling][1];
     float mass = f32_at(rdram, car + 0x5B0) + (mass49 - f32_at(rdram, t_mass + type * 4) -
                                                 weight_delta * f32_at(rdram, weight_mass)) * f32_at(rdram, mass_scale);
     float d = c.frame - s.k_frame1;
@@ -1975,6 +2025,96 @@ extern "C" void rush2_car49_setup_mass(uint8_t* rdram, recomp_context* ctx) {
     put_f32(rdram, car + 0x5B4, s.inertia[k] + d * 1000.0f);
     put_f32(rdram, car + 0x644, s.yaw[k] + d * s.k_yaw);
     put_f32(rdram, car + 0x5AC, mass * f32_at(rdram, gravity_mass));
+}
+
+// The steering values of the added tires (func_8008D984, the steer force car +0x5A0, at 0x8008D9C8 with the TIRES add
+// in $f4; func_8008D9EC, the yaw gain +0x5A4, at 0x8008DA7C with the TIRES add in $f8; TIRES value $t9 / $t7). Rush
+// 2's add tables (0x800C0DF0, 0x800C0E1C) have 11 entries: SLICKS and PRO SLICKS take S1 D1's (0, 0; 2049's tires
+// don't change the steering).
+namespace {
+    constexpr uint32_t steer_adds = 0x800C0DF0, yaw_adds = 0x800C0E1C;
+    constexpr int plain_tires = 4;  // S1 D1
+}
+
+extern "C" void rush2_car49_steer_add(uint8_t* rdram, recomp_context* ctx) {
+    int tires = (int)(int8_t)ctx->r25;
+    if (tires < 0 || tires >= slicks) {
+        ctx->f4.fl = f32_at(rdram, steer_adds + plain_tires * 4);
+    }
+}
+
+extern "C" void rush2_car49_yaw_add(uint8_t* rdram, recomp_context* ctx) {
+    int tires = (int)(int8_t)ctx->r15;
+    if (tires < 0 || tires >= slicks) {
+        ctx->f8.fl = f32_at(rdram, yaw_adds + plain_tires * 4);
+    }
+}
+
+// func_8008DAA0 (the off-road factor, car +0x5A8) at 0x8008DAC4, with the TIRES value in $v0: Rush 2 knows 9 (0.5) and
+// 10 (0.75); SLICKS and PRO SLICKS are 2049's -0.25 and -0.5 (its +0x5B4), which lowers func_8006AFD8's pavement drag
+// and raises its dirt and grass drag. Returns true when it set the result ($f0).
+extern "C" int rush2_car49_offroad(uint8_t* rdram, recomp_context* ctx) {
+    int tires = (int)(int8_t)ctx->r2;
+    if (tires != slicks && tires != pro_slicks) {
+        return 0;
+    }
+    ctx->f0.fl = tires == slicks ? -0.25f : -0.5f;
+    return 1;
+}
+
+// Car select, func_803B9478: changing a player's TIRES value (0x803BA0BC: the row byte at $v0 + 0x24 before the change;
+// 0x803BA134: the new value in $v1 after Rush 2's wrap at 11; type $a3, direction $a1, 0 = back to the default; player
+// $s7). While the 2049 cars are on, every car's row goes on to SLICKS and PRO SLICKS; the unlock system skips the ones
+// it keeps locked (src/unlocks.cpp).
+namespace {
+    int tires_before = -1;
+
+    // Rush 2's own sets are always open; SLICKS (1) and PRO SLICKS (2) are the unlock system's.
+    bool tires_open(uint8_t* rdram, int player, int value) {
+        if (value < slicks) {
+            return true;
+        }
+        return cars_available() && setup49.loaded && rush2::unlocks::tires_open(rdram, player, value - slicks + 1);
+    }
+}
+
+extern "C" void rush2_car49_tires_before(uint8_t* rdram, recomp_context* ctx) {
+    tires_before = (int8_t)MEM_B(0, (int32_t)((uint32_t)ctx->r2 + 0x24));
+}
+
+extern "C" void rush2_car49_tires_value(uint8_t* rdram, recomp_context* ctx) {
+    int type = (int)(int8_t)ctx->r7;
+    int before = tires_before;
+    tires_before = -1;
+    int step = (int32_t)ctx->r5 > 0 ? 1 : (int32_t)ctx->r5 < 0 ? -1 : 0;
+    int player = (int)ctx->r23;
+    if (before < 0 || step == 0 || type < 0 || type >= types) {
+        return;
+    }
+    int count = pro_slicks + 1;
+    int value = std::clamp(before, 0, count - 1);
+    do {
+        value = (value + step + count) % count;
+    } while (!tires_open(rdram, player, value));
+    MEM_B(0, (int32_t)((uint32_t)ctx->r2 + 0x24)) = (int8_t)value;
+    ctx->r3 = (uint64_t)(int64_t)value;
+}
+
+void rush2::car2049::limit_tires(uint8_t* rdram, int player) {
+    for (int type = 0; type < types; type++) {
+        if (type == rush2_types) {
+            continue;
+        }
+        uint32_t at = t_tires + (player + 1) * types + type;
+        int value = (int8_t)MEM_B(0, (int32_t)at);
+        if (!tires_open(rdram, player, value)) {
+            MEM_B(0, (int32_t)at) = MEM_B(0, (int32_t)(t_tires + type));
+        }
+    }
+}
+
+const char* rush2::car2049::tire_name(int tire) {
+    return tire >= 0 && tire < tires49_count ? tire_names[tire] : "";
 }
 
 // Car select, func_803B9478: changing a player's ENGINE value. At 0x803B9E3C the row byte is at $v1 + 0x24 (type $a3,
@@ -2021,29 +2161,45 @@ int rush2::car2049::engine_sound(uint8_t* rdram, int type, int value) {
 }
 
 // Car select, func_803BC048: 0x803BC4F0 starts the ENGINE row's value text (the horn and engine names share one string
-// table, so the row is told by its case); at 0x803BC63C the text is in $s0 (player $s2, the players' current types at
-// $s6). A 2049 car's ENGINE row reads 2049's engine names.
+// table, so the row is told by its case) and 0x803BC5DC the TIRES row's; at 0x803BC63C the text is in $s0 (player
+// $s2, the players' current types at $s6). A 2049 car's ENGINE row reads 2049's engine names; SLICKS and PRO SLICKS
+// read so on every car (Rush 2's table, 0x800C4A40, ends at FULL OFFRD).
 namespace {
-    bool engine_row_text = false;
+    enum class TextRow { Other, Engine, Tires };
+    TextRow text_row = TextRow::Other;
 }
 
 extern "C" void rush2_car49_engine_text(uint8_t* rdram, recomp_context* ctx) {
-    engine_row_text = true;
+    text_row = TextRow::Engine;
+}
+
+extern "C" void rush2_car49_tires_text(uint8_t* rdram, recomp_context* ctx) {
+    text_row = TextRow::Tires;
 }
 
 extern "C" void rush2_car49_option_text(uint8_t* rdram, recomp_context* ctx) {
-    bool engine_row = engine_row_text;
-    engine_row_text = false;
+    TextRow row = text_row;
+    text_row = TextRow::Other;
     int player = (int)ctx->r18;
-    if (!engine_row || ctx->r16 == 0 || player < 0 || player > 1) {
+    if (row == TextRow::Other || player < 0 || player > 1) {
         return;
     }
     int type = (int8_t)MEM_B(0, (int32_t)((uint32_t)ctx->r22 + player));
-    if (is_2049(type)) {
-        int value = std::clamp<int>((int8_t)MEM_B(0, (int32_t)(t_engine + (player + 1) * types + type)), 0,
-                                    engine_levels - 1);
-        ctx->r16 = (uint64_t)(int64_t)(int32_t)(engine_labels + value * 16);
+    if (type < 0 || type >= types) {
+        return;
     }
+    auto text = [&](uint32_t label) { ctx->r16 = (uint64_t)(int64_t)(int32_t)label; };
+    if (row == TextRow::Tires) {
+        int value = row_byte(rdram, t_tires, player + 1, type);
+        if (value >= slicks) {
+            text(tire_labels + tires49_index(value) * 16);
+        }
+        return;
+    }
+    if (!is_2049(type) || ctx->r16 == 0) {
+        return;
+    }
+    text(engine_labels + std::clamp(row_byte(rdram, t_engine, player + 1, type), 0, engine_levels - 1) * 16);
 }
 
 // Car select stat bars (func_803B7F7C, player $s4; the bars' types at 0x803CB362): ACCELERATION reads the weight
@@ -2058,7 +2214,6 @@ extern "C" void rush2_car49_option_text(uint8_t* rdram, recomp_context* ctx) {
 namespace {
     constexpr uint32_t bar_types = 0x803CB362;
     constexpr uint32_t bar_descs = 0x80225A00;      // 2 x 0xEC
-    constexpr uint32_t t_torque = 0x80200D40;
     struct BarSwap {
         bool active = false;
         uint32_t ptr_at = 0, ptr = 0, mass_at = 0, mass = 0;
@@ -2171,8 +2326,7 @@ void rush2::car2049::set_torque_rebalance(bool on) {
 namespace {
     std::atomic_bool accurate_bars = true;
 
-    constexpr uint32_t t_susp = 0x80200EB0, t_tires = 0x80200F68;
-    constexpr int tires_choices = 11;
+    constexpr int rush2_tires = 11;
     constexpr int hot_rod = 17;
     constexpr float mph = 1.46667f;
 
@@ -2472,7 +2626,8 @@ namespace {
         return c;
     }
 
-    // ACCELERATION and TOP SPEED don't read SUSPENSION, and of TIRES only the pavement drag (+0x5A8: 9, 10 or none).
+    // ACCELERATION and TOP SPEED don't read SUSPENSION, and of TIRES only the off-road sets' and slicks' pavement drag
+    // and rear grip (values 9-12).
     TestResult straight_of(TestCar& car, TestSetup s) {
         s.susp = 0;
         s.tires = s.tires >= 9 ? s.tires : 0;
@@ -2503,10 +2658,6 @@ namespace {
         return type != rush2_types && (type < rush2_types || (is_2049(type) && cars_available()));
     }
 
-    int row_byte(uint8_t* rdram, uint32_t table, int row, int type) {
-        return (int8_t)MEM_B(0, (int32_t)(table + row * types + type));
-    }
-
     // Player row `row`'s options on `type`.
     TestSetup setup_of(uint8_t* rdram, int type, int row) {
         TestSetup s;
@@ -2527,10 +2678,19 @@ namespace {
         return s;
     }
 
+    // The TIRES values a car offers: Rush 2's eleven, and the two slicks while the 2049 cars are on.
+    std::vector<int> tire_values() {
+        std::vector<int> values;
+        for (int v = 0; v < (cars_available() && setup49.loaded ? pro_slicks + 1 : rush2_tires); v++) {
+            values.push_back(v);
+        }
+        return values;
+    }
+
     // The lowest and highest of each value over every selectable car: for ACCELERATION and TOP SPEED both weight
-    // extremes, every TORQUE curve, a 2049 car's lowest and highest ENGINE, and the tires with and without pavement
-    // drag; for DRIFTING and CONTROL both weight extremes and every TIRES and SUSPENSION choice (LOOSE..TIGHT, and
-    // WHEELIE on the Hot Rod, func_803B9478), on the car's stock TORQUE and ENGINE.
+    // extremes, every TORQUE curve, a 2049 car's lowest and highest ENGINE, and the tires with the least and most
+    // pavement drag; for DRIFTING and CONTROL both weight extremes and every TIRES and SUSPENSION choice (LOOSE..TIGHT,
+    // and WHEELIE on the Hot Rod, func_803B9478), on the car's stock TORQUE and ENGINE.
     void find_ranges(uint8_t* rdram, TestCar& car) {
         TestCache& c = cache();
         if (c.ranged) {
@@ -2547,19 +2707,23 @@ namespace {
             if (!selectable(type)) {
                 continue;
             }
+            bool car49 = is_2049(type);
             TestSetup stock = setup_of(rdram, type, 0);
+            std::vector<int> tires = tire_values();
             for (float weight : { 0.0f, 1.0f }) {
                 for (int torque = 0; torque < 3; torque++) {
-                    for (int engine : { 0, engine_levels - 1 }) {
-                        for (int tires : { 0, 10 }) {
-                            if (engine != 0 && !is_2049(type)) {
-                                continue;
-                            }
+                    for (int power : { 0, 1 }) {
+                        if (power != 0 && !car49) {
+                            continue;
+                        }
+                        for (int tire : { 0, 10, tires.back() }) {
                             TestSetup s = stock;
                             s.weight = weight;
                             s.torque = torque;
-                            s.engine = is_2049(type) ? engine : stock.engine;
-                            s.tires = tires;
+                            if (car49) {
+                                s.engine = power != 0 ? engine_levels - 1 : 0;
+                            }
+                            s.tires = tire;
                             TestResult r = straight_of(car, s);
                             widen(r.accel, c.lo.accel, c.hi.accel);
                             widen(r.top, c.lo.top, c.hi.top);
@@ -2567,11 +2731,11 @@ namespace {
                     }
                 }
                 int susp_max = type == hot_rod ? 3 : 2;
-                for (int tires = 0; tires < tires_choices; tires++) {
+                for (int tire : tires) {
                     for (int susp = 0; susp <= susp_max; susp++) {
                         TestSetup s = stock;
                         s.weight = weight;
-                        s.tires = tires;
+                        s.tires = tire;
                         s.susp = susp;
                         TestResult r = handling_of(car, s);
                         widen(r.slide, c.lo.slide, c.hi.slide);
@@ -2618,6 +2782,11 @@ extern "C" void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx) {
     if (player < 0 || player > 1) {
         return;
     }
+    // The car select fills a player's option rows from their record after it lists their cars (where the unlock
+    // system limits ENGINE), so locked tires are put back here, while the rows are on screen.
+    if (!rush2::cheats::unlock_all_parts()) {
+        rush2::car2049::limit_tires(rdram, player);
+    }
     int type = (int8_t)MEM_B(0, (int32_t)(bar_types + player));
     if (type < 0 || type >= types || type == rush2_types) {
         return;
@@ -2642,7 +2811,11 @@ extern "C" void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx) {
             top = with_chosen.top / with_stock.top;
         }
     }
-    float engine = is_2049(type) ? engine_torque(type, choices_of(rdram, row, type).engine) : 1.0f;
+    float engine = 1.0f;
+    if (is_2049(type)) {
+        Choices c = choices_of(rdram, row, type);
+        engine = engine_torque(type, c.engine, c.handling);
+    }
     put_f32(rdram, copy + 0xB8, f32_at(rdram, copy + 0xB8) * engine * accel);
     put_f32(rdram, copy + 0xC0, f32_at(rdram, copy + 0xC0) * engine * top * top);
     bar_swap = { true, ptr_at, desc, 0, 0 };

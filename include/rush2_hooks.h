@@ -133,6 +133,13 @@ void rush2_car49_setup_mass(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_engine_before(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_engine_value(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_engine_text(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_tires_text(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_tires_before(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_tires_value(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_steer_add(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_yaw_add(uint8_t* rdram, recomp_context* ctx);
+int rush2_car49_offroad(uint8_t* rdram, recomp_context* ctx);
+
 void rush2_car49_option_text(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_bars_end(uint8_t* rdram, recomp_context* ctx);

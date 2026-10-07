@@ -7529,6 +7529,38 @@ func = "func_8008DBA0"
 before_vram = 0x8008DD00
 text = "    rush2_car49_setup_mass(rdram, ctx);"
 
+# Every car's TIRES row gains Rush 2049's SLICKS and PRO SLICKS (src/car2049.cpp): the steering values and off-road
+# factor of the added values, the car select's TIRES steps and the row's value text.
+[[patches.hook]]
+func = "func_8008D984"
+before_vram = 0x8008D9C8
+text = "    rush2_car49_steer_add(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8008D9EC"
+before_vram = 0x8008DA7C
+text = "    rush2_car49_yaw_add(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8008DAA0"
+before_vram = 0x8008DAC4
+text = "    if (rush2_car49_offroad(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_803B9478"
+before_vram = 0x803BA0BC
+text = "    rush2_car49_tires_before(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803B9478"
+before_vram = 0x803BA134
+text = "    rush2_car49_tires_value(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803BC048"
+before_vram = 0x803BC5DC
+text = "    rush2_car49_tires_text(rdram, ctx);"
+
 # Car select stat bars: the selected car's torque scales carry its TORQUE (and a 2049 car's ENGINE) choice, and a
 # 2049 car's weight its FRAME, for the duration of the bar function.
 [[patches.hook]]

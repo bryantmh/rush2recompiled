@@ -17,9 +17,12 @@ namespace rush2::unlocks {
         const char* name;   // As the shop shows it.
         const char* game;
         Kind kind;
-        int value;          // Car type, track select id, or ENGINE level (0-8).
+        int value;          // Car type, track select id, or a part: ENGINE level (0-8), or tire_part + a Rush 2049
+                            // tire (1 SLICKS, 2 PRO SLICKS).
         int cost;
     };
+
+    constexpr int tire_part = 100;
 
     // Every item, in the shop's order.
     const std::vector<Item>& items();
@@ -46,6 +49,8 @@ namespace rush2::unlocks {
     bool track_open(uint8_t* rdram, int track, bool game_unlocked = true);
     // Whether player p may pick a 2049 car's ENGINE level (0-8).
     bool engine_open(uint8_t* rdram, int player, int level);
+    // Whether player p may pick Rush 2049's tire `tire` (1 SLICKS, 2 PRO SLICKS) on a car's TIRES row.
+    bool tires_open(uint8_t* rdram, int player, int tire);
     // Car select's key count on an added track (func_803B1AB0): with the unlock system off, SF Rush keys and 2049
     // coins count as Rush 2's keys and cans there. Returns false for Rush 2's own tracks.
     bool added_track_keys(uint8_t* rdram, int player, int track, bool dew, int& count);

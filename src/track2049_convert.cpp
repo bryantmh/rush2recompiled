@@ -2717,7 +2717,8 @@ bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, con
 
 // Rush 2049's engine models (setup screen file 56: ENGINE01G1-ENGINE05G1) as a Rush 2 model container, for the unlock
 // system's shop (src/unlocks_shop.cpp): model `names[i]` draws ENGINE0<first + i>G1.
-bool rush2::track2049::convert_parts(const std::vector<uint8_t>& rom, int first, const std::vector<std::string>& names,
+bool rush2::track2049::convert_parts(const std::vector<uint8_t>& rom, const std::vector<std::string>& sources,
+                                     const std::vector<std::string>& names,
                                      std::vector<uint8_t>& out, std::vector<std::array<float, 3>>& centers,
                                      std::string& error) {
     constexpr int setup_file = 56;
@@ -2729,10 +2730,9 @@ bool rush2::track2049::convert_parts(const std::vector<uint8_t>& rom, int first,
     try {
         std::set<std::string> keep;
         MergeOptions opt{};
-        for (size_t i = 0; i < names.size(); i++) {
-            std::string model = "ENGINE0" + std::to_string(first + (int)i) + "G1";
-            keep.insert(model);
-            opt.rename[model] = names[i];
+        for (size_t i = 0; i < names.size() && i < sources.size(); i++) {
+            keep.insert(sources[i]);
+            opt.rename[sources[i]] = names[i];
         }
         Bytes parts = subset_model49(file, keep);
         std::vector<const Bytes*> files = { &parts };
