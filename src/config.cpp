@@ -9,6 +9,7 @@
 #include "ultramodern/config.hpp"
 #include "librecomp/config.hpp"
 #include "util/file.h"
+#include "common/rt64_enhancement_configuration.h"
 
 #include "rush2.h"
 #include "players4.h"
@@ -298,6 +299,68 @@ static void add_font_option(recomp::config::Config& config) {
         });
 }
 
+namespace mipmap_option {
+    const std::string id = "texture_mipmaps";
+    enum class Mipmaps : uint32_t { Original, Smooth };
+}
+
+// Distant textures: draws the game's textures with mipmaps the renderer generates for them. This is a change to RT64,
+// kept in lib/patches/rt64.patch (TextureMap::use and sampleTexture in TextureSampler.hlsli; see tools/lib_patch.py).
+static void add_mipmap_option(recomp::config::Config& config) {
+    using mipmap_option::Mipmaps;
+
+    config.add_enum_option(
+        mipmap_option::id,
+        "Distant Textures",
+        "Sets how textures are drawn far from the camera. "
+        "<recomp-color primary>Original</recomp-color> matches the original game, where distant textures shimmer "
+        "as the camera moves. "
+        "<recomp-color primary>Smooth</recomp-color> blends them down with distance, which removes the shimmer, "
+        "and keeps the ones the original game blurs with distance sharper.",
+        {
+            { Mipmaps::Original, "Original", "Original" },
+            { Mipmaps::Smooth, "Smooth", "Smooth" },
+        },
+        Mipmaps::Smooth
+    );
+
+    config.add_option_change_callback(mipmap_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            RT64::GeneratedMipmapsEnabled = static_cast<Mipmaps>(std::get<uint32_t>(cur_value)) == Mipmaps::Smooth;
+        });
+}
+
+namespace anisotropy_option {
+    const std::string id = "texture_anisotropy";
+    enum class Anisotropy : uint32_t { Off, X2, X4, X8, X16 }; // The value is the log2 RT64 takes.
+}
+
+// Anisotropic filtering of the textures Distant Textures smooths (sampleGeneratedMipmaps in RT64's TextureSampler.hlsli).
+static void add_anisotropy_option(recomp::config::Config& config) {
+    using anisotropy_option::Anisotropy;
+
+    config.add_enum_option(
+        anisotropy_option::id,
+        "Anisotropic Filtering",
+        "Sets how sharp smoothed textures stay on surfaces seen at a shallow angle, such as the road ahead. "
+        "Higher settings are sharper. <recomp-color primary>Off</recomp-color> blurs them the most. "
+        "Only applies when Distant Textures is set to <recomp-color primary>Smooth</recomp-color>.",
+        {
+            { Anisotropy::Off, "Off", "Off" },
+            { Anisotropy::X2, "2x", "2x" },
+            { Anisotropy::X4, "4x", "4x" },
+            { Anisotropy::X8, "8x", "8x" },
+            { Anisotropy::X16, "16x", "16x" },
+        },
+        Anisotropy::X16
+    );
+
+    config.add_option_change_callback(anisotropy_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            RT64::GeneratedMipmapsAnisotropy = std::min(std::get<uint32_t>(cur_value), 4u);
+        });
+}
+
 namespace steering_option {
     const std::string id = "steering_response";
     enum class SteeringResponse : uint32_t { Original, Balanced, Linear };
@@ -539,7 +602,7 @@ void rush2::init_config() {
         create_ordered_tab(graphics::tab_name, "rush2_graphics", graphics::id, {
             { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
-            { "Quality", { graphics::options::msaa_option, graphics::options::ds_option, lod_option::id, draw_distance_option::id, font_option::id } },
+            { "Quality", { graphics::options::msaa_option, graphics::options::ds_option, mipmap_option::id, anisotropy_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
         });
     }
 
@@ -563,6 +626,8 @@ void rush2::init_config() {
     add_lod_option(graphics_config);
     add_draw_distance_option(graphics_config);
     add_font_option(graphics_config);
+    add_mipmap_option(graphics_config);
+    add_anisotropy_option(graphics_config);
     add_split_option(graphics_config);
     recompui::config::set_tab_visible(recompui::config::general::id, false);
     recompui::config::set_tab_visible(recompui::config::graphics::id, false);
@@ -583,6 +648,10 @@ void rush2::init_config() {
         std::get<uint32_t>(loaded_graphics_config.get_option_value(lod_option::id))) == lod_option::LODMode::Off);
     rush2::set_draw_distance(draw_distance_option::factor(
         loaded_graphics_config.get_option_value(draw_distance_option::id)));
+    RT64::GeneratedMipmapsEnabled = static_cast<mipmap_option::Mipmaps>(
+        std::get<uint32_t>(loaded_graphics_config.get_option_value(mipmap_option::id))) == mipmap_option::Mipmaps::Smooth;
+    RT64::GeneratedMipmapsAnisotropy = std::min(
+        std::get<uint32_t>(loaded_graphics_config.get_option_value(anisotropy_option::id)), 4u);
     rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
     rush2::splitscreen::set_layout(static_cast<rush2::splitscreen::Layout>(

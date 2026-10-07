@@ -47,7 +47,6 @@ General:
 5) Music skip track in pause menu feature. Currently music switches every time paused. this is not what we want
 6) Occasional tire sizing bugs
 7) Overhaul main menu UI groupings a bit due to all the new menus. Make it like 2049?
-8) Show accurate car stat numbers
 9) Show accurate track stats like length
 10) Feature to choose NPC vehicles from recomp menu
 11) Add items as their 2049 content is ported. battle arenas Downtown 5, Plaza 5, Roadkill 10, Factory 15; tires, transmissions and frames (maybe not).
