@@ -13,7 +13,7 @@ namespace rush2::unlocks {
     enum class Kind { Car, Track, Part };
 
     struct Item {
-        const char* id;     // Kept in collectibles.json.
+        const char* id;     // Kept in the save file's "collectibles" section.
         const char* name;   // As the shop shows it.
         const char* game;
         Kind kind;

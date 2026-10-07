@@ -160,7 +160,7 @@ with `$t1` = 0. The Controller Pak service `func_800971A8` finds runs of dirty b
    the `.mpk`. Other slots and unhosted races pass through unchanged.
 3. **Binding blocks to profiles.** A block is bound to the name in its record position (`rec(p) + 2`). When the name
    changes (pak swapped, profile renamed or replaced), the block is saved under the old name and loaded for the new
-   one. Records are kept per name in `track2049_records.json` in the app folder:
+   one. Records are kept per name in the `records` section of `saves/rush2.n64.us.json`:
    ```json
    { "version": 1, "profiles": [ { "name": "BOB", "key": "424f42", "courses": [
        { "track": 3, "backward": false, "race": ["0:28.00", null, null, null, null],
@@ -220,7 +220,7 @@ on the profile path (its unchanged bytes get rewritten to the pak); harmless.
 
 ### 3.5 Test plan
 1. Race a 2049 track forward with a profile; finish. The post-race table shows default names around the 2049 seed
-   (e.g. track 1 about 0:47) and your time; `track2049_records.json` appears with the course.
+   (e.g. track 1 about 0:47) and your time; the `records` section of `saves/rush2.n64.us.json` appears with the course.
 2. Pause during the next race on it: same table. Race HAWAII afterwards: HAWAII's table and times are unchanged
    (also check the records screen for HONOLULU before and after).
 3. Race the same 2049 track backward, and a different 2049 track: each has its own table.

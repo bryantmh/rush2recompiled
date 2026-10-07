@@ -15,11 +15,12 @@
 // - The dioramas and logos come from a generated copy of asset 3 (src/track2049_art.cpp, then
 //   rush2::track1::extend_menu_container for the Rush 1 ones).
 // - The screen saves the chosen track as the low nibble of byte +0x30 of the player's save record, which can't hold
-//   12-29, so such a choice leaves the nibble alone and is kept in track2049.json instead, and restored when the
+//   12-29, so such a choice leaves the nibble alone and is kept in the save file's "track_select" section
+//   (include/data_files.h) instead, and restored when the
 //   screen opens.
 // - Car select counts the track's collected keys from 12-entry tables (func_803B1AB0); added tracks have none.
 // - The Start Game menu has a GHOST RACE row (src/ghost.cpp) and a STUNT row after PRACTICE. Through STUNT the track
-//   select offers STUNT1, the stunt arenas and the obstacle course only, remembered apart (track2049.json "stunt");
+//   select offers STUNT1, the stunt arenas and the obstacle course only, remembered apart ("stunt" in that section);
 //   through the other rows it leaves them out.
 //
 // When a race starts on id 12-29, the id becomes the host slot's (STUNT1's for a stunt arena) and the added track is
@@ -40,6 +41,8 @@
 
 #include "recomp.h"
 #include "util/file.h"
+
+#include "data_files.h"
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "ghost.h"
@@ -164,17 +167,15 @@ namespace {
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom1;   // Rush 1 ROM it was built with.
     bool menu_container_built = false;
 
-    std::filesystem::path selection_path() {
-        return recompui::file::get_app_folder_path() / "track2049.json";
-    }
+    // The save file's section (include/data_files.h): { "selected": n, "stunt": n }.
+    const std::string selection_section = "track_select";
 
     void load_selection() {
         if (selection_loaded) {
             return;
         }
         selection_loaded = true;
-        std::ifstream f(selection_path());
-        std::string text((std::istreambuf_iterator<char>(f)), {});
+        std::string text = rush2::data_files::read(rush2::data_files::File::Saves, selection_section);
         auto read = [&](const char* key) {
             size_t at = text.find(key);
             if (at != std::string::npos && (at = text.find(':', at)) != std::string::npos) {
@@ -193,8 +194,8 @@ namespace {
     }
 
     void write_selection() {
-        std::ofstream f(selection_path());
-        f << "{ \"selected\": " << selection << ", \"stunt\": " << stunt_selection << " }\n";
+        rush2::data_files::write(rush2::data_files::File::Saves, selection_section,
+            "{ \"selected\": " + std::to_string(selection) + ", \"stunt\": " + std::to_string(stunt_selection) + " }");
     }
 
     void save_selection(int value) {

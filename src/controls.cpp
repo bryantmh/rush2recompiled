@@ -12,7 +12,7 @@
 //
 // Each player (port) has one set of bindings for its controller and one for the keyboard; the keyboard set is used
 // when the keyboard is assigned to that port. Every action has one input, except keyboard steering, which has a left
-// and a right key. Bindings are saved to bindings.json in the config folder.
+// and a right key. Bindings are saved to players.json in the config folder.
 
 #include <algorithm>
 #include <array>
@@ -31,6 +31,8 @@
 #endif
 
 #include "json/json.hpp"
+
+#include "data_files.h"
 #include "librecomp/game.hpp"
 #include "recompinput/recompinput.h"
 #include "recompinput/input_state.h"
@@ -409,9 +411,8 @@ namespace {
         return true;
     }
 
-    std::filesystem::path save_path() {
-        return recomp::get_config_path() / "bindings.json";
-    }
+    // players.json's section (include/data_files.h).
+    const std::string bindings_section = "bindings";
 }
 
 void rush2::controls::load() {
@@ -422,12 +423,12 @@ void rush2::controls::load() {
         }
     }
 
-    std::ifstream in{ save_path() };
-    if (!in) {
+    std::string text = rush2::data_files::read(rush2::data_files::File::Players, bindings_section);
+    if (text.empty()) {
         return;
     }
     try {
-        nlohmann::json j = nlohmann::json::parse(in);
+        nlohmann::json j = nlohmann::json::parse(text);
         const auto& ports = j.at("players");
         for (int port = 0; port < num_ports && port < (int)ports.size(); port++) {
             for (int device = 0; device < device_count; device++) {
@@ -458,7 +459,7 @@ void rush2::controls::load() {
         }
     }
     catch (const std::exception& e) {
-        printf("[Controls] Couldn't read %s: %s\n", save_path().string().c_str(), e.what());
+        printf("[Controls] Couldn't read the bindings: %s\n", e.what());
     }
 }
 
@@ -485,10 +486,8 @@ void rush2::controls::save() {
         }
     }
 
-    std::ofstream out{ save_path() };
-    if (out) {
-        out << nlohmann::json{ { "players", ports } }.dump(2) << "\n";
-    }
+    rush2::data_files::write(rush2::data_files::File::Players, bindings_section,
+        nlohmann::json{ { "players", ports } }.dump());
 }
 
 void rush2::controls::snapshot() {

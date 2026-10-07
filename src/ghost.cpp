@@ -4,7 +4,7 @@
 // menu's row, src/track2049_menu.cpp, which takes ONE RACE's path) from its release at the start (car + 0x71C, set by
 // func_8008D6F8 at GO) to the finish, one sample per physics tick. A finished run among the profile's fastest on that
 // track, direction and lap count (Ghosts Kept, 3 by default) is kept, a file per run (<key>_<profile>_<n>.ghost) in
-// the data folder's "ghosts" folder in place of Rush 2049's Controller Pak notes, and the slowest beyond them deleted.
+// the save folder's "ghosts" folder in place of Rush 2049's Controller Pak notes, and the slowest beyond them deleted.
 // As on Rush 2049's car select, up to three kept ghosts race in GHOST RACE (GHOST 1-3, chosen on the car select with
 // the C buttons, the fastest by default), each a computer car (0x800D3E90 = their count):
 //
@@ -54,6 +54,8 @@
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 #include "util/file.h"
+
+#include "data_files.h"
 
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
@@ -319,7 +321,7 @@ namespace {
     }
 
     std::filesystem::path ghost_folder() {
-        return recompui::file::get_app_folder_path() / "ghosts";
+        return rush2::data_files::save_folder() / "ghosts";
     }
 
     // A profile name as it appears in file names.

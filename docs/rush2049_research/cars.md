@@ -56,7 +56,7 @@ plan below borrows slots instead.
   onto the body's vertices; wheels from Rush 2 or 2049 files 80/81 placed by the descriptor; paint mapped onto Rush 2's
   main/accent colours.
 - Saves: the selected type is saved in the player record; a 2049 choice keeps the old value and is stored in a side
-  file, like `track2049.json`.
+  file, like the save file's `track_select` section.
 - Engine sound: keep the host car's Rush 2 engine first; 2049's engine through `src/audio2049.cpp` later.
 
 ## 5. Rush 2 car asset layout [V] (asset 0x1D, PICKUP)
@@ -163,7 +163,7 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   Rush 2 car; func_800A37F4 allocates each slot at it + 0x400) is raised to the largest car at boot.
 - **Options.** See §9.
 - **Saves.** The extra types' per-car options live in side slots (16 x 0xC0 at 0x80222E00, one per player record),
-  kept in `car2049.json` and keyed by record address: the active players' records (0x8010D740 + k * 0x6C0) and the
+  kept in the `cars` section of `saves/rush2.n64.us.json` and keyed by record address: the active players' records (0x8010D740 + k * 0x6C0) and the
   Controller Pak image's (0x8004B220, 4 x 0x2200); the Controller Pak record keeps its layout. A new slot starts each
   2049 car with the record's Pickup options, ENGINE 1 and the car's own frame weight as its durability.
 - **Unlock All Cars** (src/cheats.cpp) rebuilds the list in the moved copy and appends the 2049 cars again.

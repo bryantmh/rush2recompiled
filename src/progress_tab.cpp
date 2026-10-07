@@ -1,6 +1,6 @@
 // Progress tab: the Rush 2 keys and Dew cans, SF Rush keys and Rush 2049 coins each profile has found
 // (src/collectibles.cpp), the unlock system's points and what each profile bought with them (src/unlocks.cpp), with a
-// button that takes a profile's purchases back, and the Unlock System option. The page follows the game's save, collectibles.json and this session's no-profile
+// button that takes a profile's purchases back, and the Unlock System option. The page follows the game's save, the side save file and this session's no-profile
 // players as they change.
 
 #include <bit>

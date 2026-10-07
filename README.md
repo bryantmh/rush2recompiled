@@ -17,6 +17,8 @@ You need to bring your own copy of the game. Nothing from the original cartridge
 - **Rebind everything.** The game's own Controls screen now lets you map any button, trigger, stick or key. It shows the right button icons for your controller.
 - **Split screen.** Two player races can run side by side in addition to the original top and bottom.
 - **Three and four players (experimental).** After player 2, press START on any free controller to join.
+- **Ghost races.** Previously a 2049 exclusive feature. Record your runs and race against your own ghost car.
+- **Unlocks.** Earn cars, tracks and engines through an UNLOCKS shop. You can disable and revert to original Rush 2 behavior if you wish
 
 ### Rush 2049 extras
 
@@ -74,7 +76,7 @@ To change your button layout, use the game's own **Controls** screen, under Setu
 
 Settings and saves live in `%LOCALAPPDATA%\Rush2Recompiled`. Paste that into the File Explorer address bar to get there.
 
-Your save file is `saves\rush2.n64.us.mpk`. Back it up if you care about your records.
+Your saves are in the `saves` folder: `rush2.n64.us.mpk` (the game's own save), `rush2.n64.us.json` (records, cars, keys, coins and unlocks of the added games) and `ghosts`. Back the folder up if you care about your records.
 
 Want to keep everything on a USB stick or next to the game? Turn on portable mode in the General tab under Data Location. Your data moves into the game's folder the next time you launch.
 

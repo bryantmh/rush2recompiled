@@ -8,7 +8,7 @@
 #include <vector>
 
 // SF Rush's keys and Rush 2049's coins on the added tracks (src/collectibles.cpp, docs/unlocks_plan.md). They are
-// picked up like Rush 2's keys and kept per profile name in collectibles.json, with what each profile bought with
+// picked up like Rush 2's keys and kept per profile name in the save file, with what each profile bought with
 // them (src/unlocks.cpp). Rush 2's own keys and Dew cans stay in its save and are only read.
 namespace rush2::collectibles {
     constexpr int rush2_courses = 12;       // Rush 2's tracks 0-11 (Las Vegas .. Stunt 1).

@@ -18,7 +18,6 @@ San Francisco Rush 2049:
     before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
-9) Car balancing and bars
 10) Main menu music as an option
 
 General:
@@ -44,22 +43,21 @@ General:
 5) Music skip track in pause menu feature. Currently music switches every time paused. this is not what we want
 6) Occasional tire sizing bugs
 7) Overhaul main menu UI groupings a bit due to all the new menus. Make it like 2049?
-
+8) Show accurate car stat numbers
+9) Show accurate track stats like length
+10) Feature to choose NPC vehicles from recomp menu
+11) Add items as their 2049 content is ported. battle arenas Downtown 5, Plaza 5, Roadkill 10, Factory 15; tires, transmissions and frames (maybe not).
 
 Next:
 
 Hide the stunt course variables that don't do anything
 
-Determine the significance of the data in these todos:
+Determine the significance of this data in these todos:
 Flag bit 0x400000 on placement records isn't understood and is stripped. (2049)
 
-Ghost races (src/ghost.cpp): working. Left: check whether ghosts make engine sounds (2049 mutes them); the car select's ghost
-    panel is plain text (2049 has GHOST 1-3 boxes); a ghost recorded in One Race or a circuit starts from that race's
-    grid spot and replays its collisions with drones that aren't there.
+Ghost races. Add option for physical drones and to add normal ai to a ghost race
 
-Unlock system (src/unlocks.cpp, src/unlocks_shop.cpp): add items as their 2049 content is ported. Suggested costs
-    (table 2): battle arenas Downtown 5, Plaza 5, Roadkill 10, Factory 15; tires, transmissions and frames once they are
-    real part rows (DURABILITY is a slider, so frames stay out until then). Rush 2049's race tracks 4-6 are the locked
-    ones (2049 locks Mission, Presidio and Gauntlet; check which file each is).
+Unlock system: 
+   It is possible for tracks and parts in unlock to not render
 
-It is possible for tracks and parts in unlock to not render
+Combine disparate JSON config files and ensure save files are all in the save directory next to the save file

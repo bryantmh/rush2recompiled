@@ -25,6 +25,8 @@
 #include "json/json.hpp"
 #include "recomp.h"
 #include "util/file.h"
+
+#include "data_files.h"
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "car2049.h"
@@ -927,11 +929,9 @@ namespace {
         MEM_B(0, (int32_t)(block + 3)) = (int8_t)b3;
     }
 
-    // The side slots are kept in car2049.json (the Controller Pak record has no room for them), keyed by the
-    // player record's address in the save area.
-    std::filesystem::path side_path() {
-        return recompui::file::get_app_folder_path() / "car2049.json";
-    }
+    // The side slots are kept in the save file's "cars" section (include/data_files.h; the Controller Pak record has
+    // no room for them), keyed by the player record's address in the save area.
+    const std::string side_section = "cars";
 
     void load_side_slots(uint8_t* rdram) {
         static bool loaded = false;
@@ -939,11 +939,8 @@ namespace {
             return;
         }
         loaded = true;
-        std::ifstream f(side_path());
-        if (!f) {
-            return;
-        }
-        nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
+        nlohmann::json j = nlohmann::json::parse(
+            rush2::data_files::read(rush2::data_files::File::Saves, side_section), nullptr, false);
         if (!j.is_object() || !j.contains("records") || !j["records"].is_object()) {
             return;
         }
@@ -989,16 +986,14 @@ namespace {
             snprintf(key, sizeof(key), "%08X", record);
             records[key] = hex;
         }
-        std::ofstream f(side_path(), std::ios::trunc);
-        if (f) {
-            nlohmann::json selected = nlohmann::json::object();
-            for (auto& [at, type] : selected_type_of) {
-                char key[16];
-                snprintf(key, sizeof(key), "%08X", at);
-                selected[key] = type;
-            }
-            f << nlohmann::json{ { "version", 5 }, { "records", records }, { "selected", selected } }.dump(2) << "\n";
+        nlohmann::json selected = nlohmann::json::object();
+        for (auto& [at, type] : selected_type_of) {
+            char key[16];
+            snprintf(key, sizeof(key), "%08X", at);
+            selected[key] = type;
         }
+        rush2::data_files::write(rush2::data_files::File::Saves, side_section,
+            nlohmann::json{ { "version", 5 }, { "records", records }, { "selected", selected } }.dump());
     }
 }
 

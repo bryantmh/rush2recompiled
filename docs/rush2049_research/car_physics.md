@@ -421,3 +421,23 @@ Recommended order: 2049 physics for 2049 cars, then bars computed from the physi
    now); TORQUE stays. Reusing rows keeps the car select layout and the save format.
 
 Open question: on 2049 cars, should 2049's five TIRES replace Rush 2's eleven sets, or sit alongside them?
+
+## 9. Accurate Car Stats (implemented, October 2026)
+
+Option "Accurate Car Stats" (Games tab, Rush 2049 section, default on; `rush2::car2049::set_accurate_bars`). The hook
+at the end of func_803B7F7C (`rush2_car49_bars_end`) overwrites the four bars for the selected car and options:
+
+- ACCELERATION: 1 / (simulated seconds to 100 mph); TOP SPEED: top-gear speed where thrust meets drag, including the
+  tires' pavement drag (-0.7 x off-road factor x v). Both use the TORQUE curve's map, the descriptor's torque scales and
+  gears (x ENGINE for 2049 cars), the weight's mass and the current Car Speeds factors.
+- CONTROL: steer force (x 0.5 when the yaw gain is non-zero) / yaw inertia (Rush 2's slide term).
+- DRIFTING: 0.5 x (yaw gain / yaw inertia) + 0.5 x (1 / rear lateral grip), each scaled over its range.
+- Each value maps to 0.1-1 between the worst and best reachable over every selectable car, both weight extremes, every
+  TORQUE curve, 2049 ENGINE 1 and 9, and every TIRES / SUSPENSION choice (cached per Car Speeds mode).
+
+Off, the game's own formulas (§4) run unchanged. Still to do: HANDLING on SUSPENSION, the 2049 tires (SLICKS, PRO
+SLICKS on all cars; 2049's five on 2049 cars, with unlock items), 2049's steering (func_800E1AA0), torque map and ENGINE
+rear grip for 2049 cars, and then CONTROL / DRIFTING for those cars from 2049's steering terms (reference state: 100
+ft/s, slide x = 0.3, yaw rate 1 rad/s, no pedals; 2049's steering equals a Rush 2 yaw gain of 120 x f at 100 ft/s).
+Note: Rush 2 car +0x734 is the throttle and +0x730 the brake (func_80070DB8 picks the torque-map row from +0x3B4, a
+copy of +0x734); the comments in include/ghost_logic.h and src/ghost.cpp have them swapped.
