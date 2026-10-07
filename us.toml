@@ -1039,6 +1039,13 @@ func = "func_8008B0CC"
 before_vram = 0x8008B0CC
 text = "    if (rush2_track1_breakable_hit(rdram, ctx) || rush2_collect_hit(rdram, ctx)) return;"
 
+# SF Rush wrong-way warning (src/track1.cpp): off while the car is next to a checkpoint SF Rush flags for it
+# (flag 4, track 6's figure 8), after func_8008CDA4 stores the angle.
+[[patches.hook]]
+func = "func_8008CDA4"
+before_vram = 0x8008D3A4
+text = "    rush2_track1_wrong_way(rdram, ctx);"
+
 # SF Rush fireworks (src/track1_audio.cpp): on an SF Rush track the FIRECRCK emitter is SF Rush's looped fireworks
 # sound, added to Rush 2's sound effect instrument as sound 116, so func_80062264 accepts sound ids up to 116.
 [[patches.hook]]
@@ -1055,13 +1062,6 @@ value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 # Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
 # 30-entry name table into a 30-entry array at 0x80300780 (was 7 at 0x803C7A44), with the 30-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
-# SF Rush wrong-way warning (src/track1.cpp): off while the car is next to a checkpoint SF Rush flags for it
-# (flag 4, track 6's figure 8), after func_8008CDA4 stores the angle.
-[[patches.hook]]
-func = "func_8008CDA4"
-before_vram = 0x8008D3A4
-text = "    rush2_track1_wrong_way(rdram, ctx);"
-
 [[patches.hook]]
 func = "func_800A7DCC"
 before_vram = 0x800A8588
@@ -10627,3 +10627,98 @@ text = "    rush2_unlocks_widgets(rdram, ctx);"
 func = "func_803BC048"
 before_vram = 0x803BC048
 text = "    if (rush2_unlocks_text(rdram, ctx)) return;"
+
+
+# Ghost races (src/ghost.cpp): race settings (a computer car per chosen ghost), race setup, the ghosts' cars and
+# colors, each car's physics tick (recording player 1, skipping the ghosts' scheduled steps), the drones' driver
+# (skipped for ghosts), the end of a physics tick (the ghosts' steps), car against car (not ghosts), standings, track
+# map and radar dots (not ghosts), the view's fog color (the ghosts' translucency), and the end of the car select's
+# text (the ghost choice).
+[[patches.hook]]
+func = "func_80094698"
+before_vram = 0x80094A2C
+text = "    rush2_ghost_settings(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A5110"
+before_vram = 0x800A5114
+text = "    rush2_ghost_race_setup(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A37F4"
+before_vram = 0x800A3B9C
+text = "    rush2_ghost_drone_type(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A37F4"
+before_vram = 0x800A3E7C
+text = "    rush2_ghost_drone_colors(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_80075880"
+before_vram = 0x80075880
+text = "    if (rush2_ghost_car_tick(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_80074990"
+before_vram = 0x80074990
+text = "    if (rush2_ghost_drive(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "func_80076578"
+before_vram = 0x8007660C
+text = "    rush2_ghost_tick_end(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8006F3C0"
+before_vram = 0x8006F434
+text = "    rush2_ghost_collide_self(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8006F3C0"
+before_vram = 0x8006F470
+text = "    rush2_ghost_collide_other(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800A1468"
+before_vram = 0x800A1674
+text = "    rush2_ghost_standings(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B8900"
+before_vram = 0x800B8958
+text = "    rush2_ghost_map_dot(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_800B8CC8"
+before_vram = 0x800B8D28
+text = "    rush2_ghost_radar_dot(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_8007C624"
+before_vram = 0x8007C918
+text = "    rush2_ghost_fog_color(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_803BC048"
+before_vram = 0x803BC7A8
+text = "    rush2_ghost_car_select_text(rdram, ctx);"
+
+# The race position HUD (func_800BA608): its total (0x8010C158 at 0x800BA7A4, into $v0) and its check for a lone car
+# ($t6 at 0x800BA664) leave out the ghost cars.
+[[patches.hook]]
+func = "func_800BA608"
+before_vram = 0x800BA664
+text = "    ctx->r14 = rush2_ghost_hud_cars((int32_t)ctx->r14);"
+
+[[patches.hook]]
+func = "func_800BA608"
+before_vram = 0x800BA7A8
+text = "    ctx->r2 = rush2_ghost_hud_cars((int32_t)ctx->r2);"
+
+# Drafting in the car physics (func_80071FBC's loop over the other cars, 0x80072398): at 0x800723A8 a car skips the
+# other car $v1 when it is itself ($s7); ghosts neither draft nor are drafted (src/ghost.cpp).
+[[patches.hook]]
+func = "func_80071FBC"
+before_vram = 0x800723A8
+text = "    rush2_ghost_draft(rdram, ctx);"

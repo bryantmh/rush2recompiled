@@ -132,7 +132,8 @@ def glyph_cells(page, font=None):
     rectangles whose right and bottom edges are part of the glyph (the tiny font's 3x5 letters are listed as 2x4)."""
     extra = 1 if font and font.get('inclusive') else 0
     for i, (x0, y0, x1, y1) in enumerate(page['glyphs']):
-        if y1 != 0 and 0 <= x0 < x1 <= page['w'] and 0 <= y0 < y1 <= page['h']:
+        # Inclusive rectangles of one-texel-wide characters ('.', ':', '|') have x1 == x0.
+        if y1 != 0 and 0 <= x0 < x1 + extra and x1 <= page['w'] and 0 <= y0 < y1 + extra and y1 <= page['h']:
             yield page['first'] + i, x0, y0, min(x1 + extra, page['w']), min(y1 + extra, page['h'])
 
 
@@ -1250,7 +1251,7 @@ def trace(table_path):
             if hash_name not in sheets:
                 sheets[hash_name] = (font, dict(page, first=0, glyphs=[]))
             merged = sheets[hash_name][1]
-            for code, *rect in glyph_cells(page):
+            for code, *rect in ((page['first'] + i, *r) for i, r in enumerate(page['glyphs']) if r[3] != 0):
                 merged['glyphs'] += [[0, 0, 0, 0]] * (code + 1 - len(merged['glyphs']))
                 merged['glyphs'][code] = rect
 

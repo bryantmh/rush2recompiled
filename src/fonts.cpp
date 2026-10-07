@@ -174,10 +174,46 @@ static void dump_image_load(uint8_t* rdram, int32_t start, int32_t end) {
     pending_end = end;
 }
 
+// The small font (font 0, one 64 x 17 page from 0x16) has no ':' (its rectangle is empty), which times need. It gets one
+// in the sheet's unused space right of the digits: two full-intensity texels in a 1 x 5 cell, as its '.' (x = 51) has
+// one. The high-resolution pack draws the sheet's ':' from its squared glyphs like the others.
+static void add_small_font_colon(uint8_t* rdram) {
+    constexpr int colon_x = 40, colon_y = 12, height = 5;
+    int32_t font = (int32_t)font_table;
+    uint32_t pages = (uint32_t)MEM_W(0xC, font);
+    if (MEM_BU(0x9, font) != 1 || pages < 0x80000000u || pages >= 0x80800000u) {
+        return;
+    }
+    int32_t page = (int32_t)pages;
+    int first = MEM_HU(0x0, page), last = MEM_HU(0x2, page);
+    int width = MEM_H(0x6, page), sheet_height = MEM_H(0x8, page);
+    if (first > ':' || last < ':' || width != 64 || sheet_height < colon_y + height) {
+        return;
+    }
+    int32_t glyph = MEM_W(0x10, page) + (':' - first) * 8;
+    if (MEM_H(6, glyph) != 0) {
+        return;
+    }
+    int32_t image = MEM_W(0xC, page);
+    for (int y = colon_y; y < colon_y + height; y++) {
+        if (MEM_BU((y * width + colon_x) / 2, image) != 0) {
+            return; // not the unused space it was
+        }
+    }
+    for (int y : { colon_y + 1, colon_y + 3 }) {
+        MEM_B((y * width + colon_x) / 2, image) = (int8_t)0xF0; // even x: the high nibble
+    }
+    MEM_H(0, glyph) = colon_x;
+    MEM_H(2, glyph) = colon_y;
+    MEM_H(4, glyph) = colon_x;
+    MEM_H(6, glyph) = colon_y + height - 1;
+}
+
 extern "C" {
 
 // func_80055F78 entry: loads a 2D image into the 2D display list.
 void rush2_font_load_begin(uint8_t* rdram, recomp_context* ctx) {
+    add_small_font_colon(rdram);
     dump_font_tables(rdram);
     font_load_start = MEM_W(0, (int32_t)dl_2d_cursor);
 }

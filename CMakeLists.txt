@@ -100,6 +100,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/collectibles.cpp
     ${CMAKE_SOURCE_DIR}/src/progress_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/unlocks.cpp
+    ${CMAKE_SOURCE_DIR}/src/ghost.cpp
+    ${CMAKE_SOURCE_DIR}/src/ghost_logic.cpp
     ${CMAKE_SOURCE_DIR}/src/unlocks_shop.cpp
     ${CMAKE_SOURCE_DIR}/src/track1.cpp
     ${CMAKE_SOURCE_DIR}/src/track1_convert.cpp

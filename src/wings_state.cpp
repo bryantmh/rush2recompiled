@@ -121,6 +121,13 @@ namespace {
     };
     std::array<CarWings, rush2::wings::max_cars> cars;
 
+    // Ghost cars' recorded wing input (physics thread).
+    struct GhostInput {
+        bool active = false;
+        rush2::wings::Input input;
+    };
+    std::array<GhostInput, rush2::wings::max_cars> ghost_inputs;
+
     std::array<std::atomic<int>, 2> player_style = { 0, 0 };
 
     float& f32(uint8_t* rdram, uint32_t addr) {
@@ -223,6 +230,29 @@ bool rush2::wings::get_pose(uint8_t* rdram, int index, Pose& out) {
     return true;
 }
 
+bool rush2::wings::car_input(uint8_t* rdram, int car, Input& out) {
+    if (car < 0 || car >= max_cars) {
+        return false;
+    }
+    uint32_t player = car_player(rdram, car);
+    if (player == 0) {
+        return false;
+    }
+    int player_index = int((player - players) / player_size);
+    out.held = player_index >= 0 && player_index < 2 && button_held(rdram, player_index);
+    out.stick_x = stick_axis(rdram, player, 0);
+    out.stick_y = stick_axis(rdram, player, 1);
+    out.style = player_index >= 0 && player_index < 2 ? player_style[player_index].load() : 0;
+    return true;
+}
+
+void rush2::wings::set_ghost_input(int car, bool active, const Input& in) {
+    if (car >= 0 && car < max_cars) {
+        ghost_inputs[car].active = active;
+        ghost_inputs[car].input = in;
+    }
+}
+
 uint32_t rush2::wings::car_struct(int index) {
     return 0x800F5470u + uint32_t(index) * 0x81Cu;
 }
@@ -237,17 +267,23 @@ extern "C" void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx) {
     CarWings& w = cars[index];
 
     uint32_t player = car_player(rdram, index);
+    const GhostInput& ghost = ghost_inputs[index];
     bool flag = false;
-    if (rush2::wings::enabled() && player != 0 && !(MEM_W(0, (int32_t)(car + car_flags)) & 0x10)) {
+    if (rush2::wings::enabled() && (player != 0 || ghost.active) && !(MEM_W(0, (int32_t)(car + car_flags)) & 0x10)) {
         flag = true;
         for (int i = 0; i < 4; i++) {
             if (!(f32(rdram, car + car_wheel_height + i * 4) > airborne_height)) {
                 flag = false;
             }
         }
-        int player_index = int((player - players) / player_size);
-        flag = flag && player_index >= 0 && player_index < 2 && rush2::wings::button_held(rdram, player_index);
-        w.player = player_index;
+        if (player != 0) {
+            int player_index = int((player - players) / player_size);
+            flag = flag && player_index >= 0 && player_index < 2 && rush2::wings::button_held(rdram, player_index);
+            w.player = player_index;
+        }
+        else {
+            flag = flag && ghost.input.held;
+        }
     }
     w.flag = flag;
 
@@ -257,6 +293,11 @@ extern "C" void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx) {
         if (w.player >= 0 && w.player < 2) {
             w.style = player_style[w.player];
         }
+    }
+    else if (ghost.active) {
+        w.stick_x = ghost.input.stick_x;
+        w.stick_y = ghost.input.stick_y;
+        w.style = std::clamp(ghost.input.style, 0, 2);
     }
 
     if (flag) {

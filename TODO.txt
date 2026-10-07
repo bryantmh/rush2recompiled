@@ -53,14 +53,13 @@ Hide the stunt course variables that don't do anything
 Determine the significance of the data in these todos:
 Flag bit 0x400000 on placement records isn't understood and is stripped. (2049)
 
-Ghost races: port 2049's ghost recording/playback (func_800CC50C, func_800F6AB8, max times 0x80111754) as logic
-    translated from its code, like the movers. Remap the car-state reads to Rush 2's car struct, draw the ghost as
-    a spare drone slot made translucent with no collision/standings/HUD/minimap, and save ghosts to files instead
-    of the Controller Pak. Add a GHOST RACE entry to Select Mode. It would just be a new item in the main menu above "Stunt"
+Ghost races (src/ghost.cpp): working. Left: check whether ghosts make engine sounds (2049 mutes them); the car select's ghost
+    panel is plain text (2049 has GHOST 1-3 boxes); a ghost recorded in One Race or a circuit starts from that race's
+    grid spot and replays its collisions with drones that aren't there.
 
 Unlock system (src/unlocks.cpp, src/unlocks_shop.cpp): add items as their 2049 content is ported. Suggested costs
     (table 2): battle arenas Downtown 5, Plaza 5, Roadkill 10, Factory 15; tires, transmissions and frames once they are
     real part rows (DURABILITY is a slider, so frames stay out until then). Rush 2049's race tracks 4-6 are the locked
     ones (2049 locks Mission, Presidio and Gauntlet; check which file each is).
 
-Opening progress stutters. reset should be in progress not players
+It is possible for tracks and parts in unlock to not render
