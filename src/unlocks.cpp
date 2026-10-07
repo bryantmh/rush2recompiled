@@ -13,6 +13,8 @@
 // - A Rush 2049 car's ENGINE row offers the three engines Rush 2049 starts with (3.2L HP V6, TURBO 350, 6.2L V8)
 //   and the ones the player's profile bought, which are bought in Rush 2049's unlock order (5.0L HP V6 first,
 //   8.0L V10 last; each needs the one before it).
+// - Every car's TIRES row offers Rush 2049's SLICKS and PRO SLICKS once the player's profile bought them (2049
+//   unlocks its tires by miles driven, its table 0x80150F00; its other three match tires Rush 2 already has).
 // With it off, each game's own rules apply where the port can follow them:
 // - Rush 2's mystery cars, PIPE and MIDWAY as in Rush 2.
 // - On an SF Rush track, half its keys unlock the Taxi and all of them the Hot Rod there, as in SF Rush; all of them
@@ -22,7 +24,7 @@
 //   48 race silver coins, GX-2 / MINI XS for 24 / 36 race gold coins, VENOM for all 32 stunt silver coins, CRUSHER /
 //   EURO LX for 16 / 24 stunt gold coins and PANTHER for every coin.
 // - Rush 2049 unlocks its tracks and parts by circuit places, stunt points, battle kills and miles, which the port
-//   doesn't keep, so the added tracks and every ENGINE level are open.
+//   doesn't keep, so the added tracks, every ENGINE level and every tire are open.
 // The Cheats tab's Unlock All Cars, Unlock All Tracks and Unlock All Parts open everything either way.
 
 #include <algorithm>
@@ -79,6 +81,8 @@ namespace {
         { "engine_7",      "6.5L HP V8",   "RUSH 2049", Kind::Part,  6, 6 },
         { "engine_8",      "TURBO 500",    "RUSH 2049", Kind::Part,  7, 8 },
         { "engine_9",      "8.0L V10",     "RUSH 2049", Kind::Part,  8, 10 },
+        { "tires_slicks",  "SLICKS",       "RUSH 2049", Kind::Part,  rush2::unlocks::tire_part + 1, 4 },
+        { "tires_pro",     "PRO SLICKS",   "RUSH 2049", Kind::Part,  rush2::unlocks::tire_part + 2, 8 },
     };
 
     constexpr uint32_t player_count = 0x8010C3E2;   // s16
@@ -171,7 +175,7 @@ bool rush2::unlocks::item_available(const Item& item) {
 }
 
 const Item* rush2::unlocks::prerequisite(const Item& item) {
-    return item.kind == Kind::Part ? find(Kind::Part, item.value - 1) : nullptr;
+    return item.kind == Kind::Part && item.value < tire_part ? find(Kind::Part, item.value - 1) : nullptr;
 }
 
 int rush2::unlocks::spent(const std::set<std::string>& purchases) {
@@ -206,6 +210,7 @@ void rush2::unlocks::filter_car_list(uint8_t* rdram, int player) {
     }
     if (!rush2::cheats::unlock_all_parts()) {
         rush2::car2049::limit_engines(rdram, player);
+        rush2::car2049::limit_tires(rdram, player);
     }
     if (rush2::cheats::unlock_all_cars()) {
         return;
@@ -261,6 +266,14 @@ bool rush2::unlocks::engine_open(uint8_t* rdram, int player, int level) {
         return true;
     }
     const Item* item = find(Kind::Part, level);
+    return item == nullptr || owns(collect::player_name(rdram, player), *item);
+}
+
+bool rush2::unlocks::tires_open(uint8_t* rdram, int player, int tire) {
+    if (!enabled() || rush2::cheats::unlock_all_parts()) {
+        return true;
+    }
+    const Item* item = find(Kind::Part, tire_part + tire);
     return item == nullptr || owns(collect::player_name(rdram, player), *item);
 }
 

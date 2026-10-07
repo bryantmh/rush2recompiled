@@ -343,8 +343,12 @@ namespace {
         shop.shown.clear();
     }
 
-    // An ENGINE level's model, as Rush 2049's setup screen picks it.
+    // A part's model, as Rush 2049's setup screen picks it: an ENGINE level's, or a tire's (after the engines in the
+    // parts asset).
     int engine_model(const Item& item) {
+        if (item.value >= rush2::unlocks::tire_part) {
+            return rush2::car2049::part_models + (item.value - rush2::unlocks::tire_part) % rush2::car2049::tire_models;
+        }
         return item.value % rush2::car2049::part_models;
     }
 
@@ -838,7 +842,7 @@ extern "C" int rush2_unlocks_shop_frame(uint8_t* rdram, recomp_context* ctx) {
         put_away_model(rdram, ctx);
     }
     rush2::engine2049::shop_frame();
-    std::string part = item != nullptr && item->kind == Kind::Part ? item->id : "";
+    std::string part = item != nullptr && item->kind == Kind::Part && item->value < rush2::unlocks::tire_part ? item->id : "";
     if (part != shop.revved) {
         shop.revved = part;
         if (!part.empty()) {

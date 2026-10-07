@@ -19,16 +19,23 @@ namespace rush2::car2049 {
     void append_to_car_list(uint8_t* rdram, int player);
     // Lowers player p's ENGINE choices on the 2049 cars to levels the unlock system offers them.
     void limit_engines(uint8_t* rdram, int player);
+    // Puts player p's TIRES choices the unlock system doesn't offer them back to the car's default.
+    void limit_tires(uint8_t* rdram, int player);
     // Swaps two players' rows (0-3) of the per-player car tables (src/players4.cpp's second car select round).
     void swap_player_rows(uint8_t* rdram, int a, int b);
 
     // Builds the 36-entry per-type tables (us.toml points the game at them). Call once at boot.
     void init_tables(uint8_t* rdram);
     // Builds the extended asset tables and serves the converted 2049 cars (assets 0x71 + n) and engine models (asset
-    // parts_asset: models part_model_name(i), Rush 2049's ENGINE0<first_part_model + i>G1). Call once at boot.
+    // parts_asset: models part_model_name(i), Rush 2049's ENGINE0<first_part_model + i>G1, then its TIRE01G1..TIRE04G1
+    // as part_model_name(part_models + i)). Call once at boot.
     constexpr int parts_asset = 0x7E;
     constexpr int first_part_model = 1;
     constexpr int part_models = 5;
+    constexpr int tire_models = 4;
+    // Rush 2049's TIRES (0 RADIALS, 1 SLICKS, 2 PRO SLICKS, 3 ALL TERRAIN, 4 OFF ROAD): their names, and the model its
+    // setup screen shows for one (tire % tire_models).
+    const char* tire_name(int tire);
     // Rush 2049's ENGINE levels (setup row C): their names, and the model its setup screen shows for one
     // (level % part_models, as its overlay's part drawing at 0x8039E7F0 picks it).
     constexpr int engine_levels = 9;

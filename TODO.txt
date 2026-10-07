@@ -1,6 +1,8 @@
 San Francisco Rush:
 1) MARKER and TIME placement objects are dropped; find out what they do in SF Rush.
 2) Car unique texture patterns as stripes
+3) Windmills not moving?
+4) Fully port checkpoint and on-track system
 
 San Francisco Rush 2049:
 1) Coins: missing HUD counter.
@@ -19,6 +21,8 @@ San Francisco Rush 2049:
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
 10) Main menu music as an option
+11) Water can be driven on
+12) On-track system. I can get teleported halfway across the map
 
 General:
 1) Better lighting? Bloom for emmissives?
