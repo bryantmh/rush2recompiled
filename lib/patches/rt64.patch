@@ -1,0 +1,622 @@
+diff --git a/src/common/rt64_enhancement_configuration.cpp b/src/common/rt64_enhancement_configuration.cpp
+index 1194a96..6dd8171 100644
+--- a/src/common/rt64_enhancement_configuration.cpp
++++ b/src/common/rt64_enhancement_configuration.cpp
+@@ -5,6 +5,9 @@
+ #include "rt64_enhancement_configuration.h"
+ 
+ namespace RT64 {
++    std::atomic<bool> GeneratedMipmapsEnabled = false;
++    std::atomic<uint32_t> GeneratedMipmapsAnisotropy = 0;
++
+     // EnhancementConfiguration
+     
+     EnhancementConfiguration::EnhancementConfiguration() {
+diff --git a/src/common/rt64_enhancement_configuration.h b/src/common/rt64_enhancement_configuration.h
+index 9ac8087..0856d45 100644
+--- a/src/common/rt64_enhancement_configuration.h
++++ b/src/common/rt64_enhancement_configuration.h
+@@ -4,9 +4,18 @@
+ 
+ #pragma once
+ 
++#include <atomic>
++
+ #include "rt64_common.h"
+ 
+ namespace RT64 {
++    // Set by the host application. Draws the textures the game loads with the mipmaps the texture cache generates for
++    // them (TextureMap::use), which stops distant textures from shimmering. Off is the console's behavior.
++    extern std::atomic<bool> GeneratedMipmapsEnabled;
++
++    // Set by the host application. The most anisotropy those mipmaps are filtered with, as its log2: 0 (none) to 4 (16x).
++    extern std::atomic<uint32_t> GeneratedMipmapsAnisotropy;
++
+     struct EnhancementConfiguration {
+         struct Framebuffer {
+             bool reinterpretFixULS;
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index 9fae0d4..382b3b6 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -7,6 +7,7 @@
+ #include "../include/rt64_extended_gbi.h"
+ 
+ #include "common/rt64_elapsed_timer.h"
++#include "common/rt64_enhancement_configuration.h"
+ #include "common/rt64_math.h"
+ #include "hle/rt64_color_converter.h"
+ #include "gbi/rt64_f3d.h"
+@@ -272,6 +273,7 @@ namespace RT64 {
+                 gpuTile.flags.rawTMEM = !textureReplaced && callTile.rawTMEM;
+                 gpuTile.flags.hasMipmaps = hasMipmaps;
+                 gpuTile.flags.shiftedByHalf = shiftedByHalf;
++                gpuTile.flags.anisotropy = GeneratedMipmapsAnisotropy;
+             }
+         }
+     }
+diff --git a/src/render/rt64_raster_shader.cpp b/src/render/rt64_raster_shader.cpp
+index 721a01e..8a4a1bb 100644
+--- a/src/render/rt64_raster_shader.cpp
++++ b/src/render/rt64_raster_shader.cpp
+@@ -275,7 +275,7 @@ namespace RT64 {
+         pss << std::string_view(RenderParamsText, sizeof(RenderParamsText));
+         pss << "RenderParams getRenderParams() {" + renderParamsCode + "; return rp; }";
+         pss <<
+-            "bool RasterPS(const RenderParams, float4, float2, float4, float4, bool, out float4, out float4);"
++            "bool RasterPS(const RenderParams, float4, float2, float4, float4, bool, out float4, out float4, out uint);"
+             "[shader(\"pixel\")]"
+             "void PSMain("
+             "  in float4 vertexPosition : SV_POSITION"
+@@ -289,6 +289,7 @@ namespace RT64 {
+         pss <<
+             ", out float4 pixelColor : SV_TARGET0"
+             ", out float4 pixelAlpha : SV_TARGET1"
++            ", out uint pixelCoverage : SV_Coverage"
+             ") {";
+ 
+         if (desc.flags.smoothShade) {
+@@ -298,9 +299,11 @@ namespace RT64 {
+         pss <<
+             "   float4 resultColor;"
+             "   float4 resultAlpha;"
+-            "   if (!RasterPS(getRenderParams(), vertexPosition, vertexUV, vertexSmoothColor, vertexFlatColor, false, resultColor, resultAlpha)) discard;"
++            "   uint resultCoverage;"
++            "   if (!RasterPS(getRenderParams(), vertexPosition, vertexUV, vertexSmoothColor, vertexFlatColor, false, resultColor, resultAlpha, resultCoverage)) discard;"
+             "   pixelColor = resultColor;"
+             "   pixelAlpha = resultAlpha;"
++            "   pixelCoverage = resultCoverage;"
+             "}";
+ 
+         return { vss.str(), pss.str() };
+diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
+index d1c5273..38d9cf0 100644
+--- a/src/render/rt64_shader_library.cpp
++++ b/src/render/rt64_shader_library.cpp
+@@ -573,7 +573,7 @@ namespace RT64 {
+         {
+             TextureDecodeDescriptorSet descriptorSet;
+             layoutBuilder.begin();
+-            layoutBuilder.addPushConstant(0, 0, sizeof(uint32_t) * 8, RenderShaderStageFlag::COMPUTE);
++            layoutBuilder.addPushConstant(0, 0, sizeof(uint32_t) * 9, RenderShaderStageFlag::COMPUTE);
+             layoutBuilder.addDescriptorSet(descriptorSet);
+             layoutBuilder.end();
+             textureDecode.pipelineLayout = layoutBuilder.create(device);
+diff --git a/src/render/rt64_texture.h b/src/render/rt64_texture.h
+index 95618bc..ba62da3 100644
+--- a/src/render/rt64_texture.h
++++ b/src/render/rt64_texture.h
+@@ -12,6 +12,7 @@ namespace RT64 {
+         uint64_t creationFrame = 0;
+         std::unique_ptr<RenderTexture> texture;
+         std::unique_ptr<RenderTexture> tmem;
++        std::vector<std::unique_ptr<RenderTextureView>> mipViews; // One per generated mipmap level, for the decoder to write to.
+         RenderFormat format = RenderFormat::UNKNOWN;
+         uint32_t width = 0;
+         uint32_t height = 0;
+diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
+index 0848f3e..b11c6db 100644
+--- a/src/render/rt64_texture_cache.cpp
++++ b/src/render/rt64_texture_cache.cpp
+@@ -11,6 +11,7 @@
+ // Needs to be included before other headers.
+ #include "gbi/rt64_f3d.h"
+ 
++#include "common/rt64_enhancement_configuration.h"
+ #include "common/rt64_filesystem_directory.h"
+ #include "common/rt64_filesystem_zip.h"
+ #include "common/rt64_load_types.h"
+@@ -240,7 +241,7 @@ namespace RT64 {
+ 
+         hashMap[hash] = textureIndex;
+         textures[textureIndex] = texture;
+-        cachedTextureDimensions[textureIndex] = interop::float3(float(texture->width), float(texture->height), 1.0f);
++        cachedTextureDimensions[textureIndex] = interop::float3(float(texture->width), float(texture->height), float(std::max(texture->mipmaps, 1U)));
+         textureReplacements[textureIndex] = nullptr;
+         textureReplacementShiftedByHalf[textureIndex] = false;
+         textureReplacementReferenceCounted[textureIndex] = false;
+@@ -310,7 +311,10 @@ namespace RT64 {
+             shiftedByHalf = textureReplacementShiftedByHalf[textureIndex];
+         }
+         else {
++            // Mipmaps generated for a texture the game loaded. The shader tells them from a replacement's by the tile
++            // not being high resolution, and draws with them in place of the game's own mipmapping (RasterPS).
+             textureDimensions = cachedTextureDimensions[textureIndex];
++            hasMipmaps = GeneratedMipmapsEnabled && (textureDimensions.z > 1.0f);
+         }
+ 
+         // Remove the existing entry from the list if it exists.
+@@ -1059,6 +1063,7 @@ namespace RT64 {
+                 // issues that can't be accounted for. Using dedicated copy queues for these operations has shown to eliminate these issues entirely.
+                 copyWorker->commandList->begin();
+                 textureMapAdditions.clear();
++                uint32_t mipDescriptorSetCount = 0;
+ 
+                 for (size_t i = 0; i < queueSize; i++) {
+                     static uint32_t TMEMGlobalCounter = 0;
+@@ -1105,10 +1110,35 @@ namespace RT64 {
+                         static uint32_t TextureGlobalCounter = 0;
+                         TextureDecodeDescriptorSet *descSet = descriptorSets[i].get();
+                         dstTexture->format = RenderFormat::R8G8B8A8_UNORM;
+-                        dstTexture->texture = directWorker->device->createTexture(RenderTextureDesc::Texture2D(upload.width, upload.height, 1, dstTexture->format, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
++
++                        // Generated mipmaps: a level is added for as long as both sides halve exactly, so every texel of a
++                        // level covers a whole block of the texture and the levels wrap and mirror the way it does.
++                        uint32_t mipLevels = 1;
++                        while ((((upload.width >> mipLevels) << mipLevels) == upload.width) && (((upload.height >> mipLevels) << mipLevels) == upload.height)) {
++                            mipLevels++;
++                        }
++
++                        dstTexture->mipmaps = mipLevels;
++                        dstTexture->texture = directWorker->device->createTexture(RenderTextureDesc::Texture2D(upload.width, upload.height, mipLevels, dstTexture->format, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
+                         dstTexture->texture->setName("Texture Cache RGBA32 #" + std::to_string(TextureGlobalCounter++));
+                         descSet->setTexture(descSet->TMEM, dstTexture->tmem.get(), RenderTextureLayout::SHADER_READ);
+                         descSet->setTexture(descSet->RGBA32, dstTexture->texture.get(), RenderTextureLayout::GENERAL);
++
++                        // The decoder fills each level in from TMEM in a dispatch of its own, through a view of the level.
++                        for (uint32_t m = 1; m < mipLevels; m++) {
++                            if (mipDescriptorSetCount == mipDescriptorSets.size()) {
++                                mipDescriptorSets.emplace_back(std::make_unique<TextureDecodeDescriptorSet>(directWorker->device));
++                            }
++
++                            RenderTextureViewDesc mipViewDesc = RenderTextureViewDesc::Texture2D(dstTexture->format);
++                            mipViewDesc.mipSlice = m;
++                            mipViewDesc.mipLevels = 1;
++                            dstTexture->mipViews.emplace_back(dstTexture->texture->createTextureView(mipViewDesc));
++
++                            TextureDecodeDescriptorSet *mipDescSet = mipDescriptorSets[mipDescriptorSetCount++].get();
++                            mipDescSet->setTexture(mipDescSet->TMEM, dstTexture->tmem.get(), RenderTextureLayout::SHADER_READ);
++                            mipDescSet->setTexture(mipDescSet->RGBA32, dstTexture->texture.get(), RenderTextureLayout::GENERAL, dstTexture->mipViews.back().get());
++                        }
+                         beforeDecodeBarriers.emplace_back(dstTexture->texture.get(), RenderTextureLayout::GENERAL);
+                     }
+ 
+@@ -1188,6 +1218,7 @@ namespace RT64 {
+ 
+                 const ShaderRecord &textureDecode = shaderLibrary->textureDecode;
+                 bool pipelineSet = false;
++                mipDescriptorSetCount = 0;
+                 for (size_t i = 0; i < queueSize; i++) {
+                     const TextureUpload &upload = queueCopy[i];
+                     if (upload.decodeTMEM) {
+@@ -1205,6 +1236,7 @@ namespace RT64 {
+                         decodeCB.stride = interop::uint(upload.loadTile.line) << 3;
+                         decodeCB.tlut = upload.tlut;
+                         decodeCB.palette = upload.loadTile.palette;
++                        decodeCB.mipLevel = 0;
+ 
+                         // Dispatch compute shader for decoding texture.
+                         const uint32_t ThreadGroupSize = 8;
+@@ -1214,6 +1246,16 @@ namespace RT64 {
+                         directWorker->commandList->setComputeDescriptorSet(descriptorSets[i]->get(), 0);
+                         directWorker->commandList->dispatch(dispatchX, dispatchY, 1);
+ 
++                        // Generated mipmap levels, in the order their descriptor sets were filled in.
++                        for (uint32_t m = 1; m < textureMapAdditions[i].texture->mipmaps; m++) {
++                            decodeCB.Resolution.x = upload.width >> m;
++                            decodeCB.Resolution.y = upload.height >> m;
++                            decodeCB.mipLevel = m;
++                            directWorker->commandList->setComputePushConstants(0, &decodeCB);
++                            directWorker->commandList->setComputeDescriptorSet(mipDescriptorSets[mipDescriptorSetCount++]->get(), 0);
++                            directWorker->commandList->dispatch((decodeCB.Resolution.x + ThreadGroupSize - 1) / ThreadGroupSize, (decodeCB.Resolution.y + ThreadGroupSize - 1) / ThreadGroupSize, 1);
++                        }
++
+                         afterDecodeBarriers.emplace_back(RenderTextureBarrier(textureMapAdditions[i].texture->texture.get(), RenderTextureLayout::SHADER_READ));
+                     }
+                 }
+diff --git a/src/render/rt64_texture_cache.h b/src/render/rt64_texture_cache.h
+index 9131697..9937d1d 100644
+--- a/src/render/rt64_texture_cache.h
++++ b/src/render/rt64_texture_cache.h
+@@ -31,6 +31,7 @@ namespace interop {
+         uint stride;
+         uint tlut;
+         uint palette;
++        uint mipLevel;
+     };
+ };
+ 
+@@ -205,6 +206,7 @@ namespace RT64 {
+         std::vector<std::unique_ptr<RenderBuffer>> tmemUploadResources;
+         std::vector<std::unique_ptr<RenderBuffer>> replacementUploadResources;
+         std::vector<std::unique_ptr<TextureDecodeDescriptorSet>> descriptorSets;
++        std::vector<std::unique_ptr<TextureDecodeDescriptorSet>> mipDescriptorSets;
+         std::mutex uploadQueueMutex;
+         std::condition_variable uploadQueueChanged;
+         std::condition_variable uploadQueueFinished;
+diff --git a/src/shaders/RasterPS.hlsl b/src/shaders/RasterPS.hlsl
+index e7895c3..ffd6b7a 100644
+--- a/src/shaders/RasterPS.hlsl
++++ b/src/shaders/RasterPS.hlsl
+@@ -46,7 +46,7 @@ float sampleBackgroundDepth(int2 pixelPos, uint sampleCount) {
+ #endif
+ 
+ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float2 vertexUV, float4 vertexSmoothColor, float4 vertexFlatColor,
+-    bool isFrontFace, out float4 resultColor, out float4 resultAlpha) 
++    bool isFrontFace, out float4 resultColor, out float4 resultAlpha, out uint resultCoverage) 
+ {
+     const OtherMode otherMode = { rp.omL, rp.omH };
+ #if defined(DYNAMIC_RENDER_PARAMS)
+@@ -130,6 +130,23 @@ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float
+     
+     computeLOD(otherMode, instanceRenderIndices[gConstants.renderIndex].rdpTileCount, instanceRDPParams[instanceIndex].primLOD, lodScale, ddxVertexUV, ddyVertexUV, tileIndex0, tileIndex1, lodFraction);
+ 
++    // How much of the textures is filtered with generated mipmaps (sampleGeneratedMipmaps), 0 to 1.
++    float filteredAmount = 0.0f;
++
++    // Generated mipmaps take the place of the game's own mipmapping where the texture's first tile has them: the first
++    // tile is drawn at every distance, as the RDP draws it up close, and sampleGeneratedMipmaps filters it. The game's
++    // levels are picked at the console's resolution and aren't filtered anisotropically or as cutouts. Detail and
++    // sharpen textures use the LOD for something else and are left alone.
++    bool gameLOD = (otherMode.textLOD() == G_TL_LOD);
++    if (gameLOD && (otherMode.textDetail() == G_TD_CLAMP) && !renderFlagRect(rp.flags) && renderFlagUsesTexture0(rp.flags)) {
++        const GPUTileFlags firstTileFlags = GPUTiles[instanceRenderIndices[gConstants.renderIndex].rdpTileIndex].flags;
++        if (gpuTileFlagHasMipmaps(firstTileFlags) && !gpuTileFlagHighRes(firstTileFlags)) {
++            tileIndex0 = 0;
++            lodFraction = 0.0f;
++            gameLOD = false;
++        }
++    }
++
+     float4 texVal0 = float4(0.0f, 0.0f, 0.0f, 1.0f);
+     float4 texVal1 = float4(0.0f, 0.0f, 0.0f, 1.0f);
+     if (renderFlagUsesTexture0(rp.flags)) {
+@@ -143,7 +160,7 @@ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float
+         
+         const GPUTile gpuTile = GPUTiles[globalTileIndex];
+         const float2 textureUV = gpuTileFlagHighRes(gpuTile.flags) ? vertexUV : lowResUV;
+-        texVal0 = sampleTexture(otherMode, rp.flags, textureUV, ddxVertexUV, ddyVertexUV, rdpTile, gpuTile, false);
++        texVal0 = sampleTexture(otherMode, rp.flags, textureUV, ddxVertexUV, ddyVertexUV, rdpTile, gpuTile, false, gameLOD, filteredAmount);
+     }
+     
+     if (renderFlagUsesTexture1(rp.flags)) {
+@@ -159,7 +176,7 @@ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float
+         const GPUTile gpuTile = GPUTiles[globalTileIndex];
+         const float2 textureUV = gpuTileFlagHighRes(gpuTile.flags) ? vertexUV : lowResUV;
+         const uint nativeSampler = renderFlagNativeSampler1(rp.flags);
+-        texVal1 = sampleTexture(otherMode, rp.flags, textureUV, ddxVertexUV, ddyVertexUV, rdpTile, gpuTile, oneCycleHardwareBug);
++        texVal1 = sampleTexture(otherMode, rp.flags, textureUV, ddxVertexUV, ddyVertexUV, rdpTile, gpuTile, oneCycleHardwareBug, gameLOD, filteredAmount);
+     }
+     
+     // Color combiner.
+@@ -200,8 +217,39 @@ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float
+     }
+ #endif
+     
+-    // Alpha compare.
+-    if (otherMode.alphaCompare() == G_AC_DITHER) {
++    // A texture cut out by its alpha without blending, where it's filtered with generated mipmaps: the alpha is the part
++    // of the pixel the texture covers, so that share of the pixel's samples is kept, in place of the all or nothing of
++    // the tests below, which break a cutout thinner than a pixel into dashes. The samples' thresholds are spread evenly
++    // and offset by a noise value per pixel, which with one sample is a dither. The tests' own threshold is eased into
++    // them as filtering starts, so a cutout seen up close is cut where it always was.
++    resultCoverage = 0xFFFFFFFFU;
++
++    const bool cutoutThreshold = (otherMode.alphaCompare() == G_AC_THRESHOLD);
++    const bool cutout = (cutoutThreshold || otherMode.cvgXAlpha()) && (otherMode.cycleType() != G_CYC_COPY) && !Blender::usesAlphaBlend(otherMode);
++    if (cutout && (filteredAmount > 0.0f)) {
++        const float cutoutAlpha = cutoutThreshold ? alphaCompareValue : combinerColor.a;
++        const float testThreshold = cutoutThreshold ? instanceRDPParams[instanceIndex].blendColor.a : (1.0f / 8.0f);
++
++        // Interleaved gradient noise: no two neighbors alike and no pattern for a row of cables to beat against.
++        const float2 noisePos = floor(vertexPosition.xy);
++        const float noise = frac(52.9829189f * frac(dot(noisePos, float2(0.06711056f, 0.00583715f))));
++
++        // Sample s is kept if cutoutAlpha >= lerp(testThreshold, (s + noise) / sampleCount, filteredAmount).
++        const uint sampleCount = 1U << renderFlagSampleCount(rp.flags);
++        const float keptLimit = (cutoutAlpha - testThreshold) / filteredAmount + testThreshold;
++        const uint keptCount = uint(clamp(floor(keptLimit * float(sampleCount) - noise) + 1.0f, 0.0f, float(sampleCount)));
++        if (keptCount == 0) {
++            return false;
++        }
++
++        // Which samples those are turns with the pixel too.
++        const uint allSamples = (1U << sampleCount) - 1U;
++        const uint keptSamples = (1U << keptCount) - 1U;
++        const uint turn = uint(frac(noise * 7.0f + 0.5f) * float(sampleCount)) % sampleCount;
++        resultCoverage = ((keptSamples << turn) | (keptSamples >> (sampleCount - turn))) & allSamples;
++        combinerColor.a = lerp(combinerColor.a, 1.0f, filteredAmount);
++    }
++    else if (otherMode.alphaCompare() == G_AC_DITHER) {
+         if (alphaCompareValue < nextRand(randomSeed)) {
+             return false;
+         }
+@@ -292,6 +340,7 @@ void PSMain(
+ #endif
+     , [[vk::location(0)]] [[vk::index(0)]] out float4 pixelColor : SV_TARGET0
+     , [[vk::location(0)]] [[vk::index(1)]] out float4 pixelAlpha : SV_TARGET1
++    , out uint pixelCoverage : SV_Coverage
+ )
+ {
+ #if !defined(DYNAMIC_RENDER_PARAMS)
+@@ -303,11 +352,13 @@ void PSMain(
+     float4 resultColor;
+     float4 resultAlpha;
+     float resultDepth;
+-    if (!RasterPS(getRenderParams(), vertexPosition, vertexUV, vertexSmoothColor, vertexFlatColor, isFrontFace, resultColor, resultAlpha)) {
++    uint resultCoverage;
++    if (!RasterPS(getRenderParams(), vertexPosition, vertexUV, vertexSmoothColor, vertexFlatColor, isFrontFace, resultColor, resultAlpha, resultCoverage)) {
+         discard;
+     }
+ 
+     pixelColor = resultColor;
+     pixelAlpha = resultAlpha;
++    pixelCoverage = resultCoverage;
+ }
+ #endif
+\ No newline at end of file
+diff --git a/src/shaders/TextureDecodeCS.hlsl b/src/shaders/TextureDecodeCS.hlsl
+index 19e6fad..0fd02a8 100644
+--- a/src/shaders/TextureDecodeCS.hlsl
++++ b/src/shaders/TextureDecodeCS.hlsl
+@@ -14,6 +14,7 @@ struct TextureDecodeCB {
+     uint stride;
+     uint tlut;
+     uint palette;
++    uint mipLevel;
+ };
+ 
+ [[vk::push_constant]] ConstantBuffer<TextureDecodeCB> gConstants : register(b0);
+@@ -23,6 +24,27 @@ RWTexture2D<float4> RGBA32 : register(u2);
+ [numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
+ void CSMain(uint2 coord : SV_DispatchThreadID) {
+     if ((coord.x < gConstants.Resolution.x) && (coord.y < gConstants.Resolution.y)) {
+-        RGBA32[coord] = sampleTMEM(coord, gConstants.siz, gConstants.fmt, gConstants.address, gConstants.stride, gConstants.tlut, gConstants.palette, TMEM);
++        if (gConstants.mipLevel == 0) {
++            RGBA32[coord] = sampleTMEM(coord, gConstants.siz, gConstants.fmt, gConstants.address, gConstants.stride, gConstants.tlut, gConstants.palette, TMEM);
++        }
++        else {
++            // A generated mipmap level (see the texture cache's upload thread): each texel is the average of the block of
++            // decoded texels it covers. Color is weighted by alpha so transparent texels don't bleed theirs in.
++            const uint blockSize = 1U << gConstants.mipLevel;
++            const uint2 blockCoord = coord << gConstants.mipLevel;
++            float4 weightedSum = float4(0.0f, 0.0f, 0.0f, 0.0f);
++            float3 colorSum = float3(0.0f, 0.0f, 0.0f);
++            for (uint y = 0; y < blockSize; y++) {
++                for (uint x = 0; x < blockSize; x++) {
++                    float4 texel = sampleTMEM(blockCoord + uint2(x, y), gConstants.siz, gConstants.fmt, gConstants.address, gConstants.stride, gConstants.tlut, gConstants.palette, TMEM);
++                    weightedSum += float4(texel.rgb * texel.a, texel.a);
++                    colorSum += texel.rgb;
++                }
++            }
++
++            const float texelCount = float(blockSize * blockSize);
++            const float3 color = (weightedSum.a > 0.0f) ? (weightedSum.rgb / weightedSum.a) : (colorSum / texelCount);
++            RGBA32[coord] = float4(color, weightedSum.a / texelCount);
++        }
+     }
+ }
+\ No newline at end of file
+diff --git a/src/shaders/TextureSampler.hlsli b/src/shaders/TextureSampler.hlsli
+index 1ceb2ce..6025780 100644
+--- a/src/shaders/TextureSampler.hlsli
++++ b/src/shaders/TextureSampler.hlsli
+@@ -80,7 +80,11 @@ float4 clampWrapMirrorSample(const RDPTile rdpTile, const GPUTile gpuTile, float
+         texelInt.y = clamp(texelInt.y, 0, (round(tcScale.y * rdpTile.lrt) / 4) - (round(tcScale.y * rdpTile.ult) / 4) + round(tcScale.y - 1.0f));
+     }
+     
+-    const int masks = round(rdpTile.masks * tcScale.x);
++    int masks = round(rdpTile.masks * tcScale.x);
++    if (rdpTile.masks > 0) {
++        masks = max(masks, 1);
++    }
++
+     if ((rdpTile.cms & G_TX_MIRROR) && (masks > 0) && (modulo(texelInt.x, masks * 2) >= masks)) {
+         texelInt.x = (masks - 1) - modulo(texelInt.x, masks);
+     }
+@@ -88,7 +92,11 @@ float4 clampWrapMirrorSample(const RDPTile rdpTile, const GPUTile gpuTile, float
+         texelInt.x = modulo(texelInt.x, masks);
+     }
+ 
+-    const int maskt = round(rdpTile.maskt * tcScale.y);
++    int maskt = round(rdpTile.maskt * tcScale.y);
++    if (rdpTile.maskt > 0) {
++        maskt = max(maskt, 1);
++    }
++
+     if ((rdpTile.cmt & G_TX_MIRROR) && (maskt > 0) && (modulo(texelInt.y, maskt * 2) >= maskt)) {
+         texelInt.y = (maskt - 1) - modulo(texelInt.y, maskt);
+     }
+@@ -142,7 +150,15 @@ float4 sampleTextureNative(Texture2D texture, uint nativeSampler, int2 texelBase
+ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool filterBilerp, bool filterAverage, bool linearFiltering, float2 uvCoord, uint tlut, bool canDecodeTMEM, uint mipLevel, bool usesHDR) {
+     float2 tcScale = gpuTile.tcScale;
+     float mipScale = float(1U << mipLevel);
+-    uvCoord /= mipScale;
++    if (gpuTileFlagHighRes(gpuTile.flags)) {
++        uvCoord /= mipScale;
++    }
++    else {
++        // A generated mipmap level (see sampleTexture). The RDP samples a texel at its whole coordinate, and a texel of
++        // this level is the average of a block of them, so its coordinate is the middle of that block.
++        uvCoord = (uvCoord + 0.5f) / mipScale - 0.5f;
++    }
++
+     tcScale /= mipScale;
+     
+     int2 texelBaseInt = floor(uvCoord);
+@@ -150,7 +166,7 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
+     float4 samples[4];
+     const uint nativeSampler = rdpTile.nativeSampler;
+     bool gpuTileUsesTMEM = canDecodeTMEM && gpuTileFlagRawTMEM(gpuTile.flags);
+-    if ((nativeSampler == NATIVE_SAMPLER_NONE) || gpuTileUsesTMEM) {
++    if ((nativeSampler == NATIVE_SAMPLER_NONE) || gpuTileUsesTMEM || (mipLevel > 0)) {
+ #if USE_FOR_LOOPS
+         int numSamples = select_uint(filtering, 4, 1);
+         [unroll]
+@@ -214,7 +230,104 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
+     }
+ }
+ 
+-float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputUV, float2 ddxUV, float2 ddyUV, const RDPTile rdpTile, const GPUTile gpuTile, bool nextPixelBug) {
++// Filters a texture the game loaded with the mipmaps the texture cache generated for it (its upload thread), which the
++// RDP has no equivalent of: a texture that isn't set up for the RDP's own mipmapping shimmers once it's drawn smaller
++// than its texels. baseColor is the texture sampled the RDP's way, and is what's returned while the texture is drawn
++// larger than that; ddxUV and ddyUV are in texels of the tile.
++//
++// Tiles a native sampler can address go through the linear samplers, which are anisotropic, with the anisotropy held
++// to the level in the tile's flags. Their texels are centered half a texel away from where the RDP samples them. Other
++// tiles are filtered between the two nearest levels with the RDP's filter.
++//
++// filteredAmount is raised to how much of the result is the filtered texture, 0 to 1. Its alpha is then the part of the
++// texels under the pixel that are opaque, which RasterPS turns into coverage for a texture that's cut out by its alpha.
++float4 sampleGeneratedMipmaps(float4 baseColor, const RDPTile rdpTile, const GPUTile gpuTile, bool filterBilerp, bool filterAverage, bool linearFiltering, float2 uvCoord, float2 ddxUV, float2 ddyUV, uint tlut, bool usesHDR, inout float filteredAmount) {
++    float2 major = ddxUV;
++    float2 minor = ddyUV;
++    if (dot(ddyUV, ddyUV) > dot(ddxUV, ddxUV)) {
++        major = ddyUV;
++        minor = ddxUV;
++    }
++
++    // This matches the bias of the linear samplers.
++    const float mipBias = -0.25f;
++    const float majorLength = length(major);
++    const float mip = log2(max(majorLength, 1e-6f)) + mipBias;
++    if (mip <= 0.0f) {
++        return baseColor;
++    }
++
++    float4 filteredColor;
++    const uint nativeSampler = rdpTile.nativeSampler;
++    if (nativeSampler != NATIVE_SAMPLER_NONE) {
++        // Widen the footprint across its long side until it's no more anisotropic than allowed.
++        const float2 majorDir = major / majorLength;
++        const float minorAlong = dot(minor, majorDir);
++        const float2 minorAcross = minor - majorDir * minorAlong;
++        const float acrossLength = length(minorAcross);
++        const float minAcrossLength = majorLength / float(1U << gpuTileFlagAnisotropy(gpuTile.flags));
++        if (acrossLength < minAcrossLength) {
++            const float2 acrossDir = (acrossLength > 1e-6f) ? (minorAcross / acrossLength) : float2(-majorDir.y, majorDir.x);
++            minor = majorDir * minorAlong + acrossDir * minAcrossLength;
++        }
++
++        Texture2D texture = gTextures[NonUniformResourceIndex(gpuTile.textureIndex)];
++        const float2 textureSize = gpuTile.textureDimensions.xy;
++        const float2 nativeUVCoord = (uvCoord + 0.5f) / textureSize;
++        const float2 ddxUVNorm = major / textureSize;
++        const float2 ddyUVNorm = minor / textureSize;
++        switch (nativeSampler) {
++            case NATIVE_SAMPLER_WRAP_WRAP:
++                filteredColor = texture.SampleGrad(gLinearWrapWrapSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++            case NATIVE_SAMPLER_WRAP_MIRROR:
++                filteredColor = texture.SampleGrad(gLinearWrapMirrorSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++            case NATIVE_SAMPLER_WRAP_CLAMP:
++                filteredColor = texture.SampleGrad(gLinearWrapClampSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++            case NATIVE_SAMPLER_MIRROR_WRAP:
++                filteredColor = texture.SampleGrad(gLinearMirrorWrapSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++            case NATIVE_SAMPLER_MIRROR_MIRROR:
++                filteredColor = texture.SampleGrad(gLinearMirrorMirrorSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++            case NATIVE_SAMPLER_MIRROR_CLAMP:
++                filteredColor = texture.SampleGrad(gLinearMirrorClampSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++            case NATIVE_SAMPLER_CLAMP_WRAP:
++                filteredColor = texture.SampleGrad(gLinearClampWrapSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++            case NATIVE_SAMPLER_CLAMP_MIRROR:
++                filteredColor = texture.SampleGrad(gLinearClampMirrorSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++            case NATIVE_SAMPLER_CLAMP_CLAMP:
++            default:
++                filteredColor = texture.SampleGrad(gLinearClampClampSampler, nativeUVCoord, ddxUVNorm, ddyUVNorm);
++                break;
++        }
++    }
++    else {
++        // The first level is baseColor. A texture with generated mipmaps is never decoded from TMEM here.
++        const uint maxMip = uint(gpuTile.textureDimensions.z) - 1;
++        const uint hiMip = min(uint(mip), maxMip);
++        const uint loMip = min(hiMip + 1, maxMip);
++        float4 hiLevel = baseColor;
++        if (hiMip > 0) {
++            hiLevel = sampleTextureLevel(rdpTile, gpuTile, filterBilerp, filterAverage, linearFiltering, uvCoord, tlut, false, hiMip, usesHDR);
++        }
++
++        const float4 loLevel = sampleTextureLevel(rdpTile, gpuTile, filterBilerp, filterAverage, linearFiltering, uvCoord, tlut, false, loMip, usesHDR);
++        filteredColor = lerp(hiLevel, loLevel, (hiMip < maxMip) ? frac(mip) : 1.0f);
++    }
++
++    // The filters differ a little where the texture is at its full size, so the change is eased in.
++    const float amount = saturate(mip * 2.0f);
++    filteredAmount = max(filteredAmount, amount);
++    return lerp(baseColor, filteredColor, amount);
++}
++
++float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputUV, float2 ddxUV, float2 ddyUV, const RDPTile rdpTile, const GPUTile gpuTile, bool nextPixelBug, bool gameLOD, inout float filteredAmount) {
+     const bool texturePerspective = (otherMode.textPersp() == G_TP_PERSP);
+     const bool applyCorrection = (!texturePerspective && !renderFlagRect(renderFlags));
+ 
+@@ -263,7 +376,11 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
+     const bool canDecodeTMEM = renderFlagCanDecodeTMEM(renderFlags);
+     const bool usesHDR = renderFlagUsesHDR(renderFlags);
+     const uint nativeSampler = rdpTile.nativeSampler;
+-    const bool flagHasMipmaps = gpuTileFlagHasMipmaps(gpuTile.flags);
++
++    // Mipmaps the texture cache generated for a texture the game loaded, rather than a replacement's: the texture is
++    // sampled the RDP's way here and sampleGeneratedMipmaps filters it afterwards.
++    const bool generatedMipmaps = gpuTileFlagHasMipmaps(gpuTile.flags) && !gpuTileFlagHighRes(gpuTile.flags);
++    const bool flagHasMipmaps = gpuTileFlagHasMipmaps(gpuTile.flags) && !generatedMipmaps;
+     uint numRDPSamples = 0;
+     uint RDPMipLevels[2];
+     RDPMipLevels[0] = 0;
+@@ -346,6 +463,14 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
+         float4 loLevel = textureSamples[1];
+         textureColor = lerp(hiLevel, loLevel, frac(mip));
+     }
++
++    // Rectangles are left as they are, and so is the game's own mipmapping where it's still in use (gameLOD, which
++    // RasterPS clears when the generated mipmaps take its place).
++    if (generatedMipmaps && !renderFlagRect(renderFlags) && !gameLOD) {
++        // In texels of the tile, as uvCoord is.
++        const float2 tileScale = perspCorrectionMod * float2(rdpTile.shifts, rdpTile.shiftt);
++        textureColor = sampleGeneratedMipmaps(textureColor, rdpTile, gpuTile, filterBilerp, filterAverage, linearFiltering, uvCoord, ddxUV * tileScale, ddyUV * tileScale, tlut, usesHDR, filteredAmount);
++    }
+     
+     // Alpha channel in framebuffer textures represent the coverage. A modulo operation must be performed
+     // to get the value that would correspond to the alpha channel when it's sampled.
+diff --git a/src/shared/rt64_gpu_tile.h b/src/shared/rt64_gpu_tile.h
+index 4548f15..dcca753 100644
+--- a/src/shared/rt64_gpu_tile.h
++++ b/src/shared/rt64_gpu_tile.h
+@@ -18,6 +18,7 @@ namespace interop {
+             uint rawTMEM : 1;
+             uint hasMipmaps : 1;
+             uint shiftedByHalf : 1;
++            uint anisotropy : 3; // Generated mipmaps: log2 of the most anisotropy they're filtered with.
+         };
+ 
+         uint value;
+@@ -49,6 +50,10 @@ namespace interop {
+     bool gpuTileFlagShiftedByHalf(GPUTileFlags flags) {
+         return flags & 0x20;
+     }
++
++    uint gpuTileFlagAnisotropy(GPUTileFlags flags) {
++        return (flags >> 6) & 0x7;
++    }
+ #endif
+     struct GPUTile {
+         float2 ulScale;

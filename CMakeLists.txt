@@ -35,6 +35,43 @@ add_compile_definitions(
     __PRFCHWINTRIN_H
 )
 
+# Changes to the submodules in lib/ are kept as lib/patches/<submodule>.patch, so they commit with this project and the
+# submodules stay on their upstream commits. Each patch is applied to its submodule's working tree here. After editing
+# a submodule, write its patch again with `python tools/lib_patch.py save` before committing.
+find_package(Git REQUIRED)
+file(GLOB LIB_PATCHES "${CMAKE_SOURCE_DIR}/lib/patches/*.patch")
+foreach(LIB_PATCH ${LIB_PATCHES})
+    get_filename_component(LIB_NAME ${LIB_PATCH} NAME_WE)
+    set(LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${LIB_NAME}")
+    set(LIB_APPLIED "${CMAKE_BINARY_DIR}/lib_patches/${LIB_NAME}.patch") # The patch as it was last applied.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${LIB_PATCH})
+
+    # Nothing to do if the working tree already has the patch, as it does after editing the submodule and saving.
+    execute_process(COMMAND ${GIT_EXECUTABLE} apply --reverse --check ${LIB_PATCH}
+        WORKING_DIRECTORY ${LIB_DIR} RESULT_VARIABLE LIB_NOT_APPLIED OUTPUT_QUIET ERROR_QUIET)
+    if (LIB_NOT_APPLIED)
+        # The patch changed since it was applied (a pull, say): take the old version out first.
+        if (EXISTS ${LIB_APPLIED})
+            execute_process(COMMAND ${GIT_EXECUTABLE} apply --reverse ${LIB_APPLIED}
+                WORKING_DIRECTORY ${LIB_DIR} OUTPUT_QUIET ERROR_QUIET)
+        endif()
+        execute_process(COMMAND ${GIT_EXECUTABLE} apply --whitespace=nowarn ${LIB_PATCH}
+            WORKING_DIRECTORY ${LIB_DIR} RESULT_VARIABLE LIB_PATCH_FAILED)
+        if (LIB_PATCH_FAILED)
+            message(FATAL_ERROR "lib/patches/${LIB_NAME}.patch doesn't apply to lib/${LIB_NAME}. If the submodule has "
+                "edits of its own, save them with tools/lib_patch.py or discard them, then configure again.")
+        endif()
+        message(STATUS "Applied lib/patches/${LIB_NAME}.patch")
+
+        # RT64's shader builds don't track the .hlsli files a shader includes, so rebuild them all.
+        file(GLOB LIB_SHADERS "${LIB_DIR}/src/shaders/*.hlsl")
+        if (LIB_SHADERS)
+            file(TOUCH_NOCREATE ${LIB_SHADERS})
+        endif()
+    endif()
+    configure_file(${LIB_PATCH} ${LIB_APPLIED} COPYONLY)
+endforeach()
+
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/rt64 ${CMAKE_BINARY_DIR}/rt64)
 
 set(BUILD_SHARED_LIBS OFF)

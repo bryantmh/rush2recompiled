@@ -1,0 +1,2 @@
+# Applied to the submodules with git apply (CMakeLists.txt), so kept byte for byte.
+lib/patches/*.patch -text
