@@ -51,6 +51,12 @@ namespace rush2::car2049 {
     // car and lane at Rush 2's speed, Rush2049 at Rush 2049's (docs/rush2049_research/cars.md §10).
     enum class SpeedMode : uint32_t { Rush2, Rush2049 };
     void set_speed_mode(SpeedMode mode);
+    // The "Accurate Car Stats" option (General tab): the car select's bars come from the race physics (on) or from Rush
+    // 2's own formulas (off).
+    void set_accurate_bars(bool on);
+    // The "Torque Rebalance" option (General tab): raises the HIGH torque curve's top end and lowers LOW's, so HIGH
+    // trades launch for top speed (on), or keeps Rush 2's curves (off).
+    void set_torque_rebalance(bool on);
     // An AI lane speed (u8 mph) of a Rush 2049 path (rush2049_path) or of any other, in the current mode.
     int map_lane_speed(int speed, bool rush2049_path);
     // How much the current mode raises Rush 2's mean lane speed (1 with Rush 2 speeds).

@@ -422,22 +422,66 @@ Recommended order: 2049 physics for 2049 cars, then bars computed from the physi
 
 Open question: on 2049 cars, should 2049's five TIRES replace Rush 2's eleven sets, or sit alongside them?
 
-## 9. Accurate Car Stats (implemented, October 2026)
+## 9. Accurate Car Stats and Torque Rebalance (implemented, October 2026)
 
-Option "Accurate Car Stats" (Games tab, Rush 2049 section, default on; `rush2::car2049::set_accurate_bars`). The hook
-at the end of func_803B7F7C (`rush2_car49_bars_end`) overwrites the four bars for the selected car and options:
+Two options in the General tab under "Cars", both on by default (`src/config.cpp`, `src/car2049.cpp`).
 
-- ACCELERATION: 1 / (simulated seconds to 100 mph); TOP SPEED: top-gear speed where thrust meets drag, including the
-  tires' pavement drag (-0.7 x off-road factor x v). Both use the TORQUE curve's map, the descriptor's torque scales and
-  gears (x ENGINE for 2049 cars), the weight's mass and the current Car Speeds factors.
-- CONTROL: steer force (x 0.5 when the yaw gain is non-zero) / yaw inertia (Rush 2's slide term).
-- DRIFTING: 0.5 x (yaw gain / yaw inertia) + 0.5 x (1 / rear lateral grip), each scaled over its range.
-- Each value maps to 0.1-1 between the worst and best reachable over every selectable car, both weight extremes, every
-  TORQUE curve, 2049 ENGINE 1 and 9, and every TIRES / SUSPENSION choice (cached per Car Speeds mode).
+**Corrections to the sections above.** Their simulated times, top speeds and "bars from physics" came from hand
+formulas that the game does not follow:
 
-Off, the game's own formulas (§4) run unchanged. Still to do: HANDLING on SUSPENSION, the 2049 tires (SLICKS, PRO
-SLICKS on all cars; 2049's five on 2049 cars, with unlock items), 2049's steering (func_800E1AA0), torque map and ENGINE
-rear grip for 2049 cars, and then CONTROL / DRIFTING for those cars from 2049's steering terms (reference state: 100
-ft/s, slide x = 0.3, yaw rate 1 rad/s, no pedals; 2049's steering equals a Rush 2 yaw gain of 120 x f at 100 ft/s).
-Note: Rush 2 car +0x734 is the throttle and +0x730 the brake (func_80070DB8 picks the torque-map row from +0x3B4, a
-copy of +0x734); the comments in include/ghost_logic.h and src/ghost.cpp have them swapped.
+- The "Yaw I" column (table 0x800C090C, car +0x644) is the crash threshold: a total force on the car above it wrecks
+  it (func_80071724). "Pitch/roll I" (0x800C08B0, car +0x5B4) is the weight used in car-to-car collisions
+  (func_8006E8D8). Every car turns with its descriptor's inverse inertias (+0x0C / +0x10 / +0x14 = 1 / 1527, 1636,
+  1000; yaw is +0x10; func_80069A14), the same in every Rush 2 and 2049 descriptor.
+- Car +0x5B0 is the mass in slugs, +0x5AC the weight in lb (mass x 0x80110018 = 32.2 x the race's gravity setting,
+  0x800A5E4C), also each wheel's load cap.
+- Straight line: func_8006A2FC passes on torque x m / (m + drivetrain inertia) and the clutch slips (func_80070730),
+  so the Pickup takes 7.6 s to 100 mph (formulas: 5.4 s) and tops out at 157 mph (formulas: 163).
+- The Rocket (type 20) has no drivetrain: func_800712EC gives it a thrust (+0x118) instead.
+
+**Physics step** (func_80071D78, per car per frame; dt = the frame time clamped to 0.016-0.1 s, car +0x718):
+func_80071A1C (inputs: front wheel angle +0x390 = +0x3A4 x steering, +0x3A4 = 540 / descriptor +0x50 degrees = 33.75;
+throttle +0x3B4, brake +0x3B8, clutch +0x3B0, gears), func_800715E8 (crash), func_800712EC (drivetrain: func_800711F4
+automatic shifts, func_80070DB8 engine torque, func_800709E8 ratio, func_80070730 clutch, then the differential: rear
+wheel torques +0x39C / +0x3A0 split by the wheels' loads), func_800706D0 (forces: func_800703EC ground contact and
+suspension travel, func_8006AFD8 wheels and drag, func_8006A02C force sum, func_80069E74 steering yaw terms,
+func_80069AB4 torque = sum of force x position, func_80069A54 / func_80069A14 accelerations, func_800697D0 velocities,
+func_8006942C position and orientation).
+
+- Body-frame velocity is car +0x34 (x, sideways), +0x38, +0x3C (z, forward); angular velocity +0x40, +0x44 (yaw),
+  +0x48; speed +0x3D4. A point's velocity is v + position x angular velocity (func_8006AE3C), so a turn toward +x has
+  a negative yaw rate.
+- Tire (func_8006A2FC, called by func_8006ABB0 per wheel): a brush model. Wheel struct (car +0x424 + 0x5C x wheel) =
+  the tire curve's six floats (radius 1, 4080 and 200: deflection spring and damper, +0xC cornering stiffness 16000
+  front / 32000 rear, +0x10 grip 2.6 front / 3.2 rear in Rush 2 and 2.8 rear in 2049, +0x14 inverse wheel inertia),
+  then +0x18 static load and coefficients from it (func_8008D84C), +0x44 deflection, +0x48 wheel spin. The side force
+  is load x a cubic in the slip, capped at sqrt(grip^2 - (drive force / load)^2) x load (friction circle); torque past
+  grip x load spins the wheel, which then gives no side force. func_8006ABB0 then scales the rear wheels' side force
+  by descriptor +0x78 x 0x800C0FF8.
+- Steering yaw terms (func_80069E74), with x = 1 - forward speed / speed: the slide term, speed x ((x - x^4) x
+  throttle + x^4) x steer force (+0x5A0), halved when the yaw gain is not 0, acts against the yaw only while sideways
+  and yaw velocity have the same sign (the tail out and still swinging out: a spin or a fishtail's overshoot); the
+  steering term is -steering x speed x yaw gain (+0x5A4). The steering input is the stick cubed, passed on at once
+  (func_80076694), with no reduction at speed.
+- The engine gives torque at rest only with +0x3DA / +0x3DC set (set when a race starts, 0x8008E3B4), and
+  func_800711F4 holds neutral while the asked gear +0x3E0 is 0.
+
+**Accurate Car Stats.** The bars come from driving a test car through that code (`TestCar` in `src/car2049.cpp`: the
+game's own func_8008DBA0, func_800712EC, func_8006A2FC and func_80069E74 on physics car slot 0, with flat ground, a
+level car and the motion integration supplied; its header comment lists every step). ACCELERATION = 1 / seconds to
+100 mph; TOP SPEED = the speed it settles at; DRIFTING = the widest slide angle in 1 s of full steering from 100 ft/s, drawn on a ratio (log) scale (over all
+2289 handling setups the angles run 3.6 to 98 degrees with the median at 23);
+CONTROL = 1 / the sliding over 3 s after being put into a 30 degree slide spinning at 1.5 rad/s, stick centered. Each
+bar runs from the lowest to the highest value over every selectable car and option (about 0.9 s to work out, once per
+Car Speeds / 2049 cars / Torque Rebalance state; results are cached per setup). TIRES' D grade and SUSPENSION move
+DRIFTING; TIRES' S grade moves CONTROL; rear grip and weight move both. Not shown by any bar: the off-road tires'
+grip on dirt and grass.
+
+**Torque Rebalance.** Patches the LOW and HIGH maps in RDRAM (`torque_changes`): LOW gains torque from 3450 to 5750
+rpm and loses it above 6900, HIGH gains it above 6900. On every car LOW then accelerates hardest and tops out lowest,
+HIGH the reverse, STANDARD between (Pickup, lightest: 6.8 / 7.6 / 8.4 s to 100 mph, 153 / 157 / 163 mph).
+
+Still to do: HANDLING on SUSPENSION, the 2049 tires (SLICKS, PRO SLICKS on all cars; 2049's five on 2049 cars, with
+unlock items), 2049's steering (func_800E1AA0), torque map and ENGINE rear grip for 2049 cars (the test car will pick
+those up once the race code has them). Rush 2 car +0x734 is the throttle and +0x730 the brake; the comments in
+include/ghost_logic.h and src/ghost.cpp have them swapped.
