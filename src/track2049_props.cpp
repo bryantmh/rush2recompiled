@@ -33,6 +33,7 @@
 
 #include "recomp.h"
 #include "assets.h"
+#include "ghost.h"
 #include "track2049.h"
 #include "track2049_movers_logic.h"
 #include "wings.h"
@@ -444,6 +445,10 @@ void rush2::track2049::props_car(uint8_t* rdram, uint32_t car) {
     }
     int index = (int)((car - cars) / car_size);
     if (index < 0 || index >= max_cars || MEM_H(0, (int32_t)(car + car_active)) == 0) {
+        return;
+    }
+    // Ghost cars (src/ghost.cpp) pass through props, as through cars.
+    if (rush2::ghost::is_ghost_car(index)) {
         return;
     }
     float c[3];

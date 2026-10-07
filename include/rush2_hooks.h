@@ -270,6 +270,7 @@ void rush2_ghost_fog_color(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_car_select_text(uint8_t* rdram, recomp_context* ctx);
 int32_t rush2_ghost_hud_cars(int32_t cars);
 void rush2_ghost_draft(uint8_t* rdram, recomp_context* ctx);
+int rush2_ghost_breakable_hit(uint8_t* rdram, recomp_context* ctx);
 
 #ifdef __cplusplus
 }
