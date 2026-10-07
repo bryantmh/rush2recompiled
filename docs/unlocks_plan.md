@@ -43,8 +43,16 @@ original rules the port follows with the unlock system off.
 - **Gotcha**: the car select loads the car the player record selects (record + 0x31), so the shop writes it and puts
   it back. The record's first section (+1..+0x33) has a byte sum at +0 (func_80096E68, checked by func_80098190 when
   the Controller Pak is read); writing the byte without it damages the note.
-- **Gotcha**: the carousel only loads the cars near the selected one; the others' node handles (0x80219DD0 +
-  (36 + type) x 0x134) are 0, which is the menus' background node. Touching node 0 blacks the background out.
+- **Gotcha**: a carousel car's node handle (0x80219DD0 + id x 0x134, id = player x 36 + type, shared with the race's
+  cars) is only good once its nodes are made: preview state 0x8021F470 + id x 0x7C, byte +0 (func_8008813C streams a
+  car in over several calls: +4 queued, +3, +2 asset loaded, +0 nodes made by func_80087A8C, +1 hidden). Before that
+  the handle is 0 (never loaded: the menus' background node) or whatever the id last had, from an earlier car select,
+  race or attract demo. Writing a transform through it hits another node of this scene: the menus' own nodes (0-8)
+  keep what is written until the game is restarted, which left the background and every model undrawn with only the
+  2D widgets on screen. Check byte +0 before using a handle.
+- **Gotcha**: func_803AA800, which every screen calls each frame, is the Controller Pak check (func_80098D14), not a
+  background: it sets 0x803CB41C when a player's pak changed, the game's screens go back to the menus on it, and only
+  the select player screen (func_803B4D88) clears it.
 
 ---------------------------------------------------------------------------------------------------------------------
 

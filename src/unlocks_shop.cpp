@@ -10,7 +10,9 @@
 // The shop is its own screen. It keeps what draws the 3D preview and the menus' background:
 // - The car select's setup (func_803B81F0: 1 builds the scene once, then each frame turns the car and slides its
 //   carousel towards the selected car; 0 tears it down) with the shop's widget table instead of the car select's
-//   (func_800604FC), and its background (func_803AA800). Its car list is the shop's cars
+//   (func_800604FC), and the Controller Pak check every screen runs each frame (func_803AA800: sets 0x803CB41C when
+//   a player's pak changed, on which the game's screens go back to the menus; the shop doesn't read it, and only
+//   the select player screen clears it, func_803B4D88). Its car list is the shop's cars
 //   (rush2::unlocks::filter_car_list), so the shop moves through its cars as the car select does: it sets the
 //   carousel's selected index and type, and the setup slides the carousel there. The setup starts on the car the
 //   player record has selected (record + 0x31), so the shop selects its car there, and puts the player's own car
@@ -46,7 +48,7 @@
 #include "unlocks.h"
 
 extern "C" void func_803B81F0(uint8_t* rdram, recomp_context* ctx); // Car select setup (1) / teardown (0).
-extern "C" void func_803AA800(uint8_t* rdram, recomp_context* ctx); // Menu background, per frame.
+extern "C" void func_803AA800(uint8_t* rdram, recomp_context* ctx); // Controller Pak change check, per frame.
 extern "C" void func_80080BD0(uint8_t* rdram, recomp_context* ctx); // Called first in the car select's frame.
 extern "C" void func_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
 extern "C" void func_800ABE5C(uint8_t* rdram, recomp_context* ctx); // Reloads the menus' assets (track select's B).
@@ -872,10 +874,15 @@ extern "C" int rush2_unlocks_text(uint8_t* rdram, recomp_context* ctx) {
     return 1;
 }
 
-// Start of func_8008813C ($a0 = car instance: the race's cars, then 36 + type for the car select's), which places a
-// car of the car select's carousel (its scene node handle at 0x80219DD0 + instance x 0x134) each frame: while the
-// shop shows a track or part it runs from here, and then the car is shrunk out of sight. Returns true to skip the
-// call.
+// Start of func_8008813C ($a0 = car preview id: player x 36 + type in the car select, and a race's cars use the same
+// ids), which places a car of the car select's carousel each frame: while the shop shows a track or part it runs from
+// here, and then the car is shrunk out of sight. Returns true to skip the call.
+//
+// func_8008813C streams a car in over several calls (preview state 0x8021F470 + id x 0x7C: +4 queued, +3, +2 asset
+// loaded, +0 nodes made by func_80087A8C, +1 hidden), and returns early from the ones before its nodes are made. Until
+// then the car's node handle (0x80219DD0 + id x 0x134) is the one its id last had: a node of an earlier car select, or
+// of the last race or attract demo, which in this scene is some other node (the menus' own, 0-8, whose transforms
+// nothing sets again) or a stale record. So only a car whose nodes are made is shrunk.
 extern "C" void func_8008813C(uint8_t* rdram, recomp_context* ctx);
 
 extern "C" int rush2_unlocks_carousel_car(uint8_t* rdram, recomp_context* ctx) {
@@ -888,10 +895,12 @@ extern "C" int rush2_unlocks_carousel_car(uint8_t* rdram, recomp_context* ctx) {
     inside = false;
     constexpr uint32_t car_nodes = 0x80219DD0;
     constexpr uint32_t car_node_stride = 0x134;
+    constexpr uint32_t car_previews = 0x8021F470;
+    constexpr uint32_t car_preview_stride = 0x7C;
     constexpr int instances = 2 * rush2::car2049::types;
     int instance = (int16_t)ctx->r4;
-    if (instance >= 0 && instance < instances) {
-        // Only the cars near the selected one are loaded; the others' handles are 0, which is the menus' background.
+    if (instance >= 0 && instance < instances &&
+        MEM_BU(0, (int32_t)(car_previews + instance * car_preview_stride)) != 0) {
         int16_t node = (int16_t)MEM_W(0, (int32_t)(car_nodes + instance * car_node_stride));
         if (node > 0) {
             shrink_node(rdram, ctx, node);
