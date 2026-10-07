@@ -11,8 +11,15 @@
 #include "recomp.h"
 #include "wings.h"
 
+namespace recomp::config {
+    class Config;
+}
+
 namespace rush2::wings {
     constexpr int max_cars = 8;
+
+    // The Games tab's config, games.json (src/wings.cpp): the Rush 2049 options and SF Rush's (src/rush1_rom.cpp).
+    recomp::config::Config& games_config();
 
     // ROM helpers of the Rush 2049 ROM picker (src/wings.cpp): SHA-1, and .v64/.n64 or little-endian images to big-endian
     // (false if the data isn't an N64 ROM).

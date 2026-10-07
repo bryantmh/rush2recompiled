@@ -32,8 +32,8 @@
 #include "wings_internal.h"
 
 namespace {
-    const std::string config_id = "rush1";
-    const std::string tracks_option_id = "tracks";
+    // In the Games tab's config, games.json (src/wings.cpp).
+    const std::string tracks_option_id = "sfrush_tracks";
     const char* rom_file_name = "rush1.z64";
 
     constexpr size_t rom_size = 0x800000;
@@ -45,8 +45,6 @@ namespace {
     constexpr uint32_t main_rom = 0x7A7930;
     constexpr uint32_t asset_table = 0x800C7C1C;
     constexpr int asset_count = 72;
-
-    recomp::config::Config rush1_config{ "SF Rush", config_id, false };
 
     std::mutex rom_mutex;
     std::shared_ptr<const std::vector<uint8_t>> rom_data;
@@ -101,7 +99,7 @@ namespace {
     }
 
     void update_rom_ui() {
-        rush1_config.update_option_disabled(tracks_option_id, !rush2::track1::rom_available());
+        rush2::wings::games_config().update_option_disabled(tracks_option_id, !rush2::track1::rom_available());
     }
 
     void select_rom() {
@@ -198,6 +196,7 @@ bool rush2::track1::read_asset(const std::vector<uint8_t>& rom, int index, std::
 }
 
 void rush2::track1::init_config() {
+    recomp::config::Config& rush1_config = rush2::wings::games_config();
     rush1_config.add_bool_option(
         tracks_option_id,
         "SF Rush Tracks",
@@ -216,7 +215,7 @@ void rush2::track1::add_games_section(rush2::ui::OptionsPage* page, std::functio
     rush2::ui::OptionsPage::Heading heading = page->add_heading("San Francisco Rush", rom_status_text());
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
     button->add_pressed_callback(select_rom);
-    page->add_option(rush1_config, tracks_option_id);
+    page->add_option(rush2::wings::games_config(), tracks_option_id);
     refresh = [note = heading.note, shown = rush2::track1::rom_available()]() mutable {
         if (rush2::track1::rom_available() != shown) {
             shown = !shown;
@@ -225,14 +224,8 @@ void rush2::track1::add_games_section(rush2::ui::OptionsPage* page, std::functio
     };
 }
 
-void rush2::track1::save_config() {
-    rush1_config.save_config();
-}
-
-// Runs after recompui::config::finalize() has registered the config path.
+// Runs after rush2::wings::load_config(), which loads the option.
 void rush2::track1::load_config() {
-    rush1_config.load_config();
-
     std::vector<uint8_t> data;
     std::filesystem::path path = stored_rom_path();
     if (std::filesystem::exists(path)) {

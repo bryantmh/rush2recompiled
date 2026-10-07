@@ -35,11 +35,11 @@
 #include "wings_internal.h"
 
 namespace {
-    const std::string config_id = "rush2049";
+    const std::string config_id = "games";
     const std::string wings_option_id = "wings";
-    const std::string tracks_option_id = "tracks";
-    const std::string cars_option_id = "cars";
-    const std::string drones_option_id = "computer_cars";
+    const std::string tracks_option_id = "rush2049_tracks";
+    const std::string cars_option_id = "rush2049_cars";
+    const std::string drones_option_id = "rush2049_computer_cars";
     const std::string speeds_option_id = "car_speeds";
     const std::string style_option_p1 = "wing_style_p1";
     const std::string style_option_p2 = "wing_style_p2";
@@ -52,9 +52,10 @@ namespace {
         0xdb, 0x2a, 0xa1, 0xa9, 0x0c, 0xfe, 0x55, 0xd1, 0x92, 0x2c,
     };
 
-    // Owned here instead of through create_config_tab: its options are shown in the Games tab (src/games_tab.cpp)
-    // under the ROM picker, and the wing styles in the Players tab.
-    recomp::config::Config wings_config{ "Rush 2049", config_id, false };
+    // The Games tab's config, games.json: the Rush 2049 options here and SF Rush's (src/rush1_rom.cpp, through
+    // games_config()). Owned here instead of through create_config_tab: its options are shown in the Games tab
+    // (src/games_tab.cpp) under the ROM pickers, and the wing styles in the Players tab.
+    recomp::config::Config wings_config{ "Games", config_id, false };
 
     std::mutex rom_mutex;
     std::shared_ptr<const std::vector<uint8_t>> rom_data; // Big-endian ROM, null until a valid one is loaded.
@@ -224,6 +225,10 @@ namespace {
             update_rom_ui();
         });
     }
+}
+
+recomp::config::Config& rush2::wings::games_config() {
+    return wings_config;
 }
 
 std::shared_ptr<const std::vector<uint8_t>> rush2::wings::get_rom() {

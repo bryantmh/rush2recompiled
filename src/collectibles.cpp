@@ -20,7 +20,8 @@
 // - A coin plays Rush 2049's coin sound (0x06) when it is first taken.
 // Rush 2's own keys and Dew cans aren't touched: once per frame (rush2_collect_frame) their masks are copied from the
 // Controller Pak image's profiles, the race players' records and the no-profile table, for the Progress tab.
-// Masks are kept per profile name in collectibles.json in the app folder. Players without a profile share one
+// Masks are kept per profile name in the save file's "collectibles" section (include/data_files.h). Players
+// without a profile share one
 // session-only set, like Rush 2's no-profile keys. As in Rush 2, keys are only placed with one player (the placement
 // walker skips class records when racing with more).
 // What they buy (src/unlocks.cpp) is kept with them: each profile's purchases, by item id, in the same file.
@@ -41,6 +42,8 @@
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 #include "util/file.h"
+
+#include "data_files.h"
 #include "rush2_hooks.h"
 #include "audio2049.h"
 #include "collectibles.h"
@@ -84,7 +87,7 @@ namespace {
     using Masks = std::array<uint16_t, courses>;
 
     std::mutex collect_mutex;
-    std::map<std::string, Masks> store;     // By profile name, as in collectibles.json.
+    std::map<std::string, Masks> store;     // By profile name, as in the save file.
     Masks guest{};                          // Players without a profile, this session.
     std::map<std::string, std::set<std::string>> bought;   // Unlock system purchases by profile name.
     std::set<std::string> guest_bought;
@@ -159,11 +162,9 @@ namespace {
         return -1;
     }
 
-    // Side file
+    // Save file section (include/data_files.h)
 
-    std::filesystem::path store_path() {
-        return recompui::file::get_app_folder_path() / "collectibles.json";
-    }
+    const std::string store_section = "collectibles";
 
     std::string to_hex(const std::string& s) {
         static const char digits[] = "0123456789abcdef";
@@ -201,7 +202,7 @@ namespace {
         return s;
     }
 
-    // collectibles.json: { "version": 1, "profiles": [ { "name": "BOB", "key": "424f42", "sfrush": [7 masks],
+    // The section: { "version": 1, "profiles": [ { "name": "BOB", "key": "424f42", "sfrush": [7 masks],
     // "rush2049": [6 masks], "stunt2049": [4 masks], "unlocks": [item ids] } ] }. key is the name's bytes (the game's
     // character set isn't always ASCII); name is only for reading.
     struct Section {
@@ -217,13 +218,9 @@ namespace {
             return;
         }
         store_loaded = true;
-        std::ifstream f(store_path());
-        if (!f) {
-            return;
-        }
-        nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
+        nlohmann::json j = nlohmann::json::parse(
+            rush2::data_files::read(rush2::data_files::File::Saves, store_section), nullptr, false);
         if (j.is_discarded() || !j.contains("profiles") || !j["profiles"].is_array()) {
-            printf("[collectibles] Couldn't read %s\n", store_path().string().c_str());
             return;
         }
         for (const auto& pj : j["profiles"]) {
@@ -276,22 +273,8 @@ namespace {
             }
             list.push_back(pj);
         }
-        std::filesystem::path path = store_path();
-        std::filesystem::path temp = path;
-        temp += ".tmp";
-        {
-            std::ofstream f(temp, std::ios::trunc);
-            if (!f) {
-                printf("[collectibles] Couldn't write %s\n", temp.string().c_str());
-                return;
-            }
-            f << nlohmann::json{ { "version", 1 }, { "profiles", list } }.dump(2) << "\n";
-        }
-        std::error_code ec;
-        std::filesystem::rename(temp, path, ec);
-        if (ec) {
-            printf("[collectibles] Couldn't replace %s: %s\n", path.string().c_str(), ec.message().c_str());
-        }
+        rush2::data_files::write(rush2::data_files::File::Saves, store_section,
+            nlohmann::json{ { "version", 1 }, { "profiles", list } }.dump());
     }
 
     // A player's profile name, or "" without a profile.

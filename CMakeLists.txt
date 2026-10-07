@@ -76,6 +76,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/main.cpp
     ${CMAKE_SOURCE_DIR}/src/config.cpp
     ${CMAKE_SOURCE_DIR}/src/data_location.cpp
+    ${CMAKE_SOURCE_DIR}/src/data_files.cpp
     ${CMAKE_SOURCE_DIR}/src/atomics.cpp
     ${CMAKE_SOURCE_DIR}/src/threads.cpp
     ${CMAKE_SOURCE_DIR}/src/pak.cpp

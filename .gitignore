@@ -3,6 +3,7 @@
 *.n64
 *.v64
 build/
+tmp/
 ref/
 RecompiledFuncs/
 rsp/*.cpp

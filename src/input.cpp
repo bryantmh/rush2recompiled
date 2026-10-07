@@ -28,6 +28,8 @@
 #endif
 
 #include "json/json.hpp"
+
+#include "data_files.h"
 #include "recomp.h"
 #include "librecomp/game.hpp"
 #include "recompinput/recompinput.h"
@@ -270,9 +272,8 @@ namespace {
         return (mode == mode_racing || mode == mode_race_start || mode == mode_countdown) && MEM_B(0, (int32_t)pause_state) == 0;
     }
 
-    std::filesystem::path save_path() {
-        return recomp::get_config_path() / "players.json";
-    }
+    // players.json's section (include/data_files.h).
+    const std::string players_section = "controllers";
 
     void save_players() {
         nlohmann::json ports = nlohmann::json::array();
@@ -294,21 +295,19 @@ namespace {
             }
             keyboard = keyboard_port;
         }
-        std::ofstream out{ save_path() };
-        if (out) {
-            // The keyboard is stored as a player number, 0 for none.
-            out << nlohmann::json{ { "players", ports }, { "keyboard", keyboard + 1 } }.dump(2) << "\n";
-        }
+        // The keyboard is stored as a player number, 0 for none.
+        rush2::data_files::write(rush2::data_files::File::Players, players_section,
+            nlohmann::json{ { "players", ports }, { "keyboard", keyboard + 1 } }.dump());
     }
 }
 
 void rush2::input::load_players() {
-    std::ifstream in{ save_path() };
-    if (!in) {
+    std::string text = rush2::data_files::read(rush2::data_files::File::Players, players_section);
+    if (text.empty()) {
         return;
     }
     try {
-        nlohmann::json j = nlohmann::json::parse(in);
+        nlohmann::json j = nlohmann::json::parse(text);
         std::lock_guard lock{ players_mutex };
         const auto& ports = j.at("players");
         for (int port = 0; port < num_ports && port < (int)ports.size(); port++) {
@@ -328,7 +327,7 @@ void rush2::input::load_players() {
         keyboard_port = (keyboard >= 0 && keyboard < num_ports) ? keyboard : -1;
     }
     catch (const std::exception& e) {
-        printf("[Input] Couldn't read %s: %s\n", save_path().string().c_str(), e.what());
+        printf("[Input] Couldn't read the players' controllers: %s\n", e.what());
     }
 }
 

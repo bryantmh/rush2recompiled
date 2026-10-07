@@ -730,8 +730,8 @@ extern "C" void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ct
     write_string(rdram, 0x800CD170, "THERE ARE NO MORE ENTRIES AVAILABLE.");
 }
 
-// Deleting a player: the 2049 car options and selected car kept for its record (car2049.json, by record address), its
-// 2049 and SF Rush records (track2049_records.json, by name) and its SF Rush keys and 2049 coins (collectibles.json,
+// Deleting a player: the 2049 car options and selected car kept for its record ("cars", by record address), its
+// 2049 and SF Rush records ("records", by name) and its SF Rush keys and 2049 coins ("collectibles",
 // by name) go too, so a player created in its place or with its name starts fresh.
 namespace {
     constexpr uint32_t pak_records = 0x8004B220;        // 4 paks of 0x2200 bytes: 5 player records of 0x6C0 each.

@@ -26,11 +26,11 @@ namespace rush2::track1 {
     // The user's Rush 1 ROM (src/rush1_rom.cpp): San Francisco Rush (USA), big-endian, or null.
     std::shared_ptr<const std::vector<uint8_t>> get_rom();
     bool rom_available();
-    // The SF Rush settings, shown in the Games tab (src/games_tab.cpp): adding them (before
-    // recompui::config::finalize()), the tab's section, saving, and loading them and the stored ROM (after finalize).
+    // The SF Rush settings, shown in the Games tab (src/games_tab.cpp) and kept in its config with Rush 2049's
+    // (src/wings.cpp): adding them (before recompui::config::finalize()), the tab's section, and loading the stored
+    // ROM (after rush2::wings::load_config()).
     void init_config();
     void add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh);
-    void save_config();
     void load_config();
 
     // The SF Rush Tracks option. Tracks are offered when it is on and the ROM is present.

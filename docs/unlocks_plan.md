@@ -8,7 +8,8 @@ tab, later in game.
 
 **Status.** The keys and coins are in (src/collectibles.cpp, src/progress_tab.cpp):
 - SF Rush keys and 2049 coins (race tracks and stunt arenas) are picked up through Rush 2's key code (§2.2).
-- They are kept per profile name in `collectibles.json`.
+- They are kept per profile name in the `collectibles` section of `saves/rush2.n64.us.json` (`src/data_files.cpp`;
+  `collectibles.json` below is that section).
 - The recomp menu's Progress tab shows them, along with Rush 2's own keys and Dew cans (read from its save once per
   frame; the game itself only shows one track's keys, on car select).
 

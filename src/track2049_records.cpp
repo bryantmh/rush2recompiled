@@ -2,7 +2,8 @@
 //
 // Both kinds of added track race in the host slot, and so does Rush 2049's obstacle course; below, "2049 track" stands
 // for any of them. Internally the added tracks are numbered 1-6 (Rush 2049), 7-13 (SF Rush tracks 1-7) and 14 (the
-// obstacle course); track2049_records.json keeps the SF Rush ones as { "game": "sfrush", "track": 1-7 } and the
+// obstacle course); the save file's "records" section (include/data_files.h) keeps the SF Rush ones as
+// { "game": "sfrush", "track": 1-7 } and the
 // obstacle course as { "track": "obstacle" }, so files written before they existed still load.
 //
 // A 2049 track is raced in the host slot (HAWAII, src/track2049.cpp), and Rush 2 indexes its records by track, so
@@ -21,7 +22,7 @@
 //   redirected to a side buffer in recomp memory (one block per player-record position, holding the 12 forward and
 //   backward 2049 tracks), which the game then reads and writes in place. The game's dirty marking ignores addresses
 //   outside the pak image, so nothing reaches the .mpk. Blocks are bound to a profile by name; they are loaded from
-//   and saved to track2049_records.json in the app folder. The no-profile stats go to a session-only block, as
+//   and saved to the save file's "records" section. The no-profile stats go to a session-only block, as
 //   Rush 2's own do.
 // - High-score table: the table isn't saved, so while the two functions that use it in a race run (func_800A952C,
 //   post-race records and name entry, and func_800606A8, the high-score screen) HAWAII's four rows (2 pages x
@@ -51,6 +52,8 @@
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 #include "util/file.h"
+
+#include "data_files.h"
 #include "rush2_hooks.h"
 #include "collectibles.h"
 #include "track1.h"
@@ -128,7 +131,7 @@ namespace {
     };
 
     std::mutex records_mutex;
-    std::map<std::string, Profile> store;   // By profile name, as in track2049_records.json.
+    std::map<std::string, Profile> store;   // By profile name, as in the save file.
     bool store_loaded = false;
     bool store_dirty = false;
 
@@ -197,11 +200,9 @@ namespace {
         }
     }
 
-    // Side file
+    // Save file section (include/data_files.h)
 
-    std::filesystem::path records_path() {
-        return recompui::file::get_app_folder_path() / "track2049_records.json";
-    }
+    const std::string records_section = "records";
 
     std::string format_time(uint16_t t) {
         char s[16];
@@ -270,13 +271,9 @@ namespace {
             return;
         }
         store_loaded = true;
-        std::ifstream f(records_path());
-        if (!f) {
-            return;
-        }
-        nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
+        nlohmann::json j = nlohmann::json::parse(
+            rush2::data_files::read(rush2::data_files::File::Saves, records_section), nullptr, false);
         if (j.is_discarded() || !j.contains("profiles") || !j["profiles"].is_array()) {
-            printf("[2049] Couldn't read %s\n", records_path().string().c_str());
             return;
         }
         for (const auto& pj : j["profiles"]) {
@@ -364,21 +361,8 @@ namespace {
                                  { "courses", course_list } });
             }
         }
-        std::filesystem::path path = records_path();
-        std::filesystem::path temp = path;
-        temp += ".tmp";
-        {
-            std::ofstream f(temp, std::ios::trunc);
-            if (!f) {
-                printf("[2049] Couldn't write %s\n", temp.string().c_str());
-                return;
-            }
-            f << nlohmann::json{ { "version", 1 }, { "profiles", list } }.dump(2) << "\n";
-        }
-        std::error_code ec;
-        std::filesystem::rename(temp, path, ec);
-        if (ec) {
-            printf("[2049] Couldn't replace %s: %s\n", path.string().c_str(), ec.message().c_str());
+        if (!rush2::data_files::write(rush2::data_files::File::Saves, records_section,
+                nlohmann::json{ { "version", 1 }, { "profiles", list } }.dump())) {
             return;
         }
         store_dirty = false;

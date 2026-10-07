@@ -62,7 +62,7 @@ void rush2::games::create_tab() {
         },
         nullptr,
         [](TabCloseContext) {
+            // Both games' options are one config.
             rush2::wings::save_config();
-            rush2::track1::save_config();
         });
 }

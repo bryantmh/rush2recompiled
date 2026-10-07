@@ -44,6 +44,7 @@
 #include "librecomp/rsp.hpp"
 
 #include "rush2.h"
+#include "data_files.h"
 #include "wings.h"
 #include "track2049.h"
 #include "car_engines.h"
@@ -554,6 +555,7 @@ int main(int argc, char** argv) {
 
     rush2::data_location::apply_pending_move();
     recomp::register_config_path(recompui::file::get_app_folder_path());
+    rush2::data_files::migrate();
     rush2::install_font_pack();
 
     for (const auto& game : supported_games) {
