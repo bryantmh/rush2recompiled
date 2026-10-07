@@ -2775,6 +2775,24 @@ void rush2::car2049::set_accurate_bars(bool on) {
     accurate_bars = on;
 }
 
+// The top of the main loop, once per frame (rush2_cheats_frame). find_ranges drives every selectable car through
+// every option that sets a bar's ends, about a second of work, which the first car select (or the unlock system's
+// shop, which runs the car select's setup) would otherwise stall on. It runs here instead while the game is in the
+// menus, track select or car select (game state 0x8010C0D0 0-2: no race is using the test car's slot): on the first
+// frame after boot, and again in the menus after Car Speeds, the 2049 cars or Torque Rebalance change.
+void rush2::car2049::prepare_bars(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t game_state = 0x8010C0D0;
+    if (!accurate_bars.load(std::memory_order_relaxed) || cache().ranged) {
+        return;
+    }
+    int32_t state = MEM_W(0, (int32_t)game_state);
+    if (state < 0 || state > 2) {
+        return;
+    }
+    TestCar car(rdram, ctx);
+    find_ranges(rdram, car);
+}
+
 extern "C" void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx) {
     bar_swap.active = false;
     apply_torque_rebalance(rdram);

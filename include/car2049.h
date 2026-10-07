@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string>
 
+#include "recomp.h"
+
 // Rush 2049 cars as Rush 2 car types 23-35 (src/car2049.cpp); type 22 is Rush 2's "no car" marker.
 namespace rush2::car2049 {
     constexpr int rush2_types = 22;
@@ -61,6 +63,8 @@ namespace rush2::car2049 {
     // The "Accurate Car Stats" option (General tab): the car select's bars come from the race physics (on) or from Rush
     // 2's own formulas (off).
     void set_accurate_bars(bool on);
+    // Works out the Accurate Car Stats bars' ranges ahead of the car select, from the main loop (each frame).
+    void prepare_bars(uint8_t* rdram, recomp_context* ctx);
     // The "Torque Rebalance" option (General tab): raises the HIGH torque curve's top end and lowers LOW's, so HIGH
     // trades launch for top speed (on), or keeps Rush 2's curves (off).
     void set_torque_rebalance(bool on);

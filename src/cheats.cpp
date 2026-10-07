@@ -660,6 +660,9 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
     if (has_unsynced && !recompui::is_any_context_shown()) {
         sync_config();
     }
+
+    // This is the port's once-per-frame hook at the top of the main loop.
+    rush2::car2049::prepare_bars(rdram, ctx);
 }
 
 bool rush2::cheats::unlock_all_cars() {
