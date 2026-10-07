@@ -78,7 +78,6 @@ namespace {
     constexpr int car_select_widget_count = 0x51;
     constexpr int widget_size = 0x28;
     constexpr uint32_t model_slots = 0x800D5788;    // u8: loaded model slots (func_8005BE3C searches 0..n-1)
-    constexpr uint32_t cars = 0x801124A0;           // Car state: position first.
     constexpr int car_select_state = 2;
     constexpr int menu_art_asset = 3;
 
@@ -168,13 +167,20 @@ namespace {
         float angle = 0.0f;
         float clock = 0.0f;         // Seconds, for the part's pulse.
         std::string revved;         // The part whose engine was last revved.
-        float preview_pos[3] = {};  // Where the car stands.
         uint32_t widgets = 0;       // The shop's widget table.
         int widget_count = 0;
         uint32_t scratch = 0;       // RDRAM for strings, a matrix and a position.
         uint32_t scratch_at = 0;
     };
     Shop shop;
+
+    // Where the selected car stands, and so the previews: the origin. func_803B81F0 places each carousel car at its
+    // carousel entry (0x80222100 + player x 0x410 + slot x 0x18: x, y, z, target x, angle; passed to func_8008813C,
+    // which hands it to func_8005A2D8 as the node's position). Its build (0x803B8DEC-0x803B8E94) sets y = z = 0 and
+    // x = 20 x the slot's offset from the selected car, and each frame slides x so the selected car rests at 0.
+    // The race's car state (0x801124A0) is not used by the car select: it holds whatever the last race or attract
+    // demo left, so it can't place the previews.
+    constexpr float preview_pos[3] = { 0.0f, 0.0f, 0.0f };
 
     constexpr uint32_t scratch_size = 0x1000;
     constexpr uint32_t scratch_matrix = 0xE00; // 9 floats
@@ -205,13 +211,6 @@ namespace {
         int32_t i;
         memcpy(&i, &f, 4);
         return i;
-    }
-
-    float f32_at(uint8_t* rdram, uint32_t addr) {
-        int32_t i = MEM_W(0, (int32_t)addr);
-        float f;
-        memcpy(&f, &i, 4);
-        return f;
     }
 
     void play_sound(uint8_t* rdram, recomp_context* ctx, int sound) {
@@ -383,7 +382,7 @@ namespace {
             MEM_W(0, (int32_t)(m + i * 4)) = fbits(i % 4 == 0 ? tiny : 0.0f);
         }
         for (int i = 0; i < 3; i++) {
-            MEM_W(0, (int32_t)(pos + i * 4)) = fbits(shop.preview_pos[i] - (i == 1 ? drop : 0.0f));
+            MEM_W(0, (int32_t)(pos + i * 4)) = fbits(preview_pos[i] - (i == 1 ? drop : 0.0f));
         }
         call(rdram, ctx, func_8005A2D8, node, (int32_t)pos, (int32_t)m);
     }
@@ -460,7 +459,7 @@ namespace {
         }
         for (int k = 0; k < 3; k++) {
             float moved = center[0] * rows[0][k] + center[1] * rows[1][k] + center[2] * rows[2][k];
-            MEM_W(0, (int32_t)(pos + k * 4)) = fbits(shop.preview_pos[k] - moved);
+            MEM_W(0, (int32_t)(pos + k * 4)) = fbits(preview_pos[k] - moved);
         }
         call(rdram, ctx, func_8005A2D8, node, (int32_t)pos, (int32_t)m);
     }
@@ -821,9 +820,6 @@ extern "C" int rush2_unlocks_shop_frame(uint8_t* rdram, recomp_context* ctx) {
     call(rdram, ctx, func_80080BD0);
     call(rdram, ctx, func_803B81F0, 1);
     if (!built) {
-        for (int i = 0; i < 3; i++) {
-            shop.preview_pos[i] = f32_at(rdram, cars + i * 4);
-        }
         make_models(rdram, ctx);
     }
     call(rdram, ctx, func_803AA800);
