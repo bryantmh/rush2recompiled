@@ -13,6 +13,8 @@ namespace rush2::ghost {
     // The Start Game menu (src/track2049_menu.cpp): whether GHOST RACE was the row chosen.
     void set_chosen(bool chosen);
     bool chosen();
+    // Whether race car `index` is a ghost (ghosts don't hit props, breakables or coins).
+    bool is_ghost_car(int index);
     // The Save Ghosts option: record every race, not only GHOST RACE.
     void set_save_all(bool on);
     // The Ghosts Kept option: how many of a profile's fastest runs per track, direction and lap count are kept.

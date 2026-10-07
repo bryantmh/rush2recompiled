@@ -1037,7 +1037,7 @@ text = "    rush2_track1_breakable_model(rdram, ctx); rush2_collect_breakable_mo
 [[patches.hook]]
 func = "func_8008B0CC"
 before_vram = 0x8008B0CC
-text = "    if (rush2_track1_breakable_hit(rdram, ctx) || rush2_collect_hit(rdram, ctx)) return;"
+text = "    if (rush2_ghost_breakable_hit(rdram, ctx) || rush2_track1_breakable_hit(rdram, ctx) || rush2_collect_hit(rdram, ctx)) return;"
 
 # SF Rush wrong-way warning (src/track1.cpp): off while the car is next to a checkpoint SF Rush flags for it
 # (flag 4, track 6's figure 8), after func_8008CDA4 stores the angle.

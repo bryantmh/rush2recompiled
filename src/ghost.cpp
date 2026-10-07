@@ -177,6 +177,7 @@ namespace {
 
     constexpr int max_ghosts = 3;                    // Rush 2049's car select: GHOST 1-3
     constexpr uint8_t ghost_alpha = 0x80;
+    constexpr uint32_t cutout_alpha = 0x20;         // texels below this alpha aren't drawn (alpha compare)
     constexpr float drift_limit = 0.05f;             // feet, at a keyframe
 
     // Test aids (environment): RUSH2_GHOST_TEST_TICKS=n keeps a recording after n ticks as if the car had finished;
@@ -793,16 +794,20 @@ namespace {
 
     // Render mode (G_SETOTHERMODE_L 0xE200001C) for a ghost: the last blender cycle mixes the pixel with memory by
     // the fog color's alpha. Rush 2's car modes fog in cycle 1 (P = fog, A = shade alpha); other modes get the
-    // blend in both cycles.
+    // blend in both cycles. The blender then no longer uses the pixel's own alpha, so alpha compare (threshold
+    // against the blend color's alpha, set by draw_model) keeps the shape of textures cut out by their alpha: a
+    // ghost's sparks against a wall are such quads (without it they drew as solid yellow squares).
     uint32_t translucent_mode(uint32_t rm) {
         constexpr uint32_t cycle2 = (0u << 28) | (1u << 24) | (1u << 20) | (0u << 16);   // IN * FOG_A + MEM * 1-A
         constexpr uint32_t cycle1 = (0u << 30) | (1u << 26) | (1u << 22) | (0u << 18);
         constexpr uint32_t AA_EN = 0x8, Z_CMP = 0x10, Z_UPD = 0x20, IM_RD = 0x40, CVG_DST_FULL = 0x200;
         constexpr uint32_t ZMODE_MASK = 0xC00, ZMODE_XLU = 0x800, ZMODE_DEC = 0xC00, FORCE_BL = 0x4000;
+        constexpr uint32_t ac_threshold = 1;    // G_AC_THRESHOLD
         uint32_t blender = (rm >> 30) == 3 ? (rm & 0xCCCC0000) | cycle2 : cycle1 | cycle2;
         uint32_t zmode = (rm & ZMODE_MASK) == ZMODE_DEC ? ZMODE_DEC : ZMODE_XLU;
         uint32_t flags = (rm & (AA_EN | Z_CMP | Z_UPD)) | IM_RD | CVG_DST_FULL | zmode | FORCE_BL;
-        return blender | flags | (rm & 0x7);
+        uint32_t alpha_compare = (rm & 0x3) != 0 ? (rm & 0x3) : ac_threshold;
+        return blender | flags | (rm & 0x4) | alpha_compare;
     }
 
     // A display list address the G_DL commands of the game's models use (KSEG0 or physical) as KSEG0, if it is in
@@ -987,6 +992,11 @@ bool rush2::ghost::chosen() {
     return chosen_flag;
 }
 
+bool rush2::ghost::is_ghost_car(int index) {
+    std::lock_guard lock{ mutex };
+    return racer_of(index) != nullptr;
+}
+
 void rush2::ghost::set_save_all(bool on) {
     save_all = on;
 }
@@ -1157,6 +1167,16 @@ extern "C" int32_t rush2_ghost_hud_cars(int32_t cars) {
     return cars;
 }
 
+// Start of func_8008B0CC, the car hit test for a breakable ($a0 = the car's index, $a1 = the breakable; $v0 = hit):
+// ghost cars hit no breakables (nor coins, which are breakables). Returns 1 to skip the test.
+extern "C" int rush2_ghost_breakable_hit(uint8_t* rdram, recomp_context* ctx) {
+    if (!rush2::ghost::is_ghost_car((int16_t)ctx->r4)) {
+        return 0;
+    }
+    ctx->r2 = 0;
+    return 1;
+}
+
 // func_80071FBC (car physics) at 0x800723A8, in its drafting loop over the other cars: `$v1` = the other car, skipped
 // when it is the car itself (`$s7`). Ghosts neither draft nor are drafted, so a ghost moves as its recording did
 // whoever is around it, and no one gains from it.
@@ -1226,12 +1246,14 @@ void rush2::ghost::draw_model(uint8_t* rdram, recomp_context* ctx) {
     }
     uint32_t dl = (uint32_t)ctx->r30;
     uint32_t copy = translucent_copy(rdram, dl);
-    GfxCommand ex[4];
+    GfxCommand ex[6];
     gEXPushOtherMode(&ex[0]);
     gEXPushFogColor(&ex[1]);
-    gEXPopFogColor(&ex[2]);
-    gEXPopOtherMode(&ex[3]);
-    uint32_t side = side_alloc(8 * 8);
+    gEXPushBlendColor(&ex[2]);
+    gEXPopBlendColor(&ex[3]);
+    gEXPopFogColor(&ex[4]);
+    gEXPopOtherMode(&ex[5]);
+    uint32_t side = side_alloc(11 * 8);
     uint32_t at = side;
     auto cmd = [&](uint32_t w0, uint32_t w1) {
         MEM_W(0, (int32_t)at) = (int32_t)w0;
@@ -1240,11 +1262,14 @@ void rush2::ghost::draw_model(uint8_t* rdram, recomp_context* ctx) {
     };
     cmd(ex[0].values.word0, ex[0].values.word1);
     cmd(ex[1].values.word0, ex[1].values.word1);
+    cmd(ex[2].values.word0, ex[2].values.word1);
     cmd(0xF8000000, (fog_color.load() & 0xFFFFFF00) | ghost_alpha);
+    cmd(0xF9000000, cutout_alpha);  // G_SETBLENDCOLOR: the alpha compare threshold
     cmd(0xDE000000, copy != 0 ? copy : dl);
     cmd(0xE7000000, 0);
-    cmd(ex[2].values.word0, ex[2].values.word1);
     cmd(ex[3].values.word0, ex[3].values.word1);
+    cmd(ex[4].values.word0, ex[4].values.word1);
+    cmd(ex[5].values.word0, ex[5].values.word1);
     cmd(0xDF000000, 0);
     ctx->r30 = (uint64_t)(int64_t)(int32_t)side;
 }
