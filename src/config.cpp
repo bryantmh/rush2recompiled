@@ -17,6 +17,7 @@
 #include "collectibles.h"
 #include "options_page.h"
 #include "wings.h"
+#include "ghost.h"
 
 // Adds every option of the config that the page doesn't have yet, in the config's order (hidden ones stay hidden).
 static void add_remaining_options(rush2::ui::OptionsPage* page, recomp::config::Config& config, const std::vector<std::string>& added) {
@@ -370,6 +371,57 @@ static void add_reverse_option(recomp::config::Config& config) {
         });
 }
 
+namespace ghost_option {
+    const std::string id = "save_ghosts";
+    enum class SaveGhosts : uint32_t { Off, On };
+}
+
+// Save ghosts: every race records player 1's car and keeps the profile's fastest finished runs per track as ghosts for
+// GHOST RACE (src/ghost.cpp). Rush 2049 only recorded ghosts in practice.
+static void add_ghost_option(recomp::config::Config& config) {
+    using ghost_option::SaveGhosts;
+
+    config.add_enum_option(
+        ghost_option::id,
+        "Save Ghosts",
+        "Sets which races save ghosts for Ghost Race. "
+        "<recomp-color primary>On</recomp-color> keeps player 1's fastest finished runs of each track, direction and "
+        "lap count from every race. "
+        "<recomp-color primary>Off</recomp-color> only saves them from Ghost Race.",
+        {
+            { SaveGhosts::Off, "Off", "Off" },
+            { SaveGhosts::On, "On", "On" },
+        },
+        SaveGhosts::On
+    );
+
+    config.add_option_change_callback(ghost_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::ghost::set_save_all(static_cast<SaveGhosts>(std::get<uint32_t>(cur_value)) == SaveGhosts::On);
+        });
+}
+
+namespace ghosts_kept_option {
+    const std::string id = "ghosts_kept";
+}
+
+// Ghosts kept: how many of a profile's fastest runs of each track, direction and lap count are kept (src/ghost.cpp).
+static void add_ghosts_kept_option(recomp::config::Config& config) {
+    config.add_number_option(
+        ghosts_kept_option::id,
+        "Ghosts Kept",
+        "Sets how many of each profile's fastest runs of each track, direction and lap count are kept as ghosts. "
+        "A slower run than all of them isn't kept, and lowering this deletes the slowest ones the next time a run "
+        "on that track is kept.",
+        1.0, 20.0, 1.0, 0, false, 3.0
+    );
+
+    config.add_option_change_callback(ghosts_kept_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::ghost::set_ghosts_kept((int)std::get<double>(cur_value));
+        });
+}
+
 namespace data_location_option {
     const std::string id = "data_location";
     enum class DataLocation : uint32_t { AppData, Portable };
@@ -427,6 +479,7 @@ void rush2::init_config() {
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
             { "Controls", { general::options::rumble_strength, general::options::joystick_deadzone,
                             steering_option::id, reverse_option::id } },
+            { "Races", { ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, data_location_option::id } },
         });
         namespace graphics = recompui::config::graphics;
@@ -445,6 +498,8 @@ void rush2::init_config() {
     customize_general_options(general_config);
     add_steering_option(general_config);
     add_reverse_option(general_config);
+    add_ghost_option(general_config);
+    add_ghosts_kept_option(general_config);
     add_data_location_option(general_config);
     add_test_players_option(general_config);
 
@@ -477,6 +532,10 @@ void rush2::init_config() {
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
     rush2::splitscreen::set_layout(static_cast<rush2::splitscreen::Layout>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(split_option::id))));
+    rush2::ghost::set_save_all(static_cast<ghost_option::SaveGhosts>(std::get<uint32_t>(
+        recompui::config::get_general_config().get_option_value(ghost_option::id))) == ghost_option::SaveGhosts::On);
+    rush2::ghost::set_ghosts_kept((int)std::get<double>(
+        recompui::config::get_general_config().get_option_value(ghosts_kept_option::id)));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

@@ -40,6 +40,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "car2049.h"
+#include "ghost.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -451,4 +452,6 @@ extern "C" void rush2_model_draw(uint8_t* rdram, recomp_context* ctx) {
     rush2_wings_model_draw(rdram, ctx);
     // Rush 2049 car effects (src/car2049.cpp).
     rush2::car2049::animate(rdram);
+    // The ghost car of a ghost race, translucent (src/ghost.cpp), around whatever draws its models.
+    rush2::ghost::draw_model(rdram, ctx);
 }

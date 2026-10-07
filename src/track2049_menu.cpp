@@ -18,9 +18,9 @@
 //   12-29, so such a choice leaves the nibble alone and is kept in track2049.json instead, and restored when the
 //   screen opens.
 // - Car select counts the track's collected keys from 12-entry tables (func_803B1AB0); added tracks have none.
-// - The Start Game menu has a STUNT row after PRACTICE. Through it the track select offers STUNT1, the stunt arenas
-//   and the obstacle course only, remembered apart (track2049.json "stunt"); through the other rows it leaves them
-//   out.
+// - The Start Game menu has a GHOST RACE row (src/ghost.cpp) and a STUNT row after PRACTICE. Through STUNT the track
+//   select offers STUNT1, the stunt arenas and the obstacle course only, remembered apart (track2049.json "stunt");
+//   through the other rows it leaves them out.
 //
 // When a race starts on id 12-29, the id becomes the host slot's (STUNT1's for a stunt arena) and the added track is
 // noted for the track hooks (src/track2049.cpp, src/track1.cpp). The host slot keeps its id through restarts; opening
@@ -42,6 +42,7 @@
 #include "util/file.h"
 #include "rush2_hooks.h"
 #include "assets.h"
+#include "ghost.h"
 #include "track1.h"
 #include "track2049.h"
 #include "unlocks.h"
@@ -73,14 +74,17 @@ namespace {
     constexpr uint32_t stunt_label_ptr = menu_data + 0xC10;       // char* to it, read as the row's table entry
     constexpr uint32_t unlocks_label = menu_data + 0xC20;         // "UNLOCKS", the row of the unlock system's shop
     constexpr uint32_t unlocks_label_ptr = menu_data + 0xC30;
+    constexpr uint32_t ghost_label = menu_data + 0xC40;           // "GHOST RACE"
+    constexpr uint32_t ghost_label_ptr = menu_data + 0xC50;
 
     // Unlock bytes of PIPE (9) and ATARI (10) (func_803AB01C).
     constexpr uint32_t pipe_unlocked = 0x800E7D50;
     constexpr uint32_t atari_unlocked = 0x800E7D19;
 
-    // Start Game menu rows: ONE RACE, CIRCUIT, PRACTICE, STUNT, RECORDS, SETUP. The stock menu has the five without
-    // STUNT; the rows after it map back to the stock options.
-    constexpr int stunt_row = 3;
+    // Start Game menu rows: ONE RACE, CIRCUIT, PRACTICE, GHOST RACE, STUNT, RECORDS, SETUP. The stock menu has the
+    // five without GHOST RACE and STUNT; the rows after them map back to the stock options.
+    constexpr int ghost_row = 3;
+    constexpr int stunt_row = 4;
 
     // Circuit mode: the race list func_800A7DCC generates, 4 bytes per race (track, direction bits, fog, wind).
     constexpr uint32_t circuit_races = 0x800D3A60;
@@ -466,6 +470,8 @@ extern "C" void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx
     MEM_W(0, (int32_t)stunt_label_ptr) = stunt_label;
     write_string(rdram, unlocks_label, "UNLOCKS");
     MEM_W(0, (int32_t)unlocks_label_ptr) = unlocks_label;
+    write_string(rdram, ghost_label, "GHOST RACE");
+    MEM_W(0, (int32_t)ghost_label_ptr) = ghost_label;
 }
 
 // Start of func_803B6260, the circuit screen (every frame). It shows the dioramas and logos of the circuit's races
@@ -570,16 +576,16 @@ extern "C" void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ct
     if (is_stunt_course((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;
 }
 
-// The Start Game menu's STUNT row and, while the unlock system is on, its UNLOCKS row (func_803B12C8, labels drawn by
-// func_803C364C): ONE RACE, CIRCUIT, PRACTICE, STUNT, RECORDS, UNLOCKS, SETUP. Hooks after the cursor's wraps and the
-// label loop's count make the menu 6 or 7 rows long; these hooks give the added rows their labels, map the other rows
-// back to the stock options, and make the menu's box and bottom bar longer.
+// The Start Game menu's GHOST RACE and STUNT rows and, while the unlock system is on, its UNLOCKS row (func_803B12C8,
+// labels drawn by func_803C364C): ONE RACE, CIRCUIT, PRACTICE, GHOST RACE, STUNT, RECORDS, UNLOCKS, SETUP. Hooks after
+// the cursor's wraps and the label loop's count make the menu 7 or 8 rows long; these hooks give the added rows their
+// labels, map the other rows back to the stock options, and make the menu's box and bottom bar longer.
 namespace {
     constexpr int stock_rows = 5;
     constexpr int stock_records = 3;
 
     int mode_menu_rows() {
-        return stock_rows + 1 + (rush2::unlocks::menu_row_shown() ? 1 : 0);
+        return stock_rows + 2 + (rush2::unlocks::menu_row_shown() ? 1 : 0);
     }
 
     // The UNLOCKS row, or -1 while it is hidden.
@@ -587,22 +593,24 @@ namespace {
         return rush2::unlocks::menu_row_shown() ? stunt_row + 2 : -1;
     }
 
-    // The stock option a row stands for (STUNT and UNLOCKS: the one whose path they take).
+    // The stock option a row stands for (GHOST RACE, STUNT and UNLOCKS: the one whose path they take).
     int stock_row(int row) {
         int unlocks = unlocks_row();
+        if (row == ghost_row) return 0;
         if (row == stunt_row) return 0;
         if (row == unlocks) return stock_records;                   // RECORDS: its profile list, then the shop
-        if (row > stunt_row) return row - 1 - (unlocks >= 0 && row > unlocks ? 1 : 0);
+        if (row > stunt_row) return row - 2 - (unlocks >= 0 && row > unlocks ? 1 : 0);
         return row;
     }
 }
 
 // func_803B12C8 at 0x803B14B8: A or START was pressed, $t2 = the cursor, about to pick the stock option's code.
 // STUNT takes ONE RACE's (game mode 0; a race on a stunt track becomes stunt mode, see rush2_track49_stunt_mode).
-// UNLOCKS takes RECORDS' (its profile list, which then opens the shop: src/unlocks_shop.cpp).
+// UNLOCKS takes RECORDS' (its profile list, which then opens the shop: src/unlocks_shop.cpp). GHOST RACE takes ONE RACE's: the race it starts records player 1 and races the ghost.
 extern "C" void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx) {
     int row = (int32_t)ctx->r10;
     stunt_select = row == stunt_row;
+    rush2::ghost::set_chosen(row == ghost_row);
     rush2::unlocks::set_shop_chosen(row == unlocks_row());
     ctx->r10 = stock_row(row);
 }
@@ -626,7 +634,10 @@ namespace {
     // $s0 = the row; *base + $s1 (row x 4) is about to be read as the label of language table base.
     void label_table(uint8_t* rdram, recomp_context* ctx, uint64_t& base) {
         int row = (int32_t)ctx->r16;
-        if (row == stunt_row) {
+        if (row == ghost_row) {
+            base = (uint64_t)(int64_t)(int32_t)(ghost_label_ptr - (uint32_t)ctx->r17);
+        }
+        else if (row == stunt_row) {
             base = (uint64_t)(int64_t)(int32_t)(stunt_label_ptr - (uint32_t)ctx->r17);
         }
         else if (row == unlocks_row()) {
@@ -638,6 +649,8 @@ namespace {
     }
 }
 
+// func_803C364C at 0x803C37C4 / 0x803C380C: $t3 / $t1 = the language's label table (0x800C4B30 + language x 20),
+// about to be indexed by $s1 for the label's width / drawing.
 extern "C" void rush2_mode_menu_label_t3(uint8_t* rdram, recomp_context* ctx) {
     label_table(rdram, ctx, ctx->r11);
 }

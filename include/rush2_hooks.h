@@ -201,10 +201,10 @@ void rush2_track1_model_name(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_breakable_model(uint8_t* rdram, recomp_context* ctx);
 int rush2_track1_breakable_hit(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_wrong_way(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_probe_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_probe(uint8_t* rdram, recomp_context* ctx);
-void rush2_track1_wrong_way(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_pads(uint8_t* rdram, recomp_context* ctx);
 
 // Rush 2049 track records (src/track2049_records.cpp).
@@ -252,6 +252,24 @@ void rush2_wings_gravity(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_drag(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_car_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_model_draw(uint8_t* rdram, recomp_context* ctx);
+
+// Ghost races (src/ghost.cpp).
+void rush2_ghost_settings(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_race_setup(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_drone_type(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_drone_colors(uint8_t* rdram, recomp_context* ctx);
+int rush2_ghost_car_tick(uint8_t* rdram, recomp_context* ctx);
+int rush2_ghost_drive(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_tick_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_collide_self(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_collide_other(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_standings(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_map_dot(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_radar_dot(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_fog_color(uint8_t* rdram, recomp_context* ctx);
+void rush2_ghost_car_select_text(uint8_t* rdram, recomp_context* ctx);
+int32_t rush2_ghost_hud_cars(int32_t cars);
+void rush2_ghost_draft(uint8_t* rdram, recomp_context* ctx);
 
 #ifdef __cplusplus
 }
