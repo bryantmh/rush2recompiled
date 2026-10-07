@@ -18,6 +18,7 @@
 #include "options_page.h"
 #include "wings.h"
 #include "ghost.h"
+#include "car2049.h"
 
 // Adds every option of the config that the page doesn't have yet, in the config's order (hidden ones stay hidden).
 static void add_remaining_options(rush2::ui::OptionsPage* page, recomp::config::Config& config, const std::vector<std::string>& added) {
@@ -422,6 +423,57 @@ static void add_ghosts_kept_option(recomp::config::Config& config) {
         });
 }
 
+namespace car_stats_option {
+    const std::string id = "accurate_car_stats";
+}
+
+// Accurate car stats: the car select's ACCELERATION, TOP SPEED, CONTROL and DRIFTING bars come from the race physics
+// (src/car2049.cpp, docs/rush2049_research/car_physics.md section 9).
+static void add_car_stats_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        car_stats_option::id,
+        "Accurate Car Stats",
+        "Makes the car select's bars measure the car by driving it through the game's own physics, with the chosen "
+        "options and Car Speeds. <recomp-color primary>ACCELERATION</recomp-color> is the time from a standstill to "
+        "100 mph and <recomp-color primary>TOP SPEED</recomp-color> the top speed. "
+        "<recomp-color primary>DRIFTING</recomp-color> is how wide the car slides in one second of full steering at "
+        "68 mph. <recomp-color primary>CONTROL</recomp-color> is how quickly the car straightens out of a slide "
+        "without fishtailing. Each bar runs from empty at the lowest value any car can reach with any options to "
+        "full at the highest. Off, the bars use Rush 2's own formulas.",
+        true
+    );
+
+    config.add_option_change_callback(car_stats_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::car2049::set_accurate_bars(std::get<bool>(cur_value));
+        });
+}
+
+namespace torque_option {
+    const std::string id = "torque_rebalance";
+}
+
+// Torque rebalance: Rush 2's HIGH torque curve is weaker than STANDARD almost everywhere, so it gains top-end torque
+// and LOW loses some (src/car2049.cpp).
+static void add_torque_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        torque_option::id,
+        "Torque Rebalance",
+        "Makes each TORQUE setting worth picking. In Rush 2, HIGH is slower than STANDARD both off the line and at top "
+        "speed, and LOW has the best launch and the best top speed. "
+        "On, <recomp-color primary>LOW</recomp-color> accelerates hardest but has the lowest top speed, "
+        "<recomp-color primary>HIGH</recomp-color> accelerates slowest but has the highest top speed, and "
+        "<recomp-color primary>STANDARD</recomp-color> sits between them on both. "
+        "Off, the original curves are used.",
+        true
+    );
+
+    config.add_option_change_callback(torque_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::car2049::set_torque_rebalance(std::get<bool>(cur_value));
+        });
+}
+
 namespace data_location_option {
     const std::string id = "data_location";
     enum class DataLocation : uint32_t { AppData, Portable };
@@ -479,6 +531,7 @@ void rush2::init_config() {
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
             { "Controls", { general::options::rumble_strength, general::options::joystick_deadzone,
                             steering_option::id, reverse_option::id } },
+            { "Cars", { car_stats_option::id, torque_option::id } },
             { "Races", { ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, data_location_option::id } },
         });
@@ -500,6 +553,8 @@ void rush2::init_config() {
     add_reverse_option(general_config);
     add_ghost_option(general_config);
     add_ghosts_kept_option(general_config);
+    add_car_stats_option(general_config);
+    add_torque_option(general_config);
     add_data_location_option(general_config);
     add_test_players_option(general_config);
 
@@ -536,6 +591,10 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(ghost_option::id))) == ghost_option::SaveGhosts::On);
     rush2::ghost::set_ghosts_kept((int)std::get<double>(
         recompui::config::get_general_config().get_option_value(ghosts_kept_option::id)));
+    rush2::car2049::set_accurate_bars(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(car_stats_option::id)));
+    rush2::car2049::set_torque_rebalance(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(torque_option::id)));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

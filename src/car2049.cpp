@@ -20,6 +20,7 @@
 #include <set>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "json/json.hpp"
@@ -1906,10 +1907,22 @@ namespace {
     }
 }
 
+namespace {
+    void apply_torque_rebalance(uint8_t* rdram);
+}
+
+// The game's own car physics, which the Accurate Car Stats test car runs.
+extern "C" void func_8008DBA0(uint8_t* rdram, recomp_context* ctx);     // car init
+extern "C" void func_800712EC(uint8_t* rdram, recomp_context* ctx);     // drivetrain
+extern "C" void func_8006A2FC(uint8_t* rdram, recomp_context* ctx);     // one tire's forces
+extern "C" void func_80069E74(uint8_t* rdram, recomp_context* ctx);     // steering yaw torques
+
 // func_8008DBA0 (car init) at 0x8008DC1C, after it stored the car's descriptor ($fp) at car + 0 ($s2): a 2049 car
 // driven by a player gets its own copy with the ENGINE choice applied, and with Car Speeds at Rush 2049 every car's
-// copy runs at 2049's speed (torque scales / torque_to_rush2, gear ratios / gears_to_rush2).
+// copy runs at 2049's speed (torque scales / torque_to_rush2, gear ratios / gears_to_rush2). The torque maps get the
+// Torque Rebalance option's state.
 extern "C" void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx) {
+    apply_torque_rebalance(rdram);
     uint32_t car = (uint32_t)ctx->r18;
     int type = MEM_BU(0, (int32_t)(car + 0x7EA));
     int slot = int((car - physics_cars) / physics_car_size);
@@ -1938,9 +1951,11 @@ extern "C" void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx) {
     ctx->r30 = (uint64_t)(int64_t)(int32_t)copy;
 }
 
-// func_8008DBA0 at 0x8008DD00, after the car's mass (+0x5B0, with the durability weight), inertias (+0x5B4, +0x644)
-// and weight force (+0x5AC): for a 2049 car they come from 2049's FRAME (func_800D0B14) with the DURABILITY value as
-// the frame weight, in place of Rush 2's weight adjustment.
+// func_8008DBA0 at 0x8008DD00, after the car's mass (+0x5B0, with the durability weight), car-to-car collision weight
+// (+0x5B4, func_8006E8D8), crash threshold (+0x644: a total force on the car above it wrecks it, func_80071724) and
+// weight force (+0x5AC): for a 2049 car they come from 2049's FRAME (func_800D0B14) with the DURABILITY value as the
+// frame weight, in place of Rush 2's weight adjustment. None of them is an inertia: every car turns with its
+// descriptor's (+0x0C..+0x14, func_80069A14).
 extern "C" void rush2_car49_setup_mass(uint8_t* rdram, recomp_context* ctx) {
     uint32_t car = (uint32_t)ctx->r18;
     int type = MEM_BU(0, (int32_t)(car + 0x7EA));
@@ -2037,11 +2052,9 @@ extern "C" void rush2_car49_option_text(uint8_t* rdram, recomp_context* ctx) {
 // descriptor is replaced by a copy whose torque scales carry the player's TORQUE curve (Rush 2's own bars leave it
 // out) and, for a 2049 car, its ENGINE level; a 2049 car's weight is its FRAME mass (rush2_car49_setup_mass).
 // TORQUE picks one of three full-throttle torque curves shared by every car (0x800C0CC0: LOW, STANDARD, HIGH, and
-// ROCKET = STANDARD's), so each counts by a measured factor: in races with every car forced onto each curve, time from
-// the start to 5000 rpm in gear 3 was 7.58 / 7.41 / 7.47 s (ACCELERATION: STANDARD's time over the curve's) and the
-// mean top-gear rpm on the straights 7165 / 7096 / 7051 (TOP SPEED, whose bar term is linear in force:
-// (rpm / STANDARD's)^2). LOW pulls hardest below about 3500 and above about 7000 rpm, HIGH only between about 5200
-// and 6600, where the cars pass but don't settle.
+// ROCKET = STANDARD's), so the copy's gear 1 scale carries the chosen curve's 0-100 mph time against the car's stock
+// curve (time stock / time chosen) and its gear 3 scale the square of their top speeds (TOP SPEED's term is linear in
+// force), both from the drivetrain simulation below with the current torque maps (Torque Rebalance included).
 namespace {
     constexpr uint32_t bar_types = 0x803CB362;
     constexpr uint32_t bar_descs = 0x80225A00;      // 2 x 0xEC
@@ -2051,14 +2064,556 @@ namespace {
         uint32_t ptr_at = 0, ptr = 0, mass_at = 0, mass = 0;
     };
     BarSwap bar_swap;
+}
 
-    constexpr float torque_accel[4] = { 7.41f / 7.58f, 1.0f, 7.41f / 7.47f, 1.0f };
-    constexpr float torque_top[4] = { (7165.0f / 7096.0f) * (7165.0f / 7096.0f), 1.0f,
-                                      (7051.0f / 7096.0f) * (7051.0f / 7096.0f), 1.0f };
+// Torque Rebalance (General tab, on by default): Rush 2's HIGH torque curve is weaker than STANDARD at every engine
+// speed but 5750 rpm, and LOW beats STANDARD on 0-60 and top speed but loses to 100 mph, so HIGH was never worth
+// picking. LOW gains torque from 3450 to 5750 rpm and loses it above 6900, where every car reaches its top speed; HIGH
+// gains it there. Against STANDARD, over Rush 2's 22 cars (full throttle, the drivetrain simulation below):
+//            0-60               0-100              top speed
+//   LOW      -0.33 .. -0.45 s   -0.37 .. -0.48 s   -4.3 .. -4.8 mph   (was -0.1 s, +0.3 s, +3 .. +5 mph)
+//   HIGH     +0.48 .. +0.63 s   +0.38 .. +0.57 s   +5.8 .. +6.6 mph   (was +0.5 s, +0.5 s, -2 .. -3 mph)
+// so on every car LOW accelerates hardest and tops out lowest, HIGH the reverse, and STANDARD sits between.
+// Each map is s16[10 throttle rows][12 columns, one per 1150 rpm]; rows 3-9 step evenly up to the full-throttle row 9,
+// so a change d to row 9 adds d x (row - 2) / 7 to rows 3-9 and keeps that. Rows 0-2 (engine braking) are untouched.
+// The maps are read live by func_80070A78, so a change applies at once.
+namespace {
+    std::atomic_bool torque_rebalance = true;
+
+    constexpr uint32_t low_map = 0x800CA87C, high_map = 0x800CAA5C;
+    struct TorqueChange {
+        uint32_t map;
+        int column;
+        int16_t from, to;   // full-throttle value
+    };
+    constexpr TorqueChange torque_changes[] = {
+        { low_map, 7, 140, 60 },    // 8050 rpm (the probe apply_torque_rebalance reads)
+        { low_map, 3, 280, 330 },   // 3450 rpm
+        { low_map, 4, 260, 310 },
+        { low_map, 5, 240, 270 },
+        { low_map, 6, 200, 180 },
+        { low_map, 8, 50, 0 },      // 9200 rpm
+        { high_map, 6, 200, 240 },  // 6900 rpm
+        { high_map, 7, 50, 130 },
+        { high_map, 8, 0, 20 },
+    };
+
+    int16_t torque_cell(uint8_t* rdram, uint32_t map, int row, int column) {
+        return (int16_t)MEM_H(0, (int32_t)(map + (row * 12 + column) * 2));
+    }
+
+    // Brings the maps in RDRAM to the option's state. The state is read back from the maps themselves (LOW's 8050 rpm
+    // cell), so it stays right if the game's data is reloaded.
+    void apply_torque_rebalance(uint8_t* rdram) {
+        bool on = torque_rebalance.load(std::memory_order_relaxed);
+        const TorqueChange& probe = torque_changes[0];
+        int16_t now = torque_cell(rdram, probe.map, 9, probe.column);
+        if (now != (on ? probe.from : probe.to)) {
+            return;
+        }
+        for (const TorqueChange& c : torque_changes) {
+            int d = on ? c.to - c.from : c.from - c.to;
+            for (int row = 3; row < 10; row++) {
+                int add = (int)std::lround(d * (row - 2) / 7.0);
+                MEM_H(0, (int32_t)(c.map + (row * 12 + c.column) * 2)) =
+                    (int16_t)(torque_cell(rdram, c.map, row, c.column) + add);
+            }
+        }
+    }
+}
+
+void rush2::car2049::set_torque_rebalance(bool on) {
+    torque_rebalance = on;
+}
+
+// Accurate Car Stats (General tab, on by default): the car select's bars come from the race physics instead of
+// func_803B7F7C's formulas (docs/rush2049_research/car_physics.md section 9), for the player's car and options and the
+// current Car Speeds. Each bar runs from empty at the lowest value any selectable car reaches with any options to full
+// at the highest.
+//
+// The values come from driving a test car with the game's own code. The car is physics car slot 0 (free outside a race;
+// its bytes are put back afterwards), set up by the game's car init (func_8008DBA0, through the player 1 option rows,
+// which are swapped for the setup being measured). Each 1/60 s step then runs, as func_80071D78 does:
+// - the inputs func_80071A1C would set (full throttle, no brake or clutch, automatic gears, the front wheels at +0x3A4 x
+//   the steering input; func_80076694 passes a held stick on at once, so the input has no ramp);
+// - func_800712EC: engine, clutch, automatic gearbox and the differential (rear wheel torques +0x39C / +0x3A0, split
+//   by the rear wheels' loads), and the Rocket's thrust (+0x118);
+// - func_8006A2FC per wheel, as func_8006ABB0 calls it: the tire's side and drive force from the wheel's velocity
+//   (car velocity + wheel position x angular velocity, turned into the wheel's frame as func_8006AE3C builds it), its
+//   load and its torque, with wheelspin and the tire's deflection kept in the wheel; then func_8006ABB0's rear wheel
+//   factors (side force x descriptor +0x78 x 0x800C0FF8, drive force x 0x800C0FF4);
+// - func_8006AFD8's drag: -(descriptor +0x60 x v^2 + +0x64 + 30) and the tires' pavement drag 0x800C1A38 x +0x5A8 x v;
+// - func_80069E74: the steering yaw torques (+0x138);
+// - func_80069AB4 / func_80069A14 / func_800697D0: yaw torque = sum of force x wheel position, x the descriptor's
+//   inverse yaw inertia (+0x10); acceleration = force / mass; velocities += x dt, the car's frame turned by the yaw.
+// What is not the game's code: the ground is flat pavement and the car stays level, so each wheel's load is its static
+// load (wheel +0x18, func_8008D84C) with the drive and braking forces' weight shift between the axles (force x the
+// wheels' height under the center / wheelbase; the height is the descriptor's wheel y less the spring's static
+// compression, func_8006ABB0). Side-to-side weight shift is left out: a tire's force is its load x a function of slip
+// (func_8006A2FC), and the differential splits by load, so an axle's total doesn't change with it.
+//
+// - ACCELERATION: 1 / the time from rest to 100 mph.
+// - TOP SPEED: the speed the car settles at.
+// - DRIFTING: from 100 ft/s (68 mph), the stick held fully to one side for one second: the widest slide angle (between
+//   where the car points and where it goes), on a ratio scale (ratio_bar).
+// - CONTROL: from the same start, the car is put into a 30 degree slide, still spinning into it at 1.5 rad/s, with the
+//   stick centered: 1 / the sliding it does over the next 3 s (the integral of the slide angle), which spinning on and
+//   fishtailing add to. Starting every car in the same slide keeps the steering's yaw gain (DRIFTING) out of it; what
+//   counts is what stops a slide: func_80069E74's slide term (the steer force, TIRES' S grade), the rear tires' grip
+//   and the weight.
+//
+// Against the hand formulas this replaced (map torque x gears - drag over the mass; a brush tire bicycle model), on
+// the Pickup: the game's clutch and engine inertia make 0-100 mph about 2 s slower (7.6 s), func_8006A2FC passes on
+// only torque x m / (m + the drivetrain's inertia) even at a steady speed, which takes about 6 mph off the top speed
+// (157 mph), and the drive force uses up rear grip (the tire's friction circle), which widens slides on the throttle.
+// A previous session's in-race timing (5000 rpm in gear 3, about 86 mph, some 7.4 s after the start) is far nearer
+// this simulation than the formulas, which reach that speed in about 4.4 s.
+namespace {
+    std::atomic_bool accurate_bars = true;
+
+    constexpr uint32_t t_susp = 0x80200EB0, t_tires = 0x80200F68;
+    constexpr int tires_choices = 11;
+    constexpr int hot_rod = 17;
+    constexpr float mph = 1.46667f;
+
+    // The options a test car is set up with: row values, as the car select stores them.
+    struct TestSetup {
+        int type = 0;
+        int tires = 0, susp = 0, torque = 0, engine = 0;
+        float weight = 0;
+        auto key() const {
+            return std::tuple(type, tires, susp, torque, engine, weight);
+        }
+    };
+
+    struct TestResult {
+        float accel = 0;    // 1 / seconds to 100 mph
+        float top = 0;      // ft/s
+        float slide = 0;    // rad
+        float control = 0;  // 1 / (rad x s) of sliding while the car gathers a slide
+    };
+
+    float f32_bits(uint32_t v) {
+        float f;
+        memcpy(&f, &v, 4);
+        return f;
+    }
+
+    class TestCar {
+    public:
+        TestCar(uint8_t* rdram, recomp_context* ctx) : rdram(rdram) {
+            // Below the hooked function's frame: the called functions' frames, their stack arguments and the vectors
+            // func_8006A2FC reads and writes.
+            call = *ctx;
+            stack = (uint32_t)ctx->r29 - 0x400;
+            call.r29 = (uint64_t)(int64_t)(int32_t)stack;
+            memcpy(saved_car, host(car), physics_car_size);
+            memcpy(saved_desc, host(car_descs), desc_size);
+        }
+        ~TestCar() {
+            memcpy(host(car), saved_car, physics_car_size);
+            memcpy(host(car_descs), saved_desc, desc_size);
+        }
+
+        // Sets the car up as func_8008DBA0 does for player 1 with `s`'s options.
+        void init(const TestSetup& s) {
+            type = s.type;
+            uint32_t row = types + s.type;
+            int8_t old_tires = MEM_B(0, (int32_t)(t_tires + row)), old_susp = MEM_B(0, (int32_t)(t_susp + row)),
+                   old_torque = MEM_B(0, (int32_t)(t_torque + row)), old_engine = MEM_B(0, (int32_t)(t_engine + row));
+            int32_t old_weight = MEM_W(0, (int32_t)(t_weight + row * 4));
+            MEM_B(0, (int32_t)(t_tires + row)) = (int8_t)s.tires;
+            MEM_B(0, (int32_t)(t_susp + row)) = (int8_t)s.susp;
+            MEM_B(0, (int32_t)(t_torque + row)) = (int8_t)s.torque;
+            MEM_B(0, (int32_t)(t_engine + row)) = (int8_t)s.engine;
+            put(t_weight + row * 4, s.weight);
+            // The weight force is mass x 0x80110018, which a race sets to 32.2 x its gravity setting (0x800A5E4C).
+            int32_t old_gravity = MEM_W(0, (int32_t)gravity_mass);
+            put(gravity_mass, 32.2f);
+
+            memset(host(car), 0, physics_car_size);
+            put(car + 0x2CC, 1.0f);     // orientation: identity
+            put(car + 0x2DC, 1.0f);
+            put(car + 0x2EC, 1.0f);
+            MEM_B(0, (int32_t)(car + 0x7EA)) = (int8_t)s.type;
+            MEM_B(0, (int32_t)(car + 0x7E8)) = 2;       // driven by a player
+            MEM_H(0, (int32_t)(car + 0x7E0)) = 0;       // player 1
+            call.r4 = addr(car);
+            func_8008DBA0(rdram, &call);
+            MEM_H(0, (int32_t)(car + 0x3D8)) = 1;       // automatic
+            MEM_H(0, (int32_t)(car + 0x3E0)) = 1;       // a forward gear asked for (0 = neutral, func_800711F4)
+            // The engine runs (set together when a race starts, 0x8008E3B4): off, func_80070A78 gives no torque at rest.
+            MEM_H(0, (int32_t)(car + 0x3DA)) = 1;
+            MEM_H(0, (int32_t)(car + 0x3DC)) = 1;
+
+            MEM_B(0, (int32_t)(t_tires + row)) = old_tires;
+            MEM_B(0, (int32_t)(t_susp + row)) = old_susp;
+            MEM_B(0, (int32_t)(t_torque + row)) = old_torque;
+            MEM_B(0, (int32_t)(t_engine + row)) = old_engine;
+            MEM_W(0, (int32_t)(t_weight + row * 4)) = old_weight;
+            MEM_W(0, (int32_t)gravity_mass) = old_gravity;
+
+            desc = (uint32_t)MEM_W(0, (int32_t)car);
+            float base = get(desc + 0x84) - get(desc + 0x9C);
+            // func_8006ABB0: load = compression x spring (descriptor +0x18 + 4 x wheel) x a factor of the time step.
+            float rate = 1.0f / dt;
+            float spring_scale = rate * (rate * get(0x800CF778) - get(0x800CF77C));
+            float height = 0.0f;
+            for (int i = 0; i < 4; i++) {
+                float spring = get(desc + 0x18 + 4 * i) * spring_scale;
+                float compression = spring > 0.0f ? get(wheel(i) + 0x18) / spring : 0.0f;
+                height -= (get(desc + 0x7C + 12 * i + 4) + compression) * 0.25f;
+            }
+            shift_per_force = base > 0.0f ? std::max(height, 0.0f) / base : 0.0f;
+            drive_force = 0.0f;
+            time = 0.0f;
+        }
+
+        float side() const { return get(car + 0x34); }
+        float forward() const { return get(car + 0x3C); }
+        float speed() const { return std::hypot(side(), forward()); }
+        float slide() const { return std::fabs(std::atan2(side(), forward())); }
+        // Turns the car's velocity `angle` rad off its nose and spins the car at `rate` rad/s further into that slide
+        // (sideways and yaw velocity of the same sign, the case func_80069E74's slide term acts in).
+        void start_slide(float angle, float rate) {
+            float v = speed();
+            put(car + 0x34, v * std::sin(angle));
+            put(car + 0x3C, v * std::cos(angle));
+            put(car + 0x44, rate);
+        }
+        float time = 0.0f;
+
+        void step(float steer, float throttle) {
+            float vx = side(), vz = forward(), yaw = get(car + 0x44);
+            float mass = get(car + 0x5B0);
+            put(car + 0x638, dt);
+            put(car + 0x63C, 1.0f / dt);
+            put(car + 0x3D4, std::hypot(vx, vz));
+            put(car + 0x634, time);     // the last time on the ground (func_8006AFD8), which the Rocket's thrust reads
+            put(car + 0x728, steer);
+            put(car + 0x734, throttle);
+            put(car + 0x390, get(car + 0x3A4) * steer);
+            put(car + 0x3B0, 0.0f);
+            put(car + 0x3B4, throttle);
+            put(car + 0x3B8, 0.0f);
+            for (int i = 0; i < 4; i++) {
+                put(car + 0x394 + 4 * i, 0.0f);
+            }
+            // Loads: static, with the last step's drive / braking force shifting weight between the axles.
+            float loads[4];
+            float shift = drive_force * shift_per_force * 0.5f;
+            for (int i = 0; i < 4; i++) {
+                loads[i] = std::clamp(get(wheel(i) + 0x18) + (i < 2 ? -shift : shift), 0.0f, get(car + 0x5AC));
+                put(car + 0x58 + 12 * i + 4, loads[i]);     // the wheel's upward force, which the differential reads
+            }
+            call.r4 = addr(car);
+            func_800712EC(rdram, &call);
+
+            float fx = 0.0f, fz = 0.0f, torque = 0.0f;
+            drive_force = 0.0f;
+            float speed_now = get(car + 0x3D4);
+            for (int i = 0; i < 4; i++) {
+                float rx = get(desc + 0x7C + 12 * i), rz = get(desc + 0x7C + 12 * i + 8);
+                float angle = i < 2 ? get(car + 0x390) : 0.0f;
+                float c = std::cos(angle), s = std::sin(angle);
+                float px = vx - rz * yaw, pz = vz + rx * yaw;       // velocity + position x angular velocity
+                uint32_t vel = stack + 0x20, lat_at = stack + 0x30, long_at = stack + 0x34;
+                put(vel, px * c - pz * s);
+                put(vel + 4, 0.0f);
+                put(vel + 8, px * s + pz * c);
+                put(lat_at, 0.0f);
+                put(long_at, 0.0f);
+                MEM_W(0, (int32_t)(stack + 0x10)) = (int32_t)wheel(i);
+                MEM_W(0, (int32_t)(stack + 0x14)) = (int32_t)lat_at;
+                MEM_W(0, (int32_t)(stack + 0x18)) = (int32_t)long_at;
+                call.r4 = addr(car);
+                call.r5 = addr(vel);
+                call.r6 = (uint64_t)(int64_t)(int32_t)fbits(loads[i]);
+                call.r7 = (uint64_t)(int64_t)MEM_W(0, (int32_t)(car + 0x394 + 4 * i));
+                func_8006A2FC(rdram, &call);
+                float lat = get(lat_at), lng = get(long_at);
+                if (speed_now < 3.0f) {
+                    lat *= (1.0f + speed_now) / 4.0f;
+                }
+                if (i >= 2) {
+                    lng *= get(0x800C0FF4);
+                    lat *= get(desc + 0x78) * get(0x800C0FF8);
+                }
+                float wx = lat * c + lng * s, wz = -lat * s + lng * c;
+                fx += wx;
+                fz += wz;
+                torque += wz * rx - wx * rz;        // force x position, about the up axis
+                drive_force += wz;
+            }
+            float drag = get(desc + 0x60) * vz * vz + get(desc + 0x64) + 30.0f;
+            fz += vz > 0.0f ? -drag : drag;
+            fz += get(0x800C1A38) * get(car + 0x5A8) * vz;
+            fz += get(car + 0x118);
+
+            call.r4 = addr(car);
+            func_80069E74(rdram, &call);
+            torque += get(car + 0x138);
+
+            vx += fx / mass * dt;
+            vz += fz / mass * dt;
+            yaw += torque * get(desc + 0x10) * dt;
+            // The car's frame turns by the yaw, so its own velocity components turn the other way.
+            float turn = yaw * dt, tc = std::cos(turn), ts = std::sin(turn);
+            put(car + 0x34, vx * tc + vz * ts);
+            put(car + 0x3C, -vx * ts + vz * tc);
+            put(car + 0x44, yaw);
+            time += dt;
+            put(car + 0x630, time);
+        }
+
+        // The car's whole state, to run more than one test from the same moment.
+        struct Snapshot {
+            uint8_t bytes[physics_car_size];
+            float drive_force, time;
+        };
+        void save(Snapshot& s) const {
+            memcpy(s.bytes, host(car), physics_car_size);
+            s.drive_force = drive_force;
+            s.time = time;
+        }
+        void load(const Snapshot& s) {
+            memcpy(host(car), s.bytes, physics_car_size);
+            drive_force = s.drive_force;
+            time = s.time;
+        }
+
+        static constexpr float dt = 1.0f / 60.0f;
+
+    private:
+        static constexpr uint32_t car = physics_cars;
+
+        uint8_t* rdram;
+        recomp_context call;
+        uint32_t stack = 0, desc = 0;
+        int type = 0;
+        float shift_per_force = 0.0f, drive_force = 0.0f;
+        uint8_t saved_car[physics_car_size];
+        uint8_t saved_desc[desc_size];
+
+        uint8_t* host(uint32_t a) const { return rdram + (a - 0x80000000u); }
+        static uint64_t addr(uint32_t a) { return (uint64_t)(int64_t)(int32_t)a; }
+        float get(uint32_t a) const { return f32_bits((uint32_t)MEM_W(0, (int32_t)a)); }
+        void put(uint32_t a, float f) { MEM_W(0, (int32_t)a) = (int32_t)fbits(f); }
+        static uint32_t wheel(int i) { return car + 0x424 + 0x5C * i; }
+    };
+
+    // Rest to 100 mph and on to the speed the car settles at.
+    void test_straight(TestCar& car, const TestSetup& s, TestResult& r) {
+        car.init(s);
+        float t100 = 0.0f, before = 0.0f;
+        while (car.time < 90.0f) {
+            car.step(0.0f, 1.0f);
+            if (t100 == 0.0f && car.forward() >= 100.0f * mph) {
+                t100 = car.time;
+            }
+            // Settled: under 0.02 ft/s gained over a second.
+            int steps = (int)std::lround(car.time / TestCar::dt);
+            if (steps % 60 == 0) {
+                if (car.time > 5.0f && car.forward() - before < 0.02f) {
+                    break;
+                }
+                before = car.forward();
+            }
+        }
+        r.accel = t100 > 0.0f ? 1.0f / t100 : 0.0f;
+        r.top = car.forward();
+    }
+
+    void test_handling(TestCar& car, const TestSetup& s, TestResult& r) {
+        constexpr float entry = 100.0f, slide_angle = 30.0f * 0.0174533f, slide_spin = 1.5f;
+        car.init(s);
+        while (car.forward() < entry && car.time < 30.0f) {
+            car.step(0.0f, 1.0f);
+        }
+        TestCar::Snapshot start;
+        car.save(start);
+
+        float begin = car.time;
+        r.slide = 0.0f;
+        while (car.time - begin < 1.0f) {
+            car.step(1.0f, 1.0f);
+            r.slide = std::max(r.slide, car.slide());
+        }
+
+        car.load(start);
+        car.start_slide(slide_angle, slide_spin);
+        float sliding = 0.0f;
+        while (car.time - begin < 3.0f) {
+            car.step(0.0f, 1.0f);
+            sliding += car.slide() * TestCar::dt;
+        }
+        r.control = sliding > 0.0f ? 1.0f / sliding : 0.0f;
+    }
+
+    // Results by setup, for the current Car Speeds, 2049 cars and torque maps (cleared when one of those changes).
+    struct TestCache {
+        bool fast = false, with49 = false, rebalanced = false, valid = false;
+        std::map<std::tuple<int, int, int, int, int, float>, TestResult> straight, handling;
+        bool ranged = false;
+        TestResult lo, hi;
+    };
+    TestCache test_cache;
+
+    TestCache& cache() {
+        bool fast = speeds_2049(), with49 = cars_available(), rebalanced = torque_rebalance.load();
+        TestCache& c = test_cache;
+        if (!c.valid || c.fast != fast || c.with49 != with49 || c.rebalanced != rebalanced) {
+            c = TestCache{};
+            c.fast = fast;
+            c.with49 = with49;
+            c.rebalanced = rebalanced;
+            c.valid = true;
+        }
+        return c;
+    }
+
+    // ACCELERATION and TOP SPEED don't read SUSPENSION, and of TIRES only the pavement drag (+0x5A8: 9, 10 or none).
+    TestResult straight_of(TestCar& car, TestSetup s) {
+        s.susp = 0;
+        s.tires = s.tires >= 9 ? s.tires : 0;
+        auto& results = cache().straight;
+        auto found = results.find(s.key());
+        if (found != results.end()) {
+            return found->second;
+        }
+        TestResult r;
+        test_straight(car, s, r);
+        results[s.key()] = r;
+        return r;
+    }
+
+    TestResult handling_of(TestCar& car, const TestSetup& s) {
+        auto& results = cache().handling;
+        auto found = results.find(s.key());
+        if (found != results.end()) {
+            return found->second;
+        }
+        TestResult r;
+        test_handling(car, s, r);
+        results[s.key()] = r;
+        return r;
+    }
+
+    bool selectable(int type) {
+        return type != rush2_types && (type < rush2_types || (is_2049(type) && cars_available()));
+    }
+
+    int row_byte(uint8_t* rdram, uint32_t table, int row, int type) {
+        return (int8_t)MEM_B(0, (int32_t)(table + row * types + type));
+    }
+
+    // Player row `row`'s options on `type`.
+    TestSetup setup_of(uint8_t* rdram, int type, int row) {
+        TestSetup s;
+        s.type = type;
+        s.tires = row_byte(rdram, t_tires, row, type);
+        s.susp = row_byte(rdram, t_susp, row, type);
+        s.torque = row_byte(rdram, t_torque, row, type);
+        if (is_2049(type)) {
+            // ENGINE is a 2049 car's power level and its weight the FRAME's (choices_of); a Rush 2 car's ENGINE is
+            // only its sound.
+            Choices c = choices_of(rdram, row, type);
+            s.engine = c.engine;
+            s.weight = c.frame;
+        }
+        else {
+            s.weight = f32_at(rdram, t_weight + (row * types + type) * 4);
+        }
+        return s;
+    }
+
+    // The lowest and highest of each value over every selectable car: for ACCELERATION and TOP SPEED both weight
+    // extremes, every TORQUE curve, a 2049 car's lowest and highest ENGINE, and the tires with and without pavement
+    // drag; for DRIFTING and CONTROL both weight extremes and every TIRES and SUSPENSION choice (LOOSE..TIGHT, and
+    // WHEELIE on the Hot Rod, func_803B9478), on the car's stock TORQUE and ENGINE.
+    void find_ranges(uint8_t* rdram, TestCar& car) {
+        TestCache& c = cache();
+        if (c.ranged) {
+            return;
+        }
+        c.ranged = true;
+        c.lo = { 1e30f, 1e30f, 1e30f, 1e30f };
+        c.hi = { -1e30f, -1e30f, -1e30f, -1e30f };
+        auto widen = [](float v, float& lo, float& hi) {
+            lo = std::min(lo, v);
+            hi = std::max(hi, v);
+        };
+        for (int type = 0; type < types; type++) {
+            if (!selectable(type)) {
+                continue;
+            }
+            TestSetup stock = setup_of(rdram, type, 0);
+            for (float weight : { 0.0f, 1.0f }) {
+                for (int torque = 0; torque < 3; torque++) {
+                    for (int engine : { 0, engine_levels - 1 }) {
+                        for (int tires : { 0, 10 }) {
+                            if (engine != 0 && !is_2049(type)) {
+                                continue;
+                            }
+                            TestSetup s = stock;
+                            s.weight = weight;
+                            s.torque = torque;
+                            s.engine = is_2049(type) ? engine : stock.engine;
+                            s.tires = tires;
+                            TestResult r = straight_of(car, s);
+                            widen(r.accel, c.lo.accel, c.hi.accel);
+                            widen(r.top, c.lo.top, c.hi.top);
+                        }
+                    }
+                }
+                int susp_max = type == hot_rod ? 3 : 2;
+                for (int tires = 0; tires < tires_choices; tires++) {
+                    for (int susp = 0; susp <= susp_max; susp++) {
+                        TestSetup s = stock;
+                        s.weight = weight;
+                        s.tires = tires;
+                        s.susp = susp;
+                        TestResult r = handling_of(car, s);
+                        widen(r.slide, c.lo.slide, c.hi.slide);
+                        widen(r.control, c.lo.control, c.hi.control);
+                    }
+                }
+            }
+        }
+    }
+
+    // 0 at the lowest, 1 at the highest.
+    float bar(float v, float lo, float hi) {
+        return hi > lo ? std::clamp((v - lo) / (hi - lo), 0.0f, 1.0f) : 1.0f;
+    }
+
+    // The same on a ratio scale: doubling the value adds the same length anywhere on the bar. For DRIFTING, whose
+    // slide angles run away once the rear tires let go: over every setup half are under 23 degrees and the widest is
+    // 98, so a straight scale leaves most cars in the bottom quarter.
+    float ratio_bar(float v, float lo, float hi) {
+        constexpr float least = 1e-4f;
+        return bar(std::log(std::max(v, least)), std::log(std::max(lo, least)), std::log(std::max(hi, least)));
+    }
+
+    // The four bars (ACCELERATION, TOP SPEED, CONTROL, DRIFTING) for player row `row`'s options on `type`.
+    std::array<float, 4> accurate_bar_values(uint8_t* rdram, recomp_context* ctx, int type, int row) {
+        TestCar car(rdram, ctx);
+        find_ranges(rdram, car);
+        TestSetup s = setup_of(rdram, type, row);
+        TestResult straight = straight_of(car, s), handling = handling_of(car, s);
+        const TestCache& c = cache();
+        return { bar(straight.accel, c.lo.accel, c.hi.accel), bar(straight.top, c.lo.top, c.hi.top),
+                 bar(handling.control, c.lo.control, c.hi.control), ratio_bar(handling.slide, c.lo.slide, c.hi.slide) };
+    }
+}
+
+void rush2::car2049::set_accurate_bars(bool on) {
+    accurate_bars = on;
 }
 
 extern "C" void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx) {
     bar_swap.active = false;
+    apply_torque_rebalance(rdram);
     int player = (int)ctx->r20;
     if (player < 0 || player > 1) {
         return;
@@ -2074,11 +2629,22 @@ extern "C" void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx) {
     for (uint32_t o = 0; o < desc_size; o += 4) {
         MEM_W(0, (int32_t)(copy + o)) = MEM_W(0, (int32_t)(desc + o));
     }
-    int chosen = std::clamp<int>((int8_t)MEM_B(0, (int32_t)(t_torque + row * types + type)), 0, 3);
-    int stock = std::clamp<int>((int8_t)MEM_B(0, (int32_t)(t_torque + type)), 0, 3);
+    float accel = 1.0f, top = 1.0f;
+    {
+        // The chosen TORQUE curve against the car's stock one, with the 2049 ENGINE left to its own factor below.
+        TestCar car(rdram, ctx);
+        TestSetup chosen = setup_of(rdram, type, row), stock = chosen;
+        chosen.engine = stock.engine = 0;
+        stock.torque = row_byte(rdram, t_torque, 0, type);
+        TestResult with_chosen = straight_of(car, chosen), with_stock = straight_of(car, stock);
+        if (with_stock.accel > 0.0f && with_stock.top > 0.0f) {
+            accel = with_chosen.accel / with_stock.accel;
+            top = with_chosen.top / with_stock.top;
+        }
+    }
     float engine = is_2049(type) ? engine_torque(type, choices_of(rdram, row, type).engine) : 1.0f;
-    put_f32(rdram, copy + 0xB8, f32_at(rdram, copy + 0xB8) * engine * torque_accel[chosen] / torque_accel[stock]);
-    put_f32(rdram, copy + 0xC0, f32_at(rdram, copy + 0xC0) * engine * torque_top[chosen] / torque_top[stock]);
+    put_f32(rdram, copy + 0xB8, f32_at(rdram, copy + 0xB8) * engine * accel);
+    put_f32(rdram, copy + 0xC0, f32_at(rdram, copy + 0xC0) * engine * top * top);
     bar_swap = { true, ptr_at, desc, 0, 0 };
     MEM_W(0, (int32_t)ptr_at) = (int32_t)copy;
     if (is_2049(type)) {
@@ -2095,15 +2661,30 @@ extern "C" void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// End of func_803B7F7C (0x803B81E0, before its jr): $s1 = the player's bars (ACCELERATION +0, TOP SPEED +8, CONTROL
+// +0x10; the delay slot stores DRIFTING, $f8, at +0x18).
 extern "C" void rush2_car49_bars_end(uint8_t* rdram, recomp_context* ctx) {
-    if (!bar_swap.active) {
+    if (bar_swap.active) {
+        MEM_W(0, (int32_t)bar_swap.ptr_at) = (int32_t)bar_swap.ptr;
+        if (bar_swap.mass_at != 0) {
+            MEM_W(0, (int32_t)bar_swap.mass_at) = (int32_t)bar_swap.mass;
+        }
+        bar_swap.active = false;
+    }
+    int player = (int)ctx->r20;
+    if (!accurate_bars.load(std::memory_order_relaxed) || player < 0 || player > 1) {
         return;
     }
-    MEM_W(0, (int32_t)bar_swap.ptr_at) = (int32_t)bar_swap.ptr;
-    if (bar_swap.mass_at != 0) {
-        MEM_W(0, (int32_t)bar_swap.mass_at) = (int32_t)bar_swap.mass;
+    int type = (int8_t)MEM_B(0, (int32_t)(bar_types + player));
+    if (type < 0 || type >= types || !selectable(type)) {
+        return;
     }
-    bar_swap.active = false;
+    std::array<float, 4> bars = accurate_bar_values(rdram, ctx, type, player + 1);
+    uint32_t out = (uint32_t)ctx->r17;
+    put_f32(rdram, out, bars[0]);
+    put_f32(rdram, out + 8, bars[1]);
+    put_f32(rdram, out + 0x10, bars[2]);
+    ctx->f8.fl = bars[3];
 }
 
 int rush2::car2049::engine_level(uint8_t* rdram, uint32_t car) {

@@ -56,8 +56,3 @@ Determine the significance of this data in these todos:
 Flag bit 0x400000 on placement records isn't understood and is stripped. (2049)
 
 Ghost races. Add option for physical drones and to add normal ai to a ghost race
-
-Unlock system: 
-   It is possible for tracks and parts in unlock to not render
-
-Combine disparate JSON config files and ensure save files are all in the save directory next to the save file
