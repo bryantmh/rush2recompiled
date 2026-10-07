@@ -1246,12 +1246,13 @@ namespace {
         }
         if (o != d.size()) fail("path size mismatch");
 
-        // Records: f32 x, y, z, f32, s16 flags, s16 time[3] (by lap); the end record (flags -1) holds the start time's
+        // Records: f32 x, y, z, s32 gate radius squared, s16 flags, s16 time[3] (by lap); the end record (flags -1) holds the start time's
         // base at +0x12 and the loop-start checkpoint at +0x14.
         std::vector<Checkpoint> cps;
         int loop_cp = 0;
         timing.checkpoints.clear();
         timing.no_wrong_way = 0;
+        timing.radius2.clear();
         uint32_t list = main.w(checkpoint_lists[backward ? 1 : 0] + t * 4);
         for (int i = 0;; i++) {
             if (i >= 13) fail("checkpoint list has no end");
@@ -1263,6 +1264,7 @@ namespace {
                 break;
             }
             if (flags & 4) timing.no_wrong_way |= uint16_t(1u << timing.checkpoints.size());
+            timing.radius2.push_back(main.w(r + 12));
             timing.checkpoints.push_back({ int16_t(main.w(r + 16)), int16_t(main.w(r + 20) >> 16),
                                            int16_t(main.w(r + 20)) });
             uint32_t bits[3] = { main.w(r), main.w(r + 4), main.w(r + 8) };

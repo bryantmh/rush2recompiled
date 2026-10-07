@@ -352,6 +352,12 @@ extern "C" void rush2_track1_wrong_way(uint8_t* rdram, recomp_context* ctx) {
 // on lap 1, +0x20 after) by 1 + (5 - difficulty) x 0.075, so the fields get Rush 1's values divided by that. Both
 // games start the race with checkpoint 0 passed, and grant a checkpoint's time when it is passed. Rush 2 has no
 // lap-3 field; Rush 1's lap 2 and lap 3 times are the same on every track.
+//
+// The gates also get Rush 1's own radii here (316-1000 ft; its gate test, func_800A0BB8, is Rush 2's: the car at the
+// gate's plane within the radius in x/z). The path file's are smaller (60-507 ft), sized so that Rush 2's crossing
+// search (func_80092D6C, which has run by now and isn't run again) finds each path's intended pass; with those, a
+// car passing a gate wider than the lanes missed the checkpoint, and its respawn point stayed in the stretch before
+// it (func_80090570).
 bool rush2::track1::race_time(uint8_t* rdram) {
     constexpr uint32_t header = 0x8010BCE8;     // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
     constexpr uint32_t difficulty = 0x8010C211; // 0-5.
@@ -377,6 +383,9 @@ bool rush2::track1::race_time(uint8_t* rdram) {
         uint32_t cp = header + 0xC + i * 0x50;
         put(cp + 0x1E, timing.checkpoints[i][0] * rush1_factor);
         put(cp + 0x20, timing.checkpoints[i][1] * rush1_factor);
+        if (i < (int)timing.radius2.size() && timing.radius2[i] > (uint32_t)MEM_W(0, (int32_t)(cp + 0x18))) {
+            MEM_W(0, (int32_t)(cp + 0x18)) = (int32_t)timing.radius2[i];
+        }
     }
     return true;
 }

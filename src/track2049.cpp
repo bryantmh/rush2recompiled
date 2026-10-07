@@ -545,6 +545,56 @@ extern "C" void rush2_track49_respawn_delay(uint8_t* rdram, recomp_context* ctx)
     }
 }
 
+// Rush 2049's respawn zones: a branch of type 2 (branch record byte 0; race 2's paths have one each way, off the
+// route) puts a wrecked car back on the branch point nearest to it, standing still, where other branches and the
+// spine put it back within its checkpoint stretch and then some way on (Rush 2049 func_800D348C / func_800D3B28,
+// docs/rush2049_research/checkpoints.md section 8). Rush 2 has branch types 0 and 1 only.
+static bool respawn_zone(uint8_t* rdram, int32_t branch) {
+    constexpr uint32_t route = 0x80111940;  // Route header: +8 u8 branch count, +0xC branch records (0x10 each).
+    if (rush2::track2049::game_type(rdram) != rush2::track2049::GameType::race) {
+        return false;
+    }
+    if (branch < 0 || branch >= (int32_t)MEM_BU(0, (int32_t)(route + 8))) {
+        return false;
+    }
+    uint32_t records = (uint32_t)MEM_W(0, (int32_t)(route + 0xC));
+    return MEM_BU(0, (int32_t)(records + (uint32_t)branch * 0x10)) == 2;
+}
+
+// func_80090570 at 0x80090758, the car's nearest spine or branch point found ($t7 = the branch, -1 for the spine;
+// index at 0x58($sp)): Rush 2049 keeps a respawn zone's point as it is, skipping the checkpoint stretch.
+extern "C" int rush2_track49_respawn_zone(uint8_t* rdram, recomp_context* ctx) {
+    return respawn_zone(rdram, (int32_t)ctx->r15);
+}
+
+// func_80090A40 at 0x80091368, about to move a player's respawn point (branch 0x1B4($sp)) $t0 points on along the
+// route: a respawn zone's stays where it is.
+extern "C" void rush2_track49_respawn_zone_advance(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_BU(0, (int32_t)((uint32_t)ctx->r29 + 0x167)) != 0 &&
+        respawn_zone(rdram, (int32_t)MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1B4)))) {
+        ctx->r8 = 0;
+    }
+}
+
+// func_80090A40 at 0x800918E8, car $s4 placed 1.5 ft over its respawn point (branch 0x1B0($sp); $a3 = a player's
+// car) with its rolling start speed (+0x6C0 = 58): in a respawn zone Rush 2049 puts it 3 ft up with no speed, and
+// clears what its on-the-spot reset clears (flag 0x10 of +0x7F4, +0x648).
+extern "C" void rush2_track49_respawn_zone_place(uint8_t* rdram, recomp_context* ctx) {
+    if (ctx->r7 == 0 || !respawn_zone(rdram, (int32_t)MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1B0)))) {
+        return;
+    }
+    uint32_t car = (uint32_t)ctx->r20;
+    uint32_t bits = (uint32_t)MEM_W(0, (int32_t)(car + 0x668));
+    float y;
+    std::memcpy(&y, &bits, sizeof(y));
+    y += 1.5f;
+    std::memcpy(&bits, &y, sizeof(bits));
+    MEM_W(0, (int32_t)(car + 0x668)) = (int32_t)bits;
+    MEM_W(0, (int32_t)(car + 0x6C0)) = 0;
+    MEM_W(0, (int32_t)(car + 0x7F4)) = MEM_W(0, (int32_t)(car + 0x7F4)) & ~0x10;
+    MEM_B(0, (int32_t)(car + 0x648)) = 0;
+}
+
 // The HUD's track map (func_800B8188 at 0x800B81D8, $s4), its car dots (func_800B8900 at 0x800B8950, $a1), its
 // finish flag (func_800B9D48 at 0x800B9D70, $t0) and the radar (func_800B920C at 0x800B9260, $t0; its dots
 // func_800B8CC8 at 0x800B8D24, $t2) hide themselves on the stunt track (11), whose id is about to be tested. Courses

@@ -613,6 +613,22 @@ func = "func_8008E40C"
 before_vram = 0x8008E678
 text = "    rush2_track49_respawn_delay(rdram, ctx);"
 
+# Rush 2049's respawn zones (type 2 branches, src/track2049.cpp): the car is put back on the spot.
+[[patches.hook]]
+func = "func_80090570"
+before_vram = 0x80090758
+text = "    if (rush2_track49_respawn_zone(rdram, ctx)) goto L_80090A1C;"
+
+[[patches.hook]]
+func = "func_80090A40"
+before_vram = 0x80091368
+text = "    rush2_track49_respawn_zone_advance(rdram, ctx);"
+
+[[patches.hook]]
+func = "func_80090A40"
+before_vram = 0x800918E8
+text = "    rush2_track49_respawn_zone_place(rdram, ctx);"
+
 [[patches.hook]]
 func = "func_800B8188"
 before_vram = 0x800B81D8
