@@ -211,3 +211,34 @@ Observations:
   `us.toml`: `[[patches.hook]] func = "func_800AE670"`, `before_vram = 0x800AEB20` and a second one at
   `0x800AEB40`, `text = "    rush2_track49_race_time(rdram, ctx);"`. `rush2_hooks.h`:
   `extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx);`
+
+## 8. Car tracker, checkpoint window and respawn point (Rush 2 vs 2049 vs SF Rush) [V]
+
+Decompiled with `tools/rush2049/decomp.py` (r2 80090570 80090A40 800A1468 8008F220 8008F8B0; 49 800D348C 800D3B28
+800F8EC8).
+
+- **Gate test** `func_800A1468`: only the car's *next* checkpoint (car +0x800) is tested. The side of its plane is
+  kept in car +0x802; a side change counts only if the car is then inside the gate radius in x/z. A plane crossing
+  outside the radius is consumed and never retried. Skipped while the car is wrecked (car +0x6C8 != -1).
+- **Tracker** `func_80090570` (human cars; 2049 `func_800D348C`): nearest spine point in 3D, and nearest branch point
+  if the spine is over 40 ft away (1600 = 40²). In a race the result is then **confined to the checkpoint window**:
+  spine indices [cross(last cp, car +0x7FE), cross(next cp, car +0x800)), or up to the spine's end when next < last.
+  A nearest point outside the window is replaced by the nearest point *inside* it. Branches: kept if the last cp
+  has a crossing on the branch, or the branch's cp (+8) is the last cp; else the spine window is used.
+- **Consequence:** a missed gate freezes both the checkpoint count and the window, so every later respawn lands in
+  the stretch before the missed gate, however far the car has driven since.
+- **Respawn** `func_80090A40` (2049 `func_800D3B28`): from the tracker's point it moves on along the route
+  (`func_8008F8B0`) by `min(lane speed mph x 1.4667, 146.67) x k x (seconds wrecked + T) / 20` points (20 ft each),
+  k = 0.8 (1.1 if state +0x300 was set). If that passes the next cp's crossing, `func_8008F220` runs (cp counted).
+  - T = 1.5 s in Rush 2 (literal at the `temp_f2_2` add), wreck delay 3.5 s (`func_8008E40C`). T = 0.01 s in 2049
+    races (0x80124194; game types 0, 1, 2, 3, 5), wreck delay 5 s. Both come to 5 s, about 29-40 points =
+    590-800 ft past the nearest point: **no difference between the games here.**
+  - 2049 only: a branch with type byte 2 (files 159 br 7, 178 br 5) is a respawn-in-place zone: the tracker skips
+    the window and the car is put on the branch point itself, +3 ft, speed 0. Rush 2 has types 0 and 1 only.
+    Ported: `rush2_track49_respawn_zone*` in `src/track2049.cpp` (hooks at 0x80090758, 0x80091368, 0x800918E8).
+  - The helpers are the same code in both games (`func_8008F8B0` = 2049 `func_800D2928`, `func_80090514` =
+    `func_800D3430`); no other difference was found.
+- **SF Rush** has the same gate test (`func_800A0BB8`) with its own radii, 316-1000 ft (rush1_research section 6).
+  The converted path files had 60-507 ft gates (most 300; track 6 f cp 3/4 = 60/80, b cp 0/2/5 = 60/80/60; track 7
+  cp 4 = 100/130), so a route passing a gate further out than that missed it. Fixed by giving the gates Rush 1's
+  radii after load (`rush2::track1::race_time`).

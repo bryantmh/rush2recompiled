@@ -268,7 +268,8 @@ camera position from the start of `func_8007C27C`).
 ### Checkpoints
 
 - **Tables:** 0x800C7B6C (forward) and 0x800C7B88 (backward), one per track.
-- **Record layout:** 0x18 bytes: `f32 x, y, z` (render space), `f32 0`, `s16 flags` (−1 ends the list),
+- **Record layout:** 0x18 bytes: `f32 x, y, z` (render space), `s32 gate radius²` (250000 = 500 ft on most; up to
+  1000000; 100000 on track 7), `s16 flags` (−1 ends the list),
   `s16 time[3]` (the checkpoint's time extension on lap 1, lap 2, lap 3+).
   - In the end record, +0x12 is the start time's base and +0x14 the loop-start checkpoint.
 - **Race timer:**
@@ -281,9 +282,13 @@ camera position from the start of `func_8007C27C`).
   - 4 = no wrong-way warning: `func_8009BE68` skips its check while the car's last or next checkpoint (car
     +0xA4C / +0xA4E, the 0x44-byte checkpoint copies at *0x800F3A80, flags at +0x3A) has it. Only track 6 (the
     figure 8) uses it.
-- **Progress:** Rush 1 snaps checkpoints to the collision segment chain, which acts as its spine (`func_800A8F18`).
-  The chain is linear (`func_8009DF90` / `func_8009E090` step ±1), and a checkpoint counts once the car's place on
-  it passes the checkpoint's (`func_8009FFCC`), however far to the side the car is.
+- **Gates:** `func_800A8F18` copies each record to a 0x44-byte runtime checkpoint (*0x800F3A80: +0x30 radius²,
+  +0x3A flags, +0x3C times), snaps its position (+0x24) to the nearest node of the collision segment chain, which
+  acts as its spine (linear, `func_8009DF90` / `func_8009E090` step ±1), and takes the chain's direction there
+  (+0x18).
+- **Gate test** (`func_800A0BB8`, per car, next checkpoint car +0xA4E only): the car within the radius in x/z and
+  within 3 ft × frames of the gate's plane, then `func_8009D818` (the twin of Rush 2's `func_8008F220`). So the
+  same test as Rush 2's `func_800A1468`, with these radii. `func_8009FFCC` only grants the race leader's time.
 - **Wrong way:** `func_8009BE68` maps the car's segment to a lane 0 point (tables 0x800E4E28 / 0x800E66F8) and
   compares the car's heading with the point 5 ahead, like Rush 2's `func_8008CDA4`.
 
@@ -305,11 +310,14 @@ camera position from the start of `func_8007C27C`).
   3 branches on track 4 each way, 2 / 1 on track 5, none elsewhere. A car driven along every lane through Rush 2's
   tracker and wrong-way test reads wrong way at 13-42 points per lane on tracks 4 and 5 without them, and at only
   one point (the fork on track 5 forward, still inside 40 ft) with them.
-- **Gate width:** wide enough for every lane, then widened to the largest of 300, 250, 200, 160, 130, 100 or 80 ft
-  that keeps every crossing in place and that no path crosses within the radius + 30 ft on its way from the
-  previous gate. Lane-only gates were 60 ft, so a car driving wide of the lanes missed gates, and a missed gate keeps
-  Rush 2's respawn search in the stretch before it (`func_80090570`): crash respawns jumped back up to half a lap.
-  Rush 2's own gates are 35-890 ft.
+- **Gate width:** in the path file, wide enough for every lane, then widened to the largest of 300, 250, 200, 160,
+  130, 100 or 80 ft that keeps every crossing in place and that no path crosses within the radius + 30 ft on its
+  way from the previous gate: that radius is what Rush 2's crossing search (`func_80092D6C`) uses at load. Once the
+  search has run, `rush2::track1::race_time` puts Rush 1's own radius (316-1000 ft) into the header copy, which is
+  what the gate test reads. With the file's radii alone (60-507 ft) a car passing wider than that missed the gate,
+  and a missed gate keeps Rush 2's respawn search in the stretch before it (`func_80090570`): crash respawns jumped
+  back up to half a lap. Every lane driven through the gate test with Rush 1's radii counts each gate once per lap
+  within a point of its crossing.
 - **Gate placement:** a gate moves along the spine until Rush 2's crossing search (first side change inside the
   radius) finds the intended pass on every path. Track 6 is a figure 8.
 - **Flags:** 2 (arm) on checkpoint 0, 4 on Rush 1's loop start, 1 on Rush 1's lap line. This is NYONE's intro
