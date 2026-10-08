@@ -1,5 +1,5 @@
 San Francisco Rush:
-2) Car unique texture patterns as stripes
+2) Car unique texture patterns as stripes: done as the SF RUSH STRIPE value (docs/rush1_research.md section 11). Left: check Van, Taxi, Hot Rod in game, fuller Camaro flames, Supra/Viper/Bug white stripes.
 3) Windmills: Rush 1 has no windmill code or model (docs/rush1_research.md section 10), so they are static in the original. Find the track 6 windmill piece and check its blades converted (one reported missing). Also unplaced in the geometry: track 5 T5GATEL1-12, track 6 BUSO1.
 
 San Francisco Rush 2049:
