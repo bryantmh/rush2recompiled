@@ -137,7 +137,7 @@ namespace {
                                          std::vector<std::string>(names.begin(), names.end()));
         rush2::track2049::set_texanim_data(track.tex_anims);
         rush2::track2049::set_prop_data(track.prop_records, track.geometry);
-        rush2::battle::set_data(track.pickup_records, track.pool_records, track.geometry);
+        rush2::battle::set_data(track.pickup_records, track.pool_records, track.geometry, track.solid_triangles);
         return true;
     }
 

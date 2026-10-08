@@ -93,10 +93,38 @@ def emit(game, start):
         if ins.isBranch() or (ins.isJump() and not ins.isJumpWithAddress() is False and w >> 26 == 2):
             try: labels.add(ins.getBranchVramGeneric())
             except Exception: pass
+    # jump tables: lui $at, hi / addu $at, $at, $tN / lw $tN, lo($at) / jr $tN -> a jtbl_ symbol m2c understands
+    jt = {}; jt_at = {}
+    for i, (a, w) in enumerate(ins_list):
+        if w & 0xFC1FFFFF != 0x00000008 or (w >> 21) & 31 == 31: continue
+        reg = (w >> 21) & 31; lw = lu = None
+        for j in range(i - 1, max(i - 8, -1), -1):
+            a2, w2 = ins_list[j]
+            if lw is None and w2 >> 26 == 0x23 and (w2 >> 16) & 31 == reg: lw = j
+            elif lw is not None and w2 >> 26 == 0x0F and (w2 >> 16) & 31 == (ins_list[lw][1] >> 21) & 31: lu = j; break
+        if lw is None or lu is None: continue
+        lo = ins_list[lw][1] & 0xFFFF; lo = lo - 0x10000 if lo & 0x8000 else lo
+        tab = (((ins_list[lu][1] & 0xFFFF) << 16) + lo) & 0xFFFFFFFF
+        targets = []
+        while len(targets) < 64:
+            t = rd(tab + len(targets) * 4)
+            if not (start <= t < end) or t & 3: break
+            targets.append(t)
+        if not targets: continue
+        jt[tab] = targets; labels.update(targets)
+        jt_at[ins_list[lu][0]] = ('hi', tab); jt_at[ins_list[lw][0]] = ('lo', tab)
     # resolve lui pairs
     hi = {}; lui = {}
     lines = ['glabel func_%08X' % start]
     for a, w in ins_list:
+        if a in jt_at:
+            kind, tab = jt_at[a]
+            if a in labels: lines.append('.L%08X:' % a)
+            if kind == 'hi': lines.append('/* %08X */ lui $at, %%hi(jtbl_%08X)' % (a, tab))
+            else:
+                r = rabbitizer.Instruction(w, vram=a).disassemble().split()[1].rstrip(',')
+                lines.append('/* %08X */ lw %s, %%lo(jtbl_%08X)($at)' % (a, r, tab))
+            lui.pop(1, None); continue
         ins = rabbitizer.Instruction(w, vram=a)
         op = w >> 26; rs = (w >> 21) & 31; rt = (w >> 16) & 31; imm = w & 0xFFFF
         simm = imm - 0x10000 if imm & 0x8000 else imm
@@ -125,6 +153,11 @@ def emit(game, start):
         if w >> 26 == 3:
             t = ((a + 4) & 0xF0000000) | ((w & 0x3FFFFFF) << 2); txt = 'jal func_%08X' % t
         lines.append('/* %08X */ ' % a + txt)
+    if jt:
+        lines.append('.section .rodata')
+        for tab, targets in jt.items():
+            lines.append('glabel jtbl_%08X' % tab)
+            lines += ['.word .L%08X' % t for t in targets]
     return '\n'.join(lines) + '\n'
 
 if __name__ == '__main__':

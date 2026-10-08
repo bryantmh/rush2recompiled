@@ -19,14 +19,16 @@
 // callback, built into objects by func_800604FC) is replaced by one holding only the text callback (func_800B6134),
 // which draws the labels and, through draw(), everything else. The game's "L+R: DEFAULTS" footer text isn't printed.
 //
-// With wings enabled (Games tab) a tenth row, WINGS, is added: the text callback's label table (0x800C4B08) is
-// copied with "WINGS" appended, an instruction patch lets its label loop run 10 rows, and the rows are moved 15
-// pixels apart instead of 17 so everything fits in the panel. Whether the row is there is decided when the screen
-// opens.
+// More rows are added under the game's nine: WINGS with wings enabled (Games tab), and FIRE and DROP WEAPON (the
+// battle arenas' weapon buttons, src/battle.cpp) when the Rush 2049 tracks are available. The text callback's label
+// table (0x800C4B08) is copied with their labels appended, an instruction patch lets its label loop run up to 12
+// rows, and the rows are moved closer together (15, 14 or 13 pixels apart instead of 17) so everything fits in the
+// panel. Which rows are there is decided when the screen opens (menu_rows).
 //
 // Leaving: from the main menu the screen pops the menu stack itself (as func_800AD7E4 does); from the pause menu,
 // func_800AFD44 leaves once rush2_controls_menu_pause_exit says so.
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdio>
@@ -53,6 +55,7 @@
 #include "button_glyphs.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
+#include "track2049.h"
 #include "wings_internal.h"
 
 extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
@@ -125,8 +128,8 @@ namespace {
     constexpr int first_row_y = 0x78 - 0x4A;
     constexpr int first_row_y_paused = 0x78 - 0x48;
     constexpr int original_row_spacing = 17;
-    constexpr int wings_row_spacing = 15;
     constexpr int original_rows = 9;
+    constexpr int max_rows = 12;
     constexpr int glyph_gap = 4;   // Between a label and its glyph.
     constexpr int glyph_w = 16;    // The size of the game's button icons.
     constexpr int glyph_h = 14;
@@ -150,8 +153,9 @@ namespace {
     };
     std::array<PlayerState, num_players> player_states{};
 
-    // Whether the open screen has the WINGS row (latched when its widgets are created).
-    bool menu_has_wings = false;
+    // The open screen's rows (latched when its widgets are created): the game's nine, then WINGS, FIRE and DROP
+    // WEAPON when they apply.
+    std::vector<Action> menu_rows;
     std::atomic_bool pause_exit_pending = false;
 
     uint32_t new_widget_table = 0;
@@ -185,11 +189,22 @@ namespace {
     }
 
     int row_count() {
-        return menu_has_wings ? original_rows + 1 : original_rows;
+        return menu_rows.empty() ? original_rows : (int)menu_rows.size();
     }
 
+    // The rows' spacing: the panel holds nine rows 17 pixels apart. With more than ten the rows also start higher
+    // (row_lift), which leaves room for 14 pixels a row.
     int row_spacing() {
-        return menu_has_wings ? wings_row_spacing : original_row_spacing;
+        int rows = row_count();
+        return rows <= 9 ? original_row_spacing : rows <= 11 ? 15 : 14;
+    }
+
+    int row_lift() {
+        return row_count() > 10 ? 9 : 0;
+    }
+
+    Action row_action(int row) {
+        return row >= 0 && row < (int)menu_rows.size() ? menu_rows[row] : Action(std::clamp(row, 0, original_rows - 1));
     }
 
     // Calls a game function from a hook, keeping the hooked function's registers. Returns $v0.
@@ -234,13 +249,21 @@ namespace {
     }
 
     // The 9 action labels plus "WINGS" (only the US language block is needed; the language index is always 0).
+    // The label table of the open screen's rows.
     void build_label_table(uint8_t* rdram) {
-        uint32_t wings = alloc_string(rdram, "WINGS");
-        new_label_table = heap_address(rdram, recomp::alloc(rdram, 10 * 4));
-        for (int i = 0; i < 9; i++) {
-            MEM_W(0, (int32_t)(new_label_table + i * 4)) = MEM_W(0, (int32_t)(label_table + i * 4));
+        static uint32_t wings = 0, fire = 0, drop = 0;
+        if (new_label_table == 0) {
+            wings = alloc_string(rdram, "WINGS");
+            fire = alloc_string(rdram, "FIRE");
+            drop = alloc_string(rdram, "DROP");   // "DROP WEAPON" is wider than the panel's label column
+            new_label_table = heap_address(rdram, recomp::alloc(rdram, max_rows * 4));
         }
-        MEM_W(0, (int32_t)(new_label_table + 9 * 4)) = (int32_t)wings;
+        for (int i = 0; i < (int)menu_rows.size() && i < max_rows; i++) {
+            Action a = menu_rows[i];
+            int32_t label = a == Action::Wings ? (int32_t)wings : a == Action::Fire ? (int32_t)fire :
+                            a == Action::DropWeapon ? (int32_t)drop : MEM_W(0, (int32_t)(label_table + (int)a * 4));
+            MEM_W(0, (int32_t)(new_label_table + i * 4)) = label;
+        }
     }
 
     void load_strings(uint8_t* rdram) {
@@ -555,7 +578,7 @@ namespace {
             }
         }
         else if (pressed & button_a) {
-            rush2::controls::begin_listen(port, Action(cursor));
+            rush2::controls::begin_listen(port, row_action(cursor));
             play_sound(rdram, ctx, sound_confirm);
             return Exit::None;
         }
@@ -601,8 +624,10 @@ namespace {
 
     void draw_player(uint8_t* rdram, recomp_context* ctx, GlyphList& list, int player, int port) {
         bool paused = MEM_W(0, (int32_t)game_mode) != 0;
-        int y0 = paused ? first_row_y_paused : first_row_y;
+        int y0 = (paused ? first_row_y_paused : first_row_y) - row_lift();
         int spacing = row_spacing();
+        // Rows closer than the icons are tall draw them a little smaller.
+        bool small = spacing < 15;
         int rows = row_count();
         Device device = shown_device(port);
         bool playstation = rush2::input::port_has_playstation_controller(port);
@@ -615,20 +640,25 @@ namespace {
             if (listening && row == cursor) {
                 // The keyboard's steering is bound as a left key and then a right key.
                 uint32_t prompt = strings.press;
-                if (row == (int)Action::Steering && device == Device::Keyboard) {
+                if (row_action(row) == Action::Steering && device == Device::Keyboard) {
                     prompt = rush2::controls::listen_slot(port) == 0 ? strings.left : strings.right;
                 }
                 print(rdram, ctx, text_selected, x, y, prompt);
                 continue;
             }
 
-            int slots = (row == (int)Action::Steering && device == Device::Keyboard) ? 2 : 1;
+            int slots = (row_action(row) == Action::Steering && device == Device::Keyboard) ? 2 : 1;
             bool any = false;
             for (int slot = 0; slot < slots; slot++) {
-                Input in = rush2::controls::get_binding(port, device, Action(row), slot);
+                Input in = rush2::controls::get_binding(port, device, row_action(row), slot);
                 GlyphColor g = glyph_for(in, playstation);
                 if (g.glyph != Glyph::None) {
-                    list.add(g.glyph, g.rgba, x + slot * (glyph_w + 2), y + glyph_y_offset);
+                    if (small) {
+                        list.add(g.glyph, g.rgba, x + slot * (glyph_w + 2) + 1, y + glyph_y_offset + 1, glyph_w - 2, glyph_h - 2);
+                    }
+                    else {
+                        list.add(g.glyph, g.rgba, x + slot * (glyph_w + 2), y + glyph_y_offset);
+                    }
                     any = true;
                 }
             }
@@ -713,7 +743,19 @@ extern "C" void rush2_controls_frame(uint8_t* rdram, recomp_context* ctx) {
 // func_800AD7E4, before the widget list is created ($a2 = table; the count in $a3 is set here, its instruction is
 // patched out). The screen is opening.
 extern "C" void rush2_controls_menu_widgets(uint8_t* rdram, recomp_context* ctx) {
-    menu_has_wings = rush2::wings::enabled();
+    menu_rows.clear();
+    for (int a = 0; a < original_rows; a++) {
+        menu_rows.push_back(Action(a));
+    }
+    if (rush2::wings::enabled()) {
+        menu_rows.push_back(Action::Wings);
+    }
+    // The weapon buttons: only when the screen is opened from a battle's pause menu.
+    if (MEM_W(0, (int32_t)game_mode) != 0 && rush2::track2049::battle_race(rdram)) {
+        menu_rows.push_back(Action::Fire);
+        menu_rows.push_back(Action::DropWeapon);
+    }
+    build_label_table(rdram);
     if (new_widget_table == 0) {
         build_widget_table(rdram);
     }
@@ -778,24 +820,23 @@ extern "C" void rush2_controls_menu_draw(uint8_t* rdram, recomp_context* ctx) {
 
 // func_800B6134, after it loaded the label table into $s6.
 extern "C" void rush2_wings_menu_labels(uint8_t* rdram, recomp_context* ctx) {
-    if (!menu_has_wings) {
+    if (row_count() == original_rows || new_label_table == 0) {
         return;
-    }
-    if (new_label_table == 0) {
-        build_label_table(rdram);
     }
     ctx->r22 = (int32_t)new_label_table;
 }
 
+// func_800B6134 at 0x800B64D8, once a player's first row position is in $s2.
+extern "C" void rush2_controls_menu_first_row(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r18 = (int32_t)ctx->r18 - row_lift();
+}
+
 // func_800B6134, at the end of each label row, after the row counter ($s3) was incremented and before the loop
-// test (patched to 10 rows) and the row step of 17 pixels in $s2. Ends the loop after 9 rows without wings, and
-// makes the step 15 pixels with them.
+// test (patched to 12 rows) and the row step of 17 pixels in $s2. Ends the loop after the screen's rows, and makes
+// the step the rows' spacing.
 extern "C" void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx) {
-    if (!menu_has_wings) {
-        if ((int32_t)ctx->r19 >= original_rows) {
-            ctx->r19 = original_rows + 1;
-        }
-        return;
+    if ((int32_t)ctx->r19 >= row_count()) {
+        ctx->r19 = max_rows;
     }
-    ctx->r18 = (int32_t)ctx->r18 - (original_row_spacing - wings_row_spacing);
+    ctx->r18 = (int32_t)ctx->r18 - (original_row_spacing - row_spacing());
 }

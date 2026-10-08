@@ -40,6 +40,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "recomp.h"
 #include "rush2.h"
@@ -125,6 +126,13 @@ namespace {
     bool slot_half[max_widgets];
     bool half_pending = false;
     int32_t half_start = 0;
+    float half_scale_x = 0.5f, half_scale_y = 0.5f;
+    // Widgets another file places in final screen coordinates and draws scaled (the battle HUD, src/battle.cpp):
+    // they aren't anchored, grouped or moved for split screen, and their texture rectangles are scaled by these
+    // factors about their top left corner (0 = not such a widget).
+    float managed_scale_x[max_widgets];
+    float managed_scale_y[max_widgets];
+    uint16_t managed_origin[max_widgets];
     // Where the track map moved to as of the last widget loop: the laps-left number printed above it follows it.
     bool map_known = false;
     // The laps-left number's position as printed (before it follows the map), from this frame, and the height of its
@@ -305,13 +313,15 @@ namespace {
         }
     }
 
-    // Halves the texture rectangles written to the 2D display list since half_start, about the first one's top left
-    // corner (the image's), doubling their texture steps.
+    // Scales the texture rectangles written to the 2D display list since half_start by half_scale_x/y (a half for the
+    // skull), about the first one's top left corner (the image's), dividing their texture steps by the same.
     void finish_half(uint8_t* rdram) {
         if (!half_pending) {
             return;
         }
         half_pending = false;
+        float sx = half_scale_x, sy = half_scale_y;
+        half_scale_x = half_scale_y = 0.5f;
         int32_t end = MEM_W(0, (int32_t)dl_2d_cursor);
         bool anchored = false;
         uint32_t ax = 0;
@@ -332,17 +342,18 @@ namespace {
                 ay = y0;
                 anchored = true;
             }
-            x0 = ax + (x0 - ax) / 2;
-            y0 = ay + (y0 - ay) / 2;
-            x1 = ax + (x1 - ax) / 2;
-            y1 = ay + (y1 - ay) / 2;
+            x0 = ax + (uint32_t)std::lround((float)(x0 - ax) * sx);
+            y0 = ay + (uint32_t)std::lround((float)(y0 - ay) * sy);
+            x1 = std::min<uint32_t>(ax + (uint32_t)std::lround((float)(x1 - ax) * sx), 0xFFF);
+            y1 = std::min<uint32_t>(ay + (uint32_t)std::lround((float)(y1 - ay) * sy), 0xFFF);
             MEM_W(0, c) = (int32_t)((op << 24) | (x1 << 12) | y1);
             MEM_W(4, c) = (int32_t)((w1 & 0xFF000000u) | (x0 << 12) | y0);
             // G_RDPHALF_2 with the steps (s5.10 each) follows the G_RDPHALF_1 with the texture coordinates.
             int32_t steps = c + 16;
             uint32_t st = (uint32_t)MEM_W(4, steps);
-            uint32_t dsdx = ((st >> 16) * 2) & 0xFFFF;
-            uint32_t dtdy = ((st & 0xFFFF) * 2) & 0xFFFF;
+            // Signed: an image drawn flipped steps backward.
+            uint32_t dsdx = (uint32_t)std::lround((float)(int16_t)(st >> 16) / sx) & 0xFFFF;
+            uint32_t dtdy = (uint32_t)std::lround((float)(int16_t)(st & 0xFFFF) / sy) & 0xFFFF;
             MEM_W(4, steps) = (int32_t)((dsdx << 16) | dtdy);
             c += 16;
         }
@@ -658,6 +669,131 @@ void rush2::hud::anchor_text(uint8_t* rdram, int32_t& x, int32_t& y) {
     set_rect_origin(rdram, origin_at(x, y));
 }
 
+void rush2::hud::set_anchor(uint8_t* rdram, float fraction) {
+    set_rect_origin(rdram, (uint16_t)std::lround(std::clamp(fraction, 0.0f, 1.0f) * G_EX_ORIGIN_RIGHT));
+}
+
+// Digits drawn straight into the 2D display list (the game's own text is queued and drawn later, so it can't take
+// an anchor here): an 8 x 10 intensity image per digit in spare RDRAM (0x80C9F000; src/controls_menu.cpp lists the
+// ranges in use), drawn as a texture rectangle tinted by the primitive color, a black copy first as its shadow.
+namespace {
+    constexpr uint32_t digit_images = 0x80C9F000;
+    constexpr int digit_w = 8, digit_h = 10;
+    const char* const digit_rows[10][digit_h] = {
+        { ".######.", "########", "###..###", "###..###", "###..###", "###..###", "###..###", "###..###", "########", ".######." },
+        { "...###..", "..####..", ".#####..", "...###..", "...###..", "...###..", "...###..", "...###..", ".######.", ".######." },
+        { ".######.", "########", "###..###", ".....###", "....###.", "..####..", ".###....", "###.....", "########", "########" },
+        { ".######.", "########", "###..###", ".....###", "..#####.", "..#####.", ".....###", "###..###", "########", ".######." },
+        { "....###.", "...####.", "..#####.", ".###.###", "###..###", "########", "########", ".....###", ".....###", ".....###" },
+        { "########", "########", "###.....", "#######.", "########", ".....###", ".....###", "###..###", "########", ".######." },
+        { ".######.", "########", "###.....", "#######.", "########", "###..###", "###..###", "###..###", "########", ".######." },
+        { "########", "########", ".....###", "....###.", "....###.", "...###..", "...###..", "..###...", "..###...", "..###..." },
+        { ".######.", "########", "###..###", "###..###", ".######.", "########", "###..###", "###..###", "########", ".######." },
+        { ".######.", "########", "###..###", "###..###", "########", ".#######", ".....###", "###..###", "########", ".######." },
+    };
+    bool digits_written = false;
+
+    void write_digit_images(uint8_t* rdram) {
+        for (int d = 0; d < 10; d++) {
+            for (int y = 0; y < digit_h; y++) {
+                for (int x = 0; x < digit_w; x++) {
+                    MEM_B(d * digit_w * digit_h + y * digit_w + x, (int32_t)digit_images) = digit_rows[d][y][x] == '#' ? (int8_t)0xFF : 0;
+                }
+            }
+        }
+        digits_written = true;
+    }
+}
+
+void rush2::hud::set_prim_color(uint8_t* rdram, uint32_t rgba) {
+    GfxCommand cmd;
+    cmd.values.word0 = 0xFA000000;
+    cmd.values.word1 = rgba;
+    write_2d_commands(rdram, &cmd, 1);
+}
+
+void rush2::hud::draw_number(uint8_t* rdram, const char* digits, float center_x, float center_y, float height, float anchor) {
+    int32_t dl = MEM_W(0, (int32_t)dl_2d_cursor);
+    size_t length = strlen(digits);
+    if (dl == 0 || length == 0 || length > 6) {
+        return;
+    }
+    if (!digits_written) {
+        write_digit_images(rdram);
+    }
+    set_anchor(rdram, anchor);
+    GfxCommand cmds[160];
+    uint32_t count = 0;
+    auto cmd = [&](uint32_t w0, uint32_t w1) {
+        cmds[count].values.word0 = w0;
+        cmds[count].values.word1 = w1;
+        count++;
+    };
+    gEXEnable(&cmds[count++]);
+    gEXPushPrimColor(&cmds[count++]);
+    gEXPushOtherMode(&cmds[count++]);
+    gEXPushCombineMode(&cmds[count++]);
+    cmd(0xE7000000, 0);
+    // 1-cycle, bilinear, translucent surface blending, no Z; color = primitive, alpha = texel x primitive alpha (as
+    // src/controls_menu.cpp's glyphs).
+    cmd(0xEF000000 | 0x002CF0, 0x00504240);
+    uint32_t c_sa = 15, c_sb = 15, c_m = 31, c_a = 3, a_sa = 1, a_sb = 7, a_m = 3, a_a = 7;
+    cmd(0xFC000000 | (c_sa << 20) | (c_m << 15) | (a_sa << 12) | (a_m << 9) | (c_sa << 5) | c_m,
+        (c_sb << 28) | (c_a << 15) | (a_sb << 12) | (a_a << 9) | (c_sb << 24) | (a_sa << 21) | (a_m << 18) | (c_a << 6) | (a_sb << 3) | a_a);
+    constexpr uint32_t fmt_i = 4, siz_8b = 1, siz_16b = 2, clamp = 2;
+    uint32_t tile_clamp = (clamp << 18) | (clamp << 8);
+    float scale = height / (float)digit_h;
+    float glyph = (float)digit_w * scale, advance = glyph + scale;
+    float left = center_x - (advance * (float)length - scale) * 0.5f, top = center_y - height * 0.5f;
+    for (int pass = 0; pass < 2; pass++) {
+        // The shadow, a pixel down and right, then the digits in white.
+        cmd(0xFA000000, pass == 0 ? 0x000000FFu : 0xFFFFFFFFu);
+        float shift = pass == 0 ? std::max(1.0f, scale) : 0.0f;
+        for (size_t i = 0; i < length; i++) {
+            if (digits[i] < '0' || digits[i] > '9') {
+                continue;
+            }
+            uint32_t image = (digit_images + (uint32_t)(digits[i] - '0') * digit_w * digit_h) & 0x1FFFFFFF;
+            cmd(0xFD000000 | (fmt_i << 21) | (siz_16b << 19), image);
+            cmd(0xF5000000 | (fmt_i << 21) | (siz_16b << 19), (7u << 24) | tile_clamp);
+            cmd(0xE6000000, 0);
+            cmd(0xF3000000, (7u << 24) | ((uint32_t)((digit_w * digit_h + 1) / 2 - 1) << 12) | 2048);
+            cmd(0xE7000000, 0);
+            cmd(0xF5000000 | (fmt_i << 21) | (siz_8b << 19) | (1u << 9), tile_clamp);
+            cmd(0xF2000000, ((uint32_t)((digit_w - 1) << 2) << 12) | (uint32_t)((digit_h - 1) << 2));
+            int32_t x0 = (int32_t)std::lround((left + advance * (float)i + shift) * 4.0f);
+            int32_t y0 = (int32_t)std::lround((top + shift) * 4.0f);
+            int32_t x1 = x0 + (int32_t)std::lround(glyph * 4.0f), y1 = y0 + (int32_t)std::lround(height * 4.0f);
+            if (x0 < 0 || y0 < 0 || x1 > 0xFFF || y1 > 0xFFF) {
+                continue;
+            }
+            cmd(0xE4000000 | ((uint32_t)x1 << 12) | (uint32_t)y1, ((uint32_t)x0 << 12) | (uint32_t)y0);
+            cmd(0xE1000000, 0);
+            uint32_t step = (uint32_t)std::lround(1024.0f / scale) & 0xFFFF;
+            cmd(0xF1000000, (step << 16) | step);
+        }
+    }
+    cmd(0xE7000000, 0);
+    gEXPopCombineMode(&cmds[count++]);
+    gEXPopOtherMode(&cmds[count++]);
+    gEXPopPrimColor(&cmds[count++]);
+    write_2d_commands(rdram, cmds, count);
+}
+
+void rush2::hud::set_widget_scale(int slot, float scale_x, float scale_y, float anchor) {
+    if (slot >= 0 && slot < (int)max_widgets) {
+        managed_scale_x[slot] = scale_x;
+        managed_scale_y[slot] = scale_y;
+        managed_origin[slot] = (uint16_t)std::lround(std::clamp(anchor, 0.0f, 1.0f) * G_EX_ORIGIN_RIGHT);
+    }
+}
+
+void rush2::hud::clear_widget_scales() {
+    for (uint32_t i = 0; i < max_widgets; i++) {
+        managed_scale_x[i] = managed_scale_y[i] = 0.0f;
+    }
+}
+
 extern "C" {
 
 // func_800A06F8 entry and exit: the race HUD setup, which creates all of its widgets.
@@ -715,7 +851,7 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         slot_dx[i] = 0;
         slot_dy[i] = 0;
         parent[i] = (int)i;
-        anchored[i] = hud_slot[i] && MEM_B(widget_hidden, widget) == 0 &&
+        anchored[i] = hud_slot[i] && managed_scale_x[i] == 0.0f && MEM_B(widget_hidden, widget) == 0 &&
             (MEM_BU(widget_flags, widget) & flag_callback) == 0 && w != 0 && h != 0;
         if (!anchored[i]) {
             continue;
@@ -1156,8 +1292,16 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
         stretch_rect(rdram);
         return;
     }
-    set_rect_origin(rdram, slot_origin[slot]);
-    if (slot_half[slot] && (MEM_BU(widget_flags, widget) & flag_callback) == 0) {
+    set_rect_origin(rdram, managed_scale_x[slot] != 0.0f ? managed_origin[slot] : slot_origin[slot]);
+    if (managed_scale_x[slot] != 0.0f) {
+        if (MEM_W(widget_image, widget) != 0 && (managed_scale_x[slot] != 1.0f || managed_scale_y[slot] != 1.0f)) {
+            half_pending = true;
+            half_start = MEM_W(0, (int32_t)dl_2d_cursor);
+            half_scale_x = managed_scale_x[slot];
+            half_scale_y = managed_scale_y[slot];
+        }
+    }
+    else if (slot_half[slot] && (MEM_BU(widget_flags, widget) & flag_callback) == 0) {
         half_pending = true;
         half_start = MEM_W(0, (int32_t)dl_2d_cursor);
     }

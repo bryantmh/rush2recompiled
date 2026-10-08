@@ -18,7 +18,7 @@ namespace rush2::battle {
 
     // The converted arena's pickups, projectile pool and models (called when a battle arena is converted).
     void set_data(const std::vector<rush2::track2049::PickupRecord>& pickups, const std::vector<int>& pool,
-                  const std::vector<uint8_t>& converted_geometry);
+                  const std::vector<uint8_t>& converted_geometry, const std::vector<float>& solid_triangles);
     // Race setup: the next physics tick sets everything up again.
     void reset();
     // Once per physics tick of a race (src/track2049_movers.cpp); dt in seconds.

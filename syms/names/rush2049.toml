@@ -1921,6 +1921,12 @@ area = "audio"
 ref = "docs/rush2049_research/audio.md#6-track-object-sounds-movers-and-props"
 
 [[func]]
+vram = 0x800AF06C
+name = "explosion_spawn"
+desc = "Spawns the game's explosion object at a position or on a car (a0 = Vec3* or car index when a1 != 0), scale a2, with its sound when a3 != 0: 0x2D at scale >= 1, 0x45 at >= 0.5, else 0x2F, heard within 400. Battle shots call it with (pos, 0, 0.5, 1)."
+status = "verified"
+
+[[func]]
 vram = 0x800AF690
 desc = "Hangs the three Rocket ZX flame effect models (file 62 ROKTFLAMEG1-3) behind the car when the car index is 2. | Attaches the Rocket ZX's three exhaust flame effect models (file 62) behind the car."
 status = "verified"
@@ -2522,6 +2528,15 @@ area = "menu"
 ref = "docs/rush2049_research/cars.md#9-car-options-on-the-2049-cars-v"
 
 [[func]]
+vram = 0x800C77C4
+name = "controls_default_config"
+sig = "void controls_default_config(s8 *config)"
+desc = "Writes the default button of each of the 10 control functions: 1, 2, 0x13, 9, 0xF, 0x10, 0xE, 8, 0xD, 7 (function 0 gas, 1 brake, 6 drop weapon, 9 fire)."
+status = "verified"
+area = "input"
+ref = "docs/rush2049_research/battle.md#3-controls"
+
+[[func]]
 vram = 0x800C9590
 desc = "Raw stick over its auto-calibrated range, clamped to +-1."
 status = "verified"
@@ -2788,6 +2803,16 @@ status = "verified"
 ported = true
 area = "audio"
 ref = "docs/rush2049_research/audio.md#4-volume-calibration"
+
+[[func]]
+vram = 0x800D7E90
+name = "controls_apply_config"
+sig = "void controls_apply_config(s32 use_default, void *a2)"
+desc = "Fills each player's 10 function button masks (control struct 0x8014A118 + player * 0x4C, +0x18 + 4 x n) from the port's configuration bytes (0x8013C068 + port * 10, or the defaults 0x8013C228) through the mask table 0x801118E4."
+consts = "0x4C = control struct size; 0xA = functions"
+status = "verified"
+area = "input"
+ref = "docs/rush2049_research/battle.md#3-controls"
 
 [[func]]
 vram = 0x800DC120
@@ -3347,6 +3372,38 @@ area = "collision"
 ref = "docs/rush2049_research/placement.md#7-knock-over-props-v"
 
 [[func]]
+vram = 0x8010C7F4
+name = "battle_mine_hit"
+sig = "void battle_mine_hit(Object *obj)"
+desc = "Hit callback of WPR_MINE (a mine at rest): the car that touches it takes 800 from the mine's owner, or 280 if it holds the ram and the mine is ahead of it."
+consts = "0x320 = damage; 0x118 = damage to a ram's front"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#4-weapons"
+
+[[func]]
+vram = 0x8010D3C0
+name = "battle_pickup_hit"
+sig = "void battle_pickup_hit(Object *obj)"
+desc = "Hit callback of the WEPICON_* types: gives the car the pickup's weapon and ammo (0x80121D60; the same weapon again adds it), full health, 30 s of invisibility or the shield, by the object's anim id 0x15E-0x168."
+consts = "0x320 = full health; 30.0 = invisibility seconds"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#5-pickups-and-power-ups"
+
+[[func]]
+vram = 0x8010D680
+name = "battle_pickup_update"
+sig = "void battle_pickup_update(Anim *anim, s16 a1)"
+desc = "Update callback of the WEPICON_* types: turns the pickup by its object's rate, and shows a taken weapon pickup again once no car holds that weapon."
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#5-pickups-and-power-ups"
+
+[[func]]
 vram = 0x8010D9CC
 desc = "CACTUS init: obj+0x5A = 7, matrix from func_8008B4C4(car vel*0.125), timer 1/30; update func_80094888. | Init of CACTUS props."
 status = "verified"
@@ -3432,6 +3489,28 @@ area = "menu"
 ref = "docs/rush2049_research/menus.md#73-per-frame-func_8038a820"
 
 [[func]]
+vram = 0x8038AA8C
+name = "battle_mount_update"
+sig = "void battle_mount_update(Object *obj, s16 unload)"
+desc = "Battle overlay. Per-car callback of the weapon mounted on a car: swaps the model for the weapon held (ids 0xD8-0xDF of table 0x801427C0, hidden for the gun), places it at 0x803943A4[weapon][car model], and runs the cannon's and gatling's barrel and muzzle flash parts."
+consts = "0x9C = bytes per weapon in the mount table (13 car models x vec3); 8 = the default gun"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038CA24
+name = "battle_car_reset"
+sig = "void battle_car_reset(s16 car)"
+desc = "Battle overlay. Resets a car's battle fields at a spawn: weapon 8 (the gun), ammo -1, no power-ups, no held mine."
+consts = "8 = default gun; -1 = endless ammo"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
 vram = 0x8038CD14
 name = "trackselect_build_tube"
 desc = "2049 track select overlay builder (race tracks 0x8038D058-0x8038DE08): for each race track loads the AI path, centres/scales it, builds 100 rings x 4 vertices as a route 'tube' display list and sets it as LOD 0 of TRK_T{t+1}G1. | Track select overlay function that builds the route tube model at runtime from the forward AI path: 100 rings at evenly spaced spine points."
@@ -3441,11 +3520,143 @@ area = "menu"
 ref = "docs/rush2049_research/menus.md#72-builder-func_8038cd14-race-tracks-0x8038d0580x8038de08"
 
 [[func]]
+vram = 0x8038D3A4
+name = "battle_damage"
+sig = "void battle_damage(CarState *attacker, CarState *victim, s32 amount)"
+desc = "Battle overlay. Damages a car: nothing to the attacker itself or its team (0x8012E67C), x 0.2 with the victim's shield on (+0x38C & 4); subtracts from health +0x386; at 0 calls the kill function func_800C55E4 and sets the car's wrecked flag."
+consts = "0.2 (0x80394DC4) = shield factor"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038D498
+name = "battle_sonic_ring"
+sig = "void battle_sonic_ring(void)"
+desc = "Battle overlay. The sonic blast's ring ($s2 = the shot): cars within 4 x the ring's size are hit once each for 800 (size <= 8), 400 (<= 20) or 200, and get a force away from the center."
+consts = "330000 (0x80394DD0) = push force; 66000 (0x80394DCC) = lift; 0.6 (0x80394DC8) and 0.5 = force factors of the later sizes"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038D798
+name = "battle_explode"
+sig = "void battle_explode(Vec3 *pos, Vec3 *from, s32 owner, f32 radius_squared, s32 damage)"
+desc = "Battle overlay. Explosion: every live car within the radius takes ((r2 - d2) / r2)^2 x damage; a car holding the ram that faces the shot's path within 1.35 rad takes 0.35 of that."
+consts = "900.0 = the radius squared every caller passes; 0.35 (0x80394DD4) = ram front factor; 1.35 (0x80394DD8) = ram front angle"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038DA78
+name = "battle_shot_hit_car"
+sig = "CarState *battle_shot_hit_car(void)"
+desc = "Battle overlay. The first car (not the owner) a shot's step ($s1 = the shot, $s2 = where it started) crosses, as a cylinder around the car's position; moves the shot to the hit point and flags a ram's front (shot +7 bit 0)."
+consts = "6.75 - 0.5 = cylinder radius beyond the shot's; 3.5 = cylinder height; 1.35 (0x80394DE0) = ram front angle"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038DDDC
+name = "battle_missile_home"
+sig = "void battle_missile_home(Shot *shot)"
+desc = "Battle overlay. Turns a missile toward the nearest car within 2000 inside |x| <= z, |y| <= z of its frame: 0.04 rad a step in yaw, 0.03 in pitch."
+consts = "2000 = range; 0.04 (0x80394DE4/E8) = yaw step; 0.03 (0x80394DEC/F0) = pitch step"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038E114
+name = "battle_shots_update"
+sig = "void battle_shots_update(void)"
+desc = "Battle overlay. One step of every shot (list 0x8039A530): the held mine and its release, each weapon's motion, the car and arena hit tests, direct damage, explosions and the hit effects."
+consts = "1000 / 2000 = cannon / gun and gatling speed; 800 = rocket acceleration; 2.5 = grenade gravity factor; 0x190 0x72 0x320 0x3C0 0x208 0x50 = damage of cannon, gatling, grenade, missile, rocket, gun"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038F568
+name = "battle_aim"
+sig = "void battle_aim(CarState *car)"
+desc = "Battle overlay. Auto-aim of the cannon, gatling, rocket and gun: the aim yaw (+0x3B4) and pitch (+0x3B0) move 0.01 rad a step toward the nearest car ahead within 2000 (|x| <= z / 2, |y| <= z), or toward 0."
+consts = "0.01 (0x80394E8C..94) = aim step; 2000 = range"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038F938
+name = "battle_powerups_update"
+sig = "void battle_powerups_update(s32 car)"
+desc = "Battle overlay. A car's power-up timers: invisibility (30 s, then the fade back) and the shield globe WFX_SHIELDG1, which grows 0.05 a step to the car model's size (0x80394358), holds 30 s and shrinks."
+consts = "30.0 = shield hold seconds; 0.05 (0x80394EA0/AC) = scale step; 0.005 (0x80394E9C) = spin step"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8038FCE0
+name = "battle_weapons_update"
+sig = "void battle_weapons_update(void)"
+desc = "Battle overlay. Once a step: gatling casings, then per car the power-ups, aim, DROP WEAPON (control mask +0x30), cooldown +0x3AC and FIRE (mask +0x3C; held for the gatling), which creates the weapon's shot; then the shots (func_8038E114) and trails (func_8038CB20)."
+consts = "1/6 (0x80394EB8) = cooldown of cannon, grenade, rocket, gun; 1/15 (0x80394EE4) = gatling; 3.1667 (0x80394EE0) = grenade life; 165 = missile launch speed; 75 / 50 = grenade / rocket launch speed"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
 vram = 0x803914B4
 desc = "2049 battle/stunt-mode overlay function called for surface type 4 polygons."
 status = "inferred"
 area = "collision"
 ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
+
+[[func]]
+vram = 0x80391650
+name = "battle_hud_powerup"
+sig = "s32 battle_hud_powerup(void)"
+desc = "Battle overlay. Per view, the power-up in effect (WEPICON_INVSG1 / WEPICON_SHLDG1) as a turning 3D model at the screen positions of 0x80394210, scale 0.025."
+consts = "0.025 (0x80394F08) = model scale"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x80391864
+name = "battle_hud_weapon"
+sig = "s32 battle_hud_weapon(void)"
+desc = "Battle overlay. Per view, the weapon held as a turning 3D model 2 units ahead of the camera at the screen positions of 0x803941D0, scale 0.069 (sonic 0.175 at 5.75), shown in that view only."
+consts = "0.069 (0x80394F0C) / 0.175 (0x80394F10) = model scales; 0xD8 = model id of weapon 0"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x80391B00
+name = "battle_hud_update"
+sig = "void battle_hud_update(void)"
+desc = "Battle and stunt overlay HUD. Battle (game type 6): the weapon and power-up models, and each player's coin model (BCOIN_<color>G1) at the screen positions of 0x803940D0. Stunt (type 4): the stunt names sliding in."
+consts = "0.012 (0x80394F34) / 0.009 (0x80394F3C) = coin scale with 1-2 / 3-4 views; -1.5708 (0x80394F38) = coin tilt"
+status = "verified"
+ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 
 [[func]]
 vram = 0x8039D300
