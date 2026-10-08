@@ -310,7 +310,8 @@ namespace mipmap_option {
     enum class Mipmaps : uint32_t { Original, Smooth };
 }
 
-// Distant textures: draws the game's textures with mipmaps the renderer generates for them. This is a change to RT64,
+// Distant textures: draws the game's textures with mipmaps the renderer generates for them, and texture pack
+// replacements with theirs (PNGs get generated ones when they load). This is a change to RT64,
 // kept in lib/patches/rt64.patch (TextureMap::use and sampleTexture in TextureSampler.hlsli; see tools/lib_patch.py).
 static void add_mipmap_option(recomp::config::Config& config) {
     using mipmap_option::Mipmaps;
