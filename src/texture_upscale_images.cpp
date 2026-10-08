@@ -3,6 +3,8 @@
 // upscaler. Nothing here touches the renderer or the UI, so it builds on its own for testing.
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -23,11 +25,14 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <signal.h>
 #include <spawn.h>
 #include <sys/wait.h>
+#include <unistd.h>
 extern char** environ;
 #endif
 
+#include "hqx.h"
 #include "texture_upscale.h"
 
 namespace rush2::upscale {
@@ -64,9 +69,10 @@ namespace {
         return tmem[((final_address & mask) | or_address) & tmem_mask8];
     }
 
-    // sampleTMEM in TextureDecoder.hlsli.
+    // sampleTMEM in TextureDecoder.hlsli. index gets the texel's palette index (the 4 or 8 bits it holds) when a TLUT
+    // is used.
     Rgba sample(const uint8_t* tmem, uint32_t x, uint32_t y, uint32_t fmt, uint32_t siz, uint32_t address,
-                uint32_t stride, uint32_t tlut, uint32_t palette) {
+                uint32_t stride, uint32_t tlut, uint32_t palette, uint8_t& index) {
         const bool odd_row = (y & 1) != 0;
         const bool odd_column = (x & 1) != 0;
         const bool is_rgba32 = fmt == fmt_rgba && siz == siz_32b;
@@ -83,6 +89,7 @@ namespace {
         const uint32_t p4 = (p0 >> (odd_column ? 0 : 4)) & 0xF;
 
         if (uses_tlut) {
+            index = uint8_t(siz == siz_4b ? p4 : p0);
             uint32_t entry = (siz == siz_4b) ? tmem_palette + (palette << 7) + (p4 << 3) : tmem_palette + (p0 << 3);
             uint32_t value = tmem[(entry + 1) & tmem_mask8] | (tmem[entry & tmem_mask8] << 8);
             switch (tlut) {
@@ -210,16 +217,23 @@ namespace {
 }
 
 Image decode_tmem(const uint8_t* tmem_bytes, uint32_t fmt, uint32_t siz, uint32_t tmem, uint32_t line,
-                  uint32_t palette, uint32_t tlut, uint32_t width, uint32_t height) {
+                  uint32_t palette, uint32_t tlut, uint32_t width, uint32_t height, std::vector<uint8_t>* indices) {
     Image image;
     image.width = width;
     image.height = height;
     image.rgba.resize(size_t(width) * height * 4);
+    if (indices != nullptr) {
+        indices->assign(size_t(width) * height, 0);
+    }
     const uint32_t address = tmem << 3;
     const uint32_t stride = line << 3;
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            Rgba c = sample(tmem_bytes, x, y, fmt, siz, address, stride, tlut, palette);
+            uint8_t index = 0;
+            Rgba c = sample(tmem_bytes, x, y, fmt, siz, address, stride, tlut, palette, index);
+            if (indices != nullptr) {
+                (*indices)[size_t(y) * width + x] = index;
+            }
             uint8_t* p = &image.rgba[(size_t(y) * width + x) * 4];
             p[0] = c.r;
             p[1] = c.g;
@@ -395,6 +409,185 @@ std::vector<uint8_t> make_dds(const Image& image) {
     return bytes;
 }
 
+Image downscale(const Image& image, uint32_t factor) {
+    Image out = image;
+    for (; factor > 1; factor /= 2) {
+        out = half_size(out);
+    }
+    return out;
+}
+
+uint64_t index_key(const std::vector<uint8_t>& indices, uint32_t width, uint32_t height, uint32_t siz) {
+    XXH3_state_t state;
+    XXH3_64bits_reset(&state);
+    uint32_t header[3] = { width, height, siz };
+    XXH3_64bits_update(&state, header, sizeof(header));
+    XXH3_64bits_update(&state, indices.data(), indices.size());
+    return XXH3_64bits_digest(&state) | 1; // Never 0, which means "not paletted".
+}
+
+Image hq_upscale(const Image& image, uint32_t scale) {
+    // hqx works on 0xAARRGGBB words.
+    std::vector<uint32_t> src(size_t(image.width) * image.height);
+    for (size_t i = 0; i < src.size(); i++) {
+        const uint8_t* p = &image.rgba[i * 4];
+        src[i] = (uint32_t(p[3]) << 24) | (uint32_t(p[0]) << 16) | (uint32_t(p[1]) << 8) | p[2];
+    }
+    Image out;
+    out.width = image.width * scale;
+    out.height = image.height * scale;
+    std::vector<uint32_t> dst(size_t(out.width) * out.height);
+    if (scale == 4) {
+        hq4x_32(src.data(), dst.data(), (int)image.width, (int)image.height);
+    }
+    else {
+        hq2x_32(src.data(), dst.data(), (int)image.width, (int)image.height);
+    }
+    out.rgba.resize(dst.size() * 4);
+    for (size_t i = 0; i < dst.size(); i++) {
+        uint32_t c = dst[i];
+        out.rgba[i * 4 + 0] = uint8_t(c >> 16);
+        out.rgba[i * 4 + 1] = uint8_t(c >> 8);
+        out.rgba[i * 4 + 2] = uint8_t(c);
+        out.rgba[i * 4 + 3] = uint8_t(c >> 24);
+    }
+    return out;
+}
+
+bool matches_original(const Image& upscaled, const Image& original) {
+    if (upscaled.empty() || upscaled.width % original.width != 0 || upscaled.height % original.height != 0) {
+        return false;
+    }
+    // Averaged back down to the original's size, a real upscale is close to it; garbage isn't.
+    Image down = upscaled;
+    while (down.width > original.width || down.height > original.height) {
+        down = half_size(down);
+    }
+    if (down.width != original.width || down.height != original.height) {
+        down = resize_bilinear(upscaled, original.width, original.height);
+    }
+    uint64_t total = 0, count = 0;
+    for (size_t i = 0; i < original.rgba.size(); i += 4) {
+        if (original.rgba[i + 3] < 128) {
+            continue; // Transparent texels' colors are anyone's guess.
+        }
+        for (int c = 0; c < 3; c++) {
+            total += (uint64_t)std::abs(int(down.rgba[i + c]) - int(original.rgba[i + c]));
+        }
+        count += 3;
+    }
+    return count == 0 || total <= count * 24;
+}
+
+Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_colors, Edge edge_s, Edge edge_t) {
+    // Each upscaled pixel is explained as a blend of two of the original texels around it (or one): the pair whose
+    // old colors, mixed, come closest to the pixel, with a small preference for nearby texels. The pixel becomes the
+    // same mix of those texels' new colors, plus whatever detail the mix didn't explain, scaled by how much brighter
+    // or darker the new colors are. So a dark red pixel on the edge between red paint and a black line turns dark
+    // blue when the paint is blue, instead of keeping a red fringe.
+    Image out = upscaled;
+    const float scale_x = float(upscaled.width) / float(old_colors.width);
+    const float scale_y = float(upscaled.height) / float(old_colors.height);
+    constexpr float spatial_cost = 60.0f; // Per squared texel of distance, against squared color distance.
+    for (uint32_t y = 0; y < upscaled.height; y++) {
+        float fy = (y + 0.5f) / scale_y - 0.5f;
+        int32_t cy = (int32_t)std::lround(fy);
+        for (uint32_t x = 0; x < upscaled.width; x++) {
+            float fx = (x + 0.5f) / scale_x - 0.5f;
+            int32_t cx = (int32_t)std::lround(fx);
+
+            // The 3x3 texels around the nearest one.
+            struct Candidate { float old_color[4], new_color[4], spatial; };
+            Candidate candidates[9];
+            int count = 0;
+            bool changed = false;
+            for (int dy = -1; dy <= 1; dy++) {
+                int32_t sy = edge_index(cy + dy, int32_t(old_colors.height), edge_t);
+                for (int dx = -1; dx <= 1; dx++) {
+                    int32_t sx = edge_index(cx + dx, int32_t(old_colors.width), edge_s);
+                    size_t at = (size_t(sy) * old_colors.width + sx) * 4;
+                    Candidate& c = candidates[count++];
+                    for (int k = 0; k < 4; k++) {
+                        c.old_color[k] = old_colors.rgba[at + k];
+                        c.new_color[k] = new_colors.rgba[at + k];
+                    }
+                    changed |= memcmp(&old_colors.rgba[at], &new_colors.rgba[at], 4) != 0;
+                    float ddx = float(cx + dx) - fx, ddy = float(cy + dy) - fy;
+                    c.spatial = ddx * ddx + ddy * ddy;
+                }
+            }
+            if (!changed) {
+                continue;
+            }
+
+            const uint8_t* u = &upscaled.rgba[(size_t(y) * upscaled.width + x) * 4];
+            float best_cost = 1e30f, best_t = 0.0f;
+            int best_a = 0, best_b = 0;
+            for (int a = 0; a < count; a++) {
+                for (int b = a; b < count; b++) {
+                    const Candidate& ca = candidates[a];
+                    const Candidate& cb = candidates[b];
+                    // Projection of the pixel onto the segment between the two old colors.
+                    float seg[4], rel[4], seg_len = 0.0f, dot = 0.0f;
+                    for (int k = 0; k < 4; k++) {
+                        seg[k] = cb.old_color[k] - ca.old_color[k];
+                        rel[k] = float(u[k]) - ca.old_color[k];
+                        seg_len += seg[k] * seg[k];
+                        dot += seg[k] * rel[k];
+                    }
+                    float t = seg_len > 0.0f ? std::clamp(dot / seg_len, 0.0f, 1.0f) : 0.0f;
+                    float distance = 0.0f;
+                    for (int k = 0; k < 4; k++) {
+                        float d = rel[k] - seg[k] * t;
+                        distance += d * d;
+                    }
+                    float cost = distance + spatial_cost * ((1.0f - t) * ca.spatial + t * cb.spatial);
+                    if (cost < best_cost) {
+                        best_cost = cost;
+                        best_t = t;
+                        best_a = a;
+                        best_b = b;
+                    }
+                }
+            }
+
+            const Candidate& ca = candidates[best_a];
+            const Candidate& cb = candidates[best_b];
+            float old_mix[4], new_mix[4];
+            for (int k = 0; k < 4; k++) {
+                old_mix[k] = ca.old_color[k] + (cb.old_color[k] - ca.old_color[k]) * best_t;
+                new_mix[k] = ca.new_color[k] + (cb.new_color[k] - ca.new_color[k]) * best_t;
+            }
+            float old_luma = 0.299f * old_mix[0] + 0.587f * old_mix[1] + 0.114f * old_mix[2];
+            float new_luma = 0.299f * new_mix[0] + 0.587f * new_mix[1] + 0.114f * new_mix[2];
+            float detail_scale = std::clamp((new_luma + 16.0f) / (old_luma + 16.0f), 0.0f, 4.0f);
+            uint8_t* p = &out.rgba[(size_t(y) * out.width + x) * 4];
+            for (int k = 0; k < 3; k++) {
+                float v = new_mix[k] + (float(u[k]) - old_mix[k]) * detail_scale;
+                p[k] = (uint8_t)std::clamp(int(v + 0.5f), 0, 255);
+            }
+            p[3] = (uint8_t)std::clamp(int(new_mix[3] + (float(u[3]) - old_mix[3]) + 0.5f), 0, 255);
+        }
+    }
+    return out;
+}
+
+bool read_dds(const std::vector<uint8_t>& bytes, Image& image) {
+    ddspp::Descriptor desc;
+    if (bytes.size() < 148 || ddspp::decode_header((unsigned char*)bytes.data(), desc) != ddspp::Success ||
+        desc.format != ddspp::R8G8B8A8_UNORM) {
+        return false;
+    }
+    size_t size = size_t(desc.width) * desc.height * 4;
+    if (bytes.size() < desc.headerSize + size) {
+        return false;
+    }
+    image.width = desc.width;
+    image.height = desc.height;
+    image.rgba.assign(bytes.begin() + desc.headerSize, bytes.begin() + desc.headerSize + size);
+    return true;
+}
+
 std::vector<uint8_t> read_file(const std::filesystem::path& path) {
     std::ifstream file{ path, std::ios::binary };
     return { std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
@@ -445,7 +638,7 @@ bool write_png(const std::filesystem::path& path, const Image& image) {
     return ok;
 }
 
-int run_command(const std::string& command_line) {
+int run_command(const std::string& command_line, const std::atomic<bool>* cancel) {
 #ifdef _WIN32
     int wide_length = MultiByteToWideChar(CP_UTF8, 0, command_line.c_str(), -1, nullptr, 0);
     std::wstring wide(wide_length, L'\0');
@@ -458,7 +651,13 @@ int run_command(const std::string& command_line) {
                         nullptr, nullptr, &startup, &process)) {
         return -1;
     }
-    WaitForSingleObject(process.hProcess, INFINITE);
+    while (WaitForSingleObject(process.hProcess, 50) == WAIT_TIMEOUT) {
+        if (cancel != nullptr && cancel->load()) {
+            TerminateProcess(process.hProcess, 1);
+            WaitForSingleObject(process.hProcess, INFINITE);
+            break;
+        }
+    }
     DWORD exit_code = 1;
     GetExitCodeProcess(process.hProcess, &exit_code);
     CloseHandle(process.hThread);
@@ -471,48 +670,167 @@ int run_command(const std::string& command_line) {
         return -1;
     }
     int status = 0;
-    if (waitpid(pid, &status, 0) < 0) {
-        return -1;
+    while (true) {
+        pid_t done = waitpid(pid, &status, WNOHANG);
+        if (done == pid) {
+            break;
+        }
+        if (done < 0) {
+            return -1;
+        }
+        if (cancel != nullptr && cancel->load()) {
+            kill(pid, SIGKILL); // nice execs the shell, which runs the command in the same process.
+            waitpid(pid, &status, 0);
+            return -1;
+        }
+        usleep(50 * 1000);
     }
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 #endif
 }
 
-bool extract_zip(const std::filesystem::path& zip, const std::filesystem::path& folder) {
+namespace {
+    // Reads a zip on a web server through ranged requests with curl, in blocks, so only the parts of the archive
+    // that are extracted get downloaded.
+    struct RemoteZip {
+        std::string url;
+        uint64_t size = 0;
+        std::filesystem::path temp;
+        uint64_t block_start = 0;
+        std::vector<uint8_t> block;
+        const std::atomic<bool>* cancel = nullptr;
+
+        bool fetch(uint64_t start, uint64_t end, std::vector<uint8_t>& out) {
+            std::error_code ec;
+            std::filesystem::remove(temp, ec);
+            std::string line = std::string(curl_program()) + " -L --fail -s -r " + std::to_string(start) + "-" +
+                               std::to_string(end - 1) + " -o \"" + path_utf8(temp) + "\" \"" + url + "\"";
+            if (run_command(line, cancel) != 0) {
+                return false;
+            }
+            out = read_file(temp);
+            std::filesystem::remove(temp, ec);
+            return out.size() == end - start; // A server ignoring the range sends everything.
+        }
+
+        static size_t read(void* opaque, mz_uint64 offset, void* buffer, size_t n) {
+            RemoteZip* zip = (RemoteZip*)opaque;
+            if (offset < zip->block_start || offset + n > zip->block_start + zip->block.size()) {
+                constexpr uint64_t block_size = 256 * 1024;
+                uint64_t end = std::min<uint64_t>(offset + std::max<uint64_t>(n, block_size), zip->size);
+                if (!zip->fetch(offset, end, zip->block)) {
+                    zip->block.clear();
+                    return 0;
+                }
+                zip->block_start = offset;
+            }
+            memcpy(buffer, zip->block.data() + (offset - zip->block_start), n);
+            return n;
+        }
+    };
+
+    bool extract_from(mz_zip_archive& archive, const std::filesystem::path& folder, const std::vector<std::string>& names) {
+        bool ok = true;
+        mz_uint count = mz_zip_reader_get_num_files(&archive);
+        for (mz_uint i = 0; i < count && ok; i++) {
+            mz_zip_archive_file_stat stat;
+            if (!mz_zip_reader_file_stat(&archive, i, &stat)) {
+                ok = false;
+                break;
+            }
+            if (!names.empty() && std::find(names.begin(), names.end(), std::string(stat.m_filename)) == names.end()) {
+                continue;
+            }
+            std::filesystem::path relative = std::filesystem::path(stat.m_filename).lexically_normal();
+            if (relative.is_absolute() || (!relative.empty() && *relative.begin() == "..")) {
+                continue; // Never write outside the folder.
+            }
+            std::filesystem::path target = folder / relative;
+            std::error_code ec;
+            if (mz_zip_reader_is_file_a_directory(&archive, i)) {
+                std::filesystem::create_directories(target, ec);
+                continue;
+            }
+            std::filesystem::create_directories(target.parent_path(), ec);
+            size_t size = 0;
+            void* data = mz_zip_reader_extract_to_heap(&archive, i, &size, 0);
+            if (data == nullptr) {
+                ok = false;
+                break;
+            }
+            ok = write_file(target, std::vector<uint8_t>((uint8_t*)data, (uint8_t*)data + size));
+            mz_free(data);
+        }
+        return ok;
+    }
+}
+
+std::string path_utf8(const std::filesystem::path& path) {
+    auto text = path.u8string();
+    return std::string(text.begin(), text.end());
+}
+
+const char* curl_program() {
+#ifdef _WIN32
+    return "curl.exe"; // Part of Windows since 10 1803.
+#else
+    return "curl";
+#endif
+}
+
+bool extract_zip(const std::filesystem::path& zip, const std::filesystem::path& folder, const std::vector<std::string>& names) {
     std::vector<uint8_t> bytes = read_file(zip);
     mz_zip_archive archive{};
     if (bytes.empty() || !mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0)) {
         return false;
     }
-    bool ok = true;
-    mz_uint count = mz_zip_reader_get_num_files(&archive);
-    for (mz_uint i = 0; i < count && ok; i++) {
-        mz_zip_archive_file_stat stat;
-        if (!mz_zip_reader_file_stat(&archive, i, &stat)) {
-            ok = false;
-            break;
-        }
-        std::filesystem::path relative = std::filesystem::path(stat.m_filename).lexically_normal();
-        if (relative.is_absolute() || (!relative.empty() && *relative.begin() == "..")) {
-            continue; // Never write outside the folder.
-        }
-        std::filesystem::path target = folder / relative;
-        std::error_code ec;
-        if (mz_zip_reader_is_file_a_directory(&archive, i)) {
-            std::filesystem::create_directories(target, ec);
-            continue;
-        }
-        std::filesystem::create_directories(target.parent_path(), ec);
-        size_t size = 0;
-        void* data = mz_zip_reader_extract_to_heap(&archive, i, &size, 0);
-        if (data == nullptr) {
-            ok = false;
-            break;
-        }
-        ok = write_file(target, std::vector<uint8_t>((uint8_t*)data, (uint8_t*)data + size));
-        mz_free(data);
-    }
+    bool ok = extract_from(archive, folder, names);
     mz_zip_reader_end(&archive);
+    return ok;
+}
+
+bool download_zip_files(const std::string& url, const std::vector<std::string>& names, const std::filesystem::path& folder,
+                        const std::atomic<bool>* cancel) {
+    RemoteZip remote;
+    remote.url = url;
+    remote.cancel = cancel;
+    remote.temp = folder / "download.part";
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+
+    // The archive's size, from the Content-Range of a one-byte request.
+    std::filesystem::path headers = folder / "headers.part";
+    std::string line = std::string(curl_program()) + " -L --fail -s -r 0-0 -o \"" + path_utf8(remote.temp) + "\" -D \"" +
+                       path_utf8(headers) + "\" \"" + url + "\"";
+    if (run_command(line, cancel) != 0) {
+        return false;
+    }
+    std::vector<uint8_t> header_bytes = read_file(headers);
+    std::filesystem::remove(headers, ec);
+    std::filesystem::remove(remote.temp, ec);
+    // Redirects write a header block each; the last one is the file's ("Content-Range: bytes 0-0/<size>").
+    std::string text(header_bytes.begin(), header_bytes.end());
+    std::transform(text.begin(), text.end(), text.begin(), [](char c) { return (char)std::tolower((unsigned char)c); });
+    size_t range = text.rfind("content-range: bytes 0-0/");
+    if (range == std::string::npos) {
+        return false;
+    }
+    remote.size = std::strtoull(text.c_str() + range + 25, nullptr, 10);
+    if (remote.size == 0) {
+        return false;
+    }
+
+    mz_zip_archive archive{};
+    archive.m_pRead = RemoteZip::read;
+    archive.m_pIO_opaque = &remote;
+    if (!mz_zip_reader_init(&archive, remote.size, 0)) {
+        return false;
+    }
+    bool ok = extract_from(archive, folder, names);
+    mz_zip_reader_end(&archive);
+    for (const std::string& name : names) {
+        ok = ok && std::filesystem::exists(folder / name, ec);
+    }
     return ok;
 }
 
@@ -553,10 +871,9 @@ std::string pack_manifest(const std::string& id, const std::string& name, const 
 }
 
 bool zip_folder(const std::filesystem::path& folder, const std::filesystem::path& zip) {
-    std::filesystem::path temp = zip;
-    temp += ".part";
+    // Built in memory and written with write_file, which handles any path (miniz's file functions take narrow ones).
     mz_zip_archive archive{};
-    if (!mz_zip_writer_init_file(&archive, temp.string().c_str(), 0)) {
+    if (!mz_zip_writer_init_heap(&archive, 0, 0)) {
         return false;
     }
     bool ok = true;
@@ -565,19 +882,20 @@ bool zip_folder(const std::filesystem::path& folder, const std::filesystem::path
         if (!it->is_regular_file()) {
             continue;
         }
-        std::string name = std::filesystem::relative(it->path(), folder).generic_string();
+        std::string name = path_utf8(std::filesystem::relative(it->path(), folder).generic_u8string());
         std::vector<uint8_t> bytes = read_file(it->path());
         // Images are compressed already or compress well enough at a fast level.
         ok = mz_zip_writer_add_mem(&archive, name.c_str(), bytes.data(), bytes.size(), MZ_BEST_SPEED) != 0;
     }
-    ok = ok && !ec && mz_zip_writer_finalize_archive(&archive);
-    mz_zip_writer_end(&archive);
-    if (!ok) {
-        std::filesystem::remove(temp, ec);
-        return false;
+    void* data = nullptr;
+    size_t size = 0;
+    ok = ok && !ec && mz_zip_writer_finalize_heap_archive(&archive, &data, &size);
+    if (ok) {
+        ok = write_file(zip, std::vector<uint8_t>((uint8_t*)data, (uint8_t*)data + size));
+        mz_free(data); // Handed over by finalize; ending the writer doesn't free it.
     }
-    std::filesystem::rename(temp, zip, ec);
-    return !ec;
+    mz_zip_writer_end(&archive);
+    return ok;
 }
 
 }

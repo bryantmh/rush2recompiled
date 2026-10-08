@@ -6,11 +6,16 @@
 // it was upscaled already its replacement is taken off again. Textures are identified by their decoded pixels
 // (content_key), so the same image loaded under different RT64 hashes is upscaled and stored once.
 //
-// Automatic mode runs an upscaler on a background thread in batches and caches each result as a DDS with mipmaps in
-// <app folder>/texture_upscale/cache/<upscaler>/<key>.dds, so nothing is upscaled twice, across sessions too. Results
+// Paletted textures that differ only in their palette (car paint: every paint job is a palette) share an index key.
+// Only the first one seen is upscaled; every other variant is made from that upscale by recolor(), on the CPU in
+// about a millisecond, instead of running the upscaler again for each of the thousands of paint combinations.
+//
+// A background thread does the work in batches and caches each result as a DDS with mipmaps in
+// <app folder>/texture_upscale/cache/<mode>/<key>.dds, so nothing is upscaled twice, across sessions too. Results
 // reach the renderer as RT64 live replacements (rt64_live_textures.h): no pack reload, and any installed texture pack
-// that replaces the same texture wins. The default upscaler is Real-ESRGAN (realesr-animevideov3, ncnn/Vulkan),
-// downloaded on first use; Custom runs any command line on a folder of images.
+// that replaces the same texture wins. HQ2x and HQ4x run hqx (lib/hqx) on the CPU. ESRGAN runs Real-ESRGAN
+// (realesr-animevideov3 x4, ncnn/Vulkan; 2x is its 4x averaged down), of which only the program and that one model
+// are downloaded on first use. Custom runs any command line on a folder of images.
 //
 // For upscalers without a command line (Topaz Gigapixel's app, say): Dump Textures writes the kept textures as
 // <key>.png into texture_upscale/dump, the user saves upscaled copies (any size, file names starting with the key)
@@ -18,6 +23,7 @@
 // (a folder in the mods folder, enabled right away) plus a shareable .rtz of it.
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <fstream>
@@ -51,32 +57,37 @@ const char* const mode_option_id = "texture_upscaling";
 const char* const command_option_id = "texture_upscale_command";
 
 namespace {
-    enum class Mode : uint32_t { Off, Esrgan2x, Esrgan4x, Custom };
+    // Saved by name ("Esrgan2x"...), so the values only matter inside this file.
+    enum class Mode : uint32_t { Off, Esrgan2x, Esrgan4x, Custom, Hq2x, Hq4x };
 
     constexpr uint32_t stable_frames = 3;  // Frames a texture is drawn in 3D before it's kept (skips one-frame textures).
-    constexpr uint32_t border = 8;         // Texels of padding around images given to an automatic upscaler.
-    constexpr size_t batch_size = 48;      // Images per upscaler run.
+    constexpr uint32_t border = 8;         // Texels of padding around images given to an upscaler.
+    constexpr size_t batch_size = 16;      // Images per external upscaler run.
+    constexpr auto run_pause = std::chrono::milliseconds(250); // Between external runs, so the game gets the GPU back.
     const std::string pack_id = "rush2_custom_textures";
 
-    // Real-ESRGAN ncnn/Vulkan builds, release v0.2.5.0 (BSD-3-Clause). The zips hold the program and its models.
+    // Real-ESRGAN ncnn/Vulkan builds, release v0.2.5.0 (BSD-3-Clause). Each zip holds the program and five models;
+    // only these entries are downloaded. The x2 model is left out: on some GPUs it gives noise, so 2x is the x4
+    // model's output averaged down, which looks better anyway.
 #if defined(_WIN32)
     const char* esrgan_url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip";
     const char* esrgan_exe = "realesrgan-ncnn-vulkan.exe";
+    const std::vector<std::string> esrgan_files = { "realesrgan-ncnn-vulkan.exe", "vcomp140.dll",
+        "models/realesr-animevideov3-x4.bin", "models/realesr-animevideov3-x4.param" };
 #elif defined(__APPLE__)
     const char* esrgan_url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip";
     const char* esrgan_exe = "realesrgan-ncnn-vulkan";
+    const std::vector<std::string> esrgan_files = { "realesrgan-ncnn-vulkan",
+        "models/realesr-animevideov3-x4.bin", "models/realesr-animevideov3-x4.param" };
 #else
     const char* esrgan_url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip";
     const char* esrgan_exe = "realesrgan-ncnn-vulkan";
+    const std::vector<std::string> esrgan_files = { "realesrgan-ncnn-vulkan",
+        "models/realesr-animevideov3-x4.bin", "models/realesr-animevideov3-x4.param" };
 #endif
 
-    std::string utf8(const std::filesystem::path& path) {
-        auto text = path.u8string();
-        return std::string(text.begin(), text.end());
-    }
-
     std::string quoted(const std::filesystem::path& path) {
-        return "\"" + utf8(path) + "\"";
+        return "\"" + path_utf8(path) + "\"";
     }
 
     std::filesystem::path root() { return recompui::file::get_app_folder_path() / "texture_upscale"; }
@@ -86,9 +97,15 @@ namespace {
     std::filesystem::path work_dir() { return root() / "work"; }
     std::filesystem::path ui_list() { return root() / "ui_textures.txt"; }
 
+    uint32_t mode_scale(Mode mode) {
+        return (mode == Mode::Esrgan4x || mode == Mode::Hq4x) ? 4 : 2;
+    }
+
     const char* mode_folder(Mode mode) {
         switch (mode) {
-            case Mode::Esrgan2x: return "esrgan_x2";
+            case Mode::Hq2x: return "hq2x";
+            case Mode::Hq4x: return "hq4x";
+            case Mode::Esrgan2x: return "esrgan_x2_from_x4"; // Not "esrgan_x2", which holds the x2 model's output.
             case Mode::Esrgan4x: return "esrgan_x4";
             case Mode::Custom: return "custom";
             default: return "";
@@ -103,6 +120,8 @@ namespace {
     }
 
     void open_folder(const std::filesystem::path& folder) {
+        std::error_code ec;
+        std::filesystem::create_directories(folder, ec);
 #ifdef _WIN32
         ShellExecuteW(nullptr, L"open", folder.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 #elif defined(__APPLE__)
@@ -118,10 +137,12 @@ namespace {
         Edge edge_s = Edge::Wrap;
         Edge edge_t = Edge::Wrap;
         std::vector<uint64_t> hashes;
+        uint64_t base = 0;          // Content key of the palette variant this one is recolored from, or 0.
+        std::vector<uint64_t> dependents; // Variants waiting for this one's upscale.
         bool ui = false;            // Also drawn in 2D: never replaced.
         bool queued = false;        // Waiting for the worker in the current mode.
         bool ready = false;         // Upscaled in the current mode; its hashes get the replacement as they show up.
-        bool failed = false;        // The upscaler gave nothing usable for it in the current mode.
+        bool failed = false;        // Nothing usable came out for it in the current mode.
     };
 
     // What the observer knows of an RT64 hash.
@@ -133,10 +154,23 @@ namespace {
         bool kept = false;          // Decoded already (key is 0 when it wasn't worth keeping).
     };
 
+    // A piece of work the worker took from the queue, copied out so it runs without the lock.
+    struct Job {
+        uint64_t key;
+        Entry entry;
+        uint64_t base_key = 0;      // With base_image: recolor from that upscale instead of upscaling.
+        Image base_image;
+        Edge base_edge_s = Edge::Wrap;
+        Edge base_edge_t = Edge::Wrap;
+    };
+
     class Upscaler : public RT64::TextureObserver {
     public:
         void start() {
             load_ui_list();
+            // Made by the x2 model, which gave some GPUs noise.
+            std::error_code ec;
+            std::filesystem::remove_all(root() / "cache" / "esrgan_x2", ec);
             worker = std::thread([this]() { run(); });
             worker.detach(); // Lives as long as the game; the process ends with it.
             RT64::ActiveTextureObserver = this;
@@ -150,12 +184,14 @@ namespace {
             mode = new_mode;
             command = new_command;
             generation++;
+            cancel_run = true; // Stops an upscaler that's running for the old mode.
             clear_requested = true;
-            failed_message.clear();
+            message.clear();
             pending.clear();
             for (auto& [key, entry] : entries) {
                 entry.ready = false;
                 entry.failed = false;
+                entry.dependents.clear();
                 entry.queued = (mode != Mode::Off) && !entry.ui;
                 if (entry.queued) {
                     pending.push_back(key);
@@ -166,13 +202,10 @@ namespace {
 
         std::string status() {
             std::unique_lock lock(mutex);
-            if (!failed_message.empty()) {
-                return failed_message;
+            if (!message.empty()) {
+                return message;
             }
-            if (mode == Mode::Off) {
-                return "";
-            }
-            if (!pending.empty() || busy) {
+            if (mode != Mode::Off && (!pending.empty() || busy)) {
                 return busy_message.empty() ? "Upscaling textures..." : busy_message;
             }
             return "";
@@ -205,7 +238,9 @@ namespace {
             if (width > 1024 || height > 1024) {
                 return; // A tile sized past what TMEM holds; nothing real to upscale.
             }
-            Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut, width, height);
+            std::vector<uint8_t> indices;
+            Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut, width, height,
+                                      tlut != 0 ? &indices : nullptr);
             if (!worth_upscaling(image)) {
                 return;
             }
@@ -218,6 +253,13 @@ namespace {
                 entry.edge_s = edge_of(tile.cms, tile.masks);
                 entry.edge_t = edge_of(tile.cmt, tile.maskt);
                 entry.ui = ui_keys.count(key) != 0;
+                if (tlut != 0) {
+                    // The first palette variant of these indices is the one that gets upscaled.
+                    auto [base_it, new_base] = bases.try_emplace(index_key(indices, width, height, tile.siz), key);
+                    if (!new_base && base_it->second != key) {
+                        entry.base = base_it->second;
+                    }
+                }
             }
             entry.hashes.push_back(hash);
             if (entry.ui || mode == Mode::Off || entry.failed) {
@@ -277,7 +319,7 @@ namespace {
             std::set<uint64_t> done;
             for (const auto& file : std::filesystem::directory_iterator(upscaled_dir(), ec)) {
                 uint64_t key;
-                if (!file.is_regular_file() || !parse_key_name(utf8(file.path().filename()), key)) {
+                if (!file.is_regular_file() || !parse_key_name(path_utf8(file.path().filename()), key)) {
                     continue;
                 }
                 auto it = index.find(key);
@@ -320,6 +362,7 @@ namespace {
         std::thread worker;
         std::unordered_map<uint64_t, Seen> seen_hashes;
         std::unordered_map<uint64_t, Entry> entries;
+        std::unordered_map<uint64_t, uint64_t> bases;         // Index key -> content key of the variant upscaled.
         std::unordered_set<uint64_t> ui_keys;
         std::deque<uint64_t> pending;
         std::vector<std::pair<uint64_t, uint64_t>> applies;   // (hash, key) for the worker to replace.
@@ -328,10 +371,11 @@ namespace {
         Mode mode = Mode::Off;
         std::string command;
         uint64_t generation = 0;
+        std::atomic<bool> cancel_run = false;
         bool clear_requested = false;
         bool busy = false;
         std::string busy_message;
-        std::string failed_message;
+        std::string message;
 
         // Called with the mutex held.
         void mark_ui(uint64_t key) {
@@ -403,13 +447,12 @@ namespace {
             write_file(dump_dir() / "README.txt", std::vector<uint8_t>(text.begin(), text.end()));
         }
 
-        // The worker: removes and adds live replacements and runs the upscaler on batches of pending textures.
+        // The worker: removes and adds live replacements, recolors palette variants and upscales the rest.
         void run() {
             while (true) {
                 std::vector<uint64_t> to_remove, to_append;
                 std::vector<std::pair<uint64_t, uint64_t>> to_apply;
-                std::vector<uint64_t> batch;
-                std::vector<Entry> batch_entries;
+                std::vector<Job> recolors, upscales;
                 bool clear = false;
                 Mode batch_mode;
                 std::string batch_command;
@@ -422,23 +465,15 @@ namespace {
                     });
                     clear = clear_requested;
                     clear_requested = false;
+                    cancel_run = false;
                     to_remove.swap(removals);
                     to_apply.swap(applies);
                     to_append.swap(new_ui_keys);
                     batch_mode = mode;
                     batch_command = command;
                     batch_generation = generation;
-                    while (!pending.empty() && batch.size() < batch_size && mode != Mode::Off) {
-                        uint64_t key = pending.front();
-                        pending.pop_front();
-                        Entry& entry = entries[key];
-                        if (!entry.queued || entry.ui) {
-                            continue;
-                        }
-                        batch.push_back(key);
-                        batch_entries.push_back(entry);
-                    }
-                    busy = !batch.empty();
+                    take_jobs(recolors, upscales);
+                    busy = !recolors.empty() || !upscales.empty();
                 }
 
                 if (clear) {
@@ -458,12 +493,46 @@ namespace {
                 for (const auto& [hash, key] : to_apply) {
                     apply(key, { hash }, batch_mode, batch_generation);
                 }
-                if (!batch.empty()) {
-                    process(batch, batch_entries, batch_mode, batch_command, batch_generation);
-                    std::unique_lock lock(mutex);
-                    busy = false;
-                    busy_message.clear();
+                for (const Job& job : recolors) {
+                    recolor_job(job, batch_mode, batch_generation);
                 }
+                if (!upscales.empty()) {
+                    process(upscales, batch_mode, batch_command, batch_generation);
+                }
+                std::unique_lock lock(mutex);
+                busy = false;
+                busy_message.clear();
+            }
+        }
+
+        // Takes the next jobs off the queue (mutex held). Variants whose base is ready are recolored; those whose base
+        // is still waiting wait with it; the rest are upscaled, one external run's worth at a time.
+        void take_jobs(std::vector<Job>& recolors, std::vector<Job>& upscales) {
+            while (!pending.empty() && mode != Mode::Off && upscales.size() < batch_size && recolors.size() < 256) {
+                uint64_t key = pending.front();
+                pending.pop_front();
+                Entry& entry = entries[key];
+                if (!entry.queued || entry.ui || entry.ready) {
+                    continue;
+                }
+                if (entry.base != 0) {
+                    auto base_it = entries.find(entry.base);
+                    Entry* base = base_it != entries.end() ? &base_it->second : nullptr;
+                    if (base != nullptr && base->ready) {
+                        recolors.push_back({ key, entry, entry.base, base->image, base->edge_s, base->edge_t });
+                        continue;
+                    }
+                    if (base != nullptr && !base->failed && !base->ui) {
+                        if (!base->queued) {
+                            base->queued = true;
+                            pending.push_back(entry.base);
+                        }
+                        base->dependents.push_back(key); // Requeued when the base is done.
+                        continue;
+                    }
+                    entry.base = 0; // The base can't be upscaled: upscale this one itself.
+                }
+                upscales.push_back({ key, entry });
             }
         }
 
@@ -499,18 +568,27 @@ namespace {
             }
         }
 
-        void set_failed(const std::vector<uint64_t>& keys, uint64_t for_generation, const std::string& message) {
+        void set_failed(uint64_t key, uint64_t for_generation) {
             std::unique_lock lock(mutex);
             if (for_generation != generation) {
                 return;
             }
-            for (uint64_t key : keys) {
-                Entry& entry = entries[key];
-                entry.queued = false;
-                entry.failed = true;
+            Entry& entry = entries[key];
+            entry.queued = false;
+            entry.failed = true;
+            // Variants waiting on it get upscaled themselves.
+            for (uint64_t dependent : entry.dependents) {
+                entries[dependent].base = 0;
+                pending.push_back(dependent);
             }
-            if (!message.empty()) {
-                failed_message = message;
+            entry.dependents.clear();
+            changed.notify_all();
+        }
+
+        void set_message(uint64_t for_generation, const std::string& text) {
+            std::unique_lock lock(mutex);
+            if (for_generation == generation) {
+                message = text;
             }
         }
 
@@ -525,73 +603,119 @@ namespace {
                 entry.queued = false;
                 entry.ready = true;
                 hashes = entry.hashes;
+                for (uint64_t dependent : entry.dependents) {
+                    pending.push_front(dependent); // Recolors are quick: ahead of other upscales.
+                }
+                entry.dependents.clear();
+                changed.notify_all();
             }
             apply(key, hashes, for_mode, for_generation);
         }
 
-        bool ensure_esrgan(uint64_t for_generation) {
-            std::filesystem::path exe = esrgan_dir() / esrgan_exe;
+        bool store(uint64_t key, Image upscaled, const Image& original, uint64_t for_generation, Mode for_mode) {
+            restore_alpha(upscaled, original);
             std::error_code ec;
-            if (std::filesystem::exists(exe, ec)) {
+            std::filesystem::create_directories(cache_path(for_mode, 0).parent_path(), ec);
+            if (!write_file(cache_path(for_mode, key), make_dds(upscaled))) {
+                set_failed(key, for_generation);
+                return false;
+            }
+            set_ready(key, for_generation, for_mode);
+            return true;
+        }
+
+        void recolor_job(const Job& job, Mode for_mode, uint64_t for_generation) {
+            std::error_code ec;
+            if (std::filesystem::exists(cache_path(for_mode, job.key), ec)) {
+                set_ready(job.key, for_generation, for_mode);
+                return;
+            }
+            Image base_upscale;
+            if (!read_dds(read_file(cache_path(for_mode, job.base_key)), base_upscale) ||
+                job.base_image.width != job.entry.image.width || job.base_image.height != job.entry.image.height) {
+                // The base's upscale is gone: upscale this variant itself.
+                std::unique_lock lock(mutex);
+                entries[job.key].base = 0;
+                pending.push_back(job.key);
+                changed.notify_all();
+                return;
+            }
+            store(job.key, recolor(base_upscale, job.base_image, job.entry.image, job.base_edge_s, job.base_edge_t),
+                  job.entry.image, for_generation, for_mode);
+        }
+
+        Image hq(const Entry& entry, uint32_t scale) {
+            return unpad(hq_upscale(pad(entry.image, border, entry.edge_s, entry.edge_t), scale), entry.image, border);
+        }
+
+        bool ensure_esrgan(uint64_t for_generation) {
+            std::error_code ec;
+            bool present = true;
+            for (const std::string& file : esrgan_files) {
+                present = present && std::filesystem::exists(esrgan_dir() / file, ec);
+            }
+            if (present) {
                 return true;
             }
             {
                 std::unique_lock lock(mutex);
-                busy_message = "Downloading Real-ESRGAN (45 MB)...";
+                busy_message = "Downloading Real-ESRGAN (8 MB)...";
             }
-            std::filesystem::create_directories(esrgan_dir(), ec);
-            std::filesystem::path zip = root() / "realesrgan.zip";
-#ifdef _WIN32
-            std::string curl = "curl.exe";
-#else
-            std::string curl = "curl";
-#endif
-            int result = run_command(curl + " -L --fail -s -o " + quoted(zip) + " " + esrgan_url);
-            bool ok = result == 0 && extract_zip(zip, esrgan_dir()) && std::filesystem::exists(exe, ec);
-            std::filesystem::remove(zip, ec);
+            bool ok = download_zip_files(esrgan_url, esrgan_files, esrgan_dir(), &cancel_run);
+            if (!ok && !cancel_run) {
+                // The server didn't do ranged requests: fetch the whole zip (45 MB) and keep the same files.
+                std::filesystem::path zip = root() / "realesrgan.zip";
+                ok = run_command(std::string(curl_program()) + " -L --fail -s -o " + quoted(zip) + " " + esrgan_url,
+                                 &cancel_run) == 0 &&
+                     extract_zip(zip, esrgan_dir(), esrgan_files);
+                std::filesystem::remove(zip, ec);
+            }
 #ifndef _WIN32
             if (ok) {
-                std::filesystem::permissions(exe, std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec |
-                    std::filesystem::perms::others_exec, std::filesystem::perm_options::add, ec);
+                std::filesystem::permissions(esrgan_dir() / esrgan_exe, std::filesystem::perms::owner_exec |
+                    std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+                    std::filesystem::perm_options::add, ec);
             }
 #endif
-            if (!ok) {
-                std::unique_lock lock(mutex);
-                if (for_generation == generation) {
-                    failed_message = "Couldn't download Real-ESRGAN. Check the internet connection, or extract " +
-                        std::string(esrgan_url) + " into " + utf8(esrgan_dir()) + " and pick the setting again.";
-                }
+            if (!ok && !cancel_run) {
+                set_message(for_generation, "Couldn't download Real-ESRGAN. Check the internet connection, or extract " +
+                    std::string(esrgan_url) + " into " + path_utf8(esrgan_dir()) + " and pick the setting again.");
             }
             return ok;
         }
 
-        void process(const std::vector<uint64_t>& keys, const std::vector<Entry>& batch_entries, Mode for_mode,
-                     const std::string& for_command, uint64_t for_generation) {
+        void process(const std::vector<Job>& jobs, Mode for_mode, const std::string& for_command, uint64_t for_generation) {
             // Upscaled in an earlier session: just load them.
-            std::vector<size_t> todo;
+            std::vector<const Job*> todo;
             std::error_code ec;
-            for (size_t i = 0; i < keys.size(); i++) {
-                if (std::filesystem::exists(cache_path(for_mode, keys[i]), ec)) {
-                    set_ready(keys[i], for_generation, for_mode);
+            for (const Job& job : jobs) {
+                if (std::filesystem::exists(cache_path(for_mode, job.key), ec)) {
+                    set_ready(job.key, for_generation, for_mode);
                 }
                 else {
-                    todo.push_back(i);
+                    todo.push_back(&job);
                 }
             }
             if (todo.empty()) {
                 return;
             }
 
-            std::vector<uint64_t> todo_keys;
-            for (size_t i : todo) {
-                todo_keys.push_back(keys[i]);
+            const uint32_t scale = mode_scale(for_mode);
+            if (for_mode == Mode::Hq2x || for_mode == Mode::Hq4x) {
+                for (const Job* job : todo) {
+                    store(job->key, hq(job->entry, scale), job->entry.image, for_generation, for_mode);
+                }
+                return;
             }
 
             std::string line;
             std::filesystem::path in = work_dir() / "in", out = work_dir() / "out";
             if (for_mode == Mode::Custom) {
                 if (for_command.find("{input}") == std::string::npos || for_command.find("{output}") == std::string::npos) {
-                    set_failed(todo_keys, for_generation, "The custom upscaler command needs {input} and {output} in it.");
+                    set_message(for_generation, "The custom upscaler command needs {input} and {output} in it.");
+                    for (const Job* job : todo) {
+                        set_failed(job->key, for_generation);
+                    }
                     return;
                 }
                 line = for_command;
@@ -600,12 +724,13 @@ namespace {
             }
             else {
                 if (!ensure_esrgan(for_generation)) {
-                    set_failed(todo_keys, for_generation, "");
+                    for (const Job* job : todo) {
+                        set_failed(job->key, for_generation);
+                    }
                     return;
                 }
                 line = quoted(esrgan_dir() / esrgan_exe) + " -i " + quoted(in) + " -o " + quoted(out) +
-                       " -s " + (for_mode == Mode::Esrgan4x ? "4" : "2") + " -n realesr-animevideov3 -m " +
-                       quoted(esrgan_dir() / "models") + " -f png";
+                       " -s 4 -n realesr-animevideov3 -m " + quoted(esrgan_dir() / "models") + " -j 1:1:1 -f png";
             }
 
             {
@@ -615,53 +740,57 @@ namespace {
             std::filesystem::remove_all(work_dir(), ec);
             std::filesystem::create_directories(in, ec);
             std::filesystem::create_directories(out, ec);
-            for (size_t i : todo) {
-                const Entry& entry = batch_entries[i];
-                write_png(in / (key_name(keys[i]) + ".png"), pad(entry.image, border, entry.edge_s, entry.edge_t));
+            for (const Job* job : todo) {
+                write_png(in / (key_name(job->key) + ".png"), pad(job->entry.image, border, job->entry.edge_s, job->entry.edge_t));
             }
 
-            int result = run_command(line);
+            int result = run_command(line, &cancel_run);
+            if (cancel_run) {
+                std::filesystem::remove_all(work_dir(), ec);
+                return; // The mode changed; the new mode requeued everything.
+            }
 
             // Match outputs by the key their names start with: tools often add a suffix.
             std::unordered_map<uint64_t, std::filesystem::path> outputs;
             for (const auto& file : std::filesystem::directory_iterator(out, ec)) {
                 uint64_t key;
-                if (file.is_regular_file() && parse_key_name(utf8(file.path().filename()), key)) {
+                if (file.is_regular_file() && parse_key_name(path_utf8(file.path().filename()), key)) {
                     outputs.emplace(key, file.path());
                 }
             }
 
-            std::vector<uint64_t> missing;
-            std::filesystem::create_directories(cache_path(for_mode, 0).parent_path(), ec);
-            for (size_t i : todo) {
-                uint64_t key = keys[i];
-                const Entry& entry = batch_entries[i];
-                Image output;
-                auto it = outputs.find(key);
-                if (it == outputs.end() || !read_image(it->second, output)) {
-                    missing.push_back(key);
-                    continue;
+            size_t missing = 0, replaced = 0;
+            for (const Job* job : todo) {
+                Image output, upscaled;
+                auto it = outputs.find(job->key);
+                if (it != outputs.end() && read_image(it->second, output)) {
+                    upscaled = unpad(output, job->entry.image, border);
                 }
-                Image upscaled = unpad(output, entry.image, border);
                 if (upscaled.empty()) {
-                    missing.push_back(key);
+                    missing++;
+                    set_failed(job->key, for_generation);
                     continue;
                 }
-                restore_alpha(upscaled, entry.image);
-                if (write_file(cache_path(for_mode, key), make_dds(upscaled))) {
-                    set_ready(key, for_generation, for_mode);
+                if (for_mode == Mode::Esrgan2x) {
+                    upscaled = downscale(upscaled, upscaled.width / (job->entry.image.width * 2));
                 }
-                else {
-                    missing.push_back(key);
+                if (!matches_original(upscaled, job->entry.image)) {
+                    // Garbage from the upscaler (some GPU and model combinations give noise): use HQx instead.
+                    replaced++;
+                    upscaled = hq(job->entry, scale);
                 }
+                store(job->key, std::move(upscaled), job->entry.image, for_generation, for_mode);
             }
             std::filesystem::remove_all(work_dir(), ec);
 
-            if (!missing.empty()) {
-                set_failed(missing, for_generation, missing.size() == todo.size()
-                    ? "The upscaler didn't produce any images (exit code " + std::to_string(result) + ")."
-                    : "");
+            if (missing == todo.size()) {
+                set_message(for_generation, "The upscaler didn't produce any images (exit code " + std::to_string(result) + ").");
             }
+            else if (replaced > 0) {
+                set_message(for_generation, "Some images the upscaler made didn't look like the originals, so HQ" +
+                    std::to_string(scale) + "x was used for them.");
+            }
+            std::this_thread::sleep_for(run_pause);
         }
     };
 
@@ -681,16 +810,20 @@ void add_options(recomp::config::Config& config) {
     config.add_enum_option(
         mode_option_id,
         "Texture Upscaling",
-        "Redraws the game's textures at a higher resolution with an AI upscaler, a few at a time in the background as "
-        "they first appear, and keeps the results so each texture is only upscaled once. "
+        "Redraws the game's textures at a higher resolution, a few at a time in the background as they first "
+        "appear, and keeps the results so each texture is only upscaled once. Car paint jobs reuse one upscale. "
         "Only textures on 3D surfaces are upscaled: the HUD, menus and text keep their original look. "
         "Texture packs you install take priority.<br/><br/>"
         "<recomp-color primary>Off</recomp-color> uses the original textures. "
-        "<recomp-color primary>ESRGAN 2x</recomp-color> and <recomp-color primary>ESRGAN 4x</recomp-color> use "
-        "Real-ESRGAN, downloaded the first time (45 MB). "
+        "<recomp-color primary>HQ2x</recomp-color> and <recomp-color primary>HQ4x</recomp-color> smooth the pixels "
+        "like emulators' texture enhancement, instantly. "
+        "<recomp-color primary>ESRGAN 2x</recomp-color> and <recomp-color primary>ESRGAN 4x</recomp-color> redraw "
+        "them with Real-ESRGAN, an AI upscaler, downloaded the first time (8 MB) and run on the graphics card. "
         "<recomp-color primary>Custom</recomp-color> runs the command below instead.",
         {
             { Mode::Off, "Off", "Off" },
+            { Mode::Hq2x, "Hq2x", "HQ2x" },
+            { Mode::Hq4x, "Hq4x", "HQ4x" },
             { Mode::Esrgan2x, "Esrgan2x", "ESRGAN 2x" },
             { Mode::Esrgan4x, "Esrgan4x", "ESRGAN 4x" },
             { Mode::Custom, "Custom", "Custom" },
@@ -707,7 +840,8 @@ void add_options(recomp::config::Config& config) {
         ""
     );
     // Hidden while the mode is one of these: only Custom shows it.
-    config.add_option_hidden_dependency(command_option_id, mode_option_id, Mode::Off, Mode::Esrgan2x, Mode::Esrgan4x);
+    config.add_option_hidden_dependency(command_option_id, mode_option_id,
+        Mode::Off, Mode::Hq2x, Mode::Hq4x, Mode::Esrgan2x, Mode::Esrgan4x);
 
     // The config can move as later tabs are added, so the callbacks look it up again.
     config.add_option_change_callback(mode_option_id,
@@ -727,40 +861,46 @@ void apply_loaded_options(recomp::config::Config& config) {
 void add_buttons(rush2::ui::OptionsPage* page) {
     using namespace recompui;
     ContextId context = get_current_context();
-    std::string note = "Dump the textures you have driven past, upscale them with any program, then install the "
-                       "results as a texture pack.";
+    std::string note = "Dump the textures you have driven past, upscale them with any program (Topaz Gigapixel, "
+                       "say), save the results in the upscaled folder next to the dump folder, then install them "
+                       "as a texture pack.";
     std::string status = upscaler.status();
     if (!status.empty()) {
         note += " " + status;
     }
-    auto heading = page->add_heading("Your Own Upscales", note);
+    page->add_heading("Your Own Upscales", note);
 
-    Button* dump_button = context.create_element<Button>(heading.row, "Dump Textures", ButtonStyle::Secondary);
+    // The buttons get a row of their own under the heading, so they keep their full size.
+    Element* row = context.create_element<Element>(page->get_list(), 0, "div", false);
+    row->set_display(Display::Flex);
+    row->set_flex_direction(FlexDirection::Row);
+    row->set_gap(16.0f);
+    row->set_padding_left(12.0f);
+    row->set_padding_right(12.0f);
+    row->set_padding_top(8.0f);
+    row->set_padding_bottom(16.0f);
+    row->set_as_navigation_container(NavigationType::Horizontal);
+
+    Button* dump_button = context.create_element<Button>(row, "Dump Textures", ButtonStyle::Secondary);
     dump_button->add_pressed_callback([dump_button]() {
         size_t count = upscaler.dump();
-        dump_button->set_text("Dumped " + std::to_string(count));
+        dump_button->set_text("Dumped " + std::to_string(count) + " Textures");
+    });
+
+    Button* folder_button = context.create_element<Button>(row, "Open Dump Folder", ButtonStyle::Secondary);
+    folder_button->add_pressed_callback([]() {
         open_folder(dump_dir());
     });
 
-    Button* install_button = context.create_element<Button>(heading.row, "Install Upscaled", ButtonStyle::Secondary);
+    Button* install_button = context.create_element<Button>(row, "Install Upscaled", ButtonStyle::Secondary);
     install_button->add_pressed_callback([install_button]() {
         int count = upscaler.install();
         if (count > 0) {
-            install_button->set_text("Installed " + std::to_string(count));
+            install_button->set_text("Installed " + std::to_string(count) + " Textures");
         }
         else {
-            install_button->set_text(count == 0 ? "Nothing to Install" : "Install Failed");
-            std::error_code ec;
-            std::filesystem::create_directories(upscaled_dir(), ec);
-            open_folder(upscaled_dir());
+            install_button->set_text(count == 0 ? "Nothing in the Upscaled Folder" : "Install Failed");
         }
-    });
-
-    Button* folder_button = context.create_element<Button>(heading.row, "Open Folder", ButtonStyle::Secondary);
-    folder_button->add_pressed_callback([]() {
-        std::error_code ec;
-        std::filesystem::create_directories(root(), ec);
-        open_folder(root());
     });
 }
 

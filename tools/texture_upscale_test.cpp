@@ -4,9 +4,14 @@
 // e.g. in tmp/gen):
 //
 //   M=lib/N64ModernRuntime/thirdparty/miniz
-//   clang++ -std=c++20 -Iinclude -Ilib/rt64/src/contrib -I$M -Itmp/gen tools/texture_upscale_test.cpp \
-//       src/texture_upscale_images.cpp $M/miniz.c $M/miniz_tdef.c $M/miniz_tinfl.c $M/miniz_zip.c -o tmp/upscale_test
-//   tmp/upscale_test [<extracted realesrgan-ncnn-vulkan folder> <work folder> [<release zip>]]
+//   gcc -c -O2 lib/hqx/hq2x.c lib/hqx/hq4x.c && mv hq2x.o hq4x.o tmp/
+//   clang++ -std=c++20 -Iinclude -Ilib/hqx -Ilib/rt64/src/contrib -I$M -Itmp/gen tools/texture_upscale_test.cpp \
+//       src/texture_upscale_images.cpp tmp/hq2x.o tmp/hq4x.o $M/miniz.c $M/miniz_tdef.c $M/miniz_tinfl.c \
+//       $M/miniz_zip.c -o tmp/upscale_test
+//   tmp/upscale_test [<extracted realesrgan-ncnn-vulkan folder> <work folder> [<release zip> [download]]]
+//
+// With "download", the partial download of the Real-ESRGAN release (only the program and the x4 model) is tested
+// against GitHub too.
 //
 // Without a GPU, Mesa's lavapipe runs Real-ESRGAN: VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json.
 #define STB_IMAGE_IMPLEMENTATION
@@ -14,7 +19,9 @@
 #include "ddspp/ddspp.h"
 #include <cassert>
 #include <cstdio>
+#include <cmath>
 #include <cstring>
+#include <thread>
 #include "texture_upscale.h"
 using namespace rush2::upscale;
 static int fails = 0;
@@ -80,6 +87,73 @@ int main(int argc, char** argv) {
     restore_alpha(up, orig);
     CHECK(up.rgba[3] == 0 && up.rgba[15] == 255);
 
+    // Paletted decode gives the indices too (the CI4 texture above: index x).
+    std::vector<uint8_t> indices;
+    decode_tmem(tmem, 2, 0, 0, 1, 1, 2u << 14, 16, 1, &indices);
+    ok = true;
+    for (int x = 0; x < 16; x++) ok &= indices[x] == x;
+    CHECK(ok);
+
+    // A car-like CI texture: a body shaded along a 31-step paint ramp (index 1-31), a gray trim stripe and a black
+    // outline, under two palettes: red paint and blue paint.
+    const uint32_t cw = 64, ch = 32;
+    std::vector<uint8_t> car(cw * ch);
+    for (uint32_t y = 0; y < ch; y++) for (uint32_t x = 0; x < cw; x++) {
+        uint8_t i = uint8_t(1 + ((x + y * 2) * 30 / (cw + ch * 2)));                    // Body shade.
+        if (y >= 12 && y < 16) i = 200;                                               // Trim.
+        if (x == 0 || y == 0 || x == cw - 1 || y == ch - 1 || ((x / 16 + y / 8) % 3 == 0 && x % 16 == 0)) i = 250; // Lines.
+        car[y * cw + x] = i;
+    }
+    auto paint = [&](int r, int g, int b) {
+        Image im; im.width = cw; im.height = ch; im.rgba.resize(cw * ch * 4);
+        for (uint32_t i = 0; i < cw * ch; i++) {
+            uint8_t idx = car[i], *p = &im.rgba[i * 4];
+            if (idx < 32) { float t = 1.0f - (idx - 1) / 31.0f; p[0] = uint8_t(r * t); p[1] = uint8_t(g * t); p[2] = uint8_t(b * t); }
+            else if (idx == 200) { p[0] = p[1] = p[2] = 160; }
+            else { p[0] = p[1] = p[2] = 10; }
+            p[3] = 255;
+        }
+        return im;
+    };
+    Image red = paint(248, 40, 40), blue = paint(40, 80, 248);
+    CHECK(index_key(car, cw, ch, 1) == index_key(car, cw, ch, 1) && content_key(red) != content_key(blue));
+
+    // HQx sizes, and the sanity check.
+    Image hq2 = hq_upscale(red, 2), hq4 = hq_upscale(red, 4);
+    CHECK(hq2.width == 128 && hq2.height == 64 && hq4.width == 256 && hq4.height == 128);
+    CHECK(matches_original(hq2, red) && matches_original(hq4, red));
+    Image noise = hq4;
+    for (size_t i = 0; i < noise.rgba.size(); i++) noise.rgba[i] = uint8_t((i * 2654435761u) >> 13);
+    CHECK(!matches_original(noise, red));
+    CHECK(matches_original(downscale(hq4, 2), red));
+
+    // Recoloring the red upscale to blue lands close to upscaling the blue variant directly.
+    auto mean_error = [](const Image& a, const Image& b) {
+        double total = 0; for (size_t i = 0; i < a.rgba.size(); i++) if (i % 4 != 3) total += std::abs(int(a.rgba[i]) - int(b.rgba[i]));
+        return total / (a.rgba.size() / 4 * 3);
+    };
+    for (uint32_t scale : { 2u, 4u }) {
+        Image direct = hq_upscale(blue, scale);
+        Image recolored = recolor(hq_upscale(red, scale), red, blue, Edge::Wrap, Edge::Wrap);
+        double error = mean_error(recolored, direct), unchanged = mean_error(hq_upscale(red, scale), direct);
+        printf("recolor hq%ux: mean error %.2f (red upscale vs blue: %.2f)\n", scale, error, unchanged);
+        CHECK(error < 4.0 && error < unchanged / 10);
+        Image same = recolor(hq_upscale(red, scale), red, red, Edge::Wrap, Edge::Wrap);
+        CHECK(same.rgba == hq_upscale(red, scale).rgba);
+    }
+
+    // DDS level 0 reads back.
+    Image back_image;
+    CHECK(read_dds(make_dds(hq4), back_image) && back_image.width == 256 && back_image.rgba == hq4.rgba);
+
+    // Cancelling a running command.
+    std::atomic<bool> cancel = false;
+    std::thread canceller([&]() { std::this_thread::sleep_for(std::chrono::milliseconds(200)); cancel = true; });
+    auto started = std::chrono::steady_clock::now();
+    int cancelled = run_command("sleep 5", &cancel);
+    canceller.join();
+    CHECK(cancelled == -1 && std::chrono::steady_clock::now() - started < std::chrono::seconds(2));
+
     // Real-ESRGAN on a padded texture, through run_command.
     if (argc > 2) {
         std::filesystem::path esr = argv[1], work = argv[2];
@@ -116,6 +190,34 @@ int main(int argc, char** argv) {
         CHECK(write_file(work / "pack" / "mod.json", std::vector<uint8_t>(mf.begin(), mf.end())));
         CHECK(zip_folder(work / "pack", work / "pack.rtz"));
         CHECK(run_command("exit 3") == 3);
+
+        // ESRGAN x4 on the red car, and the blue one recolored from it, against ESRGAN on the blue car.
+        std::filesystem::remove_all(work / "in"); std::filesystem::remove_all(work / "out");
+        std::filesystem::create_directories(work / "in"); std::filesystem::create_directories(work / "out");
+        CHECK(write_png(work / "in" / "red.png", pad(red, 8, Edge::Wrap, Edge::Wrap)));
+        CHECK(write_png(work / "in" / "blue.png", pad(blue, 8, Edge::Wrap, Edge::Wrap)));
+        line = "\"" + (esr / "realesrgan-ncnn-vulkan").string() + "\" -i \"" + (work / "in").string() + "\" -o \"" + (work / "out").string() + "\" -s 4 -n realesr-animevideov3 -m \"" + (esr / "models").string() + "\" -j 1:1:1 -f png";
+        CHECK(run_command(line) == 0);
+        Image red_out, blue_out;
+        CHECK(read_image(work / "out" / "red.png", red_out) && read_image(work / "out" / "blue.png", blue_out));
+        Image red4 = unpad(red_out, red, 8), blue4 = unpad(blue_out, blue, 8);
+        CHECK(matches_original(red4, red) && matches_original(downscale(red4, 2), red));
+        Image recolored = recolor(red4, red, blue, Edge::Wrap, Edge::Wrap);
+        double error = mean_error(recolored, blue4), unchanged = mean_error(red4, blue4);
+        printf("recolor esrgan x4: mean error %.2f (red upscale vs blue: %.2f)\n", error, unchanged);
+        CHECK(error < 6.0);
+        write_png(work / "car_red_x4.png", red4); write_png(work / "car_blue_x4.png", blue4); write_png(work / "car_blue_recolored_x4.png", recolored);
+
+        if (argc > 4 && std::string(argv[4]) == "download") {
+            std::vector<std::string> files = { "realesrgan-ncnn-vulkan.exe", "vcomp140.dll", "models/realesr-animevideov3-x4.bin", "models/realesr-animevideov3-x4.param" };
+            auto t0 = std::chrono::steady_clock::now();
+            bool downloaded = download_zip_files("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip", files, work / "download");
+            printf("partial download %s in %.1f s\n", downloaded ? "ok" : "FAILED", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+            CHECK(downloaded);
+            CHECK(std::filesystem::file_size(work / "download" / "realesrgan-ncnn-vulkan.exe") == 6161408);
+            CHECK(std::filesystem::file_size(work / "download" / "models" / "realesr-animevideov3-x4.bin") == 1247368);
+            CHECK(!std::filesystem::exists(work / "download" / "models" / "realesrgan-x4plus.bin"));
+        }
     }
     printf("%s (%d failures)\n", fails ? "FAILED" : "OK", fails);
     return fails != 0;
