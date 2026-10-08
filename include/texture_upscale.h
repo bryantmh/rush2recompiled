@@ -3,6 +3,7 @@
 
 // Texture upscaling (src/texture_upscale.cpp, src/texture_upscale_images.cpp, docs/texture_upscaling.md).
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -33,9 +34,15 @@ namespace rush2::upscale {
     // Pure image work, without the renderer or the UI (src/texture_upscale_images.cpp).
 
     // Decodes a texture from TMEM the way RT64's decoder does (sampleTMEM in TextureDecoder.hlsli). fmt, siz, tmem,
-    // line and palette are the tile's fields (tmem and line in 64-bit words), tlut the G_TT_* mode.
+    // line and palette are the tile's fields (tmem and line in 64-bit words), tlut the G_TT_* mode. With a TLUT,
+    // indices (when given) gets each texel's palette index.
     Image decode_tmem(const uint8_t* tmem_bytes, uint32_t fmt, uint32_t siz, uint32_t tmem, uint32_t line,
-                      uint32_t palette, uint32_t tlut, uint32_t width, uint32_t height);
+                      uint32_t palette, uint32_t tlut, uint32_t width, uint32_t height,
+                      std::vector<uint8_t>* indices = nullptr);
+
+    // Identifies a paletted texture by its indices alone: textures that differ only in their palette (car paint)
+    // share it. Never 0.
+    uint64_t index_key(const std::vector<uint8_t>& indices, uint32_t width, uint32_t height, uint32_t siz);
 
     // Identifies an image by its contents: textures RT64 hashes differently (another palette load, another tile)
     // but that decode to the same pixels share one upscale.
@@ -58,6 +65,22 @@ namespace rush2::upscale {
     // image when the size isn't a whole multiple of the original's (with or without the border).
     Image unpad(const Image& output, const Image& original, uint32_t border);
 
+    // Halves the image log2(factor) times with the alpha-weighted averaging of make_dds's mipmaps.
+    Image downscale(const Image& image, uint32_t factor);
+
+    // hq2x or hq4x (lib/hqx).
+    Image hq_upscale(const Image& image, uint32_t scale);
+
+    // Whether an upscaler's output, averaged back down, looks like the original. Catches garbage output.
+    bool matches_original(const Image& upscaled, const Image& original);
+
+    // Makes the upscale of a palette variant from the upscale of another variant of the same indices, without
+    // upscaling again: old_colors is the texture the upscale was made from, new_colors the variant (same size).
+    Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_colors, Edge edge_s, Edge edge_t);
+
+    // Level 0 of a DDS make_dds wrote.
+    bool read_dds(const std::vector<uint8_t>& bytes, Image& image);
+
     // A DDS file (R8G8B8A8_UNORM) with the full mip chain, made with the same alpha-weighted averaging RT64 uses for
     // the mipmaps it generates, so upscaled textures blend down with distance like the originals.
     std::vector<uint8_t> make_dds(const Image& image);
@@ -68,11 +91,21 @@ namespace rush2::upscale {
     bool write_file(const std::filesystem::path& path, const std::vector<uint8_t>& bytes);
 
     // Runs a command line and waits for it, without a console window and below normal priority. Returns its exit
-    // code, or -1 when it couldn't be started.
-    int run_command(const std::string& command_line);
+    // code, or -1 when it couldn't be started or was stopped by setting cancel.
+    int run_command(const std::string& command_line, const std::atomic<bool>* cancel = nullptr);
 
-    // Extracts a zip into a folder. Returns false on failure.
-    bool extract_zip(const std::filesystem::path& zip, const std::filesystem::path& folder);
+    // A path as UTF-8, for command lines.
+    std::string path_utf8(const std::filesystem::path& path);
+    const char* curl_program();
+
+    // Extracts a zip into a folder: all of it, or only the named entries. Returns false on failure.
+    bool extract_zip(const std::filesystem::path& zip, const std::filesystem::path& folder,
+                     const std::vector<std::string>& names = {});
+
+    // Extracts the named entries of a zip on a web server into a folder, downloading only the parts of the archive
+    // they're in (ranged requests with curl). Returns false when that fails or the server doesn't do ranges.
+    bool download_zip_files(const std::string& url, const std::vector<std::string>& names,
+                            const std::filesystem::path& folder, const std::atomic<bool>* cancel = nullptr);
 
     // A texture pack: replacement images and the RT64 hashes each replaces.
     struct PackTexture {
