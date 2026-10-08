@@ -7,7 +7,7 @@ The default is Off, which keeps the original game's look.
 Code:
 - `src/texture_upscale.cpp`: the observer, the worker, the options and the buttons.
 - `src/texture_upscale_images.cpp`: image work with no renderer or UI dependencies (decoding, recoloring, padding,
-  hqx, DDS, zips, downloads, running programs).
+  hqx, DDS, zips, running programs).
 - `include/texture_upscale.h`
 - `lib/hqx`: hq2x and hq4x, vendored (LGPL 2.1+, see its README.md for the changes).
 - The RT64 side is in `lib/patches/rt64.patch`: `src/common/rt64_live_textures.h`, a hook in
@@ -19,26 +19,29 @@ Code:
 | Mode | What runs | Cache folder |
 |---|---|---|
 | HQ2x, HQ4x | hqx on the worker thread (CPU, about a millisecond per texture) | `hq2x`, `hq4x` |
-| ESRGAN 2x | Real-ESRGAN `realesr-animevideov3` x4, averaged down to 2x | `esrgan_x2_from_x4` |
-| ESRGAN 4x | Real-ESRGAN `realesr-animevideov3` x4 | `esrgan_x4` |
-| Custom | the Custom Upscaler Command option, on a folder of images | `custom` |
+| Custom | the Custom Upscaler Command option, on a folder of padded PNGs | `custom` |
 
-Real-ESRGAN details:
+Custom details:
 
-- **Release:** the ncnn-vulkan build from Real-ESRGAN v0.2.5.0 (BSD-3-Clause).
-- **Download:** only the files that are used are downloaded, about 7.5 MB: the program, `vcomp140.dll` on Windows,
-  and the x4 model's `.bin` and `.param`.
-  - `download_zip_files` reads the release zip through ranged requests with the system's curl. miniz reads the
-    archive through a callback that fetches 256 KB blocks.
-  - If the server won't serve ranges, the whole zip (45 MB) is fetched and only those files are extracted.
-- **Why no x2 model:** on at least one user's GPU, the x2 model produced noise. Averaging the x4 output down also
-  looks better.
+- **Command:** `{input}` and `{output}` are replaced with the quoted work folders. The output can be any integer scale,
+  and file names only need to start with the input's 16-character key.
+- **Batches:** runs take 16 textures at a time and pause 250 ms between runs. Changing the mode kills a running
+  command (`run_command`'s cancel flag).
 - **Garbage check:** `matches_original` averages each output back down to the original's size. If it doesn't match,
-  that texture uses HQx at the same scale instead, and the settings page says so.
-- **Pacing:** runs take 16 textures at a time (`-j 1:1:1`) and pause 250 ms between runs, so the game gets the GPU
-  back.
-- **Mode changes:** changing the mode kills a running upscaler (`run_command`'s cancel flag).
-- **Old cache:** the old `cache/esrgan_x2` folder, made by the x2 model, is deleted at startup.
+  that texture uses HQ2x instead, and the settings page says so.
+
+### History: ESRGAN
+
+Real-ESRGAN modes (ncnn-vulkan, `realesr-animevideov3`, downloaded on first use) were tried and removed:
+
+- Its x2 model gave noise on a user's GPU.
+- Running it on the same GPU as the game made the game stutter.
+
+What's left of it:
+
+- At startup, the recomp deletes the files the ESRGAN modes left: `texture_upscale/realesrgan` and the `esrgan_*`
+  cache folders.
+- Saved configs map `Esrgan2x` to HQ2x and `Esrgan4x` to HQ4x (`on_json_parse_option`).
 
 ## Picking textures
 
@@ -92,8 +95,8 @@ line, rather than keeping a red fringe. The paint ramps are a color stepping tow
 `func_8008582C`), which this preserves.
 
 Measured against upscaling the variant directly, recoloring a red car texture to blue gives a mean error out of 255
-of 0.2 to 0.4 for HQx and 5 for ESRGAN x4. ESRGAN itself treats red and blue slightly differently; the unrecolored
-red upscale is 64 to 66 away.
+of 0.2 to 0.4 for HQx. The unrecolored red upscale is 64 away. With Real-ESRGAN x4 (tried before it was removed), the
+error was 5, mostly from ESRGAN itself treating red and blue slightly differently.
 
 This covers any texture the game recolors through its palette, not only cars. Rush 2's stamped stripes change the
 indices, so each stripe pattern is its own base.
@@ -125,6 +128,8 @@ in for the new mode's image.
 ## Your own upscales (Dump / Install)
 
 The buttons are Dump Textures, Open Dump Folder and Install Upscaled, in a row under the "Your Own Upscales" heading.
+The row is a `rush2::ui::FocusRow` (`OptionsPage::add_row`), which scrolls into view when a button in it takes focus,
+so the controller can reach the buttons.
 
 **Dump Textures** writes every kept 3D texture of the session that isn't already in the folder as
 `texture_upscale/dump/<key>.png`. The images are unpadded so they are clean to edit. It also merges `dump/hashes.txt`,
@@ -148,5 +153,5 @@ The pack is a folder rather than an .rtz so that installing again can't fail on 
   key to `ui_textures.txt`.
 - In this container, only the parts below have been built and tested; the full Windows build hasn't been run.
   - Built: the image code (`tools/texture_upscale_test.cpp`: decoding, hqx, recoloring, the garbage check, DDS,
-    cancelling a command, a real ESRGAN run on lavapipe, the partial download against GitHub, and pack files).
+    cancelling a command, and pack files).
   - Compile-checked: the RT64 changes.

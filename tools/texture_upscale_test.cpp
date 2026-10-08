@@ -1,6 +1,6 @@
 // Tests the image code of texture upscaling (src/texture_upscale_images.cpp, docs/texture_upscaling.md) without the
-// game: TMEM decoding, padding, alpha, DDS mipmaps, and with arguments a real Real-ESRGAN run, zip extraction and pack
-// files. Build and run from the project root (Linux; the miniz sources need a miniz_export.h defining MINIZ_EXPORT,
+// game: TMEM decoding, hqx, recoloring palette variants, padding, alpha, DDS mipmaps, running commands and, with a
+// work folder argument, writing a texture pack. Build and run from the project root (Linux; the miniz sources need a miniz_export.h defining MINIZ_EXPORT,
 // e.g. in tmp/gen):
 //
 //   M=lib/N64ModernRuntime/thirdparty/miniz
@@ -8,12 +8,7 @@
 //   clang++ -std=c++20 -Iinclude -Ilib/hqx -Ilib/rt64/src/contrib -I$M -Itmp/gen tools/texture_upscale_test.cpp \
 //       src/texture_upscale_images.cpp tmp/hq2x.o tmp/hq4x.o $M/miniz.c $M/miniz_tdef.c $M/miniz_tinfl.c \
 //       $M/miniz_zip.c -o tmp/upscale_test
-//   tmp/upscale_test [<extracted realesrgan-ncnn-vulkan folder> <work folder> [<release zip> [download]]]
-//
-// With "download", the partial download of the Real-ESRGAN release (only the program and the x4 model) is tested
-// against GitHub too.
-//
-// Without a GPU, Mesa's lavapipe runs Real-ESRGAN: VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json.
+//   tmp/upscale_test [<work folder>]
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 #include "ddspp/ddspp.h"
@@ -154,70 +149,22 @@ int main(int argc, char** argv) {
     canceller.join();
     CHECK(cancelled == -1 && std::chrono::steady_clock::now() - started < std::chrono::seconds(2));
 
-    // Real-ESRGAN on a padded texture, through run_command.
-    if (argc > 2) {
-        std::filesystem::path esr = argv[1], work = argv[2];
+    // Pack files, in a work folder.
+    if (argc > 1) {
+        std::filesystem::path work = argv[1];
         std::filesystem::remove_all(work);
-        std::filesystem::create_directories(work / "in"); std::filesystem::create_directories(work / "out");
-        Image tex; tex.width = 32; tex.height = 16; tex.rgba.resize(32 * 16 * 4);
-        for (uint32_t y = 0; y < 16; y++) for (uint32_t x = 0; x < 32; x++) { uint8_t* p = &tex.rgba[(y * 32 + x) * 4]; p[0] = (x * 8) & 255; p[1] = y * 16; p[2] = ((x / 4 + y / 4) & 1) ? 220 : 40; p[3] = ((x / 8 + y / 8) & 1) ? 255 : 0; }
-        uint64_t key = content_key(tex);
-        CHECK(write_png(work / "in" / (key_name(key) + ".png"), pad(tex, 8, Edge::Wrap, Edge::Wrap)));
-        std::string line = "\"" + (esr / "realesrgan-ncnn-vulkan").string() + "\" -i \"" + (work / "in").string() + "\" -o \"" + (work / "out").string() + "\" -s 2 -n realesr-animevideov3 -m \"" + (esr / "models").string() + "\" -f png";
-        int rc = run_command(line);
-        printf("esrgan exit %d\n", rc);
-        Image out;
-        CHECK(read_image(work / "out" / (key_name(key) + ".png"), out));
-        Image result = unpad(out, tex, 8);
-        CHECK(result.width == 64 && result.height == 32);
-        restore_alpha(result, tex);
-        bool binary = true; for (size_t i = 3; i < result.rgba.size(); i += 4) binary &= result.rgba[i] == 0 || result.rgba[i] == 255;
-        CHECK(binary);
-        CHECK(write_png(work / "result.png", result));
-        auto rdds = make_dds(result);
-        CHECK(write_file(work / "result.dds", rdds));
-        // Zip extraction of the downloaded release.
-        if (argc > 3) {
-            CHECK(extract_zip(argv[3], work / "unzipped"));
-            CHECK(std::filesystem::exists(work / "unzipped" / "models" / "realesr-animevideov3-x2.bin"));
-        }
-        // Pack files.
+        Image result = hq_upscale(red, 4);
+        uint64_t key = content_key(red);
         std::filesystem::create_directories(work / "pack" / "textures");
-        CHECK(write_file(work / "pack" / "textures" / (key_name(key) + ".dds"), rdds));
+        CHECK(write_png(work / "red_hq4x.png", result));
+        CHECK(write_png(work / "blue_recolored_hq4x.png", recolor(result, red, blue, Edge::Wrap, Edge::Wrap)));
+        CHECK(write_file(work / "pack" / "textures" / (key_name(key) + ".dds"), make_dds(result)));
         std::string db = pack_database({ { "textures/" + key_name(key) + ".dds", { 0x1234abcdULL, key } } });
         std::string mf = pack_manifest("rush2_custom_textures", "Custom \"Upscaled\" Textures", "d");
         CHECK(write_file(work / "pack" / "rt64.json", std::vector<uint8_t>(db.begin(), db.end())));
         CHECK(write_file(work / "pack" / "mod.json", std::vector<uint8_t>(mf.begin(), mf.end())));
         CHECK(zip_folder(work / "pack", work / "pack.rtz"));
         CHECK(run_command("exit 3") == 3);
-
-        // ESRGAN x4 on the red car, and the blue one recolored from it, against ESRGAN on the blue car.
-        std::filesystem::remove_all(work / "in"); std::filesystem::remove_all(work / "out");
-        std::filesystem::create_directories(work / "in"); std::filesystem::create_directories(work / "out");
-        CHECK(write_png(work / "in" / "red.png", pad(red, 8, Edge::Wrap, Edge::Wrap)));
-        CHECK(write_png(work / "in" / "blue.png", pad(blue, 8, Edge::Wrap, Edge::Wrap)));
-        line = "\"" + (esr / "realesrgan-ncnn-vulkan").string() + "\" -i \"" + (work / "in").string() + "\" -o \"" + (work / "out").string() + "\" -s 4 -n realesr-animevideov3 -m \"" + (esr / "models").string() + "\" -j 1:1:1 -f png";
-        CHECK(run_command(line) == 0);
-        Image red_out, blue_out;
-        CHECK(read_image(work / "out" / "red.png", red_out) && read_image(work / "out" / "blue.png", blue_out));
-        Image red4 = unpad(red_out, red, 8), blue4 = unpad(blue_out, blue, 8);
-        CHECK(matches_original(red4, red) && matches_original(downscale(red4, 2), red));
-        Image recolored = recolor(red4, red, blue, Edge::Wrap, Edge::Wrap);
-        double error = mean_error(recolored, blue4), unchanged = mean_error(red4, blue4);
-        printf("recolor esrgan x4: mean error %.2f (red upscale vs blue: %.2f)\n", error, unchanged);
-        CHECK(error < 6.0);
-        write_png(work / "car_red_x4.png", red4); write_png(work / "car_blue_x4.png", blue4); write_png(work / "car_blue_recolored_x4.png", recolored);
-
-        if (argc > 4 && std::string(argv[4]) == "download") {
-            std::vector<std::string> files = { "realesrgan-ncnn-vulkan.exe", "vcomp140.dll", "models/realesr-animevideov3-x4.bin", "models/realesr-animevideov3-x4.param" };
-            auto t0 = std::chrono::steady_clock::now();
-            bool downloaded = download_zip_files("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip", files, work / "download");
-            printf("partial download %s in %.1f s\n", downloaded ? "ok" : "FAILED", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
-            CHECK(downloaded);
-            CHECK(std::filesystem::file_size(work / "download" / "realesrgan-ncnn-vulkan.exe") == 6161408);
-            CHECK(std::filesystem::file_size(work / "download" / "models" / "realesr-animevideov3-x4.bin") == 1247368);
-            CHECK(!std::filesystem::exists(work / "download" / "models" / "realesrgan-x4plus.bin"));
-        }
     }
     printf("%s (%d failures)\n", fails ? "FAILED" : "OK", fails);
     return fails != 0;
