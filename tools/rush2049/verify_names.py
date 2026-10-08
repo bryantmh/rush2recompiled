@@ -384,8 +384,21 @@ def match_games(min_insns=8, apply=False):
                         e['desc'] += ' One of %d identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess.' % len(r2a)
                     if r2e.get('area'):
                         e['area'] = r2e['area']
-                    if r2e.get('name') and not by_order and not any(x.get('name') == r2e['name'] for x in reg[gname].values()):
-                        e['name'] = r2e['name']
+                r2e = reg['rush2'].get(t, {})
+                if e.get('desc', '').startswith('Same code as Rush 2 '):
+                    # auto-made entry: refresh it from the Rush 2 knowledge (names propagate after naming Rush 2)
+                    sym = '%s_%08X' % (r2e['name'], t) if 'name' in r2e else (r2sym.get(t) or 'func_%08X' % t)
+                    e['desc'] = 'Same code as Rush 2 %s (%d instructions, address-masked match, float constants equal).%s' % (
+                        sym, n, (' ' + r2e['desc'].split(' | ')[0]) if r2e.get('desc') else '')
+                    if by_order:
+                        e['desc'] += ' One of %d identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess.' % len(r2a)
+                    for k in ('area', 'sig'):
+                        if r2e.get(k) and k not in e:
+                            e[k] = r2e[k]
+                if r2e.get('name') and not by_order and 'name' not in e:
+                    e['name'] = r2e['name']
+                    if 'sig' not in e and r2e.get('sig'):
+                        e['sig'] = r2e['sig']
                 e['rush2'] = t
                 e.setdefault('link', 'same-code')
                 linked.setdefault(gname, set()).add(a)

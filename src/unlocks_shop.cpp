@@ -48,20 +48,20 @@
 #include "unlocks.h"
 
 extern "C" void carselect_build_list_803B81F0(uint8_t* rdram, recomp_context* ctx); // Car select setup (1) / teardown (0).
-extern "C" void func_803AA800(uint8_t* rdram, recomp_context* ctx); // Controller Pak change check, per frame.
-extern "C" void func_80080BD0(uint8_t* rdram, recomp_context* ctx); // Called first in the car select's frame.
+extern "C" void menu_pak_check_per_frame_803AA800(uint8_t* rdram, recomp_context* ctx); // Controller Pak change check, per frame.
+extern "C" void carselect_frame_start_80080BD0(uint8_t* rdram, recomp_context* ctx); // Called first in the car select's frame.
 extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
-extern "C" void func_800ABE5C(uint8_t* rdram, recomp_context* ctx); // Reloads the menus' assets (track select's B).
+extern "C" void menu_assets_reload_wrapper_800ABE5C(uint8_t* rdram, recomp_context* ctx); // Reloads the menus' assets (track select's B).
 extern "C" void asset_load_80086A60(uint8_t* rdram, recomp_context* ctx); // Loads asset $a0.
 extern "C" void model_find_by_name_8005BE3C(uint8_t* rdram, recomp_context* ctx); // Model by name ($a0, slots $a1..$a2).
-extern "C" void func_8007F91C(uint8_t* rdram, recomp_context* ctx); // New scene matrix.
-extern "C" void func_8008035C(uint8_t* rdram, recomp_context* ctx); // New scene node (model, matrix, parent, flags).
-extern "C" void func_8005A2D8(uint8_t* rdram, recomp_context* ctx); // Node $a0's position ($a1) and matrix ($a2).
-extern "C" void func_80058ED4(uint8_t* rdram, recomp_context* ctx); // Shows node $a0.
+extern "C" void scene_matrix_create_8007F91C(uint8_t* rdram, recomp_context* ctx); // New scene matrix.
+extern "C" void scene_node_create_instance_8008035C(uint8_t* rdram, recomp_context* ctx); // New scene node (model, matrix, parent, flags).
+extern "C" void node_set_pos_matrix_8005A2D8(uint8_t* rdram, recomp_context* ctx); // Node $a0's position ($a1) and matrix ($a2).
+extern "C" void node_show_80058ED4(uint8_t* rdram, recomp_context* ctx); // Shows node $a0.
 extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
-extern "C" void func_80093FA8(uint8_t* rdram, recomp_context* ctx); // Text setting ($f12), 0 as the car select's.
+extern "C" void menu_text_set_scale_from_global_80093FA8(uint8_t* rdram, recomp_context* ctx); // Text setting ($f12), 0 as the car select's.
 extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text style.
-extern "C" void func_800734AC(uint8_t* rdram, recomp_context* ctx); // x of a string centered on $a1.
+extern "C" void text_center_x_800734AC(uint8_t* rdram, recomp_context* ctx); // x of a string centered on $a1.
 extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
 extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
 
@@ -373,8 +373,8 @@ namespace {
             fflush(stdout);
             return -1;
         }
-        int32_t matrix = call(rdram, ctx, func_8007F91C);
-        return (int16_t)call(rdram, ctx, func_8008035C, model, matrix, -1, 0x40);
+        int32_t matrix = call(rdram, ctx, scene_matrix_create_8007F91C);
+        return (int16_t)call(rdram, ctx, scene_node_create_instance_8008035C, model, matrix, -1, 0x40);
     }
 
     // Shrinks a scene node to nothing, well below the previews: the models and the carousel's cars stay shown and are
@@ -390,7 +390,7 @@ namespace {
         for (int i = 0; i < 3; i++) {
             MEM_W(0, (int32_t)(pos + i * 4)) = fbits(preview_pos[i] - (i == 1 ? drop : 0.0f));
         }
-        call(rdram, ctx, func_8005A2D8, node, (int32_t)pos, (int32_t)m);
+        call(rdram, ctx, node_set_pos_matrix_8005A2D8, node, (int32_t)pos, (int32_t)m);
     }
 
     // Makes every track and part model while the scene is built (loading their assets later, on a category switch,
@@ -405,7 +405,7 @@ namespace {
                 shop.nodes[item->id] = node;
                 if (node >= 0) {
                     shrink_node(rdram, ctx, node);
-                    call(rdram, ctx, func_80058ED4, node, 0, 1);
+                    call(rdram, ctx, node_show_80058ED4, node, 0, 1);
                 }
             }
         }
@@ -467,7 +467,7 @@ namespace {
             float moved = center[0] * rows[0][k] + center[1] * rows[1][k] + center[2] * rows[2][k];
             MEM_W(0, (int32_t)(pos + k * 4)) = fbits(preview_pos[k] - moved);
         }
-        call(rdram, ctx, func_8005A2D8, node, (int32_t)pos, (int32_t)m);
+        call(rdram, ctx, node_set_pos_matrix_8005A2D8, node, (int32_t)pos, (int32_t)m);
     }
 
     void enter(uint8_t* rdram, recomp_context* ctx) {
@@ -511,7 +511,7 @@ namespace {
         MEM_W(0, (int32_t)(player_slots + 0x24)) = (int32_t)shop.saved_record;
         MEM_H(0, (int32_t)player_count) = shop.saved_players;
         MEM_W(0, (int32_t)game_state) = 0;
-        call(rdram, ctx, func_800ABE5C);
+        call(rdram, ctx, menu_assets_reload_wrapper_800ABE5C);
     }
 
     void show_message(const std::string& text) {
@@ -598,7 +598,7 @@ namespace {
 
     void set_font(uint8_t* rdram, recomp_context* ctx, int font) {
         call(rdram, ctx, text_select_font_80088C24, font);
-        call(rdram, ctx, func_80093FA8, 0, 0, 0, 0, 0.0f);
+        call(rdram, ctx, menu_text_set_scale_from_global_80093FA8, 0, 0, 0, 0, 0.0f);
     }
 
     void print(uint8_t* rdram, recomp_context* ctx, int style, int x, int y, const std::string& s) {
@@ -609,7 +609,7 @@ namespace {
     void print_centered(uint8_t* rdram, recomp_context* ctx, int style, int cx, int y, const std::string& s) {
         call(rdram, ctx, text_select_style_800737E4, style);
         uint32_t at = str(rdram, s);
-        int x = (int16_t)call(rdram, ctx, func_800734AC, (int32_t)at, cx);
+        int x = (int16_t)call(rdram, ctx, text_center_x_800734AC, (int32_t)at, cx);
         call(rdram, ctx, text_print_string_800734E0, x, y, (int32_t)at);
     }
 
@@ -823,12 +823,12 @@ extern "C" int rush2_unlocks_shop_frame(uint8_t* rdram, recomp_context* ctx) {
     }
     bool show_model = category_kinds[shop.category] != Kind::Car && item != nullptr;
     shop.hide_cars = show_model;
-    call(rdram, ctx, func_80080BD0);
+    call(rdram, ctx, carselect_frame_start_80080BD0);
     call(rdram, ctx, carselect_build_list_803B81F0, 1);
     if (!built) {
         make_models(rdram, ctx);
     }
-    call(rdram, ctx, func_803AA800);
+    call(rdram, ctx, menu_pak_check_per_frame_803AA800);
     shop.angle += 0.02f;
     if (shop.angle > 6.2831853f) {
         shop.angle -= 6.2831853f;
@@ -883,7 +883,7 @@ extern "C" int rush2_unlocks_text(uint8_t* rdram, recomp_context* ctx) {
 // then the car's node handle (0x80219DD0 + id x 0x134) is the one its id last had: a node of an earlier car select, or
 // of the last race or attract demo, which in this scene is some other node (the menus' own, 0-8, whose transforms
 // nothing sets again) or a stale record. So only a car whose nodes are made is shrunk.
-extern "C" void func_8008813C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void carselect_build_preview_car_8008813C(uint8_t* rdram, recomp_context* ctx);
 
 extern "C" int rush2_unlocks_carousel_car(uint8_t* rdram, recomp_context* ctx) {
     static bool inside = false;
@@ -891,7 +891,7 @@ extern "C" int rush2_unlocks_carousel_car(uint8_t* rdram, recomp_context* ctx) {
         return 0;
     }
     inside = true;
-    call(rdram, ctx, func_8008813C, (int32_t)ctx->r4, (int32_t)ctx->r5, (int32_t)ctx->r6, (int32_t)ctx->r7);
+    call(rdram, ctx, carselect_build_preview_car_8008813C, (int32_t)ctx->r4, (int32_t)ctx->r5, (int32_t)ctx->r6, (int32_t)ctx->r7);
     inside = false;
     constexpr uint32_t car_nodes = 0x80219DD0;
     constexpr uint32_t car_node_stride = 0x134;

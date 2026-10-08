@@ -56,7 +56,7 @@
 #include "wings_internal.h"
 
 extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
-extern "C" void func_80093E08(uint8_t* rdram, recomp_context* ctx); // Lets player 2 join with Start.
+extern "C" void menu_player2_join_80093E08(uint8_t* rdram, recomp_context* ctx); // Lets player 2 join with Start.
 extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
 extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text color style.
 extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Measures a string.
@@ -741,7 +741,7 @@ extern "C" int rush2_controls_menu_update(uint8_t* rdram, recomp_context* ctx) {
         if (port == no_port) {
             // An empty player slot: player 2 joins by pressing Start (main menu only, like the game).
             if (MEM_W(0, (int32_t)game_mode) == 0) {
-                call(rdram, ctx, func_80093E08);
+                call(rdram, ctx, menu_player2_join_80093E08);
             }
             continue;
         }
