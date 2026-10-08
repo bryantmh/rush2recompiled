@@ -35,6 +35,94 @@ index 9ac8087..0856d45 100644
      struct EnhancementConfiguration {
          struct Framebuffer {
              bool reinterpretFixULS;
+diff --git a/src/common/rt64_live_textures.h b/src/common/rt64_live_textures.h
+new file mode 100644
+index 0000000..32185dd
+--- /dev/null
++++ b/src/common/rt64_live_textures.h
+@@ -0,0 +1,39 @@
++//
++// RT64
++//
++
++#pragma once
++
++#include <atomic>
++#include <cstdint>
++#include <vector>
++
++#include "rt64_load_types.h"
++
++namespace RT64 {
++    // Set by the host application to see the textures the game draws with, for building replacements for them at
++    // runtime (the recomp's automatic texture upscaling). Called on the thread that processes display lists, once per
++    // tile per draw call that samples a texture loaded from TMEM, so it must return quickly.
++    struct TextureObserver {
++        virtual ~TextureObserver() = default;
++
++        // hash is the texture's RT64 replacement hash. TMEM is the 4 KB of texture memory as the tile reads it, which
++        // decodes the way the texture cache's decoder does (TextureDecoder.hlsli) with tile, width, height and tlut.
++        // world is true when the draw call uses a perspective projection: 3D geometry, as opposed to the 2D rectangles
++        // and orthographic draws of HUDs and menus. frame is the submission frame of the draw.
++        virtual void textureDrawn(uint64_t hash, const uint8_t *TMEM, const LoadTile &tile, uint16_t width, uint16_t height,
++            uint32_t tlut, bool world, uint64_t frame) = 0;
++    };
++
++    extern std::atomic<TextureObserver *> ActiveTextureObserver;
++
++    // Live replacements: textures the host provides at runtime, without a texture pack. They take the place of the
++    // texture with the given hash unless a loaded pack replaces it, and they survive pack reloads. Several hashes can
++    // share one replacement image (contentKey, any value the host picks that identifies the image's contents), which
++    // is uploaded once. fileBytes holds a DDS or PNG file; it can be left empty when hasLiveReplacementContent says
++    // the content is already known. These do nothing (and return false) while no renderer is running.
++    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes);
++    bool hasLiveReplacementContent(uint64_t contentKey);
++    void removeLiveReplacement(uint64_t hash);
++    void clearLiveReplacements();
++};
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+index 2970e71..9d42f14 100644
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -13,6 +13,7 @@
+ #include "implot/implot.h"
+ 
+ #include "common/rt64_elapsed_timer.h"
++#include "common/rt64_live_textures.h"
+ #include "common/rt64_math.h"
+ #include "common/rt64_tmem_hasher.h"
+ #include "preset/rt64_preset_draw_call.h"
+@@ -661,7 +662,7 @@ namespace RT64 {
+             };
+         };
+ 
+-        auto uploadTile = [&](uint32_t rdpTileIndex, FramebufferPair &fbPair, const DrawCall &drawCall) {
++        auto uploadTile = [&](uint32_t rdpTileIndex, FramebufferPair &fbPair, const DrawCall &drawCall, bool world) {
+             auto &callTile = workload.drawData.callTiles[rdpTileIndex];
+             if (!callTile.valid) {
+                 return;
+@@ -676,6 +677,12 @@ namespace RT64 {
+                 }
+                 else {
+                     callTile.tmemHashOrID = textureManager.uploadTexture(this, callTile.loadTile, ext.textureCache, workload.submissionFrame, callTile.sampleWidth, callTile.sampleHeight, callTile.tlut);
++
++                    TextureObserver *observer = ActiveTextureObserver.load();
++                    if (observer != nullptr) {
++                        observer->textureDrawn(callTile.tmemHashOrID, reinterpret_cast<const uint8_t *>(rdp->TMEM), callTile.loadTile,
++                            callTile.sampleWidth, callTile.sampleHeight, callTile.tlut, world, workload.submissionFrame);
++                    }
+                 }
+             }
+             else if (callTile.reinterpretTile) {
+@@ -773,7 +780,7 @@ namespace RT64 {
+                 if (gameCall.callDesc.tileCount > 0) {
+                     const uint32_t rdpTileLimit = gameCall.callDesc.tileIndex + gameCall.callDesc.tileCount;
+                     while (rdpTileCursor < rdpTileLimit) {
+-                        uploadTile(rdpTileCursor, fbPair, gameCall.callDesc);
++                        uploadTile(rdpTileCursor, fbPair, gameCall.callDesc, proj.type == Projection::Type::Perspective);
+                         rdpTileCursor++;
+                     }
+                 }
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
 index 9fae0d4..382b3b6 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
@@ -115,18 +203,66 @@ index 95618bc..ba62da3 100644
          uint32_t width = 0;
          uint32_t height = 0;
 diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
-index 0848f3e..b11c6db 100644
+index 0848f3e..4e00429 100644
 --- a/src/render/rt64_texture_cache.cpp
 +++ b/src/render/rt64_texture_cache.cpp
-@@ -11,6 +11,7 @@
+@@ -4,6 +4,8 @@
+ 
+ #define STB_IMAGE_IMPLEMENTATION
+ 
++#include <algorithm>
++
+ #include "ddspp/ddspp.h"
+ #include "stb/stb_image.h"
+ #include "xxHash/xxh3.h"
+@@ -11,8 +13,10 @@
  // Needs to be included before other headers.
  #include "gbi/rt64_f3d.h"
  
 +#include "common/rt64_enhancement_configuration.h"
  #include "common/rt64_filesystem_directory.h"
  #include "common/rt64_filesystem_zip.h"
++#include "common/rt64_live_textures.h"
  #include "common/rt64_load_types.h"
-@@ -240,7 +241,7 @@ namespace RT64 {
+ #include "common/rt64_thread.h"
+ #include "common/rt64_tmem_hasher.h"
+@@ -26,6 +30,35 @@ namespace RT64 {
+     // ReplacementMap
+     
+     static const interop::float2 IdentityScale = { 1.0f, 1.0f };
++
++    // Live replacements (rt64_live_textures.h) go to the texture cache of the running renderer.
++    std::atomic<TextureObserver *> ActiveTextureObserver = nullptr;
++    static std::mutex LiveCacheMutex;
++    static TextureCache *LiveCache = nullptr;
++
++    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes) {
++        std::unique_lock lock(LiveCacheMutex);
++        return (LiveCache != nullptr) && LiveCache->addLiveReplacement(hash, contentKey, std::move(fileBytes));
++    }
++
++    bool hasLiveReplacementContent(uint64_t contentKey) {
++        std::unique_lock lock(LiveCacheMutex);
++        return (LiveCache != nullptr) && LiveCache->hasLiveReplacementContent(contentKey);
++    }
++
++    void removeLiveReplacement(uint64_t hash) {
++        std::unique_lock lock(LiveCacheMutex);
++        if (LiveCache != nullptr) {
++            LiveCache->removeLiveReplacement(hash);
++        }
++    }
++
++    void clearLiveReplacements() {
++        std::unique_lock lock(LiveCacheMutex);
++        if (LiveCache != nullptr) {
++            LiveCache->clearLiveReplacements();
++        }
++    }
+     static const uint32_t TextureDataPitchAlignment = 256;
+     static const uint32_t TextureDataPlacementAlignment = 512;
+ 
+@@ -240,7 +273,7 @@ namespace RT64 {
  
          hashMap[hash] = textureIndex;
          textures[textureIndex] = texture;
@@ -135,7 +271,32 @@ index 0848f3e..b11c6db 100644
          textureReplacements[textureIndex] = nullptr;
          textureReplacementShiftedByHalf[textureIndex] = false;
          textureReplacementReferenceCounted[textureIndex] = false;
-@@ -310,7 +311,10 @@ namespace RT64 {
+@@ -288,6 +321,24 @@ namespace RT64 {
+         }
+     }
+ 
++    void TextureMap::unreplace(uint64_t hash, const Texture *texture) {
++        const auto it = hashMap.find(hash);
++        if ((it == hashMap.end()) || (textureReplacements[it->second] != texture)) {
++            return;
++        }
++
++        if (textureReplacementReferenceCounted[it->second]) {
++            replacementMap.decrementReference(textureReplacements[it->second]);
++        }
++
++        textureReplacements[it->second] = nullptr;
++        textureReplacementShiftedByHalf[it->second] = false;
++        textureReplacementReferenceCounted[it->second] = false;
++        textureScales[it->second] = IdentityScale;
++        versions[it->second]++;
++        globalVersion++;
++    }
++
+     bool TextureMap::use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf) {
+         textureScale = IdentityScale;
+         hasMipmaps = false;
+@@ -310,7 +361,10 @@ namespace RT64 {
              shiftedByHalf = textureReplacementShiftedByHalf[textureIndex];
          }
          else {
@@ -146,7 +307,87 @@ index 0848f3e..b11c6db 100644
          }
  
          // Remove the existing entry from the list if it exists.
-@@ -1059,6 +1063,7 @@ namespace RT64 {
+@@ -487,9 +541,19 @@ namespace RT64 {
+         for (uint32_t i = 0; i < threadCount; i++) {
+             streamThreads.push_back(std::make_unique<StreamThread>(this));
+         }
++
++        std::unique_lock liveCacheLock(LiveCacheMutex);
++        LiveCache = this;
+     }
+ 
+     TextureCache::~TextureCache() {
++        {
++            std::unique_lock liveCacheLock(LiveCacheMutex);
++            if (LiveCache == this) {
++                LiveCache = nullptr;
++            }
++        }
++
+         waitForAllStreamThreads(true);
+         streamThreads.clear();
+ 
+@@ -500,6 +564,10 @@ namespace RT64 {
+             uploadThread.reset();
+         }
+         
++        for (auto &it : liveContents) {
++            delete it.second.texture;
++        }
++
+         descriptorSets.clear();
+         tmemUploadResources.clear();
+         replacementUploadResources.clear();
+@@ -980,10 +1048,16 @@ namespace RT64 {
+         std::vector<RenderTextureBarrier> beforeDecodeBarriers;
+         std::vector<RenderTextureBarrier> afterDecodeBarriers;
+         std::vector<uint8_t> replacementBytes;
++        std::vector<LiveUpload> liveUploadQueueCopy;
++        std::vector<uint64_t> liveApplyQueueCopy;
++        std::vector<Texture *> orphanLiveTextures;
+ 
+         while (uploadThreadRunning) {
+             resolvedPathQueueCopy.clear();
+             streamResultQueueCopy.clear();
++            liveUploadQueueCopy.clear();
++            liveApplyQueueCopy.clear();
++            orphanLiveTextures.clear();
+             beforeCopyBarriers.clear();
+             beforeDecodeBarriers.clear();
+             afterDecodeBarriers.clear();
+@@ -992,7 +1066,7 @@ namespace RT64 {
+             {
+                 std::unique_lock queueLock(uploadQueueMutex);
+                 uploadQueueChanged.wait(queueLock, [this]() {
+-                    return !uploadThreadRunning || !uploadQueue.empty() || !resolvedPathQueue.empty() || !streamResultQueue.empty();
++                    return !uploadThreadRunning || !uploadQueue.empty() || !resolvedPathQueue.empty() || !streamResultQueue.empty() || !liveUploadQueue.empty() || !liveApplyQueue.empty();
+                 });
+ 
+                 if (!uploadQueue.empty()) {
+@@ -1008,6 +1082,13 @@ namespace RT64 {
+                     streamResultQueueCopy.insert(streamResultQueueCopy.end(), streamResultQueue.begin(), streamResultQueue.end());
+                     streamResultQueue.clear();
+                 }
++
++                // A few live uploads per batch: the game's thread waits on every batch that has its own uploads in it.
++                const size_t LiveUploadsPerBatch = 8;
++                size_t liveUploadCount = std::min(liveUploadQueue.size(), LiveUploadsPerBatch);
++                liveUploadQueueCopy.assign(std::make_move_iterator(liveUploadQueue.begin()), std::make_move_iterator(liveUploadQueue.begin() + liveUploadCount));
++                liveUploadQueue.erase(liveUploadQueue.begin(), liveUploadQueue.begin() + liveUploadCount);
++                liveApplyQueueCopy.swap(liveApplyQueue);
+             }
+             
+             if (!streamResultQueueCopy.empty()) {
+@@ -1039,7 +1120,7 @@ namespace RT64 {
+                 }
+             }
+ 
+-            if (!queueCopy.empty() || !resolvedPathQueueCopy.empty() || !afterDecodeBarriers.empty()) {
++            if (!queueCopy.empty() || !resolvedPathQueueCopy.empty() || !afterDecodeBarriers.empty() || !liveUploadQueueCopy.empty() || !liveApplyQueueCopy.empty()) {
+                 // Create new upload buffers and descriptor heaps to fill out the required size.
+                 const size_t queueSize = queueCopy.size();
+                 const uint64_t TMEMSize = 0x1000;
+@@ -1059,6 +1140,7 @@ namespace RT64 {
                  // issues that can't be accounted for. Using dedicated copy queues for these operations has shown to eliminate these issues entirely.
                  copyWorker->commandList->begin();
                  textureMapAdditions.clear();
@@ -154,7 +395,7 @@ index 0848f3e..b11c6db 100644
  
                  for (size_t i = 0; i < queueSize; i++) {
                      static uint32_t TMEMGlobalCounter = 0;
-@@ -1105,10 +1110,35 @@ namespace RT64 {
+@@ -1105,14 +1187,45 @@ namespace RT64 {
                          static uint32_t TextureGlobalCounter = 0;
                          TextureDecodeDescriptorSet *descSet = descriptorSets[i].get();
                          dstTexture->format = RenderFormat::R8G8B8A8_UNORM;
@@ -191,7 +432,61 @@ index 0848f3e..b11c6db 100644
                          beforeDecodeBarriers.emplace_back(dstTexture->texture.get(), RenderTextureLayout::GENERAL);
                      }
  
-@@ -1188,6 +1218,7 @@ namespace RT64 {
++                    const size_t resolvedPathCount = resolvedPathQueueCopy.size();
+                     addResolvedPaths(upload.hash, upload.width, upload.height, upload.tlut, upload.loadTile, upload.bytesTMEM, upload.decodeTMEM, resolvedPathQueueCopy);
++
++                    // No pack replaces the new texture, so a live replacement can.
++                    if (resolvedPathQueueCopy.size() == resolvedPathCount) {
++                        liveApplyQueueCopy.emplace_back(upload.hash);
++                    }
+                 }
+ 
+                 replacementMapAdditions.clear();
+@@ -1176,6 +1289,43 @@ namespace RT64 {
+                     }
+                 }
+                 
++                // Upload new live replacements and replace every texture hash waiting on them.
++                for (const LiveUpload &liveUpload : liveUploadQueueCopy) {
++                    replacementUploadResources.emplace_back();
++                    Texture *liveTexture = TextureCache::loadTextureFromBytes(copyWorker->device, copyWorker->commandList.get(), liveUpload.bytes, replacementUploadResources.back());
++                    std::unique_lock liveLock(liveMutex);
++                    auto contentIt = liveContents.find(liveUpload.contentKey);
++                    if (liveTexture == nullptr) {
++                        // Not an image RT64 can load: forget the replacement.
++                        if ((contentIt != liveContents.end()) && (contentIt->second.texture == nullptr)) {
++                            for (uint64_t hash : contentIt->second.hashes) {
++                                liveHashKeys.erase(hash);
++                            }
++
++                            liveContents.erase(contentIt);
++                        }
++
++                        continue;
++                    }
++
++                    // Removed while it waited, or uploaded already: delete it once the copy is done.
++                    if ((contentIt == liveContents.end()) || (contentIt->second.texture != nullptr)) {
++                        orphanLiveTextures.emplace_back(liveTexture);
++                        continue;
++                    }
++
++                    contentIt->second.texture = liveTexture;
++                    afterDecodeBarriers.emplace_back(liveTexture->texture.get(), RenderTextureLayout::SHADER_READ);
++                    liveApplyQueueCopy.insert(liveApplyQueueCopy.end(), contentIt->second.hashes.begin(), contentIt->second.hashes.end());
++                }
++
++                for (uint64_t hash : liveApplyQueueCopy) {
++                    Texture *liveTexture = getLiveTexture(hash);
++                    if ((liveTexture != nullptr) && !packReplaces(hash)) {
++                        replacementMapAdditions.emplace_back(ReplacementMapAddition{ hash, liveTexture, ReplacementShift::Half, false, true });
++                    }
++                }
++
+                 // Execute the copy worker and signal a semaphore so it synchronizes with the direct worker afterwards.
+                 const RenderCommandList *copyCommandList = copyWorker->commandList.get();
+                 RenderCommandSemaphore *syncSemaphore = copyToDirectSemaphore.get();
+@@ -1188,6 +1338,7 @@ namespace RT64 {
  
                  const ShaderRecord &textureDecode = shaderLibrary->textureDecode;
                  bool pipelineSet = false;
@@ -199,7 +494,7 @@ index 0848f3e..b11c6db 100644
                  for (size_t i = 0; i < queueSize; i++) {
                      const TextureUpload &upload = queueCopy[i];
                      if (upload.decodeTMEM) {
-@@ -1205,6 +1236,7 @@ namespace RT64 {
+@@ -1205,6 +1356,7 @@ namespace RT64 {
                          decodeCB.stride = interop::uint(upload.loadTile.line) << 3;
                          decodeCB.tlut = upload.tlut;
                          decodeCB.palette = upload.loadTile.palette;
@@ -207,7 +502,7 @@ index 0848f3e..b11c6db 100644
  
                          // Dispatch compute shader for decoding texture.
                          const uint32_t ThreadGroupSize = 8;
-@@ -1214,6 +1246,16 @@ namespace RT64 {
+@@ -1214,6 +1366,16 @@ namespace RT64 {
                          directWorker->commandList->setComputeDescriptorSet(descriptorSets[i]->get(), 0);
                          directWorker->commandList->dispatch(dispatchX, dispatchY, 1);
  
@@ -224,8 +519,198 @@ index 0848f3e..b11c6db 100644
                          afterDecodeBarriers.emplace_back(RenderTextureBarrier(textureMapAdditions[i].texture->texture.get(), RenderTextureLayout::SHADER_READ));
                      }
                  }
+@@ -1239,10 +1401,16 @@ namespace RT64 {
+                     }
+ 
+                     for (const ReplacementMapAddition &addition : replacementMapAdditions) {
++                        // A live replacement removed since it was picked has its texture on the way to deletion.
++                        if (addition.live && (getLiveTexture(addition.hash) != addition.texture)) {
++                            continue;
++                        }
++
+                         textureMap.replace(addition.hash, addition.texture, addition.shift == ReplacementShift::Half, addition.referenceCounted);
+                     }
+ 
+                     textureMap.replacementMap.evict(textureMap.evictedTextures);
++                    textureMap.evictedTextures.insert(textureMap.evictedTextures.end(), orphanLiveTextures.begin(), orphanLiveTextures.end());
+                 }
+ 
+                 // Make the new queue the remaining subsection of the upload queue that wasn't processed in this batch.
+@@ -1406,6 +1574,154 @@ namespace RT64 {
+         return false;
+     }
+ 
++    bool TextureCache::addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes) {
++        {
++            std::unique_lock liveLock(liveMutex);
++            auto hashIt = liveHashKeys.find(hash);
++            if (hashIt != liveHashKeys.end()) {
++                if (hashIt->second == contentKey) {
++                    return true;
++                }
++            }
++        }
++
++        // The hash had another image: drop it first.
++        removeLiveReplacement(hash);
++
++        bool queueUpload = false;
++        bool queueApply = false;
++        {
++            std::unique_lock liveLock(liveMutex);
++            auto contentIt = liveContents.find(contentKey);
++            if (contentIt == liveContents.end()) {
++                if (fileBytes.size() < sizeof(uint32_t)) {
++                    return false;
++                }
++
++                contentIt = liveContents.emplace(contentKey, LiveContent()).first;
++                queueUpload = true;
++            }
++
++            contentIt->second.hashes.emplace_back(hash);
++            liveHashKeys[hash] = contentKey;
++            queueApply = (contentIt->second.texture != nullptr);
++        }
++
++        {
++            std::unique_lock queueLock(uploadQueueMutex);
++            if (queueUpload) {
++                liveUploadQueue.emplace_back(LiveUpload{ contentKey, std::move(fileBytes) });
++            }
++
++            if (queueApply) {
++                liveApplyQueue.emplace_back(hash);
++            }
++        }
++
++        uploadQueueChanged.notify_all();
++        return true;
++    }
++
++    bool TextureCache::hasLiveReplacementContent(uint64_t contentKey) {
++        std::unique_lock liveLock(liveMutex);
++        return liveContents.find(contentKey) != liveContents.end();
++    }
++
++    void TextureCache::removeLiveReplacement(uint64_t hash) {
++        Texture *texture = nullptr;
++        bool lastHash = false;
++        {
++            std::unique_lock liveLock(liveMutex);
++            auto hashIt = liveHashKeys.find(hash);
++            if (hashIt == liveHashKeys.end()) {
++                return;
++            }
++
++            auto contentIt = liveContents.find(hashIt->second);
++            liveHashKeys.erase(hashIt);
++            if (contentIt == liveContents.end()) {
++                return;
++            }
++
++            std::vector<uint64_t> &hashes = contentIt->second.hashes;
++            hashes.erase(std::remove(hashes.begin(), hashes.end(), hash), hashes.end());
++            texture = contentIt->second.texture;
++            lastHash = hashes.empty();
++            if (lastHash) {
++                liveContents.erase(contentIt);
++            }
++        }
++
++        // A texture still waiting to be uploaded is deleted by the upload thread once it finds the content gone.
++        if (texture != nullptr) {
++            std::unique_lock lock(textureMapMutex);
++            textureMap.unreplace(hash, texture);
++            if (lastHash) {
++                textureMap.evictedTextures.emplace_back(texture);
++            }
++        }
++    }
++
++    void TextureCache::clearLiveReplacements() {
++        std::unordered_map<uint64_t, uint64_t> hashKeys;
++        std::unordered_map<uint64_t, LiveContent> contents;
++        {
++            std::unique_lock liveLock(liveMutex);
++            hashKeys.swap(liveHashKeys);
++            contents.swap(liveContents);
++        }
++
++        // Textures still waiting to be uploaded are deleted by the upload thread once it finds their content gone.
++        std::unique_lock lock(textureMapMutex);
++        for (const auto &it : hashKeys) {
++            auto contentIt = contents.find(it.second);
++            if ((contentIt != contents.end()) && (contentIt->second.texture != nullptr)) {
++                textureMap.unreplace(it.first, contentIt->second.texture);
++            }
++        }
++
++        for (const auto &it : contents) {
++            if (it.second.texture != nullptr) {
++                textureMap.evictedTextures.emplace_back(it.second.texture);
++            }
++        }
++    }
++
++    void TextureCache::queueLiveReapply() {
++        {
++            std::unique_lock queueLock(uploadQueueMutex);
++            std::unique_lock liveLock(liveMutex);
++            for (const auto &it : liveHashKeys) {
++                liveApplyQueue.emplace_back(it.first);
++            }
++        }
++
++        uploadQueueChanged.notify_all();
++    }
++
++    Texture *TextureCache::getLiveTexture(uint64_t hash) {
++        std::unique_lock liveLock(liveMutex);
++        auto hashIt = liveHashKeys.find(hash);
++        if (hashIt == liveHashKeys.end()) {
++            return nullptr;
++        }
++
++        auto contentIt = liveContents.find(hashIt->second);
++        return (contentIt != liveContents.end()) ? contentIt->second.texture : nullptr;
++    }
++
++    bool TextureCache::packReplaces(uint64_t hash) {
++        // Locked because a pack load swaps these maps out from the game's thread.
++        std::unique_lock lock(textureMapMutex);
++        for (const auto &resolvedPaths : textureMap.replacementMap.fileSystemResolvedPaths) {
++            if (resolvedPaths.find(hash) != resolvedPaths.end()) {
++                return true;
++            }
++        }
++
++        return false;
++    }
++
+     void TextureCache::clearReplacementDirectories() {
+         // Wait for the streaming threads to be finished.
+         waitForAllStreamThreads(true);
+@@ -1431,9 +1747,14 @@ namespace RT64 {
+ 
+         // Lock the texture map and start changing replacements. This function is assumed to be called from the only
+         // thread that is capable of submitting new textures and must've waited beforehand for all textures to be uploaded.
+-        std::unique_lock lock(textureMapMutex);
+-        textureMap.clearReplacements();
+-        textureMap.replacementMap.clear(textureMap.evictedTextures);
++        {
++            std::unique_lock lock(textureMapMutex);
++            textureMap.clearReplacements();
++            textureMap.replacementMap.clear(textureMap.evictedTextures);
++        }
++
++        // Clearing took the live replacements off too.
++        queueLiveReapply();
+     }
+ 
+     void TextureCache::reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash) {
 diff --git a/src/render/rt64_texture_cache.h b/src/render/rt64_texture_cache.h
-index 9131697..9937d1d 100644
+index 9131697..6d48bf2 100644
 --- a/src/render/rt64_texture_cache.h
 +++ b/src/render/rt64_texture_cache.h
 @@ -31,6 +31,7 @@ namespace interop {
@@ -236,7 +721,42 @@ index 9131697..9937d1d 100644
      };
  };
  
-@@ -205,6 +206,7 @@ namespace RT64 {
+@@ -116,6 +117,7 @@ namespace RT64 {
+         Texture *texture = nullptr;
+         ReplacementShift shift = ReplacementShift::None;
+         bool referenceCounted = false;
++        bool live = false;
+     };
+ 
+     struct TextureMap {
+@@ -143,6 +145,7 @@ namespace RT64 {
+         void clearReplacements();
+         void add(uint64_t hash, uint64_t creationFrame, Texture *texture);
+         void replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted);
++        void unreplace(uint64_t hash, const Texture *texture);
+         bool use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf);
+         bool evict(uint64_t submissionFrame, std::vector<uint64_t> &evictedHashes);
+         void incrementLock();
+@@ -186,6 +189,18 @@ namespace RT64 {
+             }
+         };
+ 
++        // A live replacement image (rt64_live_textures.h) and the texture hashes it replaces. texture stays null until
++        // the upload thread has uploaded it.
++        struct LiveContent {
++            Texture *texture = nullptr;
++            std::vector<uint64_t> hashes;
++        };
++
++        struct LiveUpload {
++            uint64_t contentKey = 0;
++            std::vector<uint8_t> bytes;
++        };
++
+         struct StreamThread {
+             std::unique_ptr<RenderWorker> worker;
+             TextureCache *textureCache = nullptr;
+@@ -205,6 +220,7 @@ namespace RT64 {
          std::vector<std::unique_ptr<RenderBuffer>> tmemUploadResources;
          std::vector<std::unique_ptr<RenderBuffer>> replacementUploadResources;
          std::vector<std::unique_ptr<TextureDecodeDescriptorSet>> descriptorSets;
@@ -244,6 +764,32 @@ index 9131697..9937d1d 100644
          std::mutex uploadQueueMutex;
          std::condition_variable uploadQueueChanged;
          std::condition_variable uploadQueueFinished;
+@@ -229,6 +245,11 @@ namespace RT64 {
+         std::mutex uploadResourcePoolMutex;
+         uint32_t lockCounter;
+         bool developerMode;
++        std::mutex liveMutex; // Taken on its own, or inside uploadQueueMutex; never around another lock.
++        std::unordered_map<uint64_t, uint64_t> liveHashKeys;
++        std::unordered_map<uint64_t, LiveContent> liveContents;
++        std::vector<LiveUpload> liveUploadQueue; // Guarded by uploadQueueMutex.
++        std::vector<uint64_t> liveApplyQueue; // Guarded by uploadQueueMutex.
+ 
+         TextureCache(RenderWorker *directWorker, RenderWorker *copyWorker, uint32_t threadCount, const ShaderLibrary *shaderLibrary);
+         ~TextureCache();
+@@ -240,6 +261,13 @@ namespace RT64 {
+         bool useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex);
+         bool addReplacement(uint64_t hash, const std::string &relativePath, ReplacementShift shift);
+         bool hasReplacement(uint64_t hash);
++        bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes);
++        bool hasLiveReplacementContent(uint64_t contentKey);
++        void removeLiveReplacement(uint64_t hash);
++        void clearLiveReplacements();
++        void queueLiveReapply();
++        Texture *getLiveTexture(uint64_t hash);
++        bool packReplaces(uint64_t hash);
+         void clearReplacementDirectories();
+         void reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash = 0);
+         bool loadReplacementDirectory(const ReplacementDirectory &replacementDirectory);
 diff --git a/src/shaders/RasterPS.hlsl b/src/shaders/RasterPS.hlsl
 index e7895c3..ffd6b7a 100644
 --- a/src/shaders/RasterPS.hlsl

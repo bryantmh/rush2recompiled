@@ -12,6 +12,16 @@
 using namespace recompui;
 
 namespace rush2::ui {
+    FocusRow::FocusRow(ResourceId rid, Element* parent) : Element(rid, parent, Events(EventType::Focus), "div", false) {
+        set_width(100.0f, Unit::Percent);
+    }
+
+    void FocusRow::process_event(const Event& e) {
+        if (e.type == EventType::Focus && std::get<EventFocus>(e.variant).active) {
+            scroll_into_view();
+        }
+    }
+
     OptionsPage::OptionsPage(ResourceId rid, Element* parent, const std::string& description)
         : ConfigPage(rid, parent, Events(EventType::Hover, EventType::Update, EventType::MenuAction)),
           default_description(description) {
@@ -43,7 +53,8 @@ namespace rush2::ui {
 
     OptionsPage::Heading OptionsPage::add_heading(const std::string& title, const std::string& note) {
         ContextId context = get_current_context();
-        Element* row = context.create_element<Element>(list, 0, "div", false);
+        // Some pages put buttons in the heading (Select ROM), so it scrolls into view like any row of buttons.
+        Element* row = context.create_element<FocusRow>(list);
         row->set_display(Display::Flex);
         row->set_flex_direction(FlexDirection::Row);
         row->set_align_items(AlignItems::Center);
@@ -71,6 +82,21 @@ namespace rush2::ui {
             note_label->set_display(Display::None);
         }
         return { row, note_label };
+    }
+
+    Element* OptionsPage::add_row() {
+        ContextId context = get_current_context();
+        Element* row = context.create_element<FocusRow>(list);
+        row->set_display(Display::Flex);
+        row->set_flex_direction(FlexDirection::Row);
+        row->set_align_items(AlignItems::Center);
+        row->set_gap(16.0f);
+        row->set_padding_left(12.0f);
+        row->set_padding_right(12.0f);
+        row->set_padding_top(8.0f);
+        row->set_padding_bottom(16.0f);
+        row->set_as_navigation_container(NavigationType::Horizontal);
+        return row;
     }
 
     void OptionsPage::add_option(recomp::config::Config& config, const std::string& option_id) {
