@@ -19,9 +19,9 @@ original rules the port follows with the unlock system off.
   (`rush2::collectibles::points`). Purchases are item ids in the profile's `collectibles.json` block (`"unlocks"`).
 - **Items** (src/unlocks.cpp, table 2 of the user's suggestions, about half the points): Rush 2's six mystery cars,
   Rush 2049 cars 7-13 (LOCUST LX added at 10), MIDWAY, PIPE, SF Rush track 7, Rush 2049 tracks 4-6, stunt arenas
-  2-4, the obstacle course, and six of Rush 2049's nine engines on the 2049 cars (3.2L HP V6, TURBO 350 and 6.2L V8
+  2-4, the obstacle course, battle arenas 5-8 (5, 5, 10, 15 points; 1-4 are open), and six of Rush 2049's nine engines on the 2049 cars (3.2L HP V6, TURBO 350 and 6.2L V8
   are free, as in 2049; 5.0L HP V6, TURBO 400, 7.0L V8, 6.5L HP V8, TURBO 500 and 8.0L V10 are bought in 2049's
-  unlock order, each needing the one before). Not yet: battle arenas, tires, transmissions, frames (TODO.txt).
+  unlock order, each needing the one before). Not yet: tires, transmissions, frames (TODO.txt).
 - **Engines** [V]: 2049's ENGINE is setup row C (0x80111080) with 9 levels: torque 0x801110C4 [9][3], sounds
   0x8010FD80 [9], unlock table 0x80150ED8 (9 per player, 0-2 always; func_800F7604), names in file 0's strings.
   Its setup screen (overlay at ROM 0xB5C534, vram 0x8038A400) shows model ENGINE0(level % 5 + 1)G1 for a level.

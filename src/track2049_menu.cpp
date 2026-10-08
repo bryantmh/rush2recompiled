@@ -2,30 +2,31 @@
 //
 // Rush 2's track select (menu overlay: func_803AB294 init and draw, func_803ABE0C per frame) cycles the track id byte
 // through 0-11 and shows a carousel of dioramas built from 12-entry tables. With Rush 2049 tracks available it
-// offers ids 12-17 after them, Rush 2049's stunt arenas as ids 25-28 and its obstacle course as id 29, and with SF
-// Rush (Rush 1) tracks available ids 18-24:
+// offers ids 12-17 after them, Rush 2049's stunt arenas as ids 25-28, its obstacle course as id 29 and its battle
+// arenas DM1-DM8 as ids 30-37, and with SF Rush (Rush 1) tracks available ids 18-24:
 // - The per-track tables the screen reads (diorama names 0x803C91E0, scales 0x803C9180, cloud heights 0x803C91B0,
 //   logo names 0x803C9668) and its carousel array (0x803D0698, 0x1C bytes per entry) only have room for 12. Copies
-//   with 30 entries live in the memory the game heap used before it moved (src/assets.cpp), and us.toml repoints the
-//   instructions that address them. The loop bounds and wraps go from 12 to 30; func_803AB01C, which says whether a
-//   track is unlocked, offers 12-17, 25-29 and 18-24 only while those tracks are available.
+//   with 38 entries live in the memory the game heap used before it moved (src/assets.cpp), and us.toml repoints the
+//   instructions that address them. The loop bounds and wraps go from 12 to 38; func_803AB01C, which says whether a
+//   track is unlocked, offers 12-17, 25-37 and 18-24 only while those tracks are available.
 // - The menus test for the stunt track (11) by id: its options other than TRACK, FOG and WIND are greyed and
 //   func_80094698 turns backward and mirror off. Hooks make those tests treat the stunt arenas' and the obstacle
 //   course's ids as 11, except the test that sets stunt mode: the obstacle course is raced (src/track2049.cpp).
 // - The dioramas and logos come from a generated copy of asset 3 (src/track2049_art.cpp, then
 //   rush2::track1::extend_menu_container for the Rush 1 ones).
 // - The screen saves the chosen track as the low nibble of byte +0x30 of the player's save record, which can't hold
-//   12-29, so such a choice leaves the nibble alone and is kept in the save file's "track_select" section
+//   12-37, so such a choice leaves the nibble alone and is kept in the save file's "track_select" section
 //   (include/data_files.h) instead, and restored when the
 //   screen opens.
 // - Car select counts the track's collected keys from 12-entry tables (func_803B1AB0); added tracks have none.
-// - The Start Game menu has a GHOST RACE row (src/ghost.cpp) and a STUNT row after PRACTICE. Through STUNT the track
-//   select offers STUNT1, the stunt arenas and the obstacle course only, remembered apart ("stunt" in that section);
-//   through the other rows it leaves them out.
+// - The Start Game menu has a GHOST RACE row (src/ghost.cpp), a STUNT row and a BATTLE row after PRACTICE. Through
+//   STUNT the track select offers STUNT1, the stunt arenas and the obstacle course only, remembered apart ("stunt" in
+//   that section); through BATTLE it offers the battle arenas only ("battle"); through the other rows it leaves
+//   them all out.
 //
-// When a race starts on id 12-29, the id becomes the host slot's (STUNT1's for a stunt arena) and the added track is
+// When a race starts on id 12-37, the id becomes the host slot's (STUNT1's for a stunt or battle arena) and the added track is
 // noted for the track hooks (src/track2049.cpp, src/track1.cpp). The host slot keeps its id through restarts; opening
-// the track select clears it again. Circuits never pick a stunt arena or the obstacle course, as they never pick
+// the track select clears it again. Circuits never pick a stunt or battle arena or the obstacle course, as they never pick
 // STUNT1.
 
 #include <atomic>
@@ -66,28 +67,32 @@ namespace {
 
     // Their 30-entry copies (us.toml points the screen at these).
     constexpr uint32_t menu_data = 0x80300000;
+    // The tables have room for 40 entries each (us.toml addresses them by these offsets).
     constexpr uint32_t new_diorama_names = menu_data + 0x000;
-    constexpr uint32_t new_diorama_scales = menu_data + 0x080;
-    constexpr uint32_t new_cloud_heights = menu_data + 0x100;
-    constexpr uint32_t new_logo_names = menu_data + 0x180;
-    // new carousel array at menu_data + 0x400 (30 x 0x1C)
-    constexpr uint32_t new_circuit_instances = menu_data + 0x780; // 30 x s32, the circuit screen's dioramas
-    constexpr uint32_t new_strings = menu_data + 0x800;           // 32 bytes per added track
-    constexpr uint32_t stunt_label = menu_data + 0xC00;           // "STUNT", the Start Game menu's added row
-    constexpr uint32_t stunt_label_ptr = menu_data + 0xC10;       // char* to it, read as the row's table entry
-    constexpr uint32_t unlocks_label = menu_data + 0xC20;         // "UNLOCKS", the row of the unlock system's shop
-    constexpr uint32_t unlocks_label_ptr = menu_data + 0xC30;
-    constexpr uint32_t ghost_label = menu_data + 0xC40;           // "GHOST RACE"
-    constexpr uint32_t ghost_label_ptr = menu_data + 0xC50;
+    constexpr uint32_t new_diorama_scales = menu_data + 0x0A0;
+    constexpr uint32_t new_cloud_heights = menu_data + 0x140;
+    constexpr uint32_t new_logo_names = menu_data + 0x1E0;
+    // new carousel array at menu_data + 0x400 (38 x 0x1C)
+    constexpr uint32_t new_circuit_instances = menu_data + 0x840; // 38 x s32, the circuit screen's dioramas
+    constexpr uint32_t new_strings = menu_data + 0x900;           // 32 bytes per added track
+    constexpr uint32_t stunt_label = menu_data + 0xD00;           // "STUNT", the Start Game menu's added row
+    constexpr uint32_t stunt_label_ptr = menu_data + 0xD10;       // char* to it, read as the row's table entry
+    constexpr uint32_t unlocks_label = menu_data + 0xD20;         // "UNLOCKS", the row of the unlock system's shop
+    constexpr uint32_t unlocks_label_ptr = menu_data + 0xD30;
+    constexpr uint32_t ghost_label = menu_data + 0xD40;           // "GHOST RACE"
+    constexpr uint32_t ghost_label_ptr = menu_data + 0xD50;
+    constexpr uint32_t battle_label = menu_data + 0xD60;          // "BATTLE"
+    constexpr uint32_t battle_label_ptr = menu_data + 0xD70;
 
     // Unlock bytes of PIPE (9) and ATARI (10) (func_803AB01C).
     constexpr uint32_t pipe_unlocked = 0x800E7D50;
     constexpr uint32_t atari_unlocked = 0x800E7D19;
 
-    // Start Game menu rows: ONE RACE, CIRCUIT, PRACTICE, GHOST RACE, STUNT, RECORDS, SETUP. The stock menu has the
-    // five without GHOST RACE and STUNT; the rows after them map back to the stock options.
+    // Start Game menu rows: ONE RACE, CIRCUIT, PRACTICE, GHOST RACE, STUNT, BATTLE, RECORDS, SETUP. The stock menu has
+    // the five without GHOST RACE, STUNT and BATTLE; the rows after them map back to the stock options.
     constexpr int ghost_row = 3;
     constexpr int stunt_row = 4;
+    constexpr int battle_row = 5;
 
     // Circuit mode: the race list func_800A7DCC generates, 4 bytes per race (track, direction bits, fog, wind).
     constexpr uint32_t circuit_races = 0x800D3A60;
@@ -98,18 +103,24 @@ namespace {
     constexpr int rush2_tracks = 12;
     constexpr int r1_first = rush2::track1::first_menu_id;               // 18
     constexpr int r1_end = r1_first + rush2::track1::track_count;       // 25
-    constexpr int menu_tracks = obstacle_menu_id + 1;                   // 30
-    constexpr int added_tracks = menu_tracks - first_menu_id;           // 2049, Rush 1, stunt arena and obstacle entries
+    constexpr int menu_tracks = battle_menu_id + battle_count;          // 38
+    constexpr int added_tracks = menu_tracks - first_menu_id;           // 2049, Rush 1, stunt, obstacle and battle entries
     static_assert(first_menu_id + track_count == r1_first);
     static_assert(r1_end == stunt_menu_id);
     static_assert(stunt_menu_id + stunt_count == obstacle_menu_id);
+    static_assert(obstacle_menu_id + 1 == battle_menu_id);
 
-    bool is_arena(int t) {
-        return t >= stunt_menu_id && t < stunt_menu_id + stunt_count;
+    bool is_battle_arena(int t) {
+        return t >= battle_menu_id && t < battle_menu_id + battle_count;
     }
 
-    // A stunt arena or the obstacle course: the entries the STUNT row offers besides STUNT1, whose options the menus
-    // grey as STUNT1's.
+    // A stunt or battle arena (hosted by STUNT1, which they are played as).
+    bool is_arena(int t) {
+        return (t >= stunt_menu_id && t < stunt_menu_id + stunt_count) || is_battle_arena(t);
+    }
+
+    // A stunt or battle arena or the obstacle course: the entries besides STUNT1 whose options the menus grey as
+    // STUNT1's.
     bool is_stunt_course(int t) {
         return is_arena(t) || t == obstacle_menu_id;
     }
@@ -130,7 +141,7 @@ namespace {
         return (int32_t)MEM_W(0, (int32_t)(option_rows + row * 4));
     }
 
-    // Whether added track select entry t (12-29) can be chosen.
+    // Whether added track select entry t (12-37) can be chosen.
     bool entry_available(int t) {
         if (t >= first_menu_id && t < r1_first) return available();
         if (t >= r1_first && t < r1_end) return rush2::track1::available();
@@ -138,16 +149,24 @@ namespace {
         return false;
     }
 
-    bool is_stunt_track(int t) {
-        return t == stunt_host_slot || is_stunt_course(t);
+    // Which track select a track belongs to: the Start Game menu's STUNT row offers STUNT1, the stunt arenas and the
+    // obstacle course, its BATTLE row the battle arenas, and the other rows everything else.
+    enum SelectKind : int { select_race, select_stunt, select_battle };
+
+    int kind_of(int t) {
+        if (is_battle_arena(t)) return select_battle;
+        return t == stunt_host_slot || is_stunt_course(t) ? select_stunt : select_race;
     }
 
-    // Whether the track select was reached through the Start Game menu's STUNT row. It then offers STUNT1, the stunt
-    // arenas and the obstacle course only, and otherwise leaves them out.
-    std::atomic<bool> stunt_select = false;
+    bool is_stunt_track(int t) {
+        return kind_of(t) == select_stunt;
+    }
 
-    // Whether the track select offers track t (0-29): func_803AB01C's unlocks, the added tracks, and the stunt
-    // filter.
+    // The track select the Start Game menu opened (a SelectKind).
+    std::atomic<int> select_kind = select_race;
+
+    // Whether the track select offers track t (0-37): func_803AB01C's unlocks, the added tracks, and the stunt and
+    // battle filter.
     bool track_selectable(uint8_t* rdram, int t) {
         bool unlocked;
         if (t < 9) unlocked = true;
@@ -155,19 +174,20 @@ namespace {
         else if (t == 10) unlocked = rush2::unlocks::track_open(rdram, t, MEM_BU(0, (int32_t)atari_unlocked) != 0);
         else if (t == stunt_host_slot) unlocked = true;
         else unlocked = entry_available(t) && rush2::unlocks::track_open(rdram, t);
-        return unlocked && is_stunt_track(t) == stunt_select.load();
+        return unlocked && kind_of(t) == select_kind.load();
     }
 
     std::mutex menu_mutex;
     int selection = -1;            // Added track (id - 12) last chosen on the track select, or -1.
     int stunt_selection = -1;      // Track (11 or 25-29) last chosen on the stunt track select, or -1.
+    int battle_selection = -1;     // Track (30-37) last chosen on the battle track select, or -1.
     bool selection_loaded = false;
     std::vector<uint8_t> menu_container;
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom;    // 2049 ROM the container was built with.
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom1;   // Rush 1 ROM it was built with.
     bool menu_container_built = false;
 
-    // The save file's section (include/data_files.h): { "selected": n, "stunt": n }.
+    // The save file's section (include/data_files.h): { "selected": n, "stunt": n, "battle": n }.
     const std::string selection_section = "track_select";
 
     void load_selection() {
@@ -191,11 +211,16 @@ namespace {
         if (!is_stunt_track(stunt_selection)) {
             stunt_selection = -1;
         }
+        battle_selection = read("\"battle\"");
+        if (!is_battle_arena(battle_selection)) {
+            battle_selection = -1;
+        }
     }
 
     void write_selection() {
         rush2::data_files::write(rush2::data_files::File::Saves, selection_section,
-            "{ \"selected\": " + std::to_string(selection) + ", \"stunt\": " + std::to_string(stunt_selection) + " }");
+            "{ \"selected\": " + std::to_string(selection) + ", \"stunt\": " + std::to_string(stunt_selection) +
+            ", \"battle\": " + std::to_string(battle_selection) + " }");
     }
 
     void save_selection(int value) {
@@ -214,14 +239,22 @@ namespace {
         write_selection();
     }
 
+    void save_battle_selection(int value) {
+        if (value == battle_selection) {
+            return;
+        }
+        battle_selection = value;
+        write_selection();
+    }
+
     void write_string(uint8_t* rdram, uint32_t addr, const std::string& s) {
         for (size_t i = 0; i <= s.size(); i++) {
             MEM_B(0, (int32_t)(addr + i)) = i < s.size() ? s[i] : 0;
         }
     }
 
-    // Fills the 30-entry tables: Rush 2's 12 entries, then the 2049 tracks', the Rush 1 tracks', the stunt arenas' and
-    // the obstacle course's.
+    // Fills the 38-entry tables: Rush 2's 12 entries, then the 2049 tracks', the Rush 1 tracks', the stunt arenas', the
+    // obstacle course's and the battle arenas'.
     void write_tables(uint8_t* rdram) {
         for (int t = 0; t < rush2_tracks; t++) {
             MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = MEM_W(0, (int32_t)(diorama_names + t * 4));
@@ -261,6 +294,7 @@ namespace {
         for (int k = 1; k <= track_count; k++) entries.push_back({ first_menu_id + k - 1, k });
         for (int n = 0; n < stunt_count; n++) entries.push_back({ stunt_menu_id + n, stunt_first + n });
         entries.push_back({ obstacle_menu_id, obstacle });
+        for (int n = 0; n < battle_count; n++) entries.push_back({ battle_menu_id + n, battle_first + n });
         for (auto [t, k] : entries) {
             std::string model = menu_model_name(k), logo = menu_logo_name(k);
             write_string(rdram, s, model);
@@ -321,24 +355,35 @@ namespace {
             set_race_track(t - first_menu_id + 1);
             rush2::track1::set_race_track(0);
             set_stunt_arena(0);
+            set_battle_arena(0);
             MEM_B(0, (int32_t)track_id) = host_slot;
         }
         else if (t >= r1_first && t < r1_end) {
             set_race_track(0);
             rush2::track1::set_race_track(t - r1_first + 1);
             set_stunt_arena(0);
+            set_battle_arena(0);
             MEM_B(0, (int32_t)track_id) = host_slot;
+        }
+        else if (is_battle_arena(t)) {
+            set_race_track(0);
+            rush2::track1::set_race_track(0);
+            set_stunt_arena(0);
+            set_battle_arena(t - battle_menu_id + 1);
+            MEM_B(0, (int32_t)track_id) = stunt_host_slot;
         }
         else if (is_arena(t)) {
             set_race_track(0);
             rush2::track1::set_race_track(0);
             set_stunt_arena(t - stunt_menu_id + 1);
+            set_battle_arena(0);
             MEM_B(0, (int32_t)track_id) = stunt_host_slot;
         }
         else if (t == obstacle_menu_id) {
             set_race_track(obstacle);
             rush2::track1::set_race_track(0);
             set_stunt_arena(0);
+            set_battle_arena(0);
             MEM_B(0, (int32_t)track_id) = host_slot;
         }
         else {
@@ -348,6 +393,7 @@ namespace {
             }
             if (t != stunt_host_slot) {
                 set_stunt_arena(0);
+                set_battle_arena(0);
             }
         }
     }
@@ -378,14 +424,18 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     set_race_track(0);
     rush2::track1::set_race_track(0);
     set_stunt_arena(0);
+    set_battle_arena(0);
     restore_host(rdram);
     rush2::track1::restore_host(rdram);
     write_tables(rdram);
     serve_menu_container(rdram);
     int t = -1;
-    if (stunt_select) {
+    if (select_kind == select_stunt) {
         // The game's choice (from the save record's nibble) is a race track, which this select doesn't offer.
         t = stunt_selection >= 0 && track_selectable(rdram, stunt_selection) ? stunt_selection : stunt_host_slot;
+    }
+    else if (select_kind == select_battle) {
+        t = battle_selection >= 0 && track_selectable(rdram, battle_selection) ? battle_selection : battle_menu_id;
     }
     else if (selection >= 0 && entry_available(first_menu_id + selection) && MEM_W(0, (int32_t)game_mode) != 1) {
         t = first_menu_id + selection;
@@ -424,9 +474,13 @@ extern "C" void rush2_track49_select_wrap(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_track49_select_save_p1(uint8_t* rdram, recomp_context* ctx) {
     int t = (int32_t)ctx->r6;
     std::lock_guard lock{ menu_mutex };
-    if (stunt_select) {
+    if (select_kind == select_stunt) {
         ctx->r25 = ctx->r15;
         save_stunt_selection(t);
+    }
+    else if (select_kind == select_battle) {
+        ctx->r25 = ctx->r15;
+        save_battle_selection(t);
     }
     else if (t >= first_menu_id) {
         ctx->r25 = ctx->r15;
@@ -438,7 +492,7 @@ extern "C" void rush2_track49_select_save_p1(uint8_t* rdram, recomp_context* ctx
 }
 
 extern "C" void rush2_track49_select_save_p2(uint8_t* rdram, recomp_context* ctx) {
-    if (stunt_select || (int32_t)ctx->r25 >= first_menu_id) {
+    if (select_kind != select_race || (int32_t)ctx->r25 >= first_menu_id) {
         ctx->r14 = ctx->r15;
     }
 }
@@ -473,6 +527,8 @@ extern "C" void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx
     MEM_W(0, (int32_t)unlocks_label_ptr) = unlocks_label;
     write_string(rdram, ghost_label, "GHOST RACE");
     MEM_W(0, (int32_t)ghost_label_ptr) = ghost_label;
+    write_string(rdram, battle_label, "BATTLE");
+    MEM_W(0, (int32_t)battle_label_ptr) = battle_label;
 }
 
 // Start of func_803B6260, the circuit screen (every frame). It shows the dioramas and logos of the circuit's races
@@ -523,8 +579,8 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-// The menus' stunt track tests (see the top of this file): a stunt arena's id counts as STUNT1's, and so does the
-// obstacle course's except for stunt mode.
+// The menus' stunt track tests (see the top of this file): a stunt or battle arena's id counts as STUNT1's, and so
+// does the obstacle course's except for stunt mode.
 
 // func_800AE670 at 0x800AE78C: $t7 = the track, about to be compared with 11 to set stunt mode (game mode 2, in which
 // func_80094698 sets no drones and the race scores stunts).
@@ -577,40 +633,42 @@ extern "C" void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ct
     if (is_stunt_course((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;
 }
 
-// The Start Game menu's GHOST RACE and STUNT rows and, while the unlock system is on, its UNLOCKS row (func_803B12C8,
-// labels drawn by func_803C364C): ONE RACE, CIRCUIT, PRACTICE, GHOST RACE, STUNT, RECORDS, UNLOCKS, SETUP. Hooks after
-// the cursor's wraps and the label loop's count make the menu 7 or 8 rows long; these hooks give the added rows their
+// The Start Game menu's GHOST RACE, STUNT and BATTLE rows and, while the unlock system is on, its UNLOCKS row
+// (func_803B12C8, labels drawn by func_803C364C): ONE RACE, CIRCUIT, PRACTICE, GHOST RACE, STUNT, BATTLE, RECORDS,
+// UNLOCKS, SETUP. Hooks after the cursor's wraps and the label loop's count make the menu 8 or 9 rows long; these hooks give the added rows their
 // labels, map the other rows back to the stock options, and make the menu's box and bottom bar longer.
 namespace {
     constexpr int stock_rows = 5;
     constexpr int stock_records = 3;
 
     int mode_menu_rows() {
-        return stock_rows + 2 + (rush2::unlocks::menu_row_shown() ? 1 : 0);
+        return stock_rows + 3 + (rush2::unlocks::menu_row_shown() ? 1 : 0);
     }
 
     // The UNLOCKS row, or -1 while it is hidden.
     int unlocks_row() {
-        return rush2::unlocks::menu_row_shown() ? stunt_row + 2 : -1;
+        return rush2::unlocks::menu_row_shown() ? battle_row + 2 : -1;
     }
 
-    // The stock option a row stands for (GHOST RACE, STUNT and UNLOCKS: the one whose path they take).
+    // The stock option a row stands for (GHOST RACE, STUNT, BATTLE and UNLOCKS: the one whose path they take).
     int stock_row(int row) {
         int unlocks = unlocks_row();
         if (row == ghost_row) return 0;
         if (row == stunt_row) return 0;
+        if (row == battle_row) return 0;
         if (row == unlocks) return stock_records;                   // RECORDS: its profile list, then the shop
-        if (row > stunt_row) return row - 2 - (unlocks >= 0 && row > unlocks ? 1 : 0);
+        if (row > battle_row) return row - 3 - (unlocks >= 0 && row > unlocks ? 1 : 0);
         return row;
     }
 }
 
 // func_803B12C8 at 0x803B14B8: A or START was pressed, $t2 = the cursor, about to pick the stock option's code.
-// STUNT takes ONE RACE's (game mode 0; a race on a stunt track becomes stunt mode, see rush2_track49_stunt_mode).
+// STUNT and BATTLE take ONE RACE's (game mode 0; a race on a stunt track or battle arena becomes stunt mode, see
+// rush2_track49_stunt_mode).
 // UNLOCKS takes RECORDS' (its profile list, which then opens the shop: src/unlocks_shop.cpp). GHOST RACE takes ONE RACE's: the race it starts records player 1 and races the ghost.
 extern "C" void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx) {
     int row = (int32_t)ctx->r10;
-    stunt_select = row == stunt_row;
+    select_kind = row == stunt_row ? select_stunt : row == battle_row ? select_battle : select_race;
     rush2::ghost::set_chosen(row == ghost_row);
     rush2::unlocks::set_shop_chosen(row == unlocks_row());
     ctx->r10 = stock_row(row);
@@ -641,10 +699,13 @@ namespace {
         else if (row == stunt_row) {
             base = (uint64_t)(int64_t)(int32_t)(stunt_label_ptr - (uint32_t)ctx->r17);
         }
+        else if (row == battle_row) {
+            base = (uint64_t)(int64_t)(int32_t)(battle_label_ptr - (uint32_t)ctx->r17);
+        }
         else if (row == unlocks_row()) {
             base = (uint64_t)(int64_t)(int32_t)(unlocks_label_ptr - (uint32_t)ctx->r17);
         }
-        else if (row > stunt_row) {
+        else if (row > battle_row) {
             base -= 4 * (row - stock_row(row));
         }
     }

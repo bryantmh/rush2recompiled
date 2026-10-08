@@ -12,7 +12,8 @@
 //   spine and the branches that really leave it). The notes below up to "Size" describe this miniature;
 // - a logo with the track's screenshot shrunk to an icon and its name, "TRACK n" as Rush 2049's code calls them.
 // The stunt arenas (k = stunt_first.., src/track2049_convert.cpp) get the same from their own AI path (157+k) and
-// screenshot (SPICn), named R49STUNTn / R49SLOGOn and "STUNT n", and the obstacle course (k = obstacle) from its
+// screenshot (SPICn), named R49STUNTn / R49SLOGOn and "STUNT n", the battle arenas (k = battle_first..) from theirs
+// (DPICn; the path is 157+k) named R49BATTLEn / R49BLOGOn and "BATTLE n", and the obstacle course (k = obstacle) from its
 // path (176) and OPIC1, named R49OBSTACLE / R49OLOGO and "OBSTACLE". The miniature is for race tracks only.
 //
 // Both go into a copy of asset 3, whose tables are rebuilt after the appended data; the screen looks models and
@@ -78,8 +79,14 @@ namespace {
 
     bool is_obstacle(int k) { return k == rush2::track2049::obstacle; }
     bool is_stunt(int k) { return k >= rush2::track2049::stunt_first && !is_obstacle(k); }
-    // The number in the track's name: race track k, stunt arena 1-4, or 1 for the obstacle course.
-    int number_of(int k) { return is_stunt(k) ? k - rush2::track2049::stunt_first + 1 : is_obstacle(k) ? 1 : k; }
+    bool is_battle(int k) {
+        return k >= rush2::track2049::battle_first && k < rush2::track2049::battle_first + rush2::track2049::battle_count;
+    }
+    // The number in the track's name: race track k, battle arena 1-8, stunt arena 1-4, or 1 for the obstacle course.
+    int number_of(int k) {
+        return is_battle(k) ? k - rush2::track2049::battle_first + 1 : is_stunt(k) ? k - rush2::track2049::stunt_first + 1 :
+               is_obstacle(k) ? 1 : k;
+    }
 
     uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
         return (uint32_t(d[o]) << 24) | (uint32_t(d[o + 1]) << 16) | (uint32_t(d[o + 2]) << 8) | d[o + 3];
@@ -1922,7 +1929,8 @@ namespace {
         { '0', { 0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E } }, { '1', { 0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E } },
         { '2', { 0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F } }, { '3', { 0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E } },
         { '4', { 0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02 } }, { '5', { 0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E } },
-        { '6', { 0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E } }, { '9', { 0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C } },
+        { '6', { 0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E } }, { '7', { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08 } },
+        { '8', { 0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E } }, { '9', { 0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C } },
     };
 
     // Palette: 0 transparent, 1-3 text, 32-255 a 7x8x4 colour cube for the icon.
@@ -1966,7 +1974,7 @@ namespace {
             if (tag == "TXHD") { txhd = be32(ui, o + 4); txhd_n = be32(ui, o + 8); }
             if (tag == "PLHD") { plhd = be32(ui, o + 4); plhd_n = be32(ui, o + 8); }
         }
-        std::string name = (is_obstacle(k) ? "OPIC" : is_stunt(k) ? "SPIC" : "TPIC") + std::to_string(number_of(k));
+        std::string name = (is_obstacle(k) ? "OPIC" : is_stunt(k) ? "SPIC" : is_battle(k) ? "DPIC" : "TPIC") + std::to_string(number_of(k));
         auto name_at = [&](uint32_t o) { return std::string(reinterpret_cast<const char*>(&ui[o]), strnlen(reinterpret_cast<const char*>(&ui[o]), 16)); };
         for (uint32_t i = 0; i < txhd_n; i++) {
             uint32_t r = txhd + i * 0x24;
@@ -2031,7 +2039,8 @@ namespace {
             draw_text(text, "OBSTACLE", 36, 13, 2, ink_big, 11);  // one pixel apart, to fit
         }
         else {
-            draw_text(text, (is_stunt(k) ? "STUNT " : "TRACK ") + std::to_string(number_of(k)), 36, 13, 2, ink_big);
+            draw_text(text, (is_battle(k) ? "BATTLE " : is_stunt(k) ? "STUNT " : "TRACK ") + std::to_string(number_of(k)), 36, 13, 2,
+                      ink_big, is_battle(k) ? 11 : 0);  // BATTLE n is a character longer: one pixel apart, to fit
         }
         for (int y = 0; y < logo_h; y++) {
             for (int x = 34; x < logo_w; x++) {
@@ -2084,12 +2093,12 @@ namespace {
 
 std::string rush2::track2049::menu_model_name(int k) {
     if (is_obstacle(k)) return "R49OBSTACLE";
-    return (is_stunt(k) ? "R49STUNT" : "R49TRACK") + std::to_string(number_of(k));
+    return (is_battle(k) ? "R49BATTLE" : is_stunt(k) ? "R49STUNT" : "R49TRACK") + std::to_string(number_of(k));
 }
 
 std::string rush2::track2049::menu_logo_name(int k) {
     if (is_obstacle(k)) return "R49OLOGO";
-    return (is_stunt(k) ? "R49SLOGO" : "R49LOGO") + std::to_string(number_of(k));
+    return (is_battle(k) ? "R49BLOGO" : is_stunt(k) ? "R49SLOGO" : "R49LOGO") + std::to_string(number_of(k));
 }
 
 bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, const std::vector<uint8_t>& rom2049,
@@ -2112,6 +2121,7 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
     for (int k = 1; k <= track_count; k++) ks.push_back(k);
     for (int n = 0; n < stunt_count; n++) ks.push_back(stunt_first + n);
     ks.push_back(obstacle);
+    for (int n = 0; n < battle_count; n++) ks.push_back(battle_first + n);
     std::vector<TrackModel> tracks(ks.size());
     for (size_t i = 0; i < ks.size(); i++) {
         if (!build_track_model(rom2049, ks[i], tracks[i])) {

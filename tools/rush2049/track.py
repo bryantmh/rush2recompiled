@@ -34,6 +34,9 @@ FOG_COLOURS_2049 = 0x80114658      # 3 bytes per 2049 track id
 DEMO_LISTS_2049 = 0x801173D8       # ptr[12]: forward 0-5, backward 6-11
 DEMO_COUNTS_2049 = 0x80117408      # s16[12]
 RECORD_SEEDS_2049 = 0x8002E870     # boot segment, f32[t + 19 * backward]
+BATTLE_FIRST = 7                   # k of battle arena DM1 (2049 track id 6); 8 arenas, k 7-14
+BATTLE_HUD = 63                    # BCOIN_* models and the HEALTHBG / HEALTHBAR images of the battle HUD
+BATTLE_MODELS = 76                 # file of the battle models: WEPICON_*, WPR_*, WFX_*, WEP_* (2049's weapons)
 STUNT_FIRST = 15                   # k of stunt arena 1 (2049 track id 14)
 OBSTACLE = 19                      # k of the obstacle course (2049 track id 18)
 
@@ -251,7 +254,7 @@ def path_files(k):
     run the other way."""
     if k <= 6:
         return 157 + k, 176 + k
-    if STUNT_FIRST <= k < STUNT_FIRST + 4 or k == OBSTACLE:
+    if BATTLE_FIRST <= k < BATTLE_FIRST + 8 or STUNT_FIRST <= k < STUNT_FIRST + 4 or k == OBSTACLE:
         return 157 + k, 157 + k
     raise ValueError('no paths for 2049 track %d' % k)
 
@@ -269,6 +272,9 @@ def build(k, slot, outdir, static_paths=True):
     for a in (0x12, 0x14):
         shared |= {m['name'] for m in model.R2Model(r2.asset(a)).models}
     geo_files = [q.file(100 + k)] + ([q.file(81 + k)] if k <= 6 else []) + [q.file(f) for f in SHARED_MODEL_FILES]
+    if BATTLE_FIRST <= k < BATTLE_FIRST + 8:
+        geo_files.append(q.file(BATTLE_MODELS))
+        geo_files.append(q.file(BATTLE_HUD))   # weapon pickups, projectiles and effects (the C++ converter places them)
     types = placement.R49Types(q)
     rename = {'SKYSKY': 'SKYO1', 'STUNTSKYSKY': 'SKYO1'}
     # Props keep their 2049 models under names Rush 2's prefix classifier doesn't take for its breakables.
@@ -300,7 +306,7 @@ def build(k, slot, outdir, static_paths=True):
         fwd = bwd = paths.spine_lanes(fwd, q.file(138 + k), loop=k != OBSTACLE)
         problems += ['path: ' + e for e in paths.validate(paths.parse(fwd))]
     pvs = model.pvs_rush2_bytes(model.pvs_2049(q, k))
-    npvs = q.main[model.R49_PVS_COUNT - q.MAIN_VRAM + k - 1]
+    npvs = len(model.pvs_2049(q, k))
 
     for name, data in (('geometry', geometry), ('placement', place), ('collision', coll), ('path', fwd),
                        ('pathb', bwd), ('pvs', pvs)):
@@ -325,6 +331,8 @@ if __name__ == '__main__':
     ok = True
     for k in range(1, 7):
         ok &= build(k, 2, os.path.join('out', 'track%d' % k))
+    for k in range(BATTLE_FIRST, BATTLE_FIRST + 8):
+        ok &= build(k, 11, os.path.join('out', 'battle%d' % (k - BATTLE_FIRST + 1)))
     for k in range(STUNT_FIRST, STUNT_FIRST + 4):
         ok &= build(k, 11, os.path.join('out', 'stunt%d' % (k - STUNT_FIRST + 1)))
     ok &= build(OBSTACLE, 2, os.path.join('out', 'obstacle'))

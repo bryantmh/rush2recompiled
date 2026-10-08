@@ -588,7 +588,9 @@ def pvs_2049(q, k):
     """2049 PVS of 2049 track id k - 1: race tracks 1-6 and the obstacle course (19) have one, the stunt arenas none.
     Entry = four big-endian u32, bit (i & 31) of word i >> 5."""
     n = q.main[R49_PVS_COUNT - q.MAIN_VRAM + k - 1]
-    base = R49_PVS[k - 1] if n and k <= 6 else R49_PVS_OBSTACLE
+    if 7 <= k <= 14:
+        return []   # battle DM5 counts 14 regions, but its table isn't found yet (TODO): everything draws
+    base = R49_PVS[k - 1] if k <= 6 else R49_PVS_OBSTACLE
     out = []
     for reg in range(n):
         w = [q.w(base + reg * 16 + 4 * j) for j in range(4)]
