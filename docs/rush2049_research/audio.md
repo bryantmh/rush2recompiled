@@ -88,6 +88,15 @@ re-rolls 5. [V]
 Song n is played with `sndSeqPlay(group n, song n, data, NULL)`: no start volume or fade, all tracks on, speed 1
 (func_800979A0; group/song pair table 0x8011F070). A new song only starts once the old one was stopped. [V]
 
+Front-end songs (main menu music option, src/music.cpp):
+- Rush 2: the front end (game state 0x8010C0D0 = 0, func_800AD07C and func_800ABE7C) sends music command 0x0009FFFF = sequence 9
+  (not a race song). Other direct plays: 0xC at state 6, 5/6 in the menu loop by byte 0x80125B11. [V]
+- Rush 2049: song 5 and 6 are not race songs. `func_800C9194(song, 1)` (play) is called with 6 from the menu loop
+  func_800D71D0 and func_800CA3B4, with 5 from func_800F5F90. Song 6 is taken as the main menu's. [inferred]
+- SF Rush: the music command function is func_8006CA08 (Rush 2's func_80062F50). Screen 0 of the front-end dispatcher
+  (func_800B9978 jump table 0x800D7F3C -> func_800B9508) plays sequence 11 (command 0x000BFFFF). Other plays: 4 (B9978),
+  13 (B4F94), 14 (B0374, state 6), 5 (B449C). Screen 0 is taken as the main menu. [inferred]
+
 ## 4. Volume calibration
 
 Master volumes: `sndMasterVolume((u8)(option / 10 * 127 * 0.9))` with the music option (0x8014610C) and the

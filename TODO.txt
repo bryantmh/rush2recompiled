@@ -1,11 +1,13 @@
 San Francisco Rush:
 2) Car unique texture patterns as stripes
-3) Windmills not moving?
+3) Windmills: Rush 1 has no windmill code or model (docs/rush1_research.md section 10), so they are static in the original. Find the track 6 windmill piece and check its blades converted (one reported missing). Also unplaced in the geometry: track 5 T5GATEL1-12, track 6 BUSO1.
 
 San Francisco Rush 2049:
 1) Coins: missing HUD counter.
 2) Mileage Counter.
-3) Battle arenas: DM1-DM8 (ROM files 126-133) are not converted or selectable.
+3) Battle arenas DM1-DM8 load as ids 30-37 from the Start Game menu's BATTLE row, hosted in STUNT1 as free roam (no weapons,
+   health bar, kills or battle timer/score; the HUD is Rush 2's stunt HUD). Left: DM5's PVS table (14 regions, not found;
+   battle draws everything), the battle song table (stunt songs 8/9 stand in), battle diorama/thumbnail check, unlocks.
 4) Battle weapons and items: WEPICON_* pickups, WPR_MINE and the battle spawn rules are dropped.
 5) HANDLING: revisit 2049's HANDLING
 6) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
@@ -18,8 +20,9 @@ San Francisco Rush 2049:
     before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
-10) Main menu music as an option
+
 11) Water can be driven on
+12) Dreamcast textures?
 
 General:
 1) Better lighting? Bloom for emmissives?
@@ -41,7 +44,7 @@ General:
       grey fill or a spectator view of the leader).
    f) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players
       1 and 2's screen; ports 3-4 use default bindings).
-5) Music skip track in pause menu feature. Currently music switches every time paused. this is not what we want
+5) Add a Music skip track feature to the pause menu. It will just be a new pause ;menu item below Audio and above "restart"  Currently music switches every time paused. this is not what we want. It should keep playing a track unless skipped or a new race is begun. Skipping on a track that isn't set to random will play a random song instead. The ui should also show the name of the currently playing song in the bottom right corner in a sort of playback box with some sort of music icon showing that it is music that is playing and the game and track it is from along with its name
 6) Occasional tire sizing bugs
 7) Overhaul main menu UI groupings a bit due to all the new menus. Make it like 2049?
 9) Show accurate track stats like length

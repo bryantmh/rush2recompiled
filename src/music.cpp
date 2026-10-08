@@ -61,6 +61,10 @@ namespace {
     constexpr uint32_t track_id = 0x8010C3F0;
     // The other cars' engine sounds (src/car_engines.cpp).
     constexpr const char* other_engines_id = "other_engines";
+    constexpr const char* menu_music_description =
+        "Plays this game's main menu song in the menus, switching at once when changed. Rush 2 is the game's own; "
+        "Shuffle picks a game each time the menu music starts. SF Rush and Rush 2049 need their ROMs (Games tab) and "
+        "fall back to Rush 2's without them.";
     constexpr const char* other_engines_description =
         "Hear the computer cars' engines around you, as Rush 2049 does (Rush 2 plays only your own).";
     constexpr uint32_t track_songs = 0x800CC37C;    // s16[12]: index into the song table per track.
@@ -104,8 +108,8 @@ namespace {
         { Game::Rush2049, 2, "r49_2", "Song 4", "Rush 2049 Track 4" },
         { Game::Rush2049, 3, "r49_3", "Song 5", "Rush 2049 Track 5" },
         { Game::Rush2049, 7, "r49_7", "Song 6", "Rush 2049 Track 6" },
-        { Game::Rush2049, 8, "r49_8", "Song 7", "Rush 2049 Stunt 1, 2 and Obstacle" },
-        { Game::Rush2049, 9, "r49_9", "Song 8", "Rush 2049 Stunt 3 and 4" },
+        { Game::Rush2049, 8, "r49_8", "Song 7", "Rush 2049 Stunt 1, 2, Obstacle, Battle 7" },
+        { Game::Rush2049, 9, "r49_9", "Song 8", "Rush 2049 Stunt 3, 4, Battle 8" },
     }};
     constexpr int song_count = (int)songs.size();
     constexpr int first_rush1 = 8;      // Catalog index of SF Rush's first song.
@@ -160,6 +164,22 @@ namespace {
     std::mt19937 rng{ std::random_device{}() };
     int last_song = -1;   // Catalog index of the last race song.
 
+    // Main menu music: the game whose front-end song plays (by Game value; Rush 2 leaves the game's own).
+    constexpr const char* menu_music_id = "menu_music";
+    // Rush 2's front-end song: sequence 9, started by command 0x0009FFFF (func_800ABE7C and func_800AD07C's state 0)
+    // [V]. SF Rush's front end (screen 0, func_800B9508) plays its sequence 11 and Rush 2049's menu loop
+    // (func_800D71D0) its song 6 [inferred from the callers in docs/rush1_research.md section 9 and
+    // docs/rush2049_research/audio.md section 3: neither is a race song].
+    constexpr uint32_t menu_command = 0x0009FFFF;
+    constexpr int rush1_menu_song = 11;
+    constexpr int rush2049_menu_song = 6;
+    constexpr uint32_t menu_shuffle = 3;    // Option value after the three Game values: a random game each time.
+    std::atomic<uint32_t> menu_music{ (uint32_t)Game::Rush2 };
+    // Whether the music the game last asked for is the front end's, and a changed option waiting for the audio thread
+    // to start the new menu song.
+    std::atomic_bool menu_active = false;
+    std::atomic_bool menu_apply = false;
+    std::atomic_bool menu_reroll = false;   // The option changed: pick a new song rather than retry the last pick.
     // The race's Rush 2 or SF Rush sequence for func_8008C370's tail, or -1.
     std::atomic<int> race_sequence = -1;
 
@@ -253,6 +273,13 @@ namespace {
             g = Game::Rush2049;
             original = find_song(Game::Rush2049, rush2::track2049::stunt_arena() <= 2 ? 8 : 9);
         }
+        else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::battle_arena() > 0) {
+            // Rush 2049's per-track songs (0x8010FFD4, ids 6-13): DM1-DM6 take race songs 0, 1, 4, 2, 3 and 7, DM7 and DM8
+            // the stunt songs 8 and 9 (docs/rush2049_research/audio.md section 3).
+            constexpr int battle_songs[8] = { 0, 1, 4, 2, 3, 7, 8, 9 };
+            g = Game::Rush2049;
+            original = find_song(Game::Rush2049, battle_songs[rush2::track2049::battle_arena() - 1]);
+        }
         else if (host && rush2::track1::race_track() > 0) {
             g = Game::Rush1;
             original = pick(false, Game::Rush1);
@@ -313,6 +340,67 @@ namespace {
         call.r5 = (int32_t)-1;
         func_80061E68(rdram, &call);
         return (int32_t)call.r2 != 0;
+    }
+
+    // The menu song to play now: a Rush 2 or SF Rush sequence, or a Rush 2049 song (the other is -1). Games without
+    // their ROM or audio fall back to Rush 2's.
+    struct MenuChoice {
+        int sequence = menu_command >> 16;
+        int song_2049 = -1;
+    };
+
+    MenuChoice menu_choice(uint8_t* rdram, recomp_context* ctx) {
+        Game g = Game::Rush2;
+        uint32_t option = menu_music.load();
+        if (option == menu_shuffle) {
+            std::vector<Game> pool = { Game::Rush2 };
+            for (Game other : { Game::Rush1, Game::Rush2049 }) {
+                if (game_available(other) && (other != Game::Rush2049 || rush2::track2049::music_ready())) {
+                    pool.push_back(other);
+                }
+            }
+            std::lock_guard lock{ choice_mutex };
+            g = pool[std::uniform_int_distribution<size_t>(0, pool.size() - 1)(rng)];
+        }
+        else if (option < 3) {
+            g = (Game)option;
+        }
+        MenuChoice c;
+        if (g == Game::Rush1 && game_available(g)) {
+            int sequence = rush2::track1::song_sequence(rdram, ctx, rush1_menu_song);
+            if (sequence >= 0) {
+                c.sequence = sequence;
+            }
+        }
+        else if (g == Game::Rush2049 && game_available(g) && rush2::track2049::music_ready()) {
+            c.sequence = -1;
+            c.song_2049 = rush2049_menu_song;
+        }
+        return c;
+    }
+
+    // The option changed while the menu music plays: starts the new menu song (or, while a preview plays, makes it
+    // what the preview returns to). False to try again (loader busy).
+    bool apply_menu_music(uint8_t* rdram, recomp_context* ctx) {
+        if (!menu_active) {
+            return true;
+        }
+        // A retry (loader busy) keeps the song picked, so Shuffle doesn't re-roll every frame until one starts.
+        static MenuChoice c;
+        if (menu_reroll.exchange(false)) {
+            c = menu_choice(rdram, ctx);
+        }
+        game_music = { c.sequence, c.song_2049 };
+        if (preview.active) {
+            return true;
+        }
+        if (c.song_2049 >= 0) {
+            stop_rush2_song(rdram, ctx);
+            rush2::track2049::play_song_now(rdram, c.song_2049);
+            return true;
+        }
+        rush2::track2049::stop_song_now();
+        return play_rush2_song(rdram, ctx, c.sequence);
     }
 
     // Starts catalog song i as the preview. False to try again later (loader busy, 2049 banks still loading).
@@ -398,6 +486,8 @@ namespace {
         "Switch songs off below to keep them out of races, or a whole game with the switch by its name (its songs "
         "keep their own switches for when it's back on). Press a song's play button to hear it. SF Rush and "
         "Rush 2049 songs need their ROMs (Games tab).\n\n"
+        "<recomp-color primary>Main Menu Music</recomp-color> swaps the menus' song for SF Rush's or Rush 2049's "
+        "(Shuffle picks one each time the menu music starts).\n\n"
         "<recomp-color primary>Other Cars' Engines</recomp-color> plays the computer cars' engines around you, as "
         "Rush 2049 does; Rush 2 plays only your own.";
 
@@ -498,6 +588,7 @@ namespace {
         Element* list = nullptr;
         std::vector<Row> rows;
         Header headers[3];
+        Radio* menu_radio = nullptr;
         int shown_preview = -1;
         int shown_state[3] = { -1, -1, -1 };
 
@@ -525,6 +616,9 @@ namespace {
                     rows[i].toggle->set_enabled(available && on);
                     rows[i].name->set_color(available && on ? theme::color::Text : theme::color::TextInactive);
                 }
+            }
+            if (menu_radio != nullptr) {
+                menu_radio->get_option_element((size_t)g)->set_enabled(available);
             }
             Header& h = headers[(int)g];
             h.toggle->set_enabled(available);
@@ -578,6 +672,32 @@ namespace {
             engines->set_checked(std::get<bool>(config.get_option_value(other_engines_id)));
             engines->add_checked_callback([](bool checked) {
                 recompui::config::get_sound_config().set_option_value(other_engines_id, checked);
+            });
+
+            // Main menu music: which game's front-end song plays in the menus.
+            Element* menu_row = context.create_element<PageRow>(list);
+            menu_row->set_display(Display::Flex);
+            menu_row->set_flex_direction(FlexDirection::Row);
+            menu_row->set_align_items(AlignItems::Center);
+            menu_row->set_gap(16.0f);
+            menu_row->set_padding(12.0f);
+            Element* menu_title = context.create_element<Element>(menu_row, 0, "div", false);
+            menu_title->set_display(Display::Flex);
+            menu_title->set_flex_direction(FlexDirection::Column);
+            menu_title->set_flex_grow(1.0f);
+            context.create_element<Label>(menu_title, "Main Menu Music", theme::Typography::LabelMD);
+            menu_radio = context.create_element<Radio>(menu_row);
+            uint32_t menu_current = std::get<uint32_t>(config.get_option_value(menu_music_id));
+            for (uint32_t k = 0; k <= menu_shuffle; k++) {
+                menu_radio->add_option(k == menu_shuffle ? "Shuffle" : game_name((Game)k));
+                if (k == menu_current) {
+                    menu_radio->set_index(k);
+                }
+            }
+            menu_radio->add_index_changed_callback([](uint32_t index) {
+                if (index <= menu_shuffle) {
+                    recompui::config::get_sound_config().set_option_value(menu_music_id, index);
+                }
             });
 
             for (int i = 0; i < song_count; i++) {
@@ -688,6 +808,21 @@ void rush2::music::create_sound_tab() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::car_engines::set_enabled(std::get<bool>(cur_value));
         });
+    {
+        std::vector<recomp::config::ConfigOptionEnumOption> choices;
+        for (Game g : games) {
+            const char* key = g == Game::Rush2 ? "Rush2" : g == Game::Rush1 ? "Rush1" : "Rush2049";
+            choices.push_back({ g, key, game_name(g) });
+        }
+        choices.push_back({ menu_shuffle, "Shuffle", "Shuffle" });
+        config.add_enum_option(menu_music_id, "Main Menu Music", menu_music_description, choices, Game::Rush2, true);
+        config.add_option_change_callback(menu_music_id,
+            [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+                menu_music = std::get<uint32_t>(cur_value);
+                menu_reroll = true;
+                menu_apply = true;
+            });
+    }
     for (Game g : games) {
         std::vector<recomp::config::ConfigOptionEnumOption> choices;
         for (Mode m : game_modes(g)) {
@@ -738,6 +873,7 @@ void rush2::music::create_sound_tab() {
 void rush2::music::load_config() {
     recomp::config::Config& config = recompui::config::get_sound_config();
     rush2::car_engines::set_enabled(std::get<bool>(config.get_option_value(other_engines_id)));
+    menu_music = std::get<uint32_t>(config.get_option_value(menu_music_id));
     for (Game g : games) {
         modes[(int)g] = std::get<uint32_t>(config.get_option_value(mode_option_id(g)));
     }
@@ -791,9 +927,24 @@ extern "C" void rush2_music_race_sequence(uint8_t* rdram, recomp_context* ctx) {
 
 bool rush2::music::game_command(uint8_t* rdram, recomp_context* ctx) {
     uint32_t cmd = (uint32_t)ctx->r4;
+    // The front end's song, swapped for the chosen game's: SF Rush's as a sequence on Rush 2's player, Rush 2049's
+    // as a queued song started by Rush 2's stop command.
     uint32_t kind = cmd >> 30;
     if (kind == 3) {
         return false; // Volume and fade.
+    }
+    menu_active = cmd == menu_command;
+    if (menu_active) {
+        MenuChoice c = menu_choice(rdram, ctx);
+        if (c.song_2049 >= 0) {
+            rush2::track2049::queue_race_song(c.song_2049);
+            cmd = 0x40000000;
+        }
+        else {
+            cmd = ((uint32_t)c.sequence << 16) | 0xFFFF;
+        }
+        ctx->r4 = (int32_t)cmd;
+        kind = cmd >> 30;
     }
     std::lock_guard lock{ preview_mutex };
     if (kind == 0) {
@@ -817,6 +968,12 @@ bool rush2::music::game_command(uint8_t* rdram, recomp_context* ctx) {
 
 // func_800631A4 (the audio thread) at 0x80063AA0, before it takes the queued music commands: runs preview requests.
 extern "C" void rush2_music_preview(uint8_t* rdram, recomp_context* ctx) {
+    if (menu_apply.load()) {
+        std::lock_guard lock{ preview_mutex };
+        if (menu_apply.exchange(false) && !apply_menu_music(rdram, ctx)) {
+            menu_apply = true;
+        }
+    }
     int request = preview_request.load();
     if (request == no_request) {
         return;
