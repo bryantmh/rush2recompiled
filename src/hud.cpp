@@ -44,6 +44,7 @@
 #include "recomp.h"
 #include "rush2.h"
 #include "players4.h"
+#include "battle.h"
 
 #define F3DEX_GBI_2
 #define G_SC_NON_INTERLACE 0 // gbi.h scissor mode, which the extended GBI header doesn't define.
@@ -653,6 +654,10 @@ namespace {
     }
 }
 
+void rush2::hud::anchor_text(uint8_t* rdram, int32_t& x, int32_t& y) {
+    set_rect_origin(rdram, origin_at(x, y));
+}
+
 extern "C" {
 
 // func_800A06F8 entry and exit: the race HUD setup, which creates all of its widgets.
@@ -663,6 +668,7 @@ void rush2_hud_build_begin(uint8_t* rdram, recomp_context* ctx) {
 void rush2_hud_build_end(uint8_t* rdram, recomp_context* ctx) {
     // Players 3 and 4's elements, built while the widgets they create still count as the HUD's.
     rush2::players4::hud_built(rdram, ctx);
+    rush2::battle::hud_built(rdram, ctx);
     building_hud = false;
 }
 
@@ -1174,6 +1180,7 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
     in_hud_callback = false;
     finish_half(rdram);
     laps_known = false; // Printed again before the next widget loop, if it's shown.
+    rush2::battle::hud_draw(rdram, ctx);
     end_anchoring(rdram);
     if (inset_lifted) {
         MEM_H(0, (int32_t)clip_inset_x) = saved_inset_x;

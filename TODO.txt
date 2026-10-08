@@ -5,10 +5,12 @@ San Francisco Rush:
 San Francisco Rush 2049:
 1) Coins: missing HUD counter.
 2) Mileage Counter.
-3) Battle arenas DM1-DM8 load as ids 30-37 from the Start Game menu's BATTLE row, hosted in STUNT1 as free roam (no weapons,
-   health bar, kills or battle timer/score; the HUD is Rush 2's stunt HUD). Left: DM5's PVS table (14 regions, not found;
-   battle draws everything), the battle song table (stunt songs 8/9 stand in), battle diorama/thumbnail check, unlocks.
-4) Battle weapons and items: WEPICON_* pickups, WPR_MINE and the battle spawn rules are dropped.
+3) Battle arenas DM1-DM8 (menu ids 30-37, Start Game > BATTLE): health, pickups, 8 weapons, kills, time limit option, unlock gating
+   (arenas 5-8) and a 2049-element HUD are in (src/battle.cpp, docs/rush2049_research/battle.md). Left: weapon numbers are
+   approximations; projectiles ignore walls; no sounds; no end-of-battle winner screen; the HUD is smaller than 2049's (image
+   widgets clip rather than stretch) and its weapon model shows only with 1 player; coin icon alpha; DM5 PVS table; split screen
+   / 3-4 player HUD placement; computer opponents (AI; 2049's battle was multiplayer only).
+4) Battle: SHLD/INVS visuals, direction arrows, WPR_MINE objects, mines' visuals/sounds.
 5) HANDLING: revisit 2049's HANDLING
 6) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
 7) Panther front wheels clip through body

@@ -544,8 +544,8 @@ before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
 # Rush 2049 track select entries (src/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
-# func_803ABE0C (per frame); its tables and carousel array are repointed to 30-entry copies at 0x80300000 (Rush 2's 12
-# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29).
+# func_803ABE0C (per frame); its tables and carousel array are repointed to 38-entry copies at 0x80300000 (Rush 2's 12
+# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29, Rush 2049 battle arenas at 30-37).
 [[patches.hook]]
 func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB5C0
@@ -600,6 +600,18 @@ text = "    rush2_track49_obstacle_settings(rdram, ctx);"
 func = "race_start_timer_800AE670"
 before_vram = 0x800AEB20
 text = "    rush2_track49_obstacle_clock(rdram, ctx);"
+
+# Rush 2049's battle arenas (src/battle.cpp) are played in stunt mode but have no stunt score: its panel's visibility
+# callbacks func_800B9CC0 (the trick score panel) and func_800B7654 (the BEST / TOTAL scores) hide them.
+[[patches.hook]]
+func = "hud_widget_cb_check_flags_800B9CC0"
+before_vram = 0x800B9D2C
+text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
+
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B76CC
+text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
 
 # Rush 2049 rules by game type (src/track2049.cpp): no stuck reset, quick respawn after a wreck, and no track map or
 # radar (their stunt track tests).
@@ -836,7 +848,7 @@ value = 0x3C128030 # lui     $s2, 0x8030
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABB14
-value = 0x26520080 # addiu    $s2, $s2, 0x80
+value = 0x265200A0 # addiu    $s2, $s2, 0xA0
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -846,7 +858,7 @@ value = 0x3C018030 # lui     $at, 0x8030
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB8B0
-value = 0xC42A0100 # lwc1    $f10, 0x100($at)
+value = 0xC42A0140 # lwc1    $f10, 0x140($at)
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -856,7 +868,7 @@ value = 0x3C018030 # lui     $at, 0x8030
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABD00
-value = 0xC4260100 # lwc1    $f6, 0x100($at)
+value = 0xC4260140 # lwc1    $f6, 0x140($at)
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
@@ -866,7 +878,7 @@ value = 0x3C058030 # lui     $a1, 0x8030
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6248
-value = 0x8CA50180 # lw     $a1, 0x180($a1)
+value = 0x8CA501E0 # lw     $a1, 0x1E0($a1)
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
@@ -876,17 +888,17 @@ value = 0x304E001F # andi    $t6, $v0, 0x1F
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB67C
-value = 0x2A21001E # slti    $at, $s1, 0x1E
+value = 0x2A210026 # slti    $at, $s1, 0x26
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6D0
-value = 0x241E001E # addiu    $fp, $zero, 0x1E
+value = 0x241E0026 # addiu    $fp, $zero, 0x26
 
 [[patches.instruction]]
 func = "trackselect_frame_803ABE0C"
 vram = 0x803AC0FC
-value = 0x28C1001E # slti    $at, $a2, 0x1E
+value = 0x28C10026 # slti    $at, $a2, 0x26
 
 # Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
@@ -1076,7 +1088,7 @@ value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 
 # Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
 # Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
-# 30-entry name table into a 30-entry array at 0x80300780 (was 7 at 0x803C7A44), with the 30-entry scale, cloud height and
+# 38-entry name table into a 38-entry array at 0x80300840 (was 7 at 0x803C7A44), with the 38-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
 [[patches.hook]]
 func = "circuit_generate_800A7DCC"
@@ -1101,12 +1113,12 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62AC
-value = 0x263107F8 # addiu $s1, $s1, 0x7F8
+value = 0x263108D8 # addiu $s1, $s1, 0x8D8
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62B0
-value = 0x26100780 # addiu $s0, $s0, 0x780
+value = 0x26100840 # addiu $s0, $s0, 0x840
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1126,7 +1138,7 @@ value = 0x26310000 # addiu $s1, $s1, 0
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B642C
-value = 0x26100780 # addiu $s0, $s0, 0x780
+value = 0x26100840 # addiu $s0, $s0, 0x840
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1136,7 +1148,7 @@ value = 0x3C188030 # lui $t8, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64B0
-value = 0x27180078 # addiu $t8, $t8, 0x78
+value = 0x27180098 # addiu $t8, $t8, 0x98
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1146,7 +1158,7 @@ value = 0x3C018030 # lui $at, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64EC
-value = 0xC4260100 # lwc1 $f6, 0x100($at)
+value = 0xC4260140 # lwc1 $f6, 0x140($at)
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1156,7 +1168,7 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A14
-value = 0x26310780 # addiu $s1, $s1, 0x780
+value = 0x26310840 # addiu $s1, $s1, 0x840
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1166,7 +1178,7 @@ value = 0x3C018030 # lui $at, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A8C
-value = 0xC4240100 # lwc1 $f4, 0x100($at)
+value = 0xC4240140 # lwc1 $f4, 0x140($at)
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1176,7 +1188,7 @@ value = 0x3C068030 # lui $a2, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6ABC
-value = 0x8CC60080 # lw $a2, 0x80($a2)
+value = 0x8CC600A0 # lw $a2, 0xA0($a2)
 
 [[patches.instruction]]
 func = "circuit_widget_cb_logo_803BE528"
@@ -1186,7 +1198,7 @@ value = 0x3C058030 # lui $a1, 0x8030
 [[patches.instruction]]
 func = "circuit_widget_cb_logo_803BE528"
 vram = 0x803BE598
-value = 0x8CA50180 # lw $a1, 0x180($a1)
+value = 0x8CA501E0 # lw $a1, 0x1E0($a1)
 
 # Car Speeds: map the path's AI lane speeds before the race time is worked out from them (src/track2049.cpp).
 [[patches.hook]]
@@ -7635,6 +7647,53 @@ text = "    rush2_car49_option_text(rdram, ctx);"
 func = "car_build_textures_8008582C"
 before_vram = 0x80085E1C
 text = "    rush2_car49_paint(rdram, ctx);"
+
+# SF Rush car stripe (src/car1_stripes.cpp): a ninth STRIPE value, Rush 1's decal on the cars that have one. The player
+# record's getter and setter, the car select's STRIPE row and its text, and func_8008582C's stripe stamp.
+[[patches.hook]]
+func = "car_options_get_color_lo_800B2608"
+before_vram = 0x800B2624
+text = "    if (rush2_car1_stripe_get(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "save_set_car_logo_high5_80097934"
+before_vram = 0x80097960
+text = "    rush2_car1_stripe_set(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9B18
+text = "    rush2_car1_stripe_before(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9B8C
+text = "    rush2_car1_stripe_value(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC3F4
+text = "    rush2_car1_stripe_text_row(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC644
+text = "    rush2_car1_stripe_text(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_build_textures_8008582C"
+before_vram = 0x80085D84
+text = "    rush2_car1_paint_style(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_build_textures_8008582C"
+before_vram = 0x80085D8C
+text = "    rush2_car1_paint_stamp(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_build_textures_8008582C"
+before_vram = 0x80085DC4
+text = "    rush2_car1_paint_restore(rdram, ctx);"
 
 # Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries).
 [[patches.hook]]

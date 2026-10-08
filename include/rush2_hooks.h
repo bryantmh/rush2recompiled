@@ -173,6 +173,7 @@ void rush2_track49_stunt_select(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_options(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_option_t9(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ctx);
+void rush2_battle_hide_stunt_panel(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_deaths_value_t4(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_deaths_value_t0(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* ctx);

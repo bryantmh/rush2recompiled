@@ -363,3 +363,39 @@ music bank, and a sound effect bank for an ALSndPlayer. The banks (`B1`, one ban
   header gets Rush 1's 16 songs as 13-28; the player switches banks per song; Rush 2's sound effect instrument gets
   Rush 1's fireworks (sound 62) as sound 116, played by FIRECRCK on Rush 1 tracks.
 - Sound effects: 42 of Rush 1's 68 samples are byte-identical in Rush 2, including all the emitters' but fireworks.
+
+## 10. Animated / dynamic objects [V, 2026-10-07]
+
+Rush 1 has no windmill model, name or code. Searching every asset and the main code for WIND/MILL/BLADE/ROTOR/PROP/FAN
+only finds WINDOWBL*. Rush 1's whole table of named dynamic objects is the name list at 0x800D6900-0x800D7400 (main):
+car parts, CARBLASTO1-15, SPARKO3, SMOKE*, DUST*, SPLASH*, CONE1L1, METERL1-5, TMUNCHL1-6, TREEHIT1-4 L1-3,
+WINDOWBL1-7, PMUNCH_01L1-2, FENCEL1-12, FLAG2L0-9, T5GATEL1-12, GASIGNL1-10, KEYL1, MINE1, and the emitters MARKER,
+TIME, CCAR, FIRECRK, SMALLHOOT, BIGCHEER, BIGCHEER2. Everything else is a static section: every track piece has kind
+0 (name record +0x14 = 0xFFFF in the low half) and no per-track animation code was found. Anything that looks like a
+windmill on track 6 is therefore baked into a static piece (TRACK6LP1_*, LP2_*, BCH_*), and does not turn in Rush 1.
+
+Geometry models that no placement record uses (so nothing draws them in the port):
+- Track 5: T5GATEL1-12 (in the dynamic name table; no record places them and the converter has no class for them).
+- Track 6: BUSO1 (a 267-triangle bus, 192 x 200 x 640 units; also named in main at 0x800D05AC).
+
+## 11. Car decals as a stripe (SF RUSH STRIPE value)
+
+Code: `src/car1_decals.cpp` (masks; port of `tools/rush1/cardecal.py`, checked bit for bit by
+`tools/rush1/cpp_test/car_decals.bat`), `src/car1_stripes.cpp` (game side), option "SF Rush Car Stripes" in the Games tab.
+Viewers: `tools/rush1/cartex.py` (car files, meshes, palettes), `tools/montage.py`.
+
+- Rush 2's cars are the Rush 1 cars re-textured. Panel layouts differ (pairing by pixel matches only 65-90%), but both games'
+  car meshes use the same car-local coordinates. Each Rush 2 panel texel is located on the body, the closest point on the
+  Rush 1 body (same side, |normal dot| >= 0.5, within 3 units) is found and its texel sampled.
+- Rush 1 palettes: indices 1-25, 30, 65-86 differ across the ten paint sets (paint ramps); the rest are fixed colours; index 0
+  is transparent. Rush 2: 1-31 main ramp, 33-63 accent ramp. A decal texel is a Rush 1 fixed colour (flames: chroma > 50 and
+  g >= 16; Taxi checker and VW Bus swirls: luma > 190) where Rush 2 has paint. Specks under 6 pixels are dropped.
+- Cars with a clear decal: Camaro and Hot Rod (flames), Taxi (checker band), VW Bus (swirls). BMW, Viper, Bugatti, Concept
+  have none worth keeping; Supra, Viper and VW Bug only have white paint areas (noisy, not done). Formula 1 has no textures.
+- Rush 2 stripes: asset 0x1C (deflate, not LZ) tiles stamped by func_80083F50 from func_8008582C's 24-iteration loop. The
+  STRIPE value 8 is stored as a flag in the record block byte 0x585 bit 0 (STRIPE field 0); getter func_800B2608, setter
+  func_80097934, car select row (func_803B9478 at 0x803B9B18 / 0x803B9B8C) and text (func_803BC048 at 0x803BC3F4 /
+  0x803BC644) are hooked. The stamp borrows SINGLE's tile record and points it at the car's mask.
+- Gotcha: RDRAM is word-swapped on the host; write bytes with MEM_B, never through the alloc pointer.
+- Status: builds, selectable ("SF RUSH"), Camaro decal draws in the select and the race. Not yet checked in game: Van,
+  Taxi, Hot Rod. The Camaro's flames come out small (182 texels); tune the criteria in cardecal.py and car1_decals.cpp together.

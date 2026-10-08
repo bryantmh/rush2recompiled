@@ -24,7 +24,11 @@ unless marked "2049". Tools: `tools/rush2049/paths.py` (path parser, converter, 
   in both games and needs no data.
 - **2049 file map [V]** (from the loader `func_800BB9B0` (2049) and the editor strings left in each file):
   - 158–163 = race tracks 1–6, forward
-  - 164–171 = battle arenas DM1, DM6, DM5, DM8, DM3, DM7, DM4, DM2 (in that file order)
+  - 164–171 = battle arenas DM1–DM8 in order (157 + k, k = 7–14 = track id + 1; geometry 107–114, placement 126–133,
+    collision 145–152). The editor names inside the files (dm1, dm6, dm5, dm8, dm3, dm7, dm4, dm2) are scrambled: [V]
+    the floor fit of every path to every arena's collision is a clean diagonal in loader order (tools/rush2049/track.py
+    k 7–14 builds all eight with no problems). Battle paths have no branches; the PVS count is 14 for DM5 only and
+    its table isn't found (the port draws every section). The arenas are hosted in STUNT1 (src/track2049.cpp).
   - 172–175 = stunt 1–4 (the loader's 0x9E + track id; the editor names inside the files say stunt 4–1, but the
     floor fit of each path to each arena's collision agrees with the loader)
   - 176 = obstacle 1

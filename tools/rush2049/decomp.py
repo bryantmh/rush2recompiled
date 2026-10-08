@@ -1,6 +1,8 @@
 """Decompile Rush 2 / Rush 2049 functions with m2c (research aid).
 
-Usage: python decomp.py r2|49 FUNCADDR [more...]
+Usage: python decomp.py r2|49|ovl FUNCADDR [more...]
+  ovl = the in-race mode overlay (stunt/battle HUD, weapons; ROM 0xB6FEC4 raw deflate, loaded at 0x8038A400), read from
+  the ROM (tools/rush2049/roms.py); function bounds come from scanning it for jr $ra.
 Needs m2c (git clone https://github.com/matt-kempster/m2c) at $M2C or ./m2c. Function bounds come from
 analysis/out_disasm/{r2,d49}.asm labels. lui/addiu pairs are emitted as %hi/%lo of D_XXXXXXXX symbols.
 """
@@ -12,7 +14,33 @@ REPO = roms.REPO
 M2C = os.environ.get('M2C', os.path.join(os.path.dirname(__file__), 'm2c', 'm2c.py'))
 _bounds = {}
 
+OVL_BASE = 0x8038A400
+OVL_ROM = 0xB6FEC4
+_ovl = []
+
+def ovl_bytes():
+    if not _ovl:
+        import zlib
+        _ovl.append(zlib.decompressobj(-15).decompress(roms.Rush2049().rom[OVL_ROM:OVL_ROM + 0x80000]))
+    return _ovl[0]
+
+def ovl_bounds():
+    """Function starts of the overlay: the instruction after each jr $ra delay slot that no branch jumps past."""
+    d = ovl_bytes(); starts = [OVL_BASE]; maxbr = OVL_BASE; a = OVL_BASE
+    while a < OVL_BASE + len(d):
+        w = struct.unpack('>I', d[a - OVL_BASE:a - OVL_BASE + 4])[0]
+        ins = rabbitizer.Instruction(w, vram=a)
+        if ins.isBranch(): maxbr = max(maxbr, ins.getBranchVramGeneric())
+        if w == 0x03E00008 and a >= maxbr:
+            starts.append(a + 8); maxbr = a + 8
+            a += 8; continue
+        a += 4
+    return starts
+
 def bounds(game):
+    if game == 'ovl':
+        if game not in _bounds: _bounds[game] = ovl_bounds()
+        return _bounds[game]
     if game in _bounds: return _bounds[game]
     fn = os.path.join(REPO, 'analysis', 'out_disasm', 'r2.asm' if game == 'r2' else 'd49.asm')
     starts = []; prev = 0; second = False
@@ -30,6 +58,9 @@ def bounds(game):
     starts = sorted(set(starts)); _bounds[game] = starts; return starts
 
 def reader(game):
+    if game == 'ovl':
+        d = ovl_bytes()
+        return lambda a: struct.unpack('>I', d[a - OVL_BASE:a - OVL_BASE + 4])[0] if OVL_BASE <= a < OVL_BASE + len(d) else 0
     if game == 'r2':
         r = roms.Rush2(); return lambda a: struct.unpack('>I', r.read(a, 4))[0]
     r = roms.Rush2049()

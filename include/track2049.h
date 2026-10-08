@@ -14,7 +14,9 @@
 // table entries are swapped for the 2049 track's while it is raced. Stunt arenas are hosted by Rush 2's own stunt
 // track, STUNT1, so they are played with Rush 2's stunt rules and scoring. Rush 2049's obstacle course follows them
 // as id 29. It runs from a start to a finish, timed, so it is hosted like a race track (k = obstacle) as a one-lap
-// race without drones, against a 5-minute clock as in Rush 2049.
+// race without drones, against a 5-minute clock as in Rush 2049. Its eight battle arenas (DM1-DM8) are ids 30-37, hosted
+// by STUNT1 like the stunt arenas (a free-roaming arena with no drones or checkpoints) and played from the Start Game
+// menu's BATTLE row. Rush 2049's battle weapons, health and scoring aren't ported yet (TODO.txt).
 namespace rush2::track2049 {
     constexpr int track_count = 6;
     constexpr int first_menu_id = 12;   // Track select id of 2049 track 1.
@@ -22,6 +24,7 @@ namespace rush2::track2049 {
     constexpr int stunt_menu_id = 25;   // Track select id of stunt arena 1.
     constexpr int stunt_host_slot = 11; // STUNT1: Rush 2's stunt track.
     constexpr int obstacle_menu_id = 29; // Track select id of the obstacle course.
+    constexpr int battle_menu_id = 30;   // Track select id of battle arena DM1 (30-37).
     constexpr float obstacle_time = 300.0f; // The obstacle course's clock in seconds, no checkpoint extensions.
 
     // The Rush 2049 Tracks option (Games tab). Tracks are offered when it is on and the 2049 ROM is present.
@@ -32,7 +35,7 @@ namespace rush2::track2049 {
     // R49TRACKn and a name logo texture R49LOGOn for each 2049 track, appended to Rush 2's own asset 3.
     bool build_menu_container(const std::vector<uint8_t>& rush2_asset3, const std::vector<uint8_t>& rom2049,
                               std::vector<uint8_t>& out);
-    // The track select's 30-entry diorama tables and asset 3 with the added tracks' dioramas (src/track2049_menu.cpp),
+    // The track select's 38-entry diorama tables and asset 3 with the added tracks' dioramas (src/track2049_menu.cpp),
     // for screens other than the track select that show them (the unlock system's shop): call before loading asset 3.
     void prepare_menu_art(uint8_t* rdram);
     // Track select entry t's diorama model name (in RDRAM) and scale, once prepare_menu_art ran.
@@ -48,10 +51,16 @@ namespace rush2::track2049 {
     // The 2049 stunt arena (1-4) being played, or 0.
     int stunt_arena();
     void set_stunt_arena(int n);
+    // The 2049 battle arena (1-8) being played, or 0. It is hosted in the stunt slot, so at most one of this and
+    // stunt_arena() is set.
+    int battle_arena();
+    void set_battle_arena(int n);
     // The Rush 2 slot the raced 2049 track or stunt arena is loaded in (host_slot or stunt_host_slot), or -1.
     int loaded_slot();
     // Whether the race is on the obstacle course.
     bool obstacle_race(uint8_t* rdram);
+    // Whether the race is in a battle arena (also true at race setup, before the menu id becomes the host slot's).
+    bool battle_race(uint8_t* rdram);
 
     // Rush 2049's game type (its 0x8014A110, set by its menus; 2049's timer setup at 0x800FC0FC tells them apart:
     // 1800 s, the stunt MINUTES option, 300 s, the battle time option) for the 2049 course hosted by the current

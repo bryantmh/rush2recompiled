@@ -60,6 +60,13 @@ namespace rush2 {
         float hud_width();
     }
 
+    // Race HUD placement (src/hud.cpp).
+    namespace hud {
+        // Before printing text at (x, y) in the race HUD's coordinates after the widget loop: gives it the anchor of the
+        // widget it is over (or its screen third) and moves (x, y) with that widget in split screen.
+        void anchor_text(uint8_t* rdram, int32_t& x, int32_t& y);
+    }
+
     // Cheats tab: the in-game cheat menu and forced cheats (src/cheats.cpp).
     namespace cheats {
         void create_tab();
