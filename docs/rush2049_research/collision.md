@@ -180,7 +180,7 @@ self-check (`python collision.py` from `tools/rush2049`).
 | 0x20 | **platform / mover**: the car is carried by the animated object (info>>11) via `func_800C1A00` (object path direction × speed). |
 | both | When either is set, the wheel copy is masked to 0x7FF and car+0x648 records the polygon (wheel within 1.0 unit). |
 | 0x100 | **covered flag** → car-state +0x35A (`func_800E847C`). Gates the same in-air code as Rush 2's +0x344 (`func_800E23A4`) and fades car lighting (+0x360). |
-| 11–15 (when not 0x30) | **car lighting colour index** into a per-track table at 0x8011AF90 + 4·track (`func_800930A4`). Visual only. |
+| 11–15 (when not 0x30) | **car lighting colour index** into a per-track table at 0x8011AF90 + 4·track (`func_80093B20`). Visual only. |
 | 6, 7, 9, 10 | no reader found **[I unused]** |
 
 **Converter mapping (`convert_info`):**

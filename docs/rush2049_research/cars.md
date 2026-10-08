@@ -265,7 +265,7 @@ From these formulas (1/60 s steps, full throttle, flat ground, traction not limi
 
 **Speedometers.** Both read the rear wheels' speed in mph (Rush 2 car+0x76C, 2049 car+0x758: wheel spin x radius x
 2.7273 = mph x 4, copied to car-state +0xE0 / +0xF8). Rush 2's HUD (func_800BA2A8) shows it as is; 2049's
-(func_800EF5B0) shows it x 1.2 (0x801245AC; x 1.61 more in km/h). A default Rocket ZX reading 183 in 2049 is doing
+(func_800EF8F4) shows it x 1.2 (0x801245AC; x 1.61 more in km/h). A default Rocket ZX reading 183 in 2049 is doing
 152.5 mph, what these formulas give it 15 s into a straight from rest (the 157 above takes 30 s or more).
 
 **AI.** The drones are physics cars like the players'. Their driver (func_80074990) aims for the lane's target speed

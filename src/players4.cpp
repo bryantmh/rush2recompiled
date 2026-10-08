@@ -110,7 +110,7 @@ namespace {
     }
 }
 
-extern "C" void func_80081074(uint8_t* rdram, recomp_context* ctx);
+extern "C" void race_fog_zone_setup_80081074(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
     // Players' controller ports, one byte per player (D_800BF314).
@@ -154,12 +154,12 @@ namespace {
         recomp_context saved = *ctx;
         ctx->r4 = view;
         ctx->r5 = (int32_t)(cameras + view * camera_size + camera_position);
-        func_80081074(rdram, ctx);
+        race_fog_zone_setup_80081074(rdram, ctx);
         *ctx = saved;
     }
 }
 
-extern "C" void func_800604FC(uint8_t* rdram, recomp_context* ctx);
+extern "C" void widgets_create_800604FC(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
     // Race HUD. func_800A06F8 builds the HUD's elements from a layout table (func_800604FC), each entry naming an
@@ -302,7 +302,7 @@ namespace {
         ctx->r5 = 0;
         ctx->r6 = (int32_t)table;
         ctx->r7 = count;
-        func_800604FC(rdram, ctx);
+        widgets_create_800604FC(rdram, ctx);
         uint32_t added = (uint32_t)ctx->r2;
         *ctx = saved;
         uint32_t last = head;
@@ -386,13 +386,13 @@ namespace rush2::players4 {
     }
 }
 
-extern "C" void func_80080524(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_80076854(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_800806A4(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_80076694(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_80093DC0(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_80064908(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_803B81F0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void player_join_init_car_80080524(uint8_t* rdram, recomp_context* ctx);
+extern "C" void car_set_pedals_80076854(uint8_t* rdram, recomp_context* ctx);
+extern "C" void player_join_init_car_dynamics_800806A4(uint8_t* rdram, recomp_context* ctx);
+extern "C" void input_steering_from_stick_80076694(uint8_t* rdram, recomp_context* ctx);
+extern "C" void input_set_port_state_80093DC0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx);
+extern "C" void carselect_build_list_803B81F0(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
     // Joining. Player 2 joins by pressing START on a free controller in the menus (func_80093E08, which fills record 2
@@ -451,17 +451,17 @@ namespace {
         MEM_B(0x9, rec) = MEM_B(port * 2 + 1, (int32_t)port_state_8);
         MEM_B(0xA, rec) = MEM_B(port * 2, (int32_t)port_state_a);
         MEM_B(0xB, rec) = MEM_B(port * 2 + 1, (int32_t)port_state_a);
-        call(rdram, ctx, func_80080524, car, rec, (int32_t)(port_pressed + port * 2), (int32_t)(port_state_8 + port * 2));
+        call(rdram, ctx, player_join_init_car_80080524, car, rec, (int32_t)(port_pressed + port * 2), (int32_t)(port_state_8 + port * 2));
         {
             // func_80076854 takes the car in $s0 and the record in $s1.
             recomp_context saved = *ctx;
             ctx->r16 = car;
             ctx->r17 = rec;
-            func_80076854(rdram, ctx);
+            car_set_pedals_80076854(rdram, ctx);
             *ctx = saved;
         }
-        call(rdram, ctx, func_800806A4, car);
-        call(rdram, ctx, func_80076694, rec, car);
+        call(rdram, ctx, player_join_init_car_dynamics_800806A4, car);
+        call(rdram, ctx, input_steering_from_stick_80076694, rec, car);
 
         // Players 3 and 4 skip the Select Player screen: they race with the controller's own record, or the profile
         // already chosen on that controller (as func_800A6B58 picks them).
@@ -474,8 +474,8 @@ namespace {
             MEM_W(record_buffer, rec) =
                 (int32_t)(pak_profiles + (profile / 5) * 0x2200 + (profile % 5) * controller_buffer_size + 0x40);
         }
-        call(rdram, ctx, func_80093DC0, port, 1);
-        call(rdram, ctx, func_80064908, sound_join);
+        call(rdram, ctx, input_set_port_state_80093DC0, port, 1);
+        call(rdram, ctx, menu_play_sound_80064908, sound_join);
     }
 
     void leave(uint8_t* rdram, int player) {
@@ -558,9 +558,9 @@ namespace {
     }
 }
 
-extern "C" void func_800734AC(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_800734E0(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_800737E4(uint8_t* rdram, recomp_context* ctx);
+extern "C" void text_center_x_800734AC(uint8_t* rdram, recomp_context* ctx);
+extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx);
 
 namespace rush2::players4 {
     // On the Select Player screen, where player 2 joins, once player 2 is in: which of players 3 and 4 can still press
@@ -591,14 +591,14 @@ namespace rush2::players4 {
         for (int i = 0; i <= (int)strlen(text); i++) {
             MEM_B(i, (int32_t)hint_text) = (int8_t)text[i];
         }
-        call(rdram, ctx, func_800737E4, hint_style);
+        call(rdram, ctx, text_select_style_800737E4, hint_style);
         recomp_context saved = *ctx;
         ctx->r4 = (int32_t)hint_text;
         ctx->r5 = center_x;
-        func_800734AC(rdram, ctx);
+        text_center_x_800734AC(rdram, ctx);
         int32_t x = (int16_t)ctx->r2;
         *ctx = saved;
-        call(rdram, ctx, func_800734E0, x, y, (int32_t)hint_text);
+        call(rdram, ctx, text_print_string_800734E0, x, y, (int32_t)hint_text);
     }
 
     int joined_players(uint8_t* rdram) {
@@ -626,8 +626,8 @@ int rush2_players4_cars_chosen(uint8_t* rdram, recomp_context* ctx) {
     if (car_round == 0) {
         MEM_H(0, (int32_t)rush2::players4::num_players) = (int16_t)(total - 2);
         car_round = 1;
-        call(rdram, ctx, func_80064908, sound_join);
-        call(rdram, ctx, func_803B81F0, 0); // Ends the screen; it sets itself up again next frame.
+        call(rdram, ctx, menu_play_sound_80064908, sound_join);
+        call(rdram, ctx, carselect_build_list_803B81F0, 0); // Ends the screen; it sets itself up again next frame.
         return true;
     }
     MEM_H(0, (int32_t)rush2::players4::num_players) = 2;
@@ -658,8 +658,8 @@ int rush2_players4_cars_back(uint8_t* rdram, recomp_context* ctx) {
     swap_rounds(rdram, rush2::players4::joined_players(rdram));
     MEM_H(0, (int32_t)rush2::players4::num_players) = 2;
     car_round = 0;
-    call(rdram, ctx, func_80064908, sound_back);
-    call(rdram, ctx, func_803B81F0, 0);
+    call(rdram, ctx, menu_play_sound_80064908, sound_back);
+    call(rdram, ctx, carselect_build_list_803B81F0, 0);
     return true;
 }
 
