@@ -273,13 +273,6 @@ namespace {
             g = Game::Rush2049;
             original = find_song(Game::Rush2049, rush2::track2049::stunt_arena() <= 2 ? 8 : 9);
         }
-        else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::battle_arena() > 0) {
-            // Rush 2049's per-track songs (0x8010FFD4, ids 6-13): DM1-DM6 take race songs 0, 1, 4, 2, 3 and 7, DM7 and DM8
-            // the stunt songs 8 and 9 (docs/rush2049_research/audio.md section 3).
-            constexpr int battle_songs[8] = { 0, 1, 4, 2, 3, 7, 8, 9 };
-            g = Game::Rush2049;
-            original = find_song(Game::Rush2049, battle_songs[rush2::track2049::battle_arena() - 1]);
-        }
         else if (host && rush2::track1::race_track() > 0) {
             g = Game::Rush1;
             original = pick(false, Game::Rush1);
