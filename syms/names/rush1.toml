@@ -1,0 +1,2995 @@
+# Function registry for rush1. Format and tooling: tools/names.py (docstring). Keep sorted; run `names.py fmt`.
+
+[[func]]
+vram = 0x8000076C
+desc = "Same code as Rush 2 func_80000770 (31 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80000770
+link = "same-code"
+
+[[func]]
+vram = 0x800007F0
+desc = "Same code as Rush 2 func_800007F0 (95 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800007F0
+link = "same-code"
+
+[[func]]
+vram = 0x8000096C
+desc = "Same code as Rush 2 osScAddClient (26 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000096C
+rush2049 = [0x800005D4]
+link = "same-code"
+
+[[func]]
+vram = 0x80000E30
+desc = "Same code as Rush 2 func_80000E30 (101 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80000E30
+link = "same-code"
+
+[[func]]
+vram = 0x80000FC4
+desc = "Same code as Rush 2 func_80000FC4 (54 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80000FC4
+rush2049 = [0x80000ACC]
+link = "same-code"
+
+[[func]]
+vram = 0x80001150
+desc = "Same code as Rush 2 func_8000114C (71 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000114C
+link = "same-code"
+
+[[func]]
+vram = 0x8000126C
+desc = "Same code as Rush 2 func_80001268 (46 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80001268
+link = "same-code"
+
+[[func]]
+vram = 0x800014A4
+desc = "Same code as Rush 2 func_80001498 (24 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80001498
+rush2049 = [0x80000F88]
+link = "same-code"
+
+[[func]]
+vram = 0x80001870
+desc = "Same code as Rush 2 func_80001860 (28 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80001860
+rush2049 = [0x80002BF0]
+link = "same-code"
+
+[[func]]
+vram = 0x800018E0
+desc = "Same code as Rush 2 func_800018D0 (28 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800018D0
+rush2049 = [0x80002C60]
+link = "same-code"
+
+[[func]]
+vram = 0x800028BC
+desc = "Same code as Rush 2 func_800028AC (654 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800028AC
+rush2049 = [0x80003C3C]
+link = "same-code"
+
+[[func]]
+vram = 0x800032F4
+desc = "Same code as Rush 2 func_800032E4 (129 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800032E4
+rush2049 = [0x80004674]
+link = "same-code"
+
+[[func]]
+vram = 0x800034F8
+desc = "Same code as Rush 2 func_800034E8 (70 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800034E8
+rush2049 = [0x80004878]
+link = "same-code"
+
+[[func]]
+vram = 0x80003660
+desc = "Same code as Rush 2 func_80003660 (23 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80003660
+rush2049 = [0x80002730]
+link = "same-code"
+
+[[func]]
+vram = 0x800036C0
+desc = "Same code as Rush 2 func_800037D0 (113 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800037D0
+rush2049 = [0x800028A0]
+link = "same-code"
+
+[[func]]
+vram = 0x80003884
+desc = "Same code as Rush 2 func_80003994 (99 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80003994
+rush2049 = [0x80002A64]
+link = "same-code"
+
+[[func]]
+vram = 0x80003B18
+desc = "Load call that inflates the main code (LZ at ROM 0x7A7930) to 0x8005BB10; called from 0x80000728."
+status = "verified"
+area = "os"
+ref = "docs/rush1_research.md#1-rom"
+
+[[func]]
+vram = 0x80003E20
+desc = "Same code as Rush 2 osInitialize (163 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80005B90
+link = "same-code"
+
+[[func]]
+vram = 0x800040B0
+desc = "Same code as Rush 2 osPiRawReadIo (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80005E20
+link = "same-code"
+
+[[func]]
+vram = 0x80004110
+desc = "Same code as Rush 2 osCreateThread (81 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80005E80
+rush2049 = [0x80006F30]
+link = "same-code"
+
+[[func]]
+vram = 0x80004260
+desc = "Same code as Rush 2 rush2_osStartThread (84 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80005FD0
+rush2049 = [0x80007080]
+link = "same-code"
+
+[[func]]
+vram = 0x800043B0
+desc = "Same code as Rush 2 osCreatePiManager (98 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006120
+link = "same-code"
+
+[[func]]
+vram = 0x80004540
+desc = "Same code as Rush 2 osSetThreadPri (56 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800062B0
+rush2049 = [0x80008380]
+link = "same-code"
+
+[[func]]
+vram = 0x80004620
+desc = "Same code as Rush 2 osCreateMesgQueue (11 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006390
+rush2049 = [0x80006A00]
+link = "same-code"
+
+[[func]]
+vram = 0x80004650
+desc = "Same code as Rush 2 osInvalICache (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800063C0
+rush2049 = [0x80008460]
+link = "same-code"
+
+[[func]]
+vram = 0x800046D0
+desc = "Same code as Rush 2 osInvalDCache (43 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006440
+rush2049 = [0x800084E0]
+link = "same-code"
+
+[[func]]
+vram = 0x80004780
+desc = "Same code as Rush 2 _bzero (39 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800064F0
+rush2049 = [0x80008590]
+link = "same-code"
+
+[[func]]
+vram = 0x80004820
+desc = "Same code as Rush 2 osPiStartDma (67 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006590
+link = "same-code"
+
+[[func]]
+vram = 0x80004930
+desc = "Same code as Rush 2 osRecvMesg (78 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800066A0
+rush2049 = [0x80007270]
+link = "same-code"
+
+[[func]]
+vram = 0x80004A70
+desc = "Same code as Rush 2 osCreateViManager (98 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800067E0
+link = "same-code"
+
+[[func]]
+vram = 0x80004BF8
+desc = "Same code as Rush 2 func_80006968 (115 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006968
+link = "same-code"
+
+[[func]]
+vram = 0x80004DD0
+desc = "Same code as Rush 2 osViSetMode (26 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006B40
+link = "same-code"
+
+[[func]]
+vram = 0x80004E40
+desc = "Same code as Rush 2 osViBlack (28 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006BB0
+link = "same-code"
+
+[[func]]
+vram = 0x80004EB0
+desc = "Same code as Rush 2 osSetEventMesg (26 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006C20
+link = "same-code"
+
+[[func]]
+vram = 0x80004F20
+desc = "Same code as Rush 2 osViSetEvent (27 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006C90
+link = "same-code"
+
+[[func]]
+vram = 0x80005030
+desc = "Same code as Rush 2 osGetTime (33 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006DA0
+rush2049 = [0x800073B0]
+link = "same-code"
+
+[[func]]
+vram = 0x800050C0
+desc = "Same code as Rush 2 osJamMesg (84 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006E30
+rush2049 = [0x80007440]
+link = "same-code"
+
+[[func]]
+vram = 0x80005210
+desc = "Same code as Rush 2 osViSwapBuffer (20 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006F80
+link = "same-code"
+
+[[func]]
+vram = 0x80005260
+desc = "Same code as Rush 2 osSendMesg (83 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80006FD0
+rush2049 = [0x800075E0]
+link = "same-code"
+
+[[func]]
+vram = 0x800053B0
+desc = "Same code as Rush 2 osSpTaskYielded (32 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007120
+link = "same-code"
+
+[[func]]
+vram = 0x80005430
+desc = "Same code as Rush 2 osViGetCurrentFramebuffer (16 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800071A0
+link = "same-code"
+
+[[func]]
+vram = 0x80005470
+desc = "Same code as Rush 2 osViGetNextFramebuffer (16 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800071E0
+link = "same-code"
+
+[[func]]
+vram = 0x800054B0
+desc = "Same code as Rush 2 osWritebackDCacheAll (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007220
+rush2049 = [0x80007810]
+link = "same-code"
+
+[[func]]
+vram = 0x800054E0
+desc = "Same code as Rush 2 func_80007250 (71 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007250
+link = "same-code"
+
+[[func]]
+vram = 0x800055FC
+desc = "Same code as Rush 2 osSpTaskLoad (100 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000736C
+link = "same-code"
+
+[[func]]
+vram = 0x8000578C
+desc = "Same code as Rush 2 osSpTaskStartGo (16 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800074FC
+rush2049 = [0x80007AB4]
+link = "same-code"
+
+[[func]]
+vram = 0x800057D0
+desc = "Same code as Rush 2 osDpSetNextBuffer (42 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007540
+link = "same-code"
+
+[[func]]
+vram = 0x80005880
+desc = "Same code as Rush 2 osSpTaskYield (8 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800075F0
+rush2049 = [0x80007B80]
+link = "same-code"
+
+[[func]]
+vram = 0x800058A0
+desc = "Same code as Rush 2 memcpy (11 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007610
+rush2049 = [0x80007C68]
+link = "same-code"
+
+[[func]]
+vram = 0x800058CC
+desc = "Same code as Rush 2 strlen (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000763C
+rush2049 = [0x80007C40]
+link = "same-code"
+
+[[func]]
+vram = 0x80005CB0
+desc = "Same code as Rush 2 guOrthoF (85 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007A20
+rush2049 = [0x80008A60]
+link = "same-code"
+
+[[func]]
+vram = 0x80005E04
+desc = "Same code as Rush 2 guFrustum (26 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007B74
+link = "same-code"
+
+[[func]]
+vram = 0x80005E70
+desc = "Same code as Rush 2 guPerspectiveF (140 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007BE0
+rush2049 = [0x80008C20]
+link = "same-code"
+
+[[func]]
+vram = 0x800060A0
+desc = "Same code as Rush 2 guPerspective (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007E10
+rush2049 = [0x80008E50]
+link = "same-code"
+
+[[func]]
+vram = 0x80006100
+desc = "Same code as Rush 2 guLookAtF (174 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80007E70
+rush2049 = [0x80008EB0]
+link = "same-code"
+
+[[func]]
+vram = 0x800063B8
+desc = "Same code as Rush 2 guLookAt (30 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008128
+link = "same-code"
+
+[[func]]
+vram = 0x80006430
+desc = "Same code as Rush 2 guMtxF2L (64 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800081A0
+rush2049 = [0x800091E0]
+link = "same-code"
+
+[[func]]
+vram = 0x80006530
+desc = "Same code as Rush 2 guMtxIdentF (34 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800082A0
+rush2049 = [0x80009394]
+link = "same-code"
+
+[[func]]
+vram = 0x800065B8
+desc = "Same code as Rush 2 guMtxIdent (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008328
+rush2049 = [0x8000941C]
+link = "same-code"
+
+[[func]]
+vram = 0x80006898
+desc = "Same code as Rush 2 __osContGetInitData (52 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80008580
+link = "same-code"
+
+[[func]]
+vram = 0x80006A60
+desc = "Same code as Rush 2 osContStartQuery (33 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008750
+link = "same-code"
+
+[[func]]
+vram = 0x80006AE4
+desc = "Same code as Rush 2 osContGetQuery (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800087D4
+link = "same-code"
+
+[[func]]
+vram = 0x80006BD4
+desc = "Same code as Rush 2 osContGetReadData (42 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000888C
+link = "same-code"
+
+[[func]]
+vram = 0x80006DC0
+desc = "Same code as Rush 2 osViSetSpecialFeatures (110 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008A70
+link = "same-code"
+
+[[func]]
+vram = 0x80007158
+desc = "Same code as Rush 2 __ull_to_f (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008E08
+rush2049 = [0x80009BC8]
+link = "same-code"
+
+[[func]]
+vram = 0x800071B0
+desc = "Same code as Rush 2 alSndpStop (19 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008E60
+link = "same-code"
+
+[[func]]
+vram = 0x80007200
+desc = "Same code as Rush 2 alSndpGetState (8 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008EB0
+link = "same-code"
+
+[[func]]
+vram = 0x80007220
+desc = "Same code as Rush 2 alSndpDeallocate (20 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008ED0
+link = "same-code"
+
+[[func]]
+vram = 0x80007270
+desc = "Same code as Rush 2 alSndpAllocate (39 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008F20
+link = "same-code"
+
+[[func]]
+vram = 0x80007310
+desc = "Same code as Rush 2 alSndpSetPitch (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80008FC0
+link = "same-code"
+
+[[func]]
+vram = 0x80007370
+desc = "Same code as Rush 2 alSndpSetFXMix (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009020
+link = "same-code"
+
+[[func]]
+vram = 0x800073D0
+desc = "Same code as Rush 2 alSndpSetPan (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009080
+link = "same-code"
+
+[[func]]
+vram = 0x80007430
+desc = "Same code as Rush 2 alSndpSetVol (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800090E0
+link = "same-code"
+
+[[func]]
+vram = 0x80007490
+desc = "Same code as Rush 2 alSndpPlay (25 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009140
+link = "same-code"
+
+[[func]]
+vram = 0x80007510
+desc = "Same code as Rush 2 alSeqpStop (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800091C0
+link = "same-code"
+
+[[func]]
+vram = 0x80007540
+desc = "Same code as Rush 2 alSeqpSetVol (15 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800091F0
+link = "same-code"
+
+[[func]]
+vram = 0x800075C8
+desc = "Same code as Rush 2 func_80009278 (19 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009278
+link = "same-code"
+
+[[func]]
+vram = 0x80007614
+desc = "Same code as Rush 2 alSeqNextEvent (97 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800092C4
+link = "same-code"
+
+[[func]]
+vram = 0x80007798
+desc = "Same code as Rush 2 alSeqNewMarker (72 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009448
+link = "same-code"
+
+[[func]]
+vram = 0x800079F0
+desc = "Same code as Rush 2 __alSeqNextDelta (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800096A0
+link = "same-code"
+
+[[func]]
+vram = 0x80007A48
+desc = "Same code as Rush 2 func_800096F8 (20 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800096F8
+link = "same-code"
+
+[[func]]
+vram = 0x80007A98
+desc = "Same code as Rush 2 func_80009748 (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009748
+link = "same-code"
+
+[[func]]
+vram = 0x80007AC8
+desc = "Same code as Rush 2 alSeqNew (54 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009778
+link = "same-code"
+
+[[func]]
+vram = 0x80007BA0
+desc = "Same code as Rush 2 alSeqpSetSeq (13 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009850
+link = "same-code"
+
+[[func]]
+vram = 0x80007BE0
+desc = "Same code as Rush 2 alSeqpLoop (15 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009890
+link = "same-code"
+
+[[func]]
+vram = 0x80007C20
+desc = "Same code as Rush 2 alSeqpPlay (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800098D0
+link = "same-code"
+
+[[func]]
+vram = 0x80007C50
+desc = "Same code as Rush 2 alHeapDBAlloc (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009900
+link = "same-code"
+
+[[func]]
+vram = 0x80007CB0
+desc = "Same code as Rush 2 alHeapInit (13 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009960
+link = "same-code"
+
+[[func]]
+vram = 0x80007D00
+desc = "Same code as Rush 2 func_800099B0 (59 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800099B0
+link = "same-code"
+
+[[func]]
+vram = 0x80007DF4
+desc = "Same code as Rush 2 alBnkfNew (65 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009AA4
+link = "same-code"
+
+[[func]]
+vram = 0x80007EF8
+desc = "Same code as Rush 2 alSeqFileNew (16 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009BA8
+link = "same-code"
+
+[[func]]
+vram = 0x80007F40
+desc = "Same code as Rush 2 osAiSetFrequency (88 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009BF0
+link = "same-code"
+
+[[func]]
+vram = 0x800080A0
+desc = "Same code as Rush 2 alUnlink (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009D50
+link = "same-code"
+
+[[func]]
+vram = 0x800080D0
+desc = "Same code as Rush 2 alLink (9 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009D80
+link = "same-code"
+
+[[func]]
+vram = 0x800080F4
+desc = "Same code as Rush 2 alClose (14 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009DA4
+link = "same-code"
+
+[[func]]
+vram = 0x8000812C
+desc = "Same code as Rush 2 alInit (13 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009DDC
+link = "same-code"
+
+[[func]]
+vram = 0x80008160
+desc = "Same code as Rush 2 __setInstChanState (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009E10
+link = "same-code"
+
+[[func]]
+vram = 0x800081B4
+desc = "Same code as Rush 2 __resetPerfChanState (32 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009E64
+link = "same-code"
+
+[[func]]
+vram = 0x80008234
+desc = "Same code as Rush 2 __initFromBank (45 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009EE4
+link = "same-code"
+
+[[func]]
+vram = 0x80008314
+desc = "Same code as Rush 2 __vsVol (34 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80009FC4
+link = "same-code"
+
+[[func]]
+vram = 0x8000839C
+desc = "Same code as Rush 2 __seqpReleaseVoice (75 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A04C
+link = "same-code"
+
+[[func]]
+vram = 0x800084C8
+desc = "Same code as Rush 2 __voiceNeedsNoteKill (42 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A178
+link = "same-code"
+
+[[func]]
+vram = 0x80008570
+desc = "Same code as Rush 2 __unmapVoice (28 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A220
+link = "same-code"
+
+[[func]]
+vram = 0x800085E0
+desc = "Same code as Rush 2 __postNextSeqEvent (55 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A290
+link = "same-code"
+
+[[func]]
+vram = 0x800086BC
+desc = "Same code as Rush 2 func_8000A36C (30 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A36C
+link = "same-code"
+
+[[func]]
+vram = 0x80008734
+desc = "Same code as Rush 2 __vsPan (18 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A3E4
+link = "same-code"
+
+[[func]]
+vram = 0x8000877C
+desc = "Same code as Rush 2 __lookupVoice (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A42C
+link = "same-code"
+
+[[func]]
+vram = 0x800087F0
+desc = "Same code as Rush 2 __mapVoice (28 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A4A0
+link = "same-code"
+
+[[func]]
+vram = 0x80008860
+desc = "Same code as Rush 2 __lookupSoundQuick (63 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000A510
+link = "same-code"
+
+[[func]]
+vram = 0x800097A0
+desc = "Same code as Rush 2 __seqpStopOsc (65 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000B450
+link = "same-code"
+
+[[func]]
+vram = 0x800098A4
+desc = "Same code as Rush 2 __initChanState (28 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000B554
+link = "same-code"
+
+[[func]]
+vram = 0x80009914
+desc = "Same code as Rush 2 alSeqpNew (96 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000B5C4
+link = "same-code"
+
+[[func]]
+vram = 0x80009AA0
+desc = "Same code as Rush 2 alSeqpSetBank (13 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000B750
+link = "same-code"
+
+[[func]]
+vram = 0x80009AE0
+desc = "Same code as Rush 2 func_8000B790 (31 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000B790
+link = "same-code"
+
+[[func]]
+vram = 0x8000A0B4
+desc = "Same code as Rush 2 alSndpNew (77 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000BD64
+link = "same-code"
+
+[[func]]
+vram = 0x8000A2B8
+desc = "Same code as Rush 2 _timeToSamples (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000BF68
+link = "same-code"
+
+[[func]]
+vram = 0x8000A310
+desc = "Same code as Rush 2 _freePVoice (14 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000BFC0
+link = "same-code"
+
+[[func]]
+vram = 0x8000A348
+desc = "Same code as Rush 2 _collectPVoices (24 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000BFF8
+link = "same-code"
+
+[[func]]
+vram = 0x8000A3C0
+desc = "Same code as Rush 2 __allocParam (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000C070
+link = "same-code"
+
+[[func]]
+vram = 0x8000A3F8
+desc = "Same code as Rush 2 alAudioFrame (166 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000C0A8
+link = "same-code"
+
+[[func]]
+vram = 0x8000A690
+desc = "Same code as Rush 2 alSynNew (192 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000C340
+link = "same-code"
+
+[[func]]
+vram = 0x8000AEE4
+desc = "Same code as Rush 2 func_8000CC30 (95 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000CC30
+link = "same-code"
+
+[[func]]
+vram = 0x8000B230
+desc = "Same code as Rush 2 os_get_id_8000D090 (151 instructions, address-masked match, float constants equal). Copy of __osGetId called directly by the game's pak thread; ignored in us.toml and reimplemented in src/atomics.cpp. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8000D090
+link = "same-code"
+area = "os"
+
+[[func]]
+vram = 0x8000B490
+desc = "Same code as Rush 2 rush2_osPfsFindFile (109 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000D2F0
+link = "same-code"
+
+[[func]]
+vram = 0x8000B650
+desc = "Same code as Rush 2 rush2_osPfsFileState (188 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000D4B0
+link = "same-code"
+
+[[func]]
+vram = 0x8000B940
+desc = "Same code as Rush 2 rush2_osPfsDeleteFile (184 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000D7A0
+link = "same-code"
+
+[[func]]
+vram = 0x8000BE58
+desc = "Same code as Rush 2 __osBlockSum (60 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000DCC8
+link = "same-code"
+
+[[func]]
+vram = 0x8000BF50
+desc = "Same code as Rush 2 rush2_osPfsAllocateFile (289 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000DDC0
+link = "same-code"
+
+[[func]]
+vram = 0x8000C3D4
+desc = "Same code as Rush 2 __osPfsDeclearPage (153 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000E244
+link = "same-code"
+
+[[func]]
+vram = 0x8000C638
+desc = "Same code as Rush 2 func_8000E4A8 (48 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000E4A8
+link = "same-code"
+
+[[func]]
+vram = 0x8000C700
+desc = "Same code as Rush 2 func_8000E570 (63 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000E570
+link = "same-code"
+
+[[func]]
+vram = 0x8000CC00
+desc = "Same code as Rush 2 rush2_osPfsFreeBlocks (83 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000EA90
+link = "same-code"
+
+[[func]]
+vram = 0x8000CD50
+desc = "Same code as Rush 2 rush2_osPfsChecker (433 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000EBE0
+link = "same-code"
+
+[[func]]
+vram = 0x8000D414
+desc = "Same code as Rush 2 corrupted_init (109 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000F2A4
+link = "same-code"
+
+[[func]]
+vram = 0x8000D5C8
+desc = "Same code as Rush 2 corrupted (122 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000F458
+link = "same-code"
+
+[[func]]
+vram = 0x8000D7B0
+desc = "Same code as Rush 2 rush2_osStopThread (48 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000F640
+rush2049 = [0x8000BD90]
+link = "same-code"
+
+[[func]]
+vram = 0x8000D8A0
+desc = "Same code as Rush 2 __osSpRawReadIo (20 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000F730
+link = "same-code"
+
+[[func]]
+vram = 0x8000D8F0
+desc = "Same code as Rush 2 __osSpRawWriteIo (19 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000F780
+link = "same-code"
+
+[[func]]
+vram = 0x8000DE84
+desc = "Same code as Rush 2 send_mesg (140 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000FD14
+rush2049 = [0x8000CEDC]
+link = "same-code"
+
+[[func]]
+vram = 0x8000DF6C
+desc = "Same code as Rush 2 __osEnqueueAndYield (82 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000FDFC
+rush2049 = [0x8000CFC4]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E06C
+desc = "Same code as Rush 2 __osEnqueueThread (18 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000FEFC
+rush2049 = [0x8000D0C4]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E0C4
+desc = "Same code as Rush 2 __osDispatchThread (128 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8000FF54
+link = "same-code"
+
+[[func]]
+vram = 0x8000E250
+desc = "Same code as Rush 2 osWritebackDCache (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800100E0
+rush2049 = [0x80007CA0]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E2D0
+desc = "Same code as Rush 2 osMapTLBRdb (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80010160
+rush2049 = [0x8000D890]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E398
+desc = "Same code as Rush 2 __ull_div (15 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80010228
+rush2049 = [0x8000D958]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E3D4
+desc = "Same code as Rush 2 __ll_lshift (11 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80010264
+rush2049 = [0x8000D994]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E498
+desc = "Same code as Rush 2 __ll_mul (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80010328
+rush2049 = [0x8000DA58]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E528
+desc = "Same code as Rush 2 __ll_mod (39 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800103B8
+rush2049 = [0x8000DAE8]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E5F0
+desc = "Same code as Rush 2 __osDisableInt (8 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80010480
+link = "same-code"
+
+[[func]]
+vram = 0x8000E630
+desc = "Same code as Rush 2 __osDequeueThread (16 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800104C0
+rush2049 = [0x8000C050]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E860
+desc = "Same code as Rush 2 __osPiCreateAccessQueue (20 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80010700
+rush2049 = [0x8000DBC0]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E8B8
+desc = "Same code as Rush 2 func_80010758 (15 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80010758
+link = "same-code"
+
+[[func]]
+vram = 0x8000E8F4
+desc = "Same code as Rush 2 __osPiRelAccess (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80010794
+rush2049 = [0x8000DC54]
+link = "same-code"
+
+[[func]]
+vram = 0x8000E940
+desc = "Same code as Rush 2 osPiRawStartDma (56 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800107E0
+link = "same-code"
+
+[[func]]
+vram = 0x8000F0E0
+desc = "Same code as Rush 2 osPiGetCmdQueue (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80010F80
+link = "same-code"
+
+[[func]]
+vram = 0x8000F110
+desc = "Same code as Rush 2 __osTimerServicesInit (35 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80010FB0
+rush2049 = [0x8000C090]
+link = "same-code"
+
+[[func]]
+vram = 0x8000F19C
+desc = "Same code as Rush 2 __osTimerInterrupt (94 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8001103C
+rush2049 = [0x8000C11C]
+link = "same-code"
+
+[[func]]
+vram = 0x8000F314
+desc = "Same code as Rush 2 __osSetTimerIntr (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800111B4
+rush2049 = [0x8000C294]
+link = "same-code"
+
+[[func]]
+vram = 0x8000F388
+desc = "Same code as Rush 2 __osInsertTimer (98 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011228
+rush2049 = [0x8000C308]
+link = "same-code"
+
+[[func]]
+vram = 0x8000F510
+desc = "Same code as Rush 2 __osViInit (79 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800113B0
+link = "same-code"
+
+[[func]]
+vram = 0x8000F660
+desc = "Same code as Rush 2 __osViSwapContext (215 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011500
+link = "same-code"
+
+[[func]]
+vram = 0x8000F9E0
+desc = "Same code as Rush 2 _bcopy (227 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011880
+rush2049 = [0x8000D2B0]
+link = "same-code"
+
+[[func]]
+vram = 0x8000FCF0
+desc = "Same code as Rush 2 osVirtualToPhysical (31 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011B90
+rush2049 = [0x8000D5C0]
+link = "same-code"
+
+[[func]]
+vram = 0x8000FD80
+desc = "Same code as Rush 2 __osSpSetPc (13 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011C20
+link = "same-code"
+
+[[func]]
+vram = 0x8000FDC0
+desc = "Same code as Rush 2 __osSpRawStartDma (35 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011C60
+link = "same-code"
+
+[[func]]
+vram = 0x8000FE50
+desc = "Same code as Rush 2 __osSpDeviceBusy (11 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011CF0
+link = "same-code"
+
+[[func]]
+vram = 0x8000FE80
+desc = "Same code as Rush 2 __osDpDeviceBusy (11 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011D20
+link = "same-code"
+
+[[func]]
+vram = 0x8000FEC0
+desc = "Same code as Rush 2 osSetTimer (53 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011D60
+rush2049 = [0x8000E3D0]
+link = "same-code"
+
+[[func]]
+vram = 0x8000FFA0
+desc = "Same code as Rush 2 __osSiRawStartDma (43 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011E40
+link = "same-code"
+
+[[func]]
+vram = 0x80010050
+desc = "Same code as Rush 2 __osSiCreateAccessQueue (20 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80011EF0
+rush2049 = [0x8000E560]
+link = "same-code"
+
+[[func]]
+vram = 0x800100A0
+desc = "Same code as Rush 2 __osSiGetAccess (17 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011F40
+rush2049 = [0x8000DC10, 0x8000E5B0]
+link = "same-code"
+
+[[func]]
+vram = 0x800100E4
+desc = "Same code as Rush 2 __osSiRelAccess (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80011F84
+rush2049 = [0x8000E5F4]
+link = "same-code"
+
+[[func]]
+vram = 0x80010110
+desc = "Same code as Rush 2 alEvtqFlushType (43 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80011FB0
+link = "same-code"
+
+[[func]]
+vram = 0x800101BC
+desc = "Same code as Rush 2 alEvtqFlush (28 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8001205C
+link = "same-code"
+
+[[func]]
+vram = 0x8001022C
+desc = "Same code as Rush 2 alEvtqPostEvent (73 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800120CC
+link = "same-code"
+
+[[func]]
+vram = 0x80010350
+desc = "Same code as Rush 2 alEvtqNextEvent (35 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800121F0
+link = "same-code"
+
+[[func]]
+vram = 0x800103DC
+desc = "Same code as Rush 2 alEvtqNew (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8001227C
+link = "same-code"
+
+[[func]]
+vram = 0x80010460
+desc = "Same code as Rush 2 alSynAddPlayer (20 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012300
+link = "same-code"
+
+[[func]]
+vram = 0x800104B0
+desc = "Same code as Rush 2 alSynStopVoice (30 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012350
+link = "same-code"
+
+[[func]]
+vram = 0x80010530
+desc = "Same code as Rush 2 alSynFreeVoice (44 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800123D0
+link = "same-code"
+
+[[func]]
+vram = 0x800105E0
+desc = "Same code as Rush 2 alSynSetVol (39 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012480
+link = "same-code"
+
+[[func]]
+vram = 0x80010680
+desc = "Same code as Rush 2 alSynSetPitch (33 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012520
+link = "same-code"
+
+[[func]]
+vram = 0x80010710
+desc = "Same code as Rush 2 _allocatePVoice (58 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800125B0
+link = "same-code"
+
+[[func]]
+vram = 0x800107F8
+desc = "Same code as Rush 2 alSynAllocVoice (80 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012698
+link = "same-code"
+
+[[func]]
+vram = 0x80010940
+desc = "Same code as Rush 2 alCents2Ratio (20 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800127E0
+link = "same-code"
+
+[[func]]
+vram = 0x80010990
+desc = "Same code as Rush 2 alSynStartVoiceParams (57 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012830
+link = "same-code"
+
+[[func]]
+vram = 0x80010A80
+desc = "Same code as Rush 2 alSynSetPan (33 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012920
+link = "same-code"
+
+[[func]]
+vram = 0x80010B10
+desc = "Same code as Rush 2 alSynSetFXMix (37 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800129B0
+link = "same-code"
+
+[[func]]
+vram = 0x80010BC0
+desc = "Same code as Rush 2 alSynStartVoice (35 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012A60
+link = "same-code"
+
+[[func]]
+vram = 0x80010C50
+desc = "Same code as Rush 2 __osAiDeviceBusy (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012AF0
+link = "same-code"
+
+[[func]]
+vram = 0x80010C80
+desc = "Same code as Rush 2 alSaveNew (17 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012B20
+link = "same-code"
+
+[[func]]
+vram = 0x80010CC4
+desc = "Same code as Rush 2 alMainBusNew (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012B64
+link = "same-code"
+
+[[func]]
+vram = 0x80010D18
+desc = "Same code as Rush 2 alAuxBusNew (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012BB8
+link = "same-code"
+
+[[func]]
+vram = 0x80010D6C
+desc = "Same code as Rush 2 alResampleNew (34 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012C0C
+link = "same-code"
+
+[[func]]
+vram = 0x80010DF4
+desc = "Same code as Rush 2 alLoadNew (42 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012C94
+link = "same-code"
+
+[[func]]
+vram = 0x80010E9C
+desc = "Same code as Rush 2 alEnvmixerNew (41 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012D3C
+link = "same-code"
+
+[[func]]
+vram = 0x80010F40
+desc = "Same code as Rush 2 init_lpfilter (40 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80012DE0
+link = "same-code"
+
+[[func]]
+vram = 0x80011420
+desc = "Same code as Rush 2 alSynAllocFX (38 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800132C0
+link = "same-code"
+
+[[func]]
+vram = 0x800114C0
+desc = "Same code as Rush 2 alMainBusParam (12 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80013360
+link = "same-code"
+
+[[func]]
+vram = 0x800114F0
+desc = "Same code as Rush 2 alMainBusPull (72 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80013390
+link = "same-code"
+
+[[func]]
+vram = 0x800117E4
+desc = "Same code as Rush 2 alRaw16Pull (235 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80013684
+link = "same-code"
+
+[[func]]
+vram = 0x80011B90
+desc = "Same code as Rush 2 func_80013A30 (75 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80013A30
+link = "same-code"
+
+[[func]]
+vram = 0x80011CBC
+desc = "Same code as Rush 2 alAdpcmPull (296 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80013B5C
+link = "same-code"
+
+[[func]]
+vram = 0x80012488
+desc = "Same code as Rush 2 _frexpf (59 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80014328
+link = "same-code"
+
+[[func]]
+vram = 0x80012574
+desc = "Same code as Rush 2 alEnvmixerParam (56 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80014414
+link = "same-code"
+
+[[func]]
+vram = 0x80012654
+desc = "Same code as Rush 2 func_800144F4 (116 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800144F4
+link = "same-code"
+
+[[func]]
+vram = 0x80012ABC
+desc = "Same code as Rush 2 func_8001495C (44 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8001495C
+link = "same-code"
+
+[[func]]
+vram = 0x800130C0
+desc = "Same code as Rush 2 alAuxBusParam (12 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80014F60
+link = "same-code"
+
+[[func]]
+vram = 0x800130F0
+desc = "Same code as Rush 2 alAuxBusPull (54 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80014F90
+link = "same-code"
+
+[[func]]
+vram = 0x800131D0
+desc = "Same code as Rush 2 alSaveParam (13 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80015070
+link = "same-code"
+
+[[func]]
+vram = 0x80013204
+desc = "Same code as Rush 2 alSavePull (35 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800150A4
+link = "same-code"
+
+[[func]]
+vram = 0x800133A0
+desc = "Same code as Rush 2 __osSumcalc (23 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80015370
+link = "same-code"
+
+[[func]]
+vram = 0x800133FC
+desc = "Same code as Rush 2 __osIdCheckSum (26 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800153CC
+link = "same-code"
+
+[[func]]
+vram = 0x80013464
+desc = "Same code as Rush 2 __osRepairPackId (262 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80015434
+link = "same-code"
+
+[[func]]
+vram = 0x8001387C
+desc = "Same code as Rush 2 __osCheckPackId (102 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8001584C
+link = "same-code"
+
+[[func]]
+vram = 0x80013A14
+desc = "Same code as Rush 2 func_800159E4 (151 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800159E4
+link = "same-code"
+
+[[func]]
+vram = 0x80013C70
+desc = "Same code as Rush 2 __osCheckId (63 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80015C40
+link = "same-code"
+
+[[func]]
+vram = 0x80013D6C
+desc = "Same code as Rush 2 __osPfsRWInode (200 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80015D3C
+link = "same-code"
+
+[[func]]
+vram = 0x8001408C
+desc = "Same code as Rush 2 __osPfsSelectBank (27 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8001605C
+link = "same-code"
+
+[[func]]
+vram = 0x80014100
+desc = "Same code as Rush 2 __osContRamRead (135 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800160D0
+link = "same-code"
+
+[[func]]
+vram = 0x80014490
+desc = "Same code as Rush 2 osPfsIsPlug (104 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80016430
+link = "same-code"
+
+[[func]]
+vram = 0x8001472C
+desc = "Same code as Rush 2 __osPfsGetInitData (52 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800166A0
+link = "same-code"
+
+[[func]]
+vram = 0x80014800
+desc = "Same code as Rush 2 __osContAddressCrc (44 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80016770
+link = "same-code"
+
+[[func]]
+vram = 0x800148B0
+desc = "Same code as Rush 2 __osContDataCrc (52 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80016820
+link = "same-code"
+
+[[func]]
+vram = 0x80014980
+desc = "Same code as Rush 2 __osContRamWrite (129 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800168F0
+link = "same-code"
+
+[[func]]
+vram = 0x80014D00
+desc = "Same code as Rush 2 __osSiDeviceBusy (11 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80016C50
+link = "same-code"
+
+[[func]]
+vram = 0x80014D38
+desc = "Same code as Rush 2 func_80016C88 (423 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80016C88
+link = "same-code"
+
+[[func]]
+vram = 0x800153D4
+desc = "Same code as Rush 2 func_80017324 (58 instructions, address-masked match, float constants equal). 64DD interrupt helper that pokes PI registers directly; never reached. Stubbed in us.toml."
+status = "inferred"
+rush2 = 0x80017324
+link = "same-code"
+area = "os"
+
+[[func]]
+vram = 0x800154BC
+desc = "Same code as Rush 2 func_8001740C (59 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8001740C
+link = "same-code"
+
+[[func]]
+vram = 0x800156B0
+desc = "Same code as Rush 2 __osResetGlobalIntMask (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80017610
+rush2049 = [0x8000FDA0]
+link = "same-code"
+
+[[func]]
+vram = 0x800157B0
+desc = "Same code as Rush 2 __osSetGlobalIntMask (19 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800179A0
+rush2049 = [0x800100C0]
+link = "same-code"
+
+[[func]]
+vram = 0x80015800
+desc = "Same code as Rush 2 osYieldThread (19 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800179F0
+rush2049 = [0x80010110]
+link = "same-code"
+
+[[func]]
+vram = 0x80015860
+desc = "Same code as Rush 2 __osProbeTLB (46 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80017A50
+rush2049 = [0x8000FCB0]
+link = "same-code"
+
+[[func]]
+vram = 0x80015920
+desc = "Same code as Rush 2 alCopy (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80017B10
+link = "same-code"
+
+[[func]]
+vram = 0x800159C0
+desc = "Same code as Rush 2 _doModFunc (42 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80017BB0
+link = "same-code"
+
+[[func]]
+vram = 0x80015A68
+desc = "Same code as Rush 2 _filterBuffer (46 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80017C58
+link = "same-code"
+
+[[func]]
+vram = 0x80015B20
+desc = "Same code as Rush 2 _saveBuffer (98 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80017D10
+link = "same-code"
+
+[[func]]
+vram = 0x80015CA8
+desc = "Same code as Rush 2 _loadBuffer (99 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80017E98
+link = "same-code"
+
+[[func]]
+vram = 0x80015E34
+desc = "Same code as Rush 2 _loadOutputBuffer (137 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80018024
+link = "same-code"
+
+[[func]]
+vram = 0x800162CC
+desc = "Same code as Rush 2 alFxPull (208 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800184BC
+link = "same-code"
+
+[[func]]
+vram = 0x8005C108
+desc = "Same code as Rush 2 func_80054010 (58 instructions, address-masked match, float constants equal). Builds the procedural 24-piece sky dome."
+status = "inferred"
+rush2 = 0x80054010
+link = "same-code"
+area = "render"
+
+[[func]]
+vram = 0x8005C1F0
+desc = "Same code as Rush 2 func_80054140 (18 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x80054140
+rush2049 = [0x80094D68]
+link = "same-code"
+
+[[func]]
+vram = 0x8005C398
+desc = "Same code as Rush 2 func_800542E8 (24 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x800542E8
+link = "same-code"
+
+[[func]]
+vram = 0x8005C3F8
+desc = "Same code as Rush 2 func_80054348 (34 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x80054348
+rush2049 = [0x80094E00]
+link = "same-code"
+
+[[func]]
+vram = 0x8005C504
+name = "matrix_mul_vec"
+desc = "Byte-identical to Rush 2 func_80054454 (4-gram Jaccard 1.00): local = M * v for a 3x3 matrix. Found by matching Rush 2 func_80054454 against all Rush 1 functions."
+status = "verified"
+rush2 = 0x80054454
+rush2049 = [0x800A61B0]
+link = "same-code"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x8005C598
+desc = "Same code as Rush 2 func_800544E8 (114 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x800544E8
+link = "same-code"
+
+[[func]]
+vram = 0x8005C760
+desc = "Same code as Rush 2 func_800546B0 (11 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x800546B0
+link = "same-code"
+
+[[func]]
+vram = 0x8005C7B0
+desc = "Same code as Rush 2 func_80054700 (114 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80054700
+rush2049 = [0x800A557C]
+link = "same-code"
+
+[[func]]
+vram = 0x8005C978
+desc = "Same code as Rush 2 func_800548C8 (40 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800548C8
+rush2049 = [0x8008C5E0]
+link = "same-code"
+
+[[func]]
+vram = 0x8005CA18
+desc = "Same code as Rush 2 func_80054968 (40 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80054968
+rush2049 = [0x8008C680]
+link = "same-code"
+
+[[func]]
+vram = 0x8005CAB8
+desc = "Same code as Rush 2 func_80054A08 (18 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80054A08
+rush2049 = [0x8008C720]
+link = "same-code"
+
+[[func]]
+vram = 0x8005CB00
+desc = "Same code as Rush 2 func_80054A50 (88 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x80054A50
+link = "same-code"
+
+[[func]]
+vram = 0x8005CE50
+desc = "Same code as Rush 2 func_80054DA0 (11 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80054DA0
+link = "same-code"
+
+[[func]]
+vram = 0x8005CF5C
+desc = "Same code as Rush 2 func_80054EF4 (67 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x80054EF4
+link = "same-code"
+
+[[func]]
+vram = 0x8005D068
+desc = "Same code as Rush 2 func_80055000 (538 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80055000
+link = "same-code"
+
+[[func]]
+vram = 0x8005D8D0
+desc = "Same code as Rush 2 func_80055868 (55 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80055868
+rush2049 = [0x80087804]
+link = "same-code"
+
+[[func]]
+vram = 0x800605B0
+desc = "Same code as Rush 2 func_8005858C (145 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005858C
+rush2049 = [0x8008A148]
+link = "same-code"
+
+[[func]]
+vram = 0x800607F4
+desc = "Same code as Rush 2 func_800587D0 (22 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800587D0
+rush2049 = [0x8008A38C]
+link = "same-code"
+
+[[func]]
+vram = 0x80060924
+desc = "Same code as Rush 2 func_800588DC (112 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800588DC
+link = "same-code"
+
+[[func]]
+vram = 0x80060AE4
+desc = "Same code as Rush 2 func_80058A9C (24 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80058A9C
+rush2049 = [0x8008A644]
+link = "same-code"
+
+[[func]]
+vram = 0x80060B44
+desc = "Same code as Rush 2 func_80058AFC (38 instructions, address-masked match, float constants equal). Clips 2D rectangles to the inset at s16 0x80023058."
+status = "inferred"
+rush2 = 0x80058AFC
+link = "same-code"
+area = "render"
+
+[[func]]
+vram = 0x80060BDC
+desc = "Same code as Rush 2 func_80078190 (51 instructions, address-masked match, float constants equal). Emits the post list for LOD flag 0x2 (caller argument)."
+status = "inferred"
+rush2 = 0x80078190
+rush2049 = [0x80099B30]
+link = "same-code"
+area = "render"
+
+[[func]]
+vram = 0x80064294
+desc = "Same code as Rush 2 func_8007BE08 (73 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8007BE08
+rush2049 = [0x8009E8B4]
+link = "same-code"
+
+[[func]]
+vram = 0x80064544
+desc = "Visibility region choice and section mask: the top-level record whose box holds the camera in x and z, dy <= box top (no bottom test), least |dx|+|dz| wins, none means everything visible; 16-byte masks of two u64, hide flag 0xC00. Rush 2's equivalent is func_8007C27C."
+status = "verified"
+rush2 = 0x8007C27C
+rush2049 = [0x8009EBC0]
+link = "role"
+area = "track"
+ref = "docs/rush1_research.md#4-visibility-v"
+
+[[func]]
+vram = 0x80066980
+desc = "Same code as Rush 2 func_8007F20C (23 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8007F20C
+rush2049 = [0x8008FFD0, 0x8009002C]
+link = "same-code"
+
+[[func]]
+vram = 0x80066E90
+desc = "Same code as Rush 2 func_8007F91C (33 instructions, address-masked match, float constants equal). Creates a per-view matrix node (used for the sky)."
+status = "inferred"
+rush2 = 0x8007F91C
+rush2049 = [0x800A7D6C]
+link = "same-code"
+area = "render"
+
+[[func]]
+vram = 0x800673A4
+desc = "Same code as Rush 2 func_80058B94 (17 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80058B94
+rush2049 = [0x8008AD04]
+link = "same-code"
+
+[[func]]
+vram = 0x800673E8
+desc = "Same code as Rush 2 func_80058BD8 (8 instructions, address-masked match, float constants equal). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80058BD8
+link = "same-code"
+
+[[func]]
+vram = 0x80067408
+desc = "Same code as Rush 2 func_80058BF8 (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80058BF8
+rush2049 = [0x800950AC]
+link = "same-code"
+
+[[func]]
+vram = 0x8006747C
+desc = "Same code as Rush 2 func_80058C6C (13 instructions, address-masked match, float constants equal). Name comparator: 15-character strncmp."
+status = "inferred"
+rush2 = 0x80058C6C
+rush2049 = [0x80095120]
+link = "same-code"
+area = "render"
+
+[[func]]
+vram = 0x800674B0
+desc = "Same code as Rush 2 func_80058CA0 (9 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80058CA0
+rush2049 = [0x8008AD48]
+link = "same-code"
+
+[[func]]
+vram = 0x800678D0
+desc = "Same code as Rush 2 func_800590AC (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800590AC
+link = "same-code"
+
+[[func]]
+vram = 0x80067954
+desc = "Same code as Rush 2 func_80059130 (18 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80059130
+link = "same-code"
+
+[[func]]
+vram = 0x800679CC
+desc = "Same code as Rush 2 func_800591A8 (20 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800591A8
+rush2049 = [0x8008B424]
+link = "same-code"
+
+[[func]]
+vram = 0x80067A1C
+desc = "Same code as Rush 2 func_800591F8 (20 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800591F8
+rush2049 = [0x8008B474]
+link = "same-code"
+
+[[func]]
+vram = 0x80067A6C
+desc = "Same code as Rush 2 func_80059248 (11 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80059248
+rush2049 = [0x8008B3C8]
+link = "same-code"
+
+[[func]]
+vram = 0x80068364
+desc = "Same code as Rush 2 func_80059AE0 (39 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80059AE0
+rush2049 = [0x8008C544]
+link = "same-code"
+
+[[func]]
+vram = 0x80068AA0
+desc = "Same code as Rush 2 func_8005A340 (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005A340
+rush2049 = [0x8008B32C]
+link = "same-code"
+
+[[func]]
+vram = 0x80068C70
+desc = "Same code as Rush 2 func_8005A528 (28 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005A528
+link = "same-code"
+
+[[func]]
+vram = 0x80069CBC
+desc = "Same code as Rush 2 func_8005BDDC (24 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005BDDC
+rush2049 = [0x80092DCC]
+link = "same-code"
+
+[[func]]
+vram = 0x80069E74
+desc = "Same code as Rush 2 func_80062074 (8 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80062074
+link = "same-code"
+
+[[func]]
+vram = 0x8006B444
+desc = "Same code as Rush 2 func_8005DF04 (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8005DF04
+rush2049 = [0x80014650]
+link = "same-code"
+
+[[func]]
+vram = 0x8006B4E4
+desc = "Same code as Rush 2 func_8005DFA4 (25 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005DFA4
+link = "same-code"
+
+[[func]]
+vram = 0x8006B554
+desc = "Same code as Rush 2 func_8005E014 (33 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005E014
+link = "same-code"
+
+[[func]]
+vram = 0x8006B670
+desc = "Same code as Rush 2 func_8005E130 (72 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005E130
+link = "same-code"
+
+[[func]]
+vram = 0x8006B790
+desc = "Same code as Rush 2 func_8005E250 (78 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005E250
+link = "same-code"
+
+[[func]]
+vram = 0x8006BFEC
+desc = "Hide-if-taken for a key: takes object +0x76 minus 1 as the key bit."
+status = "verified"
+area = "unlocks"
+ref = "docs/unlocks_plan.md#12-sf-rush-keys-v"
+
+[[func]]
+vram = 0x8006C208
+name = "pak_mark_dirty"
+desc = "Same code as Rush 2 pak_mark_dirty_8005F338 (48 instructions, address-masked match, float constants equal). Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries)."
+status = "inferred"
+rush2 = 0x8005F338
+link = "same-code"
+area = "os"
+
+[[func]]
+vram = 0x8006C2C8
+desc = "Same code as Rush 2 func_8005F3F8 (8 instructions, address-masked match, float constants equal). Marks save record bytes dirty for saving. Same as func_8005F338 with $t1 = 0 (marks save bytes dirty)."
+status = "inferred"
+rush2 = 0x8005F3F8
+link = "same-code"
+area = "menu"
+
+[[func]]
+vram = 0x8006C2E8
+desc = "Collects a key: sets the track's u8 mask bit (player record + 0x1C0 + track x 0x16 + 7, or 0x800CAC7C + track x 0x16 + 7 without a profile). Rush 2's equivalent is func_8005F418."
+status = "verified"
+rush2 = 0x8005F418
+link = "role"
+area = "unlocks"
+ref = "docs/unlocks_plan.md#11-rush-2s-key-system-what-we-reuse-v"
+
+[[func]]
+vram = 0x8006C904
+desc = "Same code as Rush 2 func_80062FC4 (65 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80062FC4
+link = "same-code"
+
+[[func]]
+vram = 0x8006CA5C
+desc = "Same code as Rush 2 func_80062FA4 (8 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80062FA4
+link = "same-code"
+
+[[func]]
+vram = 0x8006D608
+name = "time_to_seconds"
+desc = "Same code as Rush 2 time_to_seconds_8006005C (42 instructions, address-masked match, float constants equal). Returns a packed time as f32 seconds."
+status = "inferred"
+rush2 = 0x8006005C
+link = "same-code"
+area = "ui"
+
+[[func]]
+vram = 0x8006D764
+desc = "Same code as Rush 2 func_800601C4 (13 instructions, address-masked match, float constants equal). Looks up a per-track name prefix (0x800C182C[track])."
+status = "inferred"
+rush2 = 0x800601C4
+rush2049 = [0x800A473C]
+link = "same-code"
+area = "race"
+
+[[func]]
+vram = 0x8006E214
+desc = "Same code as Rush 2 func_80060DA8 (15 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80060DA8
+link = "same-code"
+
+[[func]]
+vram = 0x8006E258
+desc = "Same code as Rush 2 func_80060DEC (18 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80060DEC
+link = "same-code"
+
+[[func]]
+vram = 0x8006ECA0
+desc = "Same code as Rush 2 func_80061A94 (95 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80061A94
+link = "same-code"
+
+[[func]]
+vram = 0x8006EED8
+desc = "Same code as Rush 2 func_80063DA8 (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80063DA8
+rush2049 = [0x8002517C]
+link = "same-code"
+
+[[func]]
+vram = 0x8006F2A4
+desc = "Same code as Rush 2 func_80062074 (8 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80062074
+link = "same-code"
+
+[[func]]
+vram = 0x8006F2C4
+desc = "Same code as Rush 2 func_80062094 (8 instructions, address-masked match, float constants equal). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80062094
+link = "same-code"
+
+[[func]]
+vram = 0x8006F31C
+desc = "Same code as Rush 2 func_800620EC (44 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800620EC
+link = "same-code"
+
+[[func]]
+vram = 0x8006F3CC
+desc = "Same code as Rush 2 func_8006219C (50 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8006219C
+link = "same-code"
+
+[[func]]
+vram = 0x800700E0
+desc = "Same code as Rush 2 func_800630D8 (51 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800630D8
+link = "same-code"
+
+[[func]]
+vram = 0x80070BC4
+desc = "Same code as Rush 2 func_80063C74 (14 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80063C74
+link = "same-code"
+
+[[func]]
+vram = 0x80070CCC
+desc = "Same code as Rush 2 func_80077310 (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80077310
+rush2049 = [0x8008A6D0]
+link = "same-code"
+
+[[func]]
+vram = 0x80070D0C
+desc = "Same code as Rush 2 func_8005DFA4 (25 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8005DFA4
+link = "same-code"
+
+[[func]]
+vram = 0x80071800
+desc = "Same code as Rush 2 func_800645F4 (68 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800645F4
+link = "same-code"
+
+[[func]]
+vram = 0x80071910
+desc = "Same code as Rush 2 func_80064704 (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80064704
+link = "same-code"
+
+[[func]]
+vram = 0x80071A9C
+desc = "Same code as Rush 2 func_80064890 (15 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80064890
+link = "same-code"
+
+[[func]]
+vram = 0x80071AD8
+desc = "Same code as Rush 2 func_800648CC (15 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800648CC
+link = "same-code"
+
+[[func]]
+vram = 0x800721E8
+desc = "Same code as Rush 2 func_80065234 (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80065234
+link = "same-code"
+
+[[func]]
+vram = 0x80072224
+desc = "Same code as Rush 2 func_80065E10 (103 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80065E10
+link = "same-code"
+
+[[func]]
+vram = 0x800723C0
+desc = "Same code as Rush 2 func_80065FAC (72 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80065FAC
+link = "same-code"
+
+[[func]]
+vram = 0x800726AC
+desc = "Same code as Rush 2 func_80066298 (77 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80066298
+link = "same-code"
+
+[[func]]
+vram = 0x80073EC0
+desc = "Same code as Rush 2 func_80067CAC (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80067CAC
+link = "same-code"
+
+[[func]]
+vram = 0x800752E8
+desc = "Same code as Rush 2 func_8008E73C (106 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8008E73C
+rush2049 = [0x800D14F4]
+link = "same-code"
+
+[[func]]
+vram = 0x80078264
+desc = "Same code as Rush 2 func_8006B708 (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8006B708
+rush2049 = [0x800E2A3C]
+link = "same-code"
+
+[[func]]
+vram = 0x80078414
+desc = "Collision segment transform: local = M^T (p - origin), multiplying by the transpose of the stored matrix. ROM check: the Rush 1 code is a different routine (dot products against the matrix columns, stride 0xC), not a copy of Rush 2's func_80054454; Rush 1 has an identical copy of func_80054454 at func_8005C504 and func_8009A56C."
+status = "verified"
+rush2 = 0x80054454
+rush2049 = [0x800A61B0]
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x80079B90
+desc = "Collision polygon transform: local = M^T (p - origin), multiplying by the transpose of the stored matrix (Rush 2's func_80054454 computes M * v). ROM check: the Rush 1 code is a different routine (dot products against the matrix columns, stride 0xC), not a copy of Rush 2's func_80054454; Rush 1 has an identical copy of func_80054454 at func_8005C504 and func_8009A56C."
+status = "verified"
+rush2 = 0x80054454
+rush2049 = [0x800A61B0]
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x80079CDC
+desc = "Collision polygon point test: accepts local z in [best, 5) and takes the maximum. Rush 2's equivalent is func_8006C670."
+status = "verified"
+rush2 = 0x8006C670
+rush2049 = [0x800AD5D0, 0x800AD734]
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x8007A0C4
+name = "collision_leaf_read"
+desc = "Same code as Rush 2 collision_leaf_read_8006CCEC (29 instructions, address-masked match, float constants equal). Reads LEAF lists: u8 count then u16 entries (bits 15-13 extra run, 12-0 first poly index)."
+status = "inferred"
+rush2 = 0x8006CCEC
+rush2049 = [0x800ADCE0]
+link = "same-code"
+area = "collision"
+
+[[func]]
+vram = 0x8007A138
+name = "collision_node_find"
+desc = "Same code as Rush 2 collision_node_find_8006CD60 (50 instructions, address-masked match, float constants equal). NODE quadtree query: descends from the root."
+status = "inferred"
+rush2 = 0x8006CD60
+rush2049 = [0x800AC9BC]
+link = "same-code"
+area = "collision"
+
+[[func]]
+vram = 0x8007A848
+desc = "Same code as Rush 2 func_8006BD54 (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8006BD54
+rush2049 = [0x800ACBC4]
+link = "same-code"
+
+[[func]]
+vram = 0x8007A89C
+desc = "Road segment query: along = L[0], across = L[1], with the cubic height term. Rush 2's equivalent is func_8006BDA8."
+status = "verified"
+rush2 = 0x8006BDA8
+rush2049 = [0x800ACC18]
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x8007B2EC
+name = "car_physics_forces"
+desc = "Same code as Rush 2 car_physics_forces_800706D0 (24 instructions, address-masked match, float constants equal). Patched in us.toml. Rush 2049 wings physics (src/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is part of rush2_model_draw. / Rush 2049 moving track objects (src/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes)."
+status = "inferred"
+rush2 = 0x800706D0
+rush2049 = [0x800E2A64]
+link = "same-code"
+area = "car"
+
+[[func]]
+vram = 0x8007CDD4
+desc = "Speed/lane-speed helper used by the AI driver: reads car velocity (+0x294..+0x29C) and a scale from 0x80087858 (lane speed ft/s x 1.05 x rubber band compare per the research notes). Called from func_8007ECB0 (0x8007ED9C), a likely Rush 1 AI driver. ROM check: the byte-level best matches for Rush 2's drone driver func_80074990 are Rush 1's func_8007DF24 / func_8007E1CC / func_8007ECB0 (weak, Jaccard 0.07-0.09), so this function is a helper, not the whole driver; the earlier 'Rush 2 equivalent is func_80074990' was too strong."
+status = "inferred"
+rush2 = 0x80074990
+rush2049 = [0x800E4B58]
+link = "role"
+area = "race"
+ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
+
+[[func]]
+vram = 0x8007D174
+desc = "AI steering filter (behavior codes 1-5); matches Rush 2's func_80071FBC."
+status = "inferred"
+rush2 = 0x80071FBC
+link = "role"
+area = "race"
+ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
+
+[[func]]
+vram = 0x8007ECB0
+desc = "Likely the Rush 1 AI driver (calls func_8007CDD4 at 0x8007ED9C); weak byte match to Rush 2 func_80074990. Not worked through."
+status = "inferred"
+rush2 = 0x80074990
+rush2049 = [0x800E4B58]
+link = "role"
+area = "race"
+ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
+
+[[func]]
+vram = 0x8007EE60
+desc = "Same code as Rush 2 func_80075294 (34 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80075294
+rush2049 = [0x800CFDEC]
+link = "same-code"
+
+[[func]]
+vram = 0x8007EEE8
+desc = "Same code as Rush 2 func_8007531C (102 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8007531C
+rush2049 = [0x800CFE74]
+link = "same-code"
+
+[[func]]
+vram = 0x8007FC14
+desc = "Same code as Rush 2 func_80075F58 (24 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80075F58
+link = "same-code"
+
+[[func]]
+vram = 0x80080970
+desc = "Same code as Rush 2 func_80076D70 (24 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80076D70
+link = "same-code"
+
+[[func]]
+vram = 0x80080E80
+desc = "Same code as Rush 2 func_8005BCB4 (74 instructions, address-masked match, float constants equal). Per-slot binary search of model names (comparator func_80058C6C)."
+status = "inferred"
+rush2 = 0x8005BCB4
+rush2049 = [0x80092C58]
+link = "same-code"
+area = "render"
+
+[[func]]
+vram = 0x80081104
+desc = "Reads a model's name-record kind (+0x14 behavior id). Matches Rush 2's func_8007FFA0."
+status = "verified"
+rush2 = 0x8007FFA0
+link = "same-code"
+area = "track"
+ref = "docs/rush1_research.md#3-placement-v"
+
+[[func]]
+vram = 0x80081C80
+desc = "Same code as Rush 2 func_8007FB30 (8 instructions, address-masked match, float constants equal). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8007FB30
+link = "same-code"
+
+[[func]]
+vram = 0x80081CA0
+desc = "Same code as Rush 2 func_80080BA8 (10 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80080BA8
+link = "same-code"
+
+[[func]]
+vram = 0x80081E50
+desc = "Same code as Rush 2 func_80080CB0 (36 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80080CB0
+rush2049 = [0x800FE520]
+link = "same-code"
+
+[[func]]
+vram = 0x80081F38
+desc = "Same code as Rush 2 func_80080DBC (99 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80080DBC
+rush2049 = [0x800FE5B0]
+link = "same-code"
+
+[[func]]
+vram = 0x800828EC
+desc = "Collision file loader: 0x20-byte header, then SEG (0x84), NODE (0x14), POLY (0x1A), VERT, LEAF, VLIST. +0x18/+0x1A go to globals; +0x1C is the segment that follows the last one."
+status = "verified"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x800829C4
+desc = "Same code as Rush 2 func_80080B88 (8 instructions, address-masked match, float constants equal). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80080B88
+link = "same-code"
+
+[[func]]
+vram = 0x800829E4
+desc = "Placement walker: every record is a plain model whose behavior comes from the model's name-record kind (func_80081104). Children are relative to their parent section; field +0x48/+0x4A holds two object parameters."
+status = "verified"
+area = "track"
+ref = "docs/rush1_research.md#3-placement-v"
+
+[[func]]
+vram = 0x80083170
+desc = "Same code as Rush 2 func_80081F40 (37 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80081F40
+link = "same-code"
+
+[[func]]
+vram = 0x800833C0
+desc = "Same code as Rush 2 func_80081CA8 (27 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80081CA8
+link = "same-code"
+
+[[func]]
+vram = 0x800840D0
+desc = "Same code as Rush 2 func_800831CC (21 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800831CC
+rush2049 = [0x800B0618]
+link = "same-code"
+
+[[func]]
+vram = 0x8008602C
+desc = "Breakable hit test with no height test: the point in the car's frame within |z| < 7 and |x| < 3 (loop at 0x800860FC). Behavior 9 (window, type 0x19D) also hits on a sphere of a third of its radius. Rush 2's equivalent is func_8008B0CC. ROM check: the function itself is only 53 instructions and ends at 0x800860F8; the loop at 0x800860FC is the start of the NEXT function, i.e. 8008602C is the per-breakable box test and Rush 2's func_8008B0CC (548 instructions) covers that caller loop as well."
+status = "verified"
+rush2 = 0x8008B0CC
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#3-placement-v"
+
+[[func]]
+vram = 0x80089454
+desc = "Same code as Rush 2 func_80093A84 (45 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80093A84
+link = "same-code"
+
+[[func]]
+vram = 0x8008A090
+desc = "Same code as Rush 2 func_80088C04 (8 instructions, address-masked match, float constants equal). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80088C04
+link = "same-code"
+
+[[func]]
+vram = 0x8008A0B0
+desc = "Same code as Rush 2 func_800B330C (50 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800B330C
+link = "same-code"
+
+[[func]]
+vram = 0x8008B4C4
+desc = "Same code as Rush 2 func_80096E48 (8 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80096E48
+link = "same-code"
+
+[[func]]
+vram = 0x8008BA50
+desc = "Same code as Rush 2 func_800986B0 (75 instructions, address-masked match, float constants equal). Pak/profile handling; calls func_80094BFC."
+status = "inferred"
+rush2 = 0x800986B0
+link = "same-code"
+area = "os"
+
+[[func]]
+vram = 0x80095EE0
+desc = "Same code as Rush 2 func_80096E68 (30 instructions, address-masked match, float constants equal). Computes the byte sum stored at +0 of a player record's first section (+1..+0x33). Writing a byte there without it damages the Controller Pak note."
+status = "inferred"
+rush2 = 0x80096E68
+link = "same-code"
+area = "unlocks"
+
+[[func]]
+vram = 0x80095F58
+desc = "Same code as Rush 2 func_80096EE0 (16 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80096EE0
+link = "same-code"
+
+[[func]]
+vram = 0x8009693C
+desc = "Same code as Rush 2 func_80098B8C (75 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80098B8C
+rush2049 = [0x800A1910]
+link = "same-code"
+
+[[func]]
+vram = 0x80097FE0
+desc = "Mirror walker over a model container, with the branch, mirror and CHKPOINT -> FINISH banner logic. Ancestor of Rush 2's func_80077518."
+status = "verified"
+rush2 = 0x80077518
+rush2049 = [0x800963E8]
+link = "same-code"
+area = "render"
+ref = "docs/rush1_research.md#21-display-lists-v"
+
+[[func]]
+vram = 0x80098210
+desc = "Asset loader; indexes the 72-entry ROM offset table at 0x800C7C1C from 0x800C7C38, so asset id = table index - 7."
+status = "verified"
+area = "os"
+ref = "docs/rush1_research.md#11-asset-table-v"
+
+[[func]]
+vram = 0x8009931C
+desc = "Car select unlock count: cars = 8 + min(G, 2 x keys / total), where G is global byte 0x80162AD0. Half a track's keys give car 8 (TAXI), all of them car 9 (HOTROD)."
+status = "verified"
+area = "unlocks"
+ref = "docs/unlocks_plan.md#12-sf-rush-keys-v"
+
+[[func]]
+vram = 0x80099C84
+desc = "Same code as Rush 2 func_8008C2F4 (17 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8008C2F4
+link = "same-code"
+
+[[func]]
+vram = 0x80099E44
+desc = "Race music choice func_80099E44(2, setting): 0 off, 1 random of the 9 race songs (table 0x800D2910: 0, 1, 2, 7, 3, 10, 6, 12, 15), 2+ a fixed song. Rush 2's equivalent is func_8008C370."
+status = "verified"
+rush2 = 0x8008C370
+link = "role"
+area = "audio"
+ref = "docs/rush1_research.md#9-audio-v"
+
+[[func]]
+vram = 0x8009A1A8
+desc = "Same code as Rush 2 func_8008C5FC (8 instructions, address-masked match, float constants equal). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8008C5FC
+link = "same-code"
+
+[[func]]
+vram = 0x8009A56C
+name = "matrix_mul_vec_copy"
+desc = "Byte-identical to Rush 2 func_80054454 (4-gram Jaccard 1.00): local = M * v for a 3x3 matrix. Found by matching Rush 2 func_80054454 against all Rush 1 functions."
+status = "verified"
+rush2 = 0x80054454
+rush2049 = [0x800A61B0]
+link = "same-code"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x8009BE68
+desc = "Wrong-way check: maps the car's segment to a lane 0 point (tables 0x800E4E28 / 0x800E66F8) and compares heading with the point 5 ahead; skipped while the car's last or next checkpoint (car +0xA4C / +0xA4E) has flag 4. Like Rush 2's func_8008CDA4."
+status = "verified"
+rush2 = 0x8008CDA4
+link = "same-code"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x8009CEB4
+desc = "Same code as Rush 2 func_8008E220 (14 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8008E220
+link = "same-code"
+
+[[func]]
+vram = 0x8009D2D8
+desc = "Same code as Rush 2 func_8008ECC4 (204 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8008ECC4
+rush2049 = [0x800D2128]
+link = "same-code"
+
+[[func]]
+vram = 0x8009D818
+desc = "Checkpoint flag handling (2 lap line, 1 last checkpoint before it triggers the FINISH banner, 4 no wrong-way warning). The twin of Rush 2's func_8008F220."
+status = "verified"
+rush2 = 0x8008F220
+rush2049 = [0x800D24C8]
+link = "role"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x8009DF90
+desc = "Steps along the collision segment chain by +1 (checkpoint spine, linear)."
+status = "inferred"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x8009E090
+desc = "Steps along the collision segment chain by -1 (checkpoint spine, linear)."
+status = "inferred"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x8009FFCC
+desc = "Reaching checkpoint i: adds time[lap] x (1 + (5 - difficulty) x 0.05); grants time to the race leader only."
+status = "verified"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x800A0BB8
+name = "checkpoint_gate_test"
+desc = "SF Rush checkpoint gate test, same as Rush 2 func_800A1468 but with its own radii 316-1000 ft. | Gate test per car (next checkpoint car +0xA4E only): car within the radius in x/z and within 3 ft x frames of the gate plane, then func_8009D818. Same test as Rush 2's func_800A1468."
+status = "verified"
+rush2 = 0x800A1468
+rush2049 = [0x800F8EC8]
+link = "role"
+area = "race"
+ref = "docs/rush2049_research/checkpoints.md#2-rush-2-timing-superseded-by-0-for-the-values-v"
+
+[[func]]
+vram = 0x800A113C
+desc = "Same code as Rush 2 func_800A19B0 (58 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800A19B0
+link = "same-code"
+
+[[func]]
+vram = 0x800A2BC0
+desc = "Same code as Rush 2 func_800A3028 (10 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800A3028
+link = "same-code"
+
+[[func]]
+vram = 0x800A6F48
+desc = "Same code as Rush 2 func_8009E0C4 (27 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8009E0C4
+link = "same-code"
+
+[[func]]
+vram = 0x800A804C
+desc = "AI lane file loader (assets 58+t / 65+t): 4 lanes of {s16 count, loop, end, x} + count x {s16 x,y,z; u8 speed (ft/s); u8 behavior; s16 index}."
+status = "verified"
+area = "race"
+ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
+
+[[func]]
+vram = 0x800A8F18
+desc = "Copies each checkpoint record to a 0x44-byte runtime checkpoint (*0x800F3A80: +0x30 radius squared, +0x3A flags, +0x3C times), snapping its position (+0x24) to the nearest node of the collision segment chain and taking the chain's direction (+0x18)."
+status = "verified"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x800AB90C
+desc = "Same code as Rush 2 func_8009FEC8 (8 instructions, address-masked match, float constants equal). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8009FEC8
+link = "same-code"
+
+[[func]]
+vram = 0x800AEDFC
+desc = "Same code as Rush 2 func_800A1284 (8 instructions, address-masked match, float constants equal). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800A1284
+link = "same-code"
+
+[[func]]
+vram = 0x800AF2A8
+desc = "Same code as Rush 2 func_80093484 (35 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80093484
+rush2049 = [0x800DC120]
+link = "same-code"
+
+[[func]]
+vram = 0x800AF334
+desc = "Same code as Rush 2 func_80093510 (39 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80093510
+rush2049 = [0x800DC1AC]
+link = "same-code"
+
+[[func]]
+vram = 0x800AF3D0
+desc = "Same code as Rush 2 func_800935AC (108 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800935AC
+rush2049 = [0x800DC248]
+link = "same-code"
+
+[[func]]
+vram = 0x800AF580
+desc = "Same code as Rush 2 func_8009375C (97 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8009375C
+rush2049 = [0x800DC3F8]
+link = "same-code"
+
+[[func]]
+vram = 0x800AF704
+desc = "Same code as Rush 2 func_800938E0 (43 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800938E0
+rush2049 = [0x800DC57C]
+link = "same-code"
+
+[[func]]
+vram = 0x800AF7B0
+desc = "Same code as Rush 2 func_8009398C (62 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x8009398C
+rush2049 = [0x800DC628]
+link = "same-code"
+
+[[func]]
+vram = 0x800AF8A8
+desc = "Same code as Rush 2 func_80099B64 (30 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x80099B64
+link = "same-code"
+
+[[func]]
+vram = 0x800B02BC
+desc = "Same code as Rush 2 func_800A0604 (32 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800A0604
+link = "same-code"
+
+[[func]]
+vram = 0x800B0344
+desc = "Same code as Rush 2 func_800A0DFC (12 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800A0DFC
+link = "same-code"
+
+[[func]]
+vram = 0x800B0960
+desc = "Same code as Rush 2 func_800A6978 (118 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800A6978
+rush2049 = [0x800F0674]
+link = "same-code"
+
+[[func]]
+vram = 0x800B35C4
+desc = "Same code as Rush 2 func_800AAB24 (80 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800AAB24
+link = "same-code"
+
+[[func]]
+vram = 0x800B3BE4
+desc = "Same code as Rush 2 func_800AB18C (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800AB18C
+link = "same-code"
+
+[[func]]
+vram = 0x800B3D3C
+desc = "Same code as Rush 2 func_800A1420 (8 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800A1420
+link = "same-code"
+
+[[func]]
+vram = 0x800B3D5C
+desc = "Same code as Rush 2 func_800A1440 (10 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800A1440
+link = "same-code"
+
+[[func]]
+vram = 0x800B9F8C
+desc = "Race timer start: base - 4 x difficulty + 4 x laps + 16 s, not scaled."
+status = "verified"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x800BB680
+desc = "Same code as Rush 2 func_800AFB50 (93 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800AFB50
+link = "same-code"
+
+[[func]]
+vram = 0x800BB7F4
+desc = "Same code as Rush 2 func_800AFCC4 (32 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800AFCC4
+link = "same-code"
+
+[[func]]
+vram = 0x800BC178
+desc = "Same code as Rush 2 func_800ABE5C (8 instructions, address-masked match, float constants equal). Reloads the menus' assets (the track select's B). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800ABE5C
+link = "same-code"
+area = "menu"
+
+[[func]]
+vram = 0x800BC2B0
+desc = "Loads the music bank, songs and sound effect bank. Rush 2's equivalent is func_800B3B78."
+status = "verified"
+rush2 = 0x800B3B78
+link = "same-code"
+area = "audio"
+ref = "docs/rush1_research.md#9-audio-v"
+
+[[func]]
+vram = 0x800BE468
+desc = "Same code as Rush 2 func_800B57F4 (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800B57F4
+link = "same-code"
+
+[[func]]
+vram = 0x800BE4E4
+desc = "Same code as Rush 2 func_800B5870 (136 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800B5870
+link = "same-code"
+
+[[func]]
+vram = 0x800BF454
+desc = "Same code as Rush 2 func_800B740C (84 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800B740C
+link = "same-code"
+
+[[func]]
+vram = 0x800C0B60
+desc = "Same code as Rush 2 func_800B970C (18 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800B970C
+link = "same-code"
+
+[[func]]
+vram = 0x800C100C
+desc = "Same code as Rush 2 func_800B9C4C (29 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800B9C4C
+link = "same-code"
+
+[[func]]
+vram = 0x800C1CF0
+desc = "Same code as Rush 2 func_800BAD44 (40 instructions, address-masked match, float constants equal)."
+status = "inferred"
+rush2 = 0x800BAD44
+link = "same-code"
+
+[[func]]
+vram = 0x800C3678
+desc = "FIRECRK emitter: plays the fireworks sound 0x3E (62), range 100."
+status = "verified"
+area = "audio"
+ref = "src/track1_audio.cpp"
