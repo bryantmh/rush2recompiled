@@ -113,6 +113,8 @@ namespace {
 extern "C" void race_fog_zone_setup_80081074(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
+    constexpr uint32_t rumble_mask = 0x800D4E75; // Bit per port: rumble code drives its motor (func_80063E4C).
+
     // Players' controller ports, one byte per player (D_800BF314).
     constexpr uint32_t player_ports = 0x800BF314;
     constexpr uint32_t controller_buffers = 0x8010D740; // 0x6C0 per port.
@@ -536,6 +538,25 @@ namespace {
     // starts. Backing out of the second round returns to the first.
     int car_round = 0; // 1 while players 3 and 4 choose.
 
+    // Rush 2's race car table (9 bytes per car slot: +1 type, +2..+5 colors and stripe). The second round's screen
+    // setup rewrites slots 0 and 1 (players 1 and 2) with defaults (type 0 = the pickup truck), so round one's picks
+    // are kept here and put back once round two is done.
+    constexpr uint32_t race_car_table = 0x800D9C10;
+    constexpr int race_car_entry_size = 9;
+    int8_t saved_car_entries[2 * race_car_entry_size] = {};
+
+    void save_car_entries(uint8_t* rdram) {
+        for (int i = 0; i < 2 * race_car_entry_size; i++) {
+            saved_car_entries[i] = MEM_B(i, (int32_t)race_car_table);
+        }
+    }
+
+    void restore_car_entries(uint8_t* rdram) {
+        for (int i = 0; i < 2 * race_car_entry_size; i++) {
+            MEM_B(i, (int32_t)race_car_table) = saved_car_entries[i];
+        }
+    }
+
     void swap_players(uint8_t* rdram, int a, int b) {
         int32_t ra = rush2::players4::record(a);
         int32_t rb = rush2::players4::record(b);
@@ -625,12 +646,14 @@ int rush2_players4_cars_chosen(uint8_t* rdram, recomp_context* ctx) {
     swap_rounds(rdram, total);
     if (car_round == 0) {
         MEM_H(0, (int32_t)rush2::players4::num_players) = (int16_t)(total - 2);
+        save_car_entries(rdram);
         car_round = 1;
         call(rdram, ctx, menu_play_sound_80064908, sound_join);
         call(rdram, ctx, carselect_build_list_803B81F0, 0); // Ends the screen; it sets itself up again next frame.
         return true;
     }
     MEM_H(0, (int32_t)rush2::players4::num_players) = 2;
+    restore_car_entries(rdram);
     car_round = 0;
     return false;
 }
@@ -800,6 +823,12 @@ void rush2_players4_frame_buffers(uint8_t* rdram, recomp_context* ctx) {
     for (int port = 0; port < ports; port++) {
         bool read = rush2::input::is_port_connected(port) || rush2::input::is_port_scripted(port);
         MEM_B(port, (int32_t)controller_map) = (int8_t)(read ? port : -1);
+        // The pak thread only registers a port with the rumble code (mask D_800D4E75) if a controller was there when
+        // it last scanned, so a controller assigned to port 3 or 4 later never rumbled. Those ports report a Rumble Pak
+        // (src/pak.cpp), so the rumble update's own osMotorInit finds it once the bit is set.
+        if (read && port >= 2) {
+            MEM_B(0, (int32_t)rumble_mask) = (int8_t)(MEM_BU(0, (int32_t)rumble_mask) | (1 << port));
+        }
     }
 }
 
