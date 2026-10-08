@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <type_traits>
 #include <variant>
 
@@ -17,6 +18,7 @@
 #include "track1.h"
 #include "collectibles.h"
 #include "options_page.h"
+#include "texture_upscale.h"
 #include "wings.h"
 #include "ghost.h"
 #include "car2049.h"
@@ -33,9 +35,10 @@ static void add_remaining_options(rush2::ui::OptionsPage* page, recomp::config::
 // Shows a config's options under headings, replacing the frontend's tab for it (which lists them in the order they
 // were added, and is hidden by the caller). Each section is a heading and its option ids; options not listed go last.
 static void create_ordered_tab(const std::string& name, const std::string& tab_id, const std::string& config_id,
-                               std::vector<std::pair<std::string, std::vector<std::string>>> sections) {
+                               std::vector<std::pair<std::string, std::vector<std::string>>> sections,
+                               std::function<void(rush2::ui::OptionsPage*)> add_extra = nullptr) {
     recompui::config::create_tab(name, tab_id,
-        [config_id, sections](recompui::ContextId context, recompui::Element* parent) {
+        [config_id, sections, add_extra](recompui::ContextId context, recompui::Element* parent) {
             recomp::config::Config& config = recompui::config::get_config(config_id);
             auto* page = context.create_element<rush2::ui::OptionsPage>(parent);
             std::vector<std::string> added;
@@ -47,6 +50,9 @@ static void create_ordered_tab(const std::string& name, const std::string& tab_i
                 }
             }
             add_remaining_options(page, config, added);
+            if (add_extra) {
+                add_extra(page);
+            }
         },
         [config_id, name](recompui::TabCloseContext close_context) {
             return rush2::ui::confirm_close(config_id, name, close_context);
@@ -603,7 +609,8 @@ void rush2::init_config() {
             { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
             { "Quality", { graphics::options::msaa_option, graphics::options::ds_option, mipmap_option::id, anisotropy_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
-        });
+            { "Texture Upscaling", { rush2::upscale::mode_option_id, rush2::upscale::command_option_id } },
+        }, rush2::upscale::add_buttons);
     }
 
     recompui::config::GeneralTabOptions general_options{};
@@ -629,6 +636,7 @@ void rush2::init_config() {
     add_mipmap_option(graphics_config);
     add_anisotropy_option(graphics_config);
     add_split_option(graphics_config);
+    rush2::upscale::add_options(graphics_config);
     recompui::config::set_tab_visible(recompui::config::general::id, false);
     recompui::config::set_tab_visible(recompui::config::graphics::id, false);
 
@@ -654,6 +662,7 @@ void rush2::init_config() {
         std::get<uint32_t>(loaded_graphics_config.get_option_value(anisotropy_option::id)), 4u);
     rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
+    rush2::upscale::apply_loaded_options(loaded_graphics_config);
     rush2::splitscreen::set_layout(static_cast<rush2::splitscreen::Layout>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(split_option::id))));
     rush2::ghost::set_save_all(static_cast<ghost_option::SaveGhosts>(std::get<uint32_t>(

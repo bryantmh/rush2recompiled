@@ -123,6 +123,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/draw_distance.cpp
     ${CMAKE_SOURCE_DIR}/src/cheats.cpp
     ${CMAKE_SOURCE_DIR}/src/fonts.cpp
+    ${CMAKE_SOURCE_DIR}/src/texture_upscale.cpp
+    ${CMAKE_SOURCE_DIR}/src/texture_upscale_images.cpp
     ${CMAKE_SOURCE_DIR}/src/players4.cpp
     ${CMAKE_SOURCE_DIR}/src/splitscreen.cpp
     ${CMAKE_SOURCE_DIR}/src/widescreen.cpp
