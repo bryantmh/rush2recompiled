@@ -1090,7 +1090,7 @@ void rush2::car2049::forget_record(uint8_t* rdram, uint32_t record) {
 // over Rush 2's 21 cars (all but the secret ROCKET) and 2049's 13 in their stock setups. Each 2049 car keeps its place
 // among the 2049 cars, and the roster lands on Rush 2's average car.
 // The AI (the same driver code in both games) aims for its lane's speed in mph x 1.4667 ft/s. Rush 2's lanes are in
-// true mph; Rush 2049's are in the mph its speedometer shows, true mph x 1.2 (0x801245AC, func_800EF5B0): its straights'
+// true mph; Rush 2049's are in the mph its speedometer shows, true mph x 1.2 (0x801245AC, func_800EF8F4): its straights'
 // 180-190 are its cars' true top speed (about 155) as displayed. So a 2049 lane speed / 1.2 is the Rush 2 lane speed,
 // and the Rush2049 mode applies the inverse to every car and x 1.2 to the other games' lanes instead.
 namespace {
@@ -1126,7 +1126,7 @@ float rush2::car2049::rush2_lane_scale() {
 }
 
 // func_800BA2A8 at 0x800BA3F8: $v0 = the speed the HUD is about to draw (mph, or km/h). With Rush 2049 speeds it reads
-// like Rush 2049's speedometer, true speed x 1.2 (func_800EF5B0).
+// like Rush 2049's speedometer, true speed x 1.2 (func_800EF8F4).
 extern "C" void rush2_speedometer(uint8_t* rdram, recomp_context* ctx) {
     (void)rdram;
     if (speeds_2049()) {
