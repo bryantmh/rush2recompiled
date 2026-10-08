@@ -11,6 +11,7 @@ You need to bring your own copy of the game. Nothing from the original cartridge
 - **HUD where you want it.** Keep the speedometer and lap info in the classic 4:3 spot, or push it out to the edges of the screen.
 - **No pop-in.** Turn off level of detail and every car and building is drawn at full quality, no matter how far away it is.
 - **Crisp fonts.** All the menu text and HUD numbers have been redrawn so they stay sharp at any resolution. You can switch back to the original blurry ones if you miss them.
+- **Upscaled textures (optional).** Turn on Texture Upscaling in the graphics settings and the cars and tracks get smoothed at 2x or 4x with HQ2x/HQ4x, the filters emulators use for texture enhancement. The HUD and menus are left alone, and each car paint job reuses one upscale. Prefer another upscaler, like Topaz Gigapixel? Dump the textures with one click, upscale them with it, and install the results as your own texture pack.
 - **Saves that just work.** Your players and records are kept on a virtual Controller Pak using the save file uses the same format as emulators.
 - **Rumble.** Supported on any controller that can rumble and at the same time as saves
 - **Two players, any controllers.** Xbox, PlayStation and most other controllers work, plus keyboard. Pick which controller belongs to which player and the game remembers it next time.
@@ -63,7 +64,7 @@ Shortcut: if you drop the ROM in the same folder as the exe, it'll find it on it
 Most options live in the settings menu (press Escape, or select).
 
 - **General:** rumble strength, stick deadzone, steering and reverse options, background input, and data location
-- **Graphics:** window mode, resolution, aspect ratio, framerate, anti-aliasing, level of detail and fonts
+- **Graphics:** window mode, resolution, aspect ratio, framerate, anti-aliasing, level of detail, fonts and texture upscaling
 - **Sound:** race music per game, plus whether other cars' engines are heard
 - **Players:** choose which controller (or the keyboard) each player uses. Leave it on Auto and whoever presses a button first gets that player.
 - **Progress:** see the keys and coins you've collected
@@ -78,11 +79,13 @@ Settings and saves live in `%LOCALAPPDATA%\Rush2Recompiled`. Paste that into the
 
 Your saves are in the `saves` folder: `rush2.n64.us.mpk` (the game's own save), `rush2.n64.us.json` (records, cars, keys, coins and unlocks of the added games) and `ghosts`. Back the folder up if you care about your records.
 
+Texture upscaling keeps its files in the `texture_upscale` folder there: the upscaled textures it has made (so nothing is upscaled twice), and the `dump` and `upscaled` folders for your own upscales.
+
 Want to keep everything on a USB stick or next to the game? Turn on portable mode in the General tab under Data Location. Your data moves into the game's folder the next time you launch.
 
 ## Credits
 
-Built with [N64Recomp](https://github.com/N64Recomp/N64Recomp), [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime), [RecompFrontend](https://github.com/N64Recomp/RecompFrontend) and the [RT64](https://github.com/rt64/rt64) renderer. Big thanks to everyone behind those projects.
+Built with [N64Recomp](https://github.com/N64Recomp/N64Recomp), [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime), [RecompFrontend](https://github.com/N64Recomp/RecompFrontend) and the [RT64](https://github.com/rt64/rt64) renderer. Texture upscaling uses [hqx](https://github.com/grom358/hqx) (LGPL 2.1, in `lib/hqx`). Big thanks to everyone behind those projects.
 
 Rush 2 and Rush 2049 belong to their respective owners. This project isn't affiliated with them and doesn't include any of their game data.
 
