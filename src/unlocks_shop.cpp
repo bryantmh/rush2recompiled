@@ -47,23 +47,23 @@
 #include "track2049.h"
 #include "unlocks.h"
 
-extern "C" void func_803B81F0(uint8_t* rdram, recomp_context* ctx); // Car select setup (1) / teardown (0).
+extern "C" void carselect_build_list_803B81F0(uint8_t* rdram, recomp_context* ctx); // Car select setup (1) / teardown (0).
 extern "C" void func_803AA800(uint8_t* rdram, recomp_context* ctx); // Controller Pak change check, per frame.
 extern "C" void func_80080BD0(uint8_t* rdram, recomp_context* ctx); // Called first in the car select's frame.
-extern "C" void func_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
+extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
 extern "C" void func_800ABE5C(uint8_t* rdram, recomp_context* ctx); // Reloads the menus' assets (track select's B).
-extern "C" void func_80086A60(uint8_t* rdram, recomp_context* ctx); // Loads asset $a0.
-extern "C" void func_8005BE3C(uint8_t* rdram, recomp_context* ctx); // Model by name ($a0, slots $a1..$a2).
+extern "C" void asset_load_80086A60(uint8_t* rdram, recomp_context* ctx); // Loads asset $a0.
+extern "C" void model_find_by_name_8005BE3C(uint8_t* rdram, recomp_context* ctx); // Model by name ($a0, slots $a1..$a2).
 extern "C" void func_8007F91C(uint8_t* rdram, recomp_context* ctx); // New scene matrix.
 extern "C" void func_8008035C(uint8_t* rdram, recomp_context* ctx); // New scene node (model, matrix, parent, flags).
 extern "C" void func_8005A2D8(uint8_t* rdram, recomp_context* ctx); // Node $a0's position ($a1) and matrix ($a2).
 extern "C" void func_80058ED4(uint8_t* rdram, recomp_context* ctx); // Shows node $a0.
-extern "C" void func_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
+extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
 extern "C" void func_80093FA8(uint8_t* rdram, recomp_context* ctx); // Text setting ($f12), 0 as the car select's.
-extern "C" void func_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text style.
+extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text style.
 extern "C" void func_800734AC(uint8_t* rdram, recomp_context* ctx); // x of a string centered on $a1.
-extern "C" void func_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
-extern "C" void func_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
+extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
+extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
 
 namespace {
     using rush2::unlocks::Item;
@@ -216,7 +216,7 @@ namespace {
     }
 
     void play_sound(uint8_t* rdram, recomp_context* ctx, int sound) {
-        call(rdram, ctx, func_80064908, sound);
+        call(rdram, ctx, menu_play_sound_80064908, sound);
     }
 
     std::vector<const Item*> items_of(Kind kind) {
@@ -340,7 +340,7 @@ namespace {
     }
 
     void teardown(uint8_t* rdram, recomp_context* ctx) {
-        call(rdram, ctx, func_803B81F0, 0);
+        call(rdram, ctx, carselect_build_list_803B81F0, 0);
         shop.nodes.clear();
         shop.shown.clear();
     }
@@ -359,15 +359,15 @@ namespace {
         uint32_t name;
         if (item.kind == Kind::Track) {
             rush2::track2049::prepare_menu_art(rdram);
-            call(rdram, ctx, func_80086A60, menu_art_asset, 0);
+            call(rdram, ctx, asset_load_80086A60, menu_art_asset, 0);
             name = rush2::track2049::diorama_name(rdram, item.value);
         }
         else {
-            call(rdram, ctx, func_80086A60, rush2::car2049::parts_asset, 0);
+            call(rdram, ctx, asset_load_80086A60, rush2::car2049::parts_asset, 0);
             name = str(rdram, rush2::car2049::part_model_name(engine_model(item)));
         }
         int slots = MEM_BU(0, (int32_t)model_slots);
-        int model = call(rdram, ctx, func_8005BE3C, (int32_t)name, 0, slots - 1, 1);
+        int model = call(rdram, ctx, model_find_by_name_8005BE3C, (int32_t)name, 0, slots - 1, 1);
         if (model < 0) {
             printf("[unlocks] No model for %s\n", item.id);
             fflush(stdout);
@@ -597,27 +597,27 @@ namespace {
     // Text
 
     void set_font(uint8_t* rdram, recomp_context* ctx, int font) {
-        call(rdram, ctx, func_80088C24, font);
+        call(rdram, ctx, text_select_font_80088C24, font);
         call(rdram, ctx, func_80093FA8, 0, 0, 0, 0, 0.0f);
     }
 
     void print(uint8_t* rdram, recomp_context* ctx, int style, int x, int y, const std::string& s) {
-        call(rdram, ctx, func_800737E4, style);
-        call(rdram, ctx, func_800734E0, x, y, (int32_t)str(rdram, s));
+        call(rdram, ctx, text_select_style_800737E4, style);
+        call(rdram, ctx, text_print_string_800734E0, x, y, (int32_t)str(rdram, s));
     }
 
     void print_centered(uint8_t* rdram, recomp_context* ctx, int style, int cx, int y, const std::string& s) {
-        call(rdram, ctx, func_800737E4, style);
+        call(rdram, ctx, text_select_style_800737E4, style);
         uint32_t at = str(rdram, s);
         int x = (int16_t)call(rdram, ctx, func_800734AC, (int32_t)at, cx);
-        call(rdram, ctx, func_800734E0, x, y, (int32_t)at);
+        call(rdram, ctx, text_print_string_800734E0, x, y, (int32_t)at);
     }
 
     void print_right(uint8_t* rdram, recomp_context* ctx, int style, int right, int y, const std::string& s) {
-        call(rdram, ctx, func_800737E4, style);
+        call(rdram, ctx, text_select_style_800737E4, style);
         uint32_t at = str(rdram, s);
-        int w = call(rdram, ctx, func_800732AC, (int32_t)at, -1);
-        call(rdram, ctx, func_800734E0, right - w, y, (int32_t)at);
+        int w = call(rdram, ctx, text_measure_string_800732AC, (int32_t)at, -1);
+        call(rdram, ctx, text_print_string_800734E0, right - w, y, (int32_t)at);
     }
 
     void draw(uint8_t* rdram, recomp_context* ctx) {
@@ -642,7 +642,7 @@ namespace {
         for (int c = 0; c < category_count; c++) {
             if (!category_shown(c)) continue;
             print(rdram, ctx, c == shop.category ? style_title : style_label, x, 52, category_names[c]);
-            x += call(rdram, ctx, func_800732AC, (int32_t)str(rdram, category_names[c]), -1) + 10;
+            x += call(rdram, ctx, text_measure_string_800732AC, (int32_t)str(rdram, category_names[c]), -1) + 10;
         }
         glyph(MenuButton::R, x - 4, 50);
         print_right(rdram, ctx, style_value, 300, 52, shop.name.empty() ? "NO PROFILE" : upper(shop.name));
@@ -824,7 +824,7 @@ extern "C" int rush2_unlocks_shop_frame(uint8_t* rdram, recomp_context* ctx) {
     bool show_model = category_kinds[shop.category] != Kind::Car && item != nullptr;
     shop.hide_cars = show_model;
     call(rdram, ctx, func_80080BD0);
-    call(rdram, ctx, func_803B81F0, 1);
+    call(rdram, ctx, carselect_build_list_803B81F0, 1);
     if (!built) {
         make_models(rdram, ctx);
     }

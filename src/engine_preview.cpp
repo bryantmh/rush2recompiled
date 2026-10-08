@@ -22,8 +22,8 @@
 #include "engine2049.h"
 #include "rush2_hooks.h"
 
-extern "C" void func_8008C61C(uint8_t* rdram, recomp_context* ctx); // Starts engine a0 on slot a1.
-extern "C" void func_8008C49C(uint8_t* rdram, recomp_context* ctx); // Stops both slots' engines.
+extern "C" void engine_sound_start_8008C61C(uint8_t* rdram, recomp_context* ctx); // Starts engine a0 on slot a1.
+extern "C" void engine_sound_stop_8008C49C(uint8_t* rdram, recomp_context* ctx); // Stops both slots' engines.
 
 namespace {
     constexpr uint32_t engine_ids = 0x800D56F8;   // s32 [2]: engine + 10 * slot + 1, 0 = none
@@ -82,7 +82,7 @@ namespace {
         uint32_t other = engine_ids + (slot ^ 1) * 4;
         int32_t kept = MEM_W(0, (int32_t)other);
         MEM_W(0, (int32_t)other) = 0;
-        call(rdram, ctx, func_8008C49C);
+        call(rdram, ctx, engine_sound_stop_8008C49C);
         MEM_W(0, (int32_t)other) = kept;
     }
 
@@ -165,7 +165,7 @@ extern "C" void rush2_engine_preview_start(uint8_t* rdram, recomp_context* ctx) 
     put_f32(rdram, engine_boost + slot * 4, 0.0f);
     MEM_W(0, (int32_t)(engine_ramp + slot * 4)) = 0;
     rush2::engine2049::set_preview_call(true);
-    call(rdram, ctx, func_8008C61C, engine, slot);
+    call(rdram, ctx, engine_sound_start_8008C61C, engine, slot);
     rush2::engine2049::set_preview_call(false);
     revs[slot].active = true;
     revs[slot].start = Clock::now();

@@ -49,7 +49,7 @@
 #include "car2049.h"
 #include "unlocks.h"
 
-extern "C" void func_80094F1C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void unlocks_check_tracks_80094F1C(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
     constexpr uint32_t cheat_menu_flag = 0x800C213C;
@@ -632,7 +632,7 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
     else if (unlock_tracks_restore_pending.exchange(false)) {
         // Recompute them from the save data. Called on a copy of the context, from the top of the main loop.
         recomp_context unlock_ctx = *ctx;
-        func_80094F1C(rdram, &unlock_ctx);
+        unlocks_check_tracks_80094F1C(rdram, &unlock_ctx);
     }
 
     for (size_t i = 0; i < cheat_list.size(); i++) {

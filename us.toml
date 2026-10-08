@@ -28,10 +28,10 @@ stubs = [
 
 ignored = [
     # Handwritten ll/sc atomic bit set/clear helpers; reimplemented in src/atomics.cpp.
-    "func_80003B34",
-    "func_80003B54",
+    "atomic_set_bits_80003B34",
+    "atomic_clear_bits_80003B54",
     # Copy of __osGetId called directly by the game's pak thread; reimplemented in src/atomics.cpp.
-    "func_8000D090",
+    "os_get_id_8000D090",
     # osStartThread/osStopThread; reimplemented with libultra semantics in src/threads.cpp.
     "rush2_osStartThread",
     "rush2_osStopThread",
@@ -58,13 +58,13 @@ text = "    load_overlays(0x01000000, (int32_t)0x800539E0, 0x691D0);"
 # Analog pedals: at the exit of the function that sets the car's throttle (+0x734) and brake (+0x730) from the held
 # buttons, scale a pressed pedal by trigger pressure (src/input.cpp). $s0 = car, $s1 = player.
 [[patches.hook]]
-func = "func_80076854"
+func = "car_set_pedals_80076854"
 before_vram = 0x800769F0
 text = "    rush2_analog_pedals(rdram, ctx);"
 
 # Overlay: inflated to 0x803AA800 by func_800A62C0.
 [[patches.hook]]
-func = "func_800A62C0"
+func = "overlay_load_800A62C0"
 before_vram = 0x800A6314
 text = "    load_overlays(0x01080000, (int32_t)0x803AA800, 0x1C190); rush2_track49_overlay_loaded(rdram, ctx); rush2_pak_menu_overlay_loaded(rdram, ctx);"
 
@@ -105,13 +105,13 @@ text = "    yield_self_1ms(rdram);"
 # window edge instead, and a viewport inset from an edge the scissor now reaches (the top view of a 2 player race)
 # is moved back to it (src/widescreen.cpp). $t2..$t5 hold ulx, uly, lrx, lry in pixels here, $s1 = viewport.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007C7B4
 text = "    rush2_view_scissor(rdram, ctx);"
 
 # G_SETSCISSOR written at $a1.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007C8D4
 text = "    rush2_view_scissor_written(rdram, ctx);"
 
@@ -150,7 +150,7 @@ text = "    rush2_split_divider(rdram, ctx);"
 # Menu background (src/widescreen.cpp): extends the animated "RUSH2" mesh past the 4:3 edges. func_8007AA48 is
 # about to emit the G_DL for a node's model, $fp = model display list.
 [[patches.hook]]
-func = "func_8007AA48"
+func = "model_draw_8007AA48"
 before_vram = 0x8007AF84
 text = "    rush2_model_draw(rdram, ctx);"
 
@@ -225,102 +225,102 @@ text = "    rush2_hud_draw_end(rdram, ctx);"
 # Frame interpolation: stable RT64 matrix group IDs for everything the 3D renderer draws (src/interpolation.cpp).
 # func_8007C624 draws one player view; func_8007B518 recursively draws a scene graph level.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007C624
 text = "    rush2_interp_view_begin(rdram, ctx);"
 
 # Projection G_MTX written at $v0.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007CBB4
 text = "    rush2_interp_projection(rdram, ctx);"
 
 # Root modelview G_MTX written at $v0.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007CF50
 text = "    rush2_interp_root_modelview(rdram, ctx);"
 
 # G_RDPPIPESYNC starting a world-space polygon written at $v0, $fp = polygon.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007D03C
 text = "    rush2_interp_poly(rdram, ctx);"
 
 # Sky polygon clipping (src/interpolation.cpp): the G_VTX of a world-space polygon allocated at $v0, and the end of
 # the polygon's commands (L_8007D890). $fp = polygon.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007D740
 text = "    rush2_interp_poly_vtx(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007D890
 text = "    rush2_interp_poly_end(rdram, ctx);"
 
 # Rocket ZX flames (src/car2049.cpp): queued while the scene graph draws, drawn after the world-space polygons
 # (shadows, skids, particles) so those don't paint over them. $s6 = display list cursor at L_8007D980.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007C628
 text = "    rush2_car49_flames_view_begin(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007D980
 text = "    rush2_car49_flames_draw(rdram, ctx);"
 
 # Function exit (reached by both paths after the deferred scene graph draw).
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007D9CC
 text = "    rush2_interp_view_end(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 before_vram = 0x8007B518
 text = "    rush2_interp_level_enter(rdram, ctx);"
 
 # Loop head, once per sibling node.
 [[patches.hook]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 before_vram = 0x8007B5AC
 text = "    rush2_interp_node_begin(rdram, ctx);"
 
 # Node G_MTX written at $v0, $s7 = node.
 [[patches.hook]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 before_vram = 0x8007B91C
 text = "    rush2_interp_node_matrix(rdram, ctx);"
 
 # After a pushed node: G_POPMTX written (if $s2 != 0) or the node's G_MTX rolled back.
 [[patches.hook]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 before_vram = 0x8007BD7C
 text = "    rush2_interp_node_pop(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 before_vram = 0x8007BDC8
 text = "    rush2_interp_level_exit(rdram, ctx);"
 
 # Level of detail override (src/lod.cpp). func_8007AA48 draws a node's model; every path has stored the node's
 # camera distance in D_80117490 by here, and it is read only to cull and pick the LOD. $s7 = node.
 [[patches.hook]]
-func = "func_8007AA48"
+func = "model_draw_8007AA48"
 before_vram = 0x8007ABB8
 text = "    rush2_lod_select(rdram, ctx);"
 
 # Draw distance (src/draw_distance.cpp): before guPerspective, $f8 = the view's far plane and 0x10($sp) = near * 16.
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007CB5C
 text = "    rush2_draw_distance_projection(rdram, ctx);"
 
 # Draw distance: the scene walker's placed object cull distance (0x80110040) was just loaded into $f8.
 [[patches.hook]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 before_vram = 0x8007BA50
 text = "    rush2_draw_distance_cull(rdram, ctx);"
 
@@ -338,7 +338,7 @@ text = "    if (rush2_draw_distance_matrix_cols(rdram, ctx)) return;"
 
 # Text printed by HUD callback widgets (laps left, lap times). $a0 = x.
 [[patches.hook]]
-func = "func_800734E0"
+func = "text_print_string_800734E0"
 before_vram = 0x800734E0
 text = "    rush2_hud_print(rdram, ctx);"
 
@@ -373,7 +373,7 @@ text = "    rush2_cheats_frame(rdram, ctx);"
 
 # Unlock All Cars (src/cheats.cpp). Car select setup, after every player's car list is built.
 [[patches.hook]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 before_vram = 0x803B8760
 text = "    rush2_cheats_car_list(rdram, ctx);"
 
@@ -438,39 +438,39 @@ text = "    rush2_controls_menu_draw(rdram, ctx);"
 # Rush 2049 wings physics (src/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is
 # part of rush2_model_draw.
 [[patches.hook]]
-func = "func_800706D0"
+func = "car_physics_forces_800706D0"
 before_vram = 0x80070704
 text = "    rush2_wings_torque(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800706D0"
+func = "car_physics_forces_800706D0"
 before_vram = 0x80070714
 text = "    rush2_wings_save_position(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8006A02C"
+func = "car_force_sum_8006A02C"
 before_vram = 0x8006A0E0
 text = "    rush2_wings_gravity(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8006AFD8"
+func = "car_wheel_forces_drag_8006AFD8"
 before_vram = 0x8006B5E4
 text = "    rush2_wings_drag(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 before_vram = 0x8008DF84
 text = "    rush2_wings_car_init(rdram, ctx);"
 
 # Replacement asset files (src/assets.cpp): func_80077F20 inflates and func_80077F84 un-LZs an asset given its ROM
 # offset ($a0) and destination ($a1), returning the size.
 [[patches.hook]]
-func = "func_80077F20"
+func = "asset_inflate_80077F20"
 before_vram = 0x80077F20
 text = "    if (rush2_asset_decompress(rdram, ctx)) return;"
 
 [[patches.hook]]
-func = "func_80077F84"
+func = "asset_lz_decompress_80077F84"
 before_vram = 0x80077F84
 text = "    if (rush2_asset_decompress(rdram, ctx)) return;"
 
@@ -512,34 +512,34 @@ vram = 0x8009FBE8
 value = 0x35CE0000 # ori $t6, $t6, 0
 
 [[patches.instruction]]
-func = "func_800A62C0"
+func = "overlay_load_800A62C0"
 vram = 0x800A62E8
 value = 0x3C1880B0 # lui $t8, 0x80B0
 
 [[patches.instruction]]
-func = "func_800A62C0"
+func = "overlay_load_800A62C0"
 vram = 0x800A62EC
 value = 0x37180000 # ori $t8, $t8, 0
 
 # Rush 2049 tracks (src/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the
 # visible sections for the camera's region, func_800A45A8 builds the sky.
 [[patches.hook]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 before_vram = 0x800A4C98
 text = "    rush2_track49_load(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8007C27C"
+func = "pvs_apply_8007C27C"
 before_vram = 0x8007C480
 text = "    rush2_track49_pvs(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A45A8"
+func = "sky_setup_800A45A8"
 before_vram = 0x800A4644
 text = "    rush2_track49_sky(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A45A8"
+func = "sky_setup_800A45A8"
 before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
@@ -547,32 +547,32 @@ text = "    rush2_track49_sky_players(rdram, ctx);"
 # func_803ABE0C (per frame); its tables and carousel array are repointed to 30-entry copies at 0x80300000 (Rush 2's 12
 # tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29).
 [[patches.hook]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB5C0
 text = "    rush2_track49_select_init(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB6C8
 text = "    rush2_track49_select_count(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_803AB01C"
+func = "trackselect_track_available_803AB01C"
 before_vram = 0x803AB01C
 text = "    if (rush2_track49_select_available(rdram, ctx)) return;"
 
 [[patches.hook]]
-func = "func_803ABE0C"
+func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC104
 text = "    rush2_track49_select_wrap(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_803ABE0C"
+func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC670
 text = "    rush2_track49_select_save_p1(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_803ABE0C"
+func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC6B8
 text = "    rush2_track49_select_save_p2(rdram, ctx);"
 
@@ -585,19 +585,19 @@ text = "    if (rush2_track49_keys(rdram, ctx)) return;"
 # mirror off), stunt mode (func_800AE670, which also means no drones), greyed track select options, and the option
 # list's drawing.
 [[patches.hook]]
-func = "func_800AE670"
+func = "race_start_timer_800AE670"
 before_vram = 0x800AE78C
 text = "    rush2_track49_stunt_mode(rdram, ctx);"
 
 # Rush 2049's obstacle course (src/track2049.cpp): raced alone over one lap with checkpoints on (end of
 # func_80094698), against a 5-minute clock (func_800AE670 just after it set the time allowed, 0x8010C204).
 [[patches.hook]]
-func = "func_80094698"
+func = "menu_settings_to_race_globals_80094698"
 before_vram = 0x80094A30
 text = "    rush2_track49_obstacle_settings(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800AE670"
+func = "race_start_timer_800AE670"
 before_vram = 0x800AEB20
 text = "    rush2_track49_obstacle_clock(rdram, ctx);"
 
@@ -615,22 +615,22 @@ text = "    rush2_track49_respawn_delay(rdram, ctx);"
 
 # Rush 2049's respawn zones (type 2 branches, src/track2049.cpp): the car is put back on the spot.
 [[patches.hook]]
-func = "func_80090570"
+func = "car_track_position_80090570"
 before_vram = 0x80090758
 text = "    if (rush2_track49_respawn_zone(rdram, ctx)) goto L_80090A1C;"
 
 [[patches.hook]]
-func = "func_80090A40"
+func = "respawn_place_car_80090A40"
 before_vram = 0x80091368
 text = "    rush2_track49_respawn_zone_advance(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_80090A40"
+func = "respawn_place_car_80090A40"
 before_vram = 0x800918E8
 text = "    rush2_track49_respawn_zone_place(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800B8188"
+func = "minimap_draw_800B8188"
 before_vram = 0x800B81D8
 text = "    rush2_track49_map_s4(rdram, ctx);"
 
@@ -655,22 +655,22 @@ before_vram = 0x800B9D70
 text = "    rush2_track49_map_t0(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_80094698"
+func = "menu_settings_to_race_globals_80094698"
 before_vram = 0x80094754
 text = "    rush2_track49_stunt_settings_t8(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_80094698"
+func = "menu_settings_to_race_globals_80094698"
 before_vram = 0x800947F0
 text = "    rush2_track49_stunt_settings_t6(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_803ABE0C"
+func = "trackselect_frame_803ABE0C"
 before_vram = 0x803ABFBC
 text = "    rush2_track49_stunt_select(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_803ABE0C"
+func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC554
 text = "    rush2_track49_stunt_select(rdram, ctx);"
 
@@ -764,7 +764,7 @@ before_vram = 0x800A5B2C
 text = "    rush2_track49_race_start(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A5110"
+func = "race_load_track_800A5110"
 before_vram = 0x800A5110
 text = "    rush2_track49_race_start(rdram, ctx);"
 
@@ -779,112 +779,112 @@ vram = 0x803AB104
 value = 0x80630400 # lb     $v1, 0x400($v1)
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6F0
 value = 0x3C198030 # lui     $t9, 0x8030
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6F4
 value = 0x27390400 # addiu    $t9, $t9, 0x400
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB88C
 value = 0x3C0F8030 # lui     $t7, 0x8030
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB8A4
 value = 0x81EF0400 # lb     $t7, 0x400($t7)
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803ABAC4
 value = 0x3C0E8030 # lui     $t6, 0x8030
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803ABAC8
 value = 0x25CE0400 # addiu    $t6, $t6, 0x400
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803ABCD0
 value = 0x3C0E8030 # lui     $t6, 0x8030
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803ABCD4
 value = 0x25CE0400 # addiu    $t6, $t6, 0x400
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB7B8
 value = 0x3C048030 # lui     $a0, 0x8030
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB7D0
 value = 0x8C840000 # lw     $a0, 0x0($a0)
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803ABB0C
 value = 0x3C128030 # lui     $s2, 0x8030
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803ABB14
 value = 0x26520080 # addiu    $s2, $s2, 0x80
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB890
 value = 0x3C018030 # lui     $at, 0x8030
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB8B0
 value = 0xC42A0100 # lwc1    $f10, 0x100($at)
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803ABCF0
 value = 0x3C018030 # lui     $at, 0x8030
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803ABD00
 value = 0xC4260100 # lwc1    $f6, 0x100($at)
 
 [[patches.instruction]]
-func = "func_803C6208"
+func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6234
 value = 0x3C058030 # lui     $a1, 0x8030
 
 [[patches.instruction]]
-func = "func_803C6208"
+func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6248
 value = 0x8CA50180 # lw     $a1, 0x180($a1)
 
 [[patches.instruction]]
-func = "func_803C6208"
+func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6220
 value = 0x304E001F # andi    $t6, $v0, 0x1F
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB67C
 value = 0x2A21001E # slti    $at, $s1, 0x1E
 
 [[patches.instruction]]
-func = "func_803AB294"
+func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6D0
 value = 0x241E001E # addiu    $fp, $zero, 0x1E
 
 [[patches.instruction]]
-func = "func_803ABE0C"
+func = "trackselect_frame_803ABE0C"
 vram = 0x803AC0FC
 value = 0x28C1001E # slti    $at, $a2, 0x1E
 
@@ -892,99 +892,99 @@ value = 0x28C1001E # slti    $at, $a2, 0x1E
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
 # post-race and high-score screen functions run. None of these instructions is a delay slot.
 [[patches.hook]]
-func = "func_80065360"
+func = "record_stat_stunt_max_80065360"
 before_vram = 0x80065428
 text = "    rush2_track49_records_stats(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8006544C"
+func = "record_stat_stunt_count_8006544C"
 before_vram = 0x80065514
 text = "    rush2_track49_records_stats(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A9164"
+func = "record_stat_max_0x1e_800A9164"
 before_vram = 0x800A922C
 text = "    rush2_track49_records_stats(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A9250"
+func = "record_stats_race_end_800A9250"
 before_vram = 0x800A93B4
 text = "    rush2_track49_records_stats(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A7804"
+func = "record_stats_average_lap_800A7804"
 before_vram = 0x800A78E4
 text = "    rush2_track49_records_stats(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A7804"
+func = "record_stats_average_lap_800A7804"
 before_vram = 0x800A78F8
 text = "    rush2_track49_records_stats(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A952C"
+func = "postrace_records_update_800A952C"
 before_vram = 0x800A99C8
 text = "    rush2_track49_records_times(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A952C"
+func = "postrace_records_update_800A952C"
 before_vram = 0x800A952C
 text = "    rush2_track49_records_enter(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A952C"
+func = "postrace_records_update_800A952C"
 before_vram = 0x800AA964
 text = "    rush2_track49_records_exit(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800606A8"
+func = "highscore_screen_800606A8"
 before_vram = 0x800606A8
 text = "    rush2_track49_records_enter(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800606A8"
+func = "highscore_screen_800606A8"
 before_vram = 0x80060DA0
 text = "    rush2_track49_records_exit(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800606A8"
+func = "highscore_screen_800606A8"
 before_vram = 0x800608A4
 text = "    rush2_track49_records_seed(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800B3110"
+func = "profile_records_clear_800B3110"
 before_vram = 0x800B3110
 text = "    rush2_track49_records_clear(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800B306C"
+func = "profile_delete_800B306C"
 before_vram = 0x800B306C
 text = "    rush2_player_deleted(rdram, ctx);"
 
 # Rush 2049 moving track objects (src/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's
 # subway trains move), func_800706D0 runs a car's physics (here after its wheel probes).
 [[patches.hook]]
-func = "func_80076578"
+func = "physics_tick_80076578"
 before_vram = 0x800765F4
 text = "    rush2_track49_movers_tick(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800706D0"
+func = "car_physics_forces_800706D0"
 before_vram = 0x800706E4
 text = "    rush2_track49_movers_car(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800706D0"
+func = "car_physics_forces_800706D0"
 before_vram = 0x800706DC
 text = "    rush2_track49_movers_probe_begin(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8006F704"
+func = "collision_poly_extract_8006F704"
 before_vram = 0x8006F99C
 text = "    rush2_track49_movers_probe(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800706D0"
+func = "car_physics_forces_800706D0"
 before_vram = 0x800706EC
 text = "    rush2_track49_movers_pads(rdram, ctx);"
 
@@ -1004,7 +1004,7 @@ text = "    rush2_track49_music_command(rdram, ctx);"
 # its bank loaded after Rush 2's (func_800B3B78), the race's sequence is the one src/music.cpp chose (func_8008C370,
 # $v0 = sequence), and the music loader gives the sequence player the song's bank before attaching it (func_8007733C).
 [[patches.hook]]
-func = "func_800B3B78"
+func = "audio_banks_init_800B3B78"
 before_vram = 0x800B4000
 text = "    rush2_track1_audio_init(rdram, ctx);"
 
@@ -1028,30 +1028,30 @@ text = "    rush2_music_preview(rdram, ctx);"
 # (placement walker func_80081790, before its model lookup), and Rush 2 breakable pieces resolve to SF Rush's
 # (func_8005BE3C, the model lookup by name).
 [[patches.hook]]
-func = "func_80081790"
+func = "placement_walk_80081790"
 before_vram = 0x8008194C
 text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rdram, ctx);"
 
 # SF Rush visibility (src/track1.cpp): the camera position, for SF Rush's own region choice in rush2_track49_pvs.
 [[patches.hook]]
-func = "func_8007C27C"
+func = "pvs_apply_8007C27C"
 before_vram = 0x8007C27C
 text = "    rush2_track1_pvs_camera(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8005BE3C"
+func = "model_find_by_name_8005BE3C"
 before_vram = 0x8005BE3C
 text = "    rush2_track1_model_name(rdram, ctx);"
 
 # ...and keep their own models: the per-frame breakable update draws each with its class id's model (src/track1.cpp).
 [[patches.hook]]
-func = "func_8008A01C"
+func = "breakables_update_8008A01C"
 before_vram = 0x8008A0CC
 text = "    rush2_track1_breakable_model(rdram, ctx); rush2_collect_breakable_model(rdram, ctx);"
 
 # ...and are hit as in Rush 1, at any height in the car's footprint (src/track1.cpp).
 [[patches.hook]]
-func = "func_8008B0CC"
+func = "breakable_car_hit_test_8008B0CC"
 before_vram = 0x8008B0CC
 text = "    if (rush2_ghost_breakable_hit(rdram, ctx) || rush2_track1_breakable_hit(rdram, ctx) || rush2_collect_hit(rdram, ctx)) return;"
 
@@ -1079,7 +1079,7 @@ value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 # 30-entry name table into a 30-entry array at 0x80300780 (was 7 at 0x803C7A44), with the 30-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
 [[patches.hook]]
-func = "func_800A7DCC"
+func = "circuit_generate_800A7DCC"
 before_vram = 0x800A8588
 text = "    rush2_track49_circuit(rdram, ctx);"
 
@@ -1190,19 +1190,19 @@ value = 0x8CA50180 # lw $a1, 0x180($a1)
 
 # Car Speeds: map the path's AI lane speeds before the race time is worked out from them (src/track2049.cpp).
 [[patches.hook]]
-func = "func_80093048"
+func = "path_load_derive_80093048"
 before_vram = 0x80093290
 text = "    rush2_race_lane_speeds(rdram, ctx);"
 
 # Car Speeds: with Rush 2049 speeds the speedometer reads like Rush 2049's, true speed x 1.2 (src/car2049.cpp).
 [[patches.hook]]
-func = "func_800BA2A8"
+func = "hud_speedometer_800BA2A8"
 before_vram = 0x800BA3F8
 text = "    rush2_speedometer(rdram, ctx);"
 
 # Rush 2049 tracks: scale the race time Rush 2 works out from the path's AI lane speeds (src/track2049.cpp).
 [[patches.hook]]
-func = "func_80093048"
+func = "path_load_derive_80093048"
 before_vram = 0x80093298
 text = "    rush2_track49_race_time(rdram, ctx);"
 
@@ -1396,12 +1396,12 @@ vram = 0x800865C8
 value = 0x83391020 # lb $t9, 0xE48($t9) -> 80201020
 
 [[patches.instruction]]
-func = "func_80086700"
+func = "car_parts_build_80086700"
 vram = 0x8008671C
 value = 0x3C198020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_80086700"
+func = "car_parts_build_80086700"
 vram = 0x80086728
 value = 0x27390120 # addiu $t9, $t9, 0x764 -> 80200120
 
@@ -1841,182 +1841,182 @@ vram = 0x8008DB70
 value = 0xC4320268 # lwc1 $f18, 0x858($at) -> 80200268
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DBF4
 value = 0x3C0F8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC00
 value = 0x81EF01B0 # lb $t7, 0x7E8($t7) -> 802001B0
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC1C
 value = 0x0011C8C0 # row stride 22 -> 36 ($t9 = $s1 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC24
 value = 0x0331C821 # row stride 22 -> 36 ($t9 = $s1 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC28
 value = 0x0019C900 # row stride 22 -> 36 ($t9 = $s1 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC2C
 value = 0x3C048020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC30
 value = 0x0019C800 # row stride 22 -> 36 ($t9 = $s1 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC34
 value = 0x24840418 # addiu $a0, $a0, 0x964 -> 80200418
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC38
 value = 0x0019C800 # row stride 22 -> 36 ($t9 = $s1 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC58
 value = 0x3C018020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC60
 value = 0xC42802F8 # lwc1 $f8, 0x8B0($at) -> 802002F8
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC70
 value = 0x3C018020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC7C
 value = 0x001158C0 # row stride 22 -> 36 ($t3 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC80
 value = 0x01715821 # row stride 22 -> 36 ($t3 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC84
 value = 0x000B5880 # row stride 22 -> 36 ($t3 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC88
 value = 0x000B5800 # row stride 22 -> 36 ($t3 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC8C
 value = 0x000B5800 # row stride 22 -> 36 ($t3 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC90
 value = 0x3C0D8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC98
 value = 0x25AD0DF8 # addiu $t5, $t5, 0xD14 -> 80200DF8
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DCA8
 value = 0xC4240388 # lwc1 $f4, 0x90C($at) -> 80200388
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DCB8
 value = 0x001140C0 # row stride 22 -> 36 ($t0 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DCC0
 value = 0x01114021 # row stride 22 -> 36 ($t0 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DCC4
 value = 0x00084080 # row stride 22 -> 36 ($t0 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DCC8
 value = 0x00084000 # row stride 22 -> 36 ($t0 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DCCC
 value = 0x00084000 # row stride 22 -> 36 ($t0 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DCD0
 value = 0x3C0A8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD10
 value = 0x001170C0 # row stride 22 -> 36 ($t6 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD14
 value = 0x01D17021 # row stride 22 -> 36 ($t6 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD20
 value = 0x814A0D40 # lb $t2, 0xCD0($t2) -> 80200D40
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD24
 value = 0x000E7080 # row stride 22 -> 36 ($t6 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD28
 value = 0x000E7000 # row stride 22 -> 36 ($t6 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD38
 value = 0x000E7000 # row stride 22 -> 36 ($t6 = $s1 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD3C
 value = 0x3C188020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD50
 value = 0x83181020 # lb $t8, 0xE48($t8) -> 80201020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DEF4
 value = 0x3C0C8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DEFC
 value = 0x258C01D8 # addiu $t4, $t4, 0x800 -> 802001D8
 
@@ -2791,487 +2791,487 @@ vram = 0x800AB784
 value = 0xA3F80024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7F7C
 value = 0x001470C0 # row stride 22 -> 36 ($t6 = $s4 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7F80
 value = 0x01D47021 # row stride 22 -> 36 ($t6 = $s4 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7F90
 value = 0x000E7100 # row stride 22 -> 36 ($t6 = $s4 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7F94
 value = 0x000E7000 # row stride 22 -> 36 ($t6 = $s4 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7F9C
 value = 0x3C0F8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7FA4
 value = 0x25EF0418 # addiu $t7, $t7, 0x964 -> 80200418
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7FA8
 value = 0x000E7000 # row stride 22 -> 36 ($t6 = $s4 * 36 * 4)
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7FC8
 value = 0xC6160090 # row offset 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7FCC
 value = 0xE61C0090 # row offset 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7FE0
 value = 0xE61E0090 # row offset 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B7FF8
 value = 0xE6160090 # row offset 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B8044
 value = 0x3C168020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B804C
 value = 0x26D601B0 # addiu $s6, $s6, 0x7E8 -> 802001B0
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A48
 value = 0x3C0F8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A4C
 value = 0x3C188020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A50
 value = 0x3C0E8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A54
 value = 0x3C198020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A58
 value = 0x27391300 # addiu $t9, $t9, 0xF58 -> 80201300
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A5C
 value = 0x25CE1248 # addiu $t6, $t6, 0xF14 -> 80201248
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A60
 value = 0x27181190 # addiu $t8, $t8, 0xED0 -> 80201190
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A64
 value = 0x25EF13B8 # addiu $t7, $t7, 0xF9C -> 802013B8
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A78
 value = 0x3C198020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A7C
 value = 0x3C0E8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A80
 value = 0x3C188020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A84
 value = 0x3C0F8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A88
 value = 0x25EF06E8 # addiu $t7, $t7, 0xA6C -> 802006E8
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A8C
 value = 0x27180418 # addiu $t8, $t8, 0x964 -> 80200418
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A90
 value = 0x25CE1020 # addiu $t6, $t6, 0xE48 -> 80201020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8A94
 value = 0x273910D8 # addiu $t9, $t9, 0xE8C -> 802010D8
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8AAC
 value = 0x3C188020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8AB8
 value = 0x3C028020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8ABC
 value = 0x3C038020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8AC0
 value = 0x3C048020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8AC4
 value = 0x3C058020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8AC8
 value = 0x24A50F68 # addiu $a1, $a1, 0xDAC -> 80200F68
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8ACC
 value = 0x24840EB0 # addiu $a0, $a0, 0xD68 -> 80200EB0
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8AD0
 value = 0x24630D40 # addiu $v1, $v1, 0xCD0 -> 80200D40
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8AD4
 value = 0x24420C88 # addiu $v0, $v0, 0xC7C -> 80200C88
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8AE0
 value = 0x271809B8 # addiu $t8, $t8, 0xB74 -> 802009B8
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8B74
 value = 0xA2620024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8B84
 value = 0xA2820024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8B94
 value = 0xA2A20024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8BA4
 value = 0xA2C20024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8BB4
 value = 0xA2E20024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8BC4
 value = 0xA3C20024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8BDC
 value = 0xA1C20024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8BF0
 value = 0xA3220024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8C04
 value = 0xE5E00090 # row offset 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8C18
 value = 0xA3020024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8C2C
 value = 0xA1C20024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8C40
 value = 0xE7200090 # row offset 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8CC4
 value = 0xE440008C # row offset 0x54 -> 0x8c
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8EBC
 value = 0x27190024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8EC8
 value = 0x25F80024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8ED4
 value = 0x272F0024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8EE0
 value = 0x27190024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8EEC
 value = 0x25F80024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8EF8
 value = 0x272F0024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8F04
 value = 0x27190024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8F10
 value = 0x25F80024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8F1C
 value = 0x272F0090 # row step 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8F28
 value = 0x27190024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8F30
 value = 0x25F80024 # row step 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8F40
 value = 0x272F0090 # row step 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8F48
 value = 0x27190090 # row step 0x58 -> 0x90
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B90F8
 value = 0x0006C0C0 # row stride 22 -> 36 ($t8 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9104
 value = 0x0306C021 # row stride 22 -> 36 ($t8 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9108
 value = 0x0018C080 # row stride 22 -> 36 ($t8 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B910C
 value = 0x3C0E8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9114
 value = 0x0018C000 # row stride 22 -> 36 ($t8 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9118
 value = 0x0018C000 # row stride 22 -> 36 ($t8 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B911C
 value = 0x25CE1190 # addiu $t6, $t6, 0xED0 -> 80201190
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9138
 value = 0x3C188020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9140
 value = 0x27181248 # addiu $t8, $t8, 0xF14 -> 80201248
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9148
 value = 0x000678C0 # row stride 22 -> 36 ($t7 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B914C
 value = 0x01E67821 # row stride 22 -> 36 ($t7 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9150
 value = 0x000F7880 # row stride 22 -> 36 ($t7 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9154
 value = 0x000F7800 # row stride 22 -> 36 ($t7 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B915C
 value = 0x0006C8C0 # row stride 22 -> 36 ($t9 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9160
 value = 0x000F7800 # row stride 22 -> 36 ($t7 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9168
 value = 0x0326C821 # row stride 22 -> 36 ($t9 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B916C
 value = 0x0019C880 # row stride 22 -> 36 ($t9 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9170
 value = 0x0019C800 # row stride 22 -> 36 ($t9 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9178
 value = 0x3C0F8020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B917C
 value = 0x25EF1300 # addiu $t7, $t7, 0xF58 -> 80201300
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9180
 value = 0x000670C0 # row stride 22 -> 36 ($t6 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9184
 value = 0x0019C800 # row stride 22 -> 36 ($t9 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B918C
 value = 0x01C67021 # row stride 22 -> 36 ($t6 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9190
 value = 0x000E7080 # row stride 22 -> 36 ($t6 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9194
 value = 0x000E7000 # row stride 22 -> 36 ($t6 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9198
 value = 0x3C198020 # lui -> 8020
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B919C
 value = 0x273913B8 # addiu $t9, $t9, 0xF9C -> 802013B8
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B91A0
 value = 0x000E7000 # row stride 22 -> 36 ($t6 = $a2 * 36 * 1)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B93D0
 value = 0x93060024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B93D4
 value = 0x93270024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B93DC
 value = 0x830E0024 # row offset 0x16 -> 0x24
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B93F0
 value = 0x81F80024 # row offset 0x16 -> 0x24
 
@@ -6334,12 +6334,12 @@ vram = 0x8008656C
 value = 0x24010024 # preview id: 22 -> 36
 
 [[patches.instruction]]
-func = "func_80086700"
+func = "car_parts_build_80086700"
 vram = 0x80086738
 value = 0x3C188022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_80086700"
+func = "car_parts_build_80086700"
 vram = 0x80086744
 value = 0x27188000 # addiu $t8, $t8, -0x3B80 -> 80218000
 
@@ -7254,12 +7254,12 @@ vram = 0x803AE934
 value = 0x25CE17E0 # addiu $t6, $t6, -0x6818 -> 802217E0
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8E74
 value = 0x24080024 # preview id: 22 -> 36
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B93A4
 value = 0x24010024 # preview id: 22 -> 36
 
@@ -7267,22 +7267,22 @@ value = 0x24010024 # preview id: 22 -> 36
 # (0x803CB980, 0x210 per player) and the asset tables (0x800C185C, 0x8001CD64) move to larger copies; the 2049 types
 # are appended to the list, load as assets 0x71 + n, and keep their per-car options in side slots.
 [[patches.instruction]]
-func = "func_80077FE0"
+func = "asset_decompress_dispatch_80077FE0"
 vram = 0x80078028
 value = 0x3C138022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_80077FE0"
+func = "asset_decompress_dispatch_80077FE0"
 vram = 0x80078034
 value = 0x26732A00 # addiu -> 80222A00 (asset ROM offsets)
 
 [[patches.instruction]]
-func = "func_80077FE0"
+func = "asset_decompress_dispatch_80077FE0"
 vram = 0x80078104
 value = 0x3C138022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_80077FE0"
+func = "asset_decompress_dispatch_80077FE0"
 vram = 0x80078108
 value = 0x26732A00 # addiu -> 80222A00 (asset ROM offsets)
 
@@ -7347,117 +7347,117 @@ vram = 0x800A4C28
 value = 0x8C842A00 # lw -> 80222A00 (asset ROM offsets)
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A4CC0
 value = 0x3C078022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A4CC4
 value = 0x24E72C00 # addiu -> 80222C00 (asset sizes)
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A4ED8
 value = 0x3C188022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A4EFC
 value = 0x8F182C00 # lw -> 80222C00 (asset sizes)
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A4F5C
 value = 0x3C088022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A4F80
 value = 0x8D082C00 # lw -> 80222C00 (asset sizes)
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A4FE0
 value = 0x3C0A8022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A5004
 value = 0x8D4A2C00 # lw -> 80222C00 (asset sizes)
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A509C
 value = 0x3C188022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_800A4C98"
+func = "track_assets_queue_800A4C98"
 vram = 0x800A50AC
 value = 0x8F182C00 # lw -> 80222C00 (asset sizes)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8600
 value = 0x3C078022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8604
 value = 0x24E72000 # addiu -> 80222000 (car list)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8C8C
 value = 0x24010024 # per-type option loop 22 -> 36 types
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8CEC
 value = 0x3C088022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8D08
 value = 0x25082000 # addiu -> 80222000 (car list)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8DB0
 value = 0x3C0F8022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8DB4
 value = 0x0007C980 # carousel per player 0x210 -> 0x410
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8DBC
 value = 0x3C0E8022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8DC8
 value = 0x25CE2000 # addiu -> 80222000 (car list)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B8DCC
 value = 0x25EF2100 # addiu -> 80222100 (carousel)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B90A0
 value = 0x3C1E8022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B90B8
 value = 0x27DE2100 # addiu -> 80222100 (carousel)
 
 [[patches.instruction]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 vram = 0x803B9440
 value = 0x27DE0410 # carousel per player 0x210 -> 0x410
 
@@ -7510,7 +7510,7 @@ text = "    rush2_car49_select_get(rdram, ctx);"
 # The car select's starting cursor (func_803B81F0 reads the record's 5-bit type with func_8009E6D0, $a0 = the byte):
 # the full type, so a remembered 2049 car (types 32-35 wrap to 0-3) is the one selected.
 [[patches.hook]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 before_vram = 0x803B8CE4
 text = "    rush2_car49_select_cursor(rdram, ctx);"
 
@@ -7518,12 +7518,12 @@ text = "    rush2_car49_select_cursor(rdram, ctx);"
 # (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame
 # (func_80064F70); func_8008C49C (pause, race end) stops it.
 [[patches.hook]]
-func = "func_8008C61C"
+func = "engine_sound_start_8008C61C"
 before_vram = 0x8008C684
 text = "    if (rush2_engine49_start(rdram, ctx)) return;"
 
 [[patches.hook]]
-func = "func_8008C49C"
+func = "engine_sound_stop_8008C49C"
 before_vram = 0x8008C49C
 text = "    rush2_engine49_stop(rdram, ctx);"
 
@@ -7536,12 +7536,12 @@ text = "    rush2_engine49_tick(rdram, ctx);"
 # and FRAME (car init, func_8008DBA0) and pick its engine sound (src/engine2049.cpp); the car select's ENGINE row
 # offers ENGINE 1-6.
 [[patches.hook]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 before_vram = 0x8008DC1C
 text = "    rush2_car49_setup_desc(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 before_vram = 0x8008DD00
 text = "    rush2_car49_setup_mass(rdram, ctx);"
 
@@ -7580,12 +7580,12 @@ text = "    rush2_car49_tires_text(rdram, ctx);"
 # Car select stat bars: the selected car's torque scales carry its TORQUE (and a 2049 car's ENGINE) choice, and a
 # 2049 car's weight its FRAME, for the duration of the bar function.
 [[patches.hook]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 before_vram = 0x803B7F7C
 text = "    rush2_car49_bars_begin(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 before_vram = 0x803B81E0
 text = "    rush2_car49_bars_end(rdram, ctx);"
 
@@ -7611,7 +7611,7 @@ before_vram = 0x803B9EBC
 text = "    rush2_engine_preview_start(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800AE670"
+func = "race_start_timer_800AE670"
 before_vram = 0x800AE670
 text = "    rush2_engine_preview_frame(rdram, ctx);"
 
@@ -7653,7 +7653,7 @@ vram = 0x803BB718
 value = 0x00000000
 
 [[patches.hook]]
-func = "func_803B81F0"
+func = "carselect_build_list_803B81F0"
 before_vram = 0x803B873C
 text = "    rush2_car49_list(rdram, ctx);"
 
@@ -7818,7 +7818,7 @@ before_vram = 0x800B2694
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8005F338"
+func = "pak_mark_dirty_8005F338"
 before_vram = 0x8005F338
 text = "    if (rush2_car49_dirty(rdram, ctx)) return;"
 
@@ -7835,12 +7835,12 @@ vram = 0x80059FF4
 value = 0x3C188022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD94
 value = 0x25293B00 # addiu -> 80223B00 (car boxes)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DD8C
 value = 0x3C098022 # lui -> 8022
 
@@ -7877,12 +7877,12 @@ vram = 0x80087928
 value = 0x3C148022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DC10
 value = 0x8FDE4100 # lw -> 80224100 (physics descriptor pointers)
 
 [[patches.instruction]]
-func = "func_8008DBA0"
+func = "car_init_setup_8008DBA0"
 vram = 0x8008DBF8
 value = 0x3C1E8022 # lui -> 8022
 
@@ -7897,12 +7897,12 @@ vram = 0x8009E79C
 value = 0x3C188022 # lui -> 8022
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B8070
 value = 0x26B54100 # addiu -> 80224100 (physics descriptor pointers)
 
 [[patches.instruction]]
-func = "func_803B7F7C"
+func = "carselect_stat_bars_803B7F7C"
 vram = 0x803B806C
 value = 0x3C158022 # lui -> 8022
 
@@ -7992,7 +7992,7 @@ text = "    rush2_players4_frame_buffers(rdram, ctx);"
 
 # Race start (func_800AE670), before the cars are set up for the players (func_800A580C).
 [[patches.hook]]
-func = "func_800AE670"
+func = "race_start_timer_800AE670"
 before_vram = 0x800AE7C0
 text = "    rush2_players4_race_start(rdram, ctx);"
 
@@ -8039,13 +8039,13 @@ text = "    rush2_players4_car_label(rdram, ctx);"
 # The game's per-frame state machine (func_800AE670): after a race with 3 or 4 players, the counts go back to 2 for the
 # race over screens, which are built for two players.
 [[patches.hook]]
-func = "func_800AE670"
+func = "race_start_timer_800AE670"
 before_vram = 0x800AE674
 text = "    rush2_players4_state(rdram, ctx);"
 
 # Race end (func_800AE670): once players 1 and 2 have finished (0x800AEF14), the race also waits for players 3 and 4.
 [[patches.hook]]
-func = "func_800AE670"
+func = "race_start_timer_800AE670"
 before_vram = 0x800AEF14
 text = "    if (!rush2_players4_all_finished(rdram, ctx)) goto L_800AEED0;"
 
@@ -8056,7 +8056,7 @@ before_vram = 0x800A609C
 text = "    rush2_players4_race_views(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800AE670"
+func = "race_start_timer_800AE670"
 before_vram = 0x800AF148
 text = "    rush2_players4_frame_views(rdram, ctx);"
 
@@ -8116,77 +8116,77 @@ value = 0x000F7AC0 # sll $t7, $t7, 11 (frame * 0xC800)
 # sky vertices +0x40 (was +0x20), projections +0x80 (+0x40), root modelviews +0x180 (+0xC0), shared modelview +0x280
 # (+0x140).
 [[patches.instruction]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 vram = 0x8007B674
 value = 0x27190040 # addiu $t9, $t8, 0x40 (sky vertex)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CAC4
 value = 0x24840080 # addiu $a0, $a0, 0x80 (projection)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CB38
 value = 0x24840080 # addiu $a0, $a0, 0x80 (projection)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CBAC
 value = 0x25EE0080 # addiu $t6, $t7, 0x80 (projection)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CE50
 value = 0xA5F80040 # sh $t8, 0x40($t7) (sky vertex)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CE70
 value = 0xA5F90042 # sh $t9, 0x42($t7)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CE90
 value = 0xA5F80044 # sh $t8, 0x44($t7)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CE9C
 value = 0xA7200040 # sh $zero, 0x40($t9)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CEA8
 value = 0xA5E00042 # sh $zero, 0x42($t7)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CEB4
 value = 0xA7200044 # sh $zero, 0x44($t9)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CEC8
 value = 0x24A50180 # addiu $a1, $a1, 0x180 (root modelview)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CEEC
 value = 0x270F0180 # addiu $t7, $t8, 0x180 (root modelview)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CEFC
 value = 0x24840280 # addiu $a0, $a0, 0x280 (shared modelview)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CF20
 value = 0xAF190280 # sw $t9, 0x280($t8)
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CF48
 value = 0x27380280 # addiu $t8, $t9, 0x280
 
@@ -8196,17 +8196,17 @@ value = 0x27380280 # addiu $t8, $t9, 0x280
 # and per-view hide bit (0x100 << view) use view & 1, and world polygons (D_800FAF00, a view mask each) for view 0 or 1
 # are drawn in view 2 or 3 too.
 [[patches.hook]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 before_vram = 0x8007B5A4
 text = "    rush2_players4_list_offset(rdram, ctx);"
 
 [[patches.instruction]]
-func = "func_8007B518"
+func = "scene_walk_8007B518"
 vram = 0x8007B628
 value = 0x0010C842 # lw $t9, 0x118($sp) (view) -> srl $t9, $s0, 1 (view & 1)
 
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007D00C
 text = "    rush2_players4_poly_mask(rdram, ctx);"
 
@@ -8542,12 +8542,12 @@ vram = 0x80060458
 value = 0x8E106400 # lw $s0, -0x3570($s0) -> 802F6400
 
 [[patches.instruction]]
-func = "func_800606A8"
+func = "highscore_screen_800606A8"
 vram = 0x800608F8
 value = 0x3C198024 # lui -> 8024
 
 [[patches.instruction]]
-func = "func_800606A8"
+func = "highscore_screen_800606A8"
 vram = 0x80060970
 value = 0x8F390004 # lw $t9, 0x2194($t9) -> 80240004
 
@@ -8712,22 +8712,22 @@ vram = 0x8007311C
 value = 0xE42000E0 # swc1 $f0, 0x7A50($at) -> 802400E0
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007C654
 value = 0x3C198024 # lui -> 8024
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007C658
 value = 0x273901F0 # addiu $t9, $t9, 0x1888 -> 802401F0
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CF40
 value = 0x3C098024 # lui -> 8024
 
 [[patches.instruction]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 vram = 0x8007CF64
 value = 0x852906B0 # lh $t1, -0x5164($t1) -> 802406B0
 
@@ -10657,7 +10657,7 @@ before_vram = 0x803B2668
 text = "    if (rush2_unlocks_list_choose(rdram, ctx)) goto L_803B26D4;"
 
 [[patches.hook]]
-func = "func_803ABE0C"
+func = "trackselect_frame_803ABE0C"
 before_vram = 0x803ABE0C
 text = "    if (rush2_unlocks_track_select(rdram, ctx)) return;"
 
@@ -10667,7 +10667,7 @@ before_vram = 0x803B9478
 text = "    if (rush2_unlocks_shop_frame(rdram, ctx)) return;"
 
 [[patches.hook]]
-func = "func_800604FC"
+func = "widgets_create_800604FC"
 before_vram = 0x800604FC
 text = "    rush2_unlocks_widgets(rdram, ctx);"
 
@@ -10683,12 +10683,12 @@ text = "    if (rush2_unlocks_text(rdram, ctx)) return;"
 # map and radar dots (not ghosts), the view's fog color (the ghosts' translucency), and the end of the car select's
 # text (the ghost choice).
 [[patches.hook]]
-func = "func_80094698"
+func = "menu_settings_to_race_globals_80094698"
 before_vram = 0x80094A2C
 text = "    rush2_ghost_settings(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A5110"
+func = "race_load_track_800A5110"
 before_vram = 0x800A5114
 text = "    rush2_ghost_race_setup(rdram, ctx);"
 
@@ -10708,12 +10708,12 @@ before_vram = 0x80075880
 text = "    if (rush2_ghost_car_tick(rdram, ctx)) return;"
 
 [[patches.hook]]
-func = "func_80074990"
+func = "drone_driver_80074990"
 before_vram = 0x80074990
 text = "    if (rush2_ghost_drive(rdram, ctx)) return;"
 
 [[patches.hook]]
-func = "func_80076578"
+func = "physics_tick_80076578"
 before_vram = 0x8007660C
 text = "    rush2_ghost_tick_end(rdram, ctx);"
 
@@ -10728,7 +10728,7 @@ before_vram = 0x8006F470
 text = "    rush2_ghost_collide_other(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_800A1468"
+func = "checkpoint_gate_test_800A1468"
 before_vram = 0x800A1674
 text = "    rush2_ghost_standings(rdram, ctx);"
 
@@ -10743,7 +10743,7 @@ before_vram = 0x800B8D28
 text = "    rush2_ghost_radar_dot(rdram, ctx);"
 
 [[patches.hook]]
-func = "func_8007C624"
+func = "view_fog_setup_8007C624"
 before_vram = 0x8007C918
 text = "    rush2_ghost_fog_color(rdram, ctx);"
 
@@ -10767,6 +10767,6 @@ text = "    ctx->r2 = rush2_ghost_hud_cars((int32_t)ctx->r2);"
 # Drafting in the car physics (func_80071FBC's loop over the other cars, 0x80072398): at 0x800723A8 a car skips the
 # other car $v1 when it is itself ($s7); ghosts neither draft nor are drafted (src/ghost.cpp).
 [[patches.hook]]
-func = "func_80071FBC"
+func = "ai_steering_filter_80071FBC"
 before_vram = 0x800723A8
 text = "    rush2_ghost_draft(rdram, ctx);"
