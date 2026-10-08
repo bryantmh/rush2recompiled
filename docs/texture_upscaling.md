@@ -125,6 +125,31 @@ another lock.
 The recomp gives each mode its own content keys (`live_key`), so a result that lands after the mode changes can't stand
 in for the new mode's image.
 
+## Distant Textures: Smooth with texture packs
+
+Smooth (`RT64::GeneratedMipmapsEnabled`) filters replacements too, not only the game's own textures. Before this,
+every tile marked high resolution skipped it:
+
+- A PNG replacement had no mipmaps, so it shimmered whatever the setting.
+- A DDS replacement with mipmaps went through RT64's replacement path, which ignores the setting, the anisotropy level
+  and cutout coverage.
+
+The RT64 patch now handles them this way:
+
+- **Mipmaps for PNGs:** `loadTextureFromBytes` gives PNG replacements a full mip chain when they load
+  (`makeMipmappedDDS`, the same alpha-weighted averaging as `TextureDecodeCS.hlsl`), uploaded through `setDDS`.
+  - They are marked `Texture::generatedMipmaps`, and `TextureMap::use` reports them only while Smooth is on.
+  - With Original, a PNG pack draws as it always did.
+- **New tile flag:** `createGPUTiles` sets `generatedMipmaps` (bit 9 of `GPUTileFlags`) for a tile with mipmaps that
+  is either the game's texture or a replacement while Smooth is on.
+  - `sampleTexture` and RasterPS's override of the game's LOD key on that flag instead of `hasMipmaps && !highRes`.
+  - So replacements get `sampleGeneratedMipmaps`: anisotropy from the Anisotropic Filtering setting, and alpha
+    coverage for cutouts.
+  - Replacements with their own mipmaps keep RT64's replacement path when Smooth is off.
+- **Coordinates:** a replacement's coordinates are in its own texels and already shifted to texel centers.
+  `sampleGeneratedMipmaps` adds the half-texel offset only for the game's textures, and the derivatives are scaled by
+  `tcScale`.
+
 ## Your own upscales (Dump / Install)
 
 The buttons are Dump Textures, Open Dump Folder and Install Upscaled, in a row under the "Your Own Upscales" heading.
