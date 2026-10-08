@@ -7648,6 +7648,53 @@ vram = 0x803BB710
 value = 0x00000000
 
 [[patches.instruction]]
+# SF Rush car stripe (src/car1_stripes.cpp): a ninth STRIPE value, Rush 1's decal on the cars that have one. The player
+# record's getter and setter, the car select's STRIPE row and its text, and func_8008582C's stripe stamp.
+[[patches.hook]]
+func = "car_options_get_color_lo_800B2608"
+before_vram = 0x800B2624
+text = "    if (rush2_car1_stripe_get(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "save_set_car_logo_high5_80097934"
+before_vram = 0x80097960
+text = "    rush2_car1_stripe_set(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9B18
+text = "    rush2_car1_stripe_before(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9B8C
+text = "    rush2_car1_stripe_value(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC3F4
+text = "    rush2_car1_stripe_text_row(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC644
+text = "    rush2_car1_stripe_text(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_build_textures_8008582C"
+before_vram = 0x80085D84
+text = "    rush2_car1_paint_style(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_build_textures_8008582C"
+before_vram = 0x80085D8C
+text = "    rush2_car1_paint_stamp(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_build_textures_8008582C"
+before_vram = 0x80085DC4
+text = "    rush2_car1_paint_restore(rdram, ctx);"
+
 func = "carselect_widget_cb_name_logo_803BB61C"
 vram = 0x803BB718
 value = 0x00000000

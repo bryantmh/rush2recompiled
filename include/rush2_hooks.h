@@ -159,6 +159,16 @@ void rush2_engine49_stop(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine49_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_record(uint8_t* rdram, recomp_context* ctx);
 int rush2_car49_dirty(uint8_t* rdram, recomp_context* ctx);
+// The SF Rush car stripe (src/car1_stripes.cpp).
+int rush2_car1_stripe_get(uint8_t* rdram, recomp_context* ctx);
+void rush2_car1_stripe_set(uint8_t* rdram, recomp_context* ctx);
+void rush2_car1_stripe_before(uint8_t* rdram, recomp_context* ctx);
+void rush2_car1_stripe_value(uint8_t* rdram, recomp_context* ctx);
+void rush2_car1_stripe_text_row(uint8_t* rdram, recomp_context* ctx);
+void rush2_car1_stripe_text(uint8_t* rdram, recomp_context* ctx);
+void rush2_car1_paint_style(uint8_t* rdram, recomp_context* ctx);
+void rush2_car1_paint_stamp(uint8_t* rdram, recomp_context* ctx);
+void rush2_car1_paint_restore(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx);
 void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx);
 void rush2_speedometer(uint8_t* rdram, recomp_context* ctx);

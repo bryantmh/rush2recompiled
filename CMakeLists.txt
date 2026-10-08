@@ -161,6 +161,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/track2049_texanim.cpp
     ${CMAKE_SOURCE_DIR}/src/car2049.cpp
     ${CMAKE_SOURCE_DIR}/src/audio2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/car1_decals.cpp
+    ${CMAKE_SOURCE_DIR}/src/car1_stripes.cpp
     ${CMAKE_SOURCE_DIR}/src/wings.cpp
     ${CMAKE_SOURCE_DIR}/src/wings_rom.cpp
     ${CMAKE_SOURCE_DIR}/src/wings_state.cpp

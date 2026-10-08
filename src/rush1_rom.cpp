@@ -27,6 +27,7 @@
 #include "elements/ui_label.h"
 #include "options_page.h"
 
+#include "car1_stripes.h"
 #include "track1.h"
 #include "track2049_convert.h"
 #include "wings_internal.h"
@@ -34,6 +35,7 @@
 namespace {
     // In the Games tab's config, games.json (src/wings.cpp).
     const std::string tracks_option_id = "sfrush_tracks";
+    const std::string stripes_option_id = "sfrush_car_stripes";
     const char* rom_file_name = "rush1.z64";
 
     constexpr size_t rom_size = 0x800000;
@@ -100,6 +102,7 @@ namespace {
 
     void update_rom_ui() {
         rush2::wings::games_config().update_option_disabled(tracks_option_id, !rush2::track1::rom_available());
+        rush2::wings::games_config().update_option_disabled(stripes_option_id, !rush2::track1::rom_available());
     }
 
     void select_rom() {
@@ -208,6 +211,18 @@ void rush2::track1::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::track1::set_option(std::get<bool>(cur_value));
         });
+    rush1_config.add_bool_option(
+        stripes_option_id,
+        "SF Rush Car Stripes",
+        "Adds a ninth STRIPE choice, SF RUSH, to the cars whose paint in San Francisco Rush had a pattern Rush 2 lacks: "
+        "the Camaro's and Hot Rod's flames, the Taxi's checker band and the VW Bus's swirls. It is drawn in the "
+        "STRIPE COLOR. Requires a San Francisco Rush (USA) ROM.",
+        true
+    );
+    rush1_config.add_option_change_callback(stripes_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::car1stripes::set_option(std::get<bool>(cur_value));
+        });
 }
 
 void rush2::track1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
@@ -216,6 +231,7 @@ void rush2::track1::add_games_section(rush2::ui::OptionsPage* page, std::functio
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
     button->add_pressed_callback(select_rom);
     page->add_option(rush2::wings::games_config(), tracks_option_id);
+    page->add_option(rush2::wings::games_config(), stripes_option_id);
     refresh = [note = heading.note, shown = rush2::track1::rom_available()]() mutable {
         if (rush2::track1::rom_available() != shown) {
             shown = !shown;
