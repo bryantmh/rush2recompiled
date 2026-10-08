@@ -2,161 +2,244 @@
 
 [[func]]
 vram = 0x800005D4
-desc = "Same code as Rush 2 osScAddClient (26 instructions, address-masked match, float constants equal)."
+sig = "void osScAddClient(OSSched *sc, OSScClient *c, OSMesgQueue *msgQ)"
+desc = "Same code as Rush 2 osScAddClient (26 instructions, address-masked match, float constants equal). libultra scheduler: with interrupts masked (osSetIntMask), links client c (msgQ at +0, next at +4) into the scheduler's client list at sc+0x260."
 status = "inferred"
 rush2 = 0x8000096C
 rush1 = [0x8000096C]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80000ACC
-desc = "Same code as Rush 2 func_80000FC4 (54 instructions, address-masked match, float constants equal)."
+name = "sched_handle_gfx_done"
+sig = "void sched_handle_gfx_done(Sched *sc)"
+desc = "Same code as Rush 2 sched_handle_gfx_done_80000FC4 (54 instructions, address-masked match, float constants equal). Scheduler: handles RDP task completion (swaps framebuffer for task at sc+0x278, runs sched_task_handler and starts the next RSP task)."
 status = "inferred"
 rush2 = 0x80000FC4
 rush1 = [0x80000FC4]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80000BA4
-desc = "Same code as Rush 2 func_8000109C (44 instructions, address-masked match, float constants equal)."
+name = "sched_get_framebuffer"
+sig = "void *sched_get_framebuffer(Sched *sched, s32 which)"
+desc = "Same code as Rush 2 sched_get_framebuffer_8000109C (44 instructions, address-masked match, float constants equal). Returns the current or next VI framebuffer (osViGetCurrentFramebuffer/osViGetNextFramebuffer), tracking them in sched_fb_next (8001AA94) / sched_fb_current (8001AA98) and sc+0x27C."
 status = "inferred"
 rush2 = 0x8000109C
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80000F88
-desc = "Same code as Rush 2 func_80001498 (24 instructions, address-masked match, float constants equal)."
+name = "sched_yield_current_task"
+sig = "void sched_yield_current_task(Sched *sched)"
+desc = "Same code as Rush 2 sched_yield_current_task_80001498 (24 instructions, address-masked match, float constants equal). Calls osSpTaskYield on the currently running RSP task (sched+0x274) and flags it as yielded."
 status = "inferred"
 rush2 = 0x80001498
 rush1 = [0x800014A4]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80002730
-desc = "Same code as Rush 2 func_80003660 (23 instructions, address-masked match, float constants equal)."
+name = "strlen_like"
+sig = "s32 strlen_like(const char *s, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 fmt_strnlen_80003660 (23 instructions, address-masked match, float constants equal). String length scan (byte loop over s) used by vsprintf_core to measure %s arguments, honoring a precision limit. (low confidence on the extra args)"
 status = "inferred"
 rush2 = 0x80003660
 rush1 = [0x80003660]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80002790
-desc = "Same code as Rush 2 func_800036C0 (65 instructions, address-masked match, float constants equal)."
+name = "memset_words"
+sig = "void *memset_words(void *dst, s32 value, s32 size)"
+desc = "Same code as Rush 2 memset_words_800036C0 (65 instructions, address-masked match, float constants equal). Fill memory: byte fill head, word fill body, byte tail (3 loops; alignment with 3/4). Probably memset."
 status = "inferred"
 rush2 = 0x800036C0
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x800028A0
-desc = "Same code as Rush 2 func_800037D0 (113 instructions, address-masked match, float constants equal)."
+name = "fmt_double_to_str"
+sig = "void fmt_double_to_str(char *out, s32 a1, f64 value)"
+desc = "Same code as Rush 2 fmt_double_scale_800037D0 (113 instructions, address-masked match, float constants equal). Double scaling helper for printf float conversion (constants 176 and 1.875): reads and rewrites the double at val; used by fmt_float_conv and fmt_float_digits. (low confidence)"
 status = "inferred"
 rush2 = 0x800037D0
 rush1 = [0x800036C0]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80002A64
-desc = "Same code as Rush 2 func_80003994 (99 instructions, address-masked match, float constants equal)."
+name = "math_float_normalize"
+sig = "void math_float_normalize(s32 a0, f32 *out)"
+desc = "Same code as Rush 2 math_float_split_int_frac_80003994 (99 instructions, address-masked match, float constants equal). Float helper using 2^23 (8388608.0) rounding trick and 1.0: splits/normalizes x into integer and fraction (floor-like), writing result to out. Used by printf code and by math_build_basis_from_consts and the menu diorama update. (low confidence)"
 status = "inferred"
 rush2 = 0x80003994
 rush1 = [0x80003884]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80002BF0
-desc = "Same code as Rush 2 func_80001860 (28 instructions, address-masked match, float constants equal)."
+name = "cop0_read_config_masked"
+sig = "u32 cop0_read_config_masked(void)"
+desc = "Same code as Rush 2 fmt_double_classify_a_80001860 (28 instructions, address-masked match, float constants equal). Leaf used only by vsprintf_core; masks 0x7FF/0x800F look like IEEE double exponent and sign/high-mantissa bit tests, so likely classifies a double (inf/nan/zero) for printf, not a CP0 read. (low confidence)"
 status = "inferred"
 rush2 = 0x80001860
 rush1 = [0x80001870]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80002C60
-desc = "Same code as Rush 2 func_800018D0 (28 instructions, address-masked match, float constants equal)."
+name = "cop0_read_config_masked"
+sig = "u32 cop0_read_config_masked(void)"
+desc = "Same code as Rush 2 fmt_double_classify_b_800018D0 (28 instructions, address-masked match, float constants equal). Twin of fmt_double_classify_a (same masks), used by vsprintf_core for float/double argument classification (inf/nan checks). (low confidence)"
 status = "inferred"
 rush2 = 0x800018D0
 rush1 = [0x800018E0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80003C3C
-desc = "Same code as Rush 2 func_800028AC (654 instructions, address-masked match, float constants equal)."
+name = "fmt_float_conv"
+sig = "s32 fmt_float_conv(s32 a0, s32 a1, s32 a2, s32 a3, s32 flags, s32 prec, s32 width, s32 conv)"
+desc = "Same code as Rush 2 fmt_float_conv_800028AC (654 instructions, address-masked match, float constants equal). printf-internal handler for %e/%E/%f/%g/%G conversions of a double (chars 0x65/0x45/0x66/0x67/0x47): uses fmt_double_to_str and fmt_float_digits; caller is the vsprintf core func_80001940."
 status = "inferred"
 rush2 = 0x800028AC
 rush1 = [0x800028BC]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80004674
-desc = "Same code as Rush 2 func_800032E4 (129 instructions, address-masked match, float constants equal)."
+name = "fmt_float_digits"
+sig = "s32 fmt_float_digits(void *a0, void *a1, s32 a2, s32 a3, s32 prec, s32 flags, s32 mode)"
+desc = "Same code as Rush 2 fmt_float_digits_800032E4 (129 instructions, address-masked match, float constants equal). printf-internal float formatter for %e/%f/%g: calls fmt_double_scale to get digits, then writes sign, digits, '.', and exponent into the output buffer."
 status = "inferred"
 rush2 = 0x800032E4
 rush1 = [0x800032F4]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80004878
-desc = "Same code as Rush 2 func_800034E8 (70 instructions, address-masked match, float constants equal)."
+name = "fmt_int_to_str"
+sig = "s32 fmt_int_to_str(char *out, s32 value, s32 base)"
+desc = "Same code as Rush 2 fmt_int_to_str_800034E8 (70 instructions, address-masked match, float constants equal). Integer to decimal text helper for the float formatter (fmt_float_conv): emits optional '-' (0x2D) or '+' (0x2B) then digits via a 0x134-byte stack buffer base-10 loop, NUL terminates dst and returns length."
 status = "inferred"
 rush2 = 0x800034E8
 rush1 = [0x800034F8]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80004990
-desc = "Same code as Rush 2 func_80003600 (22 instructions, address-masked match, float constants equal)."
+name = "sprintf"
+sig = "s32 sprintf(char *buf, const char *fmt, ...)"
+desc = "Same code as Rush 2 sprintf_80003600 (22 instructions, address-masked match, float constants equal). sprintf-like: calls vsprintf_core with the varargs on stack. 36 callers."
 status = "inferred"
 rush2 = 0x80003600
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80004A10
-desc = "Same code as Rush 2 func_80003B80 (59 instructions, address-masked match, float constants equal)."
+name = "lzss_refill_buffer"
+sig = "void lzss_refill_buffer(void)"
+desc = "Same code as Rush 2 lzss_refill_buffer_80003B80 (59 instructions, address-masked match, float constants equal). LZSS decompressor input refill: waits on PI message queue, invalidates cache and starts a PI DMA of 0x1000 bytes into G80023368; state in G80023360/G80023380 (source ROM position)."
 status = "inferred"
 rush2 = 0x80003B80
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80004D98
-desc = "Same code as Rush 2 func_80003F58 (435 instructions, address-masked match, float constants equal)."
+name = "inflate_build_huffman_tables"
+sig = "void inflate_build_huffman_tables(void *a0, void *a1, s32 a2, s32 a3, s32 b, s32 c, s32 d)"
+desc = "Same code as Rush 2 inflate_build_huffman_tables_80003F58 (435 instructions, address-masked match, float constants equal). zlib-like inflate: builds Huffman decoding tables from code lengths (counts per bit length up to 15, 0x44-byte memset, 0x480 byte reads); used by inflate callers 80004D3C and 80004F04."
 status = "inferred"
 rush2 = 0x80003F58
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8000595C
-desc = "Same code as Rush 2 func_80004B1C (136 instructions, address-masked match, float constants equal)."
+name = "inflate_stored_block"
+sig = "s32 inflate_stored_block(void)"
+desc = "Same code as Rush 2 inflate_stored_block_80004B1C (136 instructions, address-masked match, float constants equal). zlib inflate: handles a stored (uncompressed) block: byte-aligns the bit buffer and copies the literal data via inflate_refill_buffer."
 status = "inferred"
 rush2 = 0x80004B1C
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80005B7C
-desc = "Same code as Rush 2 func_80004D3C (114 instructions, address-masked match, float constants equal)."
+name = "inflate_fixed_block"
+sig = "s32 inflate_fixed_block(void)"
+desc = "Same code as Rush 2 inflate_fixed_block_80004D3C (114 instructions, address-masked match, float constants equal). zlib inflate: decodes a block with fixed Huffman codes: builds literal (0x120 symbols, base 0x101) and distance (0x1E symbols) tables with inflate_build_huffman_tables, then inflate_decode_codes with 7/5 bits."
 status = "inferred"
 rush2 = 0x80004D3C
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x800064D4
-desc = "Same code as Rush 2 func_80005694 (105 instructions, address-masked match, float constants equal)."
+name = "inflate_block"
+sig = "s32 inflate_block(void)"
+desc = "Same code as Rush 2 inflate_block_80005694 (105 instructions, address-masked match, float constants equal). zlib inflate: reads block header (final bit, 2-bit type) and dispatches to stored (0), fixed (1) or dynamic (2) block handlers."
 status = "inferred"
 rush2 = 0x80005694
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80006678
-desc = "Same code as Rush 2 func_80005838 (23 instructions, address-masked match, float constants equal)."
+name = "inflate_blocks_loop"
+sig = "s32 inflate_blocks_loop(void)"
+desc = "Same code as Rush 2 inflate_blocks_loop_80005838 (23 instructions, address-masked match, float constants equal). zlib inflate: loops over blocks until the last one; initializes bit buffer globals 8002339C/800233A0; called by inflate."
 status = "inferred"
 rush2 = 0x80005838
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x800066D4
-desc = "Same code as Rush 2 func_80005894 (80 instructions, address-masked match, float constants equal)."
+name = "inflate_refill_buffer"
+sig = "s32 inflate_refill_buffer(void)"
+desc = "Same code as Rush 2 inflate_refill_buffer_80005894 (80 instructions, address-masked match, float constants equal). Inflate/second decompressor input refill: PI DMA of 0x1000 bytes into G80023390 buffer from ROM pos G800233B4/B8; returns first byte."
 status = "inferred"
 rush2 = 0x80005894
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80006814
@@ -170,433 +253,593 @@ ref = "docs/rush2049_port_plan.md#21-rush-2-usa-nr2e"
 
 [[func]]
 vram = 0x80006A00
-desc = "Same code as Rush 2 osCreateMesgQueue (11 instructions, address-masked match, float constants equal)."
+sig = "void osCreateMesgQueue(OSMesgQueue *mq, OSMesg *msg, s32 count)"
+desc = "Same code as Rush 2 osCreateMesgQueue (11 instructions, address-masked match, float constants equal). libultra: initializes message queue mq with empty thread queues, validCount 0, first 0, msgCount count and buffer msg."
 status = "inferred"
 rush2 = 0x80006390
 rush1 = [0x80004620]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80006F30
-desc = "Same code as Rush 2 osCreateThread (81 instructions, address-masked match, float constants equal)."
+sig = "void osCreateThread(OSThread *t, OSId id, void (*entry)(void *), void *arg, void *sp, OSPri pri)"
+desc = "Same code as Rush 2 osCreateThread (81 instructions, address-masked match, float constants equal). libultra: initializes thread t (id, priority, entry pc, arg in a0, stack pointer, FPU/status context, flags) and links it into the active thread list os_active_queue, with interrupts disabled."
 status = "inferred"
 rush2 = 0x80005E80
 rush1 = [0x80004110]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80007080
-desc = "Same code as Rush 2 rush2_osStartThread (84 instructions, address-masked match, float constants equal)."
+sig = "void rush2_osStartThread(OSThread *t)"
+desc = "Same code as Rush 2 rush2_osStartThread (84 instructions, address-masked match, float constants equal). libultra osStartThread: starts or resumes thread t (from stopped or waiting): puts it on the run queue or its wait queue, reschedules if it has higher priority than the running thread. Rush 2 variant name."
 status = "inferred"
 rush2 = 0x80005FD0
 rush1 = [0x80004260]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80007270
-desc = "Same code as Rush 2 osRecvMesg (78 instructions, address-masked match, float constants equal)."
+sig = "s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flags)"
+desc = "Same code as Rush 2 osRecvMesg (78 instructions, address-masked match, float constants equal). libultra: receives a message from mq (blocking if flags is OS_MESG_BLOCK and empty), waking a thread blocked on send; returns 0 or -1 if empty and non-blocking."
 status = "inferred"
 rush2 = 0x800066A0
 rush1 = [0x80004930]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x800073B0
-desc = "Same code as Rush 2 osGetTime (33 instructions, address-masked match, float constants equal)."
+sig = "OSTime osGetTime(void)"
+desc = "Same code as Rush 2 osGetTime (33 instructions, address-masked match, float constants equal). libultra: returns the 64-bit system time, os_time (hi/lo) plus CP0 count elapsed since os_base_time, with interrupts disabled."
 status = "inferred"
 rush2 = 0x80006DA0
 rush1 = [0x80005030]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80007440
-desc = "Same code as Rush 2 osJamMesg (84 instructions, address-masked match, float constants equal)."
+sig = "s32 osJamMesg(OSMesgQueue *mq, OSMesg msg, s32 flags)"
+desc = "Same code as Rush 2 osJamMesg (84 instructions, address-masked match, float constants equal). libultra: inserts msg at the front of mq (blocking if full and OS_MESG_BLOCK), waking a thread blocked on receive; returns 0 or -1."
 status = "inferred"
 rush2 = 0x80006E30
 rush1 = [0x800050C0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x800075E0
-desc = "Same code as Rush 2 osSendMesg (83 instructions, address-masked match, float constants equal)."
+sig = "s32 osSendMesg(OSMesgQueue *mq, OSMesg msg, s32 flags)"
+desc = "Same code as Rush 2 osSendMesg (83 instructions, address-masked match, float constants equal). libultra: appends msg to mq (blocking if full and OS_MESG_BLOCK), waking a thread blocked on receive; returns 0 or -1."
 status = "inferred"
 rush2 = 0x80006FD0
 rush1 = [0x80005260]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80007810
-desc = "Same code as Rush 2 osWritebackDCacheAll (10 instructions, address-masked match, float constants equal)."
+sig = "void osWritebackDCacheAll(void)"
+desc = "Same code as Rush 2 osWritebackDCacheAll (10 instructions, address-masked match, float constants equal). libultra: writes back the entire data cache (0x2000 bytes) to memory."
 status = "inferred"
 rush2 = 0x80007220
 rush1 = [0x800054B0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80007AB4
-desc = "Same code as Rush 2 osSpTaskStartGo (16 instructions, address-masked match, float constants equal)."
+sig = "void osSpTaskStartGo(OSTask *task)"
+desc = "Same code as Rush 2 osSpTaskStartGo (16 instructions, address-masked match, float constants equal). libultra: waits until the SP device is idle, then clears halt/broke and sets interrupt-on-break via SP_STATUS (0x125) to start the loaded RSP task."
 status = "inferred"
 rush2 = 0x800074FC
 rush1 = [0x8000578C]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80007B80
-desc = "Same code as Rush 2 osSpTaskYield (8 instructions, address-masked match, float constants equal)."
+sig = "void osSpTaskYield(void)"
+desc = "Same code as Rush 2 osSpTaskYield (8 instructions, address-masked match, float constants equal). libultra: requests the running RSP task to yield by setting SP_SET_SIG0 (0x400)."
 status = "inferred"
 rush2 = 0x800075F0
 rush1 = [0x80005880]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80007C40
-desc = "Same code as Rush 2 strlen (10 instructions, address-masked match, float constants equal)."
+sig = "u32 strlen(const char *s)"
+desc = "Same code as Rush 2 strlen (10 instructions, address-masked match, float constants equal). libc strlen: returns length of NUL-terminated string s."
 status = "inferred"
 rush2 = 0x8000763C
 rush1 = [0x800058CC]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80007C68
-desc = "Same code as Rush 2 memcpy (11 instructions, address-masked match, float constants equal)."
+sig = "void *memcpy(void *dst, const void *src, u32 n)"
+desc = "Same code as Rush 2 memcpy (11 instructions, address-masked match, float constants equal). libc memcpy: byte-copy loop of n bytes from src to dst; returns dst."
 status = "inferred"
 rush2 = 0x80007610
 rush1 = [0x800058A0]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80007CA0
-desc = "Same code as Rush 2 osWritebackDCache (29 instructions, address-masked match, float constants equal)."
+sig = "void osWritebackDCache(void *vaddr, u32 nbytes)"
+desc = "Same code as Rush 2 osWritebackDCache (29 instructions, address-masked match, float constants equal). libultra: writes back data cache lines covering [vaddr, vaddr+nbytes); whole cache if nbytes >= 0x2000."
 status = "inferred"
 rush2 = 0x800100E0
 rush1 = [0x8000E250]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80008380
-desc = "Same code as Rush 2 osSetThreadPri (56 instructions, address-masked match, float constants equal)."
+sig = "void osSetThreadPri(OSThread *t, OSPri pri)"
+desc = "Same code as Rush 2 osSetThreadPri (56 instructions, address-masked match, float constants equal). libultra: changes thread t's priority (current thread if NULL), re-queues it in its queue (dequeue/enqueue), and yields if it is not the highest-priority runnable thread; interrupts disabled during the change."
 status = "inferred"
 rush2 = 0x800062B0
 rush1 = [0x80004540]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80008460
-desc = "Same code as Rush 2 osInvalICache (29 instructions, address-masked match, float constants equal)."
+sig = "void osInvalICache(void *vaddr, u32 nbytes)"
+desc = "Same code as Rush 2 osInvalICache (29 instructions, address-masked match, float constants equal). libultra: invalidates the instruction cache lines covering [vaddr, vaddr+nbytes); whole cache if nbytes >= 0x4000."
 status = "inferred"
 rush2 = 0x800063C0
 rush1 = [0x80004650]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x800084E0
-desc = "Same code as Rush 2 osInvalDCache (43 instructions, address-masked match, float constants equal)."
+sig = "void osInvalDCache(void *vaddr, u32 nbytes)"
+desc = "Same code as Rush 2 osInvalDCache (43 instructions, address-masked match, float constants equal). libultra: invalidates data cache lines covering [vaddr, vaddr+nbytes) (writes back partial edge lines); whole cache if nbytes >= 0x2000."
 status = "inferred"
 rush2 = 0x80006440
 rush1 = [0x800046D0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80008590
-desc = "Same code as Rush 2 _bzero (39 instructions, address-masked match, float constants equal)."
+sig = "void _bzero(void *ptr, u32 len)"
+desc = "Same code as Rush 2 _bzero (39 instructions, address-masked match, float constants equal). libc/libultra: zero-fills len bytes at ptr, with word/block-aligned fast paths."
 status = "inferred"
 rush2 = 0x800064F0
 rush1 = [0x80004780]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80008A60
-desc = "Same code as Rush 2 guOrthoF (85 instructions, address-masked match, float constants equal)."
+sig = "void guOrthoF(float mf[4][4], float l, float r, float b, float t, float n, float f, float scale)"
+desc = "Same code as Rush 2 guOrthoF (85 instructions, address-masked match, float constants equal). libultra gu: builds a float orthographic projection matrix (left,right,bottom,top,near,far) scaled by scale."
 status = "inferred"
 rush2 = 0x80007A20
 rush1 = [0x80005CB0]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x80008C20
-desc = "Same code as Rush 2 guPerspectiveF (140 instructions, address-masked match, float constants equal)."
+sig = "void guPerspectiveF(float mf[4][4], u16 *perspNorm, float fovy, float aspect, float near, float far, float scale)"
+desc = "Same code as Rush 2 guPerspectiveF (140 instructions, address-masked match, float constants equal). libultra gu: builds a float perspective matrix from fovy degrees (x pi/180 = 0.0174533), aspect and near/far; perspNorm receives the normalization value."
 status = "inferred"
 rush2 = 0x80007BE0
 rush1 = [0x80005E70]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x80008E50
-desc = "Same code as Rush 2 guPerspective (22 instructions, address-masked match, float constants equal)."
+sig = "void guPerspective(Mtx *m, u16 *perspNorm, float fovy, float aspect, float near, float far, float scale)"
+desc = "Same code as Rush 2 guPerspective (22 instructions, address-masked match, float constants equal). libultra gu: builds a perspective projection into fixed-point Mtx m (guPerspectiveF then guMtxF2L). Used for view/fog setup."
 status = "inferred"
 rush2 = 0x80007E10
 rush1 = [0x800060A0]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x80008EB0
-desc = "Same code as Rush 2 guLookAtF (174 instructions, address-masked match, float constants equal)."
+sig = "void guLookAtF(float mf[4][4], float xEye, float yEye, float zEye, float xAt, float yAt, float zAt, float xUp, float yUp, float zUp)"
+desc = "Same code as Rush 2 guLookAtF (174 instructions, address-masked match, float constants equal). libultra gu: builds a float look-at view matrix from eye, target and up vectors (normalizing with sqrtf); used for fog/view setup."
 status = "inferred"
 rush2 = 0x80007E70
 rush1 = [0x80006100]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x800091E0
-desc = "Same code as Rush 2 guMtxF2L (64 instructions, address-masked match, float constants equal)."
+sig = "void guMtxF2L(float mf[4][4], Mtx *m)"
+desc = "Same code as Rush 2 guMtxF2L (64 instructions, address-masked match, float constants equal). libultra gu: converts a float 4x4 matrix to the RSP fixed-point Mtx format (value * 65536, integer halves in first 0x20 bytes, fraction in second)."
 status = "inferred"
 rush2 = 0x800081A0
 rush1 = [0x80006430]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x800092E8
-desc = "Same code as Rush 2 func_80008360 (43 instructions, address-masked match, float constants equal)."
+desc = "Same code as Rush 2 func_80008360 (43 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
 status = "inferred"
 rush2 = 0x80008360
 link = "same-code"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
 vram = 0x80009394
-desc = "Same code as Rush 2 guMtxIdentF (34 instructions, address-masked match, float constants equal)."
+sig = "void guMtxIdentF(float mf[4][4])"
+desc = "Same code as Rush 2 guMtxIdentF (34 instructions, address-masked match, float constants equal). libultra gu: sets the float 4x4 matrix mf to identity (1.0 on diagonal, 0 elsewhere)."
 status = "inferred"
 rush2 = 0x800082A0
 rush1 = [0x80006530]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x8000941C
-desc = "Same code as Rush 2 guMtxIdent (12 instructions, address-masked match, float constants equal)."
+sig = "void guMtxIdent(Mtx *m)"
+desc = "Same code as Rush 2 guMtxIdent (12 instructions, address-masked match, float constants equal). libultra gu: sets fixed-point Mtx m to identity (guMtxIdentF then guMtxF2L)."
 status = "inferred"
 rush2 = 0x80008328
 rush1 = [0x800065B8]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x80009BC8
-desc = "Same code as Rush 2 __ull_to_f (12 instructions, address-masked match, float constants equal)."
+sig = "f32 __ull_to_f(u64 x)"
+desc = "Same code as Rush 2 __ull_to_f (12 instructions, address-masked match, float constants equal). compiler runtime: unsigned 64-bit integer to float; used by the timer float update and car object drawing."
 status = "inferred"
 rush2 = 0x80008E08
 rush1 = [0x80007158]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8000BD90
-desc = "Same code as Rush 2 rush2_osStopThread (48 instructions, address-masked match, float constants equal)."
+sig = "void rush2_osStopThread(OSThread *t)"
+desc = "Same code as Rush 2 rush2_osStopThread (48 instructions, address-masked match, float constants equal). libultra osStopThread: removes thread t from its run/wait queue and marks it stopped (state 1); if t is the running thread, yields via __osEnqueueAndYield. Rush 2 variant name."
 status = "inferred"
 rush2 = 0x8000F640
 rush1 = [0x8000D7B0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000C050
-desc = "Same code as Rush 2 __osDequeueThread (16 instructions, address-masked match, float constants equal)."
+sig = "void __osDequeueThread(OSThread **queue, OSThread *t)"
+desc = "Same code as Rush 2 __osDequeueThread (16 instructions, address-masked match, float constants equal). libultra: removes thread t from the singly linked thread queue."
 status = "inferred"
 rush2 = 0x800104C0
 rush1 = [0x8000E630]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000C090
-desc = "Same code as Rush 2 __osTimerServicesInit (35 instructions, address-masked match, float constants equal)."
+sig = "void __osTimerServicesInit(void)"
+desc = "Same code as Rush 2 __osTimerServicesInit (35 instructions, address-masked match, float constants equal). libultra: zeroes os_time_hi/lo and os_base_time, and initializes the empty os_timer_list."
 status = "inferred"
 rush2 = 0x80010FB0
 rush1 = [0x8000F110]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000C11C
-desc = "Same code as Rush 2 __osTimerInterrupt (94 instructions, address-masked match, float constants equal)."
+sig = "void __osTimerInterrupt(void)"
+desc = "Same code as Rush 2 __osTimerInterrupt (94 instructions, address-masked match, float constants equal). libultra: timer interrupt handler: pops expired timers from os_timer_list, sends their messages, reinserts repeating ones (__osInsertTimer) and reprograms the compare register (__osSetTimerIntr)."
 status = "inferred"
 rush2 = 0x8001103C
 rush1 = [0x8000F19C]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000C294
-desc = "Same code as Rush 2 __osSetTimerIntr (29 instructions, address-masked match, float constants equal)."
+sig = "void __osSetTimerIntr(OSTime tim)"
+desc = "Same code as Rush 2 __osSetTimerIntr (29 instructions, address-masked match, float constants equal). libultra: programs the CP0 Compare register for the next timer interrupt at count+tim, saving it in os_timer_count."
 status = "inferred"
 rush2 = 0x800111B4
 rush1 = [0x8000F314]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000C308
-desc = "Same code as Rush 2 __osInsertTimer (98 instructions, address-masked match, float constants equal)."
+sig = "u64 __osInsertTimer(OSTimer *t)"
+desc = "Same code as Rush 2 __osInsertTimer (98 instructions, address-masked match, float constants equal). libultra: inserts timer t into the sorted os_timer_list by expiry time, adjusting following timers' deltas; returns the new time."
 status = "inferred"
 rush2 = 0x80011228
 rush1 = [0x8000F388]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000CEDC
-desc = "Same code as Rush 2 send_mesg (140 instructions, address-masked match, float constants equal)."
+sig = "void send_mesg(s32 index)"
+desc = "Same code as Rush 2 send_mesg (140 instructions, address-masked match, float constants equal). libultra exception handler helper: delivers the registered event message for event index (jump table), waking a thread blocked on the queue (pops it from the queue and enqueues it on the run queue)."
 status = "inferred"
 rush2 = 0x8000FD14
 rush1 = [0x8000DE84]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000CFC4
-desc = "Same code as Rush 2 __osEnqueueAndYield (82 instructions, address-masked match, float constants equal)."
+sig = "void __osEnqueueAndYield(OSThread **queue)"
+desc = "Same code as Rush 2 __osEnqueueAndYield (82 instructions, address-masked match, float constants equal). libultra: saves the running thread's context (registers, FPU, SR, int mask) and enqueues it on queue, then calls __osDispatchThread."
 status = "inferred"
 rush2 = 0x8000FDFC
 rush1 = [0x8000DF6C]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000D0C4
-desc = "Same code as Rush 2 __osEnqueueThread (18 instructions, address-masked match, float constants equal)."
+sig = "void __osEnqueueThread(OSThread **queue, OSThread *t)"
+desc = "Same code as Rush 2 __osEnqueueThread (18 instructions, address-masked match, float constants equal). libultra: inserts thread t into the priority-ordered thread queue (higher priority first) and sets t->queue (+8)."
 status = "inferred"
 rush2 = 0x8000FEFC
 rush1 = [0x8000E06C]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000D2B0
-desc = "Same code as Rush 2 _bcopy (227 instructions, address-masked match, float constants equal)."
+sig = "void _bcopy(const void *src, void *dst, u32 n)"
+desc = "Same code as Rush 2 _bcopy (227 instructions, address-masked match, float constants equal). libultra: memmove-style copy of n bytes from src to dst, handling overlap and alignment with word/halfword/byte paths."
 status = "inferred"
 rush2 = 0x80011880
 rush1 = [0x8000F9E0]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8000D5C0
-desc = "Same code as Rush 2 osVirtualToPhysical (31 instructions, address-masked match, float constants equal)."
+sig = "u32 osVirtualToPhysical(void *vaddr)"
+desc = "Same code as Rush 2 osVirtualToPhysical (31 instructions, address-masked match, float constants equal). libultra: converts a virtual address to physical: KSEG0/KSEG1 by masking with 0x1FFFFFFF, mapped addresses via __osProbeTLB."
 status = "inferred"
 rush2 = 0x80011B90
 rush1 = [0x8000FCF0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000D890
-desc = "Same code as Rush 2 osMapTLBRdb (22 instructions, address-masked match, float constants equal)."
+sig = "void osMapTLBRdb(void)"
+desc = "Same code as Rush 2 osMapTLBRdb (22 instructions, address-masked match, float constants equal). libultra: maps a TLB entry for the RDB debug port (index 0x1F, address 0xC0000000 region) during osInitialize."
 status = "inferred"
 rush2 = 0x80010160
 rush1 = [0x8000E2D0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000D958
-desc = "Same code as Rush 2 __ull_div (15 instructions, address-masked match, float constants equal)."
+sig = "u64 __ull_div(u64 x, u64 y)"
+desc = "Same code as Rush 2 __ull_div (15 instructions, address-masked match, float constants equal). compiler runtime: unsigned 64-bit division."
 status = "inferred"
 rush2 = 0x80010228
 rush1 = [0x8000E398]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8000D994
-desc = "Same code as Rush 2 __ll_lshift (11 instructions, address-masked match, float constants equal)."
+sig = "s64 __ll_lshift(s64 x, u32 n)"
+desc = "Same code as Rush 2 __ll_lshift (11 instructions, address-masked match, float constants equal). compiler runtime: 64-bit left shift."
 status = "inferred"
 rush2 = 0x80010264
 rush1 = [0x8000E3D4]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8000DA58
-desc = "Same code as Rush 2 __ll_mul (12 instructions, address-masked match, float constants equal)."
+sig = "s64 __ll_mul(s64 x, s64 y)"
+desc = "Same code as Rush 2 __ll_mul (12 instructions, address-masked match, float constants equal). compiler runtime: 64-bit multiplication."
 status = "inferred"
 rush2 = 0x80010328
 rush1 = [0x8000E498]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8000DAE8
-desc = "Same code as Rush 2 __ll_mod (39 instructions, address-masked match, float constants equal)."
+sig = "s64 __ll_mod(s64 x, s64 y)"
+desc = "Same code as Rush 2 __ll_mod (39 instructions, address-masked match, float constants equal). compiler runtime: signed 64-bit modulo (result takes sign of divisor)."
 status = "inferred"
 rush2 = 0x800103B8
 rush1 = [0x8000E528]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8000DBC0
-desc = "Same code as Rush 2 __osPiCreateAccessQueue (20 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+sig = "void __osPiCreateAccessQueue(void)"
+desc = "Same code as Rush 2 __osPiCreateAccessQueue (20 instructions, address-masked match, float constants equal). libultra: creates the 1-slot PI access message queue (os_pi_access_queue) and primes it with one message. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
 status = "inferred"
 rush2 = 0x80010700
 rush1 = [0x8000E860]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000DC10
-desc = "Same code as Rush 2 __osSiGetAccess (17 instructions, address-masked match, float constants equal)."
+sig = "void __osSiGetAccess(void)"
+desc = "Same code as Rush 2 __osSiGetAccess (17 instructions, address-masked match, float constants equal). libultra: acquires SI access by receiving (blocking) from the SI access queue, creating it first if needed."
 status = "inferred"
 rush2 = 0x80011F40
 rush1 = [0x800100A0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000DC54
-desc = "Same code as Rush 2 __osPiRelAccess (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+sig = "void __osPiRelAccess(void)"
+desc = "Same code as Rush 2 __osPiRelAccess (11 instructions, address-masked match, float constants equal). libultra: releases PI access by sending a message to the PI access queue. One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
 status = "inferred"
 rush2 = 0x80010794
 rush1 = [0x8000E8F4]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000E3D0
-desc = "Same code as Rush 2 osSetTimer (53 instructions, address-masked match, float constants equal)."
+sig = "s32 osSetTimer(OSTimer *t, OSTime countdown, OSTime interval, OSMesgQueue *mq, OSMesg msg)"
+desc = "Same code as Rush 2 osSetTimer (53 instructions, address-masked match, float constants equal). libultra: configures timer t with countdown/interval and message, inserts it into os_timer_list (__osInsertTimer) and reprograms the timer interrupt (__osSetTimerIntr)."
 status = "inferred"
 rush2 = 0x80011D60
 rush1 = [0x8000FEC0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000E560
-desc = "Same code as Rush 2 __osSiCreateAccessQueue (20 instructions, address-masked match, float constants equal). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+sig = "void __osSiCreateAccessQueue(void)"
+desc = "Same code as Rush 2 __osSiCreateAccessQueue (20 instructions, address-masked match, float constants equal). libultra: creates the 1-slot SI access message queue (os_si_access_queue) and primes it with one message. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
 status = "inferred"
 rush2 = 0x80011EF0
 rush1 = [0x80010050]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000E5B0
-desc = "Same code as Rush 2 __osSiGetAccess (17 instructions, address-masked match, float constants equal)."
+sig = "void __osSiGetAccess(void)"
+desc = "Same code as Rush 2 __osSiGetAccess (17 instructions, address-masked match, float constants equal). libultra: acquires SI access by receiving (blocking) from the SI access queue, creating it first if needed."
 status = "inferred"
 rush2 = 0x80011F40
 rush1 = [0x800100A0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000E5F4
-desc = "Same code as Rush 2 __osSiRelAccess (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+sig = "void __osSiRelAccess(void)"
+desc = "Same code as Rush 2 __osSiRelAccess (11 instructions, address-masked match, float constants equal). libultra: releases SI access by sending a message to the SI access queue. One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
 status = "inferred"
 rush2 = 0x80011F84
 rush1 = [0x800100E4]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000FBA0
-desc = "Same code as Rush 2 osDestroyThread (65 instructions, address-masked match, float constants equal)."
+sig = "void osDestroyThread(OSThread *t)"
+desc = "Same code as Rush 2 osDestroyThread (65 instructions, address-masked match, float constants equal). libultra: removes thread t from os_active_queue and its wait queue (the running thread if NULL), then dispatches the next thread if it was running."
 status = "inferred"
 rush2 = 0x80017500
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000FCB0
-desc = "Same code as Rush 2 __osProbeTLB (46 instructions, address-masked match, float constants equal)."
+sig = "s32 __osProbeTLB(void *vaddr)"
+desc = "Same code as Rush 2 __osProbeTLB (46 instructions, address-masked match, float constants equal). libultra: probes the TLB for vaddr and returns the matching physical address or -1; used by osVirtualToPhysical."
 status = "inferred"
 rush2 = 0x80017A50
 rush1 = [0x80015860]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8000FDA0
-desc = "Same code as Rush 2 __osResetGlobalIntMask (22 instructions, address-masked match, float constants equal)."
+sig = "void __osResetGlobalIntMask(u32 mask)"
+desc = "Same code as Rush 2 __osResetGlobalIntMask (22 instructions, address-masked match, float constants equal). libultra: with interrupts disabled, clears bits from os_global_int_mask (AND with ~(mask & 0xFBFF...) preserving the IP2/IP3 bits)."
 status = "inferred"
 rush2 = 0x80017610
 rush1 = [0x800156B0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x800100C0
-desc = "Same code as Rush 2 __osSetGlobalIntMask (19 instructions, address-masked match, float constants equal)."
+sig = "void __osSetGlobalIntMask(u32 mask)"
+desc = "Same code as Rush 2 __osSetGlobalIntMask (19 instructions, address-masked match, float constants equal). libultra: with interrupts disabled, ORs mask into os_global_int_mask."
 status = "inferred"
 rush2 = 0x800179A0
 rush1 = [0x800157B0]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x80010110
-desc = "Same code as Rush 2 osYieldThread (19 instructions, address-masked match, float constants equal)."
+sig = "void osYieldThread(void)"
+desc = "Same code as Rush 2 osYieldThread (19 instructions, address-masked match, float constants equal). libultra: puts the running thread at the end of the run queue (via __osEnqueueAndYield) so equal-priority threads run."
 status = "inferred"
 rush2 = 0x800179F0
 rush1 = [0x80015800]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x800108E0
@@ -608,11 +851,14 @@ ref = "docs/rush2049_research/audio.md#1-sound-system"
 
 [[func]]
 vram = 0x80014650
-desc = "Same code as Rush 2 func_8005DF04 (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+sig = "void os_send_msg_800d3e48(void)"
+desc = "Same code as Rush 2 os_send_msg_8005DF04 (11 instructions, address-masked match, float constants equal). Sends a message to the message queue at G800D3E48 (osSendMesg). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
 status = "inferred"
 rush2 = 0x8005DF04
 rush1 = [0x8006B444]
 link = "same-code"
+area = "os"
+ref = "docs/functions/rush2049_os.md#rush-2049-os-functions"
 
 [[func]]
 vram = 0x8001ADA8
@@ -661,67 +907,97 @@ ref = "src/audio2049.cpp"
 
 [[func]]
 vram = 0x8002517C
-desc = "Same code as Rush 2 func_80063DA8 (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+sig = "void rumble_send_msg(void)"
+desc = "Same code as Rush 2 rumble_send_msg_80063DA8 (11 instructions, address-masked match, float constants equal). osSendMesg to the rumble/motor queue G800D3988 (releases the pak/rumble lock). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
 status = "inferred"
 rush2 = 0x80063DA8
 rush1 = [0x8006EED8]
 link = "same-code"
+area = "input"
+ref = "docs/functions/rush2049_input.md#rush-2049-input-functions"
 
 [[func]]
 vram = 0x80087804
-desc = "Same code as Rush 2 func_80055868 (55 instructions, address-masked match, float constants equal)."
+name = "gfx_tex_size_to_code"
+sig = "s32 gfx_tex_size_to_code(s32 size)"
+desc = "Same code as Rush 2 gfx_tex_size_to_log2_code_80055868 (55 instructions, address-masked match, float constants equal). Maps a texture dimension to its log2 tile-size code via compare chain (0x201 -> 0xA, 0x101 -> 9, 0x81 -> 8, 0x41 -> 7, ... 3 -> 2); used for G_SETTILE mask/shift setup."
 status = "inferred"
 rush2 = 0x80055868
 rush1 = [0x8005D8D0]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x8008A148
-desc = "Same code as Rush 2 func_8005858C (145 instructions, address-masked match, float constants equal)."
+name = "gfx_draw_rect_pair"
+sig = "void gfx_draw_rect_pair(u8 *color, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 gfx_draw_rect_pair_8005858C (145 instructions, address-masked match, float constants equal). Emits display-list commands (pointer 80125ABC) for a textured/filled rectangle using 8 param bytes at params (colors/format); uses 8011CA88. Called by the rect-mode wrappers, text drawing and per-view frame drawing. (low confidence)"
 status = "inferred"
 rush2 = 0x8005858C
 rush1 = [0x800605B0]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x8008A38C
-desc = "Same code as Rush 2 func_800587D0 (22 instructions, address-masked match, float constants equal)."
+name = "gfx_draw_rect_pair_mode"
+sig = "void gfx_draw_rect_pair_mode(s32 a0)"
+desc = "Same code as Rush 2 gfx_draw_rect_pair_mode_800587D0 (22 instructions, address-masked match, float constants equal). Draws a rect pair (gfx_draw_rect_pair with args 4,1) then sets render mode 0x20; uses flag byte gfx_rect_pair_mode (800BD3C3) and text_color_state (8011CA88). Called by the per-view frame drawer and text scroll."
 status = "inferred"
 rush2 = 0x800587D0
 rush1 = [0x800607F4]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x8008A644
-desc = "Same code as Rush 2 func_80058A9C (24 instructions, address-masked match, float constants equal)."
+name = "gfx_set_render_mode_stash"
+sig = "void gfx_set_render_mode_stash(s32 a0)"
+desc = "Same code as Rush 2 gfx_set_render_mode_stash_80058A9C (24 instructions, address-masked match, float constants equal). Sets render mode 0x10 via gfx_set_render_mode_dl, stashing the render mode state halfword in gfx_render_mode_stash (80119420)."
 status = "inferred"
 rush2 = 0x80058A9C
 rush1 = [0x80060AE4]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x8008A6D0
-desc = "Same code as Rush 2 func_80077310 (11 instructions, address-masked match, float constants equal). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+sig = "void asset_load_lock_release(void)"
+desc = "Same code as Rush 2 asset_load_lock_release_80077310 (11 instructions, address-masked match, float constants equal). osSendMesg on the asset loader lock queue G800D3AD8 (counterpart of func_80061CF0 acquire). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
 status = "inferred"
 rush2 = 0x80077310
 rush1 = [0x80070CCC]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008AD04
-desc = "Same code as Rush 2 func_80058B94 (17 instructions, address-masked match, float constants equal)."
+name = "strcmp_ci_like"
+sig = "s32 strcmp_ci_like(const char *a, const char *b)"
+desc = "Same code as Rush 2 strcmp_ci_like_80058B94 (17 instructions, address-masked match, float constants equal). Byte-by-byte string comparison loop (reads a0/a1 bytes), returns difference or 0; probably strcmp."
 status = "inferred"
 rush2 = 0x80058B94
 rush1 = [0x800673A4]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008AD48
-desc = "Same code as Rush 2 func_80058CA0 (9 instructions, address-masked match, float constants equal)."
+name = "entry_name_cmp_ci"
+sig = "s32 entry_name_cmp_ci(void *a, void *b)"
+desc = "Same code as Rush 2 entry_name_cmp_ci_80058CA0 (9 instructions, address-masked match, float constants equal). Comparator callback: case-insensitive strcmp of the strings at offset 4 of two entries; used by track load and a sorter."
 status = "inferred"
 rush2 = 0x80058CA0
 rush1 = [0x800674B0]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008AD6C
@@ -734,35 +1010,51 @@ ref = "docs/rush2049_research/geometry.md#42-mirror-mode"
 
 [[func]]
 vram = 0x8008B32C
-desc = "Same code as Rush 2 func_8005A340 (29 instructions, address-masked match, float constants equal)."
+name = "mem_copy_words"
+sig = "void *mem_copy_words(void *dst, const void *src, s32 size)"
+desc = "Same code as Rush 2 mem_copy_words_8005A340 (29 instructions, address-masked match, float constants equal). memcpy-like copy using 4-byte units when aligned (mask 3) with byte tail; used by car select preview, track select and circuit menu code."
 status = "inferred"
 rush2 = 0x8005A340
 rush1 = [0x80068AA0]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008B3C8
-desc = "Same code as Rush 2 func_80059248 (11 instructions, address-masked match, float constants equal)."
+name = "math_vec3_op"
+sig = "void math_vec3_op(Vec3 *v)"
+desc = "Same code as Rush 2 math_vec3_length_80059248 (11 instructions, address-masked match, float constants equal). Returns sqrt(x*x + y*y + z*z) of the float vector at v."
 status = "inferred"
 rush2 = 0x80059248
 rush1 = [0x80067A6C]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008B424
-desc = "Same code as Rush 2 func_800591A8 (20 instructions, address-masked match, float constants equal)."
+name = "math_vec3_normalize"
+sig = "void math_vec3_normalize(Vec3 *v)"
+desc = "Same code as Rush 2 math_vec3_normalize_800591A8 (20 instructions, address-masked match, float constants equal). Normalizes a 3-float vector in place (uses 1.0 and epsilon in 800CF454)."
 status = "inferred"
 rush2 = 0x800591A8
 rush1 = [0x800679CC]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008B474
-desc = "Same code as Rush 2 func_800591F8 (20 instructions, address-masked match, float constants equal)."
+name = "math_vec3_normalize_copy"
+sig = "void math_vec3_normalize_copy(f32 *in, f32 *out)"
+desc = "Same code as Rush 2 math_vec3_normalize_copy_800591F8 (20 instructions, address-masked match, float constants equal). Copies vec3 in to out and normalizes it via math_vec3_normalize."
 status = "inferred"
 rush2 = 0x800591F8
 rush1 = [0x80067A1C]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008B4C4
@@ -773,45 +1065,67 @@ ref = "docs/rush2049_research/placement.md#7-knock-over-props-v"
 
 [[func]]
 vram = 0x8008C544
-desc = "Same code as Rush 2 func_80059AE0 (39 instructions, address-masked match, float constants equal)."
+name = "math_mat3_transform_vec3_transposed"
+sig = "void math_mat3_transform_vec3_transposed(Vec3 *in, Vec3 *out, f32 *mat3x3)"
+desc = "Same code as Rush 2 math_mat3_transform_vec3_transposed_80059AE0 (39 instructions, address-masked match, float constants equal). out = M^T * in (multiplies by 3x3 matrix transpose); counterpart of func_80054454."
 status = "inferred"
 rush2 = 0x80059AE0
 rush1 = [0x80068364]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008C5E0
-desc = "Same code as Rush 2 func_800548C8 (40 instructions, address-masked match, float constants equal)."
+name = "math_load_const_floats"
+sig = "void math_load_const_floats(void)"
+desc = "Same code as Rush 2 math_load_const_floats_800548C8 (40 instructions, address-masked match, float constants equal). Reads nine float constants at 800CF3FC..800CF41C (3x3 matrix values like 896.786, 16.1536, 268.425...) and builds a matrix from them; called by math_load_const_floats_x3. (low confidence)"
 status = "inferred"
 rush2 = 0x800548C8
 rush1 = [0x8005C978]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008C680
-desc = "Same code as Rush 2 func_80054968 (40 instructions, address-masked match, float constants equal)."
+name = "math_load_const_floats_x3"
+sig = "void math_load_const_floats_x3(void)"
+desc = "Same code as Rush 2 math_load_const_floats_x3_80054968 (40 instructions, address-masked match, float constants equal). Calls math_load_const_floats three times, initializing constant tables for 800CF420/428/42C (0.414214 = tan(pi/8), pi/4, pi/2). (low confidence)"
 status = "inferred"
 rush2 = 0x80054968
 rush1 = [0x8005CA18]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008C720
-desc = "Same code as Rush 2 func_80054A08 (18 instructions, address-masked match, float constants equal)."
+name = "math_load_const_floats_x6"
+sig = "void math_load_const_floats_x6(void)"
+desc = "Same code as Rush 2 math_load_const_floats_x6_80054A08 (18 instructions, address-masked match, float constants equal). Calls math_load_const_floats_x3 twice (six const-table loads); used by the view matrix builder and x12 variant. (low confidence)"
 status = "inferred"
 rush2 = 0x80054A08
 rush1 = [0x8005CAB8]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008C768
-desc = "Same code as Rush 2 func_8005C8E8 (67 instructions, address-masked match, float constants equal)."
+name = "math_load_const_floats_x12"
+sig = "void math_load_const_floats_x12(void)"
+desc = "Same code as Rush 2 math_load_const_floats_x12_8005C8E8 (67 instructions, address-masked match, float constants equal). Loads constant float vectors (x3 twice, x6 twice) and the angle constants 800CF4CC..D8 (+/-pi/2, +/-pi); called by projection, drone driver and car code. (low confidence)"
 status = "inferred"
 rush2 = 0x8005C8E8
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008D6B0
+name = "math_mat3_copy"
+sig = "void math_mat3_copy(f32 *src, f32 *dst)"
 desc = "Quaternion/matrix helper used in follower restart (with func_800C0828) to build inv_rest. | With func_800C0828, computes the inverse rest rotation."
 status = "inferred"
 rush2 = 0x8005A28C
@@ -821,17 +1135,25 @@ ref = "docs/rush2049_research/movers.md#3-spawn-func_800b338c--func_800b2df8--fu
 
 [[func]]
 vram = 0x8008D764
-desc = "Same code as Rush 2 func_8005A3B4 (67 instructions, address-masked match, float constants equal)."
+name = "math_mat3_from_euler"
+sig = "void math_mat3_from_euler(f32 *mat3x3, Vec3 *angles)"
+desc = "Same code as Rush 2 math_mat3_from_euler_8005A3B4 (67 instructions, address-masked match, float constants equal). Builds a 3x3 rotation matrix from three Euler angles using three sin/cos pairs."
 status = "inferred"
 rush2 = 0x8005A3B4
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008E0B8
-desc = "Same code as Rush 2 func_8006BC78 (35 instructions, address-masked match, float constants equal)."
+name = "math_vec3_normalize"
+sig = "void math_vec3_normalize(Vec3 *v)"
+desc = "Same code as Rush 2 math_vec3_normalize_eps_8006BC78 (35 instructions, address-masked match, float constants equal). Normalizes v in place, skipping/guarding lengths below epsilon 1e-5 (800CF7A0)."
 status = "inferred"
 rush2 = 0x8006BC78
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008E26C
@@ -849,19 +1171,27 @@ ref = "docs/rush2049_research/movers.md#1-globals-and-timing"
 
 [[func]]
 vram = 0x8008FFD0
-desc = "Same code as Rush 2 func_8007F20C (23 instructions, address-masked match, float constants equal)."
+name = "table_lookup"
+sig = "s32 table_lookup_800d9e9e(s32 key)"
+desc = "Same code as Rush 2 node_table_lookup_index_8007F20C (23 instructions, address-masked match, float constants equal). Loop lookup using halfword table table_lookup_count and scene_node_table_count; returns an index. (low confidence)"
 status = "inferred"
 rush2 = 0x8007F20C
 rush1 = [0x80066980]
 link = "same-code"
+area = "other"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
 vram = 0x8009002C
-desc = "Same code as Rush 2 func_8007F20C (23 instructions, address-masked match, float constants equal)."
+name = "table_lookup"
+sig = "s32 table_lookup_800d9e9e(s32 key)"
+desc = "Same code as Rush 2 node_table_lookup_index_8007F20C (23 instructions, address-masked match, float constants equal). Loop lookup using halfword table table_lookup_count and scene_node_table_count; returns an index. (low confidence)"
 status = "inferred"
 rush2 = 0x8007F20C
 rush1 = [0x80066980]
 link = "same-code"
+area = "other"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
 vram = 0x80090088
@@ -872,13 +1202,19 @@ ref = "docs/rush2049_research/placement.md#7-knock-over-props-v"
 
 [[func]]
 vram = 0x80090254
-desc = "Same code as Rush 2 func_8007F4D4 (12 instructions, address-masked match, float constants equal)."
+name = "node_table_alloc_single"
+sig = "void node_table_alloc_single(s32 a0)"
+desc = "Same code as Rush 2 node_table_alloc_single_8007F4D4 (12 instructions, address-masked match, float constants equal). Thin wrapper calling node_table_alloc_recursive (a0, 1, 1 presumably); used by menu overlay screens."
 status = "inferred"
 rush2 = 0x8007F4D4
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x80090E9C
+name = "math_rot_vec"
+sig = "void math_rot_vec(s32 a0, f32 *m)"
 desc = "Rotates matrix rows about y. | Rotation about y."
 status = "verified"
 rush2 = 0x8005EB24
@@ -888,6 +1224,8 @@ ref = "docs/rush2049_research/movers.md#46-in-place-animations-not-path-objects-
 
 [[func]]
 vram = 0x80090F44
+name = "math_rot_vec"
+sig = "void math_rot_vec(s32 a0, f32 *m)"
 desc = "Rotates matrix rows about x. | Rotation about x."
 status = "verified"
 rush2 = 0x8005EA7C
@@ -913,20 +1251,27 @@ ref = "src/wings_state.cpp"
 
 [[func]]
 vram = 0x80092C58
-desc = "Same code as Rush 2 func_8005BCB4 (74 instructions, address-masked match, float constants equal). Per-slot binary search of model names (comparator func_80058C6C)."
+name = "model_name_bsearch"
+sig = "void model_name_bsearch(s32 a0, s32 a1, s32 a2, s32 a3, s32 cmp_arg)"
+desc = "Same code as Rush 2 model_name_bsearch_8005BCB4 (74 instructions, address-masked match, float constants equal). Per-slot binary search of model names (comparator func_80058C6C)."
 status = "inferred"
 rush2 = 0x8005BCB4
 rush1 = [0x80080E80]
 link = "same-code"
 area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x80092DCC
-desc = "Same code as Rush 2 func_8005BDDC (24 instructions, address-masked match, float constants equal)."
+name = "model_name_linear_find"
+sig = "s32 model_name_linear_find(s32 a0, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 model_name_linear_find_8005BDDC (24 instructions, address-masked match, float constants equal). Two-loop linear search helper used by model_find_by_name to locate a model entry by name. (low confidence)"
 status = "inferred"
 rush2 = 0x8005BDDC
 rush1 = [0x80069CBC]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x80092E2C
@@ -964,41 +1309,61 @@ ref = "docs/rush2049_research/placement.md#7-knock-over-props-v"
 
 [[func]]
 vram = 0x80094D20
-desc = "Same code as Rush 2 func_800540F8 (18 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+name = "flags_clear_bit_0x80_ret"
+sig = "s32 flags_clear_bit_0x80_ret(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 flags_clear_bit_0x80_ret_800540F8 (18 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
 status = "inferred"
 rush2 = 0x800540F8
 link = "same-code"
+area = "other"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
 vram = 0x80094D68
-desc = "Same code as Rush 2 func_80054140 (18 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+name = "flags_clear_bit_0x4_ret"
+sig = "s32 flags_clear_bit_0x4_ret(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 flags_clear_bit_0x4_ret_80054140 (18 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
 status = "inferred"
 rush2 = 0x80054140
 rush1 = [0x8005C1F0]
 link = "same-code"
+area = "other"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
 vram = 0x80094E00
-desc = "Same code as Rush 2 func_80054348 (34 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+name = "hud_widget_stub"
+sig = "void hud_widget_stub(s32 a0, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 hud_widget_stub_80054348 (34 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
 status = "inferred"
 rush2 = 0x80054348
 rush1 = [0x8005C3F8]
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x80094EC8
-desc = "Same code as Rush 2 func_80060104 (48 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+name = "hud_widget_reset"
+sig = "void hud_widget_reset(Widget *w)"
+desc = "Same code as Rush 2 hud_widget_reset_80060104 (48 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
 status = "inferred"
 rush2 = 0x80060104
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800950AC
-desc = "Same code as Rush 2 func_80058BF8 (29 instructions, address-masked match, float constants equal)."
+name = "strncmp_like"
+sig = "s32 strncmp_like(const char *a, const char *b, s32 n)"
+desc = "Same code as Rush 2 strncmp_like_80058BF8 (29 instructions, address-masked match, float constants equal). Bounded string comparison (a2 = max length), probably strncmp."
 status = "inferred"
 rush2 = 0x80058BF8
 rush1 = [0x80067408]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x80095120
@@ -1148,12 +1513,15 @@ ref = "docs/rush2049_research/audio.md#6-track-object-sounds-movers-and-props"
 
 [[func]]
 vram = 0x80099B30
-desc = "Same code as Rush 2 func_80078190 (51 instructions, address-masked match, float constants equal). Emits the post list for LOD flag 0x2 (caller argument)."
+name = "gfx_load_palette_tlut"
+sig = "void gfx_load_palette_tlut(Gfx **dl, Palette *pal)"
+desc = "Same code as Rush 2 gfx_load_palette_tlut_80078190 (51 instructions, address-masked match, float constants equal). Emits the post list for LOD flag 0x2 (caller argument)."
 status = "inferred"
 rush2 = 0x80078190
 rush1 = [0x80060BDC]
 link = "same-code"
 area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x80099BFC
@@ -1193,14 +1561,20 @@ ref = "docs/rush2049_research/movers.md#rush-2049-moving-track-objects-specifica
 
 [[func]]
 vram = 0x8009E8B4
-desc = "Same code as Rush 2 func_8007BE08 (73 instructions, address-masked match, float constants equal)."
+name = "gfx_view_matrix_helper"
+sig = "void gfx_view_matrix_helper(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 view_matrix_fixed_to_float_8007BE08 (73 instructions, address-masked match, float constants equal). Loop converting 3x3 fixed-point matrix elements to float by dividing by 65536.0; called from view_fog_setup. (low confidence)"
 status = "inferred"
 rush2 = 0x8007BE08
 rush1 = [0x80064294]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x8009EA68
+name = "math_mat_rot_xy_from_angle"
+sig = "void math_mat_rot_xy_from_angle(s32 a0, f32 *m)"
 desc = "Rotates matrix rows about z. | Rotation about z."
 status = "verified"
 rush2 = 0x8005ADFC
@@ -1230,14 +1604,20 @@ ref = "docs/rush2049_research/geometry.md#54-culling-and-visibility-summary"
 
 [[func]]
 vram = 0x800A1910
-desc = "Same code as Rush 2 func_80098B8C (75 instructions, address-masked match, float constants equal)."
+name = "save_record_pack_name"
+sig = "s32 save_record_pack_name(s32 a0, u8 *name, s32 a2)"
+desc = "Same code as Rush 2 save_record_pack_name_80098B8C (75 instructions, address-masked match, float constants equal). Processes a name/initials byte array with -1 terminators over 2 loops (alternating 0/-1 bytes); used by pak check and controller setup. (low confidence)"
 status = "inferred"
 rush2 = 0x80098B8C
 rush1 = [0x8009693C]
 link = "same-code"
+area = "save"
+ref = "docs/functions/rush2049_save.md#rush-2049-save-functions"
 
 [[func]]
 vram = 0x800A464C
+name = "str_helper"
+sig = "s32 str_helper(const char *a, const char *b)"
 desc = "Handles direction variant suffixes _FW/_BW (0x80121D44/0x80121D40) using backward flag 0x80152570."
 status = "verified"
 rush2 = 0x8008155C
@@ -1247,27 +1627,38 @@ ref = "docs/rush2049_research/placement.md#2-rush-2049-placement-format-v"
 
 [[func]]
 vram = 0x800A473C
-desc = "Same code as Rush 2 func_800601C4 (13 instructions, address-masked match, float constants equal). Looks up a per-track name prefix (0x800C182C[track])."
+name = "track_name_prefix_copy"
+sig = "s32 track_name_prefix_copy(char *dst, const char *src)"
+desc = "Same code as Rush 2 track_name_prefix_copy_800601C4 (13 instructions, address-masked match, float constants equal). Looks up a per-track name prefix (0x800C182C[track])."
 status = "inferred"
 rush2 = 0x800601C4
 rush1 = [0x8006D764]
 link = "same-code"
 area = "race"
+ref = "docs/functions/rush2049_race.md#rush-2049-race-functions"
 
 [[func]]
 vram = 0x800A4770
-desc = "Same code as Rush 2 func_800B21A8 (20 instructions, address-masked match, float constants equal)."
+name = "str_copy_name_nul_pad"
+sig = "s32 str_copy_name_nul_pad(u8 *dst, u8 *src)"
+desc = "Same code as Rush 2 str_copy_name_nul_pad_800B21A8 (20 instructions, address-masked match, float constants equal). Copies a name record from src to dst with -1 terminators over 2 loops; called from menu_car_select_run. (low confidence)"
 status = "inferred"
 rush2 = 0x800B21A8
 link = "same-code"
+area = "save"
+ref = "docs/functions/rush2049_save.md#rush-2049-save-functions"
 
 [[func]]
 vram = 0x800A557C
-desc = "Same code as Rush 2 func_80054700 (114 instructions, address-masked match, float constants equal)."
+name = "math_build_basis_from_consts"
+sig = "void math_build_basis_from_consts(f32 *a0)"
+desc = "Same code as Rush 2 math_build_basis_from_consts_80054700 (114 instructions, address-masked match, float constants equal). Float polynomial approximation (constants 0.63662 = 2/pi, 1.5708 = pi/2 and series coefficients) that splits its input via math_float_split_int_frac and stores 12 floats to 800CF3CC..800CF3F8; called from cam_build_view_matrix. (low confidence)"
 status = "inferred"
 rush2 = 0x80054700
 rush1 = [0x8005C7B0]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x800A61B0
@@ -1291,14 +1682,19 @@ ref = "docs/rush2049_research/race.md#71-tables"
 
 [[func]]
 vram = 0x800A79F4
-desc = "Same code as Rush 2 func_800541F8 (60 instructions, address-masked match, float constants equal). Patched in us.toml. Widget initialized: $v1 = slot, $a0 = widget. / The race HUD's element and widget pools grow from 200 to 400 entries (moved by the relocation block below; four players' HUDs use about 230). / BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+name = "hud_widget_alloc"
+sig = "s32 hud_widget_alloc(Widget *w, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 hud_widget_alloc_800541F8 (60 instructions, address-masked match, float constants equal). Patched in us.toml. Widget initialized: $v1 = slot, $a0 = widget. / The race HUD's element and widget pools grow from 200 to 400 entries (moved by the relocation block below; four players' HUDs use about 230). / BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
 status = "inferred"
 rush2 = 0x800541F8
 link = "same-code"
 area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800A7D6C
+name = "scene_matrix_create"
+sig = "s32 scene_matrix_create(void)"
 desc = "Creates a sky node pair helper (called from func_800BB69C)."
 status = "inferred"
 rush2 = 0x8007F91C
@@ -1380,6 +1776,8 @@ ref = "docs/rush2049_research/placement.md#11-loading-and-instantiation"
 
 [[func]]
 vram = 0x800AC668
+name = "placement_find_tree"
+sig = "void *placement_find_tree(char *name, s32 a1)"
 desc = "2049 placement tree lookup by name; counterpart of Rush 2 func_80081B58."
 status = "verified"
 rush2 = 0x80081B58
@@ -1410,18 +1808,26 @@ ref = "docs/rush2049_research/collision.md#node-0x14-bytes-quadtree-over-world-x
 
 [[func]]
 vram = 0x800ACB74
-desc = "Same code as Rush 2 func_8006BD04 (20 instructions, address-masked match, float constants equal)."
+name = "collision_transform_vec3"
+sig = "void collision_transform_vec3(s32 a0, s32 a1, s32 a2, f32 *vec)"
+desc = "Same code as Rush 2 collision_transform_vec3_8006BD04 (20 instructions, address-masked match, float constants equal). Transforms vec3 v in place via math_mat3_transform_vec3 with a local matrix; helper of collision_seg_surface and collision_seg_arc_surface."
 status = "inferred"
 rush2 = 0x8006BD04
 link = "same-code"
+area = "collision"
+ref = "docs/functions/rush2049_collision.md#rush-2049-collision-functions"
 
 [[func]]
 vram = 0x800ACBC4
-desc = "Same code as Rush 2 func_8006BD54 (21 instructions, address-masked match, float constants equal)."
+name = "collision_dist_helper"
+sig = "void collision_dist_helper(f32 *a0, f32 *a1, s32 a2, f32 *a3)"
+desc = "Same code as Rush 2 collision_dist_helper_8006BD54 (21 instructions, address-masked match, float constants equal). Small 3-iteration float loop with 1.0 used by collision_seg_surface (likely per-axis distance/plane evaluation). (low confidence)"
 status = "inferred"
 rush2 = 0x8006BD54
 rush1 = [0x8007A848]
 link = "same-code"
+area = "collision"
+ref = "docs/functions/rush2049_collision.md#rush-2049-collision-functions"
 
 [[func]]
 vram = 0x800ACC18
@@ -1436,17 +1842,25 @@ ref = "docs/rush2049_research/collision.md#seg-0x84-bytes-road-surface-spline-se
 
 [[func]]
 vram = 0x800ACFF8
-desc = "Same code as Rush 2 func_8006C188 (38 instructions, address-masked match, float constants equal)."
+name = "math_vec3_pair"
+sig = "void math_vec3_pair(s32 a0, s32 a1, Vec3 *v)"
+desc = "Same code as Rush 2 math_basis_orthogonalize_b_8006C188 (38 instructions, address-masked match, float constants equal). Reads and rewrites two vec3 rows at basis+0xC and +0x18; collision arc surface and menu frame helper. (low confidence)"
 status = "inferred"
 rush2 = 0x8006C188
 link = "same-code"
+area = "collision"
+ref = "docs/functions/rush2049_collision.md#rush-2049-collision-functions"
 
 [[func]]
 vram = 0x800AD090
-desc = "Same code as Rush 2 func_8006C220 (38 instructions, address-masked match, float constants equal)."
+name = "math_vec3_pair"
+sig = "void math_vec3_pair(s32 a0, s32 a1, Vec3 *v)"
+desc = "Same code as Rush 2 math_basis_orthogonalize_c_8006C220 (38 instructions, address-masked match, float constants equal). Reads and rewrites two vec3 rows at basis+0 and +0xC; collision arc surface helper. (low confidence)"
 status = "inferred"
 rush2 = 0x8006C220
 link = "same-code"
+area = "collision"
+ref = "docs/functions/rush2049_collision.md#rush-2049-collision-functions"
 
 [[func]]
 vram = 0x800AD128
@@ -1515,11 +1929,15 @@ ref = "docs/rush2049_research/cars.md#8-implementation-v"
 
 [[func]]
 vram = 0x800B0618
-desc = "Same code as Rush 2 func_800831CC (21 instructions, address-masked match, float constants equal)."
+name = "scene_pool_reset"
+sig = "void scene_pool_reset(void)"
+desc = "Same code as Rush 2 scene_pool_reset_800831CC (21 instructions, address-masked match, float constants equal). Attaches nodes to the global object list then resets the list pool (list_pool_reset); uses object_list_head. No callers."
 status = "inferred"
 rush2 = 0x800831CC
 rush1 = [0x800840D0]
 link = "same-code"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x800B0868
@@ -1538,6 +1956,8 @@ ref = "docs/rush2049_research/race.md#7-rush-2049-per-track-data-race-tracks-05-
 
 [[func]]
 vram = 0x800B0EA0
+name = "gfx_color_blend_rgba5551"
+sig = "u16 gfx_color_blend_rgba5551(s32 a0, s32 a1, s32 a2)"
 desc = "Generates a color ramp from a color to black (t = 0, 8, .. 0xF0) for car paint. | Blends color a (t = 0) to color b (t = 255); used to build the 31-step ramps toward black."
 status = "verified"
 ported = true
@@ -1617,10 +2037,14 @@ ref = "docs/rush2049_research/movers.md#3-spawn-func_800b338c--func_800b2df8--fu
 
 [[func]]
 vram = 0x800B362C
-desc = "Same code as Rush 2 func_80060340 (54 instructions, address-masked match, float constants equal)."
+name = "hud_widget_load_texture"
+sig = "void hud_widget_load_texture(Widget *w)"
+desc = "Same code as Rush 2 hud_widget_load_texture_80060340 (54 instructions, address-masked match, float constants equal). Looks up texture by name (texture_find_by_name) and stores its width/height (+0x10/+0x12) into widget fields 0xC/0x14/0x16; sets widget fields 0,4,8."
 status = "inferred"
 rush2 = 0x80060340
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800B3704
@@ -1631,25 +2055,36 @@ ref = "tools/rush2049/ui49.py"
 
 [[func]]
 vram = 0x800B4360
-desc = "Same code as Rush 2 func_800B1A48 (11 instructions, address-masked match, float constants equal)."
+name = "util_call_1940_wrapper"
+sig = "void util_call_1940_wrapper(s32 a0, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 util_sprintf_800B1A48 (11 instructions, address-masked match, float constants equal). sprintf-style wrapper calling vsprintf_core with dst, fmt and a pointer to the local variadic argument buffer."
 status = "inferred"
 rush2 = 0x800B1A48
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x800B7170
-desc = "Same code as Rush 2 func_8007347C (12 instructions, address-masked match, float constants equal)."
+name = "text_center_x_variant"
+sig = "s32 text_center_x_variant(const char *str, s32 x)"
+desc = "Same code as Rush 2 text_center_x_variant_8007347C (12 instructions, address-masked match, float constants equal). Calls text_measure_string(str, -1) and returns an x derived from the argument (centering variant); used by menu overlays."
 status = "inferred"
 rush2 = 0x8007347C
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800B71A0
-desc = "Same code as Rush 2 func_800734AC (13 instructions, address-masked match, float constants equal). Returns the x of a string centered on a given x ($a1)."
+name = "text_center_x"
+sig = "s32 text_center_x(const char *str, s32 center_x)"
+desc = "Same code as Rush 2 text_center_x_800734AC (13 instructions, address-masked match, float constants equal). Returns the x of a string centered on a given x ($a1)."
 status = "inferred"
 rush2 = 0x800734AC
 link = "same-code"
 area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800B9284
@@ -1663,38 +2098,52 @@ ref = "docs/rush2049_research/race.md#4-how-the-race-is-defined"
 
 [[func]]
 vram = 0x800B9A0C
-desc = "Same code as Rush 2 func_80091CFC (86 instructions, address-masked match, float constants equal). Computes the checkpoint a branch belongs to."
+name = "route_branch_checkpoint_of"
+sig = "void route_branch_checkpoint_of(s32 a0, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 route_branch_checkpoint_of_80091CFC (86 instructions, address-masked match, float constants equal). Computes the checkpoint a branch belongs to."
 status = "inferred"
 rush2 = 0x80091CFC
 link = "same-code"
 area = "track"
+ref = "docs/functions/rush2049_track.md#rush-2049-track-functions"
 
 [[func]]
 vram = 0x800B9F60
-desc = "Same code as Rush 2 func_8008CCF8 (43 instructions, address-masked match, float constants equal). Progress past the last spine point wraps to the loop-start checkpoint's crossing."
+name = "race_progress_wrap_to_loop_start"
+sig = "void race_progress_wrap_to_loop_start(s32 a0, s32 a1, s32 *a2, s32 *a3)"
+desc = "Same code as Rush 2 race_progress_wrap_to_loop_start_8008CCF8 (43 instructions, address-masked match, float constants equal). Progress past the last spine point wraps to the loop-start checkpoint's crossing."
 status = "inferred"
 rush2 = 0x8008CCF8
 link = "same-code"
 area = "track"
+ref = "docs/functions/rush2049_track.md#rush-2049-track-functions"
 
 [[func]]
 vram = 0x800BA00C
-desc = "Same code as Rush 2 func_80092240 (169 instructions, address-masked match, float constants equal). Computes spine distance to the next checkpoint (cp +0x4C)."
+name = "race_spine_dist_to_next_checkpoint"
+sig = "void race_spine_dist_to_next_checkpoint(Car *car, s32 a1)"
+desc = "Same code as Rush 2 race_spine_dist_to_next_checkpoint_80092240 (169 instructions, address-masked match, float constants equal). Computes spine distance to the next checkpoint (cp +0x4C)."
 status = "inferred"
 rush2 = 0x80092240
 link = "same-code"
 area = "track"
+ref = "docs/functions/rush2049_track.md#rush-2049-track-functions"
 
 [[func]]
 vram = 0x800BA2B8
-desc = "Same code as Rush 2 func_80092884 (109 instructions, address-masked match, float constants equal). Computes checkpoint crossing indices (lanes)."
+name = "checkpoint_crossing_lanes"
+sig = "s32 checkpoint_crossing_lanes(void *cp, s32 lane)"
+desc = "Same code as Rush 2 checkpoint_crossing_lanes_80092884 (109 instructions, address-masked match, float constants equal). Computes checkpoint crossing indices (lanes)."
 status = "inferred"
 rush2 = 0x80092884
 link = "same-code"
 area = "track"
+ref = "docs/functions/rush2049_track.md#rush-2049-track-functions"
 
 [[func]]
 vram = 0x800BA61C
+name = "checkpoint_crossing_spine"
+sig = "s32 checkpoint_crossing_spine(void *cp)"
 desc = "Finds the spine point nearest the finish checkpoint and ahead of it (func_800BA61C(header +2)); checkpoints at path +12 + n*0x50 {f32 pos[3], f32 dir[3]}. | Finds the spine point nearest the finish checkpoint using the path header's loop checkpoint."
 status = "verified"
 ported = true
@@ -1725,10 +2174,14 @@ ref = "docs/rush2049_research/checkpoints.md#0-correction-verified-in-game-the-r
 
 [[func]]
 vram = 0x800BAF64
-desc = "Same code as Rush 2 func_800A37C8 (11 instructions, address-masked match, float constants equal)."
+name = "track_load_path_wrapper"
+sig = "s32 track_load_path_wrapper(void)"
+desc = "Same code as Rush 2 track_load_path_wrapper_800A37C8 (11 instructions, address-masked match, float constants equal). Calls path_load and writes track_load_flag; no callers."
 status = "inferred"
 rush2 = 0x800A37C8
 link = "same-code"
+area = "track"
+ref = "docs/functions/rush2049_track.md#rush-2049-track-functions"
 
 [[func]]
 vram = 0x800BB140
@@ -1756,10 +2209,14 @@ ref = "docs/rush2049_research/geometry.md#41-the-conditional-op-e0-01-cccc--tttt
 
 [[func]]
 vram = 0x800BC21C
-desc = "Same code as Rush 2 func_8006A25C (40 instructions, address-masked match, float constants equal)."
+name = "car_clamp_vec_pair_400"
+sig = "void car_clamp_vec_pair_400(f32 *v)"
+desc = "Same code as Rush 2 car_clamp_vec_xz_400_8006A25C (40 instructions, address-masked match, float constants equal). Clamps v[0] and v[2] to +/-400.0 (with offsets 800CF770/74, scale 0.0025); used by the tire model."
 status = "inferred"
 rush2 = 0x8006A25C
 link = "same-code"
+area = "car"
+ref = "docs/functions/rush2049_car.md#rush-2049-car-functions"
 
 [[func]]
 vram = 0x800BCBB8
@@ -1770,11 +2227,14 @@ ref = "tools/rush2049/cars.py"
 
 [[func]]
 vram = 0x800BCEE4
-desc = "Same code as Rush 2 func_8006AE3C (103 instructions, address-masked match, float constants equal). Point velocity on a car: v + position x angular velocity."
+name = "car_wheel_frame_velocity"
+sig = "void car_wheel_frame_velocity(f32 *a0, f32 *a1, f32 *a2, s32 a3, s32 s0, s32 s1, s32 s2)"
+desc = "Same code as Rush 2 car_wheel_frame_velocity_8006AE3C (103 instructions, address-masked match, float constants equal). Point velocity on a car: v + position x angular velocity."
 status = "inferred"
 rush2 = 0x8006AE3C
 link = "same-code"
 area = "car"
+ref = "docs/functions/rush2049_car.md#rush-2049-car-functions"
 
 [[func]]
 vram = 0x800BD080
@@ -1786,6 +2246,8 @@ ref = "docs/rush2049_research/texanim.md#11-flip-books-table-0x8011a31c-ptr-per-
 
 [[func]]
 vram = 0x800BD104
+name = "track_prop_anim_scroll_helper"
+sig = "void track_prop_anim_scroll_helper(void *a0, void *a1, void *a2, void *a3, u32 arg4)"
 desc = "Scroll patch: walks a load list to G_ENDDL and on each G_SETTILESIZE replaces uls (bits 12-23 of w0) or ult (bits 0-11), halving for smaller mip tiles. | Sets the tile origin s (or t) of every G_SETTILESIZE of a load list, halving it per mipmap tile."
 status = "verified"
 ported = true
@@ -1825,17 +2287,25 @@ ref = "docs/rush2049_research/texanim.md#1-how-rush-2049-does-it-v"
 
 [[func]]
 vram = 0x800BE4B4
-desc = "Same code as Rush 2 func_80073FBC (15 instructions, address-masked match, float constants equal)."
+name = "text_print_styled"
+sig = "void text_print_styled(s32 style, s32 x, s32 y, const char *str)"
+desc = "Same code as Rush 2 text_print_styled_80073FBC (15 instructions, address-masked match, float constants equal). Selects a text style (text_select_style) then prints the string (text_print_string)."
 status = "inferred"
 rush2 = 0x80073FBC
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800BE9E8
-desc = "Same code as Rush 2 func_800B1A00 (18 instructions, address-masked match, float constants equal)."
+name = "text_print_formatted"
+sig = "void text_print_formatted(s32 x, s32 y, s32 a2, s32 fmtarg)"
+desc = "Same code as Rush 2 text_print_formatted_800B1A00 (18 instructions, address-masked match, float constants equal). Formats a string via func_80001940 (vsprintf-like) and prints it with text_print_string at the current style."
 status = "inferred"
 rush2 = 0x800B1A00
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800BEAA0
@@ -1998,17 +2468,25 @@ ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
 
 [[func]]
 vram = 0x800C40E8
-desc = "Same code as Rush 2 func_8006BB60 (38 instructions, address-masked match, float constants equal)."
+name = "math_vec3_pair"
+sig = "void math_vec3_pair(s32 a0, s32 a1, Vec3 *v)"
+desc = "Same code as Rush 2 math_basis_orthogonalize_a_8006BB60 (38 instructions, address-masked match, float constants equal). Reads and rewrites two vec3 rows of the basis (offsets 0..8 and 0x18..0x20), probably normalizing/orthogonalizing an orientation; called from car grid placement and respawn placement. (low confidence)"
 status = "inferred"
 rush2 = 0x8006BB60
 link = "same-code"
+area = "car"
+ref = "docs/functions/rush2049_car.md#rush-2049-car-functions"
 
 [[func]]
 vram = 0x800C4180
-desc = "Same code as Rush 2 func_8006BBF8 (32 instructions, address-masked match, float constants equal)."
+name = "math_project_vec3_with_const"
+sig = "void math_project_vec3_with_const(f32 *a0, f32 *out)"
+desc = "Same code as Rush 2 math_project_vec3_with_const_8006BBF8 (32 instructions, address-masked match, float constants equal). Computes a scalar from the matrix fields +0x8, +0x18, +0x20 using math_load_const_floats_x12 and constant 800CF79C (likely an angle extracted from a basis); helper for grid and respawn placement. (low confidence)"
 status = "inferred"
 rush2 = 0x8006BBF8
 link = "same-code"
+area = "collision"
+ref = "docs/functions/rush2049_collision.md#rush-2049-collision-functions"
 
 [[func]]
 vram = 0x800C54F0
@@ -2078,19 +2556,27 @@ ref = "docs/rush2049_research/movers.md#63-ride-on-platforms-poly-info-0x20-and-
 
 [[func]]
 vram = 0x800CFDEC
-desc = "Same code as Rush 2 func_80075294 (34 instructions, address-masked match, float constants equal)."
+name = "car_search_loop"
+sig = "s32 car_search_loop(s32 a0, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 car_search_loop_80075294 (34 instructions, address-masked match, float constants equal). Single-loop search helper used by wreck respawn steering, race point transform and chase camera. (low confidence)"
 status = "inferred"
 rush2 = 0x80075294
 rush1 = [0x8007EE60]
 link = "same-code"
+area = "car"
+ref = "docs/functions/rush2049_car.md#rush-2049-car-functions"
 
 [[func]]
 vram = 0x800CFE74
-desc = "Same code as Rush 2 func_8007531C (102 instructions, address-masked match, float constants equal)."
+name = "math_quat_to_mat3"
+sig = "void math_quat_to_mat3(f32 *quat, f32 *mat3x3)"
+desc = "Same code as Rush 2 math_quat_to_mat3_8007531C (102 instructions, address-masked match, float constants equal). Reads 4 floats (quaternion) and writes 9 matrix floats (uses 1.0 and 2.0): quaternion to 3x3 rotation matrix."
 status = "inferred"
 rush2 = 0x8007531C
 rush1 = [0x8007EEE8]
 link = "same-code"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x800D03AC
@@ -2123,11 +2609,14 @@ ref = "tools/rush2049/cars.py"
 
 [[func]]
 vram = 0x800D09E8
-desc = "Same code as Rush 2 func_8008D950 (13 instructions, address-masked match, float constants equal). Reads rear wheel radius from the tire curve (+0): 1.0 ft."
+name = "car_copy_tire_curve_rear"
+sig = "void car_copy_tire_curve_rear(f32 *src, f32 *dst)"
+desc = "Same code as Rush 2 car_copy_tire_curve_rear_8008D950 (13 instructions, address-masked match, float constants equal). Reads rear wheel radius from the tire curve (+0): 1.0 ft."
 status = "inferred"
 rush2 = 0x8008D950
 link = "same-code"
 area = "car"
+ref = "docs/functions/rush2049_car.md#rush-2049-car-functions"
 
 [[func]]
 vram = 0x800D0A34
@@ -2153,19 +2642,27 @@ ref = "docs/rush2049_research/car_physics.md#rush-2049s-own-bars-v-setup-overlay
 
 [[func]]
 vram = 0x800D14F4
-desc = "Same code as Rush 2 func_8008E73C (106 instructions, address-masked match, float constants equal)."
+name = "respawn_compute_pose_blend"
+sig = "void respawn_compute_pose_blend(f32 *in, f32 *out)"
+desc = "Same code as Rush 2 respawn_compute_orientation_8008E73C (106 instructions, address-masked match, float constants equal). Reads 9 floats (3x3 matrix) from in and writes 4 floats (probably a quaternion/orientation) to out; called from respawn_place_car. (low confidence)"
 status = "inferred"
 rush2 = 0x8008E73C
 rush1 = [0x800752E8]
 link = "same-code"
+area = "car"
+ref = "docs/functions/rush2049_car.md#rush-2049-car-functions"
 
 [[func]]
 vram = 0x800D2128
-desc = "Same code as Rush 2 func_8008ECC4 (204 instructions, address-masked match, float constants equal)."
+name = "race_format_time_digits"
+sig = "void race_format_time_digits(void *a0, u8 *out, s32 time)"
+desc = "Same code as Rush 2 race_format_time_digits_8008ECC4 (204 instructions, address-masked match, float constants equal). Fills a 7-byte output with digits from a time value; clamps at 999/0x3E7 and uses divisors 100/10/60 (minutes:seconds:hundredths digits). Probably."
 status = "inferred"
 rush2 = 0x8008ECC4
 rush1 = [0x8009D2D8]
 link = "same-code"
+area = "race"
+ref = "docs/functions/rush2049_race.md#rush-2049-race-functions"
 
 [[func]]
 vram = 0x800D24C8
@@ -2189,24 +2686,36 @@ ref = "docs/rush2049_research/checkpoints.md#8-car-tracker-checkpoint-window-and
 
 [[func]]
 vram = 0x800D2C10
-desc = "Same code as Rush 2 func_8008FBB8 (49 instructions, address-masked match, float constants equal)."
+name = "respawn_helper"
+sig = "s32 respawn_helper(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 respawn_loop_helper_8008FBB8 (49 instructions, address-masked match, float constants equal). Loop helper (count 8) used by respawn_place_car with a float threshold. Purpose not worked out. (low confidence)"
 status = "inferred"
 rush2 = 0x8008FBB8
 link = "same-code"
+area = "race"
+ref = "docs/functions/rush2049_race.md#rush-2049-race-functions"
 
 [[func]]
 vram = 0x800D2CDC
-desc = "Same code as Rush 2 func_8008FC84 (60 instructions, address-masked match, float constants equal)."
+name = "route_walk_branch"
+sig = "void route_walk_branch(s32 a0, s32 a1, s32 a2, s32 *a3, s32 arg4)"
+desc = "Same code as Rush 2 route_walk_branch_step_8008FC84 (60 instructions, address-masked match, float constants equal). Route/path helper used by route_branch_walk; loops twice over path data (path_checkpoint_ptr, path_spine_count, path_node_count) with stride 0x50. (low confidence)"
 status = "inferred"
 rush2 = 0x8008FC84
 link = "same-code"
+area = "track"
+ref = "docs/functions/rush2049_track.md#rush-2049-track-functions"
 
 [[func]]
 vram = 0x800D2DCC
-desc = "Same code as Rush 2 func_8008FEA8 (50 instructions, address-masked match, float constants equal)."
+name = "route_branch_scan_a"
+sig = "void route_branch_scan_a(s32 a0, s32 a1, s32 a2, s32 a3, s32 s0)"
+desc = "Same code as Rush 2 route_branch_scan_a_8008FEA8 (50 instructions, address-masked match, float constants equal). Loops over route branches checking route_branch_can_attach (reads path_checkpoint_ptr); one of the helpers of route_branch_walk. (low confidence)"
 status = "inferred"
 rush2 = 0x8008FEA8
 link = "same-code"
+area = "track"
+ref = "docs/functions/rush2049_track.md#rush-2049-track-functions"
 
 [[func]]
 vram = 0x800D3430
@@ -2282,51 +2791,75 @@ ref = "docs/rush2049_research/audio.md#4-volume-calibration"
 
 [[func]]
 vram = 0x800DC120
-desc = "Same code as Rush 2 func_80093484 (35 instructions, address-masked match, float constants equal)."
+name = "menu_table_scan"
+sig = "s32 menu_table_scan_800c449c(void)"
+desc = "Same code as Rush 2 menu_table_scan_80093484 (35 instructions, address-masked match, float constants equal). Loops over the 7-entry table (menu_table_size, menu_table_h_b) and returns an index; probably finds first free/used slot. (low confidence)"
 status = "inferred"
 rush2 = 0x80093484
 rush1 = [0x800AF2A8]
 link = "same-code"
+area = "save"
+ref = "docs/functions/rush2049_save.md#rush-2049-save-functions"
 
 [[func]]
 vram = 0x800DC1AC
-desc = "Same code as Rush 2 func_80093510 (39 instructions, address-masked match, float constants equal)."
+name = "menu_table_find"
+sig = "s32 menu_table_find_800c449c(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 menu_table_find_80093510 (39 instructions, address-masked match, float constants equal). Loop over 7-entry table at menu_table_size/menu_table_cursor with 0x21 (33) constant; returns an index. (low confidence)"
 status = "inferred"
 rush2 = 0x80093510
 rush1 = [0x800AF334]
 link = "same-code"
+area = "save"
+ref = "docs/functions/rush2049_save.md#rush-2049-save-functions"
 
 [[func]]
 vram = 0x800DC248
-desc = "Same code as Rush 2 func_800935AC (108 instructions, address-masked match, float constants equal)."
+name = "menu_table_reset_defaults"
+sig = "s32 menu_table_reset_defaults(s32 a0)"
+desc = "Same code as Rush 2 menu_table_reset_defaults_800935AC (108 instructions, address-masked match, float constants equal). Rebuilds the menu table (halfword entries, header menu_table_h_a, 7 per record) using menu_table_find and menu_table_scan; called by save_reset_all_settings. (low confidence)"
 status = "inferred"
 rush2 = 0x800935AC
 rush1 = [0x800AF3D0]
 link = "same-code"
+area = "menu"
+ref = "docs/functions/rush2049_menu.md#rush-2049-menu-functions"
 
 [[func]]
 vram = 0x800DC3F8
-desc = "Same code as Rush 2 func_8009375C (97 instructions, address-masked match, float constants equal)."
+name = "menu_table_load_from_save"
+sig = "void menu_table_load_from_save(void *src)"
+desc = "Same code as Rush 2 menu_table_load_from_save_8009375C (97 instructions, address-masked match, float constants equal). Rebuilds the menu table (halfword entries, 7 per record) from saved data using menu_table_scan; called by save_load_settings_from_pak. (low confidence)"
 status = "inferred"
 rush2 = 0x8009375C
 rush1 = [0x800AF580]
 link = "same-code"
+area = "save"
+ref = "docs/functions/rush2049_save.md#rush-2049-save-functions"
 
 [[func]]
 vram = 0x800DC57C
-desc = "Same code as Rush 2 func_800938E0 (43 instructions, address-masked match, float constants equal)."
+name = "menu_table_find_store"
+sig = "s32 menu_table_find_store_800c449c(u32 *a0, s32 a1)"
+desc = "Same code as Rush 2 menu_table_find_store_800938E0 (43 instructions, address-masked match, float constants equal). Variant of the 7-entry table search (menu_table_size/menu_table_cursor) that reads/writes a0 word; called from save_reset_all_settings. (low confidence)"
 status = "inferred"
 rush2 = 0x800938E0
 rush1 = [0x800AF704]
 link = "same-code"
+area = "save"
+ref = "docs/functions/rush2049_save.md#rush-2049-save-functions"
 
 [[func]]
 vram = 0x800DC628
-desc = "Same code as Rush 2 func_8009398C (62 instructions, address-masked match, float constants equal)."
+name = "menu_table_insert"
+sig = "s32 menu_table_insert_800c4394(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 menu_table_insert_8009398C (62 instructions, address-masked match, float constants equal). Operates on 3-byte records at menu_table_count and the 7-entry halfword table menu_table_h_a/size/h_b/cursor; probably inserts an entry, writing menu_table_insert_out. (low confidence)"
 status = "inferred"
 rush2 = 0x8009398C
 rush1 = [0x800AF7B0]
 link = "same-code"
+area = "save"
+ref = "docs/functions/rush2049_save.md#rush-2049-save-functions"
 
 [[func]]
 vram = 0x800DEC8C
@@ -2354,11 +2887,14 @@ ref = "docs/rush2049_research/audio.md#7-engine-sounds"
 
 [[func]]
 vram = 0x800E1500
-desc = "Same code as Rush 2 func_80069A14 (16 instructions, address-masked match, float constants equal). Computes angular accelerations using the descriptor's inverse inertias (+0x0C/+0x10/+0x14; yaw is +0x10)."
+name = "car_angular_accel"
+sig = "void car_angular_accel(CarDesc **desc, Vec3 *torque, Vec3 *out)"
+desc = "Same code as Rush 2 car_angular_accel_80069A14 (16 instructions, address-masked match, float constants equal). Computes angular accelerations using the descriptor's inverse inertias (+0x0C/+0x10/+0x14; yaw is +0x10)."
 status = "inferred"
 rush2 = 0x80069A14
 link = "same-code"
 area = "car"
+ref = "docs/functions/rush2049_car.md#rush-2049-car-functions"
 
 [[func]]
 vram = 0x800E15A0
@@ -2407,11 +2943,15 @@ ref = "docs/rush2049_research/cars.md#10-car-speeds-v"
 
 [[func]]
 vram = 0x800E2A3C
-desc = "Same code as Rush 2 func_8006B708 (10 instructions, address-masked match, float constants equal)."
+name = "car_forces_wrapper"
+sig = "void car_forces_wrapper(Car *car)"
+desc = "Same code as Rush 2 car_forces_wrapper_8006B708 (10 instructions, address-masked match, float constants equal). Calls car_wheel_forces_drag then car_force_sum for a car."
 status = "inferred"
 rush2 = 0x8006B708
 rush1 = [0x80078264]
 link = "same-code"
+area = "car"
+ref = "docs/functions/rush2049_car.md#rush-2049-car-functions"
 
 [[func]]
 vram = 0x800E2A64
@@ -2484,10 +3024,14 @@ ref = "docs/rush2049_research/movers.md#62-moving-body-vs-car-0x8010c02cobj-idx-
 
 [[func]]
 vram = 0x800E4300
-desc = "Same code as Rush 2 func_80074068 (135 instructions, address-masked match, float constants equal)."
+name = "drone_path_select"
+sig = "s32 drone_path_select(s32 a0, Vec3s *a1, u16 *a2)"
+desc = "Same code as Rush 2 drone_path_select_80074068 (135 instructions, address-masked match, float constants equal). Drone/AI helper choosing a path from 3 halfwords of a2 using path_node_count, path_lane_count and drone_path_select_param; called by drone_steer_along_path. (low confidence)"
 status = "inferred"
 rush2 = 0x80074068
 link = "same-code"
+area = "race"
+ref = "docs/functions/rush2049_race.md#rush-2049-race-functions"
 
 [[func]]
 vram = 0x800E4B58
@@ -2574,11 +3118,15 @@ ref = "docs/rush2049_research/cars.md#10-car-speeds-v"
 
 [[func]]
 vram = 0x800F0674
-desc = "Same code as Rush 2 func_800A6978 (118 instructions, address-masked match, float constants equal)."
+name = "ui_name_entry_advance_char"
+sig = "s32 ui_name_entry_advance_char(u8 *cursor_state, u8 *name_buf)"
+desc = "Same code as Rush 2 ui_name_entry_advance_char_800A6978 (118 instructions, address-masked match, float constants equal). Recursive helper that steps a 4-char name buffer through the printable range (space, digits 0x30-0x39, letters 0x41-0x5A, 0x21) using ui_name_entry_cursor; high-score initials entry character cycling."
 status = "inferred"
 rush2 = 0x800A6978
 rush1 = [0x800B0960]
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800F2A28
@@ -2605,6 +3153,8 @@ ref = "docs/rush2049_research/cars.md#9-car-options-on-the-2049-cars-v"
 
 [[func]]
 vram = 0x800F733C
+name = "race_end_hud_cleanup"
+sig = "void race_end_hud_cleanup(void)"
 desc = "2049 game step function between func_800FBF88 and func_800B0868."
 status = "inferred"
 rush2 = 0x80080F48
@@ -2736,19 +3286,27 @@ ref = "docs/rush2049_research/movers.md#62-moving-body-vs-car-0x8010c02cobj-idx-
 
 [[func]]
 vram = 0x800FE520
-desc = "Same code as Rush 2 func_80080CB0 (36 instructions, address-masked match, float constants equal)."
+name = "hud_widgets_reset_range"
+sig = "void hud_widgets_reset_range(Widget *w, s32 a1, s32 count)"
+desc = "Same code as Rush 2 hud_widgets_reset_range_80080CB0 (36 instructions, address-masked match, float constants equal). Loops hud_widget_reset over a range of widgets; no callers."
 status = "inferred"
 rush2 = 0x80080CB0
 rush1 = [0x80081E50]
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800FE5B0
-desc = "Same code as Rush 2 func_80080DBC (99 instructions, address-masked match, float constants equal)."
+name = "hud_widget_setup_icon"
+sig = "void hud_widget_setup_icon(Widget *w, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 hud_widget_setup_icon_80080DBC (99 instructions, address-masked match, float constants equal). Sets a widget texture (hud_widget_set_texture_by_name with w->0), resets the widget, and fills icon fields +0x19..0x22 (size/position halfwords); used by 17 HUD callbacks (speedometer, lap counter, minimap)."
 status = "inferred"
 rush2 = 0x80080DBC
 rush1 = [0x80081F38]
 link = "same-code"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800FEA00

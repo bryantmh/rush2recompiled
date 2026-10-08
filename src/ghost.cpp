@@ -70,11 +70,11 @@
 #include "track2049_convert.h"
 #include "wings.h"
 
-extern "C" void func_80075880(uint8_t* rdram, recomp_context* ctx); // A car's physics tick ($a0 car, $a1 clock bits).
-extern "C" void func_800663CC(uint8_t* rdram, recomp_context* ctx); // After a drone's tick, when 0x800D042C is set.
+extern "C" void physics_car_tick_80075880(uint8_t* rdram, recomp_context* ctx); // A car's physics tick ($a0 car, $a1 clock bits).
+extern "C" void car_material_effects_update_800663CC(uint8_t* rdram, recomp_context* ctx); // After a drone's tick, when 0x800D042C is set.
 extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
 extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
-extern "C" void func_80093FA8(uint8_t* rdram, recomp_context* ctx); // Text setting ($f12), 0 as the car select's.
+extern "C" void menu_text_set_scale_from_global_80093FA8(uint8_t* rdram, recomp_context* ctx); // Text setting ($f12), 0 as the car select's.
 extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text style.
 extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
 extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
@@ -769,7 +769,7 @@ namespace {
             stepping = &r;
             int32_t time;
             std::memcpy(&time, &clock, 4);
-            call(rdram, ctx, func_80075880, r.car, time);
+            call(rdram, ctx, physics_car_tick_80075880, r.car, time);
             stepping = nullptr;
         }
         if (r.started && clocks_swapped) {
@@ -788,7 +788,7 @@ namespace {
         MEM_B(0, driver) = own_driver;
         MEM_B(0, kind) = own_kind;
         if (MEM_BU(0, (int32_t)drone_extra) != 0) {
-            call(rdram, ctx, func_800663CC, r.car);
+            call(rdram, ctx, car_material_effects_update_800663CC, r.car);
         }
     }
 
@@ -966,7 +966,7 @@ namespace {
     void draw_choice(uint8_t* rdram, recomp_context* ctx) {
         text_at = 0;
         call(rdram, ctx, text_select_font_80088C24, font_small);
-        call(rdram, ctx, func_80093FA8, 0, 0, 0, 0, 0.0f);
+        call(rdram, ctx, menu_text_set_scale_from_global_80093FA8, 0, 0, 0, 0, 0.0f);
         print(rdram, ctx, style_title, panel_x, panel_y, entries.empty() ? "NO GHOST AVAILABLE" : "GHOSTS   C BUTTONS");
         if (entries.empty()) {
             return;
