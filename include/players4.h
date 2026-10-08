@@ -32,8 +32,6 @@ namespace rush2::players4 {
     void hud_built(uint8_t* rdram, recomp_context* ctx);
     // Players in the menus, counting players 3 and 4 who have joined (the game's count stays at 2 until the race).
     int joined_players(uint8_t* rdram);
-    // Idle players to fill empty slots with once player 2 has joined (0: none; 3 or 4: up to that many players).
-    void set_test_players(int count);
     // Draws the menus' "press START" hint for players 3 and 4 (after the widget draw loop, func_8007D9DC).
     void draw_join_hint(uint8_t* rdram, recomp_context* ctx);
 

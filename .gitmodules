@@ -8,3 +8,4 @@
 [submodule "lib/RecompFrontend"]
 	path = lib/RecompFrontend
 	url = https://github.com/N64Recomp/RecompFrontend
+	ignore = dirty

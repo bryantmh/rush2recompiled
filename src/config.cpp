@@ -229,48 +229,6 @@ void rush2::splitscreen::set_layout_option(Layout layout) {
     config.save_config();
 }
 
-namespace test_players_option {
-    const std::string id = "test_players";
-    enum class TestPlayers : uint32_t { Off, Three, Four };
-}
-
-// Test players: fills the empty player 3 and 4 slots with idle players (src/players4.cpp), to try the 3 and 4 player
-// screens with fewer controllers.
-static void add_test_players_option(recomp::config::Config& config) {
-    using test_players_option::TestPlayers;
-
-    config.add_enum_option(
-        test_players_option::id,
-        "Test Players",
-        "Adds idle players so the 3 and 4 player screens can be tried with fewer controllers. Once player 2 joins in "
-        "the menus, the empty player slots up to the chosen count are filled with players on controller ports that have "
-        "nothing plugged in; their cars stay on the starting grid. "
-        "<recomp-color primary>Off</recomp-color> leaves joining to real controllers.",
-        {
-            { TestPlayers::Off, "Off", "Off" },
-            { TestPlayers::Three, "Three", "Fill to 3 Players" },
-            { TestPlayers::Four, "Four", "Fill to 4 Players" },
-        },
-        TestPlayers::Off
-    );
-
-    config.add_option_change_callback(test_players_option::id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            switch (static_cast<TestPlayers>(std::get<uint32_t>(cur_value))) {
-                default:
-                case TestPlayers::Off:
-                    rush2::players4::set_test_players(0);
-                    break;
-                case TestPlayers::Three:
-                    rush2::players4::set_test_players(3);
-                    break;
-                case TestPlayers::Four:
-                    rush2::players4::set_test_players(4);
-                    break;
-            }
-        });
-}
-
 namespace font_option {
     const std::string id = "font_mode";
     enum class FontMode : uint32_t { Original, HighResolution };
@@ -594,15 +552,14 @@ void rush2::init_config() {
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
             { "Controls", { general::options::rumble_strength, general::options::joystick_deadzone,
                             steering_option::id, reverse_option::id } },
-            { "Cars", { car_stats_option::id, torque_option::id } },
-            { "Races", { ghost_option::id, ghosts_kept_option::id } },
+            { "Gameplay", { car_stats_option::id, torque_option::id, ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, data_location_option::id } },
         });
         namespace graphics = recompui::config::graphics;
         create_ordered_tab(graphics::tab_name, "rush2_graphics", graphics::id, {
-            { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ar_option,
+            { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ds_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
-            { "Quality", { graphics::options::msaa_option, graphics::options::ds_option, mipmap_option::id, anisotropy_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
+            { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
         });
     }
 
@@ -619,7 +576,6 @@ void rush2::init_config() {
     add_car_stats_option(general_config);
     add_torque_option(general_config);
     add_data_location_option(general_config);
-    add_test_players_option(general_config);
 
     auto& graphics_config = recompui::config::create_graphics_tab();
     customize_graphics_options(graphics_config);
@@ -644,6 +600,10 @@ void rush2::init_config() {
     // A fresh install loads without calling option change callbacks, so apply these from the loaded values. The tab
     // references from create_*_tab() may have moved as later tabs were added, so look the config up again.
     auto& loaded_graphics_config = recompui::config::get_graphics_config();
+    // Downsampling Quality only shows at Original resolution (the frontend keeps this up to date on changes).
+    loaded_graphics_config.update_option_hidden(recompui::config::graphics::options::ds_option,
+        std::get<uint32_t>(loaded_graphics_config.get_option_value(recompui::config::graphics::options::res_option)) !=
+        static_cast<uint32_t>(ultramodern::renderer::Resolution::Original));
     rush2::set_lod_disabled(static_cast<lod_option::LODMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(lod_option::id))) == lod_option::LODMode::Off);
     rush2::set_draw_distance(draw_distance_option::factor(
