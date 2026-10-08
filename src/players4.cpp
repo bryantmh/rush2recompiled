@@ -484,10 +484,17 @@ namespace {
         MEM_W(record_buffer, rec) = 0;
     }
 
-    std::atomic<int> test_players{ 0 };
+    // AI-agent test aid, not in the menu: RUSH2_TEST_PLAYERS=3 or 4 fills the empty player slots up to that count with
+    // idle players (see update_joining), to try the 3 and 4 player screens without extra controllers.
+    int test_players_from_env() {
+        const char* v = std::getenv("RUSH2_TEST_PLAYERS");
+        int n = v != nullptr ? std::atoi(v) : 0;
+        return (n == 3 || n == 4) ? n : 0;
+    }
+    const int test_players = test_players_from_env();
 
     // Each menu frame: a START press on a free controller adds player 3 or 4 once player 2 is in; players 3 and 4
-    // leave with player 2. Test players (set_test_players) join by themselves on ports with no controller.
+    // leave with player 2. Test players (RUSH2_TEST_PLAYERS) join by themselves on ports with no controller.
     void update_joining(uint8_t* rdram, recomp_context* ctx) {
         if (!joining_allowed(MEM_W(0, (int32_t)game_state))) {
             return;
@@ -507,7 +514,7 @@ namespace {
         if (player == rush2::players4::max_players) {
             return;
         }
-        bool fill = player < test_players.load();
+        bool fill = player < test_players;
         for (int port = 0; port < ports; port++) {
             bool used = false;
             for (int p = 0; p < player; p++) {
@@ -556,10 +563,6 @@ extern "C" void func_800734E0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800737E4(uint8_t* rdram, recomp_context* ctx);
 
 namespace rush2::players4 {
-    void set_test_players(int count) {
-        test_players = count;
-    }
-
     // On the Select Player screen, where player 2 joins, once player 2 is in: which of players 3 and 4 can still press
     // START. Joining also works on Start Game and the track select, but player 2 stays in after backing out of Select
     // Player to Start Game, whose one player layout made the hint look stuck there.

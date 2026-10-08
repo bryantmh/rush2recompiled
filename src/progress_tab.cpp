@@ -404,10 +404,6 @@ namespace {
             }
             using namespace rush2::collectibles;
             auto count = [](uint16_t m) { return std::popcount((unsigned)m); };
-            if (rush2::unlocks::enabled()) {
-                add_unlocks(*p);
-            }
-
             std::vector<Line> lines;
             for (int t = 0; t < rush2_courses; t++) {
                 lines.push_back({ rush2_tracks[t], {
@@ -434,6 +430,10 @@ namespace {
             coins("Track", p->rush2049.data(), rush2049_courses);
             coins("Arena", p->stunt2049.data(), stunt2049_courses);
             add_section("Rush 2049", { "silver", "gold" }, lines, rush2049_courses);
+
+            if (rush2::unlocks::enabled()) {
+                add_unlocks(*p);
+            }
         }
     };
 }
