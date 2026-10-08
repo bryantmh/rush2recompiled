@@ -13,6 +13,19 @@
 #include "config/ui_config_option.h"
 
 namespace rush2::ui {
+    // A row of a scrolling list that scrolls itself into view when something in it takes focus, so the list follows
+    // the d-pad down to buttons that are below the visible part. Use it (or OptionsPage::add_row) for any row of
+    // buttons in a scrolling page: a plain div doesn't scroll, and the controller lands on buttons the player can't
+    // see.
+    class FocusRow : public recompui::Element {
+    public:
+        FocusRow(recompui::ResourceId rid, recompui::Element* parent);
+
+    protected:
+        std::string_view get_type_name() override { return "Rush2FocusRow"; }
+        void process_event(const recompui::Event& e) override;
+    };
+
     // A settings page built from option rows of any configs, in any order, under headings. Like the frontend's options
     // menu: the left side scrolls, the hovered or focused option's description shows on the right, and configs that
     // require confirmation get an Apply button.
@@ -26,6 +39,8 @@ namespace rush2::ui {
             recompui::Label* note;     // Dim text under the title, empty unless given.
         };
         Heading add_heading(const std::string& title, const std::string& note = "");
+        // A row for buttons in the list, laid out left to right, that scrolls into view as they take focus.
+        recompui::Element* add_row();
         void add_option(recomp::config::Config& config, const std::string& option_id);
         recompui::Element* get_list() { return list; }
         void set_default_description(const std::string& text);
