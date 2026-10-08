@@ -1,0 +1,97 @@
+#ifndef __TEXTURE_UPSCALE_H__
+#define __TEXTURE_UPSCALE_H__
+
+// Texture upscaling (src/texture_upscale.cpp, src/texture_upscale_images.cpp, docs/texture_upscaling.md).
+
+#include <cstdint>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+namespace recomp::config {
+    class Config;
+}
+
+namespace rush2::ui {
+    class OptionsPage;
+}
+
+namespace rush2::upscale {
+    // An 8-bit RGBA image, rows top to bottom.
+    struct Image {
+        uint32_t width = 0;
+        uint32_t height = 0;
+        std::vector<uint8_t> rgba;
+
+        bool empty() const { return width == 0 || height == 0; }
+    };
+
+    // How a texture's edges continue when it's drawn: the tile's cms/cmt mode. Upscalers get the image padded this
+    // way so their output has no seams where the texture repeats.
+    enum class Edge : uint8_t { Wrap, Mirror, Clamp };
+
+    // Pure image work, without the renderer or the UI (src/texture_upscale_images.cpp).
+
+    // Decodes a texture from TMEM the way RT64's decoder does (sampleTMEM in TextureDecoder.hlsli). fmt, siz, tmem,
+    // line and palette are the tile's fields (tmem and line in 64-bit words), tlut the G_TT_* mode.
+    Image decode_tmem(const uint8_t* tmem_bytes, uint32_t fmt, uint32_t siz, uint32_t tmem, uint32_t line,
+                      uint32_t palette, uint32_t tlut, uint32_t width, uint32_t height);
+
+    // Identifies an image by its contents: textures RT64 hashes differently (another palette load, another tile)
+    // but that decode to the same pixels share one upscale.
+    uint64_t content_key(const Image& image);
+    std::string key_name(uint64_t key); // 16 hex digits, the file name of the image everywhere.
+    bool parse_key_name(const std::string& name, uint64_t& key); // From the first 16 characters of a file name.
+
+    // Whether a texture is worth upscaling: big enough and not a single color.
+    bool worth_upscaling(const Image& image);
+
+    Image pad(const Image& image, uint32_t border, Edge edge_s, Edge edge_t);
+    Image crop(const Image& image, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
+    Image resize_bilinear(const Image& image, uint32_t width, uint32_t height);
+
+    // Fixes up an upscaler's output against the original: puts the original's alpha back (scaled up) when the
+    // upscaler dropped it, and keeps cutout textures (alpha only 0 or 255) cutouts.
+    void restore_alpha(Image& upscaled, const Image& original);
+
+    // Undoes pad() on an upscaler's output: finds the scale from its size and cuts the border off. Returns an empty
+    // image when the size isn't a whole multiple of the original's (with or without the border).
+    Image unpad(const Image& output, const Image& original, uint32_t border);
+
+    // A DDS file (R8G8B8A8_UNORM) with the full mip chain, made with the same alpha-weighted averaging RT64 uses for
+    // the mipmaps it generates, so upscaled textures blend down with distance like the originals.
+    std::vector<uint8_t> make_dds(const Image& image);
+
+    bool read_image(const std::filesystem::path& path, Image& image); // PNG, JPEG, TGA, BMP (anything stb_image reads).
+    bool write_png(const std::filesystem::path& path, const Image& image);
+    std::vector<uint8_t> read_file(const std::filesystem::path& path);
+    bool write_file(const std::filesystem::path& path, const std::vector<uint8_t>& bytes);
+
+    // Runs a command line and waits for it, without a console window and below normal priority. Returns its exit
+    // code, or -1 when it couldn't be started.
+    int run_command(const std::string& command_line);
+
+    // Extracts a zip into a folder. Returns false on failure.
+    bool extract_zip(const std::filesystem::path& zip, const std::filesystem::path& folder);
+
+    // A texture pack: replacement images and the RT64 hashes each replaces.
+    struct PackTexture {
+        std::string path; // Relative path of the image in the pack, with its extension.
+        std::vector<uint64_t> hashes;
+    };
+    // The pack's rt64.json.
+    std::string pack_database(const std::vector<PackTexture>& textures);
+    // The pack's mod.json.
+    std::string pack_manifest(const std::string& id, const std::string& name, const std::string& description);
+    // Zips a pack folder into an .rtz (mod.json and rt64.json at its root).
+    bool zip_folder(const std::filesystem::path& folder, const std::filesystem::path& zip);
+
+    // The game side (src/texture_upscale.cpp).
+    void add_options(recomp::config::Config& config);
+    void apply_loaded_options(recomp::config::Config& config);
+    void add_buttons(rush2::ui::OptionsPage* page);
+    extern const char* const mode_option_id;
+    extern const char* const command_option_id;
+}
+
+#endif
