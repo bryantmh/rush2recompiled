@@ -11,6 +11,9 @@ indexed `addu`), and the row-stride idioms (r * 22 as shift/subtract sequences) 
 """
 import re, sys, os
 import refscan
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+import names  # emitted func = "..." keys use the registry symbol names
+SYM = names.symbol_map()
 
 N_OLD, N_NEW = 22, 36
 NEW_BASE = 0x80200000
@@ -201,7 +204,7 @@ def main():
         for addr in sorted(patches):
             v, why = patches[addr]
             f = [fn for fn, ins in funcs.items() if any(i[0] == addr for i in ins)][0]
-            print('[[patches.instruction]]\nfunc = "%s"\nvram = 0x%s\nvalue = 0x%08X # %s\n' % (f, addr, v, why))
+            print('[[patches.instruction]]\nfunc = "%s"\nvram = 0x%s\nvalue = 0x%08X # %s\n' % (SYM.get(f, f), addr, v, why))
 
 
 
@@ -427,5 +430,5 @@ def id_toml():
     for addr in sorted(patches):
         v, why = patches[addr]
         f = [fn for fn, ins in funcs.items() if any(i[0] == addr for i in ins)][0]
-        out.append('[[patches.instruction]]\nfunc = "%s"\nvram = 0x%s\nvalue = 0x%08X # %s\n' % (f, addr, v, why))
+        out.append('[[patches.instruction]]\nfunc = "%s"\nvram = 0x%s\nvalue = 0x%08X # %s\n' % (SYM.get(f, f), addr, v, why))
     return '\n'.join(out)

@@ -1,0 +1,4196 @@
+# Function registry for rush1. Format and tooling: tools/names.py (docstring). Keep sorted; run `names.py fmt`.
+
+[[func]]
+vram = 0x8000076C
+name = "pi_dma_read_blocking"
+sig = "void pi_dma_read_blocking(u32 dev_addr, void *ram_addr, u32 size)"
+desc = "Same code as Rush 2 pi_dma_read_blocking_80000770 (31 instructions, address-masked match, float constants equal). Invalidates the D-cache for ram_addr, starts a PI DMA read from the cart and blocks on the PI message queue until done."
+status = "inferred"
+rush2 = 0x80000770
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800007F0
+name = "video_sched_init"
+sig = "void video_sched_init(Sched *sched, s32 a1, s32 a2, s32 a3, s32 pri)"
+desc = "Same code as Rush 2 video_sched_init_800007F0 (95 instructions, address-masked match, float constants equal). Creates the scheduler's two message queues, the VI manager, sets VI mode, registers SP/DP/PreNMI/etc events (msgs 0x29B-0x29E), VI retrace event 0x29A, and starts the scheduler thread (func_800009EC)."
+status = "inferred"
+rush2 = 0x800007F0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000096C
+sig = "void osScAddClient(OSSched *sc, OSScClient *c, OSMesgQueue *msgQ)"
+desc = "Same code as Rush 2 osScAddClient (26 instructions, address-masked match, float constants equal). libultra scheduler: with interrupts masked (osSetIntMask), links client c (msgQ at +0, next at +4) into the scheduler's client list at sc+0x260."
+status = "inferred"
+rush2 = 0x8000096C
+rush2049 = [0x800005D4]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80000E30
+name = "sched_handle_rsp_done"
+sig = "void sched_handle_rsp_done(Sched *sc)"
+desc = "Same code as Rush 2 sched_handle_rsp_done_80000E30 (101 instructions, address-masked match, float constants equal). Scheduler: handles RSP task completion/yield (osSpTaskYielded on current task), records time, swaps framebuffer and starts next RSP task via sched_task_handler / sched_start_rsp_task."
+status = "inferred"
+rush2 = 0x80000E30
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80000FC4
+name = "sched_handle_gfx_done"
+sig = "void sched_handle_gfx_done(Sched *sc)"
+desc = "Same code as Rush 2 sched_handle_gfx_done_80000FC4 (54 instructions, address-masked match, float constants equal). Scheduler: handles RDP task completion (swaps framebuffer for task at sc+0x278, runs sched_task_handler and starts the next RSP task)."
+status = "inferred"
+rush2 = 0x80000FC4
+rush2049 = [0x80000ACC]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80001150
+name = "sched_swap_framebuffer"
+sig = "s32 sched_swap_framebuffer(Sched *sched, SchedTask *task)"
+desc = "Same code as Rush 2 sched_swap_framebuffer_8000114C (71 instructions, address-masked match, float constants equal). Swaps the VI buffer for a finished graphics task (osViSwapBuffer(task+0xC)), updates frame state globals sched_rsp_task_busy/sched_fb_next/sched_fb_current/gfx_frame_counter (8001AA90-9C) and sends the task's completion message (queue task+0x50, msg +0x54)."
+status = "inferred"
+rush2 = 0x8000114C
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000126C
+name = "sched_queue_task"
+sig = "void sched_queue_task(Sched *sched, SchedTask *task)"
+desc = "Same code as Rush 2 sched_queue_task_80001268 (46 instructions, address-masked match, float constants equal). Appends task to the scheduler's pending list: sets task->next (+0x0) to 0, links it after the current tail and updates the head/tail pair at sc+0x264..0x270 (+0x280 flag) chosen by task type (task+0x10, 3 cases, audio vs gfx). Called by the scheduler main thread and retrace handler."
+status = "inferred"
+rush2 = 0x80001268
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800014A4
+name = "sched_yield_current_task"
+sig = "void sched_yield_current_task(Sched *sched)"
+desc = "Same code as Rush 2 sched_yield_current_task_80001498 (24 instructions, address-masked match, float constants equal). Calls osSpTaskYield on the currently running RSP task (sched+0x274) and flags it as yielded."
+status = "inferred"
+rush2 = 0x80001498
+rush2049 = [0x80000F88]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80001870
+name = "cop0_read_config_masked"
+sig = "u32 cop0_read_config_masked(void)"
+desc = "Same code as Rush 2 fmt_double_classify_a_80001860 (28 instructions, address-masked match, float constants equal). Leaf used only by vsprintf_core; masks 0x7FF/0x800F look like IEEE double exponent and sign/high-mantissa bit tests, so likely classifies a double (inf/nan/zero) for printf, not a CP0 read. (low confidence)"
+status = "inferred"
+rush2 = 0x80001860
+rush2049 = [0x80002BF0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800018E0
+name = "cop0_read_config_masked"
+sig = "u32 cop0_read_config_masked(void)"
+desc = "Same code as Rush 2 fmt_double_classify_b_800018D0 (28 instructions, address-masked match, float constants equal). Twin of fmt_double_classify_a (same masks), used by vsprintf_core for float/double argument classification (inf/nan checks). (low confidence)"
+status = "inferred"
+rush2 = 0x800018D0
+rush2049 = [0x80002C60]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800028BC
+name = "fmt_float_conv"
+sig = "s32 fmt_float_conv(s32 a0, s32 a1, s32 a2, s32 a3, s32 flags, s32 prec, s32 width, s32 conv)"
+desc = "Same code as Rush 2 fmt_float_conv_800028AC (654 instructions, address-masked match, float constants equal). printf-internal handler for %e/%E/%f/%g/%G conversions of a double (chars 0x65/0x45/0x66/0x67/0x47): uses fmt_double_to_str and fmt_float_digits; caller is the vsprintf core func_80001940."
+status = "inferred"
+rush2 = 0x800028AC
+rush2049 = [0x80003C3C]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800032F4
+name = "fmt_float_digits"
+sig = "s32 fmt_float_digits(void *a0, void *a1, s32 a2, s32 a3, s32 prec, s32 flags, s32 mode)"
+desc = "Same code as Rush 2 fmt_float_digits_800032E4 (129 instructions, address-masked match, float constants equal). printf-internal float formatter for %e/%f/%g: calls fmt_double_scale to get digits, then writes sign, digits, '.', and exponent into the output buffer."
+status = "inferred"
+rush2 = 0x800032E4
+rush2049 = [0x80004674]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800034F8
+name = "fmt_int_to_str"
+sig = "s32 fmt_int_to_str(char *out, s32 value, s32 base)"
+desc = "Same code as Rush 2 fmt_int_to_str_800034E8 (70 instructions, address-masked match, float constants equal). Integer to decimal text helper for the float formatter (fmt_float_conv): emits optional '-' (0x2D) or '+' (0x2B) then digits via a 0x134-byte stack buffer base-10 loop, NUL terminates dst and returns length."
+status = "inferred"
+rush2 = 0x800034E8
+rush2049 = [0x80004878]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80003660
+name = "strlen_like"
+sig = "s32 strlen_like(const char *s, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 fmt_strnlen_80003660 (23 instructions, address-masked match, float constants equal). String length scan (byte loop over s) used by vsprintf_core to measure %s arguments, honoring a precision limit. (low confidence on the extra args)"
+status = "inferred"
+rush2 = 0x80003660
+rush2049 = [0x80002730]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800036C0
+name = "fmt_double_to_str"
+sig = "void fmt_double_to_str(char *out, s32 a1, f64 value)"
+desc = "Same code as Rush 2 fmt_double_scale_800037D0 (113 instructions, address-masked match, float constants equal). Double scaling helper for printf float conversion (constants 176 and 1.875): reads and rewrites the double at val; used by fmt_float_conv and fmt_float_digits. (low confidence)"
+status = "inferred"
+rush2 = 0x800037D0
+rush2049 = [0x800028A0]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80003884
+name = "math_float_normalize"
+sig = "void math_float_normalize(s32 a0, f32 *out)"
+desc = "Same code as Rush 2 math_float_split_int_frac_80003994 (99 instructions, address-masked match, float constants equal). Float helper using 2^23 (8388608.0) rounding trick and 1.0: splits/normalizes x into integer and fraction (floor-like), writing result to out. Used by printf code and by math_build_basis_from_consts and the menu diorama update. (low confidence)"
+status = "inferred"
+rush2 = 0x80003994
+rush2049 = [0x80002A64]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80003B18
+desc = "Load call that inflates the main code (LZ at ROM 0x7A7930) to 0x8005BB10; called from 0x80000728."
+status = "verified"
+area = "os"
+ref = "docs/rush1_research.md#1-rom"
+
+[[func]]
+vram = 0x80003E20
+sig = "void osInitialize(void)"
+desc = "Same code as Rush 2 osInitialize (163 instructions, address-masked match, float constants equal). libultra: boot-time OS init: sets SR/FPCSR, installs the exception vectors (copies __osExceptionPreamble to TLB/XTLB/cache/general vectors), flushes caches, reads tv type/reset type, computes the CPU clock rate (os_cpu_freq, os_clock_rate) and clears OS state."
+status = "inferred"
+rush2 = 0x80005B90
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800040B0
+sig = "u32 osPiRawReadIo(u32 devAddr, u32 *data)"
+desc = "Same code as Rush 2 osPiRawReadIo (21 instructions, address-masked match, float constants equal). libultra: waits for PI idle, then reads a 32-bit word from the cart address os_rom_base|devAddr (via PI bus) into *data; returns 0."
+status = "inferred"
+rush2 = 0x80005E20
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004110
+sig = "void osCreateThread(OSThread *t, OSId id, void (*entry)(void *), void *arg, void *sp, OSPri pri)"
+desc = "Same code as Rush 2 osCreateThread (81 instructions, address-masked match, float constants equal). libultra: initializes thread t (id, priority, entry pc, arg in a0, stack pointer, FPU/status context, flags) and links it into the active thread list os_active_queue, with interrupts disabled."
+status = "inferred"
+rush2 = 0x80005E80
+rush2049 = [0x80006F30]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004260
+sig = "void rush2_osStartThread(OSThread *t)"
+desc = "Same code as Rush 2 rush2_osStartThread (84 instructions, address-masked match, float constants equal). libultra osStartThread: starts or resumes thread t (from stopped or waiting): puts it on the run queue or its wait queue, reschedules if it has higher priority than the running thread. Rush 2 variant name."
+status = "inferred"
+rush2 = 0x80005FD0
+rush2049 = [0x80007080]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800043B0
+sig = "void osCreatePiManager(OSPri pri, OSMesgQueue *cmdQ, OSMesg *cmdBuf, s32 cmdMsgCnt)"
+desc = "Same code as Rush 2 osCreatePiManager (98 instructions, address-masked match, float constants equal). libultra: creates the PI manager: message queues, PI access queue, registers the PI event, creates and starts the __osDevMgrMain thread at priority pri, and sets os_pi_mgr_started."
+status = "inferred"
+rush2 = 0x80006120
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004540
+sig = "void osSetThreadPri(OSThread *t, OSPri pri)"
+desc = "Same code as Rush 2 osSetThreadPri (56 instructions, address-masked match, float constants equal). libultra: changes thread t's priority (current thread if NULL), re-queues it in its queue (dequeue/enqueue), and yields if it is not the highest-priority runnable thread; interrupts disabled during the change."
+status = "inferred"
+rush2 = 0x800062B0
+rush2049 = [0x80008380]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004620
+sig = "void osCreateMesgQueue(OSMesgQueue *mq, OSMesg *msg, s32 count)"
+desc = "Same code as Rush 2 osCreateMesgQueue (11 instructions, address-masked match, float constants equal). libultra: initializes message queue mq with empty thread queues, validCount 0, first 0, msgCount count and buffer msg."
+status = "inferred"
+rush2 = 0x80006390
+rush2049 = [0x80006A00]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004650
+sig = "void osInvalICache(void *vaddr, u32 nbytes)"
+desc = "Same code as Rush 2 osInvalICache (29 instructions, address-masked match, float constants equal). libultra: invalidates the instruction cache lines covering [vaddr, vaddr+nbytes); whole cache if nbytes >= 0x4000."
+status = "inferred"
+rush2 = 0x800063C0
+rush2049 = [0x80008460]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800046D0
+sig = "void osInvalDCache(void *vaddr, u32 nbytes)"
+desc = "Same code as Rush 2 osInvalDCache (43 instructions, address-masked match, float constants equal). libultra: invalidates data cache lines covering [vaddr, vaddr+nbytes) (writes back partial edge lines); whole cache if nbytes >= 0x2000."
+status = "inferred"
+rush2 = 0x80006440
+rush2049 = [0x800084E0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004780
+sig = "void _bzero(void *ptr, u32 len)"
+desc = "Same code as Rush 2 _bzero (39 instructions, address-masked match, float constants equal). libc/libultra: zero-fills len bytes at ptr, with word/block-aligned fast paths."
+status = "inferred"
+rush2 = 0x800064F0
+rush2049 = [0x80008590]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80004820
+sig = "s32 osPiStartDma(OSIoMesg *mb, s32 priority, s32 direction, u32 devAddr, void *vAddr, u32 nbytes, OSMesgQueue *mq)"
+desc = "Same code as Rush 2 osPiStartDma (67 instructions, address-masked match, float constants equal). libultra: fills the OSIoMesg (hdr type 0xB/0xC for read/write, dest queue, addresses, size) and posts it to the PI command queue (osJamMesg for high priority, osSendMesg otherwise)."
+status = "inferred"
+rush2 = 0x80006590
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004930
+sig = "s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flags)"
+desc = "Same code as Rush 2 osRecvMesg (78 instructions, address-masked match, float constants equal). libultra: receives a message from mq (blocking if flags is OS_MESG_BLOCK and empty), waking a thread blocked on send; returns 0 or -1 if empty and non-blocking."
+status = "inferred"
+rush2 = 0x800066A0
+rush2049 = [0x80007270]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004A70
+sig = "void osCreateViManager(OSPri pri)"
+desc = "Same code as Rush 2 osCreateViManager (98 instructions, address-masked match, float constants equal). libultra: creates the VI manager: timer services, message queue (5 slots), registers VI/counter event messages, creates and starts the vi_manager_thread at priority pri and initializes __osViInit."
+status = "inferred"
+rush2 = 0x800067E0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004BF8
+name = "vi_manager_thread"
+sig = "void vi_manager_thread(void *arg)"
+desc = "Same code as Rush 2 vi_manager_thread_80006968 (115 instructions, address-masked match, float constants equal). libultra VI manager thread loop (osCreateViManager entry): receives VI/counter messages, calls __osViSwapContext, forwards retrace messages to registered queues and handles timer interrupts."
+status = "inferred"
+rush2 = 0x80006968
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004DD0
+sig = "void osViSetMode(OSViMode *mode)"
+desc = "Same code as Rush 2 osViSetMode (26 instructions, address-masked match, float constants equal). libultra VI: sets the next VI context's mode pointer (os_vi_next_ctx+0x8) and flags for the next retrace."
+status = "inferred"
+rush2 = 0x80006B40
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004E40
+sig = "void osViBlack(u8 active)"
+desc = "Same code as Rush 2 osViBlack (28 instructions, address-masked match, float constants equal). libultra VI: sets or clears the VI black-screen flag (0x20) in the next VI context state."
+status = "inferred"
+rush2 = 0x80006BB0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004EB0
+sig = "void osSetEventMesg(OSEvent event, OSMesgQueue *mq, OSMesg msg)"
+desc = "Same code as Rush 2 osSetEventMesg (26 instructions, address-masked match, float constants equal). libultra: registers mq/msg in the event table for event (e.g. VI, SP, DP, SI, PI), with interrupts disabled."
+status = "inferred"
+rush2 = 0x80006C20
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80004F20
+sig = "void osViSetEvent(OSMesgQueue *mq, OSMesg msg, u32 retraceCount)"
+desc = "Same code as Rush 2 osViSetEvent (27 instructions, address-masked match, float constants equal). libultra VI: stores the retrace message queue/message (os_vi_next_ctx+0x10/0x14) and retrace count."
+status = "inferred"
+rush2 = 0x80006C90
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80005030
+sig = "OSTime osGetTime(void)"
+desc = "Same code as Rush 2 osGetTime (33 instructions, address-masked match, float constants equal). libultra: returns the 64-bit system time, os_time (hi/lo) plus CP0 count elapsed since os_base_time, with interrupts disabled."
+status = "inferred"
+rush2 = 0x80006DA0
+rush2049 = [0x800073B0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800050C0
+sig = "s32 osJamMesg(OSMesgQueue *mq, OSMesg msg, s32 flags)"
+desc = "Same code as Rush 2 osJamMesg (84 instructions, address-masked match, float constants equal). libultra: inserts msg at the front of mq (blocking if full and OS_MESG_BLOCK), waking a thread blocked on receive; returns 0 or -1."
+status = "inferred"
+rush2 = 0x80006E30
+rush2049 = [0x80007440]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80005210
+sig = "void osViSwapBuffer(void *frameBufPtr)"
+desc = "Same code as Rush 2 osViSwapBuffer (20 instructions, address-masked match, float constants equal). libultra VI: sets the next framebuffer pointer (os_vi_next_ctx+0x4) and the swap-pending flag."
+status = "inferred"
+rush2 = 0x80006F80
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80005260
+sig = "s32 osSendMesg(OSMesgQueue *mq, OSMesg msg, s32 flags)"
+desc = "Same code as Rush 2 osSendMesg (83 instructions, address-masked match, float constants equal). libultra: appends msg to mq (blocking if full and OS_MESG_BLOCK), waking a thread blocked on receive; returns 0 or -1."
+status = "inferred"
+rush2 = 0x80006FD0
+rush2049 = [0x800075E0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800053B0
+sig = "s32 osSpTaskYielded(OSTask *task)"
+desc = "Same code as Rush 2 osSpTaskYielded (32 instructions, address-masked match, float constants equal). libultra: reads SP status; if the RSP is halted and the yielded bit (0x100) is set, marks the task as yielded (flags) and returns nonzero."
+status = "inferred"
+rush2 = 0x80007120
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80005430
+sig = "void *osViGetCurrentFramebuffer(void)"
+desc = "Same code as Rush 2 osViGetCurrentFramebuffer (16 instructions, address-masked match, float constants equal). libultra VI: returns the framebuffer pointer of the current VI context (os_vi_cur_ctx+0x4). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800071A0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80005470
+sig = "void *osViGetNextFramebuffer(void)"
+desc = "Same code as Rush 2 osViGetNextFramebuffer (16 instructions, address-masked match, float constants equal). libultra VI: returns the framebuffer pointer of the next VI context (os_vi_next_ctx+0x4). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800071E0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800054B0
+sig = "void osWritebackDCacheAll(void)"
+desc = "Same code as Rush 2 osWritebackDCacheAll (10 instructions, address-masked match, float constants equal). libultra: writes back the entire data cache (0x2000 bytes) to memory."
+status = "inferred"
+rush2 = 0x80007220
+rush2049 = [0x80007810]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800054E0
+name = "os_sp_task_setup"
+sig = "void *os_sp_task_setup(OSTask *task)"
+desc = "Same code as Rush 2 os_sp_task_setup_80007250 (71 instructions, address-masked match, float constants equal). libultra helper for osSpTaskLoad: copies the 0x40-byte OSTask into a static copy (G80025860), converts its buffer pointers to physical addresses, returns the copy."
+status = "inferred"
+rush2 = 0x80007250
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800055FC
+sig = "void osSpTaskLoad(OSTask *task)"
+desc = "Same code as Rush 2 osSpTaskLoad (100 instructions, address-masked match, float constants equal). libultra: loads an RSP task: builds the task header (os_sp_task_setup), writes back the cache, sets the RSP PC to IMEM 0x04001000 and DMAs the task header to DMEM 0x04000FC0 and the ucode/data via __osSpRawStartDma."
+status = "inferred"
+rush2 = 0x8000736C
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000578C
+sig = "void osSpTaskStartGo(OSTask *task)"
+desc = "Same code as Rush 2 osSpTaskStartGo (16 instructions, address-masked match, float constants equal). libultra: waits until the SP device is idle, then clears halt/broke and sets interrupt-on-break via SP_STATUS (0x125) to start the loaded RSP task."
+status = "inferred"
+rush2 = 0x800074FC
+rush2049 = [0x80007AB4]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800057D0
+sig = "s32 osDpSetNextBuffer(void *bufPtr, u32 size)"
+desc = "Same code as Rush 2 osDpSetNextBuffer (42 instructions, address-masked match, float constants equal). libultra: sets the next RDP command buffer start/end (DPC_START/END from osVirtualToPhysical), waiting while the RDP start-valid flag is set; returns -1 if busy."
+status = "inferred"
+rush2 = 0x80007540
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80005880
+sig = "void osSpTaskYield(void)"
+desc = "Same code as Rush 2 osSpTaskYield (8 instructions, address-masked match, float constants equal). libultra: requests the running RSP task to yield by setting SP_SET_SIG0 (0x400)."
+status = "inferred"
+rush2 = 0x800075F0
+rush2049 = [0x80007B80]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800058A0
+sig = "void *memcpy(void *dst, const void *src, u32 n)"
+desc = "Same code as Rush 2 memcpy (11 instructions, address-masked match, float constants equal). libc memcpy: byte-copy loop of n bytes from src to dst; returns dst."
+status = "inferred"
+rush2 = 0x80007610
+rush2049 = [0x80007C68]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800058CC
+sig = "u32 strlen(const char *s)"
+desc = "Same code as Rush 2 strlen (10 instructions, address-masked match, float constants equal). libc strlen: returns length of NUL-terminated string s."
+status = "inferred"
+rush2 = 0x8000763C
+rush2049 = [0x80007C40]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80005CB0
+sig = "void guOrthoF(float mf[4][4], float l, float r, float b, float t, float n, float f, float scale)"
+desc = "Same code as Rush 2 guOrthoF (85 instructions, address-masked match, float constants equal). libultra gu: builds a float orthographic projection matrix (left,right,bottom,top,near,far) scaled by scale."
+status = "inferred"
+rush2 = 0x80007A20
+rush2049 = [0x80008A60]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80005E04
+sig = "void guFrustum(Mtx *m, float l, float r, float b, float t, float n, float f, float scale)"
+desc = "Same code as Rush 2 guFrustum (26 instructions, address-masked match, float constants equal). libultra gu: builds a frustum projection into fixed-point Mtx m (guFrustumF then guMtxF2L). Used for view/fog setup."
+status = "inferred"
+rush2 = 0x80007B74
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80005E70
+sig = "void guPerspectiveF(float mf[4][4], u16 *perspNorm, float fovy, float aspect, float near, float far, float scale)"
+desc = "Same code as Rush 2 guPerspectiveF (140 instructions, address-masked match, float constants equal). libultra gu: builds a float perspective matrix from fovy degrees (x pi/180 = 0.0174533), aspect and near/far; perspNorm receives the normalization value."
+status = "inferred"
+rush2 = 0x80007BE0
+rush2049 = [0x80008C20]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x800060A0
+sig = "void guPerspective(Mtx *m, u16 *perspNorm, float fovy, float aspect, float near, float far, float scale)"
+desc = "Same code as Rush 2 guPerspective (22 instructions, address-masked match, float constants equal). libultra gu: builds a perspective projection into fixed-point Mtx m (guPerspectiveF then guMtxF2L). Used for view/fog setup."
+status = "inferred"
+rush2 = 0x80007E10
+rush2049 = [0x80008E50]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80006100
+sig = "void guLookAtF(float mf[4][4], float xEye, float yEye, float zEye, float xAt, float yAt, float zAt, float xUp, float yUp, float zUp)"
+desc = "Same code as Rush 2 guLookAtF (174 instructions, address-masked match, float constants equal). libultra gu: builds a float look-at view matrix from eye, target and up vectors (normalizing with sqrtf); used for fog/view setup."
+status = "inferred"
+rush2 = 0x80007E70
+rush2049 = [0x80008EB0]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x800063B8
+sig = "void guLookAt(Mtx *m, float xEye, float yEye, float zEye, float xAt, float yAt, float zAt, float xUp, float yUp, float zUp)"
+desc = "Same code as Rush 2 guLookAt (30 instructions, address-masked match, float constants equal). libultra gu: builds a look-at view matrix into fixed-point Mtx m (guLookAtF then guMtxF2L)."
+status = "inferred"
+rush2 = 0x80008128
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80006430
+sig = "void guMtxF2L(float mf[4][4], Mtx *m)"
+desc = "Same code as Rush 2 guMtxF2L (64 instructions, address-masked match, float constants equal). libultra gu: converts a float 4x4 matrix to the RSP fixed-point Mtx format (value * 65536, integer halves in first 0x20 bytes, fraction in second)."
+status = "inferred"
+rush2 = 0x800081A0
+rush2049 = [0x800091E0]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80006530
+sig = "void guMtxIdentF(float mf[4][4])"
+desc = "Same code as Rush 2 guMtxIdentF (34 instructions, address-masked match, float constants equal). libultra gu: sets the float 4x4 matrix mf to identity (1.0 on diagonal, 0 elsewhere)."
+status = "inferred"
+rush2 = 0x800082A0
+rush2049 = [0x80009394]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x800065B8
+sig = "void guMtxIdent(Mtx *m)"
+desc = "Same code as Rush 2 guMtxIdent (12 instructions, address-masked match, float constants equal). libultra gu: sets fixed-point Mtx m to identity (guMtxIdentF then guMtxF2L)."
+status = "inferred"
+rush2 = 0x80008328
+rush2049 = [0x8000941C]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80006898
+sig = "void __osContGetInitData(u8 *pattern, OSContStatus *data)"
+desc = "Same code as Rush 2 __osContGetInitData (52 instructions, address-masked match, float constants equal). libultra: parses the PIF response in os_cont_buf after the init/query command, filling each OSContStatus (type halfword, status byte, errno byte) and the present-controller bit pattern; os_cont_num_ports ports. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80008580
+link = "same-code"
+area = "input"
+ref = "docs/functions/rush1_input.md#sf-rush-input-functions"
+
+[[func]]
+vram = 0x80006A60
+sig = "s32 osContStartQuery(OSMesgQueue *mq)"
+desc = "Same code as Rush 2 osContStartQuery (33 instructions, address-masked match, float constants equal). libultra: starts a controller status query: acquires SI, sends the PIF query request and starts the SI DMA out/in, then releases SI; response parsed by osContGetQuery."
+status = "inferred"
+rush2 = 0x80008750
+link = "same-code"
+area = "input"
+ref = "docs/functions/rush1_input.md#sf-rush-input-functions"
+
+[[func]]
+vram = 0x80006AE4
+sig = "void osContGetQuery(OSContStatus *data)"
+desc = "Same code as Rush 2 osContGetQuery (10 instructions, address-masked match, float constants equal). libultra: parses the PIF query response into OSContStatus entries via __osContGetInitData."
+status = "inferred"
+rush2 = 0x800087D4
+link = "same-code"
+area = "input"
+ref = "docs/functions/rush1_input.md#sf-rush-input-functions"
+
+[[func]]
+vram = 0x80006BD4
+sig = "void osContGetReadData(OSContPad *data)"
+desc = "Same code as Rush 2 osContGetReadData (42 instructions, address-masked match, float constants equal). libultra: parses the PIF response in os_cont_buf into OSContPad entries (button halfword, stick x/y bytes, errno byte); errno set if error bits 0xC0 are present. Called by the input thread."
+status = "inferred"
+rush2 = 0x8000888C
+link = "same-code"
+area = "input"
+ref = "docs/functions/rush1_input.md#sf-rush-input-functions"
+
+[[func]]
+vram = 0x80006DC0
+sig = "void osViSetSpecialFeatures(u32 func)"
+desc = "Same code as Rush 2 osViSetSpecialFeatures (110 instructions, address-masked match, float constants equal). libultra VI: enables/disables VI features (gamma, gamma dither, divot, dither filter, 0x8/0x4/0x20/0x40/0x80/0x300 control bits) in the next VI context."
+status = "inferred"
+rush2 = 0x80008A70
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80007158
+sig = "f32 __ull_to_f(u64 x)"
+desc = "Same code as Rush 2 __ull_to_f (12 instructions, address-masked match, float constants equal). compiler runtime: unsigned 64-bit integer to float; used by the timer float update and car object drawing."
+status = "inferred"
+rush2 = 0x80008E08
+rush2049 = [0x80009BC8]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800071B0
+sig = "void alSndpStop(ALSndPlayer *sndp)"
+desc = "Same code as Rush 2 alSndpStop (19 instructions, address-masked match, float constants equal). libultra audio: posts a stop event for the current sound (sndp+0x3C) to the sound player's event queue (sndp+0x14)."
+status = "inferred"
+rush2 = 0x80008E60
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007200
+sig = "s16 alSndpGetState(ALSndPlayer *sndp)"
+desc = "Same code as Rush 2 alSndpGetState (8 instructions, address-masked match, float constants equal). libultra audio: returns the state of the sound (sndp+0x3C current sound) by reading the state field of its sound state record (sndp+0x40 base)."
+status = "inferred"
+rush2 = 0x80008EB0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007220
+sig = "void alSndpDeallocate(ALSndPlayer *sndp, ALSndId id)"
+desc = "Same code as Rush 2 alSndpDeallocate (20 instructions, address-masked match, float constants equal). libultra audio: returns sound state id to the sndp free list (head sndp+0x3C, state array sndp+0x40)."
+status = "inferred"
+rush2 = 0x80008ED0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007270
+sig = "ALSndId alSndpAllocate(ALSndPlayer *sndp, ALSound *sound)"
+desc = "Same code as Rush 2 alSndpAllocate (39 instructions, address-masked match, float constants equal). libultra audio: takes a sound state from the sndp free list (sndp+0x40/+0x44), initializes it from sound (volume 0x7F, pitch 1.0, pan from sound byte 0xD) and returns its id."
+status = "inferred"
+rush2 = 0x80008F20
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007310
+sig = "void alSndpSetPitch(ALSndPlayer *sndp, f32 pitch)"
+desc = "Same code as Rush 2 alSndpSetPitch (21 instructions, address-masked match, float constants equal). libultra audio: posts a pitch-change event (type 4) for the current sound to the event queue."
+status = "inferred"
+rush2 = 0x80008FC0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007370
+sig = "void alSndpSetFXMix(ALSndPlayer *sndp, u8 mix)"
+desc = "Same code as Rush 2 alSndpSetFXMix (22 instructions, address-masked match, float constants equal). libultra audio: posts an FX-mix change event (type 8) for the current sound."
+status = "inferred"
+rush2 = 0x80009020
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800073D0
+sig = "void alSndpSetPan(ALSndPlayer *sndp, ALPan pan)"
+desc = "Same code as Rush 2 alSndpSetPan (22 instructions, address-masked match, float constants equal). libultra audio: posts a pan-change event (type 7) for the current sound."
+status = "inferred"
+rush2 = 0x80009080
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007430
+sig = "void alSndpSetVol(ALSndPlayer *sndp, s16 vol)"
+desc = "Same code as Rush 2 alSndpSetVol (22 instructions, address-masked match, float constants equal). libultra audio: posts a volume-change event (type 3) for the current sound."
+status = "inferred"
+rush2 = 0x800090E0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007490
+sig = "void alSndpPlay(ALSndPlayer *sndp)"
+desc = "Same code as Rush 2 alSndpPlay (25 instructions, address-masked match, float constants equal). libultra audio: posts a play event (AL_SNDP_PLAY_EVT) for the current sound to the event queue."
+status = "inferred"
+rush2 = 0x80009140
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007510
+sig = "void alSeqpStop(ALSeqPlayer *seqp)"
+desc = "Same code as Rush 2 alSeqpStop (12 instructions, address-masked match, float constants equal). libultra audio: posts AL_SEQP_STOP_EVT (0x11) to the sequence player's event queue (seqp+0x48)."
+status = "inferred"
+rush2 = 0x800091C0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007540
+sig = "void alSeqpSetVol(ALSeqPlayer *seqp, s16 vol)"
+desc = "Same code as Rush 2 alSeqpSetVol (15 instructions, address-masked match, float constants equal). libultra audio: posts AL_SEQP_VOL_EVT (0xA) with vol to the sequence player's event queue."
+status = "inferred"
+rush2 = 0x800091F0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800075C8
+name = "al_seq_read_var_length"
+sig = "u32 al_seq_read_var_length(ALSeq *seq)"
+desc = "Same code as Rush 2 al_seq_read_var_length_80009278 (19 instructions, address-masked match, float constants equal). Reads a MIDI variable-length quantity from the sequence cursor (seq+8), continuing while bit 0x80 set, mask 0x7F."
+status = "inferred"
+rush2 = 0x80009278
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007614
+sig = "void alSeqNextEvent(ALSeq *seq, ALEvent *event)"
+desc = "Same code as Rush 2 alSeqNextEvent (97 instructions, address-masked match, float constants equal). libultra audio: parses the next MIDI event from the sequence data at seq->curPtr into event (note on/off, controller, program change, meta/tempo 0x51, end 0x2F)."
+status = "inferred"
+rush2 = 0x800092C4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007798
+sig = "void alSeqNewMarker(ALSeq *seq, ALSeqMarker *m, u32 ticks)"
+desc = "Same code as Rush 2 alSeqNewMarker (72 instructions, address-masked match, float constants equal). libultra audio: creates a marker at the given tick position by scanning events with alSeqNextEvent until ticks is reached, saving curPtr/lastTicks/lastDelta in m."
+status = "inferred"
+rush2 = 0x80009448
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800079F0
+sig = "u32 __alSeqNextDelta(ALSeq *seq)"
+desc = "Same code as Rush 2 __alSeqNextDelta (22 instructions, address-masked match, float constants equal). libultra audio: reads the next variable-length delta time from the sequence and advances its position."
+status = "inferred"
+rush2 = 0x800096A0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007A48
+name = "al_seq_read_u32"
+sig = "u32 al_seq_read_u32(ALSeq *seq)"
+desc = "Same code as Rush 2 al_seq_read_u32_800096F8 (20 instructions, address-masked match, float constants equal). Reads a big-endian 32-bit value (4 bytes) from the sequence cursor seq+8 and advances it."
+status = "inferred"
+rush2 = 0x800096F8
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007A98
+name = "al_seq_read_u16"
+sig = "u16 al_seq_read_u16(ALSeq *seq)"
+desc = "Same code as Rush 2 al_seq_read_u16_80009748 (12 instructions, address-masked match, float constants equal). Reads a big-endian 16-bit value from the sequence cursor seq+8 and advances it."
+status = "inferred"
+rush2 = 0x80009748
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007AC8
+sig = "void alSeqNew(ALSeq *seq, u8 *ptr, s32 len)"
+desc = "Same code as Rush 2 alSeqNew (54 instructions, address-masked match, float constants equal). libultra audio: initializes seq from an in-memory MIDI file, parsing the MThd/MTrk headers (division, track length) and setting the first event pointer."
+status = "inferred"
+rush2 = 0x80009778
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007BA0
+sig = "void alSeqpSetSeq(ALSeqPlayer *seqp, ALSeq *seq)"
+desc = "Same code as Rush 2 alSeqpSetSeq (13 instructions, address-masked match, float constants equal). libultra audio: posts AL_SEQP_SEQ_EVT (0xD) with seq to the sequence player's event queue."
+status = "inferred"
+rush2 = 0x80009850
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007BE0
+sig = "void alSeqpLoop(ALSeqPlayer *seqp, ALSeqMarker *start, ALSeqMarker *end, s32 count)"
+desc = "Same code as Rush 2 alSeqpLoop (15 instructions, address-masked match, float constants equal). libultra audio: posts AL_SEQP_LOOP_EVT (0xB) with loop start/end markers and count to the event queue."
+status = "inferred"
+rush2 = 0x80009890
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007C20
+sig = "void alSeqpPlay(ALSeqPlayer *seqp)"
+desc = "Same code as Rush 2 alSeqpPlay (12 instructions, address-masked match, float constants equal). libultra audio: posts AL_SEQP_PLAY_EVT (0xF) to the sequence player's event queue."
+status = "inferred"
+rush2 = 0x800098D0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007C50
+sig = "void *alHeapDBAlloc(u8 *file, s32 line, ALHeap *hp, s32 num, s32 size)"
+desc = "Same code as Rush 2 alHeapDBAlloc (21 instructions, address-masked match, float constants equal). libultra audio: allocates num*size bytes from heap hp (base +0, cur +4 advanced, length +8), 16-byte aligned; returns NULL if out of space. File/line args are debug only."
+status = "inferred"
+rush2 = 0x80009900
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007CB0
+sig = "void alHeapInit(ALHeap *hp, u8 *base, s32 len)"
+desc = "Same code as Rush 2 alHeapInit (13 instructions, address-masked match, float constants equal). libultra audio: initializes heap hp over base with len bytes (aligned to 16), cur = base, count 0."
+status = "inferred"
+rush2 = 0x80009960
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007D00
+name = "al_bnk_file_fixup_instruments"
+sig = "s32 al_bnk_file_fixup_instruments(ALBankFile *file, s32 a1, s32 a3)"
+desc = "Same code as Rush 2 al_bnk_file_fixup_instruments_800099B0 (59 instructions, address-masked match, float constants equal). Loop used by alBnkfNew relocating a bank's instrument table: for each of the bank's instrument offsets (halfword count at +0xE) converts offset to pointer and fixes the instrument's sound table entries (+0x10) by adding base; returns the next offset."
+status = "inferred"
+rush2 = 0x800099B0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007DF4
+sig = "void alBnkfNew(ALBankFile *file, u8 *base)"
+desc = "Same code as Rush 2 alBnkfNew (65 instructions, address-masked match, float constants equal). libultra audio: relocates a bank file after loading (offsets to pointers, checks revision 0x4231), fixing each bank's instruments through al_bnk_file_fixup_instruments."
+status = "inferred"
+rush2 = 0x80009AA4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007EF8
+sig = "void alSeqFileNew(ALSeqFile *file, u8 *base)"
+desc = "Same code as Rush 2 alSeqFileNew (16 instructions, address-masked match, float constants equal). libultra audio: relocates a sequence-file header, converting each of the file's seq entries (count halfword at +2, 8 bytes each) from offset to pointer by adding base."
+status = "inferred"
+rush2 = 0x80009BA8
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80007F40
+sig = "u32 osAiSetFrequency(u32 frequency)"
+desc = "Same code as Rush 2 osAiSetFrequency (88 instructions, address-masked match, float constants equal). libultra: programs AI_DACRATE and AI_BITRATE (0xA4500010/14) for the requested sample rate based on os_ai_clock; returns the actual rate."
+status = "inferred"
+rush2 = 0x80009BF0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800080A0
+sig = "void alUnlink(ALLink *node)"
+desc = "Same code as Rush 2 alUnlink (12 instructions, address-masked match, float constants equal). libultra audio: removes node from its doubly linked list (next at +0, prev at +4)."
+status = "inferred"
+rush2 = 0x80009D50
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800080D0
+sig = "void alLink(ALLink *node, ALLink *after)"
+desc = "Same code as Rush 2 alLink (9 instructions, address-masked match, float constants equal). libultra audio: inserts node into a doubly linked list right after 'after'."
+status = "inferred"
+rush2 = 0x80009D80
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800080F4
+sig = "void alClose(ALGlobals *glob)"
+desc = "Same code as Rush 2 alClose (14 instructions, address-masked match, float constants equal). libultra audio: shuts down the audio library (alSynDelete) and clears al_global."
+status = "inferred"
+rush2 = 0x80009DA4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000812C
+sig = "void alInit(ALGlobals *glob, ALSynConfig *c)"
+desc = "Same code as Rush 2 alInit (13 instructions, address-masked match, float constants equal). libultra audio: initializes the audio library: calls alSynNew on glob (al_global)."
+status = "inferred"
+rush2 = 0x80009DDC
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80008160
+sig = "void __setInstChanState(ALSeqPlayer *seqp, ALInstrument *inst, s32 chan)"
+desc = "Same code as Rush 2 __setInstChanState (21 instructions, address-masked match, float constants equal). libultra seqp: sets channel chan's instrument pointer and applies instrument volume, pan and priority bytes (+0,+1,+2) and bend range (+0xC)."
+status = "inferred"
+rush2 = 0x80009E10
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800081B4
+sig = "void __resetPerfChanState(ALSeqPlayer *seqp, s32 chan)"
+desc = "Same code as Rush 2 __resetPerfChanState (32 instructions, address-masked match, float constants equal). libultra seqp: resets a channel's performance state to defaults (volume 0x7F, pan 0x40, priority, bend range, sustain, pitch bend 1.0)."
+status = "inferred"
+rush2 = 0x80009E64
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80008234
+sig = "void __initFromBank(ALSeqPlayer *seqp, ALBank *bank)"
+desc = "Same code as Rush 2 __initFromBank (45 instructions, address-masked match, float constants equal). libultra seqp: resets every channel's performance state and assigns instrument 0 of the bank (bank+0x8) to each channel, including drum channel 9."
+status = "inferred"
+rush2 = 0x80009EE4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80008314
+sig = "s16 __vsVol(ALVoiceState *vs, ALSeqPlayer *seqp)"
+desc = "Same code as Rush 2 __vsVol (34 instructions, address-masked match, float constants equal). libultra seqp: computes a voice's output volume from its velocity/tremolo/channel volume bytes (+0x30..+0x36), sound volume (+0x20 sound byte) and seqp master volume."
+status = "inferred"
+rush2 = 0x80009FC4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000839C
+sig = "void __seqpReleaseVoice(ALSeqPlayer *seqp, ALVoice *voice, ALMicroTime deltaTime)"
+desc = "Same code as Rush 2 __seqpReleaseVoice (75 instructions, address-masked match, float constants equal). libultra seqp: releases a voice: if still playing, ramps its volume to 0 over deltaTime and queues a note-kill event; otherwise unlinks and frees it; adjusts synth priority."
+status = "inferred"
+rush2 = 0x8000A04C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800084C8
+sig = "s32 __voiceNeedsNoteKill(ALSeqPlayer *seqp, ALVoice *voice, s32 killTime)"
+desc = "Same code as Rush 2 __voiceNeedsNoteKill (42 instructions, address-masked match, float constants equal). libultra seqp: finds the voice in the seqp's active list (seqp+0x50), and if it needs a note-kill event, unlinks and re-queues it with the kill time; returns whether the voice was found."
+status = "inferred"
+rush2 = 0x8000A178
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80008570
+sig = "ALVoiceState *__unmapVoice(ALSeqPlayer *seqp, ALVoice *voice)"
+desc = "Same code as Rush 2 __unmapVoice (28 instructions, address-masked match, float constants equal). libultra seqp: finds the voice state for voice in the mapped list (seqp+0x64), unlinks it and returns it to the free list; returns the state or NULL."
+status = "inferred"
+rush2 = 0x8000A220
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800085E0
+sig = "void __postNextSeqEvent(ALSeqPlayer *seqp)"
+desc = "Same code as Rush 2 __postNextSeqEvent (55 instructions, address-masked match, float constants equal). libultra seqp: reads the next delta from the sequence (__alSeqNextDelta), converts ticks, and posts the next AL_SEQP_EVT to the event queue (seqp+0x48) using alSeqGetTicks/alSeqSetLoc."
+status = "inferred"
+rush2 = 0x8000A290
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800086BC
+name = "al_sndp_set_voice_params"
+sig = "void al_sndp_set_voice_params(ALSoundState *state, ALVoiceState *v)"
+desc = "Same code as Rush 2 al_sndp_set_voice_params_8000A36C (30 instructions, address-masked match, float constants equal). Derives pitch/volume from sound state bytes (base 0x51, const 0x1E8) and writes the result into voice state vs+0x24; reads the instrument's float at sound->0x14. (low confidence)"
+status = "inferred"
+rush2 = 0x8000A36C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80008734
+sig = "u8 __vsPan(ALVoiceState *vs, ALSeqPlayer *seqp)"
+desc = "Same code as Rush 2 __vsPan (18 instructions, address-masked match, float constants equal). libultra seqp: computes a voice's pan from the sound's pan byte (+0xC), channel pan (+0x31) and seqp state; centered at 0x40, clamped to 0..0x7F."
+status = "inferred"
+rush2 = 0x8000A3E4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000877C
+sig = "ALVoiceState *__lookupVoice(ALSeqPlayer *seqp, u8 key, u8 channel)"
+desc = "Same code as Rush 2 __lookupVoice (29 instructions, address-masked match, float constants equal). libultra seqp: searches the mapped voice list (seqp+0x64) for the voice state matching key (+0x32) and channel (+0x31); returns it or NULL."
+status = "inferred"
+rush2 = 0x8000A42C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800087F0
+sig = "ALVoiceState *__mapVoice(ALSeqPlayer *seqp, u8 key, u8 vel, u8 channel)"
+desc = "Same code as Rush 2 __mapVoice (28 instructions, address-masked match, float constants equal). libultra seqp: takes a voice state from the free list (seqp+0x68), stores channel/key/velocity at +0x31..+0x33, links it into the mapped list (seqp+0x64) and returns it; NULL if none free."
+status = "inferred"
+rush2 = 0x8000A4A0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80008860
+sig = "ALSound *__lookupSoundQuick(ALSeqPlayer *seqp, ALKeyMap *keymap, u8 key, u8 vel)"
+desc = "Same code as Rush 2 __lookupSoundQuick (63 instructions, address-masked match, float constants equal). libultra seqp: finds the ALSound for a key/velocity pair in the current instrument (seqp+0x60) by binary-searching its sound table by key and velocity range."
+status = "inferred"
+rush2 = 0x8000A510
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800097A0
+sig = "void __seqpStopOsc(ALSeqPlayer *seqp, ALOscState *osc)"
+desc = "Same code as Rush 2 __seqpStopOsc (65 instructions, address-masked match, float constants equal). libultra seqp: stops an LFO/oscillator: calls its stop callback (state +0x14), removes it from the seqp's active-oscillator list (seqp+0x50) and returns it to the free list."
+status = "inferred"
+rush2 = 0x8000B450
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800098A4
+sig = "void __initChanState(ALSeqPlayer *seqp)"
+desc = "Same code as Rush 2 __initChanState (28 instructions, address-masked match, float constants equal). libultra seqp: initializes all channel states (maxChannels at seqp+0x34) via __resetPerfChanState."
+status = "inferred"
+rush2 = 0x8000B554
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80009914
+sig = "void alSeqpNew(ALSeqPlayer *seqp, ALSeqpConfig *config)"
+desc = "Same code as Rush 2 alSeqpNew (96 instructions, address-masked match, float constants equal). libultra audio: initializes the sequence player: allocates voice states, channel states and event items from the heap, creates its event queue, registers with alSynAddPlayer and sets handler al_seqp_handler_event_loop."
+status = "inferred"
+rush2 = 0x8000B5C4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80009AA0
+sig = "void alSeqpSetBank(ALSeqPlayer *seqp, ALBank *bank)"
+desc = "Same code as Rush 2 alSeqpSetBank (13 instructions, address-masked match, float constants equal). libultra audio: posts AL_SEQP_BANK_EVT (0xE) with bank to the sequence player's event queue."
+status = "inferred"
+rush2 = 0x8000B750
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80009AE0
+name = "al_sndp_insert_deallocq"
+sig = "void al_sndp_insert_deallocq(void)"
+desc = "Same code as Rush 2 al_sndp_insert_deallocq_8000B790 (31 instructions, address-masked match, float constants equal). With interrupts masked, moves sound state nodes from the sound player's active list to the deallocation queue (alUnlink/alLink); called by the sndp event loop."
+status = "inferred"
+rush2 = 0x8000B790
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000A0B4
+sig = "void alSndpNew(ALSndPlayer *sndp, ALSndpConfig *config)"
+desc = "Same code as Rush 2 alSndpNew (77 instructions, address-masked match, float constants equal). libultra audio: initializes the sound player: allocates sound states and events from the heap, creates its event queue, registers with alSynAddPlayer, sets handler al_sndp_handler_event_loop and posts an initial event."
+status = "inferred"
+rush2 = 0x8000BD64
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000A2B8
+sig = "s32 _timeToSamples(ALSynth *drvr, s32 micros)"
+desc = "Same code as Rush 2 _timeToSamples (22 instructions, address-masked match, float constants equal). libultra synth: converts microseconds to output samples using the driver's sample rate (drvr+0x44): micros * rate / 1e6, with float rounding."
+status = "inferred"
+rush2 = 0x8000BF68
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000A310
+sig = "void _freePVoice(ALSynth *drvr, PVoice *pv)"
+desc = "Same code as Rush 2 _freePVoice (14 instructions, address-masked match, float constants equal). libultra synth: unlinks physical voice pv and puts it back on the driver's free list (drvr+0x14)."
+status = "inferred"
+rush2 = 0x8000BFC0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000A348
+sig = "void _collectPVoices(ALSynth *drvr)"
+desc = "Same code as Rush 2 _collectPVoices (24 instructions, address-masked match, float constants equal). libultra synth: moves finished physical voices from the driver's active list (drvr+0x14) back to the free list. Called by alAudioFrame."
+status = "inferred"
+rush2 = 0x8000BFF8
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000A3C0
+sig = "ALParam *__allocParam(void)"
+desc = "Same code as Rush 2 __allocParam (12 instructions, address-masked match, float constants equal). libultra synth: pops a param node from the free list (al_global+0x2C); returns it or NULL."
+status = "inferred"
+rush2 = 0x8000C070
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000A3F8
+sig = "s32 alAudioFrame(Acmd *cmdList, s32 *cmdLen, s16 *outBuf, s32 outLen)"
+desc = "Same code as Rush 2 alAudioFrame (166 instructions, address-masked match, float constants equal). libultra audio: runs one audio frame: lets each player generate events (handlers), pulls the main bus filter chain to build the RSP audio command list, collects finished pvoices, advances sample time."
+status = "inferred"
+rush2 = 0x8000C0A8
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000A690
+sig = "void alSynNew(ALSynth *drvr, ALSynConfig *c)"
+desc = "Same code as Rush 2 alSynNew (192 instructions, address-masked match, float constants equal). libultra audio: initializes the synthesizer: allocates pvoice/param pools from the heap, creates the filter chain (save, aux bus, main bus, FX, loader, resampler, envmixer) and links the voices into the free list."
+status = "inferred"
+rush2 = 0x8000C340
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8000AEE4
+name = "os_motor_pack_verify_buffer"
+sig = "void os_motor_pack_verify_buffer(s32 a0, s32 a1, u8 *a2, u8 *out)"
+desc = "Same code as Rush 2 os_motor_pack_verify_buffer_8000CC30 (95 instructions, address-masked match, float constants equal). libultra osMotorInit helper: builds the PIF request buffer with the address CRC (__osContAddressCrc) used to write/read-verify the rumble pak probe pattern. (low confidence)"
+status = "inferred"
+rush2 = 0x8000CC30
+link = "same-code"
+area = "input"
+ref = "docs/functions/rush1_input.md#sf-rush-input-functions"
+
+[[func]]
+vram = 0x8000B230
+sig = "s32 os_get_id(OSPfs *pfs)"
+desc = "Same code as Rush 2 os_get_id_8000D090 (151 instructions, address-masked match, float constants equal). Copy of __osGetId called directly by the game's pak thread; ignored in us.toml and reimplemented in src/atomics.cpp. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8000D090
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000B490
+sig = "s32 rush2_osPfsFindFile(OSPfs *pfs, u16 companyCode, u32 gameCode, u8 *gameName, u8 *extName, s32 *fileNo)"
+desc = "Same code as Rush 2 rush2_osPfsFindFile (109 instructions, address-masked match, float constants equal). libultra osPfsFindFile (Rush 2 copy): searches the pak note directory for a file matching company/game code and names; returns the note number or PFS_ERR_INVALID."
+status = "inferred"
+rush2 = 0x8000D2F0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000B650
+sig = "s32 rush2_osPfsFileState(OSPfs *pfs, s32 fileNo, OSPfsState *state)"
+desc = "Same code as Rush 2 rush2_osPfsFileState (188 instructions, address-masked match, float constants equal). libultra osPfsFileState (Rush 2 copy): fills state (size, codes, names, game info) for note fileNo by reading the directory entry and walking its inode chain."
+status = "inferred"
+rush2 = 0x8000D4B0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000B940
+sig = "s32 rush2_osPfsDeleteFile(OSPfs *pfs, u16 companyCode, u32 gameCode, u8 *gameName, u8 *extName)"
+desc = "Same code as Rush 2 rush2_osPfsDeleteFile (184 instructions, address-masked match, float constants equal). libultra osPfsDeleteFile (Rush 2 copy): finds the note, frees its inode pages (__osPfsReleasePages) and clears the directory entry."
+status = "inferred"
+rush2 = 0x8000D7A0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000BE58
+sig = "s32 __osBlockSum(OSPfs *pfs, u8 page, u16 *sum, u8 bank)"
+desc = "Same code as Rush 2 __osBlockSum (60 instructions, address-masked match, float constants equal). libultra pfs: reads an inode/data page from the given bank and returns the checksum of its 0x20-byte blocks (via __osSumcalc), used by __osPfsReleasePages."
+status = "inferred"
+rush2 = 0x8000DCC8
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000BF50
+sig = "s32 rush2_osPfsAllocateFile(OSPfs *pfs, u16 companyCode, u32 gameCode, u8 *gameName, u8 *extName, s32 fileSize, s32 *fileNo)"
+desc = "Same code as Rush 2 rush2_osPfsAllocateFile (289 instructions, address-masked match, float constants equal). libultra osPfsAllocateFile (Rush 2 copy): checks free blocks, finds a free note, allocates inode pages (__osPfsDeclearPage) and writes the directory entry; returns the note number."
+status = "inferred"
+rush2 = 0x8000DDC0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000C3D4
+sig = "s32 __osPfsDeclearPage(OSPfs *pfs, __OSInode *inode, s32 nPages, s32 *startPage, ...)"
+desc = "Same code as Rush 2 __osPfsDeclearPage (153 instructions, address-masked match, float constants equal). libultra pfs: allocates nPages free inode pages for a new file, linking them into a chain and writing the inode bank(s) (os_pfs_write_page_bank); used by allocate-file."
+status = "inferred"
+rush2 = 0x8000E244
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000C638
+name = "os_pfs_write_page_bank"
+sig = "s32 os_pfs_write_page_bank(OSPfs *pfs, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 os_pfs_write_page_bank_8000E4A8 (48 instructions, address-masked match, float constants equal). libultra Controller Pak helper used by __osPfsDeclearPage: selects bank, writes via __osContRamWrite, then re-selects bank 0."
+status = "inferred"
+rush2 = 0x8000E4A8
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000C700
+name = "os_pfs_inode_page_rw"
+sig = "s32 os_pfs_inode_page_rw(OSPfs *pfs, u8 *a1, s32 a2, u8 *a3)"
+desc = "Same code as Rush 2 os_pfs_inode_page_rw_8000E570 (63 instructions, address-masked match, float constants equal). libultra Controller Pak helper for osPfsReadWriteFile: calls __osPfsRWInode on the inode page containing the file's current page index (0x80 = pages per inode bank)."
+status = "inferred"
+rush2 = 0x8000E570
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000CC00
+sig = "s32 rush2_osPfsFreeBlocks(OSPfs *pfs, s32 *bytes_not_used)"
+desc = "Same code as Rush 2 rush2_osPfsFreeBlocks (83 instructions, address-masked match, float constants equal). libultra osPfsFreeBlocks (Rush 2 copy): counts free 256-byte pages in the inode table and returns bytes free in *bytes_not_used."
+status = "inferred"
+rush2 = 0x8000EA90
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000CD50
+sig = "s32 rush2_osPfsChecker(OSPfs *pfs)"
+desc = "Same code as Rush 2 rush2_osPfsChecker (433 instructions, address-masked match, float constants equal). libultra osPfsChecker (Rush 2 copy): verifies and repairs the pak filesystem: compares the directory and inode chains (corrupted_init/corrupted), fixes or deletes broken notes, rewrites inode tables."
+status = "inferred"
+rush2 = 0x8000EBE0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000D414
+sig = "s32 corrupted_init(OSPfs *pfs, OSPfsState *state)"
+desc = "Same code as Rush 2 corrupted_init (109 instructions, address-masked match, float constants equal). libultra pfs checker: initial pass of osPfsChecker; reads the inode pages (__osPfsRWInode) and builds a page-usage map to detect corrupted chains."
+status = "inferred"
+rush2 = 0x8000F2A4
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000D5C8
+sig = "s32 corrupted(OSPfs *pfs, __OSInode *inode, u8 *map)"
+desc = "Same code as Rush 2 corrupted (122 instructions, address-masked match, float constants equal). libultra pfs checker: validates each file's page chain against the usage map and repairs the inode (via __osPfsRWInode) when corrupted."
+status = "inferred"
+rush2 = 0x8000F458
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8000D7B0
+sig = "void rush2_osStopThread(OSThread *t)"
+desc = "Same code as Rush 2 rush2_osStopThread (48 instructions, address-masked match, float constants equal). libultra osStopThread: removes thread t from its run/wait queue and marks it stopped (state 1); if t is the running thread, yields via __osEnqueueAndYield. Rush 2 variant name."
+status = "inferred"
+rush2 = 0x8000F640
+rush2049 = [0x8000BD90]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000D8A0
+sig = "s32 __osSpRawReadIo(u32 devAddr, u32 *data)"
+desc = "Same code as Rush 2 __osSpRawReadIo (20 instructions, address-masked match, float constants equal). libultra: reads a word from an SP register address after waiting for SI idle (__osSiDeviceBusy); returns 0."
+status = "inferred"
+rush2 = 0x8000F730
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000D8F0
+sig = "s32 __osSpRawWriteIo(u32 devAddr, u32 data)"
+desc = "Same code as Rush 2 __osSpRawWriteIo (19 instructions, address-masked match, float constants equal). libultra: writes a word to an SP register address after waiting for SI idle (__osSiDeviceBusy); returns 0."
+status = "inferred"
+rush2 = 0x8000F780
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000DE84
+sig = "void send_mesg(s32 index)"
+desc = "Same code as Rush 2 send_mesg (140 instructions, address-masked match, float constants equal). libultra exception handler helper: delivers the registered event message for event index (jump table), waking a thread blocked on the queue (pops it from the queue and enqueues it on the run queue)."
+status = "inferred"
+rush2 = 0x8000FD14
+rush2049 = [0x8000CEDC]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000DF6C
+sig = "void __osEnqueueAndYield(OSThread **queue)"
+desc = "Same code as Rush 2 __osEnqueueAndYield (82 instructions, address-masked match, float constants equal). libultra: saves the running thread's context (registers, FPU, SR, int mask) and enqueues it on queue, then calls __osDispatchThread."
+status = "inferred"
+rush2 = 0x8000FDFC
+rush2049 = [0x8000CFC4]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E06C
+sig = "void __osEnqueueThread(OSThread **queue, OSThread *t)"
+desc = "Same code as Rush 2 __osEnqueueThread (18 instructions, address-masked match, float constants equal). libultra: inserts thread t into the priority-ordered thread queue (higher priority first) and sets t->queue (+8)."
+status = "inferred"
+rush2 = 0x8000FEFC
+rush2049 = [0x8000D0C4]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E0C4
+sig = "void __osDispatchThread(void)"
+desc = "Same code as Rush 2 __osDispatchThread (128 instructions, address-masked match, float constants equal). libultra: pops the highest-priority thread from os_run_queue, makes it os_running_thread, restores its context (registers, FPU, SR, interrupt mask via os_global_int_mask) and returns to it with eret."
+status = "inferred"
+rush2 = 0x8000FF54
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E250
+sig = "void osWritebackDCache(void *vaddr, u32 nbytes)"
+desc = "Same code as Rush 2 osWritebackDCache (29 instructions, address-masked match, float constants equal). libultra: writes back data cache lines covering [vaddr, vaddr+nbytes); whole cache if nbytes >= 0x2000."
+status = "inferred"
+rush2 = 0x800100E0
+rush2049 = [0x80007CA0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E2D0
+sig = "void osMapTLBRdb(void)"
+desc = "Same code as Rush 2 osMapTLBRdb (22 instructions, address-masked match, float constants equal). libultra: maps a TLB entry for the RDB debug port (index 0x1F, address 0xC0000000 region) during osInitialize."
+status = "inferred"
+rush2 = 0x80010160
+rush2049 = [0x8000D890]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E398
+sig = "u64 __ull_div(u64 x, u64 y)"
+desc = "Same code as Rush 2 __ull_div (15 instructions, address-masked match, float constants equal). compiler runtime: unsigned 64-bit division."
+status = "inferred"
+rush2 = 0x80010228
+rush2049 = [0x8000D958]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8000E3D4
+sig = "s64 __ll_lshift(s64 x, u32 n)"
+desc = "Same code as Rush 2 __ll_lshift (11 instructions, address-masked match, float constants equal). compiler runtime: 64-bit left shift."
+status = "inferred"
+rush2 = 0x80010264
+rush2049 = [0x8000D994]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8000E498
+sig = "s64 __ll_mul(s64 x, s64 y)"
+desc = "Same code as Rush 2 __ll_mul (12 instructions, address-masked match, float constants equal). compiler runtime: 64-bit multiplication."
+status = "inferred"
+rush2 = 0x80010328
+rush2049 = [0x8000DA58]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8000E528
+sig = "s64 __ll_mod(s64 x, s64 y)"
+desc = "Same code as Rush 2 __ll_mod (39 instructions, address-masked match, float constants equal). compiler runtime: signed 64-bit modulo (result takes sign of divisor)."
+status = "inferred"
+rush2 = 0x800103B8
+rush2049 = [0x8000DAE8]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8000E5F0
+sig = "u32 __osDisableInt(void)"
+desc = "Same code as Rush 2 __osDisableInt (8 instructions, address-masked match, float constants equal). libultra: clears the interrupt-enable bit in CP0 Status; returns the previous IE state (0 or 1)."
+status = "inferred"
+rush2 = 0x80010480
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E630
+sig = "void __osDequeueThread(OSThread **queue, OSThread *t)"
+desc = "Same code as Rush 2 __osDequeueThread (16 instructions, address-masked match, float constants equal). libultra: removes thread t from the singly linked thread queue."
+status = "inferred"
+rush2 = 0x800104C0
+rush2049 = [0x8000C050]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E860
+sig = "void __osPiCreateAccessQueue(void)"
+desc = "Same code as Rush 2 __osPiCreateAccessQueue (20 instructions, address-masked match, float constants equal). libultra: creates the 1-slot PI access message queue (os_pi_access_queue) and primes it with one message. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80010700
+rush2049 = [0x8000DBC0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E8B8
+desc = "Same code as Rush 2 func_80010758 (15 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x80010758
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x8000E8F4
+sig = "void __osPiRelAccess(void)"
+desc = "Same code as Rush 2 __osPiRelAccess (11 instructions, address-masked match, float constants equal). libultra: releases PI access by sending a message to the PI access queue. One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80010794
+rush2049 = [0x8000DC54]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000E940
+sig = "s32 osPiRawStartDma(s32 dir, u32 cartAddr, void *dramAddr, u32 size)"
+desc = "Same code as Rush 2 osPiRawStartDma (56 instructions, address-masked match, float constants equal). libultra: waits for PI idle then starts a PI DMA (read or write by dir) between cart address and RAM (physical via osVirtualToPhysical). Pointer used by the PI manager."
+status = "inferred"
+rush2 = 0x800107E0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000F0E0
+sig = "OSMesgQueue *osPiGetCmdQueue(void)"
+desc = "Same code as Rush 2 osPiGetCmdQueue (10 instructions, address-masked match, float constants equal). libultra: returns os_pi_cmd_queue if the PI manager has started (os_pi_mgr_started), else NULL."
+status = "inferred"
+rush2 = 0x80010F80
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000F110
+sig = "void __osTimerServicesInit(void)"
+desc = "Same code as Rush 2 __osTimerServicesInit (35 instructions, address-masked match, float constants equal). libultra: zeroes os_time_hi/lo and os_base_time, and initializes the empty os_timer_list."
+status = "inferred"
+rush2 = 0x80010FB0
+rush2049 = [0x8000C090]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000F19C
+sig = "void __osTimerInterrupt(void)"
+desc = "Same code as Rush 2 __osTimerInterrupt (94 instructions, address-masked match, float constants equal). libultra: timer interrupt handler: pops expired timers from os_timer_list, sends their messages, reinserts repeating ones (__osInsertTimer) and reprograms the compare register (__osSetTimerIntr)."
+status = "inferred"
+rush2 = 0x8001103C
+rush2049 = [0x8000C11C]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000F314
+sig = "void __osSetTimerIntr(OSTime tim)"
+desc = "Same code as Rush 2 __osSetTimerIntr (29 instructions, address-masked match, float constants equal). libultra: programs the CP0 Compare register for the next timer interrupt at count+tim, saving it in os_timer_count."
+status = "inferred"
+rush2 = 0x800111B4
+rush2049 = [0x8000C294]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000F388
+sig = "u64 __osInsertTimer(OSTimer *t)"
+desc = "Same code as Rush 2 __osInsertTimer (98 instructions, address-masked match, float constants equal). libultra: inserts timer t into the sorted os_timer_list by expiry time, adjusting following timers' deltas; returns the new time."
+status = "inferred"
+rush2 = 0x80011228
+rush2049 = [0x8000C308]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000F510
+sig = "void __osViInit(void)"
+desc = "Same code as Rush 2 __osViInit (79 instructions, address-masked match, float constants equal). libultra VI: initializes VI contexts (clears them with _bzero), selects NTSC/PAL/MPAL mode by os_tv_type, sets field height and calls __osViSwapContext."
+status = "inferred"
+rush2 = 0x800113B0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000F660
+sig = "void __osViSwapContext(void)"
+desc = "Same code as Rush 2 __osViSwapContext (215 instructions, address-masked match, float constants equal). libultra VI: applies the next VI context (os_vi_next_ctx) to the hardware VI registers (0xA4400000..34) with framebuffer address, mode timings and x/y scale, then makes it current (os_vi_cur_ctx)."
+status = "inferred"
+rush2 = 0x80011500
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000F9E0
+sig = "void _bcopy(const void *src, void *dst, u32 n)"
+desc = "Same code as Rush 2 _bcopy (227 instructions, address-masked match, float constants equal). libultra: memmove-style copy of n bytes from src to dst, handling overlap and alignment with word/halfword/byte paths."
+status = "inferred"
+rush2 = 0x80011880
+rush2049 = [0x8000D2B0]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8000FCF0
+sig = "u32 osVirtualToPhysical(void *vaddr)"
+desc = "Same code as Rush 2 osVirtualToPhysical (31 instructions, address-masked match, float constants equal). libultra: converts a virtual address to physical: KSEG0/KSEG1 by masking with 0x1FFFFFFF, mapped addresses via __osProbeTLB."
+status = "inferred"
+rush2 = 0x80011B90
+rush2049 = [0x8000D5C0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000FD80
+sig = "s32 __osSpSetPc(u32 pc)"
+desc = "Same code as Rush 2 __osSpSetPc (13 instructions, address-masked match, float constants equal). libultra: sets the RSP program counter (SP_PC_REG 0xA4080000); returns -1 if the RSP is not halted."
+status = "inferred"
+rush2 = 0x80011C20
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000FDC0
+sig = "s32 __osSpRawStartDma(s32 dir, u32 spAddr, void *dramAddr, u32 size)"
+desc = "Same code as Rush 2 __osSpRawStartDma (35 instructions, address-masked match, float constants equal). libultra: waits for SP DMA idle, then starts an SP DMA (read/write by dir) between RSP memory and RAM (dramAddr converted via osVirtualToPhysical); returns -1 if busy."
+status = "inferred"
+rush2 = 0x80011C60
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000FE50
+sig = "s32 __osSpDeviceBusy(void)"
+desc = "Same code as Rush 2 __osSpDeviceBusy (11 instructions, address-masked match, float constants equal). libultra: returns nonzero if the SP DMA/IO is busy (SP_STATUS bits masked by 0x1C)."
+status = "inferred"
+rush2 = 0x80011CF0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000FE80
+sig = "s32 __osDpDeviceBusy(void)"
+desc = "Same code as Rush 2 __osDpDeviceBusy (11 instructions, address-masked match, float constants equal). libultra: returns nonzero if DPC_STATUS_REG (0xA410000C) shows the RDP start/end-valid flag set."
+status = "inferred"
+rush2 = 0x80011D20
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000FEC0
+sig = "s32 osSetTimer(OSTimer *t, OSTime countdown, OSTime interval, OSMesgQueue *mq, OSMesg msg)"
+desc = "Same code as Rush 2 osSetTimer (53 instructions, address-masked match, float constants equal). libultra: configures timer t with countdown/interval and message, inserts it into os_timer_list (__osInsertTimer) and reprograms the timer interrupt (__osSetTimerIntr)."
+status = "inferred"
+rush2 = 0x80011D60
+rush2049 = [0x8000E3D0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8000FFA0
+sig = "s32 __osSiRawStartDma(s32 dir, void *dramAddr)"
+desc = "Same code as Rush 2 __osSiRawStartDma (43 instructions, address-masked match, float constants equal). libultra: starts an SI DMA to/from the PIF RAM (0x1FC007C0): writes back/invalidates the 0x40-byte buffer, sets SI_DRAM_ADDR and the read/write trigger; returns -1 if SI busy."
+status = "inferred"
+rush2 = 0x80011E40
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80010050
+sig = "void __osSiCreateAccessQueue(void)"
+desc = "Same code as Rush 2 __osSiCreateAccessQueue (20 instructions, address-masked match, float constants equal). libultra: creates the 1-slot SI access message queue (os_si_access_queue) and primes it with one message. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80011EF0
+rush2049 = [0x8000E560]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800100A0
+sig = "void __osSiGetAccess(void)"
+desc = "Same code as Rush 2 __osSiGetAccess (17 instructions, address-masked match, float constants equal). libultra: acquires SI access by receiving (blocking) from the SI access queue, creating it first if needed."
+status = "inferred"
+rush2 = 0x80011F40
+rush2049 = [0x8000DC10, 0x8000E5B0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800100E4
+sig = "void __osSiRelAccess(void)"
+desc = "Same code as Rush 2 __osSiRelAccess (11 instructions, address-masked match, float constants equal). libultra: releases SI access by sending a message to the SI access queue. One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80011F84
+rush2049 = [0x8000E5F4]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80010110
+sig = "void alEvtqFlushType(ALEventQueue *evtq, s16 type)"
+desc = "Same code as Rush 2 alEvtqFlushType (43 instructions, address-masked match, float constants equal). libultra audio: with interrupts masked, removes all events of the given type from evtq and returns them to the free list."
+status = "inferred"
+rush2 = 0x80011FB0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800101BC
+sig = "void alEvtqFlush(ALEventQueue *evtq)"
+desc = "Same code as Rush 2 alEvtqFlush (28 instructions, address-masked match, float constants equal). libultra audio: with interrupts masked, empties evtq, returning all events to the free list."
+status = "inferred"
+rush2 = 0x8001205C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8001022C
+sig = "void alEvtqPostEvent(ALEventQueue *evtq, ALEvent *evt, ALMicroTime delta)"
+desc = "Same code as Rush 2 alEvtqPostEvent (73 instructions, address-masked match, float constants equal). libultra audio: with interrupts masked, takes a free event node, copies evt (0x10 bytes) into it and inserts it into the time-ordered queue delta microseconds ahead."
+status = "inferred"
+rush2 = 0x800120CC
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010350
+sig = "ALMicroTime alEvtqNextEvent(ALEventQueue *evtq, ALEvent *evt)"
+desc = "Same code as Rush 2 alEvtqNextEvent (35 instructions, address-masked match, float constants equal). libultra audio: with interrupts masked, pops the next event from evtq into evt and returns the delta time (or 0x7FFFFFFF if empty)."
+status = "inferred"
+rush2 = 0x800121F0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800103DC
+sig = "void alEvtqNew(ALEventQueue *evtq, ALEventListItem *items, s32 itemCount)"
+desc = "Same code as Rush 2 alEvtqNew (29 instructions, address-masked match, float constants equal). libultra audio: initializes the event queue evtq and links itemCount 0x1C-byte event nodes onto its free list."
+status = "inferred"
+rush2 = 0x8001227C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010460
+sig = "void alSynAddPlayer(ALSynth *drvr, ALPlayer *client)"
+desc = "Same code as Rush 2 alSynAddPlayer (20 instructions, address-masked match, float constants equal). libultra audio: with interrupts masked, adds client to the synthesizer's player list (client->samplesLeft reset, next = drvr head)."
+status = "inferred"
+rush2 = 0x80012300
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800104B0
+sig = "void alSynStopVoice(ALSynth *drvr, ALVoice *voice)"
+desc = "Same code as Rush 2 alSynStopVoice (30 instructions, address-masked match, float constants equal). libultra audio: allocates a param and posts a stop-voice (type 0xF) update to the voice's pvoice filter at voice->pvoice+0x..; invokes the filter's setParam."
+status = "inferred"
+rush2 = 0x80012350
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010530
+sig = "void alSynFreeVoice(ALSynth *drvr, ALVoice *voice)"
+desc = "Same code as Rush 2 alSynFreeVoice (44 instructions, address-masked match, float constants equal). libultra audio: posts a free-voice update to the voice's pvoice filter and returns the pvoice to the free list (_freePVoice)."
+status = "inferred"
+rush2 = 0x800123D0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800105E0
+sig = "void alSynSetVol(ALSynth *drvr, ALVoice *voice, s16 volume, ALMicroTime delta)"
+desc = "Same code as Rush 2 alSynSetVol (39 instructions, address-masked match, float constants equal). libultra audio: posts a volume change (type 0xB) with a ramp of delta microseconds (converted via _timeToSamples) to the voice's pvoice filter."
+status = "inferred"
+rush2 = 0x80012480
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010680
+sig = "void alSynSetPitch(ALSynth *drvr, ALVoice *voice, f32 ratio)"
+desc = "Same code as Rush 2 alSynSetPitch (33 instructions, address-masked match, float constants equal). libultra audio: posts a pitch ratio change (type 7) to the voice's pvoice filter."
+status = "inferred"
+rush2 = 0x80012520
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010710
+sig = "ALVoice *_allocatePVoice(ALSynth *drvr, ALVoice *voice, s16 priority)"
+desc = "Same code as Rush 2 _allocatePVoice (58 instructions, address-masked match, float constants equal). libultra synth: takes a physical voice from the driver's free list (drvr+0x14), or steals a lower-priority one from the active list, and attaches it to voice; returns the pvoice or NULL."
+status = "inferred"
+rush2 = 0x800125B0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800107F8
+sig = "s32 alSynAllocVoice(ALSynth *drvr, ALVoice *voice, ALVoiceConfig *vc)"
+desc = "Same code as Rush 2 alSynAllocVoice (80 instructions, address-masked match, float constants equal). libultra audio: allocates a physical voice (_allocatePVoice) for voice with the config's priority/fx type, and posts the initial volume/pan/fxmix param updates; returns success."
+status = "inferred"
+rush2 = 0x80012698
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010940
+sig = "f32 alCents2Ratio(s32 cents)"
+desc = "Same code as Rush 2 alCents2Ratio (20 instructions, address-masked match, float constants equal). libultra audio: converts a pitch in cents to a frequency ratio by repeated multiplication with 2^(1/1200)-style factors (1.00058 up, 0.999423 down)."
+status = "inferred"
+rush2 = 0x800127E0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010990
+sig = "void alSynStartVoiceParams(ALSynth *drvr, ALVoice *voice, ALWaveTable *w, f32 pitch, s16 vol, ALPan pan, u8 fxMix, ALMicroTime t)"
+desc = "Same code as Rush 2 alSynStartVoiceParams (57 instructions, address-masked match, float constants equal). libultra audio: posts a combined start-voice update (type 0xD) with wave table, pitch, volume, pan, FX mix and delay (via _timeToSamples) to the voice's pvoice filter."
+status = "inferred"
+rush2 = 0x80012830
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010A80
+sig = "void alSynSetPan(ALSynth *drvr, ALVoice *voice, ALPan pan)"
+desc = "Same code as Rush 2 alSynSetPan (33 instructions, address-masked match, float constants equal). libultra audio: posts a pan change (type 0xC) to the voice's pvoice filter."
+status = "inferred"
+rush2 = 0x80012920
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010B10
+sig = "void alSynSetFXMix(ALSynth *drvr, ALVoice *voice, u8 fxmix)"
+desc = "Same code as Rush 2 alSynSetFXMix (37 instructions, address-masked match, float constants equal). libultra audio: posts an FX mix change to the voice's pvoice filter."
+status = "inferred"
+rush2 = 0x800129B0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010BC0
+sig = "void alSynStartVoice(ALSynth *drvr, ALVoice *voice, ALWaveTable *w)"
+desc = "Same code as Rush 2 alSynStartVoice (35 instructions, address-masked match, float constants equal). libultra audio: posts a start-voice update (type 0xE) with the wave table to the voice's pvoice filter."
+status = "inferred"
+rush2 = 0x80012A60
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010C50
+sig = "s32 __osAiDeviceBusy(void)"
+desc = "Same code as Rush 2 __osAiDeviceBusy (12 instructions, address-masked match, float constants equal). libultra: returns nonzero if AI_STATUS_REG (0xA450000C) reports the AI as busy/full."
+status = "inferred"
+rush2 = 0x80012AF0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80010C80
+sig = "void alSaveNew(ALSave *a)"
+desc = "Same code as Rush 2 alSaveNew (17 instructions, address-masked match, float constants equal). libultra audio: initializes the save filter (alFilterNew with alSavePull/alSaveParam, type 3) and clears its fields."
+status = "inferred"
+rush2 = 0x80012B20
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010CC4
+sig = "void alMainBusNew(ALMainBus *m, void *buf, s32 len)"
+desc = "Same code as Rush 2 alMainBusNew (21 instructions, address-masked match, float constants equal). libultra audio: initializes the main-bus filter (alFilterNew with alMainBusPull/alMainBusParam, type 7)."
+status = "inferred"
+rush2 = 0x80012B64
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010D18
+sig = "void alAuxBusNew(ALAuxBus *m, void *buf, s32 len)"
+desc = "Same code as Rush 2 alAuxBusNew (21 instructions, address-masked match, float constants equal). libultra audio: initializes the aux-bus filter (alFilterNew with alAuxBusPull/alAuxBusParam, type 6)."
+status = "inferred"
+rush2 = 0x80012BB8
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010D6C
+sig = "void alResampleNew(ALResampler *r, ALHeap *hp)"
+desc = "Same code as Rush 2 alResampleNew (34 instructions, address-masked match, float constants equal). libultra audio: initializes the resampler filter (type 1), pitch 1.0, and allocates its 0x20-byte state from the heap."
+status = "inferred"
+rush2 = 0x80012C0C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010DF4
+sig = "void alLoadNew(ALLoadFilter *f, void *dmaNew, ALHeap *hp)"
+desc = "Same code as Rush 2 alLoadNew (42 instructions, address-masked match, float constants equal). libultra audio: initializes the ADPCM loader filter (alAdpcmPull/alLoadParam), allocates codebook/state buffers (0x20 and 0x34 bytes) and obtains the DMA callback from dmaNew."
+status = "inferred"
+rush2 = 0x80012C94
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010E9C
+sig = "void alEnvmixerNew(ALEnvMixer *e, ALHeap *hp)"
+desc = "Same code as Rush 2 alEnvmixerNew (41 instructions, address-masked match, float constants equal). libultra audio: initializes the envelope mixer filter (type 4), clears its halfword state fields and allocates a 0x50-byte state buffer."
+status = "inferred"
+rush2 = 0x80012D3C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80010F40
+sig = "void init_lpfilter(ALLowPass *lp)"
+desc = "Same code as Rush 2 init_lpfilter (40 instructions, address-masked match, float constants equal). libultra audio: computes the one-pole low-pass filter coefficients/fixed-point state for the FX unit from lp->fc (+0), writing lp->fcvec (+0x2) state and the coefficient table."
+status = "inferred"
+rush2 = 0x80012DE0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80011420
+sig = "ALFx *alSynAllocFX(ALSynth *drvr, s16 bus, ALSynConfig *c, ALHeap *hp)"
+desc = "Same code as Rush 2 alSynAllocFX (38 instructions, address-masked match, float constants equal). libultra audio: allocates an FX (reverb) unit via alFxNew and connects it to the main bus (alFxParam/alMainBusParam)."
+status = "inferred"
+rush2 = 0x800132C0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800114C0
+sig = "s32 alMainBusParam(void *filter, s32 paramID, void *param)"
+desc = "Same code as Rush 2 alMainBusParam (12 instructions, address-masked match, float constants equal). libultra audio: parameter handler of the main-bus filter; stores the AL_FILTER_SET_SOURCE / set-sample-rate parameter into filter fields (+0x14 source, +0x1C). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80013360
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800114F0
+sig = "Acmd *alMainBusPull(void *filter, s16 *outp, s32 outCount, s32 sampleOffset, Acmd *p)"
+desc = "Same code as Rush 2 alMainBusPull (72 instructions, address-masked match, float constants equal). libultra audio: pull handler of the main bus; calls the source filter's pull, then emits A_CLEARBUF/A_MIXER-style RSP commands (opcodes 0x02000440/0x02000580...) to the audio command list."
+status = "inferred"
+rush2 = 0x80013390
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800117E4
+sig = "Acmd *alRaw16Pull(void *filter, s16 *outp, s32 outCount, s32 sampleOffset, Acmd *p)"
+desc = "Same code as Rush 2 alRaw16Pull (235 instructions, address-masked match, float constants equal). libultra audio: pull handler for raw 16-bit PCM wave data; DMAs sample data via the DMA callback and emits A_LOADBUF/A_SETBUFF commands, handling looping."
+status = "inferred"
+rush2 = 0x80013684
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80011B90
+name = "al_adpcm_pull_load_state"
+sig = "s32 al_adpcm_pull_load_state(void)"
+desc = "Same code as Rush 2 al_adpcm_pull_load_state_80013A30 (75 instructions, address-masked match, float constants equal). Helper of alAdpcmPull: calls the DMA callback and masks addresses with 0x1FFFFFFF (virtual to physical) to build RSP ADPCM load-state commands. (low confidence)"
+status = "inferred"
+rush2 = 0x80013A30
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80011CBC
+sig = "Acmd *alAdpcmPull(void *filter, s16 *outp, s32 outCount, s32 sampleOffset, Acmd *p)"
+desc = "Same code as Rush 2 alAdpcmPull (296 instructions, address-masked match, float constants equal). libultra audio: pull handler of the ADPCM decoder; loads decoder state (al_adpcm_pull_load_state), DMAs compressed frames and emits A_ADPCM RSP commands."
+status = "inferred"
+rush2 = 0x80013B5C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80012488
+sig = "f32 _frexpf(f32 x, s32 *exp)"
+desc = "Same code as Rush 2 _frexpf (59 instructions, address-masked match, float constants equal). libm: splits x into a mantissa in [0.5,1) and a power of two stored at *exp; used by the log series routine."
+status = "inferred"
+rush2 = 0x80014328
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80012574
+sig = "s32 alEnvmixerParam(void *filter, s32 paramID, void *param)"
+desc = "Same code as Rush 2 alEnvmixerParam (56 instructions, address-masked match, float constants equal). libultra audio: parameter handler of the envelope mixer filter (jump table on paramID: volume, pan, FX mix, source, etc.)."
+status = "inferred"
+rush2 = 0x80014414
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80012654
+name = "math_log_series"
+sig = "void math_log_series(f64 x)"
+desc = "Same code as Rush 2 math_log_series_800144F4 (116 instructions, address-masked match, float constants equal). Natural-log style series: uses _frexpf to split x, then evaluates a polynomial with ln2 = 0.693147; used by the envelope mixer command emission (tables at 8001BD50, 8001C5F0)."
+status = "inferred"
+rush2 = 0x800144F4
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80012ABC
+name = "al_envmixer_ramp_calc"
+sig = "s32 al_envmixer_ramp_calc(s32 a0, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 al_envmixer_ramp_calc_8001495C (44 instructions, address-masked match, float constants equal). Helper in alEnvmixerPull computing volume ramp increments (16.16 scale 65536.0) over 0x20-sample steps. (low confidence)"
+status = "inferred"
+rush2 = 0x8001495C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800130C0
+sig = "s32 alAuxBusParam(void *filter, s32 paramID, void *param)"
+desc = "Same code as Rush 2 alAuxBusParam (12 instructions, address-masked match, float constants equal). libultra audio: parameter handler of the aux bus filter; stores source (+0x14) / sample rate (+0x1C). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80014F60
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800130F0
+sig = "Acmd *alAuxBusPull(void *filter, s16 *outp, s32 outCount, s32 sampleOffset, Acmd *p)"
+desc = "Same code as Rush 2 alAuxBusPull (54 instructions, address-masked match, float constants equal). libultra audio: pull handler of the aux bus; calls the source pull and emits mixer RSP commands (0x20006C0/0x2000800)."
+status = "inferred"
+rush2 = 0x80014F90
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800131D0
+sig = "s32 alSaveParam(void *filter, s32 paramID, void *param)"
+desc = "Same code as Rush 2 alSaveParam (13 instructions, address-masked match, float constants equal). libultra audio: parameter handler of the 'save' filter (stores source and frame position)."
+status = "inferred"
+rush2 = 0x80015070
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80013204
+sig = "Acmd *alSavePull(void *filter, s16 *outp, s32 outCount, s32 sampleOffset, Acmd *p)"
+desc = "Same code as Rush 2 alSavePull (35 instructions, address-masked match, float constants equal). libultra audio: pull handler of the save filter; calls source pull then emits an A_SAVEBUF command (0x4400580) to dump samples."
+status = "inferred"
+rush2 = 0x800150A4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800133A0
+sig = "s32 __osSumcalc(u8 *ptr, s32 length)"
+desc = "Same code as Rush 2 __osSumcalc (23 instructions, address-masked match, float constants equal). libultra pfs: sums length bytes at ptr (checksum used for pak inode/id blocks)."
+status = "inferred"
+rush2 = 0x80015370
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x800133FC
+sig = "s32 __osIdCheckSum(u16 *ptr, u16 *checksum, u16 *inverted)"
+desc = "Same code as Rush 2 __osIdCheckSum (26 instructions, address-masked match, float constants equal). libultra pfs: computes the pak ID block checksum over 0x1C bytes of halfwords into *checksum and its inverse into *inverted."
+status = "inferred"
+rush2 = 0x800153CC
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80013464
+sig = "s32 __osRepairPackId(OSPfs *pfs, __OSPackId *badid, __OSPackId *newid)"
+desc = "Same code as Rush 2 __osRepairPackId (262 instructions, address-masked match, float constants equal). libultra pfs: rebuilds a damaged pak ID block: generates a new serial from osGetCount, writes it to the ID locations, verifies by reading back, and fills the checksum (__osIdCheckSum)."
+status = "inferred"
+rush2 = 0x80015434
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8001387C
+sig = "s32 __osCheckPackId(OSPfs *pfs, __OSPackId *temp)"
+desc = "Same code as Rush 2 __osCheckPackId (102 instructions, address-masked match, float constants equal). libultra pfs: reads the ID block copies and validates checksums (__osIdCheckSum); returns 0 if OK, else an error code (PFS_ERR_ID_FATAL when copies disagree)."
+status = "inferred"
+rush2 = 0x8001584C
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80013A14
+sig = "s32 os_pfs_check_pack(OSPfs *pfs)"
+desc = "Same code as Rush 2 os_pfs_check_pack_800159E4 (151 instructions, address-masked match, float constants equal). libultra osPfsChecker core: reads ID page via __osContRamRead, validates/repairs (__osCheckPackId/__osRepairPackId/__osIdCheckSum), reads the inode/other pages and fills pfs fields (+0x4C-0x65). One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800159E4
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80013C70
+sig = "s32 __osCheckId(OSPfs *pfs)"
+desc = "Same code as Rush 2 __osCheckId (63 instructions, address-masked match, float constants equal). libultra pfs: verifies the pfs ID block matches the pak's (re-reads page 1 and compares); returns an error code."
+status = "inferred"
+rush2 = 0x80015C40
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80013D6C
+sig = "s32 __osPfsRWInode(OSPfs *pfs, __OSInode *inode, u8 flag, u8 bank)"
+desc = "Same code as Rush 2 __osPfsRWInode (200 instructions, address-masked match, float constants equal). libultra pfs: reads or writes an inode page (flag 0 read, 1 write), with checksum (__osSumcalc) and the backup inode copy."
+status = "inferred"
+rush2 = 0x80015D3C
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8001408C
+sig = "s32 __osPfsSelectBank(OSPfs *pfs)"
+desc = "Same code as Rush 2 __osPfsSelectBank (27 instructions, address-masked match, float constants equal). libultra pfs: selects the pak RAM bank (pfs+0x65) by writing the bank byte block to pak address 0x400 via __osContRamWrite."
+status = "inferred"
+rush2 = 0x8001605C
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80014100
+sig = "s32 __osContRamRead(OSMesgQueue *mq, s32 channel, u16 address, u8 *buffer)"
+desc = "Same code as Rush 2 __osContRamRead (135 instructions, address-masked match, float constants equal). libultra pfs: reads 32 bytes from pak address on channel: builds the PIF request, SI DMA out/in, verifies the data CRC (__osContDataCrc) and returns the error code."
+status = "inferred"
+rush2 = 0x800160D0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80014490
+sig = "s32 osPfsIsPlug(OSMesgQueue *queue, u8 *pattern)"
+desc = "Same code as Rush 2 osPfsIsPlug (104 instructions, address-masked match, float constants equal). libultra pfs: checks which controllers have a pak plugged in: sends the PIF request (__osPfsRequestData), parses with __osPfsGetInitData and returns the bit pattern."
+status = "inferred"
+rush2 = 0x80016430
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8001472C
+sig = "void __osPfsGetInitData(u8 *pattern, OSContStatus *data)"
+desc = "Same code as Rush 2 __osPfsGetInitData (52 instructions, address-masked match, float constants equal). libultra pfs: parses the PIF init response in os_pfs_pif_buf for os_cont_num_ports ports into OSContStatus entries and the present-controller bit pattern. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800166A0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80014800
+sig = "u8 __osContAddressCrc(u16 addr)"
+desc = "Same code as Rush 2 __osContAddressCrc (44 instructions, address-masked match, float constants equal). libultra: computes the 5-bit CRC of an 11-bit controller pak address (polynomial 0x15)."
+status = "inferred"
+rush2 = 0x80016770
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x800148B0
+sig = "u8 __osContDataCrc(u8 *data)"
+desc = "Same code as Rush 2 __osContDataCrc (52 instructions, address-masked match, float constants equal). libultra: computes the 8-bit CRC (polynomial 0x85) of a 32-byte controller pak data block."
+status = "inferred"
+rush2 = 0x80016820
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80014980
+sig = "s32 __osContRamWrite(OSMesgQueue *mq, s32 channel, u16 address, u8 *buffer, s32 force)"
+desc = "Same code as Rush 2 __osContRamWrite (129 instructions, address-masked match, float constants equal). libultra pfs: writes 32 bytes to pak address on channel: builds the PIF request with data CRC, SI DMA out/in, verifies the returned CRC and returns the error code."
+status = "inferred"
+rush2 = 0x800168F0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80014D00
+sig = "s32 __osSiDeviceBusy(void)"
+desc = "Same code as Rush 2 __osSiDeviceBusy (11 instructions, address-masked match, float constants equal). libultra: returns nonzero if SI_STATUS_REG (0xA4800018) shows DMA busy or IO busy."
+status = "inferred"
+rush2 = 0x80016C50
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80014D38
+desc = "Same code as Rush 2 func_80016C88 (423 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x80016C88
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x800153D4
+name = "os_leo_pi_poke"
+sig = "void os_leo_pi_poke(void)"
+desc = "Same code as Rush 2 os_leo_pi_poke_80017324 (58 instructions, address-masked match, float constants equal). 64DD interrupt helper that pokes PI registers directly; never reached. Stubbed in us.toml."
+status = "inferred"
+rush2 = 0x80017324
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800154BC
+name = "os_leo_dispatch_thread"
+sig = "void os_leo_dispatch_thread(void)"
+desc = "Same code as Rush 2 os_leo_dispatch_thread_8001740C (59 instructions, address-masked match, float constants equal). libultra: pops the next thread from the queue in os_leo_word_a and enqueues it on os_run_queue (__osPopThread/__osEnqueueThread), updating the Leo/disk state; part of the Leo interrupt path."
+status = "inferred"
+rush2 = 0x8001740C
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800156B0
+sig = "void __osResetGlobalIntMask(u32 mask)"
+desc = "Same code as Rush 2 __osResetGlobalIntMask (22 instructions, address-masked match, float constants equal). libultra: with interrupts disabled, clears bits from os_global_int_mask (AND with ~(mask & 0xFBFF...) preserving the IP2/IP3 bits)."
+status = "inferred"
+rush2 = 0x80017610
+rush2049 = [0x8000FDA0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x800157B0
+sig = "void __osSetGlobalIntMask(u32 mask)"
+desc = "Same code as Rush 2 __osSetGlobalIntMask (19 instructions, address-masked match, float constants equal). libultra: with interrupts disabled, ORs mask into os_global_int_mask."
+status = "inferred"
+rush2 = 0x800179A0
+rush2049 = [0x800100C0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80015800
+sig = "void osYieldThread(void)"
+desc = "Same code as Rush 2 osYieldThread (19 instructions, address-masked match, float constants equal). libultra: puts the running thread at the end of the run queue (via __osEnqueueAndYield) so equal-priority threads run."
+status = "inferred"
+rush2 = 0x800179F0
+rush2049 = [0x80010110]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80015860
+sig = "s32 __osProbeTLB(void *vaddr)"
+desc = "Same code as Rush 2 __osProbeTLB (46 instructions, address-masked match, float constants equal). libultra: probes the TLB for vaddr and returns the matching physical address or -1; used by osVirtualToPhysical."
+status = "inferred"
+rush2 = 0x80017A50
+rush2049 = [0x8000FCB0]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80015920
+sig = "void alCopy(void *src, void *dst, s32 len)"
+desc = "Same code as Rush 2 alCopy (29 instructions, address-masked match, float constants equal). libultra audio: copies len bytes from src to dst (word loop then byte tail)."
+status = "inferred"
+rush2 = 0x80017B10
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800159C0
+sig = "void _doModFunc(ALFx *fx, s32 count)"
+desc = "Same code as Rush 2 _doModFunc (42 instructions, address-masked match, float constants equal). libultra audio: advances the FX chorus modulation oscillator (float state at +0x10/+0x14/+0x1C) once per output buffer."
+status = "inferred"
+rush2 = 0x80017BB0
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80015A68
+sig = "Acmd *_filterBuffer(ALLowPass *lp, s32 buf, s32 count, Acmd *p)"
+desc = "Same code as Rush 2 _filterBuffer (46 instructions, address-masked match, float constants equal). libultra audio (FX): emits an A_FILTER command (0x0B000020...) that runs the low-pass filter state over buf for count samples."
+status = "inferred"
+rush2 = 0x80017C58
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80015B20
+sig = "Acmd *_saveBuffer(ALFx *r, s32 curr, s32 buff, s32 count, Acmd *p)"
+desc = "Same code as Rush 2 _saveBuffer (98 instructions, address-masked match, float constants equal). libultra audio (FX): emits A_SAVEBUF commands writing count samples from DMEM into the FX delay line, wrapping at its end."
+status = "inferred"
+rush2 = 0x80017D10
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80015CA8
+sig = "Acmd *_loadBuffer(ALFx *r, s32 curr, s32 buff, s32 count, Acmd *p)"
+desc = "Same code as Rush 2 _loadBuffer (99 instructions, address-masked match, float constants equal). libultra audio (FX): emits A_LOADBUF commands reading count samples from the FX delay line into DMEM, wrapping at its end."
+status = "inferred"
+rush2 = 0x80017E98
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80015E34
+sig = "Acmd *_loadOutputBuffer(ALFx *r, ALFxRef *fx, s32 buff, s32 count, Acmd *p)"
+desc = "Same code as Rush 2 _loadOutputBuffer (137 instructions, address-masked match, float constants equal). libultra audio (FX): loads the FX output (delay line) tap into DMEM via _loadBuffer with modulated delay (_doModFunc) for chorus-style effects."
+status = "inferred"
+rush2 = 0x80018024
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800162CC
+sig = "Acmd *alFxPull(void *filter, s16 *outp, s32 outCount, s32 sampleOffset, Acmd *p)"
+desc = "Same code as Rush 2 alFxPull (208 instructions, address-masked match, float constants equal). libultra audio: pull handler of the FX (reverb) filter: pulls the source then emits RSP commands (load/save delay-line buffers, filter, mixes) to produce the reverb."
+status = "inferred"
+rush2 = 0x800184BC
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8005C108
+name = "sky_build_dome"
+sig = "s32 sky_build_dome(s32 a0, s32 a1, s32 a2, s32 a3, s32 stack0)"
+desc = "Same code as Rush 2 sky_build_dome_80054010 (58 instructions, address-masked match, float constants equal). Builds the procedural 24-piece sky dome."
+status = "inferred"
+rush2 = 0x80054010
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x8005C1F0
+name = "flags_clear_bit_0x4_ret"
+sig = "s32 flags_clear_bit_0x4_ret(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 flags_clear_bit_0x4_ret_80054140 (18 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x80054140
+rush2049 = [0x80094D68]
+link = "same-code"
+area = "other"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x8005C398
+name = "hud_widget_stub"
+sig = "void hud_widget_stub(s32 a0, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 hud_widget_stub_800542E8 (24 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x800542E8
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x8005C3F8
+name = "hud_widget_stub"
+sig = "void hud_widget_stub(s32 a0, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 hud_widget_stub_80054348 (34 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x80054348
+rush2049 = [0x80094E00]
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x8005C504
+name = "matrix_mul_vec"
+desc = "Byte-identical to Rush 2 func_80054454 (4-gram Jaccard 1.00): local = M * v for a 3x3 matrix. Found by matching Rush 2 func_80054454 against all Rush 1 functions."
+status = "verified"
+rush2 = 0x80054454
+rush2049 = [0x800A61B0]
+link = "same-code"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x8005C598
+name = "cam_project_point_to_screen"
+sig = "void cam_project_point_to_screen(s32 a0, f32 *in_pos, f32 *cam, f32 *out_pos, s32 a4)"
+desc = "Same code as Rush 2 cam_project_point_to_screen_800544E8 (114 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x800544E8
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x8005C760
+name = "menu_stub"
+sig = "s32 menu_stub(s32 a0, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 menu_stub_800546B0 (11 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x800546B0
+link = "same-code"
+area = "menu"
+ref = "docs/functions/rush1_menu.md#sf-rush-menu-functions"
+
+[[func]]
+vram = 0x8005C7B0
+name = "math_build_basis_from_consts"
+sig = "void math_build_basis_from_consts(f32 *a0)"
+desc = "Same code as Rush 2 math_build_basis_from_consts_80054700 (114 instructions, address-masked match, float constants equal). Float polynomial approximation (constants 0.63662 = 2/pi, 1.5708 = pi/2 and series coefficients) that splits its input via math_float_split_int_frac and stores 12 floats to 800CF3CC..800CF3F8; called from cam_build_view_matrix. (low confidence)"
+status = "inferred"
+rush2 = 0x80054700
+rush2049 = [0x800A557C]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8005C978
+name = "math_load_const_floats"
+sig = "void math_load_const_floats(void)"
+desc = "Same code as Rush 2 math_load_const_floats_800548C8 (40 instructions, address-masked match, float constants equal). Reads nine float constants at 800CF3FC..800CF41C (3x3 matrix values like 896.786, 16.1536, 268.425...) and builds a matrix from them; called by math_load_const_floats_x3. (low confidence)"
+status = "inferred"
+rush2 = 0x800548C8
+rush2049 = [0x8008C5E0]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8005CA18
+name = "math_load_const_floats_x3"
+sig = "void math_load_const_floats_x3(void)"
+desc = "Same code as Rush 2 math_load_const_floats_x3_80054968 (40 instructions, address-masked match, float constants equal). Calls math_load_const_floats three times, initializing constant tables for 800CF420/428/42C (0.414214 = tan(pi/8), pi/4, pi/2). (low confidence)"
+status = "inferred"
+rush2 = 0x80054968
+rush2049 = [0x8008C680]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8005CAB8
+name = "math_load_const_floats_x6"
+sig = "void math_load_const_floats_x6(void)"
+desc = "Same code as Rush 2 math_load_const_floats_x6_80054A08 (18 instructions, address-masked match, float constants equal). Calls math_load_const_floats_x3 twice (six const-table loads); used by the view matrix builder and x12 variant. (low confidence)"
+status = "inferred"
+rush2 = 0x80054A08
+rush2049 = [0x8008C720]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8005CB00
+name = "cam_build_view_matrix"
+sig = "s32 cam_build_view_matrix(s32 a0, s32 a1, s32 a2, s32 a3, s32 s0, s32 s1, s32 s2)"
+desc = "Same code as Rush 2 cam_build_view_matrix_80054A50 (88 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x80054A50
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x8005CE50
+name = "menu_toggle_flag"
+sig = "s32 menu_toggle_flag(s32 a0)"
+desc = "Same code as Rush 2 view_split_flags_update_80054DA0 (11 instructions, address-masked match, float constants equal). Reads/updates byte flags view_split_screen_flag (800E7D39) and view_split_screen_flag_b (800E7D51); used by the circuit menu and car select list builder. (low confidence)"
+status = "inferred"
+rush2 = 0x80054DA0
+link = "same-code"
+area = "menu"
+ref = "docs/functions/rush1_menu.md#sf-rush-menu-functions"
+
+[[func]]
+vram = 0x8005CF5C
+name = "gfx_set_clear_color_fog"
+sig = "void gfx_set_clear_color_fog(s32 a0, s32 a1, s32 a2, s32 a3, s32 s0, s32 s1, s32 s2, s32 s3, s32 s4)"
+desc = "Same code as Rush 2 gfx_set_clear_color_fog_80054EF4 (67 instructions, address-masked match, float constants equal). Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
+status = "inferred"
+rush2 = 0x80054EF4
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x8005D068
+name = "gfx_build_rect_dl"
+sig = "void gfx_build_rect_dl(s32 a0, s32 a1, s32 a2, s32 a3, s32 s0, s32 s1)"
+desc = "Same code as Rush 2 gfx_build_rect_dl_80055000 (538 instructions, address-masked match, float constants equal). Large display-list builder: appends F3DEX rectangle commands to the display list pointer at 80125ABC, clipped to gfx_screen_width/height (80022FEC/EE), with fill/copy mode flags. Called by text drawing and per-view frame drawing."
+status = "inferred"
+rush2 = 0x80055000
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x8005D8D0
+name = "gfx_tex_size_to_code"
+sig = "s32 gfx_tex_size_to_code(s32 size)"
+desc = "Same code as Rush 2 gfx_tex_size_to_log2_code_80055868 (55 instructions, address-masked match, float constants equal). Maps a texture dimension to its log2 tile-size code via compare chain (0x201 -> 0xA, 0x101 -> 9, 0x81 -> 8, 0x41 -> 7, ... 3 -> 2); used for G_SETTILE mask/shift setup."
+status = "inferred"
+rush2 = 0x80055868
+rush2049 = [0x80087804]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x800605B0
+name = "gfx_draw_rect_pair"
+sig = "void gfx_draw_rect_pair(u8 *color, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 gfx_draw_rect_pair_8005858C (145 instructions, address-masked match, float constants equal). Emits display-list commands (pointer 80125ABC) for a textured/filled rectangle using 8 param bytes at params (colors/format); uses 8011CA88. Called by the rect-mode wrappers, text drawing and per-view frame drawing. (low confidence)"
+status = "inferred"
+rush2 = 0x8005858C
+rush2049 = [0x8008A148]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x800607F4
+name = "gfx_draw_rect_pair_mode"
+sig = "void gfx_draw_rect_pair_mode(s32 a0)"
+desc = "Same code as Rush 2 gfx_draw_rect_pair_mode_800587D0 (22 instructions, address-masked match, float constants equal). Draws a rect pair (gfx_draw_rect_pair with args 4,1) then sets render mode 0x20; uses flag byte gfx_rect_pair_mode (800BD3C3) and text_color_state (8011CA88). Called by the per-view frame drawer and text scroll."
+status = "inferred"
+rush2 = 0x800587D0
+rush2049 = [0x8008A38C]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80060924
+name = "gfx_draw_rect_with_mode"
+sig = "void gfx_draw_rect_with_mode(s32 a0, s32 a1, s32 a2, s32 a3, s32 s0)"
+desc = "Same code as Rush 2 gfx_draw_rect_with_mode_800588DC (112 instructions, address-masked match, float constants equal). Draws a rectangle (gfx_draw_rect_pair with -1,-1) with render mode 0x4000 and othermode setup, clipping with gfx_clip_inset_a..d (80118FB8, 80118FC0, 8011900C, 80119218) against gfx_screen_width/height."
+status = "inferred"
+rush2 = 0x800588DC
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80060AE4
+name = "gfx_set_render_mode_stash"
+sig = "void gfx_set_render_mode_stash(s32 a0)"
+desc = "Same code as Rush 2 gfx_set_render_mode_stash_80058A9C (24 instructions, address-masked match, float constants equal). Sets render mode 0x10 via gfx_set_render_mode_dl, stashing the render mode state halfword in gfx_render_mode_stash (80119420)."
+status = "inferred"
+rush2 = 0x80058A9C
+rush2049 = [0x8008A644]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80060B44
+name = "gfx_clip_rect_to_inset"
+sig = "void gfx_clip_rect_to_inset(s32 *x0, s32 *y0, s32 *x1, s32 *y1)"
+desc = "Same code as Rush 2 gfx_clip_rect_to_inset_80058AFC (38 instructions, address-masked match, float constants equal). Clips 2D rectangles to the inset at s16 0x80023058."
+status = "inferred"
+rush2 = 0x80058AFC
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80060BDC
+name = "gfx_load_palette_tlut"
+sig = "void gfx_load_palette_tlut(Gfx **dl, Palette *pal)"
+desc = "Same code as Rush 2 gfx_load_palette_tlut_80078190 (51 instructions, address-masked match, float constants equal). Emits the post list for LOD flag 0x2 (caller argument)."
+status = "inferred"
+rush2 = 0x80078190
+rush2049 = [0x80099B30]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80064294
+name = "gfx_view_matrix_helper"
+sig = "void gfx_view_matrix_helper(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 view_matrix_fixed_to_float_8007BE08 (73 instructions, address-masked match, float constants equal). Loop converting 3x3 fixed-point matrix elements to float by dividing by 65536.0; called from view_fog_setup. (low confidence)"
+status = "inferred"
+rush2 = 0x8007BE08
+rush2049 = [0x8009E8B4]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80064544
+desc = "Visibility region choice and section mask: the top-level record whose box holds the camera in x and z, dy <= box top (no bottom test), least |dx|+|dz| wins, none means everything visible; 16-byte masks of two u64, hide flag 0xC00. Rush 2's equivalent is func_8007C27C."
+status = "verified"
+rush2 = 0x8007C27C
+rush2049 = [0x8009EBC0]
+link = "role"
+area = "track"
+ref = "docs/rush1_research.md#4-visibility-v"
+
+[[func]]
+vram = 0x80066980
+name = "table_lookup"
+sig = "s32 table_lookup_800d9e9e(s32 key)"
+desc = "Same code as Rush 2 node_table_lookup_index_8007F20C (23 instructions, address-masked match, float constants equal). Loop lookup using halfword table table_lookup_count and scene_node_table_count; returns an index. (low confidence)"
+status = "inferred"
+rush2 = 0x8007F20C
+rush2049 = [0x8008FFD0, 0x8009002C]
+link = "same-code"
+area = "other"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x80066E90
+name = "scene_matrix_create"
+sig = "s32 scene_matrix_create(void)"
+desc = "Same code as Rush 2 scene_matrix_create_8007F91C (33 instructions, address-masked match, float constants equal). Creates a per-view matrix node (used for the sky)."
+status = "inferred"
+rush2 = 0x8007F91C
+rush2049 = [0x800A7D6C]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x800673A4
+name = "strcmp_ci_like"
+sig = "s32 strcmp_ci_like(const char *a, const char *b)"
+desc = "Same code as Rush 2 strcmp_ci_like_80058B94 (17 instructions, address-masked match, float constants equal). Byte-by-byte string comparison loop (reads a0/a1 bytes), returns difference or 0; probably strcmp."
+status = "inferred"
+rush2 = 0x80058B94
+rush2049 = [0x8008AD04]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800673E8
+sig = "s32 model_name_cmp_ci(const char *a, const char *b)"
+desc = "Same code as Rush 2 model_name_cmp_ci_80058BD8 (8 instructions, address-masked match, float constants equal). Comparator callback (pointer taken by texture_find_by_name and model_find_by_name_bsearch) wrapping the case-insensitive string compare strcmp_ci_like for sorted name tables. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80058BD8
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80067408
+name = "strncmp_like"
+sig = "s32 strncmp_like(const char *a, const char *b, s32 n)"
+desc = "Same code as Rush 2 strncmp_like_80058BF8 (29 instructions, address-masked match, float constants equal). Bounded string comparison (a2 = max length), probably strncmp."
+status = "inferred"
+rush2 = 0x80058BF8
+rush2049 = [0x800950AC]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8006747C
+name = "model_name_cmp_15"
+sig = "s32 model_name_cmp_15(const char *a, const char *b)"
+desc = "Same code as Rush 2 model_name_cmp_15_80058C6C (13 instructions, address-masked match, float constants equal). Name comparator: 15-character strncmp."
+status = "inferred"
+rush2 = 0x80058C6C
+rush2049 = [0x80095120]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x800674B0
+name = "entry_name_cmp_ci"
+sig = "s32 entry_name_cmp_ci(void *a, void *b)"
+desc = "Same code as Rush 2 entry_name_cmp_ci_80058CA0 (9 instructions, address-masked match, float constants equal). Comparator callback: case-insensitive strcmp of the strings at offset 4 of two entries; used by track load and a sorter."
+status = "inferred"
+rush2 = 0x80058CA0
+rush2049 = [0x8008AD48]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800678D0
+name = "node_reset_visibility"
+sig = "s32 node_reset_visibility(void *a0, void *a1, void *a2, Node *node)"
+desc = "Same code as Rush 2 node_reset_visibility_800590AC (21 instructions, address-masked match, float constants equal). Shows child node->0x8 (node_show mode 3) then hides another node (node_hide mode 1/3); used by car and object part setup to reset a node's visibility. (low confidence)"
+status = "inferred"
+rush2 = 0x800590AC
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80067954
+name = "randf"
+sig = "f32 randf(void)"
+desc = "Same code as Rush 2 randf_80059130 (18 instructions, address-masked match, float constants equal). Same LCG on 800BD808 (0x41C64E6D, 0x3039) returning (rand & 0x7FFF)/32768.0 in [0,1)."
+status = "inferred"
+rush2 = 0x80059130
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800679CC
+name = "math_vec3_normalize"
+sig = "void math_vec3_normalize(Vec3 *v)"
+desc = "Same code as Rush 2 math_vec3_normalize_800591A8 (20 instructions, address-masked match, float constants equal). Normalizes a 3-float vector in place (uses 1.0 and epsilon in 800CF454)."
+status = "inferred"
+rush2 = 0x800591A8
+rush2049 = [0x8008B424]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80067A1C
+name = "math_vec3_normalize_copy"
+sig = "void math_vec3_normalize_copy(f32 *in, f32 *out)"
+desc = "Same code as Rush 2 math_vec3_normalize_copy_800591F8 (20 instructions, address-masked match, float constants equal). Copies vec3 in to out and normalizes it via math_vec3_normalize."
+status = "inferred"
+rush2 = 0x800591F8
+rush2049 = [0x8008B474]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80067A6C
+name = "math_vec3_op"
+sig = "void math_vec3_op(Vec3 *v)"
+desc = "Same code as Rush 2 math_vec3_length_80059248 (11 instructions, address-masked match, float constants equal). Returns sqrt(x*x + y*y + z*z) of the float vector at v."
+status = "inferred"
+rush2 = 0x80059248
+rush2049 = [0x8008B3C8]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80068364
+name = "math_mat3_transform_vec3_transposed"
+sig = "void math_mat3_transform_vec3_transposed(Vec3 *in, Vec3 *out, f32 *mat3x3)"
+desc = "Same code as Rush 2 math_mat3_transform_vec3_transposed_80059AE0 (39 instructions, address-masked match, float constants equal). out = M^T * in (multiplies by 3x3 matrix transpose); counterpart of func_80054454."
+status = "inferred"
+rush2 = 0x80059AE0
+rush2049 = [0x8008C544]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80068AA0
+name = "mem_copy_words"
+sig = "void *mem_copy_words(void *dst, const void *src, s32 size)"
+desc = "Same code as Rush 2 mem_copy_words_8005A340 (29 instructions, address-masked match, float constants equal). memcpy-like copy using 4-byte units when aligned (mask 3) with byte tail; used by car select preview, track select and circuit menu code."
+status = "inferred"
+rush2 = 0x8005A340
+rush2049 = [0x8008B32C]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80068C70
+name = "node_swap_visibility"
+sig = "s32 node_swap_visibility(void *a0, void *a1, void *a2, Node *node)"
+desc = "Same code as Rush 2 node_swap_visibility_8005A528 (28 instructions, address-masked match, float constants equal). Calls node_reset_visibility, then node_show on one node and node_hide on its pair (swaps which of the pair is visible). Car select preview helper. (low confidence)"
+status = "inferred"
+rush2 = 0x8005A528
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80069CBC
+name = "model_name_linear_find"
+sig = "s32 model_name_linear_find(s32 a0, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 model_name_linear_find_8005BDDC (24 instructions, address-masked match, float constants equal). Two-loop linear search helper used by model_find_by_name to locate a model entry by name. (low confidence)"
+status = "inferred"
+rush2 = 0x8005BDDC
+rush2049 = [0x80092DCC]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80069E74
+name = "music_play_sequence_wrap_a"
+sig = "void music_play_sequence_wrap_a(void)"
+desc = "Same code as Rush 2 music_play_sequence_wrap_a_80062074 (8 instructions, address-masked match, float constants equal). Unused wrapper that calls music_play_sequence."
+status = "inferred"
+rush2 = 0x80062074
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8006B444
+sig = "void os_send_msg_800d3e48(void)"
+desc = "Same code as Rush 2 os_send_msg_8005DF04 (11 instructions, address-masked match, float constants equal). Sends a message to the message queue at G800D3E48 (osSendMesg). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8005DF04
+rush2049 = [0x80014650]
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8006B4E4
+desc = "Same code as Rush 2 func_8005DFA4 (25 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x8005DFA4
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x8006B554
+desc = "Same code as Rush 2 func_8005E014 (33 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x8005E014
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x8006B670
+name = "audio_cmd_send_pair"
+sig = "void audio_cmd_send_pair(s32 arg)"
+desc = "Same code as Rush 2 audio_cmd_send_pair_8005E130 (72 instructions, address-masked match, float constants equal). Two sequential audio command ring pushes under the audio command lock (flags 0x4000 / 0x3FFF mask / 0x8000); called by menu_play_sound."
+status = "inferred"
+rush2 = 0x8005E130
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8006B790
+name = "audio_cmd_send_pair_ret"
+sig = "s32 audio_cmd_send_pair_ret(s32 a0, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 audio_cmd_send_pair_ret_8005E250 (78 instructions, address-masked match, float constants equal). Like audio_cmd_send_pair (two ring pushes under the lock) but returns a result byte from the audio command state. Used by object effect and car sound update code."
+status = "inferred"
+rush2 = 0x8005E250
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8006BFEC
+desc = "Hide-if-taken for a key: takes object +0x76 minus 1 as the key bit."
+status = "verified"
+area = "unlocks"
+ref = "docs/unlocks_plan.md#12-sf-rush-keys-v"
+
+[[func]]
+vram = 0x8006C208
+name = "pak_mark_dirty"
+sig = "void pak_mark_dirty(void *addr, s32 len)"
+desc = "Same code as Rush 2 pak_mark_dirty_8005F338 (48 instructions, address-masked match, float constants equal). Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries)."
+status = "inferred"
+rush2 = 0x8005F338
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x8006C2C8
+name = "save_mark_dirty_zero"
+sig = "void save_mark_dirty_zero(void)"
+desc = "Same code as Rush 2 save_mark_dirty_zero_8005F3F8 (8 instructions, address-masked match, float constants equal). Marks save record bytes dirty for saving. Same as func_8005F338 with $t1 = 0 (marks save bytes dirty)."
+status = "inferred"
+rush2 = 0x8005F3F8
+link = "same-code"
+area = "menu"
+ref = "docs/functions/rush1_menu.md#sf-rush-menu-functions"
+
+[[func]]
+vram = 0x8006C2E8
+desc = "Collects a key: sets the track's u8 mask bit (player record + 0x1C0 + track x 0x16 + 7, or 0x800CAC7C + track x 0x16 + 7 without a profile). Rush 2's equivalent is func_8005F418."
+status = "verified"
+rush2 = 0x8005F418
+link = "role"
+area = "unlocks"
+ref = "docs/unlocks_plan.md#11-rush-2s-key-system-what-we-reuse-v"
+
+[[func]]
+vram = 0x8006C904
+name = "audio_cmd_query_state"
+sig = "s32 audio_cmd_query_state(void)"
+desc = "Same code as Rush 2 audio_cmd_query_state_80062FC4 (65 instructions, address-masked match, float constants equal). Takes the audio command lock, pushes a 0xFFFF query command and reads the resulting sound state globals (800D4038/403A/4278/427A, 800D56F8..570C); returns a value. Used by menu_play_sound and car select. (low confidence)"
+status = "inferred"
+rush2 = 0x80062FC4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8006CA5C
+name = "music_queue_command"
+sig = "void music_queue_command_40000000(void)"
+desc = "Same code as Rush 2 music_queue_stop_80062FA4 (8 instructions, address-masked match, float constants equal). Queues music command 0x40000000 via music_queue_command (probably stop/fade out music). (low confidence)"
+status = "inferred"
+rush2 = 0x80062FA4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8006D608
+name = "time_to_seconds"
+sig = "f32 time_to_seconds(u16 *packed)"
+desc = "Same code as Rush 2 time_to_seconds_8006005C (42 instructions, address-masked match, float constants equal). Returns a packed time as f32 seconds."
+status = "inferred"
+rush2 = 0x8006005C
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x8006D764
+name = "track_name_prefix_copy"
+sig = "s32 track_name_prefix_copy(char *dst, const char *src)"
+desc = "Same code as Rush 2 track_name_prefix_copy_800601C4 (13 instructions, address-masked match, float constants equal). Looks up a per-track name prefix (0x800C182C[track])."
+status = "inferred"
+rush2 = 0x800601C4
+rush2049 = [0x800A473C]
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x8006E214
+name = "hud_widget_init_type"
+sig = "Widget *hud_widget_init_type(Widget *w, s32 type)"
+desc = "Same code as Rush 2 hud_widget_init_type_80060DA8 (15 instructions, address-masked match, float constants equal). Resets widget (hud_widget_reset) and sets type byte at w+0x1A; widely used by menu widget handlers (61 callers)."
+status = "inferred"
+rush2 = 0x80060DA8
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x8006E258
+desc = "Same code as Rush 2 func_80060DEC (18 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x80060DEC
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x8006ECA0
+desc = "Same code as Rush 2 func_80061A94 (95 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x80061A94
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x8006EED8
+sig = "void rumble_send_msg(void)"
+desc = "Same code as Rush 2 rumble_send_msg_80063DA8 (11 instructions, address-masked match, float constants equal). osSendMesg to the rumble/motor queue G800D3988 (releases the pak/rumble lock). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80063DA8
+rush2049 = [0x8002517C]
+link = "same-code"
+area = "input"
+ref = "docs/functions/rush1_input.md#sf-rush-input-functions"
+
+[[func]]
+vram = 0x8006F2A4
+name = "music_play_sequence_wrap_a"
+sig = "void music_play_sequence_wrap_a(void)"
+desc = "Same code as Rush 2 music_play_sequence_wrap_a_80062074 (8 instructions, address-masked match, float constants equal). Unused wrapper that calls music_play_sequence."
+status = "inferred"
+rush2 = 0x80062074
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8006F2C4
+sig = "void music_play_sequence_wrap_b(void)"
+desc = "Same code as Rush 2 music_play_sequence_wrap_b_80062094 (8 instructions, address-masked match, float constants equal). Unused second wrapper that calls music_play_sequence. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80062094
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8006F31C
+name = "snd_stop_and_set_sound"
+sig = "s32 snd_stop_and_set_sound(void)"
+desc = "Same code as Rush 2 snd_stop_and_set_sound_800620EC (44 instructions, address-masked match, float constants equal). Sound-player queue worker: pops sound id halfwords from the queue at snd_effect_state_word_a (800D3F20), calls alSndpSetSound then alSndpStop on sound player snd_voice_table (800BD140)."
+status = "inferred"
+rush2 = 0x800620EC
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8006F3CC
+name = "snd_stop_engine_voices"
+sig = "void snd_stop_engine_voices(s32 slot)"
+desc = "Same code as Rush 2 snd_stop_engine_voices_8006219C (50 instructions, address-masked match, float constants equal). Stops the engine sound voice slots: calls snd_stop_and_set_sound, then alSndpSetSound/alSndpStop on the sound player snd_voice_table (800BD140) for snd_engine_voice_id_0/1 (800D3F80/82)."
+status = "inferred"
+rush2 = 0x8006219C
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800700E0
+name = "audio_dma_buffers_recycle"
+sig = "void audio_dma_buffers_recycle(void)"
+desc = "Same code as Rush 2 audio_dma_buffers_recycle_800630D8 (51 instructions, address-masked match, float constants equal). Audio DMA buffer maintenance: receives completed DMA messages and moves buffers between lists (alUnlink/alLink) using audio_dma_buffer_head (800D35FC) and audio_dma_buffer_tail (800D3600)."
+status = "inferred"
+rush2 = 0x800630D8
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80070BC4
+name = "audio_heap_alloc_wrapper"
+sig = "void audio_heap_alloc_wrapper(s32 a0, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 audio_heap_alloc_wrapper_80063C74 (14 instructions, address-masked match, float constants equal). Unused wrapper around alHeapDBAlloc passing placeholder file/line."
+status = "inferred"
+rush2 = 0x80063C74
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80070CCC
+sig = "void asset_load_lock_release(void)"
+desc = "Same code as Rush 2 asset_load_lock_release_80077310 (11 instructions, address-masked match, float constants equal). osSendMesg on the asset loader lock queue G800D3AD8 (counterpart of func_80061CF0 acquire). One of 5 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80077310
+rush2049 = [0x8008A6D0]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80070D0C
+desc = "Same code as Rush 2 func_8005DFA4 (25 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x8005DFA4
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x80071800
+name = "audio_cmd_set_4278"
+sig = "void audio_cmd_set_4278(s32 arg)"
+desc = "Same code as Rush 2 audio_cmd_set_4278_800645F4 (68 instructions, address-masked match, float constants equal). Audio command lock/push pattern that updates audio_cmd_state_4278/427A halfwords (800D4278/800D427A) with flag 0x8000. (low confidence)"
+status = "inferred"
+rush2 = 0x800645F4
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80071910
+name = "audio_cmd_set_4278_wrap"
+sig = "void audio_cmd_set_4278_wrap(s32 a0)"
+desc = "Same code as Rush 2 audio_cmd_set_4278_wrap_80064704 (10 instructions, address-masked match, float constants equal). Unused wrapper for audio_cmd_set_4278."
+status = "inferred"
+rush2 = 0x80064704
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80071A9C
+sig = "void audio_cmd_set_pair_wrap_a(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 audio_cmd_set_pair_wrap_a_80064890 (15 instructions, address-masked match, float constants equal). Unused wrapper for audio_cmd_set_pair_float with flag 0x8000. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80064890
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80071AD8
+sig = "void audio_cmd_set_pair_wrap_b(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 audio_cmd_set_pair_wrap_b_800648CC (15 instructions, address-masked match, float constants equal). Unused second wrapper for audio_cmd_set_pair_float with flag 0x8000. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800648CC
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800721E8
+name = "car_engine_sound_tick_slot"
+sig = "void car_engine_sound_tick_slot(s32 a0, s32 slot)"
+desc = "Same code as Rush 2 car_engine_sound_tick_slot_80065234 (10 instructions, address-masked match, float constants equal). Unused thin wrapper over car_engine_sound_set_rpm_load with args (car, slot)."
+status = "inferred"
+rush2 = 0x80065234
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80072224
+name = "audio_cmd_set_4038_ret"
+sig = "s32 audio_cmd_set_4038_ret(s32 a0, s32 a1, s32 a2)"
+desc = "Same code as Rush 2 audio_cmd_set_4038_ret_80065E10 (103 instructions, address-masked match, float constants equal). Audio command lock pattern with three ring pushes that updates audio_cmd_state_4038 / 403E (800D4038, 800D403E) and returns a value; flag 0x4000. Used by the sfx play helpers. (low confidence)"
+status = "inferred"
+rush2 = 0x80065E10
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800723C0
+name = "audio_cmd_set_4038"
+sig = "void audio_cmd_set_4038(s32 arg)"
+desc = "Same code as Rush 2 audio_cmd_set_4038_80065FAC (72 instructions, address-masked match, float constants equal). Audio command lock/push pattern updating halfwords audio_cmd_state_4038/403A/403E (800D4038, 800D403A, 800D403E) with flag 0x8000. (low confidence)"
+status = "inferred"
+rush2 = 0x80065FAC
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800726AC
+name = "car_audio_cmd_players"
+sig = "void car_audio_cmd_players(s32 a0)"
+desc = "Same code as Rush 2 car_audio_cmd_players_80066298 (77 instructions, address-masked match, float constants equal). Sends audio_cmd_play_sfx_ex for each local player (reads race_player_count 800C2140 and race_mode_flag 800C2168); called by car sound routines. (low confidence)"
+status = "inferred"
+rush2 = 0x80066298
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x80073EC0
+name = "car_helper"
+sig = "s32 car_helper(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 car_sound_helper_80067CAC (21 instructions, address-masked match, float constants equal). Small helper called only from car_sound_helper_loop; purpose not worked out. (low confidence)"
+status = "inferred"
+rush2 = 0x80067CAC
+link = "same-code"
+area = "car"
+ref = "docs/functions/rush1_car.md#sf-rush-car-functions"
+
+[[func]]
+vram = 0x800752E8
+name = "respawn_compute_pose_blend"
+sig = "void respawn_compute_pose_blend(f32 *in, f32 *out)"
+desc = "Same code as Rush 2 respawn_compute_orientation_8008E73C (106 instructions, address-masked match, float constants equal). Reads 9 floats (3x3 matrix) from in and writes 4 floats (probably a quaternion/orientation) to out; called from respawn_place_car. (low confidence)"
+status = "inferred"
+rush2 = 0x8008E73C
+rush2049 = [0x800D14F4]
+link = "same-code"
+area = "car"
+ref = "docs/functions/rush1_car.md#sf-rush-car-functions"
+
+[[func]]
+vram = 0x80078264
+name = "car_forces_wrapper"
+sig = "void car_forces_wrapper(Car *car)"
+desc = "Same code as Rush 2 car_forces_wrapper_8006B708 (10 instructions, address-masked match, float constants equal). Calls car_wheel_forces_drag then car_force_sum for a car."
+status = "inferred"
+rush2 = 0x8006B708
+rush2049 = [0x800E2A3C]
+link = "same-code"
+area = "car"
+ref = "docs/functions/rush1_car.md#sf-rush-car-functions"
+
+[[func]]
+vram = 0x80078414
+desc = "Collision segment transform: local = M^T (p - origin), multiplying by the transpose of the stored matrix. ROM check: the Rush 1 code is a different routine (dot products against the matrix columns, stride 0xC), not a copy of Rush 2's func_80054454; Rush 1 has an identical copy of func_80054454 at func_8005C504 and func_8009A56C."
+status = "verified"
+rush2 = 0x80054454
+rush2049 = [0x800A61B0]
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x80079B90
+desc = "Collision polygon transform: local = M^T (p - origin), multiplying by the transpose of the stored matrix (Rush 2's func_80054454 computes M * v). ROM check: the Rush 1 code is a different routine (dot products against the matrix columns, stride 0xC), not a copy of Rush 2's func_80054454; Rush 1 has an identical copy of func_80054454 at func_8005C504 and func_8009A56C."
+status = "verified"
+rush2 = 0x80054454
+rush2049 = [0x800A61B0]
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x80079CDC
+desc = "Collision polygon point test: accepts local z in [best, 5) and takes the maximum. Rush 2's equivalent is func_8006C670."
+status = "verified"
+rush2 = 0x8006C670
+rush2049 = [0x800AD5D0, 0x800AD734]
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x8007A0C4
+name = "collision_leaf_read"
+sig = "u8 *collision_leaf_read(void *leaf, u16 *first_poly, u8 *counts)"
+desc = "Same code as Rush 2 collision_leaf_read_8006CCEC (29 instructions, address-masked match, float constants equal). Reads LEAF lists: u8 count then u16 entries (bits 15-13 extra run, 12-0 first poly index)."
+status = "inferred"
+rush2 = 0x8006CCEC
+rush2049 = [0x800ADCE0]
+link = "same-code"
+area = "collision"
+ref = "docs/functions/rush1_collision.md#sf-rush-collision-functions"
+
+[[func]]
+vram = 0x8007A138
+name = "collision_node_find"
+sig = "s32 collision_node_find(CollNode *node, s32 x, s32 z, u16 *leaf_out)"
+desc = "Same code as Rush 2 collision_node_find_8006CD60 (50 instructions, address-masked match, float constants equal). NODE quadtree query: descends from the root."
+status = "inferred"
+rush2 = 0x8006CD60
+rush2049 = [0x800AC9BC]
+link = "same-code"
+area = "collision"
+ref = "docs/functions/rush1_collision.md#sf-rush-collision-functions"
+
+[[func]]
+vram = 0x8007A848
+name = "collision_dist_helper"
+sig = "void collision_dist_helper(f32 *a0, f32 *a1, s32 a2, f32 *a3)"
+desc = "Same code as Rush 2 collision_dist_helper_8006BD54 (21 instructions, address-masked match, float constants equal). Small 3-iteration float loop with 1.0 used by collision_seg_surface (likely per-axis distance/plane evaluation). (low confidence)"
+status = "inferred"
+rush2 = 0x8006BD54
+rush2049 = [0x800ACBC4]
+link = "same-code"
+area = "collision"
+ref = "docs/functions/rush1_collision.md#sf-rush-collision-functions"
+
+[[func]]
+vram = 0x8007A89C
+desc = "Road segment query: along = L[0], across = L[1], with the cubic height term. Rush 2's equivalent is func_8006BDA8."
+status = "verified"
+rush2 = 0x8006BDA8
+rush2049 = [0x800ACC18]
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x8007B2EC
+name = "car_physics_forces"
+sig = "void car_physics_forces(Car *car)"
+desc = "Same code as Rush 2 car_physics_forces_800706D0 (24 instructions, address-masked match, float constants equal). Patched in us.toml. Rush 2049 wings physics (src/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is part of rush2_model_draw. / Rush 2049 moving track objects (src/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes)."
+status = "inferred"
+rush2 = 0x800706D0
+rush2049 = [0x800E2A64]
+link = "same-code"
+area = "car"
+ref = "docs/functions/rush1_car.md#sf-rush-car-functions"
+
+[[func]]
+vram = 0x8007CDD4
+desc = "Speed/lane-speed helper used by the AI driver: reads car velocity (+0x294..+0x29C) and a scale from 0x80087858 (lane speed ft/s x 1.05 x rubber band compare per the research notes). Called from func_8007ECB0 (0x8007ED9C), a likely Rush 1 AI driver. ROM check: the byte-level best matches for Rush 2's drone driver func_80074990 are Rush 1's func_8007DF24 / func_8007E1CC / func_8007ECB0 (weak, Jaccard 0.07-0.09), so this function is a helper, not the whole driver; the earlier 'Rush 2 equivalent is func_80074990' was too strong."
+status = "inferred"
+rush2 = 0x80074990
+rush2049 = [0x800E4B58]
+link = "role"
+area = "race"
+ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
+
+[[func]]
+vram = 0x8007D174
+desc = "AI steering filter (behavior codes 1-5); matches Rush 2's func_80071FBC."
+status = "inferred"
+rush2 = 0x80071FBC
+link = "role"
+area = "race"
+ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
+
+[[func]]
+vram = 0x8007ECB0
+desc = "Likely the Rush 1 AI driver (calls func_8007CDD4 at 0x8007ED9C); weak byte match to Rush 2 func_80074990. Not worked through."
+status = "inferred"
+rush2 = 0x80074990
+rush2049 = [0x800E4B58]
+link = "role"
+area = "race"
+ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
+
+[[func]]
+vram = 0x8007EE60
+name = "car_search_loop"
+sig = "s32 car_search_loop(s32 a0, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 car_search_loop_80075294 (34 instructions, address-masked match, float constants equal). Single-loop search helper used by wreck respawn steering, race point transform and chase camera. (low confidence)"
+status = "inferred"
+rush2 = 0x80075294
+rush2049 = [0x800CFDEC]
+link = "same-code"
+area = "car"
+ref = "docs/functions/rush1_car.md#sf-rush-car-functions"
+
+[[func]]
+vram = 0x8007EEE8
+name = "math_quat_to_mat3"
+sig = "void math_quat_to_mat3(f32 *quat, f32 *mat3x3)"
+desc = "Same code as Rush 2 math_quat_to_mat3_8007531C (102 instructions, address-masked match, float constants equal). Reads 4 floats (quaternion) and writes 9 matrix floats (uses 1.0 and 2.0): quaternion to 3x3 rotation matrix."
+status = "inferred"
+rush2 = 0x8007531C
+rush2049 = [0x800CFE74]
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x8007FC14
+name = "math_sincos_pair"
+sig = "void math_sincos_pair(void)"
+desc = "Same code as Rush 2 math_sincos_pair_80075F58 (24 instructions, address-masked match, float constants equal). Computes __cosf/__sinf of an angle (subway rotation) with 1.0 constant, used by subway init/update. (low confidence)"
+status = "inferred"
+rush2 = 0x80075F58
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x80080970
+name = "physics_thread_step_once"
+sig = "void physics_thread_step_once(void)"
+desc = "Same code as Rush 2 physics_thread_step_once_80076D70 (24 instructions, address-masked match, float constants equal). Applies default controls (input_apply_default_controls) then runs physics_tick once, with frame times 1/60 (0.0166667) or 1/50 (0.02) by os_tv_type; a single-step wrapper for the physics thread."
+status = "inferred"
+rush2 = 0x80076D70
+link = "same-code"
+area = "car"
+ref = "docs/functions/rush1_car.md#sf-rush-car-functions"
+
+[[func]]
+vram = 0x80080E80
+name = "model_name_bsearch"
+sig = "void model_name_bsearch(s32 a0, s32 a1, s32 a2, s32 a3, s32 cmp_arg)"
+desc = "Same code as Rush 2 model_name_bsearch_8005BCB4 (74 instructions, address-masked match, float constants equal). Per-slot binary search of model names (comparator func_80058C6C)."
+status = "inferred"
+rush2 = 0x8005BCB4
+rush2049 = [0x80092C58]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80081104
+desc = "Reads a model's name-record kind (+0x14 behavior id). Matches Rush 2's func_8007FFA0."
+status = "verified"
+rush2 = 0x8007FFA0
+link = "same-code"
+area = "track"
+ref = "docs/rush1_research.md#3-placement-v"
+
+[[func]]
+vram = 0x80081C80
+sig = "void scene_lights_reset_wrap(void)"
+desc = "Same code as Rush 2 scene_lights_reset_wrap_8007FB30 (8 instructions, address-masked match, float constants equal). Wrapper calling scene_lights_reset; no callers. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8007FB30
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x80081CA0
+sig = "void player_join_init_all_tick(void)"
+desc = "Same code as Rush 2 player_join_init_all_tick_80080BA8 (10 instructions, address-masked match, float constants equal). Runs timer_tick_vsync then player_join_init_all; no callers. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80080BA8
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x80081E50
+name = "hud_widgets_reset_range"
+sig = "void hud_widgets_reset_range(Widget *w, s32 a1, s32 count)"
+desc = "Same code as Rush 2 hud_widgets_reset_range_80080CB0 (36 instructions, address-masked match, float constants equal). Loops hud_widget_reset over a range of widgets; no callers."
+status = "inferred"
+rush2 = 0x80080CB0
+rush2049 = [0x800FE520]
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x80081F38
+name = "hud_widget_setup_icon"
+sig = "void hud_widget_setup_icon(Widget *w, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 hud_widget_setup_icon_80080DBC (99 instructions, address-masked match, float constants equal). Sets a widget texture (hud_widget_set_texture_by_name with w->0), resets the widget, and fills icon fields +0x19..0x22 (size/position halfwords); used by 17 HUD callbacks (speedometer, lap counter, minimap)."
+status = "inferred"
+rush2 = 0x80080DBC
+rush2049 = [0x800FE5B0]
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x800828EC
+desc = "Collision file loader: 0x20-byte header, then SEG (0x84), NODE (0x14), POLY (0x1A), VERT, LEAF, VLIST. +0x18/+0x1A go to globals; +0x1C is the segment that follows the last one."
+status = "verified"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x800829C4
+sig = "void player_join_init_all_wrap_a(void)"
+desc = "Same code as Rush 2 player_join_init_all_wrap_a_80080B88 (8 instructions, address-masked match, float constants equal). Wrapper around player_join_init_all (entry/hook stub); no callers. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80080B88
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x800829E4
+desc = "Placement walker: every record is a plain model whose behavior comes from the model's name-record kind (func_80081104). Children are relative to their parent section; field +0x48/+0x4A holds two object parameters."
+status = "verified"
+area = "track"
+ref = "docs/rush1_research.md#3-placement-v"
+
+[[func]]
+vram = 0x80083170
+name = "list_alloc_node"
+sig = "s32 list_alloc_node(Node **list)"
+desc = "Same code as Rush 2 list_alloc_node_80081F40 (37 instructions, address-masked match, float constants equal). Allocates a node from list_pool_used_head, links it into the list at a0 and sets a float field (default 0.5). (low confidence)"
+status = "inferred"
+rush2 = 0x80081F40
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800833C0
+name = "list_unlink_head"
+sig = "s32 list_unlink_head(Node *n)"
+desc = "Same code as Rush 2 list_unlink_head_80081CA8 (27 instructions, address-masked match, float constants equal). Linked-list insert/remove of a node into list head list_pool_free_head (n+0, +4 links, +0xC halfword), relative to list_pool_used_head. (low confidence)"
+status = "inferred"
+rush2 = 0x80081CA8
+link = "same-code"
+area = "util"
+ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+
+[[func]]
+vram = 0x800840D0
+name = "scene_pool_reset"
+sig = "void scene_pool_reset(void)"
+desc = "Same code as Rush 2 scene_pool_reset_800831CC (21 instructions, address-masked match, float constants equal). Attaches nodes to the global object list then resets the list pool (list_pool_reset); uses object_list_head. No callers."
+status = "inferred"
+rush2 = 0x800831CC
+rush2049 = [0x800B0618]
+link = "same-code"
+area = "render"
+ref = "docs/functions/rush1_render.md#sf-rush-render-functions"
+
+[[func]]
+vram = 0x8008602C
+desc = "Breakable hit test with no height test: the point in the car's frame within |z| < 7 and |x| < 3 (loop at 0x800860FC). Behavior 9 (window, type 0x19D) also hits on a sphere of a third of its radius. Rush 2's equivalent is func_8008B0CC. ROM check: the function itself is only 53 instructions and ends at 0x800860F8; the loop at 0x800860FC is the start of the NEXT function, i.e. 8008602C is the per-breakable box test and Rush 2's func_8008B0CC (548 instructions) covers that caller loop as well."
+status = "verified"
+rush2 = 0x8008B0CC
+link = "role"
+area = "collision"
+ref = "docs/rush1_research.md#3-placement-v"
+
+[[func]]
+vram = 0x80089454
+name = "hud_widgets_free_slot_range"
+sig = "void hud_widgets_free_slot_range(s32 slot)"
+desc = "Same code as Rush 2 hud_widgets_free_slot_range_80093A84 (45 instructions, address-masked match, float constants equal). Frees HUD widgets (hud_widget_free) in loops over per-slot byte tables hud_multi_menu_byte/hud_multi_flags/hud_free_slot_byte (0x14 entries); called from 9 menu/post-race places."
+status = "inferred"
+rush2 = 0x80093A84
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x8008A090
+sig = "void player_join_init_all_wrap_b(void)"
+desc = "Same code as Rush 2 player_join_init_all_wrap_b_80088C04 (8 instructions, address-masked match, float constants equal). Wrapper around player_join_init_all; no callers. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x80088C04
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x8008A0B0
+name = "pak_free_blocks_wrapper"
+sig = "s32 pak_free_blocks_wrapper(s32 port)"
+desc = "Same code as Rush 2 pak_free_blocks_wrapper_800B330C (50 instructions, address-masked match, float constants equal). Locks pak message queue, calls rush2_osPfsFreeBlocks, unlocks; returns status (free blocks)."
+status = "inferred"
+rush2 = 0x800B330C
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8008B4C4
+name = "save_mark_dirty_wrapper"
+sig = "void save_mark_dirty_wrapper(void *p)"
+desc = "Same code as Rush 2 save_mark_dirty_wrapper_80096E48 (8 instructions, address-masked match, float constants equal). Wrapper that calls pak_mark_dirty. No callers. (low confidence)"
+status = "inferred"
+rush2 = 0x80096E48
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8008BA50
+name = "save_pak_delete_and_reset"
+sig = "s32 save_pak_delete_and_reset(s32 pak, s32 a1)"
+desc = "Same code as Rush 2 save_pak_delete_and_reset_800986B0 (75 instructions, address-masked match, float constants equal). Pak/profile handling; calls func_80094BFC."
+status = "inferred"
+rush2 = 0x800986B0
+link = "same-code"
+area = "os"
+ref = "docs/functions/rush1_os.md#sf-rush-os-functions"
+
+[[func]]
+vram = 0x80095EE0
+name = "save_record_checksum"
+sig = "u8 save_record_checksum(void *a0, u8 *rec)"
+desc = "Same code as Rush 2 save_record_checksum_80096E68 (30 instructions, address-masked match, float constants equal). Computes the byte sum stored at +0 of a player record's first section (+1..+0x33). Writing a byte there without it damages the Controller Pak note."
+status = "inferred"
+rush2 = 0x80096E68
+link = "same-code"
+area = "unlocks"
+ref = "docs/functions/rush1_unlocks.md#sf-rush-unlocks-functions"
+
+[[func]]
+vram = 0x80095F58
+name = "save_record_update_checksum"
+sig = "void save_record_update_checksum(void *a0, void *a1, void *a2, u8 *rec)"
+desc = "Same code as Rush 2 save_record_update_checksum_80096EE0 (16 instructions, address-masked match, float constants equal). Computes the save record checksum at rec+1 via save_record_checksum and marks pak dirty (pak_mark_dirty, 1)."
+status = "inferred"
+rush2 = 0x80096EE0
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x8009693C
+name = "save_record_pack_name"
+sig = "s32 save_record_pack_name(s32 a0, u8 *name, s32 a2)"
+desc = "Same code as Rush 2 save_record_pack_name_80098B8C (75 instructions, address-masked match, float constants equal). Processes a name/initials byte array with -1 terminators over 2 loops (alternating 0/-1 bytes); used by pak check and controller setup. (low confidence)"
+status = "inferred"
+rush2 = 0x80098B8C
+rush2049 = [0x800A1910]
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x80097FE0
+desc = "Mirror walker over a model container, with the branch, mirror and CHKPOINT -> FINISH banner logic. Ancestor of Rush 2's func_80077518."
+status = "verified"
+rush2 = 0x80077518
+rush2049 = [0x800963E8]
+link = "same-code"
+area = "render"
+ref = "docs/rush1_research.md#21-display-lists-v"
+
+[[func]]
+vram = 0x80098210
+desc = "Asset loader; indexes the 72-entry ROM offset table at 0x800C7C1C from 0x800C7C38, so asset id = table index - 7."
+status = "verified"
+area = "os"
+ref = "docs/rush1_research.md#11-asset-table-v"
+
+[[func]]
+vram = 0x8009931C
+desc = "Car select unlock count: cars = 8 + min(G, 2 x keys / total), where G is global byte 0x80162AD0. Half a track's keys give car 8 (TAXI), all of them car 9 (HOTROD)."
+status = "verified"
+area = "unlocks"
+ref = "docs/unlocks_plan.md#12-sf-rush-keys-v"
+
+[[func]]
+vram = 0x80099C84
+name = "race_loop_bytes_125b44"
+sig = "void race_loop_bytes_125b44(void)"
+desc = "Same code as Rush 2 race_loop_flag_bytes_clear_8008C2F4 (17 instructions, address-masked match, float constants equal). Loops 9 bytes around race_loop_flag; called from race_menu_return_reset. Purpose not fully known. (low confidence)"
+status = "inferred"
+rush2 = 0x8008C2F4
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x80099E44
+desc = "Race music choice func_80099E44(2, setting): 0 off, 1 random of the 9 race songs (table 0x800D2910: 0, 1, 2, 7, 3, 10, 6, 12, 15), 2+ a fixed song. Rush 2's equivalent is func_8008C370."
+status = "verified"
+rush2 = 0x8008C370
+link = "role"
+area = "audio"
+ref = "docs/rush1_research.md#9-audio-v"
+
+[[func]]
+vram = 0x8009A1A8
+sig = "void engine_sound_stop_all(void)"
+desc = "Same code as Rush 2 engine_sound_stop_all_8008C5FC (8 instructions, address-masked match, float constants equal). Thin wrapper that calls engine_sound_stop. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8008C5FC
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x8009A56C
+name = "matrix_mul_vec_copy"
+desc = "Byte-identical to Rush 2 func_80054454 (4-gram Jaccard 1.00): local = M * v for a 3x3 matrix. Found by matching Rush 2 func_80054454 against all Rush 1 functions."
+status = "verified"
+rush2 = 0x80054454
+rush2049 = [0x800A61B0]
+link = "same-code"
+area = "collision"
+ref = "docs/rush1_research.md#5-collision-v"
+
+[[func]]
+vram = 0x8009BE68
+desc = "Wrong-way check: maps the car's segment to a lane 0 point (tables 0x800E4E28 / 0x800E66F8) and compares heading with the point 5 ahead; skipped while the car's last or next checkpoint (car +0xA4C / +0xA4E) has flag 4. Like Rush 2's func_8008CDA4."
+status = "verified"
+rush2 = 0x8008CDA4
+link = "same-code"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x8009CEB4
+name = "car_physics_tick_basic"
+sig = "void car_physics_tick_basic(Car *car)"
+desc = "Same code as Rush 2 car_physics_tick_basic_8008E220 (14 instructions, address-masked match, float constants equal). Minimal physics: reset state, ground contact, position/orientation integration, engine rpm. No callers."
+status = "inferred"
+rush2 = 0x8008E220
+link = "same-code"
+area = "car"
+ref = "docs/functions/rush1_car.md#sf-rush-car-functions"
+
+[[func]]
+vram = 0x8009D2D8
+name = "race_format_time_digits"
+sig = "void race_format_time_digits(void *a0, u8 *out, s32 time)"
+desc = "Same code as Rush 2 race_format_time_digits_8008ECC4 (204 instructions, address-masked match, float constants equal). Fills a 7-byte output with digits from a time value; clamps at 999/0x3E7 and uses divisors 100/10/60 (minutes:seconds:hundredths digits). Probably."
+status = "inferred"
+rush2 = 0x8008ECC4
+rush2049 = [0x800D2128]
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x8009D818
+desc = "Checkpoint flag handling (2 lap line, 1 last checkpoint before it triggers the FINISH banner, 4 no wrong-way warning). The twin of Rush 2's func_8008F220."
+status = "verified"
+rush2 = 0x8008F220
+rush2049 = [0x800D24C8]
+link = "role"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x8009DF90
+desc = "Steps along the collision segment chain by +1 (checkpoint spine, linear)."
+status = "inferred"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x8009E090
+desc = "Steps along the collision segment chain by -1 (checkpoint spine, linear)."
+status = "inferred"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x8009FFCC
+desc = "Reaching checkpoint i: adds time[lap] x (1 + (5 - difficulty) x 0.05); grants time to the race leader only."
+status = "verified"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x800A0BB8
+name = "checkpoint_gate_test"
+desc = "SF Rush checkpoint gate test, same as Rush 2 func_800A1468 but with its own radii 316-1000 ft. | Gate test per car (next checkpoint car +0xA4E only): car within the radius in x/z and within 3 ft x frames of the gate plane, then func_8009D818. Same test as Rush 2's func_800A1468."
+status = "verified"
+rush2 = 0x800A1468
+rush2049 = [0x800F8EC8]
+link = "role"
+area = "race"
+ref = "docs/rush2049_research/checkpoints.md#2-rush-2-timing-superseded-by-0-for-the-values-v"
+
+[[func]]
+vram = 0x800A113C
+name = "race_rubber_band_helper"
+sig = "void race_rubber_band_helper(s32 a2, s32 a3, s32 arg4)"
+desc = "Same code as Rush 2 rubber_band_helper_800A19B0 (58 instructions, address-masked match, float constants equal). Helper used by rubber_band; scales with a float constant and 0.5 factor. (low confidence)"
+status = "inferred"
+rush2 = 0x800A19B0
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x800A2BC0
+sig = "void race_update_ranks_and_rubber_band(void)"
+desc = "Same code as Rush 2 race_update_ranks_and_rubber_band_800A3028 (10 instructions, address-masked match, float constants equal). Calls race_update_positions_and_rank then rubber_band. One of 2 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800A3028
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x800A6F48
+name = "race_pose_and_camera_update"
+sig = "void race_pose_and_camera_update(void)"
+desc = "Same code as Rush 2 race_pose_and_camera_update_8009E0C4 (27 instructions, address-masked match, float constants equal). Per-frame: func_8008E258 on 800F9550, car_race_start_pose_setup and cam_update_all_players."
+status = "inferred"
+rush2 = 0x8009E0C4
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x800A804C
+desc = "AI lane file loader (assets 58+t / 65+t): 4 lanes of {s16 count, loop, end, x} + count x {s16 x,y,z; u8 speed (ft/s); u8 behavior; s16 index}."
+status = "verified"
+area = "race"
+ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
+
+[[func]]
+vram = 0x800A8F18
+desc = "Copies each checkpoint record to a 0x44-byte runtime checkpoint (*0x800F3A80: +0x30 radius squared, +0x3A flags, +0x3C times), snapping its position (+0x24) to the nearest node of the collision segment chain and taking the chain's direction (+0x18)."
+status = "verified"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x800AB90C
+sig = "void race_clear_player_setup_bytes_wrapper(void)"
+desc = "Same code as Rush 2 race_clear_player_setup_bytes_wrapper_8009FEC8 (8 instructions, address-masked match, float constants equal). Thin wrapper that calls race_clear_player_setup_bytes. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x8009FEC8
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x800AEDFC
+sig = "void race_engine_sound_stop_wrapper(void)"
+desc = "Same code as Rush 2 race_engine_sound_stop_wrapper_800A1284 (8 instructions, address-masked match, float constants equal). Thin wrapper calling engine_sound_stop. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800A1284
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800AF2A8
+name = "menu_table_scan"
+sig = "s32 menu_table_scan_800c449c(void)"
+desc = "Same code as Rush 2 menu_table_scan_80093484 (35 instructions, address-masked match, float constants equal). Loops over the 7-entry table (menu_table_size, menu_table_h_b) and returns an index; probably finds first free/used slot. (low confidence)"
+status = "inferred"
+rush2 = 0x80093484
+rush2049 = [0x800DC120]
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x800AF334
+name = "menu_table_find"
+sig = "s32 menu_table_find_800c449c(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 menu_table_find_80093510 (39 instructions, address-masked match, float constants equal). Loop over 7-entry table at menu_table_size/menu_table_cursor with 0x21 (33) constant; returns an index. (low confidence)"
+status = "inferred"
+rush2 = 0x80093510
+rush2049 = [0x800DC1AC]
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x800AF3D0
+name = "menu_table_reset_defaults"
+sig = "s32 menu_table_reset_defaults(s32 a0)"
+desc = "Same code as Rush 2 menu_table_reset_defaults_800935AC (108 instructions, address-masked match, float constants equal). Rebuilds the menu table (halfword entries, header menu_table_h_a, 7 per record) using menu_table_find and menu_table_scan; called by save_reset_all_settings. (low confidence)"
+status = "inferred"
+rush2 = 0x800935AC
+rush2049 = [0x800DC248]
+link = "same-code"
+area = "menu"
+ref = "docs/functions/rush1_menu.md#sf-rush-menu-functions"
+
+[[func]]
+vram = 0x800AF580
+name = "menu_table_load_from_save"
+sig = "void menu_table_load_from_save(void *src)"
+desc = "Same code as Rush 2 menu_table_load_from_save_8009375C (97 instructions, address-masked match, float constants equal). Rebuilds the menu table (halfword entries, 7 per record) from saved data using menu_table_scan; called by save_load_settings_from_pak. (low confidence)"
+status = "inferred"
+rush2 = 0x8009375C
+rush2049 = [0x800DC3F8]
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x800AF704
+name = "menu_table_find_store"
+sig = "s32 menu_table_find_store_800c449c(u32 *a0, s32 a1)"
+desc = "Same code as Rush 2 menu_table_find_store_800938E0 (43 instructions, address-masked match, float constants equal). Variant of the 7-entry table search (menu_table_size/menu_table_cursor) that reads/writes a0 word; called from save_reset_all_settings. (low confidence)"
+status = "inferred"
+rush2 = 0x800938E0
+rush2049 = [0x800DC57C]
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x800AF7B0
+name = "menu_table_insert"
+sig = "s32 menu_table_insert_800c4394(s32 a0, s32 a1)"
+desc = "Same code as Rush 2 menu_table_insert_8009398C (62 instructions, address-masked match, float constants equal). Operates on 3-byte records at menu_table_count and the 7-entry halfword table menu_table_h_a/size/h_b/cursor; probably inserts an entry, writing menu_table_insert_out. (low confidence)"
+status = "inferred"
+rush2 = 0x8009398C
+rush2049 = [0x800DC628]
+link = "same-code"
+area = "save"
+ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
+
+[[func]]
+vram = 0x800AF8A8
+name = "race_loop_bytes_125b44_b"
+sig = "void race_loop_bytes_125b44_b(void)"
+desc = "Same code as Rush 2 race_loop_flag_bytes_clear_b_80099B64 (30 instructions, address-masked match, float constants equal). Two loops over byte flags around race_loop_flag (limits 8 and 0x14); called from race_menu_return_reset. (low confidence)"
+status = "inferred"
+rush2 = 0x80099B64
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x800B02BC
+name = "race_call_80d40_wrapper"
+sig = "s32 race_call_80d40_wrapper(void *a0, s32 a1, s32 a2, s32 a3)"
+desc = "Same code as Rush 2 hud_widget_set_texture_wrapper_800A0604 (32 instructions, address-masked match, float constants equal). Small wrapper calling hud_widget_set_texture_by_name with offset -4 / 3 / 4 constants, reading w+0x2C; returns result. No callers. (low confidence)"
+status = "inferred"
+rush2 = 0x800A0604
+link = "same-code"
+area = "other"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x800B0344
+name = "race_count_active"
+sig = "s32 race_count_active(void)"
+desc = "Same code as Rush 2 race_count_active_800A0DFC (12 instructions, address-masked match, float constants equal). Loops over players using race_active_count bytes and race_selected_track_index; returns a count. Called from race_start_timer. (low confidence)"
+status = "inferred"
+rush2 = 0x800A0DFC
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x800B0960
+name = "ui_name_entry_advance_char"
+sig = "s32 ui_name_entry_advance_char(u8 *cursor_state, u8 *name_buf)"
+desc = "Same code as Rush 2 ui_name_entry_advance_char_800A6978 (118 instructions, address-masked match, float constants equal). Recursive helper that steps a 4-char name buffer through the printable range (space, digits 0x30-0x39, letters 0x41-0x5A, 0x21) using ui_name_entry_cursor; high-score initials entry character cycling."
+status = "inferred"
+rush2 = 0x800A6978
+rush2049 = [0x800F0674]
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x800B35C4
+name = "rumble_reset_init"
+sig = "void rumble_reset_init(void)"
+desc = "Same code as Rush 2 rumble_reset_init_800AAB24 (80 instructions, address-masked match, float constants equal). Creates message queue at 0x800D3988, runs osMotorInit/osMotorStop for the rumble pak with locking via the queue; updates 0x800BCBB4 and 0x800D4E75."
+status = "inferred"
+rush2 = 0x800AAB24
+link = "same-code"
+area = "input"
+ref = "docs/functions/rush1_input.md#sf-rush-input-functions"
+
+[[func]]
+vram = 0x800B3BE4
+name = "race_call_8c370_mode2"
+sig = "void race_call_8c370_mode2(s32 arg)"
+desc = "Same code as Rush 2 music_pick_race_song_mode2_800AB18C (10 instructions, address-masked match, float constants equal). Thin wrapper calling music_pick_race_song(2); no callers."
+status = "inferred"
+rush2 = 0x800AB18C
+link = "same-code"
+area = "race"
+ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
+
+[[func]]
+vram = 0x800B3D3C
+name = "music_stop_command"
+sig = "void music_stop_command(void)"
+desc = "Same code as Rush 2 music_stop_command_800A1420 (8 instructions, address-masked match, float constants equal). Queues music command 0xC0000000 via music_queue_command (probably stop/fade music). No callers. (low confidence)"
+status = "inferred"
+rush2 = 0x800A1420
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800B3D5C
+name = "music_stop_command_reset_volume"
+sig = "void music_stop_command_reset_volume(void)"
+desc = "Same code as Rush 2 music_stop_command_reset_volume_800A1440 (10 instructions, address-masked match, float constants equal). Queues music command 0xC0000000 and writes a float to music_volume (probably resets volume). No callers. (low confidence)"
+status = "inferred"
+rush2 = 0x800A1440
+link = "same-code"
+area = "audio"
+ref = "docs/functions/rush1_audio.md#sf-rush-audio-functions"
+
+[[func]]
+vram = 0x800B9F8C
+desc = "Race timer start: base - 4 x difficulty + 4 x laps + 16 s, not scaled."
+status = "verified"
+area = "race"
+ref = "docs/rush1_research.md#checkpoints"
+
+[[func]]
+vram = 0x800BB680
+name = "hud_setup_widgets_pause_like"
+sig = "void hud_setup_widgets_pause_like(s32 unused, void *a1)"
+desc = "Same code as Rush 2 hud_setup_widgets_pause_like_800AFB50 (93 instructions, address-masked match, float constants equal). Frees hud_pause_widget_a and hud_pause_widgets_ptr widgets and the slot range, then creates 3 widget sets (hud_pause_widget_b etc.) with rects (0x2A,0xC3)/(0x46,0x37,0xFA,0x69); pause menu setup, counterpart of hud_free_three_widgets."
+status = "inferred"
+rush2 = 0x800AFB50
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x800BB7F4
+name = "hud_free_three_widgets"
+sig = "void hud_free_three_widgets(void)"
+desc = "Same code as Rush 2 hud_free_three_widgets_800AFCC4 (32 instructions, address-masked match, float constants equal). Frees three HUD widgets (G800BF00C, G80125AB8, G800BF010) via hud_widget_free, nulls them, then calls func_80093A84."
+status = "inferred"
+rush2 = 0x800AFCC4
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x800BC178
+sig = "void menu_assets_reload_wrapper(void)"
+desc = "Same code as Rush 2 menu_assets_reload_wrapper_800ABE5C (8 instructions, address-masked match, float constants equal). Reloads the menus' assets (the track select's B). One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
+status = "inferred"
+rush2 = 0x800ABE5C
+link = "same-code"
+area = "menu"
+ref = "docs/functions/rush1_menu.md#sf-rush-menu-functions"
+
+[[func]]
+vram = 0x800BC2B0
+desc = "Loads the music bank, songs and sound effect bank. Rush 2's equivalent is func_800B3B78."
+status = "verified"
+rush2 = 0x800B3B78
+link = "same-code"
+area = "audio"
+ref = "docs/rush1_research.md#9-audio-v"
+
+[[func]]
+vram = 0x800BE468
+desc = "Same code as Rush 2 func_800B57F4 (29 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x800B57F4
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x800BE4E4
+desc = "Same code as Rush 2 func_800B5870 (136 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x800B5870
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x800BF454
+name = "hud_widget_cb_slide_in_out"
+sig = "s32 hud_widget_cb_slide_in_out(HudWidget *w)"
+desc = "Same code as Rush 2 hud_widget_cb_slide_in_out_800B740C (84 instructions, address-masked match, float constants equal). HUD widget callback: slides a widget in and out (positions 0xF0, flags 0xF000, timer 0x78) using hud_widget_init_type and hud_widget_reset; reads race_selected_track_index and settings_race_laps. (low confidence)"
+status = "inferred"
+rush2 = 0x800B740C
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x800C0B60
+name = "hud_icon_blit_7_b"
+sig = "void hud_icon_blit_7_b(HudWidget *w, s32 unused, s32 color)"
+desc = "Same code as Rush 2 hud_icon_blit_7_b_800B970C (18 instructions, address-masked match, float constants equal). Calls hud_widget_setup_icon to blit icon 7 size 0xB with color from a2 (0xFF00 mask) into w+0x30."
+status = "inferred"
+rush2 = 0x800B970C
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x800C100C
+desc = "Same code as Rush 2 func_800B9C4C (29 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."
+status = "inferred"
+rush2 = 0x800B9C4C
+link = "same-code"
+ref = "docs/functions/rush1_other.md#sf-rush-other-functions"
+
+[[func]]
+vram = 0x800C1CF0
+name = "hud_widget_cb_open_highscore"
+sig = "s32 hud_widget_cb_open_highscore(HudWidget *w)"
+desc = "Same code as Rush 2 hud_widget_cb_open_highscore_800BAD44 (40 instructions, address-masked match, float constants equal). HUD widget callback that resets the widget and opens highscore_screen(1), setting fnptr hud_widget_cb_open_highscore_init."
+status = "inferred"
+rush2 = 0x800BAD44
+link = "same-code"
+area = "ui"
+ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x800C3678
+desc = "FIRECRK emitter: plays the fireworks sound 0x3E (62), range 100."
+status = "verified"
+area = "audio"
+ref = "src/track1_audio.cpp"

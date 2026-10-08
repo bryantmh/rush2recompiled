@@ -34,7 +34,7 @@
 
 extern "C" void alBnkfNew(uint8_t* rdram, recomp_context* ctx);       // (ctl, tbl), 0x80009AA4
 extern "C" void alSeqpSetBank(uint8_t* rdram, recomp_context* ctx);   // (player, bank), 0x8000B750
-extern "C" void func_80099C20(uint8_t* rdram, recomp_context* ctx);   // Looped sound emitter (sound, &pos, range)
+extern "C" void track_sound_emitter_add_80099C20(uint8_t* rdram, recomp_context* ctx);   // Looped sound emitter (sound, &pos, range)
 
 namespace {
     constexpr uint32_t track_id = 0x8010C3F0;
@@ -258,6 +258,6 @@ extern "C" int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx) {
     call.r4 = fireworks_sound;
     call.r5 = (int32_t)0x800D0178;
     call.r6 = 100;
-    func_80099C20(rdram, &call);
+    track_sound_emitter_add_80099C20(rdram, &call);
     return 1;
 }

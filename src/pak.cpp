@@ -665,8 +665,8 @@ namespace {
     }
 }
 
-extern "C" void func_800B22B8(uint8_t* rdram, recomp_context* ctx); // Fills the pak status table from the pak flags.
-extern "C" void func_803B36A8(uint8_t* rdram, recomp_context* ctx); // Creates the note for the player in $s0.
+extern "C" void pak_build_status_table_800B22B8(uint8_t* rdram, recomp_context* ctx); // Fills the pak status table from the pak flags.
+extern "C" void menu_select_player_create_note_803B36A8(uint8_t* rdram, recomp_context* ctx); // Creates the note for the player in $s0.
 
 // func_803B2BB4 entry: sets the state of the player in $s0 to $a0 and runs its setup. Returns nonzero when the state
 // change was replaced and func_803B2BB4 must return right away.
@@ -678,7 +678,7 @@ extern "C" int rush2_pak_menu_state(uint8_t* rdram, recomp_context* ctx) {
     int32_t current = MEM_W(player * 4, menu_state);
     // The status table is only refreshed while the controller list is up.
     recomp_context saved = *ctx;
-    func_800B22B8(rdram, ctx);
+    pak_build_status_table_800B22B8(rdram, ctx);
     *ctx = saved;
     gpr status = pak_status + pak_port * 8;
     if (current != state_player_list || MEM_BU(status_present, status) == 0) {
@@ -687,7 +687,7 @@ extern "C" int rush2_pak_menu_state(uint8_t* rdram, recomp_context* ctx) {
     }
     MEM_H(player * 2, menu_pak) = (int16_t)pak_port;
     if (MEM_BU(status_has_note, status) == 0) {
-        func_803B36A8(rdram, ctx);
+        menu_select_player_create_note_803B36A8(rdram, ctx);
         *ctx = saved;
         return 1;
     }
@@ -704,7 +704,7 @@ extern "C" void rush2_pak_menu_default_player(uint8_t* rdram, recomp_context* ct
     }
 }
 
-extern "C" void func_803B4740(uint8_t* rdram, recomp_context* ctx); // The player list's up/down input for player $a0.
+extern "C" void menu_select_player_list_input_803B4740(uint8_t* rdram, recomp_context* ctx); // The player list's up/down input for player $a0.
 
 // func_803B44E8 (a player picks from the list) at 0x803B46B4: the other player ($a0), on the same saved player, is
 // moved off it by a press of up (0x800) or down (0x400) put in its record. Up from the first saved player (2) lands on
@@ -718,7 +718,7 @@ extern "C" void rush2_pak_menu_move_other(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     recomp_context saved = *ctx;
-    func_803B4740(rdram, ctx);
+    menu_select_player_list_input_803B4740(rdram, ctx);
     *ctx = saved;
 }
 

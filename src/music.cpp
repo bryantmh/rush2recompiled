@@ -51,9 +51,9 @@
 #include "car_engines.h"
 #include "wings.h"
 
-extern "C" void func_80061E10(uint8_t* rdram, recomp_context* ctx);   // Stops the song.
-extern "C" void func_80061E68(uint8_t* rdram, recomp_context* ctx);   // Plays sequence $a0; 0 if busy.
-extern "C" void func_800091B0(uint8_t* rdram, recomp_context* ctx);   // alSeqpGetState($a0)
+extern "C" void music_stop_song_80061E10(uint8_t* rdram, recomp_context* ctx);   // Stops the song.
+extern "C" void music_play_sequence_80061E68(uint8_t* rdram, recomp_context* ctx);   // Plays sequence $a0; 0 if busy.
+extern "C" void al_seqp_get_state_800091B0(uint8_t* rdram, recomp_context* ctx);   // alSeqpGetState($a0)
 
 namespace {
     using namespace recompui;
@@ -324,13 +324,13 @@ namespace {
     bool rush2_song_playing(uint8_t* rdram, recomp_context* ctx) {
         recomp_context call = *ctx;
         call.r4 = MEM_W(0, (int32_t)sequence_player);
-        func_800091B0(rdram, &call);
+        al_seqp_get_state_800091B0(rdram, &call);
         return (int32_t)call.r2 == al_playing;
     }
 
     void stop_rush2_song(uint8_t* rdram, recomp_context* ctx) {
         recomp_context call = *ctx;
-        func_80061E10(rdram, &call);
+        music_stop_song_80061E10(rdram, &call);
     }
 
     // Starts sequence `sequence` on Rush 2's player; false if the loader is busy.
@@ -338,7 +338,7 @@ namespace {
         recomp_context call = *ctx;
         call.r4 = sequence;
         call.r5 = (int32_t)-1;
-        func_80061E68(rdram, &call);
+        music_play_sequence_80061E68(rdram, &call);
         return (int32_t)call.r2 != 0;
     }
 
