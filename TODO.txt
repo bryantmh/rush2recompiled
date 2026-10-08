@@ -5,12 +5,19 @@ San Francisco Rush:
 San Francisco Rush 2049:
 1) Coins: missing HUD counter.
 2) Mileage Counter.
-3) Battle arenas DM1-DM8 (menu ids 30-37, Start Game > BATTLE): health, pickups, 8 weapons, kills, time limit option, unlock gating
-   (arenas 5-8) and a 2049-element HUD are in (src/battle.cpp, docs/rush2049_research/battle.md). Left: weapon numbers are
-   approximations; projectiles ignore walls; no sounds; no end-of-battle winner screen; the HUD is smaller than 2049's (image
-   widgets clip rather than stretch) and its weapon model shows only with 1 player; coin icon alpha; DM5 PVS table; split screen
-   / 3-4 player HUD placement; computer opponents (AI; 2049's battle was multiplayer only).
-4) Battle: SHLD/INVS visuals, direction arrows, WPR_MINE objects, mines' visuals/sounds.
+3) Battle arenas DM1-DM8 (menu ids 30-37, Start Game > BATTLE; src/battle.cpp, docs/rush2049_research/battle.md): 2049's
+   weapon rules (default gun, 8 weapons, auto-aim, homing, mines, sonic, ram), per-car weapon mounts, pickups that turn and
+   respawn as 2049's do, health, kills, shield and invisibility, wall collision, 2049's weapon sounds, FIRE / DROP WEAPON
+   bindings (Controller Setup rows), and the HUD (scaled health bar, 3D weapon, power-up and coin per view, anchored for
+   HUD Placement). Seen working: 1 player, 2 players stacked and side by side (HUD, mounts, firing).
+4) Battle, left: end of battle winner screen (the round ends on the time limit through Rush 2's own race end); the
+   explosion's look (a scaled muzzle flash; 2049 uses its car explosion effect, main func_800AF06C, at half size; its
+   sound 0x45 is in); direction arrows at the screen's edge (not found in 2049's code yet); weapon models take the
+   player's coin color, not the car's paint; invisibility hides the body in the other views but the wheels and shadow
+   stay (2049 fades the whole car); play test pickups by driving, mines, sonic, ram, Rush 2 cars' mount heights; HUD
+   Placement Original and 16:9 not run; pickup turn rate is a guess; DM5 PVS table; teams; computer opponents (AI;
+   2049's battle was multiplayer only). A shared HUD layout helper (element + anchor + size resolved for every split
+   and HUD Placement mode, with a test overlay) would help.
 5) HANDLING: revisit 2049's HANDLING
 6) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
 7) Panther front wheels clip through body
@@ -40,8 +47,8 @@ General:
       (rush2_players4_state); players 3 and 4 aren't in them. Keeping 4 there crashed (bad audio sample read).
    c) Players 3 and 4 skip Select Player: they race with their controller's record or the profile already chosen
       on that port; no profile pick or Create Player for them.
-   d) Engines/rumble: Rush 2 has engine voices and rumble for 2 local players; players 3 and 4's cars play through
-      src/car_engines.cpp as other cars (heard from players 1-2's listeners), and have no rumble.
+   d) Engines/rumble: players 3 and 4's engines now play from src/car_engines.cpp at a player's own volume (all four
+      cars' views are listeners) and their ports are added to the rumble mask (players4.cpp); both untested by ear/hand.
    e) 3 players: the 4th quadrant is black and the track map's translucent outline is invisible over it (maybe a
       grey fill or a spectator view of the leader).
    f) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players

@@ -15,6 +15,7 @@
 // IDs include a generation that changes when an object teleports or the camera cuts, so RT64 snaps instead of
 // sweeping across the screen. Children inherit their ancestors' generations.
 
+#include <iterator>
 #include <cmath>
 #include <cstring>
 
@@ -148,6 +149,29 @@ namespace {
         uint32_t gen = 0;
     };
     NodeState nodes[max_nodes];
+
+    // Nodes that ride with a view's camera (HUD models, rush2::interpolation_view_attached): they move as far as
+    // the camera does each frame, which is no teleport.
+    uint32_t attached_nodes[16];
+    int attached_count = 0;
+
+    // Nodes drawn in a primitive color of their own (rush2::interpolation_node_color): the color is set with the
+    // node's matrix. Rush 2's nodes carry no color, so a model that uses the primitive color takes whatever was set
+    // last.
+    struct NodeColor {
+        uint32_t node, rgba;
+    };
+    NodeColor node_colors[96];
+    int node_color_count = 0;
+
+    bool view_attached(uint32_t node) {
+        for (int i = 0; i < attached_count; i++) {
+            if (attached_nodes[i] == node) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     struct PolyState {
         Vec3 pos{};
@@ -597,7 +621,8 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     NodeState& state = nodes[index];
     uint32_t transform = (uint32_t)MEM_W(4, (int32_t)node);
     Vec3 pos = read_vec3(rdram, transform + 0x24);
-    if (transform != state.transform || distance(pos, state.pos) > node_teleport_distance) {
+    if (transform != state.transform ||
+        (distance(pos, state.pos) > node_teleport_distance && !view_attached((uint32_t)node))) {
         state.gen++;
     }
     state.transform = transform;
@@ -606,13 +631,22 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     uint32_t gen = level_base[depth] + state.gen;
     level_current[depth] = gen;
 
-    GfxCommand cmds[4];
+    GfxCommand cmds[5];
     uint32_t push = (params ^ 1) & 1;
     object_group(&cmds[0], node_id(cur_view, views[cur_view].gen + gen, index), push, G_EX_COMPONENT_SKIP);
     for (uint32_t i = 0; i < mtx_count; i++) {
         cmds[2 + i] = mtx[i];
     }
-    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 2 + mtx_count));
+    uint32_t cmd_count = 2 + mtx_count;
+    for (int i = 0; i < node_color_count; i++) {
+        if (node_colors[i].node == (uint32_t)node) {
+            cmds[cmd_count].values.word0 = 0xFA000000; // G_SETPRIMCOLOR
+            cmds[cmd_count].values.word1 = node_colors[i].rgba;
+            cmd_count++;
+            break;
+        }
+    }
+    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, cmd_count));
 }
 
 // func_8007B518, after a pushed node finishes (L_8007BD7C). If anything was drawn ($s2 != 0) the game wrote a
@@ -630,4 +664,30 @@ void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx) {
     replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 2));
 }
 
+}
+
+void rush2::interpolation_clear_view_attached() {
+    attached_count = 0;
+    node_color_count = 0;
+}
+
+void rush2::interpolation_node_color(uint32_t node, uint32_t rgba) {
+    if (node == 0) {
+        return;
+    }
+    for (int i = 0; i < node_color_count; i++) {
+        if (node_colors[i].node == node) {
+            node_colors[i].rgba = rgba;
+            return;
+        }
+    }
+    if (node_color_count < (int)std::size(node_colors)) {
+        node_colors[node_color_count++] = { node, rgba };
+    }
+}
+
+void rush2::interpolation_view_attached(uint32_t node) {
+    if (node != 0 && !view_attached(node) && attached_count < (int)std::size(attached_nodes)) {
+        attached_nodes[attached_count++] = node;
+    }
 }

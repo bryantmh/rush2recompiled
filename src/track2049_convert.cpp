@@ -2273,6 +2273,47 @@ namespace {
         return tris;
     }
 
+    // Every solid polygon of a Rush 2049 collision file as world triangles, 9 floats each (the battle arenas'
+    // projectiles are swept against them, src/battle.cpp). Type 0xF polygons (disabled movers) are left out.
+    std::vector<float> solid_triangles(const Bytes& collision_2049) {
+        Collision c;
+        parse_collision49(collision_2049, c);
+        auto vertex = [&](int k, double* out) {
+            const uint8_t* r = c.verts.at((size_t)k);
+            int16_t x = (int16_t)((r[0] << 8) | r[1]), y = (int16_t)((r[2] << 8) | r[3]), z = (int16_t)((r[4] << 8) | r[5]);
+            uint16_t f = (uint16_t)((r[6] << 8) | r[7]);
+            out[0] = (x * 32 + ((f >> 10) & 31)) / 32.0;
+            out[1] = (y * 32 + ((f >> 5) & 31)) / 32.0;
+            out[2] = (z * 32 + (f & 31)) / 32.0;
+        };
+        std::vector<float> out;
+        for (const CPoly& p : c.polys) {
+            if (p.verts.size() < 3 || (p.flags & 0xF) == 0xF) {
+                continue;
+            }
+            std::vector<std::array<double, 3>> w(p.verts.size());
+            vertex(p.verts[0], w[0].data());
+            for (size_t i = 1; i < p.verts.size(); i++) {
+                double l[3];
+                vertex(p.verts[i], l);
+                for (int a = 0; a < 3; a++) {
+                    w[i][a] = w[0][a];
+                    for (int r = 0; r < 3; r++) {
+                        w[i][a] += l[r] * p.matrix[3 * r + a] / 16384.0;
+                    }
+                }
+            }
+            for (size_t i = 1; i + 1 < w.size(); i++) {
+                for (size_t k : { (size_t)0, i, i + 1 }) {
+                    for (int a = 0; a < 3; a++) {
+                        out.push_back((float)w[k][a]);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     std::vector<double> floor_heights(const std::vector<FloorTriangle>& tris, double x, double z) {
         std::vector<double> out;
         for (const FloorTriangle& t : tris) {
@@ -2658,6 +2699,7 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
                                           &out.spin_records, &out.prop_records, &out.pickup_records, &out.pool_records,
                                           battle);
         out.collision = convert_collision(collision);
+        out.solid_triangles = battle ? solid_triangles(collision) : std::vector<float>{};
         validate_path(files[5]);
         validate_path(files[6]);
         out.path = race ? files[5] : spine_lanes(files[5], collision, k != obstacle);

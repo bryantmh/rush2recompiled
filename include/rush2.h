@@ -58,13 +58,40 @@ namespace rush2 {
         // The width, in 4:3 screen pixels (320 at 4:3), that RT64 spreads HUD elements anchored to the window's
         // edges over (Settings > Graphics > HUD Placement).
         float hud_width();
+        // The window's width in 4:3 screen pixels (320 at 4:3): the 3D views are drawn out to the window's edges.
+        float window_width();
+        // tan(half the vertical field of view) view `index` is drawn with now (it changes with the layout).
+        float view_tan_v(uint8_t* rdram, int index);
     }
+
+    // Frame interpolation (src/interpolation.cpp): scene nodes that are placed in front of a view's camera each frame,
+    // so a fast camera doesn't count as the node teleporting (which would stop its interpolation and leave it
+    // behind the camera on the frames in between).
+    void interpolation_clear_view_attached();
+    void interpolation_view_attached(uint32_t node);
+    // Draws a scene node in the primitive color `rgba` (for models that use it; Rush 2's nodes carry no color).
+    // interpolation_clear_view_attached also forgets these.
+    void interpolation_node_color(uint32_t node, uint32_t rgba);
 
     // Race HUD placement (src/hud.cpp).
     namespace hud {
         // Before printing text at (x, y) in the race HUD's coordinates after the widget loop: gives it the anchor of the
         // widget it is over (or its screen third) and moves (x, y) with that widget in split screen.
         void anchor_text(uint8_t* rdram, int32_t& x, int32_t& y);
+        // Widgets placed by another file (the battle HUD, src/battle.cpp): a widget with a scale isn't anchored, grouped
+        // or moved for split screen by src/hud.cpp; its image is drawn scaled about its top left corner, and it is
+        // anchored at `anchor`, a fraction of the screen's width: its x is kept from that point of the 4:3 screen, which
+        // HUD Placement puts at the same fraction of the HUD's width (0 the left edge, 0.5 the middle, 1 the right
+        // edge). clear_widget_scales forgets them all (when a HUD is built); set_anchor anchors what is drawn next
+        // (text printed after the widget loop) the same way.
+        void set_widget_scale(int slot, float scale_x, float scale_y, float anchor = 0.5f);
+        void clear_widget_scales();
+        void set_anchor(uint8_t* rdram, float fraction);
+        // Leaves the primitive color at rgba after the 2D drawing so far (G_SETPRIMCOLOR in the 2D display list).
+        void set_prim_color(uint8_t* rdram, uint32_t rgba);
+        // Draws a number (up to 6 digits) centered on (center_x, center_y) of the 4:3 screen, `height` pixels tall,
+        // white with a shadow, anchored at `anchor` (as set_widget_scale). After the widget loop.
+        void draw_number(uint8_t* rdram, const char* digits, float center_x, float center_y, float height, float anchor);
     }
 
     // Cheats tab: the in-game cheat menu and forced cheats (src/cheats.cpp).
@@ -142,9 +169,10 @@ namespace rush2 {
     // Button bindings for driving (src/controls.cpp). In races each player's bound inputs are turned into the game's
     // default N64 layout, which the game's own binding table is locked to; menus use a fixed layout.
     namespace controls {
-        // The rows of the game's Controller Setup screen, in order.
+        // The rows of the game's Controller Setup screen, in order. Fire and DropWeapon are the battle arenas' weapon
+        // buttons (src/battle.cpp): they aren't N64 buttons of the game's layout, and are read with battle_buttons.
         enum class Action : uint8_t {
-            Gas, Brake, Steering, ShiftUp, ShiftDown, Reverse, Abort, View, Horn, Wings, Count
+            Gas, Brake, Steering, ShiftUp, ShiftDown, Reverse, Abort, View, Horn, Wings, Fire, DropWeapon, Count
         };
         constexpr int action_count = static_cast<int>(Action::Count);
 
@@ -184,6 +212,9 @@ namespace rush2 {
                             float* brake);
         // The fixed menu layout.
         void get_menu_input(int port, uint16_t* buttons, float* x, float* y);
+        // The battle arenas' weapon buttons held on a port as of its last race input: battle_fire, battle_drop.
+        constexpr uint8_t battle_fire = 1, battle_drop = 2;
+        uint8_t battle_buttons(int port);
         // True if an input on the port's devices is held (used to wait for releases).
         bool any_input_held(int port);
 

@@ -94,6 +94,7 @@ namespace rush2::track2049 {
         std::vector<PropRecord> prop_records;
         std::vector<PickupRecord> pickup_records;   // Battle arenas only.
         std::vector<int> pool_records;              // Battle arenas: placement records of the projectile and effect pool.
+        std::vector<float> solid_triangles;         // Battle arenas: the collision's solid polygons, 9 floats a triangle.
         std::vector<int16_t> demo_starts[2]; // Attract-mode start spine indices, forward and backward.
         TexAnims tex_anims;                  // Animated textures, as patch sites in `geometry`.
     };
@@ -101,7 +102,7 @@ namespace rush2::track2049 {
     // The battle arenas' k for convert_track: DM n (1-8) is k = battle_first + n - 1 (2049 track id 6 + n - 1).
     constexpr int battle_first = 7;
     constexpr int battle_count = 8;
-    constexpr int battle_pool_size = 28;    // Placement records in a battle arena's projectile and effect pool.
+    constexpr int battle_pool_size = 44;    // Placement records in a battle arena's projectile and effect pool.
     // The stunt arenas' k for convert_track: stunt arena n (1-4) is k = stunt_first + n - 1 (2049 track id 14 + n - 1).
     constexpr int stunt_first = 15;
     constexpr int stunt_count = 4;
