@@ -13,9 +13,8 @@
 // A background thread does the work in batches and caches each result as a DDS with mipmaps in
 // <app folder>/texture_upscale/cache/<mode>/<key>.dds, so nothing is upscaled twice, across sessions too. Results
 // reach the renderer as RT64 live replacements (rt64_live_textures.h): no pack reload, and any installed texture pack
-// that replaces the same texture wins. HQ2x and HQ4x run hqx (lib/hqx) on the CPU. ESRGAN runs Real-ESRGAN
-// (realesr-animevideov3 x4, ncnn/Vulkan; 2x is its 4x averaged down), of which only the program and that one model
-// are downloaded on first use. Custom runs any command line on a folder of images.
+// that replaces the same texture wins. HQ2x and HQ4x run hqx (lib/hqx) on the CPU. Custom runs any command line on a
+// folder of images.
 //
 // For upscalers without a command line (Topaz Gigapixel's app, say): Dump Textures writes the kept textures as
 // <key>.png into texture_upscale/dump, the user saves upscaled copies (any size, file names starting with the key)
@@ -57,56 +56,33 @@ const char* const mode_option_id = "texture_upscaling";
 const char* const command_option_id = "texture_upscale_command";
 
 namespace {
-    // Saved by name ("Esrgan2x"...), so the values only matter inside this file.
-    enum class Mode : uint32_t { Off, Esrgan2x, Esrgan4x, Custom, Hq2x, Hq4x };
+    // Saved by name ("Hq2x"...), so the values only matter inside this file.
+    enum class Mode : uint32_t { Off, Hq2x, Hq4x, Custom };
 
     constexpr uint32_t stable_frames = 3;  // Frames a texture is drawn in 3D before it's kept (skips one-frame textures).
     constexpr uint32_t border = 8;         // Texels of padding around images given to an upscaler.
-    constexpr size_t batch_size = 16;      // Images per external upscaler run.
-    constexpr auto run_pause = std::chrono::milliseconds(250); // Between external runs, so the game gets the GPU back.
+    constexpr size_t batch_size = 16;      // Images per batch (one custom upscaler run).
+    constexpr auto run_pause = std::chrono::milliseconds(250); // Between custom upscaler runs, to give the game room.
     const std::string pack_id = "rush2_custom_textures";
-
-    // Real-ESRGAN ncnn/Vulkan builds, release v0.2.5.0 (BSD-3-Clause). Each zip holds the program and five models;
-    // only these entries are downloaded. The x2 model is left out: on some GPUs it gives noise, so 2x is the x4
-    // model's output averaged down, which looks better anyway.
-#if defined(_WIN32)
-    const char* esrgan_url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip";
-    const char* esrgan_exe = "realesrgan-ncnn-vulkan.exe";
-    const std::vector<std::string> esrgan_files = { "realesrgan-ncnn-vulkan.exe", "vcomp140.dll",
-        "models/realesr-animevideov3-x4.bin", "models/realesr-animevideov3-x4.param" };
-#elif defined(__APPLE__)
-    const char* esrgan_url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip";
-    const char* esrgan_exe = "realesrgan-ncnn-vulkan";
-    const std::vector<std::string> esrgan_files = { "realesrgan-ncnn-vulkan",
-        "models/realesr-animevideov3-x4.bin", "models/realesr-animevideov3-x4.param" };
-#else
-    const char* esrgan_url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip";
-    const char* esrgan_exe = "realesrgan-ncnn-vulkan";
-    const std::vector<std::string> esrgan_files = { "realesrgan-ncnn-vulkan",
-        "models/realesr-animevideov3-x4.bin", "models/realesr-animevideov3-x4.param" };
-#endif
 
     std::string quoted(const std::filesystem::path& path) {
         return "\"" + path_utf8(path) + "\"";
     }
 
     std::filesystem::path root() { return recompui::file::get_app_folder_path() / "texture_upscale"; }
-    std::filesystem::path esrgan_dir() { return root() / "realesrgan"; }
     std::filesystem::path dump_dir() { return root() / "dump"; }
     std::filesystem::path upscaled_dir() { return root() / "upscaled"; }
     std::filesystem::path work_dir() { return root() / "work"; }
     std::filesystem::path ui_list() { return root() / "ui_textures.txt"; }
 
     uint32_t mode_scale(Mode mode) {
-        return (mode == Mode::Esrgan4x || mode == Mode::Hq4x) ? 4 : 2;
+        return mode == Mode::Hq4x ? 4 : 2;
     }
 
     const char* mode_folder(Mode mode) {
         switch (mode) {
             case Mode::Hq2x: return "hq2x";
             case Mode::Hq4x: return "hq4x";
-            case Mode::Esrgan2x: return "esrgan_x2_from_x4"; // Not "esrgan_x2", which holds the x2 model's output.
-            case Mode::Esrgan4x: return "esrgan_x4";
             case Mode::Custom: return "custom";
             default: return "";
         }
@@ -168,9 +144,11 @@ namespace {
     public:
         void start() {
             load_ui_list();
-            // Made by the x2 model, which gave some GPUs noise.
+            // Left by the ESRGAN modes, which are gone: the downloaded program and their caches.
             std::error_code ec;
-            std::filesystem::remove_all(root() / "cache" / "esrgan_x2", ec);
+            for (const char* folder : { "realesrgan", "cache/esrgan_x2", "cache/esrgan_x4", "cache/esrgan_x2_from_x4" }) {
+                std::filesystem::remove_all(root() / folder, ec);
+            }
             worker = std::thread([this]() { run(); });
             worker.detach(); // Lives as long as the game; the process ends with it.
             RT64::ActiveTextureObserver = this;
@@ -438,7 +416,7 @@ namespace {
                 "Rush 2 textures, one PNG per texture, named by their contents. Only textures drawn in 3D are dumped;\n"
                 "HUD, menu and font images are left out. Dump again after playing more tracks and cars to add theirs.\n"
                 "\n"
-                "1. Upscale these images with any program (Topaz Gigapixel, Real-ESRGAN, an image editor...).\n"
+                "1. Upscale these images with any program (Topaz Gigapixel, an image editor...).\n"
                 "2. Save the results into the \"upscaled\" folder next to this one. Any size works. Keep the first\n"
                 "   16 characters of each file name: extra text after them (\"_gigapixel-2x\") is fine. PNG keeps\n"
                 "   transparency; when an image comes back without it, the original's is used.\n"
@@ -648,42 +626,6 @@ namespace {
             return unpad(hq_upscale(pad(entry.image, border, entry.edge_s, entry.edge_t), scale), entry.image, border);
         }
 
-        bool ensure_esrgan(uint64_t for_generation) {
-            std::error_code ec;
-            bool present = true;
-            for (const std::string& file : esrgan_files) {
-                present = present && std::filesystem::exists(esrgan_dir() / file, ec);
-            }
-            if (present) {
-                return true;
-            }
-            {
-                std::unique_lock lock(mutex);
-                busy_message = "Downloading Real-ESRGAN (8 MB)...";
-            }
-            bool ok = download_zip_files(esrgan_url, esrgan_files, esrgan_dir(), &cancel_run);
-            if (!ok && !cancel_run) {
-                // The server didn't do ranged requests: fetch the whole zip (45 MB) and keep the same files.
-                std::filesystem::path zip = root() / "realesrgan.zip";
-                ok = run_command(std::string(curl_program()) + " -L --fail -s -o " + quoted(zip) + " " + esrgan_url,
-                                 &cancel_run) == 0 &&
-                     extract_zip(zip, esrgan_dir(), esrgan_files);
-                std::filesystem::remove(zip, ec);
-            }
-#ifndef _WIN32
-            if (ok) {
-                std::filesystem::permissions(esrgan_dir() / esrgan_exe, std::filesystem::perms::owner_exec |
-                    std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
-                    std::filesystem::perm_options::add, ec);
-            }
-#endif
-            if (!ok && !cancel_run) {
-                set_message(for_generation, "Couldn't download Real-ESRGAN. Check the internet connection, or extract " +
-                    std::string(esrgan_url) + " into " + path_utf8(esrgan_dir()) + " and pick the setting again.");
-            }
-            return ok;
-        }
-
         void process(const std::vector<Job>& jobs, Mode for_mode, const std::string& for_command, uint64_t for_generation) {
             // Upscaled in an earlier session: just load them.
             std::vector<const Job*> todo;
@@ -708,30 +650,18 @@ namespace {
                 return;
             }
 
-            std::string line;
+            // Custom: the user's command line on a folder of padded images.
             std::filesystem::path in = work_dir() / "in", out = work_dir() / "out";
-            if (for_mode == Mode::Custom) {
-                if (for_command.find("{input}") == std::string::npos || for_command.find("{output}") == std::string::npos) {
-                    set_message(for_generation, "The custom upscaler command needs {input} and {output} in it.");
-                    for (const Job* job : todo) {
-                        set_failed(job->key, for_generation);
-                    }
-                    return;
+            if (for_command.find("{input}") == std::string::npos || for_command.find("{output}") == std::string::npos) {
+                set_message(for_generation, "The custom upscaler command needs {input} and {output} in it.");
+                for (const Job* job : todo) {
+                    set_failed(job->key, for_generation);
                 }
-                line = for_command;
-                line.replace(line.find("{input}"), 7, quoted(in));
-                line.replace(line.find("{output}"), 8, quoted(out));
+                return;
             }
-            else {
-                if (!ensure_esrgan(for_generation)) {
-                    for (const Job* job : todo) {
-                        set_failed(job->key, for_generation);
-                    }
-                    return;
-                }
-                line = quoted(esrgan_dir() / esrgan_exe) + " -i " + quoted(in) + " -o " + quoted(out) +
-                       " -s 4 -n realesr-animevideov3 -m " + quoted(esrgan_dir() / "models") + " -j 1:1:1 -f png";
-            }
+            std::string line = for_command;
+            line.replace(line.find("{input}"), 7, quoted(in));
+            line.replace(line.find("{output}"), 8, quoted(out));
 
             {
                 std::unique_lock lock(mutex);
@@ -771,13 +701,10 @@ namespace {
                     set_failed(job->key, for_generation);
                     continue;
                 }
-                if (for_mode == Mode::Esrgan2x) {
-                    upscaled = downscale(upscaled, upscaled.width / (job->entry.image.width * 2));
-                }
                 if (!matches_original(upscaled, job->entry.image)) {
-                    // Garbage from the upscaler (some GPU and model combinations give noise): use HQx instead.
+                    // Garbage from the upscaler: use HQ2x instead.
                     replaced++;
-                    upscaled = hq(job->entry, scale);
+                    upscaled = hq(job->entry, 2);
                 }
                 store(job->key, std::move(upscaled), job->entry.image, for_generation, for_mode);
             }
@@ -787,8 +714,8 @@ namespace {
                 set_message(for_generation, "The upscaler didn't produce any images (exit code " + std::to_string(result) + ").");
             }
             else if (replaced > 0) {
-                set_message(for_generation, "Some images the upscaler made didn't look like the originals, so HQ" +
-                    std::to_string(scale) + "x was used for them.");
+                set_message(for_generation, "Some images the upscaler made didn't look like the originals, so HQ2x "
+                    "was used for them.");
             }
             std::this_thread::sleep_for(run_pause);
         }
@@ -810,26 +737,30 @@ void add_options(recomp::config::Config& config) {
     config.add_enum_option(
         mode_option_id,
         "Texture Upscaling",
-        "Redraws the game's textures at a higher resolution, a few at a time in the background as they first "
-        "appear, and keeps the results so each texture is only upscaled once. Car paint jobs reuse one upscale. "
-        "Only textures on 3D surfaces are upscaled: the HUD, menus and text keep their original look. "
-        "Texture packs you install take priority.<br/><br/>"
+        "Redraws the game's textures at a higher resolution as they first appear, and keeps the results so each "
+        "texture is only upscaled once. Car paint jobs reuse one upscale. Only textures on 3D surfaces are "
+        "upscaled: the HUD, menus and text keep their original look. Texture packs you install take priority."
+        "<br/><br/>"
         "<recomp-color primary>Off</recomp-color> uses the original textures. "
         "<recomp-color primary>HQ2x</recomp-color> and <recomp-color primary>HQ4x</recomp-color> smooth the pixels "
-        "like emulators' texture enhancement, instantly. "
-        "<recomp-color primary>ESRGAN 2x</recomp-color> and <recomp-color primary>ESRGAN 4x</recomp-color> redraw "
-        "them with Real-ESRGAN, an AI upscaler, downloaded the first time (8 MB) and run on the graphics card. "
+        "like emulators' texture enhancement. "
         "<recomp-color primary>Custom</recomp-color> runs the command below instead.",
         {
             { Mode::Off, "Off", "Off" },
             { Mode::Hq2x, "Hq2x", "HQ2x" },
             { Mode::Hq4x, "Hq4x", "HQ4x" },
-            { Mode::Esrgan2x, "Esrgan2x", "ESRGAN 2x" },
-            { Mode::Esrgan4x, "Esrgan4x", "ESRGAN 4x" },
             { Mode::Custom, "Custom", "Custom" },
         },
         Mode::Off
     );
+    // Configs saved while the ESRGAN modes existed: their 2x and 4x become HQ2x and HQ4x.
+    config.on_json_parse_option(mode_option_id, [](const nlohmann::json& value) -> recomp::config::ConfigValueVariant {
+        std::string name = value.is_string() ? value.get<std::string>() : "";
+        if (name == "Hq2x" || name == "Esrgan2x") return (uint32_t)Mode::Hq2x;
+        if (name == "Hq4x" || name == "Esrgan4x") return (uint32_t)Mode::Hq4x;
+        if (name == "Custom") return (uint32_t)Mode::Custom;
+        return (uint32_t)Mode::Off;
+    });
 
     config.add_string_option(
         command_option_id,
@@ -840,8 +771,7 @@ void add_options(recomp::config::Config& config) {
         ""
     );
     // Hidden while the mode is one of these: only Custom shows it.
-    config.add_option_hidden_dependency(command_option_id, mode_option_id,
-        Mode::Off, Mode::Hq2x, Mode::Hq4x, Mode::Esrgan2x, Mode::Esrgan4x);
+    config.add_option_hidden_dependency(command_option_id, mode_option_id, Mode::Off, Mode::Hq2x, Mode::Hq4x);
 
     // The config can move as later tabs are added, so the callbacks look it up again.
     config.add_option_change_callback(mode_option_id,
@@ -870,16 +800,9 @@ void add_buttons(rush2::ui::OptionsPage* page) {
     }
     page->add_heading("Your Own Upscales", note);
 
-    // The buttons get a row of their own under the heading, so they keep their full size.
-    Element* row = context.create_element<Element>(page->get_list(), 0, "div", false);
-    row->set_display(Display::Flex);
-    row->set_flex_direction(FlexDirection::Row);
-    row->set_gap(16.0f);
-    row->set_padding_left(12.0f);
-    row->set_padding_right(12.0f);
-    row->set_padding_top(8.0f);
-    row->set_padding_bottom(16.0f);
-    row->set_as_navigation_container(NavigationType::Horizontal);
+    // The buttons get a row of their own under the heading, so they keep their full size; it scrolls into view as
+    // the controller reaches them.
+    Element* row = page->add_row();
 
     Button* dump_button = context.create_element<Button>(row, "Dump Textures", ButtonStyle::Secondary);
     dump_button->add_pressed_callback([dump_button]() {

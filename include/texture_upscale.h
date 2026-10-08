@@ -96,16 +96,6 @@ namespace rush2::upscale {
 
     // A path as UTF-8, for command lines.
     std::string path_utf8(const std::filesystem::path& path);
-    const char* curl_program();
-
-    // Extracts a zip into a folder: all of it, or only the named entries. Returns false on failure.
-    bool extract_zip(const std::filesystem::path& zip, const std::filesystem::path& folder,
-                     const std::vector<std::string>& names = {});
-
-    // Extracts the named entries of a zip on a web server into a folder, downloading only the parts of the archive
-    // they're in (ranged requests with curl). Returns false when that fails or the server doesn't do ranges.
-    bool download_zip_files(const std::string& url, const std::vector<std::string>& names,
-                            const std::filesystem::path& folder, const std::atomic<bool>* cancel = nullptr);
 
     // A texture pack: replacement images and the RT64 hashes each replaces.
     struct PackTexture {

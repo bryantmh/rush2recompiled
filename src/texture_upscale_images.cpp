@@ -1,6 +1,7 @@
 // Image work for texture upscaling (include/texture_upscale.h, docs/texture_upscaling.md): decoding textures from
-// TMEM, padding and unpadding them around an upscaler, DDS files with mipmaps, texture pack files and running the
-// upscaler. Nothing here touches the renderer or the UI, so it builds on its own for testing.
+// TMEM, recoloring palette variants, padding and unpadding them around an upscaler, hqx, DDS files with mipmaps,
+// texture pack files and running a custom upscaler. Nothing here touches the renderer or the UI, so it builds on its
+// own for testing.
 
 #include <algorithm>
 #include <cmath>
@@ -689,149 +690,9 @@ int run_command(const std::string& command_line, const std::atomic<bool>* cancel
 #endif
 }
 
-namespace {
-    // Reads a zip on a web server through ranged requests with curl, in blocks, so only the parts of the archive
-    // that are extracted get downloaded.
-    struct RemoteZip {
-        std::string url;
-        uint64_t size = 0;
-        std::filesystem::path temp;
-        uint64_t block_start = 0;
-        std::vector<uint8_t> block;
-        const std::atomic<bool>* cancel = nullptr;
-
-        bool fetch(uint64_t start, uint64_t end, std::vector<uint8_t>& out) {
-            std::error_code ec;
-            std::filesystem::remove(temp, ec);
-            std::string line = std::string(curl_program()) + " -L --fail -s -r " + std::to_string(start) + "-" +
-                               std::to_string(end - 1) + " -o \"" + path_utf8(temp) + "\" \"" + url + "\"";
-            if (run_command(line, cancel) != 0) {
-                return false;
-            }
-            out = read_file(temp);
-            std::filesystem::remove(temp, ec);
-            return out.size() == end - start; // A server ignoring the range sends everything.
-        }
-
-        static size_t read(void* opaque, mz_uint64 offset, void* buffer, size_t n) {
-            RemoteZip* zip = (RemoteZip*)opaque;
-            if (offset < zip->block_start || offset + n > zip->block_start + zip->block.size()) {
-                constexpr uint64_t block_size = 256 * 1024;
-                uint64_t end = std::min<uint64_t>(offset + std::max<uint64_t>(n, block_size), zip->size);
-                if (!zip->fetch(offset, end, zip->block)) {
-                    zip->block.clear();
-                    return 0;
-                }
-                zip->block_start = offset;
-            }
-            memcpy(buffer, zip->block.data() + (offset - zip->block_start), n);
-            return n;
-        }
-    };
-
-    bool extract_from(mz_zip_archive& archive, const std::filesystem::path& folder, const std::vector<std::string>& names) {
-        bool ok = true;
-        mz_uint count = mz_zip_reader_get_num_files(&archive);
-        for (mz_uint i = 0; i < count && ok; i++) {
-            mz_zip_archive_file_stat stat;
-            if (!mz_zip_reader_file_stat(&archive, i, &stat)) {
-                ok = false;
-                break;
-            }
-            if (!names.empty() && std::find(names.begin(), names.end(), std::string(stat.m_filename)) == names.end()) {
-                continue;
-            }
-            std::filesystem::path relative = std::filesystem::path(stat.m_filename).lexically_normal();
-            if (relative.is_absolute() || (!relative.empty() && *relative.begin() == "..")) {
-                continue; // Never write outside the folder.
-            }
-            std::filesystem::path target = folder / relative;
-            std::error_code ec;
-            if (mz_zip_reader_is_file_a_directory(&archive, i)) {
-                std::filesystem::create_directories(target, ec);
-                continue;
-            }
-            std::filesystem::create_directories(target.parent_path(), ec);
-            size_t size = 0;
-            void* data = mz_zip_reader_extract_to_heap(&archive, i, &size, 0);
-            if (data == nullptr) {
-                ok = false;
-                break;
-            }
-            ok = write_file(target, std::vector<uint8_t>((uint8_t*)data, (uint8_t*)data + size));
-            mz_free(data);
-        }
-        return ok;
-    }
-}
-
 std::string path_utf8(const std::filesystem::path& path) {
     auto text = path.u8string();
     return std::string(text.begin(), text.end());
-}
-
-const char* curl_program() {
-#ifdef _WIN32
-    return "curl.exe"; // Part of Windows since 10 1803.
-#else
-    return "curl";
-#endif
-}
-
-bool extract_zip(const std::filesystem::path& zip, const std::filesystem::path& folder, const std::vector<std::string>& names) {
-    std::vector<uint8_t> bytes = read_file(zip);
-    mz_zip_archive archive{};
-    if (bytes.empty() || !mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0)) {
-        return false;
-    }
-    bool ok = extract_from(archive, folder, names);
-    mz_zip_reader_end(&archive);
-    return ok;
-}
-
-bool download_zip_files(const std::string& url, const std::vector<std::string>& names, const std::filesystem::path& folder,
-                        const std::atomic<bool>* cancel) {
-    RemoteZip remote;
-    remote.url = url;
-    remote.cancel = cancel;
-    remote.temp = folder / "download.part";
-    std::error_code ec;
-    std::filesystem::create_directories(folder, ec);
-
-    // The archive's size, from the Content-Range of a one-byte request.
-    std::filesystem::path headers = folder / "headers.part";
-    std::string line = std::string(curl_program()) + " -L --fail -s -r 0-0 -o \"" + path_utf8(remote.temp) + "\" -D \"" +
-                       path_utf8(headers) + "\" \"" + url + "\"";
-    if (run_command(line, cancel) != 0) {
-        return false;
-    }
-    std::vector<uint8_t> header_bytes = read_file(headers);
-    std::filesystem::remove(headers, ec);
-    std::filesystem::remove(remote.temp, ec);
-    // Redirects write a header block each; the last one is the file's ("Content-Range: bytes 0-0/<size>").
-    std::string text(header_bytes.begin(), header_bytes.end());
-    std::transform(text.begin(), text.end(), text.begin(), [](char c) { return (char)std::tolower((unsigned char)c); });
-    size_t range = text.rfind("content-range: bytes 0-0/");
-    if (range == std::string::npos) {
-        return false;
-    }
-    remote.size = std::strtoull(text.c_str() + range + 25, nullptr, 10);
-    if (remote.size == 0) {
-        return false;
-    }
-
-    mz_zip_archive archive{};
-    archive.m_pRead = RemoteZip::read;
-    archive.m_pIO_opaque = &remote;
-    if (!mz_zip_reader_init(&archive, remote.size, 0)) {
-        return false;
-    }
-    bool ok = extract_from(archive, folder, names);
-    mz_zip_reader_end(&archive);
-    for (const std::string& name : names) {
-        ok = ok && std::filesystem::exists(folder / name, ec);
-    }
-    return ok;
 }
 
 std::string pack_database(const std::vector<PackTexture>& textures) {
