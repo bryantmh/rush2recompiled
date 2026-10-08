@@ -55,12 +55,12 @@
 #include "rush2_hooks.h"
 #include "wings_internal.h"
 
-extern "C" void func_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
+extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
 extern "C" void func_80093E08(uint8_t* rdram, recomp_context* ctx); // Lets player 2 join with Start.
-extern "C" void func_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
-extern "C" void func_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text color style.
-extern "C" void func_800732AC(uint8_t* rdram, recomp_context* ctx); // Measures a string.
-extern "C" void func_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
+extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
+extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text color style.
+extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Measures a string.
+extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
 
 using rush2::controls::Action;
 using rush2::controls::Device;
@@ -206,7 +206,7 @@ namespace {
     }
 
     void play_sound(uint8_t* rdram, recomp_context* ctx, int sound) {
-        call(rdram, ctx, func_80064908, sound);
+        call(rdram, ctx, menu_play_sound_80064908, sound);
     }
 
     void lock_game_layout(uint8_t* rdram) {
@@ -492,16 +492,16 @@ namespace {
     // Text helpers. Each call keeps the caller's registers.
     void set_font(uint8_t* rdram, recomp_context* ctx) {
         int font = MEM_W(0, (int32_t)language) == 1 ? 6 : 8; // The font the labels use.
-        call(rdram, ctx, func_80088C24, font);
+        call(rdram, ctx, text_select_font_80088C24, font);
     }
 
     int text_width(uint8_t* rdram, recomp_context* ctx, uint32_t str) {
-        return call(rdram, ctx, func_800732AC, (int32_t)str, -1);
+        return call(rdram, ctx, text_measure_string_800732AC, (int32_t)str, -1);
     }
 
     void print(uint8_t* rdram, recomp_context* ctx, int style, int x, int y, uint32_t str) {
-        call(rdram, ctx, func_800737E4, style);
-        call(rdram, ctx, func_800734E0, x, y, (int32_t)str);
+        call(rdram, ctx, text_select_style_800737E4, style);
+        call(rdram, ctx, text_print_string_800734E0, x, y, (int32_t)str);
     }
 
     Exit update_player(uint8_t* rdram, recomp_context* ctx, int player, int port) {

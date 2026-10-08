@@ -1950,10 +1950,10 @@ namespace {
 }
 
 // The game's own car physics, which the Accurate Car Stats test car runs.
-extern "C" void func_8008DBA0(uint8_t* rdram, recomp_context* ctx);     // car init
-extern "C" void func_800712EC(uint8_t* rdram, recomp_context* ctx);     // drivetrain
-extern "C" void func_8006A2FC(uint8_t* rdram, recomp_context* ctx);     // one tire's forces
-extern "C" void func_80069E74(uint8_t* rdram, recomp_context* ctx);     // steering yaw torques
+extern "C" void car_init_setup_8008DBA0(uint8_t* rdram, recomp_context* ctx);     // car init
+extern "C" void car_drivetrain_800712EC(uint8_t* rdram, recomp_context* ctx);     // drivetrain
+extern "C" void car_tire_model_8006A2FC(uint8_t* rdram, recomp_context* ctx);     // one tire's forces
+extern "C" void car_steering_yaw_terms_80069E74(uint8_t* rdram, recomp_context* ctx);     // steering yaw torques
 
 // func_8008DBA0 (car init) at 0x8008DC1C, after it stored the car's descriptor ($fp) at car + 0 ($s2): the car gets its
 // own copy when its options change it, and with Car Speeds at Rush 2049 every car's copy runs at 2049's speed (torque
@@ -2393,7 +2393,7 @@ namespace {
             MEM_B(0, (int32_t)(car + 0x7E8)) = 2;       // driven by a player
             MEM_H(0, (int32_t)(car + 0x7E0)) = 0;       // player 1
             call.r4 = addr(car);
-            func_8008DBA0(rdram, &call);
+            car_init_setup_8008DBA0(rdram, &call);
             MEM_H(0, (int32_t)(car + 0x3D8)) = 1;       // automatic
             MEM_H(0, (int32_t)(car + 0x3E0)) = 1;       // a forward gear asked for (0 = neutral, func_800711F4)
             // The engine runs (set together when a race starts, 0x8008E3B4): off, func_80070A78 gives no torque at rest.
@@ -2461,7 +2461,7 @@ namespace {
                 put(car + 0x58 + 12 * i + 4, loads[i]);     // the wheel's upward force, which the differential reads
             }
             call.r4 = addr(car);
-            func_800712EC(rdram, &call);
+            car_drivetrain_800712EC(rdram, &call);
 
             float fx = 0.0f, fz = 0.0f, torque = 0.0f;
             drive_force = 0.0f;
@@ -2484,7 +2484,7 @@ namespace {
                 call.r5 = addr(vel);
                 call.r6 = (uint64_t)(int64_t)(int32_t)fbits(loads[i]);
                 call.r7 = (uint64_t)(int64_t)MEM_W(0, (int32_t)(car + 0x394 + 4 * i));
-                func_8006A2FC(rdram, &call);
+                car_tire_model_8006A2FC(rdram, &call);
                 float lat = get(lat_at), lng = get(long_at);
                 if (speed_now < 3.0f) {
                     lat *= (1.0f + speed_now) / 4.0f;
@@ -2505,7 +2505,7 @@ namespace {
             fz += get(car + 0x118);
 
             call.r4 = addr(car);
-            func_80069E74(rdram, &call);
+            car_steering_yaw_terms_80069E74(rdram, &call);
             torque += get(car + 0x138);
 
             vx += fx / mass * dt;

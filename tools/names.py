@@ -31,6 +31,11 @@ Commands (run from anywhere):
     names.py anchors [--game G]               set every docs/*.md ref to the heading (#slug) of the first mention
                                               of the address in that doc; other refs are plain file paths
     names.py backlinks                        derive rush1/rush2049 lists from the rush2 links (all games, both ways)
+    names.py rename [--apply]                 give the build the registry names: rewrite func_XXXXXXXX -> <name>_XXXXXXXX
+                                              (rush2 registry entries that have a name) in syms/rush2.us.syms.toml, us.toml
+                                              and the CODE of src/ include/ patches/ (comments and docs are left alone,
+                                              since they mention other games' addresses too). Dry run without --apply.
+                                              Idempotent; also verifies no dangling func_ reference is left.
     names.py check                            validate every registry (exit 1 on problems)
     names.py stats                            counts per game / status / area
     names.py unnamed GAME                     entries with a desc but no name (candidates for naming)
@@ -365,6 +370,122 @@ def cmd_backlinks(a):
     return 1 if check() else 0
 
 
+# ---- renaming the build to the registry names ---------------------------------------------------------------------
+
+FUNC_RE = re.compile(r"\bfunc_([0-9A-Fa-f]{8})\b")
+CODE_DIRS = ("src", "include", "patches")
+CODE_EXT = (".cpp", ".c", ".h", ".hpp", ".inc")
+
+
+def symbol_map():
+    """{'func_80076854': 'car_set_pedals_80076854'} for every rush2 registry entry that has a name."""
+    return {"func_%08X" % e["vram"]: "%s_%08X" % (e["name"], e["vram"]) for e in load("rush2") if "name" in e}
+
+
+def rename_in(text, smap):
+    """Rename func_ identifiers in a piece of code (no comment handling)."""
+    return FUNC_RE.sub(lambda m: smap.get("func_" + m.group(1).upper(), m.group(0)), text)
+
+
+def rename_c(text, smap):
+    """Rename in C/C++ source, skipping // and /* */ comments (string literals count as code: hook text is code)."""
+    out, i, n = [], 0, len(text)
+    code_start = 0
+    def flush(end):
+        out.append(rename_in(text[code_start:end], smap))
+    while i < n:
+        c = text[i]
+        if c == '"' or c == "'":
+            q = c
+            i += 1
+            while i < n and text[i] != q:
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif text.startswith("//", i):
+            flush(i)
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            out.append(text[i:j]); i = code_start = j
+        elif text.startswith("/*", i):
+            flush(i)
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append(text[i:j]); i = code_start = j
+        else:
+            i += 1
+    flush(n)
+    return "".join(out)
+
+
+def rename_toml(text, smap):
+    """Rename in us.toml: whole-line comments are kept; a trailing # comment (outside quotes) is kept."""
+    out = []
+    for ln in text.split("\n"):
+        if ln.lstrip().startswith("#"):
+            out.append(ln)
+            continue
+        inq, cut = False, len(ln)
+        for k, ch in enumerate(ln):
+            if ch == '"' and (k == 0 or ln[k - 1] != "\\"):
+                inq = not inq
+            elif ch == "#" and not inq:
+                cut = k
+                break
+        out.append(rename_in(ln[:cut], smap) + ln[cut:])
+    return "\n".join(out)
+
+
+def rename_syms(text, smap):
+    return re.sub(r'name = "(func_[0-9A-Fa-f]{8})"', lambda m: 'name = "%s"' % smap.get(m.group(1), m.group(1)), text)
+
+
+def cmd_rename(a):
+    smap = symbol_map()
+    targets = [(ROOT / "syms" / "rush2.us.syms.toml", rename_syms), (ROOT / "us.toml", rename_toml)]
+    for d in CODE_DIRS:
+        for f in sorted((ROOT / d).rglob("*")):
+            if f.suffix in CODE_EXT:
+                targets.append((f, rename_c))
+    total = 0
+    for f, fn in targets:
+        raw = f.read_bytes().decode("utf-8", errors="surrogateescape")
+        new = fn(raw, smap)
+        if new != raw:
+            cnt = sum(1 for _ in FUNC_RE.finditer(raw)) - sum(1 for _ in FUNC_RE.finditer(new))
+            total += cnt
+            print("%-40s %d identifiers renamed" % (f.relative_to(ROOT).as_posix(), cnt))
+            if a.apply:
+                f.write_bytes(new.encode("utf-8", errors="surrogateescape"))
+    print("%d renames in total%s" % (total, "" if a.apply else " (dry run; pass --apply)"))
+    return verify_symbols()
+
+
+def verify_symbols():
+    """Every func_/<name>_ADDR identifier used in us.toml keys and C code must be a symbol of the syms file."""
+    syms = set(re.findall(r'name = "([^"]+)", vram', (ROOT / "syms" / "rush2.us.syms.toml").read_text()))
+    bad = []
+    toml = (ROOT / "us.toml").read_text(encoding="utf-8", errors="replace")
+    for m in re.finditer(r'^func = "([^"]+)"', toml, re.M):
+        if m.group(1) not in syms:
+            bad.append("us.toml: func = %s is not a symbol" % m.group(1))
+    for m in re.finditer(r'^    "([A-Za-z_][A-Za-z0-9_]*)",', toml, re.M):
+        if m.group(1) not in syms and not m.group(1).startswith("rush2_"):
+            bad.append("us.toml: list entry %s is not a symbol" % m.group(1))
+    smap = symbol_map()
+    old = set(smap)
+    for d in CODE_DIRS:
+        for f in (ROOT / d).rglob("*"):
+            if f.suffix in CODE_EXT:
+                stripped = re.sub(r"//[^\n]*|/\*.*?\*/", "", f.read_text(encoding="utf-8", errors="replace"), flags=re.S)
+                for m in FUNC_RE.finditer(stripped):
+                    if "func_" + m.group(1).upper() in old:
+                        bad.append("%s: still uses old name func_%s" % (f.relative_to(ROOT).as_posix(), m.group(1)))
+    for b in bad[:30]:
+        print("DANGLING:", b)
+    print("verify: OK" if not bad else "verify: %d problems" % len(bad))
+    return 1 if bad else 0
+
+
 def cmd_unnamed(a):
     for e in load(a.game):
         if "name" not in e:
@@ -389,6 +510,7 @@ def main():
     p = sub.add_parser("merge"); p.add_argument("game", choices=GAMES); p.add_argument("file"); p.set_defaults(f=cmd_merge)
     p = sub.add_parser("anchors"); p.add_argument("--game", choices=GAMES); p.set_defaults(f=cmd_anchors)
     p = sub.add_parser("backlinks"); p.set_defaults(f=cmd_backlinks)
+    p = sub.add_parser("rename"); p.add_argument("--apply", action="store_true"); p.set_defaults(f=cmd_rename)
     p = sub.add_parser("check"); p.set_defaults(f=lambda a: 1 if check() else 0)
     p = sub.add_parser("stats"); p.set_defaults(f=cmd_stats)
     p = sub.add_parser("unnamed"); p.add_argument("game", choices=GAMES); p.set_defaults(f=cmd_unnamed)

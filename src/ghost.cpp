@@ -72,12 +72,12 @@
 
 extern "C" void func_80075880(uint8_t* rdram, recomp_context* ctx); // A car's physics tick ($a0 car, $a1 clock bits).
 extern "C" void func_800663CC(uint8_t* rdram, recomp_context* ctx); // After a drone's tick, when 0x800D042C is set.
-extern "C" void func_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
-extern "C" void func_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
+extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx); // Plays a menu sound.
+extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
 extern "C" void func_80093FA8(uint8_t* rdram, recomp_context* ctx); // Text setting ($f12), 0 as the car select's.
-extern "C" void func_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text style.
-extern "C" void func_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
-extern "C" void func_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
+extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text style.
+extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
+extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
 
 using rush2::ghost::Ghost;
 using rush2::ghost::Header;
@@ -930,8 +930,8 @@ namespace {
     }
 
     void print(uint8_t* rdram, recomp_context* ctx, int style, int x, int y, const std::string& s) {
-        call(rdram, ctx, func_800737E4, style);
-        call(rdram, ctx, func_800734E0, x, y, (int32_t)str(rdram, s));
+        call(rdram, ctx, text_select_style_800737E4, style);
+        call(rdram, ctx, text_print_string_800734E0, x, y, (int32_t)str(rdram, s));
     }
 
     std::string upper(const std::string& s) {
@@ -965,7 +965,7 @@ namespace {
 
     void draw_choice(uint8_t* rdram, recomp_context* ctx) {
         text_at = 0;
-        call(rdram, ctx, func_80088C24, font_small);
+        call(rdram, ctx, text_select_font_80088C24, font_small);
         call(rdram, ctx, func_80093FA8, 0, 0, 0, 0, 0.0f);
         print(rdram, ctx, style_title, panel_x, panel_y, entries.empty() ? "NO GHOST AVAILABLE" : "GHOSTS   C BUTTONS");
         if (entries.empty()) {
@@ -1222,11 +1222,11 @@ extern "C" void rush2_ghost_car_select_text(uint8_t* rdram, recomp_context* ctx)
     if (!entries.empty()) {
         if (pressed & (button_cu | button_cd)) {
             choice_row = (choice_row + ((pressed & button_cd) ? 1 : max_ghosts - 1)) % max_ghosts;
-            call(rdram, ctx, func_80064908, sound_move);
+            call(rdram, ctx, menu_play_sound_80064908, sound_move);
         }
         if (pressed & (button_cl | button_cr)) {
             cycle_choice(choice_row, (pressed & button_cr) ? 1 : -1);
-            call(rdram, ctx, func_80064908, sound_change);
+            call(rdram, ctx, menu_play_sound_80064908, sound_change);
             MEM_H(0, (int32_t)race_drones) = (int16_t)chosen_count();
         }
     }
