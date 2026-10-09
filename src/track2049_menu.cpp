@@ -88,11 +88,6 @@ namespace {
     constexpr uint32_t pipe_unlocked = 0x800E7D50;
     constexpr uint32_t atari_unlocked = 0x800E7D19;
 
-    // Start Game menu rows: ONE RACE, CIRCUIT, PRACTICE, GHOST RACE, STUNT, BATTLE, RECORDS, SETUP. The stock menu has
-    // the five without GHOST RACE, STUNT and BATTLE; the rows after them map back to the stock options.
-    constexpr int ghost_row = 3;
-    constexpr int stunt_row = 4;
-    constexpr int battle_row = 5;
 
     // Circuit mode: the race list func_800A7DCC generates, 4 bytes per race (track, direction bits, fog, wind).
     constexpr uint32_t circuit_races = 0x800D3A60;
@@ -125,10 +120,17 @@ namespace {
         return is_arena(t) || t == obstacle_menu_id;
     }
 
-    // The track select's options (0x803D05D8[row], row = the cursor 0x803D05BC): 0 TRACK, 3 FOG, 4 WIND, 10 DEATHS.
+    // The track select's options (0x803D05D8[row], row = the cursor 0x803D05BC, count 0x803D05CC, top visible row
+    // 0x803D05C4; func_803AB294 builds the list): 0 TRACK, 3 FOG, 4 WIND, 10 DEATHS.
     constexpr uint32_t option_rows = 0x803D05D8;
     constexpr uint32_t option_cursor = 0x803D05BC;
+    constexpr uint32_t option_count = 0x803D05CC;
+    constexpr uint32_t option_top = 0x803D05C4;
+    constexpr int option_track = 0;
+    constexpr int option_fog = 3;
+    constexpr int option_wind = 4;
     constexpr int option_deaths = 10;
+    constexpr int option_boxes = 4;     // OPTIONTEXTBOX widgets: the rows on screen
 
     // Whether option `option` stays open on track t although STUNT1 greys it: the obstacle course is raced (a car
     // can die on it), so DEATHS stays.
@@ -140,6 +142,7 @@ namespace {
         int row = (int32_t)MEM_W(0, (int32_t)option_cursor);
         return (int32_t)MEM_W(0, (int32_t)(option_rows + row * 4));
     }
+
 
     // Whether added track select entry t (12-37) can be chosen.
     bool entry_available(int t) {
@@ -164,6 +167,33 @@ namespace {
 
     // The track select the Start Game menu opened (a SelectKind).
     std::atomic<int> select_kind = select_race;
+
+    // The option list func_803AB294 built for this visit, before filter_options.
+    std::vector<int> stock_options;
+
+    // The STUNT and BATTLE track selects list only the options that do something on their tracks: TRACK, FOG, WIND
+    // and the options a course keeps open (option_open). STUNT1 grays out the others; a list with fewer options than the
+    // rows on screen needs the hooks below (rush2_track49_option_*). Rows past the list hold TRACK, which shows no
+    // slider.
+    void filter_options(uint8_t* rdram) {
+        int t = (int8_t)MEM_B(0, (int32_t)track_id);
+        int n = 0;
+        for (int id : stock_options) {
+            if (select_kind != select_race && id != option_track && id != option_fog && id != option_wind &&
+                !option_open(t, id)) {
+                continue;
+            }
+            MEM_W(0, (int32_t)(option_rows + n++ * 4)) = id;
+        }
+        MEM_W(0, (int32_t)option_count) = n;
+        for (int row = n; row <= option_boxes; row++) {     // the rows on screen start after TRACK's
+            MEM_W(0, (int32_t)(option_rows + row * 4)) = option_track;
+        }
+    }
+
+    int option_list_count(uint8_t* rdram) {
+        return (int32_t)MEM_W(0, (int32_t)option_count);
+    }
 
     // Whether the track select offers track t (0-37): func_803AB01C's unlocks, the added tracks, and the stunt and
     // battle filter.
@@ -444,6 +474,11 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
         MEM_B(0, (int32_t)track_id) = uint8_t(t);
         MEM_H(0, (int32_t)shown_track) = int16_t(t);
     }
+    stock_options.clear();
+    for (int row = 0; row < option_list_count(rdram) && row < 11; row++) {
+        stock_options.push_back((int32_t)MEM_W(0, (int32_t)(option_rows + row * 4)));
+    }
+    filter_options(rdram);
 }
 
 // func_803AB294 at 0x803AB6C8: $t7 = the number of carousel entries (10 + unlocked PIPE and ATARI), which must be
@@ -474,6 +509,8 @@ extern "C" void rush2_track49_select_wrap(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_track49_select_save_p1(uint8_t* rdram, recomp_context* ctx) {
     int t = (int32_t)ctx->r6;
     std::lock_guard lock{ menu_mutex };
+    // The TRACK option is the one that changed the track, so the cursor is on the first row, which every list keeps.
+    filter_options(rdram);
     if (select_kind == select_stunt) {
         ctx->r25 = ctx->r15;
         save_stunt_selection(t);
@@ -606,6 +643,30 @@ extern "C" void rush2_track49_stunt_select(uint8_t* rdram, recomp_context* ctx) 
     if (is_stunt_course(t) && !option_open(t, cursor_option(rdram))) ctx->r8 = ctx->r6;
 }
 
+// A list shorter than the rows on screen (filter_options). TRACK, the first option, has no row of its own (the
+// carousel's arrows): the rows on screen start at the top row 0x803D05C4, 1 when the screen opens, and show the 4
+// options after TRACK. func_803ABE0C at 0x803AC4FC, the cursor moved down: $v0 = the top row, about to be scrolled
+// unless $v0 + 4 is the list's count ($a0, reloaded before its next use). A list with no more than the rows on
+// screen after TRACK never scrolls.
+extern "C" void rush2_track49_option_scroll(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)ctx->r4 <= option_boxes) ctx->r4 = ctx->r2 + option_boxes;
+}
+
+// func_803C5710 (an OPTIONTEXTBOX widget) at 0x803C5774: $a2 = its row, $a1 = whether the box is hidden (under a
+// slider). Rows past the list are hidden.
+extern "C" void rush2_track49_option_box(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)ctx->r6 >= option_list_count(rdram)) ctx->r5 = 1;
+}
+
+// func_803C6268 at 0x803C6934: $t0 = the y of the row just drawn (0xBC, then 0xB apart), about to step to the next
+// row until 0xE8. The rows wrap around the list (to TRACK's, which has no row), so a short list stops at its last.
+extern "C" void rush2_track49_option_text_rows(uint8_t* rdram, recomp_context* ctx) {
+    constexpr int first_y = 0xBC, row_height = 0xB;
+    int drawn = ((int32_t)ctx->r8 - first_y) / row_height + 1;
+    int rows = option_list_count(rdram) - (int32_t)MEM_W(0, (int32_t)option_top);
+    if (drawn >= rows) ctx->r8 = first_y + (option_boxes - 1) * row_height;
+}
+
 // func_803C6268, the DEATHS value (option 10's case) at 0x803C6858 ($t4) / 0x803C68AC ($t0): the track, about to be
 // compared with $s5 (11, or the stunt course's id, rush2_track49_stunt_options) to grey the value. Not on a course
 // where DEATHS stays open.
@@ -635,30 +696,45 @@ extern "C" void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ct
 
 // The Start Game menu's GHOST RACE, STUNT and BATTLE rows and, while the unlock system is on, its UNLOCKS row
 // (func_803B12C8, labels drawn by func_803C364C): ONE RACE, CIRCUIT, PRACTICE, GHOST RACE, STUNT, BATTLE, RECORDS,
-// UNLOCKS, SETUP. Hooks after the cursor's wraps and the label loop's count make the menu 8 or 9 rows long; these hooks give the added rows their
-// labels, map the other rows back to the stock options, and make the menu's box and bottom bar longer.
+// UNLOCKS, SETUP. BATTLE is left out without the Rush 2049 tracks (its arenas are theirs). Hooks after the cursor's
+// wraps and the label loop's count make the menu 7 to 9 rows long; these hooks give the added rows their labels, map
+// the other rows back to the stock options, and make the menu's box and bottom bar longer.
 namespace {
     constexpr int stock_rows = 5;
-    constexpr int stock_records = 3;
 
-    int mode_menu_rows() {
-        return stock_rows + 3 + (rush2::unlocks::menu_row_shown() ? 1 : 0);
+    enum ModeRow : int { row_one_race, row_circuit, row_practice, row_ghost, row_stunt, row_battle, row_records,
+                         row_unlocks, row_setup };
+
+    // The menu's rows, top to bottom.
+    std::vector<int> mode_rows() {
+        std::vector<int> rows{ row_one_race, row_circuit, row_practice, row_ghost, row_stunt };
+        if (available()) rows.push_back(row_battle);
+        rows.push_back(row_records);
+        if (rush2::unlocks::menu_row_shown()) rows.push_back(row_unlocks);
+        rows.push_back(row_setup);
+        return rows;
     }
 
-    // The UNLOCKS row, or -1 while it is hidden.
-    int unlocks_row() {
-        return rush2::unlocks::menu_row_shown() ? battle_row + 2 : -1;
+    int mode_menu_rows() {
+        return (int)mode_rows().size();
+    }
+
+    // The ModeRow on the menu's row `row`, or -1.
+    int row_kind(int row) {
+        std::vector<int> rows = mode_rows();
+        return row >= 0 && row < (int)rows.size() ? rows[row] : -1;
     }
 
     // The stock option a row stands for (GHOST RACE, STUNT, BATTLE and UNLOCKS: the one whose path they take).
-    int stock_row(int row) {
-        int unlocks = unlocks_row();
-        if (row == ghost_row) return 0;
-        if (row == stunt_row) return 0;
-        if (row == battle_row) return 0;
-        if (row == unlocks) return stock_records;                   // RECORDS: its profile list, then the shop
-        if (row > battle_row) return row - 3 - (unlocks >= 0 && row > unlocks ? 1 : 0);
-        return row;
+    int stock_row(int kind) {
+        switch (kind) {
+            case row_circuit: return 1;
+            case row_practice: return 2;
+            case row_records: return 3;
+            case row_unlocks: return 3;     // RECORDS: its profile list, then the shop
+            case row_setup: return 4;
+            default: return 0;              // ONE RACE, and GHOST RACE, STUNT and BATTLE through it
+        }
     }
 }
 
@@ -667,11 +743,11 @@ namespace {
 // rush2_track49_stunt_mode).
 // UNLOCKS takes RECORDS' (its profile list, which then opens the shop: src/unlocks_shop.cpp). GHOST RACE takes ONE RACE's: the race it starts records player 1 and races the ghost.
 extern "C" void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx) {
-    int row = (int32_t)ctx->r10;
-    select_kind = row == stunt_row ? select_stunt : row == battle_row ? select_battle : select_race;
-    rush2::ghost::set_chosen(row == ghost_row);
-    rush2::unlocks::set_shop_chosen(row == unlocks_row());
-    ctx->r10 = stock_row(row);
+    int kind = row_kind((int32_t)ctx->r10);
+    select_kind = kind == row_stunt ? select_stunt : kind == row_battle ? select_battle : select_race;
+    rush2::ghost::set_chosen(kind == row_ghost);
+    rush2::unlocks::set_shop_chosen(kind == row_unlocks);
+    ctx->r10 = stock_row(kind);
 }
 
 // func_803B12C8 at 0x803B15FC (the cursor wrapped above the first row; $t8 is the row it goes to) and 0x803B1654
@@ -693,20 +769,15 @@ namespace {
     // $s0 = the row; *base + $s1 (row x 4) is about to be read as the label of language table base.
     void label_table(uint8_t* rdram, recomp_context* ctx, uint64_t& base) {
         int row = (int32_t)ctx->r16;
-        if (row == ghost_row) {
-            base = (uint64_t)(int64_t)(int32_t)(ghost_label_ptr - (uint32_t)ctx->r17);
-        }
-        else if (row == stunt_row) {
-            base = (uint64_t)(int64_t)(int32_t)(stunt_label_ptr - (uint32_t)ctx->r17);
-        }
-        else if (row == battle_row) {
-            base = (uint64_t)(int64_t)(int32_t)(battle_label_ptr - (uint32_t)ctx->r17);
-        }
-        else if (row == unlocks_row()) {
-            base = (uint64_t)(int64_t)(int32_t)(unlocks_label_ptr - (uint32_t)ctx->r17);
-        }
-        else if (row > battle_row) {
-            base -= 4 * (row - stock_row(row));
+        auto own = [&](uint32_t label_ptr) { base = (uint64_t)(int64_t)(int32_t)(label_ptr - (uint32_t)ctx->r17); };
+        switch (int kind = row_kind(row)) {
+            case row_ghost: own(ghost_label_ptr); break;
+            case row_stunt: own(stunt_label_ptr); break;
+            case row_battle: own(battle_label_ptr); break;
+            case row_unlocks: own(unlocks_label_ptr); break;
+            default:
+                if (kind >= 0) base -= 4 * (row - stock_row(kind));
+                break;
         }
     }
 }

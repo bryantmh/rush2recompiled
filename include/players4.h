@@ -30,6 +30,8 @@ namespace rush2::players4 {
 
     // After the race HUD is built (func_800A06F8): adds players 3 and 4's elements and notes each widget's player.
     void hud_built(uint8_t* rdram, recomp_context* ctx);
+    // Whether the car select is in its second round, where players 3 and 4 choose in players 1 and 2's places.
+    bool car_select_second_round();
     // Players in the menus, counting players 3 and 4 who have joined (the game's count stays at 2 until the race).
     int joined_players(uint8_t* rdram);
     // Draws the menus' "press START" hint for players 3 and 4 (after the widget draw loop, func_8007D9DC).

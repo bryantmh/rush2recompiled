@@ -729,6 +729,10 @@ namespace rush2::players4 {
     }
 }
 
+bool rush2::players4::car_select_second_round() {
+    return car_round != 0;
+}
+
 extern "C" {
 
 // func_803B9478 (car select) once every player has chosen, before the race is started: true to stay on the screen.

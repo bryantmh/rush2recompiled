@@ -6,7 +6,8 @@
 // track, direction and lap count (Ghosts Kept, 3 by default) is kept, a file per run (<key>_<profile>_<n>.ghost) in
 // the save folder's "ghosts" folder in place of Rush 2049's Controller Pak notes, and the slowest beyond them deleted.
 // As on Rush 2049's car select, up to three kept ghosts race in GHOST RACE (GHOST 1-3, chosen on the car select with
-// the C buttons, the fastest by default), each a computer car (0x800D3E90 = their count):
+// the C buttons, the fastest by default), each a computer car: the last drone slots, after the track select's DRONES
+// (0x800D3E90 = both counts; DRONES stops at 7 - players - 3, so every GHOST row has a slot):
 //
 // - Rush 2049 races its ghosts as extra player cars driven by their samples (func_800F6AB8, func_800E5D64). Rush 2's
 //   only spare cars are drones: func_800A37F4 gives the drone slots the recorded cars and colors (hooks at 0x800A3B9C,
@@ -30,7 +31,8 @@
 //   repeats the recording exactly; every keyframe_ticks ticks the recording keeps the whole struct, and the ghost
 //   takes it if it drifted (a breakable knocked over differently, a mover out of phase).
 // - Ghosts don't collide with cars (func_8006F3C0, hooks at 0x8006F434 / 0x8006F470), aren't ranked (func_800A1468
-//   ranks the first 0x8010C15A cars, the ghosts being the last: 0x800A1674), have no track map or radar dot
+//   ranks the first 0x8010C15A cars, the ghosts being the last: 0x800A1674; their place follows the ranked cars'),
+//   are left out of the rubber band (func_800A1A98 at 0x800A2238), have no track map or radar dot
 //   (func_800B8900 at 0x800B8958, func_800B8CC8 at 0x800B8D28) and are drawn translucent: their models are drawn
 //   from copies of their display lists whose render modes blend the second cycle by the fog color's alpha (Rush 2's
 //   car modes use the first cycle for fog by shade alpha), between an RT64 push and pop of the other modes and the
@@ -76,6 +78,7 @@ extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx); /
 extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx); // Selects a font.
 extern "C" void menu_text_set_scale_from_global_80093FA8(uint8_t* rdram, recomp_context* ctx); // Text setting ($f12), 0 as the car select's.
 extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx); // Selects a text style.
+extern "C" void text_set_colors_800735A8(uint8_t* rdram, recomp_context* ctx);   // (0 fg / 1 bg, r, g, b, a on the stack)
 extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
 extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
 
@@ -95,6 +98,7 @@ namespace {
     constexpr uint32_t car_states = 0x801124A0;      // 0x354 each; +0x342/+0x343 its wreck and respawn state
     constexpr uint32_t car_state_size = 0x354;
     constexpr uint32_t car_state_player = 0x350;     // its human player record, 0 for drones
+    constexpr int32_t car_state_place = 0xE9;        // s8: its place in the race, 0 = first (func_800A1468)
     constexpr uint32_t car_state_finished = 0xEA;    // s8: 1 once it finished (func_8008E8EC)
     constexpr uint32_t car_state_race_time = 0xEC;   // f32: its race time, set with +0xEA
     constexpr uint32_t car_state_draw_flags = 0xE4;  // how its model is drawn (func_8009E6DC, func_80087290)
@@ -116,6 +120,8 @@ namespace {
     constexpr uint32_t mirror_flag = 0x800D0190;
     constexpr uint32_t race_laps = 0x8010C0E2;       // s16
     constexpr uint32_t race_drones = 0x800D3E90;     // s16
+    constexpr uint32_t menu_drones = 0x800D5761;     // s8: the track select's DRONES (menu settings 0x800D5760 + 1)
+    constexpr int max_cars = 8;
     constexpr uint32_t demo_flag = 0x800FAE6C;       // the attract demo: every car is a drone
     constexpr uint32_t physics_clock = 0x8010C0E4;   // f32, + the tick each physics tick (func_80076578)
     constexpr uint32_t game_clock = 0x80117488;      // f32
@@ -455,6 +461,20 @@ namespace {
         int n = 0;
         for (const auto& c : choice) n += c.empty() ? 0 : 1;
         return n;
+    }
+
+    // A ghost race's drones besides its ghosts: the track select's DRONES, up to the cars left with every GHOST row
+    // filled (the ghosts take drone slots).
+    int drone_cap(uint8_t* rdram) {
+        return std::max(0, max_cars - (int16_t)MEM_H(0, (int32_t)player_count) - max_ghosts);
+    }
+
+    int extra_drones(uint8_t* rdram) {
+        return std::min(MEM_B(0, (int32_t)menu_drones) & 7, drone_cap(rdram));
+    }
+
+    int race_drone_count(uint8_t* rdram) {
+        return chosen_count() + extra_drones(rdram);
     }
 
     std::shared_ptr<const Ghost> ghost_of(const std::filesystem::path& path) {
@@ -1022,7 +1042,7 @@ extern "C" void rush2_ghost_settings(uint8_t* rdram, recomp_context* ctx) {
     }
     race_key = current_key(rdram);
     ensure_list(race_key);
-    MEM_H(0, (int32_t)race_drones) = (int16_t)chosen_count();
+    MEM_H(0, (int32_t)race_drones) = (int16_t)race_drone_count(rdram);
 }
 
 // Start of func_800A5110 (0x800A5114), race setup, also on a restart.
@@ -1064,19 +1084,21 @@ extern "C" void rush2_ghost_race_setup(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_800A37F4 at 0x800A3B9C: drone slot $s2's random type ($t7) is about to be checked against the cars before it
-// ($v0 walks their table entries). The first drone slots become the ghost cars: the recorded type, and a table with
-// no types to check against.
+// ($v0 walks their table entries). The last drone slots become the ghost cars (the standings leave the last cars
+// out, rush2_ghost_standings; the drones before them race as usual): the recorded type, and a table with no types
+// to check against.
 extern "C" void rush2_ghost_drone_type(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ mutex };
     int slot = (int32_t)ctx->r18;
-    if (racers.empty() || slot < 0 || slot >= 8 || MEM_BU(0, (int32_t)(car_addr(slot) + f_kind)) != 1) {
+    if (racers.empty() || slot < 0 || slot >= max_cars || MEM_BU(0, (int32_t)(car_addr(slot) + f_kind)) != 1) {
         return;
     }
     int k = 0;
     for (int j = 0; j < slot; j++) {
         k += MEM_BU(0, (int32_t)(car_addr(j) + f_kind)) == 1 ? 1 : 0;
     }
-    if (k >= (int)racers.size()) {
+    k -= (int16_t)MEM_H(0, (int32_t)race_drones) - (int)racers.size();
+    if (k < 0 || k >= (int)racers.size()) {
         return;
     }
     Racer& r = racers[k];
@@ -1164,8 +1186,18 @@ extern "C" void rush2_ghost_standings(uint8_t* rdram, recomp_context* ctx) {
     int count = (int32_t)ctx->r31;
     while (count > 0 && racer_of(count - 1) != nullptr) {
         count--;
+        // Its place (car state +0xE9) is the one after the ranked cars', as its slot is: the rubber band (func_800A1A98)
+        // sorts every car by place.
+        MEM_B(car_state_place, (int32_t)(car_states + count * car_state_size)) = (int8_t)count;
     }
     ctx->r31 = (uint64_t)(int64_t)count;
+}
+
+// func_800A1A98 (the rubber band, each drone's speed factor +0x808) at 0x800A2238: $t7 = car $t4's +0x7E6, 0 to skip
+// the car. A ghost is skipped: it drives its recording, and with drones racing too the rubber band would look up its
+// neighbors by its place past the ranked cars.
+extern "C" void rush2_ghost_rubber_band(uint8_t* rdram, recomp_context* ctx) {
+    if (racer_of((int32_t)ctx->r12) != nullptr) ctx->r15 = 0;
 }
 
 // func_800BA608 (the race position HUD) at 0x800BA664 and 0x800BA7A8: `cars` = the race's cars (0x8010C158), of
@@ -1235,7 +1267,7 @@ extern "C" void rush2_ghost_car_select_text(uint8_t* rdram, recomp_context* ctx)
         if (pressed & (button_cl | button_cr)) {
             cycle_choice(choice_row, (pressed & button_cr) ? 1 : -1);
             call(rdram, ctx, menu_play_sound_80064908, sound_change);
-            MEM_H(0, (int32_t)race_drones) = (int16_t)chosen_count();
+            MEM_H(0, (int32_t)race_drones) = (int16_t)race_drone_count(rdram);
         }
     }
     draw_choice(rdram, ctx);
@@ -1308,4 +1340,51 @@ void rush2::ghost::draw_model(uint8_t* rdram, recomp_context* ctx) {
     cmd(ex[5].values.word0, ex[5].values.word1);
     cmd(0xDF000000, 0);
     ctx->r30 = (uint64_t)(int64_t)(int32_t)side;
+}
+
+// The track select's DRONES in a ghost race: the drones besides the ghosts (extra_drones), 0 to drone_cap.
+
+// func_803ABE0C at 0x803AC2F0: $t7 = DRONES ($t6, its old value plus the step $a1) & 7, about to be stored. A ghost
+// race wraps it within 0 to drone_cap.
+extern "C" void rush2_ghost_drones_step(uint8_t* rdram, recomp_context* ctx) {
+    if (!chosen_flag) {
+        return;
+    }
+    int cap = drone_cap(rdram);
+    int v = (int8_t)ctx->r14;
+    if (v < 0) v = cap;
+    else if (v > cap) v = (int32_t)ctx->r5 > 0 ? 0 : cap;
+    ctx->r15 = (uint64_t)(int64_t)v;
+}
+
+// func_803ABE0C at 0x803AC2FC: $t8 = 7, the DRONES value about to be stored without a step.
+extern "C" void rush2_ghost_drones_reset(uint8_t* rdram, recomp_context* ctx) {
+    if (chosen_flag) ctx->r24 = (uint64_t)(int64_t)drone_cap(rdram);
+}
+
+// func_803C6268, DRONES' digits 0-7 ($s0) at 0x803C6714: $t2 = the race's drones (0x800D3E90), whose digit is
+// highlighted. In a ghost race they include the ghosts, so the digit is the track select's value.
+extern "C" void rush2_ghost_drones_value(uint8_t* rdram, recomp_context* ctx) {
+    if (chosen_flag) ctx->r10 = (uint64_t)(int64_t)extra_drones(rdram);
+}
+
+// func_803C6268 at 0x803C6738, after the digit's text style: in a ghost race the digits past drone_cap, which the
+// ghosts' slots leave no room for, are grayed out (darker than style 4's 0x50 gray).
+extern "C" void rush2_ghost_drones_digit(uint8_t* rdram, recomp_context* ctx) {
+    if (!chosen_flag || (int32_t)ctx->r16 <= drone_cap(rdram)) {
+        return;
+    }
+    recomp_context saved = *ctx;
+    uint32_t sp = (uint32_t)ctx->r29 - 0x20;
+    ctx->r29 = (uint64_t)(int64_t)(int32_t)sp;
+    for (int layer = 0; layer < 2; layer++) {
+        uint8_t level = layer == 0 ? 0x26 : 0x12;
+        ctx->r4 = layer;
+        ctx->r5 = level;
+        ctx->r6 = level;
+        ctx->r7 = level;
+        MEM_W(0x10, (int32_t)sp) = 0xFF;
+        text_set_colors_800735A8(rdram, ctx);
+    }
+    *ctx = saved;
 }

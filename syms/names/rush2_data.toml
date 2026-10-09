@@ -2260,6 +2260,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800BEF6C
+name = "text_style_table"
+type = "u8 [0x14][8]"
+desc = "Text styles: fg RGBA, bg RGBA per style (text_select_style)."
+area = "menu"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#13-options"
+
+[[var]]
 vram = 0x800BF00C
 name = "hud_pause_widget_a"
 type = "void *"
@@ -6375,11 +6384,11 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 [[var]]
 vram = 0x800D5761
 name = "settings_race_opt_1"
-type = "u8"
-desc = "Setting byte written by track select and boot load; copied to race globals."
+type = "s8"
+desc = "Menu settings +0x1: the track select's DRONES (0-7), copied to 0x800D3E90 by func_80094698."
 area = "save"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#13-options"
 
 [[var]]
 vram = 0x800D5762
@@ -14034,11 +14043,11 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 [[var]]
 vram = 0x803C6990
 name = "carselect_list_count"
-type = "s32"
-desc = "Value built by car select list, read by car title text callback (low confidence)."
+type = "s32 [2]"
+desc = "Car select: each slot's cursor row in the option list."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#8-car-select-option-list-v"
 
 [[var]]
 vram = 0x803C69BC
@@ -15006,11 +15015,11 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 [[var]]
 vram = 0x803CB3A0
 name = "carselect_title_index"
-type = "s32"
-desc = "Value built by car select list, read by car title text callback (low confidence)."
+type = "s32 [2]"
+desc = "Car select: each slot's top option row on screen (4 rows shown)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#8-car-select-option-list-v"
 
 [[var]]
 vram = 0x803CB3A8
@@ -15034,10 +15043,19 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x803CB3B0
 name = "carselect_current_car"
 type = "s32"
-desc = "Value built by car select list, read by title callback and car select frame (low confidence)."
+desc = "Car select: the number of options in the list 0x803CB3B8 (func_803B81F0)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#8-car-select-option-list-v"
+
+[[var]]
+vram = 0x803CB3B8
+name = "carselect_option_ids"
+type = "s32 [15]"
+desc = "Car select: option ids by row (0 CAR .. 14 TIRE SIZE R; the port adds 15 WINGS, taking the free word 0x803CB3F4)."
+area = "menu"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#8-car-select-option-list-v"
 
 [[var]]
 vram = 0x803CB3F8
@@ -15925,10 +15943,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x803D05BC
 name = "trackselect_option_sel"
 type = "s32"
-desc = "Option selection set by track select init/frame, read by options arrows, hints and names (low confidence)."
+desc = "Track select: the cursor row in the option list 0x803D05D8."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#13-options"
 
 [[var]]
 vram = 0x803D05C0
@@ -15943,19 +15961,19 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x803D05C4
 name = "trackselect_option_row"
 type = "s32"
-desc = "Option row selection set by track select, read by options row, arrow and slider widgets (low confidence)."
+desc = "Track select: the top option row on screen (1 at open: TRACK, row 0, has no text row)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#13-options"
 
 [[var]]
 vram = 0x803D05CC
 name = "trackselect_state"
 type = "s32"
-desc = "Track select state word set at init, read by frame and options text (low confidence)."
+desc = "Track select: the number of options in the list 0x803D05D8 (func_803AB294)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#13-options"
 
 [[var]]
 vram = 0x803D0608

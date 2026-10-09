@@ -17,6 +17,7 @@ namespace recomp::config {
 
 namespace rush2::wings {
     constexpr int max_cars = 8;
+    constexpr int max_players = 4;   // Each player has their own wing style and WINGS button.
 
     // The Games tab's config, games.json (src/wings.cpp): the Rush 2049 options and SF Rush's (src/rush1_rom.cpp).
     recomp::config::Config& games_config();
@@ -31,7 +32,7 @@ namespace rush2::wings {
     // Decompressed Rush 2049 file 77, the wing and flame models.
     bool read_wing_model_file(const std::vector<uint8_t>& rom, std::vector<uint8_t>& out);
 
-    // True if player (0 or 1, the game's player struct index) holds the WINGS button and the game isn't paused
+    // True if player (0-3, the game's player struct index) holds the WINGS button and the game isn't paused
     // (src/controls_menu.cpp).
     bool button_held(uint8_t* rdram, int player);
 

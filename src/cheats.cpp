@@ -48,6 +48,7 @@
 #include "rush2.h"
 #include "battle.h"
 #include "car2049.h"
+#include "track2049.h"
 #include "unlocks.h"
 
 extern "C" void unlocks_check_tracks_80094F1C(uint8_t* rdram, recomp_context* ctx);
@@ -272,6 +273,14 @@ namespace {
         has_unsynced = false;
     }
 
+    // Whether a cheat can be used: the Weapons cheat needs the Rush 2049 tracks and Unlock All Parts the Rush 2049
+    // cars (a Rush 2049 ROM and their option on).
+    bool option_available(const std::string& id) {
+        if (id == weapons_id) return rush2::track2049::available();
+        if (id == unlock_parts_id) return rush2::car2049::available();
+        return true;
+    }
+
     // The tab's page: every option at once, in groups over three columns, with the hovered or focused option's
     // description below them. The config is the frontend's (create_config_tab), whose own tab is hidden.
     struct Group {
@@ -409,6 +418,13 @@ namespace {
                 recomp::config::Config& config = recompui::config::get_config(config_id);
                 config.clear_config_option_updates();
                 for (Row& row : rows) {
+                    // Cheats that need another game's ROM are grayed out without it.
+                    bool enabled = option_available(row.id);
+                    if (enabled != row.enabled) {
+                        row.enabled = enabled;
+                        if (row.toggle != nullptr) row.toggle->set_enabled(enabled);
+                        else row.select->set_enabled(enabled);
+                    }
                     recomp::config::ConfigValueVariant value = config.get_option_value(row.id);
                     if (value == row.shown) {
                         continue;
@@ -431,6 +447,7 @@ namespace {
             recompui::Toggle* toggle = nullptr;
             recompui::Select* select = nullptr;
             recomp::config::ConfigValueVariant shown;
+            bool enabled = true;
         };
         std::vector<Row> rows;
         recompui::Element* description = nullptr;
@@ -597,7 +614,7 @@ void rush2::cheats::create_tab() {
         "<recomp-color primary>Random</recomp-color> any of the eight, again a few seconds after it runs out. "
         "<recomp-color primary>Invisibility</recomp-color> gives the battle's power-up instead. Cars have a battle's "
         "health and are wrecked when it runs out. Fire and drop with the <recomp-color primary>FIRE</recomp-color> and "
-        "<recomp-color primary>DROP WEAPON</recomp-color> controls. Requires a Rush 2049 (USA) ROM.",
+        "<recomp-color primary>DROP WEAPON</recomp-color> controls. Requires a Rush 2049 (USA) ROM and Rush 2049 Tracks on.",
         {
             { 0u, "Off", "Off" },
             { 1u, "Cannon", "Cannon" },

@@ -1,4 +1,5 @@
-// Rush 2049 wings: settings (shown in the Games and Players tabs) and Rush 2049 ROM handling.
+// Rush 2049 wings: settings (shown in the Games tab; the wing styles on the car select, src/wings_menu.cpp) and Rush
+// 2049 ROM handling.
 //
 // San Francisco Rush 2049 lets cars deploy wings while airborne. This port reads the wing models and sound from the
 // user's own Rush 2049 ROM (NTSC-U), so nothing from that game ships with the recomp. The ROM is chosen with a button
@@ -44,8 +45,11 @@ namespace {
     const std::string speeds_option_id = "car_speeds";
     const std::string battle_time_option_id = "battle_time_limit";
     const std::string battle_team_option_prefix = "battle_team_p";
-    const std::string style_option_p1 = "wing_style_p1";
-    const std::string style_option_p2 = "wing_style_p2";
+    const std::string style_option_prefix = "wing_style_p"; // + the player (1-4): their wings, set on the car select
+
+    std::string style_option(int player) {
+        return style_option_prefix + std::to_string(player + 1);
+    }
     const char* rom_file_name = "rush2049.z64";
 
     constexpr size_t rom_size = 0xC00000;
@@ -186,13 +190,18 @@ namespace {
         wings_config.update_option_disabled(wings_option_id, disabled);
         wings_config.update_option_disabled(tracks_option_id, disabled);
         wings_config.update_option_disabled(cars_option_id, disabled);
-        wings_config.update_option_disabled(drones_option_id, disabled);
-        wings_config.update_option_disabled(battle_time_option_id, disabled);
+        // The computer cars' choice is among the Rush 2049 cars, and the battle options are the arenas', which come
+        // with the Rush 2049 tracks.
+        bool cars_on = std::get<bool>(wings_config.get_option_value(cars_option_id));
+        wings_config.update_option_disabled(drones_option_id, disabled || !cars_on);
+        bool battles = rush2::track2049::available();
+        wings_config.update_option_disabled(battle_time_option_id, !battles);
         for (int player = 1; player <= 4; player++) {
-            wings_config.update_option_disabled(battle_team_option_prefix + std::to_string(player), disabled);
+            wings_config.update_option_disabled(battle_team_option_prefix + std::to_string(player), !battles);
         }
-        wings_config.update_option_disabled(style_option_p1, disabled);
-        wings_config.update_option_disabled(style_option_p2, disabled);
+        for (int player = 0; player < rush2::wings::max_players; player++) {
+            wings_config.update_option_disabled(style_option(player), disabled);
+        }
     }
 
     void select_rom() {
@@ -288,6 +297,7 @@ void rush2::wings::init_config() {
     wings_config.add_option_change_callback(cars_option_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::car2049::set_option(std::get<bool>(cur_value));
+            update_rom_ui();
         });
 
     wings_config.add_enum_option(
@@ -372,12 +382,13 @@ void rush2::wings::init_config() {
                 rush2::battle::set_team(player, (int)std::get<uint32_t>(cur_value));
             });
     }
-    // Rush 2049 has each player pick one of three wings on the car setup screen.
-    for (int player = 0; player < 2; player++) {
-        std::string id = player == 0 ? style_option_p1 : style_option_p2;
+    // Rush 2049 has each player pick one of three wings on the car setup screen; here it is the car select's WINGS
+    // row (src/wings_menu.cpp), which keeps each player's choice in these options.
+    for (int player = 0; player < rush2::wings::max_players; player++) {
+        std::string id = style_option(player);
         wings_config.add_enum_option(
             id,
-            player == 0 ? "Player 1 Wings" : "Player 2 Wings",
+            "Player " + std::to_string(player + 1) + " Wings",
             "Chooses this player's wings, as on Rush 2049's car setup screen. "
             "<recomp-color primary>Style 1</recomp-color> steers in the air. "
             "<recomp-color primary>Style 2</recomp-color> steers harder and glides, but slows the car. "
@@ -388,7 +399,7 @@ void rush2::wings::init_config() {
                 { 2u, "Style3", "Style 3" },
             },
             0u,
-            true    // Shown in the Players tab (src/players_tab.cpp).
+            true    // Not listed in a tab: set on the car select.
         );
         wings_config.add_option_change_callback(id,
             [player](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
@@ -419,11 +430,11 @@ void rush2::wings::save_config() {
 }
 
 int rush2::wings::get_style_option(int player) {
-    return (int)std::get<uint32_t>(wings_config.get_option_value(player == 0 ? style_option_p1 : style_option_p2));
+    return (int)std::get<uint32_t>(wings_config.get_option_value(style_option(player)));
 }
 
 void rush2::wings::set_style_option(int player, int style) {
-    wings_config.update_option_value(player == 0 ? style_option_p1 : style_option_p2, (uint32_t)style);
+    wings_config.update_option_value(style_option(player), (uint32_t)style);
     wings_config.save_config();
 }
 

@@ -1,6 +1,5 @@
-// Players tab: which controllers and the keyboard may play (src/input.cpp), players 1 and 2's Rush 2049 wings
-// (src/wings.cpp), the 2 player split screen layout (src/splitscreen.cpp) and the computer cars' cars and paint
-// (src/npc_cars.cpp).
+// Players tab: which controllers and the keyboard may play (src/input.cpp), the 2 player split screen layout
+// (src/splitscreen.cpp) and the computer cars' cars and paint (src/npc_cars.cpp).
 //
 // Controllers aren't given to players here: in the game, whoever presses START becomes the next player. Each
 // controller (connected, or disabled and remembered) and the keyboard has a toggle that enables it. The tab rebuilds
@@ -21,7 +20,6 @@
 
 #include "npc_cars.h"
 #include "rush2.h"
-#include "wings.h"
 
 namespace {
     using namespace recompui;
@@ -34,9 +32,7 @@ namespace {
         "Players join in the game: player 1 presses START on the title screen, and players 2, 3 and 4 press START on "
         "Select Player. A controller can join once it has pressed a button.\n\n"
         "Buttons are set in the game's Controller Setup screen (Options, or the pause menu during a race).\n\n"
-        "<recomp-color primary>Wings</recomp-color> chooses players 1 and 2's Rush 2049 wings, as on Rush 2049's car "
-        "setup screen: Style 1 steers in the air, Style 2 steers harder and glides but slows the car, Style 3 steers "
-        "hardest and glides farthest. Wings are turned on in the Games tab.\n\n"
+        "Each player's Rush 2049 wings are chosen on the car select's WINGS row (with Wings on in the Games tab).\n\n"
         "<recomp-color primary>Split Screen</recomp-color> sets how the screen is split in 2 player races: Top and "
         "Bottom matches the original game, Side by Side gives each player half of the screen's width. It takes effect "
         "at the start of the next race.\n\n"
@@ -135,8 +131,7 @@ namespace {
                     std::to_string(rush2::input::port_player(port));
             }
             return state + "|" + std::to_string(rush2::input::get_keyboard_port()) + "|" +
-                std::to_string(rush2::input::get_keyboard_enabled()) +
-                std::to_string(rush2::wings::rom_available());
+                std::to_string(rush2::input::get_keyboard_enabled());
         }
 
         // What a device is doing right now, from its port (-1 for none).
@@ -254,33 +249,6 @@ namespace {
                 rush2::input::set_keyboard_enabled(checked);
             });
 
-            // Wing styles: players 1 and 2, once the Rush 2049 ROM is there.
-            if (rush2::wings::rom_available()) {
-                Element* row = add_row(rows, "Wings");
-                for (int player = 0; player < 2; player++) {
-                    Element* line = context.create_element<Element>(row, 0, "div", false);
-
-            rush2::npc_cars::add_section(rows);
-                    line->set_display(Display::Flex);
-                    line->set_flex_direction(FlexDirection::Row);
-                    line->set_align_items(AlignItems::Center);
-                    line->set_gap(16.0f);
-                    line->set_as_navigation_container(NavigationType::Horizontal);
-    rush2::npc_cars::init_config();
-                    Label* name = context.create_element<Label>(line, "Player " + std::to_string(player + 1), theme::Typography::LabelSM);
-                    name->set_color(theme::color::TextDim);
-                    name->set_min_width(80.0f);
-                    Radio* styles = context.create_element<Radio>(line);
-                    styles->add_option("Style 1");
-                    styles->add_option("Style 2");
-                    styles->add_option("Style 3");
-                    styles->set_index((uint32_t)rush2::wings::get_style_option(player));
-                    styles->add_index_changed_callback([player](uint32_t index) {
-                        rush2::wings::set_style_option(player, (int)index);
-                    });
-                }
-            }
-
             using rush2::splitscreen::Layout;
             Element* split_row = add_row(rows, "Split Screen");
             Radio* layouts = context.create_element<Radio>(split_row);
@@ -290,11 +258,14 @@ namespace {
             layouts->add_index_changed_callback([](uint32_t index) {
                 rush2::splitscreen::set_layout_option(index == 1 ? Layout::SideBySide : Layout::TopBottom);
             });
+
+            rush2::npc_cars::add_section(rows);
         }
     };
 }
 
 void rush2::players::create_tab() {
+    rush2::npc_cars::init_config();
     recompui::config::create_tab(tab_name, tab_id, [](ContextId context, Element* parent) {
         context.create_element<PlayersPage>(parent);
     });
