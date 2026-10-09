@@ -36,6 +36,8 @@ void rush2_hud_build_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_finish_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_finish_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_highscore_create_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_highscore_create_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx);

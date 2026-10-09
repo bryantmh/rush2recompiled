@@ -986,6 +986,24 @@ void rush2_hud_finish_end(uint8_t* rdram, recomp_context* ctx) {
     building_hud = false;
 }
 
+// func_800606A8 (high-score screen), around its widgets_create (0x80060774). The race HUD setup's first widget table
+// (0x800C3F34) has func_800BAD44 as its callback, which widgets_create runs at once: it opens the high-score screen's
+// first page from inside the HUD setup, and those widgets were anchored like the HUD's (the rank column pinned to the
+// left edge, away from the names and times). Pages opened later are built from the widget loop and never were. The
+// screen is laid out as a whole, so its widgets are never the HUD's.
+namespace {
+    bool highscore_saved_building = false;
+}
+
+void rush2_hud_highscore_create_begin(uint8_t* rdram, recomp_context* ctx) {
+    highscore_saved_building = building_hud;
+    building_hud = false;
+}
+
+void rush2_hud_highscore_create_end(uint8_t* rdram, recomp_context* ctx) {
+    building_hud = highscore_saved_building;
+}
+
 // func_800541F8 (widget allocator), after the widget is initialized. $v1 = slot.
 void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx) {
     uint32_t slot = (uint32_t)ctx->r3;
