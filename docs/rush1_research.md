@@ -450,14 +450,22 @@ T5GATEL1-12; src/track1.cpp (hook at 0x800BB8AC) gives the FENCET5GATEL1 breakab
 Code: `src/car1_decals.cpp` (the decal colour maps; port of `tools/rush1/cardecal.py`, checked byte for byte by
 `tools/rush1/cpp_test/car_decals.bat`), `src/car1_stripes.cpp` (game side), option "SF Rush Car Stripes" in the Games tab.
 Viewers: `tools/rush1/carview.py CAR OUT.png` renders the car in Rush 1, in Rush 2 with the decal and in Rush 2 without,
-from several angles (offline, no game run; how to judge the result); `tools/rush1/cardecal.py CAR` writes per-panel
+from several angles (offline, no game run; how to judge the result; it draws back faces, so Rush 2's transparent windows
+show the far side); `carview.py --score` measures how much of Rush 1's decal the Rush 2 car shows (2026-10-09: Camaro
+100%, Bus 100%, Bug 99%; the Taxi's misses are its roof sign and grille, not decal); `tools/rush1/cardecal.py CAR` writes per-panel
 previews; `tools/rush1/cartex.py` (car files, meshes, palettes).
 
-- Cars: only the four with a decal of their own in Rush 1: Camaro (Rush 2 "Bandit", flames on the front fenders), VW Bus
-  ("Van", white swirls all over), VW Bug ("Subcompact", white sunburst on the roof, hood stripes, rear chevrons) and Taxi
-  (checker band along the front half and across the nose). BMW, Supra, Bugatti and Viper only have white racing stripes
+- Cars: only the four with a decal of their own in Rush 1: Camaro (Rush 2 "Bandit", flames across the hood and the
+  roof), VW Bus ("Van", white swirls over the sides and roof), VW Bug ("Subcompact", wide white stripes over the roof and
+  sides, a target on the rear deck) and Taxi (checker band along the sides and across the nose and tail). BMW, Supra, Bugatti and Viper only have white racing stripes
   (Rush 2's own STRIPE values cover those); the Concept has none; the Hot Rod's flames are where Rush 2 already draws its
   own (in the accent colour), so it is left out; Formula 1 has no textures.
+- **Rush 1 car textures come from a BRANCH_Z target.** Each panel group of a Rush 1 car display list is `B4 <target>`,
+  `B0` (BRANCH_Z), a call to a 16x8 load, then a 64x32 load; the target is a separate list loading the close-up 64x32
+  texture, taken when the car is near. Walking the fall-through instead gives every panel a distant texture: the art
+  lands in the wrong places (flames on the Camaro's sides instead of its hood, the Bus's swirls missing from its roof)
+  and the tall textures' coordinates seem to need s/t swapped. `tools/rush1/cartex.py meshes()` and the C++ walker take
+  the branch; check any Rush 1 car render against the real game.
 - Rush 2's cars are the Rush 1 cars re-textured: both games' car meshes use the same car-local coordinates, but the panel
   textures were laid out again (pairing by pixel matches only 65-90%), so the decal is moved through 3D. Each Rush 2 D0
   panel texel is sampled 3 x 3 times; each sample's point on the Rush 2 body is matched to the Rush 1 body (FL1, FR1, RL1,
@@ -466,15 +474,21 @@ previews; `tools/rush1/cartex.py` (car files, meshes, palettes).
   Nearest-point matching alone picked hidden inner faces where the two bodies differ, and one sample per texel aliased
   Rush 1's denser panels into streaks.
 - Rush 1 palettes: indices 1-25, 30, 65-86 differ across the ten paint sets (paint ramps); the rest are fixed colours.
-  Decal indices per car (`CARS` / `cars[]`): Camaro 33-49 and 100-106 (flame ramps; its rear amber lights use them too,
-  so only Rush 2 panels 2-3), with greys 147-156 and reds 161-175 kept next to flame texels; Bus and Bug 33-63 (a white
+  Decal indices per car (`CARS` / `cars[]`): Camaro 33-49 and 100-106 (flame ramps), with greys 147-156 and reds
+  161-175 kept next to flame texels; Bus and Bug 33-63 (a white
   ramp in those files); Taxi 145-148 (white checks) with blacks 31 and 157-159 next to them (black checks). A texel is
-  decal where at least half of its samples are (and Rush 2 has paint there), its colour the nearest Rush 2 fixed car
-  palette entry (64-255, the same for every paint choice) to the mean of those samples. Hand-made cuts (texel rectangles
+  decal where any of its samples is (and Rush 2 has paint there): Rush 1 blends its decal edges into the paint, and a
+  majority rule left every shape a texel thinner per side, visibly sparse. Its colour is the nearest Rush 2 fixed car
+  palette entry (96-111 and 144-207, the same for every paint choice) to the mean of those samples. Not 64-255: the
+  game's palette class table (ranges `first, last, flags, shift` at 0x800C5670, ending when last < first; built into
+  *0x8010C06C by func_800854AC) gives 1-31 flags 0x22 (MAIN tint), 33-63 0x42 (ACCENT tint), 64-95, 112-143 and 208-255
+  0x10 (free: func_80084EDC overwrites them with paint / stripe colour blends), and 32, 96-111, 144-207 0 (fixed). A
+  decal in the free entries (pure white 128, reds 81-85) picked up the main colour in game. Hand-made cuts (texel rectangles
   per panel, `CUTS` / `Car::cuts`) can drop fragments; specks under 6 texels are dropped.
 - Rush 2 car palette: 1-31 main ramp, 33-63 accent ramp with the same greys (accent index = main index + 32), rest
-  fixed. Rush 1 paints these cars in one colour, so with SF RUSH the game also turns every accent texel of the car's panel
-  textures into the main ramp (the Bus's upper band, the Camaro's grey lower sides, the Bug's rear half).
+  fixed. The decal goes over Rush 2's own paint, so MAIN and ACCENT (secondary) still colour the rest of the car (user
+  decision 2026-10-09; an earlier version turned the accent ramp into the main ramp, as Rush 1 paints these cars in one
+  colour, which made ACCENT do nothing).
 - Rush 2 stripes: asset 0x1C (deflate, not LZ) tiles stamped by func_80083F50 from func_8008582C's 24-iteration loop
   (D0/D1 x panels 1-6 x full and _4 mip). Per texel the stamp checks the tile byte's alpha nibble against a LOD threshold
   and remaps the panel texel through a class table (*0x8010C06C, 2 bytes per palette index: class nibble, shade) into the
@@ -482,7 +496,12 @@ previews; `tools/rush1/cartex.py` (car files, meshes, palettes).
   keeps a copy (0x8010C0D0 == 2). The STRIPE value 8 is stored as a flag in the record block byte 0x585 bit 0 (STRIPE
   field 0); getter func_800B2608, setter func_80097934, car select row (func_803B9478 at 0x803B9B18 / 0x803B9B8C) and
   text (func_803BC048 at 0x803BC3F4 / 0x803BC644) are hooked. In func_8008582C the value looks up SINGLE's tile
-  (0x80085D84) so the loop reaches the stamp, and at 0x80085D8C the decal and the accent change are written into the
-  panel texture (handle at sp+0xBE, car type at sp+0xCE) and the stamp is skipped.
+  (0x80085D84) so the loop reaches the stamp, and at 0x80085D8C the decal is written into the panel texture (handle at
+  sp+0xBE, car type at sp+0xCE) and the stamp is skipped. The panel is found by its record name, `<car>_D<stage>_<n>` or
+  the mip `<car>_D<stage>_<n>_4`; panel 4's full texture also ends in `_4`, so the mip is told apart by the name's length
+  (a suffix test missed panel 4, the roof, on every car). `RUSH2_CAR1_DUMP=<dir>` writes the built panels
+  (`<car>_<n>.bin`) and logs every stamp call (panel, size, whether a decal matched).
+- Built decals are cached in `<app folder>/stripe_cache/<CAR>.bin`, keyed on a hash of the three input files and the
+  executable's size and modification time, so each car is built once per ROM and build, not every boot.
 - Gotcha: RDRAM is word-swapped on the host; write bytes with MEM_B, never through the alloc pointer.
 

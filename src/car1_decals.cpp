@@ -22,10 +22,10 @@ namespace rush2::car1decals {
     const Car cars[car_count] = {
         // Rush 1 asset 25 + its car's place in {BMW, CAMARO, SUPRA, BUGATTI, VWBUS, VIPER, VWBUG, CONCEPT, TAXI, HOTROD, FORM1}.
         // Only the cars with a decal of their own (the others have racing stripes, which Rush 2's STRIPE values cover).
-        // Decal ranges: fixed Rush 1 colours, 33-49 / 100-106 the Camaro's flame ramps (yellow to red; its rear amber
-        // lights use them too, hence its side panels only), 145-148 whites, 157-159 and 31 blacks; on the VW Bus and Bug
-        // 33-63 is a white ramp. Panels: bit n = D0_n. Cuts: tools/rush1/cardecal.py CUTS.
-        { "CAMARO", 5, 26, { { 33, 49 }, { 100, 106 } }, { { 147, 156 }, { 161, 175 } }, 0b0001100, {} },
+        // Decal ranges: fixed Rush 1 colours, 33-49 / 100-106 the Camaro's flame ramps (yellow to red), 145-148 whites,
+        // 157-159 and 31 blacks; on the VW Bus and Bug 33-63 is a white ramp. Panels: bit n = D0_n. Cuts:
+        // tools/rush1/cardecal.py CUTS.
+        { "CAMARO", 5, 26, { { 33, 49 }, { 100, 106 } }, { { 147, 156 }, { 161, 175 } }, 0b1111110, {} },
         { "VWBUS", 8, 29, { { 33, 63 } }, {}, 0b1111110, {} },
         { "VWBUG", 10, 31, { { 33, 63 } }, {}, 0b1111110, {} },
         { "TAXI", 16, 33, { { 145, 148 } }, { { 31, 31 }, { 157, 159 } }, 0b1111110, {} },
@@ -120,9 +120,10 @@ namespace {
     }
 
     // Walks every model's display list: Rush 1 = F3DEX1 (VTX 04, DL 06, TRI1 BF, TRI2 B1, vertex indices x2, ENDDL
-    // B8), Rush 2 = F3DEX2 (VTX 01, DL DE, TRI1 05, TRI2 06, ENDDL DF). The texture of a triangle is the largest
-    // texture load (SETTIMG then SETTILESIZE) so far in the model: Rush 1 car panels pick between a 16x8 and a 64x32
-    // list with B4/B0 (RDPHALF_1 + BRANCH_Z), and walking both takes the large, near one.
+    // B8), Rush 2 = F3DEX2 (VTX 01, DL DE, TRI1 05, TRI2 06, ENDDL DF). The texture of a triangle is the one bound
+    // when it is drawn (the last SETTIMG with the last SETTILESIZE's size). Rush 1 car panels load their close-up
+    // texture from a B4/B0 (RDPHALF_1 + BRANCH_Z) target, taken when the car is near, and fall through to the distant
+    // ones; the walk takes the branch. (Walking the fall-through gave every panel a distant texture: wrong art.)
     Meshes meshes(const File& f) {
         const auto& d = f.d;
         Meshes out;
@@ -132,8 +133,8 @@ namespace {
             std::vector<Tri>& tris = out[f.models[m]];
             Vtx vbuf[64];
             bool have[64] = {};
-            uint32_t img = 0;
-            bool have_img = false, have_best = false;
+            uint32_t img = 0, half = 0;
+            bool have_img = false, have_best = false, have_size = false, have_half = false;
             uint32_t best_data = 0;
             int best_w = 0, best_h = 0;
             double best_uls = 0, best_ult = 0;
@@ -164,18 +165,27 @@ namespace {
                     else if (op == 0xFD) {
                         img = w1 & 0xFFFFFF;
                         have_img = true;
-                    }
-                    else if (op == 0xF2 && have_img) {
-                        int w = (int((w1 >> 12) & 0xFFF) - int((w0 >> 12) & 0xFFF)) / 4 + 1;
-                        int h = (int(w1 & 0xFFF) - int(w0 & 0xFFF)) / 4 + 1;
-                        if (!have_best || w * h >= best_w * best_h) {
+                        if (have_size) {        // a new image keeps the tile size until the next SETTILESIZE
                             have_best = true;
                             best_data = img;
-                            best_w = w;
-                            best_h = h;
-                            best_uls = ((w0 >> 12) & 0xFFF) / 4.0;
-                            best_ult = (w0 & 0xFFF) / 4.0;
                         }
+                    }
+                    else if (op == 0xF2 && have_img) {
+                        have_size = have_best = true;
+                        best_data = img;
+                        best_w = (int((w1 >> 12) & 0xFFF) - int((w0 >> 12) & 0xFFF)) / 4 + 1;
+                        best_h = (int(w1 & 0xFFF) - int(w0 & 0xFFF)) / 4 + 1;
+                        best_uls = ((w0 >> 12) & 0xFFF) / 4.0;
+                        best_ult = (w0 & 0xFFF) / 4.0;
+                    }
+                    else if (f.game == 1 && op == 0xB4) {
+                        half = w1;
+                        have_half = true;
+                    }
+                    else if (f.game == 1 && op == 0xB0 && have_half && (half >> 24) == f.seg) {
+                        o = half & 0xFFFFFF;
+                        have_half = false;
+                        continue;
                     }
                     else if ((f.game == 1 && (op == 0xBF || op == 0xB1)) || (f.game == 2 && (op == 0x05 || op == 0x06))) {
                         uint32_t ids[2][3];
@@ -337,10 +347,20 @@ namespace {
         return false;
     }
 
-    // The opaque Rush 2 car palette entry of 64-255 (the same for every paint colour) closest to `c`, first on a tie.
+    // The opaque fixed Rush 2 car palette entry (fixed_entry) closest to `c`, first on a tie.
+    // The game's palette class table (ranges at 0x800C5670, built by func_800854AC) tints 1-31 / 33-63 with MAIN /
+    // ACCENT and hands 64-95, 112-143 and 208-255 to func_80084EDC, which overwrites them with blends of the paint and
+    // stripe colours: only 96-111 and 144-207 keep their colour for every paint choice.
+    bool fixed_entry(int i) {
+        return (i >= 96 && i < 112) || (i >= 144 && i < 208);
+    }
+
     int nearest_fixed(const Rgb& c, const std::vector<Rgb>& pal2) {
         int best = -1, best_d = 0;
-        for (int i = 64; i < 256; i++) {
+        for (int i = 0; i < 256; i++) {
+            if (!fixed_entry(i)) {
+                continue;
+            }
             const Rgb& p = pal2[i];
             if (p.a == 0) {
                 continue;
@@ -618,7 +638,8 @@ bool rush2::car1decals::build(int car, const std::vector<uint8_t>& r1_car, const
                 }
             }
         }
-        // A texel is decal where at least half of its sub-samples are; companions also need a decal texel nearby.
+        // A texel is decal where any of its sub-samples is (Rush 1 blends its decal edges into the paint, so a majority
+        // rule thins every shape); companions also need a decal texel nearby.
         std::vector<uint8_t> mask(size_t(w) * h, 0), comp(size_t(w) * h, 0);
         for (int q = 0; q < w * h; q++) {
             int got = 0, pc = 0, cc = 0;
@@ -631,7 +652,7 @@ bool rush2::car1decals::build(int car, const std::vector<uint8_t>& r1_car, const
                 }
             }
             if (got > 0 && r2_body(r2_car[tex->data + q])) {
-                mask[q] = 2 * pc >= got ? 1 : 0;
+                mask[q] = pc > 0 ? 1 : 0;
                 comp[q] = !mask[q] && cc > 0 && 2 * (pc + cc) >= got ? 1 : 0;
             }
         }

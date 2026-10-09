@@ -17,3 +17,5 @@ Scratch scripts, logs and test output go in `tmp/` in the project root (gitignor
 Prefer reusable tools over one-off scripts. If a script would be useful again, put it in `tools/` with arguments and a comment on what it does, and extend an existing tool before writing a new one
 
 Controller navigation must reach and show everything in a settings page. A row holding buttons in a scrolling page has to scroll itself into view when something in it takes focus: use `rush2::ui::FocusRow` or `OptionsPage::add_row()` (include/options_page.h), never a plain div. Give rows of buttons their own line so the buttons keep their full size.
+
+Data the game derives from the ROMs at run time (converted tracks, built car decals and the like) must be cached on disk and reused, not rebuilt every boot. Key the cache on its inputs and the build so a new ROM or build rebuilds it once
