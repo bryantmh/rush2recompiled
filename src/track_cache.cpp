@@ -28,7 +28,7 @@
 namespace {
     constexpr char magic[4] = { 'R', '2', 'T', 'C' };
     constexpr uint32_t format_version = 1;
-    enum class Kind : uint32_t { Rush1 = 1, Rush2049 = 2 };
+    enum class Kind : uint32_t { Rush1 = 1, Rush2049 = 2, Blob = 3 };
 
     // A field added to a converted track struct has to be added to write()/read() below; then update these sizes.
     static_assert(sizeof(rush2::track1::ConvertedTrack) == 392, "update track_cache.cpp for ConvertedTrack (track1)");
@@ -300,6 +300,10 @@ namespace {
     }
 
     std::mutex cache_mutex;
+
+    std::filesystem::path blob_file(const std::string& name) {
+        return cache_dir() / ("blob_" + name + ".bin");
+    }
 }
 
 // FNV-1a over 8-byte words (then the tail bytes), with a rotate so high bits feed back: a whole ROM hashes in a few
@@ -364,4 +368,46 @@ void rush2::track_cache::save_2049(int k, const std::string& prefix, uint64_t so
     key(w, Kind::Rush2049, k, prefix, source);
     write(w, track);
     store(Kind::Rush2049, k, w.bytes);
+}
+
+bool rush2::track_cache::load_blob(const std::string& name, uint64_t source, std::vector<uint8_t>& out) {
+    if (source == 0) return false;
+    std::lock_guard lock{ cache_mutex };
+    std::ifstream in(blob_file(name), std::ios::binary);
+    if (!in) return false;
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    Writer expected;
+    key(expected, Kind::Blob, 0, name, source);
+    size_t at = expected.bytes.size();
+    if (bytes.size() < at || memcmp(bytes.data(), expected.bytes.data(), at) != 0) return false;
+    Reader r(bytes);
+    r.at = at;
+    std::vector<uint8_t> loaded;
+    r.pods(loaded);
+    if (!r.ok || r.at != bytes.size()) return false;
+    out = std::move(loaded);
+    return true;
+}
+
+void rush2::track_cache::save_blob(const std::string& name, uint64_t source, const std::vector<uint8_t>& data) {
+    if (source == 0) return;
+    std::lock_guard lock{ cache_mutex };
+    Writer w;
+    key(w, Kind::Blob, 0, name, source);
+    w.pods(data);
+    std::error_code ec;
+    std::filesystem::create_directories(cache_dir(), ec);
+    std::filesystem::path path = blob_file(name);
+    std::filesystem::path temp = path;
+    temp += ".tmp";
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (!out) return;
+        out.write(reinterpret_cast<const char*>(w.bytes.data()), (std::streamsize)w.bytes.size());
+        if (!out) return;
+    }
+    std::filesystem::rename(temp, path, ec);
+    if (ec) {
+        fprintf(stderr, "[TrackCache] Couldn't write %s: %s\n", path.string().c_str(), ec.message().c_str());
+    }
 }

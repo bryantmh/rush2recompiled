@@ -11,6 +11,7 @@
 
 #include "assets.h"
 #include "rush2049_rom.h"
+#include "track_cache.h"
 #include "wings.h"
 #include "wings_internal.h"
 
@@ -123,8 +124,19 @@ namespace {
             return rom.get();
         }
 
+        // The ROM's hash, taken on first use (a few milliseconds).
+        uint64_t cache_key() const override {
+            std::lock_guard lock{ mutex };
+            if (key == 0) {
+                key = rush2::track_cache::hash(rom->data(), rom->size());
+                if (key == 0) key = 1;
+            }
+            return key;
+        }
+
     private:
         std::shared_ptr<const std::vector<uint8_t>> rom;
+        mutable uint64_t key = 0;
         mutable std::mutex mutex;
         mutable std::vector<uint32_t> offsets; // file_count + 1 entries once read.
         mutable std::shared_ptr<const std::vector<uint8_t>> segments[3];

@@ -13,7 +13,8 @@
 // on the first race of it in every session: converting runs inside the race setup on the race's first frame and
 // showed as a hitch at the race start (docs/race_start_hitch.md).
 //
-// One file per track in <app folder>/track_cache. An entry is used only if it was written by this same build of the
+// One file per track in <app folder>/track_cache; converted Rush 2049 cars and part models, and every file converted
+// from a Dreamcast disc, are blobs (load_blob) in the same folder. An entry is used only if it was written by this same build of the
 // executable for the same track, slot prefix and source data (the `source` hash), so a new build or another ROM
 // converts again and replaces it.
 namespace rush2::track_cache {
@@ -25,6 +26,11 @@ namespace rush2::track_cache {
                     std::vector<uint8_t>& logo);
     void save_rush1(int t, const std::string& prefix, uint64_t source, const rush2::track1::ConvertedTrack& track,
                     const std::vector<uint8_t>& logo);
+
+    // Opaque converted data (a car, a Dreamcast file, ...) under `name`, kept in the same folder with the same build and
+    // source checks. `source` identifies what it was converted from (rush2::rom2049::Source::cache_key); 0 never hits.
+    bool load_blob(const std::string& name, uint64_t source, std::vector<uint8_t>& out);
+    void save_blob(const std::string& name, uint64_t source, const std::vector<uint8_t>& data);
 
     // Rush 2049 track k (as rush2::track2049::convert_track numbers them).
     bool load_2049(int k, const std::string& prefix, uint64_t source, rush2::track2049::ConvertedTrack& track);

@@ -34,6 +34,7 @@
 #include "car2049.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
+#include "track_cache.h"
 #include "track2049.h"
 #include "wings.h"
 #include "wings_internal.h"
@@ -830,7 +831,14 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
     for (int k = 0; k < car_count; k++) {
         std::vector<uint8_t> car;
         std::string error;
-        if (rush2::track2049::convert_car(*rom, k + 1, "CAR" + std::to_string(k + 1), car, error)) {
+        // The converted cars are kept on disk (src/track_cache.cpp), so they're converted once per build and source.
+        std::string cache_name = "car2049_" + std::to_string(k + 1);
+        bool converted = rush2::track_cache::load_blob(cache_name, rom->cache_key(), car);
+        if (!converted && rush2::track2049::convert_car(*rom, k + 1, "CAR" + std::to_string(k + 1), car, error)) {
+            rush2::track_cache::save_blob(cache_name, rom->cache_key(), car);
+            converted = true;
+        }
+        if (converted) {
             Paint& p = paints[k];
             p.texture_table = be32(car, 8);
             p.texture_count = be32(car, 20);
@@ -863,7 +871,25 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
         sources.push_back(i < part_models ? "ENGINE0" + std::to_string(first_part_model + i) + "G1"
                                           : "TIRE0" + std::to_string(i - part_models + 1) + "G1");
     }
-    if (rush2::track2049::convert_parts(*rom, sources, names, parts, part_centers, error)) {
+    // Kept on disk with the cars: the part centers (3 floats each) followed by the model container.
+    std::vector<uint8_t> packed;
+    bool parts_ok = false;
+    if (rush2::track_cache::load_blob("parts2049", rom->cache_key(), packed) &&
+        packed.size() >= names.size() * sizeof(std::array<float, 3>)) {
+        size_t n = names.size();
+        part_centers.resize(n);
+        memcpy(part_centers.data(), packed.data(), n * sizeof(part_centers[0]));
+        parts.assign(packed.begin() + n * sizeof(part_centers[0]), packed.end());
+        parts_ok = true;
+    }
+    else if (rush2::track2049::convert_parts(*rom, sources, names, parts, part_centers, error)) {
+        packed.resize(part_centers.size() * sizeof(part_centers[0]));
+        memcpy(packed.data(), part_centers.data(), packed.size());
+        packed.insert(packed.end(), parts.begin(), parts.end());
+        rush2::track_cache::save_blob("parts2049", rom->cache_key(), packed);
+        parts_ok = true;
+    }
+    if (parts_ok) {
         rush2::assets::replace(rdram, parts_asset, parts);
     }
     else {

@@ -25,6 +25,7 @@
 
 #include "rush2049_dc.h"
 #include "rush2049_dc_internal.h"
+#include "track_cache.h"
 #include "wings_internal.h"
 
 namespace fs = std::filesystem;
@@ -387,15 +388,23 @@ namespace {
 
     class DcSource : public rush2::rom2049::Source {
     public:
-        explicit DcSource(std::shared_ptr<PackFiles> files) : files(std::move(files)) {}
+        DcSource(std::shared_ptr<PackFiles> files, uint64_t key) : files(std::move(files)), key(key) {}
 
+        // The converted files are kept on disk (src/track_cache.cpp): converting a disc model takes long enough to
+        // show as a hitch the first time a track or car is used.
         bool read_file(int index, std::vector<uint8_t>& out) const override {
             std::lock_guard lock{ mutex };
             auto it = converted.find(index);
             if (it == converted.end()) {
                 auto data = std::make_shared<std::vector<uint8_t>>();
-                if (!rush2::rom2049::dc::convert_file(*files, index, *data)) {
-                    data = nullptr;
+                std::string name = "dc_file_" + std::to_string(index);
+                if (!rush2::track_cache::load_blob(name, key, *data)) {
+                    if (rush2::rom2049::dc::convert_file(*files, index, *data)) {
+                        rush2::track_cache::save_blob(name, key, *data);
+                    }
+                    else {
+                        data = nullptr;
+                    }
                 }
                 it = converted.emplace(index, data).first;
             }
@@ -428,9 +437,14 @@ namespace {
             return files->stored(name, out);
         }
 
+        uint64_t cache_key() const override {
+            return key;
+        }
+
         std::shared_ptr<PackFiles> files;
 
     private:
+        uint64_t key;
         mutable std::mutex mutex;
         mutable std::map<int, std::shared_ptr<const std::vector<uint8_t>>> converted;
         mutable std::shared_ptr<const std::vector<uint8_t>> segments[3];
@@ -558,7 +572,15 @@ std::shared_ptr<const rush2::rom2049::Source> rush2::rom2049::dc::open_pack(cons
     if (!files->raw("1ST_READ.BIN", exe) || !known_executable(exe)) {
         return nullptr;
     }
-    return std::make_shared<DcSource>(std::move(files));
+    // The pack is only ever rewritten whole, so its path, size and time identify what was converted from it.
+    std::error_code ec;
+    uint64_t size = (uint64_t)fs::file_size(pack, ec);
+    uint64_t time = (uint64_t)fs::last_write_time(pack, ec).time_since_epoch().count();
+    std::u8string path = pack.u8string();
+    uint64_t key = rush2::track_cache::hash((const uint8_t*)path.data(), path.size(), 0xDC);
+    key = rush2::track_cache::hash((const uint8_t*)&size, sizeof(size), key);
+    key = rush2::track_cache::hash((const uint8_t*)&time, sizeof(time), key);
+    return std::make_shared<DcSource>(std::move(files), key == 0 ? 1 : key);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
