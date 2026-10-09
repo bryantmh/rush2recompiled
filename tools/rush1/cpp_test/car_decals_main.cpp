@@ -1,4 +1,4 @@
-// Offline test of src/car1_decals.cpp: builds each car's decal colour maps from the files make_car_ref.py wrote to
+// Offline test of src/rush1/car1_decals.cpp: builds each car's decal colour maps from the files make_car_ref.py wrote to
 // out/cars and compares them with the Python prototype's (tools/rush1/cardecal.py).
 //
 //     out\car_decals_test.exe <repo root>        (car_decals.bat builds it, writes the inputs and runs it)

@@ -11,7 +11,7 @@
 // Here a change on the ENGINE row (or its reset, like the horn) starts that engine on the player's slot and the main
 // loop (func_800AE670, once per frame) revs it up and back down for 1.6 s, then stops it. The rev also stops as soon
 // as the car select stops running, and before race setup starts the race's engines. A 2049 car revs Rush 2049's
-// engine for its ENGINE level instead (src/engine2049.cpp).
+// engine for its ENGINE level instead (src/rush2049/engine2049.cpp).
 
 #include <chrono>
 #include <cstring>
@@ -37,7 +37,7 @@ namespace {
 
     struct Rev {
         bool active = false;
-        bool rush2049 = false; // a 2049 car's engine (src/engine2049.cpp)
+        bool rush2049 = false; // a 2049 car's engine (src/rush2049/engine2049.cpp)
         Clock::time_point start;
     };
     Rev revs[2];

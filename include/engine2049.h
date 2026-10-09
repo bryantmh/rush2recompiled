@@ -5,7 +5,7 @@
 
 #include "recomp.h"
 
-// Rush 2049's engine sounds for the 2049 cars (src/engine2049.cpp).
+// Rush 2049's engine sounds for the 2049 cars (src/rush2049/engine2049.cpp).
 namespace rush2::engine2049 {
     // The car select's ENGINE row rev (src/engine_preview.cpp) on a 2049 car: starts ENGINE level `level`'s sound on
     // local player slot `slot` (0-1), sets its rpm and throttle (0-1), and stops it.

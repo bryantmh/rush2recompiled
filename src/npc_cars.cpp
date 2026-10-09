@@ -11,13 +11,13 @@
 // cars, and the asset fit check after it still applies. Nothing is applied in attract
 // mode (0x800E7BB0) or when the New York Cabs cheat (0x800D9E89) makes every drone a taxi on its tracks, which wins.
 //
-// TIRE RIMS aren't in the entry: a car's rim is the per-type table 0x80201020 (Rush 2's 0x800C0E48, src/car2049.cpp)
+// TIRE RIMS aren't in the entry: a car's rim is the per-type table 0x80201020 (Rush 2's 0x800C0E48, src/rush2049/car2049.cpp)
 // at row 0 for a drone (row player + 1 for a human), RIM01 + value. It is read in four places, each hooked to give an
 // opponent its chosen rim: func_80085FD0 building a race car's wheel nodes (0x800865CC, for the car
 // func_80086CA4 is building, 0x80086E0C), func_8005A598's per-frame wheel texture (sharp at 0x8005AB08, blurred
 // through 0x800CEDAC at 0x8005AAF8), func_80087290 (0x800875F8) and func_8008DBA0's car init (+0x59E, 0x8008DD54).
 
-// librecomp's own nlohmann::json first, so Config::load_config links (see src/wings.cpp).
+// librecomp's own nlohmann::json first, so Config::load_config links (see src/rush2049/wings.cpp).
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
 
 #include <array>

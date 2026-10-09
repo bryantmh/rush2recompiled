@@ -63,7 +63,7 @@ namespace {
     // SF Rush's bank (.ctl) copy plus an empty instrument (see install). It must be in the first 16 MB of RDRAM, as
     // the audio microcode reads the ADPCM codebooks in it with 24-bit addresses, so it uses spare RDRAM there (other
     // users: src/interpolation.cpp 0x80B00000-0x80C00000, src/controls_menu.cpp 0x80C00000-0x80C90000,
-    // src/widescreen.cpp 0x80CF0000-0x80D00000, src/wings_render.cpp 0x80D00000-0x80E10000).
+    // src/widescreen.cpp 0x80CF0000-0x80D00000, src/rush2049/wings_render.cpp 0x80D00000-0x80E10000).
     constexpr uint32_t empty_instrument = (r1_ctl_size + 15) & ~15u;
     constexpr uint32_t ctl_buffer_size = empty_instrument + 0x20;
     constexpr uint32_t ctl_buffer = 0x80C90000;

@@ -1,16 +1,16 @@
 # Porting San Francisco Rush 2049 cars and tracks into Rush 2 Recompiled
 
-Status (October 2026): the Rush 2049 **wings** are done (`ab5cb2d`, `src/wings*.cpp`). The six **race tracks**
+Status (October 2026): the Rush 2049 **wings** are done (`ab5cb2d`, `src/rush2049/wings*.cpp`). The six **race tracks**
 are playable as extra track select entries, converted from the user's ROM at runtime:
 - Research write-ups for every format and system are in `docs/rush2049_research/` and supersede the details below
   where they differ. Notable corrections: the "+12" AI paths are **backward** paths, and 2049 ships them (files
   177-182); byte 0x80119848 is Rush 2's backward flag (mirror is 0x800D0190); 2049 object names are 16 bytes.
 - The tracks are **added**, not replacing anything: the menu offers ids 12-17 and a race runs in a borrowed slot
-  (HAWAII) whose files and tables are swapped only while a 2049 track is raced (`src/track2049*.cpp`).
-- Done since: moving objects (`src/track2049_movers*.cpp`, movers.md), objects turning in place (windmills,
-  TROLLEY2), animated textures (`src/track2049_texanim.cpp`, texanim.md), separate records (records.md), Rush 2049's
-  music and object sounds through a host-side MusyX port (`src/audio2049.cpp`, `src/track2049_audio.cpp`,
-  audio.md), and track select miniatures built from each track's real geometry (`src/track2049_art.cpp`; the game
+  (HAWAII) whose files and tables are swapped only while a 2049 track is raced (`src/rush2049/track2049*.cpp`).
+- Done since: moving objects (`src/rush2049/track2049_movers*.cpp`, movers.md), objects turning in place (windmills,
+  TROLLEY2), animated textures (`src/rush2049/track2049_texanim.cpp`, texanim.md), separate records (records.md), Rush 2049's
+  music and object sounds through a host-side MusyX port (`src/rush2049/audio2049.cpp`, `src/rush2049/track2049_audio.cpp`,
+  audio.md), and track select miniatures built from each track's real geometry (`src/rush2049/track2049_art.cpp`; the game
   heap is now 0x80400000-0x80B00000 to fit them). Cars remain future work (§8 Phase 2).
 
 This document gathers everything learned while reverse-engineering both games, so the work can resume without
@@ -26,7 +26,7 @@ disassembly or data, **[I]** = inferred and needs checking.
     stands in for one of Rush 2's 12.
   - Only then consider **adding** slots.
 - **No 2049 data ships with the project.** Everything is read and converted at runtime from the user's own ROM. That
-  ROM is already chosen on the *Rush 2049* settings tab (`src/wings.cpp`) and stored as
+  ROM is already chosen on the *Rush 2049* settings tab (`src/rush2049/wings.cpp`) and stored as
   `%LOCALAPPDATA%\Rush2Recompiled\rush2049.z64`.
 - **Supported ROM:** only San Francisco Rush 2049 **(USA)**, big-endian SHA-1 `3f99351d7bb61656614bdb2aa1a90cfe55d1922c`,
   12 MB, game code `NRUE`. All 2049 offsets below are for that ROM.
@@ -43,7 +43,7 @@ disassembly or data, **[I]** = inferred and needs checking.
 | One 2049 car in a Rush 2 slot | Moderate | Same model and display-list format family. Rush 2 needs 39 named body parts per car where 2049 has 3. Physics stats need tables. |
 | One 2049 track in a Rush 2 slot | Hard | Same geometry, collision and AI-path families, but Rush 2 hardcodes many per-track names and tables. It also needs a mirrored AI path, a bigger heap, and its custom conditional display-list op. 2049's animated objects need code. |
 | Adding 13th+ tracks / 23rd+ cars | Large | About 20 per-track tables, about 30 per-car tables and about 10 code sites with index arithmetic. Save format implications. |
-| 2049 battle weapons, coins (stunt arenas: done, hosted by STUNT1, see src/track2049.cpp) | Out of scope | These need 2049 game systems Rush 2 doesn't have. A separate 2049 recomp would be the better route. |
+| 2049 battle weapons, coins (stunt arenas: done, hosted by STUNT1, see src/rush2049/track2049.cpp) | Out of scope | These need 2049 game systems Rush 2 doesn't have. A separate 2049 recomp would be the better route. |
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -99,7 +99,7 @@ def lz(data, offset, relative):
                 out.append(out[-dist] if dist <= len(out) else 0)   # before start = zero
             pos = (pos + length) & 0xFFF
 ```
-The C++ version of the 2049 variant is `rush2::wings::lz_decompress` (`src/wings_rom.cpp`).
+The C++ version of the 2049 variant is `rush2::wings::lz_decompress` (`src/rush2049/wings_rom.cpp`).
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -211,7 +211,7 @@ objects. The packaging differs.
   - The recursive walker `func_8007786C` rebases VTX/MTX/MOVEMEM/DL/0xDD/0xE1.
   - **It also rewrites a custom conditional-DL opcode into G_DL branches based on player count and mirror mode.**
     Converted geometry must either avoid that opcode or use it deliberately (e.g. for mirror-only objects).
-- **Wings code as a working reference:** `src/wings_render.cpp` loads a 2049 model into spare RDRAM, rebases it the
+- **Wings code as a working reference:** `src/rush2049/wings_render.cpp` loads a 2049 model into spare RDRAM, rebases it the
   2049 way and draws it with Rush 2's matrices. RDRAM must stay below 16 MB (24-bit addresses). The wings use
   0x80D00000–0x80E10000; interpolation uses 0x80B00000–0x80C00000 (the game heap ends at 0x80B00000).
 
@@ -325,7 +325,7 @@ objects. The packaging differs.
   - special cases for 0x12/0x14/0x15 in `func_8008582C` (DEW has its own palette)
 - **Physics:**
   - car descriptors (`car+0x0`) match 2049's: inertia, drag 0.0135, rolling 75
-  - **the physics engines are identical** (see `src/wings_state.cpp` header comment); g = 32.2 at 0x80110018
+  - **the physics engines are identical** (see `src/rush2049/wings_state.cpp` header comment); g = 32.2 at 0x80110018
   - so 2049 car stats should transfer if 2049's per-car descriptor tables are found and copied (§9)
 
 ### 6.5 Physics and car structs (from the wings work)
@@ -348,7 +348,7 @@ objects. The packaging differs.
 - **Model drawing:** `func_8007AA48`.
   - It emits PRIM/ENV colours from node +0x30/+0x34 (flags 0x2000/0x4000) and **caches G_LIGHTING in byte
     0x800E7DE1**.
-  - **Any injected geometry must restore lighting and the paint colours afterwards.** `src/wings_render.cpp` shows
+  - **Any injected geometry must restore lighting and the paint colours afterwards.** `src/rush2049/wings_render.cpp` shows
     how; this bug turned the car body green during the wings work.
 
 ---------------------------------------------------------------------------------------------------------------------
@@ -515,21 +515,21 @@ Each phase ends with something testable. Use the in-game test recipe in §10.
   - Only one hook per instruction. Extend the existing C function instead (see `rush2_model_draw` calling the wings).
   - The executable's include path finds RT64's nlohmann::json 3.12 before librecomp's 3.9. Any file calling a
     librecomp function with a json parameter (e.g. `Config::load_config`) must include
-    `lib/N64ModernRuntime/thirdparty/json/json.hpp` first (see `src/wings.cpp`).
+    `lib/N64ModernRuntime/thirdparty/json/json.hpp` first (see `src/rush2049/wings.cpp`).
 
 ---------------------------------------------------------------------------------------------------------------------
 
 ## 11. Reference: Rush 2049 wings (done)
 
 Kept here because cars and tracks build on the same pieces:
-- Settings tab, ROM picker, SHA-1 check and ROM storage: `src/wings.cpp`.
-- 2049 LZ and file reading: `src/wings_rom.cpp`.
+- Settings tab, ROM picker, SHA-1 check and ROM storage: `src/rush2049/wings.cpp`.
+- 2049 LZ and file reading: `src/rush2049/wings_rom.cpp`.
 - Physics hooks (torque in `func_800706D0`, gravity in `func_8006A02C`, drag in `func_8006AFD8`, init in
-  `func_8008DBA0`): `src/wings_state.cpp`.
-- Loading a 2049 model into RDRAM and drawing it on a car: `src/wings_render.cpp`.
-- 2049 ADPCM sample decoding and host-side mixing: `src/wings_sound.cpp`.
+  `func_8008DBA0`): `src/rush2049/wings_state.cpp`.
+- Loading a 2049 model into RDRAM and drawing it on a car: `src/rush2049/wings_render.cpp`.
+- 2049 ADPCM sample decoding and host-side mixing: `src/rush2049/wings_sound.cpp`.
   - Sound chain: file 6 sound defs (12-byte entries) → file 7 voice scripts → file 8 sample headers (0x1C bytes:
     id, offset into file 9, root key, rate, format, length, loop) → file 9 data.
   - Format 3 = custom ADPCM: 0x100-byte codebook, 40-byte blocks of 2 × 32 samples with their own anchors.
   - The same path can extract any 2049 sound effect.
-- Controller Setup row: `src/wings_menu.cpp`.
+- Controller Setup row: `src/rush2049/wings_menu.cpp`.

@@ -8,7 +8,7 @@
 
 #include "rush2049_rom.h"
 
-// Rush 2049's music and sound effects, played on the host (src/audio2049.cpp): a C++ port of the MusyX sound system
+// Rush 2049's music and sound effects, played on the host (src/rush2049/audio2049.cpp): a C++ port of the MusyX sound system
 // Rush 2049 uses, driven by the data in the user's Rush 2049 ROM. Pure C++; no RDRAM or recompiler dependencies.
 //
 // Threading: mix() runs on the audio thread; every other call may come from any thread. All calls are serialised by
@@ -26,7 +26,7 @@ namespace rush2::audio2049 {
     // false if the ROM isn't readable. Stops anything playing. Safe to call again with another ROM.
     bool load(const std::vector<uint8_t>& rom);
     // Loads the sound of a Rush 2049 source: the N64 ROM's MusyX data, or a Dreamcast disc's own samples and streamed
-    // songs (src/audio2049_dc.cpp), which then answer every call below in the same N64 terms.
+    // songs (src/rush2049dc/audio2049_dc.cpp), which then answer every call below in the same N64 terms.
     bool load(std::shared_ptr<const rush2::rom2049::Source> source);
     bool loaded();
 

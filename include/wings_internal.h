@@ -1,7 +1,7 @@
 #ifndef __WINGS_INTERNAL_H__
 #define __WINGS_INTERNAL_H__
 
-// Shared between the src/wings*.cpp files.
+// Shared between the src/rush2049/wings*.cpp files.
 
 #include <array>
 #include <cstddef>
@@ -19,22 +19,22 @@ namespace rush2::wings {
     constexpr int max_cars = 8;
     constexpr int max_players = 4;   // Each player has their own wing style and WINGS button.
 
-    // The Games tab's config, games.json (src/wings.cpp): the Rush 2049 options and SF Rush's (src/rush1_rom.cpp).
+    // The Games tab's config, games.json (src/rush2049/wings.cpp): the Rush 2049 options and SF Rush's (src/rush1/rush1_rom.cpp).
     recomp::config::Config& games_config();
 
-    // ROM helpers of the Rush 2049 ROM picker (src/wings.cpp): SHA-1, and .v64/.n64 or little-endian images to big-endian
+    // ROM helpers of the Rush 2049 ROM picker (src/rush2049/wings.cpp): SHA-1, and .v64/.n64 or little-endian images to big-endian
     // (false if the data isn't an N64 ROM).
     std::array<uint8_t, 20> rom_sha1(const std::vector<uint8_t>& data);
     bool rom_to_big_endian(std::vector<uint8_t>& data);
 
-    // Rush 2049's LZ decompressor (src/wings_rom.cpp). Returns false on truncated data.
+    // Rush 2049's LZ decompressor (src/rush2049/wings_rom.cpp). Returns false on truncated data.
     bool lz_decompress(const uint8_t* src, size_t src_size, std::vector<uint8_t>& out);
 
     // True if player (0-3, the game's player struct index) holds the WINGS button and the game isn't paused
     // (src/controls_menu.cpp).
     bool button_held(uint8_t* rdram, int player);
 
-    // Wing state (src/wings_state.cpp).
+    // Wing state (src/rush2049/wings_state.cpp).
     struct Pose {
         int style;            // 0-2
         float slide;          // Sideways slide of each wing, world units.
@@ -48,10 +48,10 @@ namespace rush2::wings {
     uint32_t car_struct(int index);
     void set_player_style(int player, int style);
 
-    // Rendering (src/wings_render.cpp). Called from the model draw hook.
+    // Rendering (src/rush2049/wings_render.cpp). Called from the model draw hook.
     void draw_car_body(uint8_t* rdram, recomp_context* ctx);
 
-    // Sound (src/wings_sound.cpp).
+    // Sound (src/rush2049/wings_sound.cpp).
     void reload_sound();
     void set_sound(int car, bool playing);
 }

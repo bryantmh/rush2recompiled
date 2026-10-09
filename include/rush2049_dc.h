@@ -9,7 +9,7 @@
 
 #include "rush2049_rom.h"
 
-// The Dreamcast Rush 2049 (USA) disc as a Rush 2049 source (src/rush2049_dc*.cpp, docs/rush2049_research/dreamcast.md).
+// The Dreamcast Rush 2049 (USA) disc as a Rush 2049 source (src/rush2049dc/rush2049_dc*.cpp, docs/rush2049_research/dreamcast.md).
 //
 // Choosing a disc image copies the game's files out of it into the app folder (pack_file_name), so the image isn't
 // needed afterwards. The pack holds the disc's files as they are; they're converted to the N64 ROM's files and
@@ -27,7 +27,7 @@ namespace rush2::rom2049::dc {
     std::shared_ptr<const Source> open_pack(const std::filesystem::path& pack);
 
     // The RT64 replacement hash a scaled-down texture (Source::source_textures) is drawn with, for the texture pack of
-    // the disc's full-size images (src/rush2049_dc_pack.cpp). 0 for one that can't be hashed ahead (painted car
+    // the disc's full-size images (src/rush2049dc/rush2049_dc_pack.cpp). 0 for one that can't be hashed ahead (painted car
     // textures, whose palette the game sets).
     uint64_t replacement_hash(const SourceTexture& t);
 

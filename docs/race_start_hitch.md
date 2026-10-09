@@ -36,8 +36,8 @@ framebuffer on the CPU anywhere (pause screen, menus), and it changes base behav
 
 The race setup runs on the race's first frame: `race_start_timer_800AE670` -> `race_setup_800A5ADC` ->
 `race_load_track_800A5110` -> `track_assets_queue_800A4C98`, whose first instruction is hooked by
-`rush2_track49_load` (`src/track2049.cpp`). For an SF Rush track that calls `rush2::track1::load`
-(`src/track1.cpp`), which converted the track from the Rush 1 ROM there: 26 ms (applying it takes 0.4 ms). Rush
+`rush2_track49_load` (`src/rush2049/track2049.cpp`). For an SF Rush track that calls `rush2::track1::load`
+(`src/rush1/track1.cpp`), which converted the track from the Rush 1 ROM there: 26 ms (applying it takes 0.4 ms). Rush
 2049 tracks convert at the same point. A stock Rush 2 track spends ~16 ms in `race_setup` on that frame.
 
 The conversion used to be kept only for the last track raced in the session. It is now cached on disk.
@@ -48,9 +48,9 @@ The conversion used to be kept only for the last track raced in the session. It 
 (`rush1_<t>.bin`, `rush2049_<k>.bin`), so a track is converted once rather than on its first race of every
 session:
 
-- SF Rush: `convert` in `src/track1.cpp` stores the converted track and its in-race logo. `record_seed` reads the
+- SF Rush: `convert` in `src/rush1/track1.cpp` stores the converted track and its in-race logo. `record_seed` reads the
   lap times from the cache too, instead of converting a track to get them.
-- Rush 2049: `convert` in `src/track2049.cpp` stores the converted track. The mover, texture animation, prop and
+- Rush 2049: `convert` in `src/rush2049/track2049.cpp` stores the converted track. The mover, texture animation, prop and
   battle data are still built from it on every load, and the shared model scan of the Rush 2 ROM only runs when a
   track has to be converted.
 - An entry is used only if its key matches: track, slot prefix, source hash (the whole Rush 1 ROM; the Rush 2049 N64

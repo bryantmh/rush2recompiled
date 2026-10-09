@@ -3,7 +3,7 @@
 Tags: **[V]** verified in disassembly or data, **[I]** inferred. Addresses are 2049 main (`tools/rush2049/out/d49m.asm`)
 unless marked R2 (`analysis/out_disasm/r2.asm`).
 
-Port: `src/track2049_texanim.cpp` (runtime), `convert_tex_anims` in `src/track2049_convert.cpp` (patch sites,
+Port: `src/rush2049/track2049_texanim.cpp` (runtime), `convert_tex_anims` in `src/rush2049/track2049_convert.cpp` (patch sites,
 `ConvertedTrack::tex_anims`), `tools/rush2049/texanim.py` (Python twin, writes `out/trackK/texanim.txt`, compared by
 `cpp_test/build.bat`). Test: `tools/rush2049/cpp_test/texanim_build.bat [png dir] [seconds]`.
 

@@ -3,7 +3,7 @@
 // Models: Rush 2049's files 76 (WEPICON_* pickups, WEP_* weapons, WPR_* projectiles, WFX_* effects), 63 (the HUD's
 // BCOIN_* coins) and 61 (the explosion's 30 frames NEXPLOSIONG1-30, EXP_*) hold prebuilt F3DEX2 display lists. Each
 // file is copied as it is into spare RDRAM and its pointers are rebased the way Rush 2049's loader does, as
-// src/wings_render.cpp does for the wings: G_VTX, G_DL and G_SETTIMG addresses in object display lists are relative to
+// src/rush2049/wings_render.cpp does for the wings: G_VTX, G_DL and G_SETTIMG addresses in object display lists are relative to
 // the file, G_SETTIMG addresses in the texture load lists (TXLD chunk) to the texture data (IMAG chunk). An object
 // header (OBHD chunk, 0x58 bytes) is {name[16], f32 radius, u16 kind, s16 lods, {u16, u16, f32 distance, u32 display
 // list, u32 vertices}[4]}; the first level of detail is drawn.
@@ -40,7 +40,7 @@ extern "C" void rush2_interp_get_generation(uint32_t* view, uint32_t* gen);
 extern "C" bool rush2_interp_view_matrices(uint32_t view, uint32_t* root, uint32_t* projection, uint32_t* lookat);
 
 namespace {
-    // Spare RDRAM (src/wings_render.cpp lists the ranges below these): the model files, then the display lists.
+    // Spare RDRAM (src/rush2049/wings_render.cpp lists the ranges below these): the model files, then the display lists.
     struct ModelFile {
         int file;
         uint32_t address, max_size;
@@ -72,7 +72,7 @@ namespace {
     constexpr float teleport_distance = 32.0f;
 
     // The render state Rush 2049 has in place when it draws a model, and what Rush 2 expects afterwards
-    // (src/wings_render.cpp).
+    // (src/rush2049/wings_render.cpp).
     constexpr uint32_t prologue[][2] = {
         { 0xE7000000, 0x00000000 }, // G_RDPPIPESYNC
         { 0xE3000A01, 0x00100000 }, // CYCLETYPE = 2CYCLE

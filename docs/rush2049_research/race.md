@@ -28,7 +28,7 @@ unless marked "2049". Tools: `tools/rush2049/paths.py` (path parser, converter, 
     collision 145–152). The editor names inside the files (dm1, dm6, dm5, dm8, dm3, dm7, dm4, dm2) are scrambled: [V]
     the floor fit of every path to every arena's collision is a clean diagonal in loader order (tools/rush2049/track.py
     k 7–14 builds all eight with no problems). Battle paths have no branches; the PVS count is 14 for DM5 only and
-    its table isn't found (the port draws every section). The arenas are hosted in STUNT1 (src/track2049.cpp).
+    its table isn't found (the port draws every section). The arenas are hosted in STUNT1 (src/rush2049/track2049.cpp).
   - 172–175 = stunt 1–4 (the loader's 0x9E + track id; the editor names inside the files say stunt 4–1, but the
     floor fit of each path to each arena's collision agrees with the loader)
   - 176 = obstacle 1

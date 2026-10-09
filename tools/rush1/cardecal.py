@@ -1,4 +1,4 @@
-"""Rush 1 car decals painted onto Rush 2's car panel textures (reference implementation of src/car1_decals.cpp;
+"""Rush 1 car decals painted onto Rush 2's car panel textures (reference implementation of src/rush1/car1_decals.cpp;
 research notes in docs/rush1_research.md section 11).
 
 Rush 2's cars are the Rush 1 cars re-textured: the panels keep their shape (both games use the same car-local

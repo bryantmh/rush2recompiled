@@ -1,6 +1,6 @@
 # Rush 2049 battle mode
 
-Port: `src/battle.cpp`, hosting in `src/track2049.cpp` / `src/track2049_menu.cpp`. Tags: **[V]** verified in code or data,
+Port: `src/rush2049/battle.cpp`, hosting in `src/rush2049/track2049.cpp` / `src/rush2049/track2049_menu.cpp`. Tags: **[V]** verified in code or data,
 **[I]** inferred or approximated. Addresses are Rush 2049's unless a line says Rush 2.
 
 ## 1. Where the code is
@@ -198,11 +198,11 @@ Main code. **[V]** unless marked.
 ## 7. The port (Rush 2)
 
 - Arenas are hosted in STUNT1 (stunt mode), **no computer cars** (2049's battle was multiplayer only).
-- `src/battle.cpp` reads the mount, muzzle and shield tables from the player's ROM (the overlay is inflated at load).
+- `src/rush2049/battle.cpp` reads the mount, muzzle and shield tables from the player's ROM (the overlay is inflated at load).
   Rush 2's own cars (types 0-21) carry roof weapons where 2049's second car does, at their body's height **[I]**.
-- **Models** (`src/battle_render.cpp`): 2049's files 76 (weapons, projectiles, effects), 63 (coins) and 61 (the
+- **Models** (`src/rush2049/battle_render.cpp`): 2049's files 76 (weapons, projectiles, effects), 63 (coins) and 61 (the
   explosion's frames) are copied as they are into spare RDRAM (0x80E20000 - 0x80E80000) and rebased as 2049's loader
-  does, like the wings (src/wings_render.cpp). What the battle places (60 slots: 0-31 shots and effects, 32-39 mounts,
+  does, like the wings (src/rush2049/wings_render.cpp). What the battle places (60 slots: 0-31 shots and effects, 32-39 mounts,
   40-43 HUD weapons, 44-51 shields, 52-55 HUD power-ups, 56-59 HUD coins) is drawn at the end of each view
   (`rush2_battle_render_view`, `func_8007C624`'s exit) under a float matrix of its own on the view's root modelview,
   unlit, in a primitive color. So the models need no scene nodes and nothing of the track. The converter's 44 spare
@@ -280,7 +280,7 @@ Main code. **[V]** unless marked.
   Shots are stopped by the collision of a converted Rush 2049 track (`ConvertedTrack::solid_triangles`, now made for
   every 2049 track); on Rush 2's and SF Rush's tracks only grenades and mines meet the ground, taken as level at the
   height of the car that let them go, and other shots fly until they hit a car or their time is up.
-- **Track select**: an arena's route band (src/track2049_art.cpp, `build_tube`) is a twentieth of the path's extent
+- **Track select**: an arena's route band (src/rush2049/track2049_art.cpp, `build_tube`) is a twentieth of the path's extent
   wide instead of 2049's 200 units, open where the path's ends are apart, and rises a little ring by ring: the
   arenas' paths are a tenth of a race track's size and come within a few units of themselves, so 2049's band was a
   blob whose level tops fought for the depth buffer.

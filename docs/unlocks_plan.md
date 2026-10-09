@@ -79,14 +79,14 @@ original rules the port follows with the unlock system off.
   - 21 DEW: all 4 Dew cans (dew / 4).
 
   **Unlocks are per track.** A mystery car is offered only on the track where its keys were found.
-- **Existing hook.** `rush2_track49_keys` (src/track2049_menu.cpp) already makes `func_803B1AB0` return 0 keys for
+- **Existing hook.** `rush2_track49_keys` (src/rush2049/track2049_menu.cpp) already makes `func_803B1AB0` return 0 keys for
   ids 12 and up.
 
 ### 1.2 SF Rush keys [V]
 
 - **Placement.** `KEYL1` children in placement assets 0-6. Field +0x4A of the record is the key number, 1-8.
   - Keys per track (table 0x800CAD48): **6, 7, 8, 8, 8, 8, 8** (53 in all).
-  - All are dropped today (`r1_dropped` in src/track1_convert.cpp, `R1_DROPPED` in tools/rush1/track1.py).
+  - All are dropped today (`r1_dropped` in src/rush1/track1_convert.cpp, `R1_DROPPED` in tools/rush1/track1.py).
 - **Save.** One u8 mask per track: player record + 0x1C0 + track·0x16 + 7, or 0x800CAC7C + track·0x16 + 7 without a
   profile.
   - Collect: `func_8006C2E8` (Rush 2's `func_8005F418`). Hide-if-taken: `func_8006BFEC`, which takes object +0x76
@@ -170,7 +170,7 @@ P = (sum of the u32 at profile +0xE4 + k·0x60, k = 0-11) / 10. P is probably ra
 The `.mpk` layout is fixed, and hosted races run in HAWAII's slot, so neither SF Rush keys nor 2049 coins can go in
 the record. Store them like `track2049_records.json`:
 - One block per profile name: SF Rush key masks (7 × u8) and 2049 coin masks (6 race + 4 stunt × u16).
-- Bound to the record position's name. The binding code from src/track2049_records.cpp moves into a shared helper
+- Bound to the record position's name. The binding code from src/rush2049/track2049_records.cpp moves into a shared helper
   that both files use.
 - Written through `.tmp` + rename when a block changes. Deleting or clearing a profile clears its block (extend the
   41d6601 delete path).
@@ -194,7 +194,7 @@ pickup effect and the sound. So:
   - `func_8005F00C` (hidden?): test the hosted course's side mask, not HAWAII's record.
   - `func_8005F418` (collect): set the side bit, skip `func_8005F338`, and mark the side block dirty.
   - Without these, a pickup would write **HAWAII's** key bits into the pak.
-- **Coin sound.** On collection in a 2049 race, play 2049's coin sfx through src/audio2049.cpp instead of the key
+- **Coin sound.** On collection in a 2049 race, play 2049's coin sfx through src/rush2049/audio2049.cpp instead of the key
   sound.
 - **Dew guard.** Rush 2's 0x756 Dew animation branch must not catch coin models. Coins spin like keys.
 
@@ -209,7 +209,7 @@ pickup effect and the sound. So:
 ### 2.4 2049 unlocks (tracks 12-17)
 
 - Evaluate 2049's table (§1.3) for each active profile from the side block whenever it changes.
-- **Car select.** src/car2049.cpp appends types 22-34. Append only unlocked ones for each player. "Unlock All Cars"
+- **Car select.** src/rush2049/car2049.cpp appends types 22-34. Append only unlocked ones for each player. "Unlock All Cars"
   (src/cheats.cpp) still lists all of them.
 - **Stunt arenas aren't ported** (TODO 5), so cars 9-12 can't be earned yet. Decision needed (§4).
 - **Option.** "Rush 2049 Car Unlocks" on the Rush 2049 tab. Today every 2049 car is available, and turning locks on

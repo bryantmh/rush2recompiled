@@ -30,7 +30,7 @@
 
 namespace {
     // The asset tables (0x800C185C ROM offsets, 0x8001CD64 sizes, 0x71 entries) moved to copies with room for the
-    // Rush 2049 cars (src/car2049.cpp, us.toml).
+    // Rush 2049 cars (src/rush2049/car2049.cpp, us.toml).
     constexpr uint32_t asset_offsets = 0x80222A00;
     constexpr uint32_t asset_sizes = 0x80222C00;
     constexpr uint32_t fake_rom_base = 0x40000000;
@@ -145,7 +145,7 @@ extern "C" void rush2_heap_init(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(0, (int32_t)heap_mark) = new_heap_base;
     MEM_W(0, (int32_t)heap_high) = new_heap_top;
     MEM_W(0, (int32_t)heap_top) = new_heap_top;
-    // The per-car-type tables move to 35-entry copies at the same time (src/car2049.cpp).
+    // The per-car-type tables move to 35-entry copies at the same time (src/rush2049/car2049.cpp).
     rush2::car2049::init_tables(rdram);
     rush2::car2049::init_assets(rdram);
     rush2::car2049::init_physics(rdram);

@@ -1,4 +1,4 @@
-// Offline test of src/track1_convert.cpp: converts every Rush 1 track and compares the files with the Python
+// Offline test of src/rush1/track1_convert.cpp: converts every Rush 1 track and compares the files with the Python
 // prototype's (tools/rush1/cpp_test/make_ref.py writes them to out/ref), and builds the track select art on Rush 2's
 // asset 3 (out/ref/asset3.bin) to out/asset3_rush1.bin.
 //
@@ -15,7 +15,7 @@
 
 namespace fs = std::filesystem;
 
-// The parts of src/rush1_rom.cpp the converter needs, without the UI.
+// The parts of src/rush1/rush1_rom.cpp the converter needs, without the UI.
 namespace {
     constexpr uint32_t main_rom = 0x7A7930;
     constexpr uint32_t asset_table = 0x800C7C1C;

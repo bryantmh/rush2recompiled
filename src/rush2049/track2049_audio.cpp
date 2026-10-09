@@ -1,4 +1,4 @@
-// Rush 2049's music and moving-object sounds on the 2049 tracks (engine: src/audio2049.cpp).
+// Rush 2049's music and moving-object sounds on the 2049 tracks (engine: src/rush2049/audio2049.cpp).
 //
 // Music: src/music.cpp picks each race's song. Rush 2 sends its music thread commands through func_80062F50:
 // (sequence << 16) | 0xFFFF plays a sequence, 0x40000000 stops, 0xC0000000 applies the fade factor at 0x800BD150.
@@ -6,8 +6,8 @@
 // turns the race's music call into Rush 2's "music off" case, whose stop command then starts the 2049 song instead;
 // any later play or stop command (results jingle, menus, quitting) ends it, and fade commands follow along.
 //
-// Object sounds: the follower logic (src/track2049_movers_logic.cpp) reports each moving object's sound requests
-// (start, loop, stop: type table +0x1C/+0x20/+0x24); src/track2049_movers.cpp passes them here with the object's
+// Object sounds: the follower logic (src/rush2049/track2049_movers_logic.cpp) reports each moving object's sound requests
+// (start, loop, stop: type table +0x1C/+0x20/+0x24); src/rush2049/track2049_movers.cpp passes them here with the object's
 // position, and they play as positional Rush 2049 sound effects, heard from player 1's car with Rush 2049's emitter
 // law (audio2049::emitter_mix).
 

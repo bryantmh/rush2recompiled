@@ -10,7 +10,7 @@ set "REPO=%CD%"
 if not exist "%HERE%out" mkdir "%HERE%out"
 
 call tools\vsenv.bat clang-cl /nologo /O2 /std:c++20 /EHsc -Wno-everything /I include ^
-    "%HERE%main.cpp" src\track1_convert.cpp /Fo"%HERE%out\\" /Fe"%HERE%out\track1_test.exe"
+    "%HERE%main.cpp" src\rush1\track1_convert.cpp /Fo"%HERE%out\\" /Fe"%HERE%out\track1_test.exe"
 if errorlevel 1 (
     popd
     exit /b 1

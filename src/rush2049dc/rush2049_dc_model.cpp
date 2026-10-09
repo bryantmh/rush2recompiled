@@ -89,7 +89,7 @@ namespace {
     };
 
     // Sizes of the non-track N64 files. The game loads only the battle HUD (61, 63) and weapons (76) into fixed RDRAM
-    // windows, so only those made files are held to the N64's size; the rest (cars: src/car2049.cpp grows the slot)
+    // windows, so only those made files are held to the N64's size; the rest (cars: src/rush2049/car2049.cpp grows the slot)
     // keep every texture as big as TMEM takes, and the full-size images come from the texture pack either way.
     constexpr int fixed_window_files[] = { 61, 63, 76 };
     struct FileSize {
@@ -850,7 +850,7 @@ namespace {
     // The disc's paint jobs for a car (CARnPJ1-12). Each job is a full set of the car's body textures, named as the
     // base car's plus a color suffix (C1_TOP01_BLU); most recolor one livery, some have a pattern of their own (car 2's
     // jobs 7-9). Jobs equal to an earlier one are dropped (9-12 mostly repeat 6). The converted file keeps the first
-    // job's textures; src/car2049.cpp copies the texels of the job the player picks into the car.
+    // job's textures; src/rush2049/car2049.cpp copies the texels of the job the player picks into the car.
     struct CarJobs {
         int count = 0;
         std::vector<std::string> files;                 // per job: its container (CARnPJj)

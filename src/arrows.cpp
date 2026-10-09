@@ -12,7 +12,7 @@
 // player's car, placed as Rush 2 places its own, and Rush 2's are hidden. With two players Rush 2's arrows are left
 // as they are.
 //
-// In a battle (src/battle.cpp) the arrows are Rush 2049's battle ones, for any number of players: in the player
+// In a battle (src/rush2049/battle.cpp) the arrows are Rush 2049's battle ones, for any number of players: in the player
 // colors (table 0x8011B558), drawn in front of everything (primitive depth 1), and with a = the angle from the view's
 // direction to the car, seen from above:
 // - |a| under 0.48 of the view's field of view (the car is in view): over the car, as above.

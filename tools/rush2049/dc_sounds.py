@@ -1,6 +1,6 @@
 """Pairs Rush 2049's N64 sound effect ids with the Dreamcast disc's, and lists the disc's sound banks.
 
-    dc_sounds.py [--banks] [--emit src/rush2049_dc_sounds.inc]
+    dc_sounds.py [--banks] [--emit src/rush2049dc/rush2049_dc_sounds.inc]
 
 The N64 plays MusyX effects 0x00-0x76; the disc plays samples out of .KAT banks by a global id 0x000-0x136 (bank
 table 0x8C0A7904: {name[0x14], u32 first id, u32 last id, u32 loaded, ...} x 9). Pairs come from tables both versions

@@ -424,7 +424,7 @@ Open question: on 2049 cars, should 2049's five TIRES replace Rush 2's eleven se
 
 ## 9. Accurate Car Stats and Torque Rebalance (implemented, October 2026)
 
-Two options in the General tab under "Cars", both on by default (`src/config.cpp`, `src/car2049.cpp`).
+Two options in the General tab under "Cars", both on by default (`src/config.cpp`, `src/rush2049/car2049.cpp`).
 
 **Corrections to the sections above.** Their simulated times, top speeds and "bars from physics" came from hand
 formulas that the game does not follow:
@@ -466,7 +466,7 @@ func_8006942C position and orientation).
 - The engine gives torque at rest only with +0x3DA / +0x3DC set (set when a race starts, 0x8008E3B4), and
   func_800711F4 holds neutral while the asked gear +0x3E0 is 0.
 
-**Accurate Car Stats.** The bars come from driving a test car through that code (`TestCar` in `src/car2049.cpp`: the
+**Accurate Car Stats.** The bars come from driving a test car through that code (`TestCar` in `src/rush2049/car2049.cpp`: the
 game's own func_8008DBA0, func_800712EC, func_8006A2FC and func_80069E74 on physics car slot 0, with flat ground, a
 level car and the motion integration supplied; its header comment lists every step). ACCELERATION = 1 / seconds to
 100 mph; TOP SPEED = the speed it settles at; DRIFTING = the widest slide angle in 1 s of full steering from 100 ft/s, drawn on a ratio (log) scale (over all

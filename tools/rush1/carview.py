@@ -1,5 +1,5 @@
 """Renders a car's textured body from several angles in Rush 1 and Rush 2 (offline, no game run), to compare the SF
-Rush decal (tools/rush1/cardecal.py, src/car1_decals.cpp) with the Rush 1 car it comes from.
+Rush decal (tools/rush1/cardecal.py, src/rush1/car1_decals.cpp) with the Rush 1 car it comes from.
 
 Usage: python carview.py CAR OUT.png [--scale N] [--views left,rear,...]
        python carview.py --score [CAR ...]     how much of Rush 1's decal the Rush 2 car shows (see score())   CAR = a tools/rush1/cartex.py car name;
@@ -39,7 +39,7 @@ def textured_tris(d, game, palette, override=None, flag=None):
                 tx = np.frombuffer(bytes(d[off:off + w * h]), dtype=np.uint8).reshape(h, w).copy()
                 flags[off] = flag(tx) if flag is not None else np.zeros((h, w), dtype=bool)
                 if override is not None:
-                    # The game's SF Rush paint (src/car1_stripes.cpp): the decal over Rush 2's own paint.
+                    # The game's SF Rush paint (src/rush1/car1_stripes.cpp): the decal over Rush 2's own paint.
                     if off in override:
                         o = np.array(override[off], dtype=np.uint8).reshape(h, w)
                         tx = np.where(o != 0, o, tx)

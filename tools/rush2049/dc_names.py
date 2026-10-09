@@ -1,6 +1,6 @@
 """Pairs Dreamcast Rush 2049 object names with the N64 ones, for the Dreamcast source's name map.
 
-    dc_names.py DC_FILES_DIR [--emit src/rush2049_dc_names.inc] [--report]
+    dc_names.py DC_FILES_DIR [--emit src/rush2049dc/rush2049_dc_names.inc] [--report]
 
 The two versions name many objects differently (DC BKWBARIERL3_LOD = N64 BKWBARIERG1, F1FLAGL1_LOD1 = F1FLAGG28),
 and the recomp's code and the converters work in N64 names, so a Dreamcast source renames its objects to the N64's.

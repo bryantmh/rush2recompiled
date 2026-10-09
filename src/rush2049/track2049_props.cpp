@@ -18,7 +18,7 @@
 //
 // The converter places each prop as a record drawing its 2049 model (X49<model>) and lists the records
 // (PropRecord). Rush 2's placement walk gives each record a scene node whose matrix pointer points at the record's
-// 12 floats, so writing a prop's pose there moves it, as for the moving objects (src/track2049_movers.cpp, whose
+// 12 floats, so writing a prop's pose there moves it, as for the moving objects (src/rush2049/track2049_movers.cpp, whose
 // hooks call this file). Props present in one race direction only (_FW, _BW) are hidden in the other.
 
 #include <algorithm>

@@ -3,7 +3,7 @@
 Tags: **[V]** verified in disassembly or data; **[I]** inferred. Addresses are 2049 main (`tools/rush2049/out/d49m.asm`)
 unless marked "boot" (ROM 0x1000 → 0x80000400; disassemble with `tools/rush2049/dis49.py`, which also writes main).
 
-Port: `include/audio2049.h`, `src/audio2049.cpp` (namespace `rush2::audio2049`). Test:
+Port: `include/audio2049.h`, `src/rush2049/audio2049.cpp` (namespace `rush2::audio2049`). Test:
 `tools/rush2049/cpp_test/audio_build.bat <out_dir> --races [--allsfx]` renders the six race songs (60 s each and 10 s
 around each loop point), checks levels, note counts against the song data, tempo and the loops, and plays the wing
 sound, two more effects, a fade-out and the emitter law.
@@ -39,7 +39,7 @@ The others start, stop and pause sounds.
 | 9 | Sample data, raw at ROM 0x39B40, 0x2D2A30 bytes (the game hard-codes 0x39B40 at 0x800A5F20) [V] |
 | 10-21 | Songs 0-11 (LZ, MusyX song format), loaded on demand by `func_80097798(song + 10)` [V] |
 
-Formats (details in the `src/audio2049.cpp` header):
+Formats (details in the `src/rush2049/audio2049.cpp` header):
 - Project groups `{u32 size, u16 id, u16 type, u32 offsets}` relative to group + 8. Pages are 8 bytes
   `{u16 macro, u8 priority, u8 max voices, u8 ff, u8 program, u16}`; nearly every program has max voices 1 (one voice
   per instrument; a new note steals the old one). No drum pages: MIDI channel 9 is silent (only song 4 has 8 notes
@@ -51,7 +51,7 @@ Formats (details in the `src/audio2049.cpp` header):
 - ADSR tables (little-endian u16 attack ms, decay ms, sustain, release ms): c001 (0, 5548, 0, 1000), c002 (0, 420, 0,
   1195), c003 (0, 716, 0, 883), c004 (1262, 2556, 0, 1000), c005 (0, 1574, 1765, 1000).
 - Sample directory `{u16 id, u16, u32 offset, u32, u8 root key (always 60), u8, u16 rate, u32 format << 24 | length,
-  u32 loop start, u32 loop length}`. All 195 samples are format 3 (2049 ADPCM, see `src/wings_sound.cpp`); rates 4181
+  u32 loop start, u32 loop length}`. All 195 samples are format 3 (2049 ADPCM, see `src/rush2049/wings_sound.cpp`); rates 4181
   to 39069 Hz, mostly 11025 / 22050 / 16726.
 - Songs: header `{track table (0x18), pattern table, channel map, tempo track (0 in all), bpm, loop tick}`, 64 tracks
   of 12-byte entries, patterns with 16-bit delta times (the GameCube-era "revised" format). 384 ticks per beat.
@@ -118,12 +118,12 @@ L = front * pan_tab((0x800000 - pan) / 0x400000) * 32767,  R = front * pan_tab(p
 pan_tab = {0, 0.7079, 1, 1}
 ```
 Check: the wing sound as 2049 plays it (sfx 0x3D, volume 0.5 → CC7 63, pan 0 → CC10 63, pitch 0.75) comes out of
-the port at voice gains **3568 / 3490** and step 1535/4096, exactly the values `src/wings_sound.cpp` took from the
+the port at voice gains **3568 / 3490** and step 1535/4096, exactly the values `src/rush2049/wings_sound.cpp` took from the
 running game.
 
 Output scale: the RSP mixer isn't ported. With a 15-bit gain of 32767 = 1.0 the race songs would peak up to
 +6.7 dBFS (song 7) and run at −11 to −16.5 dBFS RMS, which a composer on the N64 would have heard clip, so the mixer
-evidently keeps 6 dB of headroom; `audio2049` uses **0.5**. `src/wings_sound.cpp` uses 3568/32768 (1.0 scale), so it
+evidently keeps 6 dB of headroom; `audio2049` uses **0.5**. `src/rush2049/wings_sound.cpp` uses 3568/32768 (1.0 scale), so it
 is 6 dB louder than `audio2049`'s sfx 0x3D at the same settings.
 
 Port output at music_gain = sfx_gain = 1 (48 kHz, first 60 s):
@@ -226,7 +226,7 @@ updates follow MusyX's job timing (pitch every 15 ms, volume every 5 ms, ramped)
 
 ## 7. Engine sounds
 
-Port: `src/engine2049.cpp`. [V] unless marked.
+Port: `src/rush2049/engine2049.cpp`. [V] unless marked.
 
 Rush 2049 picks a car's engine sound by its **ENGINE setting** (physics car +0xC, 0-5), not by the car: func_800D5E64
 (race start) points the car's engine state (0x80140420 + car * 0x54: +0 table, then two 0x14-byte layers {+0 handle,

@@ -78,7 +78,7 @@ namespace rush2 {
         // Before printing text at (x, y) in the race HUD's coordinates after the widget loop: gives it the anchor of the
         // widget it is over (or its screen third) and moves (x, y) with that widget in split screen.
         void anchor_text(uint8_t* rdram, int32_t& x, int32_t& y);
-        // Widgets placed by another file (the battle HUD, src/battle.cpp): a widget with a scale isn't anchored, grouped
+        // Widgets placed by another file (the battle HUD, src/rush2049/battle.cpp): a widget with a scale isn't anchored, grouped
         // or moved for split screen by src/hud.cpp; its image is drawn scaled about its top left corner, and it is
         // anchored at `anchor`, a fraction of the screen's width: its x is kept from that point of the 4:3 screen, which
         // HUD Placement puts at the same fraction of the HUD's width (0 the left edge, 0.5 the middle, 1 the right
@@ -183,7 +183,7 @@ namespace rush2 {
     // default N64 layout, which the game's own binding table is locked to; menus use a fixed layout.
     namespace controls {
         // The rows of the game's Controller Setup screen, in order. Fire and DropWeapon are the battle arenas' weapon
-        // buttons (src/battle.cpp): they aren't N64 buttons of the game's layout, and are read with battle_buttons.
+        // buttons (src/rush2049/battle.cpp): they aren't N64 buttons of the game's layout, and are read with battle_buttons.
         enum class Action : uint8_t {
             Gas, Brake, Steering, ShiftUp, ShiftDown, Reverse, Abort, View, Horn, Wings, Fire, DropWeapon, Count
         };

@@ -141,7 +141,7 @@ namespace {
     constexpr int side_slot_size = 0xC0;            // (36 - 22) * 13 = 182, rounded up
     constexpr int max_side_slots = 16;
     // Player records, 0x6C0 bytes each: the active players' (func_80097FCC) and the Controller Pak image's (4 paks of
-    // 0x2200 bytes, src/track2049_records.cpp). Side slots are keyed by record address in these ranges.
+    // 0x2200 bytes, src/rush2049/track2049_records.cpp). Side slots are keyed by record address in these ranges.
     constexpr uint32_t record_size = 0x6C0;
     constexpr uint32_t player_records = 0x8010D740, player_records_end = 0x8010D740 + 8 * 0x6C0;
     constexpr uint32_t pak_records = 0x8004B220, pak_records_end = 0x8004B220 + 4 * 0x2200;
@@ -199,7 +199,7 @@ namespace {
         std::vector<uint8_t> colours;        // pristine RGBA5551 palette
         // A Dreamcast disc's car: its paint jobs' body textures (rush2::rom2049::SourceTexture::job), each job a
         // full set with its own pattern, in place of the N64's paint ramps. rush2_car49_paint copies job MAIN COLOR %
-        // jobs into the car (the car select shows MAIN COLOR as STYLE, src/wings_menu.cpp).
+        // jobs into the car (the car select shows MAIN COLOR as STYLE, src/rush2049/wings_menu.cpp).
         struct JobTexture {
             uint32_t pristine = 0;              // file offsets of its texels and of their damaged copy (0: none)
             uint32_t damaged = 0;
@@ -1786,7 +1786,7 @@ extern "C" void rush2_car49_select_get(uint8_t* rdram, recomp_context* ctx) {
 }
 
 namespace {
-    constexpr uint32_t physics_cars = 0x800F5470;  // Per race car: + index * 0x81C (src/wings_state.cpp)
+    constexpr uint32_t physics_cars = 0x800F5470;  // Per race car: + index * 0x81C (src/rush2049/wings_state.cpp)
     constexpr uint32_t physics_car_size = 0x81C;
     constexpr uint32_t car_throttle = 0x734;       // f32 gas pedal, 0-1
     constexpr uint32_t game_mode = 0x8010C0D0;     // 3 racing, 9 countdown, 10 race intro (src/input.cpp)
@@ -1888,7 +1888,7 @@ namespace {
     constexpr uint32_t lighting_cache = 0x800E7DE1; // func_8007AA48: nonzero while G_LIGHTING is on.
     constexpr uint32_t palette_cache = 0x80111954;  // func_80078190: palette last loaded into TMEM, 0 for none.
 
-    // Render state 2049 has in place when it draws a model (as src/wings_render.cpp): 2-cycle mode, perspective
+    // Render state 2049 has in place when it draws a model (as src/rush2049/wings_render.cpp): 2-cycle mode, perspective
     // correct bilinear texturing, Z buffer, smooth shading and fog with no lighting, and texturing on. Then the state
     // the flame lists change, put back the way Rush 2 has it.
     constexpr uint32_t flame_prologue[][2] = {
@@ -1933,7 +1933,7 @@ void rush2::car2049::draw_model(uint8_t* rdram, uint32_t dl) {
             uint32_t view = 0, gen = 0;
             rush2_interp_get_generation(&view, &gen);
             // Matrix group IDs 0101 vvgg gggg gggg gggg gggg bbbb bbbb (b = texture bank), apart from
-            // src/interpolation.cpp's and src/wings_render.cpp's.
+            // src/interpolation.cpp's and src/rush2049/wings_render.cpp's.
             q.id = 0x50000000u | ((view & 3) << 26) | ((gen & 0x3FFFF) << 8) | (uint32_t(f.bank) & 0xFF);
             q.base = f.base;
             q.paint = f.paint;

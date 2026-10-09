@@ -1,7 +1,7 @@
 // N64 Rush 2049 files made from the Dreamcast disc's files. See docs/rush2049_research/dreamcast.md.
 //
 // The Dreamcast game reads the same data formats as the N64 one, written little endian, except for models (a
-// different display format, src/rush2049_dc_model.cpp). AI paths are even stored big endian, byte for byte the N64's.
+// different display format, src/rush2049dc/rush2049_dc_model.cpp). AI paths are even stored big endian, byte for byte the N64's.
 // Placement and collision files are swapped here field by field (docs/rush2049_research/placement.md section 2,
 // collision.md sections 2-3); names they hold go through the Dreamcast-to-N64 name map.
 

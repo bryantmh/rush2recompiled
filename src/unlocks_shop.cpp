@@ -323,7 +323,7 @@ namespace {
     }
 
     // The record's selected car byte, without marking the record for saving (func_80097F8C would): the low 5 bits,
-    // as the game keeps it (the 2049 types' full type comes from shop_car(), src/car2049.cpp). The record's first
+    // as the game keeps it (the 2049 types' full type comes from shop_car(), src/rush2049/car2049.cpp). The record's first
     // section (+1..+0x33, holding the byte) keeps a byte sum at +0 that the game checks when it reads the Controller
     // Pak (func_80098190), so it is updated too: a save made meanwhile stays valid.
     void set_record_byte(uint8_t* rdram, int value) {

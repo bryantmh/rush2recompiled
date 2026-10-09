@@ -127,7 +127,7 @@ namespace {
     bool half_pending = false;
     int32_t half_start = 0;
     float half_scale_x = 0.5f, half_scale_y = 0.5f;
-    // Widgets another file places in final screen coordinates and draws scaled (the battle HUD, src/battle.cpp):
+    // Widgets another file places in final screen coordinates and draws scaled (the battle HUD, src/rush2049/battle.cpp):
     // they aren't anchored, grouped or moved for split screen, and their texture rectangles are scaled by these
     // factors about their top left corner (0 = not such a widget).
     float managed_scale_x[max_widgets];

@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-// Draws Rush 2049's battle models (weapons, projectiles, effects, the HUD's models) on any track (src/battle_render.cpp):
+// Draws Rush 2049's battle models (weapons, projectiles, effects, the HUD's models) on any track (src/rush2049/battle_render.cpp):
 // Rush 2049's model files are copied into spare RDRAM as they are, and the models placed here are drawn at the end of
 // each view from display lists of their own, so they need no scene nodes or track geometry.
 namespace rush2::battle_render {

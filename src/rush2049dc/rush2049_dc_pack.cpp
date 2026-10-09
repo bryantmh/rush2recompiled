@@ -1,7 +1,7 @@
 // The texture pack of a Dreamcast Rush 2049 disc's full-size textures. See include/rush2049_dc.h and
 // docs/rush2049_research/dreamcast.md (Full-size textures).
 //
-// The files made from the disc load each texture scaled down to fit TMEM (src/rush2049_dc_model.cpp). This pack
+// The files made from the disc load each texture scaled down to fit TMEM (src/rush2049dc/rush2049_dc_model.cpp). This pack
 // replaces every one of them, by the RT64 hash it is drawn with (replacement_hash, worked out from the converter's own
 // load list), with the disc's image: RT64 loads it and streams its textures like any installed texture pack, and any
 // pack the player enables wins over it. Painted car textures, whose palette the game sets per paint job, are left to

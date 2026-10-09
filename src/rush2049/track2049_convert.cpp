@@ -23,7 +23,7 @@
 //     model or dropped. Children of a dropped record move up. Kept models under a parent are made parent-relative.
 //     Coins become Rush 2 key records (KEYS0-7 silver, KEYG0-7 gold; src/collectibles.cpp). Knock-over props, signs
 //     and cacti keep their 2049 models, renamed X49<model> so Rush 2's prefix classifier doesn't take CONE1G1 or
-//     STOPHITG1 for its own breakables, and are listed as prop records for src/track2049_props.cpp.
+//     STOPHITG1 for its own breakables, and are listed as prop records for src/rush2049/track2049_props.cpp.
 // Collision (138+k): Rush 2049's layout with a 0x10-byte header, a MOVER section and 32-bit leaf offsets, rewritten
 //     as Rush 2's; if the leaf section doesn't fit 16-bit offsets, bottom quadtree nodes are merged.
 // AI paths (157+k forward, 176+k backward; a stunt arena's one path, 157+k as 2049's loader picks it although the
@@ -1147,7 +1147,7 @@ namespace {
         "BULB", "GUARDRAIL", "WPR_MINE", "TRIGGER",
     };
 
-    // Objects 2049 knocks over when a car hits them (src/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT, RATCONE),
+    // Objects 2049 knocks over when a car hits them (src/rush2049/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT, RATCONE),
     // the signs (kind 0, sub-kinds 1-2) and CACTUS.
     // A battle pickup's kind from its type name (PickupRecord::kind), or -1.
     int pickup_kind(const std::string& name) {
@@ -1474,7 +1474,7 @@ namespace {
             items.push_back(it);
         }
 
-        // Battle arenas: the pool of records src/battle.cpp turns into projectiles and effects. They start hidden at
+        // Battle arenas: the pool of records src/rush2049/battle.cpp turns into projectiles and effects. They start hidden at
         // the origin (the model is swapped when one is used), and stay drawn wherever they go like path objects.
         if (battle && pool != nullptr && model_ok("WPR_MISSG1")) {
             for (int slot = 0; slot < rush2::track2049::battle_pool_size; slot++) {
@@ -2292,7 +2292,7 @@ namespace {
     }
 
     // Every solid polygon of a Rush 2049 collision file as world triangles, 9 floats each (the battle arenas'
-    // projectiles are swept against them, src/battle.cpp). Type 0xF polygons (disabled movers) are left out.
+    // projectiles are swept against them, src/rush2049/battle.cpp). Type 0xF polygons (disabled movers) are left out.
     std::vector<float> solid_triangles(const Bytes& collision_2049) {
         Collision c;
         parse_collision49(collision_2049, c);
@@ -2734,7 +2734,7 @@ bool rush2::track2049::convert_track(const rush2::rom2049::Source& rom, int k, c
                                           &out.spin_records, &out.prop_records, &out.pickup_records, &out.pool_records,
                                           battle);
         out.collision = convert_collision(collision);
-        out.solid_triangles = solid_triangles(collision);   // For the weapons' shots (src/battle.cpp), in any race here.
+        out.solid_triangles = solid_triangles(collision);   // For the weapons' shots (src/rush2049/battle.cpp), in any race here.
         validate_path(files[5]);
         validate_path(files[6]);
         out.path = race ? files[5] : spine_lanes(files[5], collision, k != obstacle);
@@ -2799,7 +2799,7 @@ bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, c
         std::set<std::string> exclude = { prefix + "HOOD", prefix + "SHEEN" };
         std::vector<const Bytes*> files = { &file };
         // The Rocket ZX's exhaust flames: three effect models (file 62) 2049 attaches behind it (func_800AF690) and
-        // rescales every frame (func_800930A4). They stay models of their own: src/car2049.cpp places and animates
+        // rescales every frame (func_800930A4). They stay models of their own: src/rush2049/car2049.cpp places and animates
         // them, and draws them after the view's shadows when the body draws.
         Bytes flames;
         if (car == rocket_car && rom.read_file(effects_file, effects)) {
@@ -2816,7 +2816,7 @@ bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, c
     }
     // 2049 paints the body in the combiner's second cycle (TEXEL0 * SHADE, then * PRIM = paint colour). Rush 2 leaves
     // PRIM to whatever was drawn last, so drop the PRIM multiply; the paint is applied to the car's palette instead
-    // (src/car2049.cpp).
+    // (src/rush2049/car2049.cpp).
     static const uint8_t painted[8] = { 0xFC, 0x12, 0x7E, 0x03, 0xFF, 0x0F, 0xF3, 0xFF };
     static const uint8_t unpainted[8] = { 0xFC, 0x12, 0x7F, 0xFF, 0xFF, 0xFF, 0xF2, 0x38 };
     for (size_t o = 0; o + 8 <= out.size(); o += 8) {

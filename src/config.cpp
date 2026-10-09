@@ -458,7 +458,7 @@ namespace car_stats_option {
 }
 
 // Accurate car stats: the car select's ACCELERATION, TOP SPEED, CONTROL and DRIFTING bars come from the race physics
-// (src/car2049.cpp, docs/rush2049_research/car_physics.md section 9).
+// (src/rush2049/car2049.cpp, docs/rush2049_research/car_physics.md section 9).
 static void add_car_stats_option(recomp::config::Config& config) {
     config.add_bool_option(
         car_stats_option::id,
@@ -484,7 +484,7 @@ namespace torque_option {
 }
 
 // Torque rebalance: Rush 2's HIGH torque curve is weaker than STANDARD almost everywhere, so it gains top-end torque
-// and LOW loses some (src/car2049.cpp).
+// and LOW loses some (src/rush2049/car2049.cpp).
 static void add_torque_option(recomp::config::Config& config) {
     config.add_bool_option(
         torque_option::id,

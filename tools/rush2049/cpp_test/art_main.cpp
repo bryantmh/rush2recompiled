@@ -1,4 +1,4 @@
-// Offline test of src/track2049_art.cpp (track select dioramas and logos for the Rush 2049 tracks).
+// Offline test of src/rush2049/track2049_art.cpp (track select dioramas and logos for the Rush 2049 tracks).
 //
 //     out\art_test.exe [repo root] [output dir]      (art_build.bat builds it and runs it from the repo root)
 //
@@ -23,7 +23,7 @@
 
 #include "assets.h"
 
-#include "../../../src/track2049_art.cpp"
+#include "../../../src/rush2049/track2049_art.cpp"
 
 namespace fs = std::filesystem;
 

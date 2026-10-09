@@ -1,4 +1,4 @@
-// Rush 2049 wings: settings (shown in the Games tab; the wing styles on the car select, src/wings_menu.cpp) and Rush
+// Rush 2049 wings: settings (shown in the Games tab; the wing styles on the car select, src/rush2049/wings_menu.cpp) and Rush
 // 2049 ROM handling.
 //
 // San Francisco Rush 2049 lets cars deploy wings while airborne. This port reads the wing models and sound from the
@@ -11,7 +11,7 @@
 // librecomp is built against its own nlohmann::json (3.9). The executable's include path finds RT64's newer copy
 // first, whose ABI-tagged namespace changes the mangled name of Config::load_config, so this file includes
 // librecomp's copy before anything else (the header guard keeps it).
-#include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
+#include "../../lib/N64ModernRuntime/thirdparty/json/json.hpp"
 
 #include <array>
 #include <atomic>
@@ -63,7 +63,7 @@ namespace {
         0xdb, 0x2a, 0xa1, 0xa9, 0x0c, 0xfe, 0x55, 0xd1, 0x92, 0x2c,
     };
 
-    // The Games tab's config, games.json: the Rush 2049 options here and SF Rush's (src/rush1_rom.cpp, through
+    // The Games tab's config, games.json: the Rush 2049 options here and SF Rush's (src/rush1/rush1_rom.cpp, through
     // games_config()). Owned here instead of through create_config_tab: its options are shown in the Games tab
     // (src/games_tab.cpp) under the ROM pickers, and the wing styles in the Players tab.
     recomp::config::Config wings_config{ "Games", config_id, false };
@@ -487,7 +487,7 @@ void rush2::wings::init_config() {
             });
     }
     // Rush 2049 has each player pick one of three wings on the car setup screen; here it is the car select's WINGS
-    // row (src/wings_menu.cpp), which keeps each player's choice in these options.
+    // row (src/rush2049/wings_menu.cpp), which keeps each player's choice in these options.
     for (int player = 0; player < rush2::wings::max_players; player++) {
         std::string id = style_option(player);
         wings_config.add_enum_option(

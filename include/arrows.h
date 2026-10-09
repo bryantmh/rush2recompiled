@@ -6,7 +6,7 @@
 #include "recomp.h"
 
 // The views of a race as they are drawn (src/arrows.cpp): shared by the arrows over the other players' cars and the
-// battle HUD (src/battle.cpp).
+// battle HUD (src/rush2049/battle.cpp).
 namespace rush2::views {
     // The part of the 320 x 240 screen a player's view covers.
     struct View {

@@ -9,8 +9,8 @@
 #include "audio2049.h"
 #include "rush2049_rom.h"
 
-// Rush 2049's sound from a Dreamcast source (src/audio2049_dc.cpp): the disc's own samples and streamed songs, played
-// for the same calls as the N64's MusyX data. src/audio2049.cpp hands every call here while a disc is loaded; the
+// Rush 2049's sound from a Dreamcast source (src/rush2049dc/audio2049_dc.cpp): the disc's own samples and streamed songs, played
+// for the same calls as the N64's MusyX data. src/rush2049/audio2049.cpp hands every call here while a disc is loaded; the
 // calls take N64 sound effect and song numbers, as everywhere else in the port.
 namespace rush2::audio2049::dc {
     // Reads the disc's sound banks (decoding every sample) and its tables. Songs are read when they start.

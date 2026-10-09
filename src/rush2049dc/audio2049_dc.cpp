@@ -11,7 +11,7 @@
 //   traced; an equal-power pan stands in].
 // - Songs: list 0x8C0BA818 of 20 file names (18 .STR, then HighScore.rom and Select.rom); per-track song table
 //   0x8C0BA76C, s32 per 2049 track id 0-18 (-1 random). The pack keeps the .STR songs as IMA ADPCM
-//   (src/rush2049_dc.cpp); the .ROM ones are raw mono PCM16, taken as 22050 Hz looping [I].
+//   (src/rush2049dc/rush2049_dc.cpp); the .ROM ones are raw mono PCM16, taken as 22050 Hz looping [I].
 //
 // The port asks for N64 effect ids and N64 songs. Effects go through the pairing tools/rush2049/dc_sounds.py made
 // (rush2049_dc_sounds.inc). A song is the disc's song for the track the port says it's racing (set_track) when the N64
@@ -45,7 +45,7 @@ namespace {
     constexpr int plane_sound = 0x99;               // played without the 0.8 scale (0x8C016250)
     constexpr int voice_count = 32;
     constexpr float release_seconds = 0.01f;
-    // audio2049's callers (src/track2049_audio.cpp) boost its MusyX output to make up for MusyX's headroom (music
+    // audio2049's callers (src/rush2049/track2049_audio.cpp) boost its MusyX output to make up for MusyX's headroom (music
     // 2.8x, effects 2x, times 127/114 for Rush 2049's default master volume). The disc's streams and samples are
     // already at full level, so they're scaled back to play at their own level at full volume.
     constexpr float musyx_full = 127.0f / 114.0f;

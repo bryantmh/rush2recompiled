@@ -7,7 +7,7 @@
 #include "recomp.h"
 #include "track2049_convert.h"
 
-// Rush 2049's battle mode in Rush 2 (src/battle.cpp, docs/rush2049_research/battle.md): the battle arenas (track select
+// Rush 2049's battle mode in Rush 2 (src/rush2049/battle.cpp, docs/rush2049_research/battle.md): the battle arenas (track select
 // ids 30-37) are played in stunt mode without computer cars (Rush 2049's battle was multiplayer only), and this adds what 2049's battle overlay does on top of
 // it: health, weapon and power-up pickups, weapons and their projectiles, kills, and a battle HUD.
 namespace rush2::battle {
@@ -21,7 +21,7 @@ namespace rush2::battle {
                   const std::vector<uint8_t>& converted_geometry, const std::vector<float>& solid_triangles);
     // Race setup: the next physics tick sets everything up again.
     void reset();
-    // Once per physics tick of a race (src/track2049_movers.cpp); dt in seconds.
+    // Once per physics tick of a race (src/rush2049/track2049_movers.cpp); dt in seconds.
     void tick(uint8_t* rdram, float dt);
     // Whether the race in progress is a battle (its objects are set up).
     bool active(uint8_t* rdram);

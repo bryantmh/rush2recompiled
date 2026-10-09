@@ -20,7 +20,7 @@
 // which draws the labels and, through draw(), everything else. The game's "L+R: DEFAULTS" footer text isn't printed.
 //
 // More rows are added under the game's nine: WINGS with wings enabled (Games tab), and FIRE and DROP WEAPON (the
-// battle arenas' weapon buttons, src/battle.cpp) when the Rush 2049 tracks are available. The text callback's label
+// battle arenas' weapon buttons, src/rush2049/battle.cpp) when the Rush 2049 tracks are available. The text callback's label
 // table (0x800C4B08) is copied with their labels appended, an instruction patch lets its label loop run up to 12
 // rows, and the rows are moved closer together (15, 14 or 13 pixels apart instead of 17) so everything fits in the
 // panel. Which rows are there is decided when the screen opens (menu_rows).
@@ -139,8 +139,8 @@ namespace {
     constexpr int footer_gap = 5;
 
     // Glyph images and the display lists that draw them, in spare RDRAM below 16MB (display list addresses are 24
-    // bits). src/interpolation.cpp uses 0x80B00000-0x80C00000, src/track1_audio.cpp 0x80C90000-0x80C99E00,
-    // src/car2049.cpp 0x80CA0000-0x80CB0000, src/widescreen.cpp 0x80CF0000-0x80D00000, src/wings_render.cpp 0x80D00000-0x80E10000.
+    // bits). src/interpolation.cpp uses 0x80B00000-0x80C00000, src/rush1/track1_audio.cpp 0x80C90000-0x80C99E00,
+    // src/rush2049/car2049.cpp 0x80CA0000-0x80CB0000, src/widescreen.cpp 0x80CF0000-0x80D00000, src/rush2049/wings_render.cpp 0x80D00000-0x80E10000.
     constexpr uint32_t glyph_images = 0x80C00000;
     constexpr uint32_t glyph_size = rush2::controls::glyph_width * rush2::controls::glyph_height;
     constexpr uint32_t glyph_dl_start = 0x80C80000;

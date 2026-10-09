@@ -1,7 +1,7 @@
 // Rush 2049's moving track objects in Rush 2 (spec: docs/rush2049_research/movers.md).
 //
 // The objects are Rush 2049's path followers: trains, trolleys, gondolas, elevators, trap doors, trigger pads and the
-// like, each moving along a PATH chunk of the 2049 track file. src/track2049_movers_logic.cpp ports 2049's follower
+// like, each moving along a PATH chunk of the 2049 track file. src/rush2049/track2049_movers_logic.cpp ports 2049's follower
 // code exactly; this file runs it inside Rush 2:
 // - The converter places every path object at its spawn nodes as a top-level placement record (world-space, after the
 //   track sections, so the visibility tables never hide it), and Rush 2's placement walk gives each record a scene
@@ -18,7 +18,7 @@
 //   Boost pads and ride-on platforms (func_800E1F80) act on the polygon a wheel probe found under the car.
 // - Placement objects that turn in place (TROLLEY2, WINDMILL, WINDMILL2: func_8010E694) have their records' matrices
 //   rotated each tick.
-// - The tick and car hooks also run the knock-over props (src/track2049_props.cpp) and animated textures.
+// - The tick and car hooks also run the knock-over props (src/rush2049/track2049_props.cpp) and animated textures.
 
 #include <algorithm>
 #include <cmath>
@@ -123,7 +123,7 @@ namespace {
     uint32_t tick = 0;
     int contact_poly[max_cars] = { -1, -1, -1, -1, -1, -1, -1, -1 }; // Boost pad / platform polygon under each car.
 
-    // Inputs kept from the track conversion (src/track2049.cpp).
+    // Inputs kept from the track conversion (src/rush2049/track2049.cpp).
     std::vector<uint8_t> geometry_2049, collision_2049;
     std::vector<rush2::track2049::PathRecord> path_records;
     std::vector<rush2::track2049::SpinRecord> spin_records;
@@ -517,7 +517,7 @@ static void pad_or_platform(uint8_t* rdram, uint32_t car, int poly) {
     }
 }
 
-// The track conversion's inputs this file needs (src/track2049.cpp, when a 2049 track is loaded).
+// The track conversion's inputs this file needs (src/rush2049/track2049.cpp, when a 2049 track is loaded).
 void rush2::track2049::set_mover_data(const std::vector<uint8_t>& geometry_2049_file, const std::vector<uint8_t>& collision_2049_file,
                                       const std::vector<PathRecord>& records, const std::vector<SpinRecord>& spins,
                                       const std::vector<std::string>& model_names) {

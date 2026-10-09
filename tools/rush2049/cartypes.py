@@ -7,7 +7,7 @@ indexed `addu`), and the row-stride idioms (r * 22 as shift/subtract sequences) 
 `[[patches.instruction]]` entries plus a review list of everything it couldn't decide.
 
     python cartypes.py scan        sites per function, with idioms and conflicts (review)
-    python cartypes.py layout      old -> new table addresses (for src/car2049.cpp)
+    python cartypes.py layout      old -> new table addresses (for src/rush2049/car2049.cpp)
 """
 import re, sys, os
 import refscan

@@ -41,7 +41,7 @@ bool rush2::wings::lz_decompress(const uint8_t* src, size_t src_size, std::vecto
     return false;
 }
 
-// SHA-1, for identifying ROMs and disc files (the Rush 2049 and SF Rush pickers, src/rush2049_dc_tables.cpp).
+// SHA-1, for identifying ROMs and disc files (the Rush 2049 and SF Rush pickers, src/rush2049dc/rush2049_dc_tables.cpp).
 std::array<uint8_t, 20> rush2::wings::rom_sha1(const std::vector<uint8_t>& data) {
     uint32_t h[5] = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0 };
     auto rol = [](uint32_t v, int n) { return (v << n) | (v >> (32 - n)); };

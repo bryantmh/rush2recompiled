@@ -1,12 +1,12 @@
 """Rebuilds the N64 Rush 2049 code-segment tables the recomp reads from the Dreamcast executable, and checks them.
 
-    dc_tables.py [--emit src/rush2049_dc_tables.inc] [--report]
+    dc_tables.py [--emit src/rush2049dc/rush2049_dc_tables.inc] [--report]
 
 The recomp reads tables out of the N64 game's boot and main segments and battle overlay (car setup, the dynamic-object
 type table, texture animation lists, PVS, fog, record seeds, battle tuning). A Dreamcast source builds those segments
 from 1ST_READ.BIN (little endian, loaded at 0x8C010000): every table is copied to its N64 address in the N64's layout
 and with the N64's row order and index numbering, its values taken from the disc. A program of copy operations does it
-(src/rush2049_dc_tables.cpp runs the .inc this writes); this tool also runs it on the disc and compares the result
+(src/rush2049dc/rush2049_dc_tables.cpp runs the .inc this writes); this tool also runs it on the disc and compares the result
 with the N64 segments field by field (--report), which shows where the versions really differ.
 
 Schemas (layout tokens, space separated; DC bytes read -> N64 bytes written):
@@ -266,7 +266,7 @@ def load_renames():
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# Running the program (mirrors src/rush2049_dc_tables.cpp)
+# Running the program (mirrors src/rush2049dc/rush2049_dc_tables.cpp)
 
 class Builder:
     def __init__(self, exe, sizes_, maps, funcs, renames):

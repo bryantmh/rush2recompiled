@@ -1,11 +1,11 @@
 // San Francisco Rush (Rush 1) race tracks, raced in the borrowed Rush 2 track slot the Rush 2049 tracks use (the
 // host slot, rush2::track2049::host_slot).
 //
-// The track select offers the Rush 1 tracks as extra entries (src/track2049_menu.cpp). When one is raced, the race
+// The track select offers the Rush 1 tracks as extra entries (src/rush2049/track2049_menu.cpp). When one is raced, the race
 // setup hook turns its menu id into the host slot's id; the track is converted from the user's Rush 1 ROM
-// (src/track1_convert.cpp) and replaces the host slot's five files (geometry, placement, collision, forward and
+// (src/rush1/track1_convert.cpp) and replaces the host slot's five files (geometry, placement, collision, forward and
 // backward AI paths), its entries in the per-track tables the race code reads, and its in-race logo, as for a 2049
-// track (src/track2049.cpp). The host's own values are put back before anything else is raced there.
+// track (src/rush2049/track2049.cpp). The host's own values are put back before anything else is raced there.
 //
 // Differences from the 2049 tracks:
 // - Rush 1 has a collision file per direction, so the collision served depends on the race's backward flag.
@@ -14,10 +14,10 @@
 //   than its region count (track 2: 126 sections, 111 regions); regions past the table see everything.
 // - Fog: Rush 1's fog colour is a game option (default grey 0x9696BE), not per track; that default is used.
 // - Breakables: Rush 1's cones, meters, trees, flags, fences, gas signs, windows, traffic lights and trash munchers are Rush 2 breakable
-//   class records (src/track1_convert.cpp). While the track is applied, the placement walker's lookup of a class model
+//   class records (src/rush1/track1_convert.cpp). While the track is applied, the placement walker's lookup of a class model
 //   is redirected to the record's own Rush 1 model, and Rush 2's breakable pieces (CONE1O1, FENCEO1-12, ...) to Rush
 //   1's (rush2_track1_record_model, rush2_track1_model_name).
-// - Music and the fireworks sound are Rush 1's (src/track1_audio.cpp).
+// - Music and the fireworks sound are Rush 1's (src/rush1/track1_audio.cpp).
 
 #include <algorithm>
 #include <atomic>
@@ -484,7 +484,7 @@ extern "C" void rush2_track1_breakable_model(uint8_t* rdram, recomp_context* ctx
 
 // Rush 2's fence spawner (func_800BB864) at 0x800BB8AC, after it gives the new breakable ($v0) the FENCEO1 piece id
 // 0x730 at +0x62. Rush 1's (0x800C32EC) gives a fence with record +0x4A set track 5's gate pieces instead; the
-// converter names that record FENCET5GATEL1 (src/track1_convert.cpp), and Rush 2 still lists T5GATEO1-12 at id 0x746,
+// converter names that record FENCET5GATEL1 (src/rush1/track1_convert.cpp), and Rush 2 still lists T5GATEO1-12 at id 0x746,
 // which the piece redirects resolve to Rush 1's T5GATEL1-12.
 extern "C" void rush2_track1_gate(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t current_record = 0x800D5790;

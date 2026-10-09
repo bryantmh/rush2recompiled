@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-// San Francisco Rush (Rush 1) race tracks added to Rush 2 (src/track1*.cpp, src/rush1_rom.cpp,
+// San Francisco Rush (Rush 1) race tracks added to Rush 2 (src/rush1/track1*.cpp, src/rush1/rush1_rom.cpp,
 // docs/rush1_research.md).
 //
 // The track select offers ids 18-24 after Rush 2's 12 tracks and Rush 2049's 6. A race runs in the same borrowed
@@ -26,11 +26,11 @@ namespace rush2::track1 {
     constexpr const char* track_names[track_count] = { "Golden Gate", "Embarcadero", "Market", "Downtown",
                                                        "The Heights", "Sunset", "The Rock" };
 
-    // The user's Rush 1 ROM (src/rush1_rom.cpp): San Francisco Rush (USA), big-endian, or null.
+    // The user's Rush 1 ROM (src/rush1/rush1_rom.cpp): San Francisco Rush (USA), big-endian, or null.
     std::shared_ptr<const std::vector<uint8_t>> get_rom();
     bool rom_available();
     // The SF Rush settings, shown in the Games tab (src/games_tab.cpp) and kept in its config with Rush 2049's
-    // (src/wings.cpp): adding them (before recompui::config::finalize()), the tab's section, and loading the stored
+    // (src/rush2049/wings.cpp): adding them (before recompui::config::finalize()), the tab's section, and loading the stored
     // ROM (after rush2::wings::load_config()).
     void init_config();
     void add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh);
@@ -46,7 +46,7 @@ namespace rush2::track1 {
     constexpr uint32_t main_vram = 0x8005BB10;
     std::shared_ptr<const std::vector<uint8_t>> main_code(const std::vector<uint8_t>& rom);
 
-    // A Rush 1 track converted to the files of a Rush 2 track slot (src/track1_convert.cpp, port of
+    // A Rush 1 track converted to the files of a Rush 2 track slot (src/rush1/track1_convert.cpp, port of
     // tools/rush1/track1.py).
     struct ConvertedTrack {
         std::vector<uint8_t> geometry;      // Asset 0x33 + slot.
@@ -68,7 +68,7 @@ namespace rush2::track1 {
             std::vector<uint32_t> radius2;
         };
         Timing timing[2];
-        // Breakables (src/track1.cpp redirects Rush 2's model lookups during the race): placement record name -> the
+        // Breakables (src/rush1/track1.cpp redirects Rush 2's model lookups during the race): placement record name -> the
         // model it draws instead of its class's Rush 2 model, and Rush 2 breakable piece name -> Rush 1 piece model.
         std::map<std::string, std::string> record_models;
         std::map<std::string, std::string> piece_models;
@@ -90,7 +90,7 @@ namespace rush2::track1 {
     bool build_race_logo(const std::vector<uint8_t>& rush2_logo, const std::vector<uint8_t>& rom, int t,
                          std::vector<uint8_t>& out);
 
-    // The Rush 1 track (1-7) being raced, or 0 (src/track1.cpp).
+    // The Rush 1 track (1-7) being raced, or 0 (src/rush1/track1.cpp).
     int race_track();
     void set_race_track(int k);
     // Puts the host slot's own files and table entries back (call from a game thread).

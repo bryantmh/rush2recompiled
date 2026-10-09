@@ -5,7 +5,7 @@ the lui-annotated copy of 2049 main) unless marked "R2" (Rush 2, `analysis/out_d
 the type table and the collision MOVER section are in placement.md §2–3 and collision.md §3; this file corrects
 them where noted.
 
-Port: `include/track2049_movers_logic.h`, `src/track2049_movers_logic.cpp` (pure C++, namespace
+Port: `include/track2049_movers_logic.h`, `src/rush2049/track2049_movers_logic.cpp` (pure C++, namespace
 `rush2::track2049::movers`). Test: `tools/rush2049/cpp_test/movers_build.bat [seconds] [track]` (runs race tracks
 1–6 both directions, fires the pads, and checks that the spawn pose's collision rewrite gives back every MOVER rest
 record: it does on all 12 track/direction pairs, within 1/16384 and 1/32).
