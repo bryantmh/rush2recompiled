@@ -225,7 +225,7 @@ namespace {
     const std::string unlock_parts_id = "unlock_all_parts";
     std::atomic<bool> unlock_parts_enabled = false;
 
-    // Not one of the game's: Rush 2049's battle weapons in the other races (src/battle.cpp).
+    // Not one of the game's: Rush 2049's battle weapons in the other races (src/rush2049/battle.cpp).
     const std::string weapons_id = "cheat_weapons";
 
     const std::string unlock_system_id = "unlock_system";

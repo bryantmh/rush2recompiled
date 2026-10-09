@@ -7,7 +7,7 @@
 
 #include "recomp.h"
 
-// Rush 2049 cars as Rush 2 car types 23-35 (src/car2049.cpp); type 22 is Rush 2's "no car" marker.
+// Rush 2049 cars as Rush 2 car types 23-35 (src/rush2049/car2049.cpp); type 22 is Rush 2's "no car" marker.
 namespace rush2::car2049 {
     constexpr int rush2_types = 22;
     constexpr int car_count = 13;
@@ -82,7 +82,7 @@ namespace rush2::car2049 {
     // The engine sound (0-9) a car of this type plays for ENGINE row value `value`: the value itself for a Rush 2
     // car, the type's default sound for a 2049 car (whose ENGINE row is its power level).
     int engine_sound(uint8_t* rdram, int type, int value);
-    // Rush 2049's engine sound (src/engine2049.cpp): per ENGINE level (0-5), up to two looping layers (table
+    // Rush 2049's engine sound (src/rush2049/engine2049.cpp): per ENGINE level (0-5), up to two looping layers (table
     // 0x8010FD80), each pitched 1 + (rpm - base) / span and with a volume running through three rpm points.
     struct EngineLayer {
         int sound = -1; // 2049 sound effect id, or -1 for none

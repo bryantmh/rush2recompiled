@@ -208,7 +208,7 @@ int main(int argc, char** argv) {
         printf("%d: %zu bytes, %zu scaled-down textures so far\n", i, out.size(), src->source_texture_count());
     }
     {
-        // The full-size images the texture pack holds (src/rush2049_dc_pack.cpp), and the cars' paint jobs.
+        // The full-size images the texture pack holds (src/rush2049dc/rush2049_dc_pack.cpp), and the cars' paint jobs.
         size_t texels = 0, jobs = 0, damaged = 0, unhashed = 0;
         std::set<std::string> unique;
         auto textures = src->source_textures(0);

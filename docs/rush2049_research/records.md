@@ -2,7 +2,7 @@
 
 Scope: every place Rush 2 reads, writes, displays, defaults and saves track records; the data layouts; and the design
 and hooks that give the six Rush 2049 tracks (forward and backward) their own records while they are raced in the
-host slot (HAWAII, track id 2; see `src/track2049.cpp`). Implementation: `src/track2049_records.cpp`; the us.toml and
+host slot (HAWAII, track id 2; see `src/rush2049/track2049.cpp`). Implementation: `src/rush2049/track2049_records.cpp`; the us.toml and
 `rush2_hooks.h` entries are in `records_us_toml.txt`.
 
 **Tags:** **[V]** = verified in the disassembly or by running code; **[I]** = inferred.
@@ -72,7 +72,7 @@ until the console is switched off.
 
 ## 2. Every access, by function [V]
 
-Register names at the hooked instructions are what `src/track2049_records.cpp` relies on.
+Register names at the hooked instructions are what `src/rush2049/track2049_records.cpp` relies on.
 
 ### 2.1 Stats writers (all compute the slot themselves)
 Each loads `track`, adds 12 if `bw`, then: if the player has no profile (0x801174F0[struct+1] == −1) uses

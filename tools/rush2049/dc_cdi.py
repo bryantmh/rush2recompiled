@@ -4,7 +4,7 @@
     dc_cdi.py get IMAGE NAME OUT          extract one file (NAME as listed, e.g. TRACK1.LZS)
     dc_cdi.py get IMAGE NAME OUT --lz     ... and LZ-decompress it (.LZS files)
     dc_cdi.py all IMAGE OUTDIR            extract every game file, .LZS ones decompressed (skips PWBROWSER, .STR, .SFD)
-    dc_cdi.py pack PACK OUTDIR [GLOB]     extract files from the app's rush2049_dc.pak (src/rush2049_dc.cpp), .LZS ones
+    dc_cdi.py pack PACK OUTDIR [GLOB]     extract files from the app's rush2049_dc.pak (src/rush2049dc/rush2049_dc.cpp), .LZS ones
                                           decompressed (songs stay the pack's ADPCM)
 
 The image stores raw 2336-byte mode 2 sectors (8-byte subheader, 2048 bytes of data). It holds several ISO9660

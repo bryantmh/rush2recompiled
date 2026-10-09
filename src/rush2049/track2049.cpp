@@ -1,8 +1,8 @@
 // Rush 2049 race tracks, raced in a borrowed Rush 2 track slot (the host slot).
 //
-// The track select offers the 2049 tracks as extra entries (src/track2049_menu.cpp). When one is raced, the race
+// The track select offers the 2049 tracks as extra entries (src/rush2049/track2049_menu.cpp). When one is raced, the race
 // setup hook turns its menu id into the host slot's id. The track is then converted from the user's 2049 ROM
-// (src/track2049_convert.cpp) and replaces the host slot's five files (geometry 0x33+slot, placement 0x3F+slot,
+// (src/rush2049/track2049_convert.cpp) and replaces the host slot's five files (geometry 0x33+slot, placement 0x3F+slot,
 // collision 0x4B+slot, forward and backward AI paths 0x57+slot / 0x63+slot), the slot's entries in the per-track
 // tables the race code reads, and the slot's in-race logo. The original values are put back before a Rush 2 track is
 // raced, so the host track itself is unchanged.
@@ -340,7 +340,7 @@ bool rush2::track2049::no_map(uint8_t* rdram) {
 
 // Start of func_800A4C98, which queues the race's track files.
 extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
-    // SF Rush tracks race in the same slot (src/track1.cpp); it puts the slot's own values back first.
+    // SF Rush tracks race in the same slot (src/rush1/track1.cpp); it puts the slot's own values back first.
     if (rush2::track1::load(rdram)) {
         return;
     }
@@ -438,7 +438,7 @@ extern "C" void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx) {
 
 // func_80093048 at 0x80093290, after it found the path's 4 AI lanes (pointers 0x800D57A0, counts 0x800D5780) and
 // before func_800924E4 works out the race's time from them: the lanes' target speeds (u8 mph at point + 6) go through
-// the Car Speeds lane map (src/car2049.cpp): Rush 2049's lanes are set for its faster cars. The drones' driver
+// the Car Speeds lane map (src/rush2049/car2049.cpp): Rush 2049's lanes are set for its faster cars. The drones' driver
 // (func_80074990) aims for the lane speed x 1.05 x their rubber band (+0x808). The path file can stay
 // loaded from one race to the next, so the lanes scaled last are remembered and not scaled again.
 namespace {
@@ -486,7 +486,7 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t header = 0x8010BCE8;       // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
     constexpr uint32_t path_pointer = 0x800D575C; // The loaded path file.
     constexpr float rush2_lane_speed = 139.3f;    // Distance-weighted lane 0 speed of Rush 2's 9 race paths, both ways.
-    // SF Rush tracks get SF Rush's own times (src/track1.cpp).
+    // SF Rush tracks get SF Rush's own times (src/rush1/track1.cpp).
     if (rush2::track1::race_time(rdram)) {
         return;
     }

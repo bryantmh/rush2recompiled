@@ -1,6 +1,6 @@
 # Rush 2049 cars in Rush 2: findings so far and plan
 
-Status: implemented (October 2026, `src/car2049.cpp`); �4 below is the original plan, superseded by �8. Tags:
+Status: implemented (October 2026, `src/rush2049/car2049.cpp`); �4 below is the original plan, superseded by �8. Tags:
 **[V]** verified, **[I]** inferred.
 
 ## 1. Rush 2049 car data [V]
@@ -46,7 +46,7 @@ plan below borrows slots instead.
 ## 4. Plan: borrowed host types (like the tracks)
 
 - The car select offers types 22–34 after Rush 2's 22 (list, carousel and preview tables copied to larger arrays in
-  free RDRAM and the instructions repointed, as `src/track2049_menu.cpp` does for the track select).
+  free RDRAM and the instructions repointed, as `src/rush2049/track2049_menu.cpp` does for the track select).
 - In a race each 2049 car runs as a host Rush 2 type whose per-type table rows (the 144 sites' tables), descriptor
   pointer and car asset (0x1D + host) are swapped for the 2049 car's while racing, then restored. Two hosts cover two
   players: **HOTROD (17)** and **GT90 (19)**. The AI picks only 0–15, and neither has special cases
@@ -57,7 +57,7 @@ plan below borrows slots instead.
   main/accent colours.
 - Saves: the selected type is saved in the player record; a 2049 choice keeps the old value and is stored in a side
   file, like the save file's `track_select` section.
-- Engine sound: keep the host car's Rush 2 engine first; 2049's engine through `src/audio2049.cpp` later.
+- Engine sound: keep the host car's Rush 2 engine first; 2049's engine through `src/rush2049/audio2049.cpp` later.
 
 ## 5. Rush 2 car asset layout [V] (asset 0x1D, PICKUP)
 
@@ -194,7 +194,7 @@ grip), DURABILITY (record byte / 100: the weight). The 2049 cars keep Rush 2's l
 - **ENGINE** -> 2049 ENGINE. A different kind of effect (Rush 2's is a sound): for 2049 cars the row is the power
   level, shown as ENGINE 1-6 (the value's text, func_803BC048, and its wrap, func_803B9478). In 2049 the ENGINE
   level also picks the engine sound (audio.md �7), so a 2049 car plays 2049's engine for its level
-  (src/engine2049.cpp); Rush 2's sound byte (func_8009E6DC) keeps the car's default.
+  (src/rush2049/engine2049.cpp); Rush 2's sound byte (func_8009E6DC) keeps the car's default.
 - **DURABILITY** -> 2049 FRAME: the durability value is the frame weight (a car's default is its own frame).
 - **SUSPENSION** and **TIRES** keep their full Rush 2 effect (yaw damping and suspension curve; steering, yaw and
   off-road grip, from the analogue's base values). 2049's HANDLING stays at each car's own setup; its 0x801116D0 +9
@@ -225,7 +225,7 @@ grip), DURABILITY (record byte / 100: the weight). The 2049 cars keep Rush 2's l
 ### Car select rows
 
 The car select keeps one option list (0x803CB3B8, count 0x803CB3B0) for both panels, built once per visit by
-func_803B81F0. Each panel's rows follow its car (src/wings_menu.cpp): the whole list is kept when it is built
+func_803B81F0. Each panel's rows follow its car (src/rush2049/wings_menu.cpp): the whole list is kept when it is built
 (0x803B8488) and the panel's list is put in its place before each read. Readers: func_803B9478's per-slot loop (head
 0x803B951C, slot $s7: navigation, left/right), func_803BC048's per-slot loop (head 0x803BC0C8, slot $s2: labels and
 values), and the row widgets' callbacks, which take their panel from the widget's +0x2C (it is the panel whose id

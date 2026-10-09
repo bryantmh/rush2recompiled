@@ -15,7 +15,7 @@
 // The game plays it at pitch 0.75: 1535/4096 sample steps per output sample at Rush 2049's 22050 Hz output, at a
 // volume that comes out at 0.1089 (left) and 0.1065 (right) of full scale with the default sound effects volume.
 //
-// From a Dreamcast disc the sound is the disc's counterpart of 0x3D (its 0x4D: an 11025 Hz PCM16 loop, src/audio2049_dc.cpp),
+// From a Dreamcast disc the sound is the disc's counterpart of 0x3D (its 0x4D: an 11025 Hz PCM16 loop, src/rush2049dc/audio2049_dc.cpp),
 // taken once the disc's sound banks have loaded, at the same pitch and gains [I: the disc's wing code isn't traced].
 
 #include <algorithm>

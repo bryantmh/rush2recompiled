@@ -1,5 +1,5 @@
-// Games tab: the San Francisco Rush 2049 and San Francisco Rush ROMs, each with what it adds to the game (src/wings.cpp,
-// src/rush1_rom.cpp).
+// Games tab: the San Francisco Rush 2049 and San Francisco Rush ROMs, each with what it adds to the game (src/rush2049/wings.cpp,
+// src/rush1/rush1_rom.cpp).
 
 #include <functional>
 #include <vector>

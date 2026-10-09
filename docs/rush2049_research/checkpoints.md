@@ -23,7 +23,7 @@ start). Rush 2049 drives faster cars and has no countdown, so its lanes are fast
 lane 0 speed is 139.3 on average over Rush 2's 9 race paths (both directions), against 0.91–1.31 times that on the
 2049 paths (track 1: 1.30 / 1.26, track 3: 1.31 / 1.12).
 
-**Fix** (`rush2_track49_race_time` in `src/track2049.cpp`, hook in `func_80093048` at 0x80093298): on a 2049 track
+**Fix** (`rush2_track49_race_time` in `src/rush2049/track2049.cpp`, hook in `func_80093048` at 0x80093298): on a 2049 track
 the computed start time and extensions are multiplied by the path's lane 0 speed ÷ 139.3 when that is above 1, which
 is what they would be at Rush 2's lane speeds. Both speeds are in the current Car Speeds mode (cars.md §10): the 2049
 lanes are already / 1.2 (true mph) with Rush 2 speeds, so only paths faster than Rush 2's average still get more time.
@@ -106,7 +106,7 @@ lanes are already / 1.2 (true mph) with Rush 2 speeds, so only paths faster than
 ## 4. What a 2049 race gets in Rush 2 now (before = after)
 
 The 2049 race runs in host slot 2 (HAWAII), using 2049 path files 158+k / 177+k unchanged
-(`src/track2049_convert.cpp`). Rush 2's loader overwrites them, so every checkpoint of every 2049 track, in both
+(`src/rush2049/track2049_convert.cpp`). Rush 2's loader overwrites them, so every checkpoint of every 2049 track, in both
 directions, gets this at difficulty d:
 
 | | forward (files 158–163) | backward (files 177–182) |
@@ -235,7 +235,7 @@ Decompiled with `tools/rush2049/decomp.py` (r2 80090570 80090A40 800A1468 8008F2
     590-800 ft past the nearest point: **no difference between the games here.**
   - 2049 only: a branch with type byte 2 (files 159 br 7, 178 br 5) is a respawn-in-place zone: the tracker skips
     the window and the car is put on the branch point itself, +3 ft, speed 0. Rush 2 has types 0 and 1 only.
-    Ported: `rush2_track49_respawn_zone*` in `src/track2049.cpp` (hooks at 0x80090758, 0x80091368, 0x800918E8).
+    Ported: `rush2_track49_respawn_zone*` in `src/rush2049/track2049.cpp` (hooks at 0x80090758, 0x80091368, 0x800918E8).
   - The helpers are the same code in both games (`func_8008F8B0` = 2049 `func_800D2928`, `func_80090514` =
     `func_800D3430`); no other difference was found.
 - **SF Rush** has the same gate test (`func_800A0BB8`) with its own radii, 316-1000 ft (rush1_research section 6).

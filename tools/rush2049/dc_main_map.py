@@ -10,7 +10,7 @@ become map entries, and each word gets the swap of the matches around it. Pointe
 side, DC executable address on the other) are marked for translation.
 
 With --emit it writes the map as C++ (rush2::rom2049 builds the N64 segments of a Dreamcast source from it, see
-src/rush2049_dc.cpp). The N64 ROM is RUSH2049_ROM (roms.py). See docs/rush2049_research/dreamcast.md.
+src/rush2049dc/rush2049_dc.cpp). The N64 ROM is RUSH2049_ROM (roms.py). See docs/rush2049_research/dreamcast.md.
 """
 import bisect, collections, struct, sys, zlib
 

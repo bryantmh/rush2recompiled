@@ -7,8 +7,8 @@
 // Rush 1's main code is LZ compressed (Rush 2's variant) at ROM 0x7A7930 and runs at 0x8005BB10. Its 72 assets are
 // listed by ROM offset at 0x800C7C1C and are all LZ compressed (docs/rush1_research.md).
 
-// As in src/wings.cpp: librecomp's nlohmann::json first.
-#include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
+// As in src/rush2049/wings.cpp: librecomp's nlohmann::json first.
+#include "../../lib/N64ModernRuntime/thirdparty/json/json.hpp"
 
 #include <array>
 #include <atomic>
@@ -33,7 +33,7 @@
 #include "wings_internal.h"
 
 namespace {
-    // In the Games tab's config, games.json (src/wings.cpp).
+    // In the Games tab's config, games.json (src/rush2049/wings.cpp).
     const std::string tracks_option_id = "sfrush_tracks";
     const std::string stripes_option_id = "sfrush_car_stripes";
     const char* rom_file_name = "rush1.z64";

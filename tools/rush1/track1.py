@@ -1,5 +1,5 @@
 """Conversion of a San Francisco Rush (Rush 1, USA) race track to the files of a Rush 2 track slot (prototype of
-src/track1_convert.cpp; docs/rush1_research.md has the formats and evidence).
+src/rush1/track1_convert.cpp; docs/rush1_research.md has the formats and evidence).
 
 convert(r1, t, prefix, backward) -> dict(geometry, placement, collision, path, pvs, pvs_count, demo_starts)
 t: Rush 1 track 0-6. prefix: the Rush 2 slot's track prefix (placement tree name, <prefix>FINISH).
@@ -32,7 +32,7 @@ R2_PREFIXES = ['MARKER', 'TIME', 'COLLISION', 'CONE1', 'FENCE', 'FLAG2', 'GASIGN
 
 # Rush 1 breakables raced as Rush 2 breakable classes, drawn with Rush 1's models: (Rush 1 model prefix, replacement for
 # the prefix in the record name or None to keep it, behaviour id of the Rush 2 class model). The class gives the sound
-# and debris handling; src/track1.cpp redirects Rush 2's lookup of the class model to the record's own model.
+# and debris handling; src/rush1/track1.cpp redirects Rush 2's lookup of the class model to the record's own model.
 R1_CLASSES = [('CONE1L', None, 2), ('METERL', None, 5), ('TREEHIT', None, 5), ('FLAG2L', None, 23), ('FENCEL', None, 4),
               ('GASIGNL', None, 7), ('WINDOWBL', 'SHATPANEBL', 9), ('PMUNCH_01L', 'CURVEHITPMUNCH', 5),
               ('TMUNCHL', 'TREEHITTMUNCH', 5), ('T5GATEL', 'FENCET5GATEL', 4)]
@@ -42,7 +42,7 @@ R1_PIECES = [('CONE1O', 'CONE1L', 1, 0), ('METERO', 'METERL', 1, 0), ('SHATPANEO
              ('FENCEO', 'FENCEL', 12, 0), ('FLAG2O', 'FLAG2L', 10, -1), ('GASIGNO', 'GASIGNL', 3, 0),
              ('T5GATEO', 'T5GATEL', 12, 0)]
 # A fence record with +0x4A set is track 5's gate: Rush 1's fence spawner (0x800C32EC) gives it model T5GATEL1 and
-# pieces T5GATEL1-12 instead of FENCEL1-12 (src/track1.cpp gives the Rush 2 fence the T5GATEO piece ids).
+# pieces T5GATEL1-12 instead of FENCEL1-12 (src/rush1/track1.cpp gives the Rush 2 fence the T5GATEO piece ids).
 R1_FENCE, R1_GATE = 'FENCEL', 'T5GATEL1'
 # Rush 1 models from the shared object file (asset 12) that the classes and keys use.
 R1_SHARED_OBJECTS = ['CONE1L1', 'METERL1', 'TREEHIT1L1', 'TREEHIT4L1', 'KEYL1']

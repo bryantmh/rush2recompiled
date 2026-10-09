@@ -6,7 +6,7 @@
 // differs from the GameCube runtime (volume maths, controller defaults, panning law) this file follows the N64 code,
 // with the Rush 2049 addresses given below.
 //
-// Data (Rush 2049 ROM files, table at main 0x8011B5BC as in src/rush2049_rom.cpp; all big-endian except the ADSR
+// Data (Rush 2049 ROM files, table at main 0x8011B5BC as in src/rush2049/rush2049_rom.cpp; all big-endian except the ADSR
 // tables). The sound files are LZ compressed; they are read here directly as LZ, because probing them with inflate
 // first (as rom2049::read_file does) can make miniz expand without end (file 7):
 // - File 6, project: groups {u32 size, u16 id, u16 type (0 song, 1 sfx), u32 offsets...}, offsets relative to the
@@ -44,7 +44,7 @@
 // matrixed into stereo as left + S, right - S (Dolby Surround style; music never uses it). A 15-bit gain of 32767
 // comes out at 0.5 (output_gain: the RSP mixer itself isn't ported). Checked against the N64: the wing sound as Rush
 // 2049 plays it (sfx 0x3D at volume 0.5, pan 0, pitch 0.75) gets voice gains 3568 / 3490 and step 1535/4096, the
-// values src/wings_sound.cpp took from the running game.
+// values src/rush2049/wings_sound.cpp took from the running game.
 //
 // Rush 2049 calls (main segment): sndInit(22050 Hz, 32 voices, 16 music, 16 sfx) at 0x800A5F94, master volumes
 // sndMasterVolume((int)(option / 10 * 127 * 0.9)) for music (func_800D6160) and sfx (func_800D6530), default options
@@ -187,7 +187,7 @@ namespace {
         return s16(std::clamp(v, -32768, 32767));
     }
 
-    // Rush 2049's ADPCM (see src/wings_sound.cpp, which decodes one sample the same way).
+    // Rush 2049's ADPCM (see src/rush2049/wings_sound.cpp, which decodes one sample the same way).
     std::vector<s16> decode_sample(const u8* src, size_t avail, u32 length) {
         constexpr u32 block_size = 40;
         constexpr u32 block_samples = 64;

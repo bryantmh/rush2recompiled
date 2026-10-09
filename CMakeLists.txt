@@ -139,52 +139,52 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/options_page.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/src/assets.cpp
-    ${CMAKE_SOURCE_DIR}/src/rush2049_rom.cpp
-    ${CMAKE_SOURCE_DIR}/src/rush2049_dc.cpp
-    ${CMAKE_SOURCE_DIR}/src/rush2049_dc_convert.cpp
-    ${CMAKE_SOURCE_DIR}/src/rush2049_dc_model.cpp
-    ${CMAKE_SOURCE_DIR}/src/rush2049_dc_pack.cpp
-    ${CMAKE_SOURCE_DIR}/src/rush2049_dc_tables.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/rush2049_rom.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049dc/rush2049_dc.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049dc/rush2049_dc_convert.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049dc/rush2049_dc_model.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049dc/rush2049_dc_pack.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049dc/rush2049_dc_tables.cpp
     ${CMAKE_SOURCE_DIR}/src/collectibles.cpp
     ${CMAKE_SOURCE_DIR}/src/progress_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/unlocks.cpp
     ${CMAKE_SOURCE_DIR}/src/ghost.cpp
-    ${CMAKE_SOURCE_DIR}/src/ghost_logic.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/ghost_logic.cpp
     ${CMAKE_SOURCE_DIR}/src/unlocks_shop.cpp
-    ${CMAKE_SOURCE_DIR}/src/track1.cpp
-    ${CMAKE_SOURCE_DIR}/src/track1_convert.cpp
-    ${CMAKE_SOURCE_DIR}/src/track1_audio.cpp
-    ${CMAKE_SOURCE_DIR}/src/track1_buses.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush1/track1.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush1/track1_convert.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush1/track1_audio.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush1/track1_buses.cpp
     ${CMAKE_SOURCE_DIR}/src/music.cpp
     ${CMAKE_SOURCE_DIR}/src/engine_preview.cpp
-    ${CMAKE_SOURCE_DIR}/src/engine2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/engine2049.cpp
     ${CMAKE_SOURCE_DIR}/src/car_engines.cpp
-    ${CMAKE_SOURCE_DIR}/src/rush1_rom.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush1/rush1_rom.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049.cpp
     ${CMAKE_SOURCE_DIR}/src/track_cache.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_art.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_convert.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_menu.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_records.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_movers.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_movers_logic.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_props.cpp
-    ${CMAKE_SOURCE_DIR}/src/battle.cpp
-    ${CMAKE_SOURCE_DIR}/src/battle_render.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_art.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_convert.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_menu.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_records.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_movers.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_movers_logic.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_props.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/battle.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/battle_render.cpp
     ${CMAKE_SOURCE_DIR}/src/arrows.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_audio.cpp
-    ${CMAKE_SOURCE_DIR}/src/track2049_texanim.cpp
-    ${CMAKE_SOURCE_DIR}/src/car2049.cpp
-    ${CMAKE_SOURCE_DIR}/src/audio2049.cpp
-    ${CMAKE_SOURCE_DIR}/src/audio2049_dc.cpp
-    ${CMAKE_SOURCE_DIR}/src/car1_decals.cpp
-    ${CMAKE_SOURCE_DIR}/src/car1_stripes.cpp
-    ${CMAKE_SOURCE_DIR}/src/wings.cpp
-    ${CMAKE_SOURCE_DIR}/src/wings_rom.cpp
-    ${CMAKE_SOURCE_DIR}/src/wings_state.cpp
-    ${CMAKE_SOURCE_DIR}/src/wings_render.cpp
-    ${CMAKE_SOURCE_DIR}/src/wings_sound.cpp
-    ${CMAKE_SOURCE_DIR}/src/wings_menu.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_audio.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_texanim.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/car2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/audio2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049dc/audio2049_dc.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush1/car1_decals.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush1/car1_stripes.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/wings.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/wings_rom.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/wings_state.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/wings_render.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/wings_sound.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/wings_menu.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
 )
 

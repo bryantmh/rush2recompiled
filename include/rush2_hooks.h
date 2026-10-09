@@ -110,7 +110,7 @@ void rush2_font_load_end(uint8_t* rdram, recomp_context* ctx);
 int rush2_asset_decompress(uint8_t* rdram, recomp_context* ctx);
 void rush2_heap_init(uint8_t* rdram, recomp_context* ctx);
 
-// Rush 2049 tracks raced in a borrowed track slot (src/track2049.cpp).
+// Rush 2049 tracks raced in a borrowed track slot (src/rush2049/track2049.cpp).
 void rush2_track49_load(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx);
@@ -156,13 +156,13 @@ void rush2_engine_preview_car_select(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine_preview_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine_preview_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine_preview_stop(uint8_t* rdram, recomp_context* ctx);
-// Rush 2049 engine sounds for the 2049 cars (src/engine2049.cpp).
+// Rush 2049 engine sounds for the 2049 cars (src/rush2049/engine2049.cpp).
 int rush2_engine49_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine49_stop(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine49_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_record(uint8_t* rdram, recomp_context* ctx);
 int rush2_car49_dirty(uint8_t* rdram, recomp_context* ctx);
-// The SF Rush car stripe (src/car1_stripes.cpp).
+// The SF Rush car stripe (src/rush1/car1_stripes.cpp).
 int rush2_car1_stripe_get(uint8_t* rdram, recomp_context* ctx);
 void rush2_car1_stripe_set(uint8_t* rdram, recomp_context* ctx);
 void rush2_car1_stripe_before(uint8_t* rdram, recomp_context* ctx);
@@ -221,19 +221,19 @@ void rush2_music_race(uint8_t* rdram, recomp_context* ctx);
 void rush2_music_race_sequence(uint8_t* rdram, recomp_context* ctx);
 void rush2_music_preview(uint8_t* rdram, recomp_context* ctx);
 
-// SF Rush music (src/track1_audio.cpp).
+// SF Rush music (src/rush1/track1_audio.cpp).
 void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx);
 int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx);
 
-// SF Rush track 6 buses (src/track1_buses.cpp).
+// SF Rush track 6 buses (src/rush1/track1_buses.cpp).
 int rush2_track1_buses_init(uint8_t* rdram, recomp_context* ctx);
 int rush2_track1_buses_update(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_buses_collision(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_buses_drive(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_gate(uint8_t* rdram, recomp_context* ctx);
 
-// SF Rush breakables (src/track1.cpp).
+// SF Rush breakables (src/rush1/track1.cpp).
 void rush2_track1_record_model(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_model_name(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx);
@@ -245,7 +245,7 @@ void rush2_track49_movers_probe_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_probe(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_pads(uint8_t* rdram, recomp_context* ctx);
 
-// Rush 2049 track records (src/track2049_records.cpp).
+// Rush 2049 track records (src/rush2049/track2049_records.cpp).
 void rush2_track49_records_stats(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_times(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_enter(uint8_t* rdram, recomp_context* ctx);
@@ -286,7 +286,7 @@ void rush2_players4_paused(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_labels(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx);
 
-// Rush 2049 wings physics and drawing (src/wings_state.cpp, src/wings_render.cpp).
+// Rush 2049 wings physics and drawing (src/rush2049/wings_state.cpp, src/rush2049/wings_render.cpp).
 void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_save_position(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_gravity(uint8_t* rdram, recomp_context* ctx);

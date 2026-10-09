@@ -3,8 +3,8 @@
 //
 // Songs: the ones the three games play on their race tracks. Rush 2's eight (its MUSIC setting's 2-9, sequences
 // 0x800CC394 = [3, 4, 0, 1, 7, 10, 2, 8]; per-track choice 0x800CC37C), SF Rush's nine race songs (its random table
-// 0x800D2910, played through Rush 2's player as sequences 13-28, src/track1_audio.cpp) and the six songs of Rush
-// 2049's race tracks (0x8010FFD4, played on the host, src/track2049_audio.cpp). A Rush 2049 Dreamcast disc has its own
+// 0x800D2910, played through Rush 2's player as sequences 13-28, src/rush1/track1_audio.cpp) and the six songs of Rush
+// 2049's race tracks (0x8010FFD4, played on the host, src/rush2049/track2049_audio.cpp). A Rush 2049 Dreamcast disc has its own
 // 20 songs (rush2::audio2049::disc_songs, a song per track at 0x8C0BA76C), listed instead of the N64's while it's the
 // 2049 source.
 //
@@ -16,7 +16,7 @@
 // Shuffles skip the song played last. A song of a game whose ROM or audio isn't available is skipped; with nothing
 // left the game picks as it would by itself. A Rush 2 or SF Rush song replaces the sequence Rush 2 chose (at
 // 0x8008C46C); a Rush 2049 song is queued on the 2049 player and the call turned into the "music off" case, whose
-// stop command starts it (src/track2049_audio.cpp).
+// stop command starts it (src/rush2049/track2049_audio.cpp).
 //
 // Preview: the Sound tab's play buttons. The game keeps running while the menu is open, so the preview runs on its
 // audio thread (func_800631A4, before it takes queued music commands): Rush 2 and SF Rush songs start with
@@ -26,7 +26,7 @@
 // into a volume update, as are any still in the queue when the preview starts), so the game can't take the music
 // back. Stopping the preview (or closing the tab) then plays what the game last asked for.
 
-// As in src/wings.cpp: librecomp's nlohmann::json first.
+// As in src/rush2049/wings.cpp: librecomp's nlohmann::json first.
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
 
 #include <array>

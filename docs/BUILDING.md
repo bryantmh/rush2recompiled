@@ -75,13 +75,13 @@ How the port works, how the ROM is laid out, and how to build it. For the player
   **Wings**. Hold the WINGS button (a row added to the game's Controls screen while Wings is on) while
   all four wheels are more than 5 ft off the ground to spread the wings, and steer pitch and roll with the stick. The
   physics, the three wing styles (one per player, chosen on the tab), the slide-out animation, the flames and the wind
-  sound match Rush 2049's code. The wing model and sound are read from the 2049 ROM at runtime (`src/wings*.cpp`,
+  sound match Rush 2049's code. The wing model and sound are read from the 2049 ROM at runtime (`src/rush2049/wings*.cpp`,
   hooks in `us.toml`).
 - Rush 2049 tracks (Settings > Rush 2049, **Rush 2049 Tracks**, on by default once the ROM is selected): the six race
   tracks of San Francisco Rush 2049 are added to the track select after Rush 2's own, with a generated map model and
-  name logo each. They are converted from the 2049 ROM when raced (`src/track2049_convert.cpp`; the Python
+  name logo each. They are converted from the 2049 ROM when raced (`src/rush2049/track2049_convert.cpp`; the Python
   prototype and checks are in `tools/rush2049/`) and run in a borrowed track slot whose files and per-track tables
-  are swapped while the 2049 track is raced (`src/track2049.cpp`, `src/track2049_menu.cpp`). The game heap is moved
+  are swapped while the 2049 track is raced (`src/rush2049/track2049.cpp`, `src/rush2049/track2049_menu.cpp`). The game heap is moved
   to 0x80400000-0x80900000 to fit them (`src/assets.cpp`). Notes: `docs/rush2049_port_plan.md`,
   `docs/rush2049_research/`.
 

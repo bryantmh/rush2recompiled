@@ -6,7 +6,7 @@
 // in front of it, which its overlay builds at runtime from the AI path (docs/rush2049_research/menus.md §7). The
 // 2049 entries get:
 // - Rush 2049's own preview for the track select (R49PTRACKn etc., build_preview, §7.5): the round screenshot with
-//   the route tube, or for an arena its outline from file 60, laid out as 2049 shows them; src/track2049_menu.cpp
+//   the route tube, or for an arena its outline from file 60, laid out as 2049 shows them; src/rush2049/track2049_menu.cpp
 //   poses it in front of Rush 2's camera and animates it;
 // - that route tube as the diorama (R49TRACKn, build_tube) for the other screens that show dioramas (the unlock
 //   shop, the circuit screen): 2049's construction and colours, ported; an arena's is its outline (build_outline);
@@ -16,7 +16,7 @@
 //   spine and the branches that really leave it). The notes below up to "Size" describe this miniature;
 // - a logo: the track's banner (tools/rush2049/banners, include/track2049_banners.h; tools/build_banners.py draws one
 //   with the banner font for a track without a picture, and for the arenas: STUNT n, OBSTACLE, BATTLE n).
-// The stunt arenas (k = stunt_first.., src/track2049_convert.cpp) get the same from their outline TRK_SnG1 and
+// The stunt arenas (k = stunt_first.., src/rush2049/track2049_convert.cpp) get the same from their outline TRK_SnG1 and
 // screenshot (SPICn), named R49STUNTn / R49PSTUNTn / R49SLOGOn, the battle arenas (k = battle_first..) from TRK_DnG1
 // and DPICn, named R49BATTLEn / R49PBATTLEn / R49BLOGOn, and the obstacle course (k = obstacle) from its path (176)
 // and OPIC1, named R49OBSTACLE / R49POBSTACLE / R49OLOGO (its preview is the screenshot alone, as in 2049). The
@@ -2053,7 +2053,7 @@ namespace {
     // node is at (50, -15, 100) in camera space, turned from the map's top-down -pi/2 to -pi/6 about x. The preview
     // model holds both in 2049's camera space: the model transformed so, and the screenshot as a textured square at
     // a depth behind it, sized and placed so 2049's projection (preview_focal, preview_center_*) shows it where 2049
-    // draws the sprite. src/track2049_menu.cpp maps that space onto Rush 2's camera.
+    // draws the sprite. src/rush2049/track2049_menu.cpp maps that space onto Rush 2's camera.
 
     constexpr float preview_units = 16.0f;                         // model units per camera space unit
     // 0x803B8344: the selected track's place, raised by 10 of 2049's screen pixels at its depth (2049's own spot

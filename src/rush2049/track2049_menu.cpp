@@ -11,8 +11,8 @@
 //   track is unlocked, offers 12-17, 25-37 and 18-24 only while those tracks are available.
 // - The menus test for the stunt track (11) by id: its options other than TRACK, FOG and WIND are greyed and
 //   func_80094698 turns backward and mirror off. Hooks make those tests treat the stunt arenas' and the obstacle
-//   course's ids as 11, except the test that sets stunt mode: the obstacle course is raced (src/track2049.cpp).
-// - The dioramas and logos come from a generated copy of asset 3 (src/track2049_art.cpp, then
+//   course's ids as 11, except the test that sets stunt mode: the obstacle course is raced (src/rush2049/track2049.cpp).
+// - The dioramas and logos come from a generated copy of asset 3 (src/rush2049/track2049_art.cpp, then
 //   rush2::track1::extend_menu_container for the Rush 1 ones).
 // - The screen saves the chosen track as the low nibble of byte +0x30 of the player's save record, which can't hold
 //   12-37, so such a choice leaves the nibble alone and is kept in the save file's "track_select" section
@@ -25,7 +25,7 @@
 //   them all out.
 //
 // When a race starts on id 12-37, the id becomes the host slot's (STUNT1's for a stunt or battle arena) and the added track is
-// noted for the track hooks (src/track2049.cpp, src/track1.cpp). The host slot keeps its id through restarts; opening
+// noted for the track hooks (src/rush2049/track2049.cpp, src/rush1/track1.cpp). The host slot keeps its id through restarts; opening
 // the track select clears it again. Circuits never pick a stunt or battle arena or the obstacle course, as they never pick
 // STUNT1.
 
@@ -504,7 +504,7 @@ extern "C" void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx) 
 }
 
 // Rush 2049's own preview for the 2049 entries (docs/rush2049_research/menus.md §7.5): the carousel instances the
-// track's preview model (src/track2049_art.cpp, menu_preview_name) in place of its diorama, and each frame the preview
+// track's preview model (src/rush2049/track2049_art.cpp, menu_preview_name) in place of its diorama, and each frame the preview
 // is posed so its model space, Rush 2049's track select camera space, lands in front of Rush 2's camera with 2049's
 // screen layout moved to the middle of the diorama area: the screenshot centred between the carousel arrows, the model
 // in front of it as 2049 shows it, still (no carousel spin). Race tracks' tubes get 2049's moving white highlight.

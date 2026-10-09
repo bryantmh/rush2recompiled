@@ -151,8 +151,8 @@ include), touch `lib/rt64/src/shaders/RasterPS.hlsl` so the raster shaders are c
 ## Exact images (track banners)
 
 `rush2::upscale::add_exact_image(indices, image)` draws a CI8 texture with a full-color image in place of its 256
-colors, whatever the upscaling mode. The track banners (`add_banner_images` in src/track1_convert.cpp and
-src/track2049_art.cpp, docs/rush1_research.md section 12) are its only users: their art has about a thousand colors
+colors, whatever the upscaling mode. The track banners (`add_banner_images` in src/rush1/track1_convert.cpp and
+src/rush2049/track2049_art.cpp, docs/rush1_research.md section 12) are its only users: their art has about a thousand colors
 even at 5 bits a channel, so no CI8 copy is exact.
 
 Each 2D CI8 hash is decoded once when first seen (`find_exact`) and its indices are compared with every row offset of

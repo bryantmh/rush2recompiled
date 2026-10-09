@@ -3,7 +3,7 @@
 // Rush 2 plays an engine only for each local player's own car (src/engine_preview.cpp: two slots, func_80062CC4
 // retunes them every audio frame); computer cars are silent. Players 3 and 4 (src/players4.cpp) have no slot, so their
 // cars' engines are played here at a player's own volume, whether or not the other cars' engines are on. Rush 2049 plays every other car's engine as a 3D emitter
-// (src/engine2049.cpp, docs/rush2049_research/audio.md §7), so the same is done here for both games' cars, heard from
+// (src/rush2049/engine2049.cpp, docs/rush2049_research/audio.md §7), so the same is done here for both games' cars, heard from
 // the local players' cars with Rush 2049's emitter law (audio2049::emitter_mix: range 400, other cars at 0.75 of their
 // engine volume). Each car keeps its own game's engine:
 // - A 2049 car plays Rush 2049's engine for its ENGINE level through the 2049 sound system (rush2::audio2049).
@@ -70,7 +70,7 @@ namespace {
     constexpr uint32_t engine_bases = 0x800BD15C;  // f32 [10][2]
     constexpr uint32_t rpm_table = 0x800BD338;     // f32 [2][11]
     constexpr uint32_t load_table = 0x800BD29C;    // f32 [2][13]
-    constexpr uint32_t default_engines = 0x80200C88; // s8 [36]: each type's engine sound (src/car2049.cpp)
+    constexpr uint32_t default_engines = 0x80200C88; // s8 [36]: each type's engine sound (src/rush2049/car2049.cpp)
     constexpr int turbo_sound = 0xC;
     constexpr float range = 400.0f;
     // Rush 2049 uses 0.75 (func_800E0050), but with up to seven cars around that drowned out the player's own.

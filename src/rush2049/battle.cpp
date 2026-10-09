@@ -1,6 +1,6 @@
 // Rush 2049's battle mode in Rush 2 (docs/rush2049_research/battle.md).
 //
-// The battle arenas (track select ids 30-37, src/track2049_menu.cpp) are hosted by Rush 2's stunt track, so the race
+// The battle arenas (track select ids 30-37, src/rush2049/track2049_menu.cpp) are hosted by Rush 2's stunt track, so the race
 // runs as Rush 2's stunt mode (free roam, a clock, no checkpoints). Rush 2049's battle was multiplayer only, so there
 // are no computer cars (their AI is future work). Rush 2049 runs its battle in a mode overlay (ROM 0xB6FEC4, raw
 // deflate, loaded at 0x8038A400) on top of its race code; this file is that overlay's logic on Rush 2's cars. Function
@@ -30,7 +30,7 @@
 // - The round ends at the time limit; Rush 2049's results (main func_80105EA8) then name the winner in a box in the
 //   middle of the screen ("%s WINS", "%d-WAY TIE") and give each view its player's name and points (kills).
 // - Teams (0x8012E67C per player): cars of a team don't damage each other and share a color.
-// Projectiles, mounted weapons, shields, explosions and the HUD's models are drawn by src/battle_render.cpp from
+// Projectiles, mounted weapons, shields, explosions and the HUD's models are drawn by src/rush2049/battle_render.cpp from
 // Rush 2049's own model files, so they need nothing of the track. That is what lets the Weapons cheat (Cheats tab)
 // give the players the same weapons in any other race: there the cars have the health, the weapons, the mounts and a
 // small health bar and weapon on the HUD, and nothing else of a battle (no pickups, kills or time limit). Shots are
@@ -239,7 +239,7 @@ namespace {
         bool explosion = false;         // 2049's explosion: its 30 frames
     };
 
-    // The renderer's slots (src/battle_render.cpp).
+    // The renderer's slots (src/rush2049/battle_render.cpp).
     constexpr int shot_slots = 32;               // 0-31: projectiles and effects
     constexpr int mount_slot_first = 32;         // 32-39: the weapon mounted on each car
     constexpr int hud_weapon_slot_first = 40;    // 40-43: the HUD's weapon, per view
@@ -686,7 +686,7 @@ namespace {
     }
 
     // The 2049 sound effects are mixed only while something reports them in use each frame (they go quiet with the
-    // race paused, src/track2049_audio.cpp); Rush 2049's cars' engines do, and so must a battle, or its sounds are
+    // race paused, src/rush2049/track2049_audio.cpp); Rush 2049's cars' engines do, and so must a battle, or its sounds are
     // silent with a Rush 2 car.
     void update_sounds(uint8_t* rdram) {
         if (rush2::track2049::music_ready()) rush2::track2049::effects_running(rdram);
@@ -769,7 +769,7 @@ namespace {
                 for (int k = 0; k < 3; k++) p.local[k] = read_f(rdram, p.record + 0x34 + k * 4);
                 pickups.push_back(p);
             }
-            // The converter's pool of spare records (the models were drawn from them before src/battle_render.cpp)
+            // The converter's pool of spare records (the models were drawn from them before src/rush2049/battle_render.cpp)
             // stays hidden.
             for (int record : pool_records) {
                 auto n = node_of_matrix.find(record_pointer(rdram, record) + 0x10);
@@ -1683,7 +1683,7 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
 // 0x28 byte layout entry whose +0 is the image's name; the converter merges 2049's HUD files 63 and 76 into the arena's
 // geometry, where Rush 2 finds the images by name), placed in final screen coordinates and scaled by src/hud.cpp
 // (rush2::hud::set_widget_scale). The models are placed for each view just before it is drawn (rush2_battle_view)
-// and drawn by src/battle_render.cpp. The stunt score panels are hidden (rush2_battle_hide_stunt_panel).
+// and drawn by src/rush2049/battle_render.cpp. The stunt score panels are hidden (rush2_battle_hide_stunt_panel).
 //
 // With the Weapons cheat in another race Rush 2's HUD stays as it is and the battle's health bar is added at the
 // bottom of each view (the cheat's weapons never run out, so the weapon held and its ammo aren't shown). Such a track has no HEALTHBG among its images, so the frame is

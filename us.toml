@@ -266,7 +266,7 @@ func = "view_fog_setup_8007C624"
 before_vram = 0x8007D890
 text = "    rush2_interp_poly_end(rdram, ctx);"
 
-# Rocket ZX flames (src/car2049.cpp): queued while the scene graph draws, drawn after the world-space polygons
+# Rocket ZX flames (src/rush2049/car2049.cpp): queued while the scene graph draws, drawn after the world-space polygons
 # (shadows, skids, particles) so those don't paint over them. $s6 = display list cursor at L_8007D980.
 [[patches.hook]]
 func = "view_fog_setup_8007C624"
@@ -468,7 +468,7 @@ func = "menu_controller_setup_rows_text_800B6134"
 before_vram = 0x800B65E8
 text = "    rush2_controls_menu_draw(rdram, ctx);"
 
-# Rush 2049 wings physics (src/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is
+# Rush 2049 wings physics (src/rush2049/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is
 # part of rush2_model_draw.
 [[patches.hook]]
 func = "car_physics_forces_800706D0"
@@ -554,7 +554,7 @@ func = "overlay_load_800A62C0"
 vram = 0x800A62EC
 value = 0x37180000 # ori $t8, $t8, 0
 
-# Rush 2049 tracks (src/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the
+# Rush 2049 tracks (src/rush2049/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the
 # visible sections for the camera's region, func_800A45A8 builds the sky.
 [[patches.hook]]
 func = "track_assets_queue_800A4C98"
@@ -576,7 +576,7 @@ func = "sky_setup_800A45A8"
 before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
-# Rush 2049 track select entries (src/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
+# Rush 2049 track select entries (src/rush2049/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
 # func_803ABE0C (per frame); its tables and carousel array are repointed to 38-entry copies at 0x80300000 (Rush 2's 12
 # tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29, Rush 2049 battle arenas at 30-37).
 [[patches.hook]]
@@ -589,7 +589,7 @@ func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB6C8
 text = "    rush2_track49_select_count(rdram, ctx);"
 
-# Rush 2049 entries show 2049's own track select preview (src/track2049_menu.cpp): the camera-space model replaces the
+# Rush 2049 entries show 2049's own track select preview (src/rush2049/track2049_menu.cpp): the camera-space model replaces the
 # diorama when the carousel instances it, and its pose replaces the carousel's spin each frame.
 [[patches.hook]]
 func = "trackselect_init_draw_803AB294"
@@ -634,7 +634,7 @@ func = "race_start_timer_800AE670"
 before_vram = 0x800AE78C
 text = "    rush2_track49_stunt_mode(rdram, ctx);"
 
-# Rush 2049's obstacle course (src/track2049.cpp): raced alone over one lap with checkpoints on (end of
+# Rush 2049's obstacle course (src/rush2049/track2049.cpp): raced alone over one lap with checkpoints on (end of
 # func_80094698), against a 5-minute clock (func_800AE670 just after it set the time allowed, 0x8010C204).
 [[patches.hook]]
 func = "menu_settings_to_race_globals_80094698"
@@ -646,7 +646,7 @@ func = "race_start_timer_800AE670"
 before_vram = 0x800AEB20
 text = "    rush2_track49_obstacle_clock(rdram, ctx);"
 
-# Rush 2049's battle arenas (src/battle.cpp) are played in stunt mode but have no stunt score: its panel's visibility
+# Rush 2049's battle arenas (src/rush2049/battle.cpp) are played in stunt mode but have no stunt score: its panel's visibility
 # callbacks func_800B9CC0 (the trick score panel) and func_800B7654 (the BEST / TOTAL scores) hide them.
 [[patches.hook]]
 func = "hud_widget_cb_check_flags_800B9CC0"
@@ -658,7 +658,7 @@ func = "hud_widget_text_cb_player_stats_800B7654"
 before_vram = 0x800B76CC
 text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
 
-# Rush 2049 rules by game type (src/track2049.cpp): no stuck reset, quick respawn after a wreck, and no track map or
+# Rush 2049 rules by game type (src/rush2049/track2049.cpp): no stuck reset, quick respawn after a wreck, and no track map or
 # radar (their stunt track tests).
 [[patches.hook]]
 func = "race_stuck_wrongway_update_8008CDA4"
@@ -670,7 +670,7 @@ func = "race_wreck_respawn_wait_8008E40C"
 before_vram = 0x8008E678
 text = "    rush2_track49_respawn_delay(rdram, ctx);"
 
-# Rush 2049's respawn zones (type 2 branches, src/track2049.cpp): the car is put back on the spot.
+# Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot.
 [[patches.hook]]
 func = "car_track_position_80090570"
 before_vram = 0x80090758
@@ -736,7 +736,7 @@ func = "options_text_cb_names_values_803C6268"
 before_vram = 0x803C6354
 text = "    rush2_track49_stunt_options(rdram, ctx);"
 
-# The STUNT and BATTLE track selects list fewer options than the rows on screen (src/track2049_menu.cpp).
+# The STUNT and BATTLE track selects list fewer options than the rows on screen (src/rush2049/track2049_menu.cpp).
 [[patches.hook]]
 func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC4FC
@@ -773,7 +773,7 @@ func = "options_widget_cb_slider_803C5798"
 before_vram = 0x803C5978
 text = "    rush2_track49_stunt_option_t8(rdram, ctx);"
 
-# Start Game menu (func_803B12C8, labels drawn by func_803C364C): a STUNT row after PRACTICE (src/track2049_menu.cpp).
+# Start Game menu (func_803B12C8, labels drawn by func_803C364C): a STUNT row after PRACTICE (src/rush2049/track2049_menu.cpp).
 # The cursor counts the 6 rows; the choice maps them back to the 5 stock options, STUNT taking ONE RACE's path.
 [[patches.instruction]]
 func = "menu_screen_start_game_803B12C8"
@@ -790,7 +790,7 @@ func = "menu_screen_start_game_803B12C8"
 before_vram = 0x803B14B8
 text = "    rush2_mode_menu_choose(rdram, ctx);"
 
-# The row count follows the unlock system's UNLOCKS row (6 or 7 rows; src/track2049_menu.cpp).
+# The row count follows the unlock system's UNLOCKS row (6 or 7 rows; src/rush2049/track2049_menu.cpp).
 [[patches.hook]]
 func = "menu_screen_start_game_803B12C8"
 before_vram = 0x803B15FC
@@ -961,7 +961,7 @@ func = "trackselect_frame_803ABE0C"
 vram = 0x803AC0FC
 value = 0x28C10026 # slti    $at, $a2, 0x26
 
-# Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
+# Rush 2049 track records (src/rush2049/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
 # post-race and high-score screen functions run. None of these instructions is a delay slot.
 [[patches.hook]]
@@ -1034,7 +1034,7 @@ func = "profile_delete_800B306C"
 before_vram = 0x800B306C
 text = "    rush2_player_deleted(rdram, ctx);"
 
-# Rush 2049 moving track objects (src/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's
+# Rush 2049 moving track objects (src/rush2049/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's
 # subway trains move), func_800706D0 runs a car's physics (here after its wheel probes).
 [[patches.hook]]
 func = "physics_tick_80076578"
@@ -1062,7 +1062,7 @@ before_vram = 0x800706EC
 text = "    rush2_track49_movers_pads(rdram, ctx);"
 
 # Race music (src/music.cpp): the race's song choice, and Rush 2049 songs on Rush 2's music commands
-# (src/track2049_audio.cpp).
+# (src/rush2049/track2049_audio.cpp).
 [[patches.hook]]
 func = "music_pick_race_song_8008C370"
 before_vram = 0x8008C370
@@ -1073,7 +1073,7 @@ func = "music_queue_command_80062F50"
 before_vram = 0x80062F50
 text = "    rush2_track49_music_command(rdram, ctx);"
 
-# SF Rush's own music on the SF Rush tracks (src/track1_audio.cpp): its music block is added to the ROM image and
+# SF Rush's own music on the SF Rush tracks (src/rush1/track1_audio.cpp): its music block is added to the ROM image and
 # its bank loaded after Rush 2's (func_800B3B78), the race's sequence is the one src/music.cpp chose (func_8008C370,
 # $v0 = sequence), and the music loader gives the sequence player the song's bank before attaching it (func_8007733C).
 [[patches.hook]]
@@ -1097,7 +1097,7 @@ func = "audio_thread_main_800631A4"
 before_vram = 0x80063AA0
 text = "    rush2_music_preview(rdram, ctx);"
 
-# SF Rush breakables (src/track1.cpp): Rush 2 breakable class records draw the SF Rush model named for the record
+# SF Rush breakables (src/rush1/track1.cpp): Rush 2 breakable class records draw the SF Rush model named for the record
 # (placement walker func_80081790, before its model lookup), and Rush 2 breakable pieces resolve to SF Rush's
 # (func_8005BE3C, the model lookup by name).
 [[patches.hook]]
@@ -1105,7 +1105,7 @@ func = "placement_walk_80081790"
 before_vram = 0x8008194C
 text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rdram, ctx);"
 
-# SF Rush visibility (src/track1.cpp): the camera position, for SF Rush's own region choice in rush2_track49_pvs.
+# SF Rush visibility (src/rush1/track1.cpp): the camera position, for SF Rush's own region choice in rush2_track49_pvs.
 [[patches.hook]]
 func = "pvs_apply_8007C27C"
 before_vram = 0x8007C27C
@@ -1116,26 +1116,26 @@ func = "model_find_by_name_8005BE3C"
 before_vram = 0x8005BE3C
 text = "    rush2_track1_model_name(rdram, ctx);"
 
-# ...and keep their own models: the per-frame breakable update draws each with its class id's model (src/track1.cpp).
+# ...and keep their own models: the per-frame breakable update draws each with its class id's model (src/rush1/track1.cpp).
 [[patches.hook]]
 func = "breakables_update_8008A01C"
 before_vram = 0x8008A0CC
 text = "    rush2_track1_breakable_model(rdram, ctx); rush2_collect_breakable_model(rdram, ctx);"
 
-# ...and are hit as in Rush 1, at any height in the car's footprint (src/track1.cpp).
+# ...and are hit as in Rush 1, at any height in the car's footprint (src/rush1/track1.cpp).
 [[patches.hook]]
 func = "breakable_car_hit_test_8008B0CC"
 before_vram = 0x8008B0CC
 text = "    if (rush2_ghost_breakable_hit(rdram, ctx) || rush2_track1_breakable_hit(rdram, ctx) || rush2_collect_hit(rdram, ctx)) return;"
 
-# SF Rush wrong-way warning (src/track1.cpp): off while the car is next to a checkpoint SF Rush flags for it
+# SF Rush wrong-way warning (src/rush1/track1.cpp): off while the car is next to a checkpoint SF Rush flags for it
 # (flag 4, track 6's figure 8), after func_8008CDA4 stores the angle.
 [[patches.hook]]
 func = "race_stuck_wrongway_update_8008CDA4"
 before_vram = 0x8008D3A4
 text = "    rush2_track1_wrong_way(rdram, ctx);"
 
-# SF Rush fireworks (src/track1_audio.cpp): on an SF Rush track the FIRECRCK emitter is SF Rush's looped fireworks
+# SF Rush fireworks (src/rush1/track1_audio.cpp): on an SF Rush track the FIRECRCK emitter is SF Rush's looped fireworks
 # sound, added to Rush 2's sound effect instrument as sound 116, so func_80062264 accepts sound ids up to 116.
 [[patches.hook]]
 func = "track_emitter_fx8_800BBB04"
@@ -1147,7 +1147,7 @@ func = "snd_play_effect_80062264"
 vram = 0x800622A0
 value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 
-# SF Rush track 6's traffic buses (src/track1_buses.cpp): Rush 2's subway trains are Rush 1's buses grown up; on SF
+# SF Rush track 6's traffic buses (src/rush1/track1_buses.cpp): Rush 2's subway trains are Rush 1's buses grown up; on SF
 # Rush track 6 the subway setup and per-tick move are Rush 1's (func_800A9DB8, func_8007FC74), the car collision
 # uses the buses' reach and height, and the computer drivers lift off behind a bus as in Rush 1 (func_8007CF74).
 [[patches.hook]]
@@ -1170,13 +1170,13 @@ func = "ai_steering_filter_80071FBC"
 before_vram = 0x80072564
 text = "    rush2_track1_buses_drive(rdram, ctx);"
 
-# SF Rush track 5's gate (src/track1.cpp): the fence record SF Rush flags as the gate breaks into its own pieces.
+# SF Rush track 5's gate (src/rush1/track1.cpp): the fence record SF Rush flags as the gate breaks into its own pieces.
 [[patches.hook]]
 func = "breakable_spawn_fence_800BB864"
 before_vram = 0x800BB8AC
 text = "    rush2_track1_gate(rdram, ctx);"
 
-# Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
+# Circuits with the Rush 2049 tracks (src/rush2049/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
 # Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
 # 38-entry name table into a 38-entry array at 0x80300840 (was 7 at 0x803C7A44), with the 38-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
@@ -1290,19 +1290,19 @@ func = "circuit_widget_cb_logo_803BE528"
 vram = 0x803BE598
 value = 0x8CA501E0 # lw $a1, 0x1E0($a1)
 
-# Car Speeds: map the path's AI lane speeds before the race time is worked out from them (src/track2049.cpp).
+# Car Speeds: map the path's AI lane speeds before the race time is worked out from them (src/rush2049/track2049.cpp).
 [[patches.hook]]
 func = "path_load_derive_80093048"
 before_vram = 0x80093290
 text = "    rush2_race_lane_speeds(rdram, ctx);"
 
-# Car Speeds: with Rush 2049 speeds the speedometer reads like Rush 2049's, true speed x 1.2 (src/car2049.cpp).
+# Car Speeds: with Rush 2049 speeds the speedometer reads like Rush 2049's, true speed x 1.2 (src/rush2049/car2049.cpp).
 [[patches.hook]]
 func = "hud_speedometer_800BA2A8"
 before_vram = 0x800BA3F8
 text = "    rush2_speedometer(rdram, ctx);"
 
-# Rush 2049 tracks: scale the race time Rush 2 works out from the path's AI lane speeds (src/track2049.cpp).
+# Rush 2049 tracks: scale the race time Rush 2 works out from the path's AI lane speeds (src/rush2049/track2049.cpp).
 [[patches.hook]]
 func = "path_load_derive_80093048"
 before_vram = 0x80093298
@@ -1310,7 +1310,7 @@ text = "    rush2_track49_race_time(rdram, ctx);"
 
 # Rush 2's per-car-type tables (0x800C06B4-0x800C0FDE, 22 entries, 1 or 3 rows) moved to 36-entry copies at
 # 0x80200000 for the Rush 2049 cars (types 23-35; 22 stays Rush 2's "no car" marker), built at boot by
-# src/car2049.cpp. Generated by tools/rush2049/cartypes.py toml: table address relocations, row-stride idioms
+# src/rush2049/car2049.cpp. Generated by tools/rush2049/cartypes.py toml: table address relocations, row-stride idioms
 # (r * 22 -> r * 36) and row offsets.
 [[patches.instruction]]
 func = "carselect_preview_update_8005A598"
@@ -7365,7 +7365,7 @@ func = "carselect_build_list_803B81F0"
 vram = 0x803B93A4
 value = 0x24010024 # preview id: 22 -> 36
 
-# Rush 2049 cars on the car select (src/car2049.cpp): the per-player car list (0x803CB368) and carousel
+# Rush 2049 cars on the car select (src/rush2049/car2049.cpp): the per-player car list (0x803CB368) and carousel
 # (0x803CB980, 0x210 per player) and the asset tables (0x800C185C, 0x8001CD64) move to larger copies; the 2049 types
 # are appended to the list, load as assets 0x71 + n, and keep their per-car options in side slots.
 [[patches.instruction]]
@@ -7580,7 +7580,7 @@ before_vram = 0x800A3B98
 text = "    rush2_car49_drone(rdram, ctx);"
 
 # Car texture name prefixes (0x800C64C4, 22 entries, func_800843EC) moved to a 36-entry copy; the 2049 types get a
-# prefix no texture has, so their damage textures are not looked up (src/car2049.cpp).
+# prefix no texture has, so their damage textures are not looked up (src/rush2049/car2049.cpp).
 [[patches.instruction]]
 func = "car_texture_prefix_lookup_800843EC"
 vram = 0x80084CBC
@@ -7591,14 +7591,14 @@ func = "car_texture_prefix_lookup_800843EC"
 vram = 0x80084CCC
 value = 0x8CC64F00 # lw $a2, 0x4F00($a2) -> 80224F00
 
-# Car damage: 2049 cars dent their body instead of swapping panels (src/car2049.cpp).
+# Car damage: 2049 cars dent their body instead of swapping panels (src/rush2049/car2049.cpp).
 [[patches.hook]]
 func = "car_update_draw_nodes_8005CFB0"
 before_vram = 0x8005CFB0
 text = "    rush2_car49_dent(rdram, ctx);"
 
 # The selected car type: the player record keeps 5 bits (0-31), so the full type (up to 35) is remembered on the
-# side (func_80097F8C) and put back where func_8009E6DC copies it to the player (src/car2049.cpp).
+# side (func_80097F8C) and put back where func_8009E6DC copies it to the player (src/rush2049/car2049.cpp).
 [[patches.hook]]
 func = "profile_set_selected_car_type_80097F8C"
 before_vram = 0x80097F8C
@@ -7616,7 +7616,7 @@ func = "carselect_build_list_803B81F0"
 before_vram = 0x803B8CE4
 text = "    rush2_car49_select_cursor(rdram, ctx);"
 
-# Rush 2049 engine sounds (src/engine2049.cpp): a local player slot driving a 2049 car skips Rush 2's engine start
+# Rush 2049 engine sounds (src/rush2049/engine2049.cpp): a local player slot driving a 2049 car skips Rush 2's engine start
 # (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame
 # (func_80064F70); func_8008C49C (pause, race end) stops it.
 [[patches.hook]]
@@ -7634,8 +7634,8 @@ func = "car_engine_sound_update_80064F70"
 before_vram = 0x80064F70
 text = "    rush2_engine49_tick(rdram, ctx);"
 
-# Car options on the 2049 cars (src/car2049.cpp): a player's ENGINE and DURABILITY choices apply Rush 2049's ENGINE
-# and FRAME (car init, func_8008DBA0) and pick its engine sound (src/engine2049.cpp); the car select's ENGINE row
+# Car options on the 2049 cars (src/rush2049/car2049.cpp): a player's ENGINE and DURABILITY choices apply Rush 2049's ENGINE
+# and FRAME (car init, func_8008DBA0) and pick its engine sound (src/rush2049/engine2049.cpp); the car select's ENGINE row
 # offers ENGINE 1-6.
 [[patches.hook]]
 func = "car_init_setup_8008DBA0"
@@ -7647,7 +7647,7 @@ func = "car_init_setup_8008DBA0"
 before_vram = 0x8008DD00
 text = "    rush2_car49_setup_mass(rdram, ctx);"
 
-# Every car's TIRES row gains Rush 2049's SLICKS and PRO SLICKS (src/car2049.cpp): the steering values and off-road
+# Every car's TIRES row gains Rush 2049's SLICKS and PRO SLICKS (src/rush2049/car2049.cpp): the steering values and off-road
 # factor of the added values, the car select's TIRES steps and the row's value text.
 [[patches.hook]]
 func = "car_type_load_table_a_8008D984"
@@ -7732,13 +7732,13 @@ func = "carselect_text_cb_car_title_803BC048"
 before_vram = 0x803BC63C
 text = "    rush2_car49_option_text(rdram, ctx); rush2_wings_car_value(rdram, ctx);"
 
-# The car select's WINGS row (src/wings_menu.cpp).
+# The car select's WINGS row (src/rush2049/wings_menu.cpp).
 [[patches.hook]]
 func = "carselect_build_list_803B81F0"
 before_vram = 0x803B8488
 text = "    rush2_wings_car_rows(rdram, ctx); rush2_car_rows_built(rdram, ctx);"
 
-# Each car select panel's own rows: a 2049 car's STYLE / TERTIARY COLOR (src/wings_menu.cpp).
+# Each car select panel's own rows: a 2049 car's STYLE / TERTIARY COLOR (src/rush2049/wings_menu.cpp).
 [[patches.hook]]
 func = "menu_screen_car_select_frame_803B9478"
 before_vram = 0x803B951C
@@ -7816,7 +7816,7 @@ func = "carselect_widget_cb_name_logo_803BB61C"
 vram = 0x803BB710
 value = 0x00000000
 
-# SF Rush car stripe (src/car1_stripes.cpp): a ninth STRIPE value, Rush 1's decal on the cars that have one. The player
+# SF Rush car stripe (src/rush1/car1_stripes.cpp): a ninth STRIPE value, Rush 1's decal on the cars that have one. The player
 # record's getter and setter, the car select's STRIPE row and its text, and func_8008582C's stripe stamp.
 [[patches.hook]]
 func = "car_options_get_color_lo_800B2608"
@@ -8034,7 +8034,7 @@ before_vram = 0x8005F338
 text = "    if (rush2_car49_dirty(rdram, ctx)) return;"
 
 # Per-type 16-byte tables (car boxes 0x800CAC6C [22], 0x800CADCC [23, entry 22 special]) moved to 36-entry copies
-# for the Rush 2049 cars (src/car2049.cpp).
+# for the Rush 2049 cars (src/rush2049/car2049.cpp).
 [[patches.instruction]]
 func = "car_model_update_parts_80059D24"
 vram = 0x80059FF8
@@ -8066,7 +8066,7 @@ vram = 0x8009EAE4
 value = 0x3C198022 # lui -> 8022
 
 # Physics descriptor pointer table (0x800C07BC, 11 entries) moved to a 24-entry copy: Rush 2's 11 descriptors
-# and the 13 Rush 2049 cars' (src/car2049.cpp).
+# and the 13 Rush 2049 cars' (src/rush2049/car2049.cpp).
 [[patches.instruction]]
 func = "car_preview_nodes_init_8005B978"
 vram = 0x8005BC3C

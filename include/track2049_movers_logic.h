@@ -7,7 +7,7 @@
 #include <vector>
 
 // Rush 2049's animated track objects (path followers), ported as pure logic: no RDRAM, no recomp context. The
-// specification, with every address, is docs/rush2049_research/movers.md; src/track2049_movers_logic.cpp has the
+// specification, with every address, is docs/rush2049_research/movers.md; src/rush2049/track2049_movers_logic.cpp has the
 // per-function notes. Matrices are 3x3 row-major float[9] as 2049 stores them (row r = m[3r..3r+2], a point is
 // transformed as a row vector, p' = p * m). Units are 2049 world units (feet), the same as Rush 2's.
 namespace rush2::track2049::movers {

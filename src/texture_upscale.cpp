@@ -17,7 +17,7 @@
 // folder of images.
 //
 // A Dreamcast Rush 2049 source scales its textures down to fit TMEM. Their full-size images come from the texture
-// pack it builds (src/rush2049_dc_pack.cpp), which RT64 loads like any pack, so they are never upscaled here
+// pack it builds (src/rush2049dc/rush2049_dc_pack.cpp), which RT64 loads like any pack, so they are never upscaled here
 // (set_texture_source).
 //
 // For upscalers without a command line (Topaz Gigapixel's app, say): Dump Textures writes the kept textures as

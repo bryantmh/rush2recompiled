@@ -114,7 +114,7 @@ A widget record is 0x28 bytes: `char *texture; s16 x, y; 3×-1; 0; 0; 0xFF; call
 - DRONES' value (case 5, 0x803C66F0) prints the digits 0-7, the race's drone count (s16 0x800D3E90) in style 0xA
   (green) and the others in style 4 (gray). Its left/right case (0x803AC2CC) wraps menu settings +0x1
   (0x800D5761) with `& 7`, or sets 7 with no step.
-- In the port (src/track2049_menu.cpp), the STUNT and BATTLE track selects list only TRACK, FOG, WIND and, on the
+- In the port (src/rush2049/track2049_menu.cpp), the STUNT and BATTLE track selects list only TRACK, FOG, WIND and, on the
   obstacle course, DEATHS; hooks stop the text loop after the list (0x803C6934), hide the boxes past it
   (0x803C5774) and keep a list of 4 or fewer from scrolling (0x803AC4FC). In a ghost race (src/ghost.cpp), DRONES
   counts the drones besides the ghosts, from 0 to 7 - players - 3 (hooks at 0x803AC2F0, 0x803AC300, 0x803C6714,
@@ -376,7 +376,7 @@ Details from `ui49.py` [V unless marked]:
 Rush 2049's track select shows each race track as a 3D "tube" along its route, in front of the round TPIC
 screenshot, and all of them small on a map of San Francisco (arenas: their flat outline from file 60). It isn't stored in the ROM: the track select overlay
 (ROM 0xB5C534, raw deflate, loaded at 0x8038A400) builds it at runtime
-from the AI path. `src/track2049_art.cpp` (`build_tube`) ports it as the R49TRACK*n* diorama.
+from the AI path. `src/rush2049/track2049_art.cpp` (`build_tube`) ports it as the R49TRACK*n* diorama.
 
 ### 7.1 Tables in the overlay
 | Address | Contents |
@@ -441,8 +441,8 @@ from its start, and 2049's tube draws a sliver across the model there. An arena'
 unlock shop and the circuit screen show.
 
 ### 7.5 In the port: the track select preview
-The track select shows 2049's own preview instead (`build_preview` in `src/track2049_art.cpp`, posed by
-`rush2_track49_select_pose` in `src/track2049_menu.cpp`):
+The track select shows 2049's own preview instead (`build_preview` in `src/rush2049/track2049_art.cpp`, posed by
+`rush2_track49_select_pose` in `src/rush2049/track2049_menu.cpp`):
 - **Model:** R49PTRACKn / R49PSTUNTn / R49PBATTLEn / R49POBSTACLE, one per entry, laid out in 2049's track select
   camera space (x right, y up, z forward, 16 model units per unit): the tube (display scale 5000/extent) or the
   outline at (50, −15, 100) tilted −π/6 (`preview_place`), then the screenshot as eight textured 128-wide strips
@@ -490,6 +490,6 @@ slots 0 and 1; with 3 or 4 players a second round for players 3 and 4, src/playe
   0x803BB338). Other widgets compare ids only: color swatches for 2, 3, 5 (`func_803BAA44`), sliders for 12-14
   (`func_803BAC24`, `func_803BACF8`); `func_803BB9F8` picks row art through a 15-entry table and skips larger ids.
 
-In the port, src/wings_menu.cpp adds WINGS (id 15) above DURABILITY while wings are on: hooks give it its label
+In the port, src/rush2049/wings_menu.cpp adds WINGS (id 15) above DURABILITY while wings are on: hooks give it its label
 (0x803BC310, 0x803BC350, 0x803BB2E4, 0x803BB34C read a pointer to "WINGS" in place of the table's entry), its value
 (0x803BC63C) and its steps (0x803B98A4).

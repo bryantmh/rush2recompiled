@@ -58,7 +58,7 @@ namespace {
     // Rush 1 breakables raced as Rush 2 breakable classes, drawn with Rush 1's models. A record keeps its model name when
     // that already selects the Rush 2 class (CONE1L1 -> CONE1), else its prefix is replaced to select one; the class
     // gives the sound and debris handling, and the model's name record gets the behaviour id of the Rush 2 model it
-    // stands in for (src/track1.cpp redirects Rush 2's lookups of the class model to the record's own model).
+    // stands in for (src/rush1/track1.cpp redirects Rush 2's lookups of the class model to the record's own model).
     struct ObjectClass {
         const char* prefix;     // Rush 1 model name prefix.
         const char* record;     // Replacement for the prefix in the record name, or null to keep it.
@@ -79,7 +79,7 @@ namespace {
         { "SHATPANEO", "WINDOWBL", 7, 0 }, { "FENCEO", "FENCEL", 12, 0 }, { "FLAG2O", "FLAG2L", 10, -1 },
         { "GASIGNO", "GASIGNL", 3, 0 }, { "T5GATEO", "T5GATEL", 12, 0 } };
     // A fence record with +0x4A set is track 5's gate: Rush 1's fence spawner (0x800C32EC) gives it model T5GATEL1 and
-    // pieces T5GATEL1-12 instead of FENCEL1-12 (src/track1.cpp gives the Rush 2 fence the T5GATEO piece ids).
+    // pieces T5GATEL1-12 instead of FENCEL1-12 (src/rush1/track1.cpp gives the Rush 2 fence the T5GATEO piece ids).
     constexpr const char* r1_fence = "FENCEL";
     constexpr const char* r1_gate = "T5GATEL1";
     // Tree pieces TREEHITnO1 -> TREEHITnL1 (n 1-4).
@@ -96,7 +96,7 @@ namespace {
     const char* const r1_dropped[] = { "MARKER", "TIME", "BIGCHEER2" };
     // Rush 1 sound emitters -> the Rush 2 emitters that play the same sound at the same range (the behaviour ids differ:
     // SMALLHOOT's is Rush 2's BIGCHR1 and BIGCHEER's BIGCHR2, a crowd cheer at 400 and 300). FIRECRK's fireworks sound
-    // is Rush 1's own (src/track1_audio.cpp). BIGCHEER2's behaviour (id 0) does nothing, so it is left out.
+    // is Rush 1's own (src/rush1/track1_audio.cpp). BIGCHEER2's behaviour (id 0) does nothing, so it is left out.
     const std::pair<const char*, const char*> r1_emitters[] = { { "CCAR", "CABLECAR" }, { "FIRECRK", "FIRECRCK" },
         { "SMALLHOOT", "BIGCHR1" }, { "BIGCHEER", "BIGCHR2" } };
 

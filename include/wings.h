@@ -8,7 +8,7 @@
 
 #include "rush2049_rom.h"
 
-// Rush 2049 wings (src/wings*.cpp).
+// Rush 2049 wings (src/rush2049/wings*.cpp).
 namespace rush2::ui {
     class OptionsPage;
 }
@@ -34,7 +34,7 @@ namespace rush2::wings {
     // True when the Wings option is on and the Rush 2049 ROM is available.
     bool enabled();
 
-    // Rebuilds the wing model and sound from the current ROM (src/wings_render.cpp).
+    // Rebuilds the wing model and sound from the current ROM (src/rush2049/wings_render.cpp).
     void on_rom_changed();
 
     // Ghost races (src/ghost.cpp), physics thread. What the player driving race car `car` (0-7) holds for its wings
@@ -49,7 +49,7 @@ namespace rush2::wings {
     bool car_input(uint8_t* rdram, int car, Input& out);
     void set_ghost_input(int car, bool active, const Input& in);
 
-    // Mixes the playing wing sounds into the game's audio output (src/wings_sound.cpp). samples is interleaved
+    // Mixes the playing wing sounds into the game's audio output (src/rush2049/wings_sound.cpp). samples is interleaved
     // stereo, sample_count values in total, at sample_rate frames per second; each 16-bit PCM unit is scaled by
     // pcm_scale.
     void mix_sound(float* samples, size_t sample_count, uint32_t sample_rate, float pcm_scale);

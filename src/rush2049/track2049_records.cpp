@@ -6,7 +6,7 @@
 // { "game": "sfrush", "track": 1-7 } and the
 // obstacle course as { "track": "obstacle" }, so files written before they existed still load.
 //
-// A 2049 track is raced in the host slot (HAWAII, src/track2049.cpp), and Rush 2 indexes its records by track, so
+// A 2049 track is raced in the host slot (HAWAII, src/rush2049/track2049.cpp), and Rush 2 indexes its records by track, so
 // without this file a 2049 race would read and write HAWAII's records. Rush 2 keeps three kinds of records, at
 // record slot s = track + 12 * backward (minus 1 from 11 up):
 // - Stats (0x20 bytes per slot: races, places, average lap, ...) in each player record of the Controller Pak image,

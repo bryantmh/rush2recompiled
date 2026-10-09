@@ -1,4 +1,4 @@
-// Standalone test of src/track2049_convert.cpp: converts Rush 2049 race tracks 1-6 for Rush 2 slot 2 (HAWAII), with
+// Standalone test of src/rush2049/track2049_convert.cpp: converts Rush 2049 race tracks 1-6 for Rush 2 slot 2 (HAWAII), with
 // static_paths on and off, writes the files track.py writes and compares them byte for byte with the Python output.
 //
 //     out\track2049_test.exe [repo root]       (build.bat builds it and runs it from the repo root)

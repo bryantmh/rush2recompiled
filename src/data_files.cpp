@@ -197,7 +197,7 @@ namespace {
         }
     }
 
-    // The Rush 2049 and SF Rush options (rush2049.json, rush1.json) as one config, games.json (src/wings.cpp), with
+    // The Rush 2049 and SF Rush options (rush2049.json, rush1.json) as one config, games.json (src/rush2049/wings.cpp), with
     // ids that say which game they belong to.
     void migrate_games_config() {
         struct Renamed {

@@ -1,4 +1,4 @@
-// Offline test for src/audio2049.cpp: renders Rush 2049 songs and sound effects to WAV files and checks them.
+// Offline test for src/rush2049/audio2049.cpp: renders Rush 2049 songs and sound effects to WAV files and checks them.
 //
 //   audio_test.exe <out_dir> [--song N] [--seconds S] [--sfx ID] [--rate R] [--loop]
 //   audio_test.exe <out_dir> --races      renders the six race-track songs for 60 s each and checks them
@@ -424,7 +424,7 @@ int main(int argc, char** argv) {
             test_loop(dir, audio::track_song(t), rate);
         }
         // Wing sound as Rush 2049 plays it (func_800924F4): volume 0.5, pan 0, pitch 0.75. Measured on the N64:
-        // voice gains 3568 / 3490 (src/wings_sound.cpp).
+        // voice gains 3568 / 3490 (src/rush2049/wings_sound.cpp).
         test_sfx(dir, 0x3D, 2.0, rate, 0.5f, 0.0f, 0.75f, 1.0);
         test_sfx(dir, 0x01, 3.0, rate, 1.0f, 0.0f, 1.0f, 2.0); // mini train loop
         test_sfx(dir, 0x06, 2.0, rate, 1.0f, -0.5f, 1.0f, -1); // coin

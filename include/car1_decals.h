@@ -5,8 +5,8 @@
 #include <vector>
 
 // Rush 1's unique car decals (the Camaro's flames, the Taxi's checker band, the VW Bus's swirls, the VW Bug's sunburst) as a
-// stripe pattern for the same cars in Rush 2 (src/car1_decals.cpp, port of tools/rush1/cardecal.py; method and
-// evidence in docs/rush1_research.md section 11; the game side is src/car1_stripes.cpp).
+// stripe pattern for the same cars in Rush 2 (src/rush1/car1_decals.cpp, port of tools/rush1/cardecal.py; method and
+// evidence in docs/rush1_research.md section 11; the game side is src/rush1/car1_stripes.cpp).
 //
 // Rush 2's cars are the Rush 1 cars re-textured, so the Rush 1 art is projected onto Rush 2's panel textures through
 // the car's 3D shape. The decal keeps Rush 1's colours: the result is one colour map per panel texture (D0_1 ..

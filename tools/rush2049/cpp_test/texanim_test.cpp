@@ -1,5 +1,5 @@
-// Standalone test of the animated textures (src/track2049_texanim.cpp and ConvertedTrack::tex_anims from
-// src/track2049_convert.cpp) for Rush 2049 race tracks 1-6 in Rush 2 slot 2 (HAWAII).
+// Standalone test of the animated textures (src/rush2049/track2049_texanim.cpp and ConvertedTrack::tex_anims from
+// src/rush2049/track2049_convert.cpp) for Rush 2049 race tracks 1-6 in Rush 2 slot 2 (HAWAII).
 //
 //     out\texanim_test.exe [png dir] [seconds]     (texanim_build.bat builds and runs it)
 //

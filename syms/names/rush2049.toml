@@ -873,7 +873,7 @@ desc = "Boot fader step: 16.16 volume stepped by (target - volume) / time each m
 status = "verified"
 ported = true
 area = "audio"
-ref = "src/audio2049.cpp"
+ref = "src/rush2049/audio2049.cpp"
 
 [[func]]
 vram = 0x8001E0E0
@@ -903,7 +903,7 @@ desc = "Boot function that sets the N64 MIDI controller defaults."
 status = "verified"
 ported = true
 area = "audio"
-ref = "src/audio2049.cpp"
+ref = "src/rush2049/audio2049.cpp"
 
 [[func]]
 vram = 0x8002517C
@@ -1285,7 +1285,7 @@ desc = "Wing flame transform: scales the flame along Y with the stick's X and tr
 status = "verified"
 ported = true
 area = "car"
-ref = "src/wings_render.cpp"
+ref = "src/rush2049/wings_render.cpp"
 
 [[func]]
 vram = 0x800924F4
@@ -1293,7 +1293,7 @@ desc = "Wing callback: slides the wings out in 6 steps of 15 ms (0 to 5/6 of the
 status = "verified"
 ported = true
 area = "car"
-ref = "src/wings_state.cpp"
+ref = "src/rush2049/wings_state.cpp"
 
 [[func]]
 vram = 0x80092C58
@@ -1504,7 +1504,7 @@ desc = "Model file loader pointer rebasing: G_VTX, G_DL and G_SETTIMG addresses 
 status = "verified"
 ported = true
 area = "render"
-ref = "src/wings_render.cpp"
+ref = "src/rush2049/wings_render.cpp"
 
 [[func]]
 vram = 0x80097798
@@ -1954,7 +1954,7 @@ vram = 0x800AD650
 desc = "Decodes an s16 x 2^-14."
 status = "verified"
 area = "other"
-ref = "src/track2049_movers_logic.cpp"
+ref = "src/rush2049/track2049_movers_logic.cpp"
 
 [[func]]
 vram = 0x800AD734
@@ -2614,7 +2614,7 @@ desc = "Raw stick over its auto-calibrated range, clamped to +-1."
 status = "verified"
 ported = true
 area = "car"
-ref = "src/wings_state.cpp"
+ref = "src/rush2049/wings_state.cpp"
 
 [[func]]
 vram = 0x800CC50C
@@ -2839,7 +2839,7 @@ desc = "Ends a recording: +5 < 0 becomes idle; if the car finished (car state +0
 status = "verified"
 ported = true
 area = "race"
-ref = "src/ghost_logic.cpp"
+ref = "src/rush2049/ghost_logic.cpp"
 
 [[func]]
 vram = 0x800D5C90
@@ -2998,7 +2998,7 @@ vram = 0x800E15A0
 desc = "Wing code: wings are out when the car is not wrecked, all four wheels are over 5 ft above the ground and the player holds the wings button; stick torque while out."
 status = "verified"
 area = "car"
-ref = "src/wings_state.cpp"
+ref = "src/rush2049/wings_state.cpp"
 
 [[func]]
 vram = 0x800E1AA0
@@ -3147,7 +3147,7 @@ desc = "Ghost car step: recording branch (sample at +0x4C[position], returns 0 a
 status = "verified"
 ported = true
 area = "race"
-ref = "src/ghost_logic.cpp"
+ref = "src/rush2049/ghost_logic.cpp"
 
 [[func]]
 vram = 0x800E6AF8
@@ -3190,7 +3190,7 @@ desc = "Setup for a drone car: row 0 of the setup tables, gear set 0."
 status = "verified"
 ported = true
 area = "car"
-ref = "src/car2049.cpp"
+ref = "src/rush2049/car2049.cpp"
 
 [[func]]
 vram = 0x800EF5B0

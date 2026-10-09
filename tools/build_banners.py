@@ -1,6 +1,6 @@
 """Builds the track select banners of the SF Rush and Rush 2049 tracks from 128x32 PNGs:
-tools/rush1/banners/trackN_<name>.png (SF Rush track 1-7, src/track1_convert.cpp build_logo) and
-tools/rush2049/banners/trackN_<name>.png (Rush 2049 race track 1-6, src/track2049_art.cpp build_logo). A track without
+tools/rush1/banners/trackN_<name>.png (SF Rush track 1-7, src/rush1/track1_convert.cpp build_logo) and
+tools/rush2049/banners/trackN_<name>.png (Rush 2049 race track 1-6, src/rush2049/track2049_art.cpp build_logo). A track without
 a PNG gets its name drawn in its game's banner style with the banner font (tools/banner_font.py); the names come from
 track_names in include/track1.h and include/track2049.h. Rush 2049's stunt arenas, obstacle course and battle arenas
 follow its race tracks as banners 7-19 (STUNT 1-4, OBSTACLE, BATTLE 1-8), always drawn with the font.

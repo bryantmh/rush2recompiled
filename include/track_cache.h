@@ -23,7 +23,7 @@ namespace rush2::track_cache {
     uint64_t hash(const uint8_t* data, size_t size, uint64_t seed = 0xCBF29CE484222325ull);
 
     // The cache folder, and the stamp of this build every entry is keyed on, for converted data kept as files of its
-    // own (a Dreamcast disc's texture pack, src/rush2049_dc_pack.cpp).
+    // own (a Dreamcast disc's texture pack, src/rush2049dc/rush2049_dc_pack.cpp).
     std::filesystem::path directory();
     uint64_t build();
 

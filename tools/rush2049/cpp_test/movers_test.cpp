@@ -1,4 +1,4 @@
-// Standalone test of src/track2049_movers_logic.cpp: runs Rush 2049's path followers for race tracks 1-6 and prints
+// Standalone test of src/rush2049/track2049_movers_logic.cpp: runs Rush 2049's path followers for race tracks 1-6 and prints
 // what they do, to check the port by eye (trains loop, gondolas ping-pong, trap doors wait for their pads).
 //
 //     out\movers_test.exe [seconds] [track]      (movers_build.bat builds and runs it)

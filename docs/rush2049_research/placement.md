@@ -257,12 +257,12 @@ push cars, and elevators/ramps carry cars on moving polygons.
 | 2049 | Rush 2 | Notes |
 |---|---|---|
 | static sections `TRACKnLxxxxx`, sky, G1 props | plain records (type 0) | lossless; names must exist in the converted geometry |
-| CONE1 GASPUMP RAT RATCONE (kind 2), BUMPHIT CURVEHIT METER MPH45HIT MPH75HIT NOPARK SLOWHIT STOPHIT THINKHIT GETOFF (kind 0, sub 1-2), CACTUS | `X49<model>` records (2049 model, renamed so Rush 2's prefix classifier doesn't take CONE1G1 / STOPHITG1 for its own breakables) | prop records; 2049's reactions run in src/track2049_props.cpp (§7) |
+| CONE1 GASPUMP RAT RATCONE (kind 2), BUMPHIT CURVEHIT METER MPH45HIT MPH75HIT NOPARK SLOWHIT STOPHIT THINKHIT GETOFF (kind 0, sub 1-2), CACTUS | `X49<model>` records (2049 model, renamed so Rush 2's prefix classifier doesn't take CONE1G1 / STOPHITG1 for its own breakables) | prop records; 2049's reactions run in src/rush2049/track2049_props.cpp (§7) |
 | YIELDHIT | YIELDHIT | Rush 2 sign (none in the race tracks; in 2049 the type has no model and is refused) |
 | SHATPANE | SHATPANE | Rush 2 glass (SHATPANEO1-7 in 0x14) |
 | FLAG2_* | FLAG2* | Rush 2 flag (FLAG2O1 in 0x14) |
 | COLLISION | COLLISION | same meaning (collision cylinder from the record) [I for 2049 side] |
-| TROLLEY2, WINDMILL(2/3), all path objects | records named after the 2049 model | animated by src/track2049_movers.cpp |
+| TROLLEY2, WINDMILL(2/3), all path objects | records named after the 2049 model | animated by src/rush2049/track2049_movers.cpp |
 | FENCE | static FENCEG1 record | none in the race tracks or stunt arenas |
 | GOLDCOIN, SILVERCOIN | KEYG0-7, KEYS0-7 | Rush 2 key records (behaviour 8), numbered per kind in record order; drawn with 2049's coin models (file 68, merged into the geometry with behaviour 8) and kept per profile by src/collectibles.cpp |
 | WEPICON_*, WPR_MINE | dropped | battle only |
@@ -335,7 +335,7 @@ moving/switching collision, triggers, flip-book animation, 2049 object sounds.
 
 ## 7. Knock-over props **[V]**
 
-Port: src/track2049_props.cpp. Records: the converter's `PropRecord` list (record index, type row, direction, world
+Port: src/rush2049/track2049_props.cpp. Records: the converter's `PropRecord` list (record index, type row, direction, world
 pose and the parent's pose).
 
 **Hit test.** Type flags high s16 = car callback slot; props use slot 0 = 0x8010C6C8. func_800BEAA0 (per car,

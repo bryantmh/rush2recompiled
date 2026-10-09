@@ -1,6 +1,6 @@
 # San Francisco Rush (Rush 1) tracks in Rush 2 Recompiled
 
-Research notes for the SF Rush track port (`src/track1*.cpp`, `src/rush1_rom.cpp`, prototype `tools/rush1/track1.py`).
+Research notes for the SF Rush track port (`src/rush1/track1*.cpp`, `src/rush1/rush1_rom.cpp`, prototype `tools/rush1/track1.py`).
 Addresses are Rush 1 N64 virtual addresses unless marked as ROM offsets or Rush 2. Tags: **[V]** verified in code or
 data, **[I]** inferred.
 
@@ -144,7 +144,7 @@ Named textures:
   - The class gives the sound (0x80125C54) and debris handling. The behaviour runs from the model's name-record id
     (+0x14), set to that of the Rush 2 model the class normally draws (CONE1O1, METERO1, TREEHIT1O1, ...).
   - Rush 2 looks a class's model up by its debris name, and its shared object files (0x12, 0x14) load before the
-    track, so their models would win (`func_8005BE3C` searches slots upward). `src/track1.cpp` redirects the
+    track, so their models would win (`func_8005BE3C` searches slots upward). `src/rush1/track1.cpp` redirects the
     placement walker's lookup (func_80081790 at 0x8008194C) to the record's own model.
   - Rush 2's breakable pieces, resolved by name at race start, are redirected to Rush 1's: CONE1O1 → CONE1L1,
     METERO1 → METERL1, TREEHITnO1 → TREEHITnL1, SHATPANEO1-7 → WINDOWBL1-7, FENCEO1-12 → FENCEL1-12,
@@ -207,7 +207,7 @@ Named textures:
 - With Rush 2's rule, a camera high above track 2's hill (x 1167, z 2300) picks region 102, whose mask hides section 91
   under it (the ground vanishes mid-jump): 14 of 1155 lane-0 points at +400. Rush 1's rule hides nothing there.
 
-**Conversion:** the masks are used verbatim, and Rush 1 tracks use Rush 1's region choice (`src/track1.cpp`, with the
+**Conversion:** the masks are used verbatim, and Rush 1 tracks use Rush 1's region choice (`src/rush1/track1.cpp`, with the
 camera position from the start of `func_8007C27C`).
 
 ## 5. Collision [V]
@@ -360,7 +360,7 @@ music bank, and a sound effect bank for an ALSndPlayer. The banks (`B1`, one ban
   instrument first.
 - The audio microcode reads ADPCM codebooks from the bank with 24-bit addresses: a bank copy above 16 MB of RDRAM
   plays as noise.
-- Port (`src/track1_audio.cpp`): Rush 1's ROM 0x5D9350-0x7A7930 is appended to the runtime's ROM image; Rush 2's song
+- Port (`src/rush1/track1_audio.cpp`): Rush 1's ROM 0x5D9350-0x7A7930 is appended to the runtime's ROM image; Rush 2's song
   header gets Rush 1's 16 songs as 13-28; the player switches banks per song; Rush 2's sound effect instrument gets
   Rush 1's fireworks (sound 62) as sound 116, played by FIRECRCK on Rush 1 tracks.
 - Sound effects: 42 of Rush 1's 68 samples are byte-identical in Rush 2, including all the emitters' but fireworks.
@@ -421,7 +421,7 @@ the trains (radius + 72, height 18). func_8007CF74, at the end of the computer d
 (func_8007D174, 0x8007D7C8), lowers the throttle limit to 0.8 for a bus up to 120 ahead and within 14 to the side,
 rising to 1 at 200.
 
-**Port** (src/track1_buses.cpp). Rush 2's subway array holds 6 entries, so on SF Rush track 6 subway_init and
+**Port** (src/rush1/track1_buses.cpp). Rush 2's subway array holds 6 entries, so on SF Rush track 6 subway_init and
 subway_update are replaced (hooks at their entries) by a port of func_800A9DB8 / func_8007FC74. Bus states stay in
 C++; each bus's pose (matrix + position, what its scene node points at) sits in the game heap after the 8 pseudo-car
 bodies (0x81C bytes each, pointer 0x800D50E4, count 0x800D4E74), so Rush 2's car collision hits the buses as it hits
@@ -444,12 +444,12 @@ Rush 2's fence spawner (breakable_behavior_alloc_b, func_800BB864) dropped the b
 (FENCEO1), but Rush 2's piece name list still has T5GATEO1-12, 22 entries after FENCEO1 as in Rush 1, so id 0x746.
 Port: the converter turns a fence record with +0x4A set into a T5GATEL1 object of class FENCE (record
 FENCET5GATEL1, drawn with T5GATEL1, origin moved to its base like the other breakables) and redirects T5GATEO1-12 to
-T5GATEL1-12; src/track1.cpp (hook at 0x800BB8AC) gives the FENCET5GATEL1 breakable piece id 0x746.
+T5GATEL1-12; src/rush1/track1.cpp (hook at 0x800BB8AC) gives the FENCET5GATEL1 breakable piece id 0x746.
 
 ## 11. Car decals as a stripe (SF RUSH STRIPE value)
 
-Code: `src/car1_decals.cpp` (the decal colour maps; port of `tools/rush1/cardecal.py`, checked byte for byte by
-`tools/rush1/cpp_test/car_decals.bat`), `src/car1_stripes.cpp` (game side), option "SF Rush Car Stripes" in the Games tab.
+Code: `src/rush1/car1_decals.cpp` (the decal colour maps; port of `tools/rush1/cardecal.py`, checked byte for byte by
+`tools/rush1/cpp_test/car_decals.bat`), `src/rush1/car1_stripes.cpp` (game side), option "SF Rush Car Stripes" in the Games tab.
 Viewers: `tools/rush1/carview.py CAR OUT.png` renders the car in Rush 1, in Rush 2 with the decal and in Rush 2 without,
 from several angles (offline, no game run; how to judge the result; it draws back faces, so Rush 2's transparent windows
 show the far side); `carview.py --score` measures how much of Rush 1's decal the Rush 2 car shows (2026-10-09: Camaro
@@ -512,7 +512,7 @@ The N64 game only numbers its tracks (Track 1-7). The recomp uses the names the 
 them (`rush2::track1::track_names`, include/track1.h): 1 Golden Gate, 2 Embarcadero, 3 Market, 4 Downtown,
 5 The Heights, 6 Sunset, 7 The Rock (the hidden track). The Progress tab and the UNLOCKS shop show these names.
 
-The track select logo of each track (`R1LOGOn`, `build_logo` in src/track1_convert.cpp) is a 128x32 CI8 texture in
+The track select logo of each track (`R1LOGOn`, `build_logo` in src/rush1/track1_convert.cpp) is a 128x32 CI8 texture in
 the format of Rush 2's own logos. Tracks 1-6 use the user-submitted banners in `tools/rush1/banners/`
 (`trackN_<name>.png`), which `tools/build_banners.py` quantizes to 255 RGBA5551 colors plus a transparent
 entry 0 and writes into the generated header `include/track1_banners.h`. After adding or changing a PNG, rerun the
@@ -528,7 +528,7 @@ also holds each banner's exact pixels, which `add_banner_images` registers with 
 (`rush2::upscale::add_exact_image`, docs/texture_upscaling.md "Exact images"). The game then draws every banner with
 its exact colors, in the track select and anywhere else the logo shows.
 
-The Rush 2049 race tracks work the same way (`build_logo` in src/track2049_art.cpp). Their names are the Dreamcast
+The Rush 2049 race tracks work the same way (`build_logo` in src/rush2049/track2049_art.cpp). Their names are the Dreamcast
 version's (`rush2::track2049::track_names`, include/track2049.h): 1 Marina, 2 Haight, 3 Civic, 4 Metro, 5 Mission,
 6 Presidio. Their banners are in `tools/rush2049/banners/`, and the same tool writes them into
 `include/track2049_banners.h`. Only Metro and Presidio have pictures so far. Marina, Haight, Civic and Mission get

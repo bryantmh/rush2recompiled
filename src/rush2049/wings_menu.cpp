@@ -10,7 +10,7 @@
 // The screen's code reads ids through jump tables of 15 cases that skip larger ids (func_803B9478's left/right
 // handling, func_803BC048's values, func_803BB9F8's row art) and compares them elsewhere, so id 15 does nothing there;
 // hooks give it its label (the label table has 15 entries per language), its value and its left/right steps. Each
-// player's choice is kept in the Games config (wing_style_p1-p4, src/wings.cpp). The screen has two players' panels
+// player's choice is kept in the Games config (wing_style_p1-p4, src/rush2049/wings.cpp). The screen has two players' panels
 // (car select slots 0 and 1); with 3 or 4 players its second round is players 3 and 4 (src/players4.cpp).
 //
 // A 2049 car's colors are set as Rush 2049 sets them, so each panel has its own rows (the game keeps one list for
@@ -39,7 +39,7 @@ namespace {
     constexpr uint32_t slot_top = 0x803CB3A0;       // s32 [2]: each panel's first shown row (4 are shown)
     constexpr uint32_t slot_type = 0x803CB362;      // s8 [2]: each panel's car type
     constexpr uint32_t first_slot = 0x803CB3F8;     // s32: the widget id of slot 0's panel
-    constexpr uint32_t main_colour = 0x80201190 + rush2::car2049::types; // s8 [slot][36], src/car2049.cpp
+    constexpr uint32_t main_colour = 0x80201190 + rush2::car2049::types; // s8 [slot][36], src/rush2049/car2049.cpp
     constexpr int option_main = 2;
     constexpr int option_accent = 3;
     constexpr int option_stripe = 4;
@@ -50,7 +50,7 @@ namespace {
     constexpr int max_options = 16;
     constexpr int styles = 3;
 
-    // Strings for the row, after the track select's (src/track2049_menu.cpp, 0x80300000-0x80300D7F).
+    // Strings for the row, after the track select's (src/rush2049/track2049_menu.cpp, 0x80300000-0x80300D7F).
     constexpr uint32_t wings_label = 0x80300D80;      // "WINGS"
     constexpr uint32_t wings_label_ptr = 0x80300D90;  // char* to it, read in place of the label table's entry
     constexpr uint32_t style_names = 0x80300DA0;      // "STYLE 1" .. "STYLE 3", 16 bytes each

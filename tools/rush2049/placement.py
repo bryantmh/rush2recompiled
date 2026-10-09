@@ -351,7 +351,7 @@ R2_SAFE_DEBRIS_ASSETS = (0x12, 0x14)       # loaded for every race (func_800A4C9
 
 
 def is_prop(t):
-    """Objects 2049 knocks over when a car hits them (src/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT,
+    """Objects 2049 knocks over when a car hits them (src/rush2049/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT,
     RATCONE), the signs (kind 0, sub-kinds 1-2) and CACTUS."""
     return t['kind'] == 2 or (t['kind'] == 0 and t['sub'] in (1, 2)) or t['name'] == 'CACTUS'
 

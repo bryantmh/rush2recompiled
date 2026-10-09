@@ -46,7 +46,7 @@ kept the random colors; moving it to `0x800A3E80` fixed that too.
 ## Rims
 
 TIRE RIMS are not in the car table. A car's rim is the per-type table `0x80201020` (Rush 2's `0x800C0E48`, moved to 36
-types by src/car2049.cpp; RIM01 + value, 0-20) at row 0 for a drone, row player + 1 for a human (the row is 0 unless
+types by src/rush2049/car2049.cpp; RIM01 + value, 0-20) at row 0 for a drone, row player + 1 for a human (the row is 0 unless
 the physics car's `+0x7E8` is 2). It is read in four places, each hooked so an opponent's chosen rim replaces the
 type's:
 

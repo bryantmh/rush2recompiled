@@ -1,8 +1,8 @@
-Rush 2049 track records (src/track2049_records.cpp, docs/rush2049_research/records.md).
+Rush 2049 track records (src/rush2049/track2049_records.cpp, docs/rush2049_research/records.md).
 
 === include/rush2_hooks.h (next to the other rush2_track49_* declarations) ===
 
-// Rush 2049 track records (src/track2049_records.cpp).
+// Rush 2049 track records (src/rush2049/track2049_records.cpp).
 void rush2_track49_records_stats(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_times(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_enter(uint8_t* rdram, recomp_context* ctx);
@@ -12,11 +12,11 @@ void rush2_track49_records_clear(uint8_t* rdram, recomp_context* ctx);
 
 === CMakeLists.txt ===
 
-Add src/track2049_records.cpp to the Rush2Recompiled sources, next to src/track2049_menu.cpp.
+Add src/rush2049/track2049_records.cpp to the Rush2Recompiled sources, next to src/rush2049/track2049_menu.cpp.
 
 === us.toml (append after the Rush 2049 track select / race start hooks) ===
 
-# Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
+# Rush 2049 track records (src/rush2049/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
 # post-race and high-score screen functions run. None of these instructions is a delay slot.
 [[patches.hook]]

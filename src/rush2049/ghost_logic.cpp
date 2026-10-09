@@ -13,7 +13,7 @@ namespace {
     // The time step of the machine playing (0x8002AFB8): the recomp is always NTSC.
     constexpr float current_step = rush2::ghost::tick_step;
 
-    // Rush 2049's race tracks are track select ids 12-17 (src/track2049_menu.cpp).
+    // Rush 2049's race tracks are track select ids 12-17 (src/rush2049/track2049_menu.cpp).
     constexpr int first_2049_track = 12;
     constexpr float seconds_per_lap = 150.0f;
 }

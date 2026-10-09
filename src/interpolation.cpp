@@ -415,7 +415,7 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
     uint32_t vtx_cmd = clip_vtx_cmd;
     bool ours = clip_poly == poly;
     clip_poly = 0;
-    // Other polygons at a primitive depth (+6) sit in front of everything (the battle arenas' arrows, src/battle.cpp).
+    // Other polygons at a primitive depth (+6) sit in front of everything (the battle arenas' arrows, src/rush2049/battle.cpp).
     if (!ours || (MEM_H(2, (int32_t)poly) & 0x2000) == 0 || MEM_H(6, (int32_t)poly) < 0x4000) {
         return;
     }
@@ -557,7 +557,7 @@ void rush2_interp_view_end(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // The matrices of a view as func_8007C624 last set them: its root modelview, its projection without the view's
-// rotation and the rotation (src/battle_render.cpp draws models of its own with them).
+// rotation and the rotation (src/rush2049/battle_render.cpp draws models of its own with them).
 bool rush2_interp_view_matrices(uint32_t view, uint32_t* root, uint32_t* projection, uint32_t* lookat) {
     if (view >= max_views || views[view].root_mtx == 0 || view_projection[view] == 0 || view_lookat[view] == 0) {
         return false;
@@ -569,7 +569,7 @@ bool rush2_interp_view_matrices(uint32_t view, uint32_t* root, uint32_t* project
 }
 
 // The current view and the generation of the node being drawn, for other code that adds matrices under it
-// (src/wings_render.cpp).
+// (src/rush2049/wings_render.cpp).
 void rush2_interp_get_generation(uint32_t* view, uint32_t* gen) {
     *view = cur_view;
     *gen = views[cur_view].gen + ((depth >= 0 && depth < max_depth) ? level_current[depth] : 0);
@@ -602,7 +602,7 @@ void rush2_interp_node_begin(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // The modelview the RSP has while the current node draws: the view's root modelview times the G_MTXs of the nodes
-// down the scene graph path. For drawing parts of a node later in the view (src/car2049.cpp).
+// down the scene graph path. For drawing parts of a node later in the view (src/rush2049/car2049.cpp).
 bool rush2_interp_get_modelview(uint8_t* rdram, float out[4][4]) {
     if (views[cur_view].root_mtx == 0 || depth < 0 || depth >= max_depth) {
         return false;

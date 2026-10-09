@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-// Rush 2049 data (src/rush2049_rom.cpp for the N64 ROM, src/rush2049_dc.cpp for the Dreamcast disc).
+// Rush 2049 data (src/rush2049/rush2049_rom.cpp for the N64 ROM, src/rush2049dc/rush2049_dc.cpp for the Dreamcast disc).
 //
 // Everything that reads Rush 2049 goes through a Source, in the N64 ROM's terms: its 183 numbered files in their N64
 // formats (big-endian, F3DEX2 models) and the tables of its code segments at their N64 addresses. A Dreamcast disc
@@ -28,7 +28,7 @@ namespace rush2::rom2049 {
 
     // A texture a Dreamcast source scaled down to fit TMEM: its N64 texels as the converted file loads them (RGBA16 or
     // RGBA32, big endian, rows top down) and where its full-size image is, so the renderer can draw that instead
-    // (src/rush2049_dc_pack.cpp).
+    // (src/rush2049dc/rush2049_dc_pack.cpp).
     struct SourceTexture {
         uint16_t w = 0, h = 0;
         bool rgba32 = false;
@@ -37,7 +37,7 @@ namespace rush2::rom2049 {
         uint32_t index = 0;         // its texture record there
         uint32_t tint = 0xFFFFFF;   // RGB the image is multiplied by
         // A car body texture in one of the disc's paint jobs (CARnPJ1-12, each a full set of the body textures):
-        // src/car2049.cpp copies the texels of the job the player picks into the car. job counts the car's distinct
+        // src/rush2049/car2049.cpp copies the texels of the job the player picks into the car. job counts the car's distinct
         // jobs from 1 (0: not a paint job texture), job_rgb is that job's paint color, name the texture's in the
         // converted file. A damaged one is the job's texture scuffed (car2049's damage textures): scuff marks its
         // paint texels at the disc's size, scuffed with scuff_image.

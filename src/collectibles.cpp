@@ -1,7 +1,7 @@
 // SF Rush's keys and Rush 2049's coins on the added tracks (docs/unlocks_plan.md).
 //
 // Both are picked up the way Rush 2's keys are. The converters place them as Rush 2 KEY records (the KEY class,
-// behaviour 8; src/track1_convert.cpp, src/track2049_convert.cpp), so Rush 2's key code runs them: func_800BC3F8
+// behaviour 8; src/rush1/track1_convert.cpp, src/rush2049/track2049_convert.cpp), so Rush 2's key code runs them: func_800BC3F8
 // creates a key, func_8005F118 updates it, func_8005F508 is its pickup. Rush 2 numbers its keys in creation order
 // (keys 0-11, Dew cans 12-15) and keeps one u16 mask per track in each player record (+0x18 + track * 2), or for
 // players without a profile in the session table 0x800C1DBC. The added tracks race in borrowed slots (HAWAII for the
@@ -12,11 +12,11 @@
 //   file's masks, so nothing reaches the host's masks or the Controller Pak.
 // - Coins are drawn with Rush 2049's coin models (merged into the converted geometry with behaviour 8): the placement
 //   walker's model lookup is redirected to them, and the per-frame breakable update, which sets a breakable's model
-//   from its class (KEYO1), keeps a coin's own model. SF Rush keys get the same from src/track1.cpp's record models
+//   from its class (KEYO1), keeps a coin's own model. SF Rush keys get the same from src/rush1/track1.cpp's record models
 //   (Rush 1's KEYL1).
 // - Coins are taken as in Rush 2049, by a car within 9 units of the coin (func_8008B0CC), not by Rush 2's key test,
 //   which wants a key in the car's footprint and within about 2 units of its height. SF Rush keys get Rush 1's
-//   breakable test from src/track1.cpp.
+//   breakable test from src/rush1/track1.cpp.
 // - A coin plays Rush 2049's coin sound (0x06) when it is first taken.
 // Rush 2's own keys and Dew cans aren't touched: once per frame (rush2_collect_frame) their masks are copied from the
 // Controller Pak image's profiles, the race players' records and the no-profile table, for the Progress tab.
