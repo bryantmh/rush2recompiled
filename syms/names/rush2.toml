@@ -8294,11 +8294,11 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 vram = 0x80083F50
 name = "car_stamp_stripes_on_panel"
 sig = "void car_stamp_stripes_on_panel(s32 a0, s32 a1, s32 a2, s32 a3, s32 s0, s32 s1, s32 s2, s32 s3)"
-desc = "Stamps Rush 2's stripe tiles onto its own cars' panel textures."
-consts = "0x160C = struct offset; 0x200 = texture buffer; 0xF0"
+desc = "Stamps Rush 2's stripe tiles onto its own cars' panel textures: per texel, where the tile byte's alpha nibble passes the LOD threshold (16 / (lod + 1) - 1), the panel texel's class (table *0x8010C06C, 2 bytes per palette index: class nibble 0-5, shade) picks how it is remapped through the STRIPE COLOR's tables (*0x8010C06C + colour * 0x200 + 0x200). Skipped for the SF RUSH stripe, which writes its own texels (src/car1_stripes.cpp)."
+consts = "0x160C = struct offset; 0x200 = remap table size; 0xF0 | alpha = tile byte; record +0x14 fmt 1, +0x15 siz (panel 2, tile 3)"
 status = "verified"
 area = "car"
-ref = "docs/rush2049_research/cars.md#8-implementation-v"
+ref = "docs/rush1_research.md#11-car-decals-as-a-stripe-sf-rush-stripe-value"
 
 [[func]]
 vram = 0x800843EC
@@ -8375,7 +8375,7 @@ ref = "docs/functions/rush2_render.md#rush-2-render-functions"
 vram = 0x8008582C
 name = "car_build_textures"
 sig = "void car_build_textures(s32 a0, s32 a1, s32 a2, s32 a3, s32 s0, s32 s1, s32 s2)"
-desc = "Patched in us.toml. Car preview ids (car select: id = player * 36 + type, was * 22) index the race per-car arrays, which move to 72-entry copies at 0x80218000-0x80221EE8 (tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 36. / Car paint: 2049 cars' palettes take the main color. | Builds each car's palette from CARPALETTE as the TLUT of its textures; special-cases car types 0x12/0x14/0x15; at its end paints 2049 cars with MAIN/ACCENT/STRIPE COLOR (args at sp+0xD3, 0xD7, 0xDF). | Builds the car's Rush 2 palette (CARPALETTE with main/accent ramps); per-car byte table 0x80119858. Hooked at its end (0x80085E1C) to paint 2049 cars' palettes."
+desc = "Patched in us.toml. Car preview ids (car select: id = player * 36 + type, was * 22) index the race per-car arrays, which move to 72-entry copies at 0x80218000-0x80221EE8 (tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 36. / Car paint: 2049 cars' palettes take the main color. | Builds each car's palette from CARPALETTE as the TLUT of its textures; special-cases car types 0x12/0x14/0x15; at its end paints 2049 cars with MAIN/ACCENT/STRIPE COLOR (args at sp+0xD3, 0xD7, 0xDF). | Builds the car's Rush 2 palette (CARPALETTE with main/accent ramps); per-car byte table 0x80119858. Hooked at its end (0x80085E1C) to paint 2049 cars' palettes. | Stripe loop: 24 iterations (D0/D1 x panels 1-6 x full and _4 mip); func_800843EC looks up the panel (handle sp+0xBE) and the STRIPE value's tile (0x80085D84, handle sp+0xBC), func_80007610 copies the clean texels back when 0x8010C0D0 == 2, then func_80083F50 stamps. Hooked at 0x80085D84 / 0x80085D8C for the SF RUSH stripe (docs/rush1_research.md section 11)."
 consts = "0x200 palette bytes"
 status = "verified"
 ported = true
