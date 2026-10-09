@@ -12,7 +12,8 @@
 //   spine and the branches that really leave it). The notes below up to "Size" describe this miniature;
 // - a logo with the track's screenshot shrunk to an icon and its name, "TRACK n" as Rush 2049's code calls them.
 // The stunt arenas (k = stunt_first.., src/track2049_convert.cpp) get the same from their own AI path (157+k) and
-// screenshot (SPICn), named R49STUNTn / R49SLOGOn and "STUNT n", and the obstacle course (k = obstacle) from its
+// screenshot (SPICn), named R49STUNTn / R49SLOGOn and "STUNT n", the battle arenas (k = battle_first..) from theirs
+// (DPICn; the path is 157+k) named R49BATTLEn / R49BLOGOn and "BATTLE n", and the obstacle course (k = obstacle) from its
 // path (176) and OPIC1, named R49OBSTACLE / R49OLOGO and "OBSTACLE". The miniature is for race tracks only.
 //
 // Both go into a copy of asset 3, whose tables are rebuilt after the appended data; the screen looks models and
@@ -78,8 +79,14 @@ namespace {
 
     bool is_obstacle(int k) { return k == rush2::track2049::obstacle; }
     bool is_stunt(int k) { return k >= rush2::track2049::stunt_first && !is_obstacle(k); }
-    // The number in the track's name: race track k, stunt arena 1-4, or 1 for the obstacle course.
-    int number_of(int k) { return is_stunt(k) ? k - rush2::track2049::stunt_first + 1 : is_obstacle(k) ? 1 : k; }
+    bool is_battle(int k) {
+        return k >= rush2::track2049::battle_first && k < rush2::track2049::battle_first + rush2::track2049::battle_count;
+    }
+    // The number in the track's name: race track k, battle arena 1-8, stunt arena 1-4, or 1 for the obstacle course.
+    int number_of(int k) {
+        return is_battle(k) ? k - rush2::track2049::battle_first + 1 : is_stunt(k) ? k - rush2::track2049::stunt_first + 1 :
+               is_obstacle(k) ? 1 : k;
+    }
 
     uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
         return (uint32_t(d[o]) << 24) | (uint32_t(d[o + 1]) << 16) | (uint32_t(d[o + 2]) << 8) | d[o + 3];
@@ -1793,6 +1800,19 @@ namespace {
         if (extent <= 0) return false;
         const float scale = 2 * diorama_half_size / float(extent);
 
+        // A battle arena's path wanders about a space a tenth of a race track's size, comes within a few units of
+        // itself and ends far from its start, so 2049's 200 unit band is a blob that overlaps itself all over (its
+        // level tops fight for the depth buffer) with a sliver from its end back to its start. An arena gets a band
+        // a twentieth of its extent wide, open where the path's ends are apart, and each ring a little higher than
+        // the one before, so where the band crosses itself one top is cleanly over the other.
+        float half_width = tube_half_width, lift = tube_lift, rise = 0.0f, max_gap = tube_max_gap;
+        if (is_battle(k)) {
+            half_width = float(extent) * 0.025f;
+            lift = half_width * 0.5f;
+            rise = half_width * 0.02f;
+            max_gap = half_width * 4.0f;
+        }
+
         // The last ring joins the spine point nearest the finish checkpoint ahead of it (func_800BA61C with the path
         // header's loop checkpoint, s16 at +2; checkpoints at 12 + i * 0x50: f32 position, f32 direction).
         int finish = 0;
@@ -1816,7 +1836,7 @@ namespace {
         auto at = [&](int i) {
             return Point{ spine[size_t(i)].x + centre[0], spine[size_t(i)].y + centre[1], spine[size_t(i)].z + centre[2] };
         };
-        const float floor_y = float(lo[1]) + centre[1] - tube_lift;
+        const float floor_y = float(lo[1]) + centre[1] - lift;
         std::vector<std::array<float, 3>> ring(size_t(tube_rings) * 4);
         for (int i = 0; i < tube_rings; i++) {
             Point cur = at(i * count / tube_rings);
@@ -1825,9 +1845,9 @@ namespace {
                                : Point{ 2 * cur.x - next.x, 2 * cur.y - next.y, 2 * cur.z - next.z };
             float len_cur = std::max(1e-3f, std::hypot(cur.x - next.x, next.z - cur.z));
             float len_prev = std::max(1e-3f, std::hypot(prev.x - cur.x, cur.z - prev.z));
-            float px = (tube_half_width * (next.z - cur.z) / len_cur + tube_half_width * (cur.z - prev.z) / len_prev) / 2;
-            float pz = (tube_half_width * (cur.x - next.x) / len_cur + tube_half_width * (prev.x - cur.x) / len_prev) / 2;
-            float top = cur.y + tube_lift, bottom = floor_y;
+            float px = (half_width * (next.z - cur.z) / len_cur + half_width * (cur.z - prev.z) / len_prev) / 2;
+            float pz = (half_width * (cur.x - next.x) / len_cur + half_width * (prev.x - cur.x) / len_prev) / 2;
+            float top = cur.y + lift + rise * float(i), bottom = floor_y;
             if (i == tube_rings - 1) { top += 0.1f; bottom += 0.1f; }
             ring[size_t(i) * 4 + 0] = { cur.x + px, top, cur.z + pz };
             ring[size_t(i) * 4 + 1] = { cur.x - px, top, cur.z - pz };
@@ -1885,7 +1905,7 @@ namespace {
                 // segment is a sliver across the whole model; it is left out when the gap is that long.
                 const auto& a = ring[size_t(i) * 4];
                 const auto& b = ring[0];
-                if (!tube_close_gaps && std::hypot(a[0] - b[0], a[2] - b[2]) > tube_max_gap) break;
+                if (!tube_close_gaps && std::hypot(a[0] - b[0], a[2] - b[2]) > max_gap) break;
                 command(0x01004008, uint32_t(i) * 64, true);   // ring i to slots 0-3
                 command(0x01004010, 0, true);                  // ring 0 to slots 4-7
             }
@@ -1922,7 +1942,8 @@ namespace {
         { '0', { 0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E } }, { '1', { 0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E } },
         { '2', { 0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F } }, { '3', { 0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E } },
         { '4', { 0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02 } }, { '5', { 0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E } },
-        { '6', { 0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E } }, { '9', { 0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C } },
+        { '6', { 0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E } }, { '7', { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08 } },
+        { '8', { 0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E } }, { '9', { 0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C } },
     };
 
     // Palette: 0 transparent, 1-3 text, 32-255 a 7x8x4 colour cube for the icon.
@@ -1966,7 +1987,7 @@ namespace {
             if (tag == "TXHD") { txhd = be32(ui, o + 4); txhd_n = be32(ui, o + 8); }
             if (tag == "PLHD") { plhd = be32(ui, o + 4); plhd_n = be32(ui, o + 8); }
         }
-        std::string name = (is_obstacle(k) ? "OPIC" : is_stunt(k) ? "SPIC" : "TPIC") + std::to_string(number_of(k));
+        std::string name = (is_obstacle(k) ? "OPIC" : is_stunt(k) ? "SPIC" : is_battle(k) ? "DPIC" : "TPIC") + std::to_string(number_of(k));
         auto name_at = [&](uint32_t o) { return std::string(reinterpret_cast<const char*>(&ui[o]), strnlen(reinterpret_cast<const char*>(&ui[o]), 16)); };
         for (uint32_t i = 0; i < txhd_n; i++) {
             uint32_t r = txhd + i * 0x24;
@@ -2031,7 +2052,8 @@ namespace {
             draw_text(text, "OBSTACLE", 36, 13, 2, ink_big, 11);  // one pixel apart, to fit
         }
         else {
-            draw_text(text, (is_stunt(k) ? "STUNT " : "TRACK ") + std::to_string(number_of(k)), 36, 13, 2, ink_big);
+            draw_text(text, (is_battle(k) ? "BATTLE " : is_stunt(k) ? "STUNT " : "TRACK ") + std::to_string(number_of(k)), 36, 13, 2,
+                      ink_big, is_battle(k) ? 11 : 0);  // BATTLE n is a character longer: one pixel apart, to fit
         }
         for (int y = 0; y < logo_h; y++) {
             for (int x = 34; x < logo_w; x++) {
@@ -2084,12 +2106,12 @@ namespace {
 
 std::string rush2::track2049::menu_model_name(int k) {
     if (is_obstacle(k)) return "R49OBSTACLE";
-    return (is_stunt(k) ? "R49STUNT" : "R49TRACK") + std::to_string(number_of(k));
+    return (is_battle(k) ? "R49BATTLE" : is_stunt(k) ? "R49STUNT" : "R49TRACK") + std::to_string(number_of(k));
 }
 
 std::string rush2::track2049::menu_logo_name(int k) {
     if (is_obstacle(k)) return "R49OLOGO";
-    return (is_stunt(k) ? "R49SLOGO" : "R49LOGO") + std::to_string(number_of(k));
+    return (is_battle(k) ? "R49BLOGO" : is_stunt(k) ? "R49SLOGO" : "R49LOGO") + std::to_string(number_of(k));
 }
 
 bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, const std::vector<uint8_t>& rom2049,
@@ -2112,6 +2134,7 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
     for (int k = 1; k <= track_count; k++) ks.push_back(k);
     for (int n = 0; n < stunt_count; n++) ks.push_back(stunt_first + n);
     ks.push_back(obstacle);
+    for (int n = 0; n < battle_count; n++) ks.push_back(battle_first + n);
     std::vector<TrackModel> tracks(ks.size());
     for (size_t i = 0; i < ks.size(); i++) {
         if (!build_track_model(rom2049, ks[i], tracks[i])) {

@@ -75,6 +75,11 @@ namespace {
         { "stunt_3",       "STUNT 3",      "RUSH 2049", Kind::Track, rush2::track2049::stunt_menu_id + 2, 5 },
         { "stunt_4",       "STUNT 4",      "RUSH 2049", Kind::Track, rush2::track2049::stunt_menu_id + 3, 10 },
         { "obstacle",      "OBSTACLE",     "RUSH 2049", Kind::Track, rush2::track2049::obstacle_menu_id, 15 },
+        // Rush 2049 unlocks four battle arenas by battle stats (docs/unlocks_plan.md); DM1-DM4 are open from the start.
+        { "battle_5",      "BATTLE 5",     "RUSH 2049", Kind::Track, rush2::track2049::battle_menu_id + 4, 5 },
+        { "battle_6",      "BATTLE 6",     "RUSH 2049", Kind::Track, rush2::track2049::battle_menu_id + 5, 5 },
+        { "battle_7",      "BATTLE 7",     "RUSH 2049", Kind::Track, rush2::track2049::battle_menu_id + 6, 10 },
+        { "battle_8",      "BATTLE 8",     "RUSH 2049", Kind::Track, rush2::track2049::battle_menu_id + 7, 15 },
         { "engine_4",      "5.0L HP V6",   "RUSH 2049", Kind::Part,  3, 2 },
         { "engine_5",      "TURBO 400",    "RUSH 2049", Kind::Part,  4, 3 },
         { "engine_6",      "7.0L V8",      "RUSH 2049", Kind::Part,  5, 5 },

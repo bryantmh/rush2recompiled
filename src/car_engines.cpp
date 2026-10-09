@@ -1,7 +1,8 @@
-// Engine sounds of the cars the local players don't drive.
+// Engine sounds of the cars the local players don't drive, and of players 3 and 4's cars.
 //
 // Rush 2 plays an engine only for each local player's own car (src/engine_preview.cpp: two slots, func_80062CC4
-// retunes them every audio frame); computer cars are silent. Rush 2049 plays every other car's engine as a 3D emitter
+// retunes them every audio frame); computer cars are silent. Players 3 and 4 (src/players4.cpp) have no slot, so their
+// cars' engines are played here at a player's own volume, whether or not the other cars' engines are on. Rush 2049 plays every other car's engine as a 3D emitter
 // (src/engine2049.cpp, docs/rush2049_research/audio.md §7), so the same is done here for both games' cars, heard from
 // the local players' cars with Rush 2049's emitter law (audio2049::emitter_mix: range 400, other cars at 0.75 of their
 // engine volume). Each car keeps its own game's engine:
@@ -43,6 +44,7 @@ namespace audio = rush2::audio2049;
 
 namespace {
     constexpr int max_cars = 8;
+    constexpr int max_players = 4;
     constexpr uint32_t physics_cars = 0x800F5470;  // + car index * 0x81C
     constexpr uint32_t physics_car_size = 0x81C;
     constexpr uint32_t car_position = 0x224;       // f32 [3]
@@ -202,6 +204,12 @@ namespace {
         float pos[3], back[3], up[3];
     };
 
+    // A car driven by local player 3 or 4. Rush 2 has engine voices for two players only, so these cars' engines are
+    // played here at a player's own volume, centered, instead of as other cars.
+    audio::EmitterParams own_engine(float max_volume) {
+        return audio::EmitterParams{ max_volume, 0.0f, -1.0f };
+    }
+
     // Rush 2049's law over every local player (split screen sums the volumes and averages pan and surround by them).
     audio::EmitterParams hear(const float pos[3], const std::vector<Listener>& listeners, float max_volume) {
         audio::EmitterParams out{ 0.0f, 0.0f, -1.0f };
@@ -222,7 +230,7 @@ namespace {
     }
 
     void update_rush2049(uint8_t* rdram, int car, int level, float rpm, float load, const float pos[3],
-                         const std::vector<Listener>& listeners) {
+                         const std::vector<Listener>& listeners, bool own) {
         rush2::engine2049::LayerMix mix[2];
         if (!rush2::track2049::music_ready() || !rush2::engine2049::layer_mix(level, rpm, load, mix)) {
             stop_car(car);
@@ -235,7 +243,7 @@ namespace {
         for (int l = 0; l < 2; l++) {
             int& h = handles49[car][l];
             if (mix[l].sound < 0) continue;
-            audio::EmitterParams e = hear(pos, listeners, mix[l].volume * other_car_volume);
+            audio::EmitterParams e = own ? own_engine(mix[l].volume) : hear(pos, listeners, mix[l].volume * other_car_volume);
             if (e.volume <= 0.0f) {
                 if (h >= 0) audio::sfx_stop(h);
                 h = -1;
@@ -252,7 +260,7 @@ namespace {
     }
 
     void update_rush2(uint8_t* rdram, int car, int engine, uint32_t c, const float pos[3],
-                      const std::vector<Listener>& listeners) {
+                      const std::vector<Listener>& listeners, bool own) {
         if (levels49[car] >= 0) stop_car(car);
         float r = float(uint32_t(std::abs((int)(int16_t)MEM_H(0, (int32_t)(c + car_rpm)) * f32_at(rdram, rpm_scale))) & 0x7FFF);
         float l = float(uint32_t((int16_t)(int32_t)(f32_at(rdram, c + car_load) * f32_at(rdram, load_scale))) & 0x7FFF);
@@ -278,7 +286,7 @@ namespace {
             float a = f32_at(rdram, rpm_table + (layer * 11 + ri) * 4);
             float b = f32_at(rdram, load_table + (layer * 13 + li) * 4);
             int volume = int(float(int(a * b * 2000.0f + 24000.0f)) * option_volume);
-            audio::EmitterParams e = hear(pos, listeners, other_car_volume);
+            audio::EmitterParams e = own ? own_engine(1.0f) : hear(pos, listeners, other_car_volume);
             float gain = std::clamp(volume / 32767.0f, 0.0f, 1.0f) * it->second->level * e.volume;
             float angle = (std::clamp(e.pan, -1.0f, 1.0f) + 1.0f) * 0.25f * 3.14159265f;
             if (v.sample != it->second) {
@@ -302,8 +310,7 @@ bool rush2::car_engines::enabled() {
 }
 
 void rush2::car_engines::update(uint8_t* rdram) {
-    if (!option) return;
-    int local = std::clamp<int>((int16_t)MEM_H(0, (int32_t)num_players), 1, 2);
+    int local = std::clamp<int>((int16_t)MEM_H(0, (int32_t)num_players), 1, max_players);
     std::vector<Listener> listeners;
     for (int s = 0; s < local; s++) {
         Listener l;
@@ -316,11 +323,17 @@ void rush2::car_engines::update(uint8_t* rdram) {
         listeners.push_back(l);
     }
     bool muted = MEM_BU(0, (int32_t)engines_muted) != 0;
+    bool extra_player[max_cars] = {};
+    for (int s = 2; s < local; s++) {
+        int car = MEM_BU(0, (int32_t)(players + s * player_size));
+        if (car < max_cars) extra_player[car] = true;
+    }
     std::lock_guard lock{ mutex };
     for (int car = 0; car < max_cars; car++) {
         uint32_t c = physics_cars + car * physics_car_size;
-        bool off = (int16_t)MEM_H(0, (int32_t)(c + car_active)) == 0 || (int8_t)MEM_B(0, (int32_t)(c + car_driver)) == 2 ||
-                   muted || (int8_t)MEM_B(0, (int32_t)(c + car_engine_off)) != 0 ||
+        // Players 1 and 2's cars have the game's own engines; the other cars' only play with the option on.
+        bool skipped = extra_player[car] ? false : !option || (int8_t)MEM_B(0, (int32_t)(c + car_driver)) == 2;
+        bool off = (int16_t)MEM_H(0, (int32_t)(c + car_active)) == 0 || skipped || muted || (int8_t)MEM_B(0, (int32_t)(c + car_engine_off)) != 0 ||
                    (int8_t)MEM_B(0, (int32_t)(car_states + car * car_state_size + 0x343)) > 0;
         if (off) {
             stop_car(car);
@@ -331,7 +344,8 @@ void rush2::car_engines::update(uint8_t* rdram) {
         int level = rush2::car2049::engine_level(rdram, c);
         if (level >= 0) {
             float load = f32_at(rdram, c + car_load);
-            update_rush2049(rdram, car, level, (float)(int16_t)MEM_H(0, (int32_t)(c + car_rpm)), load, pos, listeners);
+            update_rush2049(rdram, car, level, (float)(int16_t)MEM_H(0, (int32_t)(c + car_rpm)), load, pos, listeners,
+                            extra_player[car]);
             continue;
         }
         int type = MEM_BU(0, (int32_t)(c + car_type));
@@ -340,7 +354,7 @@ void rush2::car_engines::update(uint8_t* rdram) {
             stop_car(car);
             continue;
         }
-        update_rush2(rdram, car, engine, c, pos, listeners);
+        update_rush2(rdram, car, engine, c, pos, listeners, extra_player[car]);
     }
     updated_rdram = rdram;
     updated_ms = now_ms();

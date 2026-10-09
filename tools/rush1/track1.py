@@ -35,11 +35,15 @@ R2_PREFIXES = ['MARKER', 'TIME', 'COLLISION', 'CONE1', 'FENCE', 'FLAG2', 'GASIGN
 # and debris handling; src/track1.cpp redirects Rush 2's lookup of the class model to the record's own model.
 R1_CLASSES = [('CONE1L', None, 2), ('METERL', None, 5), ('TREEHIT', None, 5), ('FLAG2L', None, 23), ('FENCEL', None, 4),
               ('GASIGNL', None, 7), ('WINDOWBL', 'SHATPANEBL', 9), ('PMUNCH_01L', 'CURVEHITPMUNCH', 5),
-              ('TMUNCHL', 'TREEHITTMUNCH', 5)]
+              ('TMUNCHL', 'TREEHITTMUNCH', 5), ('T5GATEL', 'FENCET5GATEL', 4)]
 # Rush 2 breakable pieces (resolved by name at race start) -> Rush 1's: (Rush 2 prefix, Rush 1 prefix, count, shift);
 # tree pieces TREEHITnO1 -> TREEHITnL1.
 R1_PIECES = [('CONE1O', 'CONE1L', 1, 0), ('METERO', 'METERL', 1, 0), ('SHATPANEO', 'WINDOWBL', 7, 0),
-             ('FENCEO', 'FENCEL', 12, 0), ('FLAG2O', 'FLAG2L', 10, -1), ('GASIGNO', 'GASIGNL', 3, 0)]
+             ('FENCEO', 'FENCEL', 12, 0), ('FLAG2O', 'FLAG2L', 10, -1), ('GASIGNO', 'GASIGNL', 3, 0),
+             ('T5GATEO', 'T5GATEL', 12, 0)]
+# A fence record with +0x4A set is track 5's gate: Rush 1's fence spawner (0x800C32EC) gives it model T5GATEL1 and
+# pieces T5GATEL1-12 instead of FENCEL1-12 (src/track1.cpp gives the Rush 2 fence the T5GATEO piece ids).
+R1_FENCE, R1_GATE = 'FENCEL', 'T5GATEL1'
 # Rush 1 models from the shared object file (asset 12) that the classes and keys use.
 R1_SHARED_OBJECTS = ['CONE1L1', 'METERL1', 'TREEHIT1L1', 'TREEHIT4L1', 'KEYL1']
 # Keys (KEYL1, key number 1-8 at record +0x4A) become Rush 2 key records KEY1-8 (the KEY class, behaviour 8) drawn with
@@ -421,10 +425,15 @@ def object_class(name):
     return None
 
 
+def object_name(d, o):
+    n = cname(d, o)
+    return R1_GATE if n.startswith(R1_FENCE) and s16(d, o + 0x4A) != 0 else n
+
+
 def placed_objects(r, t):
     d = r.asset(PLACEMENT + t)
     base = u32(d, 4)
-    return {cname(d, o) for o in range(base, len(d) - 0x63, 0x64)}
+    return {object_name(d, o) for o in range(base, len(d) - 0x63, 0x64)}
 
 
 def piece_models(names):
@@ -531,6 +540,8 @@ def convert_placement(r, t, prefix, names, record_models=None, shifts=None):
                 raise ConvertError('nested children under %s' % name(i))
             k = bytearray(rec(c))
             n = name(c)
+            if n.startswith(R1_FENCE) and s16(k, 0x4A) != 0:
+                n = R1_GATE
             world = False
             if n in R1_EMITTERS:
                 new, world = R1_EMITTERS[n], True

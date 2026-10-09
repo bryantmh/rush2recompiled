@@ -43,7 +43,7 @@ disassembly or data, **[I]** = inferred and needs checking.
 | One 2049 car in a Rush 2 slot | Moderate | Same model and display-list format family. Rush 2 needs 39 named body parts per car where 2049 has 3. Physics stats need tables. |
 | One 2049 track in a Rush 2 slot | Hard | Same geometry, collision and AI-path families, but Rush 2 hardcodes many per-track names and tables. It also needs a mirrored AI path, a bigger heap, and its custom conditional display-list op. 2049's animated objects need code. |
 | Adding 13th+ tracks / 23rd+ cars | Large | About 20 per-track tables, about 30 per-car tables and about 10 code sites with index arithmetic. Save format implications. |
-| 2049 battle arenas, weapons, coins (stunt arenas: done, hosted by STUNT1, see src/track2049.cpp) | Out of scope | These need 2049 game systems Rush 2 doesn't have. A separate 2049 recomp would be the better route. |
+| 2049 battle weapons, coins (stunt arenas: done, hosted by STUNT1, see src/track2049.cpp) | Out of scope | These need 2049 game systems Rush 2 doesn't have. A separate 2049 recomp would be the better route. |
 
 ---------------------------------------------------------------------------------------------------------------------
 

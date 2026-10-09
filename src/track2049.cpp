@@ -12,6 +12,10 @@
 // drones. An arena has one AI path, used both ways, and no visibility table (Rush 2049 draws every section of it);
 // it keeps Rush 2's stunt song and STUNT1's records.
 //
+// Rush 2049's battle arenas (DM1-DM8) are hosted in the stunt slot the same way: a free-roaming arena with no drones or
+// checkpoints. Their game type is battle (game_type), so the rules ported by type apply: no stuck reset, 0.6 s
+// wreck respawn, no map or radar. Weapons, health and kill scoring aren't ported.
+//
 // Rush 2049's obstacle course runs from a start to a finish line against a 5-minute clock, with no stunt scoring, so
 // it is hosted like a race track (raced_track = obstacle) and raced as Rush 2's one-race mode would race it: one lap,
 // no drones, no backward or mirror, and checkpoints on, whose clock is set to Rush 2049's 5 minutes with no
@@ -43,6 +47,7 @@
 #include "librecomp/addresses.hpp"
 #include "librecomp/game.hpp"
 #include "rush2_hooks.h"
+#include "battle.h"
 #include "rush2.h"
 #include "assets.h"
 #include "track1.h"
@@ -81,6 +86,7 @@ namespace {
     std::atomic_bool option_enabled = true;
     std::atomic_int raced_track = 0;  // 1-6 or obstacle, or 0 for none.
     std::atomic_int raced_stunt = 0;  // Stunt arena 1-4, or 0 for none.
+    std::atomic_int raced_battle = 0; // Battle arena 1-8, or 0 for none (hosted in the stunt slot like the stunt arenas).
     int loaded_track = 0;              // The 2049 track in `track`, as convert_track's k.
     int slot = host_slot;              // The slot `track` is applied to.
     std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
@@ -131,6 +137,7 @@ namespace {
                                          std::vector<std::string>(names.begin(), names.end()));
         rush2::track2049::set_texanim_data(track.tex_anims);
         rush2::track2049::set_prop_data(track.prop_records, track.geometry);
+        rush2::battle::set_data(track.pickup_records, track.pool_records, track.geometry, track.solid_triangles);
         return true;
     }
 
@@ -262,6 +269,14 @@ void rush2::track2049::set_stunt_arena(int n) {
     raced_stunt = n;
 }
 
+int rush2::track2049::battle_arena() {
+    return raced_battle;
+}
+
+void rush2::track2049::set_battle_arena(int n) {
+    raced_battle = n;
+}
+
 int rush2::track2049::loaded_slot() {
     return applied_slot;
 }
@@ -272,11 +287,17 @@ bool rush2::track2049::obstacle_race(uint8_t* rdram) {
     return t == obstacle_menu_id || (t == host_slot && raced_track == obstacle);
 }
 
+bool rush2::track2049::battle_race(uint8_t* rdram) {
+    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    return (t >= battle_menu_id && t < battle_menu_id + battle_count) || (t == stunt_host_slot && raced_battle != 0);
+}
+
 rush2::track2049::GameType rush2::track2049::game_type(uint8_t* rdram) {
     int t = (int8_t)MEM_B(0, (int32_t)track_id);
     if (t == host_slot && raced_track == obstacle) return GameType::obstacle;
     if (t == host_slot && raced_track != 0) return GameType::race;
     if (t == stunt_host_slot && raced_stunt != 0) return GameType::stunt;
+    if (t == stunt_host_slot && raced_battle != 0) return GameType::battle;
     return GameType::none;
 }
 
@@ -312,6 +333,10 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         k = rush2::track2049::stunt_first + raced_stunt - 1;
         want_slot = stunt_host_slot;
     }
+    else if (raced_battle != 0 && t == stunt_host_slot) {
+        k = rush2::track2049::battle_first + raced_battle - 1;
+        want_slot = stunt_host_slot;
+    }
     if (k == 0 || (applied && slot != want_slot)) {
         restore(rdram);
     }
@@ -329,6 +354,7 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
             // Everything (records included) then treats the race as the host track's.
             raced_track = 0;
             raced_stunt = 0;
+            raced_battle = 0;
             restore(rdram);
             return;
         }
@@ -344,6 +370,7 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
     apply(rdram);
     rush2::track2049::reset_movers();
     rush2::track2049::reset_props();
+    rush2::battle::reset();
     rush2::track2049::texanim_reset();
 }
 
@@ -503,6 +530,14 @@ extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* 
     constexpr uint32_t checkpoints = 0x8010C17B;   // u8: the race is against the clock
     constexpr uint32_t backward = 0x80119848;
     constexpr uint32_t mirror = 0x800D0190;
+    if (rush2::track2049::battle_race(rdram)) {
+        // Battle arenas are stunt mode without computer cars: Rush 2049's battle was multiplayer only (computer
+        // opponents are future work).
+        MEM_H(0, (int32_t)drones) = 0;
+        MEM_B(0, (int32_t)backward) = 0;
+        MEM_B(0, (int32_t)mirror) = 0;
+        return;
+    }
     if (!rush2::track2049::obstacle_race(rdram)) {
         return;
     }

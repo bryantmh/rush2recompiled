@@ -2306,9 +2306,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800BF318
-name = "hud_finish_byte_a"
-type = "u8"
-desc = "Byte read by hud_race_finish_overlay_build. (low confidence)"
+name = "hud_finish_place_shown"
+type = "u8[4]"
+desc = "Per player: the place widget (func_800B5A90) shows this frame. The game uses [0-1]; players 3 and 4 use [2-3] (docs/players4.md#finish-overlay)."
 area = "ui"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -2360,9 +2360,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800BF444
-name = "hud_finish_state_b"
-type = "u8"
-desc = "State byte in hud_race_finish_overlay_build. (low confidence)"
+name = "hud_finish_place_built"
+type = "u8[2]"
+desc = "hud_finish_place_shown[0-1] when the finish overlay was last built; func_800A0FB4 rebuilds it when they differ (docs/players4.md#finish-overlay)."
 area = "ui"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -3746,9 +3746,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C4254
-name = "hud_multi_menu_byte"
-type = "u8"
-desc = "Byte read by hud multi widget menu setup and widget slot free. (low confidence)"
+name = "hud_boxes"
+type = "u8[10][0x20]"
+desc = "The translucent boxes of func_80093B38: +0 in use, +1 arg7, +2..+9 colors and alpha, +0xC five HUD elements (fill and four edges) (docs/players4.md#finish-overlay)."
 area = "ui"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -6608,12 +6608,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D5788
-name = "asset_load_mode"
+name = "model_container_count"
 type = "u8"
-desc = "Byte set by asset slot init/scene loaders and read by ~36 users (carselect, HUD widget texture loads); asset/scene load mode (low confidence)."
+desc = "Number of loaded model containers, whose texture tables are at 0x80119220 (8 bytes each: pointer to 0x20 byte texture records, count); texture_find_by_name searches them."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/battle.md"
 
 [[var]]
 vram = 0x800D578C
@@ -9263,21 +9263,21 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800FAEF0
-name = "sky_dome_state"
-type = "u32"
-desc = "Word saved/restored with scene state; set by sky_build_dome, read by view_fog_setup (low confidence)."
+name = "polygon_count"
+type = "s32"
+desc = "World polygon slots in use (polygon_create raises it; func_8007C624 draws that many)."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/battle.md"
 
 [[var]]
 vram = 0x800FAEF4
-name = "sky_dome_build_state"
-type = "u32"
-desc = "Word private to sky_build_dome."
+name = "polygon_high_water"
+type = "s32"
+desc = "The most world polygon slots used (polygon_create)."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/battle.md"
 
 [[var]]
 vram = 0x800FAEF8
@@ -9299,12 +9299,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800FAF00
-name = "fog_param_h0"
-type = "u16"
-desc = "Halfword read by sky dome and view_fog_setup (fog/sky parameter; low confidence)."
+name = "polygons"
+type = "Polygon[]"
+desc = "World polygons, 0x58 each: +0 s16 vertex count (0 free), +2 u16 flags (bits 0-3 views, 0x100 no fog, 0x200 and 0x1000 draw variants, 0x2000 primitive depth, 0x4000 2D rectangle, 0x8000 hidden), +4 s16 texture handle (container << 10 | index, -1 none), +6 s16 primitive depth, then 0x14 per vertex: f32 x, y, z (x 16), s16 s, t, RGBA."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/battle.md"
 
 [[var]]
 vram = 0x800FAF02
@@ -10129,7 +10129,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C0E0
 name = "race_finished_flag"
 type = "u8"
-desc = "Byte set at car finish and race setup, read by physics inputs, wrong-way and rubber band (low confidence)."
+desc = "Set by func_8008E8EC once as many human cars as players have finished (docs/players4.md#race-over-and-post-race)."
 area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"

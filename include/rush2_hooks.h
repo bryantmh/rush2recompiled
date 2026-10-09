@@ -78,6 +78,7 @@ void rush2_players4_menu(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_state(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_title_port(uint8_t* rdram, recomp_context* ctx);
 int rush2_players4_skip_finish_box(uint8_t* rdram, recomp_context* ctx);
+int rush2_players4_finish_rebuild(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_race_views(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_list_offset(uint8_t* rdram, recomp_context* ctx);
@@ -183,6 +184,12 @@ void rush2_track49_stunt_select(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_options(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_option_t9(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ctx);
+void rush2_battle_hide_stunt_panel(uint8_t* rdram, recomp_context* ctx);
+// func_8007C27C entry (a view's visibility, before the view is drawn): the battle HUD's 3D models of that view.
+void rush2_controls_menu_first_row(uint8_t* rdram, recomp_context* ctx);
+void rush2_battle_view(uint8_t* rdram, recomp_context* ctx);
+void rush2_arrows_view(uint8_t* rdram, recomp_context* ctx);
+void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_deaths_value_t4(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_deaths_value_t0(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* ctx);
@@ -214,6 +221,13 @@ void rush2_music_preview(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx);
 int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx);
+
+// SF Rush track 6 buses (src/track1_buses.cpp).
+int rush2_track1_buses_init(uint8_t* rdram, recomp_context* ctx);
+int rush2_track1_buses_update(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_buses_collision(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_buses_drive(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_gate(uint8_t* rdram, recomp_context* ctx);
 
 // SF Rush breakables (src/track1.cpp).
 void rush2_track1_record_model(uint8_t* rdram, recomp_context* ctx);
@@ -262,6 +276,9 @@ void rush2_controls_menu_widgets(uint8_t* rdram, recomp_context* ctx);
 int rush2_controls_menu_update(uint8_t* rdram, recomp_context* ctx);
 int rush2_controls_menu_pause_exit(uint8_t* rdram, recomp_context* ctx);
 void rush2_controls_menu_draw(uint8_t* rdram, recomp_context* ctx);
+void rush2_controls_menu_text_players(uint8_t* rdram, recomp_context* ctx);
+void rush2_controls_menu_title(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_paused(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_labels(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx);
 

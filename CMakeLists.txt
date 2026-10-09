@@ -123,6 +123,10 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/draw_distance.cpp
     ${CMAKE_SOURCE_DIR}/src/cheats.cpp
     ${CMAKE_SOURCE_DIR}/src/fonts.cpp
+    ${CMAKE_SOURCE_DIR}/src/texture_upscale.cpp
+    ${CMAKE_SOURCE_DIR}/src/texture_upscale_images.cpp
+    ${CMAKE_SOURCE_DIR}/lib/hqx/hq2x.c
+    ${CMAKE_SOURCE_DIR}/lib/hqx/hq4x.c
     ${CMAKE_SOURCE_DIR}/src/players4.cpp
     ${CMAKE_SOURCE_DIR}/src/splitscreen.cpp
     ${CMAKE_SOURCE_DIR}/src/widescreen.cpp
@@ -144,6 +148,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/track1.cpp
     ${CMAKE_SOURCE_DIR}/src/track1_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/track1_audio.cpp
+    ${CMAKE_SOURCE_DIR}/src/track1_buses.cpp
     ${CMAKE_SOURCE_DIR}/src/music.cpp
     ${CMAKE_SOURCE_DIR}/src/engine_preview.cpp
     ${CMAKE_SOURCE_DIR}/src/engine2049.cpp
@@ -157,6 +162,9 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/track2049_movers.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_movers_logic.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_props.cpp
+    ${CMAKE_SOURCE_DIR}/src/battle.cpp
+    ${CMAKE_SOURCE_DIR}/src/battle_render.cpp
+    ${CMAKE_SOURCE_DIR}/src/arrows.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_audio.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_texanim.cpp
     ${CMAKE_SOURCE_DIR}/src/car2049.cpp
@@ -173,6 +181,7 @@ target_sources(Rush2Recompiled PRIVATE
 
 target_include_directories(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/lib/hqx
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/sse2neon
     ${CMAKE_SOURCE_DIR}/lib/rt64/include

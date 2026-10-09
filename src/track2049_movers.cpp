@@ -34,6 +34,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "assets.h"
+#include "battle.h"
 #include "rush2049_rom.h"
 #include "track2049.h"
 #include "track2049_movers_logic.h"
@@ -541,6 +542,7 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
     // Animated textures don't depend on the moving objects being set up.
     rush2::track2049::texanim_tick(rdram, read_f(rdram, (uint32_t)((int32_t)ctx->r29 + 0x18)));
     rush2::track2049::props_tick(rdram, read_f(rdram, (uint32_t)((int32_t)ctx->r29 + 0x18)));
+    rush2::battle::tick(rdram, read_f(rdram, (uint32_t)((int32_t)ctx->r29 + 0x18)));
     std::lock_guard lock{ movers_mutex };
     int slot = rush2::track2049::loaded_slot();
     if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot) {

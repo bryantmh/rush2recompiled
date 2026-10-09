@@ -20,6 +20,14 @@ How the port works, how the ROM is laid out, and how to build it. For the player
   the display's refresh rate. Every 3D matrix is tagged with a stable RT64 matrix group ID (scene graph node index,
   camera per view, world-space polygon slot), so identical cars and their wheels are never mixed up; IDs change on
   teleports and camera cuts so those snap instead of sweeping (`src/interpolation.cpp`, hooks in `us.toml`).
+  **Variable** also targets the display's refresh rate, but doesn't assume it is reached. Display and Manual count
+  out a fixed number of evenly spaced frames per game frame and drop the last ones when they can't all be shown in
+  time (an external frame limiter, a GPU that can't keep up), which stutters. Variable draws each interpolated frame
+  once the one before it has been presented, at the point between the two game frames that the clock shows then, so
+  motion stays even at whatever rate frames really reach the display. The game frames sit on a timeline that follows
+  when the game submits them, smoothed so a slightly early or late frame doesn't shift the picture. It is in
+  `lib/patches/rt64.patch` (`variableFrames` in `src/hle/rt64_workload_queue.cpp`, the `shown` counter set in
+  `src/hle/rt64_present_queue.cpp`); the option itself is added by the ultramodern and RecompFrontend patches.
 - Level of detail (Settings > Graphics): **Original** or **Off**. Off draws every model at its most detailed LOD and
   turns off the per-model cull distance from its LOD table, by zeroing the camera distance the model draw function
   computes. Models whose LOD the game selects explicitly are untouched (`src/lod.cpp`, hook in `us.toml`).

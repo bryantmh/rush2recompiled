@@ -64,7 +64,7 @@ namespace {
     };
     const ObjectClass r1_classes[] = { { "CONE1L", nullptr, 2 }, { "METERL", nullptr, 5 }, { "TREEHIT", nullptr, 5 },
         { "FLAG2L", nullptr, 23 }, { "FENCEL", nullptr, 4 }, { "GASIGNL", nullptr, 7 }, { "WINDOWBL", "SHATPANEBL", 9 },
-        { "PMUNCH_01L", "CURVEHITPMUNCH", 5 }, { "TMUNCHL", "TREEHITTMUNCH", 5 } };
+        { "PMUNCH_01L", "CURVEHITPMUNCH", 5 }, { "TMUNCHL", "TREEHITTMUNCH", 5 }, { "T5GATEL", "FENCET5GATEL", 4 } };
     // Rush 2's breakable pieces (resolved by name at race start, func_8008A1FC) -> Rush 1's: {Rush 2 prefix, Rush 1
     // prefix, Rush 2 numbers, offset to Rush 1's number}.
     struct PieceSet {
@@ -75,7 +75,11 @@ namespace {
     };
     const PieceSet r1_pieces[] = { { "CONE1O", "CONE1L", 1, 0 }, { "METERO", "METERL", 1, 0 },
         { "SHATPANEO", "WINDOWBL", 7, 0 }, { "FENCEO", "FENCEL", 12, 0 }, { "FLAG2O", "FLAG2L", 10, -1 },
-        { "GASIGNO", "GASIGNL", 3, 0 } };
+        { "GASIGNO", "GASIGNL", 3, 0 }, { "T5GATEO", "T5GATEL", 12, 0 } };
+    // A fence record with +0x4A set is track 5's gate: Rush 1's fence spawner (0x800C32EC) gives it model T5GATEL1 and
+    // pieces T5GATEL1-12 instead of FENCEL1-12 (src/track1.cpp gives the Rush 2 fence the T5GATEO piece ids).
+    constexpr const char* r1_fence = "FENCEL";
+    constexpr const char* r1_gate = "T5GATEL1";
     // Tree pieces TREEHITnO1 -> TREEHITnL1 (n 1-4).
     // Rush 1 models from the shared object file (asset 12) that the classes and keys use.
     const char* const r1_shared_objects[] = { "CONE1L1", "METERL1", "TREEHIT1L1", "TREEHIT4L1", "KEYL1" };
@@ -728,11 +732,16 @@ namespace {
     }
 
     // Names of every record in track t's placement.
+    std::string object_name(const Bytes& d, size_t o) {
+        std::string n = cname(d, o);
+        return starts_with(n, r1_fence) && s16(d, o + 0x4A) != 0 ? r1_gate : n;
+    }
+
     std::set<std::string> placed_objects(const std::vector<uint8_t>& rom, int t) {
         Bytes d = asset(rom, placement_asset + t);
         uint32_t base = u32(d, 4);
         std::set<std::string> out;
-        for (size_t o = base; o + 0x64 <= d.size(); o += 0x64) out.insert(cname(d, o));
+        for (size_t o = base; o + 0x64 <= d.size(); o += 0x64) out.insert(object_name(d, o));
         return out;
     }
 
@@ -853,6 +862,7 @@ namespace {
                 if (child(c) >= 0) fail("nested children under " + name(i));
                 Bytes k = rec(c);
                 std::string n = name(c);
+                if (starts_with(n, r1_fence) && s16(k, 0x4A) != 0) n = r1_gate;
                 std::optional<std::string> renamed;
                 bool world = false;
                 for (auto [from, to] : r1_emitters) {

@@ -232,6 +232,17 @@ namespace rush2::splitscreen {
         return active == Active::Quadrants && views_active(rdram) ? active_views : 0;
     }
 
+    float window_width() {
+        return wide_screen_width();
+    }
+
+    float view_tan_v(uint8_t* rdram, int index) {
+        if (index < 0 || index >= 4) {
+            return 0.0f;
+        }
+        return read_float(rdram, (int32_t)(view_array + index * view_size) + 0x18);   // The view's tan(vfov / 2)
+    }
+
     float hud_width() {
         float width = wide_screen_width();
         switch (ultramodern::renderer::get_graphics_config().hr_option) {

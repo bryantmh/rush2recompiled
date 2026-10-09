@@ -178,6 +178,13 @@ text = "    rush2_hud_build_end(rdram, ctx);"
 
 # The race's finish overlay (func_800A0FB4 builds each player's place from 0x800BF328): laid out like the HUD, with
 # players 3 and 4's added (src/players4.cpp).
+# The overlay is rebuilt when player 1's or 2's place shows or hides (D_800BF318[0-1] against D_800BF444); players 3 and
+# 4's (D_800BF318[2-3]) also rebuild it, and so does its first build, which then goes through the hooks below.
+[[patches.hook]]
+func = "hud_race_finish_overlay_build_800A0FB4"
+before_vram = 0x800A1074
+text = "    if (rush2_players4_finish_rebuild(rdram, ctx)) goto L_800A1090;"
+
 [[patches.hook]]
 func = "hud_race_finish_overlay_build_800A0FB4"
 before_vram = 0x800A1210
@@ -275,7 +282,7 @@ text = "    rush2_car49_flames_draw(rdram, ctx);"
 [[patches.hook]]
 func = "view_fog_setup_8007C624"
 before_vram = 0x8007D9CC
-text = "    rush2_interp_view_end(rdram, ctx);"
+text = "    rush2_battle_render_view(rdram, ctx); rush2_interp_view_end(rdram, ctx);"
 
 [[patches.hook]]
 func = "scene_walk_8007B518"
@@ -402,6 +409,13 @@ func = "menu_screen_controller_setup_800AD7E4"
 before_vram = 0x800ADA80
 text = "    if (rush2_controls_menu_update(rdram, ctx)) goto L_800AE0A4;"
 
+# The pause menu opens (func_800AFD44 at 0x800AFE14): $s6 = the player who pressed START (or whose controller was
+# unplugged). src/players4.cpp keeps it, so the Controller Setup screen shows that player's panel.
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800AFE14
+text = "    rush2_players4_paused(rdram, ctx);"
+
 # Leaving the screen from the pause menu happens when the screen asks, not on B or Start.
 [[patches.hook]]
 func = "race_pause_menu_step_800AFD44"
@@ -413,11 +427,30 @@ func = "menu_controller_setup_rows_text_800B6134"
 before_vram = 0x800B62F4
 text = "    rush2_wings_menu_labels(rdram, ctx);"
 
-# Up to ten label rows; the hook ends the loop after nine without wings, or moves the rows 15 pixels apart with them.
+# Opened from the pause menu by player 3 or 4, the panels show players 3 and 4: the text loop's first record
+# ($sp + 0x54, just stored) and the panels' "PLAYER %d" titles ($a3) move on by two players.
+[[patches.hook]]
+func = "menu_controller_setup_rows_text_800B6134"
+before_vram = 0x800B62F8
+text = "    rush2_controls_menu_text_players(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_controller_setup_rows_text_800B6134"
+before_vram = 0x800B6424
+text = "    rush2_controls_menu_title(rdram, ctx);"
+
+# With more than ten rows the first one starts higher ($s2 = its y, just set).
+[[patches.hook]]
+func = "menu_controller_setup_rows_text_800B6134"
+before_vram = 0x800B64D8
+text = "    rush2_controls_menu_first_row(rdram, ctx);"
+
+# Up to twelve label rows (the game's nine, WINGS, FIRE, DROP WEAPON); the hook ends the loop after the screen's rows
+# and moves them closer together when there are more than nine.
 [[patches.instruction]]
 func = "menu_controller_setup_rows_text_800B6134"
 vram = 0x800B6560
-value = 0x2A61000A
+value = 0x2A61000C
 
 [[patches.hook]]
 func = "menu_controller_setup_rows_text_800B6134"
@@ -544,8 +577,8 @@ before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
 # Rush 2049 track select entries (src/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
-# func_803ABE0C (per frame); its tables and carousel array are repointed to 30-entry copies at 0x80300000 (Rush 2's 12
-# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29).
+# func_803ABE0C (per frame); its tables and carousel array are repointed to 38-entry copies at 0x80300000 (Rush 2's 12
+# tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29, Rush 2049 battle arenas at 30-37).
 [[patches.hook]]
 func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB5C0
@@ -600,6 +633,18 @@ text = "    rush2_track49_obstacle_settings(rdram, ctx);"
 func = "race_start_timer_800AE670"
 before_vram = 0x800AEB20
 text = "    rush2_track49_obstacle_clock(rdram, ctx);"
+
+# Rush 2049's battle arenas (src/battle.cpp) are played in stunt mode but have no stunt score: its panel's visibility
+# callbacks func_800B9CC0 (the trick score panel) and func_800B7654 (the BEST / TOTAL scores) hide them.
+[[patches.hook]]
+func = "hud_widget_cb_check_flags_800B9CC0"
+before_vram = 0x800B9D2C
+text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
+
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B76CC
+text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
 
 # Rush 2049 rules by game type (src/track2049.cpp): no stuck reset, quick respawn after a wreck, and no track map or
 # radar (their stunt track tests).
@@ -836,7 +881,7 @@ value = 0x3C128030 # lui     $s2, 0x8030
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABB14
-value = 0x26520080 # addiu    $s2, $s2, 0x80
+value = 0x265200A0 # addiu    $s2, $s2, 0xA0
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -846,7 +891,7 @@ value = 0x3C018030 # lui     $at, 0x8030
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB8B0
-value = 0xC42A0100 # lwc1    $f10, 0x100($at)
+value = 0xC42A0140 # lwc1    $f10, 0x140($at)
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -856,7 +901,7 @@ value = 0x3C018030 # lui     $at, 0x8030
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABD00
-value = 0xC4260100 # lwc1    $f6, 0x100($at)
+value = 0xC4260140 # lwc1    $f6, 0x140($at)
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
@@ -866,7 +911,7 @@ value = 0x3C058030 # lui     $a1, 0x8030
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6248
-value = 0x8CA50180 # lw     $a1, 0x180($a1)
+value = 0x8CA501E0 # lw     $a1, 0x1E0($a1)
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
@@ -876,17 +921,17 @@ value = 0x304E001F # andi    $t6, $v0, 0x1F
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB67C
-value = 0x2A21001E # slti    $at, $s1, 0x1E
+value = 0x2A210026 # slti    $at, $s1, 0x26
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6D0
-value = 0x241E001E # addiu    $fp, $zero, 0x1E
+value = 0x241E0026 # addiu    $fp, $zero, 0x26
 
 [[patches.instruction]]
 func = "trackselect_frame_803ABE0C"
 vram = 0x803AC0FC
-value = 0x28C1001E # slti    $at, $a2, 0x1E
+value = 0x28C10026 # slti    $at, $a2, 0x26
 
 # Rush 2049 track records (src/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
@@ -1036,7 +1081,7 @@ text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rd
 [[patches.hook]]
 func = "pvs_apply_8007C27C"
 before_vram = 0x8007C27C
-text = "    rush2_track1_pvs_camera(rdram, ctx);"
+text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx);"
 
 [[patches.hook]]
 func = "model_find_by_name_8005BE3C"
@@ -1074,9 +1119,38 @@ func = "snd_play_effect_80062264"
 vram = 0x800622A0
 value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 
+# SF Rush track 6's traffic buses (src/track1_buses.cpp): Rush 2's subway trains are Rush 1's buses grown up; on SF
+# Rush track 6 the subway setup and per-tick move are Rush 1's (func_800A9DB8, func_8007FC74), the car collision
+# uses the buses' reach and height, and the computer drivers lift off behind a bus as in Rush 1 (func_8007CF74).
+[[patches.hook]]
+func = "subway_init_800A4210"
+before_vram = 0x800A4210
+text = "    if (rush2_track1_buses_init(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "subway_update_80075FB8"
+before_vram = 0x80075FB8
+text = "    if (rush2_track1_buses_update(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "car_corner_points_collision_8006EC78"
+before_vram = 0x8006ED1C
+text = "    rush2_track1_buses_collision(rdram, ctx);"
+
+[[patches.hook]]
+func = "ai_steering_filter_80071FBC"
+before_vram = 0x80072564
+text = "    rush2_track1_buses_drive(rdram, ctx);"
+
+# SF Rush track 5's gate (src/track1.cpp): the fence record SF Rush flags as the gate breaks into its own pieces.
+[[patches.hook]]
+func = "breakable_spawn_fence_800BB864"
+before_vram = 0x800BB8AC
+text = "    rush2_track1_gate(rdram, ctx);"
+
 # Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
 # Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
-# 30-entry name table into a 30-entry array at 0x80300780 (was 7 at 0x803C7A44), with the 30-entry scale, cloud height and
+# 38-entry name table into a 38-entry array at 0x80300840 (was 7 at 0x803C7A44), with the 38-entry scale, cloud height and
 # logo tables (the logo callback is func_803BE528).
 [[patches.hook]]
 func = "circuit_generate_800A7DCC"
@@ -1101,12 +1175,12 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62AC
-value = 0x263107F8 # addiu $s1, $s1, 0x7F8
+value = 0x263108D8 # addiu $s1, $s1, 0x8D8
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62B0
-value = 0x26100780 # addiu $s0, $s0, 0x780
+value = 0x26100840 # addiu $s0, $s0, 0x840
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1126,7 +1200,7 @@ value = 0x26310000 # addiu $s1, $s1, 0
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B642C
-value = 0x26100780 # addiu $s0, $s0, 0x780
+value = 0x26100840 # addiu $s0, $s0, 0x840
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1136,7 +1210,7 @@ value = 0x3C188030 # lui $t8, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64B0
-value = 0x27180078 # addiu $t8, $t8, 0x78
+value = 0x27180098 # addiu $t8, $t8, 0x98
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1146,7 +1220,7 @@ value = 0x3C018030 # lui $at, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64EC
-value = 0xC4260100 # lwc1 $f6, 0x100($at)
+value = 0xC4260140 # lwc1 $f6, 0x140($at)
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1156,7 +1230,7 @@ value = 0x3C118030 # lui $s1, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A14
-value = 0x26310780 # addiu $s1, $s1, 0x780
+value = 0x26310840 # addiu $s1, $s1, 0x840
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1166,7 +1240,7 @@ value = 0x3C018030 # lui $at, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A8C
-value = 0xC4240100 # lwc1 $f4, 0x100($at)
+value = 0xC4240140 # lwc1 $f4, 0x140($at)
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1176,7 +1250,7 @@ value = 0x3C068030 # lui $a2, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6ABC
-value = 0x8CC60080 # lw $a2, 0x80($a2)
+value = 0x8CC600A0 # lw $a2, 0xA0($a2)
 
 [[patches.instruction]]
 func = "circuit_widget_cb_logo_803BE528"
@@ -1186,7 +1260,7 @@ value = 0x3C058030 # lui $a1, 0x8030
 [[patches.instruction]]
 func = "circuit_widget_cb_logo_803BE528"
 vram = 0x803BE598
-value = 0x8CA50180 # lw $a1, 0x180($a1)
+value = 0x8CA501E0 # lw $a1, 0x1E0($a1)
 
 # Car Speeds: map the path's AI lane speeds before the race time is worked out from them (src/track2049.cpp).
 [[patches.hook]]
@@ -8084,7 +8158,8 @@ before_vram = 0x803BC228
 text = "    rush2_players4_car_label(rdram, ctx);"
 
 # The game's per-frame state machine (func_800AE670): after a race with 3 or 4 players, the counts go back to 2 for the
-# race over screens, which are built for two players.
+# post-race records (state 6, func_800A952C), whose per-player arrays and name entry exist for two players (four
+# overflowed them into the audio voices). Race over (states 4 and 5: every player's place, GAME OVER) keeps all four.
 [[patches.hook]]
 func = "race_start_timer_800AE670"
 before_vram = 0x800AE674

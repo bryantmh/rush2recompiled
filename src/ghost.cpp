@@ -79,6 +79,8 @@ extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
 extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx); // Prints a string at (x, y).
 
+extern "C" void rush2_interp_get_generation(uint32_t* view, uint32_t* gen);   // src/interpolation.cpp: the view being drawn
+
 using rush2::ghost::Ghost;
 using rush2::ghost::Header;
 using rush2::ghost::Input;
@@ -254,6 +256,9 @@ namespace {
     };
 
     std::recursive_mutex mutex;
+    // Cars a battle has faded (rush2::ghost::set_faded): the view that still draws each, or -1.
+    std::atomic<int8_t> faded_view[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    std::atomic<int> faded_count = 0;
     std::atomic<bool> chosen_flag = false;
     std::atomic<bool> save_all = true;      // Settings > General > Save Ghosts
     std::atomic<int> ghosts_kept = 3;       // Settings > General > Ghosts Kept
@@ -1233,15 +1238,41 @@ extern "C" void rush2_ghost_car_select_text(uint8_t* rdram, recomp_context* ctx)
     draw_choice(rdram, ctx);
 }
 
+void rush2::ghost::set_faded(int car, int view) {
+    if (car >= 0 && car < 8) {
+        int8_t old = faded_view[car].exchange((int8_t)view);
+        if (old != (int8_t)view) {
+            faded_count += (view >= 0) - (old >= 0);
+        }
+    }
+}
+
 void rush2::ghost::draw_model(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ mutex };
-    if (racers.empty() || (uint32_t)ctx->r23 < node_pool) {
+    if ((racers.empty() && faded_count <= 0) || (uint32_t)ctx->r23 < node_pool) {
         return;
     }
     int node = (int)(((uint32_t)ctx->r23 - node_pool) / node_size);
     bool ghost = false;
     for (const Racer& r : racers) {
         ghost |= r.car >= 0 && car_node(rdram, r.car, node);
+    }
+    // A battle's invisible car: nothing in the other views, a ghost in its own.
+    for (int car = 0; car < 8 && !ghost && faded_count > 0; car++) {
+        int own = faded_view[car];
+        if (own < 0 || !car_node(rdram, car, node)) {
+            continue;
+        }
+        uint32_t view = 0, gen = 0;
+        rush2_interp_get_generation(&view, &gen);
+        if ((int)view != own) {
+            uint32_t empty = side_alloc(8);
+            MEM_W(0, (int32_t)empty) = (int32_t)0xDF000000;
+            MEM_W(4, (int32_t)empty) = 0;
+            ctx->r30 = (uint64_t)(int64_t)(int32_t)empty;
+            return;
+        }
+        ghost = true;
     }
     if (!ghost) {
         return;

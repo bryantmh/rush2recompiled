@@ -33,6 +33,15 @@ namespace rush2::track2049 {
         float parent_m[9], parent_pos[3]; // its parent record's pose (identity and 0 for a top-level record)
     };
 
+    // A battle arena's weapon or power-up pickup (WEPICON_*): drawn by a placement record of its model, which
+    // src/battle.cpp hides and shows. kind: 0-7 the weapons CANN, GATT, GREN, MINE, MISS, RAM, ROCK, SONC (2049's
+    // order, docs/rush2049_research/battle.md), 8 HEAL, 9 INVS, 10 SHLD, 11 POWUP (a random power-up).
+    struct PickupRecord {
+        int record;     // record index in the placement file
+        int kind;
+        float pos[3];   // world position
+    };
+
     // Rush 2049's animated track textures (docs/rush2049_research/texanim.md), as patch sites in the converted
     // geometry. Offsets and addresses are geometry-relative; Rush 2 loads the file at some base and rebases each
     // G_SETTIMG w1 of the texture-load lists to ((w1 + base) & 0xFFFFFF) | (w1 & 0x0F000000).
@@ -83,17 +92,24 @@ namespace rush2::track2049 {
         std::vector<PathRecord> path_records;
         std::vector<SpinRecord> spin_records;
         std::vector<PropRecord> prop_records;
+        std::vector<PickupRecord> pickup_records;   // Battle arenas only.
+        std::vector<int> pool_records;              // Battle arenas: placement records of the projectile and effect pool.
+        std::vector<float> solid_triangles;         // Battle arenas: the collision's solid polygons, 9 floats a triangle.
         std::vector<int16_t> demo_starts[2]; // Attract-mode start spine indices, forward and backward.
         TexAnims tex_anims;                  // Animated textures, as patch sites in `geometry`.
     };
 
+    // The battle arenas' k for convert_track: DM n (1-8) is k = battle_first + n - 1 (2049 track id 6 + n - 1).
+    constexpr int battle_first = 7;
+    constexpr int battle_count = 8;
+    constexpr int battle_pool_size = 44;    // Placement records in a battle arena's projectile and effect pool.
     // The stunt arenas' k for convert_track: stunt arena n (1-4) is k = stunt_first + n - 1 (2049 track id 14 + n - 1).
     constexpr int stunt_first = 15;
     constexpr int stunt_count = 4;
     // The obstacle course's k (2049 track id 18).
     constexpr int obstacle = 19;
 
-    // rom2049: the big-endian Rush 2049 (USA) ROM. k: 2049 track id + 1, race tracks 1-6, stunt arenas stunt_first..
+    // rom2049: the big-endian Rush 2049 (USA) ROM. k: 2049 track id + 1, race tracks 1-6, battle arenas battle_first.., stunt arenas stunt_first..
     // or the obstacle course (which have no demo starts and one AI path, used both ways; the obstacle course's runs
     // from its start to its finish). prefix: the Rush 2 slot's track prefix
     // (e.g. "HAWAII", table 0x800C182C). shared_models: names of the models in Rush 2's shared assets 0x12 and 0x14,

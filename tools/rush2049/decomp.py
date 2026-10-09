@@ -1,6 +1,8 @@
 """Decompile Rush 2 / Rush 2049 functions with m2c (research aid).
 
-Usage: python decomp.py r2|49 FUNCADDR [more...]
+Usage: python decomp.py r2|49|ovl FUNCADDR [more...]
+  ovl = the in-race mode overlay (stunt/battle HUD, weapons; ROM 0xB6FEC4 raw deflate, loaded at 0x8038A400), read from
+  the ROM (tools/rush2049/roms.py); function bounds come from scanning it for jr $ra.
 Needs m2c (git clone https://github.com/matt-kempster/m2c) at $M2C or ./m2c. Function bounds come from
 analysis/out_disasm/{r2,d49}.asm labels. lui/addiu pairs are emitted as %hi/%lo of D_XXXXXXXX symbols.
 """
@@ -12,7 +14,33 @@ REPO = roms.REPO
 M2C = os.environ.get('M2C', os.path.join(os.path.dirname(__file__), 'm2c', 'm2c.py'))
 _bounds = {}
 
+OVL_BASE = 0x8038A400
+OVL_ROM = 0xB6FEC4
+_ovl = []
+
+def ovl_bytes():
+    if not _ovl:
+        import zlib
+        _ovl.append(zlib.decompressobj(-15).decompress(roms.Rush2049().rom[OVL_ROM:OVL_ROM + 0x80000]))
+    return _ovl[0]
+
+def ovl_bounds():
+    """Function starts of the overlay: the instruction after each jr $ra delay slot that no branch jumps past."""
+    d = ovl_bytes(); starts = [OVL_BASE]; maxbr = OVL_BASE; a = OVL_BASE
+    while a < OVL_BASE + len(d):
+        w = struct.unpack('>I', d[a - OVL_BASE:a - OVL_BASE + 4])[0]
+        ins = rabbitizer.Instruction(w, vram=a)
+        if ins.isBranch(): maxbr = max(maxbr, ins.getBranchVramGeneric())
+        if w == 0x03E00008 and a >= maxbr:
+            starts.append(a + 8); maxbr = a + 8
+            a += 8; continue
+        a += 4
+    return starts
+
 def bounds(game):
+    if game == 'ovl':
+        if game not in _bounds: _bounds[game] = ovl_bounds()
+        return _bounds[game]
     if game in _bounds: return _bounds[game]
     fn = os.path.join(REPO, 'analysis', 'out_disasm', 'r2.asm' if game == 'r2' else 'd49.asm')
     starts = []; prev = 0; second = False
@@ -30,6 +58,9 @@ def bounds(game):
     starts = sorted(set(starts)); _bounds[game] = starts; return starts
 
 def reader(game):
+    if game == 'ovl':
+        d = ovl_bytes()
+        return lambda a: struct.unpack('>I', d[a - OVL_BASE:a - OVL_BASE + 4])[0] if OVL_BASE <= a < OVL_BASE + len(d) else 0
     if game == 'r2':
         r = roms.Rush2(); return lambda a: struct.unpack('>I', r.read(a, 4))[0]
     r = roms.Rush2049()
@@ -62,10 +93,38 @@ def emit(game, start):
         if ins.isBranch() or (ins.isJump() and not ins.isJumpWithAddress() is False and w >> 26 == 2):
             try: labels.add(ins.getBranchVramGeneric())
             except Exception: pass
+    # jump tables: lui $at, hi / addu $at, $at, $tN / lw $tN, lo($at) / jr $tN -> a jtbl_ symbol m2c understands
+    jt = {}; jt_at = {}
+    for i, (a, w) in enumerate(ins_list):
+        if w & 0xFC1FFFFF != 0x00000008 or (w >> 21) & 31 == 31: continue
+        reg = (w >> 21) & 31; lw = lu = None
+        for j in range(i - 1, max(i - 8, -1), -1):
+            a2, w2 = ins_list[j]
+            if lw is None and w2 >> 26 == 0x23 and (w2 >> 16) & 31 == reg: lw = j
+            elif lw is not None and w2 >> 26 == 0x0F and (w2 >> 16) & 31 == (ins_list[lw][1] >> 21) & 31: lu = j; break
+        if lw is None or lu is None: continue
+        lo = ins_list[lw][1] & 0xFFFF; lo = lo - 0x10000 if lo & 0x8000 else lo
+        tab = (((ins_list[lu][1] & 0xFFFF) << 16) + lo) & 0xFFFFFFFF
+        targets = []
+        while len(targets) < 64:
+            t = rd(tab + len(targets) * 4)
+            if not (start <= t < end) or t & 3: break
+            targets.append(t)
+        if not targets: continue
+        jt[tab] = targets; labels.update(targets)
+        jt_at[ins_list[lu][0]] = ('hi', tab); jt_at[ins_list[lw][0]] = ('lo', tab)
     # resolve lui pairs
     hi = {}; lui = {}
     lines = ['glabel func_%08X' % start]
     for a, w in ins_list:
+        if a in jt_at:
+            kind, tab = jt_at[a]
+            if a in labels: lines.append('.L%08X:' % a)
+            if kind == 'hi': lines.append('/* %08X */ lui $at, %%hi(jtbl_%08X)' % (a, tab))
+            else:
+                r = rabbitizer.Instruction(w, vram=a).disassemble().split()[1].rstrip(',')
+                lines.append('/* %08X */ lw %s, %%lo(jtbl_%08X)($at)' % (a, r, tab))
+            lui.pop(1, None); continue
         ins = rabbitizer.Instruction(w, vram=a)
         op = w >> 26; rs = (w >> 21) & 31; rt = (w >> 16) & 31; imm = w & 0xFFFF
         simm = imm - 0x10000 if imm & 0x8000 else imm
@@ -94,6 +153,11 @@ def emit(game, start):
         if w >> 26 == 3:
             t = ((a + 4) & 0xF0000000) | ((w & 0x3FFFFFF) << 2); txt = 'jal func_%08X' % t
         lines.append('/* %08X */ ' % a + txt)
+    if jt:
+        lines.append('.section .rodata')
+        for tab, targets in jt.items():
+            lines.append('glabel jtbl_%08X' % tab)
+            lines += ['.word .L%08X' % t for t in targets]
     return '\n'.join(lines) + '\n'
 
 if __name__ == '__main__':

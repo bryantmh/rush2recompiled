@@ -1,8 +1,16 @@
 diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
-index 4fdf81f..a8d574a 100644
+index 4fdf81f..ce13aef 100644
 --- a/recompui/src/config/ui_config_tab_graphics.cpp
 +++ b/recompui/src/config/ui_config_tab_graphics.cpp
-@@ -149,6 +149,8 @@ namespace recompui {
+@@ -81,6 +81,7 @@ namespace recompui {
+             {ultramodern::renderer::RefreshRate::Original, "Original"},
+             {ultramodern::renderer::RefreshRate::Display, "Display"},
+             {ultramodern::renderer::RefreshRate::Manual, "Manual"},
++            {ultramodern::renderer::RefreshRate::Variable, "Variable"},
+         };
+ 
+         static EnumOptionVector hpfb_options = {
+@@ -149,6 +150,8 @@ namespace recompui {
          static void determine_downsampling_display(ultramodern::renderer::Resolution res_option, OptionChangeContext change_context) {
              DownsamplingOption ds_opt = get_graphics_enum_value<DownsamplingOption>(graphics::options::ds_option, change_context);
              get_graphics_config().update_option_enum_details(graphics::options::ds_option, get_downsampling_details(res_option, ds_opt));
@@ -11,3 +19,47 @@ index 4fdf81f..a8d574a 100644
          }
  
          static std::string get_framerate_text(uint32_t refresh_rate) {
+@@ -156,7 +159,10 @@ namespace recompui {
+                 "Sets the game's output framerate. This option does not affect gameplay."
+                 "<br />"
+                 "<br />"
+-                "Note: If you have issues with <recomp-color primary>Display</recomp-color> mode while using an external frame limiter, use <recomp-color primary>Manual</recomp-color> mode instead and configure it to that same frame limit."
++                "<recomp-color primary>Variable</recomp-color> follows whatever framerate the display actually reaches, up to its refresh rate. Use it with an external frame limiter, a variable refresh rate display, or when the framerate can't hold the refresh rate."
++                "<br />"
++                "<br />"
++                "Note: If you have issues with <recomp-color primary>Display</recomp-color> mode while using an external frame limiter, use <recomp-color primary>Variable</recomp-color> mode, or <recomp-color primary>Manual</recomp-color> mode configured to that same frame limit."
+                 "<br />"
+                 "<br />"
+                 "<recomp-color primary>Detected display refresh rate: " + std::to_string(refresh_rate) + "hz</recomp-color>";
+@@ -304,7 +310,7 @@ namespace recompui {
+                 "Framerate",
+                 get_framerate_text(60),
+                 refresh_rate_options,
+-                ultramodern::renderer::RefreshRate::Display
++                ultramodern::renderer::RefreshRate::Variable
+             );
+ 
+             config.add_number_option(
+@@ -318,7 +324,8 @@ namespace recompui {
+                     graphics::options::rr_manual_value,
+                     graphics::options::rr_option,
+                     ultramodern::renderer::RefreshRate::Original,
+-                    ultramodern::renderer::RefreshRate::Display
++                    ultramodern::renderer::RefreshRate::Display,
++                    ultramodern::renderer::RefreshRate::Variable
+                 );
+             }
+ 
+diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
+index a7954c7..4c5f721 100644
+--- a/recompui/src/renderer/rt64_render_context.cpp
++++ b/recompui/src/renderer/rt64_render_context.cpp
+@@ -109,6 +109,8 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
+             return RT64::UserConfiguration::RefreshRate::Display;
+         case ultramodern::renderer::RefreshRate::Manual:
+             return RT64::UserConfiguration::RefreshRate::Manual;
++        case ultramodern::renderer::RefreshRate::Variable:
++            return RT64::UserConfiguration::RefreshRate::Variable;
+         case ultramodern::renderer::RefreshRate::OptionCount:
+             return RT64::UserConfiguration::RefreshRate::OptionCount;
+     }
