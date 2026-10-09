@@ -374,7 +374,7 @@ Details from `ui49.py` [V unless marked]:
 ## 7. Rush 2049's route tube (its track select model) [V]
 
 Rush 2049's track select shows each race track as a 3D "tube" along its route, in front of the round TPIC
-screenshot, and all of them small on a map of San Francisco. It isn't stored in the ROM: the track select overlay
+screenshot, and all of them small on a map of San Francisco (arenas: their flat outline from file 60). It isn't stored in the ROM: the track select overlay
 (ROM 0xB5C534, raw deflate, loaded at 0x8038A400) builds it at runtime
 from the AI path. `src/track2049_art.cpp` (`build_tube`) ports it as the R49TRACK*n* diorama.
 
@@ -421,14 +421,53 @@ For each race track t = 0..5 (file `0x9E + t` = 158 + t, the forward AI path of 
     white head fades into the colour over 32 rings behind it. Ring 99's top is white.
 - The selected track's node (entry 19, `0x8038B4F8`–`0x8038B830`) animates over a selection fraction s (+4·Δt):
   position lerps from its map spot to (50, −15, 100), scale from the map scale to the display scale,
-  angle about Y from the map angle to 0, tilt about X from −π/2 to −π/6 (mirrored with `func_800FD754` in some
-  modes). There is no continuous spin.
+  angle about Y from the map angle to the turn `0x803B8350`, tilt about X from −π/2 to −π/6 (mirrored with
+  `func_800FD754` in some modes). The matrix is the scale, then `func_8009EB10` (the turn about Y), then
+  `func_800B5898` (the tilt).
+- **The selected track turns:** `0x8038B3EC` adds Δt·2π/10 (`0x803B92D8` = 2π, wraps there) to `0x803B8350` each
+  frame, so the model spins about its own vertical axis once every 10 s.
+- The battle and stunt builders (game types 6 and 4, `0x8038CEC0` and `0x8038CD24`) instance the file 60 meshes
+  `TRK_D1-8G1` (entries 6–13) and `TRK_S1-4G1` (entries 14–17) as they are: flat (y = 0), every vertex white, list
+  `D7000000`, `E200001C C8112230`, shade combiner. Their display scale (entry +0x14) is 1. Game type 5 (the obstacle
+  course) builds nothing, so its select shows `OPIC1` alone.
+- The screenshot is a 2D sprite: `func_800B3704(name, 0xB0, 0x20, 0)` at 0x8038AF24, 128×128 at (176, 32).
 
-### 7.4 In the port
+### 7.4 In the port: dioramas
 `build_tube` makes the same rings, list and render state, with the selected colours frozen at phase 0 (white head
 at the start line), scaled so the longer side is 1120 model units (like the generated miniature, menu scale 0.45).
 Deviation: a closing segment longer than 1000 world units is left out (`tube_close_gaps`): track 6's route ends far
-from its start, and 2049's tube draws a sliver across the model there. The TPIC disc behind the tube is not drawn.
+from its start, and 2049's tube draws a sliver across the model there. An arena's diorama is its outline
+(`build_outline`), scaled the same. These R49TRACKn / R49STUNTn / R49BATTLEn / R49OBSTACLE models are what the
+unlock shop and the circuit screen show.
+
+### 7.5 In the port: the track select preview
+The track select shows 2049's own preview instead (`build_preview` in `src/track2049_art.cpp`, posed by
+`rush2_track49_select_pose` in `src/track2049_menu.cpp`):
+- **Model:** R49PTRACKn / R49PSTUNTn / R49PBATTLEn / R49POBSTACLE, one per entry, laid out in 2049's track select
+  camera space (x right, y up, z forward, 16 model units per unit): the tube (display scale 5000/extent) or the
+  outline at (50, −15, 100) tilted −π/6 (`preview_place`), then the screenshot as eight textured 128-wide strips
+  (16 rows loaded, 14 drawn, so filtering has neighbours at the seams; clear palette entries made black so the
+  edge doesn't fringe with the key colour) at depth 150, placed so 2049's projection shows it at (176, 32).
+  The disc is drawn after the model, translucent with z compare, so the model hides it.
+- **2049's projection** isn't in the overlay's data; it was fitted to a capture of the battle 2 select (DPIC2 and
+  `TRK_D2G1`, least squares on the projected outline's coverage of the capture's white pixels): focal length 167 px, centre (162, 116)
+  (`preview_focal`, `preview_center_*`) [I].
+- **Rush 2's track select camera** (view 0, `0x800E79D0`): rows −right, up, forward, position (0, 20, 45), pitched
+  24° down; projection (`func_80054A50(0, 60, 0, 320, 360, 160, 65)` at 0x803AB968, view struct `0x802401F0`):
+  60° horizontal FOV, so focal 277 px, straight ahead at (160, 65) [V: logged].
+- **Pose:** the carousel builds the entries' nodes from the diorama names; the hook at 0x803AB7DC hands it the preview
+  name for a 2049 entry. Each frame the hook at 0x803ABCA0 overwrites the node's pose (`0x800D9E94` + node·56 →
+  matrix[9], position[3]) with one that maps 2049 camera space onto Rush 2's: Z' = aZ, X' = a·f₁/f₂·X + bZ,
+  Y' = a·f₁/f₂·Y + cZ. The shears b and c make Rush 2's projection show every point at 2049's screen point plus a
+  constant offset, so the layout is exact at any depth; a puts the preview's middle (Z = 110) at the diorama's depth.
+  The offset centres the disc at (160, 108), between the carousel arrows, and the model is raised 10 px from 2049's
+  spot so its front edge clears Rush 2's logo. The node sits at the camera (plus the carousel's slide along x), so
+  sliding entries still move in and out.
+- **Animation:** the hook keeps 2049's highlight phase (+Δt/5) and turn (+Δt·2π/10), advanced on the centre entry, and
+  rewrites the model's vertices in RDRAM each frame: positions from their own-space coordinates (read back once with
+  `preview_unplace`) turned and placed again, and for race tracks the tube's top colours (`preview_tube_color`).
+- **Logos:** every 2049 entry's logo is a banner in the 2049 banner font (`tools/build_banners.py`,
+  `tools/banner_font.py`, which has digits for STUNT n / BATTLE n): banners 7–19 of `include/track2049_banners.h`.
 
 ## 8. Car select option list [V]
 

@@ -34,7 +34,8 @@ namespace rush2::track2049 {
     bool available();
 
     // Menu art (src/track2049_art.cpp). Builds asset 3 (the track select's diorama container) with a diorama model
-    // R49TRACKn and a name logo texture R49LOGOn for each 2049 track, appended to Rush 2's own asset 3.
+    // R49TRACKn, a track select preview (menu_preview_name) and a name logo texture R49LOGOn for each 2049 track,
+    // appended to Rush 2's own asset 3.
     bool build_menu_container(const std::vector<uint8_t>& rush2_asset3, const rush2::rom2049::Source& rom2049,
                               std::vector<uint8_t>& out);
     // The track select's 38-entry diorama tables and asset 3 with the added tracks' dioramas (src/track2049_menu.cpp),
@@ -83,6 +84,23 @@ namespace rush2::track2049 {
     // Track select names of track k's diorama model and logo texture (k as for convert_track).
     std::string menu_model_name(int k);
     std::string menu_logo_name(int k);
+    // Rush 2049's own track select preview of track k (src/track2049_art.cpp, docs/rush2049_research/menus.md §7.5):
+    // its round screenshot with the route tube (race tracks) or the arena's outline (TRK_* of file 60) in front, as
+    // one model laid out in Rush 2049's track select camera space (x right, y up, z forward, 1/16 units). A race
+    // track's preview starts with the tube's preview_tube_rings x 4 vertices, ring by ring (top +side, top -side,
+    // floor -side, floor +side), which the track select recolors each frame (preview_tube_color).
+    std::string menu_preview_name(int k);
+    constexpr int preview_tube_rings = 100;
+    // 2049's track select camera, fitted to a capture of it (§7.5): focal length and center in screen pixels.
+    constexpr float preview_focal = 167.0f, preview_center_x = 162.0f, preview_center_y = 116.0f;
+    // A point of the displayed model's own space (2049 units: x, y up, z) to the preview's camera space (model
+    // units), with the model turned by `angle` about its y axis (2049 turns the selected track once every 10 s).
+    void preview_place(const float local[3], float angle, float out[3]);
+    // The inverse at angle 0.
+    void preview_unplace(const float placed[3], float local[3]);
+    // Top color of ring `ring` of race track n's tube with the white highlight at phase (0-1) of its run along the
+    // route (func_8038A820).
+    void preview_tube_color(int n, int ring, float phase, uint8_t rgb[3]);
     // Puts the host slot's own files and table entries back (call from a game thread).
     void restore_host(uint8_t* rdram);
 

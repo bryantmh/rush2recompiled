@@ -589,6 +589,18 @@ func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB6C8
 text = "    rush2_track49_select_count(rdram, ctx);"
 
+# Rush 2049 entries show 2049's own track select preview (src/track2049_menu.cpp): the camera-space model replaces the
+# diorama when the carousel instances it, and its pose replaces the carousel's spin each frame.
+[[patches.hook]]
+func = "trackselect_init_draw_803AB294"
+before_vram = 0x803AB7DC
+text = "    rush2_track49_select_model(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_init_draw_803AB294"
+before_vram = 0x803ABCA0
+text = "    rush2_track49_select_pose(rdram, ctx);"
+
 [[patches.hook]]
 func = "trackselect_track_available_803AB01C"
 before_vram = 0x803AB01C

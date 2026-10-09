@@ -117,6 +117,8 @@ void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_select_model(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx);
 int rush2_track49_select_available(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_wrap(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_save_p1(uint8_t* rdram, recomp_context* ctx);
