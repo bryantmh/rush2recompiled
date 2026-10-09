@@ -1428,6 +1428,10 @@ void rush2::car2049::set_drone_cars(DroneCars mode) {
 bool rush2::car2049::available() {
     return cars_available();
 }
+const char* rush2::car2049::display_name(int k) {
+    return k >= 0 && k < car_count ? display_names[k] : "";
+}
+
 
 // func_800A37F4, after a drone's random car type (0-15, $t7) is drawn from the seed just stepped ($a0) and before it
 // is stored and checked against the cars already chosen: with the 2049 cars available the draw covers them too

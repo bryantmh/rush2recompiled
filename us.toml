@@ -10821,8 +10821,8 @@ text = "    rush2_ghost_drone_type(rdram, ctx);"
 
 [[patches.hook]]
 func = "race_preload_car_assets_800A37F4"
-before_vram = 0x800A3E7C
-text = "    rush2_ghost_drone_colors(rdram, ctx);"
+before_vram = 0x800A3E80
+text = "    rush2_npc_cars_apply(rdram, ctx); rush2_ghost_drone_colors(rdram, ctx); ctx->r3 = MEM_BU(1, (int32_t)ctx->r17);"
 
 [[patches.hook]]
 func = "physics_car_tick_80075880"
@@ -10892,3 +10892,35 @@ text = "    ctx->r2 = rush2_ghost_hud_cars((int32_t)ctx->r2);"
 func = "ai_steering_filter_80071FBC"
 before_vram = 0x800723A8
 text = "    rush2_ghost_draft(rdram, ctx);"
+
+# AI Opponents (src/npc_cars.cpp): the computer cars' chosen rims.
+
+[[patches.hook]]
+func = "race_load_car_assets_80086CA4"
+before_vram = 0x80086E0C
+text = "    rush2_npc_cars_building(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_build_scene_nodes_80085FD0"
+before_vram = 0x800865CC
+text = "    rush2_npc_cars_rim_nodes(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005AAF8
+text = "    rush2_npc_cars_rim_frame(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005AB08
+text = "    rush2_npc_cars_rim_frame(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_preview_apply_state_80087290"
+before_vram = 0x800875F8
+text = "    rush2_npc_cars_rim_state(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_init_setup_8008DBA0"
+before_vram = 0x8008DD54
+text = "    rush2_npc_cars_rim_init(rdram, ctx);"

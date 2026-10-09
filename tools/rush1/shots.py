@@ -2,6 +2,7 @@
 
 Usage: python shots.py OUT_DIR "<input script>" t1 t2 ...    (times in seconds after launch)
 Captures with PrintWindow (client area, full content), which works when other windows cover the game.
+Set RUSH2_EXE to run another build (e.g. a copy linked into tmp/ while build/ is in use); it runs in its own folder.
 """
 import ctypes, ctypes.wintypes as wt, os, subprocess, sys, time
 from PIL import Image
@@ -56,8 +57,9 @@ if __name__ == '__main__':
     out, script, times = sys.argv[1], sys.argv[2], [float(t) for t in sys.argv[3:]]
     os.makedirs(out, exist_ok=True)
     log = open(os.path.join(out, 'run.log'), 'w')
-    exe = os.path.join(REPO, 'build', 'Rush2Recompiled.exe')
-    p = subprocess.Popen([exe, '--input-script', script], cwd=REPO, stdout=log, stderr=subprocess.STDOUT)
+    exe = os.path.abspath(os.environ.get('RUSH2_EXE', os.path.join(REPO, 'build', 'Rush2Recompiled.exe')))
+    cwd = os.path.dirname(exe) if 'RUSH2_EXE' in os.environ else REPO
+    p = subprocess.Popen([exe, '--input-script', script], cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
     start = time.time()
     try:
         for t in times:

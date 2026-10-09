@@ -53,6 +53,8 @@ namespace rush2::car2049 {
     void set_option(bool enabled);
     // True when the option is on and the Rush 2049 ROM is available.
     bool available();
+    // The name of 2049 car k (type first_type + k), as its car select logo shows it.
+    const char* display_name(int k);
     // The "Rush 2049 Computer Cars" option (Games tab): where the computer cars may be 2049 cars.
     enum class DroneCars : uint32_t { AllTracks, Rush2049Tracks, Off };
     void set_drone_cars(DroneCars mode);

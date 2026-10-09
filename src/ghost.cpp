@@ -10,7 +10,7 @@
 //
 // - Rush 2049 races its ghosts as extra player cars driven by their samples (func_800F6AB8, func_800E5D64). Rush 2's
 //   only spare cars are drones: func_800A37F4 gives the drone slots the recorded cars and colors (hooks at 0x800A3B9C,
-//   past the check that drones don't share a type, and 0x800A3E7C). func_80075C3C steps drones round robin (schedule
+//   past the check that drones don't share a type, and 0x800A3E80). func_80075C3C steps drones round robin (schedule
 //   0x800CC0E4), so their scheduled steps are skipped and each ghost car is stepped every physics tick after them, as
 //   the player's car is, so samples line up tick for tick.
 // - Each of a ghost car's ticks (func_80075880) puts back its physics struct and respawn target (0x800D39D8 + car *
@@ -1090,7 +1090,8 @@ extern "C" void rush2_ghost_drone_type(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = (uint64_t)(int64_t)(int32_t)no_types;
 }
 
-// func_800A37F4 at 0x800A3E7C: drone slot $s2's colors are chosen ($s1 = its table entry). A ghost's colors and
+// func_800A37F4 at 0x800A3E80: drone slot $s2's colors are chosen ($s1 = its table entry; both color paths join here,
+// the stripe one skipping 0x800A3E7C; the hook reloads $v1, the type, from it afterwards). A ghost's colors and
 // stripe are the recording's. Its driver byte +8 stays a drone's (8) for the race's setup (func_8009E6DC reads a
 // human's player record), and is the recording's only during its steps (step_racer).
 extern "C" void rush2_ghost_drone_colors(uint8_t* rdram, recomp_context* ctx) {
@@ -1119,6 +1120,8 @@ extern "C" int rush2_ghost_car_tick(uint8_t* rdram, recomp_context* ctx) {
 
 // Start of func_80074990 (the drones' driver: $a0 = car). Ghost cars are driven by their samples.
 extern "C" int rush2_ghost_drive(uint8_t* rdram, recomp_context* ctx) {
+    // The type again: the AI Opponents choices (src/npc_cars.cpp, just before this) may have set the slot's.
+    MEM_B(0, (int32_t)(entry + 1)) = (int8_t)r->ghost.header.car_type;
     std::lock_guard lock{ mutex };
     for (const Racer& r : racers) {
         if (r.started && r.car >= 0 && (uint32_t)ctx->r4 == car_addr(r.car)) return 1;
