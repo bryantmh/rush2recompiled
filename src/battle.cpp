@@ -181,7 +181,7 @@ namespace {
                                           "WEP_RAMG1", "WEP_ROCKG1", "WEP_SONCG1" };
 
     // Tables of the battle overlay, read from the player's Rush 2049 ROM.
-    constexpr uint32_t overlay_rom = 0xB6FEC4, overlay_vram = 0x8038A400, overlay_size = 0xAB70;
+    constexpr uint32_t overlay_vram = 0x8038A400, overlay_size = 0xAB70;
     constexpr int car_types_2049 = 13;
     struct Tuning {
         bool loaded = false;
@@ -509,13 +509,12 @@ namespace {
     void load_tuning() {
         if (tuning.loaded) return;
         auto rom = rush2::wings::get_rom();
-        std::vector<uint8_t> overlay;
-        if (rom == nullptr || rom->size() <= overlay_rom ||
-            !rush2::assets::inflate_raw(rom->data() + overlay_rom, rom->size() - overlay_rom, overlay) ||
-            overlay.size() < overlay_size) {
+        auto segment = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Battle) : nullptr;
+        if (segment == nullptr || segment->size() < overlay_size) {
             fprintf(stderr, "[Battle] Couldn't read Rush 2049's battle overlay\n");
             return;
         }
+        const std::vector<uint8_t>& overlay = *segment;
         auto f = [&](uint32_t vram) { return bef(&overlay[vram - overlay_vram]); };
         for (int w = 0; w < 8; w++) {
             for (int c = 0; c < car_types_2049; c++) {

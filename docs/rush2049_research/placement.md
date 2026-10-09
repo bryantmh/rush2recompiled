@@ -29,7 +29,8 @@ volumes and breakables. No stock top-level record is rotated.
 
 Node flag bits (func_8007B518 / func_8007FC80): 0x400 hidden, 0x100<<view hidden in that view, 0x10/0x20 special
 draw, **0x40000 = draw in the late pass** (transparent), 0x380000 = culling-box type and 0xFFC00000 = culling-box index
-(written by func_8007FC80). 2049's extra bit 0x400000 lands in the culling index and must be stripped.
+(written by func_8007FC80). 2049's extra bit 0x400000 lands in the culling index and must be stripped (2049 keeps
+its culling box in a separate node word +4, so there it is a free flag: see 2.2).
 
 ### 1.1 Loading and instantiation
 - **Relocation:** func_800A5110 (race setup, 0x800A5308) adds the file base to every directory offset;
@@ -134,8 +135,7 @@ directory: {char tag[4]; u32 offset; u32 count}
 - Direction variants: `_FW` only in forward races, `_BW` only backward (func_800A464C on 0x80121D40 `_BW`,
   0x80121D44 `_FW`, flag 0x80152570). Same idea as Rush 2's `_F`/`_B` (0x80119848), which confirms that
   0x80119848 is Rush 2's **backward** flag **[I]**.
-- Flags: 0x40, 0x40040 (late pass, same meaning as Rush 2), 0x400000 (2049-only; func_800ABCC8 sets it for types
-  with type-flag 0x40) **[I]**.
+- Flags: 0x40, 0x40040 (late pass, same meaning as Rush 2), 0x400000 (2049-only, no draw-distance culling, see 2.2).
 - **2049 OBHD names are char[16]**, compared on 15 characters (func_80095120 → strncmp 15), not char[12]: bytes
   after the NUL are garbage, which made names look truncated.
 - All 19 files: every static name resolves in its geometry file (self-check).
@@ -166,6 +166,22 @@ shared: 68 coins, 78/79 F1FLAG/F2FLAG/TRIGGEROFF/TRIGGERON, 76 weapons, 61/62 ef
 82+t, 77, 62, 81, 61, 64, 66.
 
 ---------------------------------------------------------------------------------------------------------------------
+
+### 2.2 Node flag 0x400000 = exempt from draw-distance culling **[V]**
+2049 scene nodes (table 0x8012E700, stride 0x44) hold the flags at +0 and the culling word at +4
+(`func_800A7E10` ORs `(box_index << 3) | 7` into +4, so the culling index is not in the flag word as in Rush 2).
+The per-view draw walker `func_8009DD88` (node in $s7, flags in $v1) decodes +4 (`& 7` = box type, `(& 0x1FF8) >> 3`
+= box index into 0x80157248, s16 min/max stored x16) and at 0x8009E41C tests `flags << 9` (bit 22 = **0x400000**):
+set → branch straight to the draw path (0x8009E51C); clear → compute `dist(camera, node pos) - 0.0625 * box extent`
+and, if that exceeds the draw distance, skip the node (0x8009E654). The test only runs when the draw distance
+`0x80151AA0` is below 2000.0; that float is the far/cull distance of the current camera mode (2000.0 default in
+func_800A5908, set from the table at 0x8011E7A8 by `func_800AB18C`).
+- Setter: `func_800ABCC8` (0x800ABF70) ORs 0x400000 into the node flags when the type-table flag halfword (row +0x12)
+  has 0x40. **Only T3PYRAMID** (type flags 0x64268: late pass 0x40000, moving 0x8000) has it, so the large pyramid
+  stays drawn from any distance instead of being culled with the other far scenery.
+- Bit 22 of 0x801174B4 (race HUD flag) is an unrelated word tested with the same constant elsewhere.
+- Rush 2 port: stripped because Rush 2's bits 22+ are its own culling index; the pyramid is then culled by Rush 2's
+  normal rules.
 
 ## 3. Rush 2049 animated objects
 
@@ -275,7 +291,7 @@ tracks convert to 147-313 records (e.g. TRACK1 → 167 records: 117 sections, 17
 33 static stand-ins, 16 coins, 29 animated objects).
 
 **Lossless:** section placement, matrices, positions, culling boxes, late-pass flag, tree structure, direction
-variants, collision volumes. **Lost or approximated:** battle items, flag bit 0x400000, GDAT/GTLD, every motion (static at the spawn pose),
+variants, collision volumes. **Lost or approximated:** battle items, flag bit 0x400000 (T3PYRAMID only, see 2.2), GDAT/GTLD, every motion (static at the spawn pose),
 moving/switching collision, triggers, flip-book animation, 2049 object sounds.
 
 ---------------------------------------------------------------------------------------------------------------------

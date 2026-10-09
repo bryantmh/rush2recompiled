@@ -14,6 +14,9 @@
 //
 // The game plays it at pitch 0.75: 1535/4096 sample steps per output sample at Rush 2049's 22050 Hz output, at a
 // volume that comes out at 0.1089 (left) and 0.1065 (right) of full scale with the default sound effects volume.
+//
+// From a Dreamcast disc the sound is the disc's counterpart of 0x3D (its 0x4D: an 11025 Hz PCM16 loop, src/audio2049_dc.cpp),
+// taken once the disc's sound banks have loaded, at the same pitch and gains [I: the disc's wing code isn't traced].
 
 #include <algorithm>
 #include <array>
@@ -21,6 +24,7 @@
 #include <mutex>
 #include <vector>
 
+#include "audio2049.h"
 #include "wings_internal.h"
 
 namespace {
@@ -44,6 +48,9 @@ namespace {
 
     std::mutex sound_mutex;
     std::vector<int16_t> pcm; // Empty if no ROM.
+    double pcm_step = source_step_at_22050; // sample steps per output sample at 22050 Hz
+    bool from_disc = false;   // pcm comes from a Dreamcast source's banks once they load
+    constexpr int wing_sound = 0x3D;
     std::array<Voice, rush2::wings::max_cars> voices;
 
     int16_t clamp16(int32_t v) {
@@ -133,11 +140,13 @@ namespace {
 void rush2::wings::reload_sound() {
     std::vector<int16_t> decoded;
     auto rom = get_rom();
-    if (rom != nullptr) {
-        decoded = decode(*rom);
+    if (rom != nullptr && rom->n64_rom() != nullptr) {
+        decoded = decode(*rom->n64_rom());
     }
     std::lock_guard lock{ sound_mutex };
     pcm = std::move(decoded);
+    pcm_step = source_step_at_22050;
+    from_disc = rom != nullptr && rom->is_dreamcast();
     voices = {};
 }
 
@@ -160,10 +169,14 @@ void rush2::wings::set_sound(int car, bool playing) {
 
 void rush2::wings::mix_sound(float* samples, size_t sample_count, uint32_t sample_rate, float pcm_scale) {
     std::lock_guard lock{ sound_mutex };
+    uint32_t rate = 0;
+    if (pcm.empty() && from_disc && rush2::audio2049::sfx_samples(wing_sound, pcm, rate)) {
+        pcm_step = 0.75 * rate / 22050.0;
+    }
     if (pcm.empty() || sample_rate == 0) {
         return;
     }
-    const double step = source_step_at_22050 * 22050.0 / sample_rate;
+    const double step = pcm_step * 22050.0 / sample_rate;
     const float release_step = 1.0f / (release_seconds * sample_rate);
 
     for (Voice& v : voices) {

@@ -282,14 +282,13 @@ namespace {
             return false;
         }
         auto rom = rush2::wings::get_rom();
-        std::vector<uint8_t> main_2049;
-        if (rom == nullptr || rom->size() <= 0xB0CB10 ||
-            !rush2::assets::inflate_raw(rom->data() + 0xB0CB10, rom->size() - 0xB0CB10, main_2049)) {
+        auto main_2049 = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Main) : nullptr;
+        if (main_2049 == nullptr) {
             fprintf(stderr, "[2049] Moving objects: can't read Rush 2049's main code\n");
             return false;
         }
         std::vector<movers::TypeInfo> types;
-        if (!movers::parse_types(main_2049.data(), main_2049.size(), 0x80086A50, types)) {
+        if (!movers::parse_types(main_2049->data(), main_2049->size(), rush2::rom2049::main_vram, types)) {
             fprintf(stderr, "[2049] Moving objects: bad type table\n");
             return false;
         }

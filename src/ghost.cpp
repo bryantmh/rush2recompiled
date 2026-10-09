@@ -1123,6 +1123,8 @@ extern "C" void rush2_ghost_drone_colors(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     uint32_t entry = (uint32_t)ctx->r17;
+    // The type again: the AI Opponents choices (src/npc_cars.cpp, just before this) may have set the slot's.
+    MEM_B(0, (int32_t)(entry + 1)) = (int8_t)r->ghost.header.car_type;
     for (int i = 2; i < 8; i++) {
         MEM_B(0, (int32_t)(entry + i)) = (int8_t)r->ghost.header.car_entry[i];
     }
@@ -1142,8 +1144,6 @@ extern "C" int rush2_ghost_car_tick(uint8_t* rdram, recomp_context* ctx) {
 
 // Start of func_80074990 (the drones' driver: $a0 = car). Ghost cars are driven by their samples.
 extern "C" int rush2_ghost_drive(uint8_t* rdram, recomp_context* ctx) {
-    // The type again: the AI Opponents choices (src/npc_cars.cpp, just before this) may have set the slot's.
-    MEM_B(0, (int32_t)(entry + 1)) = (int8_t)r->ghost.header.car_type;
     std::lock_guard lock{ mutex };
     for (const Racer& r : racers) {
         if (r.started && r.car >= 0 && (uint32_t)ctx->r4 == car_addr(r.car)) return 1;

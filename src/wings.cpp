@@ -20,6 +20,7 @@
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "recompui/recompui.h"
@@ -35,6 +36,7 @@
 #include "battle.h"
 #include "track2049.h"
 #include "wings_internal.h"
+#include "rush2049_dc.h"
 
 namespace {
     const std::string config_id = "games";
@@ -65,54 +67,9 @@ namespace {
     recomp::config::Config wings_config{ "Games", config_id, false };
 
     std::mutex rom_mutex;
-    std::shared_ptr<const std::vector<uint8_t>> rom_data; // Big-endian ROM, null until a valid one is loaded.
+    std::shared_ptr<const rush2::rom2049::Source> rom_data; // Null until a valid ROM or disc is loaded.
+    std::atomic_bool importing = false; // A Dreamcast disc is being read into the app folder.
     std::atomic_bool wings_option = false;
-
-    std::array<uint8_t, 20> sha1(const std::vector<uint8_t>& data) {
-        uint32_t h[5] = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0 };
-        auto rol = [](uint32_t v, int n) { return (v << n) | (v >> (32 - n)); };
-
-        std::vector<uint8_t> msg = data;
-        uint64_t bit_len = uint64_t(data.size()) * 8;
-        msg.push_back(0x80);
-        while (msg.size() % 64 != 56) {
-            msg.push_back(0);
-        }
-        for (int i = 7; i >= 0; i--) {
-            msg.push_back(uint8_t(bit_len >> (i * 8)));
-        }
-
-        for (size_t chunk = 0; chunk < msg.size(); chunk += 64) {
-            uint32_t w[80];
-            for (int i = 0; i < 16; i++) {
-                const uint8_t* p = &msg[chunk + i * 4];
-                w[i] = (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3];
-            }
-            for (int i = 16; i < 80; i++) {
-                w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
-            }
-            uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
-            for (int i = 0; i < 80; i++) {
-                uint32_t f, k;
-                if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
-                else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
-                else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
-                else { f = b ^ c ^ d; k = 0xCA62C1D6; }
-                uint32_t temp = rol(a, 5) + f + e + k + w[i];
-                e = d; d = c; c = rol(b, 30); b = a; a = temp;
-            }
-            h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
-        }
-
-        std::array<uint8_t, 20> out;
-        for (int i = 0; i < 5; i++) {
-            out[i * 4 + 0] = uint8_t(h[i] >> 24);
-            out[i * 4 + 1] = uint8_t(h[i] >> 16);
-            out[i * 4 + 2] = uint8_t(h[i] >> 8);
-            out[i * 4 + 3] = uint8_t(h[i]);
-        }
-        return out;
-    }
 
     // Converts .v64/.n64 (byteswapped) and little-endian images to big-endian. Returns false if it isn't an N64 ROM.
     bool to_big_endian(std::vector<uint8_t>& data) {
@@ -161,7 +118,7 @@ namespace {
         if (memcmp(&out[0x3B], "NRU", 3) != 0) {
             return RomCheck::WrongGame;
         }
-        if (out.size() != rom_size || sha1(out) != rom_sha1) {
+        if (out.size() != rom_size || rush2::wings::rom_sha1(out) != rom_sha1) {
             return RomCheck::WrongVersion;
         }
         return RomCheck::Good;
@@ -171,7 +128,12 @@ namespace {
         return recompui::file::get_app_folder_path() / rom_file_name;
     }
 
-    void set_rom(std::shared_ptr<const std::vector<uint8_t>> rom) {
+    // The Dreamcast disc's files, as rush2::rom2049::dc::import writes them.
+    std::filesystem::path stored_pack_path() {
+        return recompui::file::get_app_folder_path() / rush2::rom2049::dc::pack_file_name;
+    }
+
+    void set_rom(std::shared_ptr<const rush2::rom2049::Source> rom) {
         {
             std::lock_guard lock{ rom_mutex };
             rom_data = rom;
@@ -180,9 +142,15 @@ namespace {
     }
 
     std::string rom_status_text() {
-        return rush2::wings::rom_available()
-            ? "ROM found."
-            : "Needs a San Francisco Rush 2049 (USA) ROM for its tracks, cars and wings.";
+        if (importing) {
+            return "Reading the Dreamcast disc...";
+        }
+        auto rom = rush2::wings::get_rom();
+        if (rom == nullptr) {
+            return "Needs a San Francisco Rush 2049 (USA) N64 ROM or Dreamcast disc for its tracks, cars and wings.";
+        }
+        return rom->is_dreamcast() ? "Dreamcast disc found (experimental: cars are unpainted, some content untested)."
+                                   : "N64 ROM found.";
     }
 
     void update_rom_ui() {
@@ -204,9 +172,56 @@ namespace {
         }
     }
 
+    void select_dreamcast_disc(const std::filesystem::path& path) {
+        if (importing.exchange(true)) {
+            return;
+        }
+        update_rom_ui();
+        std::thread([path]() {
+            using rush2::rom2049::dc::ImportResult;
+            ImportResult result = rush2::rom2049::dc::import(path, stored_pack_path());
+            std::shared_ptr<const rush2::rom2049::Source> source;
+            if (result == ImportResult::Good) {
+                source = rush2::rom2049::dc::open_pack(stored_pack_path());
+                if (source == nullptr) {
+                    result = ImportResult::WriteFailed;
+                }
+            }
+            importing = false;
+            switch (result) {
+                case ImportResult::Good:
+                    // The disc takes over from any N64 ROM chosen before (load_config prefers the pack). The ROM's
+                    // copy stays, so the experimental disc support never costs anyone their working setup.
+                    set_rom(source);
+                    break;
+                case ImportResult::FailedToOpen:
+                    recompui::message_box("Failed to open the disc image.");
+                    break;
+                case ImportResult::NotADisc:
+                    recompui::message_box("This is not a Dreamcast disc image (.cdi, .gdi or .iso).");
+                    break;
+                case ImportResult::WrongGame:
+                    recompui::message_box("This disc is not San Francisco Rush 2049.");
+                    break;
+                case ImportResult::WrongVersion:
+                    recompui::message_box("This disc is San Francisco Rush 2049, but the wrong version.\n"
+                        "The Dreamcast version must be the NTSC-U (USA) one.");
+                    break;
+                case ImportResult::WriteFailed:
+                    recompui::message_box("Failed to copy the Rush 2049 disc's files into the app folder.");
+                    break;
+            }
+            update_rom_ui();
+        }).detach();
+    }
+
     void select_rom() {
         recompui::file::open_file_dialog([](bool success, const std::filesystem::path& path) {
             if (!success) {
+                return;
+            }
+            if (rush2::rom2049::dc::is_disc_image(path)) {
+                select_dreamcast_disc(path);
                 return;
             }
             auto data = std::make_shared<std::vector<uint8_t>>();
@@ -224,7 +239,7 @@ namespace {
                     return;
                 case RomCheck::WrongVersion:
                     recompui::message_box("This ROM is San Francisco Rush 2049, but the wrong version.\n"
-                        "Wings require the NTSC-U (USA) N64 version.");
+                        "Rush 2049 content requires the NTSC-U (USA) N64 version.");
                     return;
             }
 
@@ -236,8 +251,10 @@ namespace {
                 return;
             }
             out.close();
+            // The ROM replaces any Dreamcast disc chosen before.
+            std::filesystem::remove(stored_pack_path(), ec);
 
-            set_rom(data);
+            set_rom(rush2::rom2049::n64_source(data));
             update_rom_ui();
         });
     }
@@ -247,7 +264,7 @@ recomp::config::Config& rush2::wings::games_config() {
     return wings_config;
 }
 
-std::shared_ptr<const std::vector<uint8_t>> rush2::wings::get_rom() {
+std::shared_ptr<const rush2::rom2049::Source> rush2::wings::get_rom() {
     std::lock_guard lock{ rom_mutex };
     return rom_data;
 }
@@ -444,20 +461,24 @@ void rush2::wings::load_config() {
 
     std::vector<uint8_t> data;
     std::filesystem::path path = stored_rom_path();
-    if (std::filesystem::exists(path)) {
+    std::filesystem::path pack = stored_pack_path();
+    if (std::filesystem::exists(pack)) {
+        if (auto source = rush2::rom2049::dc::open_pack(pack)) {
+            set_rom(source);
+        }
+        else {
+            printf("[Wings] Ignoring %s: not a Rush 2049 Dreamcast pack this version can read\n", pack.string().c_str());
+        }
+    }
+    if (rom_data == nullptr && std::filesystem::exists(path)) {
         if (read_rom(path, data) == RomCheck::Good) {
-            set_rom(std::make_shared<const std::vector<uint8_t>>(std::move(data)));
+            set_rom(rush2::rom2049::n64_source(std::make_shared<const std::vector<uint8_t>>(std::move(data))));
         }
         else {
             printf("[Wings] Ignoring %s: not a valid Rush 2049 (USA) ROM\n", path.string().c_str());
         }
     }
     update_rom_ui();
-}
-
-// Shared with the SF Rush ROM picker (src/rush1_rom.cpp).
-std::array<uint8_t, 20> rush2::wings::rom_sha1(const std::vector<uint8_t>& data) {
-    return sha1(data);
 }
 
 bool rush2::wings::rom_to_big_endian(std::vector<uint8_t>& data) {

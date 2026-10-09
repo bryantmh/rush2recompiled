@@ -1735,12 +1735,12 @@ namespace {
     }
 
     // Track k's miniature at the most detailed level that fits the budget.
-    bool build_miniature(const Bytes& rom, int k, TrackModel& m) {
+    bool build_miniature(const rush2::rom2049::Source& rom, int k, TrackModel& m) {
         Bytes geometry, placement, path;
         TopDown print;
-        if (!rush2::rom2049::read_file(rom, geometry_file + k, geometry) ||
-            !rush2::rom2049::read_file(rom, placement_file + k, placement) ||
-            !rush2::rom2049::read_file(rom, path_file + k, path) ||
+        if (!rom.read_file(geometry_file + k, geometry) ||
+            !rom.read_file(placement_file + k, placement) ||
+            !rom.read_file(path_file + k, path) ||
             !render_top_down(geometry, placement, path, ground_tiles, print)) {
             return false;
         }
@@ -1779,9 +1779,9 @@ namespace {
     constexpr bool tube_close_gaps = false;      // close the tube across any gap, as 2049 does
     constexpr float tube_max_gap = 1000.0f;      // world units: longer closing segments are left out
 
-    bool build_tube(const Bytes& rom, int k, TrackModel& m) {
+    bool build_tube(const rush2::rom2049::Source& rom, int k, TrackModel& m) {
         Bytes path;
-        if (!rush2::rom2049::read_file(rom, path_file + k, path)) return false;
+        if (!rom.read_file(path_file + k, path)) return false;
         std::vector<Point> spine;
         std::vector<std::vector<Point>> branches;
         if (!read_path(path, spine, branches) || spine.size() < 4 || path.size() < 12 + 10 * 0x50) return false;
@@ -1921,7 +1921,7 @@ namespace {
         return true;
     }
 
-    bool build_track_model(const Bytes& rom, int k, TrackModel& m) {
+    bool build_track_model(const rush2::rom2049::Source& rom, int k, TrackModel& m) {
         return use_miniature && k <= rush2::track2049::track_count ? build_miniature(rom, k, m) : build_tube(rom, k, m);
     }
 
@@ -2005,6 +2005,15 @@ namespace {
                         uint16_t c = be16(ui, pal + ui[texels + (h - 1 - y) * w + x] * 2);
                         rgba[y * w + x] = { uint8_t((c >> 11) << 3), uint8_t(((c >> 6) & 31) << 3), uint8_t(((c >> 1) & 31) << 3), uint8_t((c & 1) ? 255 : 0) };
                     }
+                }
+                return true;
+            }
+            // A Dreamcast source's thumbnail: RGBA texels behind a load list, bottom-up as well.
+            std::vector<std::array<uint8_t, 4>> rows;
+            if (rush2::rom2049::list_image(ui, imag, r, rows, w, h)) {
+                rgba.resize(size_t(w * h));
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) rgba[y * w + x] = rows[(h - 1 - y) * w + x];
                 }
                 return true;
             }
@@ -2114,7 +2123,7 @@ std::string rush2::track2049::menu_logo_name(int k) {
     return (is_battle(k) ? "R49BLOGO" : is_stunt(k) ? "R49SLOGO" : "R49LOGO") + std::to_string(number_of(k));
 }
 
-bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, const std::vector<uint8_t>& rom2049,
+bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, const rush2::rom2049::Source& rom2049,
                                             std::vector<uint8_t>& out) {
     if (asset3.size() < 0x28) {
         return false;
@@ -2127,7 +2136,7 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
         return false;
     }
     std::vector<uint8_t> ui;
-    if (!rush2::rom2049::read_file(rom2049, ui_file, ui)) {
+    if (!rom2049.read_file(ui_file, ui)) {
         return false;
     }
     std::vector<int> ks;
@@ -2273,7 +2282,7 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
     return true;
 }
 
-bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const std::vector<uint8_t>& rom2049, int k,
+bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const rush2::rom2049::Source& rom2049, int k,
                                        std::vector<uint8_t>& out) {
     // Rush 2's logo containers hold one texture and its palette; overwrite their data in place.
     if (logo.size() < 0x28 || be32(logo, 20) != 1 || be32(logo, 24) != 1) {
@@ -2286,7 +2295,7 @@ bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const s
         return false;
     }
     std::vector<uint8_t> ui;
-    if (!rush2::rom2049::read_file(rom2049, ui_file, ui)) {
+    if (!rom2049.read_file(ui_file, ui)) {
         return false;
     }
     std::vector<uint8_t> t, p;

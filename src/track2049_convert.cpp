@@ -2430,7 +2430,6 @@ namespace {
     // ------------------------------------------------------------------------------------------------------------
     // Tables in 2049's main data
 
-    constexpr uint32_t main_rom = 0xB0CB10;
     constexpr uint32_t fog_colours_vram = 0x80114658; // 3 bytes per 2049 track id.
     constexpr uint32_t pvs_counts_vram = 0x8011E748;  // u8 per 2049 track id.
     constexpr uint32_t demo_lists_vram = 0x801173D8;  // ptr per race track + 6 * backward: demo start spine indices.
@@ -2477,6 +2476,7 @@ namespace {
     struct TextureRecord {
         uint32_t data = 0;  // Load list (or texels) offset.
         uint32_t flags = 0;
+        int w = 0, h = 0;
     };
 
     // The converted geometry's texture record named `name` (15 characters compared, like the lookups).
@@ -2487,6 +2487,8 @@ namespace {
             if (first15(cstr(g, r, 16)) == first15(name)) {
                 out.data = u32(g, r + 0x18);
                 out.flags = u32(g, r + 0x1C);
+                out.w = u16(g, r + 0x10);
+                out.h = u16(g, r + 0x12);
                 return true;
             }
         }
@@ -2569,6 +2571,16 @@ namespace {
             s.wrap = s16(main, o + 6);
             s.speed = (int8_t)u8(main, o + 8);
             s.rate = s16(main, o + 0xA);
+            // The wrap is the texture's size (16 units a texel). A Dreamcast source's textures are scaled down from the
+            // disc's, which its records count in: the wrap becomes this texture's size, the speed (or, where that isn't
+            // a whole number, the rate) in proportion, so the texture moves by the same fraction of itself.
+            int size = (s.t ? t.h : t.w) * 16;
+            if (size > 0 && s.wrap > size && s.wrap % size == 0) {
+                int factor = s.wrap / size;
+                s.wrap = (int16_t)size;
+                if (s.speed % factor == 0) s.speed = (int8_t)(s.speed / factor);
+                else s.rate = (int16_t)(std::max<int>(s.rate, 1) * factor);
+            }
             out.scrolls.push_back(std::move(s));
         }
         return out;
@@ -2652,7 +2664,7 @@ bool rush2::track2049::rush2_shared_model_names(const std::vector<uint8_t>& rom,
     return true;
 }
 
-bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, const std::string& prefix,
+bool rush2::track2049::convert_track(const rush2::rom2049::Source& rom, int k, const std::string& prefix,
                                      const std::set<std::string>& shared_models, bool static_paths,
                                      ConvertedTrack& out, std::string& error) {
     bool race = k >= 1 && k <= 6;
@@ -2661,17 +2673,18 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         error = "no such 2049 track";
         return false;
     }
-    Bytes main;
-    if (rom.size() <= main_rom || !rush2::assets::inflate_raw(rom.data() + main_rom, rom.size() - main_rom, main)) {
+    auto main_segment = rom.segment(rush2::rom2049::Segment::Main);
+    if (main_segment == nullptr) {
         error = "can't read the Rush 2049 main code";
         return false;
     }
+    const Bytes& main = *main_segment;
     // 2049 files of track k (-1: none).
     const int file_numbers[] = { 100 + k, race ? 81 + k : -1, shared_model_file, 119 + k, 138 + k,
                                  157 + k, race ? 176 + k : 157 + k, coin_model_file, battle ? battle_model_file : -1, battle ? battle_hud_file : -1 };
     Bytes files[10];
     for (int i = 0; i < 10; i++) {
-        if (file_numbers[i] >= 0 && !rush2::rom2049::read_file(rom, file_numbers[i], files[i])) {
+        if (file_numbers[i] >= 0 && !rom.read_file(file_numbers[i], files[i])) {
             error = "can't read Rush 2049 file " + std::to_string(file_numbers[i]);
             return false;
         }
@@ -2757,7 +2770,7 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
 // unchecked (func_80086700): the frame, five body panels (four corners and the roof) in damage stages, and headlights.
 // A 2049 car is one body that 2049 dents by moving its vertices: the body becomes the frame and the panels and lights
 // are empty, so the car draws once whatever damage stage Rush 2 picks.
-bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, const std::string& name,
+bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, const std::string& name,
                                    std::vector<uint8_t>& out, std::string& error) {
     static const char* const parts[] = {
         "FRAME1", "D0_FR1", "D2_FR1", "D0_FL1", "D2_FL1", "D0_RR1", "D2_RR1", "D0_RL1", "D2_RL1", "D0_TOP1",
@@ -2770,7 +2783,7 @@ bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, con
         return false;
     }
     Bytes file, effects;
-    if (!rush2::rom2049::read_file(rom, 87 + car, file)) {
+    if (!rom.read_file(87 + car, file)) {
         error = "can't read Rush 2049 file " + std::to_string(87 + car);
         return false;
     }
@@ -2789,7 +2802,7 @@ bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, con
         // rescales every frame (func_800930A4). They stay models of their own: src/car2049.cpp places and animates
         // them, and draws them after the view's shadows when the body draws.
         Bytes flames;
-        if (car == rocket_car && rush2::rom2049::read_file(rom, effects_file, effects)) {
+        if (car == rocket_car && rom.read_file(effects_file, effects)) {
             flames = subset_model49(effects, { "ROKTFLAMEG1", "ROKTFLAMEG2", "ROKTFLAMEG3" });
             files.push_back(&flames);
         }
@@ -2849,13 +2862,13 @@ bool rush2::track2049::convert_car(const std::vector<uint8_t>& rom, int car, con
 
 // Rush 2049's engine models (setup screen file 56: ENGINE01G1-ENGINE05G1) as a Rush 2 model container, for the unlock
 // system's shop (src/unlocks_shop.cpp): model `names[i]` draws ENGINE0<first + i>G1.
-bool rush2::track2049::convert_parts(const std::vector<uint8_t>& rom, const std::vector<std::string>& sources,
+bool rush2::track2049::convert_parts(const rush2::rom2049::Source& rom, const std::vector<std::string>& sources,
                                      const std::vector<std::string>& names,
                                      std::vector<uint8_t>& out, std::vector<std::array<float, 3>>& centers,
                                      std::string& error) {
     constexpr int setup_file = 56;
     Bytes file;
-    if (!rush2::rom2049::read_file(rom, setup_file, file)) {
+    if (!rom.read_file(setup_file, file)) {
         error = "can't read Rush 2049 file " + std::to_string(setup_file);
         return false;
     }

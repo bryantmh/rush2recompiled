@@ -323,11 +323,6 @@ int32_t rush2_ghost_hud_cars(int32_t cars);
 void rush2_ghost_draft(uint8_t* rdram, recomp_context* ctx);
 int rush2_ghost_breakable_hit(uint8_t* rdram, recomp_context* ctx);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif
 // AI Opponents (src/npc_cars.cpp).
 void rush2_npc_cars_apply(uint8_t* rdram, recomp_context* ctx);
 void rush2_npc_cars_building(uint8_t* rdram, recomp_context* ctx);
@@ -336,3 +331,8 @@ void rush2_npc_cars_rim_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_npc_cars_rim_state(uint8_t* rdram, recomp_context* ctx);
 void rush2_npc_cars_rim_init(uint8_t* rdram, recomp_context* ctx);
 
+#ifdef __cplusplus
+}
+#endif
+
+#endif

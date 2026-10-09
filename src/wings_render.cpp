@@ -292,7 +292,8 @@ namespace {
 void rush2::wings::on_rom_changed() {
     std::vector<uint8_t> file;
     auto rom = get_rom();
-    if (rom != nullptr && !read_wing_model_file(*rom, file)) {
+    // File 77: WINGSWING1L..3R, WINGSFLAME1L..3R.
+    if (rom != nullptr && !rom->read_file(77, file)) {
         file.clear();
     }
     {

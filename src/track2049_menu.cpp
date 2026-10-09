@@ -213,7 +213,7 @@ namespace {
     int battle_selection = -1;     // Track (30-37) last chosen on the battle track select, or -1.
     bool selection_loaded = false;
     std::vector<uint8_t> menu_container;
-    std::shared_ptr<const std::vector<uint8_t>> menu_container_rom;    // 2049 ROM the container was built with.
+    std::shared_ptr<const rush2::rom2049::Source> menu_container_rom; // 2049 ROM the container was built with.
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom1;   // Rush 1 ROM it was built with.
     bool menu_container_built = false;
 

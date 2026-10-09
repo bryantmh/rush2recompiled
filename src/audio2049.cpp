@@ -67,6 +67,7 @@
 #include <unordered_map>
 
 #include "audio2049.h"
+#include "audio2049_dc.h"
 #include "assets.h"
 
 namespace {
@@ -3051,6 +3052,7 @@ namespace {
 
 namespace rush2::audio2049 {
     bool load(const std::vector<uint8_t>& rom) {
+        dc::unload();
         auto fresh = std::make_unique<Engine>();
         if (!parse(rom, fresh->data)) {
             return false;
@@ -3062,7 +3064,34 @@ namespace rush2::audio2049 {
         return true;
     }
 
+    bool load(std::shared_ptr<const rush2::rom2049::Source> source) {
+        if (source == nullptr) {
+            return false;
+        }
+        if (const std::vector<uint8_t>* rom = source->n64_rom()) {
+            return load(*rom);
+        }
+        if (!dc::load(source)) {
+            return false;
+        }
+        std::lock_guard lock{ engine_mutex };
+        delete eng;
+        eng = nullptr;
+        return true;
+    }
+
+    void set_track(int track_id) {
+        dc::set_track(track_id);
+    }
+
+    bool sfx_samples(int id, std::vector<int16_t>& pcm, uint32_t& rate) {
+        return dc::sfx_samples(id, pcm, rate);
+    }
+
     bool loaded() {
+        if (dc::active()) {
+            return true;
+        }
         std::lock_guard lock{ engine_mutex };
         return eng != nullptr && eng->data.ok;
     }
@@ -3072,6 +3101,10 @@ namespace rush2::audio2049 {
     }
 
     void play_song(int song) {
+        if (dc::active()) {
+            dc::play_song(song);
+            return;
+        }
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr) {
             return;
@@ -3084,6 +3117,10 @@ namespace rush2::audio2049 {
     }
 
     void stop_song(float fade_seconds) {
+        if (dc::active()) {
+            dc::stop_song(fade_seconds);
+            return;
+        }
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || !eng->seq.active) {
             return;
@@ -3097,16 +3134,25 @@ namespace rush2::audio2049 {
     }
 
     bool song_playing() {
+        if (dc::active()) {
+            return dc::song_playing();
+        }
         std::lock_guard lock{ engine_mutex };
         return eng != nullptr && eng->seq.active;
     }
 
     int current_song() {
+        if (dc::active()) {
+            return dc::current_song();
+        }
         std::lock_guard lock{ engine_mutex };
         return eng != nullptr && eng->seq.active ? eng->seq.song : -1;
     }
 
     int sfx_start(int id, float volume, float pan, float pitch, float surround) {
+        if (dc::active()) {
+            return dc::sfx_start(id, volume, pan, pitch, surround);
+        }
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || id < 0 || id >= int(eng->data.fx.size()) || !eng->data.fx[id].valid) {
             return -1;
@@ -3124,6 +3170,10 @@ namespace rush2::audio2049 {
     }
 
     void sfx_update(int handle, float volume, float pan, float pitch, float surround) {
+        if (dc::active()) {
+            dc::sfx_update(handle, volume, pan, pitch, surround);
+            return;
+        }
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || handle < 0) {
             return;
@@ -3134,6 +3184,10 @@ namespace rush2::audio2049 {
     }
 
     void sfx_stop(int handle) {
+        if (dc::active()) {
+            dc::sfx_stop(handle);
+            return;
+        }
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || handle < 0) {
             return;
@@ -3142,6 +3196,9 @@ namespace rush2::audio2049 {
     }
 
     bool sfx_active(int handle) {
+        if (dc::active()) {
+            return dc::sfx_active(handle);
+        }
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || handle < 0) {
             return false;
@@ -3152,6 +3209,10 @@ namespace rush2::audio2049 {
     }
 
     void sfx_stop_all() {
+        if (dc::active()) {
+            dc::sfx_stop_all();
+            return;
+        }
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr) {
             return;
@@ -3167,6 +3228,10 @@ namespace rush2::audio2049 {
     }
 
     void mix(float* out, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain) {
+        if (dc::active()) {
+            dc::mix(out, frames, sample_rate, music_gain, sfx_gain);
+            return;
+        }
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || !eng->data.ok || sample_rate == 0) {
             return;
@@ -3236,8 +3301,12 @@ namespace rush2::audio2049 {
     }
 
     Stats stats() {
-        std::lock_guard lock{ engine_mutex };
         Stats st;
+        if (dc::active()) {
+            dc::stats(st);
+            return st;
+        }
+        std::lock_guard lock{ engine_mutex };
         if (eng == nullptr) {
             return st;
         }

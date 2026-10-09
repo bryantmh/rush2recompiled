@@ -75,6 +75,7 @@ int main(int argc, char** argv) {
         printf("Can't read %s or %s\n", rom49_path.string().c_str(), rom2_path.string().c_str());
         return 1;
     }
+    auto source49 = rush2::rom2049::n64_source(std::make_shared<const std::vector<uint8_t>>(rom49));
 
     // Rush 2's asset table (0x800C185C) in the recomp ROM's uncompressed main code.
     auto asset_rom = [&](int index) { return be32(rom2, 0x01000000 + 0x800C185C - 0x800539E0 + index * 4); };
@@ -106,7 +107,7 @@ int main(int argc, char** argv) {
             rush2::track2049::ConvertedTrack t;
             std::string error;
             auto start = std::chrono::steady_clock::now();
-            bool ok = rush2::track2049::convert_track(rom49, k, stunt ? "STUNT1" : "HAWAII", shared, static_paths, t, error);
+            bool ok = rush2::track2049::convert_track(*source49, k, stunt ? "STUNT1" : "HAWAII", shared, static_paths, t, error);
             double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             total++;
             if (!ok) {

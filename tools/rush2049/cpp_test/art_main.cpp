@@ -146,6 +146,7 @@ int main(int argc, char** argv) {
         printf("Can't read %s or %s\n", rom49_path.string().c_str(), rom2_path.string().c_str());
         return 1;
     }
+    auto source49 = rush2::rom2049::n64_source(std::make_shared<const std::vector<uint8_t>>(rom49));
     // Asset 3 (deflate) from Rush 2's asset table (0x800C185C) in the recomp ROM's uncompressed main code.
     uint32_t asset3_rom = be32(rom2, 0x01000000 + 0x800C185C - 0x800539E0 + 3 * 4);
     Bytes asset3;
@@ -159,7 +160,7 @@ int main(int argc, char** argv) {
     for (int k = 1; k <= 6; k++) {
         auto start = std::chrono::steady_clock::now();
         TrackModel tm;
-        if (!build_track_model(rom49, k, tm)) {
+        if (!build_track_model(*source49, k, tm)) {
             printf("track %d: build failed\n", k);
             return 1;
         }
@@ -187,7 +188,7 @@ int main(int argc, char** argv) {
     // The container as the game builds it.
     auto start = std::chrono::steady_clock::now();
     Bytes c;
-    if (!rush2::track2049::build_menu_container(asset3, rom49, c)) {
+    if (!rush2::track2049::build_menu_container(asset3, *source49, c)) {
         printf("build_menu_container failed\n");
         return 1;
     }

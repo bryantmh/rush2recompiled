@@ -57,7 +57,6 @@ namespace {
     constexpr uint32_t car_active = 0x7E4;          // s16
 
     constexpr uint32_t main_vram = 0x80086A50;
-    constexpr size_t main_rom = 0xB0CB10;
     constexpr uint32_t model_names_2049 = 0x8011AD68;  // Name pointers of the model handle table.
     constexpr uint32_t handle_count = 0x200;
     constexpr uint32_t kind_params = 0x80118DDC;       // Per kind: pointer to per-sub-kind parameters.
@@ -102,7 +101,7 @@ namespace {
     std::vector<rush2::track2049::PropRecord> prop_records;
     std::map<std::string, std::pair<uint16_t, float>> models;   // Converted geometry: name -> (index, radius).
     // From 2049's main data, read once per ROM.
-    std::shared_ptr<const std::vector<uint8_t>> types_rom;
+    std::shared_ptr<const rush2::rom2049::Source> types_rom;
     std::vector<movers::TypeInfo> types;
     std::vector<std::string> handle_names;   // 2049 model handle table names.
     float sign_angles[3][3] = {};            // Kind 0 parameters of sub-kinds 0-2.
@@ -147,12 +146,12 @@ namespace {
         if (rom == types_rom && !types.empty()) {
             return true;
         }
-        std::vector<uint8_t> main;
-        if (rom->size() <= main_rom || !rush2::assets::inflate_raw(rom->data() + main_rom, rom->size() - main_rom, main) ||
-            !movers::parse_types(main.data(), main.size(), main_vram, types)) {
+        auto main_segment = rom->segment(rush2::rom2049::Segment::Main);
+        if (main_segment == nullptr || !movers::parse_types(main_segment->data(), main_segment->size(), main_vram, types)) {
             types.clear();
             return false;
         }
+        const std::vector<uint8_t>& main = *main_segment;
         auto in_main = [&](uint32_t addr, size_t n) { return addr >= main_vram && addr - main_vram + n <= main.size(); };
         handle_names.clear();
         for (uint32_t i = 0; i < handle_count && in_main(model_names_2049 + i * 4, 4); i++) {

@@ -23,7 +23,7 @@ namespace {
     // folder, so everything else there (the executable, assets, user ROMs to import) is left alone.
     // "ghosts" is where older versions kept ghosts; rush2::data_files::migrate() moves it into saves.
     constexpr std::array data_folders = { "saves", "mods", "mod_config", "ghosts" };
-    constexpr std::array data_files = { "rush2.n64.us.z64", "rush2049.z64", "rush1.z64" };
+    constexpr std::array data_files = { "rush2.n64.us.z64", "rush2049.z64", "rush2049_dc.pak", "rush1.z64" };
 
     bool is_data_file(const fs::path& path) {
         std::string name = path.filename().string();

@@ -169,8 +169,7 @@ namespace {
     constexpr int tires49_count = 5;
     constexpr int handling_count = 3;                                // NORMAL, ADVANCED, EXTREME
 
-    // Rush 2049 main code/data (inflated at 0x80086A50).
-    constexpr uint32_t main49_rom = 0xB0CB10;
+    // Rush 2049 main code/data (rush2::rom2049::Segment::Main, at 0x80086A50).
     constexpr uint32_t main49_vram = 0x80086A50;
     struct Main49 {
         std::vector<uint8_t> d;
@@ -1327,11 +1326,11 @@ void rush2::car2049::init_physics(uint8_t* rdram) {
         MEM_W(0, (int32_t)(desc_ptrs + i * 4)) = MEM_W(0, (int32_t)(old_desc_ptrs + i * 4));
     }
     auto rom = rush2::wings::get_rom();
-    Main49 m;
-    if (rom == nullptr || rom->size() <= main49_rom ||
-        !rush2::assets::inflate_raw(rom->data() + main49_rom, rom->size() - main49_rom, m.d)) {
+    auto segment = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Main) : nullptr;
+    if (segment == nullptr) {
         return;
     }
+    Main49 m{ *segment };
     build_physics(rdram, m);
 }
 
@@ -1428,10 +1427,10 @@ void rush2::car2049::set_drone_cars(DroneCars mode) {
 bool rush2::car2049::available() {
     return cars_available();
 }
+
 const char* rush2::car2049::display_name(int k) {
     return k >= 0 && k < car_count ? display_names[k] : "";
 }
-
 
 // func_800A37F4, after a drone's random car type (0-15, $t7) is drawn from the seed just stepped ($a0) and before it
 // is stored and checked against the cars already chosen: with the 2049 cars available the draw covers them too

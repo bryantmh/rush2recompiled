@@ -39,9 +39,20 @@ namespace {
     constexpr uint32_t cmd_stop = 0x40000000;
 
     std::mutex load_mutex;
-    std::shared_ptr<const std::vector<uint8_t>> loaded_rom;
+    std::shared_ptr<const rush2::rom2049::Source> loaded_rom;
     std::atomic<bool> loaded = false;
     std::atomic<bool> loading = false;
+
+    // The 2049 track id (0-18: race tracks, battle arenas 1-8, stunt arenas 1-4, obstacle course; the index of the
+    // per-track song tables) being raced, or -1.
+    int raced_track_id() {
+        int k = rush2::track2049::race_track();
+        if (k == rush2::track2049::obstacle) return 18;
+        if (k >= 1 && k <= 6) return k - 1;
+        if (int n = rush2::track2049::battle_arena()) return 5 + n;
+        if (int n = rush2::track2049::stunt_arena()) return 13 + n;
+        return -1;
+    }
 
     std::atomic<int> pending_song = -1;
     std::atomic<float> music_gain = 0.0f;
@@ -74,7 +85,7 @@ namespace {
             loaded = false;
             loading = true;
             std::thread([rom]() {
-                bool ok = audio::load(*rom);
+                bool ok = audio::load(rom);
                 if (!ok) {
                     fprintf(stderr, "[2049] Couldn't load Rush 2049's sound banks\n");
                 }
@@ -130,6 +141,7 @@ void rush2::track2049::play_song_now(uint8_t* rdram, int song) {
         return;
     }
     update_gains(rdram);
+    audio::set_track(-1);
     audio::play_song(song);
 }
 
@@ -151,6 +163,7 @@ extern "C" void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx)
         int song = pending_song.exchange(-1);
         if (song >= 0) {
             update_gains(rdram);
+            audio::set_track(raced_track_id());
             audio::play_song(song);
             fprintf(stderr, "[2049] Playing Rush 2049 song %d\n", song);
         }
