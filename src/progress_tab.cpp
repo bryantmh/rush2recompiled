@@ -17,6 +17,8 @@
 
 #include "rush2.h"
 #include "collectibles.h"
+#include "track1.h"
+#include "track2049.h"
 #include "unlocks.h"
 
 namespace {
@@ -414,21 +416,21 @@ namespace {
 
             lines.clear();
             for (int t = 0; t < sfrush_courses; t++) {
-                lines.push_back({ "Track " + std::to_string(t + 1), { { count(p->sfrush[t]), sfrush_keys[t] } } });
+                lines.push_back({ rush2::track1::track_names[t], { { count(p->sfrush[t]), sfrush_keys[t] } } });
             }
             add_section("SF Rush", { "keys" }, lines);
 
             // Race tracks in the left column, stunt arenas in the right.
             lines.clear();
-            auto coins = [&](const std::string& course, const uint16_t* masks, int n) {
+            auto coins = [&](const std::string& course, const uint16_t* masks, int n, const char* const* names) {
                 for (int t = 0; t < n; t++) {
-                    lines.push_back({ course + " " + std::to_string(t + 1), {
+                    lines.push_back({ names ? std::string(names[t]) : course + " " + std::to_string(t + 1), {
                         { count(masks[t] & silver_bits), coins_per_kind },
                         { count(masks[t] & gold_bits), coins_per_kind } } });
                 }
             };
-            coins("Track", p->rush2049.data(), rush2049_courses);
-            coins("Arena", p->stunt2049.data(), stunt2049_courses);
+            coins("Track", p->rush2049.data(), rush2049_courses, rush2::track2049::track_names);
+            coins("Arena", p->stunt2049.data(), stunt2049_courses, nullptr);
             add_section("Rush 2049", { "silver", "gold" }, lines, rush2049_courses);
 
             if (rush2::unlocks::enabled()) {

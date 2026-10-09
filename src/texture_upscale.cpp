@@ -26,9 +26,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <algorithm>
 #include <condition_variable>
 #include <deque>
 #include <fstream>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <set>
@@ -237,6 +239,10 @@ namespace {
                 if (!seen.ui) {
                     seen.ui = true;
                     if (seen.key != 0) {
+            // And the exact images.
+            for (const auto& [hash, strip] : exact_strips) {
+                exact_applies.push_back(hash);
+            }
                         mark_ui(seen.key);
                     }
                 }
@@ -260,6 +266,9 @@ namespace {
             if (!worth_upscaling(image)) {
                 return;
             }
+                    if (!exact_images.empty() && tlut != 0 && tile.siz == 1) {
+                        find_exact(hash, tmem, tile, width, height, tlut);
+                    }
             uint64_t key = content_key(image);
             seen.key = key;
             auto [it, inserted] = entries.try_emplace(key);
@@ -470,6 +479,79 @@ namespace {
                 }
             }
             std::unique_lock lock(mutex);
+        // Exact images (add_exact_image), the hashes found to be strips of one (image, first row), and hashes to give
+        // theirs.
+        struct ExactImage {
+            std::vector<uint8_t> indices;
+            Image image;
+        };
+        struct ExactStrip {
+            size_t image;
+            uint32_t row;
+        };
+        std::vector<ExactImage> exact_images;
+        std::unordered_map<uint64_t, ExactStrip> exact_strips;
+        std::vector<uint64_t> exact_applies;
+
+    public:
+        void add_exact(std::vector<uint8_t> indices, Image image) {
+            std::unique_lock lock(mutex);
+            exact_images.push_back({ std::move(indices), std::move(image) });
+        }
+
+    private:
+        // Called with the mutex held, once per 2D CI8 hash.
+        void find_exact(uint64_t hash, const uint8_t* tmem, const RT64::LoadTile& tile, uint16_t width, uint16_t height,
+                        uint32_t tlut) {
+            std::vector<uint8_t> indices;
+            decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut, width, height, &indices);
+            if (indices.empty() || std::all_of(indices.begin(), indices.end(), [&](uint8_t i) { return i == indices[0]; })) {
+                return;
+            }
+            for (size_t i = 0; i < exact_images.size(); i++) {
+                const ExactImage& e = exact_images[i];
+                if (e.image.width != width || e.image.height < height) {
+                    continue;
+                }
+                for (uint32_t row = 0; row + height <= e.image.height; row++) {
+                    if (memcmp(&e.indices[size_t(row) * width], indices.data(), indices.size()) == 0) {
+                        exact_strips[hash] = { i, row };
+                        exact_applies.push_back(hash);
+                        changed.notify_all();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Worker: gives each strip's hash the whole image, as the region of it the strip is (RT64::ReplacementRegion).
+        // The image is the texture's size, so RT64 samples it exactly as it samples the game's texture.
+        void apply_exact(const std::vector<uint64_t>& todo) {
+            for (uint64_t hash : todo) {
+                ExactStrip strip;
+                Image image;
+                {
+                    std::unique_lock lock(mutex);
+                    auto it = exact_strips.find(hash);
+                    if (it == exact_strips.end()) {
+                        continue;
+                    }
+                    strip = it->second;
+                    image = exact_images[strip.image].image;
+                }
+                uint64_t content = content_key(image) ^ 0xE8AC71A6Eull;
+                std::vector<uint8_t> bytes;
+                if (!RT64::hasLiveReplacementContent(content)) {
+                    bytes = make_dds(image);
+                }
+                RT64::ReplacementRegion region;
+                region.y = strip.row;
+                region.sourceWidth = image.width;
+                region.sourceHeight = image.height;
+                RT64::addLiveReplacement(hash, content, bytes, region);
+            }
+        }
+
             if (src != source || from != source_count) {
                 return;
             }
@@ -625,7 +707,8 @@ namespace {
                     std::unique_lock lock(mutex);
                     changed.wait_for(lock, std::chrono::milliseconds(500), [this]() {
                         return clear_requested || !removals.empty() || !applies.empty() || !new_ui_keys.empty() ||
-                               !unchecked.empty() || !source_applies.empty() || (!pending.empty() && mode != Mode::Off);
+                               !unchecked.empty() || !source_applies.empty() || !exact_applies.empty() ||
+                               (!pending.empty() && mode != Mode::Off);
                     });
                     clear = clear_requested;
                     clear_requested = false;
@@ -738,6 +821,12 @@ namespace {
                 RT64::addLiveReplacement(hash, content, bytes);
             }
         }
+                std::vector<uint64_t> to_exact;
+                {
+                    std::unique_lock lock(mutex);
+                    to_exact.swap(exact_applies);
+                }
+                apply_exact(to_exact);
 
         void set_failed(uint64_t key, uint64_t for_generation) {
             std::unique_lock lock(mutex);
@@ -1025,3 +1114,7 @@ void add_buttons(rush2::ui::OptionsPage* page) {
 }
 
 }
+void add_exact_image(std::vector<uint8_t> indices, Image image) {
+    upscaler.add_exact(std::move(indices), std::move(image));
+}
+

@@ -17,6 +17,7 @@
 #include "players4.h"
 #include "music.h"
 #include "track1.h"
+#include "track2049.h"
 #include "collectibles.h"
 #include "options_page.h"
 #include "texture_upscale.h"
@@ -625,6 +626,8 @@ void rush2::init_config() {
     rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
     rush2::upscale::apply_loaded_options(loaded_graphics_config);
+    rush2::track1::add_banner_images();
+    rush2::track2049::add_banner_images();
     rush2::splitscreen::set_layout(static_cast<rush2::splitscreen::Layout>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(split_option::id))));
     rush2::ghost::set_save_all(static_cast<ghost_option::SaveGhosts>(std::get<uint32_t>(

@@ -31,6 +31,8 @@
 #include <vector>
 
 #include "track1.h"
+#include "track1_banners.h"
+#include "texture_upscale.h"
 
 namespace {
     using Bytes = std::vector<uint8_t>;
@@ -1471,8 +1473,8 @@ bool rush2::track1::convert_track(const std::vector<uint8_t>& rom, int t, const 
 // ---------------------------------------------------------------------------------------------------------------------
 // Track select art. Rush 1's track select shows each track as a 3D model (asset 10: TRK1O2, TRK_2O2, ...), much like
 // Rush 2's dioramas, so those models are used as they are (flattened and translated, every call inlined). The logos
-// are made here: Rush 1 shows its track names with its own models and fonts, which don't fit Rush 2's 128x32 logo
-// slot, so each logo is the track's route seen from above and "TRACK n".
+// are the track banners (tools/rush1/banners): Rush 1 shows its track names with its own models and fonts, which don't
+// fit Rush 2's 128x32 logo slot.
 
 namespace {
     const char* const diorama_models[rush2::track1::track_count] = { "TRK1O2", "TRK_2O2", "TRK_3O2", "TRK4O2", "TRK5O1",
@@ -1480,114 +1482,15 @@ namespace {
     constexpr int logo_w = 128, logo_h = 32;
     constexpr float diorama_size = 35.0f;   // Radius x scale of the stock dioramas, on average.
 
-    // 5x7 capitals and digits, one byte per row, bit 4 = leftmost column.
-    const std::map<char, std::array<uint8_t, 7>> font = {
-        { 'A', { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } }, { 'C', { 0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E } },
-        { 'F', { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10 } }, { 'H', { 0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } },
-        { 'K', { 0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11 } }, { 'R', { 0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11 } },
-        { 'S', { 0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E } }, { 'T', { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 } },
-        { 'U', { 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E } }, { '1', { 0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E } },
-        { '2', { 0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F } }, { '3', { 0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E } },
-        { '4', { 0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02 } }, { '5', { 0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E } },
-        { '6', { 0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E } }, { '7', { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08 } },
-    };
-
-    // Palette: 0 transparent, then the text and route inks.
-    constexpr uint8_t ink_big = 1, ink_small = 2, ink_outline = 3, ink_route = 4;
-
-    uint16_t rgba5551(int r, int g, int b, int a) {
-        return uint16_t(((r >> 3) << 11) | ((g >> 3) << 6) | ((b >> 3) << 1) | (a ? 1 : 0));
-    }
-
-    void draw_text(std::array<uint8_t, logo_w * logo_h>& img, const std::string& text, int x0, int y0, int scale, uint8_t ink) {
-        int x = x0;
-        for (char ch : text) {
-            auto g = font.find(ch);
-            if (g != font.end()) {
-                for (int row = 0; row < 7; row++) {
-                    for (int col = 0; col < 5; col++) {
-                        if (!(g->second[size_t(row)] & (0x10 >> col))) continue;
-                        for (int sy = 0; sy < scale; sy++) {
-                            for (int sx = 0; sx < scale; sx++) {
-                                int px = x + col * scale + sx, py = y0 + row * scale + sy;
-                                if (px >= 0 && px < logo_w && py >= 0 && py < logo_h) img[size_t(py * logo_w + px)] = ink;
-                            }
-                        }
-                    }
-                }
-            }
-            x += 6 * scale;
-        }
-    }
-
-    // Track t's route (lane 0 of the forward lanes, render x/z), or empty.
-    std::vector<std::pair<int, int>> route(const std::vector<uint8_t>& rom, int t) {
-        std::vector<std::pair<int, int>> out;
-        Bytes d;
-        if (!read(rom, path_asset + t, d) || d.size() < 8) return out;
-        int n = int16_t(u16(d, 0)), end = int16_t(u16(d, 4));
-        if (n < 2 || 8 + size_t(n) * 10 > d.size()) return out;
-        if (!(2 <= end && end <= n)) end = n;
-        for (int k = 0; k < end; k++) {
-            size_t p = 8 + size_t(k) * 10;
-            out.push_back({ s16(d, p + 2), s16(d, p) });   // render x = collision c1, render z = collision c0
-        }
-        return out;
-    }
-
-    // 128x32 CI8 texels (rows bottom-up, as Rush 2 stores its logos) and a 256-entry RGBA5551 palette.
-    void build_logo(const std::vector<uint8_t>& rom, int t, Bytes& texels, Bytes& palette) {
-        std::array<uint16_t, 256> pal{};
-        pal[ink_big] = rgba5551(255, 196, 24, 1);
-        pal[ink_small] = rgba5551(235, 235, 245, 1);
-        pal[ink_outline] = rgba5551(24, 10, 0, 1);
-        pal[ink_route] = rgba5551(232, 32, 24, 1);
-
-        std::array<uint8_t, logo_w * logo_h> img{};
-        // Icon: the route from above, fitted into 28x28 at (2, 2), north up.
-        auto pts = route(rom, t);
-        if (!pts.empty()) {
-            int x0 = pts[0].first, x1 = x0, z0 = pts[0].second, z1 = z0;
-            for (auto [x, z] : pts) { x0 = std::min(x0, x); x1 = std::max(x1, x); z0 = std::min(z0, z); z1 = std::max(z1, z); }
-            float scale = 27.0f / float(std::max({ x1 - x0, z1 - z0, 1 }));
-            float ox = 2 + (27 - (x1 - x0) * scale) / 2, oy = 2 + (27 - (z1 - z0) * scale) / 2;
-            for (size_t k = 0; k < pts.size(); k++) {
-                auto [ax, az] = pts[k];
-                auto [bx, bz] = pts[(k + 1) % pts.size()];
-                for (int s = 0; s <= 8; s++) {
-                    float x = ax + (bx - ax) * s / 8.0f, z = az + (bz - az) * s / 8.0f;
-                    int px = int(ox + (x - x0) * scale), py = int(oy + (z1 - z) * scale);
-                    for (int dy = 0; dy <= 1; dy++) for (int dx = 0; dx <= 1; dx++) {
-                        int qx = px + dx, qy = py + dy;
-                        if (qx >= 0 && qx < 32 && qy >= 0 && qy < logo_h) img[size_t(qy * logo_w + qx)] = ink_route;
-                    }
-                }
-            }
-        }
-        // Name, with a one-pixel outline around the text.
-        std::array<uint8_t, logo_w * logo_h> text{};
-        draw_text(text, "SF RUSH", 38, 2, 1, ink_small);
-        draw_text(text, "TRACK " + std::to_string(t + 1), 36, 13, 2, ink_big);
-        for (int y = 0; y < logo_h; y++) {
-            for (int x = 34; x < logo_w; x++) {
-                if (text[size_t(y * logo_w + x)]) {
-                    img[size_t(y * logo_w + x)] = text[size_t(y * logo_w + x)];
-                    continue;
-                }
-                bool near_ink = false;
-                for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
-                    int px = x + dx, py = y + dy;
-                    if (px >= 0 && px < logo_w && py >= 0 && py < logo_h && text[size_t(py * logo_w + px)]) near_ink = true;
-                }
-                if (near_ink) img[size_t(y * logo_w + x)] = ink_outline;
-            }
-        }
+    // 128x32 CI8 texels (rows bottom-up, as Rush 2 stores its logos) and a 256-entry RGBA5551 palette: the track's
+    // banner (include/track1_banners.h, tools/build_banners.py).
+    void build_logo(int t, Bytes& texels, Bytes& palette) {
         texels.assign(logo_w * logo_h, 0);
         for (int y = 0; y < logo_h; y++) {
-            memcpy(&texels[size_t((logo_h - 1 - y) * logo_w)], &img[size_t(y * logo_w)], logo_w);
+            memcpy(&texels[size_t((logo_h - 1 - y) * logo_w)], rush2::track1::banners::texels[t] + y * logo_w, logo_w);
         }
         palette.clear();
-        for (uint16_t c : pal) add16(palette, c);
+        for (int i = 0; i < 256; i++) add16(palette, rush2::track1::banners::palettes[t][i]);
     }
 
     std::optional<uint32_t> find_model(const Container& c, const std::string& name) {
@@ -1610,7 +1513,7 @@ bool rush2::track1::extend_menu_container(const std::vector<uint8_t>& container,
             if (!i) fail(std::string("no diorama ") + diorama_models[t]);
             b.add_model(s, *i, "R1TRACK" + std::to_string(t + 1), false);
             Bytes texels, palette;
-            build_logo(rom, t, texels, palette);
+            build_logo(t, texels, palette);
             b.add_texels("R1LOGO" + std::to_string(t + 1), logo_w, logo_h, 0x01, 0x02, 0x48008000, texels, palette);
         }
         out = b.build();
@@ -1644,6 +1547,27 @@ float rush2::track1::diorama_scale(const std::vector<uint8_t>& rom, int t) {
     return t >= 0 && t < track_count ? scales[size_t(t)] : 1.0f;
 }
 
+void rush2::track1::add_banner_images() {
+    // The banners as the game stores them: rows bottom-up.
+    for (int t = 0; t < track_count; t++) {
+        std::vector<uint8_t> indices(logo_w * logo_h);
+        rush2::upscale::Image image;
+        image.width = logo_w;
+        image.height = logo_h;
+        image.rgba.resize(size_t(logo_w * logo_h * 4));
+        for (int y = 0; y < logo_h; y++) {
+            int src = (logo_h - 1 - y) * logo_w;
+            memcpy(&indices[size_t(y * logo_w)], banners::texels[t] + src, logo_w);
+            for (int x = 0; x < logo_w; x++) {
+                uint32_t c = banners::rgba[t][src + x];
+                uint8_t* p = &image.rgba[size_t((y * logo_w + x) * 4)];
+                p[0] = uint8_t(c >> 24); p[1] = uint8_t(c >> 16); p[2] = uint8_t(c >> 8); p[3] = uint8_t(c);
+            }
+        }
+        rush2::upscale::add_exact_image(std::move(indices), std::move(image));
+    }
+}
+
 bool rush2::track1::build_race_logo(const std::vector<uint8_t>& logo, const std::vector<uint8_t>& rom, int t,
                                     std::vector<uint8_t>& out) {
     // Rush 2's logo containers hold one texture and its palette; overwrite their data in place.
@@ -1656,7 +1580,7 @@ bool rush2::track1::build_race_logo(const std::vector<uint8_t>& logo, const std:
             return false;
         }
         Bytes t_bytes, p_bytes;
-        build_logo(rom, t, t_bytes, p_bytes);
+        build_logo(t, t_bytes, p_bytes);
         out = logo;
         memcpy(&out[texels], t_bytes.data(), t_bytes.size());
         memcpy(&out[palette], p_bytes.data(), p_bytes.size());

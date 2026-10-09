@@ -20,6 +20,8 @@
 namespace rush2::track2049 {
     constexpr int track_count = 6;
     constexpr int first_menu_id = 12;   // Track select id of 2049 track 1.
+    // Race track 1-6's name (index k - 1), as the Dreamcast version names them (the N64 game calls them Track 1-6).
+    constexpr const char* track_names[track_count] = { "Marina", "Haight", "Civic", "Metro", "Mission", "Presidio" };
     constexpr int host_slot = 2;        // HAWAII: no hardcoded per-track behaviour beyond its tables.
     constexpr int stunt_menu_id = 25;   // Track select id of stunt arena 1.
     constexpr int stunt_host_slot = 11; // STUNT1: Rush 2's stunt track.
@@ -41,6 +43,9 @@ namespace rush2::track2049 {
     // Track select entry t's diorama model name (in RDRAM) and scale, once prepare_menu_art ran.
     uint32_t diorama_name(uint8_t* rdram, int t);
     float diorama_scale(uint8_t* rdram, int t);
+    // Gives the renderer the race tracks' banners' exact colors in place of their CI8 copies' 255
+    // (src/texture_upscale.cpp, add_exact_image). Called once at startup.
+    void add_banner_images();
     // Rush 2's in-race logo container for the host slot (asset 4 + host), with its texture replaced by track k's logo.
     bool build_race_logo(const std::vector<uint8_t>& rush2_logo, const rush2::rom2049::Source& rom2049, int k,
                          std::vector<uint8_t>& out);

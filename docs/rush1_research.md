@@ -13,6 +13,7 @@ Tools (`tools/rush1/`):
 - `colltest.py`: compares Rush 1 and Rush 2 ground queries.
 - `cpp_test/build.bat`: checks that the C++ output is byte-identical to the Python output.
 - `shots.py`: launches the game with an input script and takes screenshots.
+- `banners/`: the track select banners, built into `include/track1_banners.h` by `tools/build_banners.py` (section 12).
 
 ## 1. ROM
 
@@ -505,3 +506,30 @@ previews; `tools/rush1/cartex.py` (car files, meshes, palettes).
   executable's size and modification time, so each car is built once per ROM and build, not every boot.
 - Gotcha: RDRAM is word-swapped on the host; write bytes with MEM_B, never through the alloc pointer.
 
+## 12. Track names and track select banners
+
+The N64 game only numbers its tracks (Track 1-7). The recomp uses the names the Rush the Rock arcade update gave
+them (`rush2::track1::track_names`, include/track1.h): 1 Golden Gate, 2 Embarcadero, 3 Market, 4 Downtown,
+5 The Heights, 6 Sunset, 7 The Rock (the hidden track). The Progress tab and the UNLOCKS shop show these names.
+
+The track select logo of each track (`R1LOGOn`, `build_logo` in src/track1_convert.cpp) is a 128x32 CI8 texture in
+the format of Rush 2's own logos. Tracks 1-6 use the user-submitted banners in `tools/rush1/banners/`
+(`trackN_<name>.png`), which `tools/build_banners.py` quantizes to 255 RGBA5551 colors plus a transparent
+entry 0 and writes into the generated header `include/track1_banners.h`. After adding or changing a PNG, rerun the
+tool. A track without a PNG (currently 7, The Rock) gets its name drawn by the tool with the banner font
+(`tools/banner_font.py`) in its game's style: SF Rush's heavy gold letters with a bevel, a navy outline and a drop
+shadow, or Rush 2049's wide square letters with some corners cut at 45 degrees, a dark-to-blue fill and a lime and black
+outline.
+`python tools/banner_font.py OUT.png` previews the alphabet in both styles, and `build_banners.py --preview DIR`
+saves every banner.
+
+The banners' art has about a thousand colors even at 5 bits a channel, so the CI8 copy can't be exact. The header
+also holds each banner's exact pixels, which `add_banner_images` registers with the renderer at startup
+(`rush2::upscale::add_exact_image`, docs/texture_upscaling.md "Exact images"). The game then draws every banner with
+its exact colors, in the track select and anywhere else the logo shows.
+
+The Rush 2049 race tracks work the same way (`build_logo` in src/track2049_art.cpp). Their names are the Dreamcast
+version's (`rush2::track2049::track_names`, include/track2049.h): 1 Marina, 2 Haight, 3 Civic, 4 Metro, 5 Mission,
+6 Presidio. Their banners are in `tools/rush2049/banners/`, and the same tool writes them into
+`include/track2049_banners.h`. Only Metro and Presidio have pictures so far. Marina, Haight, Civic and Mission get
+their names in the 2049 banner font. The stunt arenas, battle arenas and obstacle course keep their numbered logos.
