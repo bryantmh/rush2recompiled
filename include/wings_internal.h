@@ -29,8 +29,6 @@ namespace rush2::wings {
 
     // Rush 2049's LZ decompressor (src/wings_rom.cpp). Returns false on truncated data.
     bool lz_decompress(const uint8_t* src, size_t src_size, std::vector<uint8_t>& out);
-    // Decompressed Rush 2049 file 77, the wing and flame models.
-    bool read_wing_model_file(const std::vector<uint8_t>& rom, std::vector<uint8_t>& out);
 
     // True if player (0-3, the game's player struct index) holds the WINGS button and the game isn't paused
     // (src/controls_menu.cpp).

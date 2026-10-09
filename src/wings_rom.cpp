@@ -1,7 +1,4 @@
-// Reads files out of the Rush 2049 (USA) ROM.
-//
-// Rush 2049 keeps a table of ROM offsets for its 183 files in its main code; a file's data runs up to the next
-// file's offset. Files are stored raw, raw-deflate compressed or LZ compressed. Only the LZ files are needed here.
+// Rush 2049's LZ decompressor (its ROM files and the Dreamcast disc's .LZS files).
 //
 // The LZ format is the 4KB-window LZSS Rush 2 also uses (func_80003C6C), except that Rush 2049's match distances are
 // relative to the output position instead of absolute positions in a ring buffer. Each flag byte covers 8 items,
@@ -12,16 +9,6 @@
 #include <cstdio>
 
 #include "wings_internal.h"
-
-namespace {
-    // ROM offsets of the Rush 2049 files used here (from the file table at 0x8011B5BC + 4 * index), with the offset of
-    // the following file to give the compressed size.
-    struct RomFile {
-        uint32_t start;
-        uint32_t end;
-    };
-    constexpr RomFile wing_model_file = { 0x3DE700, 0x3E2EE0 }; // File 77: WINGSWING1L..3R, WINGSFLAME1L..3R.
-}
 
 bool rush2::wings::lz_decompress(const uint8_t* src, size_t src_size, std::vector<uint8_t>& out) {
     out.clear();
@@ -54,13 +41,49 @@ bool rush2::wings::lz_decompress(const uint8_t* src, size_t src_size, std::vecto
     return false;
 }
 
-bool rush2::wings::read_wing_model_file(const std::vector<uint8_t>& rom, std::vector<uint8_t>& out) {
-    if (rom.size() < wing_model_file.end) {
-        return false;
+// SHA-1, for identifying ROMs and disc files (the Rush 2049 and SF Rush pickers, src/rush2049_dc_tables.cpp).
+std::array<uint8_t, 20> rush2::wings::rom_sha1(const std::vector<uint8_t>& data) {
+    uint32_t h[5] = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0 };
+    auto rol = [](uint32_t v, int n) { return (v << n) | (v >> (32 - n)); };
+
+    std::vector<uint8_t> msg = data;
+    uint64_t bit_len = uint64_t(data.size()) * 8;
+    msg.push_back(0x80);
+    while (msg.size() % 64 != 56) {
+        msg.push_back(0);
     }
-    if (!lz_decompress(rom.data() + wing_model_file.start, wing_model_file.end - wing_model_file.start, out)) {
-        printf("[Wings] Failed to decompress the wing model\n");
-        return false;
+    for (int i = 7; i >= 0; i--) {
+        msg.push_back(uint8_t(bit_len >> (i * 8)));
     }
-    return true;
+
+    for (size_t chunk = 0; chunk < msg.size(); chunk += 64) {
+        uint32_t w[80];
+        for (int i = 0; i < 16; i++) {
+            const uint8_t* p = &msg[chunk + i * 4];
+            w[i] = (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3];
+        }
+        for (int i = 16; i < 80; i++) {
+            w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+        for (int i = 0; i < 80; i++) {
+            uint32_t f, k;
+            if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
+            else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+            else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+            else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+            uint32_t temp = rol(a, 5) + f + e + k + w[i];
+            e = d; d = c; c = rol(b, 30); b = a; a = temp;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+    }
+
+    std::array<uint8_t, 20> out;
+    for (int i = 0; i < 5; i++) {
+        out[i * 4 + 0] = uint8_t(h[i] >> 24);
+        out[i * 4 + 1] = uint8_t(h[i] >> 16);
+        out[i * 4 + 2] = uint8_t(h[i] >> 8);
+        out[i * 4 + 3] = uint8_t(h[i]);
+    }
+    return out;
 }

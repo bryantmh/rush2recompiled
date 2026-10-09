@@ -109,7 +109,7 @@ namespace {
 
     // Rush 2049's seed times for its race tracks (boot segment 0x8002E870, f32, index track + 19 * backward), used
     // when the ROM can't be read.
-    constexpr uint32_t seeds_2049_rom = 0x1000 + (0x8002E870 - 0x80000400);
+    constexpr uint32_t seeds_2049_vram = 0x8002E870;
     constexpr float seeds_2049[2][track_count] = { { 47, 81, 65, 97, 78, 117 }, { 48, 79, 76, 104, 86, 119 } };
     constexpr float obstacle_seed = 68;
 
@@ -670,9 +670,11 @@ namespace {
             return s > 1.0f ? s : 90.0f;
         }
         auto rom = rush2::wings::get_rom();
-        uint32_t at = seeds_2049_rom + (uint32_t)(id + 19 * backward) * 4;
-        if (rom != nullptr && rom->size() >= at + 4) {
-            uint32_t bits = ((*rom)[at] << 24) | ((*rom)[at + 1] << 16) | ((*rom)[at + 2] << 8) | (*rom)[at + 3];
+        auto boot = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Boot) : nullptr;
+        uint32_t at = seeds_2049_vram - rush2::rom2049::boot_vram + (uint32_t)(id + 19 * backward) * 4;
+        if (boot != nullptr && boot->size() >= at + 4) {
+            const std::vector<uint8_t>& b = *boot;
+            uint32_t bits = (b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3];
             float f;
             std::memcpy(&f, &bits, sizeof(f));
             if (f > 1.0f && f < 480.0f) {

@@ -313,6 +313,11 @@ int rush2::track2049::race_track() {
     return raced;
 }
 
+// The test converts every track for the HAWAII slot (2).
+int rush2::track2049::loaded_slot() {
+    return raced > 0 ? 2 : -1;
+}
+
 int main(int argc, char** argv) {
     fs::path png_dir = argc > 1 ? fs::path(argv[1]) :
         fs::path("C:/Users/Bryant/AppData/Local/Temp/claude/c--Users-Bryant-Documents-Code-rush2-recomp/"
@@ -345,7 +350,7 @@ int main(int argc, char** argv) {
     for (int k = 1; k <= 6; k++) {
         rush2::track2049::ConvertedTrack t;
         std::string error;
-        if (!rush2::track2049::convert_track(rom49, k, "HAWAII", shared, true, t, error)) {
+        if (!rush2::track2049::convert_track(*rush2::rom2049::n64_source(std::make_shared<const std::vector<uint8_t>>(rom49)), k, "HAWAII", shared, true, t, error)) {
             printf("track %d: conversion failed: %s\n", k, error.c_str());
             failures++;
             continue;

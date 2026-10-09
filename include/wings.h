@@ -6,6 +6,8 @@
 #include <memory>
 #include <vector>
 
+#include "rush2049_rom.h"
+
 // Rush 2049 wings (src/wings*.cpp).
 namespace rush2::ui {
     class OptionsPage;
@@ -24,8 +26,8 @@ namespace rush2::wings {
     // Loads the saved settings and the stored Rush 2049 ROM. Call after recompui::config::finalize().
     void load_config();
 
-    // The big-endian Rush 2049 (USA) ROM, or null if none has been provided.
-    std::shared_ptr<const std::vector<uint8_t>> get_rom();
+    // The Rush 2049 data: the N64 (USA) ROM or the Dreamcast (USA) disc the player provided, or null if neither.
+    std::shared_ptr<const rush2::rom2049::Source> get_rom();
     bool rom_available();
     // The height of a Rush 2 car type's body (0-21; world units, from the car models), 3.5 for any other type.
     float body_height(int type);

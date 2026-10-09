@@ -3,7 +3,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
+
+#include "rush2049_rom.h"
 
 // Rush 2049's music and sound effects, played on the host (src/audio2049.cpp): a C++ port of the MusyX sound system
 // Rush 2049 uses, driven by the data in the user's Rush 2049 ROM. Pure C++; no RDRAM or recompiler dependencies.
@@ -22,7 +25,16 @@ namespace rush2::audio2049 {
     // Parses the sound data out of the big-endian Rush 2049 ROM and decodes every sample (about 50 ms). Returns
     // false if the ROM isn't readable. Stops anything playing. Safe to call again with another ROM.
     bool load(const std::vector<uint8_t>& rom);
+    // Loads the sound of a Rush 2049 source: the N64 ROM's MusyX data, or a Dreamcast disc's own samples and streamed
+    // songs (src/audio2049_dc.cpp), which then answer every call below in the same N64 terms.
+    bool load(std::shared_ptr<const rush2::rom2049::Source> source);
     bool loaded();
+
+    // The 2049 track id (0-18) being raced, or -1. A Dreamcast disc has its own song for every track: a song that
+    // the N64 plays on this track then plays the disc's song for it.
+    void set_track(int track_id);
+    // A sound effect's sample (its loop, for a looping one) and rate, for code that plays it itself. Dreamcast only.
+    bool sfx_samples(int id, std::vector<int16_t>& pcm, uint32_t& rate);
 
     // The song Rush 2049 plays on race track t (0-5) with its default "per track" music option (0x8010FFD4).
     int track_song(int track);

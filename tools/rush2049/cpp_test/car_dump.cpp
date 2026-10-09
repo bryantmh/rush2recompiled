@@ -18,7 +18,7 @@ int main(int argc, char** argv) {
         printf("rom %zu file %d: %d %zu\n", rom.size(), i, (int)ok, out.size());
     }
     std::string err;
-    if (!rush2::track2049::convert_car(rom, argc > 1 ? atoi(argv[1]) : 1, argc > 3 ? argv[3] : "PICKUP", out, err)) {
+    if (!rush2::track2049::convert_car(*rush2::rom2049::n64_source(std::make_shared<const std::vector<uint8_t>>(rom)), argc > 1 ? atoi(argv[1]) : 1, argc > 3 ? argv[3] : "PICKUP", out, err)) {
         printf("error: %s\n", err.c_str());
         return 1;
     }

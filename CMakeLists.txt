@@ -140,6 +140,10 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/src/assets.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049_rom.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049_dc.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049_dc_convert.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049_dc_model.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049_dc_tables.cpp
     ${CMAKE_SOURCE_DIR}/src/collectibles.cpp
     ${CMAKE_SOURCE_DIR}/src/progress_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/unlocks.cpp
@@ -171,6 +175,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/track2049_texanim.cpp
     ${CMAKE_SOURCE_DIR}/src/car2049.cpp
     ${CMAKE_SOURCE_DIR}/src/audio2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/audio2049_dc.cpp
     ${CMAKE_SOURCE_DIR}/src/car1_decals.cpp
     ${CMAKE_SOURCE_DIR}/src/car1_stripes.cpp
     ${CMAKE_SOURCE_DIR}/src/wings.cpp
@@ -178,13 +183,13 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/wings_state.cpp
     ${CMAKE_SOURCE_DIR}/src/wings_render.cpp
     ${CMAKE_SOURCE_DIR}/src/wings_sound.cpp
+    ${CMAKE_SOURCE_DIR}/src/wings_menu.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
 )
 
 target_include_directories(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/lib/hqx
-    ${CMAKE_SOURCE_DIR}/src/wings_menu.cpp
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/sse2neon
     ${CMAKE_SOURCE_DIR}/lib/rt64/include

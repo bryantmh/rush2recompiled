@@ -103,7 +103,7 @@ namespace {
     std::mutex mutex;
     Item items[rush2::battle_render::max_slots];
     std::map<std::string, uint32_t> models;   // Name (15 characters at most) -> display list address
-    std::shared_ptr<const std::vector<uint8_t>> loaded_rom;
+    std::shared_ptr<const rush2::rom2049::Source> loaded_rom;
     bool loaded = false;
 
     uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
@@ -153,10 +153,10 @@ namespace {
         return false;
     }
 
-    bool load_file(uint8_t* rdram, const std::vector<uint8_t>& rom, const ModelFile& f) {
+    bool load_file(uint8_t* rdram, const rush2::rom2049::Source& rom, const ModelFile& f) {
         std::vector<uint8_t> file;
         Layout layout;
-        if (!rush2::rom2049::read_file(rom, f.file, file) || file.size() > f.max_size || file.size() % 4 != 0 || !parse_layout(file, layout)) {
+        if (!rom.read_file(f.file, file) || file.size() > f.max_size || file.size() % 4 != 0 || !parse_layout(file, layout)) {
             fprintf(stderr, "[Battle] Couldn't read Rush 2049's model file %d\n", f.file);
             return false;
         }
@@ -294,7 +294,7 @@ bool rush2::battle_render::image(uint8_t* rdram, const char* name, uint32_t* add
         int w, h;
     };
     static std::vector<Decoded> decoded;
-    static std::shared_ptr<const std::vector<uint8_t>> decoded_rom;
+    static std::shared_ptr<const rush2::rom2049::Source> decoded_rom;
     static uint32_t cursor = image_start;
     std::lock_guard lock{ mutex };
     if (!loaded || loaded_rom == nullptr) return false;
@@ -313,7 +313,7 @@ bool rush2::battle_render::image(uint8_t* rdram, const char* name, uint32_t* add
     }
     Decoded out{ name, 0, 0, 0 };
     std::vector<uint8_t> file;
-    if (rush2::rom2049::read_file(*loaded_rom, image_file, file) && file.size() >= 16) {
+    if (loaded_rom->read_file(image_file, file) && file.size() >= 16) {
         Chunk imag, txhd, plhd;
         for (size_t o = be32(file, 0); o + 12 <= file.size(); o += 12) {
             Chunk c{ be32(file, o + 4), be32(file, o + 8) };
@@ -327,6 +327,21 @@ bool rush2::battle_render::image(uint8_t* rdram, const char* name, uint32_t* add
             int width = (file[rec + 16] << 8) | file[rec + 17], height = (file[rec + 18] << 8) | file[rec + 19];
             int palette = (int16_t)((file[rec + 22] << 8) | file[rec + 23]);
             size_t texels = imag.offset + be32(file, rec + 24);
+            // A Dreamcast source's image: RGBA texels behind a load list.
+            std::vector<std::array<uint8_t, 4>> rgba;
+            if (palette < 0 && rush2::rom2049::list_image(file, imag.offset, (uint32_t)rec, rgba, width, height)) {
+                uint32_t bytes = (uint32_t)(width * height * 2);
+                if (cursor + bytes > image_end) break;
+                for (int t = 0; t < width * height; t++) {
+                    const auto& c = rgba[t];
+                    MEM_H(t * 2, (int32_t)cursor) = (int16_t)((c[0] >> 3) << 11 | (c[1] >> 3) << 6 | (c[2] >> 3) << 1 | (c[3] >= 128 ? 1 : 0));
+                }
+                out.address = cursor;
+                out.w = width;
+                out.h = height;
+                cursor += (bytes + 7) & ~7u;
+                break;
+            }
             size_t pal_rec = plhd.offset + (size_t)palette * 0x18;
             if (palette < 0 || (uint32_t)palette >= plhd.size || pal_rec + 0x18 > file.size() || width <= 0 || height <= 0) break;
             size_t colors = imag.offset + be32(file, pal_rec + 20);

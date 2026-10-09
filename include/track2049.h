@@ -33,7 +33,7 @@ namespace rush2::track2049 {
 
     // Menu art (src/track2049_art.cpp). Builds asset 3 (the track select's diorama container) with a diorama model
     // R49TRACKn and a name logo texture R49LOGOn for each 2049 track, appended to Rush 2's own asset 3.
-    bool build_menu_container(const std::vector<uint8_t>& rush2_asset3, const std::vector<uint8_t>& rom2049,
+    bool build_menu_container(const std::vector<uint8_t>& rush2_asset3, const rush2::rom2049::Source& rom2049,
                               std::vector<uint8_t>& out);
     // The track select's 38-entry diorama tables and asset 3 with the added tracks' dioramas (src/track2049_menu.cpp),
     // for screens other than the track select that show them (the unlock system's shop): call before loading asset 3.
@@ -42,7 +42,7 @@ namespace rush2::track2049 {
     uint32_t diorama_name(uint8_t* rdram, int t);
     float diorama_scale(uint8_t* rdram, int t);
     // Rush 2's in-race logo container for the host slot (asset 4 + host), with its texture replaced by track k's logo.
-    bool build_race_logo(const std::vector<uint8_t>& rush2_logo, const std::vector<uint8_t>& rom2049, int k,
+    bool build_race_logo(const std::vector<uint8_t>& rush2_logo, const rush2::rom2049::Source& rom2049, int k,
                          std::vector<uint8_t>& out);
 
     // The 2049 track (1-6, or obstacle) raced in the host slot, or 0 (src/track2049.cpp).

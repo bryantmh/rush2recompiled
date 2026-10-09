@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "rush2049_rom.h"
+
 // Conversion of a Rush 2049 race track to the files of a Rush 2 track slot (src/track2049_convert.cpp). Port of
 // tools/rush2049/track.py; its output is byte-identical (tools/rush2049/cpp_test checks this).
 namespace rush2::track2049 {
@@ -120,16 +122,16 @@ namespace rush2::track2049 {
     // The Rocket ZX (car 3) also gets its exhaust flames, models ROKTFLAMEG1-3 of effects file 62.
     constexpr int rocket_car = 3;
     constexpr int effects_file = 62;
-    bool convert_car(const std::vector<uint8_t>& rom2049, int car, const std::string& name, std::vector<uint8_t>& out,
+    bool convert_car(const rush2::rom2049::Source& rom2049, int car, const std::string& name, std::vector<uint8_t>& out,
                      std::string& error);
 
     // Rush 2049's part models `sources` (ENGINE01G1.., TIRE01G1..; setup screen file 56) as a Rush 2 model container,
     // named `names`, and each one's center (the middle of its vertices, in model units).
-    bool convert_parts(const std::vector<uint8_t>& rom2049, const std::vector<std::string>& sources,
+    bool convert_parts(const rush2::rom2049::Source& rom2049, const std::vector<std::string>& sources,
                        const std::vector<std::string>& names,
                        std::vector<uint8_t>& out, std::vector<std::array<float, 3>>& centers, std::string& error);
 
-    bool convert_track(const std::vector<uint8_t>& rom2049, int k, const std::string& prefix,
+    bool convert_track(const rush2::rom2049::Source& rom2049, int k, const std::string& prefix,
                        const std::set<std::string>& shared_models, bool static_paths, ConvertedTrack& out,
                        std::string& error);
 
