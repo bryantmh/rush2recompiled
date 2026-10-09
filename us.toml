@@ -775,6 +775,12 @@ func = "options_text_cb_names_values_803C6268"
 before_vram = 0x803C68AC
 text = "    rush2_track49_deaths_value_t0(rdram, ctx);"
 
+# A battle arena keeps DRONES open (its computer opponents): the digit of the drone count isn't greyed.
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6720
+text = "    rush2_track49_drones_value(rdram, ctx);"
+
 [[patches.hook]]
 func = "options_widget_cb_slider_803C5798"
 before_vram = 0x803C5930

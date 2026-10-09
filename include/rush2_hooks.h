@@ -195,6 +195,7 @@ void rush2_arrows_view(uint8_t* rdram, recomp_context* ctx);
 void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_deaths_value_t4(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_deaths_value_t0(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_drones_value(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_option_scroll(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_option_box(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_option_text_rows(uint8_t* rdram, recomp_context* ctx);
