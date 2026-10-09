@@ -7,7 +7,7 @@ You need to bring your own copy of the game. Nothing from the original cartridge
 ## What you get
 
 - **Widescreen.** Play in 4:3 like the original, 16:9, or expand the view to fill whatever window size you like.
-- **Smooth framerate.** The game still runs at its original speed of 30fps but interpolated up to any arbitrary framerate
+- **Smooth framerate.** The game still runs at its original speed of 30fps but interpolated up to any arbitrary framerate, including a variable refresh rate mode that follows your display
 - **HUD where you want it.** Keep the speedometer and lap info in the classic 4:3 spot, or push it out to the edges of the screen.
 - **No pop-in.** Turn off level of detail and every car and building is drawn at full quality, no matter how far away it is.
 - **Crisp fonts.** All the menu text and HUD numbers have been redrawn so they stay sharp at any resolution. You can switch back to the original blurry ones if you miss them.
@@ -17,7 +17,8 @@ You need to bring your own copy of the game. Nothing from the original cartridge
 - **Two players, any controllers.** Xbox, PlayStation and most other controllers work, plus keyboard. Pick which controller belongs to which player and the game remembers it next time.
 - **Rebind everything.** The game's own Controls screen now lets you map any button, trigger, stick or key. It shows the right button icons for your controller.
 - **Split screen.** Two player races can run side by side in addition to the original top and bottom.
-- **Three and four players (experimental).** After player 2, press START on any free controller to join.
+- **Three and four players.** After player 2, press START on any free controller to join.
+- **AI opponents.** Choose the car, paint and rims of each computer opponent in the Players tab.
 - **Ghost races.** Previously a 2049 exclusive feature. Record your runs and race against your own ghost car.
 - **Unlocks.** Earn cars, tracks and engines through an UNLOCKS shop. You can disable and revert to original Rush 2 behavior if you wish
 
@@ -30,6 +31,7 @@ If you also own **San Francisco Rush 2049** for the N64 (US version), you can po
 - **The 2049 cars.** All thirteen Rush 2049 cars join the car select after Rush 2's own.
 - **The 2049 music.** Each of the six 2049 tracks plays its own Rush 2049 song.
 - **The 2049 stunt arenas.** The stunt arenas are playable from the track select.
+- **Battle arenas.** Eight deathmatch arenas in the BATTLE row, with weapons, pickups, and arrows pointing to the other cars. Weapons can also be turned on in regular arena races with a cheat.
 - **Coins.** Collect 2049's coins, which are counted per player in the Progress tab and will later be used for unlocks.
 
 ### San Francisco Rush extras
@@ -38,6 +40,7 @@ If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version),
 
 - **The Rush 1 tracks.** All seven race tracks from the original San Francisco Rush
 - **The Rush 1 music.** The nine Rush 1 race songs play on its tracks, picked at random.
+- **Rush 1 car decals.** Some of Rush 1's own unique paint jobs are available as a stripe option.
 - **Keys.** Collect the keys hidden on the Rush 1 tracks, which are counted per player in the Progress tab and will later be used for unlocks.
 
 
