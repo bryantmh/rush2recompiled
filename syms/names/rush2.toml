@@ -7076,6 +7076,7 @@ sig = "void subway_update_matrix(void *a0, void *a1, Subway *s)"
 desc = "Helper of subway init/update: copies matrices at s+0x4 and s+0x2CC and reads vec3 fields +0x1C..+0x38 (factor 2). (low confidence)"
 consts = "0x2CC = second matrix offset"
 status = "inferred"
+rush1 = [0x8007FB30]
 area = "track"
 ref = "docs/functions/rush2_track.md#rush-2-track-functions"
 
@@ -7096,6 +7097,7 @@ sig = "void subway_update(void)"
 desc = "Moves the subway trains each physics tick (pseudo-car physics structs); called from func_80076578."
 consts = "0x81C = car struct stride"
 status = "verified"
+rush1 = [0x8007FC74]
 area = "track"
 ref = "docs/rush2049_research/placement.md#16-other-rush-2-moving-objects-template-for-2049-ones-v"
 
@@ -11461,6 +11463,7 @@ sig = "void subway_init(s32 a0)"
 desc = "Subway init (tracks 1 and 3 only, hard-coded at 0x800A4260): one node per train car (model SUBWAYO1, matrices in 0x800D4F00 entries of 0x4C bytes, count 0x800D4E74) and allocates count 0x81C-byte pseudo-car physics structs at 0x800D50E4."
 consts = "0x4C = matrix entry size, 0x81C = car struct size"
 status = "verified"
+rush1 = [0x800A9DB8]
 area = "track"
 ref = "docs/rush2049_research/placement.md#15-hard-coded-names-and-failure-safety"
 
@@ -13419,13 +13422,14 @@ ref = "docs/rush2049_research/placement.md#13-behaviour-ids-v"
 
 [[func]]
 vram = 0x800BB864
-name = "breakable_behavior_alloc_b"
-sig = "void breakable_behavior_alloc_b(void *a0, void *rec)"
-desc = "Breakable behavior callback allocating an instance via breakable_alloc; sets handlers breakable_behavior_b_step / breakable_behavior_b_c_step; uses constant 0x730 (breakable id). (low confidence)"
-consts = "0x730 = breakable id"
-status = "inferred"
+name = "breakable_spawn_fence"
+sig = "void breakable_spawn_fence(void *a0, void *rec)"
+desc = "Fence breakable spawner: breakable_alloc, piece id 0x730 (FENCEO1) at +0x62/+0x52, 12 pieces (+0x64), step/hit handlers; Rush 1's (0x800C32EC) also had the track 5 gate variant (T5GATEO1-12 = id 0x746, still in Rush 2's list). Hooked at 0x800BB8AC for the SF Rush gate."
+consts = "0x730 = FENCEO1 piece id; 0xC = piece count; 0x746 = T5GATEO1 (unused by Rush 2)"
+status = "verified"
+rush1 = [0x800C32EC]
 area = "track"
-ref = "docs/functions/rush2_track.md#rush-2-track-functions"
+ref = "docs/rush1_research.md#track-5-gate-v-2026-10-08"
 
 [[func]]
 vram = 0x800BB90C

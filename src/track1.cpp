@@ -462,6 +462,23 @@ extern "C" void rush2_track1_breakable_model(uint8_t* rdram, recomp_context* ctx
     }
 }
 
+// Rush 2's fence spawner (func_800BB864) at 0x800BB8AC, after it gives the new breakable ($v0) the FENCEO1 piece id
+// 0x730 at +0x62. Rush 1's (0x800C32EC) gives a fence with record +0x4A set track 5's gate pieces instead; the
+// converter names that record FENCET5GATEL1 (src/track1_convert.cpp), and Rush 2 still lists T5GATEO1-12 at id 0x746,
+// which the piece redirects resolve to Rush 1's T5GATEL1-12.
+extern "C" void rush2_track1_gate(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t current_record = 0x800D5790;
+    constexpr int16_t gate_pieces = 0x746;
+    std::lock_guard lock{ track_mutex };
+    if (record_redirects.empty()) {
+        return;
+    }
+    uint32_t record = (uint32_t)MEM_W(0, (int32_t)current_record);
+    if (record != 0 && read_name(rdram, record) == "FENCET5GATEL1") {
+        MEM_H(0x62, (int32_t)ctx->r2) = gate_pieces;
+    }
+}
+
 // Start of func_8008B0CC, the car hit test for a breakable ($a0 = the car, $a1 = the breakable): on a Rush 1 track,
 // Rush 1's rule (func_8008602C): the breakable's point in the car's frame within the car's footprint, |z| < 7 and
 // |x| < 3.5 (Rush 1 3), at any height. Rush 2 also wants it within about 2 units of the car's height, which on Rush

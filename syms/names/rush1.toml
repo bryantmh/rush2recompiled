@@ -3346,6 +3346,15 @@ area = "collision"
 ref = "docs/rush1_research.md#5-collision-v"
 
 [[func]]
+vram = 0x80079528
+name = "car_vs_buses"
+sig = "void car_vs_buses(Car *car)"
+desc = "Car against the track 6 bus bodies (from func_80079758): within the car's radius + 25, box test func_8007947C (height -12.5) and response func_80078F24; Rush 2's subway counterpart is func_8006EC78."
+consts = "25 = reach added to the car radius; -12.5 = box height (Rush 1 z down)"
+status = "verified"
+ref = "docs/rush1_research.md#track-6-traffic-buses-func_800a9db8-v-2026-10-08"
+
+[[func]]
 vram = 0x80079B90
 desc = "Collision polygon transform: local = M^T (p - origin), multiplying by the transpose of the stored matrix (Rush 2's func_80054454 computes M * v). ROM check: the Rush 1 code is a different routine (dot products against the matrix columns, stride 0xC), not a copy of Rush 2's func_80054454; Rush 1 has an identical copy of func_80054454 at func_8005C504 and func_8009A56C."
 status = "verified"
@@ -3434,6 +3443,16 @@ area = "race"
 ref = "docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c"
 
 [[func]]
+vram = 0x8007CF74
+name = "drone_bus_throttle_limit"
+sig = "void drone_bus_throttle_limit(Car *car, f32 *limit)"
+desc = "Computer driver: lowers the throttle limit for a track 6 bus ahead (0..200 forward, within 14 sideways): 0.8 within 120, rising linearly to 1 at 200. Called from func_8007D174 at 0x8007D7C8."
+consts = "200 = look-ahead; 14 = lateral reach; 120 = full slow-down distance; 0.8 = limit; 0.0025 = ramp"
+status = "verified"
+ported = true
+ref = "docs/rush1_research.md#track-6-traffic-buses-func_800a9db8-v-2026-10-08"
+
+[[func]]
 vram = 0x8007D174
 desc = "AI steering filter (behavior codes 1-5); matches Rush 2's func_80071FBC."
 status = "inferred"
@@ -3477,15 +3496,35 @@ area = "util"
 ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
 
 [[func]]
+vram = 0x8007FB30
+name = "bus_body_update"
+sig = "void bus_body_update(f32 step, s32 a1, Car *body, BusState *bus)"
+desc = "Copies a bus's velocity, position (2*step ahead) and orientation into its collision body, converting render to Rush 1 collision axes (body +0x92C velocity, +0xA00 position, +0x344 matrix)."
+status = "verified"
+rush2 = 0x80075EAC
+ref = "docs/rush1_research.md#track-6-traffic-buses-func_800a9db8-v-2026-10-08"
+
+[[func]]
 vram = 0x8007FC14
-name = "math_sincos_pair"
+name = "bus_yaw_matrix"
 sig = "void math_sincos_pair(void)"
-desc = "Same code as Rush 2 math_sincos_pair_80075F58 (24 instructions, address-masked match, float constants equal). Computes __cosf/__sinf of an angle (subway rotation) with 1.0 constant, used by subway init/update. (low confidence)"
-status = "inferred"
+desc = "Builds a yaw matrix at $s0 from angle $f22 (register-passed): {cos,0,sin; 0,1,0; -sin,0,cos}; func_80005B40 = cos, func_80005980 = sin."
+status = "verified"
 rush2 = 0x80075F58
 link = "same-code"
 area = "util"
-ref = "docs/functions/rush1_util.md#sf-rush-util-functions"
+ref = "docs/rush1_research.md#track-6-traffic-buses-func_800a9db8-v-2026-10-08"
+
+[[func]]
+vram = 0x8007FC74
+name = "track6_buses_update"
+sig = "void track6_buses_update(f32 dt)"
+desc = "Moves the track 6 buses each physics tick: passes a node when within a step or no longer closing, else eases speed to the node's and turns towards its heading (error clamped to +-pi/4 per second, turn change to +-pi/16 per tick); position += speed*dt*forward; updates each bus's collision body (func_8007FB30)."
+consts = "0.19634955 = pi/16 max turn change; 0.78539819 = pi/4 max turn rate; 1e7 = far distance"
+status = "verified"
+ported = true
+rush2 = 0x80075FB8
+ref = "docs/rush1_research.md#track-6-traffic-buses-func_800a9db8-v-2026-10-08"
 
 [[func]]
 vram = 0x80080970
@@ -3904,6 +3943,17 @@ area = "race"
 ref = "docs/rush1_research.md#checkpoints"
 
 [[func]]
+vram = 0x800A9DB8
+name = "track6_buses_init"
+sig = "void track6_buses_init(int enable)"
+desc = "Track 6 traffic: with enable set, loads BUSO1 and spawns 8 path-following buses (count byte 0x800DA084, 0x48-byte states at 0x800DA0B8, 0xA68-byte collision bodies at *0x800DA328); with enable clear, count 0."
+consts = "8 = bus count; 0x5340 = 8*0xA68 body alloc; 0x48 = per-bus state size"
+status = "verified"
+ported = true
+rush2 = 0x800A4210
+ref = "docs/rush1_research.md#track-6-traffic-buses-func_800a9db8-v-2026-10-08"
+
+[[func]]
 vram = 0x800AB90C
 sig = "void race_clear_player_setup_bytes_wrapper(void)"
 desc = "Same code as Rush 2 race_clear_player_setup_bytes_wrapper_8009FEC8 (8 instructions, address-masked match, float constants equal). Thin wrapper that calls race_clear_player_setup_bytes. One of 9 identical copies; paired with this Rush 2 copy by address order, so which copy is which is a guess."
@@ -4188,6 +4238,16 @@ rush2 = 0x800BAD44
 link = "same-code"
 area = "ui"
 ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
+
+[[func]]
+vram = 0x800C32EC
+name = "breakable_spawn_fence"
+desc = "Fence breakable spawner: piece id 0x1A6 (FENCEL1), 12 pieces; 0x1BC (T5GATEL1, track 5's gate) when breakable +0x76 (placement record +0x4A via 0x800EA140) is set."
+consts = "0x1A6 = FENCEL1 id; 0x1BC = T5GATEL1 id; 12 = piece count"
+status = "verified"
+ported = true
+rush2 = 0x800BB864
+ref = "docs/rush1_research.md#track-5-gate-v-2026-10-08"
 
 [[func]]
 vram = 0x800C3678

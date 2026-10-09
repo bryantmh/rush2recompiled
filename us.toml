@@ -1119,6 +1119,35 @@ value = 0x3C118030 # lui $s1, 0x8030
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
+# SF Rush track 6's traffic buses (src/track1_buses.cpp): Rush 2's subway trains are Rush 1's buses grown up; on SF
+# Rush track 6 the subway setup and per-tick move are Rush 1's (func_800A9DB8, func_8007FC74), the car collision
+# uses the buses' reach and height, and the computer drivers lift off behind a bus as in Rush 1 (func_8007CF74).
+[[patches.hook]]
+func = "subway_init_800A4210"
+before_vram = 0x800A4210
+text = "    if (rush2_track1_buses_init(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "subway_update_80075FB8"
+before_vram = 0x80075FB8
+text = "    if (rush2_track1_buses_update(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "car_corner_points_collision_8006EC78"
+before_vram = 0x8006ED1C
+text = "    rush2_track1_buses_collision(rdram, ctx);"
+
+[[patches.hook]]
+func = "ai_steering_filter_80071FBC"
+before_vram = 0x80072564
+text = "    rush2_track1_buses_drive(rdram, ctx);"
+
+# SF Rush track 5's gate (src/track1.cpp): the fence record SF Rush flags as the gate breaks into its own pieces.
+[[patches.hook]]
+func = "breakable_spawn_fence_800BB864"
+before_vram = 0x800BB8AC
+text = "    rush2_track1_gate(rdram, ctx);"
+
 vram = 0x803B62AC
 value = 0x263108D8 # addiu $s1, $s1, 0x8D8
 

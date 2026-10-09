@@ -212,6 +212,13 @@ void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx);
 int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx);
 
 // SF Rush breakables (src/track1.cpp).
+// SF Rush track 6 buses (src/track1_buses.cpp).
+int rush2_track1_buses_init(uint8_t* rdram, recomp_context* ctx);
+int rush2_track1_buses_update(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_buses_collision(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_buses_drive(uint8_t* rdram, recomp_context* ctx);
+void rush2_track1_gate(uint8_t* rdram, recomp_context* ctx);
+
 void rush2_track1_record_model(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_model_name(uint8_t* rdram, recomp_context* ctx);
 void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx);

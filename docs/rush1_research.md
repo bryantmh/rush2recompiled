@@ -374,9 +374,76 @@ TIME, CCAR, FIRECRK, SMALLHOOT, BIGCHEER, BIGCHEER2. Everything else is a static
 0 (name record +0x14 = 0xFFFF in the low half) and no per-track animation code was found. Anything that looks like a
 windmill on track 6 is therefore baked into a static piece (TRACK6LP1_*, LP2_*, BCH_*), and does not turn in Rush 1.
 
-Geometry models that no placement record uses (so nothing draws them in the port):
-- Track 5: T5GATEL1-12 (in the dynamic name table; no record places them and the converter has no class for them).
-- Track 6: BUSO1 (a 267-triangle bus, 192 x 200 x 640 units; also named in main at 0x800D05AC).
+Geometry models that no placement record names directly (each turned out to be code-driven):
+- Track 5: T5GATEL1-12, the gate (see "Track 5 gate" below).
+- Track 6: BUSO1 (a 267-triangle bus, 192 x 200 x 640 units; also named in main at 0x800D05AC), the traffic (see
+  "Track 6 traffic buses" below).
+
+### Track 6 traffic buses (func_800A9DB8) [V, 2026-10-08]
+
+Track 6 has eight roaming buses driven by code, not placement records. Rush 2's subway trains (subway_init
+func_800A4210, subway_update func_80075FB8, the pseudo-car route in func_8006EC78) are this system grown up.
+
+**Setup, `func_800A9DB8(int enable)`.** Called from race setup (0x800AA420) with `enable = (track byte 0x80100050 ==
+5)`, i.e. track 6 only, and again with 0 at 0x800AB194. With enable set it:
+- loads model BUSO1 (`func_80069D1C("BUSO1", 1)`) and sets the bus count byte 0x800DA084 to 8,
+- for each bus i reads a start record at 0x800C6848 + 0x14*i {+0 path, +4 f32[3] start position, +0x10 s8 start
+  node} and fills a 0x48-byte state at 0x800DA0B8 + 0x48*i: +0 path, +4 f32[9] yaw matrix, +0x28 f32[3] position
+  (render space), +0x34 speed (the start node's), +0x38 distance to the node (1e7 = far), +0x3C heading (the start
+  node's), +0x40 last turn step, +0x44 s8 node, +0x46 draw object (func_80066C00, mode 3, on the matrix at +4),
+- allocates 8 x 0xA68 bytes (`func_80097F88(0x5340)`, a car state each) at *0x800DA328 as collision bodies with a
+  car-style box (+0x114..+0x140: +-20 long, +-6 wide, -12 tall in Rush 1's car axes) and fills them
+  (func_8007FB30(0)).
+With enable clear the count is 0 and the body pointer null.
+
+**Paths.** Two node lists, 0x10 bytes per node {f32 x, f32 z, s16 speed (units/s, < 0 ends the list), pad, f32
+heading}: 0x800C6558 (23 nodes, buses 0-3) and 0x800C66C8 (24 nodes, buses 4-7). Each is a long loop between z
+-3770 and +660 on track 6's roads; buses 0/1 and 4/5 start at node 0, 2/3 at 10 and 6/7 at 11, all at y 40.
+
+**Move, `func_8007FC74(dt)`** (Rush 1's physics tick func_800802D8). Per bus, with step = speed * dt and d the xz
+distance to the current node:
+- if d < step or d grew past the stored distance: speed = the node's speed, node + 1 (back to 0 at a negative
+  speed), distance = 1e7;
+- else: distance = d; speed += (node speed - speed) * step / d; the heading error (node heading - heading, wrapped
+  to +-pi) is clamped to +-pi/4 and times dt is the turn, whose change from the last tick is clamped to +-pi/16;
+  heading += turn, wrapped; matrix = func_8007FC14(-heading): {cos, 0, sin; 0, 1, 0; -sin, 0, cos} (func_80005B40
+  = cos, func_80005980 = sin; the forward row +0x1C is (sin h, 0, cos h)). The setup builds its first matrix from
+  +heading, which the first turn replaces.
+- position += step * forward; func_8007FB30 copies velocity, position (2 * step ahead) and orientation into the body,
+  converting to Rush 1's collision axes.
+Buses do not steer towards node positions: they turn towards each node's heading and pass the node when they stop
+closing on it.
+
+**Cars.** func_80079528 (called from car against car, func_80079758) tests each car against each body within the
+car's radius + 25 (func_8007947C, box height -12.5) and responds with func_80078F24, as Rush 2's func_8006EC78 does for
+the trains (radius + 72, height 18). func_8007CF74, at the end of the computer driver's look at the cars ahead
+(func_8007D174, 0x8007D7C8), lowers the throttle limit to 0.8 for a bus up to 120 ahead and within 14 to the side,
+rising to 1 at 200.
+
+**Port** (src/track1_buses.cpp). Rush 2's subway array holds 6 entries, so on SF Rush track 6 subway_init and
+subway_update are replaced (hooks at their entries) by a port of func_800A9DB8 / func_8007FC74. Bus states stay in
+C++; each bus's pose (matrix + position, what its scene node points at) sits in the game heap after the 8 pseudo-car
+bodies (0x81C bytes each, pointer 0x800D50E4, count 0x800D4E74), so Rush 2's car collision hits the buses as it hits
+the trains; the hook at 0x8006ED1C gives func_8006EC78 the buses' reach and height (25, 12.5), and the hook at
+0x80072564 in func_80071FBC adds the drivers' bus check (on Rush 2's sp+0x134 throttle limit, car orientation
++0x7BC, position +0x7B0; Rush 2 car axes x side, y up, z forward). Render space is Rush 2's world space, so paths
+and poses carry over unchanged.
+
+### Track 5 gate [V, 2026-10-08]
+
+T5GATEL1-12 are a fence variant. Rush 1's fence spawner (0x800C32EC, called through the breakable class table) gives
+a new breakable piece id 0x1A6 (FENCEL1, index 422 of the dynamic model list at 0x800CC978) and 12 pieces, but 0x1BC
+(T5GATEL1, index 444) when +0x76 is set. +0x76 is placement record +0x4A, which the placement walker
+(func_800829E4, 0x80082AA8 / 0x80082BC8) stores in 0x800EA140 for the spawner. The breakable draws its id's model
+and breaks into id..id+11, so a flagged fence is drawn as T5GATEL1 and breaks into T5GATEL1-12. Track 5 has one:
+the FENCEL1 record at (-265.7, -53.8, -140.0) with +0x4A = 1, next to the start MARKERs; no other track sets +0x4A on
+a fence.
+
+Rush 2's fence spawner (breakable_behavior_alloc_b, func_800BB864) dropped the branch and always uses 0x730
+(FENCEO1), but Rush 2's piece name list still has T5GATEO1-12, 22 entries after FENCEO1 as in Rush 1, so id 0x746.
+Port: the converter turns a fence record with +0x4A set into a T5GATEL1 object of class FENCE (record
+FENCET5GATEL1, drawn with T5GATEL1, origin moved to its base like the other breakables) and redirects T5GATEO1-12 to
+T5GATEL1-12; src/track1.cpp (hook at 0x800BB8AC) gives the FENCET5GATEL1 breakable piece id 0x746.
 
 ## 11. Car decals as a stripe (SF RUSH STRIPE value)
 
