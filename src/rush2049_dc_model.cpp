@@ -91,6 +91,17 @@ namespace {
 #include "rush2049_dc_names.inc"
     };
 
+    // The render mode the N64 draws a texture with, per N64 file.
+    struct TexMode {
+        int file;
+        const char* name;
+        uint32_t mode;
+    };
+    const TexMode texture_modes[] = {
+#define TEXMODE(file, name, mode) { file, name, mode },
+#include "rush2049_dc_names.inc"
+    };
+
     // ------------------------------------------------------------------------------------------------------------
     // Byte access
 
@@ -290,7 +301,26 @@ namespace {
     // ------------------------------------------------------------------------------------------------------------
     // N64 textures
 
+    // The N64's render modes for its models: opaque, alpha-tested edges, translucent, translucent writing depth.
     constexpr uint32_t rm_opaque = 0xC8112230, rm_edge = 0xC8113278, rm_translucent = 0xC8104A50;
+
+    // A texture's render mode: the one the N64 draws the same texture with in the same file (the N64 names few of a
+    // track's textures), else by its alpha the way the N64's track textures are drawn: mostly see-through (glass,
+    // water, smoke) translucent, any clear texels (tree cards, fences: the disc's soft-edged ARGB4444 cutouts)
+    // alpha-tested edges, which write depth only where they're solid, else opaque. Drawing cutouts translucent let
+    // farther objects drawn later show through them (the Golden Gate through the trees); translucent writing depth
+    // blocked what's behind their clear parts.
+    uint32_t texture_mode(int file, const std::string& name, const std::vector<Rgba>& px) {
+        for (const TexMode& t : texture_modes) {
+            if (t.file == file && name == t.name) return t.mode;
+        }
+        size_t clear = 0, graded = 0;
+        for (const Rgba& p : px) {
+            if (p.a < 255) clear++;
+            if (p.a >= 16 && p.a < 240) graded++;
+        }
+        return graded * 2 > px.size() ? rm_translucent : clear ? rm_edge : rm_opaque;
+    }
     // Combiners (2-cycle, the second passing the first on): texel times shade with the texel's alpha, as the N64's
     // own unmipmapped lists; shade with alpha 1 for untextured strips.
     constexpr uint32_t cc_textured[2] = { 0xFC127FFF, 0xFFFFF238 };
@@ -304,6 +334,11 @@ namespace {
         uint32_t texels = 0;        // offset in IMAG
         uint32_t list = 0;          // offset of the load list in TXLD
         Bytes data;
+        bool shrunk = false;        // smaller than the disc's
+        int source = -1;            // the disc's texture record
+        uint32_t tint = 0xFFFFFF;
+        bool ci8 = false;           // CI8 texels of the file's palette (a car's, paint_car)
+        std::vector<Rgba> small;    // the texels at the N64 size, before packing
     };
 
     // Box-filtered to w x h (alpha-weighted color, so clear texels don't darken their neighbors).
@@ -335,11 +370,11 @@ namespace {
 
     // level: TMEM's texel limit is halved that many times (to fit a file's size budget).
     OutTexture make_texture(const std::string& name, const std::vector<Rgba>& px, int w, int h, int pixel, uint32_t tint,
-                            int level, int max_w, int max_h) {
+                            int level, int max_w, int max_h, uint32_t mode) {
         OutTexture t;
         t.name = name;
         t.rgba32 = pixel == 0;
-        t.mode = pixel == 0 ? rm_translucent : pixel == 2 ? rm_edge : rm_opaque;
+        t.mode = mode;
         // TMEM holds 4 KB: 2048 16-bit texels, or 1024 32-bit ones (split over its two halves). Halve the longer side.
         int limit = (t.rgba32 ? 1024 : 2048) >> level, nw = w, nh = h;
         while (nw * nh > limit || nw > 256 || nh > 256) {
@@ -350,6 +385,8 @@ namespace {
         while (nh > max_h && nh > 1) nh /= 2;
         t.w = nw;
         t.h = nh;
+        t.shrunk = nw != w || nh != h;
+        t.tint = tint;
         std::vector<Rgba> small = (nw == w && nh == h) ? px : shrink(px, w, h, nw, nh);
         if (tint != 0xFFFFFF) {
             for (Rgba& p : small) {
@@ -358,6 +395,7 @@ namespace {
                 p.b = uint8_t(p.b * (tint & 0xFF) / 255);
             }
         }
+        t.small = small;
         for (const Rgba& p : small) {
             if (t.rgba32) {
                 t.data.insert(t.data.end(), { p.r, p.g, p.b, p.a });
@@ -374,6 +412,28 @@ namespace {
     // The load list (as 2049's: SETTIMG first, then the load, the tile and its size; texture animation reads the
     // first SETTIMG and the SETTILESIZE). SETTIMG is IMAG-relative, as in the N64's files.
     void add_load_list(Bytes& txld, const OutTexture& t) {
+        if (t.ci8) {
+            // As the N64's car lists: loaded as 16-bit texels, drawn CI 8-bit with the palette the game loads for the
+            // car (its PLHD palette, recolored by src/car2049.cpp), TLUT left on as Rush 2 keeps it.
+            uint32_t words = std::max<uint32_t>(1, t.w / 8);
+            uint32_t dxt = (2048 + words - 1) / words;
+            uint32_t lrs = (t.w * t.h + 1) / 2 - 1;
+            uint32_t mask_s = log2i(t.w), mask_t = log2i(t.h);
+            uint32_t list[] = {
+                0xFD500000, t.texels,                                               // G_SETTIMG CI 16-bit
+                0xF5500000, 0x07000000,                                             // G_SETTILE load tile
+                0xE6000000, 0,                                                      // G_RDPLOADSYNC
+                0xF3000000, 0x07000000 | lrs << 12 | dxt,                           // G_LOADBLOCK
+                0xE7000000, 0,                                                      // G_RDPPIPESYNC
+                0xD7000002, 0xFFFFFFFF,                                             // G_TEXTURE on, one level
+                0xF5480000 | words << 9, mask_t << 14 | mask_s << 4,                // G_SETTILE render tile CI 8-bit
+                0xF2000000, (uint32_t)(t.w - 1) << 14 | (uint32_t)(t.h - 1) << 2,   // G_SETTILESIZE
+                0xE3001001, 0x00008000,                                             // texture LUT RGBA16
+                0xDF000000, 0,
+            };
+            for (uint32_t v : list) add32(txld, v);
+            return;
+        }
         uint32_t siz = t.rgba32 ? 3 : 2, bytes = t.rgba32 ? 4 : 2;
         uint32_t words = std::max<uint32_t>(1, t.w * bytes / 8);
         uint32_t dxt = (2048 + words - 1) / words;
@@ -757,6 +817,300 @@ namespace {
     bool name_less(const std::string& a, const std::string& b) {
         return strncmp(a.c_str(), b.c_str(), 15) < 0;
     }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Car paint
+
+    uint16_t rgba5551(int r, int g, int b) {
+        return uint16_t((std::clamp(r, 0, 255) >> 3) << 11 | (std::clamp(g, 0, 255) >> 3) << 6 | (std::clamp(b, 0, 255) >> 3) << 1 | 1);
+    }
+
+    // Up to `count` colors for the histogram `colors` (RGB555 -> texels), by median cut; `index` gets each color's.
+    std::vector<uint16_t> median_cut(const std::unordered_map<uint16_t, uint32_t>& colors, size_t count,
+                                     std::unordered_map<uint16_t, uint8_t>& index) {
+        struct Box {
+            std::vector<std::pair<uint16_t, uint32_t>> c;
+        };
+        auto channel = [](uint16_t v, int k) { return (v >> (10 - 5 * k)) & 31; };
+        std::vector<Box> boxes(1);
+        for (const auto& kv : colors) boxes[0].c.push_back(kv);
+        while (boxes.size() < count) {
+            // Split the box with the widest weighted range along that axis at its weighted median.
+            int best = -1, axis = 0;
+            uint64_t score = 0;
+            for (size_t b = 0; b < boxes.size(); b++) {
+                if (boxes[b].c.size() < 2) continue;
+                uint64_t weight = 0;
+                for (const auto& [v, n] : boxes[b].c) weight += n;
+                for (int k = 0; k < 3; k++) {
+                    int lo = 31, hi = 0;
+                    for (const auto& [v, n] : boxes[b].c) {
+                        lo = std::min(lo, channel(v, k));
+                        hi = std::max(hi, channel(v, k));
+                    }
+                    uint64_t s = uint64_t(hi - lo) * (weight + 1);
+                    if (hi > lo && s >= score) {
+                        score = s;
+                        best = (int)b;
+                        axis = k;
+                    }
+                }
+            }
+            if (best < 0) break;
+            auto& c = boxes[best].c;
+            std::sort(c.begin(), c.end(), [&](const auto& a, const auto& b) { return channel(a.first, axis) < channel(b.first, axis); });
+            uint64_t total = 0, run = 0;
+            for (const auto& [v, n] : c) total += n;
+            size_t cut = 1;
+            for (; cut < c.size(); cut++) {
+                run += c[cut - 1].second;
+                if (run * 2 >= total) break;
+            }
+            cut = std::clamp<size_t>(cut, 1, c.size() - 1);
+            Box upper;
+            upper.c.assign(c.begin() + cut, c.end());
+            c.resize(cut);
+            boxes.push_back(std::move(upper));
+        }
+        std::vector<uint16_t> out;
+        for (const Box& b : boxes) {
+            uint64_t r = 0, g = 0, bl = 0, n = 0;
+            for (const auto& [v, k] : b.c) {
+                r += channel(v, 0) * k;
+                g += channel(v, 1) * k;
+                bl += channel(v, 2) * k;
+                n += k;
+                index[v] = (uint8_t)out.size();
+            }
+            n = std::max<uint64_t>(n, 1);
+            out.push_back(uint16_t((r / n) << 11 | (g / n) << 6 | (bl / n) << 1 | 1));
+        }
+        return out;
+    }
+
+    // A disc car's paint as the N64's (src/car2049.cpp, §8 Paint): every texture CI8 over one 256-color palette whose
+    // entries 32-63, 64-95 and 96-126 are the main, accent and stripe ramps (a color stepping towards black) the game
+    // rewrites to the player's colors; 0 is clear, 128-255 the unpainted colors. The disc has no ramps: each paint job
+    // (CARnPJ1-12) is a full set of the body textures colored for it. Texels whose hue differs between the jobs are
+    // paint; the jobs' hues sort them into up to three regions (k-means over the hues in jobs 1-7, a region kept only
+    // if it is a clean color, saturated or white, in most jobs), largest first; a texel's shade in its ramp is its
+    // brightness against the region's in each job. Jobs 8 (chrome) and 9-12 (repeats) are left out.
+    // Returns false (textures left as they are) if the jobs aren't there.
+    bool paint_car(const rush2::rom2049::dc::Files& files, const std::string& dc_file, const DcModel& m, std::vector<OutTexture>& textures,
+                   Bytes& palette) {
+        constexpr int jobs = 7;
+        // Each job's textures by the base texture's name (the job's less its color suffix, C1_TOP01_BLU).
+        std::vector<std::map<std::string, std::vector<Rgba>>> job(jobs);
+        for (int j = 0; j < jobs; j++) {
+            Bytes data;
+            if (!files.get(dc_file + "PJ" + std::to_string(j + 1) + ".LZS", data)) return false;
+            DcModel pm = parse(data);
+            for (const DcTexture& t : pm.textures) {
+                size_t cut = t.name.rfind('_');
+                if (cut != std::string::npos) job[j][t.name.substr(0, cut)] = decode(pm, t);
+            }
+        }
+
+        // Each texture's texels in every job at the N64 size (empty when a job lacks it).
+        struct Texel {
+            int tex;
+            uint32_t i;
+            float hue[jobs * 3];
+            float bright[jobs];
+        };
+        std::vector<std::vector<std::vector<Rgba>>> jobs_small(textures.size());
+        std::vector<Texel> painted;
+        std::vector<std::vector<int>> region(textures.size());
+        for (size_t ti = 0; ti < textures.size(); ti++) {
+            OutTexture& t = textures[ti];
+            region[ti].assign(t.small.size(), -1);
+            if (t.source < 0) continue;
+            const DcTexture& base = m.textures[t.source];
+            for (int j = 0; j < jobs; j++) {
+                auto it = job[j].find(base.name);
+                if (it == job[j].end() || it->second.size() != (size_t)base.w * base.h) {
+                    jobs_small[ti].clear();
+                    break;
+                }
+                const std::vector<Rgba>& px = it->second;
+                jobs_small[ti].push_back(t.w == base.w && t.h == base.h ? px : shrink(px, base.w, base.h, t.w, t.h));
+            }
+            if (jobs_small[ti].size() != jobs) continue;
+            for (uint32_t i = 0; i < t.small.size(); i++) {
+                Texel x{};
+                x.tex = (int)ti;
+                x.i = i;
+                float lo[3] = { 1, 1, 1 }, hi[3] = { 0, 0, 0 }, dim = 255;
+                bool clear = false;
+                for (int j = 0; j < jobs; j++) {
+                    const Rgba& p = jobs_small[ti][j][i];
+                    clear |= p.a < 128;
+                    float mx = (float)std::max({ p.r, p.g, p.b });
+                    x.bright[j] = mx;
+                    dim = std::min(dim, mx);
+                    const uint8_t c[3] = { p.r, p.g, p.b };
+                    for (int k = 0; k < 3; k++) {
+                        float h = c[k] / (mx + 8.0f);
+                        x.hue[j * 3 + k] = h;
+                        lo[k] = std::min(lo[k], h);
+                        hi[k] = std::max(hi[k], h);
+                    }
+                }
+                float spread = std::max({ hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] });
+                if (!clear && spread >= 0.4f && dim >= 24) painted.push_back(x);
+            }
+        }
+
+        // Regions.
+        int regions = 0;
+        std::vector<int> label(painted.size(), 0);
+        std::vector<std::array<float, jobs * 3>> centers;
+        auto distance = [](const float* a, const float* b) {
+            float d = 0;
+            for (int k = 0; k < jobs * 3; k++) d += (a[k] - b[k]) * (a[k] - b[k]);
+            return d;
+        };
+        for (int k = std::min<int>(3, (int)painted.size()); k >= 1; k--) {
+            centers.assign(k, {});
+            // Seeds: the median, then each the texel farthest from those before.
+            for (int c = 0; c < jobs * 3; c++) {
+                std::vector<float> v(painted.size());
+                for (size_t i = 0; i < painted.size(); i++) v[i] = painted[i].hue[c];
+                std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+                centers[0][c] = v[v.size() / 2];
+            }
+            for (int s = 1; s < k; s++) {
+                float far = -1;
+                size_t at = 0;
+                for (size_t i = 0; i < painted.size(); i++) {
+                    float d = 1e30f;
+                    for (int c = 0; c < s; c++) d = std::min(d, distance(painted[i].hue, centers[c].data()));
+                    if (d > far) {
+                        far = d;
+                        at = i;
+                    }
+                }
+                std::copy(painted[at].hue, painted[at].hue + jobs * 3, centers[s].begin());
+            }
+            std::vector<size_t> sizes(k);
+            for (int pass = 0; pass < 30; pass++) {
+                std::vector<std::array<double, jobs * 3>> sum(k, std::array<double, jobs * 3>{});
+                std::fill(sizes.begin(), sizes.end(), 0);
+                for (size_t i = 0; i < painted.size(); i++) {
+                    int best = 0;
+                    float bd = 1e30f;
+                    for (int c = 0; c < k; c++) {
+                        float d = distance(painted[i].hue, centers[c].data());
+                        if (d < bd) {
+                            bd = d;
+                            best = c;
+                        }
+                    }
+                    label[i] = best;
+                    sizes[best]++;
+                    for (int q = 0; q < jobs * 3; q++) sum[best][q] += painted[i].hue[q];
+                }
+                for (int c = 0; c < k; c++) {
+                    if (sizes[c] == 0) continue;
+                    for (int q = 0; q < jobs * 3; q++) centers[c][q] = float(sum[c][q] / sizes[c]);
+                }
+            }
+            // A region is a clean color (saturated, or white) in most jobs; mixes of regions and shading aren't.
+            bool clean = true;
+            for (int c = 0; c < k; c++) {
+                int good = 0;
+                for (int j = 0; j < jobs; j++) {
+                    const float* h = &centers[c][j * 3];
+                    float lo = std::min({ h[0], h[1], h[2] }), hi = std::max({ h[0], h[1], h[2] });
+                    good += hi >= 0.85f && (lo <= 0.25f || lo >= 0.8f);
+                }
+                if (good < 5 || sizes[c] * 200 < painted.size()) clean = false;
+            }
+            regions = k;
+            if (clean) break;
+        }
+        // Largest region first: main, accent, stripe.
+        std::vector<int> order(regions), rank(regions);
+        {
+            std::vector<size_t> sizes(regions, 0);
+            for (int l : label) sizes[l]++;
+            for (int c = 0; c < regions; c++) order[c] = c;
+            std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return sizes[a] > sizes[b]; });
+            for (int c = 0; c < regions; c++) rank[order[c]] = c;
+        }
+        // A region's brightness in each job: its 90th percentile.
+        std::vector<std::array<float, jobs>> full(regions);
+        for (int c = 0; c < regions; c++) {
+            for (int j = 0; j < jobs; j++) {
+                std::vector<float> v;
+                for (size_t i = 0; i < painted.size(); i++) {
+                    if (label[i] == c) v.push_back(painted[i].bright[j]);
+                }
+                if (v.empty()) {
+                    full[c][j] = 255;
+                    continue;
+                }
+                size_t at = v.size() * 9 / 10;
+                std::nth_element(v.begin(), v.begin() + at, v.end());
+                full[c][j] = std::max(v[at], 1.0f);
+            }
+        }
+        constexpr int ramp_first[3] = { 32, 64, 96 };
+        for (size_t i = 0; i < painted.size(); i++) {
+            const Texel& x = painted[i];
+            int c = label[i];
+            float shade[jobs];
+            for (int j = 0; j < jobs; j++) shade[j] = x.bright[j] / full[c][j];
+            std::nth_element(shade, shade + jobs / 2, shade + jobs);
+            int r = rank[c];
+            int step = std::clamp((int)std::lround((1.0f - shade[jobs / 2]) * 32.0f), 0, r == 2 ? 29 : 30);
+            region[x.tex][x.i] = ramp_first[r] + 1 + step;
+        }
+
+        // The palette: the regions' colors in the first job, then the unpainted colors.
+        std::vector<uint16_t> pal(256, 0);
+        for (int c = 0; c < regions; c++) {
+            const float* h = &centers[c][0];
+            float scale = full[c][0] / std::max({ h[0], h[1], h[2], 0.01f });
+            int first = ramp_first[rank[c]];
+            for (int s = 0; s <= 31 && first + s < 128; s++) {
+                float t = s == 0 ? 1.0f : 1.0f - (s - 1) / 32.0f;
+                pal[first + s] = rgba5551(int(h[0] * scale * t), int(h[1] * scale * t), int(h[2] * scale * t));
+            }
+        }
+        auto unpainted = [&](size_t ti, uint32_t i) -> const Rgba& {
+            return jobs_small[ti].empty() ? textures[ti].small[i] : jobs_small[ti][0][i];
+        };
+        std::unordered_map<uint16_t, uint32_t> histogram;
+        for (size_t ti = 0; ti < textures.size(); ti++) {
+            for (uint32_t i = 0; i < textures[ti].small.size(); i++) {
+                const Rgba& p = unpainted(ti, i);
+                if (region[ti][i] < 0 && p.a >= 128) histogram[rgba5551(p.r, p.g, p.b) >> 1]++;
+            }
+        }
+        std::unordered_map<uint16_t, uint8_t> index;
+        std::vector<uint16_t> rest = median_cut(histogram, 128, index);
+        for (size_t c = 0; c < rest.size(); c++) pal[128 + c] = rest[c];
+        for (size_t ti = 0; ti < textures.size(); ti++) {
+            OutTexture& t = textures[ti];
+            t.data.resize(t.small.size());
+            for (uint32_t i = 0; i < t.small.size(); i++) {
+                const Rgba& p = unpainted(ti, i);
+                t.data[i] = region[ti][i] >= 0 ? (uint8_t)region[ti][i]
+                          : p.a < 128      ? 0
+                                           : uint8_t(128 + index[rgba5551(p.r, p.g, p.b) >> 1]);
+            }
+            t.ci8 = true;
+            t.rgba32 = false;
+            t.shrunk = false; // the full-size image isn't paintable: drawn as converted
+        }
+        palette.clear();
+        for (uint16_t c : pal) {
+            palette.push_back(uint8_t(c >> 8));
+            palette.push_back(uint8_t(c));
+        }
+        return true;
+    }
 }
 
 std::string rush2::rom2049::dc::n64_name(const std::string& dc_name) {
@@ -769,7 +1123,31 @@ std::string rush2::rom2049::dc::n64_name(const std::string& dc_name) {
     return it == map.end() ? dc_name : it->second;
 }
 
-bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc_file, int n64_file, std::vector<uint8_t>& out) {
+bool rush2::rom2049::dc::decode_texture(const std::vector<uint8_t>& container, uint32_t index, uint32_t tint,
+                                        std::vector<uint8_t>& rgba, int& w, int& h) {
+    try {
+        DcModel m = parse(container);
+        if (index >= m.textures.size()) return false;
+        const DcTexture& t = m.textures[index];
+        std::vector<Rgba> px = decode(m, t);
+        w = t.w;
+        h = t.h;
+        rgba.resize(px.size() * 4);
+        for (size_t i = 0; i < px.size(); i++) {
+            rgba[i * 4] = uint8_t(px[i].r * ((tint >> 16) & 0xFF) / 255);
+            rgba[i * 4 + 1] = uint8_t(px[i].g * ((tint >> 8) & 0xFF) / 255);
+            rgba[i * 4 + 2] = uint8_t(px[i].b * (tint & 0xFF) / 255);
+            rgba[i * 4 + 3] = px[i].a;
+        }
+        return true;
+    }
+    catch (const Bad&) {
+        return false;
+    }
+}
+
+bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc_file, int n64_file, std::vector<uint8_t>& out,
+                                       std::vector<SourceTexture>* shrunk) {
     Bytes d;
     if (!files.get(dc_file + ".LZS", d)) return false;
     try {
@@ -834,7 +1212,9 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
             remap[i] = (int)textures.size();
             textures.push_back(make_texture(t.name, pixels[i], t.w, t.h, t.pixel, 0xFFFFFF, level,
                                             cap == caps.end() ? 256 : cap->second.first,
-                                            cap == caps.end() ? 256 : cap->second.second));
+                                            cap == caps.end() ? 256 : cap->second.second,
+                                            texture_mode(n64_file, t.name, pixels[i])));
+            textures.back().source = (int)i;
         }
         for (const Tinted& t : tinted) {
             if (t.file != n64_file) continue;
@@ -845,7 +1225,9 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                     if (pixels[i].empty()) pixels[i] = decode(m, s);
                     textures.push_back(make_texture(t.n64, pixels[i], s.w, s.h, s.pixel, t.rgb, level,
                                                     cap == caps.end() ? 256 : cap->second.first,
-                                                    cap == caps.end() ? 256 : cap->second.second));
+                                                    cap == caps.end() ? 256 : cap->second.second,
+                                                    texture_mode(n64_file, t.n64, pixels[i])));
+                    textures.back().source = (int)i;
                     break;
                 }
             }
@@ -857,8 +1239,12 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
             return -1;
         };
 
-        // Layout: 8-byte header, IMAG, TXLD, OBHD, PLHD (none), TXHD, OBJS, PATH, PTHD, chunk directory.
-        Bytes imag;
+        // Cars (files 88-100) are painted through a palette, as the N64's.
+        Bytes palette;
+        if (n64_file >= 88 && n64_file <= 100 && !paint_car(files, dc_file, m, textures, palette)) palette.clear();
+
+        // Layout: 8-byte header, IMAG (the palette first), TXLD, OBHD, PLHD, TXHD, OBJS, PATH, PTHD, chunk directory.
+        Bytes imag = palette;
         for (OutTexture& t : textures) {
             t.texels = (uint32_t)imag.size();
             imag.insert(imag.end(), t.data.begin(), t.data.end());
@@ -874,7 +1260,9 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
         uint32_t imag_at = 8;
         uint32_t txld_at = imag_at + (uint32_t)imag.size() + 8;
         uint32_t obhd_at = txld_at + (uint32_t)txld.size() + 8;
-        uint32_t txhd_at = obhd_at + (uint32_t)plan.size() * 0x58;
+        uint32_t palettes = palette.empty() ? 0 : 1;
+        uint32_t plhd_at = obhd_at + (uint32_t)plan.size() * 0x58;
+        uint32_t txhd_at = plhd_at + palettes * 0x18;
         uint32_t objs_at = txhd_at + (uint32_t)textures.size() * 0x24;
         objs_at = (objs_at + 7) & ~7u;
 
@@ -923,8 +1311,8 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
             memcpy(&txhd[r], t.name.data(), std::min<size_t>(t.name.size(), 16));
             put16(txhd, r + 16, (uint16_t)t.w);
             put16(txhd, r + 18, (uint16_t)t.h);
-            txhd[r + 20] = 0;                       // RGBA
-            txhd[r + 21] = t.rgba32 ? 3 : 2;
+            txhd[r + 20] = t.ci8 ? 2 : 0;           // CI or RGBA
+            txhd[r + 21] = t.ci8 ? 1 : t.rgba32 ? 3 : 2;
             put16(txhd, r + 22, 0xFFFF);            // no palette
             put32(txhd, r + 24, (txld_at - imag_at) + t.list);  // load list, IMAG-relative
             put32(txhd, r + 28, 0);                 // flag 0x08000000 clear: the record names a load list
@@ -966,6 +1354,15 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
         place(txld);
         out.resize(out.size() + 8, 0);
         place(obhd);
+        if (palettes) {
+            // {name[16], 0x00FF8000 as the N64's car palettes, data (IMAG-relative)}
+            Bytes plhd(0x18, 0);
+            std::string name = "C" + dc_file.substr(3) + "PALETTE";
+            memcpy(&plhd[0], name.data(), std::min<size_t>(name.size(), 15));
+            put32(plhd, 16, 0x00FF8000);
+            put32(plhd, 20, 0);
+            place(plhd);
+        }
         place(txhd);
         align8(out);
         if (out.size() != objs_at) throw Bad{ __LINE__ };
@@ -988,7 +1385,7 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
         };
         std::vector<Entry> dir = {
             { "IMAG", imag_at, (uint32_t)imag.size() }, { "TXLD", txld_at, (uint32_t)txld.size() },
-            { "OBHD", obhd_at, (uint32_t)plan.size() }, { "PLHD", txhd_at, 0 },
+            { "OBHD", obhd_at, (uint32_t)plan.size() }, { "PLHD", plhd_at, palettes },
             { "TXHD", txhd_at, (uint32_t)textures.size() }, { "OBJS", objs_at, (uint32_t)objs.size() },
         };
         if (has_paths) {
@@ -1006,6 +1403,20 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
             if (level < 5) continue;
             fprintf(stderr, "rush2049 dc: %s for N64 file %d is %zu bytes, over the N64's %u\n", dc_file.c_str(), n64_file,
                     out.size(), budget);
+        }
+        if (shrunk != nullptr) {
+            for (const OutTexture& t : textures) {
+                if (!t.shrunk || t.source < 0) continue;
+                SourceTexture st;
+                st.w = (uint16_t)t.w;
+                st.h = (uint16_t)t.h;
+                st.rgba32 = t.rgba32;
+                st.texels = t.data;
+                st.file = dc_file;
+                st.index = (uint32_t)t.source;
+                st.tint = t.tint;
+                shrunk->push_back(std::move(st));
+            }
         }
         return true;
         }

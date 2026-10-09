@@ -37,6 +37,7 @@
 #include "track2049.h"
 #include "wings_internal.h"
 #include "rush2049_dc.h"
+#include "texture_upscale.h"
 
 namespace {
     const std::string config_id = "games";
@@ -138,6 +139,7 @@ namespace {
             std::lock_guard lock{ rom_mutex };
             rom_data = rom;
         }
+        rush2::upscale::set_texture_source(rom);
         rush2::wings::on_rom_changed();
     }
 

@@ -36,10 +36,18 @@ namespace rush2::audio2049 {
     // A sound effect's sample (its loop, for a looping one) and rate, for code that plays it itself. Dreamcast only.
     bool sfx_samples(int id, std::vector<int16_t>& pcm, uint32_t& rate);
 
-    // The song Rush 2049 plays on race track t (0-5) with its default "per track" music option (0x8010FFD4).
+    // A Dreamcast disc's songs by its own song list (0x8C0BA818: 18 .STR streams, then HighScore.rom and
+    // Select.rom): play_song(disc_songs + n) plays song n of the disc, which has more songs than the N64.
+    constexpr int disc_songs = 100;
+    constexpr int disc_song_count = 20;
+
+    // The song Rush 2049 plays on 2049 track id t (0-5 races, 6-13 battle arenas, 14-17 stunt arenas, 18 the obstacle
+    // course) with its default "per track" music option: the N64's (0x8010FFD4), or from a Dreamcast disc
+    // disc_songs + its song for the track (0x8C0BA76C). -1 if there's none (the disc picks one at random).
     int track_song(int track);
 
-    // Starts song 0-11 from the top, stopping the current one at once. Out-of-range ids stop the music.
+    // Starts song 0-11 (or a disc's disc_songs + n) from the top, stopping the current one at once. Out-of-range ids
+    // stop the music.
     void play_song(int song);
     // Stops the song; with a fade, ramps the song's volume to zero over fade_seconds first (notes keep playing their
     // releases). song_playing() stays true until the song has stopped.

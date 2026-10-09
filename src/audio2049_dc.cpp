@@ -215,8 +215,12 @@ namespace {
         return p1 + 0.5f * t * (p2 - p0 + t * (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3 + t * (3.0f * (p1 - p2) + p3 - p0)));
     }
 
-    // The disc song standing for N64 song n on the current track.
+    // The disc song standing for song n: the disc's own (rush2::audio2049::disc_songs + n), or N64 song n on the
+    // current track.
     int song_file(const State& s, int n) {
+        if (n >= rush2::audio2049::disc_songs && n < rush2::audio2049::disc_songs + song_file_count) {
+            return n - rush2::audio2049::disc_songs;
+        }
         if (s.track >= 0 && s.track < track_count && n64_track_songs[s.track] == n && s.dc_track_songs[s.track] >= 0) {
             return s.dc_track_songs[s.track];
         }
@@ -313,6 +317,12 @@ bool rush2::audio2049::dc::active() {
 void rush2::audio2049::dc::set_track(int track_id) {
     std::lock_guard lock{ mutex };
     if (st) st->track = track_id;
+}
+
+int rush2::audio2049::dc::track_song(int track_id) {
+    std::lock_guard lock{ mutex };
+    if (!st || track_id < 0 || track_id >= track_count || st->dc_track_songs[track_id] < 0) return -1;
+    return rush2::audio2049::disc_songs + st->dc_track_songs[track_id];
 }
 
 void rush2::audio2049::dc::play_song(int song) {
