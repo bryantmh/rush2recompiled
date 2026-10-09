@@ -249,6 +249,11 @@ Main code. **[V]** unless marked.
   key-off, sent after 1.5 s **[I]**). Wall and car hits of bullets keep a small scaled muzzle flash **[I]**; there are
   no smoke trails, casings or scorch marks.
 - **Invisibility**: `rush2::ghost::set_faded` (src/ghost.cpp, the ghosts' model hook): the car's own view draws the
+- **Billboards and muzzles [I]**: each explosion frame is a card in its model's xy plane, seen from the camera along its +z (the other way it is culled), so it is
+  drawn facing each view's camera (`battle_render::place(..., billboard)`). A shot starts at the weapon's mount plus
+  its muzzle in the car body's drawn pose (`body_pose`), not the physics tick's, which the drawn car is ahead of. The
+  tracers (`WFX_TRACERG1` reaches 39 behind its origin, `WPR_CANNG1` 63) are cut so they never reach back past the
+  muzzle, and on their first frame stretch from it: a bullet goes 66 a tick, farther than its tracer is long.
   whole car translucent, as a ghost; the other views don't draw it (2049 fades it to nothing there), and its shadow
   polygon (car state +0x20C) is hidden in them. The arrow to it is faint (alpha 0x20).
 - **Teams** (2049 `0x8012E67C`): Games tab, Player n Battle Team (blue, red, yellow, green; default one each). Cars of

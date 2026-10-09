@@ -15,7 +15,10 @@ namespace rush2::battle_render {
     // Shows `model` in a slot: m's rows are its axes (right, up, forward, with its scale), pos its place in the world.
     // view: the one view it is drawn in, or -1 for all. attached: it rides with that view's camera (a HUD model) and
     // is drawn in view space, so it holds still on screen between game frames (src/interpolation.cpp explains).
-    void place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view = -1, bool attached = false);
+    // billboard: it faces each view's camera (a flat sprite like the explosion's frames); m's scale is kept, its
+    // axes are replaced by the view's.
+    void place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view = -1, bool attached = false,
+               bool billboard = false);
     void hide(int slot);
     // A 2D image of Rush 2049's HUD file (HEALTHBG) as RGBA16 texels in RDRAM. False if it isn't there.
     bool image(uint8_t* rdram, const char* name, uint32_t* address, int* w, int* h);

@@ -31,6 +31,7 @@
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
 
+#include "arrows.h"
 #include "battle_render.h"
 #include "rush2049_rom.h"
 #include "rush2_hooks.h"
@@ -97,6 +98,7 @@ namespace {
         uint32_t rgba = 0xFFFFFFFF;
         int view = -1;
         bool attached = false;
+        bool billboard = false;
         uint32_t gen = 0;
     };
 
@@ -371,7 +373,8 @@ bool rush2::battle_render::has_model(const char* name) {
     return models.find(std::string(name).substr(0, 15)) != models.end();
 }
 
-void rush2::battle_render::place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view, bool attached) {
+void rush2::battle_render::place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view, bool attached,
+                                 bool billboard) {
     std::lock_guard lock{ mutex };
     if (slot < 0 || slot >= max_slots) return;
     Item& it = items[slot];
@@ -392,6 +395,7 @@ void rush2::battle_render::place(int slot, const char* model, const float m[9], 
     it.rgba = rgba;
     it.view = view;
     it.attached = attached;
+    it.billboard = billboard;
 }
 
 void rush2::battle_render::hide(int slot) {
@@ -424,6 +428,10 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
         uint32_t w = (uint32_t)MEM_W(0, (int32_t)(cameras + view * 0x40 + 0x24 + i * 4));
         memcpy(&cam[i], &w, 4);
     }
+    // The view's axes for the billboards: an explosion frame is a card in its xy plane, seen from the camera along its
+    // +z (the other way it is culled).
+    float cam_axes[9];
+    rush2::views::axes(rdram, (int)view, cam_axes);
     float root_m[4][4], view_m[4][4];
     read_mtx(rdram, root, root_m);
     read_mtx(rdram, lookat, view_m);
@@ -445,6 +453,14 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
             for (int r = 0; r < 3; r++) {
                 for (int c = 0; c < 3; c++) m[r][c] = it.m[r * 3 + c];
                 m[3][r] = (it.pos[r] - cam[r]) * 16.0f;
+            }
+            if (it.billboard) {
+                float scale = std::sqrt(it.m[0] * it.m[0] + it.m[1] * it.m[1] + it.m[2] * it.m[2]);
+                for (int c = 0; c < 3; c++) {
+                    m[0][c] = cam_axes[c] * scale;
+                    m[1][c] = cam_axes[3 + c] * scale;
+                    m[2][c] = cam_axes[6 + c] * scale;
+                }
             }
             m[3][3] = 1.0f;
             dl.model_group(item_id(view, gen + it.gen, (uint32_t)slot));
