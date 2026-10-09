@@ -1590,7 +1590,9 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
     // reset, when its track is loaded).
     if (state == 10 && last_state != 10) setup_pending = true;
     last_state = state;
-    Mode want = battle_race(rdram) ? Mode::arena : cheat_option != 0 && (state == 3 || state == 10) ? Mode::cheat : Mode::none;
+    // The Weapons cheat needs the Rush 2049 tracks (the Cheats tab grays it out without them).
+    bool cheat = cheat_option != 0 && rush2::track2049::available() && (state == 3 || state == 10);
+    Mode want = battle_race(rdram) ? Mode::arena : cheat ? Mode::cheat : Mode::none;
     if (want == Mode::none) {
         if (ready || mode != Mode::none) shutdown(rdram);
         return;

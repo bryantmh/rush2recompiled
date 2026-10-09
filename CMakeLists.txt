@@ -183,6 +183,7 @@ target_sources(Rush2Recompiled PRIVATE
 target_include_directories(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/lib/hqx
+    ${CMAKE_SOURCE_DIR}/src/wings_menu.cpp
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/sse2neon
     ${CMAKE_SOURCE_DIR}/lib/rt64/include

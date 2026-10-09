@@ -100,6 +100,30 @@ A widget record is 0x28 bytes: `char *texture; s16 x, y; 3×-1; 0; 0; 0xFF; call
 - On STUNT (11), everything except TRACK, FOG and WIND is greyed.
 - On LA (5), the FOG label reads "SMOG" (0x800C4A98) (`func_803C59A0` 0x803C5BC0, `func_803C6268`).
 
+**Option rows on screen** [V]:
+- TRACK (option row 0) has no text row: the carousel arrows stand for it. The 4 rows on screen show options
+  `top` .. `top + 3`, `top` = 0x803D05C4 (1 when the screen opens, `func_803AB294` 0x803AB314). The cursor row is
+  0x803D05BC, the list's count 0x803D05CC.
+- Each OPTIONTEXTBOX widget (`func_803C5710`, arg 0-3) reads option `0x803D05D8[top + arg]` with no bound check and
+  hides itself (`func_80060DA8`'s second argument, widget +0x1A) under a slider option (FOG, WIND, DIFFICULTY,
+  HANDICAP: ids 3, 4, 7, 8). The slider widget (`func_803C5798`) reads the same entry.
+- `func_803C6268` draws 4 rows' label and value (y from 0xBC, 0xB apart, until 0xE8), the row index wrapping to 0 at
+  the count, so a list shorter than 5 options would draw TRACK's label in a row.
+- Moving down (0x803AC4C8-0x803AC51C): the cursor goes up to count - 1; `top` steps on unless `top + 4 == count` or
+  the cursor is 1. A list of 4 options or fewer would scroll past its end.
+- DRONES' value (case 5, 0x803C66F0) prints the digits 0-7, the race's drone count (s16 0x800D3E90) in style 0xA
+  (green) and the others in style 4 (gray). Its left/right case (0x803AC2CC) wraps menu settings +0x1
+  (0x800D5761) with `& 7`, or sets 7 with no step.
+- In the port (src/track2049_menu.cpp), the STUNT and BATTLE track selects list only TRACK, FOG, WIND and, on the
+  obstacle course, DEATHS; hooks stop the text loop after the list (0x803C6934), hide the boxes past it
+  (0x803C5774) and keep a list of 4 or fewer from scrolling (0x803AC4FC). In a ghost race (src/ghost.cpp), DRONES
+  counts the drones besides the ghosts, from 0 to 7 - players - 3 (hooks at 0x803AC2F0, 0x803AC300, 0x803C6714,
+  and 0x803C6738, which dims the digits past it with `func_800735A8`).
+
+**Text colors** [V]: `func_800737E4(style)` reads 8 bytes per style from 0x800BEF6C (fg RGBA, bg RGBA; 0x14 styles,
+style 0x14 flashes) and passes them to `func_800735A8(layer, r, g, b, a on the stack)`, layer 0 = fg, 1 = bg. Grays:
+style 1 0xE6, 2 0xA0, 3 0x78, 4 0x50; style 0xA is the menus' green (0x00AF00).
+
 ### 1.4 Cycling the track
 **TRACK case** [V] (0x803AC098–0x803AC12C):
 - `carouselIndex` (s16 0x803D05B4) += dir, wrapping to [0, `count`) where `count` = s16 0x803D05AE.
@@ -405,3 +429,28 @@ For each race track t = 0..5 (file `0x9E + t` = 158 + t, the forward AI path of 
 at the start line), scaled so the longer side is 1120 model units (like the generated miniature, menu scale 0.45).
 Deviation: a closing segment longer than 1000 world units is left out (`tube_close_gaps`): track 6's route ends far
 from its start, and 2049's tube draws a sliver across the model there. The TPIC disc behind the tube is not drawn.
+
+## 8. Car select option list [V]
+
+The car select (menu overlay; per frame `func_803B9478`, setup `func_803B81F0`) has two players' panels (car select
+slots 0 and 1; with 3 or 4 players a second round for players 3 and 4, src/players4.cpp) and one option list for both:
+
+- `func_803B81F0` builds it at 0x803B8258-0x803B8484: ids into s32 0x803CB3B8[], count s32 0x803CB3B0. Ids (labels
+  0x800C4924 + language * 60 + id * 4): 0 CAR, 1 TRANSMISSION, 2 MAIN COLOR, 3 ACCENT COLOR, 4 STRIPE, 5 STRIPE
+  COLOR, 6 TIRE RIMS, 7 HORN, 8 ENGINE, 9 TORQUE, 10 SUSPENSION, 11 TIRES, 12 DURABILITY, and 13 TIRE SIZE F and 14
+  TIRE SIZE R only while the cheat byte 0x8010C3D4 is set. The array has room for 15 ids; the word after it,
+  0x803CB3F4, is not referenced.
+- Per slot: the cursor row s32 0x803C6990[slot], the top row on screen s32 0x803CB3A0[slot] (4 rows on screen,
+  scrolled as on the track select: 0x803B97AC-0x803B9808).
+- Left/right (`func_803B9478` 0x803B983C-0x803B98BC, $a1 = -1 / 1, $s7 = slot) dispatch on the id through the
+  15-entry table 0x803CADF4; larger ids change nothing. After any change 0x803BA644-0x803BA7E4 compare ids (1, 8,
+  5, ...) for the sounds and model updates, and `func_803B7F7C` redoes the bars.
+- `func_803BC048` draws each row's label (0x803BC2F4-0x803BC368, measured and printed from the label table) and value
+  (ids 1-11 through the table at 0x803CAE9C; others none), the value text in $s0 at 0x803BC63C.
+- `func_803BAFD8` places the option arrows from the cursor row's label width (label reads at 0x803BB2C8 and
+  0x803BB338). Other widgets compare ids only: color swatches for 2, 3, 5 (`func_803BAA44`), sliders for 12-14
+  (`func_803BAC24`, `func_803BACF8`); `func_803BB9F8` picks row art through a 15-entry table and skips larger ids.
+
+In the port, src/wings_menu.cpp adds WINGS (id 15) above DURABILITY while wings are on: hooks give it its label
+(0x803BC310, 0x803BC350, 0x803BB2E4, 0x803BB34C read a pointer to "WINGS" in place of the table's entry), its value
+(0x803BC63C) and its steps (0x803B98A4).

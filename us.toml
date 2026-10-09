@@ -724,6 +724,22 @@ func = "options_text_cb_names_values_803C6268"
 before_vram = 0x803C6354
 text = "    rush2_track49_stunt_options(rdram, ctx);"
 
+# The STUNT and BATTLE track selects list fewer options than the rows on screen (src/track2049_menu.cpp).
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC4FC
+text = "    rush2_track49_option_scroll(rdram, ctx);"
+
+[[patches.hook]]
+func = "options_widget_cb_option_row_803C5710"
+before_vram = 0x803C5774
+text = "    rush2_track49_option_box(rdram, ctx);"
+
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6934
+text = "    rush2_track49_option_text_rows(rdram, ctx);"
+
 # The obstacle course keeps DEATHS open (its value isn't greyed like STUNT1's).
 [[patches.hook]]
 func = "options_text_cb_names_values_803C6268"
@@ -7702,7 +7718,38 @@ text = "    rush2_car49_engine_text(rdram, ctx);"
 [[patches.hook]]
 func = "carselect_text_cb_car_title_803BC048"
 before_vram = 0x803BC63C
-text = "    rush2_car49_option_text(rdram, ctx);"
+text = "    rush2_car49_option_text(rdram, ctx); rush2_wings_car_value(rdram, ctx);"
+
+# The car select's WINGS row (src/wings_menu.cpp).
+[[patches.hook]]
+func = "carselect_build_list_803B81F0"
+before_vram = 0x803B8488
+text = "    rush2_wings_car_rows(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B98A4
+text = "    rush2_wings_car_step(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC310
+text = "    rush2_wings_car_label_t7(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC350
+text = "    rush2_wings_car_label_t4(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_name_text_803BAFD8"
+before_vram = 0x803BB2E4
+text = "    rush2_wings_car_arrow_t9(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_name_text_803BAFD8"
+before_vram = 0x803BB34C
+text = "    rush2_wings_car_arrow_t2(rdram, ctx);"
 
 # Car paint: 2049 cars' palettes take the main colour.
 [[patches.hook]]
@@ -10850,6 +10897,11 @@ before_vram = 0x800A1674
 text = "    rush2_ghost_standings(rdram, ctx);"
 
 [[patches.hook]]
+func = "rubber_band_800A1A98"
+before_vram = 0x800A2238
+text = "    rush2_ghost_rubber_band(rdram, ctx);"
+
+[[patches.hook]]
 func = "hud_widget_cb_respawn_prompt_800B8900"
 before_vram = 0x800B8958
 text = "    rush2_ghost_map_dot(rdram, ctx);"
@@ -10868,6 +10920,27 @@ text = "    rush2_ghost_fog_color(rdram, ctx);"
 func = "carselect_text_cb_car_title_803BC048"
 before_vram = 0x803BC7A8
 text = "    rush2_ghost_car_select_text(rdram, ctx);"
+
+# A ghost race's DRONES on the track select: the drones besides the ghosts (src/ghost.cpp).
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC2F0
+text = "    rush2_ghost_drones_step(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC300
+text = "    rush2_ghost_drones_reset(rdram, ctx);"
+
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6714
+text = "    rush2_ghost_drones_value(rdram, ctx);"
+
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6738
+text = "    rush2_ghost_drones_digit(rdram, ctx);"
 
 # The race position HUD (func_800BA608): its total (0x8010C158 at 0x800BA7A4, into $v0) and its check for a lone car
 # ($t6 at 0x800BA664) leave out the ghost cars.

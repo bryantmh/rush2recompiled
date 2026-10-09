@@ -128,7 +128,7 @@ namespace {
     };
     std::array<GhostInput, rush2::wings::max_cars> ghost_inputs;
 
-    std::array<std::atomic<int>, 2> player_style = { 0, 0 };
+    std::array<std::atomic<int>, rush2::wings::max_players> player_style = { 0, 0, 0, 0 };
 
     float& f32(uint8_t* rdram, uint32_t addr) {
         return *reinterpret_cast<float*>(&MEM_W(0, (int32_t)addr));
@@ -213,7 +213,7 @@ float rush2::wings::body_height(int type) {
 }
 
 void rush2::wings::set_player_style(int player, int style) {
-    if (player >= 0 && player < 2) {
+    if (player >= 0 && player < rush2::wings::max_players) {
         player_style[player] = std::clamp(style, 0, 2);
     }
 }
@@ -243,10 +243,10 @@ bool rush2::wings::car_input(uint8_t* rdram, int car, Input& out) {
         return false;
     }
     int player_index = int((player - players) / player_size);
-    out.held = player_index >= 0 && player_index < 2 && button_held(rdram, player_index);
+    out.held = player_index >= 0 && player_index < rush2::wings::max_players && button_held(rdram, player_index);
     out.stick_x = stick_axis(rdram, player, 0);
     out.stick_y = stick_axis(rdram, player, 1);
-    out.style = player_index >= 0 && player_index < 2 ? player_style[player_index].load() : 0;
+    out.style = player_index >= 0 && player_index < rush2::wings::max_players ? player_style[player_index].load() : 0;
     return true;
 }
 
@@ -282,7 +282,7 @@ extern "C" void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx) {
         }
         if (player != 0) {
             int player_index = int((player - players) / player_size);
-            flag = flag && player_index >= 0 && player_index < 2 && rush2::wings::button_held(rdram, player_index);
+            flag = flag && player_index >= 0 && player_index < rush2::wings::max_players && rush2::wings::button_held(rdram, player_index);
             w.player = player_index;
         }
         else {
@@ -294,7 +294,7 @@ extern "C" void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx) {
     if (player != 0) {
         w.stick_x = stick_axis(rdram, player, 0);
         w.stick_y = stick_axis(rdram, player, 1);
-        if (w.player >= 0 && w.player < 2) {
+        if (w.player >= 0 && w.player < rush2::wings::max_players) {
             w.style = player_style[w.player];
         }
     }
