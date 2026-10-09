@@ -26,6 +26,18 @@ namespace rush2::rom2049 {
     constexpr uint32_t battle_vram = 0x8038A400;
     uint32_t segment_vram(Segment s);
 
+    // A texture a Dreamcast source scaled down to fit TMEM: its N64 texels as the converted file loads them (RGBA16 or
+    // RGBA32, big endian, rows top down) and where its full-size image is, so the renderer can draw that instead
+    // (src/texture_upscale.cpp).
+    struct SourceTexture {
+        uint16_t w = 0, h = 0;
+        bool rgba32 = false;
+        std::vector<uint8_t> texels;
+        std::string file;           // the disc's model container
+        uint32_t index = 0;         // its texture record there
+        uint32_t tint = 0xFFFFFF;   // RGB the image is multiplied by
+    };
+
     class Source {
     public:
         virtual ~Source() = default;
@@ -42,6 +54,12 @@ namespace rush2::rom2049 {
         // A Dreamcast disc's file by name (upper case) as the pack keeps it: songs (.STR) as the pack's ADPCM, the rest
         // as stored on the disc. For the code that plays the disc's audio. False for the N64 ROM.
         virtual bool disc_file(const std::string& name, std::vector<uint8_t>& out) const { return false; }
+        // The textures the files converted so far scaled down (a Dreamcast source), from the from'th on; count is how
+        // many there are, which only grows.
+        virtual size_t source_texture_count() const { return 0; }
+        virtual std::vector<SourceTexture> source_textures(size_t from) const { return {}; }
+        // A scaled-down texture's full-size image, RGBA rows top down.
+        virtual bool source_image(const SourceTexture& t, std::vector<uint8_t>& rgba, int& w, int& h) const { return false; }
     };
 
     // A Source over the big-endian Rush 2049 (USA) N64 ROM.

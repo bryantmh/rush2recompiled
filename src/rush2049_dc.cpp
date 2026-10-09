@@ -398,13 +398,20 @@ namespace {
             if (it == converted.end()) {
                 auto data = std::make_shared<std::vector<uint8_t>>();
                 std::string name = "dc_file_" + std::to_string(index);
-                if (!rush2::track_cache::load_blob(name, key, *data)) {
-                    if (rush2::rom2049::dc::convert_file(*files, index, *data)) {
-                        rush2::track_cache::save_blob(name, key, *data);
-                    }
-                    else {
-                        data = nullptr;
-                    }
+                // The textures it scaled down go in a blob of their own.
+                std::vector<uint8_t> textures;
+                std::vector<rush2::rom2049::SourceTexture> made;
+                if (rush2::track_cache::load_blob(name, key, *data) &&
+                    rush2::track_cache::load_blob(name + "_textures", key, textures) && read_textures(textures, made)) {
+                    shrunk.insert(shrunk.end(), made.begin(), made.end());
+                }
+                else if (rush2::rom2049::dc::convert_file(*files, index, *data, &made)) {
+                    rush2::track_cache::save_blob(name, key, *data);
+                    rush2::track_cache::save_blob(name + "_textures", key, write_textures(made));
+                    shrunk.insert(shrunk.end(), made.begin(), made.end());
+                }
+                else {
+                    data = nullptr;
                 }
                 it = converted.emplace(index, data).first;
             }
@@ -437,6 +444,29 @@ namespace {
             return files->stored(name, out);
         }
 
+        size_t source_texture_count() const override {
+            std::lock_guard lock{ mutex };
+            return shrunk.size();
+        }
+
+        std::vector<rush2::rom2049::SourceTexture> source_textures(size_t from) const override {
+            std::lock_guard lock{ mutex };
+            return from < shrunk.size() ? std::vector<rush2::rom2049::SourceTexture>(shrunk.begin() + from, shrunk.end())
+                                        : std::vector<rush2::rom2049::SourceTexture>{};
+        }
+
+        // Decodes from the container last asked for (a run of textures mostly comes from one file).
+        bool source_image(const rush2::rom2049::SourceTexture& t, std::vector<uint8_t>& rgba, int& w, int& h) const override {
+            std::lock_guard lock{ image_mutex };
+            if (image_file != t.file) {
+                image_container.clear();
+                image_file.clear();
+                if (!files->get(t.file + ".LZS", image_container)) return false;
+                image_file = t.file;
+            }
+            return rush2::rom2049::dc::decode_texture(image_container, t.index, t.tint, rgba, w, h);
+        }
+
         uint64_t cache_key() const override {
             return key;
         }
@@ -448,6 +478,50 @@ namespace {
         mutable std::mutex mutex;
         mutable std::map<int, std::shared_ptr<const std::vector<uint8_t>>> converted;
         mutable std::shared_ptr<const std::vector<uint8_t>> segments[3];
+        mutable std::vector<rush2::rom2049::SourceTexture> shrunk;
+        mutable std::mutex image_mutex;
+        mutable std::string image_file;
+        mutable std::vector<uint8_t> image_container;
+
+        // A file's scaled-down textures as cached: per texture u16 w, u16 h, u8 rgba32, u32 tint, u32 index, u8 name
+        // length, name, u32 texel bytes, texels.
+        static std::vector<uint8_t> write_textures(const std::vector<rush2::rom2049::SourceTexture>& list) {
+            std::vector<uint8_t> out;
+            auto put = [&](const void* p, size_t n) { out.insert(out.end(), (const uint8_t*)p, (const uint8_t*)p + n); };
+            for (const auto& t : list) {
+                uint8_t rgba32 = t.rgba32, n = (uint8_t)t.file.size();
+                uint32_t bytes = (uint32_t)t.texels.size();
+                put(&t.w, 2); put(&t.h, 2); put(&rgba32, 1); put(&t.tint, 4); put(&t.index, 4);
+                put(&n, 1); put(t.file.data(), n); put(&bytes, 4); put(t.texels.data(), bytes);
+            }
+            return out;
+        }
+
+        static bool read_textures(const std::vector<uint8_t>& in, std::vector<rush2::rom2049::SourceTexture>& list) {
+            size_t o = 0;
+            auto get = [&](void* p, size_t n) {
+                if (o + n > in.size()) return false;
+                memcpy(p, &in[o], n);
+                o += n;
+                return true;
+            };
+            while (o < in.size()) {
+                rush2::rom2049::SourceTexture t;
+                uint8_t rgba32 = 0, n = 0;
+                uint32_t bytes = 0;
+                if (!get(&t.w, 2) || !get(&t.h, 2) || !get(&rgba32, 1) || !get(&t.tint, 4) || !get(&t.index, 4) ||
+                    !get(&n, 1)) {
+                    return false;
+                }
+                t.file.resize(n);
+                if (!get(t.file.data(), n) || !get(&bytes, 4) || bytes > in.size()) return false;
+                t.texels.resize(bytes);
+                if (!get(t.texels.data(), bytes)) return false;
+                t.rgba32 = rgba32 != 0;
+                list.push_back(std::move(t));
+            }
+            return true;
+        }
     };
 }
 

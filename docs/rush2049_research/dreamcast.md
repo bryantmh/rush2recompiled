@@ -15,10 +15,10 @@ converted to N64 files and its tables to N64 code segments on the fly, so no con
 | Race tracks 1-6, stunt arenas, obstacle course | convert (`dc_test track`); track 1 raced in game |
 | Placement, collision, AI paths | convert; checked against the N64 by `dc_check.py` |
 | Code tables (types, cars, PVS, fog, texture animation, battle tuning, engine sounds) | built from the disc |
-| Sound effects and songs | disc's own (see Audio); in game the banks load and the track song plays |
+| Sound effects and songs | disc's own (see Audio); all 20 disc songs in the Sound tab while the disc is the source |
 | Wing sound | disc sound 0x4D at the N64's pitch [I] |
-| Cars | geometry converts, but **unpainted**: the port paints through the N64 CI8 palette, the disc's bodies are RGBA |
-| Full-size textures | not used yet: every texture is scaled to fit TMEM |
+| Cars | convert and paint through an N64-style CI8 palette made from the paint jobs (see Car paint) |
+| Full-size textures | drawn in place of the scaled-down ones (see Full-size textures); not on cars |
 | Menus, wings, battle arenas in game | untested |
 
 ## Disc image and pack [V]
@@ -43,7 +43,11 @@ a strip; position / uv / colour from cache slots unless the 0x10000000 / 0x08000
 disc's loader is 0x8C026104 (mirror flag byte 0x8C12C657), a draw routine 0x8C077F00.
 
 Conversion: each disc texture becomes an N64 RGBA16 texture (RGBA32 for ARGB4444, which has graded alpha) shrunk to
-fit TMEM, with its own TXLD load list; strips become F3DEX2 batches of 32 vertices (positions x16, st from the uv with
+fit TMEM, with its own TXLD load list (cars: CI8, see Car paint). Its render mode is the one the N64 draws the same
+texture with in the same file (`TEXMODE` rows of `rush2049_dc_names.inc`, from `dc_names.py texture_modes`, which
+walks the N64 lists), else by its alpha: mostly graded translucent (C8104A50), any clear texels alpha-tested edges
+(C8113278), else opaque (C8112230). The N64 names few of a track's textures, so most go by alpha; drawing cutouts
+translucent let later objects show through tree cards, and translucent with depth writes blocked what's behind them. strips become F3DEX2 batches of 32 vertices (positions x16, st from the uv with
 a per-batch shift, subdivided where the span overflows); conditionals become `E0010003/4`. The layout keeps 8 bytes
 between IMAG, TXLD and OBHD: `merge_models` (src/track2049_convert.cpp) maps an address equal to a chunk's end into
 that chunk, so a load list starting where the texels end was relocated into the texels (the first track crash).
@@ -84,7 +88,10 @@ The disc has no MusyX. `src/audio2049_dc.cpp` plays it behind the same `audio204
   22050 Hz loops [I]). Per-track songs 0x8C0BA76C, s32 per 2049 track id (0-5 race, 6-13 battle 1-8, 14-17 stunt 1-4,
   18 obstacle; -1 random of 18), the same index as the N64's 0x8010FFD4. The disc has a song for every track where
   the N64 shares 8; `audio2049::set_track` tells the backend the track, and an N64 song becomes the disc's song for
-  that track (else for the first track the N64 plays it on; menu song 6 is Select.rom). `.STR` header: u32 1, rate,
+  that track (else for the first track the N64 plays it on; menu song 6 is Select.rom). `audio2049::disc_songs + n`
+  plays disc song n directly; the Sound tab (src/music.cpp) lists all 20 by name while the disc is the source, and
+  `audio2049::track_song` gives a course's original song (disc table 0x8C0BA76C, or the N64's 0x8010FFD4). Song 9
+  (`Speed.str`) is on no track. `.STR` header: u32 1, rate,
   bits, block bytes (0x4000), blocks, data bytes, channels (2), end block, loop block; PCM16 blocks per channel.
 - Levels: the streams play at their mastered level (about -10 dBFS RMS), close to the N64 songs after the port's
   boosts; `audio2049_dc.cpp` divides those boosts back out.
@@ -97,11 +104,33 @@ vs 128x128, `BRI_WATER2` 32x64 vs 128x128, `SHEEN0` 128x64 vs 512x512. The disc'
 so a Dreamcast source looks like the N64 for now; registering the full-size images as RT64 replacements is the step
 that would make it look better.
 
+## Full-size textures [V]
+
+`convert_model` reports each texture it scaled down (`SourceTexture`: the N64 texels and the disc file, record and
+tint); `DcSource` keeps the list (and a `dc_file_N_textures` blob beside each cached file). `src/texture_upscale.cpp`
+(`set_texture_source`) matches a drawn texture's content key against the list's and gives RT64 a live replacement
+with the disc's full-size image (content key `key ^ 0xD1CEDC0FFEE5`), whatever the upscaling mode; 2D (UI) textures
+are left alone.
+
+## Car paint [V]
+
+The disc's cars have no paint ramps. `CARnPJ1-12.LZS` hold, per paint job, the body textures fully colored (same
+names and sizes as the base car's plus a color suffix: `C1_TOP01_BLU`, `_RED`, `_YEL`, `_GRN`, `_PUR`, `_TEL`,
+`_ORG`, `_CHR`; 9-12 repeat names). The base car's own textures are a neutral livery. The layout is the same in
+every job; only up to three regions change hue. `paint_car` (src/rush2049_dc_model.cpp) turns that into the N64's
+scheme (src/car2049.cpp `rush2_car49_paint`): every car texture becomes CI8 over one 256-color palette (PLHD
+`CnPALETTE`, first in IMAG) whose entries 32-63, 64-95, 96-126 are the main, accent and stripe ramps (a color, then
+31 steps towards black) the game rewrites to the player's colors, 0 clear and 128-255 the other colors (median cut).
+A texel is paint when its hue differs across jobs 1-7 (job 8 is chrome); the regions are a k-means (k 3, down to 1
+until each is a clean color, saturated or white, in 5 of 7 jobs) over the texels' hues in those jobs, largest first;
+a texel's ramp step is its brightness against its region's 90th percentile, median over the jobs. The load lists are
+the N64's car lists: CI 8-bit, no TLUT load (the game loads the car's palette), TLUT RGBA16 left on. All car textures
+are CI8, as on the N64, because an RGBA16 load of 2048 texels would overwrite the palette in TMEM's upper half.
+Painted car textures aren't drawn at full size (their colors are the palette's).
+
 ## Not done
 
-- Car paint: `CARnPJ1-12.LZS` are each car's 12 paint jobs; how the disc colours a body (texture swap, vertex or
-  material colour) isn't traced. src/car2049.cpp needs a paint path for RGBA bodies.
-- Full-size textures as RT64 replacements.
+- Full-size car textures (they'd need recoloring per paint).
 - In-game checks of menus and thumbnails (`list_image` decodes the RGBA load lists), wings, battle arenas.
 
 ## Tools

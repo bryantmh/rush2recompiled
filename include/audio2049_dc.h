@@ -19,6 +19,7 @@ namespace rush2::audio2049::dc {
     bool active();
 
     void set_track(int track_id);
+    int track_song(int track_id);
     void play_song(int song);
     void stop_song(float fade_seconds);
     bool song_playing();

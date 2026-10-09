@@ -6,8 +6,11 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
+
+#include "rush2049_rom.h"
 
 namespace recomp::config {
     class Config;
@@ -113,6 +116,9 @@ namespace rush2::upscale {
     void add_options(recomp::config::Config& config);
     void apply_loaded_options(recomp::config::Config& config);
     void add_buttons(rush2::ui::OptionsPage* page);
+    // The Rush 2049 source (or null). A Dreamcast disc's textures, scaled down to fit TMEM, are drawn at their full
+    // size whatever the upscaling mode: the scaled texture's content key finds the disc's image.
+    void set_texture_source(std::shared_ptr<const rush2::rom2049::Source> source);
     extern const char* const mode_option_id;
     extern const char* const command_option_id;
 }

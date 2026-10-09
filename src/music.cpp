@@ -4,7 +4,9 @@
 // Songs: the ones the three games play on their race tracks. Rush 2's eight (its MUSIC setting's 2-9, sequences
 // 0x800CC394 = [3, 4, 0, 1, 7, 10, 2, 8]; per-track choice 0x800CC37C), SF Rush's nine race songs (its random table
 // 0x800D2910, played through Rush 2's player as sequences 13-28, src/track1_audio.cpp) and the six songs of Rush
-// 2049's race tracks (0x8010FFD4, played on the host, src/track2049_audio.cpp).
+// 2049's race tracks (0x8010FFD4, played on the host, src/track2049_audio.cpp). A Rush 2049 Dreamcast disc has its own
+// 20 songs (rush2::audio2049::disc_songs, a song per track at 0x8C0BA76C), listed instead of the N64's while it's the
+// 2049 source.
 //
 // Choice: Rush 2 picks a race's song in func_8008C370(2, setting), setting 1 being "per track" (byte 0x800D5775).
 // Only that setting is taken over; the fixed-song settings and Off stay the game's. Each game's Race Music option
@@ -49,6 +51,7 @@
 #include "track1.h"
 #include "track2049.h"
 #include "car_engines.h"
+#include "audio2049.h"
 #include "wings.h"
 
 extern "C" void music_stop_song_80061E10(uint8_t* rdram, recomp_context* ctx);   // Stops the song.
@@ -74,6 +77,8 @@ namespace {
     constexpr int al_playing = 1;
 
     enum class Game { Rush2, Rush1, Rush2049 };
+    // Which Rush 2049 source a song comes from.
+    enum class Only { Any, N64, Disc };
 
     struct Song {
         Game game;
@@ -81,10 +86,14 @@ namespace {
         const char* key;    // Option id suffix.
         const char* name;
         const char* plays_on;
+        Only only = Only::Any;
     };
 
-    // In each game's own order: Rush 2's MUSIC setting, SF Rush's random table, Rush 2049's tracks.
-    constexpr std::array<Song, 25> songs = {{
+    constexpr int disc = rush2::audio2049::disc_songs;
+
+    // In each game's own order: Rush 2's MUSIC setting, SF Rush's random table, Rush 2049's tracks (the N64's, then
+    // the disc's by its track table 0x8C0BA76C: races, battles, stunts, obstacle course, then the songs no track plays).
+    constexpr std::array<Song, 45> songs = {{
         { Game::Rush2, 0, "r2_0", "Head Thumpin'", "Lower Manhattan" },
         { Game::Rush2, 1, "r2_1", "Tinkle Toon", "Las Vegas" },
         { Game::Rush2, 2, "r2_2", "Drums N Hula", "Honolulu" },
@@ -102,18 +111,37 @@ namespace {
         { Game::Rush1, 6, "r1_6", "Song 7", "Any SF Rush track" },
         { Game::Rush1, 12, "r1_12", "Song 8", "Any SF Rush track" },
         { Game::Rush1, 15, "r1_15", "Song 9", "Any SF Rush track" },
-        { Game::Rush2049, 0, "r49_0", "Song 1", "Rush 2049 Track 1" },
-        { Game::Rush2049, 1, "r49_1", "Song 2", "Rush 2049 Track 2" },
-        { Game::Rush2049, 4, "r49_4", "Song 3", "Rush 2049 Track 3" },
-        { Game::Rush2049, 2, "r49_2", "Song 4", "Rush 2049 Track 4" },
-        { Game::Rush2049, 3, "r49_3", "Song 5", "Rush 2049 Track 5" },
-        { Game::Rush2049, 7, "r49_7", "Song 6", "Rush 2049 Track 6" },
-        { Game::Rush2049, 8, "r49_8", "Song 7", "Rush 2049 Stunt 1, 2, Obstacle, Battle 7" },
-        { Game::Rush2049, 9, "r49_9", "Song 8", "Rush 2049 Stunt 3, 4, Battle 8" },
+        { Game::Rush2049, 0, "r49_0", "Song 1", "Rush 2049 Track 1, Battle 1", Only::N64 },
+        { Game::Rush2049, 1, "r49_1", "Song 2", "Rush 2049 Track 2, Battle 2", Only::N64 },
+        { Game::Rush2049, 4, "r49_4", "Song 3", "Rush 2049 Track 3, Battle 3", Only::N64 },
+        { Game::Rush2049, 2, "r49_2", "Song 4", "Rush 2049 Track 4, Battle 4", Only::N64 },
+        { Game::Rush2049, 3, "r49_3", "Song 5", "Rush 2049 Track 5, Battle 5", Only::N64 },
+        { Game::Rush2049, 7, "r49_7", "Song 6", "Rush 2049 Track 6, Battle 6", Only::N64 },
+        { Game::Rush2049, 8, "r49_8", "Song 7", "Rush 2049 Stunt 1, 2, Obstacle, Battle 7", Only::N64 },
+        { Game::Rush2049, 9, "r49_9", "Song 8", "Rush 2049 Stunt 3, 4, Battle 8", Only::N64 },
+        { Game::Rush2049, disc + 5, "r49dc_5", "Morning", "Rush 2049 Track 1", Only::Disc },
+        { Game::Rush2049, disc + 7, "r49dc_7", "Noon", "Rush 2049 Track 2", Only::Disc },
+        { Game::Rush2049, disc + 12, "r49dc_12", "Sunset", "Rush 2049 Track 3", Only::Disc },
+        { Game::Rush2049, disc + 6, "r49dc_6", "Night", "Rush 2049 Track 4", Only::Disc },
+        { Game::Rush2049, disc + 2, "r49dc_2", "Garage", "Rush 2049 Track 5, Battle 6", Only::Disc },
+        { Game::Rush2049, disc + 13, "r49dc_13", "The Rock", "Rush 2049 Track 6", Only::Disc },
+        { Game::Rush2049, disc + 4, "r49dc_4", "High", "Rush 2049 Battle 1, 8", Only::Disc },
+        { Game::Rush2049, disc + 15, "r49dc_15", "Vice", "Rush 2049 Battle 2", Only::Disc },
+        { Game::Rush2049, disc + 10, "r49dc_10", "Starsky", "Rush 2049 Battle 3", Only::Disc },
+        { Game::Rush2049, disc + 8, "r49dc_8", "Robo", "Rush 2049 Battle 4", Only::Disc },
+        { Game::Rush2049, disc + 0, "r49dc_0", "Bassy", "Rush 2049 Battle 5", Only::Disc },
+        { Game::Rush2049, disc + 16, "r49dc_16", "Warrior", "Rush 2049 Battle 7", Only::Disc },
+        { Game::Rush2049, disc + 11, "r49dc_11", "Stunted", "Rush 2049 Stunt 1", Only::Disc },
+        { Game::Rush2049, disc + 1, "r49dc_1", "Flier", "Rush 2049 Stunt 2", Only::Disc },
+        { Game::Rush2049, disc + 17, "r49dc_17", "Wingey", "Rush 2049 Stunt 3", Only::Disc },
+        { Game::Rush2049, disc + 14, "r49dc_14", "Trancey", "Rush 2049 Stunt 4", Only::Disc },
+        { Game::Rush2049, disc + 3, "r49dc_3", "Hidden", "Rush 2049 Obstacle", Only::Disc },
+        { Game::Rush2049, disc + 9, "r49dc_9", "Speed", "No Rush 2049 track", Only::Disc },
+        { Game::Rush2049, disc + 19, "r49dc_19", "Select", "Rush 2049 menus", Only::Disc },
+        { Game::Rush2049, disc + 18, "r49dc_18", "High Score", "Rush 2049 high score entry", Only::Disc },
     }};
     constexpr int song_count = (int)songs.size();
     constexpr int first_rush1 = 8;      // Catalog index of SF Rush's first song.
-    constexpr int first_rush2049 = 17;  // Catalog index of Rush 2049's first song (track 1's).
 
     const std::string tab_id = "rush2_sound";
     enum class Mode : uint32_t { Original, ShuffleByGame, ShuffleAll };
@@ -217,11 +245,22 @@ namespace {
         }
     }
 
+    // Whether Rush 2049 comes from a Dreamcast disc.
+    bool disc_source() {
+        auto rom = rush2::wings::get_rom();
+        return rom != nullptr && rom->is_dreamcast();
+    }
+
+    // Whether the song is of the current Rush 2049 source (the N64's songs without one), so it's listed at all.
+    bool song_listed(const Song& s, bool disc_now) {
+        return s.only == Only::Any || (s.only == Only::Disc) == disc_now;
+    }
+
     // Whether a race can play the song now (the 2049 sound banks load in the background).
     bool playable(int i) {
         const Song& s = songs[i];
         if (!enabled[i].load(std::memory_order_relaxed) || !game_enabled[(int)s.game].load(std::memory_order_relaxed) ||
-            !game_available(s.game)) {
+            !game_available(s.game) || (s.only != Only::Any && !song_listed(s, disc_source()))) {
             return false;
         }
         return s.game != Game::Rush2049 || rush2::track2049::music_ready();
@@ -259,19 +298,24 @@ namespace {
         bool host = t == rush2::track2049::host_slot;
         Game g = Game::Rush2;
         int original = -1;
+        // A Rush 2049 course: its 2049 track id, whose song Rush 2049 plays by default (audio2049::track_song).
+        int course = -1;
         if (host && rush2::track2049::race_track() == rush2::track2049::obstacle) {
-            // Rush 2049's per-track songs (0x8010FFD4): 8 for the obstacle course.
-            g = Game::Rush2049;
-            original = find_song(Game::Rush2049, 8);
+            course = 18;
         }
         else if (host && rush2::track2049::race_track() > 0) {
-            g = Game::Rush2049;
-            original = first_rush2049 + rush2::track2049::race_track() - 1;
+            course = rush2::track2049::race_track() - 1;
         }
         else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::stunt_arena() > 0) {
-            // Rush 2049's per-track songs (0x8010FFD4): 8 for stunt arenas 1 and 2, 9 for 3 and 4.
+            course = 14 + rush2::track2049::stunt_arena() - 1;
+        }
+        else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::battle_arena() > 0) {
+            course = 6 + rush2::track2049::battle_arena() - 1;
+        }
+        if (course >= 0) {
             g = Game::Rush2049;
-            original = find_song(Game::Rush2049, rush2::track2049::stunt_arena() <= 2 ? 8 : 9);
+            original = find_song(Game::Rush2049, rush2::audio2049::track_song(course));
+            fprintf(stderr, "[Music] Rush 2049 course %d: original song %d\n", course, rush2::audio2049::track_song(course));
         }
         else if (host && rush2::track1::race_track() > 0) {
             g = Game::Rush1;
@@ -569,6 +613,7 @@ namespace {
 
     private:
         struct Row {
+            Element* row;
             PreviewButton* button;
             Toggle* toggle;
             Label* name;
@@ -586,7 +631,8 @@ namespace {
         int shown_state[3] = { -1, -1, -1 };
 
         static int game_state(Game g) {
-            return (game_available(g) ? 1 : 0) | (game_enabled[(int)g].load() ? 2 : 0);
+            return (game_available(g) ? 1 : 0) | (game_enabled[(int)g].load() ? 2 : 0) |
+                   (g == Game::Rush2049 && disc_source() ? 4 : 0);
         }
 
         void show_preview(int now) {
@@ -603,8 +649,11 @@ namespace {
             int state = game_state(g);
             bool available = (state & 1) != 0;
             bool on = (state & 2) != 0;
+            bool disc_now = (state & 4) != 0;
             for (int i = 0; i < (int)rows.size(); i++) {
                 if (songs[i].game == g) {
+                    // Rush 2049's songs are the N64's or the disc's, whichever is its source.
+                    rows[i].row->set_display(song_listed(songs[i], disc_now) ? Display::Flex : Display::None);
                     rows[i].button->set_enabled(available);
                     rows[i].toggle->set_enabled(available && on);
                     rows[i].name->set_color(available && on ? theme::color::Text : theme::color::TextInactive);
@@ -717,7 +766,7 @@ namespace {
                     if (s.game != Game::Rush2) {
                         h.note = context.create_element<Label>(title,
                             s.game == Game::Rush1 ? "Needs a San Francisco Rush (USA) ROM (Games tab)."
-                                                  : "Needs a Rush 2049 (USA) ROM (Games tab).",
+                                                  : "Needs a Rush 2049 (USA) ROM or Dreamcast disc (Games tab).",
                             theme::Typography::Body);
                         h.note->set_color(theme::color::TextDim);
                     }
@@ -784,7 +833,7 @@ namespace {
                 toggle->add_checked_callback([i](bool checked) {
                     recompui::config::get_sound_config().set_option_value(song_option_id(songs[i]), checked);
                 });
-                rows.push_back({ button, toggle, name });
+                rows.push_back({ row, button, toggle, name });
             }
             for (Game g : games) {
                 refresh_game(g);

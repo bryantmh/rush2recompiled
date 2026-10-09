@@ -119,7 +119,7 @@ namespace {
 
 
     // Rush 2049's per-track song table (0x8010FFD4, music option 12 "per track") for race tracks 1-6.
-    constexpr int track_songs[6] = { 0, 1, 4, 2, 3, 7 };
+    constexpr int track_songs[19] = { 0, 1, 4, 2, 3, 7, 0, 1, 4, 2, 3, 7, 8, 9, 8, 8, 9, 9, 8 }; // 0x8010FFD4
 
     // ---------------------------------------------------------------------------------------------------------------
     // Data
@@ -3097,7 +3097,10 @@ namespace rush2::audio2049 {
     }
 
     int track_song(int track) {
-        return track >= 0 && track < 6 ? track_songs[track] : -1;
+        if (dc::active()) {
+            return dc::track_song(track);
+        }
+        return track >= 0 && track < 19 ? track_songs[track] : -1;
     }
 
     void play_song(int song) {

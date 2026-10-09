@@ -152,7 +152,8 @@ namespace {
     }
 }
 
-bool rush2::rom2049::dc::convert_file(const Files& files, int index, std::vector<uint8_t>& out) {
+bool rush2::rom2049::dc::convert_file(const Files& files, int index, std::vector<uint8_t>& out,
+                                      std::vector<SourceTexture>* shrunk) {
     Bytes dc;
     // AI paths: the same big-endian files on both.
     if (index >= 158 && index <= 176) {
@@ -184,6 +185,6 @@ bool rush2::rom2049::dc::convert_file(const Files& files, int index, std::vector
         case 78: case 79: model = "VEHICLES"; break;
         }
     }
-    if (!model.empty()) return convert_model(files, model, index, out);
+    if (!model.empty()) return convert_model(files, model, index, out, shrunk);
     return false;
 }
