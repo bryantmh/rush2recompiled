@@ -7291,6 +7291,15 @@ status = "verified"
 ref = "docs/npc_cars.md#drone-car-table"
 
 [[var]]
+vram = 0x800D9E94
+name = "node_pose_ptrs"
+type = "void*[]"
+desc = "Per scene node, 56 bytes, word 0 -> its pose: f32 matrix[9] (rows = the model's axes), f32 position[3] at +0x24 (node_set_pos_matrix, func_8005A2D8). World = position + vertex x matrix / 16."
+area = "render"
+status = "inferred"
+ref = "docs/rush2049_research/menus.md#75-in-the-port-the-track-select-preview"
+
+[[var]]
 vram = 0x800D9E9C
 name = "scene_node_count"
 type = "u16"
@@ -7478,6 +7487,15 @@ desc = "Byte set by post-race records update, read by race_setup."
 area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800E79D0
+name = "view_cameras"
+type = "u8[4][0x40]"
+desc = "Per view camera, 0x40 bytes: +0 rotation rows (-right, up, forward), +0x24 position. In the track select view 0 sits at (0, 20, 45) pitched 24 degrees down (docs/rush2049_research/menus.md 7.5)."
+area = "render"
+status = "inferred"
+ref = "docs/rush2049_research/menus.md#75-in-the-port-the-track-select-preview"
 
 [[var]]
 vram = 0x800E79D8
@@ -14021,6 +14039,15 @@ desc = "Byte kept by title screen run (low confidence)."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x802401F0
+name = "view_projections"
+type = "u8[4][0x54]"
+desc = "Per view projection set by cam_build_view_matrix (func_80054A50): +0xC hfov, +0x10 vfov (radians), +0x14/+0x18 tan of their halves, +0x24 width, +0x28 height, +0x2C/+0x30 the screen point straight ahead, +0x34 near, +0x38 far."
+area = "render"
+status = "inferred"
+ref = "docs/rush2049_research/menus.md#75-in-the-port-the-track-select-preview"
 
 [[var]]
 vram = 0x803C67F0

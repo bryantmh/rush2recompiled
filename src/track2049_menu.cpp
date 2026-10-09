@@ -29,7 +29,10 @@
 // the track select clears it again. Circuits never pick a stunt or battle arena or the obstacle course, as they never pick
 // STUNT1.
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -83,6 +86,7 @@ namespace {
     constexpr uint32_t ghost_label_ptr = menu_data + 0xD50;
     constexpr uint32_t battle_label = menu_data + 0xD60;          // "BATTLE"
     constexpr uint32_t battle_label_ptr = menu_data + 0xD70;
+    constexpr uint32_t preview_strings = menu_data + 0x1000;      // 16 bytes per 2049 entry: its preview model's name
 
     // Unlock bytes of PIPE (9) and ATARI (10) (func_803AB01C).
     constexpr uint32_t pipe_unlocked = 0x800E7D50;
@@ -104,6 +108,9 @@ namespace {
     static_assert(r1_end == stunt_menu_id);
     static_assert(stunt_menu_id + stunt_count == obstacle_menu_id);
     static_assert(obstacle_menu_id + 1 == battle_menu_id);
+
+    // Track select entry t's preview model name (in RDRAM; 2049 entries), or 0 for its diorama.
+    uint32_t preview_names[menu_tracks] = {};
 
     bool is_battle_arena(int t) {
         return t >= battle_menu_id && t < battle_menu_id + battle_count;
@@ -293,6 +300,7 @@ namespace {
             MEM_W(0, (int32_t)(new_logo_names + t * 4)) = MEM_W(0, (int32_t)(logo_names + t * 4));
         }
         uint32_t s = new_strings;
+        std::fill(std::begin(preview_names), std::end(preview_names), 0u);
         // The circuit screen instances every entry: entries that aren't available show stock models it can find.
         for (int t = rush2_tracks; t < menu_tracks; t++) {
             MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = MEM_W(0, (int32_t)diorama_names);
@@ -325,7 +333,11 @@ namespace {
         for (int n = 0; n < stunt_count; n++) entries.push_back({ stunt_menu_id + n, stunt_first + n });
         entries.push_back({ obstacle_menu_id, obstacle });
         for (int n = 0; n < battle_count; n++) entries.push_back({ battle_menu_id + n, battle_first + n });
+        uint32_t p = preview_strings;
         for (auto [t, k] : entries) {
+            write_string(rdram, p, menu_preview_name(k));
+            preview_names[t] = p;
+            p += 16;
             std::string model = menu_model_name(k), logo = menu_logo_name(k);
             write_string(rdram, s, model);
             MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = s;
@@ -489,6 +501,176 @@ extern "C" void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx) 
         if (track_selectable(rdram, t)) count++;
     }
     ctx->r15 = count;
+}
+
+// Rush 2049's own preview for the 2049 entries (docs/rush2049_research/menus.md §7.5): the carousel instances the
+// track's preview model (src/track2049_art.cpp, menu_preview_name) in place of its diorama, and each frame the preview
+// is posed so its model space, Rush 2049's track select camera space, lands in front of Rush 2's camera with 2049's
+// screen layout moved to the middle of the diorama area: the screenshot centred between the carousel arrows, the model
+// in front of it as 2049 shows it, still (no carousel spin). Race tracks' tubes get 2049's moving white highlight.
+extern "C" void model_find_by_name_8005BE3C(uint8_t* rdram, recomp_context* ctx);
+
+namespace {
+    constexpr uint32_t camera = 0x800E79D0;       // view 0's camera: rows -right, up, forward, then +0x24 position
+    constexpr uint32_t view = 0x802401F0;         // view 0's projection (func_80054A50): +0x14 tan(hfov / 2),
+                                                  // +0x24 width, +0x2C/+0x30 the screen point straight ahead
+    constexpr uint32_t node_poses = 0x800D9E94;   // per scene node, 56 bytes: -> {matrix[9], position[3]}
+    constexpr uint32_t model_tables = 0x80118D78; // per model slot, 8 bytes: -> its 0x34-byte model records
+    constexpr uint32_t model_slots = 0x800D5788;  // u8: loaded model slots
+    constexpr uint32_t frame_seconds = 0x80023028;
+
+    // Where the preview's screenshot is centred on Rush 2's 320 x 240 screen (2049 draws it at (176, 32) - (304, 160)).
+    constexpr float preview_disc_center_x = 160.0f, preview_disc_center_y = 108.0f;
+    constexpr float preview_depth = 110.0f;       // 2049 camera units: about the preview's middle, put at the diorama's depth
+
+    float preview_phase = 0.0f;                   // the tube highlight's run along the route (0-1, one per 5 s)
+    float preview_angle = 0.0f;                   // 0x803B8350: the model's turn (radians, one turn per 10 s)
+    // Per entry: the RDRAM address and own-space positions (preview_unplace) of the model's vertices, looked up once.
+    struct PreviewModel {
+        bool looked_up = false;
+        uint32_t vertices = 0;
+        std::vector<std::array<float, 3>> local;
+    };
+    PreviewModel preview_models[menu_tracks];
+
+    float rdram_float(uint8_t* rdram, uint32_t address) {
+        uint32_t w = (uint32_t)MEM_W(0, (int32_t)address);
+        float f;
+        memcpy(&f, &w, 4);
+        return f;
+    }
+
+    void write_float(uint8_t* rdram, uint32_t address, float f) {
+        uint32_t w;
+        memcpy(&w, &f, 4);
+        MEM_W(0, (int32_t)address) = (int32_t)w;
+    }
+
+    // The vertices the preview model's list loads before its screenshot (the tube's or the outline's).
+    void find_model_vertices(uint8_t* rdram, recomp_context* ctx, int t, PreviewModel& out) {
+        out = PreviewModel();
+        out.looked_up = true;
+        recomp_context saved = *ctx;
+        ctx->r4 = (int32_t)preview_names[t];
+        ctx->r5 = 0;
+        ctx->r6 = MEM_BU(0, (int32_t)model_slots) - 1;
+        ctx->r7 = 1;
+        model_find_by_name_8005BE3C(rdram, ctx);
+        int32_t handle = (int32_t)ctx->r2;
+        *ctx = saved;
+        if (handle < 0 || (handle & 0xFFFF) == 0xFFFF) return;
+        uint32_t table = (uint32_t)MEM_W(0, (int32_t)(model_tables + (uint32_t)(handle >> 10) * 8));
+        uint32_t list = (uint32_t)MEM_W(0, (int32_t)(table + (uint32_t)(handle & 0x3FF) * 0x34 + 0xC));
+        uint32_t first = 0xFFFFFFFF, end = 0;
+        for (int i = 0; i < 4096 && (list >> 24) == 0x80; i++, list += 8) {
+            uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)list), w1 = (uint32_t)MEM_W(4, (int32_t)list);
+            uint32_t op = w0 >> 24;
+            if (op == 0xFD || op == 0xDF) break;
+            if (op != 0x01) continue;
+            uint32_t at = 0x80000000 | (w1 & 0x00FFFFFF);
+            first = std::min(first, at);
+            end = std::max(end, at + ((w0 >> 12) & 0xFF) * 16);
+        }
+        if (end <= first || end - first > 0x10000) return;
+        out.vertices = first;
+        for (uint32_t at = first; at < end; at += 16) {
+            float placed[3] = { (float)(int16_t)MEM_H(0, (int32_t)at), (float)(int16_t)MEM_H(2, (int32_t)at),
+                                (float)(int16_t)MEM_H(4, (int32_t)at) };
+            std::array<float, 3> local;
+            rush2::track2049::preview_unplace(placed, local.data());
+            out.local.push_back(local);
+        }
+    }
+}
+
+// func_803AB294 at 0x803AB7DC, building the carousel: $a0 = the diorama name of entry $s0 about to be looked up.
+extern "C" void rush2_track49_select_model(uint8_t* rdram, recomp_context* ctx) {
+    int t = (int8_t)MEM_B(0, (int32_t)ctx->r16);
+    if (t >= 0 && t < menu_tracks && preview_names[t] != 0) {
+        ctx->r4 = (int32_t)preview_names[t];
+        preview_models[t] = PreviewModel();
+    }
+}
+
+// func_803AB294 at 0x803ABCA0, each frame: carousel entry $s0's node was just given its place and spun matrix.
+extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t entry = (uint32_t)ctx->r16;
+    int t = (int8_t)MEM_B(0, (int32_t)entry);
+    if (t < 0 || t >= menu_tracks || preview_names[t] == 0) return;
+
+    float rows[3][3], cam[3];
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) rows[r][c] = rdram_float(rdram, camera + uint32_t(r * 3 + c) * 4);
+        cam[r] = rdram_float(rdram, camera + 0x24 + uint32_t(r) * 4);
+    }
+    const float right[3] = { -rows[0][0], -rows[0][1], -rows[0][2] };
+    const float* up = rows[1];
+    const float* forward = rows[2];
+    float tan_h = rdram_float(rdram, view + 0x14), width = rdram_float(rdram, view + 0x24);
+    float cx = rdram_float(rdram, view + 0x2C), cy = rdram_float(rdram, view + 0x30);
+    if (!(tan_h > 0.01f) || !(width > 0.0f)) return;
+    const float focal = width * 0.5f / tan_h;
+
+    // The carousel's centre entry sits at (0, y, z) and the others slide along x.
+    float place[3] = { rdram_float(rdram, entry + 4), rdram_float(rdram, entry + 8), rdram_float(rdram, entry + 12) };
+    float depth = 0;
+    for (int i = 0; i < 3; i++) depth += forward[i] * ((i == 0 ? 0.0f : place[i]) - cam[i]);
+    if (depth <= 1.0f) return;
+
+    // 2049 camera space (X, Y, Z) to Rush 2's (right, up, forward): Z' = a Z, X' = a f1 / f2 X + b Z, Y' = a f1 / f2 Y
+    // + c Z, so Rush 2's projection shows each point at 2049's screen point plus a constant offset.
+    using namespace rush2::track2049;
+    const float a = depth / preview_depth;
+    const float scale = a * preview_focal / focal;
+    const float dx = preview_disc_center_x - 240.0f, dy = preview_disc_center_y - 96.0f;
+    const float b = a * (preview_center_x + dx - cx) / focal;
+    const float c = a * (cy - preview_center_y - dy) / focal;
+    float m[3][3];
+    for (int i = 0; i < 3; i++) {
+        m[0][i] = scale * right[i];
+        m[1][i] = scale * up[i];
+        m[2][i] = b * right[i] + c * up[i] + a * forward[i];
+    }
+    int16_t node = (int16_t)MEM_H(0, (int32_t)(entry + 0x1A));
+    uint32_t pose = (uint32_t)MEM_W(0, (int32_t)(node_poses + node * 56));
+    for (int r = 0; r < 3; r++) {
+        for (int i = 0; i < 3; i++) write_float(rdram, pose + uint32_t(r * 3 + i) * 4, m[r][i]);
+    }
+    write_float(rdram, pose + 0x24, cam[0] + place[0]);
+    write_float(rdram, pose + 0x28, cam[1]);
+    write_float(rdram, pose + 0x2C, cam[2]);
+
+    // The highlight runs once along the route every 5 seconds (0x803B7CE0 += dt / 5) and the model turns once
+    // every 10 (0x803B8350 += dt x 2 pi / 10).
+    if ((int8_t)MEM_B(0, (int32_t)(entry + 0x14)) == 0) {
+        float dt = rdram_float(rdram, frame_seconds);
+        preview_phase += dt / 5.0f;
+        preview_phase -= std::floor(preview_phase);
+        preview_angle = std::fmod(preview_angle + dt * 6.2831853f / 10.0f, 6.2831853f);
+    }
+    PreviewModel& model = preview_models[t];
+    if (!model.looked_up) find_model_vertices(rdram, ctx, t, model);
+    if (model.vertices == 0) return;
+    for (size_t v = 0; v < model.local.size(); v++) {
+        float placed[3];
+        preview_place(model.local[v].data(), preview_angle, placed);
+        uint32_t at = model.vertices + uint32_t(v) * 16;
+        for (int i = 0; i < 3; i++) {
+            MEM_H(i * 2, (int32_t)at) = (int16_t)std::clamp(std::lround(placed[i]), -32767L, 32767L);
+        }
+    }
+    int k = t - first_menu_id + 1;
+    if (k < 1 || k > track_count || model.local.size() < size_t(preview_tube_rings) * 4) return;
+    for (int ring = 0; ring < preview_tube_rings; ring++) {
+        uint8_t rgb[3];
+        preview_tube_color(k, ring, preview_phase, rgb);
+        for (int v = 0; v < 2; v++) {
+            uint32_t at = model.vertices + uint32_t(ring * 4 + v) * 16 + 12;
+            MEM_B(0, (int32_t)at) = rgb[0];
+            MEM_B(1, (int32_t)at) = rgb[1];
+            MEM_B(2, (int32_t)at) = rgb[2];
+        }
+    }
 }
 
 // Start of func_803AB01C: whether track $a0 can be chosen. Replaces the function.

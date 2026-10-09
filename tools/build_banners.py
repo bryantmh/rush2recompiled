@@ -2,7 +2,8 @@
 tools/rush1/banners/trackN_<name>.png (SF Rush track 1-7, src/track1_convert.cpp build_logo) and
 tools/rush2049/banners/trackN_<name>.png (Rush 2049 race track 1-6, src/track2049_art.cpp build_logo). A track without
 a PNG gets its name drawn in its game's banner style with the banner font (tools/banner_font.py); the names come from
-track_names in include/track1.h and include/track2049.h.
+track_names in include/track1.h and include/track2049.h. Rush 2049's stunt arenas, obstacle course and battle arenas
+follow its race tracks as banners 7-19 (STUNT 1-4, OBSTACLE, BATTLE 1-8), always drawn with the font.
 
 Each banner becomes the format of Rush 2's track logos: 128x32 CI8 texels in rows top-down (build_logo flips them to
 the bottom-up order the game stores) and a 256-entry RGBA5551 palette whose entry 0 is transparent. Pixels with alpha
@@ -27,11 +28,14 @@ import banner_font  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 W, H = 128, 32
 
-# (source folder, header, C++ namespace, track count, header with track_names, banner font style).
+ARENAS_2049 = [f"Stunt {n}" for n in range(1, 5)] + ["Obstacle"] + [f"Battle {n}" for n in range(1, 9)]
+
+# (source folder, header, C++ namespace, track count, header with track_names, banner font style, names of the banners
+# after the tracks').
 GAMES = [
-    ("tools/rush1/banners", "include/track1_banners.h", "rush2::track1::banners", 7, "include/track1.h", "sfrush"),
+    ("tools/rush1/banners", "include/track1_banners.h", "rush2::track1::banners", 7, "include/track1.h", "sfrush", []),
     ("tools/rush2049/banners", "include/track2049_banners.h", "rush2::track2049::banners", 6, "include/track2049.h",
-     "rush2049"),
+     "rush2049", ARENAS_2049),
 ]
 
 
@@ -62,14 +66,15 @@ def convert(im):
     return texels, palette, exact
 
 
-def build(src, header, namespace, tracks, names_header, style, preview):
+def build(src, header, namespace, tracks, names_header, style, extra, preview):
     src_dir = os.path.join(ROOT, src)
     images = {}
     for name in sorted(os.listdir(src_dir)):
         m = re.fullmatch(r"track(\d)_\w+\.png", name)
         if m and 1 <= int(m.group(1)) <= tracks:
             images[int(m.group(1))] = Image.open(os.path.join(src_dir, name))
-    names = track_names(names_header)
+    names = track_names(names_header) + extra
+    tracks += len(extra)
     for t in range(1, tracks + 1):
         if t not in images:
             images[t] = banner_font.render(names[t - 1], style, (W, H))

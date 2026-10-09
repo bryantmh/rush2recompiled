@@ -5,18 +5,22 @@
 // each). Rush 2049's track select shows a round screenshot (file 60, TPIC1-6) with a 3D tube along the track's route
 // in front of it, which its overlay builds at runtime from the AI path (docs/rush2049_research/menus.md §7). The
 // 2049 entries get:
-// - that route tube as the diorama (R49TRACKn, build_tube): 2049's construction and colours, ported;
+// - Rush 2049's own preview for the track select (R49PTRACKn etc., build_preview, §7.5): the round screenshot with
+//   the route tube, or for an arena its outline from file 60, laid out as 2049 shows them; src/track2049_menu.cpp
+//   poses it in front of Rush 2's camera and animates it;
+// - that route tube as the diorama (R49TRACKn, build_tube) for the other screens that show dioramas (the unlock
+//   shop, the circuit screen): 2049's construction and colours, ported; an arena's is its outline (build_outline);
 // - or, with use_miniature, a miniature of the track itself: the track's own geometry (file 100+k, every object the
 //   placement file 119+k places, LOD 0, no sky), cropped to the route's extent plus a margin, shrunk so the longer
 //   side is 1120 model units like the stock dioramas, on a wooden base, with the route in red on top (the AI path's
 //   spine and the branches that really leave it). The notes below up to "Size" describe this miniature;
 // - a logo: the track's banner (tools/rush2049/banners, include/track2049_banners.h; tools/build_banners.py draws one
-//   with the banner font for a track without a picture). The arenas' logos are their screenshot shrunk to an icon
-//   and their name.
-// The stunt arenas (k = stunt_first.., src/track2049_convert.cpp) get the same from their own AI path (157+k) and
-// screenshot (SPICn), named R49STUNTn / R49SLOGOn and "STUNT n", the battle arenas (k = battle_first..) from theirs
-// (DPICn; the path is 157+k) named R49BATTLEn / R49BLOGOn and "BATTLE n", and the obstacle course (k = obstacle) from its
-// path (176) and OPIC1, named R49OBSTACLE / R49OLOGO and "OBSTACLE". The miniature is for race tracks only.
+//   with the banner font for a track without a picture, and for the arenas: STUNT n, OBSTACLE, BATTLE n).
+// The stunt arenas (k = stunt_first.., src/track2049_convert.cpp) get the same from their outline TRK_SnG1 and
+// screenshot (SPICn), named R49STUNTn / R49PSTUNTn / R49SLOGOn, the battle arenas (k = battle_first..) from TRK_DnG1
+// and DPICn, named R49BATTLEn / R49PBATTLEn / R49BLOGOn, and the obstacle course (k = obstacle) from its path (176)
+// and OPIC1, named R49OBSTACLE / R49POBSTACLE / R49OLOGO (its preview is the screenshot alone, as in 2049). The
+// miniature is for race tracks only.
 //
 // Both go into a copy of asset 3, whose tables are rebuilt after the appended data; the screen looks models and
 // textures up by name, so the copy works wherever asset 3 is loaded.
@@ -56,7 +60,8 @@
 //
 // Size: the tube is 10 KB per track (asset 3 grows to 0.57 MB) and builds in a few ms. The miniature is about
 // 0.63-0.77 MB per track (asset 3 about 4.8 MB; the heap is 7 MB) and takes about 0.2 s for the six tracks in an
-// optimized build. Built once per ROM; nothing is cached.
+// optimized build. A preview adds 18 KB (the screenshot) and the tube or outline. Built once per ROM; nothing is
+// cached.
 
 #include <algorithm>
 #include <array>
@@ -1783,13 +1788,22 @@ namespace {
     constexpr bool tube_close_gaps = false;      // close the tube across any gap, as 2049 does
     constexpr float tube_max_gap = 1000.0f;      // world units: longer closing segments are left out
 
-    bool build_tube(const rush2::rom2049::Source& rom, int k, TrackModel& m) {
+    // The tube's rings around the centre of the route's bounding box (world units, ring i at 4i: top +side, top -side,
+    // floor -side, floor +side), the longer side of the box, and whether the last ring joins ring 0.
+    struct Tube {
+        std::vector<std::array<float, 3>> ring;
+        int extent = 0;
+        bool closed = true;
+        std::vector<Point> spine;
+    };
+
+    bool tube_geometry(const rush2::rom2049::Source& rom, int k, Tube& tube) {
         Bytes path;
         if (!rom.read_file(path_file + k, path)) return false;
         std::vector<Point> spine;
         std::vector<std::vector<Point>> branches;
         if (!read_path(path, spine, branches) || spine.size() < 4 || path.size() < 12 + 10 * 0x50) return false;
-        m.print.spine = spine;
+        tube.spine = spine;
         const int count = int(spine.size());
 
         // Bounding box and centre of the spine (2049 0x801407B4 max, 0x801407D4 min; centre rounds toward zero).
@@ -1802,7 +1816,7 @@ namespace {
         for (int j = 0; j < 3; j++) centre[j] = float(-(hi[j] + lo[j]) / 2);
         const int extent = std::max(hi[0] - lo[0], hi[2] - lo[2]);
         if (extent <= 0) return false;
-        const float scale = 2 * diorama_half_size / float(extent);
+        tube.extent = extent;
 
         // A battle arena's path wanders about a space a tenth of a race track's size, comes within a few units of
         // itself and ends far from its start, so 2049's 200 unit band is a blob that overlaps itself all over (its
@@ -1841,7 +1855,8 @@ namespace {
             return Point{ spine[size_t(i)].x + centre[0], spine[size_t(i)].y + centre[1], spine[size_t(i)].z + centre[2] };
         };
         const float floor_y = float(lo[1]) + centre[1] - lift;
-        std::vector<std::array<float, 3>> ring(size_t(tube_rings) * 4);
+        std::vector<std::array<float, 3>>& ring = tube.ring;
+        ring.assign(size_t(tube_rings) * 4, {});
         for (int i = 0; i < tube_rings; i++) {
             Point cur = at(i * count / tube_rings);
             Point next = at(i < tube_rings - 1 ? (i + 1) * count / tube_rings : finish);
@@ -1859,20 +1874,30 @@ namespace {
             ring[size_t(i) * 4 + 3] = { cur.x + px, bottom, cur.z + pz };
         }
 
+        // 2049 always closes the tube back to ring 0. Track 6's route ends far from its start, so that segment is a
+        // sliver across the whole model; it is left out when the gap is that long.
+        const auto& last = ring[size_t(tube_rings - 1) * 4];
+        tube.closed = tube_close_gaps || std::hypot(last[0] - ring[0][0], last[2] - ring[0][2]) <= max_gap;
+        return true;
+    }
+
+    // Appends the tube's vertices (to_model: a ring point, world units around the centre, to model units) and its list
+    // as 2049 builds them, with the selected colours at highlight phase `phase` (negative: no highlight).
+    template <typename ToModel>
+    void emit_tube(const Tube& tube, int k, float phase, TrackModel& m, ToModel to_model) {
+        const auto& ring = tube.ring;
         // Vertices, chained for the loader's mirror pass like 2049's (flag 0x8000; the last ends the chain).
         Bytes& vertices = m.parts[vertices_part];
-        const int bits[3] = { 4, 2, 1 }; // red, green, blue from the track number
+        const uint32_t base = uint32_t(vertices.size());
         for (int i = 0; i < tube_rings; i++) {
-            // Selected-track colour (func_8038A820): a = twice the rings behind the highlight, at most 64.
-            int a = tube_highlight ? std::min(2 * ((tube_rings - i) % tube_rings), 64) : 64;
             uint8_t top[3];
-            for (int c = 0; c < 3; c++) top[c] = uint8_t((number_of(k) & bits[c]) ? 255 - a : 255 - 3 * a);
-            if (i == tube_rings - 1) top[0] = top[1] = top[2] = 255;
+            rush2::track2049::preview_tube_color(number_of(k), i, phase, top);
             for (int v = 0; v < 4; v++) {
                 const auto& p = ring[size_t(i) * 4 + size_t(v)];
                 float mv[3];
+                to_model(p, mv);
                 for (int j = 0; j < 3; j++) {
-                    mv[j] = std::trunc(p[j] * scale);
+                    mv[j] = std::trunc(std::clamp(mv[j], -32767.0f, 32767.0f));
                     push16(vertices, uint16_t(int16_t(mv[j])));
                 }
                 push16(vertices, 0x8000);
@@ -1887,7 +1912,6 @@ namespace {
                 m.vertices++;
             }
         }
-        vertices[vertices.size() - 10] &= 0x7F;
 
         // The list, as 2049 builds it.
         Bytes& list = m.parts[list_part];
@@ -1902,16 +1926,12 @@ namespace {
         command(0xFCFFFFFF, 0xFFFE7C38, false);     // shade colour
         for (int i = 0; i < tube_rings; i++) {
             if (i < tube_rings - 1) {
-                command(0x01008010, uint32_t(i) * 64, true);   // rings i and i + 1 to slots 0-7
+                command(0x01008010, base + uint32_t(i) * 64, true);   // rings i and i + 1 to slots 0-7
             }
             else {
-                // 2049 always closes the tube back to ring 0. Track 6's route ends far from its start, so that
-                // segment is a sliver across the whole model; it is left out when the gap is that long.
-                const auto& a = ring[size_t(i) * 4];
-                const auto& b = ring[0];
-                if (!tube_close_gaps && std::hypot(a[0] - b[0], a[2] - b[2]) > max_gap) break;
-                command(0x01004008, uint32_t(i) * 64, true);   // ring i to slots 0-3
-                command(0x01004010, 0, true);                  // ring 0 to slots 4-7
+                if (!tube.closed) break;
+                command(0x01004008, base + uint32_t(i) * 64, true);   // ring i to slots 0-3
+                command(0x01004010, base, true);                      // ring 0 to slots 4-7
             }
             command(0x06000802, 0x000A0208, false);  // top
             command(0x06020A04, 0x000C040A, false);  // -side
@@ -1920,66 +1940,36 @@ namespace {
             m.triangles += 8;
         }
         command(0xD7000002, 0xFFFFFFFF, false);     // G_TEXTURE on, as 2049's list ends
-        command(0xDF000000, 0, false);
         m.objects = m.objects_drawn = 1;
+    }
+
+    bool build_tube(const rush2::rom2049::Source& rom, int k, TrackModel& m) {
+        Tube tube;
+        if (!tube_geometry(rom, k, tube)) return false;
+        m.print.spine = tube.spine;
+        const float scale = 2 * diorama_half_size / float(tube.extent);
+        emit_tube(tube, k, tube_highlight ? 0.0f : -1.0f, m, [&](const std::array<float, 3>& p, float* out) {
+            for (int j = 0; j < 3; j++) out[j] = p[j] * scale;
+        });
+        Bytes& vertices = m.parts[vertices_part];
+        vertices[vertices.size() - 10] &= 0x7F;
+        push32(m.parts[list_part], 0xDF000000);
+        push32(m.parts[list_part], 0);
         return true;
     }
 
-    bool build_track_model(const rush2::rom2049::Source& rom, int k, TrackModel& m) {
-        return use_miniature && k <= rush2::track2049::track_count ? build_miniature(rom, k, m) : build_tube(rom, k, m);
-    }
 
     // ---------------------------------------------------------------------------------------------------------------
     // Logo
 
     constexpr int logo_w = 128, logo_h = 32;
 
-    // 5x7 capitals and digits, one byte per row, bit 4 = leftmost column.
-    const std::map<char, std::array<uint8_t, 7>> font = {
-        { 'A', { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } }, { 'B', { 0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E } },
-        { 'C', { 0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E } }, { 'E', { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F } },
-        { 'H', { 0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } }, { 'K', { 0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11 } },
-        { 'L', { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F } }, { 'N', { 0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11 } },
-        { 'O', { 0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E } },
-        { 'R', { 0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11 } }, { 'S', { 0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E } },
-        { 'T', { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 } }, { 'U', { 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E } },
-        { '0', { 0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E } }, { '1', { 0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E } },
-        { '2', { 0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F } }, { '3', { 0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E } },
-        { '4', { 0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02 } }, { '5', { 0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E } },
-        { '6', { 0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E } }, { '7', { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08 } },
-        { '8', { 0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E } }, { '9', { 0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C } },
-    };
-
-    // Palette: 0 transparent, 1-3 text, 32-255 a 7x8x4 colour cube for the icon.
-    constexpr uint8_t ink_big = 1, ink_small = 2, ink_outline = 3, cube_base = 32;
-
-    // advance: pixels from one character to the next, 0 for 6 x scale.
-    void draw_text(std::array<uint8_t, logo_w * logo_h>& img, const std::string& text, int x0, int y0, int scale, uint8_t ink,
-                   int advance = 0) {
-        int x = x0;
-        for (char ch : text) {
-            auto g = font.find(ch);
-            if (g != font.end()) {
-                for (int row = 0; row < 7; row++) {
-                    for (int col = 0; col < 5; col++) {
-                        if (!(g->second[row] & (0x10 >> col))) continue;
-                        for (int sy = 0; sy < scale; sy++) {
-                            for (int sx = 0; sx < scale; sx++) {
-                                int px = x + col * scale + sx, py = y0 + row * scale + sy;
-                                if (px >= 0 && px < logo_w && py >= 0 && py < logo_h) {
-                                    img[py * logo_w + px] = ink;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            x += advance > 0 ? advance : 6 * scale;
-        }
-    }
-
     // TPICk (stunt arena n: SPICn, the obstacle course: OPIC1) as RGBA, upright (2049 stores its thumbnails bottom-up). Returns false if not found.
-    bool read_thumbnail(const std::vector<uint8_t>& ui, int k, std::vector<std::array<uint8_t, 4>>& rgba, int& w, int& h) {
+    // With `indices`, a cartridge's CI8 texels (upright) and RGBA5551 palette are handed out as they are too; a
+    // Dreamcast source's RGBA thumbnail leaves `indices` empty.
+    bool read_thumbnail(const std::vector<uint8_t>& ui, int k, std::vector<std::array<uint8_t, 4>>& rgba, int& w, int& h,
+                        std::vector<uint8_t>* indices = nullptr, std::array<uint16_t, 256>* palette = nullptr) {
+        if (indices != nullptr) indices->clear();
         if (ui.size() < 4) return false;
         // Chunk directory: IMAG, TXHD, PLHD (docs/rush2049_research/geometry.md §3).
         uint32_t dir = be32(ui, 0);
@@ -2004,6 +1994,13 @@ namespace {
                 uint32_t pal = imag + be32(ui, p + 20);
                 if (texels + uint32_t(w * h) > ui.size() || pal + 512 > ui.size()) return false;
                 rgba.resize(size_t(w * h));
+                if (indices != nullptr && palette != nullptr) {
+                    indices->resize(size_t(w * h));
+                    for (int y = 0; y < h; y++) {
+                        for (int x = 0; x < w; x++) (*indices)[size_t(y * w + x)] = ui[texels + (h - 1 - y) * w + x];
+                    }
+                    for (int c = 0; c < 256; c++) (*palette)[size_t(c)] = be16(ui, pal + c * 2);
+                }
                 for (int y = 0; y < h; y++) {
                     for (int x = 0; x < w; x++) {
                         uint16_t c = be16(ui, pal + ui[texels + (h - 1 - y) * w + x] * 2);
@@ -2025,81 +2022,246 @@ namespace {
         return false;
     }
 
-    // 128x32 CI8 texels (rows bottom-up, as Rush 2 stores its logos) and a 256-entry RGBA5551 palette: a race track's
-    // banner (include/track2049_banners.h, tools/build_banners.py), or an arena's thumbnail icon and name.
-    void build_logo(const std::vector<uint8_t>& ui, int k, std::vector<uint8_t>& texels, std::vector<uint8_t>& palette) {
-        if (k >= 1 && k <= rush2::track2049::track_count) {
-            const uint8_t* banner = rush2::track2049::banners::texels[k - 1];
-            texels.resize(logo_w * logo_h);
-            for (int y = 0; y < logo_h; y++) {
-                memcpy(&texels[(logo_h - 1 - y) * logo_w], banner + y * logo_w, logo_w);
-            }
-            palette.clear();
-            for (int i = 0; i < 256; i++) push16(palette, rush2::track2049::banners::palettes[k - 1][i]);
-            return;
-        }
-        std::array<uint16_t, 256> pal{};
-        pal[ink_big] = rgba5551(255, 196, 24, 1);
-        pal[ink_small] = rgba5551(235, 235, 245, 1);
-        pal[ink_outline] = rgba5551(24, 10, 0, 1);
-        for (int i = 0; i < 224; i++) {
-            int r = i % 7, g = (i / 7) % 8, b = i / 56;
-            pal[cube_base + i] = rgba5551(r * 255 / 6, g * 255 / 7, b * 255 / 3, 1);
-        }
+    // Track k's banner in include/track2049_banners.h: the race tracks', then STUNT 1-4, OBSTACLE and BATTLE 1-8.
+    int banner_index(int k) {
+        if (is_battle(k)) return rush2::track2049::track_count + rush2::track2049::stunt_count + 1 + number_of(k) - 1;
+        if (is_obstacle(k)) return rush2::track2049::track_count + rush2::track2049::stunt_count;
+        if (is_stunt(k)) return rush2::track2049::track_count + number_of(k) - 1;
+        return k - 1;
+    }
 
-        std::array<uint8_t, logo_w * logo_h> img{};
-        // Icon: the 2049 thumbnail shrunk to 32x32, alpha by majority.
-        std::vector<std::array<uint8_t, 4>> thumb;
-        int tw = 0, th = 0;
-        if (read_thumbnail(ui, k, thumb, tw, th) && tw >= 32 && th >= 32) {
-            int fx = tw / 32, fy = th / 32;
-            for (int y = 0; y < 32; y++) {
-                for (int x = 0; x < 32; x++) {
-                    int sum[3] = {}, opaque = 0;
-                    for (int sy = 0; sy < fy; sy++) {
-                        for (int sx = 0; sx < fx; sx++) {
-                            const auto& c = thumb[(y * fy + sy) * tw + x * fx + sx];
-                            if (c[3]) { sum[0] += c[0]; sum[1] += c[1]; sum[2] += c[2]; opaque++; }
-                        }
-                    }
-                    if (opaque * 2 < fx * fy) continue;
-                    int r = std::lround(sum[0] / float(opaque) * 6 / 255), g = std::lround(sum[1] / float(opaque) * 7 / 255),
-                        b = std::lround(sum[2] / float(opaque) * 3 / 255);
-                    img[y * logo_w + x] = uint8_t(cube_base + r + g * 7 + b * 56);
-                }
-            }
-        }
-        // Name, with a one-pixel outline around the text.
-        std::array<uint8_t, logo_w * logo_h> text{};
-        draw_text(text, "RUSH 2049", 38, 2, 1, ink_small);
-        if (is_obstacle(k)) {
-            draw_text(text, "OBSTACLE", 36, 13, 2, ink_big, 11);  // one pixel apart, to fit
-        }
-        else {
-            draw_text(text, (is_battle(k) ? "BATTLE " : "STUNT ") + std::to_string(number_of(k)), 36, 13, 2,
-                      ink_big, is_battle(k) ? 11 : 0);  // BATTLE n is a character longer: one pixel apart, to fit
-        }
-        for (int y = 0; y < logo_h; y++) {
-            for (int x = 34; x < logo_w; x++) {
-                if (text[y * logo_w + x]) {
-                    img[y * logo_w + x] = text[y * logo_w + x];
-                    continue;
-                }
-                bool near_ink = false;
-                for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
-                    int px = x + dx, py = y + dy;
-                    if (px >= 0 && px < logo_w && py >= 0 && py < logo_h && text[py * logo_w + px]) near_ink = true;
-                }
-                if (near_ink) img[y * logo_w + x] = ink_outline;
-            }
-        }
-
+    // 128x32 CI8 texels (rows bottom-up, as Rush 2 stores its logos) and a 256-entry RGBA5551 palette: the track's
+    // banner (include/track2049_banners.h, tools/build_banners.py; the arenas' are their names in the banner font).
+    void build_logo(int k, std::vector<uint8_t>& texels, std::vector<uint8_t>& palette) {
+        const int b = banner_index(k);
+        const uint8_t* banner = rush2::track2049::banners::texels[b];
         texels.resize(logo_w * logo_h);
         for (int y = 0; y < logo_h; y++) {
-            memcpy(&texels[(logo_h - 1 - y) * logo_w], &img[y * logo_w], logo_w);
+            memcpy(&texels[(logo_h - 1 - y) * logo_w], banner + y * logo_w, logo_w);
         }
         palette.clear();
-        for (uint16_t c : pal) push16(palette, c);
+        for (int i = 0; i < 256; i++) push16(palette, rush2::track2049::banners::palettes[b][i]);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Track select preview: Rush 2049's own (docs/rush2049_research/menus.md §7.5)
+    //
+    // Rush 2049's track select (overlay ROM 0xB5C534) draws the selected track's round screenshot (TPICn, stunt SPICn,
+    // battle DPICn, obstacle OPIC1) as a 2D sprite at (176, 32) and in front of it a 3D model: a race track's route
+    // tube (built as above, display scale 5000 / extent), a battle or stunt arena's flat white outline TRK_DnG1 /
+    // TRK_SnG1 of file 60 (scale 1), and nothing for the obstacle course (its builder skips game type 5). The model's
+    // node is at (50, -15, 100) in camera space, turned from the map's top-down -pi/2 to -pi/6 about x. The preview
+    // model holds both in 2049's camera space: the model transformed so, and the screenshot as a textured square at
+    // a depth behind it, sized and placed so 2049's projection (preview_focal, preview_center_*) shows it where 2049
+    // draws the sprite. src/track2049_menu.cpp maps that space onto Rush 2's camera.
+
+    constexpr float preview_units = 16.0f;                         // model units per camera space unit
+    // 0x803B8344: the selected track's place, raised by 10 of 2049's screen pixels at its depth (2049's own spot
+    // puts the model's front edge on Rush 2's logo).
+    constexpr float preview_raise = 10.0f * 100.0f / rush2::track2049::preview_focal;
+    constexpr float preview_pos[3] = { 50.0f, -15.0f + preview_raise, 100.0f };
+    constexpr float preview_tilt = 0.52359878f;                    // 0x803B92DC: -pi/6 about x
+    constexpr float preview_disc_x = 176.0f, preview_disc_y = 32.0f; // func_800B3704(name, 0xB0, 0x20, 0)
+    constexpr float preview_disc_depth = 150.0f;                   // behind the model (its far edge is about 125)
+    constexpr int preview_strip_h = 16;                            // 128 x 16 CI8 texels per TMEM load (2 KB)
+    constexpr int preview_strip_shown = 14;                        // rows drawn from each: a row either side for filtering
+
+
+    // Object `name` of file 60 (a flat track select outline): its LOD 0 vertices (2049 units) and triangles.
+    bool read_select_mesh(const Bytes& ui, const std::string& name, Group& g) {
+        auto ch = chunks49(ui);
+        if (!ch["OBHD"].found) return false;
+        for (uint32_t i = 0; i < ch["OBHD"].size; i++) {
+            uint32_t r = ch["OBHD"].offset + i * 0x58;
+            if (r + 0x58 > ui.size()) break;
+            if (std::string(reinterpret_cast<const char*>(&ui[r]), strnlen(reinterpret_cast<const char*>(&ui[r]), 16)) != name) continue;
+            int slot[64];
+            std::fill(std::begin(slot), std::end(slot), -1);
+            for (uint32_t o = be32(ui, r + 0x20); o + 8 <= ui.size() && ui[o] != 0xDF; o += 8) {
+                uint32_t w0 = be32(ui, o), w1 = be32(ui, o + 4);
+                uint32_t op = w0 >> 24;
+                if (op == 0x01) {
+                    uint32_t n = (w0 >> 12) & 0xFF, v0 = ((w0 >> 1) & 0x7F) - n, a = w1 & 0xFFFFFF;
+                    for (uint32_t v = 0; v < n && v0 + v < 64 && a + v * 16 + 16 <= ui.size(); v++) {
+                        uint32_t at = a + v * 16;
+                        slot[v0 + v] = g.add({ int16_t(be16(ui, at)) / 16.0f, int16_t(be16(ui, at + 2)) / 16.0f,
+                                               int16_t(be16(ui, at + 4)) / 16.0f, 0, 0, ui[at + 12], ui[at + 13], ui[at + 14] });
+                    }
+                }
+                else if (op == 0x05 || op == 0x06) {
+                    for (uint32_t w : { w0, w1 }) {
+                        int a = slot[((w >> 16) & 0xFF) / 2 % 64], b = slot[((w >> 8) & 0xFF) / 2 % 64], c = slot[(w & 0xFF) / 2 % 64];
+                        if (a >= 0 && b >= 0 && c >= 0) g.tri(a, b, c);
+                        if (op == 0x05) break;
+                    }
+                }
+            }
+            return !g.triangles.empty();
+        }
+        return false;
+    }
+
+    // A battle or stunt arena's diorama: its track select outline (file 60), flat, the longer side 1120 units.
+    bool build_outline(const Bytes& ui, int k, TrackModel& m) {
+        Group outline;
+        std::string name = std::string(is_battle(k) ? "TRK_D" : "TRK_S") + std::to_string(number_of(k)) + "G1";
+        if (!read_select_mesh(ui, name, outline)) return false;
+        float lo[2] = { 1e9f, 1e9f }, hi[2] = { -1e9f, -1e9f };
+        for (const Vertex& v : outline.vertices) {
+            lo[0] = std::min(lo[0], v.x); hi[0] = std::max(hi[0], v.x);
+            lo[1] = std::min(lo[1], v.z); hi[1] = std::max(hi[1], v.z);
+        }
+        const float extent = std::max(hi[0] - lo[0], hi[1] - lo[1]);
+        if (extent <= 0) return false;
+        const float scale = 2 * diorama_half_size / extent;
+        for (Vertex& v : outline.vertices) {
+            v.x = (v.x - (lo[0] + hi[0]) / 2) * scale;
+            v.y *= scale;
+            v.z = (v.z - (lo[1] + hi[1]) / 2) * scale;
+            m.radius = std::max(m.radius, std::hypot(v.x, v.z));
+        }
+        static const Bytes no_geometry;
+        Miniature mini(no_geometry, m);
+        mini.command(0xD7000000, 0xFFFFFFFF);    // as 2049's outline lists: textures off, fog, opaque, shade colour
+        mini.command(0xE7000000, 0);
+        mini.command(0xE200001C, 0xC8112230);
+        mini.command(0xFCFFFFFF, 0xFFFE7C38);
+        emit_group(mini, outline);
+        mini.command(0xE200001C, 0xC8112078);    // render mode, as the stock dioramas
+        mini.command(0xDF000000, 0);
+        Bytes& vertices = m.parts[vertices_part];
+        vertices[vertices.size() - 10] &= 0x7F;
+        m.objects = m.objects_drawn = 1;
+        return true;
+    }
+
+    // Track k's diorama (the unlock shop and the circuit screen show it): a race track's or the obstacle course's
+    // route tube, an arena's outline.
+    bool build_track_model(const rush2::rom2049::Source& rom, const Bytes& ui, int k, TrackModel& m) {
+        if ((is_battle(k) || is_stunt(k)) && build_outline(ui, k, m)) return true;
+        m = TrackModel();
+        return use_miniature && k <= rush2::track2049::track_count ? build_miniature(rom, k, m) : build_tube(rom, k, m);
+    }
+
+    bool build_preview(const rush2::rom2049::Source& rom, const Bytes& ui, int k, TrackModel& m) {
+        static const Bytes no_geometry;
+        Miniature mini(no_geometry, m);
+
+        // The model, with 2049's list state: textures off, fog and an opaque z-buffered surface, shade colour.
+        bool race = k >= 1 && k <= rush2::track2049::track_count;
+        if (race) {
+            Tube tube;
+            if (!tube_geometry(rom, k, tube)) return false;
+            const float scale = 50.0f / float(tube.extent);   // (p + c) / 100 x 5000 / extent
+            emit_tube(tube, k, 0.0f, m, [&](const std::array<float, 3>& p, float* out) {
+                float q[3] = { p[0] * scale, p[1] * scale, p[2] * scale };
+                rush2::track2049::preview_place(q, 0.0f, out);
+            });
+        }
+        else if (!is_obstacle(k)) {
+            Group outline;
+            std::string name = std::string(is_battle(k) ? "TRK_D" : "TRK_S") + std::to_string(number_of(k)) + "G1";
+            if (read_select_mesh(ui, name, outline)) {
+                for (Vertex& v : outline.vertices) {
+                    float p[3] = { v.x, v.y, v.z }, q[3];
+                    rush2::track2049::preview_place(p, 0.0f, q);
+                    v.x = q[0]; v.y = q[1]; v.z = q[2];
+                }
+                mini.command(0xD7000000, 0xFFFFFFFF);    // G_TEXTURE off
+                mini.command(0xE7000000, 0);
+                mini.command(0xE200001C, 0xC8112230);    // fog, z-buffered opaque surface
+                mini.command(0xFCFFFFFF, 0xFFFE7C38);    // shade colour
+                emit_group(mini, outline);
+            }
+        }
+
+        // The screenshot: 128 x 128 CI8 in 128 x 16 strips, translucent (its corners are clear), z-compared but not
+        // written, after the model so the model hides it.
+        std::vector<std::array<uint8_t, 4>> rgba;
+        std::vector<uint8_t> indices;
+        std::array<uint16_t, 256> palette{};
+        int w = 0, h = 0;
+        if (read_thumbnail(ui, k, rgba, w, h, &indices, &palette) && w == 128 && h > 0) {
+            if (indices.empty()) {
+                // A Dreamcast source's RGBA thumbnail: index 255 is clear, the rest a median cut of the opaque texels.
+                std::vector<std::array<uint8_t, 3>> px(rgba.size());
+                for (size_t i = 0; i < rgba.size(); i++) px[i] = { rgba[i][0], rgba[i][1], rgba[i][2] };
+                Texture t;
+                quantize(px, t);
+                indices = t.texels;
+                palette = t.palette;
+                palette[255] = 0;
+                for (size_t i = 0; i < rgba.size(); i++) {
+                    if (rgba[i][3] < 128) indices[i] = 255;
+                    else if (indices[i] == 255) indices[i] = 254;
+                }
+            }
+            // Clear entries black, so filtering darkens the round edge instead of fringing it with the key colour.
+            for (uint16_t& c : palette) {
+                if (!(c & 1)) c = 0;
+            }
+            // Strips of preview_strip_h rows starting a row above the preview_strip_shown rows each draws, so the
+            // filter has both neighbours at the seams: the image with its first and last rows repeated around it.
+            const int strips = (h + preview_strip_shown - 1) / preview_strip_shown;
+            Bytes& texels = m.parts[texels_part];
+            align(texels, 8);
+            const uint32_t at = uint32_t(texels.size());
+            for (int row = -1; row < strips * preview_strip_shown + preview_strip_h - preview_strip_shown - 1; row++) {
+                int r = std::clamp(row, 0, h - 1);
+                texels.insert(texels.end(), indices.begin() + r * w, indices.begin() + (r + 1) * w);
+            }
+            const uint32_t pal = uint32_t(texels.size());
+            for (uint16_t c : palette) push16(texels, c);
+
+            mini.command(0xE7000000, 0);
+            mini.command(0xE200001C, 0x0C184A50);    // pass, then z-compared translucent surface
+            mini.command(0xFCFFFFFF, 0xFFFCF238);    // texel 0, colour and alpha
+            mini.command(0xD7000002, 0xFFFFFFFF);    // G_TEXTURE on, tile 0, scale 1
+            mini.command(0xFD100000, pal, texels_part);  // SETTIMG palette
+            mini.command(0xE8000000, 0);             // TILESYNC
+            mini.command(0xF5000100, 0x07000000);    // SETTILE 7 at TMEM 0x100
+            mini.command(0xE6000000, 0);             // LOADSYNC
+            mini.command(0xF0000000, 0x073FC000);    // LOADTLUT 256 entries
+            mini.command(0xE7000000, 0);
+            const uint32_t clamp = (2u << 18) | (2u << 8);
+            const float d = preview_disc_depth / rush2::track2049::preview_focal;
+            for (int strip = 0; strip < strips; strip++) {
+                mini.command(0xFD500000, at + uint32_t(strip * w * preview_strip_shown), texels_part); // SETTIMG CI 16-bit
+                mini.command(0xF5500000, 0x07000000 | clamp);   // SETTILE 7
+                mini.command(0xE6000000, 0);                     // LOADSYNC
+                mini.command(0xF3000000, 0x073FF080);            // LOADBLOCK 1024 16-bit texels, 16 words per row
+                mini.command(0xE7000000, 0);
+                mini.command(0xF5482000, clamp);                 // SETTILE 0: CI8, 16 words per row, TMEM 0
+                mini.command(0xF2000000, 0x001FC03C);            // SETTILESIZE 128 x 16
+                Group quad;
+                int rows = std::min(preview_strip_shown, h - strip * preview_strip_shown);
+                float y0 = preview_disc_y + float(strip * preview_strip_shown), y1 = y0 + float(rows);
+                float x0 = preview_disc_x, x1 = preview_disc_x + float(w);
+                auto corner = [&](float sx, float sy, float s, float t) {
+                    float x = (sx - rush2::track2049::preview_center_x) * d, y = (rush2::track2049::preview_center_y - sy) * d;
+                    return quad.add({ x * preview_units, y * preview_units, preview_disc_depth * preview_units, s, t, 255, 255, 255 });
+                };
+                int a = corner(x0, y0, 0, 1), b = corner(x1, y0, float(w), 1);
+                int c = corner(x1, y1, float(w), float(1 + rows)), e = corner(x0, y1, 0, float(1 + rows));
+                quad.quad(a, b, c, e);
+                emit_group(mini, quad);
+            }
+        }
+
+        // What Rush 2's dioramas leave set.
+        mini.command(0xE7000000, 0);
+        mini.command(0xE200001C, 0xC8112078);        // render mode, as the stock dioramas
+        mini.command(0xFCFFFFFF, 0xFFFE7C38);        // shade colour
+        mini.command(0xDF000000, 0);
+        Bytes& vertices = m.parts[vertices_part];
+        if (vertices.size() < 16) return false;
+        vertices[vertices.size() - 10] &= 0x7F;      // the last vertex ends the chain
+        m.radius = 0;
+        for (size_t o = 0; o + 16 <= vertices.size(); o += 16) {
+            float x = int16_t(be16(vertices, o)), y = int16_t(be16(vertices, o + 2)), z = int16_t(be16(vertices, o + 4));
+            m.radius = std::max(m.radius, std::sqrt(x * x + y * y + z * z));
+        }
+        return true;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -2133,6 +2295,45 @@ std::string rush2::track2049::menu_model_name(int k) {
     return (is_battle(k) ? "R49BATTLE" : is_stunt(k) ? "R49STUNT" : "R49TRACK") + std::to_string(number_of(k));
 }
 
+// -z goes up and away, +y up and towards the camera; turned first by `angle` about y (func_8009EB10, then the tilt).
+void rush2::track2049::preview_place(const float local[3], float angle, float out[3]) {
+    const float ca = std::cos(angle), sa = std::sin(angle);
+    const float x = local[0] * ca + local[2] * sa, y = local[1], z = local[2] * ca - local[0] * sa;
+    const float c = std::cos(preview_tilt), s = std::sin(preview_tilt);
+    out[0] = (preview_pos[0] + x) * preview_units;
+    out[1] = (preview_pos[1] + y * c - z * s) * preview_units;
+    out[2] = (preview_pos[2] - y * s - z * c) * preview_units;
+}
+
+void rush2::track2049::preview_unplace(const float placed[3], float local[3]) {
+    const float c = std::cos(preview_tilt), s = std::sin(preview_tilt);
+    const float y = placed[1] / preview_units - preview_pos[1], z = placed[2] / preview_units - preview_pos[2];
+    local[0] = placed[0] / preview_units - preview_pos[0];
+    local[1] = y * c - z * s;
+    local[2] = -y * s - z * c;
+}
+
+std::string rush2::track2049::menu_preview_name(int k) {
+    if (is_obstacle(k)) return "R49POBSTACLE";
+    return (is_battle(k) ? "R49PBATTLE" : is_stunt(k) ? "R49PSTUNT" : "R49PTRACK") + std::to_string(number_of(k));
+}
+
+// func_8038A820: the top vertices take race track n's colour (bit 0 blue, bit 1 green, bit 2 red), whitened behind
+// the highlight's head at ring phase x 100: a = twice the rings behind the head (wrapped), at most 64, component =
+// bit ? 255 - a : 255 - 3a. The last ring's top is white.
+void rush2::track2049::preview_tube_color(int n, int ring, float phase, uint8_t rgb[3]) {
+    int a = 64;
+    if (phase >= 0.0f) {
+        a = int(std::trunc(phase * float(preview_tube_rings) - float(ring)));
+        if (a < 0) a += preview_tube_rings;
+        if (a > preview_tube_rings - 1) a -= preview_tube_rings;
+        a = std::min(2 * a, 64);
+    }
+    const int bits[3] = { 4, 2, 1 };
+    for (int c = 0; c < 3; c++) rgb[c] = uint8_t((n & bits[c]) ? 255 - a : 255 - 3 * a);
+    if (ring == preview_tube_rings - 1) rgb[0] = rgb[1] = rgb[2] = 255;
+}
+
 std::string rush2::track2049::menu_logo_name(int k) {
     if (is_obstacle(k)) return "R49OLOGO";
     return (is_battle(k) ? "R49BLOGO" : is_stunt(k) ? "R49SLOGO" : "R49LOGO") + std::to_string(number_of(k));
@@ -2159,9 +2360,10 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
     for (int n = 0; n < stunt_count; n++) ks.push_back(stunt_first + n);
     ks.push_back(obstacle);
     for (int n = 0; n < battle_count; n++) ks.push_back(battle_first + n);
-    std::vector<TrackModel> tracks(ks.size());
+    // Each track's diorama (for the unlock shop and the circuit screen), then its track select preview.
+    std::vector<TrackModel> tracks(ks.size() * 2);
     for (size_t i = 0; i < ks.size(); i++) {
-        if (!build_track_model(rom2049, ks[i], tracks[i])) {
+        if (!build_track_model(rom2049, ui, ks[i], tracks[i * 2]) || !build_preview(rom2049, ui, ks[i], tracks[i * 2 + 1])) {
             return false;
         }
     }
@@ -2217,8 +2419,8 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
         textures.push_back(std::move(t));
     }
 
-    for (size_t i = 0; i < ks.size(); i++) {
-        int k = ks[i];
+    for (size_t i = 0; i < tracks.size(); i++) {
+        int k = ks[i / 2];
         TrackModel& tm = tracks[i];
         auto& b = base[i];
         for (int part : { texels_part, vertices_part, list_part }) {
@@ -2231,7 +2433,7 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
             uint32_t w = be32(out, at);
             put32(out, at, (w & 0xFF000000) | ((w & 0xFFFFFF) + b[size_t(f.to)]));
         }
-        std::string model_name = menu_model_name(k);
+        std::string model_name = i % 2 ? menu_preview_name(k) : menu_model_name(k);
         std::vector<uint8_t> rec(0x34, 0), name_rec(0x18, 0);
         put32(rec, 0, 1);
         put32(rec, 4, 0);                     // LOD 0: texture handle 0, flags 0, distance 0 (always drawn)
@@ -2241,9 +2443,10 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
         memcpy(name_rec.data(), nb.data(), 16);
         put32(name_rec, 16, float_bits(tm.radius / 16.0f));
         models.push_back({ model_name, rec, name_rec });
+        if (i % 2) continue;
 
         std::vector<uint8_t> texels, palette;
-        build_logo(ui, k, texels, palette);
+        build_logo(k, texels, palette);
         align(out, 8);
         uint32_t texel_off = uint32_t(out.size());
         out.insert(out.end(), texels.begin(), texels.end());
@@ -2299,7 +2502,7 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
 
 void rush2::track2049::add_banner_images() {
     // The banners as the game stores them: rows bottom-up.
-    for (int t = 0; t < track_count; t++) {
+    for (int t = 0; t < int(std::size(banners::texels)); t++) {
         std::vector<uint8_t> indices(logo_w * logo_h);
         rush2::upscale::Image image;
         image.width = logo_w;
@@ -2320,6 +2523,7 @@ void rush2::track2049::add_banner_images() {
 
 bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const rush2::rom2049::Source& rom2049, int k,
                                        std::vector<uint8_t>& out) {
+    (void)rom2049;  // the banners are built in (include/track2049_banners.h)
     // Rush 2's logo containers hold one texture and its palette; overwrite their data in place.
     if (logo.size() < 0x28 || be32(logo, 20) != 1 || be32(logo, 24) != 1) {
         return false;
@@ -2330,12 +2534,8 @@ bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const r
         palette + 512 > logo.size()) {
         return false;
     }
-    std::vector<uint8_t> ui;
-    if (!rom2049.read_file(ui_file, ui)) {
-        return false;
-    }
     std::vector<uint8_t> t, p;
-    build_logo(ui, k, t, p);
+    build_logo(k, t, p);
     out = logo;
     memcpy(&out[texels], t.data(), t.size());
     memcpy(&out[palette], p.data(), p.size());
