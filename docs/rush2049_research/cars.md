@@ -202,6 +202,24 @@ grip), DURABILITY (record byte / 100: the weight). The 2049 cars keep Rush 2's l
 - MAIN, ACCENT and STRIPE COLOR are 2049's COLOR 1-3 (§8 Paint). TRANSMISSION, TIRE RIMS, HORN, TORQUE and the tire
   sizes keep Rush 2's effect; STRIPE has nothing to draw on a 2049 body. 2049's WINGS are the Rush 2049 tab's wings;
   TEAM and SHEEN have no Rush 2 counterpart.
+- **TIRE SIZE F / R** (wheel model scale only, func_8005A598; no physics): Rush 2's per-type scale tables 0x800C0A6C /
+  0x800C0B74 (relocated to 0x802006E8 / 0x802009B8, 5 rows) get 2049's own row-0 scales 0x801112DC / 0x801113E0: 1.0
+  for every car except the Venom (rear 1.1) and the Crusher (1.4). The car select keeps a player's sizes in record
+  bytes 0x58F / 0x590 (block +11 / +12) as scale x 100 - 75 (func_803B9478 0x803BA488 / 0x803BA638) and
+  func_803B81F0 reads them back into the player rows. Until 2026-10-09 the 2049 types kept the Pickup's 1.25 that
+  init_tables copies (and new side slots copied the Pickup's record bytes), so every 2049 car's wheels were drawn 25%
+  too large; side-slot saves before version 6 are migrated to 2049's sizes at load. A Dreamcast source builds its
+  Main segment from `tools/rush2049/dc_tables.py`'s copy list, which lacked these tables (read as 0.0: no tires); they
+  are copied now (disc 0x8C0BBE64 / 0x8C0BBF68, identical to the N64's), a scale outside 0.75-1.5 falls back to 1.0,
+  and saved sizes outside bytes 0-75 are reset at load. `dc_test.exe segments PACK|ROM.z64 OUTDIR` dumps either
+  source's segments (what car2049.cpp reads) for checking.
+- **Wheel placement** is the same in both games: the car-start setup copies the descriptor's four wheel positions
+  into the car state (Rush 2 `car_race_start_pose_setup_8009A264` 0x8009A604: desc +0x7C.. -> state +0xA8 + 0xC i;
+  2049 func_800E847C 0x800E87F8: desc +0x70.. -> state +0xB0 + 0xC i, the same fields 8 bytes later), and the wheel
+  draw (Rush 2 func_8005A598, 2049 func_8008D8D8 at 0x8008DC3C) puts each wheel at that point, y plus the wheel's
+  suspension travel and a small random bounce (clamped 0-0.5), then scales its matrix by the type's wheel scale
+  (0x8008DF40 / 0x8008DFA0; skipped when 1.0). The converted descriptor's +0x7C block is 2049's +0x70 block, so the
+  2049 cars' wheels sit where 2049 puts them.
 
 A player's choices are applied at car init (func_8008DBA0): a per-car copy of the descriptor (0x80225000, 8 x 0xEC)
 gets the torque scale x torque[ENGINE][h] / torque[0][h] (h = the car's own HANDLING); the car's mass, inertias and

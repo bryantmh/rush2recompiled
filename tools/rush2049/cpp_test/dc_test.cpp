@@ -128,6 +128,32 @@ int main(int argc, char** argv) {
         auto r = rush2::rom2049::dc::import(image, pack);
         if (r != rush2::rom2049::dc::ImportResult::Good) {
             fprintf(stderr, "import failed: %d\n", (int)r);
+    if (argc >= 4 && std::string(argv[1]) == "segments") {
+        // dc_test segments PACK|ROM.z64 OUTDIR: the source's code segments as seg0.bin.. (what the game reads its
+        // tables from; tools/rush2049/dc_tables.py --compare OUTDIR checks a disc's against the tool).
+        std::filesystem::path in_path = argv[2];
+        std::shared_ptr<const rush2::rom2049::Source> src;
+        if (in_path.extension() == ".z64") {
+            std::ifstream in(in_path, std::ios::binary);
+            auto rom = std::make_shared<std::vector<uint8_t>>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            src = rush2::rom2049::n64_source(rom);
+        }
+        else {
+            src = rush2::rom2049::dc::open_pack(in_path);
+        }
+        if (!src) {
+            fprintf(stderr, "can't open %s\n", argv[2]);
+            return 1;
+        }
+        std::filesystem::create_directories(argv[3]);
+        for (int s = 0; s < 3; s++) {
+            auto seg = src->segment((rush2::rom2049::Segment)s);
+            if (!seg) continue;
+            std::ofstream(std::filesystem::path(argv[3]) / ("seg" + std::to_string(s) + ".bin"), std::ios::binary)
+                .write((const char*)seg->data(), seg->size());
+        }
+        return 0;
+    }
             return 1;
         }
     }

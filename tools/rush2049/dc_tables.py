@@ -227,6 +227,8 @@ def build_program(exe, seg):
         (0x8011121C, 0x8C0BBDA4, 'word', 5),     # rear grip per tire
         (0x80111230, 0x8C0BBDB8, 'byte', 13),    # setup E
         (0x80111274, 0x8C0BBDFC, 'word', 6),     # frame weights
+        (0x801112DC, 0x8C0BBE64, 'word', 65),    # front wheel model scale [5][13]
+        (0x801113E0, 0x8C0BBF68, 'word', 65),    # rear wheel model scale [5][13]
         (0x801114E4, 0x8C0BC06C, 'byte', 13),    # drive
         (0x8011157C, 0x8C0BC101, 'byte', 13),    # rims
         (0x801116D0, 0x8C0BC1C4, 'word', 33),    # handling [3][11]
