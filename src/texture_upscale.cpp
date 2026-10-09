@@ -16,21 +16,22 @@
 // that replaces the same texture wins. HQ2x and HQ4x run hqx (lib/hqx) on the CPU. Custom runs any command line on a
 // folder of images.
 //
-// A Dreamcast Rush 2049 source scales its textures down to fit TMEM; each one it scaled is drawn with the disc's
-// full-size image instead (set_texture_source), as a live replacement of its own, ahead of any upscale.
+// A Dreamcast Rush 2049 source scales its textures down to fit TMEM. Their full-size images come from the texture
+// pack it builds (src/rush2049_dc_pack.cpp), which RT64 loads like any pack, so they are never upscaled here
+// (set_texture_source).
 //
 // For upscalers without a command line (Topaz Gigapixel's app, say): Dump Textures writes the kept textures as
 // <key>.png into texture_upscale/dump, the user saves upscaled copies (any size, file names starting with the key)
 // into texture_upscale/upscaled, and Install Upscaled turns those into the texture pack mod "rush2_custom_textures"
 // (a folder in the mods folder, enabled right away) plus a shareable .rtz of it.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <algorithm>
 #include <condition_variable>
+#include <cstring>
 #include <deque>
 #include <fstream>
-#include <cstring>
 #include <map>
 #include <mutex>
 #include <set>
@@ -48,6 +49,7 @@
 #include "util/file.h"
 
 #include "options_page.h"
+#include "rush2049_dc.h"
 #include "texture_upscale.h"
 
 #ifdef _WIN32
@@ -124,36 +126,8 @@ namespace {
         bool queued = false;        // Waiting for the worker in the current mode.
         bool ready = false;         // Upscaled in the current mode; its hashes get the replacement as they show up.
         bool failed = false;        // Nothing usable came out for it in the current mode.
-        bool source = false;        // A Dreamcast source's scaled-down texture: drawn with the disc's image.
-        bool checked = false;       // Found among the source's textures.
+        uint64_t index_key = 0;     // A paletted texture's index_key, else 0.
     };
-
-    // A scaled-down source texture as RT64 decodes it (decode_tmem): RGBA16 widened bit by bit, RGBA32 as stored.
-    Image source_texels_image(const rush2::rom2049::SourceTexture& t) {
-        Image image;
-        size_t n = size_t(t.w) * t.h;
-        if (n == 0 || t.texels.size() < n * (t.rgba32 ? 4 : 2)) {
-            return image;
-        }
-        image.width = t.w;
-        image.height = t.h;
-        image.rgba.resize(n * 4);
-        for (size_t i = 0; i < n; i++) {
-            uint8_t* p = &image.rgba[i * 4];
-            if (t.rgba32) {
-                memcpy(p, &t.texels[i * 4], 4);
-            }
-            else {
-                uint32_t v = (t.texels[i * 2] << 8) | t.texels[i * 2 + 1];
-                uint32_t r = (v >> 11) & 0x1F, g = (v >> 6) & 0x1F, b = (v >> 1) & 0x1F;
-                p[0] = uint8_t((r << 3) | (r >> 2));
-                p[1] = uint8_t((g << 3) | (g >> 2));
-                p[2] = uint8_t((b << 3) | (b >> 2));
-                p[3] = (v & 1) ? 255 : 0;
-            }
-        }
-        return image;
-    }
 
     // What the observer knows of an RT64 hash.
     struct Seen {
@@ -204,16 +178,14 @@ namespace {
                 entry.ready = false;
                 entry.failed = false;
                 entry.dependents.clear();
-                entry.queued = (mode != Mode::Off) && !entry.ui && !entry.source;
-                if (entry.source && !entry.ui) {
-                    // The clear takes the disc's images off too: put them back.
-                    for (uint64_t hash : entry.hashes) {
-                        source_applies.emplace_back(hash, key);
-                    }
-                }
+                entry.queued = (mode != Mode::Off) && !entry.ui;
                 if (entry.queued) {
                     pending.push_back(key);
                 }
+            }
+            // And the exact images.
+            for (const auto& [hash, strip] : exact_strips) {
+                exact_applies.push_back(hash);
             }
             changed.notify_all();
         }
@@ -238,11 +210,10 @@ namespace {
             if (!world) {
                 if (!seen.ui) {
                     seen.ui = true;
+                    if (!exact_images.empty() && tlut != 0 && tile.siz == 1) {
+                        find_exact(hash, tmem, tile, width, height, tlut);
+                    }
                     if (seen.key != 0) {
-            // And the exact images.
-            for (const auto& [hash, strip] : exact_strips) {
-                exact_applies.push_back(hash);
-            }
                         mark_ui(seen.key);
                     }
                 }
@@ -260,15 +231,16 @@ namespace {
             if (width > 1024 || height > 1024) {
                 return; // A tile sized past what TMEM holds; nothing real to upscale.
             }
+            if (source != nullptr && rush2::rom2049::dc::in_texture_pack(hash)) {
+                source_packed++; // Drawn with the disc's image from its texture pack.
+                return;
+            }
             std::vector<uint8_t> indices;
             Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut, width, height,
                                       tlut != 0 ? &indices : nullptr);
             if (!worth_upscaling(image)) {
                 return;
             }
-                    if (!exact_images.empty() && tlut != 0 && tile.siz == 1) {
-                        find_exact(hash, tmem, tile, width, height, tlut);
-                    }
             uint64_t key = content_key(image);
             seen.key = key;
             auto [it, inserted] = entries.try_emplace(key);
@@ -279,25 +251,15 @@ namespace {
                 entry.edge_t = edge_of(tile.cmt, tile.maskt);
                 entry.ui = ui_keys.count(key) != 0;
                 if (tlut != 0) {
+                    entry.index_key = index_key(indices, width, height, tile.siz);
                     // The first palette variant of these indices is the one that gets upscaled.
-                    auto [base_it, new_base] = bases.try_emplace(index_key(indices, width, height, tile.siz), key);
+                    auto [base_it, new_base] = bases.try_emplace(entry.index_key, key);
                     if (!new_base && base_it->second != key) {
                         entry.base = base_it->second;
                     }
                 }
             }
             entry.hashes.push_back(hash);
-            if (entry.source) {
-                if (!entry.ui) {
-                    source_applies.emplace_back(hash, key);
-                    changed.notify_all();
-                }
-                return;
-            }
-            if (inserted && source != nullptr) {
-                unchecked.push_back(key); // The worker looks it up among the source's textures.
-                changed.notify_all();
-            }
             if (entry.ui || mode == Mode::Off || entry.failed) {
                 return;
             }
@@ -398,25 +360,6 @@ namespace {
                 return;
             }
             source = new_source;
-            source_count = 0;
-            source_keys.clear();
-            unchecked.clear();
-            source_applies.clear();
-            for (auto& [key, entry] : entries) {
-                if (entry.source) {
-                    removals.insert(removals.end(), entry.hashes.begin(), entry.hashes.end());
-                    entry.source = false;
-                    entry.queued = mode != Mode::Off && !entry.ui;
-                    if (entry.queued) {
-                        pending.push_back(key);
-                    }
-                }
-                entry.checked = false;
-                if (source != nullptr) {
-                    unchecked.push_back(key);
-                }
-            }
-            changed.notify_all();
         }
 
     private:
@@ -439,46 +382,11 @@ namespace {
         bool busy = false;
         std::string busy_message;
         std::string message;
-        // A Dreamcast source: the content keys of the textures it scaled down (as far as the worker has read its
-        // list), kept textures still to look up, and (hash, key) pairs to give the disc's image.
+        // A Dreamcast source, whose texture pack's textures (rush2::rom2049::dc::in_texture_pack) aren't upscaled, and
+        // how many kept 3D textures that pack has replaced, for the log.
         std::shared_ptr<const rush2::rom2049::Source> source;
-        size_t source_count = 0;
-        std::unordered_map<uint64_t, rush2::rom2049::SourceTexture> source_keys;
-        std::vector<uint64_t> unchecked;
-        std::vector<std::pair<uint64_t, uint64_t>> source_applies;
+        size_t source_packed = 0, source_logged = 0;
 
-        static uint64_t source_live_key(uint64_t key) {
-            return key ^ 0xD1CEDC0FFEE5ull;
-        }
-
-        // Worker: reads the source's newly scaled-down textures, then marks the kept textures that are among them.
-        // The source is asked without the lock: it holds its own while it converts a file.
-        void check_sources() {
-            std::shared_ptr<const rush2::rom2049::Source> src;
-            size_t from;
-            {
-                std::unique_lock lock(mutex);
-                if (unchecked.empty() && pending_checks.empty()) {
-                    return;
-                }
-                src = source;
-                from = source_count;
-            }
-            if (src == nullptr) {
-                return;
-            }
-            std::vector<std::pair<uint64_t, rush2::rom2049::SourceTexture>> added;
-            size_t read = from;
-            if (src->source_texture_count() > from) {
-                for (auto& t : src->source_textures(from)) {
-                    Image image = source_texels_image(t);
-                    if (!image.empty()) {
-                        added.emplace_back(content_key(image), std::move(t));
-                    }
-                    read++;
-                }
-            }
-            std::unique_lock lock(mutex);
         // Exact images (add_exact_image), the hashes found to be strips of one (image, first row), and hashes to give
         // theirs.
         struct ExactImage {
@@ -551,77 +459,6 @@ namespace {
                 RT64::addLiveReplacement(hash, content, bytes, region);
             }
         }
-
-            if (src != source || from != source_count) {
-                return;
-            }
-            source_count = read;
-            for (auto& [key, t] : added) {
-                source_keys.emplace(key, std::move(t));
-            }
-            // Textures not found before are looked up again once the source has scaled more down (their file was
-            // still converting when they were first drawn).
-            if (read > from) {
-                unchecked.insert(unchecked.end(), pending_checks.begin(), pending_checks.end());
-                pending_checks.clear();
-            }
-            for (uint64_t key : unchecked) {
-                auto it = entries.find(key);
-                if (it == entries.end()) {
-                    continue;
-                }
-                Entry& entry = it->second;
-                if (source_keys.count(key) == 0) {
-                    pending_checks.push_back(key);
-                    continue;
-                }
-                entry.checked = true;
-                entry.source = true;
-                entry.queued = false;
-                if (entry.ready) {
-                    removals.insert(removals.end(), entry.hashes.begin(), entry.hashes.end());
-                    entry.ready = false;
-                }
-                if (!entry.ui) {
-                    for (uint64_t hash : entry.hashes) {
-                        source_applies.emplace_back(hash, key);
-                    }
-                }
-            }
-            unchecked.clear();
-        }
-
-        // Worker: gives the hashes the disc's full-size image (decoded once per texture; RT64 keeps it by key).
-        void apply_sources(const std::vector<std::pair<uint64_t, uint64_t>>& todo) {
-            for (const auto& [hash, key] : todo) {
-                rush2::rom2049::SourceTexture t;
-                std::shared_ptr<const rush2::rom2049::Source> src;
-                {
-                    std::unique_lock lock(mutex);
-                    auto it = source_keys.find(key);
-                    auto e = entries.find(key);
-                    if (it == source_keys.end() || e == entries.end() || !e->second.source || e->second.ui) {
-                        continue;
-                    }
-                    t = it->second;
-                    src = source;
-                }
-                uint64_t content = source_live_key(key);
-                std::vector<uint8_t> bytes;
-                if (!RT64::hasLiveReplacementContent(content)) {
-                    Image image;
-                    int w = 0, h = 0;
-                    if (src == nullptr || !src->source_image(t, image.rgba, w, h) || w <= 0 || h <= 0) {
-                        continue;
-                    }
-                    image.width = (uint32_t)w;
-                    image.height = (uint32_t)h;
-                    bytes = make_dds(image);
-                }
-                RT64::addLiveReplacement(hash, content, bytes);
-            }
-        }
-        std::vector<uint64_t> pending_checks; // Kept textures not found yet, looked up again when the list grows.
 
         // Called with the mutex held.
         void mark_ui(uint64_t key) {
@@ -707,7 +544,7 @@ namespace {
                     std::unique_lock lock(mutex);
                     changed.wait_for(lock, std::chrono::milliseconds(500), [this]() {
                         return clear_requested || !removals.empty() || !applies.empty() || !new_ui_keys.empty() ||
-                               !unchecked.empty() || !source_applies.empty() || !exact_applies.empty() ||
+                               !exact_applies.empty() ||
                                (!pending.empty() && mode != Mode::Off);
                     });
                     clear = clear_requested;
@@ -729,13 +566,20 @@ namespace {
                 for (uint64_t hash : to_remove) {
                     RT64::removeLiveReplacement(hash);
                 }
-                check_sources();
-                std::vector<std::pair<uint64_t, uint64_t>> to_source;
                 {
                     std::unique_lock lock(mutex);
-                    to_source.swap(source_applies);
+                    if (source_packed != source_logged) {
+                        source_logged = source_packed;
+                        printf("[upscale] %zu Dreamcast textures drawn from its texture pack\n", source_packed);
+                        fflush(stdout);
+                    }
                 }
-                apply_sources(to_source);
+                std::vector<uint64_t> to_exact;
+                {
+                    std::unique_lock lock(mutex);
+                    to_exact.swap(exact_applies);
+                }
+                apply_exact(to_exact);
                 if (!to_append.empty()) {
                     std::error_code ec;
                     std::filesystem::create_directories(root(), ec);
@@ -821,12 +665,6 @@ namespace {
                 RT64::addLiveReplacement(hash, content, bytes);
             }
         }
-                std::vector<uint64_t> to_exact;
-                {
-                    std::unique_lock lock(mutex);
-                    to_exact.swap(exact_applies);
-                }
-                apply_exact(to_exact);
 
         void set_failed(uint64_t key, uint64_t for_generation) {
             std::unique_lock lock(mutex);
@@ -1074,6 +912,10 @@ void set_texture_source(std::shared_ptr<const rush2::rom2049::Source> source) {
     upscaler.set_source(source != nullptr && source->is_dreamcast() ? source : nullptr);
 }
 
+void add_exact_image(std::vector<uint8_t> indices, Image image) {
+    upscaler.add_exact(std::move(indices), std::move(image));
+}
+
 void add_buttons(rush2::ui::OptionsPage* page) {
     using namespace recompui;
     ContextId context = get_current_context();
@@ -1114,7 +956,3 @@ void add_buttons(rush2::ui::OptionsPage* page) {
 }
 
 }
-void add_exact_image(std::vector<uint8_t> indices, Image image) {
-    upscaler.add_exact(std::move(indices), std::move(image));
-}
-

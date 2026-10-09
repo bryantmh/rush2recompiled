@@ -21,9 +21,16 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <unordered_map>
 
 #include "rush2049_dc_internal.h"
+
+#define XXH_INLINE_ALL
+#include "xxHash/xxhash.h"
+#include "common/rt64_load_types.h"
+#include "shared/rt64_f3d_defines.h"
+#include "common/rt64_tmem_hasher.h"
 
 namespace {
     using Bytes = std::vector<uint8_t>;
@@ -81,7 +88,10 @@ namespace {
 #include "rush2049_dc_names.inc"
     };
 
-    // Sizes of the non-track N64 files: the made ones stay within them (code loads some into fixed windows).
+    // Sizes of the non-track N64 files. The game loads only the battle HUD (61, 63) and weapons (76) into fixed RDRAM
+    // windows, so only those made files are held to the N64's size; the rest (cars: src/car2049.cpp grows the slot)
+    // keep every texture as big as TMEM takes, and the full-size images come from the texture pack either way.
+    constexpr int fixed_window_files[] = { 61, 63, 76 };
     struct FileSize {
         int file;
         uint32_t bytes;
@@ -303,6 +313,15 @@ namespace {
 
     // The N64's render modes for its models: opaque, alpha-tested edges, translucent, translucent writing depth.
     constexpr uint32_t rm_opaque = 0xC8112230, rm_edge = 0xC8113278, rm_translucent = 0xC8104A50;
+    // The sky (SKYSKY, STUNTSKYSKY) is a backdrop, set up as the N64's sky lists do: 1-cycle (G_SETOTHERMODE_H
+    // cycle type), TEXEL0 x SHADE in both combiner cycles, opaque without fog, the z-buffer and fog off (geometry
+    // mode G_ZBUFFER | G_FOG), all put back after it. Drawn with the track's 2-cycle combiner the disc's sky lost its
+    // texture (1-cycle takes the second cycle, which only passes the first on) and, depth tested, hid the far scenery
+    // (the Golden Gate) behind it.
+    constexpr uint32_t rm_sky = 0x0F0A4000;
+    constexpr uint32_t cc_sky[2] = { 0xFC121824, 0xFF33FFFF };
+    constexpr uint32_t sky_begin[][2] = { { 0xE3000A01, 0x00000000 }, { 0xD9FEFFFE, 0x00000000 } };
+    constexpr uint32_t sky_end[][2] = { { 0xD9FFFFFF, 0x00010001 }, { 0xE3000A01, 0x00100000 } };
 
     // A texture's render mode: the one the N64 draws the same texture with in the same file (the N64 names few of a
     // track's textures), else by its alpha the way the N64's track textures are drawn: mostly see-through (glass,
@@ -337,9 +356,19 @@ namespace {
         bool shrunk = false;        // smaller than the disc's
         int source = -1;            // the disc's texture record
         uint32_t tint = 0xFFFFFF;
-        bool ci8 = false;           // CI8 texels of the file's palette (a car's, paint_car)
         std::vector<Rgba> small;    // the texels at the N64 size, before packing
+        int pixel = 1, level = 0, max_w = 256, max_h = 256; // make_texture's arguments, to make it again
+        uint32_t cm_s = 0, cm_t = 0;  // tile cms / cmt: G_TX_MIRROR 1, G_TX_CLAMP 2 (set_tile_modes)
     };
+
+    // How the disc repeats a texture, as its texture loader (0x8C06EBB2) sets the Kamui strip context from the
+    // record's flags: 0x10000 clamps U, 0x20000 clamps V (nClampUV), 0x40000 flips U, 0x80000 flips V (nFlipUV).
+    // Flipping is the N64's mirroring. The converted lists wrapped every texture, so a clamped one (the sky's
+    // panels, signs) picked up its opposite edge.
+    void set_tile_modes(OutTexture& t, uint32_t flags) {
+        t.cm_s = (flags & 0x40000 ? 1u : 0u) | (flags & 0x10000 ? 2u : 0u);
+        t.cm_t = (flags & 0x80000 ? 1u : 0u) | (flags & 0x20000 ? 2u : 0u);
+    }
 
     // Box-filtered to w x h (alpha-weighted color, so clear texels don't darken their neighbors).
     std::vector<Rgba> shrink(const std::vector<Rgba>& in, int iw, int ih, int w, int h) {
@@ -375,6 +404,10 @@ namespace {
         t.name = name;
         t.rgba32 = pixel == 0;
         t.mode = mode;
+        t.pixel = pixel;
+        t.level = level;
+        t.max_w = max_w;
+        t.max_h = max_h;
         // TMEM holds 4 KB: 2048 16-bit texels, or 1024 32-bit ones (split over its two halves). Halve the longer side.
         int limit = (t.rgba32 ? 1024 : 2048) >> level, nw = w, nh = h;
         while (nw * nh > limit || nw > 256 || nh > 256) {
@@ -412,28 +445,6 @@ namespace {
     // The load list (as 2049's: SETTIMG first, then the load, the tile and its size; texture animation reads the
     // first SETTIMG and the SETTILESIZE). SETTIMG is IMAG-relative, as in the N64's files.
     void add_load_list(Bytes& txld, const OutTexture& t) {
-        if (t.ci8) {
-            // As the N64's car lists: loaded as 16-bit texels, drawn CI 8-bit with the palette the game loads for the
-            // car (its PLHD palette, recolored by src/car2049.cpp), TLUT left on as Rush 2 keeps it.
-            uint32_t words = std::max<uint32_t>(1, t.w / 8);
-            uint32_t dxt = (2048 + words - 1) / words;
-            uint32_t lrs = (t.w * t.h + 1) / 2 - 1;
-            uint32_t mask_s = log2i(t.w), mask_t = log2i(t.h);
-            uint32_t list[] = {
-                0xFD500000, t.texels,                                               // G_SETTIMG CI 16-bit
-                0xF5500000, 0x07000000,                                             // G_SETTILE load tile
-                0xE6000000, 0,                                                      // G_RDPLOADSYNC
-                0xF3000000, 0x07000000 | lrs << 12 | dxt,                           // G_LOADBLOCK
-                0xE7000000, 0,                                                      // G_RDPPIPESYNC
-                0xD7000002, 0xFFFFFFFF,                                             // G_TEXTURE on, one level
-                0xF5480000 | words << 9, mask_t << 14 | mask_s << 4,                // G_SETTILE render tile CI 8-bit
-                0xF2000000, (uint32_t)(t.w - 1) << 14 | (uint32_t)(t.h - 1) << 2,   // G_SETTILESIZE
-                0xE3001001, 0x00008000,                                             // texture LUT RGBA16
-                0xDF000000, 0,
-            };
-            for (uint32_t v : list) add32(txld, v);
-            return;
-        }
         uint32_t siz = t.rgba32 ? 3 : 2, bytes = t.rgba32 ? 4 : 2;
         uint32_t words = std::max<uint32_t>(1, t.w * bytes / 8);
         uint32_t dxt = (2048 + words - 1) / words;
@@ -447,7 +458,7 @@ namespace {
             0xF3000000, 0x07000000 | lrs << 12 | dxt,                           // G_LOADBLOCK
             0xE7000000, 0,                                                      // G_RDPPIPESYNC
             0xD7000002, 0xFFFFFFFF,                                             // G_TEXTURE on, one level
-            0xF5000000 | siz << 19 | line << 9, mask_t << 14 | mask_s << 4,     // G_SETTILE render tile, wrapping
+            0xF5000000 | siz << 19 | line << 9, t.cm_t << 18 | mask_t << 14 | t.cm_s << 8 | mask_s << 4, // render tile
             0xF2000000, (uint32_t)(t.w - 1) << 14 | (uint32_t)(t.h - 1) << 2,   // G_SETTILESIZE
             0xE3001001, 0,                                                      // texture LUT off
             0xDF000000, 0,
@@ -487,6 +498,7 @@ namespace {
         int swap_texture;           // texture of a texture swap (its size sets the coordinates), or -1
         uint32_t swap_mode;         // render mode for it
         int bind_texture;           // texture loaded first where the disc takes one by code, or -1
+        bool sky = false;           // drawn as the N64's sky (rm_sky, no z-buffer or fog)
         std::vector<Cmd> cmds;
         std::vector<Vtx> vertices;
 
@@ -522,7 +534,8 @@ namespace {
             else {
                 mode = tex >= 0 ? textures[tex].mode : rm_opaque;
             }
-            cc = textured ? cc_textured : cc_shade;
+            if (sky) mode = rm_sky;
+            cc = textured ? (sky ? cc_sky : cc_textured) : cc_shade;
             if (!(flags & 1) && tex >= 0 && tex != list_texture) {
                 cmds.push_back({ 0xDE000000, txld_base + textures[tex].list, Fix::None });
             }
@@ -611,8 +624,15 @@ namespace {
                     batch_texture = tex;
                 }
                 if (tris.empty()) {
-                    shift_u = std::floor((std::min({ a.uv[0], b.uv[0], c.uv[0] }) + std::max({ a.uv[0], b.uv[0], c.uv[0] })) / 2);
-                    shift_v = std::floor((std::min({ a.uv[1], b.uv[1], c.uv[1] }) + std::max({ a.uv[1], b.uv[1], c.uv[1] })) / 2);
+                    // Whole repeats moved out of the coordinates: none on a clamped axis (its edge is at 0 and 1), an
+                    // even number on a mirrored one.
+                    auto shift = [&](int k, uint32_t cm) {
+                        double mid = std::floor((std::min({ a.uv[k], b.uv[k], c.uv[k] }) +
+                                                 std::max({ a.uv[k], b.uv[k], c.uv[k] })) / 2);
+                        return cm & 2 ? 0.0f : cm & 1 ? float(2.0 * std::floor(mid / 2)) : float(mid);
+                    };
+                    shift_u = shift(0, tex >= 0 ? textures[tex].cm_s : 0);
+                    shift_v = shift(1, tex >= 0 ? textures[tex].cm_t : 0);
                 }
                 bool ok = true;
                 if (w > 0) {
@@ -685,6 +705,9 @@ namespace {
         memset(cache_col, 0, sizeof(cache_col));
         std::vector<SrcVtx> strip;
         int texture = -1;
+        if (b.sky) {
+            for (const auto& c : sky_begin) b.cmds.push_back({ c[0], c[1], Fix::None });
+        }
         // Conditional blocks: (stream offset where it ends, command index of the branch to patch).
         std::vector<std::pair<size_t, size_t>> blocks;
         size_t o = lod.stream;
@@ -777,6 +800,9 @@ namespace {
             blocks.pop_back();
         }
         b.flush();
+        if (b.sky) {
+            for (const auto& c : sky_end) b.cmds.push_back({ c[0], c[1], Fix::None });
+        }
         // End: put back the texture LUT mode Rush 2 keeps (RGBA16), which the load lists turn off.
         b.cmds.push_back({ 0xE7000000, 0, Fix::None });
         b.cmds.push_back({ 0xE3001001, 0x00008000, Fix::None });
@@ -821,297 +847,189 @@ namespace {
     // ------------------------------------------------------------------------------------------------------------
     // Car paint
 
-    uint16_t rgba5551(int r, int g, int b) {
-        return uint16_t((std::clamp(r, 0, 255) >> 3) << 11 | (std::clamp(g, 0, 255) >> 3) << 6 | (std::clamp(b, 0, 255) >> 3) << 1 | 1);
+    // The disc's paint jobs for a car (CARnPJ1-12). Each job is a full set of the car's body textures, named as the
+    // base car's plus a color suffix (C1_TOP01_BLU); most recolor one livery, some have a pattern of their own (car 2's
+    // jobs 7-9). Jobs equal to an earlier one are dropped (9-12 mostly repeat 6). The converted file keeps the first
+    // job's textures; src/car2049.cpp copies the texels of the job the player picks into the car.
+    struct CarJobs {
+        int count = 0;
+        std::vector<std::string> files;                 // per job: its container (CARnPJj)
+        std::vector<uint32_t> rgb;                      // per job: its paint color
+        // Per texture (as `textures`): per job its record in the job's container and its image at the disc's size;
+        // empty when the jobs don't all have it.
+        std::vector<std::vector<int>> index;
+        std::vector<std::vector<std::vector<Rgba>>> images;
+        std::vector<std::vector<uint8_t>> paint;        // per texture: 1 where a texel differs between the jobs
+    };
+
+    uint64_t fnv(const void* p, size_t n, uint64_t h = 0xCBF29CE484222325ull) {
+        const uint8_t* b = (const uint8_t*)p;
+        for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 0x100000001B3ull;
+        return h;
     }
 
-    // Up to `count` colors for the histogram `colors` (RGB555 -> texels), by median cut; `index` gets each color's.
-    std::vector<uint16_t> median_cut(const std::unordered_map<uint16_t, uint32_t>& colors, size_t count,
-                                     std::unordered_map<uint16_t, uint8_t>& index) {
-        struct Box {
-            std::vector<std::pair<uint16_t, uint32_t>> c;
+    // A job's paint color: the most common color among its paint texels (8 levels a channel), so a two-tone job is
+    // its main color.
+    uint32_t job_color(const CarJobs& jobs, int j) {
+        std::map<uint32_t, std::array<uint64_t, 4>> bins;
+        for (size_t ti = 0; ti < jobs.images.size(); ti++) {
+            if (jobs.images[ti].empty()) continue;
+            const std::vector<Rgba>& px = jobs.images[ti][j];
+            for (size_t i = 0; i < px.size(); i++) {
+                if (!jobs.paint[ti][i]) continue;
+                auto& b = bins[(px[i].r >> 5) << 6 | (px[i].g >> 5) << 3 | (px[i].b >> 5)];
+                b[0] += px[i].r;
+                b[1] += px[i].g;
+                b[2] += px[i].b;
+                b[3]++;
+            }
+        }
+        const std::array<uint64_t, 4>* best = nullptr;
+        for (const auto& [key, b] : bins) {
+            if (best == nullptr || b[3] > (*best)[3]) best = &b;
+        }
+        if (best == nullptr) return 0x808080;
+        const auto& b = *best;
+        return uint32_t(b[0] / b[3]) << 16 | uint32_t(b[1] / b[3]) << 8 | uint32_t(b[2] / b[3]);
+    }
+
+    // Reads a car's paint jobs for the textures of its converted file. False if the disc has none for it.
+    bool car_jobs(const rush2::rom2049::dc::Files& files, const std::string& dc_file, const DcModel& m,
+                  const std::vector<OutTexture>& textures, CarJobs& out) {
+        struct Job {
+            std::string file;
+            std::map<std::string, std::pair<int, std::vector<Rgba>>> by_name; // base name -> record, image
         };
-        auto channel = [](uint16_t v, int k) { return (v >> (10 - 5 * k)) & 31; };
-        std::vector<Box> boxes(1);
-        for (const auto& kv : colors) boxes[0].c.push_back(kv);
-        while (boxes.size() < count) {
-            // Split the box with the widest weighted range along that axis at its weighted median.
-            int best = -1, axis = 0;
-            uint64_t score = 0;
-            for (size_t b = 0; b < boxes.size(); b++) {
-                if (boxes[b].c.size() < 2) continue;
-                uint64_t weight = 0;
-                for (const auto& [v, n] : boxes[b].c) weight += n;
-                for (int k = 0; k < 3; k++) {
-                    int lo = 31, hi = 0;
-                    for (const auto& [v, n] : boxes[b].c) {
-                        lo = std::min(lo, channel(v, k));
-                        hi = std::max(hi, channel(v, k));
-                    }
-                    uint64_t s = uint64_t(hi - lo) * (weight + 1);
-                    if (hi > lo && s >= score) {
-                        score = s;
-                        best = (int)b;
-                        axis = k;
-                    }
-                }
-            }
-            if (best < 0) break;
-            auto& c = boxes[best].c;
-            std::sort(c.begin(), c.end(), [&](const auto& a, const auto& b) { return channel(a.first, axis) < channel(b.first, axis); });
-            uint64_t total = 0, run = 0;
-            for (const auto& [v, n] : c) total += n;
-            size_t cut = 1;
-            for (; cut < c.size(); cut++) {
-                run += c[cut - 1].second;
-                if (run * 2 >= total) break;
-            }
-            cut = std::clamp<size_t>(cut, 1, c.size() - 1);
-            Box upper;
-            upper.c.assign(c.begin() + cut, c.end());
-            c.resize(cut);
-            boxes.push_back(std::move(upper));
-        }
-        std::vector<uint16_t> out;
-        for (const Box& b : boxes) {
-            uint64_t r = 0, g = 0, bl = 0, n = 0;
-            for (const auto& [v, k] : b.c) {
-                r += channel(v, 0) * k;
-                g += channel(v, 1) * k;
-                bl += channel(v, 2) * k;
-                n += k;
-                index[v] = (uint8_t)out.size();
-            }
-            n = std::max<uint64_t>(n, 1);
-            out.push_back(uint16_t((r / n) << 11 | (g / n) << 6 | (bl / n) << 1 | 1));
-        }
-        return out;
-    }
-
-    // A disc car's paint as the N64's (src/car2049.cpp, §8 Paint): every texture CI8 over one 256-color palette whose
-    // entries 32-63, 64-95 and 96-126 are the main, accent and stripe ramps (a color stepping towards black) the game
-    // rewrites to the player's colors; 0 is clear, 128-255 the unpainted colors. The disc has no ramps: each paint job
-    // (CARnPJ1-12) is a full set of the body textures colored for it. Texels whose hue differs between the jobs are
-    // paint; the jobs' hues sort them into up to three regions (k-means over the hues in jobs 1-7, a region kept only
-    // if it is a clean color, saturated or white, in most jobs), largest first; a texel's shade in its ramp is its
-    // brightness against the region's in each job. Jobs 8 (chrome) and 9-12 (repeats) are left out.
-    // Returns false (textures left as they are) if the jobs aren't there.
-    bool paint_car(const rush2::rom2049::dc::Files& files, const std::string& dc_file, const DcModel& m, std::vector<OutTexture>& textures,
-                   Bytes& palette) {
-        constexpr int jobs = 7;
-        // Each job's textures by the base texture's name (the job's less its color suffix, C1_TOP01_BLU).
-        std::vector<std::map<std::string, std::vector<Rgba>>> job(jobs);
-        for (int j = 0; j < jobs; j++) {
+        std::vector<Job> all;
+        for (int j = 1; j <= 12; j++) {
+            Job job;
+            job.file = dc_file + "PJ" + std::to_string(j);
             Bytes data;
-            if (!files.get(dc_file + "PJ" + std::to_string(j + 1) + ".LZS", data)) return false;
+            if (!files.get(job.file + ".LZS", data)) break;
             DcModel pm = parse(data);
-            for (const DcTexture& t : pm.textures) {
+            for (size_t i = 0; i < pm.textures.size(); i++) {
+                const DcTexture& t = pm.textures[i];
                 size_t cut = t.name.rfind('_');
-                if (cut != std::string::npos) job[j][t.name.substr(0, cut)] = decode(pm, t);
+                if (cut != std::string::npos) job.by_name[t.name.substr(0, cut)] = { (int)i, decode(pm, t) };
             }
+            all.push_back(std::move(job));
         }
-
-        // Each texture's texels in every job at the N64 size (empty when a job lacks it).
-        struct Texel {
-            int tex;
-            uint32_t i;
-            float hue[jobs * 3];
-            float bright[jobs];
-        };
-        std::vector<std::vector<std::vector<Rgba>>> jobs_small(textures.size());
-        std::vector<Texel> painted;
-        std::vector<std::vector<int>> region(textures.size());
+        if (all.empty()) return false;
+        // The textures every job has, at the base texture's size.
+        std::vector<const DcTexture*> base(textures.size(), nullptr);
         for (size_t ti = 0; ti < textures.size(); ti++) {
-            OutTexture& t = textures[ti];
-            region[ti].assign(t.small.size(), -1);
+            const OutTexture& t = textures[ti];
             if (t.source < 0) continue;
-            const DcTexture& base = m.textures[t.source];
-            for (int j = 0; j < jobs; j++) {
-                auto it = job[j].find(base.name);
-                if (it == job[j].end() || it->second.size() != (size_t)base.w * base.h) {
-                    jobs_small[ti].clear();
-                    break;
-                }
-                const std::vector<Rgba>& px = it->second;
-                jobs_small[ti].push_back(t.w == base.w && t.h == base.h ? px : shrink(px, base.w, base.h, t.w, t.h));
+            const DcTexture& b = m.textures[t.source];
+            bool everywhere = true;
+            for (const Job& job : all) {
+                auto it = job.by_name.find(b.name);
+                everywhere = everywhere && it != job.by_name.end() && it->second.second.size() == (size_t)b.w * b.h;
             }
-            if (jobs_small[ti].size() != jobs) continue;
-            for (uint32_t i = 0; i < t.small.size(); i++) {
-                Texel x{};
-                x.tex = (int)ti;
-                x.i = i;
-                float lo[3] = { 1, 1, 1 }, hi[3] = { 0, 0, 0 }, dim = 255;
-                bool clear = false;
-                for (int j = 0; j < jobs; j++) {
-                    const Rgba& p = jobs_small[ti][j][i];
-                    clear |= p.a < 128;
-                    float mx = (float)std::max({ p.r, p.g, p.b });
-                    x.bright[j] = mx;
-                    dim = std::min(dim, mx);
-                    const uint8_t c[3] = { p.r, p.g, p.b };
-                    for (int k = 0; k < 3; k++) {
-                        float h = c[k] / (mx + 8.0f);
-                        x.hue[j * 3 + k] = h;
-                        lo[k] = std::min(lo[k], h);
-                        hi[k] = std::max(hi[k], h);
-                    }
-                }
-                float spread = std::max({ hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] });
-                if (!clear && spread >= 0.4f && dim >= 24) painted.push_back(x);
-            }
+            if (everywhere) base[ti] = &b;
         }
-
-        // Regions.
-        int regions = 0;
-        std::vector<int> label(painted.size(), 0);
-        std::vector<std::array<float, jobs * 3>> centers;
-        auto distance = [](const float* a, const float* b) {
-            float d = 0;
-            for (int k = 0; k < jobs * 3; k++) d += (a[k] - b[k]) * (a[k] - b[k]);
-            return d;
-        };
-        for (int k = std::min<int>(3, (int)painted.size()); k >= 1; k--) {
-            centers.assign(k, {});
-            // Seeds: the median, then each the texel farthest from those before.
-            for (int c = 0; c < jobs * 3; c++) {
-                std::vector<float> v(painted.size());
-                for (size_t i = 0; i < painted.size(); i++) v[i] = painted[i].hue[c];
-                std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
-                centers[0][c] = v[v.size() / 2];
+        // Distinct jobs, in the disc's order.
+        std::vector<int> kept;
+        std::set<uint64_t> seen;
+        for (size_t j = 0; j < all.size(); j++) {
+            uint64_t h = 0xCBF29CE484222325ull;
+            for (size_t ti = 0; ti < textures.size(); ti++) {
+                if (!base[ti]) continue;
+                const std::vector<Rgba>& px = all[j].by_name.at(base[ti]->name).second;
+                h = fnv(px.data(), px.size() * sizeof(Rgba), h);
             }
-            for (int s = 1; s < k; s++) {
-                float far = -1;
-                size_t at = 0;
-                for (size_t i = 0; i < painted.size(); i++) {
-                    float d = 1e30f;
-                    for (int c = 0; c < s; c++) d = std::min(d, distance(painted[i].hue, centers[c].data()));
-                    if (d > far) {
-                        far = d;
-                        at = i;
-                    }
-                }
-                std::copy(painted[at].hue, painted[at].hue + jobs * 3, centers[s].begin());
-            }
-            std::vector<size_t> sizes(k);
-            for (int pass = 0; pass < 30; pass++) {
-                std::vector<std::array<double, jobs * 3>> sum(k, std::array<double, jobs * 3>{});
-                std::fill(sizes.begin(), sizes.end(), 0);
-                for (size_t i = 0; i < painted.size(); i++) {
-                    int best = 0;
-                    float bd = 1e30f;
-                    for (int c = 0; c < k; c++) {
-                        float d = distance(painted[i].hue, centers[c].data());
-                        if (d < bd) {
-                            bd = d;
-                            best = c;
-                        }
-                    }
-                    label[i] = best;
-                    sizes[best]++;
-                    for (int q = 0; q < jobs * 3; q++) sum[best][q] += painted[i].hue[q];
-                }
-                for (int c = 0; c < k; c++) {
-                    if (sizes[c] == 0) continue;
-                    for (int q = 0; q < jobs * 3; q++) centers[c][q] = float(sum[c][q] / sizes[c]);
-                }
-            }
-            // A region is a clean color (saturated, or white) in most jobs; mixes of regions and shading aren't.
-            bool clean = true;
-            for (int c = 0; c < k; c++) {
-                int good = 0;
-                for (int j = 0; j < jobs; j++) {
-                    const float* h = &centers[c][j * 3];
-                    float lo = std::min({ h[0], h[1], h[2] }), hi = std::max({ h[0], h[1], h[2] });
-                    good += hi >= 0.85f && (lo <= 0.25f || lo >= 0.8f);
-                }
-                if (good < 5 || sizes[c] * 200 < painted.size()) clean = false;
-            }
-            regions = k;
-            if (clean) break;
+            if (seen.insert(h).second) kept.push_back((int)j);
         }
-        // Largest region first: main, accent, stripe.
-        std::vector<int> order(regions), rank(regions);
-        {
-            std::vector<size_t> sizes(regions, 0);
-            for (int l : label) sizes[l]++;
-            for (int c = 0; c < regions; c++) order[c] = c;
-            std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return sizes[a] > sizes[b]; });
-            for (int c = 0; c < regions; c++) rank[order[c]] = c;
-        }
-        // A region's brightness in each job: its 90th percentile.
-        std::vector<std::array<float, jobs>> full(regions);
-        for (int c = 0; c < regions; c++) {
-            for (int j = 0; j < jobs; j++) {
-                std::vector<float> v;
-                for (size_t i = 0; i < painted.size(); i++) {
-                    if (label[i] == c) v.push_back(painted[i].bright[j]);
-                }
-                if (v.empty()) {
-                    full[c][j] = 255;
-                    continue;
-                }
-                size_t at = v.size() * 9 / 10;
-                std::nth_element(v.begin(), v.begin() + at, v.end());
-                full[c][j] = std::max(v[at], 1.0f);
-            }
-        }
-        constexpr int ramp_first[3] = { 32, 64, 96 };
-        for (size_t i = 0; i < painted.size(); i++) {
-            const Texel& x = painted[i];
-            int c = label[i];
-            float shade[jobs];
-            for (int j = 0; j < jobs; j++) shade[j] = x.bright[j] / full[c][j];
-            std::nth_element(shade, shade + jobs / 2, shade + jobs);
-            int r = rank[c];
-            int step = std::clamp((int)std::lround((1.0f - shade[jobs / 2]) * 32.0f), 0, r == 2 ? 29 : 30);
-            region[x.tex][x.i] = ramp_first[r] + 1 + step;
-        }
-
-        // The palette: the regions' colors in the first job, then the unpainted colors.
-        std::vector<uint16_t> pal(256, 0);
-        for (int c = 0; c < regions; c++) {
-            const float* h = &centers[c][0];
-            float scale = full[c][0] / std::max({ h[0], h[1], h[2], 0.01f });
-            int first = ramp_first[rank[c]];
-            for (int s = 0; s <= 31 && first + s < 128; s++) {
-                float t = s == 0 ? 1.0f : 1.0f - (s - 1) / 32.0f;
-                pal[first + s] = rgba5551(int(h[0] * scale * t), int(h[1] * scale * t), int(h[2] * scale * t));
-            }
-        }
-        auto unpainted = [&](size_t ti, uint32_t i) -> const Rgba& {
-            return jobs_small[ti].empty() ? textures[ti].small[i] : jobs_small[ti][0][i];
-        };
-        std::unordered_map<uint16_t, uint32_t> histogram;
+        out = CarJobs{};
+        out.count = (int)kept.size();
+        for (int j : kept) out.files.push_back(all[j].file);
+        out.index.resize(textures.size());
+        out.images.resize(textures.size());
+        out.paint.resize(textures.size());
         for (size_t ti = 0; ti < textures.size(); ti++) {
-            for (uint32_t i = 0; i < textures[ti].small.size(); i++) {
-                const Rgba& p = unpainted(ti, i);
-                if (region[ti][i] < 0 && p.a >= 128) histogram[rgba5551(p.r, p.g, p.b) >> 1]++;
+            if (!base[ti]) continue;
+            for (int j : kept) {
+                const auto& [record, px] = all[j].by_name.at(base[ti]->name);
+                out.index[ti].push_back(record);
+                out.images[ti].push_back(px);
+            }
+            const auto& first = out.images[ti][0];
+            std::vector<uint8_t>& paint = out.paint[ti];
+            paint.assign(first.size(), 0);
+            for (size_t i = 0; i < first.size(); i++) {
+                for (int j = 1; j < out.count; j++) {
+                    const Rgba& p = out.images[ti][j][i];
+                    const Rgba& q = first[i];
+                    if (std::max({ std::abs(p.r - q.r), std::abs(p.g - q.g), std::abs(p.b - q.b) }) >= 24 && q.a >= 128) {
+                        paint[i] = 1;
+                    }
+                }
             }
         }
-        std::unordered_map<uint16_t, uint8_t> index;
-        std::vector<uint16_t> rest = median_cut(histogram, 128, index);
-        for (size_t c = 0; c < rest.size(); c++) pal[128 + c] = rest[c];
-        for (size_t ti = 0; ti < textures.size(); ti++) {
-            OutTexture& t = textures[ti];
-            t.data.resize(t.small.size());
-            for (uint32_t i = 0; i < t.small.size(); i++) {
-                const Rgba& p = unpainted(ti, i);
-                t.data[i] = region[ti][i] >= 0 ? (uint8_t)region[ti][i]
-                          : p.a < 128      ? 0
-                                           : uint8_t(128 + index[rgba5551(p.r, p.g, p.b) >> 1]);
-            }
-            t.ci8 = true;
-            t.rgba32 = false;
-            t.shrunk = false; // the full-size image isn't paintable: drawn as converted
-        }
-        palette.clear();
-        for (uint16_t c : pal) {
-            palette.push_back(uint8_t(c >> 8));
-            palette.push_back(uint8_t(c));
-        }
+        for (int j = 0; j < out.count; j++) out.rgb.push_back(job_color(out, j));
         return true;
     }
 }
+
+// A car texture's damaged copy, as Rush 2's D1 panel textures are of its D0 ones: its paint mottled darker and
+// lighter in blotches a few texels wide, with a few bright scrapes; other texels (glass, lights, trim) are kept. The
+// pattern is laid out in the texels of the scaled-down copy (grain_w x grain_h), so the disc-size image and the
+// scaled-down one show the same scuffs.
+void rush2::rom2049::dc::scuff_image(std::vector<uint8_t>& rgba, int w, int h, const std::vector<uint8_t>& paint,
+                                     uint32_t seed, int grain_w, int grain_h) {
+    if (w <= 0 || h <= 0 || paint.size() != (size_t)w * h || rgba.size() != paint.size() * 4) return;
+    auto hash = [seed](int x, int y) {
+        uint32_t v = uint32_t(x) * 73856093u ^ uint32_t(y) * 19349663u ^ seed * 83492791u;
+        v ^= v >> 13;
+        v *= 0x5BD1E995u;
+        v ^= v >> 15;
+        return float(v & 0xFFFF) / 65535.0f;
+    };
+    auto noise = [&](float x, float y) {
+        int x0 = int(std::floor(x)), y0 = int(std::floor(y));
+        float fx = x - x0, fy = y - y0;
+        fx = fx * fx * (3.0f - 2.0f * fx);
+        fy = fy * fy * (3.0f - 2.0f * fy);
+        float a = hash(x0, y0) + (hash(x0 + 1, y0) - hash(x0, y0)) * fx;
+        float b = hash(x0, y0 + 1) + (hash(x0 + 1, y0 + 1) - hash(x0, y0 + 1)) * fx;
+        return a + (b - a) * fy;
+    };
+    float sx = float(grain_w) / w, sy = float(grain_h) / h;
+    // Scrapes: short streaks of bright paint, about one per 512 grain texels.
+    struct Scrape {
+        float x, y, dx, dy, length;
+    };
+    std::vector<Scrape> scrapes;
+    int count = std::max(1, grain_w * grain_h / 512);
+    for (int s = 0; s < count; s++) {
+        float angle = (hash(s, 303) - 0.5f) * 1.2f;
+        scrapes.push_back({ hash(s, 101) * grain_w, hash(s, 202) * grain_h, std::cos(angle), std::sin(angle),
+                            4.0f + hash(s, 404) * float(std::min(grain_w, 12)) });
+    }
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            size_t i = (size_t)y * w + x;
+            if (!paint[i]) continue;
+            float gx = (x + 0.5f) * sx, gy = (y + 0.5f) * sy;
+            // Ramp steps (1/32 of the brightness each), positive darker.
+            float d = (noise(gx / 5.0f, gy / 4.0f) - 0.5f) * 11.0f + (noise(gx / 2.0f + 17.0f, gy / 2.0f + 5.0f) - 0.5f) * 5.0f + 1.5f;
+            for (const Scrape& s : scrapes) {
+                float px = gx - s.x, py = gy - s.y;
+                float along = px * s.dx + py * s.dy, across = px * s.dy - py * s.dx;
+                if (along >= 0.0f && along <= s.length && std::abs(across) <= 0.5f) d = -6.0f;
+            }
+            float f = std::clamp(1.0f - d / 32.0f, 0.5f, 1.25f);
+            for (int c = 0; c < 3; c++) {
+                rgba[i * 4 + c] = (uint8_t)std::clamp((int)std::lround(rgba[i * 4 + c] * f), 0, 255);
+            }
+        }
+    }
+}
+
+uint32_t rush2::rom2049::dc::scuff_seed(const std::string& name) {
+    return (uint32_t)fnv(name.data(), name.size());
+}
+
 
 std::string rush2::rom2049::dc::n64_name(const std::string& dc_name) {
     static const std::unordered_map<std::string, std::string> map = [] {
@@ -1121,6 +1039,53 @@ std::string rush2::rom2049::dc::n64_name(const std::string& dc_name) {
     }();
     auto it = map.find(dc_name);
     return it == map.end() ? dc_name : it->second;
+}
+
+// The RT64 replacement hash of a scaled-down texture: what RT64 hashes (TMEMHasher, rt64_tmem_hasher.h) when the
+// texture is drawn from add_load_list's load list. TMEM is filled the way RT64's RDP runs that LOADBLOCK
+// (loadToTMEMCommon in rt64_rdp.cpp): 64-bit words in order with the load tile's line of 0, the words of every other
+// row swapped (address ^ 4) as the dxt counter passes 0x800, RGBA32 split into the lower (red, green) and upper (blue,
+// alpha) halves. The render tile wraps on a power-of-two mask, so RT64 samples it at w x h. 0 when it can't be told
+// beforehand: sizes off a power of two.
+uint64_t rush2::rom2049::dc::replacement_hash(const SourceTexture& t) {
+    const uint32_t w = t.w, h = t.h;
+    if (w == 0 || h == 0 || (w & (w - 1)) != 0 || (h & (h - 1)) != 0) return 0;
+    const uint32_t siz = t.rgba32 ? G_IM_SIZ_32b : G_IM_SIZ_16b, bytes = t.rgba32 ? 4 : 2;
+    if (t.texels.size() < size_t(w) * h * bytes) return 0;
+    // As add_load_list.
+    const uint32_t words = std::max<uint32_t>(1, w * bytes / 8);
+    const uint32_t dxt = (2048 + words - 1) / words;
+    const uint32_t lrs = w * h - 1;
+    if (lrs >= 0x800) return 0; // A LOADBLOCK the hardware ignores.
+    const uint32_t word_count = (lrs >> (4 - siz)) + 1;
+    uint8_t tmem[4096] = {};
+    const uint32_t mask = t.rgba32 ? 2047 : 4095, advance = t.rgba32 ? 4 : 8;
+    uint32_t addr = 0, swap = 0, counter = 0;
+    for (uint32_t k = 0; k < word_count; k++) {
+        uint8_t s[8] = {};
+        for (uint32_t i = 0; i < 8 && k * 8 + i < t.texels.size(); i++) s[i] = t.texels[k * 8 + i];
+        if (t.rgba32) {
+            const uint8_t lo[4] = { s[0], s[1], s[4], s[5] }, hi[4] = { s[2], s[3], s[6], s[7] };
+            for (uint32_t i = 0; i < 4; i++) {
+                tmem[(addr + i) ^ swap] = lo[i];
+                tmem[((addr + i) ^ swap) | 2048] = hi[i];
+            }
+        }
+        else {
+            for (uint32_t i = 0; i < 8; i++) tmem[((addr + i) ^ swap) & 4095] = s[i];
+        }
+        counter += dxt;
+        while (counter >= 0x800) {
+            counter -= 0x800;
+            swap ^= 4;
+        }
+        addr = (addr + advance) & mask;
+    }
+    RT64::LoadTile tile = {};
+    tile.fmt = G_IM_FMT_RGBA;
+    tile.siz = (uint8_t)siz;
+    tile.line = (uint16_t)((w * 2 + 7) >> 3);
+    return RT64::TMEMHasher::hash(tmem, tile, (uint16_t)w, (uint16_t)h, 0, RT64::TMEMHasher::CurrentHashVersion);
 }
 
 bool rush2::rom2049::dc::decode_texture(const std::vector<uint8_t>& container, uint32_t index, uint32_t tint,
@@ -1199,7 +1164,9 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
         }
         uint32_t budget = 0;
         for (const FileSize& f : file_sizes) {
-            if (f.file == n64_file) budget = f.bytes;
+            if (f.file == n64_file && std::ranges::find(fixed_window_files, f.file) != std::end(fixed_window_files)) {
+                budget = f.bytes;
+            }
         }
         // Over the N64 file's size, textures go down a size at a time (the full-size ones replace them on screen).
         for (int level = 0;; level++) {
@@ -1215,6 +1182,7 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                                             cap == caps.end() ? 256 : cap->second.second,
                                             texture_mode(n64_file, t.name, pixels[i])));
             textures.back().source = (int)i;
+            set_tile_modes(textures.back(), m.textures[i].flags);
         }
         for (const Tinted& t : tinted) {
             if (t.file != n64_file) continue;
@@ -1228,6 +1196,7 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                                                     cap == caps.end() ? 256 : cap->second.second,
                                                     texture_mode(n64_file, t.n64, pixels[i])));
                     textures.back().source = (int)i;
+                    set_tile_modes(textures.back(), m.textures[i].flags);
                     break;
                 }
             }
@@ -1239,9 +1208,26 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
             return -1;
         };
 
-        // Cars (files 88-100) are painted through a palette, as the N64's.
+        // Cars (files 88-100): the disc's paint jobs (car_jobs); the file keeps the first job's textures. A car keeps a
+        // palette record as the N64's do (the game loads it as the car's TLUT), unused by its RGBA textures.
+        bool car = n64_file >= 88 && n64_file <= 100;
+        CarJobs jobs;
+        bool painted_jobs = car && car_jobs(files, dc_file, m, textures, jobs);
+        auto remake = [&](const OutTexture& t, const std::vector<Rgba>& px) {
+            const DcTexture& b = m.textures[t.source];
+            OutTexture r = make_texture(t.name, px, b.w, b.h, t.pixel, t.tint, t.level, t.max_w, t.max_h, t.mode);
+            r.source = t.source;
+            r.cm_s = t.cm_s;
+            r.cm_t = t.cm_t;
+            return r;
+        };
+        if (painted_jobs) {
+            for (size_t ti = 0; ti < textures.size(); ti++) {
+                if (!jobs.images[ti].empty()) textures[ti] = remake(textures[ti], jobs.images[ti][0]);
+            }
+        }
         Bytes palette;
-        if (n64_file >= 88 && n64_file <= 100 && !paint_car(files, dc_file, m, textures, palette)) palette.clear();
+        if (car) palette.assign(512, 0);
 
         // Layout: 8-byte header, IMAG (the palette first), TXLD, OBHD, PLHD, TXHD, OBJS, PATH, PTHD, chunk directory.
         Bytes imag = palette;
@@ -1293,6 +1279,7 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                 }
                 if (swap >= (int)textures.size()) swap = -1;
                 LodBuilder b{ textures, txld_at, flags, swap, swap_mode, bind };
+                b.sky = p.name.size() >= 6 && p.name.compare(p.name.size() - 6, 6, "SKYSKY") == 0;
                 align8(objs);
                 auto [list, vertices] = convert_lod(m, l, b, objs, objs_at, remap);
                 size_t e = r + 0x18 + j * 16;
@@ -1311,8 +1298,8 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
             memcpy(&txhd[r], t.name.data(), std::min<size_t>(t.name.size(), 16));
             put16(txhd, r + 16, (uint16_t)t.w);
             put16(txhd, r + 18, (uint16_t)t.h);
-            txhd[r + 20] = t.ci8 ? 2 : 0;           // CI or RGBA
-            txhd[r + 21] = t.ci8 ? 1 : t.rgba32 ? 3 : 2;
+            txhd[r + 20] = 0;                       // RGBA
+            txhd[r + 21] = t.rgba32 ? 3 : 2;
             put16(txhd, r + 22, 0xFFFF);            // no palette
             put32(txhd, r + 24, (txld_at - imag_at) + t.list);  // load list, IMAG-relative
             put32(txhd, r + 28, 0);                 // flag 0x08000000 clear: the record names a load list
@@ -1405,8 +1392,44 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                     out.size(), budget);
         }
         if (shrunk != nullptr) {
-            for (const OutTexture& t : textures) {
-                if (!t.shrunk || t.source < 0) continue;
+            for (size_t ti = 0; ti < textures.size(); ti++) {
+                const OutTexture& t = textures[ti];
+                if (t.source < 0) continue;
+                // A car texture in every paint job, and each scuffed for damage where it has paint.
+                if (painted_jobs && !jobs.images[ti].empty()) {
+                    const std::vector<uint8_t>& paint = jobs.paint[ti];
+                    bool has_paint = std::find(paint.begin(), paint.end(), 1) != paint.end();
+                    const DcTexture& b = m.textures[t.source];
+                    for (int j = 0; j < jobs.count; j++) {
+                        for (int damaged = 0; damaged <= (has_paint ? 1 : 0); damaged++) {
+                            std::vector<Rgba> px = jobs.images[ti][j];
+                            if (damaged) {
+                                std::vector<uint8_t> rgba(px.size() * 4);
+                                memcpy(rgba.data(), px.data(), rgba.size());
+                                rush2::rom2049::dc::scuff_image(rgba, b.w, b.h, paint, rush2::rom2049::dc::scuff_seed(t.name),
+                                                                t.w, t.h);
+                                memcpy(px.data(), rgba.data(), rgba.size());
+                            }
+                            OutTexture r = remake(t, px);
+                            SourceTexture st;
+                            st.w = (uint16_t)r.w;
+                            st.h = (uint16_t)r.h;
+                            st.rgba32 = r.rgba32;
+                            st.texels = r.data;
+                            st.file = jobs.files[j];
+                            st.index = (uint32_t)jobs.index[ti][j];
+                            st.tint = t.tint;
+                            st.job = j + 1;
+                            st.job_rgb = jobs.rgb[j];
+                            st.name = t.name;
+                            st.damaged = damaged != 0;
+                            if (damaged) st.scuff = paint;
+                            shrunk->push_back(std::move(st));
+                        }
+                    }
+                    continue;
+                }
+                if (!t.shrunk) continue;
                 SourceTexture st;
                 st.w = (uint16_t)t.w;
                 st.h = (uint16_t)t.h;

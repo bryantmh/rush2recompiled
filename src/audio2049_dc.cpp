@@ -86,6 +86,11 @@ namespace {
         std::vector<int16_t> pcm; // interleaved stereo
         uint32_t rate = 22050;
         size_t frames = 0, loop_frame = 0;
+        // A .STR stays IMA ADPCM until it plays: the mixer decodes block by block ahead of the play position
+        // (decoding a whole song up front took a second or more before it could start).
+        std::vector<uint8_t> adpcm;
+        size_t first_block = 0; // the stream's block that pcm frame 0 is (the lead-in silence skipped)
+        size_t decoded = 0;     // frames of pcm decoded so far
         double pos = 0.0;
         float fade = 1.0f, fade_step = 0.0f;
     };
@@ -232,7 +237,28 @@ namespace {
         return -1;
     }
 
-    // Reads and decodes a song (on a worker thread; a few hundred ms for a long one).
+    constexpr size_t str_header = 0x800;
+
+    // Decodes the song's ADPCM up to (and including) frame `to`.
+    void decode_song(Song& song, size_t to) {
+        constexpr int n = rush2::rom2049::dc::music_block_samples;
+        constexpr size_t block = 4 + n / 2;
+        int16_t ch[n];
+        while (song.decoded <= to && song.decoded < song.frames) {
+            size_t b = song.decoded / n;
+            for (int c = 0; c < 2; c++) {
+                rush2::rom2049::dc::adpcm_decode(&song.adpcm[str_header + ((song.first_block + b) * 2 + c) * block], n,
+                                                 ch);
+                for (int i = 0; i < n; i++) song.pcm[(b * n + i) * 2 + c] = ch[i];
+            }
+            song.decoded += n;
+        }
+        if (song.decoded >= song.frames) {
+            song.adpcm = {};
+        }
+    }
+
+    // Reads a song (on a worker thread) and decodes its start; the mixer decodes the rest as it plays.
     bool read_song(const Source& src, const std::string& name, Song& out) {
         std::vector<uint8_t> d;
         if (!src.disc_file(upper(name), d)) return false;
@@ -246,11 +272,12 @@ namespace {
                 out.pcm[i * 2] = out.pcm[i * 2 + 1] = v;
             }
             out.loop_frame = 0;
+            out.decoded = out.frames;
             return out.frames > 0;
         }
         // .STR in the pack: the disc's 0x800-byte header (u32 1, rate, bits, block bytes, blocks, data bytes,
         // channels, end block, loop block), then per block and channel 4 + block_samples / 2 bytes of IMA ADPCM.
-        constexpr size_t header = 0x800;
+        constexpr size_t header = str_header;
         constexpr int n = rush2::rom2049::dc::music_block_samples;
         constexpr size_t block = 4 + n / 2;
         if (d.size() < header) return false;
@@ -259,17 +286,24 @@ namespace {
         size_t blocks = (d.size() - header) / (block * 2);
         if (end_block == 0 || end_block > blocks) end_block = (uint32_t)blocks;
         if (loop_block >= end_block) loop_block = 0;
-        out.rate = rate;
-        out.frames = (size_t)end_block * n;
-        out.loop_frame = (size_t)loop_block * n;
-        out.pcm.resize(out.frames * 2);
-        std::vector<int16_t> ch(n);
-        for (size_t b = 0; b < end_block; b++) {
-            for (int c = 0; c < 2; c++) {
-                rush2::rom2049::dc::adpcm_decode(&d[header + (b * 2 + c) * block], n, ch.data());
-                for (int i = 0; i < n; i++) out.pcm[(b * n + i) * 2 + c] = ch[i];
+        // Every stream opens with about 16 blocks (6 s) of digital silence, which would hold the song back after
+        // every start and loop. Skip blocks whose ADPCM bytes are all one value in both channels.
+        auto silent = [&](size_t b) {
+            const uint8_t* p = &d[header + b * 2 * block];
+            for (int c = 0; c < 2; c++, p += block) {
+                for (size_t i = 5; i < block; i++) if (p[i] != p[4]) return false;
             }
-        }
+            return true;
+        };
+        size_t first = 0;
+        while (first + 1 < end_block && silent(first)) first++;
+        out.rate = rate;
+        out.first_block = first;
+        out.frames = (size_t)(end_block - first) * n;
+        out.loop_frame = loop_block > first ? (size_t)(loop_block - first) * n : 0;
+        out.pcm.resize(out.frames * 2);
+        out.adpcm = std::move(d);
+        decode_song(out, 2 * (size_t)n - 1);
         return true;
     }
 }
@@ -476,6 +510,8 @@ void rush2::audio2049::dc::mix(float* out, size_t frames, uint32_t sample_rate, 
     if (st->song_on && song.frames > 0) {
         float g = music_gain * music_scale / 32768.0f;
         double step = (double)song.rate / sample_rate;
+        // This call's frames, plus the interpolation's look-ahead and one more block in case it loops.
+        decode_song(song, (size_t)(song.pos + step * frames) + 3 + rush2::rom2049::dc::music_block_samples);
         for (size_t k = 0; k < frames; k++) {
             if (song.fade_step > 0.0f) {
                 song.fade -= song.fade_step * dt;

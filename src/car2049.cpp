@@ -197,6 +197,22 @@ namespace {
         uint32_t first_texels = 0;           // file offset of the first texture's texels (sanity check)
         uint32_t palette = 0;                // file offset of the palette
         std::vector<uint8_t> colours;        // pristine RGBA5551 palette
+        // A Dreamcast disc's car: its paint jobs' body textures (rush2::rom2049::SourceTexture::job), each job a
+        // full set with its own pattern, in place of the N64's paint ramps. rush2_car49_paint copies job MAIN COLOR %
+        // jobs into the car (the car select shows MAIN COLOR as STYLE, src/wings_menu.cpp).
+        struct JobTexture {
+            uint32_t pristine = 0;              // file offsets of its texels and of their damaged copy (0: none)
+            uint32_t damaged = 0;
+            std::vector<std::vector<uint8_t>> texels, scuffed; // per job
+        };
+        std::vector<JobTexture> job_textures;
+        std::vector<uint32_t> job_rgb;
+        JobTexture* job_texture(uint32_t texels) {
+            for (JobTexture& t : job_textures) {
+                if (t.pristine == texels) return &t;
+            }
+            return nullptr;
+        }
         // Denting: the body's vertices (file offsets) and their pristine positions.
         std::vector<uint32_t> vertices;
         std::vector<std::array<int16_t, 3>> rest;
@@ -246,6 +262,7 @@ namespace {
         int colours[car_count][3]; // 0x80111604 / 0x80111648 / 0x8011168C: each car's COLOR 1-3 (func_800BB140)
         int rims[car_count];       // 0x8011157C: each car's TIRE RIMS (RIM01 + value, as in Rush 2)
         int engine[car_count];     // 0x80111080: the drones' ENGINE (row C)
+        float wheel_scale[2][car_count]; // 0x801112DC / 0x801113E0 row 0: each car's front, rear wheel model scale
         rush2::car2049::EngineLayer engine_sounds[9][2]; // 0x8010FD80 [ENGINE]
     };
     Setup49 setup49;
@@ -262,7 +279,6 @@ namespace {
         uint32_t dst = t.new_base + (row * new_types + to_type) * t.size;
         for (int i = 0; i < t.size; i++) {
             MEM_B(0, (int32_t)(dst + i)) = MEM_B(0, (int32_t)(src + i));
-        float wheel_scale[2][car_count]; // 0x801112DC / 0x801113E0 row 0: each car's front, rear wheel model scale
         }
     }
 }
@@ -657,7 +673,21 @@ namespace {
                 }
                 l.commands.insert(l.commands.end(), car.begin() + o, car.begin() + o + 8);
             }
-            if (l.settimg >= 0 && ci8 && width > 0 && size > 0 && l.texels + size <= car.size()) {
+            Paint::JobTexture* job = l.settimg >= 0 ? p.job_texture(l.texels) : nullptr;
+            if (job != nullptr) {
+                // A Dreamcast car's texture: its scuffed copy is the converter's (each job's, copied in with the job).
+                if (!job->scuffed.empty() && job->scuffed[0].size() == size && size == job->texels[0].size()) {
+                    auto s = scuffed.find(l.texels);
+                    if (s == scuffed.end()) {
+                        align();
+                        s = scuffed.emplace(l.texels, uint32_t(car.size())).first;
+                        car.insert(car.end(), job->scuffed[0].begin(), job->scuffed[0].end());
+                    }
+                    l.damaged = s->second;
+                    job->damaged = s->second;
+                }
+            }
+            else if (l.settimg >= 0 && ci8 && width > 0 && size > 0 && l.texels + size <= car.size()) {
                 uint32_t painted = 0;
                 for (uint32_t i = 0; i < size; i++) painted += car[l.texels + i] >= 32 && car[l.texels + i] < 128;
                 if (painted * 10 >= size) {
@@ -794,17 +824,65 @@ namespace {
     std::map<uint32_t, uint32_t> dented;   // asset copy base -> panel damage bits last applied
 }
 
-void rush2::car2049::init_assets(uint8_t* rdram) {
-    for (int i = 0; i < old_assets; i++) {
-        MEM_W(0, (int32_t)(asset_offsets + i * 4)) = MEM_W(0, (int32_t)(old_asset_offsets + i * 4));
-        MEM_W(0, (int32_t)(asset_sizes + i * 4)) = MEM_W(0, (int32_t)(old_asset_sizes + i * 4));
+namespace {
+    std::shared_ptr<const rush2::rom2049::Source> cars_source; // The Rush 2049 source load_cars built the cars from.
+    bool cars_loaded = false;
+}
+
+// A Dreamcast car's paint jobs: the textures of its file (texture records: name[16] ... +0x18 load list) each with its
+// texels in every job, and each job's paint color.
+static void load_jobs(const std::vector<uint8_t>& car, const std::vector<rush2::rom2049::SourceTexture>& list, Paint& p) {
+    for (const rush2::rom2049::SourceTexture& t : list) {
+        if (t.job < 1) continue;
+        size_t job = size_t(t.job - 1);
+        uint32_t record = 0;
+        for (uint32_t i = 0; i < p.texture_count; i++) {
+            uint32_t r = p.texture_table + i * 0x20;
+            if (r + 0x20 <= car.size() && strncmp(reinterpret_cast<const char*>(&car[r]), t.name.c_str(), 16) == 0) {
+                record = r;
+                break;
+            }
+        }
+        if (record == 0) continue;
+        // +0x18 is the texture's load list; its G_SETTIMG has the texels (file offsets, as the relocator leaves them).
+        uint32_t texels = 0;
+        for (uint32_t o = be32(car, record + 24); o + 8 <= car.size() && car[o] != 0xDF; o += 8) {
+            if (car[o] == 0xFD) {
+                texels = be32(car, o + 4) & 0xFFFFFF;
+                break;
+            }
+        }
+        if (texels == 0 || texels + t.texels.size() > car.size()) continue;
+        Paint::JobTexture* jt = p.job_texture(texels);
+        if (jt == nullptr) {
+            p.job_textures.push_back({});
+            jt = &p.job_textures.back();
+            jt->pristine = texels;
+        }
+        auto& slot = t.damaged ? jt->scuffed : jt->texels;
+        if (slot.size() <= job) slot.resize(job + 1);
+        slot[job] = t.texels;
+        if (p.job_rgb.size() <= job) p.job_rgb.resize(job + 1);
+        p.job_rgb[job] = t.job_rgb;
     }
+}
+
+// The 2049 cars' and parts' assets and their per-car data (paints), from the Rush 2049 source in use. At boot, and
+// again when the Games tab switches the source (rush2::car2049::check_source).
+static void load_cars(uint8_t* rdram) {
+    cars_loaded = true;
+    cars_source = rush2::wings::get_rom();
+    for (Paint& p : paints) p = Paint{};
+    part_centers.clear();
+    dented.clear();
     for (int k = 0; k < car_count; k++) {
+        rush2::assets::restore(rdram, first_car_asset + k);
         MEM_W(0, (int32_t)(asset_offsets + (first_car_asset + k) * 4)) = 0;
         MEM_W(0, (int32_t)(asset_sizes + (first_car_asset + k) * 4)) = 0;
     }
-    MEM_W(0, (int32_t)(asset_offsets + parts_asset * 4)) = 0;
-    MEM_W(0, (int32_t)(asset_sizes + parts_asset * 4)) = 0;
+    rush2::assets::restore(rdram, rush2::car2049::parts_asset);
+    MEM_W(0, (int32_t)(asset_offsets + rush2::car2049::parts_asset * 4)) = 0;
+    MEM_W(0, (int32_t)(asset_sizes + rush2::car2049::parts_asset * 4)) = 0;
     // Part name prefixes of the 2049 types, in the relocated name table.
     for (int k = 0; k < car_count; k++) {
         std::string name = "CAR" + std::to_string(k + 1);
@@ -849,6 +927,9 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
                 p.palette = be32(car, palettes + 20);
                 p.colours.assign(car.begin() + p.palette, car.begin() + p.palette + 512);
             }
+            if (rom->is_dreamcast()) {
+                load_jobs(car, rom->file_textures(87 + k + 1), p);
+            }
             collect_body_vertices(car, "CAR" + std::to_string(k + 1), p);
             add_damage_textures(car, "CAR" + std::to_string(k + 1) + "FRAME1", k, p);
             collect_flames(car, "CAR" + std::to_string(k + 1) + "FRAME1", p);
@@ -891,11 +972,40 @@ void rush2::car2049::init_assets(uint8_t* rdram) {
         parts_ok = true;
     }
     if (parts_ok) {
-        rush2::assets::replace(rdram, parts_asset, parts);
+        rush2::assets::replace(rdram, rush2::car2049::parts_asset, parts);
     }
     else {
         fprintf(stderr, "[2049] Couldn't convert the part models: %s\n", error.c_str());
     }
+}
+
+void rush2::car2049::init_assets(uint8_t* rdram) {
+    for (int i = 0; i < old_assets; i++) {
+        MEM_W(0, (int32_t)(asset_offsets + i * 4)) = MEM_W(0, (int32_t)(old_asset_offsets + i * 4));
+        MEM_W(0, (int32_t)(asset_sizes + i * 4)) = MEM_W(0, (int32_t)(old_asset_sizes + i * 4));
+    }
+    load_cars(rdram);
+}
+
+// The top of the main loop, once per frame (rush2_cheats_frame). After the Games tab switches the Rush 2049 source,
+// the cars and their tuning are built again from the new one while the game is in the menus or the track select
+// (game state 0x8010C0D0 0-1): no car is loaded from the old assets then, and the car select loads them afresh.
+int rush2::car2049::paint_jobs(int type) {
+    int k = type - first_type;
+    return k >= 0 && k < car_count ? (int)paints[k].job_rgb.size() : 0;
+}
+
+void rush2::car2049::check_source(uint8_t* rdram) {
+    constexpr uint32_t game_state = 0x8010C0D0;
+    if (!cars_loaded || rush2::wings::get_rom() == cars_source) {
+        return;
+    }
+    int32_t state = MEM_W(0, (int32_t)game_state);
+    if (state < 0 || state > 1) {
+        return;
+    }
+    load_cars(rdram);
+    init_physics(rdram);
 }
 
 std::array<float, 3> rush2::car2049::part_center(int i) {
@@ -972,6 +1082,15 @@ namespace {
         MEM_B(0, (int32_t)(block + 1)) = (int8_t)b1;
         MEM_B(0, (int32_t)(block + 2)) = (int8_t)b2;
         MEM_B(0, (int32_t)(block + 3)) = (int8_t)b3;
+    }
+
+    // A 2049 car's TIRE SIZE F and R in its record block (bytes +11 / +12, record 0x58F / 0x590): scale x 100 - 75, as
+    // the car select stores them (func_803B9478 at 0x803BA488 / 0x803BA638) and func_803B81F0 reads them back into the
+    // player's wheel scale rows.
+    void set_tire_size_defaults(uint8_t* rdram, uint32_t block, int k) {
+        for (int i = 0; i < 2; i++) {
+            MEM_B(0, (int32_t)(block + 11 + i)) = (int8_t)std::lround(setup49.wheel_scale[i][k] * 100.0f - 75.0f);
+        }
     }
 
     // The side slots are kept in the save file's "cars" section (include/data_files.h; the Controller Pak record has
@@ -1085,6 +1204,7 @@ extern "C" void rush2_car49_record(uint8_t* rdram, recomp_context* ctx) {
                     (int8_t)std::lround(setup49.frame_weight[setup49.frame[k]] * 100.0f);
                 MEM_B(0, (int32_t)(block + engine_byte)) = 0;
                 set_defaults(rdram, block, k);
+                set_tire_size_defaults(rdram, block, k);
             }
         }
     }
@@ -1094,15 +1214,6 @@ extern "C" void rush2_car49_record(uint8_t* rdram, recomp_context* ctx) {
     // record' + 0x584 + type * 13 = side slot + (type - 22) * 13
     uint32_t fake = side_slots + slot * side_slot_size - record_block - rush2_types * block_size;
     ctx->r4 = (uint64_t)(int64_t)(int32_t)fake;
-    // A 2049 car's TIRE SIZE F and R in its record block (bytes +11 / +12, record 0x58F / 0x590): scale x 100 - 75, as
-    // the car select stores them (func_803B9478 at 0x803BA488 / 0x803BA638) and func_803B81F0 reads them back into the
-    // player's wheel scale rows.
-    void set_tire_size_defaults(uint8_t* rdram, uint32_t block, int k) {
-        for (int i = 0; i < 2; i++) {
-            MEM_B(0, (int32_t)(block + 11 + i)) = (int8_t)std::lround(setup49.wheel_scale[i][k] * 100.0f - 75.0f);
-        }
-    }
-
 }
 
 // Start of func_8005F338 ($a0 = address, $a1 = length): marks player-record bytes for the Controller Pak save. Returns
@@ -1204,7 +1315,6 @@ namespace {
         Setup49& s = setup49;
         for (int c = 0; c < engine_levels; c++) {
             for (int b = 0; b < 3; b++) s.torque[c][b] = m.f(0x801110C4 + 12 * c + 4 * b);
-                set_tire_size_defaults(rdram, block, k);
         }
         for (int c = 0; c < 6; c++) {
             s.gears[c] = m.f(gears_t + 4 * c);
@@ -1286,6 +1396,11 @@ namespace {
             s.yaw[k] = m.f(yaw_t + 4 * k);
             for (int i = 0; i < 3; i++) s.colours[k][i] = m.b(0x80111604 + 0x44 * i + k);
             s.rims[k] = std::clamp<int>(m.b(0x8011157C + k), 0, 20);
+            // A source without the tables (0.0) would draw no tires: outside the car select's 0.75-1.5, use 1.0.
+            for (int i = 0; i < 2; i++) {
+                float scale = m.f((i ? 0x801113E0 : 0x801112DC) + 4 * k);
+                s.wheel_scale[i][k] = scale >= 0.75f && scale <= 1.5f ? scale : 1.0f;
+            }
             s.handling[k] = B;
             s.tires[k] = D;
             s.frame[k] = E;
@@ -1334,6 +1449,14 @@ namespace {
             for (int row = 0; row < 5; row++) {
                 for (int i = 0; i < 3; i++) MEM_B(0, (int32_t)(t_colours[i] + row * types + type)) = (int8_t)s.colours[k][i];
                 MEM_B(0, (int32_t)(t_rims + row * types + type)) = (int8_t)s.rims[k];
+            }
+            // Wheel model scale (func_8005A598): 2049's own (1.0, the Venom's rear 1.1, the Crusher 1.4), not the
+            // Pickup's 1.25 that init_tables starts every 2049 type with.
+            constexpr uint32_t t_wheel_scale[2] = { 0x802006E8, 0x802009B8 };
+            for (int row = 0; row < 5; row++) {
+                for (int i = 0; i < 2; i++) {
+                    MEM_W(0, (int32_t)(t_wheel_scale[i] + (row * types + type) * 4)) = fbits(s.wheel_scale[i][k]);
+                }
             }
             // DURABILITY is 2049's FRAME (rush2_car49_setup_mass): its default is the car's own frame weight.
             for (int row = 0; row < 5; row++) {
@@ -1396,11 +1519,6 @@ extern "C" void rush2_car49_logo(uint8_t* rdram, recomp_context* ctx) {
 // white the grey ramp 1-31 is brightened by 1.25. MAIN, ACCENT and STRIPE COLOR are COLOR 1-3; the colour indices
 // mean the same in both games (2049's 0x801226C0 table is Rush 2's 0x800CE19C, retuned), and Rush 2's is used so the
 // car matches the select screen's swatches.
-            // A source without the tables (0.0) would draw no tires: outside the car select's 0.75-1.5, use 1.0.
-            for (int i = 0; i < 2; i++) {
-                float scale = m.f((i ? 0x801113E0 : 0x801112DC) + 4 * k);
-                s.wheel_scale[i][k] = scale >= 0.75f && scale <= 1.5f ? scale : 1.0f;
-            }
 namespace {
     uint16_t rgba5551(uint8_t* rdram, int colour) {
         uint32_t rgba = (uint32_t)MEM_W(0, (int32_t)(colour_table + colour * 4));
@@ -1441,6 +1559,22 @@ extern "C" void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx) {
             (uint32_t)MEM_W(0, (int32_t)(records + 24)) != records - p.texture_table + p.first_texels) {
             continue;
         }
+        if (!p.job_textures.empty()) {
+            // A Dreamcast car: paint job MAIN COLOR % jobs (its STYLE), its textures (and their damaged copies)
+            // copied in.
+            size_t job = p.job_rgb.empty() ? 0 : size_t(colours[0]) % p.job_rgb.size();
+            uint32_t base = records - p.texture_table;
+            auto copy = [&](uint32_t at, const std::vector<std::vector<uint8_t>>& per_job) {
+                if (at == 0 || job >= per_job.size()) return;
+                const std::vector<uint8_t>& bytes = per_job[job];
+                for (size_t i = 0; i < bytes.size(); i++) MEM_B((int32_t)i, (int32_t)(base + at)) = (int8_t)bytes[i];
+            };
+            for (const Paint::JobTexture& t : p.job_textures) {
+                copy(t.pristine, t.texels);
+                copy(t.damaged, t.scuffed);
+            }
+            return;
+        }
         for (int i = 0; i < 256; i++) {
             MEM_H(0, (int32_t)(palette + i * 2)) = uint16_t((p.colours[i * 2] << 8) | p.colours[i * 2 + 1]);
         }
@@ -1449,14 +1583,6 @@ extern "C" void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx) {
                 uint16_t c = MEM_HU(0, (int32_t)(palette + i * 2));
                 int v = std::min(0xFF, int(float(((c >> 11) & 0x1F) * 8) * 1.25f));
                 MEM_H(0, (int32_t)(palette + i * 2)) = uint16_t(((v << 8) & 0xF800) | ((v << 3) & 0x7C0) | ((v >> 2) & 0x3E) | 1);
-            }
-            // Wheel model scale (func_8005A598): 2049's own (1.0, the Venom's rear 1.1, the Crusher 1.4), not the
-            // Pickup's 1.25 that init_tables starts every 2049 type with.
-            constexpr uint32_t t_wheel_scale[2] = { 0x802006E8, 0x802009B8 };
-            for (int row = 0; row < 5; row++) {
-                for (int i = 0; i < 2; i++) {
-                    MEM_W(0, (int32_t)(t_wheel_scale[i] + (row * types + type) * 4)) = fbits(s.wheel_scale[i][k]);
-                }
             }
         }
         for (int ramp = 0; ramp < 3; ramp++) {
@@ -2667,9 +2793,11 @@ namespace {
         r.control = sliding > 0.0f ? 1.0f / sliding : 0.0f;
     }
 
-    // Results by setup, for the current Car Speeds, 2049 cars and torque maps (cleared when one of those changes).
+    // Results by setup, for the current Car Speeds, 2049 cars (and their source) and torque maps (cleared when one of
+    // those changes).
     struct TestCache {
         bool fast = false, with49 = false, rebalanced = false, valid = false;
+        const void* source = nullptr;
         std::map<std::tuple<int, int, int, int, int, float>, TestResult> straight, handling;
         bool ranged = false;
         TestResult lo, hi;
@@ -2678,9 +2806,11 @@ namespace {
 
     TestCache& cache() {
         bool fast = speeds_2049(), with49 = cars_available(), rebalanced = torque_rebalance.load();
+        const void* source = cars_source.get();
         TestCache& c = test_cache;
-        if (!c.valid || c.fast != fast || c.with49 != with49 || c.rebalanced != rebalanced) {
+        if (!c.valid || c.fast != fast || c.with49 != with49 || c.rebalanced != rebalanced || c.source != source) {
             c = TestCache{};
+            c.source = source;
             c.fast = fast;
             c.with49 = with49;
             c.rebalanced = rebalanced;

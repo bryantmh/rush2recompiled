@@ -89,6 +89,7 @@ namespace {
     std::atomic_int raced_stunt = 0;  // Stunt arena 1-4, or 0 for none.
     std::atomic_int raced_battle = 0; // Battle arena 1-8, or 0 for none (hosted in the stunt slot like the stunt arenas).
     int loaded_track = 0;              // The 2049 track in `track`, as convert_track's k.
+    std::shared_ptr<const rush2::rom2049::Source> loaded_source; // The Rush 2049 source it was converted from.
     int slot = host_slot;              // The slot `track` is applied to.
     std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
     rush2::track2049::ConvertedTrack track;
@@ -368,8 +369,13 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         slot = want_slot;
         loaded_track = 0;   // The conversion depends on the slot's track prefix.
     }
+    // The Games tab can switch the Rush 2049 source between races: a track converted from the other one is redone.
+    if (loaded_source != rush2::wings::get_rom()) {
+        loaded_track = 0;
+    }
     if (loaded_track != k) {
         loaded_track = 0;
+        loaded_source = rush2::wings::get_rom();
         if (!convert(rdram, k)) {
             printf("[2049] Track %d isn't available; racing the host track\n", k);
             // Everything (records included) then treats the race as the host track's.

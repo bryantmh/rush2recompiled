@@ -20,7 +20,7 @@ namespace {
     const std::string description =
         "Adds the tracks, cars and wings of San Francisco Rush 2049 and the tracks of San Francisco Rush, from their "
         "USA N64 ROMs.\n\n"
-        "Select each game's ROM once; it is copied into the app folder.";
+        "Select each game's ROM or disc once; it is copied into the app folder.";
 
     class GamesPage : public rush2::ui::OptionsPage {
     public:

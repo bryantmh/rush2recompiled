@@ -49,6 +49,11 @@ namespace rush2::car2049 {
     void init_assets(uint8_t* rdram);
     // Fills the 2049 types' physics: descriptors, per-type table entries and boxes. Call after init_tables.
     void init_physics(uint8_t* rdram);
+    // Once per frame: rebuilds the cars and their physics in the menus after the Rush 2049 source changed.
+    void check_source(uint8_t* rdram);
+    // The number of paint jobs (car select STYLEs) of a car type: a 2049 car from a Dreamcast disc has its own, any
+    // other car 0.
+    int paint_jobs(int type);
     // The "Rush 2049 Cars" option (Games tab): whether the car select offers the 2049 cars.
     void set_option(bool enabled);
     // True when the option is on and the Rush 2049 ROM is available.

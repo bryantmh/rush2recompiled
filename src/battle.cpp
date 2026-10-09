@@ -506,9 +506,13 @@ namespace {
         }
     }
 
+    std::shared_ptr<const rush2::rom2049::Source> tuning_source; // The source `tuning` was read from.
+
     void load_tuning() {
-        if (tuning.loaded) return;
         auto rom = rush2::wings::get_rom();
+        if (tuning.loaded && rom == tuning_source) return;
+        tuning = Tuning{};
+        tuning_source = rom;
         auto segment = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Battle) : nullptr;
         if (segment == nullptr || segment->size() < overlay_size) {
             fprintf(stderr, "[Battle] Couldn't read Rush 2049's battle overlay\n");

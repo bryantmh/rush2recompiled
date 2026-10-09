@@ -46,6 +46,7 @@ namespace {
     const std::string cars_option_id = "rush2049_cars";
     const std::string drones_option_id = "rush2049_computer_cars";
     const std::string speeds_option_id = "car_speeds";
+    const std::string source_option_id = "rush2049_source";
     const std::string battle_time_option_id = "battle_time_limit";
     const std::string battle_team_option_prefix = "battle_team_p";
     const std::string style_option_prefix = "wing_style_p"; // + the player (1-4): their wings, set on the car select
@@ -71,6 +72,10 @@ namespace {
     std::shared_ptr<const rush2::rom2049::Source> rom_data; // Null until a valid ROM or disc is loaded.
     std::atomic_bool importing = false; // A Dreamcast disc is being read into the app folder.
     std::atomic_bool wings_option = false;
+    std::atomic_bool config_loaded = false; // load_config has run: a source change loads the other game from disk.
+
+    // Which Rush 2049 the Source option asks for when both the N64 ROM and the Dreamcast disc are in the app folder.
+    enum class SourceChoice : uint32_t { N64 = 0, Dreamcast = 1 };
 
     // Converts .v64/.n64 (byteswapped) and little-endian images to big-endian. Returns false if it isn't an N64 ROM.
     bool to_big_endian(std::vector<uint8_t>& data) {
@@ -140,6 +145,7 @@ namespace {
             rom_data = rom;
         }
         rush2::upscale::set_texture_source(rom);
+        rush2::rom2049::dc::use_texture_pack(rom);
         rush2::wings::on_rom_changed();
     }
 
@@ -151,12 +157,64 @@ namespace {
         if (rom == nullptr) {
             return "Needs a San Francisco Rush 2049 (USA) N64 ROM or Dreamcast disc for its tracks, cars and wings.";
         }
-        return rom->is_dreamcast() ? "Dreamcast disc found (experimental: cars are unpainted, some content untested)."
-                                   : "N64 ROM found.";
+        return rom->is_dreamcast() ? "Using the Dreamcast disc (experimental: some content untested)."
+                                   : "Using the N64 ROM.";
+    }
+
+    bool both_sources_stored() {
+        std::error_code ec;
+        return std::filesystem::exists(stored_rom_path(), ec) && std::filesystem::exists(stored_pack_path(), ec);
+    }
+
+    std::shared_ptr<const rush2::rom2049::Source> open_stored_rom() {
+        std::filesystem::path path = stored_rom_path();
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec)) {
+            return nullptr;
+        }
+        std::vector<uint8_t> data;
+        if (read_rom(path, data) != RomCheck::Good) {
+            printf("[Wings] Ignoring %s: not a valid Rush 2049 (USA) ROM\n", path.string().c_str());
+            return nullptr;
+        }
+        return rush2::rom2049::n64_source(std::make_shared<const std::vector<uint8_t>>(std::move(data)));
+    }
+
+    std::shared_ptr<const rush2::rom2049::Source> open_stored_pack() {
+        std::filesystem::path pack = stored_pack_path();
+        std::error_code ec;
+        if (!std::filesystem::exists(pack, ec)) {
+            return nullptr;
+        }
+        auto source = rush2::rom2049::dc::open_pack(pack);
+        if (source == nullptr) {
+            printf("[Wings] Ignoring %s: not a Rush 2049 Dreamcast pack this version can read\n", pack.string().c_str());
+        }
+        return source;
+    }
+
+    // Loads the stored game the Source option chooses, else the other one if only it is there.
+    void load_chosen_source() {
+        auto choice = static_cast<SourceChoice>(std::get<uint32_t>(wings_config.get_option_value(source_option_id)));
+        std::shared_ptr<const rush2::rom2049::Source> source =
+            choice == SourceChoice::N64 ? open_stored_rom() : open_stored_pack();
+        if (source == nullptr) {
+            source = choice == SourceChoice::N64 ? open_stored_pack() : open_stored_rom();
+        }
+        if (source != nullptr) {
+            set_rom(source);
+        }
+    }
+
+    // Points the Source option at the game just chosen. Its callback skips a source that's already loaded.
+    void choose_source(SourceChoice choice) {
+        wings_config.update_option_value(source_option_id, static_cast<uint32_t>(choice));
+        wings_config.save_config();
     }
 
     void update_rom_ui() {
         bool disabled = !rush2::wings::rom_available();
+        wings_config.update_option_disabled(source_option_id, importing || !both_sources_stored());
         wings_config.update_option_disabled(wings_option_id, disabled);
         wings_config.update_option_disabled(tracks_option_id, disabled);
         wings_config.update_option_disabled(cars_option_id, disabled);
@@ -192,9 +250,10 @@ namespace {
             importing = false;
             switch (result) {
                 case ImportResult::Good:
-                    // The disc takes over from any N64 ROM chosen before (load_config prefers the pack). The ROM's
-                    // copy stays, so the experimental disc support never costs anyone their working setup.
+                    // The disc takes over from any N64 ROM chosen before. The ROM's copy stays, so the Source
+                    // option can switch back and the experimental disc support never costs anyone their setup.
                     set_rom(source);
+                    choose_source(SourceChoice::Dreamcast);
                     break;
                 case ImportResult::FailedToOpen:
                     recompui::message_box("Failed to open the disc image.");
@@ -253,10 +312,9 @@ namespace {
                 return;
             }
             out.close();
-            // The ROM replaces any Dreamcast disc chosen before.
-            std::filesystem::remove(stored_pack_path(), ec);
-
+            // The ROM takes over from any Dreamcast disc chosen before; the disc's pack stays for the Source option.
             set_rom(rush2::rom2049::n64_source(data));
+            choose_source(SourceChoice::N64);
             update_rom_ui();
         });
     }
@@ -281,6 +339,33 @@ bool rush2::wings::enabled() {
 }
 
 void rush2::wings::init_config() {
+    wings_config.add_enum_option(
+        source_option_id,
+        "Rush 2049 Source",
+        "Which copy of Rush 2049 to read when both its N64 ROM and its Dreamcast disc have been selected. "
+        "<recomp-color primary>Dreamcast Disc</recomp-color> has larger textures and the disc's own sound and music "
+        "(experimental). Takes effect at the next race or car select.",
+        {
+            { SourceChoice::N64, "N64", "N64 ROM" },
+            { SourceChoice::Dreamcast, "Dreamcast", "Dreamcast Disc" },
+        },
+        // A disc chosen before this option existed was the one in use (the pack won), so it stays the default.
+        SourceChoice::Dreamcast
+    );
+    wings_config.add_option_change_callback(source_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            if (!config_loaded || importing) {
+                return;
+            }
+            auto rom = rush2::wings::get_rom();
+            bool want_dc = static_cast<SourceChoice>(std::get<uint32_t>(cur_value)) == SourceChoice::Dreamcast;
+            if (rom != nullptr && rom->is_dreamcast() == want_dc) {
+                return;
+            }
+            load_chosen_source();
+            update_rom_ui();
+        });
+
     wings_config.add_bool_option(
         wings_option_id,
         "Wings",
@@ -432,14 +517,15 @@ void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function
     rush2::ui::OptionsPage::Heading heading = page->add_heading("Rush 2049", rom_status_text());
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
     button->add_pressed_callback(select_rom);
-    for (const std::string& id : { wings_option_id, tracks_option_id, cars_option_id, drones_option_id,
+    for (const std::string& id : { source_option_id, wings_option_id, tracks_option_id, cars_option_id, drones_option_id,
                                     speeds_option_id }) {
         page->add_option(wings_config, id);
     }
-    refresh = [note = heading.note, shown = rush2::wings::rom_available()]() mutable {
-        if (rush2::wings::rom_available() != shown) {
-            shown = !shown;
-            note->set_text(rom_status_text());
+    refresh = [note = heading.note, shown = rom_status_text()]() mutable {
+        std::string text = rom_status_text();
+        if (text != shown) {
+            shown = std::move(text);
+            note->set_text(shown);
         }
     };
 }
@@ -460,26 +546,8 @@ void rush2::wings::set_style_option(int player, int style) {
 // Runs after recompui::config::finalize() has registered the config path.
 void rush2::wings::load_config() {
     wings_config.load_config();
-
-    std::vector<uint8_t> data;
-    std::filesystem::path path = stored_rom_path();
-    std::filesystem::path pack = stored_pack_path();
-    if (std::filesystem::exists(pack)) {
-        if (auto source = rush2::rom2049::dc::open_pack(pack)) {
-            set_rom(source);
-        }
-        else {
-            printf("[Wings] Ignoring %s: not a Rush 2049 Dreamcast pack this version can read\n", pack.string().c_str());
-        }
-    }
-    if (rom_data == nullptr && std::filesystem::exists(path)) {
-        if (read_rom(path, data) == RomCheck::Good) {
-            set_rom(rush2::rom2049::n64_source(std::make_shared<const std::vector<uint8_t>>(std::move(data))));
-        }
-        else {
-            printf("[Wings] Ignoring %s: not a valid Rush 2049 (USA) ROM\n", path.string().c_str());
-        }
-    }
+    load_chosen_source();
+    config_loaded = true;
     update_rom_ui();
 }
 

@@ -4,6 +4,8 @@
     dc_cdi.py get IMAGE NAME OUT          extract one file (NAME as listed, e.g. TRACK1.LZS)
     dc_cdi.py get IMAGE NAME OUT --lz     ... and LZ-decompress it (.LZS files)
     dc_cdi.py all IMAGE OUTDIR            extract every game file, .LZS ones decompressed (skips PWBROWSER, .STR, .SFD)
+    dc_cdi.py pack PACK OUTDIR [GLOB]     extract files from the app's rush2049_dc.pak (src/rush2049_dc.cpp), .LZS ones
+                                          decompressed (songs stay the pack's ADPCM)
 
 The image stores raw 2336-byte mode 2 sectors (8-byte subheader, 2048 bytes of data). It holds several ISO9660
 volumes; the game's is the one labelled SFR20491 whose files include the .LZS level data (the other with the same
@@ -76,7 +78,39 @@ def game_volume(m):
     return best
 
 
+def pack_entries(path):
+    """{name: (offset, size, kind)} of a rush2049_dc.pak ("R49DCPAK", u32 version, count, path length, path, entries)."""
+    with open(path, 'rb') as f:
+        if f.read(8) != b'R49DCPAK':
+            sys.exit('not a Rush 2049 Dreamcast pack: ' + path)
+        _, count, path_len = struct.unpack('<III', f.read(12))
+        f.read(path_len)
+        out = {}
+        for _ in range(count):
+            name = f.read(f.read(1)[0]).decode()
+            out[name] = struct.unpack('<QQI', f.read(20))
+        return out
+
+
+def extract_pack(path, outdir, pattern):
+    import fnmatch
+    os.makedirs(outdir, exist_ok=True)
+    with open(path, 'rb') as f:
+        for name, (off, size, kind) in sorted(pack_entries(path).items()):
+            if pattern and not fnmatch.fnmatch(name.upper(), pattern.upper()):
+                continue
+            f.seek(off)
+            data = f.read(size)
+            if name.upper().endswith('.LZS'):
+                data = lz(data, 0, True)
+            open(os.path.join(outdir, name), 'wb').write(data)
+            print('%s: %d bytes' % (name, len(data)))
+
+
 if __name__ == '__main__':
+    if sys.argv[1] == 'pack':
+        extract_pack(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None)
+        sys.exit()
     m = open_image(sys.argv[2])
     base, files = game_volume(m)
     if sys.argv[1] == 'ls':
