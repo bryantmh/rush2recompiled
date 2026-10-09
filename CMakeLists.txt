@@ -143,6 +143,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush2049_dc.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049_dc_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049_dc_model.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049_dc_pack.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049_dc_tables.cpp
     ${CMAKE_SOURCE_DIR}/src/collectibles.cpp
     ${CMAKE_SOURCE_DIR}/src/progress_tab.cpp

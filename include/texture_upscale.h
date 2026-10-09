@@ -117,15 +117,15 @@ namespace rush2::upscale {
     void apply_loaded_options(recomp::config::Config& config);
     void add_buttons(rush2::ui::OptionsPage* page);
     // The Rush 2049 source (or null). A Dreamcast disc's textures, scaled down to fit TMEM, are drawn at their full
-    // size whatever the upscaling mode: the scaled texture's content key finds the disc's image.
+    // size from its texture pack (src/rush2049_dc_pack.cpp) whatever the upscaling mode, so they aren't upscaled.
     void set_texture_source(std::shared_ptr<const rush2::rom2049::Source> source);
-    extern const char* const mode_option_id;
-    extern const char* const command_option_id;
-}
     // Draws a CI8 texture with an exact full-color image instead of its 256 colors (the track banners): any CI8 tile
     // drawn in 2D whose palette indices are rows of indices (image.width x image.height, in the order the texture is
     // stored) is replaced by image, as the region of it those rows are, so a texture the game loads in strips is drawn
     // from the one image. Strips of one index (blank rows) are left alone. Works whatever the upscaling mode.
     void add_exact_image(std::vector<uint8_t> indices, Image image);
+    extern const char* const mode_option_id;
+    extern const char* const command_option_id;
+}
 
 #endif

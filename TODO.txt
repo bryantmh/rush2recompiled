@@ -1,6 +1,5 @@
 San Francisco Rush:
 1) Show accurate track stats like length
-2) Car unique texture patterns as stripes: done as the SF RUSH STRIPE value on the Camaro, VW Bus, VW Bug and Taxi (docs/rush1_research.md section 11).
 
 San Francisco Rush 2049:
 1) Coins: missing HUD counter.

@@ -1,6 +1,7 @@
 // Dreamcast source test: imports a disc image into a pack (once), then writes the N64 files the Dreamcast source makes
 // so tools/rush2049 can compare them with the N64 ROM's (dc_check.py).
 //   dc_test.exe IMAGE PACK OUTDIR [N64 file indices...]   (no indices: all files the disc converts)
+//   dc_test.exe n64 ROM OUTDIR indices...                 (the N64 ROM's own files, decompressed, to compare)
 // Build with dc_build.bat.
 
 #include <algorithm>
@@ -10,10 +11,14 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <map>
+#include <set>
 #include <thread>
 
 #include "audio2049.h"
 #include "rush2049_dc.h"
+#include "rush2049_rom.h"
 #include "track2049_convert.h"
 
 namespace {
@@ -95,11 +100,16 @@ namespace {
         for (int track : { 0, 1, 2, 3, 4, 5, 14, 18, -1 }) {
             audio::set_track(track);
             audio::play_song(track < 0 ? 6 : audio::track_song(track) >= 0 ? audio::track_song(track) : 8);
-            for (int i = 0; i < 400 && audio::stats().song >= 0; i++) {
-                std::vector<float> probe(2, 0.0f);
-                audio::mix(probe.data(), 1, rate, 0.0f, 0.0f);
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            // Waits for the song to sound (it loads in the background) and reports how long that took.
+            auto start = std::chrono::steady_clock::now();
+            for (int i = 0; i < 1000; i++) {
+                std::vector<float> probe(rate / 100 * 2, 0.0f);
+                audio::mix(probe.data(), rate / 100, rate, music_gain, 0.0f);
+                if (std::any_of(probe.begin(), probe.end(), [](float v) { return v != 0.0f; })) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
+            printf("track %d: song sounded after %.0f ms\n", track, std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count());
             std::vector<float> s(rate * 20 * 2, 0.0f);
             audio::mix(s.data(), rate * 20, rate, music_gain, 0.0f);
             double sum = 0, peak = 0;
@@ -118,16 +128,20 @@ namespace {
 int main(int argc, char** argv) {
     if (argc >= 5 && std::string(argv[1]) == "track") return test_tracks(argc, argv);
     if (argc >= 4 && std::string(argv[1]) == "audio") return test_audio(argv);
-    if (argc < 4) {
-        fprintf(stderr, "dc_test IMAGE PACK OUTDIR [indices]\n");
-        return 2;
+    if (argc >= 5 && std::string(argv[1]) == "n64") {
+        std::ifstream in(argv[2], std::ios::binary);
+        auto rom = std::make_shared<std::vector<uint8_t>>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        auto src = rush2::rom2049::n64_source(rom);
+        std::filesystem::create_directories(argv[3]);
+        for (int i = 4; i < argc; i++) {
+            std::vector<uint8_t> out;
+            if (!src->read_file(atoi(argv[i]), out)) continue;
+            char name[16];
+            snprintf(name, sizeof(name), "%03d.bin", atoi(argv[i]));
+            std::ofstream(std::filesystem::path(argv[3]) / name, std::ios::binary).write((const char*)out.data(), out.size());
+        }
+        return 0;
     }
-    namespace fs = std::filesystem;
-    fs::path image = argv[1], pack = argv[2], outdir = argv[3];
-    if (!fs::exists(pack)) {
-        auto r = rush2::rom2049::dc::import(image, pack);
-        if (r != rush2::rom2049::dc::ImportResult::Good) {
-            fprintf(stderr, "import failed: %d\n", (int)r);
     if (argc >= 4 && std::string(argv[1]) == "segments") {
         // dc_test segments PACK|ROM.z64 OUTDIR: the source's code segments as seg0.bin.. (what the game reads its
         // tables from; tools/rush2049/dc_tables.py --compare OUTDIR checks a disc's against the tool).
@@ -154,6 +168,16 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
+    if (argc < 4) {
+        fprintf(stderr, "dc_test IMAGE PACK OUTDIR [indices]\n");
+        return 2;
+    }
+    namespace fs = std::filesystem;
+    fs::path image = argv[1], pack = argv[2], outdir = argv[3];
+    if (!fs::exists(pack)) {
+        auto r = rush2::rom2049::dc::import(image, pack);
+        if (r != rush2::rom2049::dc::ImportResult::Good) {
+            fprintf(stderr, "import failed: %d\n", (int)r);
             return 1;
         }
     }
@@ -181,7 +205,34 @@ int main(int argc, char** argv) {
         char name[16];
         snprintf(name, sizeof(name), "%03d.bin", i);
         std::ofstream(outdir / name, std::ios::binary).write((const char*)out.data(), out.size());
-        printf("%d: %zu bytes\n", i, out.size());
+        printf("%d: %zu bytes, %zu scaled-down textures so far\n", i, out.size(), src->source_texture_count());
+    }
+    {
+        // The full-size images the texture pack holds (src/rush2049_dc_pack.cpp), and the cars' paint jobs.
+        size_t texels = 0, jobs = 0, damaged = 0, unhashed = 0;
+        std::set<std::string> unique;
+        auto textures = src->source_textures(0);
+        for (const auto& t : textures) {
+            std::vector<uint8_t> rgba;
+            int w = 0, h = 0;
+            jobs += t.job > 0;
+            damaged += t.damaged;
+            unhashed += rush2::rom2049::dc::replacement_hash(t) == 0;
+            if (src->source_image(t, rgba, w, h) &&
+                unique.insert(std::string(rgba.begin(), rgba.end()) + std::to_string(w)).second) texels += (size_t)w * h;
+        }
+        printf("%zu scaled-down textures (%zu paint job, %zu damaged, %zu without a hash), %zu unique full-size texels\n",
+               textures.size(), jobs, damaged, unhashed, texels);
+        // Each car's distinct paint jobs and their colors.
+        for (int car = 88; car <= 100; car++) {
+            std::map<int, uint32_t> rgb;
+            for (const auto& t : src->file_textures(car)) {
+                if (t.job > 0) rgb[t.job] = t.job_rgb;
+            }
+            printf("car file %d: %zu jobs:", car, rgb.size());
+            for (auto& [j, c] : rgb) printf(" %06X", c);
+            printf("\n");
+        }
     }
     for (auto s : { rush2::rom2049::Segment::Boot, rush2::rom2049::Segment::Main, rush2::rom2049::Segment::Battle }) {
         auto seg = src->segment(s);

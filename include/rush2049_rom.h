@@ -28,7 +28,7 @@ namespace rush2::rom2049 {
 
     // A texture a Dreamcast source scaled down to fit TMEM: its N64 texels as the converted file loads them (RGBA16 or
     // RGBA32, big endian, rows top down) and where its full-size image is, so the renderer can draw that instead
-    // (src/texture_upscale.cpp).
+    // (src/rush2049_dc_pack.cpp).
     struct SourceTexture {
         uint16_t w = 0, h = 0;
         bool rgba32 = false;
@@ -36,6 +36,16 @@ namespace rush2::rom2049 {
         std::string file;           // the disc's model container
         uint32_t index = 0;         // its texture record there
         uint32_t tint = 0xFFFFFF;   // RGB the image is multiplied by
+        // A car body texture in one of the disc's paint jobs (CARnPJ1-12, each a full set of the body textures):
+        // src/car2049.cpp copies the texels of the job the player picks into the car. job counts the car's distinct
+        // jobs from 1 (0: not a paint job texture), job_rgb is that job's paint color, name the texture's in the
+        // converted file. A damaged one is the job's texture scuffed (car2049's damage textures): scuff marks its
+        // paint texels at the disc's size, scuffed with scuff_image.
+        int job = 0;
+        uint32_t job_rgb = 0;
+        std::string name;
+        bool damaged = false;
+        std::vector<uint8_t> scuff;
     };
 
     class Source {
@@ -60,6 +70,8 @@ namespace rush2::rom2049 {
         virtual std::vector<SourceTexture> source_textures(size_t from) const { return {}; }
         // A scaled-down texture's full-size image, RGBA rows top down.
         virtual bool source_image(const SourceTexture& t, std::vector<uint8_t>& rgba, int& w, int& h) const { return false; }
+        // The textures file index scaled down (converting it if it hasn't been), paint jobs included.
+        virtual std::vector<SourceTexture> file_textures(int index) const { return {}; }
     };
 
     // A Source over the big-endian Rush 2049 (USA) N64 ROM.

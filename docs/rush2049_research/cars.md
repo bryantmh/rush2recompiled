@@ -1,6 +1,6 @@
 # Rush 2049 cars in Rush 2: findings so far and plan
 
-Status: implemented (October 2026, `src/car2049.cpp`); §4 below is the original plan, superseded by §8. Tags:
+Status: implemented (October 2026, `src/car2049.cpp`); ï¿½4 below is the original plan, superseded by ï¿½8. Tags:
 **[V]** verified, **[I]** inferred.
 
 ## 1. Rush 2049 car data [V]
@@ -92,7 +92,7 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
 ## 8. Implementation [V]
 
 - **Types.** The 2049 cars are Rush 2 types 23-35 (type 22 stays Rush 2's "no car" marker). The 22-entry per-type
-  tables (§2) and the per-type box tables move to 36-entry copies at 0x80200000.. (`tools/rush2049/cartypes.py`
+  tables (ï¿½2) and the per-type box tables move to 36-entry copies at 0x80200000.. (`tools/rush2049/cartypes.py`
   generates the us.toml patches); preview ids become player * 36 + type, so the race/preview per-car arrays move to
   72-entry copies (0x80218000-0x80221EE8).
 - **The part-handle table 0x8010C480 is not just 44 cars x 39 parts.** Indices 1716 and up hold track-object,
@@ -138,7 +138,7 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
 - **Physics.** Rush 2 0xEC-byte descriptors are built from 2049's 0xB4-byte ones with each car's drone setup
   (cars.py `to_r2`), plus mass, inertia, preload, drive flags and box. 2049's cars differ little among themselves
   (mass, inertia, wheel positions; 2049 tells them apart by setup). The torque scale and gear ratios are 2049's for
-  the drone setup mapped onto Rush 2's roster by a fixed formula (§10). The steering, yaw-damping, suspension-setting
+  the drone setup mapped onto Rush 2's roster by a fixed formula (ï¿½10). The steering, yaw-damping, suspension-setting
   and handling-setting rows, Rush 2 tuning 2049 has no counterpart for, are the means of Rush 2's roster. The car
   select's stat bars (func_803B7F7C: ACCELERATION from the weight and torque scale, TOP
   SPEED from torque / top gear, CONTROL from steering, DRIFTING from yaw damping and rear grip) then sit in Rush 2's
@@ -193,15 +193,16 @@ grip), DURABILITY (record byte / 100: the weight). The 2049 cars keep Rush 2's l
 
 - **ENGINE** -> 2049 ENGINE. A different kind of effect (Rush 2's is a sound): for 2049 cars the row is the power
   level, shown as ENGINE 1-6 (the value's text, func_803BC048, and its wrap, func_803B9478). In 2049 the ENGINE
-  level also picks the engine sound (audio.md §7), so a 2049 car plays 2049's engine for its level
+  level also picks the engine sound (audio.md ï¿½7), so a 2049 car plays 2049's engine for its level
   (src/engine2049.cpp); Rush 2's sound byte (func_8009E6DC) keeps the car's default.
 - **DURABILITY** -> 2049 FRAME: the durability value is the frame weight (a car's default is its own frame).
 - **SUSPENSION** and **TIRES** keep their full Rush 2 effect (yaw damping and suspension curve; steering, yaw and
   off-road grip, from the analogue's base values). 2049's HANDLING stays at each car's own setup; its 0x801116D0 +9
   value (1.0 / 0.5 / 0.0) is untraced, so a HANDLING row is left for later.
-- MAIN, ACCENT and STRIPE COLOR are 2049's COLOR 1-3 (Â§8 Paint). TRANSMISSION, TIRE RIMS, HORN, TORQUE and the tire
-  sizes keep Rush 2's effect; STRIPE has nothing to draw on a 2049 body. 2049's WINGS are the Rush 2049 tab's wings;
-  TEAM and SHEEN have no Rush 2 counterpart.
+- MAIN, ACCENT and STRIPE COLOR are 2049's COLOR 1-3 (Â§8 Paint); STRIPE COLOR reads TERTIARY COLOR on a 2049 car.
+  TRANSMISSION, TIRE RIMS, HORN, TORQUE and the tire sizes keep Rush 2's effect; STRIPE has nothing to draw on a 2049
+  body and is hidden. A Dreamcast disc's car has paint jobs in place of the three colors: one STYLE row (see Car select
+  rows). 2049's WINGS are the Rush 2049 tab's wings; TEAM and SHEEN have no Rush 2 counterpart.
 - **TIRE SIZE F / R** (wheel model scale only, func_8005A598; no physics): Rush 2's per-type scale tables 0x800C0A6C /
   0x800C0B74 (relocated to 0x802006E8 / 0x802009B8, 5 rows) get 2049's own row-0 scales 0x801112DC / 0x801113E0: 1.0
   for every car except the Venom (rear 1.1) and the Crusher (1.4). The car select keeps a player's sizes in record
@@ -220,6 +221,27 @@ grip), DURABILITY (record byte / 100: the weight). The 2049 cars keep Rush 2's l
   suspension travel and a small random bounce (clamped 0-0.5), then scales its matrix by the type's wheel scale
   (0x8008DF40 / 0x8008DFA0; skipped when 1.0). The converted descriptor's +0x7C block is 2049's +0x70 block, so the
   2049 cars' wheels sit where 2049 puts them.
+
+### Car select rows
+
+The car select keeps one option list (0x803CB3B8, count 0x803CB3B0) for both panels, built once per visit by
+func_803B81F0. Each panel's rows follow its car (src/wings_menu.cpp): the whole list is kept when it is built
+(0x803B8488) and the panel's list is put in its place before each read. Readers: func_803B9478's per-slot loop (head
+0x803B951C, slot $s7: navigation, left/right), func_803BC048's per-slot loop (head 0x803BC0C8, slot $s2: labels and
+values), and the row widgets' callbacks, which take their panel from the widget's +0x2C (it is the panel whose id
+equals 0x803CB3F8 or the other): func_803BAA44 (color swatch, bits 8-11), func_803BAC24 and func_803BACF8 (bits 8-11),
+func_803BAFD8 (arrows, bits 12-15) and func_803BB9F8 (stat bars, bits 0-3). Per panel: row 0x803C6990[slot], first
+shown row 0x803CB3A0[slot] (4 shown), car type 0x803CB362[slot] (s8).
+
+| Car | Rows |
+|---|---|
+| Rush 2 | unchanged |
+| 2049 (N64 ROM) | STRIPE hidden; STRIPE COLOR labelled TERTIARY COLOR |
+| 2049 (Dreamcast disc) | ACCENT COLOR, STRIPE, STRIPE COLOR hidden; MAIN COLOR labelled STYLE, value STYLE n, no swatch |
+
+STYLE is the MAIN COLOR byte (0x80201190 + (slot + 1) * 36 + type) modulo the car's paint jobs. func_803B9478 adds a
+step to it and wraps at 32 (case 2 after 0x803B98A4); the hook there sets the byte so the sum wraps at the jobs. The
+swatch widget (func_803BAA44 shows one for ids 2, 3 and 5) sees STYLE as id 16, so it draws none.
 
 A player's choices are applied at car init (func_8008DBA0): a per-car copy of the descriptor (0x80225000, 8 x 0xEC)
 gets the torque scale x torque[ENGINE][h] / torque[0][h] (h = the car's own HANDLING); the car's mass, inertias and

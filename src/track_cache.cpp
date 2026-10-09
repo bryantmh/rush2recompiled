@@ -308,6 +308,14 @@ namespace {
 
 // FNV-1a over 8-byte words (then the tail bytes), with a rotate so high bits feed back: a whole ROM hashes in a few
 // milliseconds, which matters because the first race of a session hashes its ROM on the race's first frame.
+std::filesystem::path rush2::track_cache::directory() {
+    return cache_dir();
+}
+
+uint64_t rush2::track_cache::build() {
+    return build_stamp();
+}
+
 uint64_t rush2::track_cache::hash(const uint8_t* data, size_t size, uint64_t seed) {
     constexpr uint64_t prime = 0x100000001B3ull;
     uint64_t h = seed;

@@ -26,6 +26,11 @@ namespace rush2::rom2049::dc {
     // Textures it scaled down are added to shrunk.
     bool convert_model(const Files& files, const std::string& dc_file, int n64_file, std::vector<uint8_t>& out,
                        std::vector<SourceTexture>* shrunk = nullptr);
+    // A car texture's damaged copy (src/rush2049_dc_model.cpp): rgba (w x h) scuffed where paint is 1, the pattern laid
+    // out over grain_w x grain_h texels (the scaled-down copy's size) so both sizes match. seed: scuff_seed(name).
+    void scuff_image(std::vector<uint8_t>& rgba, int w, int h, const std::vector<uint8_t>& paint, uint32_t seed,
+                     int grain_w, int grain_h);
+    uint32_t scuff_seed(const std::string& texture_name);
     // Texture record `index` of a decompressed disc container at full size (times tint), RGBA rows top down.
     bool decode_texture(const std::vector<uint8_t>& container, uint32_t index, uint32_t tint, std::vector<uint8_t>& rgba,
                         int& w, int& h);

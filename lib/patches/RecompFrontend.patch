@@ -1,3 +1,27 @@
+diff --git a/recompui/include/recompui/renderer.h b/recompui/include/recompui/renderer.h
+index 33f79ab..3e6423c 100644
+--- a/recompui/include/recompui/renderer.h
++++ b/recompui/include/recompui/renderer.h
+@@ -37,6 +37,7 @@ namespace recompui {
+             std::unique_ptr<RT64::Application> app;
+             std::unordered_set<std::string> enabled_texture_packs;
+             std::unordered_set<std::string> secondary_disabled_texture_packs;
++            std::filesystem::path generated_texture_pack;
+             uint32_t last_refresh_rate = 0;
+ 
+             void check_texture_pack_actions();
+@@ -55,6 +56,11 @@ namespace recompui {
+         void secondary_enable_texture_pack(const std::string& mod_id);
+         void secondary_disable_texture_pack(const std::string& mod_id);
+ 
++        // A texture pack the game builds itself (a directory or zip with an rt64.json), loaded after every enabled
++        // mod's pack so those override it. An empty path removes it. Also reloads it when called with the same path,
++        // for a pack that has grown.
++        void set_generated_texture_pack(const std::filesystem::path& path);
++
+         // Texture pack enable option. Must be an enum with two options.
+         // The first option is treated as disabled and the second option is treated as enabled.
+         bool is_texture_pack_enable_config_option(const recomp::config::ConfigOption& option, bool show_errors);
 diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
 index 4fdf81f..ce13aef 100644
 --- a/recompui/src/config/ui_config_tab_graphics.cpp
@@ -51,10 +75,23 @@ index 4fdf81f..ce13aef 100644
              }
  
 diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
-index a7954c7..4c5f721 100644
+index a7954c7..a3edb30 100644
 --- a/recompui/src/renderer/rt64_render_context.cpp
 +++ b/recompui/src/renderer/rt64_render_context.cpp
-@@ -109,6 +109,8 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
+@@ -43,7 +43,11 @@ struct TexturePackSecondaryDisableAction {
+ struct TexturePackUpdateAction {
+ };
+ 
+-using TexturePackAction = std::variant<TexturePackEnableAction, TexturePackDisableAction, TexturePackSecondaryEnableAction, TexturePackSecondaryDisableAction, TexturePackUpdateAction>;
++struct TexturePackGeneratedAction {
++    std::filesystem::path path;
++};
++
++using TexturePackAction = std::variant<TexturePackEnableAction, TexturePackDisableAction, TexturePackSecondaryEnableAction, TexturePackSecondaryDisableAction, TexturePackUpdateAction, TexturePackGeneratedAction>;
+ 
+ static moodycamel::ConcurrentQueue<TexturePackAction> texture_pack_action_queue;
+ 
+@@ -109,6 +113,8 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
              return RT64::UserConfiguration::RefreshRate::Display;
          case ultramodern::renderer::RefreshRate::Manual:
              return RT64::UserConfiguration::RefreshRate::Manual;
@@ -63,3 +100,38 @@ index a7954c7..4c5f721 100644
          case ultramodern::renderer::RefreshRate::OptionCount:
              return RT64::UserConfiguration::RefreshRate::OptionCount;
      }
+@@ -442,6 +448,10 @@ void renderer::RT64Context::check_texture_pack_actions() {
+             },
+             [&](TexturePackUpdateAction &) {
+                 packs_changed = true;
++            },
++            [&](TexturePackGeneratedAction &to_set) {
++                generated_texture_pack = to_set.path;
++                packs_changed = true;
+             }
+         }, cur_action);
+     }
+@@ -465,7 +475,11 @@ void renderer::RT64Context::check_texture_pack_actions() {
+ 
+         // Build the path list from the sorted mod list.
+         std::vector<RT64::ReplacementDirectory> replacement_directories;
+-        replacement_directories.reserve(enabled_texture_packs.size());
++        // The game's generated pack goes first: RT64 takes a texture from the last directory that has it.
++        replacement_directories.reserve(enabled_texture_packs.size() + 1);
++        if (!generated_texture_pack.empty()) {
++            replacement_directories.emplace_back(RT64::ReplacementDirectory(generated_texture_pack));
++        }
+         for (const std::string &mod_id : sorted_texture_packs) {
+             replacement_directories.emplace_back(RT64::ReplacementDirectory(recomp::mods::get_mod_filename(mod_id)));
+         }
+@@ -557,6 +571,10 @@ void renderer::secondary_enable_texture_pack(const std::string& mod_id) {
+     texture_pack_action_queue.enqueue(TexturePackSecondaryEnableAction{mod_id});
+ }
+ 
++void renderer::set_generated_texture_pack(const std::filesystem::path& path) {
++    texture_pack_action_queue.enqueue(TexturePackGeneratedAction{path});
++}
++
+ void renderer::secondary_disable_texture_pack(const std::string& mod_id) {
+     texture_pack_action_queue.enqueue(TexturePackSecondaryDisableAction{mod_id});
+ }

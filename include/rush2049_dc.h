@@ -26,6 +26,17 @@ namespace rush2::rom2049::dc {
     // A Source over a pack written by import, or null if it isn't one this version reads.
     std::shared_ptr<const Source> open_pack(const std::filesystem::path& pack);
 
+    // The RT64 replacement hash a scaled-down texture (Source::source_textures) is drawn with, for the texture pack of
+    // the disc's full-size images (src/rush2049_dc_pack.cpp). 0 for one that can't be hashed ahead (painted car
+    // textures, whose palette the game sets).
+    uint64_t replacement_hash(const SourceTexture& t);
+
+    // Builds the texture pack of the source's full-size images once per disc and build (in the background, in
+    // <app folder>/track_cache) and has RT64 load it like any texture pack; null or an N64 source takes it off.
+    void use_texture_pack(std::shared_ptr<const Source> source);
+    // Whether the texture pack in use replaces the texture with this RT64 hash.
+    bool in_texture_pack(uint64_t hash);
+
     // A disc's files by name (upper case, no version suffix), as the pack keeps them. Shared with the converters.
     class Files {
     public:

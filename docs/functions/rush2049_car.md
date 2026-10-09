@@ -5,6 +5,7 @@ Names and signatures marked inferred are educated guesses from the code.
 
 | Address | Symbol | Signature | Description | Constants | Status |
 |---|---|---|---|---|---|
+| 8008D8D8 | `car_wheel_draw_8008D8D8` |  | Per wheel node per frame: places the wheel at car state wheel point (from descriptor +0x70) with y + suspension travel + random bounce (0-0.5), spins it, sets the rim texture (wheel 0), and scales its matrix by the front/rear wheel scale 0x801112DC / 0x801113E0 [row][car] when not 1.0. Same structure as Rush 2 func_8005A598. | 0xB8 = wheel index x 0x5C threshold for rear wheels; 64.0 = spin speed above which the blurred rim is used | verified |
 | 80091874 | `func_80091874` |  | Wing flame transform: scales the flame along Y with the stick's X and translates it (0, 0.55, 0) under the wing. |  | verified |
 | 800924F4 | `func_800924F4` |  | Wing callback: slides the wings out in 6 steps of 15 ms (0 to 5/6 of the car's slide distance), tilts them with the stick, and starts sound 0x3D when sliding starts; builds wing rotation about X and translation (slide, height, 0). |  | verified |
 | 800BB140 | `func_800BB140` |  | Gives drones their per-car default COLOR 1-3 (tables 0x80111604, 0x80111648, 0x8011168C). |  | verified |

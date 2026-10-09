@@ -7736,7 +7736,43 @@ text = "    rush2_car49_option_text(rdram, ctx); rush2_wings_car_value(rdram, ct
 [[patches.hook]]
 func = "carselect_build_list_803B81F0"
 before_vram = 0x803B8488
-text = "    rush2_wings_car_rows(rdram, ctx);"
+text = "    rush2_wings_car_rows(rdram, ctx); rush2_car_rows_built(rdram, ctx);"
+
+# Each car select panel's own rows: a 2049 car's STYLE / TERTIARY COLOR (src/wings_menu.cpp).
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B951C
+text = "    rush2_car_rows_frame(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC0C8
+text = "    rush2_car_rows_text(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_cartype_tables_803BAA44"
+before_vram = 0x803BAA44
+text = "    rush2_car_rows_widget(rdram, ctx, 8, 1);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_d_803BAC24"
+before_vram = 0x803BAC24
+text = "    rush2_car_rows_widget(rdram, ctx, 8, 0);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_rotate_car_803BACF8"
+before_vram = 0x803BACF8
+text = "    rush2_car_rows_widget(rdram, ctx, 8, 0);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_name_text_803BAFD8"
+before_vram = 0x803BAFD8
+text = "    rush2_car_rows_widget(rdram, ctx, 12, 0);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_stat_bars_803BB9F8"
+before_vram = 0x803BB9F8
+text = "    rush2_car_rows_widget(rdram, ctx, 0, 0);"
 
 [[patches.hook]]
 func = "menu_screen_car_select_frame_803B9478"

@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,11 @@
 namespace rush2::track_cache {
     // 64-bit FNV-1a style hash over 8-byte words, for the `source` hashes; chain calls through `seed`.
     uint64_t hash(const uint8_t* data, size_t size, uint64_t seed = 0xCBF29CE484222325ull);
+
+    // The cache folder, and the stamp of this build every entry is keyed on, for converted data kept as files of its
+    // own (a Dreamcast disc's texture pack, src/rush2049_dc_pack.cpp).
+    std::filesystem::path directory();
+    uint64_t build();
 
     // SF Rush track t (0-6) with its in-race logo container.
     bool load_rush1(int t, const std::string& prefix, uint64_t source, rush2::track1::ConvertedTrack& track,
