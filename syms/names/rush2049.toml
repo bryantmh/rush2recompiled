@@ -1165,6 +1165,13 @@ area = "util"
 ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
+vram = 0x8008E06C
+name = "node_set_color"
+desc = "Sets a scene node's RGBA color (node +0x3C, nodes 0x44 bytes at 0x8012E700) from *rgba; model_draw_8009C8F0 uses it as the primitive color for nodes with flag 0x2000. The battle overlay gives mounted weapons the car's light level (car state +0x34C, white), HUD weapons white, muzzle flashes FFFF2B."
+status = "verified"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
+
+[[func]]
 vram = 0x8008E0B8
 name = "math_vec3_normalize"
 sig = "void math_vec3_normalize(Vec3 *v)"

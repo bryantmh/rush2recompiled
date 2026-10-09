@@ -29,7 +29,7 @@ game) and no battle fields. Battle fields:
 | Offset | Meaning |
 | --- | --- |
 | +0x308 | s8 active |
-| +0x34C | color the weapon models are drawn in (alpha replaced while invisible) |
+| +0x34C | the car's light level, an RGBA gray (white from table `0x8011AE58` at setup, `0x800B1AD8`; recomputed at `0x800940A0`); the car's node and its mounted weapon get it as their color (`func_8008E06C`), alpha replaced while invisible. Not the car's paint |
 | +0x359 | s8 dead |
 | +0x35B | s8 car index |
 | +0x380 | pointer to the player's control struct (section 3) |
@@ -227,8 +227,17 @@ Main code. **[V]** unless marked.
   tools/font_pack/draw_battle_digits.py names them by the RT64 hash of the images in src/hud.cpp).
 - HUD models sit 3 units ahead (13 put them under the road); a view's field of view comes from its view struct
   (`rush2::splitscreen::view_tan_v`). The coin model is much larger than the others: its scale is set by eye **[I]**.
-- **Colors**: a car's mounted weapon and its HUD weapon are drawn in the car's paint (`0x800CE19C` by the car's
-  +0x7EB, the table Rush 2 colors its arrow over a car with), as 2049 draws them in the car's color.
+- **Colors**: weapons are drawn in their own textures' colors, the same on every car. `func_8008E06C(node, &rgba)`
+  sets a node's color (node +0x3C, the primitive color when the node has flag 0x2000, `func_8009C8F0`): the mounted
+  weapon gets the car's light level (+0x34C, white), the HUD's weapon white (`0x803942A4`), a muzzle flash `FFFF2B`,
+  the held mine's parts `00FF00FF` (`0x80394884`). Pickups are created without the flag. The port draws mounted and
+  HUD weapons white. (An earlier version tinted them with the car's paint, misreading +0x34C.)
+- **Mounts follow the drawn body**: the mounted weapon and the shield are placed before each view is drawn from the
+  car's body scene node (index at `0x80219DD0 + car * 0x134`; its transform at node +4: rotation rows, position at
+  +0x24). The draw state's pose is the physics tick's and is a frame behind what is drawn, which made them slide.
+- **Weapons cheat health bar**: the same `HEALTHBG` frame and fill as a battle's, at the same place and size. A
+  normal track has no `HEALTHBG` image, so it is decoded from 2049's file 63 (4 bit texels, 16 color palette) and
+  drawn with `rush2::hud::draw_image`.
 - The clock: the stunt clock `0x8010C204` (Rush 2) is 3.5 during the start countdown and 300 afterwards; only the 300
   is replaced by the limit. Rush 2's clock test (func_800AE670 state 3) doesn't end a race without checkpoints, so
   the port sets the out of time flag `0x800FAE98` itself (every tick from the limit on).
