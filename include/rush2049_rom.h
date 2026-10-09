@@ -26,7 +26,7 @@ namespace rush2::rom2049 {
     constexpr uint32_t battle_vram = 0x8038A400;
     uint32_t segment_vram(Segment s);
 
-    // A texture a Dreamcast source scaled down to fit TMEM: its N64 texels as the converted file loads them (RGBA16 or
+    // A texture of a Dreamcast source (scaled down to fit TMEM where shrunk is set): its N64 texels as the converted file loads them (RGBA16 or
     // RGBA32, big endian, rows top down) and where its full-size image is, so the renderer can draw that instead
     // (src/rush2049dc/rush2049_dc_pack.cpp).
     struct SourceTexture {
@@ -38,14 +38,17 @@ namespace rush2::rom2049 {
         uint32_t tint = 0xFFFFFF;   // RGB the image is multiplied by
         // A car body texture in one of the disc's paint jobs (CARnPJ1-12, each a full set of the body textures):
         // src/rush2049/car2049.cpp copies the texels of the job the player picks into the car. job counts the car's distinct
-        // jobs from 1 (0: not a paint job texture), job_rgb is that job's paint color, name the texture's in the
-        // converted file. A damaged one is the job's texture scuffed (car2049's damage textures): scuff marks its
+        // jobs from 1 (0: not a paint job texture), job_rgb is that job's paint color. name is the texture's in the
+        // converted file (every texture). A damaged one is the job's texture scuffed (car2049's damage textures): scuff marks its
         // paint texels at the disc's size, scuffed with scuff_image.
         int job = 0;
         uint32_t job_rgb = 0;
         std::string name;
         bool damaged = false;
         std::vector<uint8_t> scuff;
+        // Smaller than the disc's image. The texture pack replaces these; the rest are drawn at the disc's size
+        // already and are only listed for the Dreamcast Textures option's N64 matching and its dump.
+        bool shrunk = false;
     };
 
     class Source {

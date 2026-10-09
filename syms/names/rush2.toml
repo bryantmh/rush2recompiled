@@ -5090,11 +5090,11 @@ ref = "docs/rush2049_research/geometry.md#24-texture-record-0x20-and-palette-rec
 vram = 0x80060340
 name = "hud_widget_load_texture"
 sig = "void hud_widget_load_texture(Widget *w)"
-desc = "Looks up texture by name (texture_find_by_name) and stores its width/height (+0x10/+0x12) into widget fields 0xC/0x14/0x16; sets widget fields 0,4,8."
+desc = "Looks up texture by name (texture_find_by_name) and stores its width/height (+0x10/+0x12) into widget fields 0xC/0x14/0x16; sets widget fields 0,4,8. Doesn't check the lookup: a name missing from the containers reads through a null record (the track select's logo callback crashed on a 2049 logo the menu container lacked)."
 status = "inferred"
 rush2049 = [0x800B362C]
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/rush2049_research/dreamcast.md#track-select-art-from-the-disc-v"
 
 [[func]]
 vram = 0x80060418

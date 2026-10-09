@@ -192,13 +192,20 @@ The buttons are Dump Textures, Open Dump Folder and Install Upscaled, in a row u
 The row is a `rush2::ui::FocusRow` (`OptionsPage::add_row`), which scrolls into view when a button in it takes focus,
 so the controller can reach the buttons.
 
-**Dump Textures** writes every kept 3D texture of the session that isn't already in the folder as
-`texture_upscale/dump/<key>.png`. The images are unpadded so they are clean to edit. It also merges `dump/hashes.txt`,
-which maps each key to the RT64 hashes it was drawn under, and writes `dump/README.txt`. Dumps from several sessions
-add up. Car paint variants are dumped as separate images; a pack only replaces the variants it has.
+**Dump Textures** runs in the background (the note under the heading shows its progress). It writes every kept 3D
+texture of the session that isn't already in the folder as `texture_upscale/dump/<game>/<key>.png`, in a folder per
+game the texture was loaded from (`rush2`, `sfrush`, `rush2049`; `rush2::origin`, docs/rush2049_research/dreamcast.md
+Texture origin), and the Rush 2049 Dreamcast disc's images drawn in the session into `dump/rush2049dc`, at the disc's
+size, damaged car textures left out: with the disc as the source every image it drew, with the N64 ROM (and Dreamcast
+Textures on) the images matched to N64 textures. The images are unpadded so they are clean to edit.
+It also merges each folder's `hashes.txt`, which maps each key to the RT64 hashes it was drawn under, and writes
+`dump/README.txt`. Dumps from several sessions add up. Car paint variants are dumped as separate images; a pack only
+replaces the variants it has. `RUSH2_TEXTURE_DUMP=<seconds>` presses it that long after boot (for tests).
 
-**Install Upscaled** reads `texture_upscale/upscaled`. Any size and any format stb_image reads are accepted, and
-names only need to start with the key, so suffixes such as Gigapixel's are fine. It then:
+**Install Upscaled** reads `texture_upscale/upscaled/<the same folders>` (and the top of `upscaled`, where dumps from
+before the per-game folders went). Any size and any format stb_image reads are accepted, and names only need to start
+with the key, so suffixes such as Gigapixel's are fine. Upscales in `upscaled/rush2049dc` of the disc's images go to the
+Dreamcast Textures instead (`texture_upscale/dreamcast`), drawn wherever the disc's images are. For the rest it then:
 
 1. Restores alpha from the dumped original.
 2. Writes each image as a DDS with mips into the folder mod `mods/rush2_custom_textures`, along with `rt64.json` and

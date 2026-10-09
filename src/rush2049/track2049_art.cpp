@@ -2022,6 +2022,41 @@ namespace {
         return false;
     }
 
+    // A Dreamcast source's thumbnail at the disc's size, upright, at most 128 wide. The converted file has it scaled
+    // down to fit TMEM (32 x 32), too small for the track select's screenshot.
+    bool disc_thumbnail(const rush2::rom2049::Source& rom, int k, std::vector<std::array<uint8_t, 4>>& rgba, int& w, int& h) {
+        std::string name = (is_obstacle(k) ? "OPIC" : is_stunt(k) ? "SPIC" : is_battle(k) ? "DPIC" : "TPIC") + std::to_string(number_of(k));
+        for (const rush2::rom2049::SourceTexture& t : rom.file_textures(ui_file)) {
+            std::vector<uint8_t> px;
+            if (t.name != name || !rom.source_image(t, px, w, h) || w <= 0 || h <= 0) continue;
+            // Rows as the converted texels have them (bottom-up): flipped upright, halved to 128 wide.
+            rgba.resize(size_t(w * h));
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    const uint8_t* p = &px[(size_t(h - 1 - y) * w + x) * 4];
+                    rgba[size_t(y * w + x)] = { p[0], p[1], p[2], p[3] };
+                }
+            }
+            while (w > 128 && w % 2 == 0 && h % 2 == 0) {
+                std::vector<std::array<uint8_t, 4>> half(size_t(w / 2 * (h / 2)));
+                for (int y = 0; y < h / 2; y++) {
+                    for (int x = 0; x < w / 2; x++) {
+                        for (int c = 0; c < 4; c++) {
+                            int sum = rgba[size_t(2 * y * w + 2 * x)][c] + rgba[size_t(2 * y * w + 2 * x + 1)][c] +
+                                      rgba[size_t((2 * y + 1) * w + 2 * x)][c] + rgba[size_t((2 * y + 1) * w + 2 * x + 1)][c];
+                            half[size_t(y * (w / 2) + x)][c] = uint8_t(sum / 4);
+                        }
+                    }
+                }
+                rgba.swap(half);
+                w /= 2;
+                h /= 2;
+            }
+            return true;
+        }
+        return false;
+    }
+
     // Track k's banner in include/track2049_banners.h: the race tracks', then STUNT 1-4, OBSTACLE and BATTLE 1-8.
     int banner_index(int k) {
         if (is_battle(k)) return rush2::track2049::track_count + rush2::track2049::stunt_count + 1 + number_of(k) - 1;
@@ -2181,7 +2216,9 @@ namespace {
         std::vector<uint8_t> indices;
         std::array<uint16_t, 256> palette{};
         int w = 0, h = 0;
-        if (read_thumbnail(ui, k, rgba, w, h, &indices, &palette) && w == 128 && h > 0) {
+        bool thumbnail = rom.is_dreamcast() ? disc_thumbnail(rom, k, rgba, w, h)
+                                            : read_thumbnail(ui, k, rgba, w, h, &indices, &palette);
+        if (thumbnail && w == 128 && h > 0) {
             if (indices.empty()) {
                 // A Dreamcast source's RGBA thumbnail: index 255 is clear, the rest a median cut of the opaque texels.
                 std::vector<std::array<uint8_t, 3>> px(rgba.size());
@@ -2364,6 +2401,9 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
     std::vector<TrackModel> tracks(ks.size() * 2);
     for (size_t i = 0; i < ks.size(); i++) {
         if (!build_track_model(rom2049, ui, ks[i], tracks[i * 2]) || !build_preview(rom2049, ui, ks[i], tracks[i * 2 + 1])) {
+            printf("[2049] Track %d's track select art doesn't build from the %s\n", ks[i],
+                   rom2049.is_dreamcast() ? "Dreamcast disc" : "N64 ROM");
+            fflush(stdout);
             return false;
         }
     }

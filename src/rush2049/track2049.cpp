@@ -187,7 +187,8 @@ namespace {
         if (!race_logo.empty()) {
             rush2::assets::replace(rdram, 4 + slot, race_logo);
         }
-        rush2::assets::replace(rdram, 0x33 + slot, track.geometry);
+        rush2::assets::replace(rdram, 0x33 + slot, track.geometry, loaded_source != nullptr && loaded_source->is_dreamcast()
+                                   ? rush2::origin::Game::Rush2049DC : rush2::origin::Game::Rush2049);
         rush2::assets::replace(rdram, 0x3F + slot, track.placement);
         rush2::assets::replace(rdram, 0x4B + slot, track.collision);
         rush2::assets::replace(rdram, 0x57 + slot, track.path);

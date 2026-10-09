@@ -117,7 +117,7 @@ namespace {
         if (!race_logo.empty()) {
             rush2::assets::replace(rdram, 4 + host_slot, race_logo);
         }
-        rush2::assets::replace(rdram, 0x33 + host_slot, track.geometry);
+        rush2::assets::replace(rdram, 0x33 + host_slot, track.geometry, rush2::origin::Game::SFRush);
         rush2::assets::replace(rdram, 0x3F + host_slot, track.placement);
         rush2::assets::replace(rdram, 0x4B + host_slot, track.collision[backward]);
         rush2::assets::replace(rdram, 0x57 + host_slot, track.path[0]);
