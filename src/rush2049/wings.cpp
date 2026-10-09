@@ -144,8 +144,11 @@ namespace {
             std::lock_guard lock{ rom_mutex };
             rom_data = rom;
         }
-        rush2::upscale::set_texture_source(rom);
-        rush2::rom2049::dc::use_texture_pack(rom);
+        // A stored disc gives the N64 ROM its Dreamcast Textures too.
+        std::error_code ec;
+        bool disc_stored = std::filesystem::exists(stored_pack_path(), ec);
+        rush2::rom2049::dc::set_texture_sources(rom, disc_stored ? stored_pack_path() : std::filesystem::path());
+        rush2::upscale::set_dreamcast_option_state(rom != nullptr && rom->is_dreamcast(), disc_stored);
         rush2::wings::on_rom_changed();
     }
 

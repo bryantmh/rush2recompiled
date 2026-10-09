@@ -23,7 +23,7 @@ namespace rush2::rom2049::dc {
     // N64 model container `n64_file` (track geometry, objects, cars, HUD art...) made from the disc's container
     // `dc_file` (src/rush2049dc/rush2049_dc_model.cpp). Objects become F3DEX2 lists in the N64's conventions; textures are
     // scaled to fit TMEM (the full-size ones are registered as RT64 replacements).
-    // Textures it scaled down are added to shrunk.
+    // Its textures are added to shrunk (SourceTexture::shrunk tells the ones it scaled down).
     bool convert_model(const Files& files, const std::string& dc_file, int n64_file, std::vector<uint8_t>& out,
                        std::vector<SourceTexture>* shrunk = nullptr);
     // A car texture's damaged copy (src/rush2049dc/rush2049_dc_model.cpp): rgba (w x h) scuffed where paint is 1, the pattern laid

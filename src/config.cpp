@@ -569,7 +569,8 @@ void rush2::init_config() {
             { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ds_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
-            { "Texture Upscaling", { rush2::upscale::mode_option_id, rush2::upscale::command_option_id } },
+            { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::mode_option_id,
+                            rush2::upscale::command_option_id } },
         }, rush2::upscale::add_buttons);
     }
 

@@ -233,6 +233,9 @@ namespace rush2::ui {
                     apply_button->set_enabled(any_dirty());
                 }
                 on_update();
+                for (const auto& callback : update_callbacks) {
+                    callback();
+                }
                 queue_update();
                 break;
             case EventType::MenuAction:

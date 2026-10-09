@@ -229,6 +229,10 @@ namespace {
     std::shared_ptr<const rush2::rom2049::Source> menu_container_rom; // 2049 ROM the container was built with.
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom1;   // Rush 1 ROM it was built with.
     bool menu_container_built = false;
+    // What the container has: the tables name only art that is in it (a missing logo is a null texture the track
+    // select reads through).
+    bool menu_has_2049 = false;
+    bool menu_has_rush1 = false;
 
     // The save file's section (include/data_files.h): { "selected": n, "stunt": n, "battle": n }.
     const std::string selection_section = "track_select";
@@ -315,7 +319,7 @@ namespace {
             MEM_W(0, (int32_t)(new_cloud_heights + t * 4)) = MEM_W(0, (int32_t)cloud_heights);
         }
         auto rom1 = rush2::track1::get_rom();
-        if (rush2::track1::available() && rom1 != nullptr) {
+        if (rush2::track1::available() && rom1 != nullptr && menu_has_rush1) {
             for (int k = 1; k <= rush2::track1::track_count; k++) {
                 int t = r1_first + k - 1;
                 write_string(rdram, s, "R1TRACK" + std::to_string(k));
@@ -331,7 +335,7 @@ namespace {
                 MEM_W(0, (int32_t)(new_cloud_heights + t * 4)) = 0x41700000;  // 15.0, as most stock dioramas
             }
         }
-        if (!available()) {
+        if (!available() || !menu_has_2049) {
             return;
         }
         std::vector<std::pair<int, int>> entries; // (menu id, convert_track's k)
@@ -362,6 +366,7 @@ namespace {
         auto rom1 = rush2::track1::available() ? rush2::track1::get_rom() : nullptr;
         if (rom == nullptr && rom1 == nullptr) {
             rush2::assets::restore(rdram, 3);
+            menu_has_2049 = menu_has_rush1 = false;
             return;
         }
         if (menu_container_built && menu_container_rom == rom && menu_container_rom1 == rom1 && !menu_container.empty() &&
@@ -373,6 +378,7 @@ namespace {
             menu_container_rom = rom;
             menu_container_rom1 = rom1;
             menu_container_built = true;
+            menu_has_2049 = menu_has_rush1 = false;
             std::vector<uint8_t> asset3, with_2049;
             if (!rush2::assets::read_original(rdram, 3, asset3)) {
                 printf("[2049] Failed to read the track select art\n");
@@ -382,14 +388,19 @@ namespace {
                     printf("[2049] Failed to build the track select art\n");
                     with_2049.clear();
                 }
+                menu_has_2049 = !with_2049.empty();
                 const std::vector<uint8_t>& base = with_2049.empty() ? asset3 : with_2049;
                 if (rom1 == nullptr || !rush2::track1::extend_menu_container(base, *rom1, menu_container)) {
                     menu_container = with_2049;
+                }
+                else {
+                    menu_has_rush1 = true;
                 }
             }
         }
         if (menu_container.empty()) {
             rush2::assets::restore(rdram, 3);
+            menu_has_2049 = menu_has_rush1 = false;
         }
         else {
             rush2::assets::replace(rdram, 3, menu_container);
@@ -451,8 +462,8 @@ namespace {
 // about to load. $s0 = &track id.
 void rush2::track2049::prepare_menu_art(uint8_t* rdram) {
     std::lock_guard lock{ menu_mutex };
-    write_tables(rdram);
     serve_menu_container(rdram);
+    write_tables(rdram);
 }
 
 uint32_t rush2::track2049::diorama_name(uint8_t* rdram, int t) {
@@ -475,8 +486,8 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     set_battle_arena(0);
     restore_host(rdram);
     rush2::track1::restore_host(rdram);
-    write_tables(rdram);
     serve_menu_container(rdram);
+    write_tables(rdram);
     int t = -1;
     if (select_kind == select_stunt) {
         // The game's choice (from the save record's nibble) is a race track, which this select doesn't offer.
@@ -760,8 +771,8 @@ extern "C" void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx
 // from the 29-entry tables (us.toml), so they and the 2049 art must be in place.
 extern "C" void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ menu_mutex };
-    write_tables(rdram);
     serve_menu_container(rdram);
+    write_tables(rdram);
 }
 
 // func_800A7DCC after it generated a circuit's races (tracks 0-6). With added tracks available, the tracks are

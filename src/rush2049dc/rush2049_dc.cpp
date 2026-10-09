@@ -537,6 +537,8 @@ namespace {
                 uint32_t scuff = (uint32_t)t.scuff.size();
                 put(&t.job, 4); put(&t.job_rgb, 4); put(&name, 1); put(t.name.data(), name);
                 put(&damaged, 1); put(&scuff, 4); put(t.scuff.data(), scuff);
+                uint8_t shrunk = t.shrunk;
+                put(&shrunk, 1);
             }
             return out;
         }
@@ -570,6 +572,9 @@ namespace {
                 t.damaged = damaged != 0;
                 t.scuff.resize(scuff);
                 if (!get(t.scuff.data(), scuff)) return false;
+                uint8_t shrunk = 0;
+                if (!get(&shrunk, 1)) return false;
+                t.shrunk = shrunk != 0;
                 list.push_back(std::move(t));
             }
             return true;

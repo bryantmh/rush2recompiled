@@ -37,10 +37,10 @@ index 9ac8087..0856d45 100644
              bool reinterpretFixULS;
 diff --git a/src/common/rt64_live_textures.h b/src/common/rt64_live_textures.h
 new file mode 100644
-index 0000000..8feee75
+index 0000000..b92d988
 --- /dev/null
 +++ b/src/common/rt64_live_textures.h
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,57 @@
 +//
 +// RT64
 +//
@@ -63,9 +63,10 @@ index 0000000..8feee75
 +        // hash is the texture's RT64 replacement hash. TMEM is the 4 KB of texture memory as the tile reads it, which
 +        // decodes the way the texture cache's decoder does (TextureDecoder.hlsli) with tile, width, height and tlut.
 +        // world is true when the draw call uses a perspective projection: 3D geometry, as opposed to the 2D rectangles
-+        // and orthographic draws of HUDs and menus. frame is the submission frame of the draw.
++        // and orthographic draws of HUDs and menus. frame is the submission frame of the draw. address is the RDRAM
++        // address the last load into the tile's TMEM address read its texels from (as the load gave it).
 +        virtual void textureDrawn(uint64_t hash, const uint8_t *TMEM, const LoadTile &tile, uint16_t width, uint16_t height,
-+            uint32_t tlut, bool world, uint64_t frame) = 0;
++            uint32_t tlut, bool world, uint64_t frame, uint32_t address) = 0;
 +    };
 +
 +    extern std::atomic<TextureObserver *> ActiveTextureObserver;
@@ -199,7 +200,7 @@ index 8858dac..904b1af 100644
      };
  
 diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
-index 2970e71..eabaa4a 100644
+index 2970e71..6d69ca3 100644
 --- a/src/hle/rt64_state.cpp
 +++ b/src/hle/rt64_state.cpp
 @@ -13,6 +13,7 @@
@@ -219,7 +220,7 @@ index 2970e71..eabaa4a 100644
              auto &callTile = workload.drawData.callTiles[rdpTileIndex];
              if (!callTile.valid) {
                  return;
-@@ -676,6 +677,12 @@ namespace RT64 {
+@@ -676,6 +677,13 @@ namespace RT64 {
                  }
                  else {
                      callTile.tmemHashOrID = textureManager.uploadTexture(this, callTile.loadTile, ext.textureCache, workload.submissionFrame, callTile.sampleWidth, callTile.sampleHeight, callTile.tlut);
@@ -227,12 +228,13 @@ index 2970e71..eabaa4a 100644
 +                    TextureObserver *observer = ActiveTextureObserver.load();
 +                    if (observer != nullptr) {
 +                        observer->textureDrawn(callTile.tmemHashOrID, reinterpret_cast<const uint8_t *>(rdp->TMEM), callTile.loadTile,
-+                            callTile.sampleWidth, callTile.sampleHeight, callTile.tlut, world, workload.submissionFrame);
++                            callTile.sampleWidth, callTile.sampleHeight, callTile.tlut, world, workload.submissionFrame,
++                            rdp->rice.lastLoadOpByTMEM[callTile.loadTile.tmem & (RDP_TMEM_WORDS - 1)].texture.address);
 +                    }
                  }
              }
              else if (callTile.reinterpretTile) {
-@@ -773,7 +780,7 @@ namespace RT64 {
+@@ -773,7 +781,7 @@ namespace RT64 {
                  if (gameCall.callDesc.tileCount > 0) {
                      const uint32_t rdpTileLimit = gameCall.callDesc.tileIndex + gameCall.callDesc.tileCount;
                      while (rdpTileCursor < rdpTileLimit) {
@@ -241,7 +243,7 @@ index 2970e71..eabaa4a 100644
                          rdpTileCursor++;
                      }
                  }
-@@ -2153,7 +2160,7 @@ namespace RT64 {
+@@ -2153,7 +2161,7 @@ namespace RT64 {
                      }
  
                      genConfigChanged = ImGui::Combo("Upscale 2D Mode", reinterpret_cast<int *>(&userConfig.upscale2D), "Original\0Scaled Only\0All\0") || genConfigChanged;

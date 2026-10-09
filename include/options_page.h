@@ -44,6 +44,8 @@ namespace rush2::ui {
         void add_option(recomp::config::Config& config, const std::string& option_id);
         recompui::Element* get_list() { return list; }
         void set_default_description(const std::string& text);
+        // Runs once per frame while the page is open (to show progress of work done in the background).
+        void add_update_callback(std::function<void()> callback) { update_callbacks.push_back(std::move(callback)); }
 
     protected:
         std::string_view get_type_name() override { return "Rush2OptionsPage"; }
@@ -62,6 +64,7 @@ namespace rush2::ui {
         std::vector<Row> rows;
         int headings = 0;
         std::vector<recomp::config::Config*> configs;
+        std::vector<std::function<void()>> update_callbacks;
         std::string default_description;
         std::string shown_option;
         recomp::config::Config* shown_config = nullptr;

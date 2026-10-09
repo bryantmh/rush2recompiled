@@ -1423,13 +1423,13 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                             st.job_rgb = jobs.rgb[j];
                             st.name = t.name;
                             st.damaged = damaged != 0;
+                            st.shrunk = r.shrunk;
                             if (damaged) st.scuff = paint;
                             shrunk->push_back(std::move(st));
                         }
                     }
                     continue;
                 }
-                if (!t.shrunk) continue;
                 SourceTexture st;
                 st.w = (uint16_t)t.w;
                 st.h = (uint16_t)t.h;
@@ -1438,6 +1438,8 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                 st.file = dc_file;
                 st.index = (uint32_t)t.source;
                 st.tint = t.tint;
+                st.shrunk = t.shrunk;
+                st.name = t.name;
                 shrunk->push_back(std::move(st));
             }
         }

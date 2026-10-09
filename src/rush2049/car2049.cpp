@@ -897,6 +897,7 @@ static void load_cars(uint8_t* rdram) {
     if (rom == nullptr) {
         return;
     }
+    const rush2::origin::Game origin = rom->is_dreamcast() ? rush2::origin::Game::Rush2049DC : rush2::origin::Game::Rush2049;
     for (int k = 0; k < car_count; k++) {
         std::string name = "R49CAR" + std::to_string(k + 1);
         for (size_t i = 0; i < 16; i++) {
@@ -937,7 +938,7 @@ static void load_cars(uint8_t* rdram) {
             if (car.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
                 MEM_W(0, (int32_t)car_slot_size) = (int32_t)((car.size() + 15) & ~15u);
             }
-            rush2::assets::replace(rdram, first_car_asset + k, car);
+            rush2::assets::replace(rdram, first_car_asset + k, car, origin);
         }
         else {
             fprintf(stderr, "[2049] Couldn't convert car %d: %s\n", k + 1, error.c_str());
@@ -972,7 +973,7 @@ static void load_cars(uint8_t* rdram) {
         parts_ok = true;
     }
     if (parts_ok) {
-        rush2::assets::replace(rdram, rush2::car2049::parts_asset, parts);
+        rush2::assets::replace(rdram, rush2::car2049::parts_asset, parts, origin);
     }
     else {
         fprintf(stderr, "[2049] Couldn't convert the part models: %s\n", error.c_str());
