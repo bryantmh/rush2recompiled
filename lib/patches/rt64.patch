@@ -80,8 +80,71 @@ index 0000000..32185dd
 +    void removeLiveReplacement(uint64_t hash);
 +    void clearLiveReplacements();
 +};
+diff --git a/src/common/rt64_user_configuration.h b/src/common/rt64_user_configuration.h
+index 4857f22..5646b55 100644
+--- a/src/common/rt64_user_configuration.h
++++ b/src/common/rt64_user_configuration.h
+@@ -66,6 +66,8 @@ namespace RT64 {
+             Original,
+             Display,
+             Manual,
++            // Rush 2 recomp: targets the display's rate, but times every interpolated frame from the clock.
++            Variable,
+             OptionCount
+         };
+ 
+@@ -155,7 +157,8 @@ namespace RT64 {
+     NLOHMANN_JSON_SERIALIZE_ENUM(UserConfiguration::RefreshRate, {
+         { UserConfiguration::RefreshRate::Original, "Original" },
+         { UserConfiguration::RefreshRate::Display, "Display" },
+-        { UserConfiguration::RefreshRate::Manual, "Manual" }
++        { UserConfiguration::RefreshRate::Manual, "Manual" },
++        { UserConfiguration::RefreshRate::Variable, "Variable" }
+     });
+ 
+     NLOHMANN_JSON_SERIALIZE_ENUM(UserConfiguration::InternalColorFormat, {
+diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
+index 3227ab1..fe845bb 100644
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -403,6 +403,14 @@ namespace RT64 {
+                 swapChainValid = ext.swapChain->present(swapChainIndex, &waitSemaphore, 1);
+                 presentProfiler.logAndRestart();
+             }
++
++            // Rush 2 recomp: at a variable refresh rate the workload queue waits for this before it draws the next frame.
++            {
++                std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
++                frameCounters.shown = i + 1;
++            }
++
++            ext.sharedResources->interpolatedCondition.notify_all();
+         }
+     }
+ 
+@@ -411,6 +419,7 @@ namespace RT64 {
+             std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
+             InterpolatedFrameCounters &frameCounters = ext.sharedResources->interpolatedFrames[ext.sharedResources->interpolatedFramesIndex];
+             frameCounters.presented = frameCounters.count;
++            frameCounters.shown = frameCounters.count;
+         }
+ 
+         ext.sharedResources->interpolatedCondition.notify_all();
+diff --git a/src/hle/rt64_shared_queue_resources.h b/src/hle/rt64_shared_queue_resources.h
+index 8858dac..904b1af 100644
+--- a/src/hle/rt64_shared_queue_resources.h
++++ b/src/hle/rt64_shared_queue_resources.h
+@@ -22,6 +22,8 @@ namespace RT64 {
+         uint32_t presented = 0;
+         uint32_t available = 0;
+         uint32_t count = 0;
++        // Rush 2 recomp: how many of the frames have reached the display (variable refresh rate).
++        uint32_t shown = 0;
+         bool skipped = false;
+     };
+ 
 diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
-index 2970e71..9d42f14 100644
+index 2970e71..eabaa4a 100644
 --- a/src/hle/rt64_state.cpp
 +++ b/src/hle/rt64_state.cpp
 @@ -13,6 +13,7 @@
@@ -123,6 +186,254 @@ index 2970e71..9d42f14 100644
                          rdpTileCursor++;
                      }
                  }
+@@ -2153,7 +2160,7 @@ namespace RT64 {
+                     }
+ 
+                     genConfigChanged = ImGui::Combo("Upscale 2D Mode", reinterpret_cast<int *>(&userConfig.upscale2D), "Original\0Scaled Only\0All\0") || genConfigChanged;
+-                    genConfigChanged = ImGui::Combo("Refresh Rate Mode", reinterpret_cast<int *>(&userConfig.refreshRate), "Original\0Display\0Manual\0") || genConfigChanged;
++                    genConfigChanged = ImGui::Combo("Refresh Rate Mode", reinterpret_cast<int *>(&userConfig.refreshRate), "Original\0Display\0Manual\0Variable\0") || genConfigChanged;
+                     const bool manualRefreshRate = (userConfig.refreshRate == UserConfiguration::RefreshRate::Manual);
+                     if (manualRefreshRate) {
+                         genConfigChanged = ImGui::InputInt("Refresh Rate Target", &userConfig.refreshRateTarget) || genConfigChanged;
+diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
+index 5a331aa..35ab5c9 100644
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -49,6 +49,7 @@ namespace RT64 {
+ 
+     void WorkloadQueue::advanceToNextWorkload() {
+         int nextWriteCursor = (writeCursor + 1) % workloads.size();
++        submitTimestamps[writeCursor] = Timer::current();
+ 
+         // Stall the thread until the barrier is lifted if we're trying to write on a workload being used by the GPU.
+         bool waitForBarrier;
+@@ -214,8 +215,10 @@ namespace RT64 {
+ 
+         // Find the target refresh rate from the configuration.
+         const auto refreshRate = ext.sharedResources->userConfig.refreshRate;
++        workloadConfig.variableRate = (refreshRate == UserConfiguration::RefreshRate::Variable);
+         switch (refreshRate) {
+         case UserConfiguration::RefreshRate::Display:
++        case UserConfiguration::RefreshRate::Variable:
+             workloadConfig.targetRate = ext.sharedResources->swapChainRate;
+             break;
+         case UserConfiguration::RefreshRate::Manual:
+@@ -888,6 +891,16 @@ namespace RT64 {
+         uint32_t displayRateForTicks = 0;
+         int processCursor = -1;
+         bool frameReduction = false;
++
++        // Rush 2 recomp: variable refresh rate. The interpolated frames of a game frame aren't counted out ahead of time for a
++        // rate the display is assumed to reach. Each one is drawn once the frame before it has reached the display, for the
++        // moment the clock shows then, so the motion stays even at whatever rate the frames are really shown.
++        bool variableTimelineValid = false;
++        uint32_t variableTimelineRate = 0;
++        Timestamp variableStart;                 // When the current game frame starts being shown.
++        Timestamp variableLastSample;            // When the last frame's weight was taken from the clock.
++        int64_t variableSampleMicro = 0;         // Smoothed time between samples: the rate frames are being shown at.
++        uint32_t variableLastSubmitted = 0;      // Frames the previous workload handed to the present queue.
+         while (threadsRunning) {
+             {
+                 std::unique_lock<std::mutex> cursorLock(cursorMutex);
+@@ -997,9 +1010,40 @@ namespace RT64 {
+                     }
+                 }
+ 
++                // The ticks aren't used at a variable rate, and start over when the mode changes back.
++                const bool variableFrames = generateInterpolatedFrames && workloadConfig.variableRate;
++                const int64_t variableFrameMicro = variableFrames ? (1000000 / workload.viOriginalRate) : 0;
++                if (variableFrames) {
++                    originalRateForTicks = 0;
++
++                    // Game frames are shown one after another on a timeline that follows when the game submits them. The
++                    // timeline only takes a fraction of each frame's offset, so a frame that's a little early or late
++                    // doesn't move what's on screen.
++                    const Timestamp submitted = submitTimestamps[processCursor];
++                    const Timestamp expected = variableStart + std::chrono::microseconds(variableFrameMicro);
++                    const int64_t offsetMicro = variableTimelineValid ? Timer::deltaMicroseconds(expected, submitted) : 0;
++                    if (!variableTimelineValid || (variableTimelineRate != workload.viOriginalRate) || (std::abs(offsetMicro) > variableFrameMicro)) {
++                        variableStart = submitted;
++                    }
++                    else {
++                        variableStart = expected + std::chrono::microseconds(offsetMicro / 8);
++                    }
++
++                    variableTimelineValid = true;
++                    variableTimelineRate = workload.viOriginalRate;
++                }
++                else {
++                    variableTimelineValid = false;
++                }
++
+                 // Estimate amount of frames to render based on how many display frames it'd take to reach the next logical frame.
+                 uint32_t displayFrames = 1;
+-                if (generateInterpolatedFrames) {
++                if (variableFrames) {
++                    // The most frames that fit at the target rate. The workload ends when the game frame's time runs out.
++                    displayFrames = (workloadConfig.targetRate + workload.viOriginalRate - 1) / workload.viOriginalRate + 1;
++                    deltaTimeMs = 1.0f / float(workloadConfig.targetRate);
++                }
++                else if (generateInterpolatedFrames) {
+                     logicalTicks += workloadConfig.targetRate;
+                     displayFrames = uint32_t((logicalTicks - displayTicks) / workload.viOriginalRate);
+                     deltaTimeMs = 1.0f / float(workloadConfig.targetRate);
+@@ -1040,6 +1084,7 @@ namespace RT64 {
+                 curFrameCounters.skipped = false;
+                 curFrameCounters.presented = 0;
+                 curFrameCounters.available = 0;
++                curFrameCounters.shown = 0;
+                 curFrameCounters.count = displayFrames;
+ 
+                 // Create as many render targets as required to store the interpolated targets.
+@@ -1064,9 +1109,10 @@ namespace RT64 {
+                 uint32_t targetIndex = 0;
+                 uint32_t framesRendered = 0;
+                 int64_t renderTimeTotalMicro = 0;
++                bool variableLastFrame = false;
+                 for (uint32_t frame = 0; (frame < displayFrames) && !skipWorkloadNow; frame++) {
+                     // Evaluate if this frame should be skipped. Measure the current time and compare it to what frame is estimated should be have been rendered by now.
+-                    if ((frame > 0) && (originalTimeMicro > 0)) {
++                    if (!variableFrames && (frame > 0) && (originalTimeMicro > 0)) {
+                         const int64_t currentTimeMicro = workloadTimer.elapsedMicroseconds() - setupTimeMicro;
+                         const int64_t expectedTimeMicro = frame * maxTimePerFrameMicro;
+                         const int64_t measuredFrameMicro = renderTimeTotalMicro / framesRendered;
+@@ -1079,11 +1125,81 @@ namespace RT64 {
+ 
+                     RenderTarget *overrideTarget = nullptr;
+                     uint32_t overrideModifier = 0;
+-                    if (generateInterpolatedFrames) {
++                    if (variableFrames) {
++                        const auto frameTime = std::chrono::microseconds(variableFrameMicro);
++                        const Timestamp frameEnd = variableStart + frameTime;
++                        auto &interpolatedCondition = ext.sharedResources->interpolatedCondition;
++                        if (frame == 0) {
++                            // Start once the last frame of the previous workload has been shown, like every other frame does.
++                            if (useDifferentCounters && (variableLastSubmitted > 0)) {
++                                std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
++                                interpolatedCondition.wait_until(interpolatedLock, Timer::current() + frameTime, [&]() {
++                                    return prevFrameCounters.shown >= variableLastSubmitted;
++                                });
++                            }
++                        }
++                        else {
++                            // Wait for the frame before this one to be shown, unless that's expected past the end of the game frame.
++                            bool pastEnd = (variableLastSample + std::chrono::microseconds(variableSampleMicro)) >= frameEnd;
++                            if (!pastEnd) {
++                                std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
++                                interpolatedCondition.wait_until(interpolatedLock, frameEnd, [&]() {
++                                    return curFrameCounters.shown >= frame;
++                                });
++
++                                pastEnd = Timer::current() >= frameEnd;
++                            }
++
++                            if (pastEnd) {
++                                // The next game frame carries on from here. If the game is running too late to send one, finish on
++                                // this game frame as it is instead of leaving a partly interpolated frame on screen.
++                                bool nextQueued;
++                                {
++                                    std::unique_lock<std::mutex> cursorLock(cursorMutex);
++                                    nextQueued = cursorCondition.wait_until(cursorLock, frameEnd + frameTime / 2, [&]() {
++                                        return (writeCursor != threadCursor) || !threadsRunning;
++                                    });
++                                }
++
++                                if (nextQueued) {
++                                    skippedFrames = true;
++                                    break;
++                                }
++
++                                variableLastFrame = true;
++
++                                std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
++                                interpolatedCondition.wait_until(interpolatedLock, Timer::current() + frameTime, [&]() {
++                                    return curFrameCounters.shown >= frame;
++                                });
++                            }
++                        }
++
++                        // Track how often frames are being shown. Gaps from the game stalling don't count.
++                        const Timestamp sampleTime = Timer::current();
++                        const int64_t sampleMicro = Timer::deltaMicroseconds(variableLastSample, sampleTime);
++                        const int64_t targetMicro = 1000000 / workloadConfig.targetRate;
++                        if ((variableSampleMicro == 0) || (sampleMicro <= 0) || (sampleMicro > variableFrameMicro * 2)) {
++                            variableSampleMicro = std::max(variableSampleMicro, targetMicro);
++                        }
++                        else {
++                            variableSampleMicro = std::clamp(variableSampleMicro + (sampleMicro - variableSampleMicro) / 4, targetMicro, variableFrameMicro);
++                        }
++
++                        variableLastSample = sampleTime;
++
++                        // The frame shows how far into the game frame's time the clock is.
++                        prevFrameWeight = (frame == 0) ? 0.0f : curFrameWeight;
++                        curFrameWeight = variableLastFrame ? 1.0f : std::clamp(Timer::deltaMicroseconds(variableStart, sampleTime) / float(variableFrameMicro), 0.0f, 1.0f);
++                        variableLastFrame = variableLastFrame || (curFrameWeight >= 1.0f);
++                    }
++                    else if (generateInterpolatedFrames) {
+                         prevFrameWeight = std::clamp((workloadConfig.targetRate + displayTicks - logicalTicks) / float(workloadConfig.targetRate), 0.0f, 1.0f);
+                         displayTicks += workload.viOriginalRate;
+                         curFrameWeight = std::clamp((workloadConfig.targetRate + displayTicks - logicalTicks) / float(workloadConfig.targetRate), 0.0f, 1.0f);
++                    }
+ 
++                    if (generateInterpolatedFrames) {
+                         // Override the render target.
+                         if (usingMSAA || (frame > 0)) {
+                             overrideTarget = interpolatedTargets[targetIndex].get();
+@@ -1132,7 +1248,7 @@ namespace RT64 {
+                     if (generateInterpolatedFrames && (usingMSAA || (frame > 0))) {
+                         {
+                             std::scoped_lock<std::mutex> cursorLock(cursorMutex);
+-                            skipWorkloadNow = ((frame + 1) < displayFrames) && (writeCursor != threadCursor);
++                            skipWorkloadNow = !variableFrames && ((frame + 1) < displayFrames) && (writeCursor != threadCursor);
+                         }
+ 
+                         {
+@@ -1150,8 +1266,16 @@ namespace RT64 {
+                     }
+ 
+                     framesRendered++;
++
++                    // Nothing comes after the frame that reaches the end of the game frame's time.
++                    if (variableLastFrame) {
++                        skippedFrames = (frame + 1) < displayFrames;
++                        break;
++                    }
+                 }
+ 
++                variableLastSubmitted = variableFrames ? framesRendered : 0;
++
+                 // Set the skipped parameter on the frame counter if the workload wasn't skipped but some of its frames were.
+                 if (skippedFrames && !skipWorkloadNow) {
+                     {
+diff --git a/src/hle/rt64_workload_queue.h b/src/hle/rt64_workload_queue.h
+index bde2f03..b92a1c4 100644
+--- a/src/hle/rt64_workload_queue.h
++++ b/src/hle/rt64_workload_queue.h
+@@ -8,6 +8,7 @@
+ 
+ #include "common/rt64_enhancement_configuration.h"
+ #include "common/rt64_profiling_timer.h"
++#include "common/rt64_timer.h"
+ #include "common/rt64_user_configuration.h"
+ #include "render/rt64_framebuffer_renderer.h"
+ #include "render/rt64_projection_processor.h"
+@@ -56,12 +57,15 @@ namespace RT64 {
+             float aspectRatioScale = 1.0f;
+             float extAspectPercentage = 1.0f;
+             uint32_t targetRate = 0;
++            // Rush 2 recomp: time each interpolated frame from the clock instead of assuming the target rate is reached.
++            bool variableRate = false;
+             bool postBlendNoise = false;
+             bool postBlendNoiseNegative = false;
+         };
+ 
+         External ext;
+         std::array<Workload, WORKLOAD_QUEUE_SIZE> workloads;
++        std::array<Timestamp, WORKLOAD_QUEUE_SIZE> submitTimestamps;
+         int threadCursor;
+         int writeCursor;
+         int barrierCursor;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
 index 9fae0d4..82de13c 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
