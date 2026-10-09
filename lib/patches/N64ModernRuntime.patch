@@ -1,0 +1,32 @@
+diff --git a/ultramodern/include/ultramodern/config.hpp b/ultramodern/include/ultramodern/config.hpp
+index 2f22456..982c103 100644
+--- a/ultramodern/include/ultramodern/config.hpp
++++ b/ultramodern/include/ultramodern/config.hpp
+@@ -49,6 +49,7 @@ namespace ultramodern {
+             Original,
+             Display,
+             Manual,
++            Variable,
+             OptionCount
+         };
+         enum class HighPrecisionFramebuffer {
+@@ -126,6 +127,7 @@ namespace ultramodern {
+             {ultramodern::renderer::RefreshRate::Original, "Original"},
+             {ultramodern::renderer::RefreshRate::Display, "Display"},
+             {ultramodern::renderer::RefreshRate::Manual, "Manual"},
++            {ultramodern::renderer::RefreshRate::Variable, "Variable"},
+         });
+ 
+         NLOHMANN_JSON_SERIALIZE_ENUM(ultramodern::renderer::HighPrecisionFramebuffer, {
+diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
+index 090cc42..b492f9d 100644
+--- a/ultramodern/src/events.cpp
++++ b/ultramodern/src/events.cpp
+@@ -306,6 +306,7 @@ uint32_t ultramodern::get_target_framerate(uint32_t original) {
+         case ultramodern::renderer::RefreshRate::Manual:
+             return config.rr_manual_value;
+         case ultramodern::renderer::RefreshRate::Display:
++        case ultramodern::renderer::RefreshRate::Variable:
+             return display_refresh_rate.load();
+     }
+ }
