@@ -22,6 +22,9 @@ namespace rush2::ui {
 namespace rush2::track1 {
     constexpr int track_count = 7;
     constexpr int first_menu_id = 18;   // Track select id of Rush 1 track 1.
+    // Rush 1 track 0-6's name, from the Rush the Rock arcade update (the N64 game calls them Track 1-7).
+    constexpr const char* track_names[track_count] = { "Golden Gate", "Embarcadero", "Market", "Downtown",
+                                                       "The Heights", "Sunset", "The Rock" };
 
     // The user's Rush 1 ROM (src/rush1_rom.cpp): San Francisco Rush (USA), big-endian, or null.
     std::shared_ptr<const std::vector<uint8_t>> get_rom();
@@ -75,6 +78,9 @@ namespace rush2::track1 {
                        std::string& error);
 
     // Track select art: appends a diorama model R1TRACKn (Rush 1's own track select model) and a 128x32 name logo
+    // Gives the renderer the track banners' exact colors in place of their CI8 copies' 255 (src/texture_upscale.cpp,
+    // add_exact_image). Called once at startup.
+    void add_banner_images();
     // R1LOGOn per Rush 1 track to a Rush 2 model container (asset 3, or Rush 2049's copy of it).
     bool extend_menu_container(const std::vector<uint8_t>& container, const std::vector<uint8_t>& rom,
                                std::vector<uint8_t>& out);

@@ -37,10 +37,10 @@ index 9ac8087..0856d45 100644
              bool reinterpretFixULS;
 diff --git a/src/common/rt64_live_textures.h b/src/common/rt64_live_textures.h
 new file mode 100644
-index 0000000..32185dd
+index 0000000..8feee75
 --- /dev/null
 +++ b/src/common/rt64_live_textures.h
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,56 @@
 +//
 +// RT64
 +//
@@ -70,12 +70,29 @@ index 0000000..32185dd
 +
 +    extern std::atomic<TextureObserver *> ActiveTextureObserver;
 +
++    // The part of a larger image that a replaced texture is: the texture the game loaded holds the texels at (x, y) of
++    // an image sourceWidth x sourceHeight texels in size (in the game's texels), and the replacement image is all of
++    // it. A game that loads a texture in strips gets one replacement per strip, all sharing the image, and filtering
++    // at a strip's edge then reads the image's next texels instead of wrapping around the strip. A sourceWidth of 0
++    // means the replacement is the loaded texture alone.
++    struct ReplacementRegion {
++        uint32_t x = 0;
++        uint32_t y = 0;
++        uint32_t sourceWidth = 0;
++        uint32_t sourceHeight = 0;
++
++        bool isWhole() const {
++            return sourceWidth == 0;
++        }
++    };
++
 +    // Live replacements: textures the host provides at runtime, without a texture pack. They take the place of the
 +    // texture with the given hash unless a loaded pack replaces it, and they survive pack reloads. Several hashes can
 +    // share one replacement image (contentKey, any value the host picks that identifies the image's contents), which
 +    // is uploaded once. fileBytes holds a DDS or PNG file; it can be left empty when hasLiveReplacementContent says
 +    // the content is already known. These do nothing (and return false) while no renderer is running.
-+    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes);
++    // region is the part of the image the hash's texture is (see ReplacementRegion).
++    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, ReplacementRegion region = {});
 +    bool hasLiveReplacementContent(uint64_t contentKey);
 +    void removeLiveReplacement(uint64_t hash);
 +    void clearLiveReplacements();
@@ -473,7 +490,7 @@ index bde2f03..b92a1c4 100644
          int writeCursor;
          int barrierCursor;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..82de13c 100644
+index 9fae0d4..fc985a1 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -7,6 +7,7 @@
@@ -484,18 +501,43 @@ index 9fae0d4..82de13c 100644
  #include "common/rt64_math.h"
  #include "hle/rt64_color_converter.h"
  #include "gbi/rt64_f3d.h"
-@@ -250,6 +251,7 @@ namespace RT64 {
+@@ -250,6 +251,8 @@ namespace RT64 {
                      gpuTile.flags.fromCopy = true;
                      gpuTile.flags.rawTMEM = false;
                      gpuTile.flags.hasMipmaps = false;
 +                    gpuTile.flags.generatedMipmaps = false;
++                    gpuTile.flags.sourceRegion = false;
                  }
              }
              else {
-@@ -272,6 +274,10 @@ namespace RT64 {
+@@ -258,20 +261,29 @@ namespace RT64 {
+                 bool textureReplaced = false;
+                 bool hasMipmaps = false;
+                 bool shiftedByHalf = false;
+-                textureCache->useTexture(callTile.tmemHashOrID, submissionFrame, textureIndex, gpuTile.tcScale, gpuTile.textureDimensions, textureReplaced, hasMipmaps, shiftedByHalf);
++                bool sourceRegion = false;
++                textureCache->useTexture(callTile.tmemHashOrID, submissionFrame, textureIndex, gpuTile.tcScale, gpuTile.textureDimensions, textureReplaced, hasMipmaps, shiftedByHalf, gpuTile.texelShift, sourceRegion);
+ 
+-                // Describe the GPU tile for a regular texture.
++                // Describe the GPU tile for a regular texture. texelShift is a region's origin in its image.
+                 gpuTile.ulScale.x = gpuTile.tcScale.x;
+                 gpuTile.ulScale.y = gpuTile.tcScale.y;
+-                gpuTile.texelShift = { 0, 0 };
+                 gpuTile.texelMask = { UINT_MAX, UINT_MAX };
+                 gpuTile.textureIndex = textureIndex;
++                // A replacement the size of the game's texture has no more detail than it: it's sampled exactly like
++                // the game's texture (at the console's pixels in 2D, without a pack's half-texel shift), so it can
++                // change the colors of a texture texel for texel.
++                const bool higherRes = textureReplaced && ((gpuTile.tcScale.x != 1.0f) || (gpuTile.tcScale.y != 1.0f));
+                 gpuTile.flags.alphaIsCvg = false;
+-                gpuTile.flags.highRes = textureReplaced;
++                gpuTile.flags.highRes = higherRes;
+                 gpuTile.flags.fromCopy = false;
                  gpuTile.flags.rawTMEM = !textureReplaced && callTile.rawTMEM;
                  gpuTile.flags.hasMipmaps = hasMipmaps;
-                 gpuTile.flags.shiftedByHalf = shiftedByHalf;
+-                gpuTile.flags.shiftedByHalf = shiftedByHalf;
++                gpuTile.flags.shiftedByHalf = higherRes && shiftedByHalf;
++                gpuTile.flags.sourceRegion = sourceRegion;
 +                gpuTile.flags.anisotropy = GeneratedMipmapsAnisotropy;
 +
 +                // Distant Textures: Smooth filters replacements with mipmaps the same way as the game's textures.
@@ -570,7 +612,7 @@ index 95618bc..984759e 100644
          std::vector<uint8_t> bytesTMEM;
          bool decodeTMEM = false;
 diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
-index 0848f3e..54ae2b2 100644
+index 0848f3e..872bab4 100644
 --- a/src/render/rt64_texture_cache.cpp
 +++ b/src/render/rt64_texture_cache.cpp
 @@ -4,6 +4,8 @@
@@ -603,9 +645,9 @@ index 0848f3e..54ae2b2 100644
 +    static std::mutex LiveCacheMutex;
 +    static TextureCache *LiveCache = nullptr;
 +
-+    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes) {
++    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, ReplacementRegion region) {
 +        std::unique_lock lock(LiveCacheMutex);
-+        return (LiveCache != nullptr) && LiveCache->addLiveReplacement(hash, contentKey, std::move(fileBytes));
++        return (LiveCache != nullptr) && LiveCache->addLiveReplacement(hash, contentKey, std::move(fileBytes), region);
 +    }
 +
 +    bool hasLiveReplacementContent(uint64_t contentKey) {
@@ -629,7 +671,23 @@ index 0848f3e..54ae2b2 100644
      static const uint32_t TextureDataPitchAlignment = 256;
      static const uint32_t TextureDataPlacementAlignment = 512;
  
-@@ -240,7 +273,7 @@ namespace RT64 {
+@@ -207,6 +240,7 @@ namespace RT64 {
+                 textureReplacements[i] = nullptr;
+                 textureReplacementShiftedByHalf[i] = false;
+                 textureReplacementReferenceCounted[i] = false;
++                textureReplacementRegions[i] = {};
+                 versions[i]++;
+             }
+         }
+@@ -231,6 +265,7 @@ namespace RT64 {
+             cachedTextureReplacementDimensions.emplace_back();
+             textureReplacementShiftedByHalf.emplace_back(false);
+             textureReplacementReferenceCounted.emplace_back(false);
++            textureReplacementRegions.emplace_back();
+             textureScales.push_back(IdentityScale);
+             hashes.push_back(0);
+             versions.push_back(0);
+@@ -240,10 +275,11 @@ namespace RT64 {
  
          hashMap[hash] = textureIndex;
          textures[textureIndex] = texture;
@@ -638,10 +696,46 @@ index 0848f3e..54ae2b2 100644
          textureReplacements[textureIndex] = nullptr;
          textureReplacementShiftedByHalf[textureIndex] = false;
          textureReplacementReferenceCounted[textureIndex] = false;
-@@ -288,6 +321,24 @@ namespace RT64 {
++        textureReplacementRegions[textureIndex] = {};
+         textureScales[textureIndex] = IdentityScale;
+         hashes[textureIndex] = hash;
+         versions[textureIndex]++;
+@@ -254,7 +290,7 @@ namespace RT64 {
+         listIterators[textureIndex] = accessList.begin();
+     }
+ 
+-    void TextureMap::replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted) {
++    void TextureMap::replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted, const ReplacementRegion &region) {
+         const auto it = hashMap.find(hash);
+         if (it == hashMap.end()) {
+             return;
+@@ -265,6 +301,7 @@ namespace RT64 {
+         if (texture == textureReplacements[it->second]) {
+             // The exception is that the shifting mode can be changed in real-time by the user while editing, so we update it regardless.
+             textureReplacementShiftedByHalf[it->second] = shiftedByHalf;
++            textureReplacementRegions[it->second] = region;
+             return;
+         }
+ 
+@@ -277,7 +314,12 @@ namespace RT64 {
+         textureReplacements[it->second] = texture;
+         textureReplacementShiftedByHalf[it->second] = shiftedByHalf;
+         textureReplacementReferenceCounted[it->second] = referenceCounted;
+-        textureScales[it->second] = { float(texture->width) / float(replacedTexture->width), float(texture->height) / float(replacedTexture->height) };
++        textureReplacementRegions[it->second] = region;
++
++        // A region's replacement is the whole image the region is part of, so it's scaled against the image.
++        const float sourceWidth = region.isWhole() ? float(replacedTexture->width) : float(region.sourceWidth);
++        const float sourceHeight = region.isWhole() ? float(replacedTexture->height) : float(region.sourceHeight);
++        textureScales[it->second] = { float(texture->width) / sourceWidth, float(texture->height) / sourceHeight };
+         cachedTextureReplacementDimensions[it->second] = interop::float3(float(texture->width), float(texture->height), float(texture->mipmaps));
+         versions[it->second]++;
+         globalVersion++;
+@@ -288,10 +330,31 @@ namespace RT64 {
          }
      }
  
+-    bool TextureMap::use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf) {
 +    void TextureMap::unreplace(uint64_t hash, const Texture *texture) {
 +        const auto it = hashMap.find(hash);
 +        if ((it == hashMap.end()) || (textureReplacements[it->second] != texture)) {
@@ -655,15 +749,22 @@ index 0848f3e..54ae2b2 100644
 +        textureReplacements[it->second] = nullptr;
 +        textureReplacementShiftedByHalf[it->second] = false;
 +        textureReplacementReferenceCounted[it->second] = false;
++        textureReplacementRegions[it->second] = {};
 +        textureScales[it->second] = IdentityScale;
 +        versions[it->second]++;
 +        globalVersion++;
 +    }
 +
-     bool TextureMap::use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf) {
++    bool TextureMap::use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf, interop::uint2 &texelShift, bool &sourceRegion) {
          textureScale = IdentityScale;
          hasMipmaps = false;
-@@ -306,11 +357,15 @@ namespace RT64 {
+         shiftedByHalf = false;
++        texelShift = { 0, 0 };
++        sourceRegion = false;
+ 
+         // Find the matching texture index in the hash map.
+         const auto it = hashMap.find(hash);
+@@ -306,11 +369,24 @@ namespace RT64 {
          if (textureReplaced) {
              textureScale = textureScales[textureIndex];
              textureDimensions = cachedTextureReplacementDimensions[textureIndex];
@@ -671,6 +772,15 @@ index 0848f3e..54ae2b2 100644
 +            const Texture *replacement = textureReplacements[textureIndex];
 +            hasMipmaps = (replacement->mipmaps > 1) && (!replacement->generatedMipmaps || GeneratedMipmapsEnabled);
              shiftedByHalf = textureReplacementShiftedByHalf[textureIndex];
++
++            // A region is sampled from the image at the region's origin. Its mipmaps aren't used: their filtering
++            // doesn't know about the region.
++            const ReplacementRegion &region = textureReplacementRegions[textureIndex];
++            if (!region.isWhole()) {
++                sourceRegion = true;
++                hasMipmaps = false;
++                texelShift = { uint32_t(lround(region.x * textureScale.x)), uint32_t(lround(region.y * textureScale.y)) };
++            }
          }
          else {
 +            // Mipmaps generated for a texture the game loaded. The shader tells them from a replacement's by the tile
@@ -680,7 +790,15 @@ index 0848f3e..54ae2b2 100644
          }
  
          // Remove the existing entry from the list if it exists.
-@@ -487,9 +542,19 @@ namespace RT64 {
+@@ -362,6 +438,7 @@ namespace RT64 {
+                 textureReplacements[textureIndex] = nullptr;
+                 textureReplacementShiftedByHalf[textureIndex] = false;
+                 textureReplacementReferenceCounted[textureIndex] = false;
++                textureReplacementRegions[textureIndex] = {};
+             }
+             // Stop iterating if we reach an entry that has been used in the present.
+             else if (age == 0) {
+@@ -487,9 +564,19 @@ namespace RT64 {
          for (uint32_t i = 0; i < threadCount; i++) {
              streamThreads.push_back(std::make_unique<StreamThread>(this));
          }
@@ -700,7 +818,7 @@ index 0848f3e..54ae2b2 100644
          waitForAllStreamThreads(true);
          streamThreads.clear();
  
-@@ -500,6 +565,10 @@ namespace RT64 {
+@@ -500,6 +587,10 @@ namespace RT64 {
              uploadThread.reset();
          }
          
@@ -711,7 +829,7 @@ index 0848f3e..54ae2b2 100644
          descriptorSets.clear();
          tmemUploadResources.clear();
          replacementUploadResources.clear();
-@@ -929,6 +998,63 @@ namespace RT64 {
+@@ -929,6 +1020,63 @@ namespace RT64 {
          return true;
      }
  
@@ -775,7 +893,7 @@ index 0848f3e..54ae2b2 100644
      Texture *TextureCache::loadTextureFromBytes(RenderDevice *device, RenderCommandList *commandList, const std::vector<uint8_t> &fileBytes, std::unique_ptr<RenderBuffer> &dstUploadResource, RenderPool *resourcePool, std::mutex *uploadResourcePoolMutex) {
          const uint32_t PNG_MAGIC = 0x474E5089;
          Texture *replacementTexture = new Texture();
-@@ -942,11 +1068,12 @@ namespace RT64 {
+@@ -942,11 +1090,12 @@ namespace RT64 {
              int width, height;
              stbi_uc *data = stbi_load_from_memory(fileBytes.data(), fileBytes.size(), &width, &height, nullptr, 4);
              if (data != nullptr) {
@@ -792,7 +910,7 @@ index 0848f3e..54ae2b2 100644
              }
  
              break;
-@@ -980,10 +1107,16 @@ namespace RT64 {
+@@ -980,10 +1129,16 @@ namespace RT64 {
          std::vector<RenderTextureBarrier> beforeDecodeBarriers;
          std::vector<RenderTextureBarrier> afterDecodeBarriers;
          std::vector<uint8_t> replacementBytes;
@@ -809,7 +927,7 @@ index 0848f3e..54ae2b2 100644
              beforeCopyBarriers.clear();
              beforeDecodeBarriers.clear();
              afterDecodeBarriers.clear();
-@@ -992,7 +1125,7 @@ namespace RT64 {
+@@ -992,7 +1147,7 @@ namespace RT64 {
              {
                  std::unique_lock queueLock(uploadQueueMutex);
                  uploadQueueChanged.wait(queueLock, [this]() {
@@ -818,7 +936,7 @@ index 0848f3e..54ae2b2 100644
                  });
  
                  if (!uploadQueue.empty()) {
-@@ -1008,6 +1141,13 @@ namespace RT64 {
+@@ -1008,6 +1163,13 @@ namespace RT64 {
                      streamResultQueueCopy.insert(streamResultQueueCopy.end(), streamResultQueue.begin(), streamResultQueue.end());
                      streamResultQueue.clear();
                  }
@@ -832,7 +950,7 @@ index 0848f3e..54ae2b2 100644
              }
              
              if (!streamResultQueueCopy.empty()) {
-@@ -1039,7 +1179,7 @@ namespace RT64 {
+@@ -1039,7 +1201,7 @@ namespace RT64 {
                  }
              }
  
@@ -841,7 +959,7 @@ index 0848f3e..54ae2b2 100644
                  // Create new upload buffers and descriptor heaps to fill out the required size.
                  const size_t queueSize = queueCopy.size();
                  const uint64_t TMEMSize = 0x1000;
-@@ -1059,6 +1199,7 @@ namespace RT64 {
+@@ -1059,6 +1221,7 @@ namespace RT64 {
                  // issues that can't be accounted for. Using dedicated copy queues for these operations has shown to eliminate these issues entirely.
                  copyWorker->commandList->begin();
                  textureMapAdditions.clear();
@@ -849,7 +967,7 @@ index 0848f3e..54ae2b2 100644
  
                  for (size_t i = 0; i < queueSize; i++) {
                      static uint32_t TMEMGlobalCounter = 0;
-@@ -1105,14 +1246,45 @@ namespace RT64 {
+@@ -1105,14 +1268,45 @@ namespace RT64 {
                          static uint32_t TextureGlobalCounter = 0;
                          TextureDecodeDescriptorSet *descSet = descriptorSets[i].get();
                          dstTexture->format = RenderFormat::R8G8B8A8_UNORM;
@@ -896,7 +1014,7 @@ index 0848f3e..54ae2b2 100644
                  }
  
                  replacementMapAdditions.clear();
-@@ -1176,6 +1348,43 @@ namespace RT64 {
+@@ -1176,6 +1370,45 @@ namespace RT64 {
                      }
                  }
                  
@@ -911,6 +1029,7 @@ index 0848f3e..54ae2b2 100644
 +                        if ((contentIt != liveContents.end()) && (contentIt->second.texture == nullptr)) {
 +                            for (uint64_t hash : contentIt->second.hashes) {
 +                                liveHashKeys.erase(hash);
++                                liveHashRegions.erase(hash);
 +                            }
 +
 +                            liveContents.erase(contentIt);
@@ -931,16 +1050,17 @@ index 0848f3e..54ae2b2 100644
 +                }
 +
 +                for (uint64_t hash : liveApplyQueueCopy) {
-+                    Texture *liveTexture = getLiveTexture(hash);
++                    ReplacementRegion liveRegion;
++                    Texture *liveTexture = getLiveTexture(hash, &liveRegion);
 +                    if ((liveTexture != nullptr) && !packReplaces(hash)) {
-+                        replacementMapAdditions.emplace_back(ReplacementMapAddition{ hash, liveTexture, ReplacementShift::Half, false, true });
++                        replacementMapAdditions.emplace_back(ReplacementMapAddition{ hash, liveTexture, ReplacementShift::Half, false, true, liveRegion });
 +                    }
 +                }
 +
                  // Execute the copy worker and signal a semaphore so it synchronizes with the direct worker afterwards.
                  const RenderCommandList *copyCommandList = copyWorker->commandList.get();
                  RenderCommandSemaphore *syncSemaphore = copyToDirectSemaphore.get();
-@@ -1188,6 +1397,7 @@ namespace RT64 {
+@@ -1188,6 +1421,7 @@ namespace RT64 {
  
                  const ShaderRecord &textureDecode = shaderLibrary->textureDecode;
                  bool pipelineSet = false;
@@ -948,7 +1068,7 @@ index 0848f3e..54ae2b2 100644
                  for (size_t i = 0; i < queueSize; i++) {
                      const TextureUpload &upload = queueCopy[i];
                      if (upload.decodeTMEM) {
-@@ -1205,6 +1415,7 @@ namespace RT64 {
+@@ -1205,6 +1439,7 @@ namespace RT64 {
                          decodeCB.stride = interop::uint(upload.loadTile.line) << 3;
                          decodeCB.tlut = upload.tlut;
                          decodeCB.palette = upload.loadTile.palette;
@@ -956,7 +1076,7 @@ index 0848f3e..54ae2b2 100644
  
                          // Dispatch compute shader for decoding texture.
                          const uint32_t ThreadGroupSize = 8;
-@@ -1214,6 +1425,16 @@ namespace RT64 {
+@@ -1214,6 +1449,16 @@ namespace RT64 {
                          directWorker->commandList->setComputeDescriptorSet(descriptorSets[i]->get(), 0);
                          directWorker->commandList->dispatch(dispatchX, dispatchY, 1);
  
@@ -973,16 +1093,17 @@ index 0848f3e..54ae2b2 100644
                          afterDecodeBarriers.emplace_back(RenderTextureBarrier(textureMapAdditions[i].texture->texture.get(), RenderTextureLayout::SHADER_READ));
                      }
                  }
-@@ -1239,10 +1460,16 @@ namespace RT64 {
+@@ -1239,10 +1484,16 @@ namespace RT64 {
                      }
  
                      for (const ReplacementMapAddition &addition : replacementMapAdditions) {
+-                        textureMap.replace(addition.hash, addition.texture, addition.shift == ReplacementShift::Half, addition.referenceCounted);
 +                        // A live replacement removed since it was picked has its texture on the way to deletion.
 +                        if (addition.live && (getLiveTexture(addition.hash) != addition.texture)) {
 +                            continue;
 +                        }
 +
-                         textureMap.replace(addition.hash, addition.texture, addition.shift == ReplacementShift::Half, addition.referenceCounted);
++                        textureMap.replace(addition.hash, addition.texture, addition.shift == ReplacementShift::Half, addition.referenceCounted, addition.region);
                      }
  
                      textureMap.replacementMap.evict(textureMap.evictedTextures);
@@ -990,11 +1111,34 @@ index 0848f3e..54ae2b2 100644
                  }
  
                  // Make the new queue the remaining subsection of the upload queue that wasn't processed in this batch.
-@@ -1406,6 +1633,154 @@ namespace RT64 {
+@@ -1312,9 +1563,9 @@ namespace RT64 {
+         }
+     }
+ 
+-    bool TextureCache::useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf) {
++    bool TextureCache::useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf, interop::uint2 &texelShift, bool &sourceRegion) {
+         std::unique_lock lock(textureMapMutex);
+-        return textureMap.use(hash, submissionFrame, textureIndex, textureScale, textureDimensions, textureReplaced, hasMipmaps, shiftedByHalf);
++        return textureMap.use(hash, submissionFrame, textureIndex, textureScale, textureDimensions, textureReplaced, hasMipmaps, shiftedByHalf, texelShift, sourceRegion);
+     }
+ 
+     bool TextureCache::useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex) {
+@@ -1323,7 +1574,9 @@ namespace RT64 {
+         bool textureReplaced;
+         bool hasMipmaps;
+         bool shiftedByHalf;
+-        return useTexture(hash, submissionFrame, textureIndex, textureScale, textureDimensions, textureReplaced, hasMipmaps, shiftedByHalf);
++        interop::uint2 texelShift;
++        bool sourceRegion;
++        return useTexture(hash, submissionFrame, textureIndex, textureScale, textureDimensions, textureReplaced, hasMipmaps, shiftedByHalf, texelShift, sourceRegion);
+     }
+     
+     bool TextureCache::addReplacement(uint64_t hash, const std::string &relativePath, ReplacementShift shift) {
+@@ -1406,6 +1659,168 @@ namespace RT64 {
          return false;
      }
  
-+    bool TextureCache::addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes) {
++    bool TextureCache::addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, const ReplacementRegion &region) {
 +        {
 +            std::unique_lock liveLock(liveMutex);
 +            auto hashIt = liveHashKeys.find(hash);
@@ -1024,6 +1168,9 @@ index 0848f3e..54ae2b2 100644
 +
 +            contentIt->second.hashes.emplace_back(hash);
 +            liveHashKeys[hash] = contentKey;
++            if (!region.isWhole()) {
++                liveHashRegions[hash] = region;
++            }
 +            queueApply = (contentIt->second.texture != nullptr);
 +        }
 +
@@ -1059,6 +1206,7 @@ index 0848f3e..54ae2b2 100644
 +
 +            auto contentIt = liveContents.find(hashIt->second);
 +            liveHashKeys.erase(hashIt);
++            liveHashRegions.erase(hash);
 +            if (contentIt == liveContents.end()) {
 +                return;
 +            }
@@ -1089,6 +1237,7 @@ index 0848f3e..54ae2b2 100644
 +            std::unique_lock liveLock(liveMutex);
 +            hashKeys.swap(liveHashKeys);
 +            contents.swap(liveContents);
++            liveHashRegions.clear();
 +        }
 +
 +        // Textures still waiting to be uploaded are deleted by the upload thread once it finds their content gone.
@@ -1119,7 +1268,7 @@ index 0848f3e..54ae2b2 100644
 +        uploadQueueChanged.notify_all();
 +    }
 +
-+    Texture *TextureCache::getLiveTexture(uint64_t hash) {
++    Texture *TextureCache::getLiveTexture(uint64_t hash, ReplacementRegion *region) {
 +        std::unique_lock liveLock(liveMutex);
 +        auto hashIt = liveHashKeys.find(hash);
 +        if (hashIt == liveHashKeys.end()) {
@@ -1127,7 +1276,16 @@ index 0848f3e..54ae2b2 100644
 +        }
 +
 +        auto contentIt = liveContents.find(hashIt->second);
-+        return (contentIt != liveContents.end()) ? contentIt->second.texture : nullptr;
++        if (contentIt == liveContents.end()) {
++            return nullptr;
++        }
++
++        if (region != nullptr) {
++            auto regionIt = liveHashRegions.find(hash);
++            *region = (regionIt != liveHashRegions.end()) ? regionIt->second : ReplacementRegion();
++        }
++
++        return contentIt->second.texture;
 +    }
 +
 +    bool TextureCache::packReplaces(uint64_t hash) {
@@ -1145,7 +1303,7 @@ index 0848f3e..54ae2b2 100644
      void TextureCache::clearReplacementDirectories() {
          // Wait for the streaming threads to be finished.
          waitForAllStreamThreads(true);
-@@ -1431,9 +1806,14 @@ namespace RT64 {
+@@ -1431,9 +1846,14 @@ namespace RT64 {
  
          // Lock the texture map and start changing replacements. This function is assumed to be called from the only
          // thread that is capable of submitting new textures and must've waited beforehand for all textures to be uploaded.
@@ -1164,10 +1322,18 @@ index 0848f3e..54ae2b2 100644
  
      void TextureCache::reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash) {
 diff --git a/src/render/rt64_texture_cache.h b/src/render/rt64_texture_cache.h
-index 9131697..6d48bf2 100644
+index 9131697..f6eb2f7 100644
 --- a/src/render/rt64_texture_cache.h
 +++ b/src/render/rt64_texture_cache.h
-@@ -31,6 +31,7 @@ namespace interop {
+@@ -14,6 +14,7 @@
+ 
+ #include <json/json.hpp>
+ 
++#include "common/rt64_live_textures.h"
+ #include "common/rt64_replacement_database.h"
+ #include "hle/rt64_draw_call.h"
+ 
+@@ -31,6 +32,7 @@ namespace interop {
          uint stride;
          uint tlut;
          uint palette;
@@ -1175,23 +1341,36 @@ index 9131697..6d48bf2 100644
      };
  };
  
-@@ -116,6 +117,7 @@ namespace RT64 {
+@@ -116,6 +118,8 @@ namespace RT64 {
          Texture *texture = nullptr;
          ReplacementShift shift = ReplacementShift::None;
          bool referenceCounted = false;
 +        bool live = false;
++        ReplacementRegion region;
      };
  
      struct TextureMap {
-@@ -143,6 +145,7 @@ namespace RT64 {
+@@ -126,6 +130,7 @@ namespace RT64 {
+         std::vector<interop::float3> cachedTextureReplacementDimensions;
+         std::vector<bool> textureReplacementShiftedByHalf;
+         std::vector<bool> textureReplacementReferenceCounted;
++        std::vector<ReplacementRegion> textureReplacementRegions;
+         std::vector<interop::float2> textureScales;
+         std::vector<uint64_t> hashes;
+         std::vector<uint32_t> freeSpaces;
+@@ -142,8 +147,9 @@ namespace RT64 {
+         ~TextureMap();
          void clearReplacements();
          void add(uint64_t hash, uint64_t creationFrame, Texture *texture);
-         void replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted);
+-        void replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted);
+-        bool use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf);
++        void replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted, const ReplacementRegion &region = {});
 +        void unreplace(uint64_t hash, const Texture *texture);
-         bool use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf);
++        bool use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf, interop::uint2 &texelShift, bool &sourceRegion);
          bool evict(uint64_t submissionFrame, std::vector<uint64_t> &evictedHashes);
          void incrementLock();
-@@ -186,6 +189,18 @@ namespace RT64 {
+         void decrementLock();
+@@ -186,6 +192,18 @@ namespace RT64 {
              }
          };
  
@@ -1210,7 +1389,7 @@ index 9131697..6d48bf2 100644
          struct StreamThread {
              std::unique_ptr<RenderWorker> worker;
              TextureCache *textureCache = nullptr;
-@@ -205,6 +220,7 @@ namespace RT64 {
+@@ -205,6 +223,7 @@ namespace RT64 {
          std::vector<std::unique_ptr<RenderBuffer>> tmemUploadResources;
          std::vector<std::unique_ptr<RenderBuffer>> replacementUploadResources;
          std::vector<std::unique_ptr<TextureDecodeDescriptorSet>> descriptorSets;
@@ -1218,28 +1397,34 @@ index 9131697..6d48bf2 100644
          std::mutex uploadQueueMutex;
          std::condition_variable uploadQueueChanged;
          std::condition_variable uploadQueueFinished;
-@@ -229,6 +245,11 @@ namespace RT64 {
+@@ -229,6 +248,12 @@ namespace RT64 {
          std::mutex uploadResourcePoolMutex;
          uint32_t lockCounter;
          bool developerMode;
 +        std::mutex liveMutex; // Taken on its own, or inside uploadQueueMutex; never around another lock.
 +        std::unordered_map<uint64_t, uint64_t> liveHashKeys;
++        std::unordered_map<uint64_t, ReplacementRegion> liveHashRegions; // Hashes whose region isn't the whole image.
 +        std::unordered_map<uint64_t, LiveContent> liveContents;
 +        std::vector<LiveUpload> liveUploadQueue; // Guarded by uploadQueueMutex.
 +        std::vector<uint64_t> liveApplyQueue; // Guarded by uploadQueueMutex.
  
          TextureCache(RenderWorker *directWorker, RenderWorker *copyWorker, uint32_t threadCount, const ShaderLibrary *shaderLibrary);
          ~TextureCache();
-@@ -240,6 +261,13 @@ namespace RT64 {
+@@ -236,10 +261,17 @@ namespace RT64 {
+         void queueGPUUploadTMEM(uint64_t hash, uint64_t creationFrame, const uint8_t *bytes, int bytesCount, int width, int height, uint32_t tlut, const LoadTile &loadTile, bool decodeTMEM);
+         void waitForGPUUploads();
+         void addResolvedPaths(uint64_t hash, uint32_t width, uint32_t height, uint32_t tlut, const LoadTile &loadTile, const std::vector<uint8_t> &bytesTMEM, bool decodeTMEM, std::vector<ReplacementResolvedPath> &resolvedPaths, uint64_t exclusiveDbHash = 0);
+-        bool useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf);
++        bool useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf, interop::uint2 &texelShift, bool &sourceRegion);
          bool useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex);
          bool addReplacement(uint64_t hash, const std::string &relativePath, ReplacementShift shift);
          bool hasReplacement(uint64_t hash);
-+        bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes);
++        bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, const ReplacementRegion &region);
 +        bool hasLiveReplacementContent(uint64_t contentKey);
 +        void removeLiveReplacement(uint64_t hash);
 +        void clearLiveReplacements();
 +        void queueLiveReapply();
-+        Texture *getLiveTexture(uint64_t hash);
++        Texture *getLiveTexture(uint64_t hash, ReplacementRegion *region = nullptr);
 +        bool packReplaces(uint64_t hash);
          void clearReplacementDirectories();
          void reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash = 0);
@@ -1408,7 +1593,7 @@ index 19e6fad..0fd02a8 100644
  }
 \ No newline at end of file
 diff --git a/src/shaders/TextureSampler.hlsli b/src/shaders/TextureSampler.hlsli
-index 1ceb2ce..6b0cebb 100644
+index 1ceb2ce..069d113 100644
 --- a/src/shaders/TextureSampler.hlsli
 +++ b/src/shaders/TextureSampler.hlsli
 @@ -80,7 +80,11 @@ float4 clampWrapMirrorSample(const RDPTile rdpTile, const GPUTile gpuTile, float
@@ -1437,7 +1622,32 @@ index 1ceb2ce..6b0cebb 100644
      if ((rdpTile.cmt & G_TX_MIRROR) && (maskt > 0) && (modulo(texelInt.y, maskt * 2) >= maskt)) {
          texelInt.y = (maskt - 1) - modulo(texelInt.y, maskt);
      }
-@@ -142,7 +150,15 @@ float4 sampleTextureNative(Texture2D texture, uint nativeSampler, int2 texelBase
+@@ -109,6 +117,24 @@ float4 clampWrapMirrorSample(const RDPTile rdpTile, const GPUTile gpuTile, float
+     }
+ }
+ 
++// A texel for filtering at texelBaseInt + offset. A replacement for a region of a larger image (a texture the game loads
++// in strips) has the image's own texels past the region: the filter's neighbor of a texel inside the region reads the
++// next texel of the image there, instead of the tile wrapping or clamping back into the region, which would show the
++// region's other edge as a seam. Everything else is addressed by the tile, as the RDP does.
++float4 sampleTexel(const RDPTile rdpTile, const GPUTile gpuTile, float2 tcScale, int2 texelBaseInt, int2 offset, uint tlut, bool gpuTileUsesTMEM, uint mipLevel) {
++    if (gpuTileFlagSourceRegion(gpuTile.flags) && any(offset != 0)) {
++        const int2 tileMax = int2(floor(round(tcScale * float2(rdpTile.lrs, rdpTile.lrt)) / 4.0f) - floor(round(tcScale * float2(rdpTile.uls, rdpTile.ult)) / 4.0f) + round(tcScale - 1.0f));
++        const int2 texelInt = texelBaseInt + offset;
++        const int2 imageTexel = texelInt + int2(gpuTile.texelShift);
++        const bool baseInside = all(texelBaseInt >= 0) && all(texelBaseInt <= tileMax);
++        if (baseInside && any(texelInt > tileMax) && all(imageTexel < int2(gpuTile.textureDimensions.xy))) {
++            return gTextures[NonUniformResourceIndex(gpuTile.textureIndex)].Load(int3(imageTexel, 0));
++        }
++    }
++
++    return clampWrapMirrorSample(rdpTile, gpuTile, tcScale, texelBaseInt + offset, tlut, gpuTileUsesTMEM, mipLevel);
++}
++
+ static const float LowPrecision = 128.0f;
+ 
+ float4 sampleTextureNative(Texture2D texture, uint nativeSampler, int2 texelBaseInt, float2 textureSize) {
+@@ -142,7 +168,15 @@ float4 sampleTextureNative(Texture2D texture, uint nativeSampler, int2 texelBase
  float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool filterBilerp, bool filterAverage, bool linearFiltering, float2 uvCoord, uint tlut, bool canDecodeTMEM, uint mipLevel, bool usesHDR) {
      float2 tcScale = gpuTile.tcScale;
      float mipScale = float(1U << mipLevel);
@@ -1454,16 +1664,35 @@ index 1ceb2ce..6b0cebb 100644
      tcScale /= mipScale;
      
      int2 texelBaseInt = floor(uvCoord);
-@@ -150,7 +166,7 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
+@@ -150,20 +184,21 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
      float4 samples[4];
      const uint nativeSampler = rdpTile.nativeSampler;
      bool gpuTileUsesTMEM = canDecodeTMEM && gpuTileFlagRawTMEM(gpuTile.flags);
 -    if ((nativeSampler == NATIVE_SAMPLER_NONE) || gpuTileUsesTMEM) {
-+    if ((nativeSampler == NATIVE_SAMPLER_NONE) || gpuTileUsesTMEM || (mipLevel > 0)) {
++    // A region's texels are shifted into its image, which the native samplers can't do.
++    if ((nativeSampler == NATIVE_SAMPLER_NONE) || gpuTileUsesTMEM || (mipLevel > 0) || gpuTileFlagSourceRegion(gpuTile.flags)) {
  #if USE_FOR_LOOPS
          int numSamples = select_uint(filtering, 4, 1);
          [unroll]
-@@ -214,7 +230,109 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
+         for (int i = 0; i < numSamples; i++) {
+-            samples[i] = clampWrapMirrorSample(rdpTile, gpuTile, tcScale, texelBaseInt + int2(i >> 1, i & 1), tlut, gpuTileUsesTMEM, mipLevel);
++            samples[i] = sampleTexel(rdpTile, gpuTile, tcScale, texelBaseInt, int2(i >> 1, i & 1), tlut, gpuTileUsesTMEM, mipLevel);
+         }
+ #else
+-        samples[0] = clampWrapMirrorSample(rdpTile, gpuTile, tcScale, texelBaseInt, tlut, gpuTileUsesTMEM, mipLevel);
++        samples[0] = sampleTexel(rdpTile, gpuTile, tcScale, texelBaseInt, int2(0, 0), tlut, gpuTileUsesTMEM, mipLevel);
+         
+         if (filtering) {
+-            samples[1] = clampWrapMirrorSample(rdpTile, gpuTile, tcScale, texelBaseInt + int2(0, 1), tlut, gpuTileUsesTMEM, mipLevel);
+-            samples[2] = clampWrapMirrorSample(rdpTile, gpuTile, tcScale, texelBaseInt + int2(1, 0), tlut, gpuTileUsesTMEM, mipLevel);
+-            samples[3] = clampWrapMirrorSample(rdpTile, gpuTile, tcScale, texelBaseInt + int2(1, 1), tlut, gpuTileUsesTMEM, mipLevel);
++            samples[1] = sampleTexel(rdpTile, gpuTile, tcScale, texelBaseInt, int2(0, 1), tlut, gpuTileUsesTMEM, mipLevel);
++            samples[2] = sampleTexel(rdpTile, gpuTile, tcScale, texelBaseInt, int2(1, 0), tlut, gpuTileUsesTMEM, mipLevel);
++            samples[3] = sampleTexel(rdpTile, gpuTile, tcScale, texelBaseInt, int2(1, 1), tlut, gpuTileUsesTMEM, mipLevel);
+         }
+ #endif
+     }
+@@ -214,7 +249,109 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
      }
  }
  
@@ -1574,7 +1803,7 @@ index 1ceb2ce..6b0cebb 100644
      const bool texturePerspective = (otherMode.textPersp() == G_TP_PERSP);
      const bool applyCorrection = (!texturePerspective && !renderFlagRect(renderFlags));
  
-@@ -263,7 +381,11 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
+@@ -263,7 +400,11 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
      const bool canDecodeTMEM = renderFlagCanDecodeTMEM(renderFlags);
      const bool usesHDR = renderFlagUsesHDR(renderFlags);
      const uint nativeSampler = rdpTile.nativeSampler;
@@ -1587,7 +1816,7 @@ index 1ceb2ce..6b0cebb 100644
      uint numRDPSamples = 0;
      uint RDPMipLevels[2];
      RDPMipLevels[0] = 0;
-@@ -346,6 +468,14 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
+@@ -346,6 +487,14 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
          float4 loLevel = textureSamples[1];
          textureColor = lerp(hiLevel, loLevel, frac(mip));
      }
@@ -1603,19 +1832,20 @@ index 1ceb2ce..6b0cebb 100644
      // Alpha channel in framebuffer textures represent the coverage. A modulo operation must be performed
      // to get the value that would correspond to the alpha channel when it's sampled.
 diff --git a/src/shared/rt64_gpu_tile.h b/src/shared/rt64_gpu_tile.h
-index 4548f15..e98ca42 100644
+index 4548f15..6b4e4f8 100644
 --- a/src/shared/rt64_gpu_tile.h
 +++ b/src/shared/rt64_gpu_tile.h
-@@ -18,6 +18,8 @@ namespace interop {
+@@ -18,6 +18,9 @@ namespace interop {
              uint rawTMEM : 1;
              uint hasMipmaps : 1;
              uint shiftedByHalf : 1;
 +            uint anisotropy : 3; // Generated mipmaps: log2 of the most anisotropy they're filtered with.
 +            uint generatedMipmaps : 1; // Filtered with sampleGeneratedMipmaps (Distant Textures: Smooth).
++            uint sourceRegion : 1; // A replacement for part of a larger image: texelShift is the part's origin in it.
          };
  
          uint value;
-@@ -49,6 +51,14 @@ namespace interop {
+@@ -49,6 +52,18 @@ namespace interop {
      bool gpuTileFlagShiftedByHalf(GPUTileFlags flags) {
          return flags & 0x20;
      }
@@ -1626,6 +1856,10 @@ index 4548f15..e98ca42 100644
 +
 +    bool gpuTileFlagGeneratedMipmaps(GPUTileFlags flags) {
 +        return flags & 0x200;
++    }
++
++    bool gpuTileFlagSourceRegion(GPUTileFlags flags) {
++        return flags & 0x400;
 +    }
  #endif
      struct GPUTile {

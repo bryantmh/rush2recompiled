@@ -90,6 +90,8 @@ Want to keep everything on a USB stick or next to the game? Turn on portable mod
 
 Built with [N64Recomp](https://github.com/N64Recomp/N64Recomp), [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime), [RecompFrontend](https://github.com/N64Recomp/RecompFrontend) and the [RT64](https://github.com/rt64/rt64) renderer. Texture upscaling uses [hqx](https://github.com/grom358/hqx) (LGPL 2.1, in `lib/hqx`). Big thanks to everyone behind those projects.
 
+Track banner images for the San Francisco Rush tracks and Rush 2049's Metro and Presidio by Bunny.
+
 Rush 2 and Rush 2049 belong to their respective owners. This project isn't affiliated with them and doesn't include any of their game data.
 
 Curious how it works or want to build it yourself? See [docs/BUILDING.md](docs/BUILDING.md).

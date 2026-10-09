@@ -122,5 +122,10 @@ namespace rush2::upscale {
     extern const char* const mode_option_id;
     extern const char* const command_option_id;
 }
+    // Draws a CI8 texture with an exact full-color image instead of its 256 colors (the track banners): any CI8 tile
+    // drawn in 2D whose palette indices are rows of indices (image.width x image.height, in the order the texture is
+    // stored) is replaced by image, as the region of it those rows are, so a texture the game loads in strips is drawn
+    // from the one image. Strips of one index (blank rows) are left alone. Works whatever the upscaling mode.
+    void add_exact_image(std::vector<uint8_t> indices, Image image);
 
 #endif

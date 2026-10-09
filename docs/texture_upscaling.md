@@ -103,13 +103,14 @@ indices, so each stripe pattern is its own base.
 
 ## Live replacements (RT64 patch)
 
-`RT64::addLiveReplacement(hash, contentKey, fileBytes)` gives the running texture cache a replacement image without a
-texture pack. Its behavior:
+`RT64::addLiveReplacement(hash, contentKey, fileBytes, region = {})` gives the running texture cache a replacement
+image without a texture pack. Its behavior:
 
 - **Upload:** images are uploaded once per content key on the texture cache's upload thread, the way RT64 loads a
   pack texture with the `stall` operation. They are transitioned to shader read like stream results. A batch takes
   at most 8, because the game's thread waits on every batch that also carries its own TMEM uploads.
-- **Replacing:** each hash then gets `TextureMap::replace` with a half-texel shift, the default for packs.
+- **Replacing:** each hash then gets `TextureMap::replace` with a half-texel shift, the default for packs, and its
+  region (below).
   - Hashes that load later are replaced as their upload finishes.
   - A pack reload (`clearReplacementDirectories`) queues every live hash to be applied again.
   - Each live addition is checked again under the texture map lock before it's applied. A replacement removed in
@@ -124,6 +125,41 @@ another lock.
 
 The recomp gives each mode its own content keys (`live_key`), so a result that lands after the mode changes can't stand
 in for the new mode's image.
+
+## Replacement regions and same-size replacements (RT64 patch)
+
+Two rules in RT64's replacement sampling, for every replacement (packs, live ones, upscales):
+
+- **Same size is not high resolution.** A replacement exactly the size of the game's texture (`tcScale` 1) is sampled
+  the way the game's texture is: in 2D at the console's pixels (`lowResUV` in RasterPS.hlsl) and without a pack's
+  half-texel shift (`createGPUTiles` in rt64_framebuffer_renderer.cpp sets `highRes` only for another size). Such a
+  replacement changes a texture's colors texel for texel and draws it exactly where and as sharply as the game does.
+  Before, it was sampled at every screen pixel with the half shift, which blurred it, sampled past the texture's
+  edges and moved a vertically flipped texture by most of a texel.
+- **Regions.** `RT64::ReplacementRegion` says which part of a larger image a hash's texture is (`x`, `y`, the image's
+  `sourceWidth` x `sourceHeight` in the game's texels). The replacement is the whole image, scaled against the image,
+  and `texelShift` places the region in it. A filter's neighbor just past the region, next to a texel inside it, is
+  read from the image (`sampleTexel` in TextureSampler.hlsli) instead of wrapping or clamping back into the region; all
+  other addressing is the tile's. Region tiles skip the native samplers and mipmaps, which don't know the region. A
+  game that loads a texture in strips (a 128x32 CI8 logo is two 128x16 loads, since a TLUT leaves 2 KB of TMEM for
+  texels) then draws it from one image with no seam where the strips meet. The default region is the whole texture,
+  which is how packs and every other replacement work.
+
+Building RT64: the shader build doesn't track `.hlsli` includes. After editing TextureSampler.hlsli (or another
+include), touch `lib/rt64/src/shaders/RasterPS.hlsl` so the raster shaders are compiled again.
+
+## Exact images (track banners)
+
+`rush2::upscale::add_exact_image(indices, image)` draws a CI8 texture with a full-color image in place of its 256
+colors, whatever the upscaling mode. The track banners (`add_banner_images` in src/track1_convert.cpp and
+src/track2049_art.cpp, docs/rush1_research.md section 12) are its only users: their art has about a thousand colors
+even at 5 bits a channel, so no CI8 copy is exact.
+
+Each 2D CI8 hash is decoded once when first seen (`find_exact`) and its indices are compared with every row offset of
+the registered images. A match gets the whole image with the region of it the strip is (`apply_exact`). The image is
+the texture's size, so RT64 samples it exactly like the game's texture. A strip of one index (blank rows) is never
+matched, since other textures share it. Mode changes clear every live replacement, so `set_mode` queues the strips
+again.
 
 ## Distant Textures: Smooth with texture packs
 

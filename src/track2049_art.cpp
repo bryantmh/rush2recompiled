@@ -10,7 +10,9 @@
 //   placement file 119+k places, LOD 0, no sky), cropped to the route's extent plus a margin, shrunk so the longer
 //   side is 1120 model units like the stock dioramas, on a wooden base, with the route in red on top (the AI path's
 //   spine and the branches that really leave it). The notes below up to "Size" describe this miniature;
-// - a logo with the track's screenshot shrunk to an icon and its name, "TRACK n" as Rush 2049's code calls them.
+// - a logo: the track's banner (tools/rush2049/banners, include/track2049_banners.h; tools/build_banners.py draws one
+//   with the banner font for a track without a picture). The arenas' logos are their screenshot shrunk to an icon
+//   and their name.
 // The stunt arenas (k = stunt_first.., src/track2049_convert.cpp) get the same from their own AI path (157+k) and
 // screenshot (SPICn), named R49STUNTn / R49SLOGOn and "STUNT n", the battle arenas (k = battle_first..) from theirs
 // (DPICn; the path is 157+k) named R49BATTLEn / R49BLOGOn and "BATTLE n", and the obstacle course (k = obstacle) from its
@@ -68,6 +70,8 @@
 
 #include "rush2049_rom.h"
 #include "track2049.h"
+#include "track2049_banners.h"
+#include "texture_upscale.h"
 
 namespace {
     constexpr int path_file = 157;      // + k: forward AI path of race track k or stunt arena k.
@@ -2021,8 +2025,19 @@ namespace {
         return false;
     }
 
-    // 128x32 CI8 texels (rows bottom-up, as Rush 2 stores its logos) and a 256-entry RGBA5551 palette.
+    // 128x32 CI8 texels (rows bottom-up, as Rush 2 stores its logos) and a 256-entry RGBA5551 palette: a race track's
+    // banner (include/track2049_banners.h, tools/build_banners.py), or an arena's thumbnail icon and name.
     void build_logo(const std::vector<uint8_t>& ui, int k, std::vector<uint8_t>& texels, std::vector<uint8_t>& palette) {
+        if (k >= 1 && k <= rush2::track2049::track_count) {
+            const uint8_t* banner = rush2::track2049::banners::texels[k - 1];
+            texels.resize(logo_w * logo_h);
+            for (int y = 0; y < logo_h; y++) {
+                memcpy(&texels[(logo_h - 1 - y) * logo_w], banner + y * logo_w, logo_w);
+            }
+            palette.clear();
+            for (int i = 0; i < 256; i++) push16(palette, rush2::track2049::banners::palettes[k - 1][i]);
+            return;
+        }
         std::array<uint16_t, 256> pal{};
         pal[ink_big] = rgba5551(255, 196, 24, 1);
         pal[ink_small] = rgba5551(235, 235, 245, 1);
@@ -2061,7 +2076,7 @@ namespace {
             draw_text(text, "OBSTACLE", 36, 13, 2, ink_big, 11);  // one pixel apart, to fit
         }
         else {
-            draw_text(text, (is_battle(k) ? "BATTLE " : is_stunt(k) ? "STUNT " : "TRACK ") + std::to_string(number_of(k)), 36, 13, 2,
+            draw_text(text, (is_battle(k) ? "BATTLE " : "STUNT ") + std::to_string(number_of(k)), 36, 13, 2,
                       ink_big, is_battle(k) ? 11 : 0);  // BATTLE n is a character longer: one pixel apart, to fit
         }
         for (int y = 0; y < logo_h; y++) {
@@ -2280,6 +2295,27 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
     put32(out, 24, uint32_t(palettes.size()));
     put32(out, 32, insert_at + delta);        // [8]: the texture-load lists now end after the 2049 ones
     return true;
+}
+
+void rush2::track2049::add_banner_images() {
+    // The banners as the game stores them: rows bottom-up.
+    for (int t = 0; t < track_count; t++) {
+        std::vector<uint8_t> indices(logo_w * logo_h);
+        rush2::upscale::Image image;
+        image.width = logo_w;
+        image.height = logo_h;
+        image.rgba.resize(size_t(logo_w * logo_h * 4));
+        for (int y = 0; y < logo_h; y++) {
+            int src = (logo_h - 1 - y) * logo_w;
+            memcpy(&indices[size_t(y * logo_w)], banners::texels[t] + src, logo_w);
+            for (int x = 0; x < logo_w; x++) {
+                uint32_t c = banners::rgba[t][src + x];
+                uint8_t* p = &image.rgba[size_t((y * logo_w + x) * 4)];
+                p[0] = uint8_t(c >> 24); p[1] = uint8_t(c >> 16); p[2] = uint8_t(c >> 8); p[3] = uint8_t(c);
+            }
+        }
+        rush2::upscale::add_exact_image(std::move(indices), std::move(image));
+    }
 }
 
 bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const rush2::rom2049::Source& rom2049, int k,
