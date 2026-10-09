@@ -38,11 +38,3 @@ General:
 9) Show accurate track stats like length
 10) Feature to choose NPC vehicles from recomp menu
 
-Next:
-
-Hide the stunt course variables that don't do anything
-
-Determine the significance of this data in these todos:
-Flag bit 0x400000 on placement records isn't understood and is stripped. (2049)
-
-Ghost races. Add option for physical drones and to add normal ai to a ghost race

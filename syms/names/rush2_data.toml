@@ -848,18 +848,18 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80023024
-name = "race_clock_word"
+name = "vi_count_last_frame"
 type = "u32"
-desc = "Word set by init and timer_init_race_clock; read by init. (low confidence)"
+desc = "vi_count (0x8002331C) when the previous game frame started; game_thread_main_init_800B4EB0 (0x800B53C4-0x800B53DC) takes vi_count minus it as the frame's VI count, then stores vi_count here. Also set by timer_init_race_clock."
 area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80023028
-name = "timer_scale_47_585"
+name = "frame_dt"
 type = "f32"
-desc = "Race timer scale (47.585) set by timer_init_race_clock and timer_tick_vsync; used widely by camera, HUD, menus and sky scroll."
+desc = "Seconds of game time per game frame: VIs elapsed since the last frame times the VI period (0x800D0098 NTSC / 0x800D009C PAL), set each frame by game_thread_main_init_800B4EB0 at 0x800B5410-0x800B5460, so it is 2/60 at the normal 30 fps and larger after a stall. game_main_loop_frame_800B0228 adds it to timer_game_time each frame. timer_init_race_clock and timer_tick_vsync set it to one fixed frame (1/30 NTSC, 1/25 PAL)."
 area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -1037,9 +1037,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8002331C
-name = "hud_float_const_a"
-type = "f32"
-desc = "Float read by HUD countdown/lap/respawn widgets, menu delay, player join, race clock init. (low confidence)"
+name = "vi_count"
+type = "u32"
+desc = "VI (retrace) counter, read as an integer by game_thread_main_init_800B4EB0 at 0x800B53C8 to measure each game frame's length in VIs (see frame_dt 0x80023028); also read by HUD countdown/lap/respawn widgets, menu delay, player join and race clock init. (writer not traced)"
 area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -12784,7 +12784,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x80117488
 name = "timer_game_time"
 type = "f32"
-desc = "Global game clock updated each vsync by the timer code; read by camera, breakables and many others."
+desc = "Game clock in seconds: game_main_loop_frame_800B0228 adds frame_dt (0x80023028) once per game frame (0x800B0354-0x800B0368), so it advances by VIs elapsed, not by a fixed step; timer_tick_vsync resets it. Read by camera, breakables and many others."
 area = "util"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
