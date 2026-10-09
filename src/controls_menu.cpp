@@ -759,8 +759,8 @@ extern "C" void rush2_controls_menu_widgets(uint8_t* rdram, recomp_context* ctx)
     if (rush2::wings::enabled()) {
         menu_rows.push_back(Action::Wings);
     }
-    // The weapon buttons: only when the screen is opened from a battle's pause menu.
-    if (MEM_W(0, (int32_t)game_mode) != 0 && rush2::track2049::battle_race(rdram)) {
+    // The weapon buttons: whenever the battle arenas can be played (Rush 2049 tracks available), from either menu.
+    if (rush2::track2049::available()) {
         menu_rows.push_back(Action::Fire);
         menu_rows.push_back(Action::DropWeapon);
     }
