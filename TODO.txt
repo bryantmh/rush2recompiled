@@ -5,19 +5,8 @@ San Francisco Rush:
 San Francisco Rush 2049:
 1) Coins: missing HUD counter.
 2) Mileage Counter.
-3) Battle arenas DM1-DM8 (menu ids 30-37, Start Game > BATTLE; src/battle.cpp, docs/rush2049_research/battle.md): 2049's
-   weapon rules (default gun, 8 weapons, auto-aim, homing, mines, sonic, ram), per-car weapon mounts, pickups that turn and
-   respawn as 2049's do, health, kills, shield and invisibility, wall collision, 2049's weapon sounds, FIRE / DROP WEAPON
-   bindings (Controller Setup rows), and the HUD (scaled health bar, 3D weapon, power-up and coin per view, anchored for
-   HUD Placement). Seen working: 1 player, 2 players stacked and side by side (HUD, mounts, firing).
-4) Battle, left: end of battle winner screen (the round ends on the time limit through Rush 2's own race end); the
-   explosion's look (a scaled muzzle flash; 2049 uses its car explosion effect, main func_800AF06C, at half size; its
-   sound 0x45 is in); direction arrows at the screen's edge (not found in 2049's code yet); weapon models take the
-   player's coin color, not the car's paint; invisibility hides the body in the other views but the wheels and shadow
-   stay (2049 fades the whole car); play test pickups by driving, mines, sonic, ram, Rush 2 cars' mount heights; HUD
-   Placement Original and 16:9 not run; pickup turn rate is a guess; DM5 PVS table; teams; computer opponents (AI;
-   2049's battle was multiplayer only). A shared HUD layout helper (element + anchor + size resolved for every split
-   and HUD Placement mode, with a test overlay) would help.
+4) Battle: computer opponents (AI; 2049's battle was multiplayer only). Everything else of 2049's battle is in
+   (docs/rush2049_research/battle.md sections 7 and 8), with the Weapons cheat for the other races.
 5) HANDLING: revisit 2049's HANDLING
 6) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
 7) Panther front wheels clip through body

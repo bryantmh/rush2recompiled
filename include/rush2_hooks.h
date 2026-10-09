@@ -177,6 +177,8 @@ void rush2_battle_hide_stunt_panel(uint8_t* rdram, recomp_context* ctx);
 // func_8007C27C entry (a view's visibility, before the view is drawn): the battle HUD's 3D models of that view.
 void rush2_controls_menu_first_row(uint8_t* rdram, recomp_context* ctx);
 void rush2_battle_view(uint8_t* rdram, recomp_context* ctx);
+void rush2_arrows_view(uint8_t* rdram, recomp_context* ctx);
+void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_deaths_value_t4(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_deaths_value_t0(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* ctx);

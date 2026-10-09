@@ -25,6 +25,15 @@ namespace rush2::battle {
     void tick(uint8_t* rdram, float dt);
     // Whether the race in progress is a battle (its objects are set up).
     bool active(uint8_t* rdram);
+    // The Weapons cheat (Cheats tab): gives the players weapons in the other races. 0 off, 1-8 a weapon (cannon,
+    // gatling, grenade, mine, missile, ram, rocket, sonic), 9 invisibility, 10 a random weapon each time.
+    void set_weapons_cheat(int option);
+    // A player's team (0-3: blue, red, yellow, green; Games tab). Cars of a team don't damage each other.
+    void set_team(int player, int team);
+    int team_of(int player);
+    // For the arrows over the other cars (src/arrows.cpp): whether car is a live car of the battle in progress, and
+    // whether it is invisible.
+    bool arrow_target(uint8_t* rdram, int car, bool& faded);
 
     // After the race HUD is built (func_800A06F8): adds the battle HUD's widgets. After the widget draw loop
     // (func_8007D9DC): draws the battle HUD's text.

@@ -87,6 +87,10 @@ namespace rush2 {
         void set_widget_scale(int slot, float scale_x, float scale_y, float anchor = 0.5f);
         void clear_widget_scales();
         void set_anchor(uint8_t* rdram, float fraction);
+        // A filled rectangle (screen pixels, RGBA blended by its alpha) in the 2D display list, anchored as above.
+        void draw_rect(uint8_t* rdram, float x0, float y0, float x1, float y1, uint32_t rgba, float anchor);
+        // An RGBA16 image of w x h texels at `address` (at most 2048 texels) over that rectangle, blended by its alpha.
+        void draw_image(uint8_t* rdram, uint32_t address, int w, int h, float x0, float y0, float x1, float y1, float anchor);
         // Leaves the primitive color at rgba after the 2D drawing so far (G_SETPRIMCOLOR in the 2D display list).
         void set_prim_color(uint8_t* rdram, uint32_t rgba);
         // Draws a number (up to 6 digits) centered on (center_x, center_y) of the 4:3 screen, `height` pixels tall,

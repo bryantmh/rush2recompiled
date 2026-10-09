@@ -27,9 +27,15 @@
 // - Arrows (2049 main func_800B1B48 makes them, func_8008C884 moves them): each view has one for every other car, in
 //   that car's player color. It floats over a car that is in view; for a car that isn't, it sits at the view's side
 //   or bottom edge and points that way.
-// Projectiles, mounted weapons, shields and the HUD's models are records of a pool in the converted placement
-// (battle_pool_size, hidden at the origin) whose model is swapped and pose written each tick, like the props
-// (src/track2049_props.cpp).
+// - The round ends at the time limit; Rush 2049's results (main func_80105EA8) then name the winner in a box in the
+//   middle of the screen ("%s WINS", "%d-WAY TIE") and give each view its player's name and points (kills).
+// - Teams (0x8012E67C per player): cars of a team don't damage each other and share a color.
+// Projectiles, mounted weapons, shields, explosions and the HUD's models are drawn by src/battle_render.cpp from
+// Rush 2049's own model files, so they need nothing of the track. That is what lets the Weapons cheat (Cheats tab)
+// give the players the same weapons in any other race: there the cars have the health, the weapons, the mounts and a
+// small health bar and weapon on the HUD, and nothing else of a battle (no pickups, kills or time limit). Shots are
+// stopped by the track's collision where it is a converted Rush 2049 track; on other tracks only the grenades and
+// mines meet the ground, taken as level at the car that let them go.
 
 #include <algorithm>
 #include <atomic>
@@ -45,9 +51,12 @@
 #include <vector>
 
 #include "recomp.h"
+#include "librecomp/addresses.hpp"
 #include "assets.h"
+#include "arrows.h"
 #include "audio2049.h"
 #include "battle.h"
+#include "battle_render.h"
 #include "car2049.h"
 #include "ghost.h"
 #include "rush2.h"
@@ -57,11 +66,14 @@
 
 extern "C" void hud_widget_alloc_800541F8(uint8_t* rdram, recomp_context* ctx);   // Allocates a 2D widget.
 extern "C" void widgets_create_800604FC(uint8_t* rdram, recomp_context* ctx);   // Builds HUD elements from layout entries.
+extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx);   // Selects a font.
+extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx);  // Selects a text style.
+extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
+extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx);  // Prints a string at (x, y).
 
 namespace {
     using rush2::track2049::PickupRecord;
     void update_hud(uint8_t* rdram);
-    void release_arrows(uint8_t* rdram);
 
     // Game addresses (Rush 2).
     constexpr uint32_t track_id = 0x8010C3F0;
@@ -76,7 +88,7 @@ namespace {
     constexpr uint32_t state_position = 0x0;
     constexpr uint32_t state_velocity = 0xC;
     constexpr uint32_t state_matrix = 0x24;
-    constexpr uint32_t state_body_node = 0xF0;       // s32: the index of the scene node of the car's body
+    constexpr uint32_t state_shadow = 0x20C;         // the car's shadow polygon (func_80086CA4)
     constexpr uint32_t player_slots = 0x800C2140;    // 0x28 per player: +0 car index, +1 controller port, +2 pressed, +4 held.
     constexpr uint32_t player_size = 0x28;
     constexpr uint32_t num_players = 0x8010C3E2;     // s16
@@ -86,6 +98,8 @@ namespace {
     constexpr uint32_t node_size = 0x38;
     constexpr uint32_t node_count = 0x800FAE58;
     constexpr uint32_t node_hidden = 0x400;
+    constexpr uint32_t body_nodes = 0x80219DD0;      // + car * 0x134: the car's body scene node index (src/ghost.cpp)
+    constexpr uint32_t body_node_stride = 0x134;
     constexpr uint32_t time_allowed = 0x8010C204;    // f32: the race's clock in seconds.
     constexpr uint32_t race_clock_start = 0x8010C034; // f32: the game timer when the race's clock started
     constexpr uint32_t game_timer = 0x80117488;      // f32: seconds
@@ -131,9 +145,11 @@ namespace {
     constexpr float sonic_push = 330000.0f, sonic_lift = 66000.0f;    // 0x80394DD0, 0x80394DCC (force)
     constexpr float ram_damage_base = 160.0f;               // func_800CE358: 160 + 7 x speed; speed scaled here [I]
     constexpr int explosion_sound = 0x45;                   // func_800AF06C: 0x2D at size 1 and up, 0x45 from 0.5, else 0x2F
+    constexpr float explosion_scale = 0.5f;                 // func_800AF06C's size for a weapon's explosion
+    constexpr int explosion_frames = 30;                    // NEXPLOSIONG1-30 (handles 0x80142908), one each 1/30 s (func_800908A0)
     constexpr float explosion_sound_seconds = 1.5f;         // [I] sound 0x45 holds until its key-off
     constexpr int pickup_sound = 0x60;                      // the WEPICON_* types' sound (type table +0x1C)
-    constexpr float pickup_spin = 3.0f;                     // rad/s [I]: 2049 turns a pickup by its object's own rate
+    constexpr float pickup_spin = 3.0f;                     // rad/s about its up axis: the type's rate, table 0x80118D70 row 0
 
     // Weapons: 0-7 are the pickups' (WEPICON_CANN, GATT, GREN, MINE, MISS, RAM, ROCK, SONC), 8 is the default gun.
     enum Weapon { cannon, gatling, grenade, mine, missile, ram, rocket, sonic, gun, weapon_count };
@@ -190,7 +206,8 @@ namespace {
         float shield_scale = 0.0f, shield_spin = 0.0f;
         bool was_wrecked = false;
         uint8_t buttons = 0;            // the weapon buttons held last tick
-        bool hidden = false;            // its car state's invisible flag was set here
+        bool shadow_hidden = false;     // its shadow polygon was hidden here (invisible, in another player's view)
+        float regive = 0.0f;            // the Weapons cheat: seconds until it is given its weapon again
     };
 
     struct Pickup {
@@ -211,6 +228,7 @@ namespace {
         bool bounced = false, ram_front = false, placed = false;
         float ring = 1.0f, ring_clock = 0.0f;   // sonic
         uint32_t ring_hits = 0;
+        float ground = -1e9f;           // the level ground under the car that fired it (tracks without collision here)
     };
 
     struct Effect {
@@ -218,20 +236,26 @@ namespace {
         int slot = -1;
         float pos[3] = {};
         float age = 0.0f, duration = 0.3f, scale0 = 1.0f, scale1 = 4.0f;
+        bool explosion = false;         // 2049's explosion: its 30 frames
     };
 
-    struct PoolSlot {
-        uint32_t record = 0, node = 0;
+    // The renderer's slots (src/battle_render.cpp).
+    constexpr int shot_slots = 32;               // 0-31: projectiles and effects
+    constexpr int mount_slot_first = 32;         // 32-39: the weapon mounted on each car
+    constexpr int hud_weapon_slot_first = 40;    // 40-43: the HUD's weapon, per view
+    constexpr int shield_slot_first = 44;        // 44-51: each car's shield
+    constexpr int hud_powerup_slot_first = 52;   // 52-55: the HUD's power-up, per view
+    constexpr int hud_coin_slot_first = 56;      // 56-59: the HUD's coin, per view
+    constexpr int slot_count = 60;
+    struct Slot {
         bool used = false;
+        uint32_t color = 0xFFFFFFFF;
+        int view = -1;          // the one view it is drawn in (the HUD's models)
+        bool attached = false;  // it rides with that view's camera
     };
 
-    // Pool slots (rush2::track2049::battle_pool_size).
-    constexpr int shot_slots = 16;               // 0-15: projectiles and effects
-    constexpr int mount_slot_first = 16;         // 16-23: the weapon mounted on each car
-    constexpr int hud_weapon_slot_first = 24;    // 24-27: the HUD's weapon, per view
-    constexpr int shield_slot_first = 28;        // 28-35: each car's shield
-    constexpr int hud_powerup_slot_first = 36;   // 36-39: the HUD's power-up, per view
-    constexpr int hud_coin_slot_first = 40;      // 40-43: the HUD's coin, per view
+    // What is running: a battle arena, or the Weapons cheat in another race.
+    enum class Mode { none, arena, cheat };
 
     std::mutex battle_mutex;
     std::vector<PickupRecord> pickup_records;
@@ -240,7 +264,13 @@ namespace {
     bool setup_pending = false, ready = false;
     Fighter fighters[max_cars];
     std::vector<Pickup> pickups;
-    std::vector<PoolSlot> pool;
+    Slot slots[slot_count];
+    Mode mode = Mode::none;
+    int last_state = 0;          // The game state at the last tick: a race starts with its countdown (10).
+    std::atomic_int cheat_option = 0;            // The Weapons cheat: 0 off, 1-8 a weapon (+1), 9 invisibility, 10 random
+    std::atomic_int team_option[4] = { 0, 1, 2, 3 };
+    bool over = false;           // The round's time is up: the results show.
+    bool flat_ground = false;    // No collision triangles for this track: grenades and mines meet level ground.
     std::vector<Shot> shots;
     std::vector<Effect> effects;
     std::mt19937 rng{ 2049 };
@@ -371,16 +401,40 @@ namespace {
         }
     }
 
+    // The pose a car's body is drawn with in this frame: its scene node's transform (rotation rows, then the position
+    // at +0x24; src/interpolation.cpp). The draw state above is the pose of the physics tick, which the game moves on
+    // from before it draws, so a model placed by it slides about on the car.
+    void body_pose(uint8_t* rdram, int i, float pos[3], float m[9]) {
+        int body = (int32_t)MEM_W(0, (int32_t)(body_nodes + (uint32_t)i * body_node_stride));
+        uint32_t transform = body >= 0 && body < 0x400 ? (uint32_t)MEM_W(4, (int32_t)(nodes + (uint32_t)body * node_size)) : 0;
+        if (transform >= 0x80000000u && transform < 0x80800000u) {
+            for (int k = 0; k < 9; k++) m[k] = read_f(rdram, transform + k * 4);
+            for (int k = 0; k < 3; k++) pos[k] = read_f(rdram, transform + 0x24 + k * 4);
+            if (std::fabs(dot(m, m) - 1.0f) < 0.2f) return;
+        }
+        car_pos(rdram, i, pos);
+        car_axes(rdram, i, m);
+    }
+
     bool is_wrecked(uint8_t* rdram, int i) { return MEM_B(0, (int32_t)(car_at(i) + car_wrecked)) != 0; }
 
     bool alive(uint8_t* rdram, int i) { return fighters[i].present && !is_wrecked(rdram, i); }
 
-    int player_car(uint8_t* rdram, int player) {
-        return (int8_t)MEM_B(0, (int32_t)(player_slots + player * player_size));
+    using rush2::views::local_players;
+    using rush2::views::player_car;
+
+    // The player who drives car i, or -1.
+    int player_of(uint8_t* rdram, int car) {
+        int players = local_players(rdram);
+        for (int p = 0; p < players; p++) {
+            if (player_car(rdram, p) == car) return p;
+        }
+        return -1;
     }
 
-    int local_players(uint8_t* rdram) {
-        return std::clamp<int>((int16_t)MEM_H(0, (int32_t)num_players), 1, 4);
+    int team_of_car(uint8_t* rdram, int car) {
+        int player = player_of(rdram, car);
+        return player < 0 ? -1 : std::clamp<int>(team_option[player], 0, 3);
     }
 
     // Where car i carries `weapon` (0-7), in its own frame. Rush 2049's cars (types 23-35) use 2049's table; Rush 2's
@@ -553,48 +607,39 @@ namespace {
     // Pool
 
     int alloc_slot() {
-        for (size_t i = 0; i < pool.size() && i < (size_t)shot_slots; i++) {
-            if (!pool[i].used) {
-                pool[i].used = true;
-                return (int)i;
+        for (int i = 0; i < shot_slots; i++) {
+            if (!slots[i].used) {
+                slots[i].used = true;
+                return i;
             }
         }
         return -1;
     }
 
-    void hide_slot(uint8_t* rdram, int slot) {
-        if (slot >= 0 && slot < (int)pool.size()) hide_node(rdram, pool[slot].node);
+    void hide_slot(uint8_t*, int slot) {
+        if (slot >= 0 && slot < slot_count) rush2::battle_render::hide(slot);
     }
 
-    void free_slot(uint8_t* rdram, int slot) {
-        if (slot < 0 || slot >= (int)pool.size()) return;
-        pool[slot].used = false;
-        hide_node(rdram, pool[slot].node);
+    void free_slot(uint8_t*, int slot) {
+        if (slot < 0 || slot >= slot_count) return;
+        slots[slot].used = false;
+        rush2::battle_render::hide(slot);
     }
 
-    void place_slot(uint8_t* rdram, int slot, const char* model, const float m[9], const float pos[3]) {
-        if (slot < 0 || slot >= (int)pool.size()) return;
-        set_model(rdram, pool[slot].node, model);
-        write_pose(rdram, pool[slot].record, m, pos);
-        show_node(rdram, pool[slot].node);
+    void place_slot(uint8_t*, int slot, const char* model, const float m[9], const float pos[3]) {
+        if (slot < 0 || slot >= slot_count) return;
+        rush2::battle_render::place(slot, model, m, pos, slots[slot].color, slots[slot].view, slots[slot].attached);
     }
 
-    // Colors. 2049 draws a car's weapon models in the car's color (its car state's +0x34C, func_8008E06C); here they
-    // take the player's color, the one of its coin [I]. The other models' colors are not known from 2049's code [I].
-    constexpr uint32_t player_colors[4] = { 0x4060FFFF, 0xFF3838FF, 0xFFE030FF, 0x38D048FF };
-    constexpr uint32_t neutral_color = 0x7090B0FF, tracer_color = 0xFFF0A0FF, shell_color = 0xB0B0B0FF,
-                       flash_color = 0xFFB040FF, ring_color = 0x80C0FFFF;
+    // Colors (the models' primitive color; most of them have a combiner that doesn't use it). 2049 gives the weapon
+    // on a car the car's light level (its car state's +0x34C, func_8008E06C: white, from the table 0x8011AE58 that
+    // darkens the car), the HUD's weapon white (0x803942A4) and a muzzle flash 0xFFFF2B (func_8038AA8C): the weapons
+    // show in their own textures' colors, the same on every car. The mine's parts and the pickups (2049 sets no
+    // color for a pickup's node) are by eye [I].
+    constexpr uint32_t neutral_color = 0x7090B0FF, shell_color = 0xB0B0B0FF, flash_color = 0xFFFF2BFF, plain_color = 0xFFFFFFFF;
 
     void color_slot(int slot, uint32_t rgba) {
-        if (slot >= 0 && slot < (int)pool.size()) rush2::interpolation_node_color(pool[slot].node, rgba);
-    }
-
-    uint32_t car_color(uint8_t* rdram, int car) {
-        int players = local_players(rdram);
-        for (int p = 0; p < players; p++) {
-            if (player_car(rdram, p) == car) return player_colors[p];
-        }
-        return neutral_color;
+        if (slot >= 0 && slot < slot_count) slots[slot].color = rgba;
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -660,61 +705,85 @@ namespace {
         return slot >= 0 && MEM_B(0, (int32_t)track_id) == slot && rush2::track2049::battle_arena() > 0;
     }
 
-    void setup(uint8_t* rdram) {
+    void set_faded(int car, int view) {
+        rush2::ghost::set_faded(car, view);
+    }
+
+    // Puts back what a round changed outside this file's own state.
+    void shutdown(uint8_t* rdram) {
+        for (int i = 0; i < max_cars; i++) {
+            set_faded(i, -1);
+            if (fighters[i].shadow_hidden) {
+                uint32_t shadow = (uint32_t)MEM_W(0, (int32_t)(state_at(i) + state_shadow));
+                if (shadow >= 0x80000000u) MEM_H(2, (int32_t)shadow) = (int16_t)(MEM_HU(2, (int32_t)shadow) & ~0x8000);
+                fighters[i].shadow_hidden = false;
+            }
+        }
+        rush2::battle_render::clear();
+        for (HeldSound& h : held_sounds) rush2::audio2049::sfx_stop(h.handle);
+        held_sounds.clear();
+        ready = false;
+        mode = Mode::none;
+        over = false;
+    }
+
+    void setup(uint8_t* rdram, Mode m) {
+        shutdown(rdram);
+        mode = m;
         pickups.clear();
-        pool.clear();
         shots.clear();
         effects.clear();
-        held_sounds.clear();
-        release_arrows(rdram);
         for (Fighter& f : fighters) f = Fighter{};
+        for (Slot& slot : slots) slot = Slot{};
         load_tuning();
-        int count = (int)MEM_W(0, (int32_t)node_count);
-        std::map<uint32_t, uint32_t> node_of_matrix;
-        for (int i = 0; i < count; i++) {
-            uint32_t node = nodes + i * node_size;
-            node_of_matrix[(uint32_t)MEM_W(0, (int32_t)(node + 4))] = node;
+        if (!rush2::battle_render::ready(rdram) && m == Mode::cheat) {
+            mode = Mode::none;
+            return;
         }
-        for (const PickupRecord& rec : pickup_records) {
-            Pickup p;
-            p.rec = rec;
-            p.record = record_pointer(rdram, rec.record);
-            auto n = node_of_matrix.find(p.record + 0x10);
-            p.node = n == node_of_matrix.end() ? 0 : n->second;
-            for (int k = 0; k < 9; k++) p.m[k] = read_f(rdram, p.record + 0x10 + k * 4);
-            for (int k = 0; k < 3; k++) p.local[k] = read_f(rdram, p.record + 0x34 + k * 4);
-            pickups.push_back(p);
+        for (int p = 0; p < 4; p++) {
+            for (int first : { hud_weapon_slot_first, hud_powerup_slot_first, hud_coin_slot_first }) {
+                slots[first + p].view = p;
+                slots[first + p].attached = true;
+            }
         }
-        for (int record : pool_records) {
-            PoolSlot s;
-            s.record = record_pointer(rdram, record);
-            auto n = node_of_matrix.find(s.record + 0x10);
-            s.node = n == node_of_matrix.end() ? 0 : n->second;
-            hide_node(rdram, s.node);
-            pool.push_back(s);
-        }
-        if (const char* test = getenv("R2_BATTLE_TEST"); test != nullptr && strstr(test, "log") != nullptr) {
-            // Test aid: the pickups' records must come after the arena's sections (their lights are drawn last).
-            int first = 0x7FFFFFFF, last = -1;
+        // The track's collision is this file's only for a converted Rush 2049 track that is the one loaded.
+        int slot49 = rush2::track2049::loaded_slot();
+        flat_ground = triangles.empty() || slot49 < 0 || MEM_B(0, (int32_t)track_id) != slot49;
+        if (m == Mode::arena) {
+            int count = (int)MEM_W(0, (int32_t)node_count);
+            std::map<uint32_t, uint32_t> node_of_matrix;
+            for (int i = 0; i < count; i++) {
+                uint32_t node = nodes + i * node_size;
+                node_of_matrix[(uint32_t)MEM_W(0, (int32_t)(node + 4))] = node;
+            }
             for (const PickupRecord& rec : pickup_records) {
-                first = std::min(first, rec.record);
-                last = std::max(last, rec.record);
+                Pickup p;
+                p.rec = rec;
+                p.record = record_pointer(rdram, rec.record);
+                auto n = node_of_matrix.find(p.record + 0x10);
+                p.node = n == node_of_matrix.end() ? 0 : n->second;
+                for (int k = 0; k < 9; k++) p.m[k] = read_f(rdram, p.record + 0x10 + k * 4);
+                for (int k = 0; k < 3; k++) p.local[k] = read_f(rdram, p.record + 0x34 + k * 4);
+                pickups.push_back(p);
             }
-            // Each is a world-space record with a scene node: its own position is the 2049 object's.
-            int with_node = 0;
-            float off = 0.0f;
-            for (const Pickup& p : pickups) {
-                with_node += p.node != 0;
-                for (int k = 0; k < 3; k++) off = std::max(off, std::fabs(p.local[k] - p.rec.pos[k]));
+            // The converter's pool of spare records (the models were drawn from them before src/battle_render.cpp)
+            // stays hidden.
+            for (int record : pool_records) {
+                auto n = node_of_matrix.find(record_pointer(rdram, record) + 0x10);
+                if (n != node_of_matrix.end()) hide_node(rdram, n->second);
             }
-            fprintf(stderr, "[Battle] %d pickups in records %d-%d (%d with nodes, %.3f from their places), pool from record %d, %d nodes\n",
-                    (int)pickup_records.size(), first, last, with_node, off, pool_records.empty() ? -1 : pool_records.front(), count);
-        }
-        rush2::interpolation_clear_view_attached();
-        for (const Pickup& p : pickups) rush2::interpolation_node_color(p.node, neutral_color);
-        for (int slot = 0; slot < (int)pool.size(); slot++) color_slot(slot, neutral_color);
-        for (int slot = hud_weapon_slot_first; slot < (int)pool.size(); slot++) {
-            if (slot < shield_slot_first || slot >= hud_powerup_slot_first) rush2::interpolation_view_attached(pool[slot].node);
+            rush2::interpolation_clear_view_attached();
+            for (const Pickup& p : pickups) rush2::interpolation_node_color(p.node, neutral_color);
+            if (const char* test = getenv("R2_BATTLE_TEST"); test != nullptr && strstr(test, "log") != nullptr) {
+                // Test aid: the pickups are world-space records with scene nodes, at the 2049 objects' positions.
+                int with_node = 0;
+                float off = 0.0f;
+                for (const Pickup& p : pickups) {
+                    with_node += p.node != 0;
+                    for (int k = 0; k < 3; k++) off = std::max(off, std::fabs(p.local[k] - p.rec.pos[k]));
+                }
+                fprintf(stderr, "[Battle] %d pickups (%d with nodes, %.3f from their places), %d nodes\n", (int)pickups.size(), with_node, off, count);
+            }
         }
         clock_seconds = 0.0f;
         clock_set = false;
@@ -727,6 +796,11 @@ namespace {
     // func_8038D3A4: a car doesn't damage itself; a shield takes 0.2 of it.
     void damage(uint8_t* rdram, int victim, int attacker, float amount) {
         if (victim < 0 || victim >= max_cars || victim == attacker || !alive(rdram, victim) || amount <= 0.0f) return;
+        // Nothing to a car of the attacker's team (0x8012E67C).
+        if (attacker >= 0 && attacker < max_cars && team_of_car(rdram, attacker) >= 0 &&
+            team_of_car(rdram, attacker) == team_of_car(rdram, victim)) {
+            return;
+        }
         Fighter& f = fighters[victim];
         if (f.shield > 0.0f) amount *= shield_factor;
         f.health -= std::floor(amount);
@@ -772,6 +846,20 @@ namespace {
         effects.push_back(e);
     }
 
+    // 2049 main func_800AF06C(pos, 0, 0.5, 1): the game's explosion, its 30 frames at half size.
+    void add_explosion(const float pos[3]) {
+        int slot = alloc_slot();
+        if (slot < 0) return;
+        Effect e;
+        e.live = true;
+        e.slot = slot;
+        memcpy(e.pos, pos, sizeof(e.pos));
+        e.duration = (float)explosion_frames / tick_rate;
+        e.explosion = true;
+        color_slot(slot, plain_color);
+        effects.push_back(e);
+    }
+
     // func_8038D798: every car within the radius takes (1 - d^2 / r^2)^2 of the damage (a ram facing the shot's path
     // 0.35 of that).
     void explode(uint8_t* rdram, const float pos[3], const float from[3], int owner, float amount) {
@@ -790,7 +878,7 @@ namespace {
         }
         // 2049 main func_800AF06C(pos, 0, 0.5, 1): the game's explosion at half size, with sound 0x45 heard within 400.
         play_sound(rdram, explosion_sound, pos, explosion_sound_seconds);
-        add_effect(pos, 0.35f, 0.5f, 10.0f);
+        add_explosion(pos);
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -890,8 +978,9 @@ namespace {
             memcpy(s.pos, c, sizeof(s.pos));
             s.pos[1] += 1.25f;
         }
+        s.ground = c[1];
         s.slot = alloc_slot();
-        color_slot(s.slot, f.weapon == gun || f.weapon == gatling ? tracer_color : f.weapon == sonic ? ring_color : shell_color);
+        color_slot(s.slot, f.weapon == mine ? shell_color : plain_color);
         play_sound(rdram, w.sound, s.pos);
         if (s.slot < 0 && f.weapon != sonic) {
             // No record to draw it with: the shot is lost (the ammo is still used).
@@ -1072,6 +1161,16 @@ namespace {
             int victim = s.weapon == mine ? -1 : car_hit(rdram, s);
             float wall[3], normal[3];
             bool walled = sweep(s.prev, s.pos, wall, normal);
+            if (!walled && flat_ground && (s.weapon == mine || s.weapon == grenade) && s.pos[1] < s.ground && s.prev[1] >= s.pos[1]) {
+                // A track without collision here: level ground at the height of the car that let the shot go.
+                walled = true;
+                wall[0] = s.pos[0];
+                wall[1] = s.ground + 0.05f;
+                wall[2] = s.pos[2];
+                normal[0] = 0.0f;
+                normal[1] = 1.0f;
+                normal[2] = 0.0f;
+            }
             if (walled) {
                 memcpy(s.pos, wall, sizeof(wall));
                 if (s.weapon == mine) {
@@ -1151,6 +1250,13 @@ namespace {
                 continue;
             }
             float k = e.age / e.duration;
+            if (e.explosion) {
+                char frame[16];
+                snprintf(frame, sizeof(frame), "NEXPLOSIONG%d", std::min(explosion_frames, 1 + (int)(e.age * tick_rate)));
+                float m[9] = { explosion_scale, 0, 0, 0, explosion_scale, 0, 0, 0, explosion_scale };
+                place_slot(rdram, e.slot, frame, m, e.pos);
+                continue;
+            }
             float scale = e.scale0 + (e.scale1 - e.scale0) * k;
             float m[9] = { scale, 0, 0, 0, scale, 0, 0, 0, scale };
             place_slot(rdram, e.slot, "WFX_MFLSHG11", m, e.pos);
@@ -1159,7 +1265,8 @@ namespace {
     }
 
     // func_8038AA8C: the weapon a car holds sits on it at the weapon's offset for its car model, turned with the car.
-    // The gun shows nothing. A mine is held behind the car until it is let go.
+    // The gun shows nothing. A mine is held behind the car until it is let go. Called before each view is drawn, when
+    // the cars' bodies have the frame's poses.
     void update_mounts(uint8_t* rdram) {
         for (int i = 0; i < max_cars; i++) {
             const Fighter& f = fighters[i];
@@ -1169,11 +1276,10 @@ namespace {
             }
             else {
                 float c[3], m[9], local[3], pos[3];
-                car_pos(rdram, i, c);
-                car_axes(rdram, i, m);
+                body_pose(rdram, i, c, m);
                 mount_offset(rdram, i, f.weapon, local);
                 offset_point(c, m, local, pos);
-                color_slot(slot, car_color(rdram, i));
+                color_slot(slot, plain_color);
                 place_slot(rdram, slot, mount_models[f.weapon], m, pos);
             }
             // func_8038F938: the shield's globe grows to the car model's size, holds, then shrinks.
@@ -1183,8 +1289,7 @@ namespace {
             }
             else {
                 float c[3], m[9];
-                car_pos(rdram, i, c);
-                car_axes(rdram, i, m);
+                body_pose(rdram, i, c, m);
                 pitch(m, f.shield_spin);
                 scale_matrix(m, f.shield_scale);
                 place_slot(rdram, shield_slot, "WFX_SHIELDG1", m, c);
@@ -1378,6 +1483,18 @@ int rush2::battle::time_limit_seconds() {
     return limit_option * 60;
 }
 
+void rush2::battle::set_weapons_cheat(int option) {
+    cheat_option = std::clamp(option, 0, 10);
+}
+
+void rush2::battle::set_team(int player, int team) {
+    if (player >= 0 && player < 4) team_option[player] = std::clamp(team, 0, 3);
+}
+
+int rush2::battle::team_of(int player) {
+    return player >= 0 && player < 4 ? std::clamp<int>(team_option[player], 0, 3) : 0;
+}
+
 void rush2::battle::set_data(const std::vector<PickupRecord>& pickup_list, const std::vector<int>& pool_list,
                              const std::vector<uint8_t>& converted_geometry, const std::vector<float>& solid_triangles) {
     std::lock_guard lock{ battle_mutex };
@@ -1395,62 +1512,153 @@ void rush2::battle::reset() {
 }
 
 bool rush2::battle::active(uint8_t* rdram) {
-    return ready && battle_race(rdram);
+    return ready && mode == Mode::arena && battle_race(rdram);
+}
+
+bool rush2::battle::arrow_target(uint8_t* rdram, int car, bool& faded) {
+    std::lock_guard lock{ battle_mutex };
+    if (!ready || mode != Mode::arena || car < 0 || car >= max_cars || !alive(rdram, car)) return false;
+    faded = fighters[car].invisible > 0.0f;
+    return true;
+}
+
+namespace {
+    // The Weapons cheat: a player's car without a weapon (or, for the invisibility, seen again) is given the chosen
+    // one again a few seconds later; RANDOM picks one of the eight each time.
+    constexpr float cheat_regive_seconds = 3.0f;
+
+    void update_cheat(uint8_t* rdram, float dt) {
+        int option = cheat_option;
+        int players = local_players(rdram);
+        for (int p = 0; p < players; p++) {
+            int car = player_car(rdram, p);
+            if (car < 0 || car >= max_cars || !alive(rdram, car)) continue;
+            Fighter& f = fighters[car];
+            bool has = option == 9 ? f.invisible > 0.0f : f.weapon != gun;
+            if (has) {
+                f.regive = cheat_regive_seconds;
+                continue;
+            }
+            f.regive -= dt;
+            if (f.regive > 0.0f) continue;
+            f.regive = cheat_regive_seconds;
+            int kind = option == 9 ? (int)kind_invisibility : option == 10 ? std::uniform_int_distribution<int>(0, 7)(rng) : option - 1;
+            give(rdram, car, kind);
+            float pos[3];
+            car_pos(rdram, car, pos);
+            play_sound(rdram, pickup_sound, pos);
+        }
+    }
+
+    // The winner when the time is up (2049 main func_80105EA8): the player with the most kills, or how many tie.
+    struct Results {
+        int winner = -1, tied = 0;
+        int kills[4] = {};
+        int players = 0;
+    };
+    Results results;
+
+    void end_round(uint8_t* rdram) {
+        over = true;
+        results = Results{};
+        for (Shot& shot : shots) {
+            if (shot.live) end_shot(rdram, shot);
+        }
+        shots.clear();
+        results.players = local_players(rdram);
+        int best = -1;
+        for (int p = 0; p < results.players; p++) {
+            int car = player_car(rdram, p);
+            results.kills[p] = car >= 0 && car < max_cars ? fighters[car].kills : 0;
+            if (results.kills[p] > best) {
+                best = results.kills[p];
+                results.winner = p;
+                results.tied = 1;
+            }
+            else if (results.kills[p] == best) {
+                results.tied++;
+            }
+        }
+    }
 }
 
 void rush2::battle::tick(uint8_t* rdram, float dt) {
     std::lock_guard lock{ battle_mutex };
-    if (!battle_race(rdram)) {
-        if (ready) release_arrows(rdram);
-        ready = false;
+    int state = MEM_W(0, (int32_t)game_state);
+    // Every race starts with its countdown (state 10): the Weapons cheat's races are set up there (an arena also by
+    // reset, when its track is loaded).
+    if (state == 10 && last_state != 10) setup_pending = true;
+    last_state = state;
+    Mode want = battle_race(rdram) ? Mode::arena : cheat_option != 0 && (state == 3 || state == 10) ? Mode::cheat : Mode::none;
+    if (want == Mode::none) {
+        if (ready || mode != Mode::none) shutdown(rdram);
         return;
     }
-    if (setup_pending) {
+    if (setup_pending || want != mode) {
         setup_pending = false;
-        setup(rdram);
+        setup(rdram, want);
     }
     if (!ready) return;
-    // The stunt clock: 0x8010C204 holds the time allowed, which the HUD counts down from. It is the start countdown's
-    // 3.5 s until the race begins (writing it early would stretch the countdown) and then 300, which becomes the limit.
-    if (!clock_set && read_f(rdram, time_allowed) >= 60.0f) {
-        const char* test_env = getenv("R2_BATTLE_TEST");
-        bool test_short = test_env != nullptr && strstr(test_env, "short") != nullptr;   // Test aid: a 25 s battle.
-        write_f(rdram, time_allowed, test_short ? 25.0f : (float)time_limit_seconds());
-        clock_set = true;
+    const char* test_env = getenv("R2_BATTLE_TEST");
+    if (mode == Mode::arena) {
+        // The stunt clock: 0x8010C204 holds the time allowed, which the HUD counts down from. It is the start
+        // countdown's 3.5 s until the race begins (writing it early would stretch the countdown) and then 300, which
+        // becomes the limit.
+        if (!clock_set && read_f(rdram, time_allowed) >= 60.0f) {
+            bool test_short = test_env != nullptr && strstr(test_env, "short") != nullptr;   // Test aid: a 25 s battle.
+            write_f(rdram, time_allowed, test_short ? 25.0f : (float)time_limit_seconds());
+            clock_set = true;
+        }
+        // The battle's time limit. The game's own test of the clock (func_800AE670, state 3: the time allowed less the
+        // time raced is under half a second) waits for a far later time in a race without checkpoints (0x800D9E88), as
+        // the arenas are; its out of time flag (0x800FAE98) is set here instead, and the game ends the race from it.
+        if (clock_set && state == 3) {
+            float raced = read_f(rdram, game_timer) - read_f(rdram, race_clock_start);
+            if (read_f(rdram, time_allowed) - raced <= 0.5f) {
+                MEM_B(0, (int32_t)out_of_time) = 1;
+                if (!over) end_round(rdram);
+            }
+        }
     }
-    if (const char* t = getenv("R2_BATTLE_TEST"); t != nullptr && strstr(t, "log") != nullptr && std::fmod(clock_seconds, clock_set ? 3.0f : 0.25f) < dt) {
-        fprintf(stderr, "[Battle] t=%.1f allowed=%.2f state=%d clock=%.2f timer=%.2f set=%d\n", clock_seconds, read_f(rdram, time_allowed),
-                (int)MEM_W(0, (int32_t)game_state), read_f(rdram, 0x8010C034), read_f(rdram, 0x80117488), (int)clock_set);
-        fprintf(stderr, "[Battle] view 0 tan=%.4f tilt=%d\n", rush2::splitscreen::view_tan_v(rdram, 0), (int)MEM_B(0, (int32_t)0x800D0171));
-    }
-    // The battle's time limit. The game's own test of the clock (func_800AE670, state 3: the time allowed less the
-    // time raced is under half a second) waits for a far later time in a race without checkpoints (0x800D9E88), as
-    // the arenas are; its out of time flag (0x800FAE98) is set here instead, and the game ends the race from it.
-    if (clock_set && MEM_W(0, (int32_t)game_state) == 3) {
-        float raced = read_f(rdram, game_timer) - read_f(rdram, race_clock_start);
-        if (read_f(rdram, time_allowed) - raced <= 0.5f) MEM_B(0, (int32_t)out_of_time) = 1;
+    if (test_env != nullptr && strstr(test_env, "log") != nullptr && std::fmod(clock_seconds, 3.0f) < dt) {
+        fprintf(stderr, "[Battle] t=%.1f mode=%d allowed=%.2f state=%d set=%d over=%d\n", clock_seconds, (int)mode, read_f(rdram, time_allowed),
+                state, (int)clock_set, (int)over);
     }
     clock_seconds += dt;
     hud_spin = std::fmod(hud_spin + dt * 2.0f, 6.2831853f);
-    if (const char* test = getenv("R2_BATTLE_TEST")) {
-        // Test aids: "give<n>" gives car 0 weapon n at 2 s; "kill" destroys car 0 (as if by car 1) at 8 s.
-        if (const char* g = strstr(test, "give"); g != nullptr && clock_seconds > 2.0f && clock_seconds <= 2.0f + dt) {
+    if (test_env != nullptr) {
+        // Test aids: "give<n>" gives every car pickup kind n at 2 s; "kill" destroys car 0 (as if by car 1) at 8 s.
+        if (const char* g = strstr(test_env, "give"); g != nullptr && clock_seconds > 2.0f && clock_seconds <= 2.0f + dt) {
             for (int i = 0; i < max_cars; i++) {
                 if (fighters[i].present) give(rdram, i, std::clamp(atoi(g + 4), 0, 11));
             }
         }
-        if (strstr(test, "kill") != nullptr && clock_seconds > 8.0f && clock_seconds <= 8.0f + dt) {
+        if (strstr(test_env, "kill") != nullptr && clock_seconds > 8.0f && clock_seconds <= 8.0f + dt) {
             fighters[1].present = true;
             damage(rdram, 0, 1, 900.0f);
         }
     }
     update_sounds(rdram);
+    if (over) {
+        // The round is decided: what is in flight goes on, nothing new is fired or scored.
+        update_effects(rdram, dt);
+        update_hud(rdram);
+        return;
+    }
     update_cars(rdram, dt);
+    if (mode == Mode::cheat) update_cheat(rdram, dt);
     update_pickups(rdram, dt);
     update_shots(rdram, dt);
     update_effects(rdram, dt);
-    update_mounts(rdram);
-    update_hud(rdram);
+    // An invisible car (2049 fades it out, to nothing in the other views): only its own player's view draws it, as a
+    // ghost.
+    for (int i = 0; i < max_cars; i++) {
+        const Fighter& f = fighters[i];
+        bool invisible = f.present && f.invisible > 0.0f && !is_wrecked(rdram, i);
+        int own = player_of(rdram, i);
+        set_faded(i, invisible ? (own >= 0 ? own : 7) : -1);
+    }
+    if (mode == Mode::arena) update_hud(rdram);
 }
 
 // ----------------------------------------------------------------------------------------------------------------
@@ -1468,10 +1676,19 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
 // The bar is an element of Rush 2's HUD layout system (func_800604FC builds an element, and its 2D widget, from a
 // 0x28 byte layout entry whose +0 is the image's name; the converter merges 2049's HUD files 63 and 76 into the arena's
 // geometry, where Rush 2 finds the images by name), placed in final screen coordinates and scaled by src/hud.cpp
-// (rush2::hud::set_widget_scale). The models are pool records posed for each view just before it is drawn
-// (rush2_battle_view). The stunt score panels are hidden (rush2_battle_hide_stunt_panel).
+// (rush2::hud::set_widget_scale). The models are placed for each view just before it is drawn (rush2_battle_view)
+// and drawn by src/battle_render.cpp. The stunt score panels are hidden (rush2_battle_hide_stunt_panel).
+//
+// With the Weapons cheat in another race Rush 2's HUD stays as it is; the battle's health bar and the weapon held,
+// with its ammo, are added at the bottom of each view. Such a track has no HEALTHBG among its images, so the frame is
+// drawn from Rush 2049's HUD file itself (rush2::battle_render::image), at the battle's size with the battle's fill.
 namespace {
+    using rush2::views::View;
+    using rush2::views::view_of;
+
     constexpr uint32_t speedometer_callback = 0x800BA2A8;
+    // The clock: Rush 2's stunt mode shows the time left, which is the round's (2049 shows a battle's time too).
+    constexpr uint32_t race_time_callback = 0x800B7B1C, countdown_time_callback = 0x800B94C0;
     constexpr uint32_t element_pool = 0x802F6400;     // Pointers to the HUD elements (func_80060418; moved by src/players4.cpp), 0xC8 at most
     constexpr uint32_t element_count = 0x80125A58;
     constexpr uint32_t hud_element_list = 0x8010C030; // Head of the HUD's element list (+0x3C next).
@@ -1493,13 +1710,6 @@ namespace {
     // 0.75, or 0.375 for the game's own stacked views); the horizontal one follows from the view's shape, which in
     // widescreen runs out to the window's edges.
     const char* const coin_models[4] = { "BCOIN_BLUEG1", "BCOIN_REDG1", "BCOIN_YELLOWG1", "BCOIN_GREENG1" };
-
-    struct View {
-        int x0, y0, x1, y1;
-        bool right, bottom, wide;   // in the right column or bottom row of a split; drawn 2049's two player way
-        // Where the view is drawn, in the same 4:3 screen pixels: in widescreen its outer side reaches the window's edge.
-        float left = 0.0f, right_edge = 320.0f;
-    };
 
     // Positions on the 4:3 screen. Each element keeps its distance from an anchor, a fraction of the screen's width
     // (the view's left edge, middle or right edge), which HUD Placement moves (rush2::hud::set_widget_scale).
@@ -1524,27 +1734,6 @@ namespace {
     HudWidgets hud_widgets[4];
     int hud_players = 0;
 
-    // The part of the 320 x 240 screen a player's view covers.
-    View view_of(uint8_t* rdram, int player, int players) {
-        View v{ 0, 0, 320, 240, false, false, false };
-        if (players <= 1) {
-        }
-        else if (int quad = rush2::splitscreen::quadrant_views(rdram); quad != 0 || players > 2) {
-            int x = (player & 1) * 160, y = (player >> 1) * 120;
-            v = { x, y, x + 160, y + 120, (player & 1) != 0, player >= 2, false };
-        }
-        else if (rush2::splitscreen::is_side_by_side(rdram)) {
-            v = { player * 160, 0, player * 160 + 160, 240, player == 1, false, false };
-        }
-        else {
-            v = { 0, player * 120, 320, player * 120 + 120, false, player == 1, true };
-        }
-        float margin = std::max(0.0f, (rush2::splitscreen::window_width() - 320.0f) * 0.5f);
-        v.left = v.x0 == 0 ? -margin : (float)v.x0;
-        v.right_edge = v.x1 == 320 ? 320.0f + margin : (float)v.x1;
-        return v;
-    }
-
     // Where a view's elements go: the bar centered at the bottom; the weapon at the bottom on the view's outer side;
     // the coin at the corner toward the screen's middle (2049's tables 0x80394150, 0x803941D0, 0x803940D0, 0x80394210).
     Layout layout_of(const View& v) {
@@ -1560,8 +1749,8 @@ namespace {
         l.weapon_x = v.right ? (float)v.x1 - side : (float)v.x0 + side;
         l.weapon_y = bar_center_y;
         if (w <= 160.0f && h <= 120.0f) {
-            // Quadrants: the coins meet at the middle of the screen.
-            l.coin_x = v.right ? (float)v.x0 + 16.0f : (float)v.x1 - 16.0f;
+            // Quadrants: the coins meet at the middle of the screen, either side of Rush 2's clock there.
+            l.coin_x = v.right ? (float)v.x0 + 34.0f : (float)v.x1 - 34.0f;
             l.coin_y = v.bottom ? (float)v.y0 + 12.0f : (float)v.y1 - 14.0f;
         }
         else {
@@ -1677,33 +1866,12 @@ namespace {
 
     // The point `distance` ahead of view p's camera that shows at screen position (x, y) (2049 func_800A6094), and the
     // camera's axes.
-    // The axes view p is drawn with (rows right, up, forward): its camera's, turned about the forward axis by the
-    // game's tilted view (func_8007C624: flag 0x800D0171, angle 0x800CF9DC, func_8005ADFC) when that is on.
-    void view_axes(uint8_t* rdram, int p, float axes[9]) {
-        uint32_t cam = cameras + (uint32_t)p * 0x40;
-        for (int k = 0; k < 9; k++) axes[k] = read_f(rdram, cam + k * 4);
-        if (MEM_B(0, (int32_t)0x800D0171) == 0) return;
-        float angle = read_f(rdram, 0x800CF9DC), c = std::cos(angle), s = std::sin(angle);
-        for (int i = 0; i < 3; i++) {
-            float x = axes[i], y = axes[3 + i];
-            axes[i] = x * c - y * s;
-            axes[3 + i] = x * s + y * c;
-        }
-    }
-
-    // The tangents of half view p's field of view, across and up, as it is drawn (to the window's edge in widescreen).
-    void view_tangents(uint8_t* rdram, int p, const View& v, float& tan_x, float& tan_y) {
-        tan_y = rush2::splitscreen::view_tan_v(rdram, p);
-        if (!(tan_y > 0.05f && tan_y < 4.0f)) tan_y = v.wide ? 0.375f : 0.75f;
-        tan_x = tan_y * (v.right_edge - v.left) / (float)(v.y1 - v.y0);
-    }
-
     void view_point(uint8_t* rdram, int p, const View& v, float x, float y, float distance, float out[3], float axes[9]) {
         uint32_t cam = cameras + (uint32_t)p * 0x40;
-        view_axes(rdram, p, axes);
+        rush2::views::axes(rdram, p, axes);
         float w = v.right_edge - v.left, h = (float)(v.y1 - v.y0);
         float tan_x, tan_y;
-        view_tangents(rdram, p, v, tan_x, tan_y);
+        rush2::views::tangents(rdram, p, v, tan_x, tan_y);
         float nx = (x - (v.left + w * 0.5f)) / (w * 0.5f), ny = (((float)v.y0 + h * 0.5f) - y) / (h * 0.5f);
         for (int i = 0; i < 3; i++) {
             out[i] = read_f(rdram, cam + 0x24 + i * 4) + axes[6 + i] * distance + axes[i] * nx * tan_x * distance +
@@ -1712,210 +1880,89 @@ namespace {
     }
 
     // ------------------------------------------------------------------------------------------------------------
-    // Arrows to the other cars
-    //
-    // Rush 2049 (main func_800B1B48) gives every view a polygon with the ARROW image for each other car, in that
-    // car's player color (table 0x8011B558), drawn in front of everything (primitive depth 1), and moves them every
-    // frame (func_8008C884). With a = the angle from the view's direction to the car, seen from above:
-    // - |a| under 0.48 of the view's field of view (the car is in view): the arrow floats 5 over the car, pointing
-    //   down, its half size the car's distance / 25.
-    // - up to a quarter turn: at the view's left or right edge, pointing out, and lower the further round the car is
-    //   (from 0.75 of the vertical field of view, where it is level with the middle, down to the bottom).
-    // - behind: along the bottom edge, pointing down, at the middle for a car straight behind.
-    // The edge arrows are 2049's 2 units across, 10 pi / the field of view ahead of the camera: a twentieth of the
-    // view's width. Rush 2's world polygons are the same system as 2049's (0x800FAF00, 0x58 each: +0 vertex count,
-    // +2 flags, +4 texture, +6 primitive depth, then 0x14 per vertex: position x 16, texture coordinates, color;
-    // func_80054010 makes one, func_8007C624 draws those with its view's bit), so the arrows are polygons here too.
-    // Rush 2 has arrows of its own over the first two players' cars (the same ARROW image, in its effects container,
-    // and the same polygons, without the edge arrows); the battle's arrows use that image and hide Rush 2's.
-    constexpr uint32_t polygons = 0x800FAF00;
-    constexpr uint32_t polygon_size = 0x58;
-    constexpr uint32_t polygon_count = 0x800FAEF0;        // s32: slots in use
-    constexpr uint32_t polygon_high = 0x800FAEF4;         // s32: the most slots used
-    constexpr int polygon_limit = 1000;
-    constexpr uint32_t texture_tables = 0x80119220;       // per model container: its texture records (0x20 each), count
-    constexpr uint32_t texture_table_count = 0x800D5788;  // u8
-    constexpr uint16_t polygon_hidden = 0x8000;
-    constexpr uint16_t arrow_flags = 0x3200;              // 2049's; 0x2000 draws at the primitive depth
-    constexpr int16_t arrow_depth = 1;
-    constexpr float arrow_in_view = 0.48f;                // 0x8012390C
-    constexpr float arrow_hover = 5.0f, arrow_hover_scale = 1.0f / 25.0f;
-    constexpr float arrow_distance = 20.0f;               // 10 pi / 2049's field of view (a quarter turn)
-    constexpr float arrow_size = 0.05f;                   // half an edge arrow, as a part of the view's width
-    constexpr float arrow_side_start = 0.75f;             // of the vertical field of view (2 or more views)
-    constexpr float arrow_bottom = 16.5f * 0.6366198f / 20.0f;   // an arrow at the bottom: this x the vertical field of view down
-    constexpr uint32_t arrow_colors[5] = { 0x0000E0FF, 0xE00000FF, 0xE0E000FF, 0x00E000FF, 0xE0E0E0FF };   // 0x8011B558
-    constexpr uint8_t arrow_alpha_invisible = 0x20;
+    // Text (the results), printed with the game's own fonts.
 
-    uint32_t arrow_polygons[4][max_cars] = {};   // [view][car]: the polygon's address, or 0
-    int arrow_texture = -1;                      // texture handle (container << 10 | index) of ARROW; -2: there is none
+    constexpr int results_font = 0;
+    constexpr int style_white = 1, style_highlight = 0x14;
+    uint32_t text_scratch = 0, text_at = 0;
+    constexpr uint32_t text_scratch_size = 0x200;
 
-    // The handle of the texture `name` (func_800601F8's), from the last container that has it.
-    int find_texture(uint8_t* rdram, const char* name) {
-        int tables = MEM_BU(0, (int32_t)texture_table_count);
-        for (int t = std::min(tables, 32) - 1; t >= 0; t--) {
-            uint32_t records = (uint32_t)MEM_W(0, (int32_t)(texture_tables + t * 8));
-            int count = MEM_W(4, (int32_t)(texture_tables + t * 8));
-            if (records == 0 || count <= 0 || count > 0x3FF) continue;
-            for (int i = 0; i < count; i++) {
-                bool same = true;
-                for (int c = 0; c < 16 && same; c++) {
-                    char have = (char)MEM_B(c, (int32_t)(records + i * 0x20));
-                    same = have == name[c];
-                    if (name[c] == 0) break;
-                }
-                if (same) return (t << 10) | i;
-            }
-        }
-        return -2;
+    int32_t call(uint8_t* rdram, recomp_context* ctx, void (*func)(uint8_t*, recomp_context*), int32_t a0 = 0, int32_t a1 = 0,
+                 int32_t a2 = 0, int32_t a3 = 0) {
+        recomp_context saved = *ctx;
+        ctx->r4 = a0;
+        ctx->r5 = a1;
+        ctx->r6 = a2;
+        ctx->r7 = a3;
+        func(rdram, ctx);
+        int32_t ret = (int32_t)ctx->r2;
+        *ctx = saved;
+        return ret;
     }
 
-    // Whether texture handle `texture` is an image called `name`.
-    bool texture_named(uint8_t* rdram, int texture, const char* name) {
-        int table = texture >> 10, tables = MEM_BU(0, (int32_t)texture_table_count);
-        if (texture < 0 || table >= tables || table >= 32) return false;
-        uint32_t records = (uint32_t)MEM_W(0, (int32_t)(texture_tables + table * 8));
-        if (records == 0 || (texture & 0x3FF) >= MEM_W(4, (int32_t)(texture_tables + table * 8))) return false;
-        for (int c = 0; c < 16; c++) {
-            if ((char)MEM_B(c, (int32_t)(records + (texture & 0x3FF) * 0x20)) != name[c]) return false;
-            if (name[c] == 0) break;
+    uint32_t game_string(uint8_t* rdram, const std::string& text) {
+        if (text_scratch == 0) {
+            text_scratch = (uint32_t)((uint8_t*)recomp::alloc(rdram, text_scratch_size) - rdram) + 0x80000000u;
         }
-        return true;
+        if (text_at + text.size() + 1 > text_scratch_size) text_at = 0;
+        uint32_t at = text_scratch + text_at;
+        for (int i = 0; i <= (int)text.size(); i++) MEM_B(i, (int32_t)at) = i < (int)text.size() ? text[i] : 0;
+        text_at += (uint32_t)((text.size() + 4) & ~3u);
+        return at;
     }
 
-    // Rush 2's own arrows: every polygon with an ARROW image that isn't one of the battle's.
-    void hide_game_arrows(uint8_t* rdram) {
-        int used = std::min<int>(MEM_W(0, (int32_t)polygon_count), polygon_limit);
-        for (int slot = 0; slot < used; slot++) {
-            uint32_t poly = polygons + slot * polygon_size;
-            uint16_t flags = MEM_HU(2, (int32_t)poly);
-            if (MEM_H(0, (int32_t)poly) != 4 || (flags & polygon_hidden) != 0 || MEM_H(6, (int32_t)poly) == arrow_depth) continue;
-            if (texture_named(rdram, MEM_H(4, (int32_t)poly), "ARROW")) MEM_H(2, (int32_t)poly) = (int16_t)(flags | polygon_hidden);
+    // Prints `text` centered on x.
+    void print_centered(uint8_t* rdram, recomp_context* ctx, int style, int x, int y, const std::string& text) {
+        uint32_t at = game_string(rdram, text);
+        int width = call(rdram, ctx, text_measure_string_800732AC, (int32_t)at, -1);
+        call(rdram, ctx, text_select_style_800737E4, style);
+        call(rdram, ctx, text_print_string_800734E0, x - width / 2, y, (int32_t)at);
+    }
+
+    // 2049 main func_80105EA8: with two or more views a box in the middle of the screen names the winner ("%s WINS",
+    // "%d-WAY TIE"), and each view shows its player's name over its points (the kills, "%s\n%d %s" with POINTS).
+    // 2049 prints the players' profile names; here they are PLAYER 1-4 [I].
+    void draw_results(uint8_t* rdram, recomp_context* ctx) {
+        text_at = 0;
+        call(rdram, ctx, text_select_font_80088C24, results_font);
+        constexpr uint32_t box_color = 0x000000C0;
+        for (int p = 0; p < results.players; p++) {
+            View v = view_of(rdram, p, results.players);
+            int cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2 + (results.players > 1 ? (v.bottom ? 24 : -30) : 0);
+            if (results.players == 2 && !v.wide) cy = (v.y0 + v.y1) / 2 + 40;
+            // The game's text is anchored by the third of the screen it is printed in (src/hud.cpp): the box too.
+            float anchor = cx < 107 ? 0.0f : cx < 214 ? 0.5f : 1.0f;
+            rush2::hud::draw_rect(rdram, (float)cx - 45.0f, (float)cy - 13.0f, (float)cx + 45.0f, (float)cy + 13.0f, box_color, anchor);
+            print_centered(rdram, ctx, style_white, cx, cy - 10, "PLAYER " + std::to_string(p + 1));
+            print_centered(rdram, ctx, style_white, cx, cy + 1, std::to_string(results.kills[p]) + " POINTS");
+        }
+        if (results.players >= 2) {
+            // The box 2049 opens at (91, 106) - (229, 114), a text line taller.
+            rush2::hud::draw_rect(rdram, 91.0f, 101.0f, 229.0f, 119.0f, box_color, 0.5f);
+            std::string line = results.tied > 1 ? std::to_string(results.tied) + "-WAY TIE"
+                                                : "PLAYER " + std::to_string(results.winner + 1) + " WINS";
+            print_centered(rdram, ctx, style_highlight, 160, 105, line);
         }
     }
 
-    bool arrow_valid(uint8_t* rdram, uint32_t poly) {
-        return poly != 0 && MEM_H(0, (int32_t)poly) == 4 && MEM_H(4, (int32_t)poly) == (int16_t)arrow_texture &&
-               MEM_H(6, (int32_t)poly) == arrow_depth && (MEM_HU(2, (int32_t)poly) & arrow_flags) == arrow_flags;
+    // The Weapons cheat's bar, the battle's (update_hud): HEALTHBG with the green fill in its 56 x 4 window.
+    void draw_cheat_bar(uint8_t* rdram, const Layout& l, float fraction) {
+        uint32_t image = 0;
+        int w = 0, h = 0;
+        if (!rush2::battle_render::image(rdram, "HEALTHBG", &image, &w, &h)) return;
+        float x = std::round(l.bar_x), y = std::round(l.bar_y);
+        rush2::hud::draw_image(rdram, image, w, h, x, y, x + (float)w * l.bar_sx, y + (float)h * l.bar_sy, l.bar_anchor);
+        float x0 = x + std::round(4.0f * l.bar_sx), y0 = y + std::round(2.0f * l.bar_sy);
+        float width = std::round(std::clamp(fraction, 0.0f, 1.0f) * 56.0f * l.bar_sx);
+        rush2::hud::draw_rect(rdram, x0, y0, x0 + width, y0 + std::round(4.0f * l.bar_sy), 0x008000FF, l.bar_anchor);
     }
 
-    // func_80054010: the first free polygon (vertex count 0), hidden until it is placed.
-    uint32_t make_arrow(uint8_t* rdram, int view) {
-        int used = MEM_W(0, (int32_t)polygon_count), slot = 0;
-        while (slot < used && MEM_H(0, (int32_t)(polygons + slot * polygon_size)) != 0) slot++;
-        if (slot >= polygon_limit) return 0;
-        if (slot >= used) MEM_W(0, (int32_t)polygon_count) = slot + 1;
-        if (MEM_W(0, (int32_t)polygon_high) < slot + 1) MEM_W(0, (int32_t)polygon_high) = slot + 1;
-        uint32_t poly = polygons + slot * polygon_size;
-        for (int i = 0; i < (int)polygon_size; i += 4) MEM_W(i, (int32_t)poly) = 0;
-        MEM_H(0, (int32_t)poly) = 4;
-        MEM_H(2, (int32_t)poly) = (int16_t)(arrow_flags | polygon_hidden | (1 << view));
-        MEM_H(4, (int32_t)poly) = (int16_t)arrow_texture;
-        MEM_H(6, (int32_t)poly) = arrow_depth;
-        // func_80053D28's texture coordinates for the image: its last row at the first two vertices.
-        uint32_t record = (uint32_t)MEM_W(0, (int32_t)(texture_tables + (arrow_texture >> 10) * 8)) + (arrow_texture & 0x3FF) * 0x20;
-        int w = MEM_HU(0x10, (int32_t)record), h = MEM_HU(0x12, (int32_t)record);
-        const int16_t u[4] = { int16_t((w << 6) - 16), int16_t((w << 5) - 16), int16_t((w << 5) - 16), int16_t((w << 6) - 16) };
-        const int16_t t[4] = { int16_t((h << 6) - 16), int16_t((h << 6) - 16), int16_t((h << 5) - 16), int16_t((h << 5) - 16) };
-        for (int i = 0; i < 4; i++) {
-            MEM_H(0x14 + i * 0x14, (int32_t)poly) = u[i];
-            MEM_H(0x16 + i * 0x14, (int32_t)poly) = t[i];
-        }
-        return poly;
-    }
-
-    void release_arrows(uint8_t* rdram) {
-        for (auto& view : arrow_polygons) {
-            for (uint32_t& poly : view) {
-                if (arrow_texture >= 0 && arrow_valid(rdram, poly)) MEM_H(0, (int32_t)poly) = 0;
-                poly = 0;
-            }
-        }
-        arrow_texture = -1;
-    }
-
-    // func_8008C884 for view p.
-    void update_arrows(uint8_t* rdram, int p, int players, const View& v) {
-        if (arrow_texture == -1) {
-            arrow_texture = find_texture(rdram, "ARROW");
-            if (arrow_texture < 0) fprintf(stderr, "[Battle] No ARROW image is loaded\n");
-            if (const char* test = getenv("R2_BATTLE_TEST"); test != nullptr && strstr(test, "log") != nullptr) {
-                fprintf(stderr, "[Battle] ARROW is texture 0x%X of %d containers\n", arrow_texture, (int)MEM_BU(0, (int32_t)texture_table_count));
-            }
-        }
-        hide_game_arrows(rdram);
-        if (arrow_texture < 0) return;
-        int own = p < players ? player_car(rdram, p) : -1;
-        float axes[9], eye[3], tan_x, tan_y;
-        view_axes(rdram, p, axes);
-        view_tangents(rdram, p, v, tan_x, tan_y);
-        for (int i = 0; i < 3; i++) eye[i] = read_f(rdram, cameras + (uint32_t)p * 0x40 + 0x24 + i * 4);
-        // 2049's views are a quarter turn wide; a view's 4:3 part here is as wide as its height makes it.
-        float tan_x43 = tan_y * (float)(v.x1 - v.x0) / (float)(v.y1 - v.y0);
-        float vfov = 2.0f * std::atan(tan_y);
-        // In a race or its countdown (state 10), as Rush 2 shows its own arrows [I].
-        int state = MEM_W(0, (int32_t)game_state);
-        bool racing = state == 3 || state == 10;
-        for (int car = 0; car < max_cars; car++) {
-            uint32_t& poly = arrow_polygons[p][car];
-            bool show = racing && own >= 0 && car != own && alive(rdram, car);
-            if (!arrow_valid(rdram, poly)) poly = show ? make_arrow(rdram, p) : 0;
-            if (poly == 0) continue;
-            uint16_t flags = uint16_t(arrow_flags | (1 << p));
-            if (!show) {
-                MEM_H(2, (int32_t)poly) = (int16_t)(flags | polygon_hidden);
-                continue;
-            }
-            float target[3], d[3], local[3];
-            car_pos(rdram, car, target);
-            for (int i = 0; i < 3; i++) d[i] = target[i] - eye[i];
-            to_local(axes, d, local);
-            float a = std::atan2(local[0], local[2]);
-            float center[3], half;
-            int turn = 0;   // The image's quarter turns: 0 points down, 1 left, 3 right.
-            if (std::fabs(a) < arrow_in_view * 2.0f * std::atan(tan_x)) {
-                half = length(d) * arrow_hover_scale;
-                for (int i = 0; i < 3; i++) center[i] = target[i];
-                center[1] += half + arrow_hover;
-            }
-            else {
-                half = arrow_size * tan_x43 * arrow_distance;
-                float edge_x = tan_x * arrow_distance - half;
-                // Kept whole inside the view [I]: 2049's bottom arrows of two stacked views are half below it.
-                float top = tan_y * arrow_distance - half;
-                float edge_y = std::min(arrow_bottom * vfov * arrow_distance, top);
-                float x, y;
-                if (std::fabs(a) <= 1.5707964f) {
-                    float start = arrow_side_start * vfov;
-                    x = a > 0.0f ? edge_x : -edge_x;
-                    y = std::clamp(-edge_y * (std::fabs(a) - start) / (1.5707964f - start), -edge_y, top);
-                    turn = a > 0.0f ? 3 : 1;
-                }
-                else {
-                    float behind = a > 0.0f ? a - 3.1415927f : a + 3.1415927f;
-                    x = -edge_x * behind / 1.5707964f;
-                    y = -edge_y;
-                }
-                for (int i = 0; i < 3; i++) center[i] = eye[i] + axes[6 + i] * arrow_distance + axes[i] * x + axes[3 + i] * y;
-            }
-            int player = -1;
-            for (int q = 0; q < players; q++) {
-                if (player_car(rdram, q) == car) player = q;
-            }
-            uint32_t color = arrow_colors[player >= 0 ? player : 4];
-            if (fighters[car].invisible > 0.0f) color = (color & 0xFFFFFF00) | arrow_alpha_invisible;
-            // The corners (1, 1), (-1, 1), (-1, -1), (1, -1) across and up the view, turned with the image.
-            static const float corner[4][2] = { { 1, 1 }, { -1, 1 }, { -1, -1 }, { 1, -1 } };
-            for (int i = 0; i < 4; i++) {
-                const float* c = corner[(i - turn) & 3];
-                uint32_t vertex = poly + 8 + i * 0x14;
-                for (int k = 0; k < 3; k++) {
-                    write_f(rdram, vertex + k * 4, (center[k] + (axes[k] * c[0] + axes[3 + k] * c[1]) * half) * 16.0f);
-                }
-                MEM_W(0x10, (int32_t)vertex) = (int32_t)color;
-            }
-            MEM_H(2, (int32_t)poly) = (int16_t)flags;
-        }
+    // Where the Weapons cheat puts the weapon: left of its bar (the corners are Rush 2's HUD's).
+    Layout cheat_layout(const View& v) {
+        Layout l = layout_of(v);
+        l.weapon_x = l.bar_x - 14.0f;
+        l.weapon_anchor = l.bar_anchor;
+        return l;
     }
 }
 
@@ -1933,7 +1980,7 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
     if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot || rush2::track2049::battle_arena() <= 0) return;
     int players = local_players(rdram);
     static const char frame_name[] = "HEALTHBG";
-    for (size_t c = 0; c < sizeof(frame_name); c++) MEM_B((int32_t)c, (int32_t)hud_names) = (int8_t)frame_name[c];
+    for (int c = 0; c < (int)sizeof(frame_name); c++) MEM_B(c, (int32_t)hud_names) = (int8_t)frame_name[c];
     for (int p = 0; p < players; p++) {
         uint32_t entry = hud_entries + (uint32_t)p * entry_size;
         make_entry(rdram, entry, hud_names, 0, 0);
@@ -1944,13 +1991,15 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
         rush2::hud::set_widget_scale(hud_widgets[p].fill, 1.0f, 1.0f);
     }
     hud_players = players;
-    // Rush 2's own HUD is hidden except the speedometer: every element with a callback but the speedometer's loses its
+    // Rush 2's own HUD is hidden except the speedometer and the clock: every other element with a callback loses its
     // callback (which would show it again) and is hidden with its widget. The elements are in a pool (func_80060418).
     int element_total = (int)MEM_W(0, (int32_t)element_count);
     for (int i = 0; i < element_total && i < 0xC8; i++) {
         uint32_t e = (uint32_t)MEM_W(0, (int32_t)(element_pool + (uint32_t)i * 4));
         uint32_t callback = e == 0 ? 0 : (uint32_t)MEM_W(0x28, (int32_t)e);
-        if (callback == 0 || callback == speedometer_callback) continue;
+        if (callback == 0 || callback == speedometer_callback || callback == race_time_callback || callback == countdown_time_callback) {
+            continue;
+        }
         MEM_W(0x28, (int32_t)e) = 0;
         MEM_B(0x1A, (int32_t)e) = 1;
         int widget_slot = (int16_t)MEM_H(0x34, (int32_t)e);
@@ -1958,7 +2007,8 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-// After the widget draw loop: the ammo on each view's weapon and the kills on its coin.
+// After the widget draw loop: the ammo on each view's weapon and the kills on its coin; the results once the time is
+// up; the Weapons cheat's bar.
 void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ battle_mutex };
     if (MEM_W(0, (int32_t)game_state) < 3) {
@@ -1971,107 +2021,112 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
         }
         return;
     }
-    if (!ready || !battle_race(rdram) || hud_players == 0) return;
+    if (!ready || mode == Mode::none) return;
     // Not over the pause menu's screens (0x8002305C is set while one is open).
     if (MEM_B(0, (int32_t)0x8002305C) != 0) return;
-    for (int p = 0; p < hud_players; p++) {
+    int players = mode == Mode::arena ? hud_players : local_players(rdram);
+    for (int p = 0; p < players; p++) {
         int car = player_car(rdram, p);
         if (car < 0 || car >= max_cars) continue;
         const Fighter& f = fighters[car];
-        Layout l = layout_of(view_of(rdram, p, hud_players));
+        View v = view_of(rdram, p, players);
+        Layout l = mode == Mode::arena ? layout_of(v) : cheat_layout(v);
         char text[16];
         // Whole texels in a quadrant (the digits are 10 tall): a smaller size loses their top row.
         float digits = l.small ? 10.0f : 12.0f;
-        snprintf(text, sizeof(text), "%d", std::min(f.kills, 999));
-        rush2::hud::draw_number(rdram, text, l.coin_x, l.coin_y, digits, l.coin_anchor);
+        if (mode == Mode::arena && !over) {
+            snprintf(text, sizeof(text), "%d", std::min(f.kills, 999));
+            rush2::hud::draw_number(rdram, text, l.coin_x, l.coin_y, digits, l.coin_anchor);
+        }
+        else if (!is_wrecked(rdram, car)) {
+            draw_cheat_bar(rdram, l, f.health / max_health);
+        }
         if (f.weapon < 8 && f.ammo > 0 && !is_wrecked(rdram, car)) {
             snprintf(text, sizeof(text), "%d", f.ammo);
             rush2::hud::draw_number(rdram, text, l.weapon_x, l.weapon_y, digits, l.weapon_anchor);
         }
     }
-    // The weapons' models are drawn in the primitive color (2049 sets each to its car's color, func_8008E06C with the
-    // car state's +0x34C; Rush 2's nodes carry no color), which is whatever was set last: leave a fixed steel blue.
-    rush2::hud::set_prim_color(rdram, 0x7090B0FF);
+    if (mode == Mode::arena && over) draw_results(rdram, ctx);
 }
 
-// func_8007C27C entry ($a1 = the camera position of the view about to be drawn): shows that view's HUD models and
-// hides the other views', as 2049 shows each of its HUD models in one view (func_8008B0D8 with the view's bit).
+// func_8007C27C entry ($a1 = the camera position of the view about to be drawn): places that view's HUD models, as
+// 2049 shows each of its HUD models in one view (func_8008B0D8 with the view's bit), and hides the shadows of the
+// invisible cars in the other players' views.
 extern "C" void rush2_battle_view(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ battle_mutex };
-    if (!ready || pool.size() < (size_t)hud_coin_slot_first + 4 || MEM_W(0, (int32_t)game_state) < 3) return;
-    uint32_t at = (uint32_t)ctx->r5;
-    int view = -1;
-    if (at >= cameras && at < cameras + 4 * 0x40) {
-        view = (int)((at - cameras) / 0x40);
-    }
-    else {
-        // A copy of the position: the view whose camera is there.
-        for (int p = 0; p < 4 && view < 0; p++) {
-            bool same = true;
-            for (int i = 0; i < 3; i++) {
-                same = same && MEM_W(i * 4, (int32_t)at) == MEM_W(0x24 + i * 4, (int32_t)(cameras + (uint32_t)p * 0x40));
-            }
-            if (same) view = p;
-        }
-    }
+    if (!ready || mode == Mode::none || MEM_W(0, (int32_t)game_state) < 3) return;
+    int view = rush2::views::view_of_camera(rdram, (uint32_t)ctx->r5);
+    if (view < 0 || view >= 4) return;
+    update_mounts(rdram);
     int players = local_players(rdram);
-    // Invisible cars: the body's scene node (car state +0xF0, a node index) is hidden in the other players' views
-    // (its wheels and shadow still show) and drawn in its own. 2049 fades the car out, to nothing in the other views.
     for (int i = 0; i < max_cars; i++) {
         Fighter& f = fighters[i];
         bool invisible = f.present && f.invisible > 0.0f && !is_wrecked(rdram, i);
-        if (!invisible && !f.hidden) continue;
-        int32_t body = MEM_W(0, (int32_t)(state_at(i) + state_body_node));
-        if (body < 0 || body >= (int32_t)MEM_W(0, (int32_t)node_count)) continue;
-        bool own = view >= 0 && view < players && player_car(rdram, view) == i;
-        if (invisible && !own) hide_node(rdram, nodes + (uint32_t)body * node_size);
-        else show_node(rdram, nodes + (uint32_t)body * node_size);
-        f.hidden = invisible;
+        if (!invisible && !f.shadow_hidden) continue;
+        uint32_t shadow = (uint32_t)MEM_W(0, (int32_t)(state_at(i) + state_shadow));
+        if (shadow < 0x80000000u) continue;
+        bool own = view < players && player_car(rdram, view) == i;
+        uint16_t flags = MEM_HU(2, (int32_t)shadow);
+        if (invisible && !own) {
+            if ((flags & 0x8000) == 0) {
+                MEM_H(2, (int32_t)shadow) = (int16_t)(flags | 0x8000);
+                f.shadow_hidden = true;
+            }
+        }
+        else if (f.shadow_hidden) {
+            MEM_H(2, (int32_t)shadow) = (int16_t)(flags & ~0x8000);
+            f.shadow_hidden = false;
+        }
     }
-    if (view >= 0 && view < 4 && battle_race(rdram)) update_arrows(rdram, view, players, view_of(rdram, view, players));
-    for (int p = 0; p < 4; p++) {
-        int weapon_slot = hud_weapon_slot_first + p, powerup_slot = hud_powerup_slot_first + p, coin_slot = hud_coin_slot_first + p;
-        int car = p < players ? player_car(rdram, p) : -1;
-        if (p != view || car < 0 || car >= max_cars || !battle_race(rdram)) {
-            hide_slot(rdram, weapon_slot);
-            hide_slot(rdram, powerup_slot);
-            hide_slot(rdram, coin_slot);
-            continue;
-        }
-        const Fighter& f = fighters[car];
-        View v = view_of(rdram, p, players);
-        Layout l = layout_of(v);
-        float pos[3], axes[9], m[9];
-        float gain = model_gain(rdram, p, v) * hud_distance;
-        // The weapon held, turning about the camera's up axis.
-        if (f.weapon < 8 && !is_wrecked(rdram, car)) {
-            view_point(rdram, p, v, anchored_x(l.weapon_x, l.weapon_anchor), l.weapon_y, hud_distance, pos, axes);
-            memcpy(m, axes, sizeof(m));
-            yaw(m, hud_spin);
-            scale_matrix(m, (f.weapon == sonic ? sonic_scale : weapon_scale) * gain);
-            color_slot(weapon_slot, player_colors[p]);
-            place_slot(rdram, weapon_slot, mount_models[f.weapon], m, pos);
-        }
-        else {
-            hide_slot(rdram, weapon_slot);
-        }
-        // The power-up in effect (invisibility before the shield), turning.
-        if ((f.invisible > 0.0f || f.shield > 0.0f) && !is_wrecked(rdram, car)) {
-            view_point(rdram, p, v, anchored_x(l.powerup_x, l.bar_anchor), l.powerup_y, hud_distance, pos, axes);
-            memcpy(m, axes, sizeof(m));
-            yaw(m, hud_spin);
-            scale_matrix(m, powerup_scale * gain);
-            place_slot(rdram, powerup_slot, f.invisible > 0.0f ? "WEPICON_INVSG1" : "WEPICON_SHLDG1", m, pos);
-        }
-        else {
-            hide_slot(rdram, powerup_slot);
-        }
-        // The player's coin, face on (2049 tips its model a quarter turn back).
+    int p = view;
+    int weapon_slot = hud_weapon_slot_first + p, powerup_slot = hud_powerup_slot_first + p, coin_slot = hud_coin_slot_first + p;
+    int car = p < players ? player_car(rdram, p) : -1;
+    if (car < 0 || car >= max_cars) {
+        hide_slot(rdram, weapon_slot);
+        hide_slot(rdram, powerup_slot);
+        hide_slot(rdram, coin_slot);
+        return;
+    }
+    const Fighter& f = fighters[car];
+    View v = view_of(rdram, p, players);
+    Layout l = mode == Mode::arena ? layout_of(v) : cheat_layout(v);
+    float pos[3], axes[9], m[9];
+    float gain = model_gain(rdram, p, v) * hud_distance;
+    // The weapon held, turning about the camera's up axis.
+    if (f.weapon < 8 && !is_wrecked(rdram, car)) {
+        view_point(rdram, p, v, anchored_x(l.weapon_x, l.weapon_anchor), l.weapon_y, hud_distance, pos, axes);
+        memcpy(m, axes, sizeof(m));
+        yaw(m, hud_spin);
+        scale_matrix(m, (f.weapon == sonic ? sonic_scale : weapon_scale) * gain);
+        color_slot(weapon_slot, plain_color);
+        place_slot(rdram, weapon_slot, mount_models[f.weapon], m, pos);
+    }
+    else {
+        hide_slot(rdram, weapon_slot);
+    }
+    // The power-up in effect (invisibility before the shield), turning.
+    if ((f.invisible > 0.0f || f.shield > 0.0f) && !is_wrecked(rdram, car)) {
+        view_point(rdram, p, v, anchored_x(l.powerup_x, l.bar_anchor), l.powerup_y, hud_distance, pos, axes);
+        memcpy(m, axes, sizeof(m));
+        yaw(m, hud_spin);
+        scale_matrix(m, powerup_scale * gain);
+        color_slot(powerup_slot, plain_color);
+        place_slot(rdram, powerup_slot, f.invisible > 0.0f ? "WEPICON_INVSG1" : "WEPICON_SHLDG1", m, pos);
+    }
+    else {
+        hide_slot(rdram, powerup_slot);
+    }
+    // The player's coin, face on (2049 tips its model a quarter turn back), in its team's color.
+    if (mode == Mode::arena && !over) {
         view_point(rdram, p, v, anchored_x(l.coin_x, l.coin_anchor), l.coin_y, hud_distance, pos, axes);
         memcpy(m, axes, sizeof(m));
         pitch(m, -1.5707964f);
         scale_matrix(m, coin_scale * gain);
-        place_slot(rdram, coin_slot, coin_models[p], m, pos);
+        color_slot(coin_slot, plain_color);
+        place_slot(rdram, coin_slot, coin_models[rush2::battle::team_of(p)], m, pos);
+    }
+    else {
+        hide_slot(rdram, coin_slot);
     }
 }
 

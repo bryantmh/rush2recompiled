@@ -780,6 +780,89 @@ void rush2::hud::draw_number(uint8_t* rdram, const char* digits, float center_x,
     write_2d_commands(rdram, cmds, count);
 }
 
+// A filled rectangle in the 2D display list, blended by its alpha, anchored like draw_number's digits.
+void rush2::hud::draw_rect(uint8_t* rdram, float x0, float y0, float x1, float y1, uint32_t rgba, float anchor) {
+    if (MEM_W(0, (int32_t)dl_2d_cursor) == 0 || x1 <= x0 || y1 <= y0) {
+        return;
+    }
+    set_anchor(rdram, anchor);
+    int32_t fx0 = (int32_t)std::lround(x0 * 4.0f), fy0 = (int32_t)std::lround(y0 * 4.0f);
+    int32_t fx1 = (int32_t)std::lround(x1 * 4.0f), fy1 = (int32_t)std::lround(y1 * 4.0f);
+    if (fx0 < 0 || fy0 < 0 || fx1 > 0xFFF || fy1 > 0xFFF) {
+        return;
+    }
+    GfxCommand cmds[12];
+    uint32_t count = 0;
+    auto cmd = [&](uint32_t w0, uint32_t w1) {
+        cmds[count].values.word0 = w0;
+        cmds[count].values.word1 = w1;
+        count++;
+    };
+    gEXEnable(&cmds[count++]);
+    gEXPushPrimColor(&cmds[count++]);
+    gEXPushOtherMode(&cmds[count++]);
+    gEXPushCombineMode(&cmds[count++]);
+    cmd(0xE7000000, 0);
+    // 1-cycle, translucent surface blending, no Z; color and alpha = primitive (the game's own filled polygons,
+    // func_8007C624).
+    cmd(0xEF000000 | 0x002CF0, 0x00504240);
+    cmd(0xFCFFFFFF, 0xFFFDF6FB);
+    cmd(0xFA000000, rgba);
+    cmd(0xF6000000 | ((uint32_t)fx1 << 12) | (uint32_t)fy1, ((uint32_t)fx0 << 12) | (uint32_t)fy0);
+    cmd(0xE7000000, 0);
+    gEXPopCombineMode(&cmds[count++]);
+    gEXPopOtherMode(&cmds[count++]);
+    gEXPopPrimColor(&cmds[count++]);
+    write_2d_commands(rdram, cmds, count);
+}
+
+void rush2::hud::draw_image(uint8_t* rdram, uint32_t address, int w, int h, float x0, float y0, float x1, float y1, float anchor) {
+    if (MEM_W(0, (int32_t)dl_2d_cursor) == 0 || x1 <= x0 || y1 <= y0 || w <= 0 || h <= 0 || w * h > 2048) {
+        return;
+    }
+    set_anchor(rdram, anchor);
+    int32_t fx0 = (int32_t)std::lround(x0 * 4.0f), fy0 = (int32_t)std::lround(y0 * 4.0f);
+    int32_t fx1 = (int32_t)std::lround(x1 * 4.0f), fy1 = (int32_t)std::lround(y1 * 4.0f);
+    if (fx0 < 0 || fy0 < 0 || fx1 > 0xFFF || fy1 > 0xFFF) {
+        return;
+    }
+    GfxCommand cmds[24];
+    uint32_t count = 0;
+    auto cmd = [&](uint32_t w0, uint32_t w1) {
+        cmds[count].values.word0 = w0;
+        cmds[count].values.word1 = w1;
+        count++;
+    };
+    gEXEnable(&cmds[count++]);
+    gEXPushOtherMode(&cmds[count++]);
+    gEXPushCombineMode(&cmds[count++]);
+    cmd(0xE7000000, 0);
+    // 1-cycle, bilinear, translucent surface blending, no Z (draw_number's); color and alpha = the texel's.
+    cmd(0xEF000000 | 0x002CF0, 0x00504240);
+    uint32_t c_sa = 15, c_sb = 15, c_m = 31, c_a = 1, a_sa = 7, a_sb = 7, a_m = 7, a_a = 1;
+    cmd(0xFC000000 | (c_sa << 20) | (c_m << 15) | (a_sa << 12) | (a_m << 9) | (c_sa << 5) | c_m,
+        (c_sb << 28) | (c_a << 15) | (a_sb << 12) | (a_a << 9) | (c_sb << 24) | (a_sa << 21) | (a_m << 18) | (c_a << 6) | (a_sb << 3) | a_a);
+    constexpr uint32_t fmt_rgba = 0, siz_16b = 2, clamp = 2;
+    uint32_t tile_clamp = (clamp << 18) | (clamp << 8);
+    uint32_t line = ((uint32_t)w * 2 + 7) / 8;
+    cmd(0xFD000000 | (fmt_rgba << 21) | (siz_16b << 19), address & 0x1FFFFFFF);
+    cmd(0xF5000000 | (fmt_rgba << 21) | (siz_16b << 19), (7u << 24) | tile_clamp);
+    cmd(0xE6000000, 0);
+    cmd(0xF3000000, (7u << 24) | ((uint32_t)(w * h - 1) << 12) | ((2048 + line - 1) / line));
+    cmd(0xE7000000, 0);
+    cmd(0xF5000000 | (fmt_rgba << 21) | (siz_16b << 19) | (line << 9), tile_clamp);
+    cmd(0xF2000000, ((uint32_t)((w - 1) << 2) << 12) | (uint32_t)((h - 1) << 2));
+    cmd(0xE4000000 | ((uint32_t)fx1 << 12) | (uint32_t)fy1, ((uint32_t)fx0 << 12) | (uint32_t)fy0);
+    cmd(0xE1000000, 0);
+    uint32_t step_x = (uint32_t)std::lround(1024.0f * (float)w / (x1 - x0)) & 0xFFFF;
+    uint32_t step_y = (uint32_t)std::lround(1024.0f * (float)h / (y1 - y0)) & 0xFFFF;
+    cmd(0xF1000000, (step_x << 16) | step_y);
+    cmd(0xE7000000, 0);
+    gEXPopCombineMode(&cmds[count++]);
+    gEXPopOtherMode(&cmds[count++]);
+    write_2d_commands(rdram, cmds, count);
+}
+
 void rush2::hud::set_widget_scale(int slot, float scale_x, float scale_y, float anchor) {
     if (slot >= 0 && slot < (int)max_widgets) {
         managed_scale_x[slot] = scale_x;

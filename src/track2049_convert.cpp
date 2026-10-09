@@ -2437,6 +2437,9 @@ namespace {
     constexpr uint32_t demo_counts_vram = 0x80117408; // s16 per race track + 6 * backward.
     constexpr uint32_t pvs_vram[6] = { 0x8011B898, 0x8011BFE8, 0x8011C738, 0x8011CE88, 0x8011D618, 0x8011DC88 };
     constexpr uint32_t obstacle_pvs_vram = 0x8011E5B8; // The obstacle course's (func_8009EBC0); stunt arenas have none.
+    // The battle arenas' (func_8009EBC0, track ids 6-13). Only DM5 has regions (14, 0x8011E748); the others' one
+    // entry is never read.
+    constexpr uint32_t battle_pvs_vram[8] = { 0x8011E428, 0x8011E438, 0x8011E448, 0x8011E458, 0x8011E468, 0x8011E548, 0x8011E558, 0x8011E568 };
     constexpr int shared_model_file = 78; // F1FLAG / F2FLAG frames, TRIGGEROFF / TRIGGERON.
     constexpr int battle_hud_file = 63;   // HEALTHBG / HEALTHBAR images and BCOIN_* coins of the battle HUD.
     constexpr int battle_model_file = 76; // WEPICON_* pickups, WPR_* projectiles, WFX_* effects and WEP_* weapons.
@@ -2448,7 +2451,8 @@ namespace {
     Bytes convert_pvs(const Bytes& main, int k, int count) {
         Bytes out;
         for (int reg = 0; reg < count; reg++) {
-            uint32_t table = k <= 6 ? pvs_vram[k - 1] : obstacle_pvs_vram;
+            bool battle = k >= rush2::track2049::battle_first && k < rush2::track2049::battle_first + rush2::track2049::battle_count;
+            uint32_t table = k <= 6 ? pvs_vram[k - 1] : battle ? battle_pvs_vram[k - rush2::track2049::battle_first] : obstacle_pvs_vram;
             size_t o = table - main_vram + (size_t)reg * 16;
             for (int j : { 1, 0, 3, 2 }) {
                 add32(out, u32(main, o + j * 4));
@@ -2717,15 +2721,14 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
                                           &out.spin_records, &out.prop_records, &out.pickup_records, &out.pool_records,
                                           battle);
         out.collision = convert_collision(collision);
-        out.solid_triangles = battle ? solid_triangles(collision) : std::vector<float>{};
+        out.solid_triangles = solid_triangles(collision);   // For the weapons' shots (src/battle.cpp), in any race here.
         validate_path(files[5]);
         validate_path(files[6]);
         out.path = race ? files[5] : spine_lanes(files[5], collision, k != obstacle);
         out.path_backward = race ? files[6] : out.path;
 
-        // Battle arena DM5 counts 14 regions in 2049's table, but its visibility table isn't known (the obstacle
-        // course's is 0x8011E5B8; the others are in func_8009EBC0): battle arenas draw every section.
-        out.pvs_count = battle ? 0 : u8(main, pvs_counts_vram - main_vram + k - 1);
+        // Of the battle arenas only DM5 has visibility regions (14); the others draw every section.
+        out.pvs_count = u8(main, pvs_counts_vram - main_vram + k - 1);
         out.pvs = convert_pvs(main, k, out.pvs_count);
         for (int i = 0; i < 3; i++) {
             out.fog[i] = u8(main, fog_colours_vram - main_vram + (k - 1) * 3 + i);

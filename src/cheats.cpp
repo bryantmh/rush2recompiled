@@ -46,6 +46,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "rush2.h"
+#include "battle.h"
 #include "car2049.h"
 #include "unlocks.h"
 
@@ -223,6 +224,9 @@ namespace {
     const std::string unlock_parts_id = "unlock_all_parts";
     std::atomic<bool> unlock_parts_enabled = false;
 
+    // Not one of the game's: Rush 2049's battle weapons in the other races (src/battle.cpp).
+    const std::string weapons_id = "cheat_weapons";
+
     const std::string unlock_system_id = "unlock_system";
     std::atomic<bool> unlock_system_enabled = true;
 
@@ -285,7 +289,7 @@ namespace {
             { "Survival", { "cheat_invincible", "cheat_no_damage", "cheat_auto_abort", "cheat_resurrect_in_place",
                             "cheat_no_game_timer" } },
             { "Race", { "cheat_suicide_mode", "cheat_stunts_all_tracks", "cheat_cone_mines", "cheat_car_mines",
-                        "cheat_killer_rats" } },
+                        "cheat_killer_rats", weapons_id } },
         },
         {
             { "Looks", { "cheat_invisible_car", "cheat_invisible_track", "cheat_upside_down", "cheat_inside_out_car",
@@ -584,6 +588,34 @@ void rush2::cheats::create_tab() {
     config.add_option_change_callback(unlock_system_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             unlock_system_enabled = std::get<bool>(cur_value);
+        });
+
+    config.add_enum_option(
+        weapons_id,
+        "Weapons",
+        "Gives every player a Rush 2049 battle weapon in the other races: the one chosen, or with "
+        "<recomp-color primary>Random</recomp-color> any of the eight, again a few seconds after it runs out. "
+        "<recomp-color primary>Invisibility</recomp-color> gives the battle's power-up instead. Cars have a battle's "
+        "health and are wrecked when it runs out. Fire and drop with the <recomp-color primary>FIRE</recomp-color> and "
+        "<recomp-color primary>DROP WEAPON</recomp-color> controls. Requires a Rush 2049 (USA) ROM.",
+        {
+            { 0u, "Off", "Off" },
+            { 1u, "Cannon", "Cannon" },
+            { 2u, "Gatling", "Gatling Gun" },
+            { 3u, "Grenade", "Grenades" },
+            { 4u, "Mine", "Mines" },
+            { 5u, "Missile", "Missiles" },
+            { 6u, "Ram", "Ram" },
+            { 7u, "Rocket", "Rockets" },
+            { 8u, "Sonic", "Sonic Blast" },
+            { 9u, "Invisibility", "Invisibility" },
+            { 10u, "Random", "Random" },
+        },
+        0u
+    );
+    config.add_option_change_callback(weapons_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::battle::set_weapons_cheat((int)std::get<uint32_t>(cur_value));
         });
 
     for (size_t i = 0; i < cheat_list.size(); i++) {

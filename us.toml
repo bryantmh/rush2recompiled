@@ -275,7 +275,7 @@ text = "    rush2_car49_flames_draw(rdram, ctx);"
 [[patches.hook]]
 func = "view_fog_setup_8007C624"
 before_vram = 0x8007D9CC
-text = "    rush2_interp_view_end(rdram, ctx);"
+text = "    rush2_battle_render_view(rdram, ctx); rush2_interp_view_end(rdram, ctx);"
 
 [[patches.hook]]
 func = "scene_walk_8007B518"
@@ -1055,7 +1055,7 @@ text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rd
 [[patches.hook]]
 func = "pvs_apply_8007C27C"
 before_vram = 0x8007C27C
-text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_battle_view(rdram, ctx);"
+text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx);"
 
 [[patches.hook]]
 func = "model_find_by_name_8005BE3C"

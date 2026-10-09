@@ -162,6 +162,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/track2049_movers_logic.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_props.cpp
     ${CMAKE_SOURCE_DIR}/src/battle.cpp
+    ${CMAKE_SOURCE_DIR}/src/battle_render.cpp
+    ${CMAKE_SOURCE_DIR}/src/arrows.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_audio.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_texanim.cpp
     ${CMAKE_SOURCE_DIR}/src/car2049.cpp
