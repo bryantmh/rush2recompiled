@@ -21,6 +21,7 @@ Names and signatures marked inferred are educated guesses from the code.
 | 8009EA68 | `math_mat_rot_xy_from_angle_8009EA68` | `void math_mat_rot_xy_from_angle(s32 a0, f32 *m)` | Rotates matrix rows about z. \| Rotation about z. |  | verified |
 | 800A61B0 | `matrix_world_to_local_800A61B0` |  | MUL: world to local transform o[i] = M[i][2]*v2 + (v0*M[i][0] + v1*M[i][1]). |  | verified |
 | 800AD650 | `func_800AD650` |  | Decodes an s16 x 2^-14. |  | verified |
+| 800AF06C | `explosion_spawn_800AF06C` |  | Spawns the game's explosion object at a position or on a car (a0 = Vec3* or car index when a1 != 0), scale a2, with its sound when a3 != 0: 0x2D at scale >= 1, 0x45 at >= 0.5, else 0x2F, heard within 400. Battle shots call it with (pos, 0, 0.5, 1). |  | verified |
 | 800BF780 | `func_800BF780` |  | Matrix product out = B x A (element A[6+j]*B[i][2] + (B[i][0]*A[j] + B[i][1]*A[3+j])). \| Matrix multiply out = b x a (row-major, summed in 2049's order). |  | verified |
 | 800BFBE8 | `quat_to_matrix_800BFBE8` |  | quat_to_matrix(m, q, a2): s = 2 without normalization (a2 = 0 uses s = 2/\|q\|^2). \| Quaternion to matrix (a2 = 1: unit quaternion, scale 2). |  | verified |
 | 800BFD8C | `quat_interp_800BFD8C` |  | quat_interp(t, q0, q1, out): t<0.001 -> q0; t>0.999 -> q1; slerp when dot < 0.98 else componentwise lerp. \| Quaternion slerp with acos/sin below a 0.98 cosine, a wrapping per-component lerp above it. |  | verified |

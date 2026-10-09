@@ -1441,6 +1441,18 @@ namespace {
             it.prop = prop == prop_type.end() ? -1 : prop->second;
             auto pickup = pickup_of.find(r->index);
             it.pickup = pickup == pickup_of.end() ? -1 : pickup->second;
+            if (it.pickup >= 0) {
+                // A battle pickup's light cone is translucent and writes no depth, so whatever is drawn after it and
+                // behind it paints over it. Rush 2049 draws its objects after the track; here the pickups become
+                // world-space top-level records after the sections (kids[-1] below), like the path objects.
+                memcpy(it.m, r->m, sizeof(it.m));
+                memcpy(it.pos, r->pos, sizeof(it.pos));
+                it.flags = 0x40;
+                for (double& b : it.bbox) {
+                    b = 0.0;
+                }
+                it.parent = -1;
+            }
             it.source = r;
             it.parent_source = par >= 0 ? order[par].first : nullptr;
             items.push_back(it);
@@ -1482,6 +1494,12 @@ namespace {
         std::map<int, std::vector<int>> kids;
         for (size_t k = 0; k < items.size(); k++) {
             kids[items[k].parent].push_back((int)k);
+        }
+        // Battle pickups after every section and path object (see above); the pool stays last.
+        if (auto roots = kids.find(-1); roots != kids.end()) {
+            std::stable_partition(roots->second.begin(), roots->second.end(),
+                                  [&](int k) { return items[k].pickup < 0 || items[k].pool_slot >= 0; });
+            std::stable_partition(roots->second.begin(), roots->second.end(), [&](int k) { return items[k].pool_slot < 0; });
         }
         std::vector<int> new_order;
         std::function<void(int)> emit = [&](int par) {

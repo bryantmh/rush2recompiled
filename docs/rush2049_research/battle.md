@@ -139,7 +139,38 @@ MISS, RAM, ROCK, SHLD, SONC; POWUP is a random power-up. Each arena places the 8
 - With two views the 2D coordinates are in a 240-wide space: on screen the bar is 4/3 wider and everything sits 4/3
   further from the left edge than the numbers say (measured from a capture of the game). `WEAPONHUD` (128 x 16) and
   `AMMOCOUNT` aren't used by this overlay.
-- Arrows at the screen's edge point to the other cars (not located in the overlay's data; not ported).
+- Arrows to the other cars: section 6.1.
+
+### 6.1 Arrows to the other cars
+
+Main code, not the overlay. **[V]** unless marked.
+
+- `func_800B1B48` (race setup) gives every car a shadow polygon (`SHADBLUR`) and, with two or more players, one polygon
+  per other view with the **`ARROW`** image (16 x 16, effects file 62; handle `0x80161376`, loaded from the name table
+  `0x8011B404` by `func_800B2B80`'s loop): `func_800A78BC(4, template 0x8011AD90, texture, color, flags, 1)` with flags
+  `(1 << view) | 0x3200` in a battle (`0x1200` otherwise), then polygon +6 = 1. The record (car state +0x218, 0x18 each)
+  holds +4 the view, +6 the polygon's index, +8 the car, +0x14 the callback `func_8008C884`.
+- Polygons are `0x8015B268 + i * 0x58`, the same system as Rush 2's `0x800FAF00` (below): +0 s16 vertex count (0 = free),
+  +2 u16 flags, +4 texture handle, +6 s16 primitive depth, then 0x14 per vertex (f32 x, y, z times 16; s16 s, t; RGBA).
+  `func_8008C074(poly, count, vertices, texture, color, flags, set_texture)` writes one. Flags: bits 0-3 the views it is
+  drawn in, 0x8000 hidden, 0x2000 drawn at the primitive depth of +6 (1: in front of everything), 0x4000 a 2D rectangle.
+- Colors `0x8011B558` (RGBA): blue `0000E0`, red `E00000`, yellow `E0E000`, green `00E000` by player (by team
+  `0x8012E67C` in a battle), `E0E0E0` for a car without a player.
+- `func_8008C884(record)`, every frame. The arrow is hidden while the HUD is off (`0x801613A8`, `0x801174B4 & 0x400000`)
+  and, in a battle, for a dead or wrecked car; an invisible car's arrow takes the car's fade as alpha, never under 0x20.
+  With d = the car's position less the camera's, in the camera's frame (`func_8008C544`), and
+  a = `func_8008C768(-d.x, d.z)` (atan2):
+  - **Not a battle, or |a| < 0.48 x the view's horizontal field of view** (the car is in view): the template's corners
+    (1, 1), (-1, 1), (-1, -1), (1, -1), turned to face the camera, times s = |d| / 25, around the car's position
+    + (0, s + 5, 0). The image's point is down.
+  - **Battle, 0.48 x fov < |a| < pi / 2**: at the view's left or right edge. In view space: z = 10 pi / fov (20 with the
+    game's quarter turn), x = +-fov x (2 / pi) x 19, y = -vfov x (2 / pi) x 16.5 x (|a| - 0.75 vfov) / (pi / 2 - 0.75 vfov)
+    (one view: 14.5 and 1.1 vfov, which no battle uses); the corners +-1 around that, assigned one or three vertices
+    round so the image points out.
+  - **Battle, behind**: with b = a - pi or a + pi, x = fov x (2 / pi)^2 x 19 x b, y = -vfov x (2 / pi) x 16.5: along the
+    bottom edge, pointing down.
+  The field of view is `0x80154188` = 90 degrees (`func_800A5744` fills the view struct `0x8017A510 + view * 0x48`: +0xC
+  and +0x10 the angles in radians, +0x14 / +0x18 their half tangents, +0x24.. the view's size and center).
 
 ## 7. The port (Rush 2)
 
@@ -165,7 +196,33 @@ MISS, RAM, ROCK, SHLD, SONC; POWUP is a random power-up. Each arena places the 8
   battle HUD leaves at a fixed steel blue (2049 uses each car's color).
 - The clock: the stunt clock `0x8010C204` (Rush 2) is 3.5 during the start countdown and 300 afterwards; only the 300
   is replaced by the limit.
-- Sounds go through `rush2::audio2049::sfx_start` with 2049's emitter law per local player.
+- Sounds go through `rush2::audio2049::sfx_start` with 2049's emitter law per local player. The 2049 effects are only
+  mixed while something calls `rush2::track2049::effects_running` every frame (they go quiet with the race paused);
+  the battle does (`update_sounds`), or its sounds are silent unless a 2049 car's engine is running. The explosion's
+  sound 0x45 holds until its key-off, sent after 1.5 s **[I]**. A pickup plays its type's sound 0x60.
+- **Pickups are world-space top-level records after the arena's sections** (the converter, `convert_placement`): a
+  pickup's light cone (`ICON_LIGHT`, the last six triangles of a `WEPICON_*L1` model) is translucent and writes no
+  depth, so a section drawn after it painted over it wherever the section was behind it.
+- **Arrows** (section 6.1): Rush 2 polygons (`0x800FAF00`, count `0x800FAEF0`, the most used `0x800FAEF4`; `func_80054010` makes one,
+  `func_80053D28` writes one, `func_8007C624` draws those with its view's bit), made and moved by `update_arrows` for
+  the view about to be drawn (`rush2_battle_view`), in 2049's player colors, at primitive depth 1. The image is Rush 2's
+  own `ARROW` (its effects container; found by name in the texture tables `0x80119220`, count `0x800D5788`). Rush 2
+  has arrows of its own over the first two players' cars, without the edge arrows; a battle hides them (every other
+  polygon with an `ARROW` image). The edge arrows keep 2049's layout as parts of the view (flush with the side, a
+  twentieth of the 4:3 view's width) so they follow widescreen and the side by side layout; they are kept whole inside
+  the view **[I]** (2049's bottom arrows of two stacked views sit half below it). The 4 player code draws the polygons
+  of views 0 and 1 in views 2 and 3 too (`rush2_players4_poly_mask`); the arrows are left out of that. Shown in a race
+  and its countdown (game state 3 and 10), as Rush 2 shows its own **[I]**.
+- **HUD models are drawn in view space** (`rush2_interp_node_matrix`, src/interpolation.cpp). The game keeps a view's
+  rotation in the projection matrix (`func_8007C624`: perspective, times the look-at; the root modelview is the
+  identity or the mirror), so RT64 takes it for the view matrix and each node's matrix for its place in the world, and
+  between two game frames moves the node along a straight line while the view turns: a node fixed to the camera slips
+  by about the square of the turn / 4 of its distance from the view's middle (7 px measured in the race start's
+  camera, which turns 12 to 20 degrees a frame). For a node registered with `rush2::interpolation_view_attached` the
+  node's matrix times the look-at is loaded as the modelview under the perspective alone, and the node's pop puts the
+  view's projection back. Rush 2's own countdown digits slip the same way and are not changed.
+- The battle's digits have high resolution versions in the font pack (tools/font_pack/draw_battle_digits.py, which
+  names them by the RT64 hash of the images in src/hud.cpp).
 
 ## 8. Not done / known issues
 
@@ -182,7 +239,10 @@ MISS, RAM, ROCK, SHLD, SONC; POWUP is a random power-up. Each arena places the 8
 - **Time limit**: Rush 2's clock test (func_800AE670 state 3) doesn't end a race without checkpoints (and never with
   the No Checkpoints cheat); the port sets the out of time flag `0x800FAE98` itself at the limit and the game ends the
   race. There is no winner screen.
-- No direction arrows at the screen's edge (not located in 2049's code).
+- Arrows: the fade of an invisible car's arrow is a fixed alpha 0x20; teams aren't in. Not run: two players (stacked
+  and side by side), a car behind in a moving race.
+- The pickups' lights after the change of their draw order were not looked at in game (their records and nodes were
+  checked: 16 world-space records after the sections, at 2049's positions).
 - HUD: view field of view comes from the view struct (`rush2::splitscreen::view_tan_v`; quadrants keep 0.75); HUD
   models are registered with the frame interpolation as camera attached (a fast camera otherwise counted as a
   teleport and left them behind); the battle HUD draws only in a race (game state >= 3) and not over the pause menu.

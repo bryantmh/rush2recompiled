@@ -65,6 +65,9 @@ HUD_SVG_DIR = os.path.join(PACK_DIR, 'hud_svg')
 # vertically starting at their last row, which RT64 samples from texel centers, so the bottom stored row never shows and
 # the clamped edge past row 0 shows below them: their drawings fit between y = 0.25 and 12, leaving that edge clear.
 MENU_SVG_DIR = os.path.join(PACK_DIR, 'menu_svg')
+# The battle HUD's digits (src/hud.cpp draw_number), drawn by tools/font_pack/draw_battle_digits.py: white, with the
+# figure in the alpha, as RT64 samples an intensity image.
+BATTLE_SVG_DIR = os.path.join(PACK_DIR, 'battle_svg')
 VECTOR_FONT = os.path.join(ROOT, 'assets', 'InterVariable.ttf')
 OUTPUT = os.path.join(ROOT, 'assets', 'rush2_hires_fonts.rtz')
 
@@ -1309,7 +1312,7 @@ def pack():
             # No half-texel shift: the redraw is aligned to the cells, and shifting would sample the neighbors.
             textures.append({'path': f'fonts/{hash_name}', 'hashes': {'rt64': hash_name}, 'operation': 'preload',
                              'shift': 'none'})
-        for folder, svg_dir in (('hud', HUD_SVG_DIR), ('menu', MENU_SVG_DIR)):
+        for folder, svg_dir in (('hud', HUD_SVG_DIR), ('menu', MENU_SVG_DIR), ('battle', BATTLE_SVG_DIR)):
             for path in sorted(glob.glob(os.path.join(svg_dir, '*.svg'))):
                 hash_name = os.path.splitext(os.path.basename(path))[0]
                 ok, png = cv2.imencode('.png', cv2.cvtColor(render_color_svg(open(path).read()), cv2.COLOR_RGBA2BGRA))
