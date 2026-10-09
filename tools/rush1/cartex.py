@@ -199,7 +199,7 @@ def s16(d, o): return struct.unpack_from('>h', d, o)[0]
 def meshes(d, game):
     """Walk every model's display list of a car file; return {model name: [triangle]} where a triangle is
     (verts, tex) with verts = 3 x (x, y, z, s, t) (s/t in texels = value / 32) and tex = (data offset, w, h, uls, ult) of the
-    largest CI texture loaded when it was drawn (None if none). Rush 1 = F3DEX1 (VTX 04, DL 06, TRI1 BF, TRI2 B1,
+    CI texture bound when it was drawn (None if none; Rush 1's BRANCH_Z level of detail is taken as for a close car). Rush 1 = F3DEX1 (VTX 04, DL 06, TRI1 BF, TRI2 B1,
     vertex indices x2), Rush 2 = F3DEX2 (VTX 01, DL DE, TRI1 05, TRI2 06, indices x2)."""
     seg = (u32(d, 0) >> 24) if game == 1 else 0
     if game == 1:
@@ -215,7 +215,7 @@ def meshes(d, game):
     for name, start in zip(models, recs):
         tris = []
         vbuf = [None] * 64
-        st = dict(img=None, fmt=None, best=None)
+        st = dict(img=None, fmt=None, best=None, size=None, half=None)
         seen = set()
 
         def walk(a, depth=0):
@@ -235,11 +235,13 @@ def meshes(d, game):
                             vbuf[v0 + k] = (s16(d, q), s16(d, q + 2), s16(d, q + 4), s16(d, q + 8) / 32.0, s16(d, q + 10) / 32.0)
                 elif op == 0xFD:
                     st['img'] = w1 & 0xFFFFFF
+                    if st['size'] is not None:     # a new image keeps the tile size until the next SETTILESIZE
+                        st['best'] = (st['img'],) + st['size']
                 elif op == 0xF2 and st['img'] is not None:
                     w = (((w1 >> 12) & 0xFFF) - ((w0 >> 12) & 0xFFF)) // 4 + 1
                     h = ((w1 & 0xFFF) - (w0 & 0xFFF)) // 4 + 1
-                    if st['best'] is None or w * h >= st['best'][1] * st['best'][2]:
-                        st['best'] = (st['img'], w, h, ((w0 >> 12) & 0xFFF) / 4.0, (w0 & 0xFFF) / 4.0)
+                    st['size'] = (w, h, ((w0 >> 12) & 0xFFF) / 4.0, (w0 & 0xFFF) / 4.0)
+                    st['best'] = (st['img'],) + st['size']
                 elif (game == 1 and op in (0xBF, 0xB1)) or (game == 2 and op in (0x05, 0x06)):
                     if game == 1 and op == 0xBF or game == 2 and op == 0x05:
                         ids = [[(w1 >> 16) & 0xFF, (w1 >> 8) & 0xFF, w1 & 0xFF]] if game == 1 else \
@@ -250,9 +252,14 @@ def meshes(d, game):
                         vs = [vbuf[i // 2] if i // 2 < 64 else None for i in t]
                         if all(vs):
                             tris.append((vs, st['best']))
+                elif game == 1 and op == 0xB4:
+                    st['half'] = w1
+                elif game == 1 and op == 0xB0 and st['half'] is not None and (st['half'] >> 24) == seg:
+                    # BRANCH_Z: Rush 1 car panels load their close-up texture from the branch target (taken when the
+                    # car is near) and fall through to the distant ones. Take the branch, as for a car close up.
+                    o = st['half'] & 0xFFFFFF; st['half'] = None
+                    continue
                 elif op == DL and (w1 >> 24) == (seg if game == 1 else 0) and depth < 6:
-                    # Rush 1 car panels pick their texture with B4/B0 (RDPHALF_1 + BRANCH_Z) between a 16x8 far list and
-                    # a 64x32 near one; walking both and keeping the larger texture takes the near one.
                     walk(w1, depth + 1)
                 elif op == END:
                     return

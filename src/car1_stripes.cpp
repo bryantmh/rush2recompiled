@@ -12,18 +12,27 @@
 // field is 0 while it is set. The getter and setter are hooked to convert between the two.
 //
 // To paint it, the lookup runs as for value 1 (SINGLE), and in place of the stamp the decal's texels are written
-// into the panel texture in Rush 1's own colours (fixed car palette entries, so STRIPE COLOR doesn't apply), and the
-// panel's accent-colour areas take the main colour, as Rush 1 paints these cars in one colour.
+// into the panel texture in Rush 1's own colours (fixed car palette entries, so STRIPE COLOR doesn't apply). The rest
+// of the panel keeps Rush 2's paint, so MAIN and ACCENT still colour the car.
 
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
+#include "util/file.h"
 
 #include "assets.h"
 #include "car1_decals.h"
@@ -59,7 +68,119 @@ namespace {
         return -1;
     }
 
-    // Builds car c's decal (once: it takes a few tens of milliseconds).
+    // The built decals are kept on disk, one file per car in <app folder>/stripe_cache, so a car's decal is built once
+    // rather than in every session. A file is used only if it holds the same key: the hash of the three input files and
+    // of the executable's size and modification time, so another ROM or a new build (a changed builder) builds again.
+    // File: "R2SC", u32 version, u64 key, then per panel 1-6: i32 w, h, u32 full size, bytes, u32 lod size, bytes.
+    constexpr char cache_magic[4] = { 'R', '2', 'S', 'C' };
+    constexpr uint32_t cache_version = 1;
+
+    uint64_t hash(const uint8_t* data, size_t size, uint64_t h = 0xCBF29CE484222325ull) {
+        for (size_t i = 0; i < size; i++) {
+            h = (h ^ data[i]) * 0x100000001B3ull;
+        }
+        return h;
+    }
+
+    uint64_t build_stamp() {
+        static uint64_t stamp = [] {
+            std::filesystem::path exe;
+#ifdef _WIN32
+            wchar_t buf[MAX_PATH * 4];
+            DWORD n = GetModuleFileNameW(nullptr, buf, (DWORD)std::size(buf));
+            if (n > 0 && n < std::size(buf)) {
+                exe = std::filesystem::path(std::wstring(buf, n));
+            }
+#else
+            std::error_code ec0;
+            exe = std::filesystem::read_symlink("/proc/self/exe", ec0);
+#endif
+            std::error_code ec;
+            uint64_t v[2] = { exe.empty() ? 0 : (uint64_t)std::filesystem::file_size(exe, ec),
+                              exe.empty() ? 0 : (uint64_t)std::filesystem::last_write_time(exe, ec).time_since_epoch().count() };
+            return hash((const uint8_t*)v, sizeof(v));
+        }();
+        return stamp;
+    }
+
+    std::filesystem::path cache_path(const char* car) {
+        return recompui::file::get_app_folder_path() / "stripe_cache" / (std::string(car) + ".bin");
+    }
+
+    bool cache_load(const char* car, uint64_t key, rush2::car1decals::Pattern& out) {
+        std::ifstream f(cache_path(car), std::ios::binary);
+        if (!f) {
+            return false;
+        }
+        std::vector<uint8_t> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        size_t at = 0;
+        auto take = [&](void* dst, size_t n) {
+            if (n > b.size() - at) {
+                return false;
+            }
+            memcpy(dst, b.data() + at, n);
+            at += n;
+            return true;
+        };
+        char magic[4];
+        uint32_t version;
+        uint64_t stored;
+        if (!take(magic, 4) || memcmp(magic, cache_magic, 4) != 0 || !take(&version, 4) || version != cache_version ||
+            !take(&stored, 8) || stored != key) {
+            return false;
+        }
+        rush2::car1decals::Pattern p;
+        for (int n = 1; n <= 6; n++) {
+            rush2::car1decals::Panel& panel = p.panel[n];
+            uint32_t size;
+            if (!take(&panel.w, 4) || !take(&panel.h, 4) || panel.w < 0 || panel.h < 0 || panel.w > 256 || panel.h > 256) {
+                return false;
+            }
+            for (std::vector<uint8_t>* v : { &panel.full, &panel.lod }) {
+                if (!take(&size, 4) || size > b.size() - at) {
+                    return false;
+                }
+                v->assign(b.begin() + at, b.begin() + at + size);
+                at += size;
+            }
+        }
+        out = std::move(p);
+        return true;
+    }
+
+    void cache_save(const char* car, uint64_t key, const rush2::car1decals::Pattern& p) {
+        std::vector<uint8_t> b;
+        auto put = [&](const void* src, size_t n) {
+            b.insert(b.end(), (const uint8_t*)src, (const uint8_t*)src + n);
+        };
+        put(cache_magic, 4);
+        put(&cache_version, 4);
+        put(&key, 8);
+        for (int n = 1; n <= 6; n++) {
+            const rush2::car1decals::Panel& panel = p.panel[n];
+            put(&panel.w, 4);
+            put(&panel.h, 4);
+            for (const std::vector<uint8_t>* v : { &panel.full, &panel.lod }) {
+                uint32_t size = (uint32_t)v->size();
+                put(&size, 4);
+                put(v->data(), v->size());
+            }
+        }
+        std::filesystem::path path = cache_path(car);
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+        std::filesystem::path tmp = path;
+        tmp += ".tmp";
+        {
+            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+            if (!f.write((const char*)b.data(), (std::streamsize)b.size())) {
+                return;
+            }
+        }
+        std::filesystem::rename(tmp, path, ec);
+    }
+
+    // Builds car c's decal, or loads it from the cache (building takes a few tens of milliseconds per car).
     bool ensure(uint8_t* rdram, int c) {
         CarState& s = states[c];
         if (s.built) {
@@ -83,8 +204,18 @@ namespace {
         else if (!rush2::assets::read_original(rdram, stripe_asset, stripes)) {
             failed = "reading Rush 2's stripe tiles";
         }
-        else if (!rush2::car1decals::build(c, r1, r2, stripes, s.pattern, &why)) {
-            failed = "building the masks";
+        else {
+            uint64_t key = hash(r1.data(), r1.size(), build_stamp());
+            key = hash(r2.data(), r2.size(), key);
+            key = hash(stripes.data(), stripes.size(), key);
+            if (!cache_load(car.name, key, s.pattern)) {
+                if (rush2::car1decals::build(c, r1, r2, stripes, s.pattern, &why)) {
+                    cache_save(car.name, key, s.pattern);
+                }
+                else {
+                    failed = "building the masks";
+                }
+            }
         }
         if (failed != nullptr) {
             printf("[Rush1] Couldn't build the %s stripe: %s failed (%s; files %zu, %zu, %zu bytes)\n", car.name, failed, why,
@@ -92,9 +223,19 @@ namespace {
             fflush(stdout);
             return false;
         }
+        // RUSH2_CAR1_DUMP=<dir>: writes each panel's decal texels (<car>_<n>.bin, w*h bytes) to compare with
+        // tools/rush1/cardecal.py.
+        const char* dump = std::getenv("RUSH2_CAR1_DUMP");
         for (int n = 1; n <= 6; n++) {
             const rush2::car1decals::Panel& p = s.pattern.panel[n];
             s.ok |= std::any_of(p.full.begin(), p.full.end(), [](uint8_t c) { return c != 0; });
+            if (dump != nullptr && !p.full.empty()) {
+                std::string path = std::string(dump) + "/" + car.name + "_" + std::to_string(n) + ".bin";
+                if (FILE* f = std::fopen(path.c_str(), "wb")) {
+                    std::fwrite(p.full.data(), 1, p.full.size(), f);
+                    std::fclose(f);
+                }
+            }
         }
         return s.ok;
     }
@@ -228,13 +369,14 @@ extern "C" void rush2_car1_paint_stamp(uint8_t* rdram, recomp_context* ctx) {
     for (int i = 0; i < 16; i++) {
         name[i] = (char)MEM_BU(0, (int32_t)(record + i));
     }
+    // Panel 4's full-size texture also ends in _4 (_D0_4), so the mip is told apart by the name's length.
     std::string s = name;
-    bool lod = s.size() > 2 && s.compare(s.size() - 2, 2, "_4") == 0;
-    if (lod) {
-        s.resize(s.size() - 2);
+    size_t at = s.rfind("_D", s.size() >= 7 ? s.size() - 7 : 0);
+    bool lod = at != std::string::npos && s.size() == at + 7 && s.compare(at + 5, 2, "_4") == 0;
+    if (!lod) {
+        at = s.rfind("_D");
     }
-    size_t at = s.rfind("_D");
-    int n = (at != std::string::npos && s.size() == at + 5 && s[at + 3] == '_') ? s[at + 4] - '0' : 0;
+    int n = (at != std::string::npos && (s.size() == at + 5 || lod) && s[at + 3] == '_') ? s[at + 4] - '0' : 0;
     int w = (int)MEM_HU(0, (int32_t)(record + 0x10)), h = (int)MEM_HU(0, (int32_t)(record + 0x12));
     const std::vector<uint8_t>* texels = nullptr;
     if (n >= 1 && n <= 6) {
@@ -243,18 +385,19 @@ extern "C" void rush2_car1_paint_stamp(uint8_t* rdram, recomp_context* ctx) {
             texels = lod ? &p.lod : &p.full;
         }
     }
-    // Rush 1 paints these cars in one colour: Rush 2's accent-colour areas (accent ramp 33-63) take the same shade of
-    // the main ramp (1-31), then the decal goes on. RDRAM is word-swapped on the host: bytes go through MEM_B.
+    if (std::getenv("RUSH2_CAR1_DUMP") != nullptr) {
+        printf("[Rush1] stamp %s %dx%d data %08X decal %s\n", name, w, h, (uint32_t)MEM_W(0, (int32_t)(record + 0x18)),
+               texels != nullptr ? "yes" : "no");
+        fflush(stdout);
+    }
+    if (texels == nullptr) {
+        return;
+    }
+    // RDRAM is word-swapped on the host: bytes go through MEM_B.
     uint32_t data = (uint32_t)MEM_W(0, (int32_t)(record + 0x18));
     for (int i = 0; i < w * h; i++) {
-        uint8_t texel = texels != nullptr ? (*texels)[i] : 0;
-        if (texel == 0) {
-            texel = MEM_BU(0, (int32_t)(data + i));
-            if (texel < 33 || texel > 63) {
-                continue;
-            }
-            texel -= 32;
+        if ((*texels)[i] != 0) {
+            MEM_B(0, (int32_t)(data + i)) = (int8_t)(*texels)[i];
         }
-        MEM_B(0, (int32_t)(data + i)) = (int8_t)texel;
     }
 }

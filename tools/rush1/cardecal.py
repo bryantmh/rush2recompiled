@@ -8,12 +8,12 @@ line along the Rush 2 normal crosses farthest out (what is visible there; else t
 the same side, within DIST) gives the Rush 1 texel. A texel is part of the decal where that
 Rush 1 texel is one of the car's decal palette indices (CARS: the Camaro's flames, the Taxi's white checks, the VW
 Bus's swirls, the VW Bug's sunburst; companion indices such as the Taxi's black checks only next to those) and Rush 2
-has paint there. Each texel is sampled SUB x SUB times (Rush 1 has more texels on some panels) and the majority decides.
-The decal keeps Rush 1's colours: a texel is the nearest of Rush 2's fixed car palette entries (64-255, the same for
+has paint there. Each texel is sampled SUB x SUB times (Rush 1 has more texels on some panels) and it is decal where any sample is (Rush 1
+blends its decal edges into its paint, so a majority rule thins every shape).
+The decal keeps Rush 1's colours: a texel is the nearest of Rush 2's fixed car palette entries (96-111, 144-207, the same for
 every paint colour) to the mean of its decal samples. The result is one colour map per Rush 2 panel texture (D0_1 ..
-D0_6, Rush 2 car palette indices, 0 = none) plus its quarter-size mip; the C++ port must give the same bytes. (Rush 1
-paints these cars in one colour, so the game also turns Rush 2's accent-colour areas, accent ramp 33-63, into the same
-shade of the main ramp, index - 32, on every panel texture: src/car1_stripes.cpp; carview.py shows it.)
+D0_6, Rush 2 car palette indices, 0 = none) plus its quarter-size mip; the C++ port must give the same bytes. The rest
+of the panel keeps Rush 2's paint, so MAIN and ACCENT still colour the car.
 
   python cardecal.py CAR [outdir]    per-panel preview PNG with a texel grid (see preview())
   python cardecal.py check           print the result hashes (compared with the C++ by cpp_test)
@@ -25,11 +25,10 @@ from cartex import *
 
 # Cars with a decal of their own in Rush 1 (the others only have racing stripes, which Rush 2's STRIPE values cover):
 # (Rush 1 palette index ranges of the decal, companion ranges kept only within REACH texels of a decal texel, the
-# Rush 2 panels (D0_n) it goes on). Fixed Rush 1 colours: 33-49 / 100-106 the Camaro's flame ramps (yellow to red; its
-# rear amber lights use them too, hence its side panels only), 145-148 whites, 157-159 and 31 blacks; on the VW Bus
-# and Bug 33-63 is a white ramp.
+# Rush 2 panels (D0_n) it goes on). Fixed Rush 1 colours: 33-49 / 100-106 the Camaro's flame ramps (yellow to red),
+# 145-148 whites, 157-159 and 31 blacks; on the VW Bus and Bug 33-63 is a white ramp.
 CARS = {
-    'CAMARO': ([(33, 49), (100, 106)], [(147, 156), (161, 175)], (2, 3)),
+    'CAMARO': ([(33, 49), (100, 106)], [(147, 156), (161, 175)], (1, 2, 3, 4, 5, 6)),
     'VWBUS': ([(33, 63)], [], (1, 2, 3, 4, 5, 6)),
     'VWBUG': ([(33, 63)], [], (1, 2, 3, 4, 5, 6)),
     'TAXI': ([(145, 148)], [(31, 31), (157, 159)], (1, 2, 3, 4, 5, 6)),
@@ -49,7 +48,10 @@ DIST = 3.0          # farthest a Rush 2 texel's body point may be from the Rush 
 MIN_SPECK = 6       # decal components smaller than this (8-connected) are dropped
 SUB = 3             # sub-samples per texel in each direction (Rush 1 has more texels on some panels)
 REACH = 2           # companion texels count within this many texels (in x and y) of a decal texel
-R2_FIXED = range(64, 256)   # Rush 2 car palette entries that keep their colour for every paint choice
+# Rush 2 car palette entries that keep their colour for every paint choice: the game's palette class table (ranges at
+# 0x800C5670, built by func_800854AC) tints 1-31 / 33-63 with MAIN / ACCENT and hands 64-95, 112-143 and 208-255 to
+# func_80084EDC, which overwrites them with blends of the paint and stripe colours; only 32, 96-111 and 144-207 stay.
+R2_FIXED = [*range(96, 112), *range(144, 208)]
 
 
 def in_ranges(i, ranges): return any(a <= i <= b for a, b in ranges)
@@ -201,14 +203,15 @@ def project(car, want_projection=False):
                         u = min(max(u, 0), tex1[1] - 1); v = min(max(v, 0), tex1[2] - 1)
                         samples[j * w + i][q] = d1[tex1[0] + v * tex1[1] + u]
         proj = [smp[SUB * SUB // 2] for smp in samples]
-        # A texel is decal where at least half of its sub-samples are; companions also need a decal texel nearby.
+        # A texel is decal where any of its sub-samples is (Rush 1 blends its decal edges into the paint, so a
+        # majority rule thins every shape); companions also need a decal texel nearby.
         paint = [d2[base + s] in R2_BODY for s in range(w * h)]
         mask = [0] * (w * h); comp = [0] * (w * h)
         for s, smp in enumerate(samples):
             got = [x for x in smp if x >= 0]
             pc = sum(in_ranges(x, primary) for x in got); cc = sum(in_ranges(x, companion) for x in got)
             if decal_here and paint[s] and got:
-                mask[s] = int(2 * pc >= len(got))
+                mask[s] = int(pc > 0)
                 comp[s] = int(not mask[s] and cc > 0 and 2 * (pc + cc) >= len(got))
         near = list(mask)
         for s in range(w * h):
@@ -250,7 +253,7 @@ def digest(car):
 
 
 def preview(car, outdir, scale=8):
-    """Per-panel PNG (outdir/<CAR>_decal.png): left the Rush 2 panel as the game paints it (accent ramp to main, the decal
+    """Per-panel PNG (outdir/<CAR>_decal.png): left the Rush 2 panel as the game paints it (the decal
     on top), right the Rush 1 texels projected onto it (magenta = none), with an 8-texel grid for writing CUTS."""
     from PIL import Image, ImageDraw
     import carview
@@ -265,7 +268,7 @@ def preview(car, outdir, scale=8):
         im = Image.new('RGB', (2 * w * S + 20, h * S + 16), (40, 40, 40)); dr = ImageDraw.Draw(im)
         for y in range(h):
             for x in range(w):
-                s = y * w + x; i2 = d2[base + s]; i2 = i2 - 32 if 33 <= i2 <= 63 else i2
+                s = y * w + x; i2 = d2[base + s]
                 dr.rectangle([x * S, 16 + y * S, x * S + S - 1, 16 + y * S + S - 1], fill=pal2[colours[s] or i2][:3])
                 c = pal1[proj[s]][:3] if proj[s] >= 0 else (90, 0, 90)
                 dr.rectangle([w * S + 20 + x * S, 16 + y * S, w * S + 20 + x * S + S - 1, 16 + y * S + S - 1], fill=c)
