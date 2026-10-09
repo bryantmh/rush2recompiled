@@ -37,6 +37,8 @@ namespace rush2::rom2049 {
         // The big-endian N64 ROM, for the code that plays its audio data directly. Null for a Dreamcast disc.
         virtual const std::vector<uint8_t>* n64_rom() const { return nullptr; }
         virtual bool is_dreamcast() const { return false; }
+        // Identifies this exact data for the converted-data disk cache (src/track_cache.cpp); 0 if it can't be cached.
+        virtual uint64_t cache_key() const { return 0; }
         // A Dreamcast disc's file by name (upper case) as the pack keeps it: songs (.STR) as the pack's ADPCM, the rest
         // as stored on the disc. For the code that plays the disc's audio. False for the N64 ROM.
         virtual bool disc_file(const std::string& name, std::vector<uint8_t>& out) const { return false; }
