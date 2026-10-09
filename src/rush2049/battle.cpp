@@ -232,6 +232,8 @@ namespace {
     };
 
     struct Effect {
+        float start[3] = {};            // where it left the muzzle
+        bool drawn = false;             // placed at least once
         bool live = false;
         int slot = -1;
         float pos[3] = {};
@@ -629,9 +631,9 @@ namespace {
         rush2::battle_render::hide(slot);
     }
 
-    void place_slot(uint8_t*, int slot, const char* model, const float m[9], const float pos[3]) {
+    void place_slot(uint8_t*, int slot, const char* model, const float m[9], const float pos[3], bool billboard = false) {
         if (slot < 0 || slot >= slot_count) return;
-        rush2::battle_render::place(slot, model, m, pos, slots[slot].color, slots[slot].view, slots[slot].attached);
+        rush2::battle_render::place(slot, model, m, pos, slots[slot].color, slots[slot].view, slots[slot].attached, billboard);
     }
 
     // Colors (the models' primitive color; most of them have a combiner that doesn't use it). 2049 gives the weapon
@@ -935,6 +937,10 @@ namespace {
         memcpy(s.m, m, sizeof(s.m));
         s.life = w.life;
         s.radius = w.radius;
+        // The shot leaves the weapon where it is drawn: the body's pose of the frame shown, not the physics tick's,
+        // which the drawn car is ahead of (the gap grows with speed).
+        float body[3];
+        body_pose(rdram, car, body, m);
         f.cooldown = w.cooldown;
         switch (f.weapon) {
             case grenade:
@@ -975,7 +981,7 @@ namespace {
             mount_offset(rdram, car, f.weapon, mount);
             for (int i = 0; i < 3; i++) local[i] += mount[i];
         }
-        offset_point(c, m, local, s.pos);
+        offset_point(body, m, local, s.pos);
         memcpy(s.prev, s.pos, sizeof(s.prev));
         if (f.weapon == sonic) {
             memcpy(s.pos, c, sizeof(s.pos));
@@ -984,6 +990,7 @@ namespace {
         s.ground = c[1];
         s.slot = alloc_slot();
         color_slot(s.slot, f.weapon == mine ? shell_color : plain_color);
+        memcpy(s.start, s.pos, sizeof(s.start));
         play_sound(rdram, w.sound, s.pos);
         if (s.slot < 0 && f.weapon != sonic) {
             // No record to draw it with: the shot is lost (the ammo is still used).
@@ -1098,6 +1105,35 @@ namespace {
             Shot& s = shots[n];
             if (!s.live) continue;
             const WeaponInfo& w = weapons[s.weapon];
+    // How far a shot's model reaches behind its origin (its vertices' least z / 16): the tracers. 0 for the rest (the
+    // missile's trail stays: squashing it would squash the missile too).
+    float shot_tail(int weapon) {
+        switch (weapon) {
+            case cannon: return 1017.0f / 16.0f;                 // WPR_CANNG1
+            case gatling: case gun: return 624.0f / 16.0f;       // WFX_TRACERG1
+            default: return 0.0f;
+        }
+    }
+
+    // Places a flying shot. A model with a tail never reaches back past the muzzle: until the shot has gone its tail's
+    // length the tail is cut to the way gone. The first time it is drawn it stretches from the muzzle instead, so a
+    // bullet (2000 a second, 66 a tick, longer than its tracer) is seen leaving the barrel rather than appearing
+    // ahead of it.
+    void place_shot(uint8_t* rdram, Shot& s) {
+        const WeaponInfo& w = weapons[s.weapon];
+        float tail = shot_tail(s.weapon);
+        float m[9];
+        memcpy(m, s.m, sizeof(m));
+        if (tail > 0.0f) {
+            float d[3] = { s.pos[0] - s.start[0], s.pos[1] - s.start[1], s.pos[2] - s.start[2] };
+            float gone = std::max(dot(d, &m[6]), 0.01f);
+            float k = s.drawn ? std::min(gone / tail, 1.0f) : gone / tail;
+            for (int i = 6; i < 9; i++) m[i] *= k;
+        }
+        s.drawn = true;
+        place_slot(rdram, s.slot, w.model, m, s.pos);
+    }
+
             s.life -= dt;
             s.age += dt;
             if (s.life <= 0.0f) {
@@ -1239,7 +1275,7 @@ namespace {
                 // They point where they go.
                 if (length(s.vel) > 1.0f) facing(s.vel, s.m);
             }
-            place_slot(rdram, s.slot, w.model, s.m, s.pos);
+            place_shot(rdram, s);
         }
         shots.erase(std::remove_if(shots.begin(), shots.end(), [](const Shot& s) { return !s.live; }), shots.end());
     }
@@ -1258,12 +1294,13 @@ namespace {
                 char frame[16];
                 snprintf(frame, sizeof(frame), "NEXPLOSIONG%d", std::min(explosion_frames, 1 + (int)(e.age * tick_rate)));
                 float m[9] = { explosion_scale, 0, 0, 0, explosion_scale, 0, 0, 0, explosion_scale };
-                place_slot(rdram, e.slot, frame, m, e.pos);
+                place_slot(rdram, e.slot, frame, m, e.pos, true);
                 continue;
             }
             float scale = e.scale0 + (e.scale1 - e.scale0) * k;
             float m[9] = { scale, 0, 0, 0, scale, 0, 0, 0, scale };
             place_slot(rdram, e.slot, "WFX_MFLSHG11", m, e.pos);
+                // The frames are cards in their xy plane that face the camera.
         }
         effects.erase(std::remove_if(effects.begin(), effects.end(), [](const Effect& e) { return !e.live; }), effects.end());
     }
