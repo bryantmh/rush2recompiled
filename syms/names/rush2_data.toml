@@ -6817,10 +6817,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D9C10
 name = "race_car_assign_flag"
 type = "u8"
-desc = "Byte written by race_assign_cars_to_players and attract run, never read (low confidence)."
+desc = "Race car table base, 9 bytes per car slot (0x800D9C10 + slot * 9): +1 type, +2 MAIN, +3 ACCENT, +4 STRIPE, +5 STRIPE COLOR, +6 grid slot, +8 driver (8 or more = human). Byte +0 of slot 0 is written by race_assign_cars_to_players and attract run."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/npc_cars.md#drone-car-table"
 
 [[var]]
 vram = 0x800D9C11
@@ -6898,10 +6898,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D9C1A
 name = "car_select_choice"
 type = "u8[5]"
-desc = "Car select table (0xD9C1A-1E) written by car type tables setup, read by title screen (low confidence)."
+desc = "Car slot 1 type (car table 0x800D9C10 + 9 + 1): the first computer car with one player; GameShark opponent 1 code. Also written by the car type tables setup."
 area = "car"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/npc_cars.md#drone-car-table"
 
 [[var]]
 vram = 0x800D9C1B
@@ -7276,10 +7276,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D9E89
 name = "cheat_option_b"
 type = "u8"
-desc = "Cheat menu toggle byte, read by car preload."
+desc = "New York Cabs cheat: on, func_800A37F4 makes every drone a TAXI (type 0x10, MAIN/ACCENT 0x1A, no stripe) when 0x8010C3F0 is 1 or 3."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/npc_cars.md#drone-car-table"
 
 [[var]]
 vram = 0x800D9E9C

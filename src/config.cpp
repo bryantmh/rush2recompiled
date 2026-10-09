@@ -12,6 +12,7 @@
 #include "util/file.h"
 #include "common/rt64_enhancement_configuration.h"
 
+#include "npc_cars.h"
 #include "rush2.h"
 #include "players4.h"
 #include "music.h"
@@ -637,6 +638,7 @@ void rush2::init_config() {
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();
+    rush2::npc_cars::load_config();
     rush2::track1::load_config();
     rush2::music::load_config();
 }

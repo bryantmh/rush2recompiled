@@ -314,3 +314,11 @@ int rush2_ghost_breakable_hit(uint8_t* rdram, recomp_context* ctx);
 #endif
 
 #endif
+// AI Opponents (src/npc_cars.cpp).
+void rush2_npc_cars_apply(uint8_t* rdram, recomp_context* ctx);
+void rush2_npc_cars_building(uint8_t* rdram, recomp_context* ctx);
+void rush2_npc_cars_rim_nodes(uint8_t* rdram, recomp_context* ctx);
+void rush2_npc_cars_rim_frame(uint8_t* rdram, recomp_context* ctx);
+void rush2_npc_cars_rim_state(uint8_t* rdram, recomp_context* ctx);
+void rush2_npc_cars_rim_init(uint8_t* rdram, recomp_context* ctx);
+

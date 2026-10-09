@@ -1,5 +1,6 @@
 // Players tab: which controllers and the keyboard may play (src/input.cpp), players 1 and 2's Rush 2049 wings
-// (src/wings.cpp) and the 2 player split screen layout (src/splitscreen.cpp).
+// (src/wings.cpp), the 2 player split screen layout (src/splitscreen.cpp) and the computer cars' cars and paint
+// (src/npc_cars.cpp).
 //
 // Controllers aren't given to players here: in the game, whoever presses START becomes the next player. Each
 // controller (connected, or disabled and remembered) and the keyboard has a toggle that enables it. The tab rebuilds
@@ -18,6 +19,7 @@
 #include "elements/ui_radio.h"
 #include "elements/ui_toggle.h"
 
+#include "npc_cars.h"
 #include "rush2.h"
 #include "wings.h"
 
@@ -37,7 +39,11 @@ namespace {
         "hardest and glides farthest. Wings are turned on in the Games tab.\n\n"
         "<recomp-color primary>Split Screen</recomp-color> sets how the screen is split in 2 player races: Top and "
         "Bottom matches the original game, Side by Side gives each player half of the screen's width. It takes effect "
-        "at the start of the next race.";
+        "at the start of the next race.\n\n"
+        "<recomp-color primary>AI Opponents</recomp-color> chooses each computer car's car, stripe, rims and colors. "
+        "Opponent 1 is the first computer car on the grid. Random keeps the game's own pick. The New York Cabs cheat "
+        "still turns them into taxis, and ghost races keep their recorded cars. Reset puts every opponent back to "
+        "Random. Takes effect at the next race.";
 
     // A row of the list: scrolls itself into view when something in it takes focus, so the list follows the d-pad.
     class ListRow : public Element {
@@ -253,11 +259,14 @@ namespace {
                 Element* row = add_row(rows, "Wings");
                 for (int player = 0; player < 2; player++) {
                     Element* line = context.create_element<Element>(row, 0, "div", false);
+
+            rush2::npc_cars::add_section(rows);
                     line->set_display(Display::Flex);
                     line->set_flex_direction(FlexDirection::Row);
                     line->set_align_items(AlignItems::Center);
                     line->set_gap(16.0f);
                     line->set_as_navigation_container(NavigationType::Horizontal);
+    rush2::npc_cars::init_config();
                     Label* name = context.create_element<Label>(line, "Player " + std::to_string(player + 1), theme::Typography::LabelSM);
                     name->set_color(theme::color::TextDim);
                     name->set_min_width(80.0f);
