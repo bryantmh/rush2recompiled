@@ -3566,24 +3566,26 @@ ref = "docs/functions/rush2_util.md#rush-2-util-functions"
 
 [[func]]
 vram = 0x80053D28
-name = "model_resolve_entry"
-sig = "s32 model_resolve_entry(ModelHandle *h, s32 a1, s32 a2, s32 a3)"
-desc = "Large jump-table function used by sky, car shadow/model, fade and circuit-menu callers: reads a 3-halfword handle (h+0,+2,+4), indexes with mask 0x3FF, consults race_setup_byte and returns a result by switch on type. (low confidence on purpose)"
-consts = "0x3FF = index mask; 0x4000 = flag bit"
-status = "inferred"
+name = "polygon_set"
+sig = "void polygon_set(Polygon *poly, s16 count, f32 (*vertices)[3], s16 texture, u32 *color, u16 flags)"
+desc = "Writes a world polygon (0x800FAF00, 0x58 each): vertex count (0 keeps it), flags (0 keeps them), texture handle (-2 and under keeps it), per vertex the position x 16 (flag 0x4000: x and y as they are, a 2D rectangle), the texture coordinates of the image's corners by vertex index and the color. Used by the sky, car shadows, skid marks, fades and the arrows over cars. 2049: func_8008C074."
+consts = "0x14 = vertex stride; 16.0 = position scale; flags: bits 0-3 views, 0x80 mirrored texture in mirror mode, 0x4000 2D rectangle"
+status = "verified"
+rush2049 = [0x8008C074]
 area = "render"
-ref = "docs/functions/rush2_render.md#rush-2-render-functions"
+ref = "docs/rush2049_research/battle.md#7-the-port-rush-2"
 
 [[func]]
 vram = 0x80054010
-name = "sky_build_dome"
-sig = "s32 sky_build_dome(s32 a0, s32 a1, s32 a2, s32 a3, s32 stack0)"
-desc = "Builds the procedural 24-piece sky dome."
-consts = "24 pieces"
+name = "polygon_create"
+sig = "Polygon *polygon_create(s16 count, f32 (*vertices)[3], s16 texture, u32 *color, u16 flags)"
+desc = "Takes the first free world polygon (vertex count 0) of 0x800FAF00, raising the count 0x800FAEF0 and its high-water mark 0x800FAEF4, sets its texture and flags and fills it with polygon_set. func_8007C624 draws the polygons with its view's bit. 2049: func_800A78BC."
+consts = "0x58 = polygon size"
 status = "verified"
 rush1 = [0x8005C108]
+rush2049 = [0x800A78BC]
 area = "render"
-ref = "docs/rush2049_research/geometry.md#55-sky"
+ref = "docs/rush2049_research/battle.md#7-the-port-rush-2"
 
 [[func]]
 vram = 0x800540F8

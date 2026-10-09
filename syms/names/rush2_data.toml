@@ -6608,12 +6608,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D5788
-name = "asset_load_mode"
+name = "model_container_count"
 type = "u8"
-desc = "Byte set by asset slot init/scene loaders and read by ~36 users (carselect, HUD widget texture loads); asset/scene load mode (low confidence)."
+desc = "Number of loaded model containers, whose texture tables are at 0x80119220 (8 bytes each: pointer to 0x20 byte texture records, count); texture_find_by_name searches them."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/battle.md"
 
 [[var]]
 vram = 0x800D578C
@@ -9263,21 +9263,21 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800FAEF0
-name = "sky_dome_state"
-type = "u32"
-desc = "Word saved/restored with scene state; set by sky_build_dome, read by view_fog_setup (low confidence)."
+name = "polygon_count"
+type = "s32"
+desc = "World polygon slots in use (polygon_create raises it; func_8007C624 draws that many)."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/battle.md"
 
 [[var]]
 vram = 0x800FAEF4
-name = "sky_dome_build_state"
-type = "u32"
-desc = "Word private to sky_build_dome."
+name = "polygon_high_water"
+type = "s32"
+desc = "The most world polygon slots used (polygon_create)."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/battle.md"
 
 [[var]]
 vram = 0x800FAEF8
@@ -9299,12 +9299,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800FAF00
-name = "fog_param_h0"
-type = "u16"
-desc = "Halfword read by sky dome and view_fog_setup (fog/sky parameter; low confidence)."
+name = "polygons"
+type = "Polygon[]"
+desc = "World polygons, 0x58 each: +0 s16 vertex count (0 free), +2 u16 flags (bits 0-3 views, 0x100 no fog, 0x200 and 0x1000 draw variants, 0x2000 primitive depth, 0x4000 2D rectangle, 0x8000 hidden), +4 s16 texture handle (container << 10 | index, -1 none), +6 s16 primitive depth, then 0x14 per vertex: f32 x, y, z (x 16), s16 s, t, RGBA."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/battle.md"
 
 [[var]]
 vram = 0x800FAF02

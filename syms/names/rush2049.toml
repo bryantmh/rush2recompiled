@@ -1064,16 +1064,26 @@ area = "other"
 ref = "docs/rush2049_research/placement.md#7-knock-over-props-v"
 
 [[func]]
+vram = 0x8008C074
+name = "polygon_set"
+sig = "void polygon_set(Polygon *poly, s16 count, f32 (*vertices)[3], s32 texture, u32 *color, u16 flags, s32 set_texture)"
+desc = "Writes a world polygon: vertex count, flags, texture (flag 0x400), positions x 16 (flag 0x4000: 2D), texture coordinates by vertex index, color. Rush 2: func_80053D28."
+status = "verified"
+rush2 = 0x80053D28
+area = "render"
+ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
+
+[[func]]
 vram = 0x8008C544
-name = "math_mat3_transform_vec3_transposed"
-sig = "void math_mat3_transform_vec3_transposed(Vec3 *in, Vec3 *out, f32 *mat3x3)"
-desc = "Same code as Rush 2 math_mat3_transform_vec3_transposed_80059AE0 (39 instructions, address-masked match, float constants equal). out = M^T * in (multiplies by 3x3 matrix transpose); counterpart of func_80054454."
-status = "inferred"
+name = "camera_to_local"
+sig = "void camera_to_local(f32 *v, f32 *out, Camera *cam)"
+desc = "A world vector in a camera's frame (2049's axes: x and the matrix columns negated as its cameras store them); the arrows' angle to a car comes from it."
+status = "verified"
 rush2 = 0x80059AE0
 rush1 = [0x80068364]
 link = "same-code"
-area = "util"
-ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
+area = "render"
+ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
 
 [[func]]
 vram = 0x8008C5E0
@@ -1121,6 +1131,16 @@ rush2 = 0x8005C8E8
 link = "same-code"
 area = "util"
 ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
+
+[[func]]
+vram = 0x8008C884
+name = "arrow_update"
+sig = "void arrow_update(ArrowRecord *rec)"
+desc = "Moves a view's arrow to another car every frame: over the car when it is in view (5 up, half size distance / 25), else in a battle at the view's side edge (lower the further round) or along the bottom edge for a car behind; player colors 0x8011B558; hidden with the HUD off or for a wrecked car."
+consts = "0.48 = in-view part of the field of view; 19, 16.5 = edge offsets; 25 = distance per unit size; 5 = height over the car"
+status = "verified"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
 
 [[func]]
 vram = 0x8008D6B0
@@ -1661,6 +1681,15 @@ area = "util"
 ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
+vram = 0x800A5744
+name = "view_set_fov"
+sig = "View *view_set_fov(s32 view, f32 hfov_degrees, f32 vfov_degrees, f32 width, f32 height, f32 center_x, f32 center_y)"
+desc = "Fills a view struct (0x8017A510 + view * 0x48): size and center, the field of view angles in radians (+0xC, +0x10; the vertical one from the view's shape when 0 is passed), their half tangents (+0x14, +0x18) and 0.5 / tangent (+0x1C, +0x20)."
+status = "verified"
+area = "render"
+ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
+
+[[func]]
 vram = 0x800A61B0
 name = "matrix_world_to_local"
 desc = "MUL: world to local transform o[i] = M[i][2]*v2 + (v0*M[i][0] + v1*M[i][1])."
@@ -1679,6 +1708,17 @@ rush2 = 0x80054DCC
 link = "same-code"
 area = "render"
 ref = "docs/rush2049_research/race.md#71-tables"
+
+[[func]]
+vram = 0x800A78BC
+name = "polygon_create"
+sig = "Polygon *polygon_create(s16 count, f32 (*vertices)[3], u16 texture, u32 *color, u16 flags, s32 set_texture)"
+desc = "Takes a free world polygon of 0x8015B268 (0x58 each) and fills it with func_8008C074. Rush 2: func_80054010."
+status = "verified"
+rush2 = 0x80054010
+rush1 = [0x8005C108]
+area = "render"
+ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
 
 [[func]]
 vram = 0x800A79F4
@@ -1925,6 +1965,7 @@ vram = 0x800AF06C
 name = "explosion_spawn"
 desc = "Spawns the game's explosion object at a position or on a car (a0 = Vec3* or car index when a1 != 0), scale a2, with its sound when a3 != 0: 0x2D at scale >= 1, 0x45 at >= 0.5, else 0x2F, heard within 400. Battle shots call it with (pos, 0, 0.5, 1)."
 status = "verified"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
 vram = 0x800AF690
@@ -1997,10 +2038,13 @@ ref = "docs/rush2049_research/race.md#71-tables"
 
 [[func]]
 vram = 0x800B1B48
-desc = "Calls func_800B10D4 to paint a car with physics car +0x7CD..+0x7CF."
+name = "race_polygons_setup"
+sig = "void race_polygons_setup(void)"
+desc = "Race setup: a shadow polygon (SHADBLUR) per car and, with two or more players, an ARROW polygon per other view for each player's car (flags view bit | 0x3200 in a battle, 0x1200 otherwise, primitive depth 1; callback func_8008C884)."
+consts = "0x3200/0x1200 = arrow flags; 0x18 = arrow record size at car state +0x218"
 status = "verified"
-area = "render"
-ref = "docs/rush2049_research/cars.md#8-implementation-v"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
 
 [[func]]
 vram = 0x800B24EC
