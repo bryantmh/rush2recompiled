@@ -23,7 +23,8 @@ How the port works, how the ROM is laid out, and how to build it. For the player
   RT64 pairs each frame's scenes (one per split screen view) with the previous frame's by their projections' IDs
   when both are tagged, not by closest camera matrix: in the 2+ player race start flyover both cameras sweep
   together, and closest-matrix pairing swapped the views in about 16 of the flyover's 40 frames, leaving them
-  uninterpolated (`matchScenes` in `src/hle/rt64_game_frame.cpp`, `lib/patches/rt64.patch`).
+  uninterpolated (`matchScenes` in `src/hle/rt64_game_frame.cpp`, `lib/patches/rt64.patch`). The hitch at the start
+  of every race is the game's own frame pacing, not interpolation: see `docs/race_start_hitch.md`.
   **Variable** also targets the display's refresh rate, but doesn't assume it is reached. Display and Manual count
   out a fixed number of evenly spaced frames per game frame and drop the last ones when they can't all be shown in
   time (an external frame limiter, a GPU that can't keep up), which stutters. Variable draws each interpolated frame
