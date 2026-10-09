@@ -4,6 +4,7 @@ rem   cmd //c "tools\rush2049\cpp_test\dc_build.bat"
 rem Run: out\dc_test.exe IMAGE tmp\dc_test.pak tmp\dc_out [indices]
 rem      out\dc_test.exe track tmp\dc_test.pak rush2.us.recomp.z64 1 2 3   (track conversion over the disc)
 rem      out\dc_test.exe audio tmp\dc_test.pak OUTDIR                      (the disc's sound as WAVs)
+rem      out\dc_test.exe segments tmp\dc_test.pak|ROM.z64 OUTDIR           (the source's code segments, seg0-2.bin)
 setlocal
 set "HERE=%~dp0"
 pushd "%HERE%..\..\.."

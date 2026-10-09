@@ -262,6 +262,7 @@ namespace {
         uint32_t dst = t.new_base + (row * new_types + to_type) * t.size;
         for (int i = 0; i < t.size; i++) {
             MEM_B(0, (int32_t)(dst + i)) = MEM_B(0, (int32_t)(src + i));
+        float wheel_scale[2][car_count]; // 0x801112DC / 0x801113E0 row 0: each car's front, rear wheel model scale
         }
     }
 }
@@ -998,7 +999,10 @@ namespace {
         }
         // Slots before version 5 started the 2049 cars with the Pickup's colours and rims (version 4: 2049's colours
         // reordered).
-        bool old_colours = !j.contains("version") || !j["version"].is_number_integer() || j["version"].get<int>() < 5;
+        int version = j.contains("version") && j["version"].is_number_integer() ? j["version"].get<int>() : 0;
+        bool old_colours = version < 5;
+        // Before version 6 they also took the Pickup's TIRE SIZE (1.25: oversized wheels).
+        bool old_tire_sizes = version < 6;
         for (auto& [key, value] : j["records"].items()) {
             uint32_t record = (uint32_t)std::strtoul(key.c_str(), nullptr, 16);
             if (!in_save_area(record) || !value.is_string() ||
@@ -1011,8 +1015,15 @@ namespace {
             for (int i = 0; i < (types - rush2_types) * block_size && i * 2 + 1 < (int)hex.size(); i++) {
                 MEM_B(0, (int32_t)(side_slots + slot * side_slot_size + i)) = (uint8_t)std::stoi(hex.substr(i * 2, 2), nullptr, 16);
             }
-            for (int t = first_type; t < types && old_colours && setup49.loaded; t++) {
-                set_defaults(rdram, side_slots + slot * side_slot_size + (t - rush2_types) * block_size, t - first_type);
+            for (int t = first_type; t < types && setup49.loaded; t++) {
+                uint32_t block = side_slots + slot * side_slot_size + (t - rush2_types) * block_size;
+                if (old_colours) set_defaults(rdram, block, t - first_type);
+                // Also a size outside the car select's range (0.75-1.5: bytes 0-75), as saved by a build that read
+                // 0.0 from a Dreamcast source without the wheel scale tables (byte -75: no tires drawn).
+                int8_t front = (int8_t)MEM_B(0, (int32_t)(block + 11)), rear = (int8_t)MEM_B(0, (int32_t)(block + 12));
+                if (old_tire_sizes || front < 0 || front > 75 || rear < 0 || rear > 75) {
+                    set_tire_size_defaults(rdram, block, t - first_type);
+                }
             }
         }
     }
@@ -1037,7 +1048,7 @@ namespace {
             selected[key] = type;
         }
         rush2::data_files::write(rush2::data_files::File::Saves, side_section,
-            nlohmann::json{ { "version", 5 }, { "records", records }, { "selected", selected } }.dump());
+            nlohmann::json{ { "version", 6 }, { "records", records }, { "selected", selected } }.dump());
     }
 }
 
@@ -1083,6 +1094,15 @@ extern "C" void rush2_car49_record(uint8_t* rdram, recomp_context* ctx) {
     // record' + 0x584 + type * 13 = side slot + (type - 22) * 13
     uint32_t fake = side_slots + slot * side_slot_size - record_block - rush2_types * block_size;
     ctx->r4 = (uint64_t)(int64_t)(int32_t)fake;
+    // A 2049 car's TIRE SIZE F and R in its record block (bytes +11 / +12, record 0x58F / 0x590): scale x 100 - 75, as
+    // the car select stores them (func_803B9478 at 0x803BA488 / 0x803BA638) and func_803B81F0 reads them back into the
+    // player's wheel scale rows.
+    void set_tire_size_defaults(uint8_t* rdram, uint32_t block, int k) {
+        for (int i = 0; i < 2; i++) {
+            MEM_B(0, (int32_t)(block + 11 + i)) = (int8_t)std::lround(setup49.wheel_scale[i][k] * 100.0f - 75.0f);
+        }
+    }
+
 }
 
 // Start of func_8005F338 ($a0 = address, $a1 = length): marks player-record bytes for the Controller Pak save. Returns
@@ -1184,6 +1204,7 @@ namespace {
         Setup49& s = setup49;
         for (int c = 0; c < engine_levels; c++) {
             for (int b = 0; b < 3; b++) s.torque[c][b] = m.f(0x801110C4 + 12 * c + 4 * b);
+                set_tire_size_defaults(rdram, block, k);
         }
         for (int c = 0; c < 6; c++) {
             s.gears[c] = m.f(gears_t + 4 * c);
@@ -1375,6 +1396,11 @@ extern "C" void rush2_car49_logo(uint8_t* rdram, recomp_context* ctx) {
 // white the grey ramp 1-31 is brightened by 1.25. MAIN, ACCENT and STRIPE COLOR are COLOR 1-3; the colour indices
 // mean the same in both games (2049's 0x801226C0 table is Rush 2's 0x800CE19C, retuned), and Rush 2's is used so the
 // car matches the select screen's swatches.
+            // A source without the tables (0.0) would draw no tires: outside the car select's 0.75-1.5, use 1.0.
+            for (int i = 0; i < 2; i++) {
+                float scale = m.f((i ? 0x801113E0 : 0x801112DC) + 4 * k);
+                s.wheel_scale[i][k] = scale >= 0.75f && scale <= 1.5f ? scale : 1.0f;
+            }
 namespace {
     uint16_t rgba5551(uint8_t* rdram, int colour) {
         uint32_t rgba = (uint32_t)MEM_W(0, (int32_t)(colour_table + colour * 4));
@@ -1423,6 +1449,14 @@ extern "C" void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx) {
                 uint16_t c = MEM_HU(0, (int32_t)(palette + i * 2));
                 int v = std::min(0xFF, int(float(((c >> 11) & 0x1F) * 8) * 1.25f));
                 MEM_H(0, (int32_t)(palette + i * 2)) = uint16_t(((v << 8) & 0xF800) | ((v << 3) & 0x7C0) | ((v >> 2) & 0x3E) | 1);
+            }
+            // Wheel model scale (func_8005A598): 2049's own (1.0, the Venom's rear 1.1, the Crusher 1.4), not the
+            // Pickup's 1.25 that init_tables starts every 2049 type with.
+            constexpr uint32_t t_wheel_scale[2] = { 0x802006E8, 0x802009B8 };
+            for (int row = 0; row < 5; row++) {
+                for (int i = 0; i < 2; i++) {
+                    MEM_W(0, (int32_t)(t_wheel_scale[i] + (row * types + type) * 4)) = fbits(s.wheel_scale[i][k]);
+                }
             }
         }
         for (int ramp = 0; ramp < 3; ramp++) {

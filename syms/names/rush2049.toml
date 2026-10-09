@@ -59,6 +59,16 @@ area = "util"
 ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
+vram = 0x8008D8D8
+name = "car_wheel_draw"
+desc = "Per wheel node per frame: places the wheel at car state wheel point (from descriptor +0x70) with y + suspension travel + random bounce (0-0.5), spins it, sets the rim texture (wheel 0), and scales its matrix by the front/rear wheel scale 0x801112DC / 0x801113E0 [row][car] when not 1.0. Same structure as Rush 2 func_8005A598."
+consts = "0xB8 = wheel index x 0x5C threshold for rear wheels; 64.0 = spin speed above which the blurred rim is used"
+status = "verified"
+rush2 = 0x8005A598
+area = "car"
+ref = "docs/rush2049_research/cars.md#9-car-options-on-the-2049-cars-v"
+
+[[func]]
 vram = 0x80002790
 name = "memset_words"
 sig = "void *memset_words(void *dst, s32 value, s32 size)"
