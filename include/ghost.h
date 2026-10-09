@@ -19,6 +19,9 @@ namespace rush2::ghost {
     void set_save_all(bool on);
     // The Ghosts Kept option: how many of a profile's fastest runs per track, direction and lap count are kept.
     void set_ghosts_kept(int n);
+    // A battle's invisible car (src/battle.cpp), as Rush 2049 fades one: `view` is the one view that still draws it,
+    // translucent as a ghost; the others don't draw it. -1 puts the car back to normal.
+    void set_faded(int car, int view);
     // Called before func_8007AA48 emits the G_DL to a model's display list (ctx: $fp = the list, $s7 = the node).
     void draw_model(uint8_t* rdram, recomp_context* ctx);
 }

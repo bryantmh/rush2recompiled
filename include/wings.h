@@ -27,6 +27,8 @@ namespace rush2::wings {
     // The big-endian Rush 2049 (USA) ROM, or null if none has been provided.
     std::shared_ptr<const std::vector<uint8_t>> get_rom();
     bool rom_available();
+    // The height of a Rush 2 car type's body (0-21; world units, from the car models), 3.5 for any other type.
+    float body_height(int type);
     // True when the Wings option is on and the Rush 2049 ROM is available.
     bool enabled();
 

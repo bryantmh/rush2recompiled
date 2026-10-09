@@ -1,13 +1,14 @@
 // Per-port input for Rush 2.
 //
-// Rush 2 has up to four players (two in the original game, src/players4.cpp), on N64 ports 1-4. The Players tab (src/players_tab.cpp) sets each port's controller to
-// Auto, None or one specific controller, and picks the port the keyboard drives (port 1 by default):
-// - A specific controller takes its port whenever it's connected, and is remembered across launches by its GUID and
-//   serial number.
-// - An Auto port is taken by the first controller that presses a button and isn't chosen for a port, and keeps it until
-//   that controller disconnects. Controllers that never press anything (idle pads, virtual duplicates from Steam Input
-//   or DS4Windows) never take a port.
-// - None leaves the port without a controller (it can still have the keyboard).
+// Rush 2 has up to four players (two in the original game, src/players4.cpp), on N64 ports 1-4. Which port a device
+// drives isn't chosen: the game makes whoever presses START a player (player 1 on the title screen, players 2-4 on
+// Select Player), so a device only needs a port to press START on. The Players tab (src/players_tab.cpp) enables or
+// disables each controller and the keyboard (all enabled by default):
+// - An enabled controller takes the first free port when it presses a button, and keeps it until it disconnects or is
+//   disabled. Controllers that never press anything (idle pads, virtual duplicates from Steam Input or DS4Windows)
+//   never take a port, and disabled ones never do. Disabled controllers are remembered across launches by their GUID
+//   and serial number.
+// - The keyboard is a controller like the others: it takes the first free port when one of its keys is pressed.
 // The frontend's own player assignment isn't used, and neither is its N64 binding profile: src/controls.cpp turns each
 // port's devices into N64 input, with the player's bindings during races and a fixed layout in menus.
 
@@ -40,7 +41,6 @@
 #include "rush2_hooks.h"
 
 using rush2::input::num_ports;
-using rush2::input::PortChoice;
 
 namespace {
     constexpr SDL_JoystickID no_controller = -1;
@@ -59,10 +59,14 @@ namespace {
 
     std::atomic<uint8_t*> game_rdram = nullptr;
 
-    // Player assignments from the Players tab, guarded by players_mutex (read by the game thread, changed by the UI).
+    // The Players tab's settings, guarded by players_mutex (read by the game thread, changed by the UI).
     std::mutex players_mutex;
-    std::array<PortChoice, num_ports> port_choices{};
-    int keyboard_port = 0;
+    std::vector<rush2::input::DisabledController> disabled_controllers;
+    bool keyboard_enabled = true;
+
+    // The port the keyboard drives (-1 until it presses something). Written on the game thread (and by the UI when
+    // it's turned off), read everywhere.
+    std::atomic<int> keyboard_port = -1;
 
     // Instance ID of the SDL controller driving each port. Written on the game thread, read by the VI and UI threads.
     std::array<std::atomic<SDL_JoystickID>, num_ports> port_controllers = { no_controller, no_controller, no_controller,
@@ -178,65 +182,75 @@ namespace {
         return out;
     }
 
-    // The connected controller a port's choice refers to: an exact key match, or else one with the same GUID (some
-    // controllers report no serial, or a different one over Bluetooth and USB).
-    SDL_JoystickID find_chosen(const std::vector<Connected>& connected, const std::string& key, const std::array<SDL_JoystickID, num_ports>& taken) {
-        auto free = [&](SDL_JoystickID id) { return std::find(taken.begin(), taken.end(), id) == taken.end(); };
+    std::string key_serial(const std::string& key) {
+        size_t colon = key.find(':');
+        return colon == std::string::npos ? std::string() : key.substr(colon + 1);
+    }
+
+    // The connected controllers that are disabled in the Players tab: by their exact key, or else by serial number and
+    // vendor and product (the GUID's checksum and driver bytes change when SDL opens the controller through another
+    // driver: RawInput, XInput, HIDAPI). Controllers without a serial only match exactly, so disabling one of two
+    // identical controllers doesn't also disable the other.
+    std::vector<SDL_JoystickID> find_disabled(const std::vector<Connected>& connected,
+                                              const std::vector<rush2::input::DisabledController>& disabled) {
+        std::vector<SDL_JoystickID> out;
+        auto product = [](const std::string& key) {
+            std::string guid = key_guid(key);
+            return guid.size() >= 24 ? guid.substr(8, 16) : guid;
+        };
         for (const Connected& c : connected) {
-            if (c.key == key && free(c.id)) {
-                return c.id;
+            for (const auto& d : disabled) {
+                bool same_serial = !key_serial(d.key).empty() && key_serial(d.key) == key_serial(c.key) &&
+                    product(d.key) == product(c.key);
+                if (c.key == d.key || same_serial) {
+                    out.push_back(c.id);
+                    break;
+                }
             }
         }
-        for (const Connected& c : connected) {
-            if (key_guid(c.key) == key_guid(key) && free(c.id)) {
-                return c.id;
+        return out;
+    }
+
+    // Keys that count as the keyboard joining: the menu layout's keys (src/controls.cpp).
+    bool keyboard_pressing_anything() {
+        int num_keys = 0;
+        const Uint8* keys = SDL_GetKeyboardState(&num_keys);
+        constexpr SDL_Scancode join_keys[] = { SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_BACKSPACE,
+            SDL_SCANCODE_RETURN, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT };
+        for (SDL_Scancode key : join_keys) {
+            if (key < num_keys && keys[key]) {
+                return true;
             }
         }
-        // Or the same vendor and product: the GUID's checksum and driver bytes change when SDL opens the controller
-        // through another driver (RawInput, XInput, HIDAPI).
-        for (const Connected& c : connected) {
-            if (key_guid(c.key).size() >= 24 && key_guid(key).size() >= 24 &&
-                key_guid(c.key).substr(8, 16) == key_guid(key).substr(8, 16) && free(c.id)) {
-                return c.id;
-            }
-        }
-        return no_controller;
+        return false;
+    }
+
+    // Whether a port has a device: a controller or the keyboard.
+    bool port_taken(int port) {
+        return port_controllers[port].load() != no_controller || keyboard_port.load() == port;
     }
 
     void update_port_assignments() {
-        std::array<PortChoice, num_ports> choices;
+        std::vector<rush2::input::DisabledController> disabled;
+        bool keyboard_on;
         {
             std::lock_guard lock{ players_mutex };
-            choices = port_choices;
+            disabled = disabled_controllers;
+            keyboard_on = keyboard_enabled;
         }
         std::vector<Connected> connected = connected_controllers();
+        std::vector<SDL_JoystickID> off = find_disabled(connected, disabled);
 
-        // Free the ports of controllers that disconnected.
-        for (int port = 0; port < num_ports; port++) {
-            if (get_connected_controller(port_controllers[port].load()) == nullptr) {
-                set_port_controller(port, no_controller);
-            }
-        }
-
-        // Ports set to a specific controller or to None.
-        std::array<SDL_JoystickID, num_ports> chosen;
-        chosen.fill(no_controller);
-        for (int port = 0; port < num_ports; port++) {
-            if (choices[port].kind == PortChoice::Kind::Controller) {
-                chosen[port] = find_chosen(connected, choices[port].controller_key, chosen);
-            }
-        }
-        for (int port = 0; port < num_ports; port++) {
-            if (choices[port].kind != PortChoice::Kind::Auto) {
-                set_port_controller(port, chosen[port]);
-            }
-        }
-        // An Auto port gives up a controller that's now chosen for another port.
+        // Free the ports of controllers that disconnected or were disabled.
         for (int port = 0; port < num_ports; port++) {
             SDL_JoystickID id = port_controllers[port].load();
-            if (choices[port].kind == PortChoice::Kind::Auto && std::find(chosen.begin(), chosen.end(), id) != chosen.end()) {
+            if (get_connected_controller(id) == nullptr || std::find(off.begin(), off.end(), id) != off.end()) {
                 set_port_controller(port, no_controller);
             }
+        }
+
+        if (!keyboard_on) {
+            keyboard_port = -1;
         }
 
         // Presses made to navigate the menus shouldn't claim a port.
@@ -244,21 +258,29 @@ namespace {
             return;
         }
 
-        // Auto ports: the first free controller to press something. Controllers chosen for a port by key never join
-        // another port.
-        for (const Connected& c : connected) {
-            bool reserved = get_port_for_controller(c.id) >= 0;
+        auto first_free = [&]() {
             for (int port = 0; port < num_ports; port++) {
-                reserved = reserved || (choices[port].kind == PortChoice::Kind::Controller && choices[port].controller_key == c.key);
+                if (!port_taken(port)) {
+                    return port;
+                }
             }
-            if (reserved || !controller_pressing_anything(c.controller)) {
+            return -1;
+        };
+        for (const Connected& c : connected) {
+            if (get_port_for_controller(c.id) >= 0 || std::find(off.begin(), off.end(), c.id) != off.end() ||
+                !controller_pressing_anything(c.controller)) {
                 continue;
             }
-            for (int port = 0; port < num_ports; port++) {
-                if (choices[port].kind == PortChoice::Kind::Auto && port_controllers[port].load() == no_controller) {
-                    set_port_controller(port, c.id);
-                    break;
-                }
+            int port = first_free();
+            if (port >= 0) {
+                set_port_controller(port, c.id);
+            }
+        }
+        if (keyboard_on && keyboard_port.load() < 0 && keyboard_pressing_anything()) {
+            int port = first_free();
+            if (port >= 0) {
+                keyboard_port = port;
+                printf("[Input] The keyboard joined port %d\n", port + 1);
             }
         }
     }
@@ -276,28 +298,17 @@ namespace {
     const std::string players_section = "controllers";
 
     void save_players() {
-        nlohmann::json ports = nlohmann::json::array();
-        int keyboard;
+        nlohmann::json disabled = nlohmann::json::array();
+        nlohmann::json keyboard;
         {
             std::lock_guard lock{ players_mutex };
-            for (const PortChoice& choice : port_choices) {
-                switch (choice.kind) {
-                    case PortChoice::Kind::Auto:
-                        ports.push_back({ { "controller", "auto" } });
-                        break;
-                    case PortChoice::Kind::None:
-                        ports.push_back({ { "controller", "none" } });
-                        break;
-                    case PortChoice::Kind::Controller:
-                        ports.push_back({ { "controller", { { "key", choice.controller_key }, { "name", choice.controller_name } } } });
-                        break;
-                }
+            for (const auto& c : disabled_controllers) {
+                disabled.push_back({ { "key", c.key }, { "name", c.name } });
             }
-            keyboard = keyboard_port;
+            keyboard = { { "enabled", keyboard_enabled } };
         }
-        // The keyboard is stored as a player number, 0 for none.
         rush2::data_files::write(rush2::data_files::File::Players, players_section,
-            nlohmann::json{ { "players", ports }, { "keyboard", keyboard + 1 } }.dump());
+            nlohmann::json{ { "disabled", disabled }, { "keyboard", keyboard } }.dump());
     }
 }
 
@@ -306,28 +317,30 @@ void rush2::input::load_players() {
     if (text.empty()) {
         return;
     }
+    bool migrated = false;
     try {
         nlohmann::json j = nlohmann::json::parse(text);
         std::lock_guard lock{ players_mutex };
-        const auto& ports = j.at("players");
-        for (int port = 0; port < num_ports && port < (int)ports.size(); port++) {
-            const auto& c = ports[port].at("controller");
-            PortChoice choice{};
-            if (c.is_object()) {
-                choice.kind = PortChoice::Kind::Controller;
-                choice.controller_key = c.at("key").get<std::string>();
-                choice.controller_name = c.value("name", "");
-            }
-            else if (c == "none") {
-                choice.kind = PortChoice::Kind::None;
-            }
-            port_choices[port] = choice;
+        if (j.contains("players")) {
+            // Older versions pinned controllers to players ("players": a choice per port, "keyboard": the keyboard's
+            // player number or 0). Controllers now take whatever port is free, so only the keyboard's setting carries
+            // over: on any player it's enabled, and 0 turns it off.
+            keyboard_enabled = j.value("keyboard", 1) != 0;
+            migrated = true;
         }
-        int keyboard = j.value("keyboard", 1) - 1;
-        keyboard_port = (keyboard >= 0 && keyboard < num_ports) ? keyboard : -1;
+        else {
+            for (const auto& c : j.value("disabled", nlohmann::json::array())) {
+                disabled_controllers.push_back({ c.value("key", ""), c.value("name", "") });
+            }
+            const auto& keyboard = j.value("keyboard", nlohmann::json::object());
+            keyboard_enabled = keyboard.value("enabled", true);
+        }
     }
     catch (const std::exception& e) {
         printf("[Input] Couldn't read the players' controllers: %s\n", e.what());
+    }
+    if (migrated) {
+        save_players();
     }
 }
 
@@ -342,29 +355,29 @@ std::vector<rush2::input::ControllerInfo> rush2::input::get_controllers() {
     return out;
 }
 
-PortChoice rush2::input::get_port_choice(int port) {
+std::vector<rush2::input::DisabledController> rush2::input::get_disabled_controllers() {
     std::lock_guard lock{ players_mutex };
-    return (port >= 0 && port < num_ports) ? port_choices[port] : PortChoice{};
+    return disabled_controllers;
 }
 
-void rush2::input::set_port_choice(int port, const PortChoice& choice) {
-    if (port < 0 || port >= num_ports) {
-        return;
-    }
+void rush2::input::set_controller_enabled(const std::string& key, const std::string& name, bool enabled) {
     {
         std::lock_guard lock{ players_mutex };
-        // Choosing another port's controller swaps the two ports' choices.
-        if (choice.kind == PortChoice::Kind::Controller) {
-            for (int other = 0; other < num_ports; other++) {
-                if (other != port && port_choices[other].kind == PortChoice::Kind::Controller &&
-                    port_choices[other].controller_key == choice.controller_key) {
-                    port_choices[other] = port_choices[port];
-                }
-            }
+        auto it = std::find_if(disabled_controllers.begin(), disabled_controllers.end(),
+                               [&](const DisabledController& c) { return c.key == key; });
+        if (enabled && it != disabled_controllers.end()) {
+            disabled_controllers.erase(it);
         }
-        port_choices[port] = choice;
+        else if (!enabled && it == disabled_controllers.end()) {
+            disabled_controllers.push_back({ key, name });
+        }
     }
     save_players();
+}
+
+bool rush2::input::is_controller_enabled(int32_t joystick_id) {
+    std::vector<SDL_JoystickID> off = find_disabled(connected_controllers(), get_disabled_controllers());
+    return std::find(off.begin(), off.end(), (SDL_JoystickID)joystick_id) == off.end();
 }
 
 int32_t rush2::input::get_port_controller(int port) {
@@ -372,14 +385,21 @@ int32_t rush2::input::get_port_controller(int port) {
 }
 
 int rush2::input::get_keyboard_port() {
-    std::lock_guard lock{ players_mutex };
-    return keyboard_port;
+    return keyboard_port.load();
 }
 
-void rush2::input::set_keyboard_port(int port) {
+bool rush2::input::get_keyboard_enabled() {
+    std::lock_guard lock{ players_mutex };
+    return keyboard_enabled;
+}
+
+void rush2::input::set_keyboard_enabled(bool enabled) {
     {
         std::lock_guard lock{ players_mutex };
-        keyboard_port = (port >= 0 && port < num_ports) ? port : -1;
+        keyboard_enabled = enabled;
+    }
+    if (!enabled) {
+        keyboard_port = -1;
     }
     save_players();
 }
@@ -406,6 +426,28 @@ void rush2::input::set_rdram(uint8_t* rdram) {
 void rush2::input::poll() {
     recompinput::poll_inputs();
     update_port_assignments();
+}
+
+int rush2::input::port_player(int port) {
+    uint8_t* rdram = game_rdram.load();
+    if (rdram == nullptr || port < 0 || port >= num_ports) {
+        return -1;
+    }
+    // The players' records (0x800C2140, 0x28 each, +1 the port or 5 for none; four of them, src/players4.cpp). Player 2
+    // only counts while the game has 2 players: its record keeps its port after it leaves.
+    constexpr uint32_t records = 0x800C2140;
+    constexpr uint32_t record_size = 0x28;
+    constexpr uint32_t num_players = 0x8010C3E2;
+    int players = MEM_H(0, (int32_t)num_players);
+    for (int player = 0; player < 4; player++) {
+        if (player == 1 && players < 2) {
+            continue;
+        }
+        if (MEM_BU(1, (int32_t)(records + player * record_size)) == port) {
+            return player;
+        }
+    }
+    return -1;
 }
 
 bool rush2::input::port_has_device(int port) {

@@ -9,14 +9,20 @@
 //   for a G_DL call into a side buffer that wraps the original command with a matrix group push/pop, so the
 //   game's display list keeps its size (it rolls back the last command when a subtree draws nothing).
 // - The per-view camera (projection load) and root modelview.
+// - Nodes that ride with a view's camera (the battle arenas' HUD models) are drawn in view space instead: see
+//   rush2_interp_node_matrix.
 // - The world-space polygon list (skid marks, shadows, particles), whose vertices are camera-relative: each
 //   polygon gets its own group with vertex interpolation, keyed by its slot (slots are stable between frames).
 //
 // IDs include a generation that changes when an object teleports or the camera cuts, so RT64 snaps instead of
 // sweeping across the screen. Children inherit their ancestors' generations.
 
+#include <iterator>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
+#include <chrono> // TMPDIAG
 
 #include "recomp.h"
 #include "rush2.h"
@@ -46,6 +52,8 @@ namespace {
     constexpr uint32_t G_DL_CALL = 0xDE000000;
     constexpr uint32_t G_ENDDL_W0 = 0xDF000000;
     constexpr uint32_t G_MTX_LOAD_MODELVIEW_W0 = 0xDA380003;
+    constexpr uint32_t G_MTX_LOAD_PROJECTION_W0 = 0xDA380007;
+    constexpr uint32_t G_MTX_MUL_PROJECTION_W0 = 0xDA380005;
 
     // The `proj` argument of the extended GBI matrix group commands.
     constexpr uint32_t G_MTX_MODELVIEW_EX = 0;
@@ -62,6 +70,7 @@ namespace {
     //   nodes:      1vvg gggg gggg gggg gggg ggnn nnnn nnnn  (bit 28 is always 0)
     //   polygons:   0001 vvgg gggg gggg gggg pppp pppp pppp
     //   projection: 0010 0000 0000 00vv gggg gggg gggg gggg
+    //   view space: 0010 0001 0000 00vv 0000 0000 0000 0000  (the projection of camera-attached nodes)
     //   root view:  0011 0000 0000 00vv gggg gggg gggg gggg
     uint32_t node_id(uint32_t view, uint32_t gen, uint32_t node) {
         return 0x80000000u | ((view & 3) << 29) | ((gen & 0x3FFFF) << 10) | (node & 0x3FF);
@@ -149,6 +158,29 @@ namespace {
     };
     NodeState nodes[max_nodes];
 
+    // Nodes that ride with a view's camera (HUD models, rush2::interpolation_view_attached): they move as far as
+    // the camera does each frame, which is no teleport, and are drawn in view space (rush2_interp_node_matrix).
+    uint32_t attached_nodes[16];
+    int attached_count = 0;
+
+    // Nodes drawn in a primitive color of their own (rush2::interpolation_node_color): the color is set with the
+    // node's matrix. Rush 2's nodes carry no color, so a model that uses the primitive color takes whatever was set
+    // last.
+    struct NodeColor {
+        uint32_t node, rgba;
+    };
+    NodeColor node_colors[96];
+    int node_color_count = 0;
+
+    bool view_attached(uint32_t node) {
+        for (int i = 0; i < attached_count; i++) {
+            if (attached_nodes[i] == node) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     struct PolyState {
         Vec3 pos{};
         int16_t count = 0;
@@ -173,6 +205,7 @@ namespace {
     uint32_t level_current[max_depth]; // Generation of the node currently being drawn at this level.
     GfxCommand level_mtx[max_depth];   // G_MTX of the node currently being drawn at this level (word1 0: none).
     bool level_mtx_float[max_depth];   // Its matrix is floats (src/draw_distance.cpp).
+    bool level_view_space[max_depth];  // It is drawn in view space: its pop puts the view's projection back.
 
     // N64 fixed point matrix (s15.16, row vectors): integer halves then fractions. Or 16 floats by rows.
     void read_mtx(uint8_t* rdram, uint32_t addr, bool is_float, float m[4][4]) {
@@ -209,6 +242,16 @@ namespace {
 
     // Sky clipping (see rush2_interp_poly_end).
     uint32_t view_projection[max_views]; // The view's projection G_MTX address.
+    uint32_t view_lookat[max_views];     // The view's rotation, which the game multiplies into the projection.
+
+    // The view's projection group. Cameras look best with simple (non-decomposed) interpolation, like RT64's default
+    // for projections. Takes two command slots.
+    void projection_group(GfxCommand* cmd, uint32_t id) {
+        gEXMatrixGroup(cmd, id, G_EX_INTERPOLATE_SIMPLE, G_EX_NOPUSH, G_MTX_PROJECTION_EX,
+            G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE,
+            G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO, G_EX_ORDER_LINEAR, G_EX_EDIT_NONE, G_EX_ASPECT_AUTO,
+            G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO);
+    }
     uint32_t clip_poly = 0;              // The polygon whose G_VTX is at clip_vtx_cmd.
     uint32_t clip_vtx_cmd = 0;
 
@@ -286,8 +329,18 @@ void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx) {
     if (view.valid) {
         float len = std::sqrt(dot(fwd, fwd) * dot(view.fwd, view.fwd));
         float cos_angle = len > 0.0f ? dot(fwd, view.fwd) / len : 1.0f;
-        if (distance(pos, view.pos) > camera_cut_distance || cos_angle < camera_cut_cos) {
+        bool cut = distance(pos, view.pos) > camera_cut_distance || cos_angle < camera_cut_cos;
+        if (cut) {
             view.gen++;
+        }
+        // TMPDIAG
+        static FILE* diag = std::getenv("RUSH2_INTERP_LOG") ? std::fopen(std::getenv("RUSH2_INTERP_LOG"), "w") : nullptr;
+        if (diag) {
+            static auto t0 = std::chrono::steady_clock::now();
+            double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            std::fprintf(diag, "%10.2f v%u dt=%.4f t=%.3f dist=%7.2f cos=%.4f cut=%d\n", ms, cur_view,
+                read_f32(rdram, 0x80023028), read_f32(rdram, 0x80117488), distance(pos, view.pos), cos_angle, cut);
+            std::fflush(diag);
         }
     }
     view.valid = true;
@@ -301,13 +354,10 @@ void rush2_interp_projection(uint8_t* rdram, recomp_context* ctx) {
     uint32_t cmd_addr = (uint32_t)ctx->r2;
     GfxCommand cmds[4];
     gEXEnable(&cmds[0]);
-    // Cameras look best with simple (non-decomposed) interpolation, like RT64's default for projections.
-    gEXMatrixGroup(&cmds[1], view_id(0x20000000u, cur_view, views[cur_view].gen), G_EX_INTERPOLATE_SIMPLE, G_EX_NOPUSH, G_MTX_PROJECTION_EX,
-        G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE,
-        G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO, G_EX_ORDER_LINEAR, G_EX_EDIT_NONE, G_EX_ASPECT_AUTO,
-        G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO);
+    projection_group(&cmds[1], view_id(0x20000000u, cur_view, views[cur_view].gen));
     cmds[3] = read_command(rdram, cmd_addr);
     view_projection[cur_view] = cmds[3].values.word1;
+    view_lookat[cur_view] = 0;
     replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 4));
 }
 
@@ -318,6 +368,14 @@ void rush2_interp_root_modelview(uint8_t* rdram, recomp_context* ctx) {
     object_group(&cmds[0], view_id(0x30000000u, cur_view, views[cur_view].gen), G_EX_NOPUSH, G_EX_COMPONENT_SKIP);
     cmds[2] = read_command(rdram, cmd_addr);
     views[cur_view].root_mtx = cmds[2].values.word1;
+    // The view's rotation is the matrix the game multiplied into the projection a few commands back.
+    for (uint32_t back = 1; back <= 8; back++) {
+        GfxCommand before = read_command(rdram, cmd_addr - back * 8);
+        if (before.values.word0 == G_MTX_MUL_PROJECTION_W0) {
+            view_lookat[cur_view] = before.values.word1;
+            break;
+        }
+    }
     replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 3));
 }
 
@@ -370,7 +428,8 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
     uint32_t vtx_cmd = clip_vtx_cmd;
     bool ours = clip_poly == poly;
     clip_poly = 0;
-    if (!ours || (MEM_H(2, (int32_t)poly) & 0x2000) == 0) {
+    // Other polygons at a primitive depth (+6) sit in front of everything (the battle arenas' arrows, src/battle.cpp).
+    if (!ours || (MEM_H(2, (int32_t)poly) & 0x2000) == 0 || MEM_H(6, (int32_t)poly) < 0x4000) {
         return;
     }
     uint32_t root = views[cur_view].root_mtx;
@@ -510,6 +569,18 @@ void rush2_interp_view_end(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(0, (int32_t)main_dl_head) = (int32_t)(head + 8);
 }
 
+// The matrices of a view as func_8007C624 last set them: its root modelview, its projection without the view's
+// rotation and the rotation (src/battle_render.cpp draws models of its own with them).
+bool rush2_interp_view_matrices(uint32_t view, uint32_t* root, uint32_t* projection, uint32_t* lookat) {
+    if (view >= max_views || views[view].root_mtx == 0 || view_projection[view] == 0 || view_lookat[view] == 0) {
+        return false;
+    }
+    *root = views[view].root_mtx;
+    *projection = view_projection[view];
+    *lookat = view_lookat[view];
+    return true;
+}
+
 // The current view and the generation of the node being drawn, for other code that adds matrices under it
 // (src/wings_render.cpp).
 void rush2_interp_get_generation(uint32_t* view, uint32_t* gen) {
@@ -539,6 +610,7 @@ void rush2_interp_node_begin(uint8_t* rdram, recomp_context* ctx) {
     if (depth >= 0 && depth < max_depth) {
         level_current[depth] = level_base[depth];
         level_mtx[depth].values.word1 = 0;
+        level_view_space[depth] = false;
     }
 }
 
@@ -597,7 +669,8 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     NodeState& state = nodes[index];
     uint32_t transform = (uint32_t)MEM_W(4, (int32_t)node);
     Vec3 pos = read_vec3(rdram, transform + 0x24);
-    if (transform != state.transform || distance(pos, state.pos) > node_teleport_distance) {
+    if (transform != state.transform ||
+        (distance(pos, state.pos) > node_teleport_distance && !view_attached((uint32_t)node))) {
         state.gen++;
     }
     state.transform = transform;
@@ -606,13 +679,52 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     uint32_t gen = level_base[depth] + state.gen;
     level_current[depth] = gen;
 
-    GfxCommand cmds[4];
+    GfxCommand cmds[10];
     uint32_t push = (params ^ 1) & 1;
-    object_group(&cmds[0], node_id(cur_view, views[cur_view].gen + gen, index), push, G_EX_COMPONENT_SKIP);
-    for (uint32_t i = 0; i < mtx_count; i++) {
-        cmds[2 + i] = mtx[i];
+    uint32_t cmd_count = 0;
+
+    // A node that rides with the camera. The game keeps a view's rotation in its projection matrix, so RT64 takes it
+    // for the view matrix and a node's matrix for its place in the world. Between two game frames it moves the node's
+    // position along a straight line while the view turns, and a node fixed to a fast-turning camera (the race
+    // start's) slips on screen: by the square of the turn, 10 pixels and more at the start's 15 degrees a frame. Such
+    // a node is drawn in view space instead: its matrix times the view's rotation is loaded as the whole modelview,
+    // under the view's projection without the rotation, which the node's pop puts back (rush2_interp_node_pop).
+    float view_space[4][4];
+    bool in_view_space = push != 0 && (params & 2) == 0 && view_attached((uint32_t)node) && view_projection[cur_view] != 0 &&
+                         view_lookat[cur_view] != 0 && rush2_interp_get_modelview(rdram, view_space);
+    if (in_view_space) {
+        float lookat[4][4];
+        read_mtx(rdram, kseg0(view_lookat[cur_view]), false, lookat);
+        mul_mtx(view_space, lookat, view_space);
+        uint32_t floats = side_alloc(64);
+        for (int i = 0; i < 16; i++) {
+            uint32_t bits;
+            memcpy(&bits, &view_space[i / 4][i % 4], sizeof(bits));
+            MEM_W(0, (int32_t)(floats + i * 4)) = (int32_t)bits;
+        }
+        projection_group(&cmds[0], view_id(0x21000000u, cur_view, 0));
+        cmds[2].values.word0 = G_MTX_LOAD_PROJECTION_W0;
+        cmds[2].values.word1 = view_projection[cur_view];
+        cmd_count = 3;
+        gEXMatrixFloat(&mtx[0], floats, params | 2); // G_MTX_LOAD
+        mtx_count = 2;
+        level_view_space[depth] = true;
     }
-    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 2 + mtx_count));
+
+    object_group(&cmds[cmd_count], node_id(cur_view, views[cur_view].gen + gen, index), push, G_EX_COMPONENT_SKIP);
+    cmd_count += 2;
+    for (uint32_t i = 0; i < mtx_count; i++) {
+        cmds[cmd_count++] = mtx[i];
+    }
+    for (int i = 0; i < node_color_count; i++) {
+        if (node_colors[i].node == (uint32_t)node) {
+            cmds[cmd_count].values.word0 = 0xFA000000; // G_SETPRIMCOLOR
+            cmds[cmd_count].values.word1 = node_colors[i].rgba;
+            cmd_count++;
+            break;
+        }
+    }
+    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, cmd_count));
 }
 
 // func_8007B518, after a pushed node finishes (L_8007BD7C). If anything was drawn ($s2 != 0) the game wrote a
@@ -624,10 +736,47 @@ void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx) {
     }
 
     uint32_t cmd_addr = (uint32_t)MEM_W(0x10C, ctx->r29) - 8;
-    GfxCommand cmds[2];
+    GfxCommand cmds[6];
+    uint32_t cmd_count = 2;
     cmds[0] = read_command(rdram, cmd_addr);
     gEXPopMatrixGroup(&cmds[1], G_MTX_MODELVIEW_EX);
-    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 2));
+    // After a node drawn in view space: the view's projection again, with its rotation.
+    if (depth >= 0 && depth < max_depth && level_view_space[depth]) {
+        level_view_space[depth] = false;
+        projection_group(&cmds[2], view_id(0x20000000u, cur_view, views[cur_view].gen));
+        cmds[4].values.word0 = G_MTX_LOAD_PROJECTION_W0;
+        cmds[4].values.word1 = view_projection[cur_view];
+        cmds[5].values.word0 = G_MTX_MUL_PROJECTION_W0;
+        cmds[5].values.word1 = view_lookat[cur_view];
+        cmd_count = 6;
+    }
+    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, cmd_count));
 }
 
+}
+
+void rush2::interpolation_clear_view_attached() {
+    attached_count = 0;
+    node_color_count = 0;
+}
+
+void rush2::interpolation_node_color(uint32_t node, uint32_t rgba) {
+    if (node == 0) {
+        return;
+    }
+    for (int i = 0; i < node_color_count; i++) {
+        if (node_colors[i].node == node) {
+            node_colors[i].rgba = rgba;
+            return;
+        }
+    }
+    if (node_color_count < (int)std::size(node_colors)) {
+        node_colors[node_color_count++] = { node, rgba };
+    }
+}
+
+void rush2::interpolation_view_attached(uint32_t node) {
+    if (node != 0 && !view_attached(node) && attached_count < (int)std::size(attached_nodes)) {
+        attached_nodes[attached_count++] = node;
+    }
 }

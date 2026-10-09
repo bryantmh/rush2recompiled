@@ -208,6 +208,10 @@ namespace {
     }
 }
 
+float rush2::wings::body_height(int type) {
+    return type >= 0 && type < (int)car_sizes.size() ? car_sizes[type].height : 3.5f;
+}
+
 void rush2::wings::set_player_style(int player, int style) {
     if (player >= 0 && player < 2) {
         player_style[player] = std::clamp(style, 0, 2);

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -65,7 +66,12 @@ namespace {
         0x0020, // VIEW: L
         0x0001, // HORN: C-right
         0x0002, // WINGS: C-left
+        0x0000, // FIRE: not an N64 button (rush2::controls::battle_buttons)
+        0x0000, // DROP WEAPON: the same
     };
+
+    // The battle weapon buttons held on each port, as of its last get_race_input.
+    std::array<std::atomic<uint8_t>, num_ports> battle_held{};
 
     constexpr uint16_t n64_a = 0x8000;
     constexpr uint16_t n64_b = 0x4000;
@@ -112,6 +118,8 @@ namespace {
             set(Action::View, button(SDL_CONTROLLER_BUTTON_Y));
             set(Action::Horn, button(SDL_CONTROLLER_BUTTON_LEFTSTICK));
             set(Action::Wings, button(SDL_CONTROLLER_BUTTON_A));
+            set(Action::Fire, button(SDL_CONTROLLER_BUTTON_RIGHTSTICK));
+            set(Action::DropWeapon, button(SDL_CONTROLLER_BUTTON_DPAD_DOWN));
         }
         else {
             set(Action::Gas, key(SDL_SCANCODE_UP));
@@ -124,6 +132,8 @@ namespace {
             set(Action::View, key(SDL_SCANCODE_C));
             set(Action::Horn, key(SDL_SCANCODE_H));
             set(Action::Wings, key(SDL_SCANCODE_SPACE));
+            set(Action::Fire, key(SDL_SCANCODE_LCTRL));
+            set(Action::DropWeapon, key(SDL_SCANCODE_G));
         }
         return b;
     }
@@ -348,6 +358,7 @@ namespace {
     // JSON names for actions and inputs.
     constexpr std::array<const char*, rush2::controls::action_count> action_names = {
         "gas", "brake", "steering", "shift_up", "shift_down", "reverse", "abort", "view", "horn", "wings",
+        "fire", "drop_weapon",
     };
     constexpr std::array<const char*, 3> stick_names = { "left", "right", "dpad" };
 
@@ -439,6 +450,25 @@ void rush2::controls::load() {
                 const auto& actions = ports[port][device_name];
                 for (int a = 0; a < action_count; a++) {
                     if (!actions.contains(action_names[a])) {
+                        // An action added since the file was saved (FIRE, DROP WEAPON) keeps its default, unless
+                        // the player already bound that input to another action: then it starts unbound.
+                        for (Input& in : bindings[port][device][a]) {
+                            for (int other = 0; other < action_count; other++) {
+                                if (other == a || !actions.contains(action_names[other])) {
+                                    continue;
+                                }
+                                nlohmann::json used = actions[action_names[other]];
+                                if (!used.is_array()) {
+                                    used = nlohmann::json::array({ used });
+                                }
+                                for (const auto& u : used) {
+                                    Input taken{};
+                                    if (in.type != Input::Type::None && input_from_json(u, &taken) && taken == in) {
+                                        in = {};
+                                    }
+                                }
+                            }
+                        }
                         continue;
                     }
                     // Each action is one input, or a list of inputs for keyboard steering.
@@ -628,6 +658,8 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
     buttons |= brake > 0.0f ? action_buttons[static_cast<int>(Action::Brake)] : 0;
     *gas_out = gas;
     *brake_out = brake;
+    battle_held[port] = uint8_t((action_held(d, b, Action::Fire) ? battle_fire : 0) |
+                                (action_held(d, b, Action::DropWeapon) ? battle_drop : 0));
 
     if (button_down(d, SDL_CONTROLLER_BUTTON_START) || key_down(d, SDL_SCANCODE_RETURN)) {
         buttons |= n64_start;
@@ -671,6 +703,10 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
     *buttons_out = buttons;
     *x_out = std::clamp(x, -1.0f, 1.0f);
     *y_out = std::clamp(y, -1.0f, 1.0f);
+}
+
+uint8_t rush2::controls::battle_buttons(int port) {
+    return port >= 0 && port < num_ports ? battle_held[port].load() : 0;
 }
 
 void rush2::controls::get_menu_input(int port, uint16_t* buttons_out, float* x_out, float* y_out) {

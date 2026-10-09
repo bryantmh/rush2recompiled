@@ -38,6 +38,14 @@ namespace rush2::players4 {
     // After the race's finish overlay is built (func_800A0FB4, list head): adds players 3 and 4's and notes players.
     void finish_overlay_built(uint8_t* rdram, recomp_context* ctx, uint32_t head);
 
+    // As the finish overlay is rebuilt in a split screen (rush2_hud_finish_begin): the dark box behind each finished
+    // player's place, as the game places them top and bottom, tagged as part of the place so the HUD layout moves
+    // them together (src/hud.cpp).
+    void finish_boxes(uint8_t* rdram, recomp_context* ctx);
+
+    // The player (0-3) who last opened the pause menu.
+    int paused_player();
+
     // The player a race HUD widget belongs to, or -1 for shared ones.
     int hud_widget_player(int slot);
     // What a race HUD widget is part of, for the split screen layouts (src/hud.cpp).

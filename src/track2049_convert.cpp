@@ -2,7 +2,7 @@
 // tools/rush2049 (track.py and the parts of model.py, placement.py, collision.py and paths.py it calls) and gives
 // byte-identical output. Format details and evidence are in docs/rush2049_research (geometry.md, placement.md,
 // collision.md, race.md). All data is big-endian. 2049 track k (= 2049 track id + 1: race tracks 1-6, stunt arenas
-// 15-18, obstacle course 19) uses these 2049 files:
+// 15-18, obstacle course 19, battle arenas DM1-8 7-14) uses these 2049 files:
 //
 // Geometry (100+k track, 81+k track objects, 78 shared flags/triggers, 68 coins -> one Rush 2 model container)
 //     2049 container: word 0 = offset of a directory of {tag, offset, size or count} entries. IMAG texels, TXLD
@@ -28,7 +28,7 @@
 //     as Rush 2's; if the leaf section doesn't fit 16-bit offsets, bottom quadtree nodes are merged.
 // AI paths (157+k forward, 176+k backward; a stunt arena's one path, 157+k as 2049's loader picks it although the
 //     editor names inside the files run the other way, serves both; so does the obstacle course's): same format in both
-//     games; validated and kept as they are, except that a stunt arena's or the obstacle course's stub AI lanes are
+//     games; validated and kept as they are, except that a stunt arena's, battle arena's or the obstacle course's stub AI lanes are
 //     replaced with its spine. Neither has a per-track object file (81+k).
 // PVS, fog colour: per-track tables in 2049's main data, which is raw deflate at ROM 0xB0CB10, loaded at 0x80086A50.
 //
@@ -1149,6 +1149,16 @@ namespace {
 
     // Objects 2049 knocks over when a car hits them (src/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT, RATCONE),
     // the signs (kind 0, sub-kinds 1-2) and CACTUS.
+    // A battle pickup's kind from its type name (PickupRecord::kind), or -1.
+    int pickup_kind(const std::string& name) {
+        static const char* const kinds[] = { "CANN", "GATT", "GREN", "MINE", "MISS", "RAM", "ROCK", "SONC", "HEAL",
+                                             "INVS", "SHLD", "POWUP" };
+        for (int k = 0; k < 12; k++) {
+            if (name == std::string("WEPICON_") + kinds[k]) return k;
+        }
+        return -1;
+    }
+
     bool is_prop(const Type49& t) {
         return t.kind == 2 || (t.kind == 0 && (t.sub == 1 || t.sub == 2)) || t.name == "CACTUS";
     }
@@ -1162,7 +1172,9 @@ namespace {
                             const std::vector<Type49>& types, const std::set<std::string>& extra_models,
                             bool static_paths, std::vector<rush2::track2049::PathRecord>* path_records,
                             std::vector<rush2::track2049::SpinRecord>* spin_records,
-                            std::vector<rush2::track2049::PropRecord>* prop_records) {
+                            std::vector<rush2::track2049::PropRecord>* prop_records,
+                            std::vector<rush2::track2049::PickupRecord>* pickups = nullptr,
+                            std::vector<int>* pool = nullptr, bool battle = false) {
         // 2049 file: u32 directory offset, u32 chunk count; WHDR = Rush 2's header (count, {offset, name[16]}),
         // WOBJ = 0x68-byte records (Rush 2's 0x64 with a dynamic-object id at +0x4C, the box moved to +0x50).
         constexpr size_t rec49 = 0x68;
@@ -1230,6 +1242,7 @@ namespace {
         std::map<int, std::pair<std::string, How>> keep;
         std::map<int, int> spin_sub; // Record index -> sub-kind of objects that turn in place (func_8010E694).
         std::map<int, int> prop_type; // Record index -> type row of props.
+        std::map<int, int> pickup_of; // Record index -> kind of battle pickups (PickupRecord::kind).
         std::map<std::string, int> coins;
         for (const Record& r : recs) {
             const Type49* t = classify(types, r.name);
@@ -1245,6 +1258,14 @@ namespace {
                 if (n < coins_per_kind) {
                     keep[r.index] = { coin->second + std::to_string(n), How::mapped };
                     n++;
+                }
+                continue;
+            }
+            if (battle && starts_with(t->name, "WEPICON")) {
+                int kind = pickup_kind(t->name);
+                if (kind >= 0 && !t->model.empty() && model_ok(first15(t->model))) {
+                    keep[r.index] = { first15(t->model), How::model };
+                    pickup_of[r.index] = kind;
                 }
                 continue;
             }
@@ -1364,6 +1385,8 @@ namespace {
             int path = -1, node = -1;
             int spin = 0;
             int prop = -1;                  // Type row of a prop.
+            int pickup = -1;                // Kind of a battle pickup.
+            int pool_slot = -1;             // Battle pool slot.
             const Record* source = nullptr; // The 2049 record (world pose).
             const Record* parent_source = nullptr;
         };
@@ -1416,6 +1439,20 @@ namespace {
             it.spin = spin == spin_sub.end() ? 0 : spin->second;
             auto prop = prop_type.find(r->index);
             it.prop = prop == prop_type.end() ? -1 : prop->second;
+            auto pickup = pickup_of.find(r->index);
+            it.pickup = pickup == pickup_of.end() ? -1 : pickup->second;
+            if (it.pickup >= 0) {
+                // A battle pickup's light cone is translucent and writes no depth, so whatever is drawn after it and
+                // behind it paints over it. Rush 2049 draws its objects after the track; here the pickups become
+                // world-space top-level records after the sections (kids[-1] below), like the path objects.
+                memcpy(it.m, r->m, sizeof(it.m));
+                memcpy(it.pos, r->pos, sizeof(it.pos));
+                it.flags = 0x40;
+                for (double& b : it.bbox) {
+                    b = 0.0;
+                }
+                it.parent = -1;
+            }
             it.source = r;
             it.parent_source = par >= 0 ? order[par].first : nullptr;
             items.push_back(it);
@@ -1437,10 +1474,32 @@ namespace {
             items.push_back(it);
         }
 
+        // Battle arenas: the pool of records src/battle.cpp turns into projectiles and effects. They start hidden at
+        // the origin (the model is swapped when one is used), and stay drawn wherever they go like path objects.
+        if (battle && pool != nullptr && model_ok("WPR_MISSG1")) {
+            for (int slot = 0; slot < rush2::track2049::battle_pool_size; slot++) {
+                Item it;
+                it.name = "WPR_MISSG1";
+                for (int a = 0; a < 9; a++) it.m[a] = a % 4 == 0 ? 1.0 : 0.0;
+                for (double& p : it.pos) p = 0.0;
+                it.flags = 0x40;
+                for (double& b : it.bbox) b = 0.0;
+                it.parent = -1;
+                it.pool_slot = slot;
+                items.push_back(it);
+            }
+        }
+
         // Children lists in item order; the file is written as a pre-order walk, like the stock files.
         std::map<int, std::vector<int>> kids;
         for (size_t k = 0; k < items.size(); k++) {
             kids[items[k].parent].push_back((int)k);
+        }
+        // Battle pickups after every section and path object (see above); the pool stays last.
+        if (auto roots = kids.find(-1); roots != kids.end()) {
+            std::stable_partition(roots->second.begin(), roots->second.end(),
+                                  [&](int k) { return items[k].pickup < 0 || items[k].pool_slot >= 0; });
+            std::stable_partition(roots->second.begin(), roots->second.end(), [&](int k) { return items[k].pool_slot < 0; });
         }
         std::vector<int> new_order;
         std::function<void(int)> emit = [&](int par) {
@@ -1501,6 +1560,22 @@ namespace {
                     p.parent_pos[a] = it.parent_source != nullptr ? (float)it.parent_source->pos[a] : 0.0f;
                 }
                 prop_records->push_back(p);
+            }
+        }
+
+        if (pickups != nullptr || pool != nullptr) {
+            for (size_t n = 0; n < new_order.size(); n++) {
+                const Item& it = items[new_order[n]];
+                if (it.pickup >= 0 && pickups != nullptr) {
+                    rush2::track2049::PickupRecord p{};
+                    p.record = (int)n;
+                    p.kind = it.pickup;
+                    for (int a = 0; a < 3; a++) p.pos[a] = (float)it.source->pos[a];
+                    pickups->push_back(p);
+                }
+                if (it.pool_slot >= 0 && pool != nullptr) {
+                    pool->push_back((int)n);
+                }
             }
         }
 
@@ -2216,6 +2291,47 @@ namespace {
         return tris;
     }
 
+    // Every solid polygon of a Rush 2049 collision file as world triangles, 9 floats each (the battle arenas'
+    // projectiles are swept against them, src/battle.cpp). Type 0xF polygons (disabled movers) are left out.
+    std::vector<float> solid_triangles(const Bytes& collision_2049) {
+        Collision c;
+        parse_collision49(collision_2049, c);
+        auto vertex = [&](int k, double* out) {
+            const uint8_t* r = c.verts.at((size_t)k);
+            int16_t x = (int16_t)((r[0] << 8) | r[1]), y = (int16_t)((r[2] << 8) | r[3]), z = (int16_t)((r[4] << 8) | r[5]);
+            uint16_t f = (uint16_t)((r[6] << 8) | r[7]);
+            out[0] = (x * 32 + ((f >> 10) & 31)) / 32.0;
+            out[1] = (y * 32 + ((f >> 5) & 31)) / 32.0;
+            out[2] = (z * 32 + (f & 31)) / 32.0;
+        };
+        std::vector<float> out;
+        for (const CPoly& p : c.polys) {
+            if (p.verts.size() < 3 || (p.flags & 0xF) == 0xF) {
+                continue;
+            }
+            std::vector<std::array<double, 3>> w(p.verts.size());
+            vertex(p.verts[0], w[0].data());
+            for (size_t i = 1; i < p.verts.size(); i++) {
+                double l[3];
+                vertex(p.verts[i], l);
+                for (int a = 0; a < 3; a++) {
+                    w[i][a] = w[0][a];
+                    for (int r = 0; r < 3; r++) {
+                        w[i][a] += l[r] * p.matrix[3 * r + a] / 16384.0;
+                    }
+                }
+            }
+            for (size_t i = 1; i + 1 < w.size(); i++) {
+                for (size_t k : { (size_t)0, i, i + 1 }) {
+                    for (int a = 0; a < 3; a++) {
+                        out.push_back((float)w[k][a]);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     std::vector<double> floor_heights(const std::vector<FloorTriangle>& tris, double x, double z) {
         std::vector<double> out;
         for (const FloorTriangle& t : tris) {
@@ -2321,7 +2437,12 @@ namespace {
     constexpr uint32_t demo_counts_vram = 0x80117408; // s16 per race track + 6 * backward.
     constexpr uint32_t pvs_vram[6] = { 0x8011B898, 0x8011BFE8, 0x8011C738, 0x8011CE88, 0x8011D618, 0x8011DC88 };
     constexpr uint32_t obstacle_pvs_vram = 0x8011E5B8; // The obstacle course's (func_8009EBC0); stunt arenas have none.
+    // The battle arenas' (func_8009EBC0, track ids 6-13). Only DM5 has regions (14, 0x8011E748); the others' one
+    // entry is never read.
+    constexpr uint32_t battle_pvs_vram[8] = { 0x8011E428, 0x8011E438, 0x8011E448, 0x8011E458, 0x8011E468, 0x8011E548, 0x8011E558, 0x8011E568 };
     constexpr int shared_model_file = 78; // F1FLAG / F2FLAG frames, TRIGGEROFF / TRIGGERON.
+    constexpr int battle_hud_file = 63;   // HEALTHBG / HEALTHBAR images and BCOIN_* coins of the battle HUD.
+    constexpr int battle_model_file = 76; // WEPICON_* pickups, WPR_* projectiles, WFX_* effects and WEP_* weapons.
     constexpr int coin_model_file = 68;   // GOLDCOIN / SILVERCOIN; their models run Rush 2's key behaviour (8).
     const std::map<std::string, uint16_t> coin_kinds = { { "GOLDCOING_COIN", 8 }, { "SILVERCOINS_COI", 8 } };
 
@@ -2330,7 +2451,8 @@ namespace {
     Bytes convert_pvs(const Bytes& main, int k, int count) {
         Bytes out;
         for (int reg = 0; reg < count; reg++) {
-            uint32_t table = k <= 6 ? pvs_vram[k - 1] : obstacle_pvs_vram;
+            bool battle = k >= rush2::track2049::battle_first && k < rush2::track2049::battle_first + rush2::track2049::battle_count;
+            uint32_t table = k <= 6 ? pvs_vram[k - 1] : battle ? battle_pvs_vram[k - rush2::track2049::battle_first] : obstacle_pvs_vram;
             size_t o = table - main_vram + (size_t)reg * 16;
             for (int j : { 1, 0, 3, 2 }) {
                 add32(out, u32(main, o + j * 4));
@@ -2534,7 +2656,8 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
                                      const std::set<std::string>& shared_models, bool static_paths,
                                      ConvertedTrack& out, std::string& error) {
     bool race = k >= 1 && k <= 6;
-    if (!race && (k < stunt_first || k >= stunt_first + stunt_count) && k != obstacle) {
+    bool battle = k >= battle_first && k < battle_first + battle_count;
+    if (!race && !battle && (k < stunt_first || k >= stunt_first + stunt_count) && k != obstacle) {
         error = "no such 2049 track";
         return false;
     }
@@ -2545,9 +2668,9 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
     }
     // 2049 files of track k (-1: none).
     const int file_numbers[] = { 100 + k, race ? 81 + k : -1, shared_model_file, 119 + k, 138 + k,
-                                 157 + k, race ? 176 + k : 157 + k, coin_model_file };
-    Bytes files[8];
-    for (int i = 0; i < 8; i++) {
+                                 157 + k, race ? 176 + k : 157 + k, coin_model_file, battle ? battle_model_file : -1, battle ? battle_hud_file : -1 };
+    Bytes files[10];
+    for (int i = 0; i < 10; i++) {
         if (file_numbers[i] >= 0 && !rush2::rom2049::read_file(rom, file_numbers[i], files[i])) {
             error = "can't read Rush 2049 file " + std::to_string(file_numbers[i]);
             return false;
@@ -2583,19 +2706,28 @@ bool rush2::track2049::convert_track(const std::vector<uint8_t>& rom, int k, con
         }
         geometry_files.push_back(&shared);
         geometry_files.push_back(&coins);
+        if (battle) {
+            geometry_files.push_back(&files[8]);
+            geometry_files.push_back(&files[9]);
+        }
         out.geometry = merge_models(geometry_files, opt, names);
 
         out.path_records.clear();
         out.spin_records.clear();
         out.prop_records.clear();
+        out.pickup_records.clear();
+        out.pool_records.clear();
         out.placement = convert_placement(placement, track, prefix, types, names, static_paths, &out.path_records,
-                                          &out.spin_records, &out.prop_records);
+                                          &out.spin_records, &out.prop_records, &out.pickup_records, &out.pool_records,
+                                          battle);
         out.collision = convert_collision(collision);
+        out.solid_triangles = solid_triangles(collision);   // For the weapons' shots (src/battle.cpp), in any race here.
         validate_path(files[5]);
         validate_path(files[6]);
         out.path = race ? files[5] : spine_lanes(files[5], collision, k != obstacle);
         out.path_backward = race ? files[6] : out.path;
 
+        // Of the battle arenas only DM5 has visibility regions (14); the others draw every section.
         out.pvs_count = u8(main, pvs_counts_vram - main_vram + k - 1);
         out.pvs = convert_pvs(main, k, out.pvs_count);
         for (int i = 0; i < 3; i++) {

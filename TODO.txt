@@ -1,14 +1,11 @@
 San Francisco Rush:
-2) Car unique texture patterns as stripes: done as the SF RUSH STRIPE value (docs/rush1_research.md section 11). Left: check Van, Taxi, Hot Rod in game, fuller Camaro flames, Supra/Viper/Bug white stripes.
-3) Windmills: Rush 1 has no windmill code or model (docs/rush1_research.md section 10), so they are static in the original. Find the track 6 windmill piece and check its blades converted (one reported missing). Also unplaced in the geometry: track 5 T5GATEL1-12, track 6 BUSO1.
+2) Car unique texture patterns as stripes
 
 San Francisco Rush 2049:
 1) Coins: missing HUD counter.
 2) Mileage Counter.
-3) Battle arenas DM1-DM8 load as ids 30-37 from the Start Game menu's BATTLE row, hosted in STUNT1 as free roam (no weapons,
-   health bar, kills or battle timer/score; the HUD is Rush 2's stunt HUD). Left: DM5's PVS table (14 regions, not found;
-   battle draws everything), the battle song table (stunt songs 8/9 stand in), battle diorama/thumbnail check, unlocks.
-4) Battle weapons and items: WEPICON_* pickups, WPR_MINE and the battle spawn rules are dropped.
+4) Battle: computer opponents (AI; 2049's battle was multiplayer only). Everything else of 2049's battle is in
+   (docs/rush2049_research/battle.md sections 7 and 8), with the Weapons cheat for the other races.
 5) HANDLING: revisit 2049's HANDLING
 6) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centreline over the top surfaces), with their own colour ramp in spare palette entries; textures reused on several parts need their own copies.
 7) Panther front wheels clip through body
@@ -32,24 +29,14 @@ General:
    Sounds no longer cut out over it (track2049::sounds_paused), but the frame drop is still there.
 3) Best averages numbers aren't properly aligned
 4) Split screen and 3-4 players
-   a) "1st/2nd PLACE" finish banners only show for players 1 and 2; players 3 and 4's copies are built
-      (players4::finish_overlay_built) but don't appear yet.
-   b) Race over / results screens are 2 player: at race over (game state 4) the counts drop back to 2
-      (rush2_players4_state); players 3 and 4 aren't in them. Keeping 4 there crashed (bad audio sample read).
    c) Players 3 and 4 skip Select Player: they race with their controller's record or the profile already chosen
-      on that port; no profile pick or Create Player for them.
-   d) Engines/rumble: Rush 2 has engine voices and rumble for 2 local players; players 3 and 4's cars play through
-      src/car_engines.cpp as other cars (heard from players 1-2's listeners), and have no rumble.
-   e) 3 players: the 4th quadrant is black and the track map's translucent outline is invisible over it (maybe a
-      grey fill or a spectator view of the leader).
-   f) Key rebinding for players 3 and 4 (the Controller Setup screen and controls.json bindings only cover players
-      1 and 2's screen; ports 3-4 use default bindings).
+      on that port; no profile pick or Create Player for them, and the post-race records and name entry (game state 6,
+      func_800A952C, 2 player arrays: docs/players4.md) are players 1 and 2's.
 5) Add a Music skip track feature to the pause menu. It will just be a new pause ;menu item below Audio and above "restart"  Currently music switches every time paused. this is not what we want. It should keep playing a track unless skipped or a new race is begun. Skipping on a track that isn't set to random will play a random song instead. The ui should also show the name of the currently playing song in the bottom right corner in a sort of playback box with some sort of music icon showing that it is music that is playing and the game and track it is from along with its name
 6) Occasional tire sizing bugs
 7) Overhaul main menu UI groupings a bit due to all the new menus. Make it like 2049?
 9) Show accurate track stats like length
 10) Feature to choose NPC vehicles from recomp menu
-11) Add items as their 2049 content is ported. battle arenas Downtown 5, Plaza 5, Roadkill 10, Factory 15; tires, transmissions and frames (maybe not).
 
 Next:
 

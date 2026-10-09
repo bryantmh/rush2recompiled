@@ -58,6 +58,52 @@ namespace rush2 {
         // The width, in 4:3 screen pixels (320 at 4:3), that RT64 spreads HUD elements anchored to the window's
         // edges over (Settings > Graphics > HUD Placement).
         float hud_width();
+        // The window's width in 4:3 screen pixels (320 at 4:3): the 3D views are drawn out to the window's edges.
+        float window_width();
+        // tan(half the vertical field of view) view `index` is drawn with now (it changes with the layout).
+        float view_tan_v(uint8_t* rdram, int index);
+    }
+
+    // Frame interpolation (src/interpolation.cpp): scene nodes that are placed in front of a view's camera each frame,
+    // so a fast camera doesn't count as the node teleporting (which would stop its interpolation and leave it
+    // behind the camera on the frames in between).
+    void interpolation_clear_view_attached();
+    void interpolation_view_attached(uint32_t node);
+    // Draws a scene node in the primitive color `rgba` (for models that use it; Rush 2's nodes carry no color).
+    // interpolation_clear_view_attached also forgets these.
+    void interpolation_node_color(uint32_t node, uint32_t rgba);
+
+    // Race HUD placement (src/hud.cpp).
+    namespace hud {
+        // Before printing text at (x, y) in the race HUD's coordinates after the widget loop: gives it the anchor of the
+        // widget it is over (or its screen third) and moves (x, y) with that widget in split screen.
+        void anchor_text(uint8_t* rdram, int32_t& x, int32_t& y);
+        // Widgets placed by another file (the battle HUD, src/battle.cpp): a widget with a scale isn't anchored, grouped
+        // or moved for split screen by src/hud.cpp; its image is drawn scaled about its top left corner, and it is
+        // anchored at `anchor`, a fraction of the screen's width: its x is kept from that point of the 4:3 screen, which
+        // HUD Placement puts at the same fraction of the HUD's width (0 the left edge, 0.5 the middle, 1 the right
+        // edge). clear_widget_scales forgets them all (when a HUD is built); set_anchor anchors what is drawn next
+        // (text printed after the widget loop) the same way.
+        void set_widget_scale(int slot, float scale_x, float scale_y, float anchor = 0.5f);
+        void clear_widget_scales();
+        void set_anchor(uint8_t* rdram, float fraction);
+        // A filled rectangle (screen pixels, RGBA blended by its alpha) in the 2D display list, anchored as above.
+        void draw_rect(uint8_t* rdram, float x0, float y0, float x1, float y1, uint32_t rgba, float anchor);
+        // An RGBA16 image of w x h texels at `address` (at most 2048 texels) over that rectangle, blended by its alpha.
+        void draw_image(uint8_t* rdram, uint32_t address, int w, int h, float x0, float y0, float x1, float y1, float anchor);
+        // Leaves the primitive color at rgba after the 2D drawing so far (G_SETPRIMCOLOR in the 2D display list).
+        void set_prim_color(uint8_t* rdram, uint32_t rgba);
+        // Draws a number (up to 6 digits) centered on (center_x, center_y) of the 4:3 screen, `height` pixels tall,
+        // white with a shadow, anchored at `anchor` (as set_widget_scale). After the widget loop.
+        void draw_number(uint8_t* rdram, const char* digits, float center_x, float center_y, float height, float anchor);
+        // Split screen: where player's time and position panels were drawn this frame (the time with its lap time box,
+        // shown or not), as drawn: 4:3 screen pixels moved by their anchors, the space of an anchored x. time_* and
+        // place_* = the time's and position's left, right and top edges, y0-y1 = the top and bottom of the row of
+        // both. False if unknown.
+        struct PanelBounds {
+            float time_x0, time_x1, time_y0, place_x0, place_x1, place_y0, y0, y1;
+        };
+        bool panel_row(int player, PanelBounds& out);
     }
 
     // Cheats tab: the in-game cheat menu and forced cheats (src/cheats.cpp).
@@ -71,9 +117,8 @@ namespace rush2 {
         void set_unlock_system(bool enabled);
     }
 
-    // Per-port input (src/input.cpp). Each player (N64 ports 1-4) gets a controller and optionally the keyboard,
-    // either chosen in the Players tab (src/players_tab.cpp) or, for a port left on Auto, the first unassigned
-    // controller to press a button.
+    // Per-port input (src/input.cpp). Each enabled controller takes the first free N64 port when it presses a button;
+    // the keyboard is one more controller. Which player a port is follows who presses START.
     namespace input {
         constexpr int num_ports = 4;
 
@@ -84,6 +129,8 @@ namespace rush2 {
         bool is_port_scripted(int port);
         // Whether a controller or the keyboard drives the port.
         bool port_has_device(int port);
+        // The player (0-3) on a port, or -1: the game's player records.
+        int port_player(int port);
         bool get_n64_input(int port, uint16_t* buttons, float* x, float* y);
         // Scripted presses (--input-script) of GAS (A) or BRAKE (B) count as fully pressed pedals.
         void press_pedals(int port, uint16_t buttons);
@@ -109,21 +156,21 @@ namespace rush2 {
         // Connected controllers, in SDL's order.
         std::vector<ControllerInfo> get_controllers();
 
-        // What each port's controller slot is set to in the Players tab.
-        struct PortChoice {
-            enum class Kind { Auto, None, Controller };
-            Kind kind = Kind::Auto;
-            std::string controller_key; // Kind::Controller only.
-            std::string controller_name; // Kind::Controller only, for showing a controller that isn't connected.
+        // Controllers turned off in the Players tab (they never take a port), remembered by key.
+        struct DisabledController {
+            std::string key;
+            std::string name; // For showing a disabled controller that isn't connected.
         };
-        PortChoice get_port_choice(int port);
-        // Assigns a port's controller slot and saves. A controller chosen for one port is taken off the other.
-        void set_port_choice(int port, const PortChoice& choice);
+        std::vector<DisabledController> get_disabled_controllers();
+        // Enables or disables a controller and saves. A disabled controller leaves its port at once.
+        void set_controller_enabled(const std::string& key, const std::string& name, bool enabled);
+        bool is_controller_enabled(int32_t joystick_id);
         // The controller currently driving a port, or -1.
         int32_t get_port_controller(int port);
-        // The port the keyboard drives, or -1 for none.
+        // The port the keyboard drives, or -1 for none (off, or it hasn't pressed anything yet).
         int get_keyboard_port();
-        void set_keyboard_port(int port);
+        bool get_keyboard_enabled();
+        void set_keyboard_enabled(bool enabled);
         // True if the port's controller is a PlayStation controller (for button glyphs).
         bool port_has_playstation_controller(int port);
 
@@ -135,9 +182,10 @@ namespace rush2 {
     // Button bindings for driving (src/controls.cpp). In races each player's bound inputs are turned into the game's
     // default N64 layout, which the game's own binding table is locked to; menus use a fixed layout.
     namespace controls {
-        // The rows of the game's Controller Setup screen, in order.
+        // The rows of the game's Controller Setup screen, in order. Fire and DropWeapon are the battle arenas' weapon
+        // buttons (src/battle.cpp): they aren't N64 buttons of the game's layout, and are read with battle_buttons.
         enum class Action : uint8_t {
-            Gas, Brake, Steering, ShiftUp, ShiftDown, Reverse, Abort, View, Horn, Wings, Count
+            Gas, Brake, Steering, ShiftUp, ShiftDown, Reverse, Abort, View, Horn, Wings, Fire, DropWeapon, Count
         };
         constexpr int action_count = static_cast<int>(Action::Count);
 
@@ -177,6 +225,9 @@ namespace rush2 {
                             float* brake);
         // The fixed menu layout.
         void get_menu_input(int port, uint16_t* buttons, float* x, float* y);
+        // The battle arenas' weapon buttons held on a port as of its last race input: battle_fire, battle_drop.
+        constexpr uint8_t battle_fire = 1, battle_drop = 2;
+        uint8_t battle_buttons(int port);
         // True if an input on the port's devices is held (used to wait for releases).
         bool any_input_held(int port);
 
