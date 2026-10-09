@@ -1,27 +1,69 @@
-"""Rush 1 car decals as Rush 2 stripe tiles (reference implementation of src/car1_decals.cpp; research notes in
-docs/rush1_research.md section 11).
+"""Rush 1 car decals painted onto Rush 2's car panel textures (reference implementation of src/car1_decals.cpp;
+research notes in docs/rush1_research.md section 11).
 
 Rush 2's cars are the Rush 1 cars re-textured: the panels keep their shape (both games use the same car-local
 coordinates) but the texture layout was redone, so panels can't be paired by pixel. Instead each Rush 2 panel texel is
-located on the car body (barycentric through the panel's triangles), the closest point on the Rush 1 body (same side,
-similar normal, within DIST) is found and the Rush 1 texel there is sampled. A texel is part of the decal where that
-Rush 1 texel is a fixed colour (not one of the ten paint ramps) of the car's decal kind and Rush 2 has paint there.
-The result is one mask per Rush 2 panel texture (D0_1 .. D0_6); the C++ port must give the same masks bit for bit.
+located on the car body (barycentric through the panel's triangles); the Rush 1 surface facing the same way that the
+line along the Rush 2 normal crosses farthest out (what is visible there; else the closest point of the Rush 1 body on
+the same side, within DIST) gives the Rush 1 texel. A texel is part of the decal where that
+Rush 1 texel is one of the car's decal palette indices (CARS: the Camaro's flames, the Taxi's white checks, the VW
+Bus's swirls, the VW Bug's sunburst; companion indices such as the Taxi's black checks only next to those) and Rush 2
+has paint there. Each texel is sampled SUB x SUB times (Rush 1 has more texels on some panels) and the majority decides.
+The decal keeps Rush 1's colours: a texel is the nearest of Rush 2's fixed car palette entries (64-255, the same for
+every paint colour) to the mean of its decal samples. The result is one colour map per Rush 2 panel texture (D0_1 ..
+D0_6, Rush 2 car palette indices, 0 = none) plus its quarter-size mip; the C++ port must give the same bytes. (Rush 1
+paints these cars in one colour, so the game also turns Rush 2's accent-colour areas, accent ramp 33-63, into the same
+shade of the main ramp, index - 32, on every panel texture: src/car1_stripes.cpp; carview.py shows it.)
 
-  python cardecal.py CAR [outdir]    preview PNG: Rush 2 panel | Rush 1 projected | decal mask
-  python cardecal.py check           print the mask hashes (compared with the C++ by cpp_test)
+  python cardecal.py CAR [outdir]    per-panel preview PNG with a texel grid (see preview())
+  python cardecal.py check           print the result hashes (compared with the C++ by cpp_test)
 """
 import hashlib, math, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rush2049'))
 from cartex import *
 
-# Cars with a decal worth keeping: kind 'chroma' = coloured fixed texels (flames), 'white' = white fixed texels.
-CARS = {'CAMARO': 'chroma', 'HOTROD': 'chroma', 'TAXI': 'white', 'VWBUS': 'white'}
+# Cars with a decal of their own in Rush 1 (the others only have racing stripes, which Rush 2's STRIPE values cover):
+# (Rush 1 palette index ranges of the decal, companion ranges kept only within REACH texels of a decal texel, the
+# Rush 2 panels (D0_n) it goes on). Fixed Rush 1 colours: 33-49 / 100-106 the Camaro's flame ramps (yellow to red; its
+# rear amber lights use them too, hence its side panels only), 145-148 whites, 157-159 and 31 blacks; on the VW Bus
+# and Bug 33-63 is a white ramp.
+CARS = {
+    'CAMARO': ([(33, 49), (100, 106)], [(147, 156), (161, 175)], (2, 3)),
+    'VWBUS': ([(33, 63)], [], (1, 2, 3, 4, 5, 6)),
+    'VWBUG': ([(33, 63)], [], (1, 2, 3, 4, 5, 6)),
+    'TAXI': ([(145, 148)], [(31, 31), (157, 159)], (1, 2, 3, 4, 5, 6)),
+}
+# Hand-made cuts: {car: {panel n: [(x0, y0, x1, y1), ...]}}, texel rectangles (inclusive) of a Rush 2 panel D0_n where
+# the decal is dropped (fragments where Rush 2's windows and pillars sit apart from Rush 1's). Previews with a texel grid:
+# python cardecal.py CAR; the result on the car: tools/rush1/carview.py.
+CUTS = {
+    'CAMARO': {},
+    'VWBUS': {},
+    'VWBUG': {},
+    'TAXI': {},
+}
 R1_PARTS = ('FL1', 'FR1', 'RL1', 'RR1', 'TOP1', 'WIN1')   # Rush 1 D0 body panels (+ greenhouse, own texels)
 R2_PARTS = ('FL1', 'FR1', 'RL1', 'RR1', 'TOP1')
 DIST = 3.0          # farthest a Rush 2 texel's body point may be from the Rush 1 body
 MIN_SPECK = 6       # decal components smaller than this (8-connected) are dropped
+SUB = 3             # sub-samples per texel in each direction (Rush 1 has more texels on some panels)
+REACH = 2           # companion texels count within this many texels (in x and y) of a decal texel
+R2_FIXED = range(64, 256)   # Rush 2 car palette entries that keep their colour for every paint choice
+
+
+def in_ranges(i, ranges): return any(a <= i <= b for a, b in ranges)
+
+
+def nearest_fixed(c, pal2):
+    """Index of the opaque fixed Rush 2 car palette entry closest to colour c (first on a tie)."""
+    best = None
+    for i in R2_FIXED:
+        p = pal2[i]
+        if p[3] == 0: continue
+        d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2
+        if best is None or d < best[0]: best = (d, i)
+    return best[1]
 
 
 def cross(a, b): return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
@@ -56,6 +98,19 @@ def closest_bary(p, a, b, c):
     return (1 - v - w, v, w)
 
 
+def ray_hit(p, n, tri):
+    """Where the line p + t*n crosses triangle tri (Moller-Trumbore): (t, barycentric) or (None, None)."""
+    e1, e2 = sub(tri[1], tri[0]), sub(tri[2], tri[0])
+    h = cross(n, e2); a = dot(e1, h)
+    if abs(a) < 1e-9: return None, None
+    f = 1.0 / a; sv = sub(p, tri[0])
+    u = f * dot(sv, h)
+    if u < 0 or u > 1: return None, None
+    q = cross(sv, e1); v = f * dot(n, q)
+    if v < 0 or u + v > 1: return None, None
+    return f * dot(e2, q), (1 - u - v, u, v)
+
+
 def luma(c): return 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
 
 
@@ -77,8 +132,9 @@ def drop_specks(mask, w, h):
 
 
 def project(car, want_projection=False):
-    """-> {panel name: (w, h, mask[w*h] of 0/1, projected R1 indices or None)} for the car's Rush 2 D0 panels."""
-    kind = CARS[car]
+    """-> {panel name: (w, h, colours[w*h] (Rush 2 palette index, 0 = no decal), projected R1 indices or None)} for the
+    car's Rush 2 D0 panels."""
+    primary, companion, on = CARS[car]
     d1, d2 = load(1, car), load(2, car)
     pal1 = [rgba16(c) for c in r1_palettes(d1)[7][1]]       # the RED palette; fixed colours are the same in all ten
     pal2 = carpalette()
@@ -102,83 +158,134 @@ def project(car, want_projection=False):
     out = {}
     for name, tris in sorted(panels.items()):
         t = names2[name]; w, h = t['w'], t['h']; base = t['data']
-        proj = [-1] * (w * h); mask = [0] * (w * h)
-        for vs in tris:
+        samples = [[-1] * (SUB * SUB) for _ in range(w * h)]    # Rush 1 index at each sub-sample, -1 = none
+        decal_here = name[-1] in '123456' and int(name[-1]) in on
+        for vs in (tris if decal_here else []):
             P = [(v[0], v[1], v[2]) for v in vs]; UV = [(v[3], v[4]) for v in vs]
             n2 = unit(cross(sub(P[1], P[0]), sub(P[2], P[0])))
             if n2 is None: continue
             a = (UV[0][0] - UV[2][0], UV[1][0] - UV[2][0]); b = (UV[0][1] - UV[2][1], UV[1][1] - UV[2][1])
             det = a[0] * b[1] - a[1] * b[0]
             if abs(det) < 1e-9: continue
+            # Rush 1 triangles this one can match: similar normal and the same side of the car.
+            cand = [k for k, r in enumerate(r1) if dot(r[3], n2) >= 0.5]
             x0, y0 = math.floor(min(u[0] for u in UV)), math.floor(min(u[1] for u in UV))
             x1, y1 = math.ceil(max(u[0] for u in UV)), math.ceil(max(u[1] for u in UV))
             for j in range(max(y0, 0), min(y1, h - 1) + 1):
                 for i in range(max(x0, 0), min(x1, w - 1) + 1):
-                    rx, ry = i - UV[2][0], j - UV[2][1]
-                    l0 = (rx * b[1] - ry * a[1]) / det; l1 = (a[0] * ry - b[0] * rx) / det
-                    l2 = 1 - l0 - l1
-                    if min(l0, l1, l2) < -0.02: continue
-                    p = tuple(l0 * P[0][k] + l1 * P[1][k] + l2 * P[2][k] for k in range(3))
-                    best = None
-                    for k, (Pk, UVk, tex1, nk, cx) in enumerate(r1):
-                        if abs(dot(nk, n2)) < 0.5: continue
-                        if (cx < 0) != (p[0] < 0) and abs(p[0]) > 3: continue
-                        bc = closest_bary(p, *Pk)
-                        q = tuple(bc[0] * Pk[0][c] + bc[1] * Pk[1][c] + bc[2] * Pk[2][c] for c in range(3))
-                        dd = sub(q, p); dist = math.sqrt(dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2])
-                        if best is None or dist < best[0]: best = (dist, k, bc)
-                    if best is None or best[0] > DIST: continue
-                    _, k, bc = best
-                    Pk, UVk, tex1, nk, cx = r1[k]
-                    u = math.floor((bc[0] * UVk[0][0] + bc[1] * UVk[1][0] + bc[2] * UVk[2][0]) - tex1[3] + 0.5)
-                    v = math.floor((bc[0] * UVk[0][1] + bc[1] * UVk[1][1] + bc[2] * UVk[2][1]) - tex1[4] + 0.5)
-                    u = min(max(u, 0), tex1[1] - 1); v = min(max(v, 0), tex1[2] - 1)
-                    idx = d1[tex1[0] + v * tex1[1] + u]
-                    s = j * w + i
-                    proj[s] = idx
-                    c1 = pal1[idx]; c2 = pal2[d2[base + s]]
-                    l1c, l2c = luma(c1), luma(c2)
-                    # chroma: g >= 16 leaves out the fixed dark reds (tail lights, shadows)
-                    decal = (kind == 'chroma' and max(c1[:3]) - min(c1[:3]) > 50 and c1[1] >= 16) or \
-                            (kind == 'white' and l1c > 190 and l1c - l2c > 40)
-                    mask[s] = 1 if (decal and idx != 0 and idx not in R1_BODY and d2[base + s] in R2_BODY) else 0   # idx 0 = transparent
-        out[name] = (w, h, drop_specks(mask, w, h), proj if want_projection else None)
+                    for q in range(SUB * SUB):
+                        rx = i + (q % SUB + 0.5) / SUB - UV[2][0]; ry = j + (q // SUB + 0.5) / SUB - UV[2][1]
+                        l0 = (rx * b[1] - ry * a[1]) / det; l1 = (a[0] * ry - b[0] * rx) / det
+                        l2 = 1 - l0 - l1
+                        if min(l0, l1, l2) < -0.02: continue
+                        p = tuple(l0 * P[0][k] + l1 * P[1][k] + l2 * P[2][k] for k in range(3))
+                        # The outermost Rush 1 surface crossing the line through p along the normal (what is
+                        # visible there), else the closest point of the Rush 1 body.
+                        hit = None
+                        for k in cand:
+                            t, bc = ray_hit(p, n2, r1[k][0])
+                            if t is not None and abs(t) <= DIST and (hit is None or t > hit[0]): hit = (t, k, bc)
+                        if hit is None:
+                            for k in cand:
+                                Pk, UVk, tex1, nk, cx = r1[k]
+                                if (cx < 0) != (p[0] < 0) and abs(p[0]) > 3: continue
+                                bc = closest_bary(p, *Pk)
+                                qq = tuple(bc[0] * Pk[0][c] + bc[1] * Pk[1][c] + bc[2] * Pk[2][c] for c in range(3))
+                                dd = sub(qq, p); dist = math.sqrt(dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2])
+                                if dist <= DIST and (hit is None or dist < hit[0]): hit = (dist, k, bc)
+                        if hit is None: continue
+                        _, k, bc = hit
+                        Pk, UVk, tex1, nk, cx = r1[k]
+                        u = math.floor((bc[0] * UVk[0][0] + bc[1] * UVk[1][0] + bc[2] * UVk[2][0]) - tex1[3])
+                        v = math.floor((bc[0] * UVk[0][1] + bc[1] * UVk[1][1] + bc[2] * UVk[2][1]) - tex1[4])
+                        u = min(max(u, 0), tex1[1] - 1); v = min(max(v, 0), tex1[2] - 1)
+                        samples[j * w + i][q] = d1[tex1[0] + v * tex1[1] + u]
+        proj = [smp[SUB * SUB // 2] for smp in samples]
+        # A texel is decal where at least half of its sub-samples are; companions also need a decal texel nearby.
+        paint = [d2[base + s] in R2_BODY for s in range(w * h)]
+        mask = [0] * (w * h); comp = [0] * (w * h)
+        for s, smp in enumerate(samples):
+            got = [x for x in smp if x >= 0]
+            pc = sum(in_ranges(x, primary) for x in got); cc = sum(in_ranges(x, companion) for x in got)
+            if decal_here and paint[s] and got:
+                mask[s] = int(2 * pc >= len(got))
+                comp[s] = int(not mask[s] and cc > 0 and 2 * (pc + cc) >= len(got))
+        near = list(mask)
+        for s in range(w * h):
+            if comp[s]:
+                y, x = divmod(s, w)
+                near[s] = int(any(mask[yy * w + xx] for yy in range(max(y - REACH, 0), min(y + REACH, h - 1) + 1)
+                                  for xx in range(max(x - REACH, 0), min(x + REACH, w - 1) + 1)))
+        for x0, y0, x1, y1 in CUTS[car].get(int(name[-1]) if name[-1] in '123456' else 0, []):
+            for y in range(max(y0, 0), min(y1, h - 1) + 1):
+                for x in range(max(x0, 0), min(x1, w - 1) + 1): near[y * w + x] = 0
+        mask = drop_specks(near, w, h)
+        # A decal texel's colour is the mean of its decal sub-samples.
+        colours = [0] * (w * h)
+        for s in range(w * h):
+            if mask[s]:
+                cs_ = [pal1[x] for x in samples[s] if x >= 0 and (in_ranges(x, primary) or in_ranges(x, companion))]
+                colours[s] = nearest_fixed(tuple(sum(c[k] for c in cs_) // len(cs_) for k in range(3)), pal2)
+        out[name] = (w, h, colours, proj if want_projection else None)
     return out
 
 
-def lod_tile(mask, w, h):
-    """The _4 mip: a quarter size in each direction, a texel set where at least half of its 4x4 block is."""
-    return [1 if sum(mask[(y * 4 + dy) * w + x * 4 + dx] for dy in range(4) for dx in range(4)) >= 8 else 0
-            for y in range(h // 4) for x in range(w // 4)]
+def lod_tile(colours, w, h):
+    """The _4 mip: a quarter size in each direction; a texel has the decal where at least half of its 4x4 block does,
+    in the block's most common decal colour (lowest index on a tie)."""
+    out = []
+    for y in range(h // 4):
+        for x in range(w // 4):
+            block = [colours[(y * 4 + dy) * w + x * 4 + dx] for dy in range(4) for dx in range(4)]
+            lit = [c for c in block if c]
+            out.append(0 if len(lit) < 8 else min(set(lit), key=lambda c: (-lit.count(c), c)))
+    return out
 
 
 def digest(car):
     hsh = hashlib.sha1()
-    for name, (w, h, mask, _) in sorted(project(car).items()):
-        hsh.update(name.encode() + bytes([w, h]) + bytes(mask) + bytes(lod_tile(mask, w, h)))
+    for name, (w, h, colours, _) in sorted(project(car).items()):
+        hsh.update(name.encode() + bytes([w, h]) + bytes(colours) + bytes(lod_tile(colours, w, h)))
     return hsh.hexdigest()
 
 
+def preview(car, outdir, scale=8):
+    """Per-panel PNG (outdir/<CAR>_decal.png): left the Rush 2 panel as the game paints it (accent ramp to main, the decal
+    on top), right the Rush 1 texels projected onto it (magenta = none), with an 8-texel grid for writing CUTS."""
+    from PIL import Image, ImageDraw
+    import carview
+    d1, d2 = load(1, car), load(2, car)
+    pal1 = [rgba16(c) for c in r1_palettes(d1)[7][1]]
+    pal2 = carview.r2_palette((200, 40, 40))
+    names2 = {t['name']: t for t in parse(d2, 2)[1]}
+    res = project(car, True)
+    S = scale; tiles = []
+    for n, (w, h, colours, proj) in sorted(res.items()):
+        base = names2[n]['data']
+        im = Image.new('RGB', (2 * w * S + 20, h * S + 16), (40, 40, 40)); dr = ImageDraw.Draw(im)
+        for y in range(h):
+            for x in range(w):
+                s = y * w + x; i2 = d2[base + s]; i2 = i2 - 32 if 33 <= i2 <= 63 else i2
+                dr.rectangle([x * S, 16 + y * S, x * S + S - 1, 16 + y * S + S - 1], fill=pal2[colours[s] or i2][:3])
+                c = pal1[proj[s]][:3] if proj[s] >= 0 else (90, 0, 90)
+                dr.rectangle([w * S + 20 + x * S, 16 + y * S, w * S + 20 + x * S + S - 1, 16 + y * S + S - 1], fill=c)
+        for off in (0, w * S + 20):
+            for x in range(0, w + 1, 8):
+                dr.line([off + x * S, 16, off + x * S, 16 + h * S], fill=(0, 255, 255)); dr.text((off + x * S + 1, 2), str(x), fill=(0, 255, 255))
+            for y in range(0, h + 1, 8):
+                dr.line([off, 16 + y * S, off + w * S, 16 + y * S], fill=(0, 255, 255)); dr.text((off + 1, 16 + y * S + 1), str(y), fill=(0, 255, 255))
+        dr.text((w * S - 70, 2), n, fill=(255, 255, 0))
+        tiles.append(im)
+    sheet = Image.new('RGB', (max(t.width for t in tiles), sum(t.height + 8 for t in tiles)), (25, 25, 25))
+    y = 0
+    for t in tiles:
+        sheet.paste(t, (0, y)); y += t.height + 8
+    os.makedirs(outdir, exist_ok=True)
+    path = os.path.join(outdir, f'{car}_decal.png'); sheet.save(path); return path
+
+
 if __name__ == '__main__':
-    from PIL import Image
     if sys.argv[1] == 'check':
         for c in CARS: print(c, digest(c))
         sys.exit()
-    car = sys.argv[1]; outdir = sys.argv[2] if len(sys.argv) > 2 else 'tmp/cartex'
-    res = project(car, True)
-    d1, d2 = load(1, car), load(2, car)
-    pal1 = [rgba16(c) for c in r1_palettes(d1)[7][1]]; pal2 = carpalette()
-    names2 = {t['name']: t for t in parse(d2, 2)[1]}
-    S = 3; names = sorted(res)
-    img = Image.new('RGBA', (3 * (64 * S + 6), max(1, len(names)) * (64 * S + 6)), (40, 40, 40, 255))
-    for r, n in enumerate(names):
-        w, h, mask, proj = res[n]; base = names2[n]['data']
-        for c, f in enumerate((lambda s: pal2[d2[base + s]],
-                               lambda s: pal1[proj[s]] if proj[s] >= 0 else (90, 0, 90, 255),
-                               lambda s: (255, 255, 0, 255) if mask[s] else (30, 30, 30, 255))):
-            t = Image.new('RGBA', (w, h))
-            for y in range(h):
-                for x in range(w): t.putpixel((x, y), f(y * w + x))
-            img.paste(t.resize((w * S, h * S), Image.NEAREST), (c * (64 * S + 6), r * (64 * S + 6)))
-    os.makedirs(outdir, exist_ok=True)
-    img.save(os.path.join(outdir, f'{car}_decal.png')); print(names)
+    print(preview(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else 'tmp/cartex'))

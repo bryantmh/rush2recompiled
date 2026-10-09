@@ -169,7 +169,6 @@ void rush2_car1_stripe_text_row(uint8_t* rdram, recomp_context* ctx);
 void rush2_car1_stripe_text(uint8_t* rdram, recomp_context* ctx);
 void rush2_car1_paint_style(uint8_t* rdram, recomp_context* ctx);
 void rush2_car1_paint_stamp(uint8_t* rdram, recomp_context* ctx);
-void rush2_car1_paint_restore(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx);
 void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx);
 void rush2_speedometer(uint8_t* rdram, recomp_context* ctx);

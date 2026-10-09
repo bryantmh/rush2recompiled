@@ -1,6 +1,6 @@
 """Writes the inputs and Python results of the car decal test (see car_decals_main.cpp): out/cars/<CAR>_r1.bin, _r2.bin,
-stripe.bin (Rush 1 car file, Rush 2 car file, Rush 2 asset 0x1C) and out/cars/<CAR>_ref.bin (panels 1-6: w, h, mask,
-quarter-size mask; w = 0 for a panel without decal)."""
+stripe.bin (Rush 1 car file, Rush 2 car file, Rush 2 asset 0x1C) and out/cars/<CAR>_ref.bin (panels 1-6: w, h, colours,
+quarter-size colours; w = 0 for a panel without decal)."""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
@@ -17,8 +17,8 @@ for car in cardecal.CARS:
     ref = bytearray()
     for n in range(1, 7):
         if n in by_n:
-            w, h, mask, _ = by_n[n]
-            ref += bytes([w, h]) + bytes(mask) + bytes(cardecal.lod_tile(mask, w, h))
+            w, h, colours, _ = by_n[n]
+            ref += bytes([w, h]) + bytes(colours) + bytes(cardecal.lod_tile(colours, w, h))
         else:
             ref += bytes([0, 0])
     open(os.path.join(out, f'{car}_ref.bin'), 'wb').write(ref)

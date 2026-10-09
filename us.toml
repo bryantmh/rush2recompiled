@@ -7721,7 +7721,6 @@ func = "carselect_widget_cb_name_logo_803BB61C"
 vram = 0x803BB710
 value = 0x00000000
 
-[[patches.instruction]]
 # SF Rush car stripe (src/car1_stripes.cpp): a ninth STRIPE value, Rush 1's decal on the cars that have one. The player
 # record's getter and setter, the car select's STRIPE row and its text, and func_8008582C's stripe stamp.
 [[patches.hook]]
@@ -7764,11 +7763,7 @@ func = "car_build_textures_8008582C"
 before_vram = 0x80085D8C
 text = "    rush2_car1_paint_stamp(rdram, ctx);"
 
-[[patches.hook]]
-func = "car_build_textures_8008582C"
-before_vram = 0x80085DC4
-text = "    rush2_car1_paint_restore(rdram, ctx);"
-
+[[patches.instruction]]
 func = "carselect_widget_cb_name_logo_803BB61C"
 vram = 0x803BB718
 value = 0x00000000

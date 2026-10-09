@@ -1,5 +1,5 @@
-// Rush 1's car decals as masks on Rush 2's car panel textures. Port of tools/rush1/cardecal.py (and the parts of
-// tools/rush1/cartex.py it uses); it must give the same masks bit for bit (tools/rush1/cpp_test/build.bat checks it).
+// Rush 1's car decals painted onto Rush 2's car panel textures. Port of tools/rush1/cardecal.py (and the parts of
+// tools/rush1/cartex.py it uses); it must give the same bytes (tools/rush1/cpp_test/car_decals.bat checks it).
 // No game or UI dependencies, so the offline test links it alone.
 //
 // Both games' car files are a model container: header, model records (0x34 bytes, +12 = the display list), name
@@ -21,10 +21,14 @@
 namespace rush2::car1decals {
     const Car cars[car_count] = {
         // Rush 1 asset 25 + its car's place in {BMW, CAMARO, SUPRA, BUGATTI, VWBUS, VIPER, VWBUG, CONCEPT, TAXI, HOTROD, FORM1}.
-        { "CAMARO", 5, 26, false },
-        { "VWBUS", 8, 29, true },
-        { "TAXI", 16, 33, true },
-        { "HOTROD", 17, 34, false },
+        // Only the cars with a decal of their own (the others have racing stripes, which Rush 2's STRIPE values cover).
+        // Decal ranges: fixed Rush 1 colours, 33-49 / 100-106 the Camaro's flame ramps (yellow to red; its rear amber
+        // lights use them too, hence its side panels only), 145-148 whites, 157-159 and 31 blacks; on the VW Bus and Bug
+        // 33-63 is a white ramp. Panels: bit n = D0_n. Cuts: tools/rush1/cardecal.py CUTS.
+        { "CAMARO", 5, 26, { { 33, 49 }, { 100, 106 } }, { { 147, 156 }, { 161, 175 } }, 0b0001100, {} },
+        { "VWBUS", 8, 29, { { 33, 63 } }, {}, 0b1111110, {} },
+        { "VWBUG", 10, 31, { { 33, 63 } }, {}, 0b1111110, {} },
+        { "TAXI", 16, 33, { { 145, 148 } }, { { 31, 31 }, { 157, 159 } }, 0b1111110, {} },
     };
 }
 
@@ -34,6 +38,8 @@ namespace {
     // Radius, in car units, within which a Rush 2 texel's body point must find the Rush 1 body.
     constexpr double max_distance = 3.0;
     constexpr int min_speck = 6;   // decal components (8-connected) smaller than this are dropped
+    constexpr int reach = 2;       // companion texels count within this many texels (in x and y) of a decal texel
+    constexpr int subs = 3;        // sub-samples per texel in each direction (Rush 1 has more texels on some panels)
 
     uint32_t u32(const std::vector<uint8_t>& d, size_t o) {
         return o + 4 <= d.size() ? (uint32_t(d[o]) << 24) | (uint32_t(d[o + 1]) << 16) | (uint32_t(d[o + 2]) << 8) | d[o + 3] : 0;
@@ -277,6 +283,32 @@ namespace {
         out[0] = 1 - v - w; out[1] = v; out[2] = w;
     }
 
+    // Where the line p + t*n crosses triangle (a, b, c) (Moller-Trumbore): t and the barycentric coordinates.
+    bool ray_hit(const Vec& p, const Vec& n, const Vec& a, const Vec& b, const Vec& c, double& t, double bc[3]) {
+        Vec e1 = sub(b, a), e2 = sub(c, a);
+        Vec h = cross(n, e2);
+        double det = dot(e1, h);
+        if (std::fabs(det) < 1e-9) {
+            return false;
+        }
+        double f = 1.0 / det;
+        Vec sv = sub(p, a);
+        double u = f * dot(sv, h);
+        if (u < 0 || u > 1) {
+            return false;
+        }
+        Vec q = cross(sv, e1);
+        double v = f * dot(n, q);
+        if (v < 0 || u + v > 1) {
+            return false;
+        }
+        t = f * dot(e2, q);
+        bc[0] = 1 - u - v;
+        bc[1] = u;
+        bc[2] = v;
+        return true;
+    }
+
     struct Rgb {
         int r, g, b, a;
     };
@@ -294,6 +326,32 @@ namespace {
     }
     bool r2_body(int i) {
         return (i >= 1 && i <= 31) || (i >= 33 && i <= 63);
+    }
+
+    bool in_ranges(int i, const rush2::car1decals::Range* ranges) {
+        for (int k = 0; k < rush2::car1decals::max_ranges; k++) {
+            if (ranges[k].last != 0 && i >= ranges[k].first && i <= ranges[k].last) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The opaque Rush 2 car palette entry of 64-255 (the same for every paint colour) closest to `c`, first on a tie.
+    int nearest_fixed(const Rgb& c, const std::vector<Rgb>& pal2) {
+        int best = -1, best_d = 0;
+        for (int i = 64; i < 256; i++) {
+            const Rgb& p = pal2[i];
+            if (p.a == 0) {
+                continue;
+            }
+            int d = (p.r - c.r) * (p.r - c.r) + (p.g - c.g) * (p.g - c.g) + (p.b - c.b) * (p.b - c.b);
+            if (best < 0 || d < best_d) {
+                best = i;
+                best_d = d;
+            }
+        }
+        return best < 0 ? 0 : best;
     }
 
     // Palette `want` (a name containing it) of a car file's palette table, or all 256 entries of the named one.
@@ -369,7 +427,7 @@ bool rush2::car1decals::build(int car, const std::vector<uint8_t>& r1_car, const
         *why = "car index";
         return false;
     }
-    const bool white = cars[car].white;
+    const Car& def = cars[car];
     File f1{ r1_car, 1 }, f2{ r2_car, 2 };
     if (!parse(f1)) {
         *why = "Rush 1 car header";
@@ -458,7 +516,16 @@ bool rush2::car1decals::build(int car, const std::vector<uint8_t>& r1_car, const
         if (w <= 0 || h <= 0 || tex->data + size_t(w) * h > r2_car.size()) {
             continue;
         }
-        std::vector<uint8_t> mask(size_t(w) * h, 0);
+        Panel& p = out.panel[n];
+        p.w = w;
+        p.h = h;
+        p.full.assign(size_t(w) * h, 0);
+        p.lod.assign(size_t(w / 4) * (h / 4), 0);
+        if (!(def.panels & (1 << n))) {
+            continue;
+        }
+        // The Rush 1 palette index at each texel's sub-samples, -1 = none.
+        std::vector<int> samples(size_t(w) * h * subs * subs, -1);
         for (const Tri* tp : tris) {
             const Tri& t = *tp;
             Vec P[3];
@@ -478,88 +545,162 @@ bool rush2::car1decals::build(int car, const std::vector<uint8_t>& r1_car, const
             if (std::fabs(det) < 1e-9) {
                 continue;
             }
+            // Rush 1 triangles facing the same way.
+            std::vector<size_t> cand;
+            for (size_t k = 0; k < r1.size(); k++) {
+                if (dot(r1[k].n, n2) >= 0.5) {
+                    cand.push_back(k);
+                }
+            }
             int x0 = (int)std::floor(std::min({ UV[0][0], UV[1][0], UV[2][0] }));
             int y0 = (int)std::floor(std::min({ UV[0][1], UV[1][1], UV[2][1] }));
             int x1 = (int)std::ceil(std::max({ UV[0][0], UV[1][0], UV[2][0] }));
             int y1 = (int)std::ceil(std::max({ UV[0][1], UV[1][1], UV[2][1] }));
             for (int j = std::max(y0, 0); j <= std::min(y1, h - 1); j++) {
                 for (int i = std::max(x0, 0); i <= std::min(x1, w - 1); i++) {
-                    double rx = i - UV[2][0], ry = j - UV[2][1];
-                    double l0 = (rx * b1 - ry * a1) / det;
-                    double l1 = (a0 * ry - b0 * rx) / det;
-                    double l2 = 1 - l0 - l1;
-                    if (std::min({ l0, l1, l2 }) < -0.02) {
-                        continue;
-                    }
-                    Vec p = { l0 * P[0].x + l1 * P[1].x + l2 * P[2].x, l0 * P[0].y + l1 * P[1].y + l2 * P[2].y,
-                              l0 * P[0].z + l1 * P[1].z + l2 * P[2].z };
-                    int best = -1;
-                    double best_dist = 0, best_bc[3] = {};
-                    for (size_t k = 0; k < r1.size(); k++) {
-                        const R1Tri& r = r1[k];
-                        if (std::fabs(dot(r.n, n2)) < 0.5) {
+                    for (int q = 0; q < subs * subs; q++) {
+                        double rx = i + (q % subs + 0.5) / subs - UV[2][0], ry = j + (q / subs + 0.5) / subs - UV[2][1];
+                        double l0 = (rx * b1 - ry * a1) / det;
+                        double l1 = (a0 * ry - b0 * rx) / det;
+                        double l2 = 1 - l0 - l1;
+                        if (std::min({ l0, l1, l2 }) < -0.02) {
                             continue;
                         }
-                        if ((r.cx < 0) != (p.x < 0) && std::fabs(p.x) > 3) {
+                        Vec pt = { l0 * P[0].x + l1 * P[1].x + l2 * P[2].x, l0 * P[0].y + l1 * P[1].y + l2 * P[2].y,
+                                   l0 * P[0].z + l1 * P[1].z + l2 * P[2].z };
+                        // The outermost Rush 1 surface crossing the line through the point along the normal (what is
+                        // visible there), else the closest point of the Rush 1 body on the same side.
+                        int best = -1;
+                        double best_t = 0, best_bc[3] = {};
+                        for (size_t k : cand) {
+                            double tt, bc[3];
+                            if (ray_hit(pt, n2, r1[k].p[0], r1[k].p[1], r1[k].p[2], tt, bc) && std::fabs(tt) <= max_distance &&
+                                (best < 0 || tt > best_t)) {
+                                best = (int)k;
+                                best_t = tt;
+                                best_bc[0] = bc[0]; best_bc[1] = bc[1]; best_bc[2] = bc[2];
+                            }
+                        }
+                        if (best < 0) {
+                            double best_dist = 0;
+                            for (size_t k : cand) {
+                                const R1Tri& r = r1[k];
+                                if ((r.cx < 0) != (pt.x < 0) && std::fabs(pt.x) > 3) {
+                                    continue;
+                                }
+                                double bc[3];
+                                closest_bary(pt, r.p[0], r.p[1], r.p[2], bc);
+                                Vec qq = { bc[0] * r.p[0].x + bc[1] * r.p[1].x + bc[2] * r.p[2].x,
+                                           bc[0] * r.p[0].y + bc[1] * r.p[1].y + bc[2] * r.p[2].y,
+                                           bc[0] * r.p[0].z + bc[1] * r.p[1].z + bc[2] * r.p[2].z };
+                                Vec dd = sub(qq, pt);
+                                double dist = std::sqrt(dd.x * dd.x + dd.y * dd.y + dd.z * dd.z);
+                                if (dist <= max_distance && (best < 0 || dist < best_dist)) {
+                                    best = (int)k;
+                                    best_dist = dist;
+                                    best_bc[0] = bc[0]; best_bc[1] = bc[1]; best_bc[2] = bc[2];
+                                }
+                            }
+                        }
+                        if (best < 0) {
                             continue;
                         }
-                        double bc[3];
-                        closest_bary(p, r.p[0], r.p[1], r.p[2], bc);
-                        Vec q = { bc[0] * r.p[0].x + bc[1] * r.p[1].x + bc[2] * r.p[2].x,
-                                  bc[0] * r.p[0].y + bc[1] * r.p[1].y + bc[2] * r.p[2].y,
-                                  bc[0] * r.p[0].z + bc[1] * r.p[1].z + bc[2] * r.p[2].z };
-                        Vec dd = sub(q, p);
-                        double dist = std::sqrt(dd.x * dd.x + dd.y * dd.y + dd.z * dd.z);
-                        if (best < 0 || dist < best_dist) {
-                            best = (int)k;
-                            best_dist = dist;
-                            best_bc[0] = bc[0]; best_bc[1] = bc[1]; best_bc[2] = bc[2];
+                        const R1Tri& r = r1[best];
+                        int u = (int)std::floor((best_bc[0] * r.uv[0][0] + best_bc[1] * r.uv[1][0] + best_bc[2] * r.uv[2][0]) - r.tri.uls);
+                        int v = (int)std::floor((best_bc[0] * r.uv[0][1] + best_bc[1] * r.uv[1][1] + best_bc[2] * r.uv[2][1]) - r.tri.ult);
+                        u = std::min(std::max(u, 0), r.tri.w - 1);
+                        v = std::min(std::max(v, 0), r.tri.h - 1);
+                        size_t at1 = r.tri.data + size_t(v) * r.tri.w + u;
+                        if (at1 < r1_car.size()) {
+                            samples[(size_t(j) * w + i) * subs * subs + q] = r1_car[at1];
                         }
                     }
-                    if (best < 0 || best_dist > max_distance) {
-                        continue;
-                    }
-                    const R1Tri& r = r1[best];
-                    int u = (int)std::floor((best_bc[0] * r.uv[0][0] + best_bc[1] * r.uv[1][0] + best_bc[2] * r.uv[2][0]) - r.tri.uls + 0.5);
-                    int v = (int)std::floor((best_bc[0] * r.uv[0][1] + best_bc[1] * r.uv[1][1] + best_bc[2] * r.uv[2][1]) - r.tri.ult + 0.5);
-                    u = std::min(std::max(u, 0), r.tri.w - 1);
-                    v = std::min(std::max(v, 0), r.tri.h - 1);
-                    size_t at1 = r.tri.data + size_t(v) * r.tri.w + u;
-                    if (at1 >= r1_car.size()) {
-                        continue;
-                    }
-                    int idx = r1_car[at1];
-                    int s = j * w + i;
-                    int idx2 = r2_car[tex->data + s];
-                    const Rgb& c1 = pal1[idx];
-                    const Rgb& c2 = pal2[idx2];
-                    double l1c = luma(c1), l2c = luma(c2);
-                    bool decal;
-                    if (white) {
-                        decal = l1c > 190 && l1c - l2c > 40;
-                    }
-                    else {
-                        decal = std::max({ c1.r, c1.g, c1.b }) - std::min({ c1.r, c1.g, c1.b }) > 50 && c1.g >= 16;
-                    }
-                    mask[s] = (decal && idx != 0 && !r1_body(idx) && r2_body(idx2)) ? 1 : 0;
                 }
             }
         }
-        drop_specks(mask, w, h);
-        Panel& p = out.panel[n];
-        p.w = w;
-        p.h = h;
-        p.full = mask;
-        p.lod.assign(size_t(w / 4) * (h / 4), 0);
-        for (int y = 0; y < h / 4; y++) {
-            for (int x = 0; x < w / 4; x++) {
-                int sum = 0;
-                for (int dy = 0; dy < 4; dy++) {
-                    for (int dx = 0; dx < 4; dx++) {
-                        sum += mask[(y * 4 + dy) * w + x * 4 + dx];
+        // A texel is decal where at least half of its sub-samples are; companions also need a decal texel nearby.
+        std::vector<uint8_t> mask(size_t(w) * h, 0), comp(size_t(w) * h, 0);
+        for (int q = 0; q < w * h; q++) {
+            int got = 0, pc = 0, cc = 0;
+            for (int k = 0; k < subs * subs; k++) {
+                int x = samples[size_t(q) * subs * subs + k];
+                if (x >= 0) {
+                    got++;
+                    pc += in_ranges(x, def.primary);
+                    cc += in_ranges(x, def.companion);
+                }
+            }
+            if (got > 0 && r2_body(r2_car[tex->data + q])) {
+                mask[q] = 2 * pc >= got ? 1 : 0;
+                comp[q] = !mask[q] && cc > 0 && 2 * (pc + cc) >= got ? 1 : 0;
+            }
+        }
+        std::vector<uint8_t> near = mask;
+        for (int q = 0; q < w * h; q++) {
+            if (!comp[q]) {
+                continue;
+            }
+            int y = q / w, x = q % w;
+            for (int yy = std::max(y - reach, 0); yy <= std::min(y + reach, h - 1) && !near[q]; yy++) {
+                for (int xx = std::max(x - reach, 0); xx <= std::min(x + reach, w - 1); xx++) {
+                    if (mask[yy * w + xx]) {
+                        near[q] = 1;
+                        break;
                     }
                 }
-                p.lod[y * (w / 4) + x] = sum >= 8 ? 1 : 0;
+            }
+        }
+        for (const Cut& c : def.cuts) {
+            if (c.panel != n) {
+                continue;
+            }
+            for (int y = std::max(c.y0, 0); y <= std::min(c.y1, h - 1); y++) {
+                for (int x = std::max(c.x0, 0); x <= std::min(c.x1, w - 1); x++) {
+                    near[y * w + x] = 0;
+                }
+            }
+        }
+        mask = near;
+        drop_specks(mask, w, h);
+        // A decal texel's colour: the mean of its decal sub-samples.
+        for (int q = 0; q < w * h; q++) {
+            if (!mask[q]) {
+                continue;
+            }
+            int sum[3] = {}, count = 0;
+            for (int k = 0; k < subs * subs; k++) {
+                int x = samples[size_t(q) * subs * subs + k];
+                if (x >= 0 && (in_ranges(x, def.primary) || in_ranges(x, def.companion))) {
+                    sum[0] += pal1[x].r;
+                    sum[1] += pal1[x].g;
+                    sum[2] += pal1[x].b;
+                    count++;
+                }
+            }
+            Rgb mean = { sum[0] / count, sum[1] / count, sum[2] / count, 255 };
+            p.full[q] = (uint8_t)nearest_fixed(mean, pal2);
+        }
+        // The mip: a texel has the decal where at least half of its 4x4 block does, in the block's most common
+        // decal colour (lowest index on a tie).
+        for (int y = 0; y < h / 4; y++) {
+            for (int x = 0; x < w / 4; x++) {
+                int count[256] = {}, lit = 0;
+                for (int dy = 0; dy < 4; dy++) {
+                    for (int dx = 0; dx < 4; dx++) {
+                        uint8_t c = p.full[(y * 4 + dy) * w + x * 4 + dx];
+                        if (c != 0) {
+                            count[c]++;
+                            lit++;
+                        }
+                    }
+                }
+                int best = 0;
+                for (int c = 1; c < 256; c++) {
+                    if (count[c] > count[best]) {
+                        best = c;
+                    }
+                }
+                p.lod[y * (w / 4) + x] = lit >= 8 ? (uint8_t)best : 0;
             }
         }
     }
