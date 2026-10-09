@@ -447,7 +447,7 @@ namespace {
             return;
         }
         constexpr int like = 1;
-        constexpr float roof_sink = 0.45f;
+        constexpr float roof_sink = -0.35f;  // negative: the weapon's base sits above the roof, not inside it
         const float* base = tuning.mount[weapon][like];
         float fallback[3] = { 0.0f, 3.0f, 0.0f };
         if (!tuning.loaded) base = fallback;
