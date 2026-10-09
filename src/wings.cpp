@@ -43,6 +43,7 @@ namespace {
     const std::string drones_option_id = "rush2049_computer_cars";
     const std::string speeds_option_id = "car_speeds";
     const std::string battle_time_option_id = "battle_time_limit";
+    const std::string battle_team_option_prefix = "battle_team_p";
     const std::string style_option_p1 = "wing_style_p1";
     const std::string style_option_p2 = "wing_style_p2";
     const char* rom_file_name = "rush2049.z64";
@@ -187,6 +188,9 @@ namespace {
         wings_config.update_option_disabled(cars_option_id, disabled);
         wings_config.update_option_disabled(drones_option_id, disabled);
         wings_config.update_option_disabled(battle_time_option_id, disabled);
+        for (int player = 1; player <= 4; player++) {
+            wings_config.update_option_disabled(battle_team_option_prefix + std::to_string(player), disabled);
+        }
         wings_config.update_option_disabled(style_option_p1, disabled);
         wings_config.update_option_disabled(style_option_p2, disabled);
     }
@@ -347,6 +351,27 @@ void rush2::wings::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::battle::set_time_limit(static_cast<rush2::battle::TimeLimit>(std::get<uint32_t>(cur_value)));
         });
+    // Rush 2049 has each player pick a team color for a battle (0x8012E67C).
+    for (int player = 0; player < 4; player++) {
+        std::string id = battle_team_option_prefix + std::to_string(player + 1);
+        wings_config.add_enum_option(
+            id,
+            "Player " + std::to_string(player + 1) + " Battle Team",
+            "This player's team in a Rush 2049 battle arena. Cars of the same team don't damage each other and share a "
+            "color. By default every player is a team of their own.",
+            {
+                { 0u, "Blue", "Blue" },
+                { 1u, "Red", "Red" },
+                { 2u, "Yellow", "Yellow" },
+                { 3u, "Green", "Green" },
+            },
+            (uint32_t)player
+        );
+        wings_config.add_option_change_callback(id,
+            [player](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+                rush2::battle::set_team(player, (int)std::get<uint32_t>(cur_value));
+            });
+    }
     // Rush 2049 has each player pick one of three wings on the car setup screen.
     for (int player = 0; player < 2; player++) {
         std::string id = player == 0 ? style_option_p1 : style_option_p2;

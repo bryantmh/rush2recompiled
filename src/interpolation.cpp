@@ -556,6 +556,18 @@ void rush2_interp_view_end(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(0, (int32_t)main_dl_head) = (int32_t)(head + 8);
 }
 
+// The matrices of a view as func_8007C624 last set them: its root modelview, its projection without the view's
+// rotation and the rotation (src/battle_render.cpp draws models of its own with them).
+bool rush2_interp_view_matrices(uint32_t view, uint32_t* root, uint32_t* projection, uint32_t* lookat) {
+    if (view >= max_views || views[view].root_mtx == 0 || view_projection[view] == 0 || view_lookat[view] == 0) {
+        return false;
+    }
+    *root = views[view].root_mtx;
+    *projection = view_projection[view];
+    *lookat = view_lookat[view];
+    return true;
+}
+
 // The current view and the generation of the node being drawn, for other code that adds matrices under it
 // (src/wings_render.cpp).
 void rush2_interp_get_generation(uint32_t* view, uint32_t* gen) {

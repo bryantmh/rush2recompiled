@@ -1232,6 +1232,15 @@ area = "render"
 ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
+vram = 0x800908A0
+name = "explosion_update"
+sig = "void explosion_update(Effect *e, s16 running)"
+desc = "An explosion's callback: the next of its 30 model frames every 1/30 s (0x801239C8), following its car when it has one; removes it after the last."
+status = "verified"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#62-results-explosion-visibility-pickup-details"
+
+[[func]]
 vram = 0x80090E9C
 name = "math_rot_vec"
 sig = "void math_rot_vec(s32 a0, f32 *m)"
@@ -1963,9 +1972,11 @@ ref = "docs/rush2049_research/audio.md#6-track-object-sounds-movers-and-props"
 [[func]]
 vram = 0x800AF06C
 name = "explosion_spawn"
-desc = "Spawns the game's explosion object at a position or on a car (a0 = Vec3* or car index when a1 != 0), scale a2, with its sound when a3 != 0: 0x2D at scale >= 1, 0x45 at >= 0.5, else 0x2F, heard within 400. Battle shots call it with (pos, 0, 0.5, 1)."
+sig = "void explosion_spawn(f32 *pos, s32 car, f32 size, s32 sound)"
+desc = "Starts an explosion: an instance stepping through the 30 NEXPLOSION model handles at 0x80142908 (callback func_800908A0), at the given size, with sound 0x2D / 0x45 / 0x2F by size. A weapon's is (pos, 0, 0.5, 1)."
 status = "verified"
-ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#62-results-explosion-visibility-pickup-details"
 
 [[func]]
 vram = 0x800AF690
@@ -3385,6 +3396,15 @@ area = "audio"
 ref = "docs/rush2049_research/placement.md#7-knock-over-props-v"
 
 [[func]]
+vram = 0x80105EA8
+name = "results_draw"
+sig = "s32 results_draw(void)"
+desc = "The end of a multiplayer race: a box in the middle with '%s WINS' (text 0x31C), '%d-WAY TIE' (0x324) or 'NOBODY WINS' (0x320), and in each view the player's name with, for a battle, its kills and POINTS (text 0x208)."
+status = "verified"
+area = "ui"
+ref = "docs/rush2049_research/battle.md#62-results-explosion-visibility-pickup-details"
+
+[[func]]
 vram = 0x80109554
 desc = "2049 minimap: reads the spine and bounding box (same method as Rush 2)."
 status = "verified"
@@ -3441,7 +3461,7 @@ ref = "docs/rush2049_research/battle.md#5-pickups-and-power-ups"
 vram = 0x8010D680
 name = "battle_pickup_update"
 sig = "void battle_pickup_update(Anim *anim, s16 a1)"
-desc = "Update callback of the WEPICON_* types: turns the pickup by its object's rate, and shows a taken weapon pickup again once no car holds that weapon."
+desc = "Pickup update (WEPICON_* types): turns it by its rate record (object +0x6C: 0x80118D70 row 0 = 3 rad/s about up), hides a taken one and shows a weapon's again once no car holds that weapon."
 status = "verified"
 ported = true
 area = "battle"

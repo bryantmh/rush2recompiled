@@ -1800,6 +1800,19 @@ namespace {
         if (extent <= 0) return false;
         const float scale = 2 * diorama_half_size / float(extent);
 
+        // A battle arena's path wanders about a space a tenth of a race track's size, comes within a few units of
+        // itself and ends far from its start, so 2049's 200 unit band is a blob that overlaps itself all over (its
+        // level tops fight for the depth buffer) with a sliver from its end back to its start. An arena gets a band
+        // a twentieth of its extent wide, open where the path's ends are apart, and each ring a little higher than
+        // the one before, so where the band crosses itself one top is cleanly over the other.
+        float half_width = tube_half_width, lift = tube_lift, rise = 0.0f, max_gap = tube_max_gap;
+        if (is_battle(k)) {
+            half_width = float(extent) * 0.025f;
+            lift = half_width * 0.5f;
+            rise = half_width * 0.02f;
+            max_gap = half_width * 4.0f;
+        }
+
         // The last ring joins the spine point nearest the finish checkpoint ahead of it (func_800BA61C with the path
         // header's loop checkpoint, s16 at +2; checkpoints at 12 + i * 0x50: f32 position, f32 direction).
         int finish = 0;
@@ -1823,7 +1836,7 @@ namespace {
         auto at = [&](int i) {
             return Point{ spine[size_t(i)].x + centre[0], spine[size_t(i)].y + centre[1], spine[size_t(i)].z + centre[2] };
         };
-        const float floor_y = float(lo[1]) + centre[1] - tube_lift;
+        const float floor_y = float(lo[1]) + centre[1] - lift;
         std::vector<std::array<float, 3>> ring(size_t(tube_rings) * 4);
         for (int i = 0; i < tube_rings; i++) {
             Point cur = at(i * count / tube_rings);
@@ -1832,9 +1845,9 @@ namespace {
                                : Point{ 2 * cur.x - next.x, 2 * cur.y - next.y, 2 * cur.z - next.z };
             float len_cur = std::max(1e-3f, std::hypot(cur.x - next.x, next.z - cur.z));
             float len_prev = std::max(1e-3f, std::hypot(prev.x - cur.x, cur.z - prev.z));
-            float px = (tube_half_width * (next.z - cur.z) / len_cur + tube_half_width * (cur.z - prev.z) / len_prev) / 2;
-            float pz = (tube_half_width * (cur.x - next.x) / len_cur + tube_half_width * (prev.x - cur.x) / len_prev) / 2;
-            float top = cur.y + tube_lift, bottom = floor_y;
+            float px = (half_width * (next.z - cur.z) / len_cur + half_width * (cur.z - prev.z) / len_prev) / 2;
+            float pz = (half_width * (cur.x - next.x) / len_cur + half_width * (prev.x - cur.x) / len_prev) / 2;
+            float top = cur.y + lift + rise * float(i), bottom = floor_y;
             if (i == tube_rings - 1) { top += 0.1f; bottom += 0.1f; }
             ring[size_t(i) * 4 + 0] = { cur.x + px, top, cur.z + pz };
             ring[size_t(i) * 4 + 1] = { cur.x - px, top, cur.z - pz };
@@ -1892,7 +1905,7 @@ namespace {
                 // segment is a sliver across the whole model; it is left out when the gap is that long.
                 const auto& a = ring[size_t(i) * 4];
                 const auto& b = ring[0];
-                if (!tube_close_gaps && std::hypot(a[0] - b[0], a[2] - b[2]) > tube_max_gap) break;
+                if (!tube_close_gaps && std::hypot(a[0] - b[0], a[2] - b[2]) > max_gap) break;
                 command(0x01004008, uint32_t(i) * 64, true);   // ring i to slots 0-3
                 command(0x01004010, 0, true);                  // ring 0 to slots 4-7
             }

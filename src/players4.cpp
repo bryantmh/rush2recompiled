@@ -26,6 +26,7 @@
 #include "rush2.h"
 #include "rush2_hooks.h"
 #include "players4.h"
+#include "arrows.h"
 #include "car2049.h"
 
 namespace {
@@ -839,10 +840,10 @@ void rush2_players4_list_offset(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_8007C624, after the view's bit is made to test a world polygon's view mask ($t7 = 1 << view, the view at
-// $sp+0x180): views 2 and 3 also draw the polygons of views 0 and 1. $fp = the polygon, $a0 = its flags. A battle
-// arena's arrows (src/battle.cpp: flag 0x2000 with primitive depth 1) each belong to one view of the four.
+// $sp+0x180): views 2 and 3 also draw the polygons of views 0 and 1. $fp = the polygon. The arrows over the other
+// players' cars (src/arrows.cpp) each belong to one view of the four.
 void rush2_players4_poly_mask(uint8_t* rdram, recomp_context* ctx) {
-    if (((uint32_t)ctx->r4 & 0x2000) != 0 && MEM_H(6, ctx->r30) == 1) {
+    if (rush2::arrows::single_view((uint32_t)ctx->r30)) {
         return;
     }
     int32_t view = MEM_W(0x180, ctx->r29);
