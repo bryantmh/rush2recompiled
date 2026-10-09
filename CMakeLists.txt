@@ -156,6 +156,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/car_engines.cpp
     ${CMAKE_SOURCE_DIR}/src/rush1_rom.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/track_cache.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_art.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/track2049_menu.cpp

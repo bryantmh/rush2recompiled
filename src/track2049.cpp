@@ -53,6 +53,7 @@
 #include "track1.h"
 #include "track2049.h"
 #include "track2049_convert.h"
+#include "track_cache.h"
 #include "car2049.h"
 #include "rush2049_rom.h"
 #include "wings.h"
@@ -110,26 +111,46 @@ namespace {
     Saved saved;
 
     // Converts 2049 track k (convert_track's k) from the user's ROM for the slot in `slot`.
+    // The converted track comes from the disk cache (src/track_cache.cpp) when this build converted it from the same
+    // source before; converting runs inside the race setup, on the race's first frame. The source key is the N64 ROM's
+    // hash, or for a Dreamcast disc the track's own geometry and collision files.
     bool convert(uint8_t* rdram, int k) {
         auto rom = rush2::wings::get_rom();
         if (rom == nullptr) {
             return false;
         }
-        if (shared_models.empty()) {
-            auto rush2_rom = recomp::get_rom();
-            std::vector<uint8_t> copy(rush2_rom.begin(), rush2_rom.end());
-            rush2::track2049::rush2_shared_model_names(copy, (uint32_t)MEM_W(0, (int32_t)(asset_offsets + 0x12 * 4)),
-                (uint32_t)MEM_W(0, (int32_t)(asset_offsets + 0x14 * 4)), shared_models);
-        }
-        std::string error;
-        if (!rush2::track2049::convert_track(*rom, k, prefix_of(slot), shared_models, true, track, error)) {
-            printf("[2049] Couldn't convert track %d: %s\n", k, error.c_str());
-            return false;
-        }
         std::vector<uint8_t> geometry_2049, collision_2049;
-        if (!rush2::rom2049::read_file(*rom, 100 + k, geometry_2049) ||
-            !rush2::rom2049::read_file(*rom, 138 + k, collision_2049)) {
+        if (!rom->read_file(100 + k, geometry_2049) ||
+            !rom->read_file(138 + k, collision_2049)) {
             return false;
+        }
+        static const rush2::rom2049::Source* hashed_rom = nullptr;
+        static uint64_t rom_hash = 0;
+        uint64_t source;
+        if (const std::vector<uint8_t>* n64 = rom->n64_rom()) {
+            if (hashed_rom != rom.get()) {
+                rom_hash = rush2::track_cache::hash(n64->data(), n64->size());
+                hashed_rom = rom.get();
+            }
+            source = rom_hash;
+        }
+        else {
+            source = rush2::track_cache::hash(geometry_2049.data(), geometry_2049.size(), 0xDC);
+            source = rush2::track_cache::hash(collision_2049.data(), collision_2049.size(), source);
+        }
+        if (!rush2::track_cache::load_2049(k, prefix_of(slot), source, track)) {
+            if (shared_models.empty()) {
+                auto rush2_rom = recomp::get_rom();
+                std::vector<uint8_t> copy(rush2_rom.begin(), rush2_rom.end());
+                rush2::track2049::rush2_shared_model_names(copy, (uint32_t)MEM_W(0, (int32_t)(asset_offsets + 0x12 * 4)),
+                    (uint32_t)MEM_W(0, (int32_t)(asset_offsets + 0x14 * 4)), shared_models);
+            }
+            std::string error;
+            if (!rush2::track2049::convert_track(*rom, k, prefix_of(slot), shared_models, true, track, error)) {
+                printf("[2049] Couldn't convert track %d: %s\n", k, error.c_str());
+                return false;
+            }
+            rush2::track_cache::save_2049(k, prefix_of(slot), source, track);
         }
         std::set<std::string> names = rush2::track2049::model_names(track.geometry);
         track_has_sky = names.contains("SKYO1");
