@@ -20,6 +20,9 @@
 #include <iterator>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
+#include <chrono> // TMPDIAG
 
 #include "recomp.h"
 #include "rush2.h"
@@ -326,8 +329,18 @@ void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx) {
     if (view.valid) {
         float len = std::sqrt(dot(fwd, fwd) * dot(view.fwd, view.fwd));
         float cos_angle = len > 0.0f ? dot(fwd, view.fwd) / len : 1.0f;
-        if (distance(pos, view.pos) > camera_cut_distance || cos_angle < camera_cut_cos) {
+        bool cut = distance(pos, view.pos) > camera_cut_distance || cos_angle < camera_cut_cos;
+        if (cut) {
             view.gen++;
+        }
+        // TMPDIAG
+        static FILE* diag = std::getenv("RUSH2_INTERP_LOG") ? std::fopen(std::getenv("RUSH2_INTERP_LOG"), "w") : nullptr;
+        if (diag) {
+            static auto t0 = std::chrono::steady_clock::now();
+            double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            std::fprintf(diag, "%10.2f v%u dt=%.4f t=%.3f dist=%7.2f cos=%.4f cut=%d\n", ms, cur_view,
+                read_f32(rdram, 0x80023028), read_f32(rdram, 0x80117488), distance(pos, view.pos), cos_angle, cut);
+            std::fflush(diag);
         }
     }
     view.valid = true;

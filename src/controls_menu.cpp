@@ -53,6 +53,7 @@
 #include "rt64_extended_gbi.h"
 
 #include "button_glyphs.h"
+#include "players4.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
 #include "track2049.h"
@@ -124,7 +125,8 @@ namespace {
     // Layout (in the game's 320x240 screen). Labels are right-aligned at label_right[player]; rows start at
     // first_row_y (2 lower in the pause menu).
     constexpr int label_right[num_players] = { 0x6F - 7, 0xFD - 7 };
-    constexpr int panel_center[num_players] = { 0x56, 0xEA };
+    // Middle of each player's panel box (its frame spans x 26-152 and 168-294); the footer is centered on it.
+    constexpr int panel_center[num_players] = { 89, 231 };
     constexpr int first_row_y = 0x78 - 0x4A;
     constexpr int first_row_y_paused = 0x78 - 0x48;
     constexpr int original_row_spacing = 17;
@@ -186,6 +188,12 @@ namespace {
 
     uint8_t player_port(uint8_t* rdram, int player) {
         return MEM_BU(0, (int32_t)(player_structs + player * player_size + 1));
+    }
+
+    // The screen's two panels show players 1 and 2, or players 3 and 4 when one of them opened it from the pause
+    // menu (src/players4.cpp notes who paused). The first player shown.
+    int first_player(uint8_t* rdram) {
+        return MEM_W(0, (int32_t)game_mode) != 0 && rush2::players4::paused_player() >= 2 ? 2 : 0;
     }
 
     int row_count() {
@@ -527,11 +535,12 @@ namespace {
         call(rdram, ctx, text_print_string_800734E0, x, y, (int32_t)str);
     }
 
-    Exit update_player(uint8_t* rdram, recomp_context* ctx, int player, int port) {
-        int32_t cursor_addr = (int32_t)(cursors + player * 2);
+    // Runs a panel's rows for the player shown in it.
+    Exit update_player(uint8_t* rdram, recomp_context* ctx, int panel, int player, int port) {
+        int32_t cursor_addr = (int32_t)(cursors + panel * 2);
         int cursor = MEM_H(0, cursor_addr);
         int footer_row = row_count();
-        PlayerState& state = player_states[player];
+        PlayerState& state = player_states[panel];
 
         if (rush2::controls::is_listening(port)) {
             if (rush2::controls::update_listen(port)) {
@@ -622,7 +631,7 @@ namespace {
         MEM_H(0, (int32_t)menu_current) = MEM_H(0, (int32_t)(menu_stack + depth * 2));
     }
 
-    void draw_player(uint8_t* rdram, recomp_context* ctx, GlyphList& list, int player, int port) {
+    void draw_player(uint8_t* rdram, recomp_context* ctx, GlyphList& list, int panel, int port) {
         bool paused = MEM_W(0, (int32_t)game_mode) != 0;
         int y0 = (paused ? first_row_y_paused : first_row_y) - row_lift();
         int spacing = row_spacing();
@@ -631,8 +640,8 @@ namespace {
         int rows = row_count();
         Device device = shown_device(port);
         bool playstation = rush2::input::port_has_playstation_controller(port);
-        int x = label_right[player] + glyph_gap;
-        int cursor = MEM_H(0, (int32_t)(cursors + player * 2));
+        int x = label_right[panel] + glyph_gap;
+        int cursor = MEM_H(0, (int32_t)(cursors + panel * 2));
         bool listening = rush2::controls::is_listening(port);
 
         for (int row = 0; row < rows; row++) {
@@ -676,10 +685,10 @@ namespace {
             widths[i] = text_width(rdram, ctx, items[i]);
             total += widths[i];
         }
-        int fx = panel_center[player] - total / 2;
+        int fx = panel_center[panel] - total / 2;
         bool on_footer = cursor == rows && !listening;
         for (int i = 0; i < 3; i++) {
-            bool selected = on_footer && (int)player_states[player].footer == i;
+            bool selected = on_footer && (int)player_states[panel].footer == i;
             print(rdram, ctx, selected ? text_selected : text_normal, fx, footer_y, items[i]);
             fx += widths[i] + footer_gap;
         }
@@ -778,7 +787,8 @@ extern "C" int rush2_controls_menu_update(uint8_t* rdram, recomp_context* ctx) {
     }
 
     Exit exit = Exit::None;
-    for (int player = 0; player < num_players; player++) {
+    for (int panel = 0; panel < num_players; panel++) {
+        int player = first_player(rdram) + panel;
         uint8_t port = player_port(rdram, player);
         if (port == no_port) {
             // An empty player slot: player 2 joins by pressing Start (main menu only, like the game).
@@ -790,7 +800,7 @@ extern "C" int rush2_controls_menu_update(uint8_t* rdram, recomp_context* ctx) {
         if (port >= rush2::input::num_ports || exit != Exit::None) {
             continue;
         }
-        exit = update_player(rdram, ctx, player, port);
+        exit = update_player(rdram, ctx, panel, player, port);
     }
 
     if (exit != Exit::None) {
@@ -809,10 +819,10 @@ extern "C" int rush2_controls_menu_pause_exit(uint8_t* rdram, recomp_context* ct
 extern "C" void rush2_controls_menu_draw(uint8_t* rdram, recomp_context* ctx) {
     set_font(rdram, ctx);
     GlyphList list{ rdram };
-    for (int player = 0; player < num_players; player++) {
-        uint8_t port = player_port(rdram, player);
+    for (int panel = 0; panel < num_players; panel++) {
+        uint8_t port = player_port(rdram, first_player(rdram) + panel);
         if (port < rush2::input::num_ports) {
-            draw_player(rdram, ctx, list, player, port);
+            draw_player(rdram, ctx, list, panel, port);
         }
     }
     list.finish();
@@ -824,6 +834,17 @@ extern "C" void rush2_wings_menu_labels(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     ctx->r22 = (int32_t)new_label_table;
+}
+
+// func_800B6134, once it has the first player's record in $sp + 0x54 (its panel loop steps it by 0x28): the panels show
+// players 3 and 4 when one of them opened the screen from the pause menu.
+extern "C" void rush2_controls_menu_text_players(uint8_t* rdram, recomp_context* ctx) {
+    MEM_W(0x54, (int32_t)ctx->r29) = (int32_t)(player_structs + first_player(rdram) * player_size);
+}
+
+// func_800B6134, before it formats a panel's "PLAYER %d" title ($a3 = panel + 1).
+extern "C" void rush2_controls_menu_title(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r7 = (int32_t)ctx->r7 + first_player(rdram);
 }
 
 // func_800B6134 at 0x800B64D8, once a player's first row position is in $s2.

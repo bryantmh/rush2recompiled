@@ -178,6 +178,13 @@ text = "    rush2_hud_build_end(rdram, ctx);"
 
 # The race's finish overlay (func_800A0FB4 builds each player's place from 0x800BF328): laid out like the HUD, with
 # players 3 and 4's added (src/players4.cpp).
+# The overlay is rebuilt when player 1's or 2's place shows or hides (D_800BF318[0-1] against D_800BF444); players 3 and
+# 4's (D_800BF318[2-3]) also rebuild it, and so does its first build, which then goes through the hooks below.
+[[patches.hook]]
+func = "hud_race_finish_overlay_build_800A0FB4"
+before_vram = 0x800A1074
+text = "    if (rush2_players4_finish_rebuild(rdram, ctx)) goto L_800A1090;"
+
 [[patches.hook]]
 func = "hud_race_finish_overlay_build_800A0FB4"
 before_vram = 0x800A1210
@@ -402,6 +409,13 @@ func = "menu_screen_controller_setup_800AD7E4"
 before_vram = 0x800ADA80
 text = "    if (rush2_controls_menu_update(rdram, ctx)) goto L_800AE0A4;"
 
+# The pause menu opens (func_800AFD44 at 0x800AFE14): $s6 = the player who pressed START (or whose controller was
+# unplugged). src/players4.cpp keeps it, so the Controller Setup screen shows that player's panel.
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800AFE14
+text = "    rush2_players4_paused(rdram, ctx);"
+
 # Leaving the screen from the pause menu happens when the screen asks, not on B or Start.
 [[patches.hook]]
 func = "race_pause_menu_step_800AFD44"
@@ -412,6 +426,18 @@ text = "    ctx->r25 = rush2_controls_menu_pause_exit(rdram, ctx);"
 func = "menu_controller_setup_rows_text_800B6134"
 before_vram = 0x800B62F4
 text = "    rush2_wings_menu_labels(rdram, ctx);"
+
+# Opened from the pause menu by player 3 or 4, the panels show players 3 and 4: the text loop's first record
+# ($sp + 0x54, just stored) and the panels' "PLAYER %d" titles ($a3) move on by two players.
+[[patches.hook]]
+func = "menu_controller_setup_rows_text_800B6134"
+before_vram = 0x800B62F8
+text = "    rush2_controls_menu_text_players(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_controller_setup_rows_text_800B6134"
+before_vram = 0x800B6424
+text = "    rush2_controls_menu_title(rdram, ctx);"
 
 # With more than ten rows the first one starts higher ($s2 = its y, just set).
 [[patches.hook]]
@@ -1093,32 +1119,6 @@ func = "snd_play_effect_80062264"
 vram = 0x800622A0
 value = 0x2C410075 # sltiu $at, $v0, 0x75 (was 0x74)
 
-# Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
-# Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
-# 38-entry name table into a 38-entry array at 0x80300840 (was 7 at 0x803C7A44), with the 38-entry scale, cloud height and
-# logo tables (the logo callback is func_803BE528).
-[[patches.hook]]
-func = "circuit_generate_800A7DCC"
-before_vram = 0x800A8588
-text = "    rush2_track49_circuit(rdram, ctx);"
-
-[[patches.hook]]
-func = "menu_screen_circuit_803B6260"
-before_vram = 0x803B6260
-text = "    rush2_track49_circuit_screen(rdram, ctx);"
-
-[[patches.instruction]]
-func = "menu_screen_circuit_803B6260"
-vram = 0x803B62A4
-value = 0x3C108030 # lui $s0, 0x8030
-
-[[patches.instruction]]
-func = "menu_screen_circuit_803B6260"
-vram = 0x803B62A8
-value = 0x3C118030 # lui $s1, 0x8030
-
-[[patches.instruction]]
-func = "menu_screen_circuit_803B6260"
 # SF Rush track 6's traffic buses (src/track1_buses.cpp): Rush 2's subway trains are Rush 1's buses grown up; on SF
 # Rush track 6 the subway setup and per-tick move are Rush 1's (func_800A9DB8, func_8007FC74), the car collision
 # uses the buses' reach and height, and the computer drivers lift off behind a bus as in Rush 1 (func_8007CF74).
@@ -1148,6 +1148,32 @@ func = "breakable_spawn_fence_800BB864"
 before_vram = 0x800BB8AC
 text = "    rush2_track1_gate(rdram, ctx);"
 
+# Circuits with the Rush 2049 tracks (src/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
+# Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
+# 38-entry name table into a 38-entry array at 0x80300840 (was 7 at 0x803C7A44), with the 38-entry scale, cloud height and
+# logo tables (the logo callback is func_803BE528).
+[[patches.hook]]
+func = "circuit_generate_800A7DCC"
+before_vram = 0x800A8588
+text = "    rush2_track49_circuit(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_circuit_803B6260"
+before_vram = 0x803B6260
+text = "    rush2_track49_circuit_screen(rdram, ctx);"
+
+[[patches.instruction]]
+func = "menu_screen_circuit_803B6260"
+vram = 0x803B62A4
+value = 0x3C108030 # lui $s0, 0x8030
+
+[[patches.instruction]]
+func = "menu_screen_circuit_803B6260"
+vram = 0x803B62A8
+value = 0x3C118030 # lui $s1, 0x8030
+
+[[patches.instruction]]
+func = "menu_screen_circuit_803B6260"
 vram = 0x803B62AC
 value = 0x263108D8 # addiu $s1, $s1, 0x8D8
 
@@ -8085,7 +8111,8 @@ before_vram = 0x803BC228
 text = "    rush2_players4_car_label(rdram, ctx);"
 
 # The game's per-frame state machine (func_800AE670): after a race with 3 or 4 players, the counts go back to 2 for the
-# race over screens, which are built for two players.
+# post-race records (state 6, func_800A952C), whose per-player arrays and name entry exist for two players (four
+# overflowed them into the audio voices). Race over (states 4 and 5: every player's place, GAME OVER) keeps all four.
 [[patches.hook]]
 func = "race_start_timer_800AE670"
 before_vram = 0x800AE674

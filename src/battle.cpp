@@ -987,7 +987,8 @@ namespace {
             s.live = false;
         }
         if (s.live) shots.push_back(s);
-        if (f.ammo > 0) {
+        // The Weapons cheat's weapons never run out (their ammo isn't shown either).
+        if (f.ammo > 0 && mode != Mode::cheat) {
             f.ammo--;
             if (f.ammo == 0) {
                 f.weapon = gun;
@@ -1461,7 +1462,7 @@ namespace {
                     damage(rdram, j, i, ram_damage_base + 4.0f * closing / 1.4667f);
                     play_sound(rdram, weapons[ram].sound, c);
                     f.cooldown = 1.0f;
-                    if (--f.ammo <= 0) {
+                    if (mode != Mode::cheat && --f.ammo <= 0) {
                         f.weapon = gun;
                         f.ammo = -1;
                     }
@@ -1679,8 +1680,8 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
 // (rush2::hud::set_widget_scale). The models are placed for each view just before it is drawn (rush2_battle_view)
 // and drawn by src/battle_render.cpp. The stunt score panels are hidden (rush2_battle_hide_stunt_panel).
 //
-// With the Weapons cheat in another race Rush 2's HUD stays as it is; the battle's health bar and the weapon held,
-// with its ammo, are added at the bottom of each view. Such a track has no HEALTHBG among its images, so the frame is
+// With the Weapons cheat in another race Rush 2's HUD stays as it is and the battle's health bar is added at the
+// bottom of each view (the cheat's weapons never run out, so the weapon held and its ammo aren't shown). Such a track has no HEALTHBG among its images, so the frame is
 // drawn from Rush 2049's HUD file itself (rush2::battle_render::image), at the battle's size with the battle's fill.
 namespace {
     using rush2::views::View;
@@ -1957,11 +1958,22 @@ namespace {
         rush2::hud::draw_rect(rdram, x0, y0, x0 + width, y0 + std::round(4.0f * l.bar_sy), 0x008000FF, l.bar_anchor);
     }
 
-    // Where the Weapons cheat puts the weapon: left of its bar (the corners are Rush 2's HUD's).
-    Layout cheat_layout(const View& v) {
+    // The Weapons cheat shows only the bar (its weapons are endless, so neither the weapon held nor its ammo is shown),
+    // centered at the bottom of the view. In split screen, where that runs into player p's time or position (the
+    // bottom row of quadrants in 4:3), it goes above them.
+    Layout cheat_layout(const View& v, int p) {
         Layout l = layout_of(v);
-        l.weapon_x = l.bar_x - 14.0f;
-        l.weapon_anchor = l.bar_anchor;
+        rush2::hud::PanelBounds row;
+        if (!rush2::hud::panel_row(p, row)) return l;
+        constexpr float gap = 2.0f;
+        float bar_y1 = l.bar_y + health_height * l.bar_sy;
+        if (bar_y1 < row.y0 || l.bar_y > row.y1) return l;
+        float bar_x0 = anchored_x(l.bar_x, l.bar_anchor), bar_x1 = anchored_x(l.bar_x + health_width * l.bar_sx, l.bar_anchor);
+        if (bar_x0 < row.time_x1 + gap || bar_x1 > row.place_x0 - gap) {
+            float dy = row.y0 - gap - bar_y1;
+            l.bar_y += dy;
+            l.powerup_y += dy;
+        }
         return l;
     }
 }
@@ -2030,7 +2042,7 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
         if (car < 0 || car >= max_cars) continue;
         const Fighter& f = fighters[car];
         View v = view_of(rdram, p, players);
-        Layout l = mode == Mode::arena ? layout_of(v) : cheat_layout(v);
+        Layout l = mode == Mode::arena ? layout_of(v) : cheat_layout(v, p);
         char text[16];
         // Whole texels in a quadrant (the digits are 10 tall): a smaller size loses their top row.
         float digits = l.small ? 10.0f : 12.0f;
@@ -2041,7 +2053,7 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
         else if (!is_wrecked(rdram, car)) {
             draw_cheat_bar(rdram, l, f.health / max_health);
         }
-        if (f.weapon < 8 && f.ammo > 0 && !is_wrecked(rdram, car)) {
+        if (mode == Mode::arena && f.weapon < 8 && f.ammo > 0 && !is_wrecked(rdram, car)) {
             snprintf(text, sizeof(text), "%d", f.ammo);
             rush2::hud::draw_number(rdram, text, l.weapon_x, l.weapon_y, digits, l.weapon_anchor);
         }
@@ -2089,11 +2101,11 @@ extern "C" void rush2_battle_view(uint8_t* rdram, recomp_context* ctx) {
     }
     const Fighter& f = fighters[car];
     View v = view_of(rdram, p, players);
-    Layout l = mode == Mode::arena ? layout_of(v) : cheat_layout(v);
+    Layout l = mode == Mode::arena ? layout_of(v) : cheat_layout(v, p);
     float pos[3], axes[9], m[9];
     float gain = model_gain(rdram, p, v) * hud_distance;
     // The weapon held, turning about the camera's up axis.
-    if (f.weapon < 8 && !is_wrecked(rdram, car)) {
+    if (mode == Mode::arena && f.weapon < 8 && !is_wrecked(rdram, car)) {
         view_point(rdram, p, v, anchored_x(l.weapon_x, l.weapon_anchor), l.weapon_y, hud_distance, pos, axes);
         memcpy(m, axes, sizeof(m));
         yaw(m, hud_spin);
