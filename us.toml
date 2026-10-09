@@ -205,6 +205,18 @@ func = "hud_race_finish_overlay_build_800A0FB4"
 before_vram = 0x800A126C
 text = "    rush2_hud_finish_end(rdram, ctx);"
 
+# The high-score screen's widgets_create (0x80060774, delay slot 0x80060778): its widgets are never the HUD's, even
+# when the race HUD setup opens it (src/hud.cpp).
+[[patches.hook]]
+func = "highscore_screen_800606A8"
+before_vram = 0x80060774
+text = "    rush2_hud_highscore_create_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "highscore_screen_800606A8"
+before_vram = 0x8006077C
+text = "    rush2_hud_highscore_create_end(rdram, ctx);"
+
 # Widget initialized: $v1 = slot, $a0 = widget.
 [[patches.hook]]
 func = "hud_widget_alloc_800541F8"
