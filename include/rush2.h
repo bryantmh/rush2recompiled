@@ -96,6 +96,14 @@ namespace rush2 {
         // Draws a number (up to 6 digits) centered on (center_x, center_y) of the 4:3 screen, `height` pixels tall,
         // white with a shadow, anchored at `anchor` (as set_widget_scale). After the widget loop.
         void draw_number(uint8_t* rdram, const char* digits, float center_x, float center_y, float height, float anchor);
+        // Split screen: where player's time and position panels were drawn this frame (the time with its lap time box,
+        // shown or not), as drawn: 4:3 screen pixels moved by their anchors, the space of an anchored x. time_* and
+        // place_* = the time's and position's left, right and top edges, y0-y1 = the top and bottom of the row of
+        // both. False if unknown.
+        struct PanelBounds {
+            float time_x0, time_x1, time_y0, place_x0, place_x1, place_y0, y0, y1;
+        };
+        bool panel_row(int player, PanelBounds& out);
     }
 
     // Cheats tab: the in-game cheat menu and forced cheats (src/cheats.cpp).
@@ -109,9 +117,8 @@ namespace rush2 {
         void set_unlock_system(bool enabled);
     }
 
-    // Per-port input (src/input.cpp). Each player (N64 ports 1-4) gets a controller and optionally the keyboard,
-    // either chosen in the Players tab (src/players_tab.cpp) or, for a port left on Auto, the first unassigned
-    // controller to press a button.
+    // Per-port input (src/input.cpp). Each enabled controller takes the first free N64 port when it presses a button;
+    // the keyboard is one more controller. Which player a port is follows who presses START.
     namespace input {
         constexpr int num_ports = 4;
 
@@ -122,6 +129,8 @@ namespace rush2 {
         bool is_port_scripted(int port);
         // Whether a controller or the keyboard drives the port.
         bool port_has_device(int port);
+        // The player (0-3) on a port, or -1: the game's player records.
+        int port_player(int port);
         bool get_n64_input(int port, uint16_t* buttons, float* x, float* y);
         // Scripted presses (--input-script) of GAS (A) or BRAKE (B) count as fully pressed pedals.
         void press_pedals(int port, uint16_t buttons);
@@ -147,21 +156,21 @@ namespace rush2 {
         // Connected controllers, in SDL's order.
         std::vector<ControllerInfo> get_controllers();
 
-        // What each port's controller slot is set to in the Players tab.
-        struct PortChoice {
-            enum class Kind { Auto, None, Controller };
-            Kind kind = Kind::Auto;
-            std::string controller_key; // Kind::Controller only.
-            std::string controller_name; // Kind::Controller only, for showing a controller that isn't connected.
+        // Controllers turned off in the Players tab (they never take a port), remembered by key.
+        struct DisabledController {
+            std::string key;
+            std::string name; // For showing a disabled controller that isn't connected.
         };
-        PortChoice get_port_choice(int port);
-        // Assigns a port's controller slot and saves. A controller chosen for one port is taken off the other.
-        void set_port_choice(int port, const PortChoice& choice);
+        std::vector<DisabledController> get_disabled_controllers();
+        // Enables or disables a controller and saves. A disabled controller leaves its port at once.
+        void set_controller_enabled(const std::string& key, const std::string& name, bool enabled);
+        bool is_controller_enabled(int32_t joystick_id);
         // The controller currently driving a port, or -1.
         int32_t get_port_controller(int port);
-        // The port the keyboard drives, or -1 for none.
+        // The port the keyboard drives, or -1 for none (off, or it hasn't pressed anything yet).
         int get_keyboard_port();
-        void set_keyboard_port(int port);
+        bool get_keyboard_enabled();
+        void set_keyboard_enabled(bool enabled);
         // True if the port's controller is a PlayStation controller (for button glyphs).
         bool port_has_playstation_controller(int port);
 

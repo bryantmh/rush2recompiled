@@ -1,7 +1,8 @@
-// Engine sounds of the cars the local players don't drive.
+// Engine sounds of the cars the local players don't drive, and of players 3 and 4's cars.
 //
 // Rush 2 plays an engine only for each local player's own car (src/engine_preview.cpp: two slots, func_80062CC4
-// retunes them every audio frame); computer cars are silent. Rush 2049 plays every other car's engine as a 3D emitter
+// retunes them every audio frame); computer cars are silent. Players 3 and 4 (src/players4.cpp) have no slot, so their
+// cars' engines are played here at a player's own volume, whether or not the other cars' engines are on. Rush 2049 plays every other car's engine as a 3D emitter
 // (src/engine2049.cpp, docs/rush2049_research/audio.md §7), so the same is done here for both games' cars, heard from
 // the local players' cars with Rush 2049's emitter law (audio2049::emitter_mix: range 400, other cars at 0.75 of their
 // engine volume). Each car keeps its own game's engine:
@@ -309,7 +310,6 @@ bool rush2::car_engines::enabled() {
 }
 
 void rush2::car_engines::update(uint8_t* rdram) {
-    if (!option) return;
     int local = std::clamp<int>((int16_t)MEM_H(0, (int32_t)num_players), 1, max_players);
     std::vector<Listener> listeners;
     for (int s = 0; s < local; s++) {
@@ -331,8 +331,9 @@ void rush2::car_engines::update(uint8_t* rdram) {
     std::lock_guard lock{ mutex };
     for (int car = 0; car < max_cars; car++) {
         uint32_t c = physics_cars + car * physics_car_size;
-        bool off = (int16_t)MEM_H(0, (int32_t)(c + car_active)) == 0 || (int8_t)MEM_B(0, (int32_t)(c + car_driver)) == 2 ||
-                   muted || (int8_t)MEM_B(0, (int32_t)(c + car_engine_off)) != 0 ||
+        // Players 1 and 2's cars have the game's own engines; the other cars' only play with the option on.
+        bool skipped = extra_player[car] ? false : !option || (int8_t)MEM_B(0, (int32_t)(c + car_driver)) == 2;
+        bool off = (int16_t)MEM_H(0, (int32_t)(c + car_active)) == 0 || skipped || muted || (int8_t)MEM_B(0, (int32_t)(c + car_engine_off)) != 0 ||
                    (int8_t)MEM_B(0, (int32_t)(car_states + car * car_state_size + 0x343)) > 0;
         if (off) {
             stop_car(car);

@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -102,6 +103,8 @@ namespace {
     constexpr int32_t record_car = 0x0;
     constexpr int32_t record_port = 0x1;
     constexpr int32_t record_buffer = 0x24; // The controller's buffer (0x8010D740 + port * 0x6C0) or a profile's.
+    constexpr int32_t record_masks = 0xC;   // u16 per action: the N64 buttons it's bound to (func_8009FEE8).
+    constexpr uint32_t record_masks_size = 0x12;
     constexpr uint8_t no_port = 5;
 
     void copy_rdram(uint8_t* rdram, uint32_t dst, uint32_t src, uint32_t size) {
@@ -163,6 +166,7 @@ namespace {
 }
 
 extern "C" void widgets_create_800604FC(uint8_t* rdram, recomp_context* ctx);
+extern "C" void hud_multi_widget_menu_setup_80093B38(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
     // Race HUD. func_800A06F8 builds the HUD's elements from a layout table (func_800604FC), each entry naming an
@@ -319,6 +323,17 @@ namespace {
     constexpr uint32_t finish_layout = 0x800BF328;
     constexpr int finish_layout_count = 7;
     constexpr uint32_t finish_clone_table = 0x8024A000; // Entries for players 3 and 4.
+    constexpr uint32_t finish_shown = 0x800BF318; // u8 per player: the place widget shows (func_800B5A90).
+    constexpr uint32_t finish_seen = 0x800BF444;
+    constexpr int32_t finish_box_top[4] = { 0x63, 0x1D, 0xDD, 0x3F };    // x0, y0, x1, y1
+    constexpr int32_t finish_box_bottom[4] = { 0x63, 0xAB, 0xDD, 0xCD };
+    constexpr int32_t finish_box_alpha = 0xC0;
+    // The boxes func_80093B38 builds (10 of 0x20 bytes: +0 in use, +0xC five elements: the fill and four edges).
+    constexpr uint32_t boxes = 0x800C4254;
+    constexpr int box_count = 10;
+    constexpr uint32_t box_size = 0x20;
+    constexpr int32_t box_elements = 0xC;
+    constexpr int box_parts = 5;  // u8 for players 1 and 2: finish_shown when the overlay was built.
 }
 
 namespace rush2::players4 {
@@ -336,6 +351,62 @@ namespace rush2::players4 {
 
     int32_t record(int player) {
         return (int32_t)(records + player * record_size);
+    }
+
+    void finish_boxes(uint8_t* rdram, recomp_context* ctx) {
+        bool side = rush2::splitscreen::is_side_by_side(rdram);
+        bool quads = rush2::splitscreen::quadrant_views(rdram) != 0;
+        if (!side && !quads) {
+            return;
+        }
+        // Boxes already up (the race over box, built just before) aren't part of any place; their widget slots may
+        // have been a place's box before.
+        for (int i = 0; i < box_count; i++) {
+            int32_t box = (int32_t)(boxes + i * box_size);
+            for (int part = 0; MEM_BU(0, box) != 0 && part < box_parts; part++) {
+                int slot = MEM_H(element_widget, MEM_W(box_elements + part * 4, box));
+                if (slot >= 0 && slot < max_widgets) {
+                    widget_players[slot] = -1;
+                    widget_roles[slot] = rush2::players4::HudRole::Other;
+                }
+            }
+        }
+        for (int player = 0; player < std::min<int>(player_count(rdram), max_players); player++) {
+            if (MEM_BU(player, (int32_t)finish_shown) == 0) {
+                continue;
+            }
+            int index = 0;
+            while (index < box_count && MEM_BU(0, (int32_t)(boxes + index * box_size)) != 0) {
+                index++;
+            }
+            if (index == box_count) {
+                return;
+            }
+            // The game's boxes for 2 players (func_800A0FB4): player 1's at the top, player 2's (whose place players 3
+            // and 4's copy) at the bottom, at alpha 0xC0.
+            const int32_t* r = player == 0 ? finish_box_top : finish_box_bottom;
+            recomp_context saved = *ctx;
+            ctx->r29 = (int32_t)ctx->r29 - 0x20;
+            int32_t sp = (int32_t)ctx->r29;
+            MEM_W(0x10, sp) = finish_box_alpha;
+            MEM_W(0x14, sp) = 0;
+            MEM_W(0x18, sp) = 0;
+            MEM_W(0x1C, sp) = 0;
+            ctx->r4 = r[0];
+            ctx->r5 = r[1];
+            ctx->r6 = r[2];
+            ctx->r7 = r[3];
+            hud_multi_widget_menu_setup_80093B38(rdram, ctx);
+            *ctx = saved;
+            int32_t box = (int32_t)(boxes + index * box_size);
+            for (int part = 0; MEM_BU(0, box) != 0 && part < box_parts; part++) {
+                int slot = MEM_H(element_widget, MEM_W(box_elements + part * 4, box));
+                if (slot >= 0 && slot < max_widgets) {
+                    widget_players[slot] = (int8_t)player;
+                    widget_roles[slot] = rush2::players4::HudRole::Banner;
+                }
+            }
+        }
     }
 
     void hud_built(uint8_t* rdram, recomp_context* ctx) {
@@ -396,6 +467,7 @@ extern "C" void input_steering_from_stick_80076694(uint8_t* rdram, recomp_contex
 extern "C" void input_set_port_state_80093DC0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx);
 extern "C" void carselect_build_list_803B81F0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void race_car_finish_8008E8EC(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
     // Joining. Player 2 joins by pressing START on a free controller in the menus (func_80093E08, which fills record 2
@@ -467,16 +539,24 @@ namespace {
         call(rdram, ctx, input_steering_from_stick_80076694, rec, car);
 
         // Players 3 and 4 skip the Select Player screen: they race with the controller's own record, or the profile
-        // already chosen on that controller (as func_800A6B58 picks them).
+        // last chosen on that controller (as func_800A6B58 picks them) unless another player has that profile: the
+        // choice may be left from when another player had this port, and two players on one profile would change
+        // each other's cars and records.
         int profile = MEM_H(port * 2, (int32_t)port_profiles);
+        int32_t buffer = (int32_t)(controller_buffers + port * controller_buffer_size);
+        if (profile >= 0) {
+            buffer = (int32_t)(pak_profiles + (profile / 5) * 0x2200 + (profile % 5) * controller_buffer_size + 0x40);
+            for (int other = 0; other < player; other++) {
+                if (MEM_W(record_buffer, rush2::players4::record(other)) == buffer) {
+                    profile = -1;
+                }
+            }
+        }
         if (profile < 0) {
             MEM_H(port * 2, (int32_t)port_profiles) = -1;
-            MEM_W(record_buffer, rec) = (int32_t)(controller_buffers + port * controller_buffer_size);
+            buffer = (int32_t)(controller_buffers + port * controller_buffer_size);
         }
-        else {
-            MEM_W(record_buffer, rec) =
-                (int32_t)(pak_profiles + (profile / 5) * 0x2200 + (profile % 5) * controller_buffer_size + 0x40);
-        }
+        MEM_W(record_buffer, rec) = buffer;
         call(rdram, ctx, input_set_port_state_80093DC0, port, 1);
         call(rdram, ctx, menu_play_sound_80064908, sound_join);
     }
@@ -495,6 +575,14 @@ namespace {
         return (n == 3 || n == 4) ? n : 0;
     }
     const int test_players = test_players_from_env();
+
+    // AI-agent test aid, not in the menu: RUSH2_TEST_FINISH=<seconds> finishes the players' cars that long after the
+    // race starts (player 1 first, a second apart in race time), to reach the race over screens without driving.
+    double test_finish_from_env() {
+        const char* v = std::getenv("RUSH2_TEST_FINISH");
+        return v != nullptr ? std::atof(v) : 0.0;
+    }
+    const double test_finish = test_finish_from_env();
 
     // Each menu frame: a START press on a free controller adds player 3 or 4 once player 2 is in; players 3 and 4
     // leave with player 2. Test players (RUSH2_TEST_PLAYERS) join by themselves on ports with no controller.
@@ -538,6 +626,8 @@ namespace {
     // swapped) and the screen starts over for them; once they have chosen, everything is swapped back and the race
     // starts. Backing out of the second round returns to the first.
     int car_round = 0; // 1 while players 3 and 4 choose.
+
+    int pause_player = 0; // Who opened the pause menu (rush2_players4_paused).
 
     // Rush 2's race car table (9 bytes per car slot: +1 type, +2..+5 colors and stripe). The second round's screen
     // setup rewrites slots 0 and 1 (players 1 and 2) with defaults (type 0 = the pickup truck), so round one's picks
@@ -621,6 +711,10 @@ namespace rush2::players4 {
         int32_t x = (int16_t)ctx->r2;
         *ctx = saved;
         call(rdram, ctx, text_print_string_800734E0, x, y, (int32_t)hint_text);
+    }
+
+    int paused_player() {
+        return pause_player;
     }
 
     int joined_players(uint8_t* rdram) {
@@ -754,10 +848,19 @@ void rush2_players4_title_port(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-// func_800AE670 (the game's state machine), each frame.
+// func_800AFD44 (pause menu step) as the race is paused: $s6 = the player who pressed START.
+void rush2_players4_paused(uint8_t* rdram, recomp_context* ctx) {
+    pause_player = (int)ctx->r22;
+}
+
+// func_800AE670 (the game's state machine), each frame. The post-race records (state 6, func_800A952C: each player's
+// stats saved to their record, lap and race times entered into the track's tables, name entry) keep per-player arrays
+// for two players (D_800D3628: 2 tables x 2 players x 0x18, D_800D39A8, D_800D3F28, D_800E79C8, D_800E7D20, ...), and
+// four overflowed them into the audio voices (a sound read from a bad ROM address). The counts go back to 2 there;
+// race over (states 4 and 5) keeps every player, so players 3 and 4's places and views stay up with the others.
 void rush2_players4_state(uint8_t* rdram, recomp_context* ctx) {
     int32_t state = MEM_W(0, (int32_t)game_state);
-    if (state == 4 && player_count(rdram) > 2) {
+    if (state == 6 && player_count(rdram) > 2) {
         MEM_H(0, (int32_t)rush2::players4::num_players) = 2;
         MEM_H(0, (int32_t)rush2::players4::num_views) = 2;
     }
@@ -767,6 +870,26 @@ void rush2_players4_state(uint8_t* rdram, recomp_context* ctx) {
 // quadrants, the boxes are left out (they're placed for views stacked top and bottom, and players 3 and 4 have none).
 int rush2_players4_skip_finish_box(uint8_t* rdram, recomp_context* ctx) {
     return rush2::splitscreen::is_side_by_side(rdram) || rush2::splitscreen::quadrant_views(rdram) != 0;
+}
+
+// func_800A0FB4 (finish overlay, $t4 = the overlay's list or 0), before it builds a missing overlay: whether to skip to
+// its rebuild check with the rebuild forced. The game rebuilds the overlay only when player 1's or 2's place shows or
+// hides (D_800BF318 against D_800BF444), so players 3 and 4's places, which their widgets show in D_800BF31A-B
+// (unused by the game), never appeared when only they had finished. The first build is forced through the rebuild too,
+// which adds players 3 and 4's places and lays the overlay out like the HUD (rush2_hud_finish_begin/end).
+int rush2_players4_finish_rebuild(uint8_t* rdram, recomp_context* ctx) {
+    static uint8_t shown[2] = {};
+    bool rebuild = ctx->r12 == 0;
+    for (int i = 0; i < 2; i++) {
+        uint8_t now = MEM_BU(2 + i, (int32_t)finish_shown);
+        rebuild = rebuild || now != shown[i];
+        shown[i] = now;
+    }
+    if (!rebuild) {
+        return 0;
+    }
+    MEM_B(0, (int32_t)finish_seen) = (int8_t)(MEM_BU(0, (int32_t)finish_shown) ^ 1);
+    return 1;
 }
 
 // func_800AE670, once players 1 and 2 have finished the race: whether players 3 and 4 have too.
@@ -787,6 +910,13 @@ void rush2_players4_race_start(uint8_t* rdram, recomp_context* ctx) {
     if (player_count(rdram) == 2 && total > 2) {
         MEM_H(0, (int32_t)rush2::players4::num_players) = (int16_t)total;
         MEM_H(0, (int32_t)rush2::players4::num_views) = (int16_t)total;
+        // The records' button masks (GAS, BRAKE and the rest, +0xC-0x1D) are filled from each port's binding table by
+        // func_8009FEE8 for the game's two players only; players 3 and 4's were never set, so their cars didn't
+        // drive. The tables are all locked to the game's layout (src/controls.cpp), so player 1's masks are theirs.
+        for (int player = 2; player < total; player++) {
+            copy_rdram(rdram, (uint32_t)(rush2::players4::record(player) + record_masks),
+                       (uint32_t)(rush2::players4::record(0) + record_masks), record_masks_size);
+        }
     }
     rush2::players4::frame(rdram);
 }
@@ -803,6 +933,26 @@ void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx) {
     int32_t state = MEM_W(0, (int32_t)game_state);
     if (state != 3 && state != 0xA) {
         return;
+    }
+    if (test_finish > 0.0) {
+        static std::chrono::steady_clock::time_point race_start;
+        static int32_t last_state = 0;
+        if (last_state != 3 && state == 3) {
+            race_start = std::chrono::steady_clock::now();
+        }
+        last_state = state;
+        if (state == 3 && std::chrono::duration<double>(std::chrono::steady_clock::now() - race_start).count() > test_finish) {
+            for (int player = 0; player < player_count(rdram); player++) {
+                int car = MEM_BU(record_car, rush2::players4::record(player));
+                if (MEM_B(car_finished, (int32_t)(car_states + car * car_state_size)) == 0) {
+                    float time = 60.0f + player;
+                    uint32_t bits;
+                    memcpy(&bits, &time, sizeof(bits));
+                    call(rdram, ctx, race_car_finish_8008E8EC, car, (int32_t)bits);
+                    break;
+                }
+            }
+        }
     }
     for (int view = 2; view < MEM_H(0, (int32_t)rush2::players4::num_views); view++) {
         setup_view_fog(rdram, ctx, view);

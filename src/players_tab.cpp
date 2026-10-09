@@ -1,9 +1,10 @@
-// Players tab: which controller and keyboard drive each player (src/input.cpp), players 1 and 2's Rush 2049 wings
+// Players tab: which controllers and the keyboard may play (src/input.cpp), players 1 and 2's Rush 2049 wings
 // (src/wings.cpp) and the 2 player split screen layout (src/splitscreen.cpp).
 //
-// Each player has an input choice (Auto, Keyboard, None, or one of the connected controllers; a chosen controller
-// that's unplugged stays listed). Keyboard gives the player only the keyboard; otherwise the keyboard stays with
-// player 1 alongside its controller. Picking another player's controller swaps the two players' choices. The tab rebuilds itself when controllers connect or disconnect.
+// Controllers aren't given to players here: in the game, whoever presses START becomes the next player. Each
+// controller (connected, or disabled and remembered) and the keyboard has a toggle that enables it. The tab rebuilds
+// itself when controllers
+// connect or disconnect, or a device's port or player changes.
 //
 // Bindings are edited in the game's own Controller Setup screen (src/controls_menu.cpp), which replaces the frontend's
 // Controls tab.
@@ -15,23 +16,21 @@
 #include "elements/ui_config_page.h"
 #include "elements/ui_label.h"
 #include "elements/ui_radio.h"
-#include "elements/ui_select.h"
+#include "elements/ui_toggle.h"
 
 #include "rush2.h"
 #include "wings.h"
 
 namespace {
     using namespace recompui;
-    using rush2::input::PortChoice;
 
     const std::string tab_id = "players";
     const std::string tab_name = "Players";
 
     const std::string description =
-        "Choose the controller each player uses, or the keyboard.\n\n"
-        "Auto gives the player the first controller that presses a button and isn't chosen for another player. "
-        "A chosen controller is remembered and takes its player whenever it's connected. Choosing another player's "
-        "controller swaps the two. The keyboard also drives player 1 unless another player chooses it.\n\n"
+        "Choose which controllers can play. All of them can unless turned off here.\n\n"
+        "Players join in the game: player 1 presses START on the title screen, and players 2, 3 and 4 press START on "
+        "Select Player. A controller can join once it has pressed a button.\n\n"
         "Buttons are set in the game's Controller Setup screen (Options, or the pause menu during a race).\n\n"
         "<recomp-color primary>Wings</recomp-color> chooses players 1 and 2's Rush 2049 wings, as on Rush 2049's car "
         "setup screen: Style 1 steers in the air, Style 2 steers harder and glides but slows the car, Style 3 steers "
@@ -53,15 +52,6 @@ namespace {
                 scroll_into_view();
             }
         }
-    };
-
-    // A player's input list. While it's open, each step through the options is a selection (RmlUi's select), so the
-    // page waits for it to close before applying the choice.
-    class PlayerSelect : public Select {
-    public:
-        using Select::Select;
-        // Select only tracks this while it's being updated, which nothing starts, so ask the select itself.
-        bool is_list_open() { return get_element_with_tag_name("selectvalue").is_pseudo_class_set("checked"); }
     };
 
     class PlayersPage : public ConfigPage {
@@ -103,30 +93,17 @@ namespace {
 
         void process_event(const Event& e) override {
             if (e.type == EventType::Update) {
-                // Applying a choice or rebuilding the rows would close an open list, so both wait for it.
-                bool any_open = false;
-                for (PlayerSelect* select : selects) {
-                    any_open = any_open || select->is_list_open();
-                }
-                if (!any_open) {
-                    for (int port = 0; port < (int)pending.size(); port++) {
-                        if (!pending[port].empty()) {
-                            apply_choice(port, pending[port]);
-                            pending[port].clear();
+                if (current_state() != rendered_state) {
+                    // The rebuilt toggle of the one that had focus takes it back.
+                    int refocus = -1;
+                    for (size_t i = 0; i < toggles.size(); i++) {
+                        if (toggles[i]->is_style_enabled(focus_state)) {
+                            refocus = (int)i;
                         }
                     }
-                    if (current_state() != rendered_state) {
-                        // The rebuilt list of the player whose list had focus takes it back.
-                        int refocus = -1;
-                        for (size_t i = 0; i < selects.size(); i++) {
-                            if (selects[i]->is_style_enabled(focus_state)) {
-                                refocus = (int)i;
-                            }
-                        }
-                        render();
-                        if (refocus >= 0 && refocus < (int)selects.size()) {
-                            selects[refocus]->focus();
-                        }
+                    render();
+                    if (refocus >= 0 && refocus < (int)toggles.size()) {
+                        toggles[refocus]->focus();
                     }
                 }
                 queue_update();
@@ -136,36 +113,7 @@ namespace {
     private:
         Element* rows = nullptr;
         std::string rendered_state;
-        std::vector<PlayerSelect*> selects;
-        std::vector<std::string> pending = std::vector<std::string>(rush2::input::num_ports);  // Choices to apply.
-        std::vector<rush2::input::ControllerInfo> shown_controllers;
-
-        void apply_choice(int port, const std::string& value) {
-            PortChoice current = rush2::input::get_port_choice(port);
-            bool keyboard_only = rush2::input::get_keyboard_port() == port && current.kind == PortChoice::Kind::None;
-            PortChoice c{};
-            if (value == "keyboard") {
-                rush2::input::set_keyboard_port(port);
-            }
-            else if (keyboard_only) {
-                // The keyboard goes back to player 1, alongside player 1's controller.
-                rush2::input::set_keyboard_port(0);
-            }
-            if (value == "none" || value == "keyboard") {
-                c.kind = PortChoice::Kind::None;
-            }
-            else if (value.rfind("c:", 0) == 0) {
-                c.kind = PortChoice::Kind::Controller;
-                c.controller_key = value.substr(2);
-                c.controller_name = current.controller_name;
-                for (const auto& info : shown_controllers) {
-                    if (info.key == c.controller_key) {
-                        c.controller_name = info.name;
-                    }
-                }
-            }
-            rush2::input::set_port_choice(port, c);
-        }
+        std::vector<Toggle*> toggles;
 
         // Everything the rows show, so they're only rebuilt when it changes.
         std::string current_state() {
@@ -173,13 +121,51 @@ namespace {
             for (const auto& c : rush2::input::get_controllers()) {
                 state += std::to_string(c.joystick_id) + c.key + ";";
             }
+            for (const auto& c : rush2::input::get_disabled_controllers()) {
+                state += c.key + ",";
+            }
             for (int port = 0; port < rush2::input::num_ports; port++) {
-                PortChoice choice = rush2::input::get_port_choice(port);
-                state += "|" + std::to_string((int)choice.kind) + choice.controller_key + ":" +
-                    std::to_string(rush2::input::get_port_controller(port));
+                state += "|" + std::to_string(rush2::input::get_port_controller(port)) + ":" +
+                    std::to_string(rush2::input::port_player(port));
             }
             return state + "|" + std::to_string(rush2::input::get_keyboard_port()) + "|" +
+                std::to_string(rush2::input::get_keyboard_enabled()) +
                 std::to_string(rush2::wings::rom_available());
+        }
+
+        // What a device is doing right now, from its port (-1 for none).
+        static std::string port_status(int port) {
+            if (port < 0) {
+                return "Press a button on it to use it";
+            }
+            int player = rush2::input::port_player(port);
+            if (player >= 0) {
+                return "Player " + std::to_string(player + 1);
+            }
+            return "Ready: press START in the game to join";
+        }
+
+        // A line of the list: a name and status on the left and a toggle on the right.
+        Toggle* add_toggle_line(Element* parent, const std::string& name, const std::string& status, bool checked) {
+            ContextId context = get_current_context();
+            Element* line = context.create_element<ListRow>(parent);
+            line->set_display(Display::Flex);
+            line->set_flex_direction(FlexDirection::Row);
+            line->set_align_items(AlignItems::Center);
+            line->set_gap(16.0f);
+            line->set_as_navigation_container(NavigationType::Horizontal);
+            Element* text = context.create_element<Element>(line, 0, "div", false);
+            text->set_display(Display::Flex);
+            text->set_flex_direction(FlexDirection::Column);
+            text->set_flex_grow(1.0f);
+            text->set_gap(4.0f);
+            context.create_element<Label>(text, name, theme::Typography::LabelSM);
+            Label* status_label = context.create_element<Label>(text, status, theme::Typography::Body);
+            status_label->set_color(theme::color::TextDim);
+            Toggle* toggle = context.create_element<Toggle>(line, ToggleSize::Medium);
+            toggle->set_checked(checked);
+            toggles.push_back(toggle);
+            return toggle;
         }
 
         Element* add_row(Element* parent, const std::string& name) {
@@ -199,75 +185,68 @@ namespace {
             ContextId context = get_current_context();
             rendered_state = current_state();
             rows->clear_children();
-            selects.clear();
+            toggles.clear();
 
+            // Controllers: the connected ones, then the disabled ones that aren't connected.
+            Element* controllers_row = add_row(rows, "Controllers");
             std::vector<rush2::input::ControllerInfo> controllers = rush2::input::get_controllers();
-            shown_controllers = controllers;
-
-            for (int port = 0; port < rush2::input::num_ports; port++) {
-                Element* row = add_row(rows, "Player " + std::to_string(port + 1));
-                PortChoice choice = rush2::input::get_port_choice(port);
-
-                // Keyboard: the keyboard alone (no controller). A player with the keyboard and a controller choice
-                // (player 1 by default) shows the choice, and the status says the keyboard is also theirs.
-                bool has_keyboard = rush2::input::get_keyboard_port() == port;
-                bool keyboard_only = has_keyboard && choice.kind == PortChoice::Kind::None;
-                std::vector<SelectOption> options = {
-                    { "Auto", "auto" },
-                    { "Keyboard", "keyboard" },
-                    { "None", "none" },
-                };
-                bool chosen_connected = false;
-                for (size_t i = 0; i < controllers.size(); i++) {
-                    // Number identical controllers so they can be told apart.
-                    std::string name = controllers[i].name;
-                    int same = 0, index = 0;
-                    for (size_t j = 0; j < controllers.size(); j++) {
-                        if (controllers[j].name == controllers[i].name) {
-                            same++;
-                            index += j < i;
-                        }
-                    }
-                    if (same > 1) {
-                        name += " (" + std::to_string(index + 1) + ")";
-                    }
-                    options.emplace_back(name, "c:" + controllers[i].key);
-                    chosen_connected = chosen_connected || controllers[i].key == choice.controller_key;
-                }
-                if (choice.kind == PortChoice::Kind::Controller && !chosen_connected) {
-                    std::string name = choice.controller_name.empty() ? "Controller" : choice.controller_name;
-                    options.emplace_back(name + " (not connected)", "c:" + choice.controller_key);
-                }
-
-                std::string selected = keyboard_only ? "keyboard"
-                    : choice.kind == PortChoice::Kind::Auto ? "auto"
-                    : choice.kind == PortChoice::Kind::None ? "none" : "c:" + choice.controller_key;
-                PlayerSelect* select = context.create_element<PlayerSelect>(row, options, selected);
-                selects.push_back(select);
-                select->add_change_callback([this, port](SelectOption& option, int) {
-                    pending[port] = option.value;
-                });
-
-                // What the player has right now.
-                std::string status = "No controller";
-                int32_t live = rush2::input::get_port_controller(port);
-                for (const auto& info : controllers) {
-                    if (info.joystick_id == live) {
-                        status = "Using " + info.name;
-                    }
-                }
-                if (live < 0 && choice.kind == PortChoice::Kind::Auto) {
-                    status = "No controller yet: press a button on one to join";
-                }
-                if (keyboard_only) {
-                    status = "Using the keyboard";
-                }
-                else if (has_keyboard) {
-                    status += live >= 0 ? ", and the keyboard" : ". Also using the keyboard";
-                }
-                Label* status_label = context.create_element<Label>(row, status, theme::Typography::Body);
-                status_label->set_color(theme::color::TextDim);
+            std::vector<rush2::input::DisabledController> disabled = rush2::input::get_disabled_controllers();
+            if (controllers.empty() && disabled.empty()) {
+                Label* none = context.create_element<Label>(controllers_row, "No game controllers connected", theme::Typography::Body);
+                none->set_color(theme::color::TextDim);
             }
+            for (size_t i = 0; i < controllers.size(); i++) {
+                // Number identical controllers so they can be told apart.
+                std::string name = controllers[i].name;
+                int same = 0, index = 0;
+                for (size_t j = 0; j < controllers.size(); j++) {
+                    if (controllers[j].name == controllers[i].name) {
+                        same++;
+                        index += j < i;
+                    }
+                }
+                if (same > 1) {
+                    name += " (" + std::to_string(index + 1) + ")";
+                }
+                bool enabled = rush2::input::is_controller_enabled(controllers[i].joystick_id);
+                int port = -1;
+                for (int p = 0; p < rush2::input::num_ports; p++) {
+                    if (rush2::input::get_port_controller(p) == controllers[i].joystick_id) {
+                        port = p;
+                    }
+                }
+                Toggle* toggle = add_toggle_line(controllers_row, name, enabled ? port_status(port) : "Off", enabled);
+                std::string key = controllers[i].key;
+                std::string base_name = controllers[i].name;
+                toggle->add_checked_callback([key, base_name](bool checked) {
+                    rush2::input::set_controller_enabled(key, base_name, checked);
+                });
+            }
+            for (const auto& d : disabled) {
+                bool connected = false;
+                for (const auto& c : controllers) {
+                    connected = connected || c.key == d.key;
+                }
+                if (connected) {
+                    continue;
+                }
+                std::string name = (d.name.empty() ? std::string("Controller") : d.name) + " (not connected)";
+                Toggle* toggle = add_toggle_line(controllers_row, name, "Off", false);
+                std::string key = d.key;
+                std::string base_name = d.name;
+                toggle->add_checked_callback([key, base_name](bool checked) {
+                    rush2::input::set_controller_enabled(key, base_name, checked);
+                });
+            }
+
+            // The keyboard, a controller like the others.
+            bool keyboard_on = rush2::input::get_keyboard_enabled();
+            Toggle* keyboard_toggle = add_toggle_line(controllers_row, "Keyboard",
+                !keyboard_on ? "Off" : rush2::input::get_keyboard_port() < 0 ? "Press a key to use it"
+                : port_status(rush2::input::get_keyboard_port()), keyboard_on);
+            keyboard_toggle->add_checked_callback([](bool checked) {
+                rush2::input::set_keyboard_enabled(checked);
+            });
 
             // Wing styles: players 1 and 2, once the Rush 2049 ROM is there.
             if (rush2::wings::rom_available()) {
