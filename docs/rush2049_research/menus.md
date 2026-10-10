@@ -115,7 +115,8 @@ A widget record is 0x28 bytes: `char *texture; s16 x, y; 3×-1; 0; 0; 0xFF; call
   (green) and the others in style 4 (gray). Its left/right case (0x803AC2CC) wraps menu settings +0x1
   (0x800D5761) with `& 7`, or sets 7 with no step.
 - In the port (src/rush2049/track2049_menu.cpp), the STUNT and BATTLE track selects list only TRACK, FOG, WIND and, on the
-  obstacle course, DEATHS, on a battle arena DRONES (its computer opponents, listed in stunt mode too); hooks stop the text loop after the list (0x803C6934), hide the boxes past it
+  obstacle course, DEATHS, on a battle arena DRONES and DIFFICULTY (its computer opponents and their skill, listed in stunt mode too;
+  DIFFICULTY's slider is kept on screen at 0x803C5930); hooks stop the text loop after the list (0x803C6934), hide the boxes past it
   (0x803C5774) and keep a list of 4 or fewer from scrolling (0x803AC4FC). In a ghost race (src/ghost.cpp), DRONES
   counts the drones besides the ghosts, from 0 to 7 - players - 3 (hooks at 0x803AC2F0, 0x803AC300, 0x803C6714,
   and 0x803C6738, which dims the digits past it with `func_800735A8`).

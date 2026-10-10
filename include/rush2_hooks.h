@@ -307,6 +307,10 @@ void rush2_ghost_drone_colors(uint8_t* rdram, recomp_context* ctx);
 int rush2_ghost_car_tick(uint8_t* rdram, recomp_context* ctx);
 int rush2_ghost_drive(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_tick_end(uint8_t* rdram, recomp_context* ctx);
+// Battle arenas' computer opponents (src/rush2049/battle_ai.cpp).
+int rush2_battle_ai_drive(uint8_t* rdram, recomp_context* ctx);
+int rush2_battle_ai_car_tick(uint8_t* rdram, recomp_context* ctx);
+void rush2_battle_ai_tick_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_collide_self(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_collide_other(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_standings(uint8_t* rdram, recomp_context* ctx);

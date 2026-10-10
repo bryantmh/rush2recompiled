@@ -10911,8 +10911,9 @@ text = "    if (rush2_unlocks_text(rdram, ctx)) return;"
 # colors, each car's physics tick (recording player 1, skipping the ghosts' scheduled steps), the drones' driver
 # (skipped for ghosts), the end of a physics tick (the ghosts' steps), car against car (not ghosts), standings, track
 # map and radar dots (not ghosts), the view's fog color (the ghosts' translucency), and the end of the car select's
-# text (the ghost choice). The race setup (also on a restart) starts Rush 2049's odometer over too
-# (src/rush2049/odometer.cpp).
+# text (the ghost choice). The battle arenas' computer opponents (src/rush2049/battle_ai.cpp) share the car tick, the
+# drones' driver and the end of the physics tick: their driver is the battle AI and they are stepped every tick.
+# The race setup (also on a restart) starts Rush 2049's odometer over too (src/rush2049/odometer.cpp).
 [[patches.hook]]
 func = "menu_settings_to_race_globals_80094698"
 before_vram = 0x80094A2C
@@ -10936,17 +10937,17 @@ text = "    rush2_npc_cars_apply(rdram, ctx); rush2_ghost_drone_colors(rdram, ct
 [[patches.hook]]
 func = "physics_car_tick_80075880"
 before_vram = 0x80075880
-text = "    if (rush2_ghost_car_tick(rdram, ctx)) return;"
+text = "    if (rush2_ghost_car_tick(rdram, ctx) || rush2_battle_ai_car_tick(rdram, ctx)) return;"
 
 [[patches.hook]]
 func = "drone_driver_80074990"
 before_vram = 0x80074990
-text = "    if (rush2_ghost_drive(rdram, ctx)) return;"
+text = "    if (rush2_ghost_drive(rdram, ctx) || rush2_battle_ai_drive(rdram, ctx)) return;"
 
 [[patches.hook]]
 func = "physics_tick_80076578"
 before_vram = 0x8007660C
-text = "    rush2_ghost_tick_end(rdram, ctx);"
+text = "    rush2_ghost_tick_end(rdram, ctx); rush2_battle_ai_tick_end(rdram, ctx);"
 
 [[patches.hook]]
 func = "car_collide_with_cars_8006F3C0"

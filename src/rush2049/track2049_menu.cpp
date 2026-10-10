@@ -137,13 +137,16 @@ namespace {
     constexpr int option_fog = 3;
     constexpr int option_wind = 4;
     constexpr int option_drones = 6;
+    constexpr int option_difficulty = 7;
     constexpr int option_deaths = 10;
     constexpr int option_boxes = 4;     // OPTIONTEXTBOX widgets: the rows on screen
 
     // Whether option `option` stays open on track t although STUNT1 greys it: the obstacle course is raced (a car
-    // can die on it), so DEATHS stays; a battle arena's DRONES is its computer opponents (src/rush2049/battle_ai.cpp).
+    // can die on it), so DEATHS stays; a battle arena's DRONES is its computer opponents and DIFFICULTY their skill
+    // (src/rush2049/battle_ai.cpp).
     bool option_open(int t, int option) {
-        return (t == obstacle_menu_id && option == option_deaths) || (is_battle_arena(t) && option == option_drones);
+        return (t == obstacle_menu_id && option == option_deaths) ||
+               (is_battle_arena(t) && (option == option_drones || option == option_difficulty));
     }
 
     int cursor_option(uint8_t* rdram) {
@@ -183,12 +186,14 @@ namespace {
     // and the options a course keeps open (option_open). STUNT1 grays out the others; a list with fewer options than the
     // rows on screen needs the hooks below (rush2_track49_option_*). Rows past the list hold TRACK, which shows no
     // slider. After a stunt or battle race the game mode is stunt (2, set by func_800AE670), whose list func_803AB294
-    // stops at WIND, so the BATTLE select adds DRONES back.
+    // stops at WIND, so the BATTLE select adds DRONES and DIFFICULTY back.
     void filter_options(uint8_t* rdram) {
         int t = (int8_t)MEM_B(0, (int32_t)track_id);
         std::vector<int> ids = stock_options;
-        if (select_kind == select_battle && std::find(ids.begin(), ids.end(), option_drones) == ids.end()) {
-            ids.insert(std::upper_bound(ids.begin(), ids.end(), option_drones), option_drones);
+        for (int added : { option_drones, option_difficulty }) {
+            if (select_kind == select_battle && std::find(ids.begin(), ids.end(), added) == ids.end()) {
+                ids.insert(std::upper_bound(ids.begin(), ids.end(), added), added);
+            }
         }
         int n = 0;
         for (int id : ids) {
@@ -877,6 +882,12 @@ extern "C" void rush2_track49_deaths_value_t0(uint8_t* rdram, recomp_context* ct
     if (option_open((int32_t)ctx->r8, option_deaths)) ctx->r8 = 0;
 }
 
+// func_803C6268, DRONES' digits at 0x803C6720: $t4 = the track, about to be compared with $s5 to grey the digit of
+// the drone count (green otherwise). Not on a battle arena, where DRONES is its computer opponents.
+extern "C" void rush2_track49_drones_value(uint8_t* rdram, recomp_context* ctx) {
+    if (option_open((int32_t)ctx->r12, option_drones)) ctx->r12 = 0;
+}
+
 // func_803C6268 at 0x803C6354: $s5 = 11, which the option list compares with the track to grey options.
 extern "C" void rush2_track49_stunt_options(uint8_t* rdram, recomp_context* ctx) {
     int t = (int8_t)MEM_B(0, (int32_t)track_id);
@@ -884,16 +895,12 @@ extern "C" void rush2_track49_stunt_options(uint8_t* rdram, recomp_context* ctx)
 }
 
 // func_803C5798 at 0x803C5930 / 0x803C5978: $t9 / $t8 = the track, about to be compared with 11 (an option's value
-// is moved off screen on it).
+// is moved off screen on it): the DIFFICULTY slider (0x803C5930, at 0x8010C211 x 36 / 5) and the HANDICAP one. A battle
+// arena keeps its DIFFICULTY slider.
 extern "C" void rush2_track49_stunt_option_t9(uint8_t* rdram, recomp_context* ctx) {
-    if (is_stunt_course((int32_t)ctx->r25)) ctx->r25 = stunt_host_slot;
+    int t = (int32_t)ctx->r25;
+    if (is_stunt_course(t) && !option_open(t, option_difficulty)) ctx->r25 = stunt_host_slot;
 }
-// func_803C6268, DRONES' digits at 0x803C6720: $t4 = the track, about to be compared with $s5 to grey the digit of
-// the drone count (green otherwise). Not on a battle arena, where DRONES is its computer opponents.
-extern "C" void rush2_track49_drones_value(uint8_t* rdram, recomp_context* ctx) {
-    if (option_open((int32_t)ctx->r12, option_drones)) ctx->r12 = 0;
-}
-
 
 extern "C" void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ctx) {
     if (is_stunt_course((int32_t)ctx->r24)) ctx->r24 = stunt_host_slot;

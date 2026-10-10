@@ -8,8 +8,8 @@
 #include "track2049_convert.h"
 
 // Rush 2049's battle mode in Rush 2 (src/rush2049/battle.cpp, docs/rush2049_research/battle.md): the battle arenas (track select
-// ids 30-37) are played in stunt mode without computer cars (Rush 2049's battle was multiplayer only), and this adds what 2049's battle overlay does on top of
-// it: health, weapon and power-up pickups, weapons and their projectiles, kills, and a battle HUD.
+// ids 30-37) are played in stunt mode (Rush 2049's battle was multiplayer only; the computer opponents are
+// src/rush2049/battle_ai.cpp), and this adds what 2049's battle overlay does on top of it: health, weapon and power-up pickups, weapons and their projectiles, kills, and a battle HUD.
 namespace rush2::battle {
     // The time limit option (Games tab), in minutes.
     enum class TimeLimit : uint32_t { One = 1, Two = 2, Three = 3, Five = 5, Ten = 10 };

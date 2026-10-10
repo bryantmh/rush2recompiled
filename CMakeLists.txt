@@ -171,6 +171,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_movers_logic.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_props.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/battle.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/battle_ai.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/battle_render.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/odometer.cpp
     ${CMAKE_SOURCE_DIR}/src/arrows.cpp

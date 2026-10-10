@@ -1,8 +1,9 @@
 // Rush 2049's battle mode in Rush 2 (docs/rush2049_research/battle.md).
 //
 // The battle arenas (track select ids 30-37, src/rush2049/track2049_menu.cpp) are hosted by Rush 2's stunt track, so the race
-// runs as Rush 2's stunt mode (free roam, a clock, no checkpoints). Rush 2049's battle was multiplayer only, so there
-// are no computer cars (their AI is future work). Rush 2049 runs its battle in a mode overlay (ROM 0xB6FEC4, raw
+// runs as Rush 2's stunt mode (free roam, a clock, no checkpoints). Rush 2049's battle was multiplayer only; the computer
+// opponents are the port's own (src/rush2049/battle_ai.cpp), Rush 2's drones driven and firing through this file's
+// weapons. Rush 2049 runs its battle in a mode overlay (ROM 0xB6FEC4, raw
 // deflate, loaded at 0x8038A400) on top of its race code; this file is that overlay's logic on Rush 2's cars. Function
 // names below are the overlay's (or 2049's main code's); values are 2049's unless marked [I] (inferred).
 //
@@ -56,6 +57,7 @@
 #include "arrows.h"
 #include "audio2049.h"
 #include "battle.h"
+#include "battle_ai.h"
 #include "battle_render.h"
 #include "car2049.h"
 #include "ghost.h"
@@ -208,6 +210,7 @@ namespace {
         uint8_t buttons = 0;            // the weapon buttons held last tick
         bool shadow_hidden = false;     // its shadow polygon was hidden here (invisible, in another player's view)
         float regive = 0.0f;            // the Weapons cheat: seconds until it is given its weapon again
+        int last_attacker = -1;         // the car that last damaged it (the computer opponents strike back)
     };
 
     struct Pickup {
@@ -229,11 +232,11 @@ namespace {
         float ring = 1.0f, ring_clock = 0.0f;   // sonic
         uint32_t ring_hits = 0;
         float ground = -1e9f;           // the level ground under the car that fired it (tracks without collision here)
+        float start[3] = {};            // where it left the muzzle
+        bool drawn = false;             // placed at least once
     };
 
     struct Effect {
-        float start[3] = {};            // where it left the muzzle
-        bool drawn = false;             // placed at least once
         bool live = false;
         int slot = -1;
         float pos[3] = {};
@@ -793,6 +796,7 @@ namespace {
         clock_seconds = 0.0f;
         clock_set = false;
         ready = true;
+        if (m == Mode::arena) rush2::battle_ai::begin_round();
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -807,6 +811,9 @@ namespace {
             return;
         }
         Fighter& f = fighters[victim];
+        static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "log") != nullptr;
+        if (test_log) fprintf(stderr, "[Battle] t=%.2f car %d takes %.0f from car %d (health %.0f)\n", clock_seconds, victim, amount, attacker, f.health);
+        f.last_attacker = attacker;
         if (f.shield > 0.0f) amount *= shield_factor;
         f.health -= std::floor(amount);
         if (f.health <= 0.0f) {
@@ -930,6 +937,10 @@ namespace {
         car_pos(rdram, car, c);
         car_vel(rdram, car, v);
         car_axes(rdram, car, m);
+        // The shot leaves the weapon where it is drawn: the body's pose of the frame shown, not the physics tick's,
+        // which the drawn car is ahead of (the gap grows with speed).
+        float body[3];
+        body_pose(rdram, car, body, m);
         Shot s;
         s.live = true;
         s.owner = car;
@@ -937,10 +948,6 @@ namespace {
         memcpy(s.m, m, sizeof(s.m));
         s.life = w.life;
         s.radius = w.radius;
-        // The shot leaves the weapon where it is drawn: the body's pose of the frame shown, not the physics tick's,
-        // which the drawn car is ahead of (the gap grows with speed).
-        float body[3];
-        body_pose(rdram, car, body, m);
         f.cooldown = w.cooldown;
         switch (f.weapon) {
             case grenade:
@@ -983,6 +990,7 @@ namespace {
         }
         offset_point(body, m, local, s.pos);
         memcpy(s.prev, s.pos, sizeof(s.prev));
+        memcpy(s.start, s.pos, sizeof(s.start));
         if (f.weapon == sonic) {
             memcpy(s.pos, c, sizeof(s.pos));
             s.pos[1] += 1.25f;
@@ -990,7 +998,6 @@ namespace {
         s.ground = c[1];
         s.slot = alloc_slot();
         color_slot(s.slot, f.weapon == mine ? shell_color : plain_color);
-        memcpy(s.start, s.pos, sizeof(s.start));
         play_sound(rdram, w.sound, s.pos);
         if (s.slot < 0 && f.weapon != sonic) {
             // No record to draw it with: the shot is lost (the ammo is still used).
@@ -1098,13 +1105,6 @@ namespace {
         }
     }
 
-    // func_8038E114: one step of every shot.
-    void update_shots(uint8_t* rdram, float dt) {
-        float steps = dt * tick_rate;
-        for (size_t n = 0; n < shots.size(); n++) {
-            Shot& s = shots[n];
-            if (!s.live) continue;
-            const WeaponInfo& w = weapons[s.weapon];
     // How far a shot's model reaches behind its origin (its vertices' least z / 16): the tracers. 0 for the rest (the
     // missile's trail stays: squashing it would squash the missile too).
     float shot_tail(int weapon) {
@@ -1134,6 +1134,13 @@ namespace {
         place_slot(rdram, s.slot, w.model, m, s.pos);
     }
 
+    // func_8038E114: one step of every shot.
+    void update_shots(uint8_t* rdram, float dt) {
+        float steps = dt * tick_rate;
+        for (size_t n = 0; n < shots.size(); n++) {
+            Shot& s = shots[n];
+            if (!s.live) continue;
+            const WeaponInfo& w = weapons[s.weapon];
             s.life -= dt;
             s.age += dt;
             if (s.life <= 0.0f) {
@@ -1293,6 +1300,7 @@ namespace {
             if (e.explosion) {
                 char frame[16];
                 snprintf(frame, sizeof(frame), "NEXPLOSIONG%d", std::min(explosion_frames, 1 + (int)(e.age * tick_rate)));
+                // The frames are cards in their xy plane that face the camera.
                 float m[9] = { explosion_scale, 0, 0, 0, explosion_scale, 0, 0, 0, explosion_scale };
                 place_slot(rdram, e.slot, frame, m, e.pos, true);
                 continue;
@@ -1300,7 +1308,6 @@ namespace {
             float scale = e.scale0 + (e.scale1 - e.scale0) * k;
             float m[9] = { scale, 0, 0, 0, scale, 0, 0, 0, scale };
             place_slot(rdram, e.slot, "WFX_MFLSHG11", m, e.pos);
-                // The frames are cards in their xy plane that face the camera.
         }
         effects.erase(std::remove_if(effects.begin(), effects.end(), [](const Effect& e) { return !e.live; }), effects.end());
     }
@@ -1465,7 +1472,8 @@ namespace {
             for (int p = 0; p < players; p++) {
                 if (player_car(rdram, p) == i) player = p;
             }
-            uint8_t held = player >= 0 ? weapon_buttons(rdram, player) : 0;
+            uint8_t held = player >= 0 ? weapon_buttons(rdram, player)
+                         : mode == Mode::arena && rush2::battle_ai::is_bot(rdram, i) ? rush2::battle_ai::buttons(i) : 0;
             uint8_t pressed = held & ~f.buttons;
             f.buttons = held;
 
@@ -1543,6 +1551,8 @@ void rush2::battle::set_data(const std::vector<PickupRecord>& pickup_list, const
     pool_records = pool_list;
     read_models(converted_geometry);
     build_collision(solid_triangles);
+    // A battle arena (it has pickups): the computer opponents' navigation grid.
+    if (!pickup_list.empty()) rush2::battle_ai::set_arena(solid_triangles);
 }
 
 void rush2::battle::reset() {
@@ -1591,11 +1601,59 @@ namespace {
         }
     }
 
+    // What the computer opponents (src/rush2049/battle_ai.cpp) see of the round: the cars, the pickups, the missiles
+    // in flight and the mines on the ground.
+    void update_ai(uint8_t* rdram, float dt) {
+        rush2::battle_ai::World w;
+        w.dt = dt;
+        w.over = over;
+        for (int i = 0; i < max_cars; i++) {
+            const Fighter& f = fighters[i];
+            rush2::battle_ai::Car& c = w.cars[i];
+            c.present = f.present;
+            if (!f.present) continue;
+            c.alive = alive(rdram, i);
+            c.bot = rush2::battle_ai::is_bot(rdram, i);
+            c.team = team_of_car(rdram, i);
+            car_pos(rdram, i, c.pos);
+            car_vel(rdram, i, c.vel);
+            car_axes(rdram, i, c.m);
+            c.health = f.health;
+            c.weapon = f.weapon;
+            c.ammo = f.ammo;
+            c.cooldown = f.cooldown;
+            c.aim_yaw = f.aim_yaw;
+            c.invisible = f.invisible > 0.0f;
+            c.shield = f.shield > 0.0f;
+            c.last_attacker = f.last_attacker;
+        }
+        for (const Pickup& p : pickups) {
+            rush2::battle_ai::Pickup q;
+            memcpy(q.pos, p.rec.pos, sizeof(q.pos));
+            q.kind = p.rec.kind;
+            q.available = !p.taken;
+            w.pickups.push_back(q);
+        }
+        for (const Shot& shot : shots) {
+            if (!shot.live || !(shot.weapon == missile || shot.placed)) continue;
+            rush2::battle_ai::Threat t;
+            memcpy(t.pos, shot.pos, sizeof(t.pos));
+            memcpy(t.forward, &shot.m[6], sizeof(t.forward));
+            t.owner = shot.owner;
+            t.missile = shot.weapon == missile;
+            t.mine = shot.placed;
+            w.threats.push_back(t);
+        }
+        rush2::battle_ai::update(rdram, w);
+    }
+
     // The winner when the time is up (2049 main func_80105EA8): the player with the most kills, or how many tie.
     struct Results {
         int winner = -1, tied = 0;
         int kills[4] = {};
         int players = 0;
+        int entrants = 0;           // the players and the computer opponents
+        std::string winner_name;    // PLAYER n, or CPU n for a computer opponent [I]
     };
     Results results;
 
@@ -1607,16 +1665,26 @@ namespace {
         }
         shots.clear();
         results.players = local_players(rdram);
-        int best = -1;
         for (int p = 0; p < results.players; p++) {
             int car = player_car(rdram, p);
             results.kills[p] = car >= 0 && car < max_cars ? fighters[car].kills : 0;
-            if (results.kills[p] > best) {
-                best = results.kills[p];
-                results.winner = p;
+        }
+        // Every car of the round, the computer opponents too.
+        int best = -1;
+        for (int i = 0; i < max_cars; i++) {
+            if (!fighters[i].present) continue;
+            int player = player_of(rdram, i);
+            int bot = rush2::battle_ai::bot_number(rdram, i);
+            if (player < 0 && bot == 0) continue;
+            results.entrants++;
+            int kills = fighters[i].kills;
+            if (kills > best) {
+                best = kills;
+                results.winner = player;
+                results.winner_name = player >= 0 ? "PLAYER " + std::to_string(player + 1) : "CPU " + std::to_string(bot);
                 results.tied = 1;
             }
-            else if (results.kills[p] == best) {
+            else if (kills == best) {
                 results.tied++;
             }
         }
@@ -1682,6 +1750,7 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
         }
     }
     update_sounds(rdram);
+    if (mode == Mode::arena) update_ai(rdram, dt);
     if (over) {
         // The round is decided: what is in flight goes on, nothing new is fired or scored.
         update_effects(rdram, dt);
@@ -1971,7 +2040,8 @@ namespace {
         constexpr uint32_t box_color = 0x000000C0;
         for (int p = 0; p < results.players; p++) {
             View v = view_of(rdram, p, results.players);
-            int cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2 + (results.players > 1 ? (v.bottom ? 24 : -30) : 0);
+            // One player against computer opponents: below the winner's box [I].
+            int cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2 + (results.players > 1 ? (v.bottom ? 24 : -30) : results.entrants > 1 ? 40 : 0);
             if (results.players == 2 && !v.wide) cy = (v.y0 + v.y1) / 2 + 40;
             // The game's text is anchored by the third of the screen it is printed in (src/hud.cpp): the box too.
             float anchor = cx < 107 ? 0.0f : cx < 214 ? 0.5f : 1.0f;
@@ -1979,12 +2049,13 @@ namespace {
             print_centered(rdram, ctx, style_white, cx, cy - 10, "PLAYER " + std::to_string(p + 1));
             print_centered(rdram, ctx, style_white, cx, cy + 1, std::to_string(results.kills[p]) + " POINTS");
         }
-        if (results.players >= 2) {
+        if (results.entrants >= 2) {
             // The box 2049 opens at (91, 106) - (229, 114), a text line taller.
-            rush2::hud::draw_rect(rdram, 91.0f, 101.0f, 229.0f, 119.0f, box_color, 0.5f);
-            std::string line = results.tied > 1 ? std::to_string(results.tied) + "-WAY TIE"
-                                                : "PLAYER " + std::to_string(results.winner + 1) + " WINS";
-            print_centered(rdram, ctx, style_highlight, 160, 105, line);
+            // One player: a little lower, clear of Rush 2's GAME OVER banner over the middle of the screen [I].
+            float y = results.players == 1 ? 8.0f : 0.0f;
+            rush2::hud::draw_rect(rdram, 91.0f, 101.0f + y, 229.0f, 119.0f + y, box_color, 0.5f);
+            std::string line = results.tied > 1 ? std::to_string(results.tied) + "-WAY TIE" : results.winner_name + " WINS";
+            print_centered(rdram, ctx, style_highlight, 160, 105 + (int)y, line);
         }
     }
 
