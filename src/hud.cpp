@@ -34,6 +34,13 @@
 // speedometer and their gear sits on the inner side under the top panels. With 3 or 4 players the skull is drawn at half size, and the
 // bottom row's speedometers sit at the top of their quadrants. The game's 2D clip inset is lifted for the draw loop so
 // the HUD can sit closer to the edges than the overscan border.
+//
+// Rush 2049's odometer (src/rush2049/odometer.cpp, the Games tab's Odometer option) is drawn after the widget loop,
+// stacked on each player's radar and lined up with its outer edge, moved and anchored with it: over the radar, or in
+// the bottom row of quadrants (radar at the top) under it. It is placed before the groups so the skull can be laid out
+// around it: split, a skull that would sit on it moves to its inner side. With 3 or 4 players the odometer, and each
+// player's time and position with it, are drawn at 75% to fit a quadrant. Without a radar it goes under the race time and its
+// lap time box (counted while hidden, so it doesn't jump when the box shows), or over them in the bottom row.
 
 #include <algorithm>
 #include <cmath>
@@ -46,6 +53,10 @@
 #include "rush2.h"
 #include "players4.h"
 #include "battle.h"
+#include "odometer2049.h"
+
+#include "recompui/recompui.h"
+#include "ultramodern/config.hpp"
 
 #define F3DEX_GBI_2
 #define G_SC_NON_INTERLACE 0 // gbi.h scissor mode, which the extended GBI header doesn't define.
@@ -124,6 +135,54 @@ namespace {
     // With 3 or 4 players, the deaths skull is drawn at half size (a quadrant is too short for it, the time and the
     // radar): its texture rectangles are scaled after the game writes them, from half_start to the 2D cursor.
     bool slot_half[max_widgets];
+    // With 3 or 4 players and the Rush 2049 odometer on, the time and position are drawn at small_scale about their
+    // element's top left corner (slot_pivot): slot_scale is 0 for other widgets (rush2_hud_draw_begin).
+    float small_scale = 0.75f;
+    float slot_scale[max_widgets];
+    // The scale nearest 75% at which a texel covers a whole number of output pixels, so the shrunk images point sample
+    // evenly (every border line the same width). Output pixels per 4:3 screen pixel: 1 at Original resolution, 2 at
+    // Original 2x, the window's height / 240 at Auto. Where no whole number comes near enough (low resolutions), 75%.
+    float fitting_scale() {
+        float px = 1.0f;
+        switch (ultramodern::renderer::get_graphics_config().res_option) {
+            case ultramodern::renderer::Resolution::Original:
+                break;
+            case ultramodern::renderer::Resolution::Original2x:
+                px = 2.0f;
+                break;
+            default: {
+                int width = 0;
+                int height = 0;
+                recompui::get_window_size(width, height);
+                if (height > 0) {
+                    px = (float)height / (float)screen_height;
+                }
+                break;
+            }
+        }
+        float k = std::round(0.75f * px);
+        float s = k / px;
+        return k >= 1.0f && s >= 0.6f && s <= 0.85f ? s : 0.75f;
+    }
+    int32_t slot_pivot_x[max_widgets];
+    int32_t slot_pivot_y[max_widgets];
+    int32_t slot_draw_pivot_x[max_widgets]; // the pivot moved with the element for the draw loop
+    int32_t slot_draw_pivot_y[max_widgets];
+    // The point finish_half scales about, in 4:3 screen pixels; without one, the first rectangle's top left corner.
+    bool half_pivot = false;
+    int32_t half_pivot_x = 0;
+    int32_t half_pivot_y = 0;
+    // Where a scaled widget's corner goes, about its pivot.
+    int32_t scaled_about(int32_t v, int32_t pivot, float scale) {
+        return pivot + (int32_t)std::lround((float)(v - pivot) * scale);
+    }
+    void scale_rect(uint32_t i, int32_t& x0, int32_t& y0, int32_t& x1, int32_t& y1) {
+        if (slot_scale[i] == 0.0f) return;
+        x0 = scaled_about(x0, slot_pivot_x[i], slot_scale[i]);
+        y0 = scaled_about(y0, slot_pivot_y[i], slot_scale[i]);
+        x1 = scaled_about(x1 + 1, slot_pivot_x[i], slot_scale[i]) - 1;
+        y1 = scaled_about(y1 + 1, slot_pivot_y[i], slot_scale[i]) - 1;
+    }
     bool half_pending = false;
     int32_t half_start = 0;
     float half_scale_x = 0.5f, half_scale_y = 0.5f;
@@ -168,6 +227,10 @@ namespace {
 
     // How far text may start outside the widget it's printed on (justified text, outlines).
     constexpr int32_t text_margin = 4;
+
+    // Split, where each player's Rush 2049 odometer goes this frame (placed before the groups), for the skull to clear.
+    bool odometer_known[4];
+    Rect odometer_rect[4];
 
     // Bounds of the anchored HUD widgets as of the last widget loop.
     Rect widget_rect[max_widgets];
@@ -216,6 +279,28 @@ namespace {
         count += 2;
         write_2d_commands(rdram, cmds, count);
         current_origin = origin;
+    }
+
+    // RT64 draws a rectangle over whole 4:3 screen pixels (it rounds each edge up) and stretches the texture across
+    // them, so a shrunk image ending between pixels would run up to a pixel past its last texel: into a repeat of its
+    // edge (a thicker far border), its first column again where it wraps, or the next glyph of a strip. A point-sampled
+    // shrunk image spans whole pixels instead: fit_span puts the span a..b (4:3 pixels) at the nearest pixel, gives it
+    // its length rounded, and sets `step` (texels a pixel, signed; 0 for a fill) so the image's texels fill exactly
+    // that, which samples the first and last texel alike (an even outline) and every texel to within an output pixel.
+    // `start` (s10.5) moves to the edge of its texel for an image drawn backward (flipped): the texture is sampled at
+    // pixel centers, so it would otherwise begin a whole texel in.
+    void fit_span(float a, float b, float& step, int32_t& start, int32_t& q0, int32_t& q1) {
+        int32_t p0 = (int32_t)std::lround(a);
+        int32_t size = std::max<int32_t>(1, (int32_t)std::lround(b - a));
+        if (step != 0.0f) {
+            float texels = std::max(1.0f, std::round((b - a) * std::fabs(step)));
+            if (step < 0.0f) {
+                start += 32;
+            }
+            step = std::copysign(texels / (float)size, step);
+        }
+        q0 = std::clamp<int32_t>(p0 * 4, 0, 0xFFF);
+        q1 = std::clamp<int32_t>((p0 + size) * 4, 0, 0xFFF);
     }
 
     // Stretches the next rectangles to cover the whole window. The game clips rectangles to its 2D clip rect before
@@ -381,12 +466,17 @@ namespace {
         half_scale_x = half_scale_y = 0.5f;
         int32_t end = MEM_W(0, (int32_t)dl_2d_cursor);
         bool anchored = false;
-        uint32_t ax = 0;
-        uint32_t ay = 0;
+        uint32_t ax = (uint32_t)std::max(0, half_pivot_x * 4);
+        uint32_t ay = (uint32_t)std::max(0, half_pivot_y * 4);
+        bool fixed_pivot = half_pivot;
+        half_pivot = false;
+        int32_t first_rect = 0; // valid once anchored
+        // Shrunk by less than half: point sampled (below).
+        bool point = sx > 0.5f && sx < 1.0f;
         for (int32_t c = half_start; c + 24 <= end; c += 8) {
             uint32_t w0 = (uint32_t)MEM_W(0, c);
             uint32_t op = w0 >> 24;
-            if (op != 0xE4 && op != 0xE5) {
+            if (op != 0xE4 && op != 0xE5 && op != 0xF6) {
                 continue;
             }
             uint32_t w1 = (uint32_t)MEM_W(4, c);
@@ -395,24 +485,86 @@ namespace {
             uint32_t x0 = (w1 >> 12) & 0xFFF;
             uint32_t y0 = w1 & 0xFFF;
             if (!anchored) {
-                ax = x0;
-                ay = y0;
+                if (!fixed_pivot) {
+                    ax = x0;
+                    ay = y0;
+                }
                 anchored = true;
+                first_rect = c;
             }
-            x0 = ax + (uint32_t)std::lround((float)(x0 - ax) * sx);
-            y0 = ay + (uint32_t)std::lround((float)(y0 - ay) * sy);
-            x1 = std::min<uint32_t>(ax + (uint32_t)std::lround((float)(x1 - ax) * sx), 0xFFF);
-            y1 = std::min<uint32_t>(ay + (uint32_t)std::lround((float)(y1 - ay) * sy), 0xFFF);
+            auto about = [](uint32_t v, uint32_t a, float s) {
+                return (float)a + ((float)v - (float)a) * s;
+            };
+            auto quarter = [](float v) {
+                return (uint32_t)std::clamp<int32_t>((int32_t)std::lround(v), 0, 0xFFF);
+            };
+            float fx0 = about(x0, ax, sx), fy0 = about(y0, ay, sy);
+            float fx1 = about(x1, ax, sx), fy1 = about(y1, ay, sy);
+            // A texture rectangle: G_RDPHALF_1 with the texture coordinates (s10.5 each), then G_RDPHALF_2 with the
+            // steps (s5.10 each), signed (an image drawn flipped steps backward).
+            bool textured = op != 0xF6;
+            int32_t coords = c + 8;
+            int32_t steps = c + 16;
+            float step_x = 0.0f, step_y = 0.0f;
+            if (textured) {
+                uint32_t st = (uint32_t)MEM_W(4, steps);
+                step_x = (float)(int16_t)(st >> 16) / sx / 1024.0f;
+                step_y = (float)(int16_t)(st & 0xFFFF) / sy / 1024.0f;
+            }
+            // Point sampled (below), the image spans whole pixels.
+            int32_t start = textured ? MEM_W(4, coords) : 0;
+            int32_t start_s = (int16_t)((uint32_t)start >> 16), start_t = (int16_t)(start & 0xFFFF);
+            if (point) {
+                int32_t qx0, qx1, qy0, qy1;
+                fit_span(fx0 / 4.0f, fx1 / 4.0f, step_x, start_s, qx0, qx1);
+                fit_span(fy0 / 4.0f, fy1 / 4.0f, step_y, start_t, qy0, qy1);
+                x0 = (uint32_t)qx0;
+                y0 = (uint32_t)qy0;
+                x1 = (uint32_t)qx1;
+                y1 = (uint32_t)qy1;
+            }
+            else {
+                x0 = quarter(fx0);
+                y0 = quarter(fy0);
+                x1 = quarter(fx1);
+                y1 = quarter(fy1);
+            }
             MEM_W(0, c) = (int32_t)((op << 24) | (x1 << 12) | y1);
             MEM_W(4, c) = (int32_t)((w1 & 0xFF000000u) | (x0 << 12) | y0);
-            // G_RDPHALF_2 with the steps (s5.10 each) follows the G_RDPHALF_1 with the texture coordinates.
-            int32_t steps = c + 16;
-            uint32_t st = (uint32_t)MEM_W(4, steps);
-            // Signed: an image drawn flipped steps backward.
-            uint32_t dsdx = (uint32_t)std::lround((float)(int16_t)(st >> 16) / sx) & 0xFFFF;
-            uint32_t dtdy = (uint32_t)std::lround((float)(int16_t)(st & 0xFFFF) / sy) & 0xFFFF;
+            if (!textured) {
+                // A fill rectangle (the scaled time's boxes) has no texture steps.
+                continue;
+            }
+            uint32_t dsdx = (uint32_t)std::lround(step_x * 1024.0f) & 0xFFFF;
+            uint32_t dtdy = (uint32_t)std::lround(step_y * 1024.0f) & 0xFFFF;
             MEM_W(4, steps) = (int32_t)((dsdx << 16) | dtdy);
+            MEM_W(4, coords) = (int32_t)(((uint32_t)start_s & 0xFFFF) << 16 | ((uint32_t)start_t & 0xFFFF));
             c += 16;
+        }
+        // Shrunk by less than half (the 3-4 player time and position), filtering blends the color of the images'
+        // transparent texels (magenta) into their edges: the rectangles are point sampled, between a push and a pop of
+        // the other modes. The commands from the first rectangle on move down to make room.
+        if (point && anchored) {
+            GfxCommand before[3];
+            uint32_t n = 0;
+            gEXEnable(&before[n++]);
+            gEXPushOtherMode(&before[n++]);
+            // G_SETOTHERMODE_H, G_MDSFT_TEXTFILT (shift 12, 2 bits) = G_TF_POINT.
+            before[n].values.word0 = 0xE3000000u | ((32u - 12u - 2u) << 8) | (2u - 1u);
+            before[n++].values.word1 = 0;
+            int32_t shift = (int32_t)(n * 8);
+            for (int32_t c = end - 8; c >= first_rect; c -= 8) {
+                MEM_W(shift, c) = MEM_W(0, c);
+                MEM_W(shift + 4, c) = MEM_W(4, c);
+            }
+            for (uint32_t i = 0; i < n; i++) {
+                MEM_W(0, first_rect + (int32_t)(i * 8)) = (int32_t)before[i].values.word0;
+                MEM_W(4, first_rect + (int32_t)(i * 8)) = (int32_t)before[i].values.word1;
+            }
+            MEM_W(0, (int32_t)dl_2d_cursor) = end + shift;
+            GfxCommand after;
+            gEXPopOtherMode(&after);
+            write_2d_commands(rdram, &after, 1);
         }
     }
 
@@ -550,7 +702,7 @@ namespace {
             return bottom_row ? a.y1 - split_margin - height : a.y0 + split_margin;
         };
         // Where the deaths skull goes (its top left corner).
-        auto deaths_at = [&](int32_t& x, int32_t& y) {
+        auto deaths_slot = [&](int32_t& x, int32_t& y) {
             const Rect& d = roles[(int)HudRole::Deaths];
             const Rect& above = roles[(int)(right_column ? HudRole::Position : HudRole::Time)];
             int32_t ah = valid(above) ? above.y1 - above.y0 + 1 + deaths_gap : 0;
@@ -572,6 +724,17 @@ namespace {
                 y = outer_y(d.y1 - d.y0) + lap_top[player] - above.y0 + deaths_gap;
             }
         };
+        // A skull that would sit on the Rush 2049 odometer moves to its inner side. Not for the radar's overlap test,
+        // which also runs before the odometer is placed and has to give the same answer both times.
+        auto deaths_at = [&](int32_t& x, int32_t& y, bool clear_odometer) {
+            deaths_slot(x, y);
+            const Rect& d = roles[(int)HudRole::Deaths];
+            const Rect& o = odometer_rect[player];
+            if (clear_odometer && odometer_known[player] && x <= o.x1 + 1 && o.x0 <= x + (d.x1 - d.x0) + 1 &&
+                y <= o.y1 + 1 && o.y0 <= y + (d.y1 - d.y0) + 1) {
+                x = right_column ? o.x0 - deaths_gap - (d.x1 - d.x0) - 1 : o.x1 + 1 + deaths_gap;
+            }
+        };
         int32_t x0 = g.x0;
         int32_t y0 = g.y0;
         switch (role) {
@@ -589,7 +752,7 @@ namespace {
                 y0 = outer_y(h);
                 break;
             case HudRole::Deaths:
-                deaths_at(x0, y0);
+                deaths_at(x0, y0, true);
                 break;
             case HudRole::Gear: {
                 // The gear (manual only) on the inner side, the side the skull isn't on, under the top row's panel there
@@ -614,7 +777,7 @@ namespace {
                 const Rect& d = roles[(int)HudRole::Deaths];
                 if (valid(d)) {
                     int32_t dx0, dy0;
-                    deaths_at(dx0, dy0);
+                    deaths_at(dx0, dy0, false);
                     // Only if they overlap: the skull under the right column's taller position panel ends just
                     // short of the radar, and moving the radar for that left it off the edge.
                     if (dy0 <= y0 + h + 1 && y0 <= dy0 + (d.y1 - d.y0) + 1) {
@@ -884,12 +1047,26 @@ void rush2::hud::draw_rect(uint8_t* rdram, float x0, float y0, float x1, float y
 }
 
 void rush2::hud::draw_image(uint8_t* rdram, uint32_t address, int w, int h, float x0, float y0, float x1, float y1, float anchor) {
-    if (MEM_W(0, (int32_t)dl_2d_cursor) == 0 || x1 <= x0 || y1 <= y0 || w <= 0 || h <= 0 || w * h > 2048) {
+    draw_image_part(rdram, address, w, h, 0, 0, w, h, x0, y0, x1, y1, anchor);
+}
+
+void rush2::hud::draw_image_part(uint8_t* rdram, uint32_t address, int w, int h, int src_x, int src_y, int src_w, int src_h,
+                                 float x0, float y0, float x1, float y1, float anchor, bool point) {
+    if (MEM_W(0, (int32_t)dl_2d_cursor) == 0 || x1 <= x0 || y1 <= y0 || w <= 0 || h <= 0 || w * h > 2048 ||
+        src_w <= 0 || src_h <= 0) {
         return;
     }
     set_anchor(rdram, anchor);
+    float step_x = (float)src_w / (x1 - x0);
+    float step_y = (float)src_h / (y1 - y0);
     int32_t fx0 = (int32_t)std::lround(x0 * 4.0f), fy0 = (int32_t)std::lround(y0 * 4.0f);
     int32_t fx1 = (int32_t)std::lround(x1 * 4.0f), fy1 = (int32_t)std::lround(y1 * 4.0f);
+    int32_t start_s = src_x * 32, start_t = src_y * 32;
+    // Point sampled, the image spans whole pixels (fit_span).
+    if (point) {
+        fit_span(x0, x1, step_x, start_s, fx0, fx1);
+        fit_span(y0, y1, step_y, start_t, fy0, fy1);
+    }
     if (fx0 < 0 || fy0 < 0 || fx1 > 0xFFF || fy1 > 0xFFF) {
         return;
     }
@@ -904,8 +1081,8 @@ void rush2::hud::draw_image(uint8_t* rdram, uint32_t address, int w, int h, floa
     gEXPushOtherMode(&cmds[count++]);
     gEXPushCombineMode(&cmds[count++]);
     cmd(0xE7000000, 0);
-    // 1-cycle, bilinear, translucent surface blending, no Z (draw_number's); color and alpha = the texel's.
-    cmd(0xEF000000 | 0x002CF0, 0x00504240);
+    // 1-cycle, bilinear (or point), translucent surface blending, no Z (draw_number's); color and alpha = the texel's.
+    cmd(0xEF000000 | (point ? 0x000CF0 : 0x002CF0), 0x00504240);
     uint32_t c_sa = 15, c_sb = 15, c_m = 31, c_a = 1, a_sa = 7, a_sb = 7, a_m = 7, a_a = 1;
     cmd(0xFC000000 | (c_sa << 20) | (c_m << 15) | (a_sa << 12) | (a_m << 9) | (c_sa << 5) | c_m,
         (c_sb << 28) | (c_a << 15) | (a_sb << 12) | (a_a << 9) | (c_sb << 24) | (a_sa << 21) | (a_m << 18) | (c_a << 6) | (a_sb << 3) | a_a);
@@ -920,10 +1097,8 @@ void rush2::hud::draw_image(uint8_t* rdram, uint32_t address, int w, int h, floa
     cmd(0xF5000000 | (fmt_rgba << 21) | (siz_16b << 19) | (line << 9), tile_clamp);
     cmd(0xF2000000, ((uint32_t)((w - 1) << 2) << 12) | (uint32_t)((h - 1) << 2));
     cmd(0xE4000000 | ((uint32_t)fx1 << 12) | (uint32_t)fy1, ((uint32_t)fx0 << 12) | (uint32_t)fy0);
-    cmd(0xE1000000, 0);
-    uint32_t step_x = (uint32_t)std::lround(1024.0f * (float)w / (x1 - x0)) & 0xFFFF;
-    uint32_t step_y = (uint32_t)std::lround(1024.0f * (float)h / (y1 - y0)) & 0xFFFF;
-    cmd(0xF1000000, (step_x << 16) | step_y);
+    cmd(0xE1000000, ((uint32_t)start_s & 0xFFFF) << 16 | ((uint32_t)start_t & 0xFFFF));
+    cmd(0xF1000000, ((uint32_t)std::lround(1024.0f * step_x) & 0xFFFF) << 16 | ((uint32_t)std::lround(1024.0f * step_y) & 0xFFFF));
     cmd(0xE7000000, 0);
     gEXPopCombineMode(&cmds[count++]);
     gEXPopOtherMode(&cmds[count++]);
@@ -1012,6 +1187,61 @@ void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+namespace {
+    // A HUD widget's bounds where the layout puts it, shown or hidden; false for callback and empty widgets, and for a
+    // digit on its panel: a hidden digit's source is its whole digit strip (the speed's 16 x 143, the time's 96 x 11),
+    // not one digit. The digits sit on their panels, which give the bounds: a widget whose top left corner is on
+    // another widget of its role and player, further up and left, is left out.
+    bool layout_bounds(uint8_t* rdram, uint32_t count, uint32_t i, Rect& b) {
+        int32_t widget = (int32_t)(widget_array + i * widget_size);
+        if (!hud_slot[i] || (MEM_BU(widget_flags, widget) & flag_callback) != 0 || MEM_H(widget_w, widget) == 0 ||
+            MEM_H(widget_h, widget) == 0) {
+            return false;
+        }
+        b.x0 = MEM_H(widget_x, widget);
+        b.y0 = MEM_H(widget_y, widget);
+        b.fill = MEM_W(widget_image, widget) == 0;
+        b.screen_fill = false;
+        if (b.fill) {
+            b.x1 = b.x0 + MEM_H(widget_w, widget) - 1;
+            b.y1 = b.y0 + MEM_H(widget_h, widget) - 1;
+            return true;
+        }
+        b.x1 = b.x0 + MEM_H(widget_src_x1, widget) - MEM_H(widget_src_x0, widget);
+        b.y1 = b.y0 + MEM_H(widget_src_y1, widget) - MEM_H(widget_src_y0, widget);
+        auto role = rush2::players4::hud_widget_role((int)i);
+        int player = rush2::players4::hud_widget_player((int)i);
+        for (uint32_t j = 0; j < count; j++) {
+            int32_t other = (int32_t)(widget_array + j * widget_size);
+            if (j == i || !hud_slot[j] || rush2::players4::hud_widget_role((int)j) != role ||
+                rush2::players4::hud_widget_player((int)j) != player || MEM_W(widget_image, other) == 0 ||
+                (MEM_BU(widget_flags, other) & flag_callback) != 0) {
+                continue;
+            }
+            int32_t ox = MEM_H(widget_x, other);
+            int32_t oy = MEM_H(widget_y, other);
+            int32_t ox1 = ox + MEM_H(widget_src_x1, other) - MEM_H(widget_src_x0, other);
+            int32_t oy1 = oy + MEM_H(widget_src_y1, other) - MEM_H(widget_src_y0, other);
+            if (ox <= b.x0 && oy <= b.y0 && (ox != b.x0 || oy != b.y0) && b.x0 <= ox1 && b.y0 <= oy1) {
+                return false;
+            }
+        }
+        trim_to_opaque(rdram, widget, b);
+        scale_rect(i, b.x0, b.y0, b.x1, b.y1);
+        return true;
+    }
+
+    // Each player's Rush 2049 odometer (src/rush2049/odometer.cpp) as placed by the last widget loop: its top left
+    // corner and origin, by their radar (rush2_hud_draw_begin).
+    struct OdometerPlace {
+        bool valid;
+        int32_t x, y;
+        uint16_t origin;
+        float scale;
+    };
+    OdometerPlace odometer_place[4];
+}
+
 // func_8007D9DC, before the widget draw loop. Groups the visible HUD widgets and picks an origin for each group.
 void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
     uint32_t count = (uint32_t)MEM_W(0, (int32_t)widget_count);
@@ -1030,6 +1260,55 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
     bool split = side_by_side || quad_views;
     Rect* rects = widget_rect;
     bool* anchored = widget_anchored;
+
+    // With 3 or 4 players and the Rush 2049 odometer on, a quadrant has no room for it with the time and position at
+    // full size: each player's time (with its lap time box) and position are drawn at 75%, about the element's top
+    // left corner where the game lays it out. Every bounds below is the scaled one; each widget is moved to its scaled
+    // place for the draw loop and its texture rectangles are scaled about their top left corner (as the skull's).
+    bool odometer_on = rush2::odometer2049::enabled();
+    small_scale = fitting_scale();
+    {
+        using rush2::players4::HudRole;
+        int32_t pivot_x[4][2], pivot_y[4][2];
+        for (int p = 0; p < 4; p++) {
+            for (int k = 0; k < 2; k++) {
+                pivot_x[p][k] = INT32_MAX;
+                pivot_y[p][k] = INT32_MAX;
+            }
+        }
+        auto scaled_kind = [&](uint32_t i) {
+            HudRole role = rush2::players4::hud_widget_role((int)i);
+            int player = rush2::players4::hud_widget_player((int)i);
+            int32_t widget = (int32_t)(widget_array + i * widget_size);
+            if (!quad_views || !odometer_on || player < 0 || player > 3 || !hud_slot[i] ||
+                (MEM_BU(widget_flags, widget) & flag_callback) != 0) {
+                return -1;
+            }
+            return role == HudRole::Time ? 0 : role == HudRole::Position ? 1 : -1;
+        };
+        for (float& s : slot_scale) {
+            s = 0.0f;
+        }
+        for (uint32_t i = 0; i < count; i++) {
+            Rect b;
+            int k = scaled_kind(i);
+            if (k >= 0 && layout_bounds(rdram, count, i, b)) {
+                int p = rush2::players4::hud_widget_player((int)i);
+                pivot_x[p][k] = std::min(pivot_x[p][k], b.x0);
+                pivot_y[p][k] = std::min(pivot_y[p][k], b.y0);
+            }
+        }
+        for (uint32_t i = 0; i < count; i++) {
+            int k = scaled_kind(i);
+            int p = rush2::players4::hud_widget_player((int)i);
+            if (k < 0 || pivot_x[p][k] == INT32_MAX) {
+                continue;
+            }
+            slot_scale[i] = small_scale;
+            slot_pivot_x[i] = pivot_x[p][k];
+            slot_pivot_y[i] = pivot_y[p][k];
+        }
+    }
     int parent[max_widgets];
     widgets_checked = count;
     for (uint32_t i = 0; i < count; i++) {
@@ -1064,6 +1343,7 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             if (split) {
                 trim_to_opaque(rdram, widget, r);
             }
+            scale_rect(i, r.x0, r.y0, r.x1, r.y1);
             slot_half[i] = quad_views && rush2::players4::hud_widget_role((int)i) == rush2::players4::HudRole::Deaths;
             if (slot_half[i]) {
                 int32_t wx = MEM_H(widget_x, widget);
@@ -1151,45 +1431,12 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
     // time and position) jumped when they appeared. Their widgets keep their layout positions while hidden.
     if (split) {
         for (uint32_t i = 0; i < count; i++) {
-            int32_t widget = (int32_t)(widget_array + i * widget_size);
             HudRole role = rush2::players4::hud_widget_role((int)i);
             int player = rush2::players4::hud_widget_player((int)i);
-            if (anchored[i] || !hud_slot[i] || (role != HudRole::Time && role != HudRole::Speed && role != HudRole::Position) || player < 0 ||
-                player > 3 || (MEM_BU(widget_flags, widget) & flag_callback) != 0 || MEM_H(widget_w, widget) == 0 ||
-                MEM_H(widget_h, widget) == 0) {
-                continue;
-            }
             Rect b;
-            b.x0 = MEM_H(widget_x, widget);
-            b.y0 = MEM_H(widget_y, widget);
-            if (MEM_W(widget_image, widget) == 0) {
-                b.x1 = b.x0 + MEM_H(widget_w, widget) - 1;
-                b.y1 = b.y0 + MEM_H(widget_h, widget) - 1;
-            }
-            else {
-                b.x1 = b.x0 + MEM_H(widget_src_x1, widget) - MEM_H(widget_src_x0, widget);
-                b.y1 = b.y0 + MEM_H(widget_src_y1, widget) - MEM_H(widget_src_y0, widget);
-                // A hidden digit's source is its whole digit strip (the speed's 16 x 143, the time's 96 x 11), not
-                // one digit. The digits sit on their panels, which give the bounds: a widget whose top left corner
-                // is on another widget of its role and player, further up and left, is left out.
-                bool on_panel = false;
-                for (uint32_t j = 0; j < count && !on_panel; j++) {
-                    int32_t other = (int32_t)(widget_array + j * widget_size);
-                    if (j == i || !hud_slot[j] || rush2::players4::hud_widget_role((int)j) != role ||
-                        rush2::players4::hud_widget_player((int)j) != player || MEM_W(widget_image, other) == 0 ||
-                        (MEM_BU(widget_flags, other) & flag_callback) != 0) {
-                        continue;
-                    }
-                    int32_t ox = MEM_H(widget_x, other);
-                    int32_t oy = MEM_H(widget_y, other);
-                    int32_t ox1 = ox + MEM_H(widget_src_x1, other) - MEM_H(widget_src_x0, other);
-                    int32_t oy1 = oy + MEM_H(widget_src_y1, other) - MEM_H(widget_src_y0, other);
-                    on_panel = ox <= b.x0 && oy <= b.y0 && (ox != b.x0 || oy != b.y0) && b.x0 <= ox1 && b.y0 <= oy1;
-                }
-                if (on_panel) {
-                    continue;
-                }
-                trim_to_opaque(rdram, widget, b);
+            if (anchored[i] || (role != HudRole::Time && role != HudRole::Speed && role != HudRole::Position) || player < 0 ||
+                player > 3 || !layout_bounds(rdram, count, i, b)) {
+                continue;
             }
             Rect& r = role_rect[player][(int)role];
             if (rush2::players4::hud_widget_lap_time((int)i)) {
@@ -1219,6 +1466,94 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
                     role_rect[p][role] = last_role_rect[p][role];
                 }
             }
+        }
+    }
+
+    // Rush 2049's odometer goes with each player's radar, lined up with the radar's outer edge: over it, or in the
+    // bottom row of quadrants (where the radar is at the top) under it. A skull that would sit on it moves to its inner
+    // side (deaths_at). Without a radar it goes under the race time and its lap time box (counted while hidden: the box
+    // shows only after a checkpoint), or over them in the bottom row. Placed here, before the groups, so the skull
+    // can be laid out around it; it moves and anchors with the radar (or the time).
+    bool time_shown[4] = {};
+    for (OdometerPlace& o : odometer_place) {
+        o.valid = false;
+    }
+    for (bool& known : odometer_known) {
+        known = false;
+    }
+    if (odometer_on) {
+        Rect time_block[4];
+        Rect radar_block[4];
+        for (int p = 0; p < 4; p++) {
+            time_block[p] = split ? role_rect[p][(int)HudRole::Time] : Rect{ INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN, false, false };
+            radar_block[p] = split ? role_rect[p][(int)HudRole::Radar] : Rect{ INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN, false, false };
+        }
+        for (uint32_t i = 0; i < count; i++) {
+            int player = rush2::players4::hud_widget_player((int)i);
+            HudRole role = rush2::players4::hud_widget_role((int)i);
+            if ((role != HudRole::Time && role != HudRole::Radar) || player < 0 || player > 3) {
+                continue;
+            }
+            if (role == HudRole::Time) {
+                time_shown[player] = time_shown[player] ||
+                    (hud_slot[i] && MEM_B(widget_hidden, (int32_t)(widget_array + i * widget_size)) == 0);
+            }
+            Rect b;
+            if (!split && layout_bounds(rdram, count, i, b)) {
+                Rect& t = role == HudRole::Time ? time_block[player] : radar_block[player];
+                if (role == HudRole::Radar) {
+                    // The radar's frame, its largest widget: its hidden car dots wait at the top of the screen.
+                    if (!valid(t) || (int64_t)(b.x1 - b.x0) * (b.y1 - b.y0) > (int64_t)(t.x1 - t.x0) * (t.y1 - t.y0)) {
+                        t = b;
+                    }
+                    continue;
+                }
+                t.x0 = std::min(t.x0, b.x0);
+                t.y0 = std::min(t.y0, b.y0);
+                t.x1 = std::max(t.x1, b.x1);
+                t.y1 = std::max(t.y1, b.y1);
+            }
+        }
+        // Shrunk in quadrants, which have no room for it at full size (as the time and position).
+        float scale = quad_views ? small_scale : 1.0f;
+        // Shrunk, each digit is a whole number of pixels (rush2::odometer2049::draw).
+        int32_t h = scale < 1.0f ? (int32_t)std::lround(rush2::odometer2049::height * scale) : rush2::odometer2049::height;
+        int32_t w = h * rush2::odometer2049::width / rush2::odometer2049::height;
+        constexpr int32_t gap = rush2::odometer2049::gap;
+        for (int p = 0; p < 4; p++) {
+            const Rect& t = time_block[p];
+            if (!time_shown[p] || !valid(t)) {
+                continue;
+            }
+            bool bottom_row = split && quad_views && p >= 2;
+            int32_t dx = 0;
+            int32_t dy = 0;
+            int32_t x, y;
+            uint16_t origin;
+            const Rect& r = split ? role_rect[p][(int)HudRole::Radar] : radar_block[p];
+            if (valid(r) && (!split || place_role(HudRole::Radar, p, role_rect[p], dx, dy))) {
+                int32_t cx = (r.x0 + r.x1) / 2 + dx;
+                x = cx > screen_width / 2 ? r.x1 + dx + 1 - w : r.x0 + dx;
+                y = bottom_row ? r.y1 + dy + 1 + gap : r.y0 + dy - gap - h;
+                origin = split ? side_origin_for_x(cx) : origin_for_x(cx);
+            }
+            else {
+                dx = 0;
+                dy = 0;
+                if (split && !place_role(HudRole::Time, p, role_rect[p], dx, dy)) {
+                    continue;
+                }
+                x = t.x0 + dx;
+                y = bottom_row ? t.y0 + dy - gap - h : t.y1 + dy + 1 + gap;
+                origin = split ? side_origin_for_x((t.x0 + t.x1) / 2 + dx) : origin_for_x((t.x0 + t.x1) / 2);
+                if (split && !bottom_row) {
+                    // The skull and the gear laid out under the time clear it.
+                    role_rect[p][(int)HudRole::Time].y1 += gap + h;
+                }
+            }
+            odometer_place[p] = OdometerPlace{ true, x, y, origin, scale };
+            odometer_known[p] = split;
+            odometer_rect[p] = Rect{ x, y, x + w - 1, y + h - 1, false, false };
         }
     }
 
@@ -1460,6 +1795,12 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             int root = find_group(parent, (int)i);
             slot_dx[i] = (int16_t)group_dx[root];
             slot_dy[i] = (int16_t)group_dy[root];
+            if (slot_scale[i] != 0.0f) {
+                // Its element's corner as drawn: its rectangles are scaled about it (finish_half), so pieces that
+                // share an edge keep sharing it.
+                slot_draw_pivot_x[i] = slot_pivot_x[i] + group_dx[root];
+                slot_draw_pivot_y[i] = slot_pivot_y[i] + group_dy[root];
+            }
             slot_origin[i] = group_origin[root];
         }
     }
@@ -1525,6 +1866,14 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
         half_pending = true;
         half_start = MEM_W(0, (int32_t)dl_2d_cursor);
     }
+    else if (slot_scale[slot] != 0.0f) {
+        half_pending = true;
+        half_start = MEM_W(0, (int32_t)dl_2d_cursor);
+        half_scale_x = half_scale_y = slot_scale[slot];
+        half_pivot = true;
+        half_pivot_x = slot_draw_pivot_x[slot];
+        half_pivot_y = slot_draw_pivot_y[slot];
+    }
 }
 
 // func_800734E0 entry (prints a string at ($a0, $a1), justified around $a0). Anchors text printed by HUD callback
@@ -1546,6 +1895,14 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
     finish_map(rdram);
     laps_known = false; // Printed again before the next widget loop, if it's shown.
     rush2::battle::hud_draw(rdram, ctx);
+    rush2::odometer2049::update(rdram);
+    for (int p = 0; p < 4; p++) {
+        const OdometerPlace& o = odometer_place[p];
+        if (o.valid) {
+            float anchor = o.origin < G_EX_ORIGIN_NONE ? o.origin / (float)G_EX_ORIGIN_RIGHT : 0.5f;
+            rush2::odometer2049::draw(rdram, p, (float)o.x, (float)o.y, o.scale, anchor);
+        }
+    }
     end_anchoring(rdram);
     if (inset_lifted) {
         MEM_H(0, (int32_t)clip_inset_x) = saved_inset_x;

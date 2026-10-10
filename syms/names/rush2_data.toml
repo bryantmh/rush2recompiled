@@ -5989,10 +5989,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D4160
 name = "hud_speedometer_unit_byte"
 type = "u8"
-desc = "Setting byte from boot init/menu, read by HUD speedometer (likely mph/kph unit select, low confidence)."
+desc = "Speedometer unit: nonzero shows km/h (func_800BA2A8). Set from boot init/menu; the Rush 2049 odometer port reads it to show km."
 area = "ui"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/odometer.md#distance-0x800f8ec8"
 
 [[var]]
 vram = 0x800D4268

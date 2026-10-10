@@ -3422,6 +3422,17 @@ area = "ui"
 ref = "docs/rush2049_research/battle.md#62-results-explosion-visibility-pickup-details"
 
 [[func]]
+vram = 0x80106D94
+name = "hud_odometer_digit"
+sig = "void hud_odometer_digit(void* widget, s32 param /* layout parameter: player << 4 | digit */)"
+desc = "HUD callback drawing one odometer digit: car state +0x108 distance (feet), rolling digit cell from ODOMETER; positions from table 0x80115AE8."
+consts = "528000/52800/5280/528: feet per 100/10/1/0.1 miles; 0.6: miles to km with 0x80146111 set; 8: digit cell height in texels"
+status = "verified"
+ported = true
+area = "ui"
+ref = "docs/rush2049_research/odometer.md#hud-callback-0x80106d94"
+
+[[func]]
 vram = 0x80109554
 desc = "2049 minimap: reads the spine and bounding box (same method as Rush 2)."
 status = "verified"

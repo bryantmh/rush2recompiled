@@ -3,6 +3,7 @@
 Usage: python shots.py OUT_DIR "<input script>" t1 t2 ...    (times in seconds after launch)
 Captures with PrintWindow (client area, full content), which works when other windows cover the game.
 Set RUSH2_EXE to run another build (e.g. a copy linked into tmp/ while build/ is in use); it runs in its own folder.
+Set RUSH2_WINDOW=WxH to resize the window's client area to W x H as soon as it appears (resolution tests).
 """
 import ctypes, ctypes.wintypes as wt, os, subprocess, sys, time
 from PIL import Image
@@ -28,6 +29,14 @@ def find_window(pid):
         return True
     user32.EnumWindows(cb, 0)
     return found[0] if found else None
+
+
+def resize(hwnd, w, h):
+    r = wt.RECT(0, 0, w, h)
+    style = user32.GetWindowLongW(hwnd, -16)  # GWL_STYLE
+    user32.AdjustWindowRect(ctypes.byref(r), style, False)
+    # SWP_NOMOVE | SWP_NOZORDER
+    user32.SetWindowPos(hwnd, None, 0, 0, r.right - r.left, r.bottom - r.top, 0x0002 | 0x0004)
 
 
 def capture(hwnd, path):
@@ -61,11 +70,18 @@ if __name__ == '__main__':
     cwd = os.path.dirname(exe) if 'RUSH2_EXE' in os.environ else REPO
     p = subprocess.Popen([exe, '--input-script', script], cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
     start = time.time()
+    size = os.environ.get('RUSH2_WINDOW')
+    size = tuple(int(v) for v in size.lower().split('x')) if size else None
     try:
         for t in times:
             while time.time() - start < t:
                 if p.poll() is not None:
                     print('game exited with', p.returncode); sys.exit(1)
+                if size:
+                    hwnd = find_window(p.pid)
+                    if hwnd:
+                        resize(hwnd, *size)
+                        size = None
                 time.sleep(0.05)
             hwnd = find_window(p.pid)
             if hwnd:

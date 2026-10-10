@@ -38,6 +38,7 @@
 #include "wings_internal.h"
 #include "rush2049_dc.h"
 #include "texture_upscale.h"
+#include "odometer2049.h"
 
 namespace {
     const std::string config_id = "games";
@@ -46,6 +47,7 @@ namespace {
     const std::string cars_option_id = "rush2049_cars";
     const std::string drones_option_id = "rush2049_computer_cars";
     const std::string speeds_option_id = "car_speeds";
+    const std::string odometer_option_id = "rush2049_odometer";
     const std::string source_option_id = "rush2049_source";
     const std::string battle_time_option_id = "battle_time_limit";
     const std::string battle_team_option_prefix = "battle_team_p";
@@ -221,6 +223,7 @@ namespace {
         wings_config.update_option_disabled(wings_option_id, disabled);
         wings_config.update_option_disabled(tracks_option_id, disabled);
         wings_config.update_option_disabled(cars_option_id, disabled);
+        wings_config.update_option_disabled(odometer_option_id, disabled);
         // The computer cars' choice is among the Rush 2049 cars, and the battle options are the arenas', which come
         // with the Rush 2049 tracks.
         bool cars_on = std::get<bool>(wings_config.get_option_value(cars_option_id));
@@ -450,6 +453,19 @@ void rush2::wings::init_config() {
             rush2::car2049::set_speed_mode(static_cast<rush2::car2049::SpeedMode>(std::get<uint32_t>(cur_value)));
         });
 
+    wings_config.add_bool_option(
+        odometer_option_id,
+        "Odometer",
+        "Shows Rush 2049's odometer with each player's map (under the race time without one): the miles their car "
+        "has driven this race, to a tenth, on rolling digits (kilometers with the speedometer in km/h). With 3 or 4 "
+        "players the race time and place shrink to fit it. Requires a Rush 2049 (USA) ROM.",
+        false
+    );
+    wings_config.add_option_change_callback(odometer_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::odometer2049::set_option(std::get<bool>(cur_value));
+        });
+
     wings_config.add_enum_option(
         battle_time_option_id,
         "Battle Time Limit",
@@ -521,7 +537,7 @@ void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
     button->add_pressed_callback(select_rom);
     for (const std::string& id : { source_option_id, wings_option_id, tracks_option_id, cars_option_id, drones_option_id,
-                                    speeds_option_id }) {
+                                    speeds_option_id, odometer_option_id }) {
         page->add_option(wings_config, id);
     }
     refresh = [note = heading.note, shown = rom_status_text()]() mutable {

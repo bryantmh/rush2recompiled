@@ -91,6 +91,9 @@ namespace rush2 {
         void draw_rect(uint8_t* rdram, float x0, float y0, float x1, float y1, uint32_t rgba, float anchor);
         // An RGBA16 image of w x h texels at `address` (at most 2048 texels) over that rectangle, blended by its alpha.
         void draw_image(uint8_t* rdram, uint32_t address, int w, int h, float x0, float y0, float x1, float y1, float anchor);
+        // The part of it src_w x src_h texels from (src_x, src_y) over that rectangle, point sampled if `point`.
+        void draw_image_part(uint8_t* rdram, uint32_t address, int w, int h, int src_x, int src_y, int src_w, int src_h,
+                             float x0, float y0, float x1, float y1, float anchor, bool point = false);
         // Leaves the primitive color at rgba after the 2D drawing so far (G_SETPRIMCOLOR in the 2D display list).
         void set_prim_color(uint8_t* rdram, uint32_t rgba);
         // Draws a number (up to 6 digits) centered on (center_x, center_y) of the 4:3 screen, `height` pixels tall,
