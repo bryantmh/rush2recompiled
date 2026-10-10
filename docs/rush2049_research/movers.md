@@ -221,6 +221,13 @@ play loop +0x20, state 1; state 1 → update loop: sound 1 pitch `f = clamp((|(i
 volume/pitch (0.75f+0.25, f); sound 0x12 (0.8, 1.0); 0x61 (1.0, 0.75). All via func_800AED64 at obj+0x38 with range
 type +0x2C. The C++ port reports start/loop/stop requests only.
 
+Start sounds by type (type table 0x80117530 +0x1C/+0x20/+0x24): TRIGGER (95) 66 / - / -; GREGDOOR1-6 and T3DOOR1
+63 / 61 / 62 (GREGDOOR4 - / 61 / -); trap doors and TDOOR1-8 none. A TRIGGER pad that fires calls sound_start and,
+since a pad doesn't move, sound_stop in the same update; 2049's stop does nothing while the start sound plays, so the
+click is heard. The port did hear it as a stop (the port treated start sounds as already finished), and with no stop
+sound the pad was silent (user report). Now `World::sound_stop` keeps a start requested in the same update, and the
+host (`update_object_sounds`, src/rush2049/track2049_audio.cpp) holds a stop until the start sound has finished.
+
 ### 4.6 In-place animations (not path objects) [V]
 TROLLEY2 (sub 3), WINDMILL (sub 4), WINDMILL2 (sub 5) are placement objects (kind 0, no init) whose update
 func_8010E694 calls func_800D03DC(rate·dt, obj+0x14) every frame (unless paused). Rates (0x80118D70 + 12·sub):

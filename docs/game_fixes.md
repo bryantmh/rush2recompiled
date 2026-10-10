@@ -34,3 +34,12 @@ func_800650DC then gives the engine sounds rpm 0 (0x800651D0).
 A checkpoint reached while coasting adds time, and the next frame clears 0x800FAE98 (0x800AEDC4). Nothing clears
 0x800E7BCE until the next race setup (func_800A5ADC at 0x800A6134), so the engines stayed silent for the rest of the
 race. Rush 2049 fixed this. The hook at 0x800AEDC0 clears the byte along with the flag.
+
+## White accent on a white car
+
+User report. `car_build_textures_8008582C` copies the car's base palette (CARPALETTE, 0x80119648) and, for the white
+color (index 0), first brightens the color's ramp: MAIN COLOR's entries 1-31 when MAIN is white (0x80085898), else
+ACCENT COLOR's entries 33-63 when ACCENT is white (0x80085960, an else-if). Each entry becomes a gray of its red
+channel x 8 x 1.25 (at most 255). With both colors white the accent ramp was never brightened, so a white accent was
+darker on a white car than on any other. The hook at 0x80085C14, where the branches join (0xA4($sp) = the palette
+copy, 0xD3($sp) = MAIN, 0xD7($sp) = ACCENT), brightens the accent ramp then too.

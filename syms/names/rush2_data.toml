@@ -4267,6 +4267,24 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800CA1A8
+name = "pvs_region_counts"
+type = "u8[12]"
+desc = "Visibility region count per track slot (84, 93, 116, 123, 100, 90, 116, 42, 49, 57, 55, 41), which is also the section count: region i is the camera in section i's box."
+area = "render"
+status = "verified"
+ref = "docs/rush2049_research/geometry.md#521-distant-stand-ins-and-the-draw-distance-option"
+
+[[var]]
+vram = 0x800CA1F8
+name = "fog_zone_lists"
+type = "FogZone*[12]"
+desc = "Fog zone list per track slot for race_fog_zone_setup_80081074 (12-byte records {s16 x, z, radius, fog start, fog end, far}, ended by radius 0); only Lower Manhattan's (0x800CA1C8) is set. SF Rush tracks point the host slot's at their own zones (src/rush1/track1.cpp)."
+area = "render"
+status = "verified"
+ref = "docs/rush1_research.md#13-fog-zones"
+
+[[var]]
 vram = 0x800CA2C7
 name = "gfx_views_byte"
 type = "u8"

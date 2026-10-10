@@ -13,6 +13,13 @@
 // - Visibility: the converted table lives in recomp memory like the 2049 one. Rush 1's section chain can be longer
 //   than its region count (track 2: 126 sections, 111 regions); regions past the table see everything.
 // - Fog: Rush 1's fog colour is a game option (default grey 0x9696BE), not per track; that default is used.
+//   Its fog zones (the Golden Gate's thicker fog over the bridge) are Rush 2's: both games' per-view fog setup
+//   (Rush 1 func_80082524, Rush 2 func_80081074) take the nearest zone whose radius holds the camera from a per-track
+//   list of 12-byte records {s16 x, z, radius, fog start, fog end, far} ended by a radius of 0, and blend the view's
+//   fog start, fog end and far plane (and the object cull distance) from the zone's values at its center to the
+//   normal ones at its edge. Rush 1's lists (0x800CF87C, a pointer per track: tracks 1, 2, 4, 5 and 6 have some) are
+//   copied into recomp memory and the host slot's pointer in Rush 2's list (0x800CA1F8, only Lower Manhattan's is
+//   set) points at the copy while the track is applied.
 // - Breakables: Rush 1's cones, meters, trees, flags, fences, gas signs, windows, traffic lights and trash munchers are Rush 2 breakable
 //   class records (src/rush1/track1_convert.cpp). While the track is applied, the placement walker's lookup of a class model
 //   is redirected to the record's own Rush 1 model, and Rush 2's breakable pieces (CONE1O1, FENCEO1-12, ...) to Rush
@@ -53,6 +60,9 @@ namespace {
     constexpr uint32_t demo_counts = 0x800C45CC;    // s16 per slot + 12 * backward.
     constexpr uint32_t songs = 0x800CC37C;          // s16 per slot.
     constexpr uint32_t all_visible = 0x800CA1B8;    // The game's default mask (every section visible).
+    constexpr uint32_t fog_zones = 0x800CA1F8;      // ptr per slot: fog zone records (func_80081074).
+    constexpr uint32_t rush1_fog_zones = 0x800CF87C; // Rush 1's, ptr per track (its func_80082524).
+    constexpr int max_fog_zones = 15;
 
     const std::string prefix_of_host = "HAWAII";
     constexpr uint8_t fog[3] = { 0x96, 0x96, 0xBE };
@@ -70,6 +80,7 @@ namespace {
     uint32_t pvs_table = 0;   // In recomp memory.
     std::atomic<uint32_t> pvs_camera = 0;   // Camera position of the view func_8007C27C is working on.
     uint32_t demo_table = 0;
+    uint32_t zone_table = 0;  // In recomp memory: up to max_fog_zones records and the end record.
     // Model lookups redirected while the track is applied: name -> address of the replacement name in RDRAM.
     constexpr size_t name_pool_size = 0x1000;
     uint32_t name_pool = 0;
@@ -90,6 +101,7 @@ namespace {
         uint32_t demo_list[2];
         uint16_t demo_count[2];
         uint8_t pvs_count;
+        uint32_t fog_zones;
     };
     Saved saved;
 
@@ -104,10 +116,43 @@ namespace {
         saved.props = MEM_W(0, (int32_t)(prop_lists + host_slot * 4));
         saved.pvs_count = MEM_B(0, (int32_t)(pvs_counts + host_slot));
         saved.song = MEM_H(0, (int32_t)(songs + host_slot * 2));
+        saved.fog_zones = MEM_W(0, (int32_t)(fog_zones + host_slot * 4));
         for (int b = 0; b < 2; b++) {
             saved.demo_list[b] = MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4));
             saved.demo_count[b] = MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2));
         }
+    }
+
+    // Points the host slot's fog zones at a copy of the raced Rush 1 track's (none if it has none).
+    void apply_fog_zones(uint8_t* rdram) {
+        uint32_t list = 0;
+        auto main = loaded_rom != nullptr ? rush2::track1::main_code(*loaded_rom) : nullptr;
+        auto word = [&](uint32_t vram, int bytes) -> int32_t {
+            uint32_t o = vram - rush2::track1::main_vram;
+            if (main == nullptr || vram < rush2::track1::main_vram || o + bytes > main->size()) {
+                return 0;
+            }
+            int32_t v = 0;
+            for (int i = 0; i < bytes; i++) v = (v << 8) | (*main)[o + i];
+            return bytes == 2 ? (int16_t)v : v;
+        };
+        uint32_t source = (uint32_t)word(rush1_fog_zones + (loaded_track - 1) * 4, 4);
+        if (source != 0) {
+            if (zone_table == 0) {
+                zone_table = (uint32_t)((uint8_t*)recomp::alloc(rdram, (max_fog_zones + 1) * 12) - rdram) + 0x80000000;
+            }
+            int n = 0;
+            for (; n < max_fog_zones && word(source + n * 12 + 4, 2) != 0; n++) {
+                for (int f = 0; f < 6; f++) {
+                    MEM_H(0, (int32_t)(zone_table + n * 12 + f * 2)) = (int16_t)word(source + n * 12 + f * 2, 2);
+                }
+            }
+            for (int f = 0; f < 6; f++) {
+                MEM_H(0, (int32_t)(zone_table + n * 12 + f * 2)) = 0;
+            }
+            list = n > 0 ? zone_table : 0;
+        }
+        MEM_W(0, (int32_t)(fog_zones + host_slot * 4)) = (int32_t)list;
     }
 
     void apply(uint8_t* rdram, int backward) {
@@ -132,6 +177,7 @@ namespace {
         MEM_W(0, (int32_t)(prop_lists + host_slot * 4)) = 0;
         MEM_B(0, (int32_t)(pvs_counts + host_slot)) = track.pvs_count;
         MEM_H(0, (int32_t)(songs + host_slot * 2)) = track_songs[loaded_track - 1];
+        apply_fog_zones(rdram);
         if (demo_table == 0) {
             demo_table = (uint32_t)((uint8_t*)recomp::alloc(rdram, 2 * 32 * 2) - rdram) + 0x80000000;
         }
@@ -188,6 +234,7 @@ namespace {
         MEM_W(0, (int32_t)(prop_lists + host_slot * 4)) = saved.props;
         MEM_B(0, (int32_t)(pvs_counts + host_slot)) = saved.pvs_count;
         MEM_H(0, (int32_t)(songs + host_slot * 2)) = saved.song;
+        MEM_W(0, (int32_t)(fog_zones + host_slot * 4)) = (int32_t)saved.fog_zones;
         for (int b = 0; b < 2; b++) {
             MEM_W(0, (int32_t)(demo_lists + (host_slot + 12 * b) * 4)) = saved.demo_list[b];
             MEM_H(0, (int32_t)(demo_counts + (host_slot + 12 * b) * 2)) = saved.demo_count[b];
@@ -287,11 +334,12 @@ bool rush2::track1::load(uint8_t* rdram) {
     return true;
 }
 
-bool rush2::track1::pvs(uint8_t* rdram, uint32_t sp) {
+bool rush2::track1::pvs(uint8_t* rdram, uint32_t sp, uint32_t& table) {
     std::lock_guard lock{ track_mutex };
     if (!applied || MEM_B(0, (int32_t)track_id) != host_slot) {
         return false;
     }
+    table = pvs_table;
     // Rush 1's region (func_80064544), not Rush 2's: the top-level record whose box holds the camera in x and z and
     // whose top is above it (no bottom test; Rush 2 tests the bottom and not the top, so high in the air it can pick
     // a lower section whose mask leaves out the ground below), the one with the least |dx| + |dz|.

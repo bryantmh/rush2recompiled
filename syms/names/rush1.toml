@@ -3603,6 +3603,16 @@ area = "ui"
 ref = "docs/functions/rush1_ui.md#sf-rush-ui-functions"
 
 [[func]]
+vram = 0x80082524
+name = "race_fog_zone_setup"
+desc = "Per-view fog setup: fog start/end and far plane from tables by player count and FOG, then blended by the nearest fog zone holding the camera (list pointer 0x800CF87C[track], 12-byte records {s16 x, z, radius, fog start, fog end, far}). Same scheme as Rush 2's race_fog_zone_setup_80081074; the Golden Gate's bridge fog is its track 1 zone."
+status = "verified"
+rush2 = 0x80081074
+link = "role"
+area = "render"
+ref = "docs/rush1_research.md#13-fog-zones"
+
+[[func]]
 vram = 0x800828EC
 desc = "Collision file loader: 0x20-byte header, then SEG (0x84), NODE (0x14), POLY (0x1A), VERT, LEAF, VLIST. +0x18/+0x1A go to globals; +0x1C is the segment that follows the last one."
 status = "verified"
