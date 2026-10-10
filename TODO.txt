@@ -2,10 +2,9 @@ San Francisco Rush:
 1) Show accurate track stats like length
 
 San Francisco Rush 2049:
-1) Coins: missing HUD counter.
-2) HANDLING: revisit 2049's HANDLING
-3) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centerline over the top surfaces), with their own color ramp in spare palette entries; textures reused on several parts need their own copies.
-4) Sky fog blend: the sky (SKYO1) is drawn without fog and ends ~12 degrees above the horizon (track 1), with the
+1) HANDLING: revisit 2049's HANDLING
+2) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centerline over the top surfaces), with their own color ramp in spare palette entries; textures reused on several parts need their own copies.
+3) Sky fog blend: the sky (SKYO1) is drawn without fog and ends ~12 degrees above the horizon (track 1), with the
     fog-colored clear below it, so fogged hills show as lavender (fog 150,150,190) against an orange sunset sky. Plan:
     when a track is applied (src/rush2049/track2049.cpp), patch a copy of the geometry's SKYO1 list: slice the opaque sky
     triangles (E200001C 0F0A4000) by horizontal planes across a ~10 degree band above max(dome bottom, 0), set vertex
@@ -13,22 +12,21 @@ San Francisco Rush 2049:
     before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
-5) Hoods aren't visible on the 2049 cars (car conversion gap, src/rush2049/car2049.cpp)
-7) Gravity feels too low on 2049 tracks. Check against 2049's physics before changing anything (may be by design).
-8) Option for 2049 floor friction (cars roll more than slide).
-9) Clear-coat reflections on the 2049 cars (2049 had none; would need Rush 2's environment-map material).
+4) Damanged Hoods aren't visible on the 2049 cars (car conversion gap, src/rush2049/car2049.cpp)
+5) Gravity feels too low on 2049 tracks. Check against 2049's physics before changing anything (may be by design).
+6) Option for 2049 floor friction (cars roll more than slide).
+7) Clear-coat reflections on the 2049 cars (2049 had none; would need Rush 2's environment-map material).
 
 General:
 1) Better lighting? Bloom for emmissives?
 2) 3-4 players skip Select Player: they race with their controller's record or the profile already chosen
       on that port; no profile pick or Create Player for them, and the post-race records and name entry (game state 6,
       func_800A952C, 2 player arrays: docs/players4.md) are players 1 and 2's.
-3) Add a Music skip track feature to the pause menu. It will just be a new pause ;menu item below Audio and above "restart"  Currently music switches every time paused. this is not what we want. It should keep playing a track unless skipped or a new race is begun. Skipping on a track that isn't set to random will play a random song instead. The ui should also show the name of the currently playing song in the bottom right corner in a sort of playback box with some sort of music icon showing that it is music that is playing and the game and track it is from along with its name
-4) Import California Speed
-7) Weak brakes: no braking in mid-air, and gas + brake held together still accelerates (feels like SF Rush, seen with the
+3) Import California Speed
+4) Weak brakes: no braking in mid-air, and gas + brake held together still accelerates (feels like SF Rush, seen with the
     2049 speed setting). Find whether it's our digital pedal mapping (src/controls.cpp) or the physics; toggle if design.
-8) Show the current track's collected keys/cans/coins on the pause menu (data in src/collectibles.cpp).
-9) Save indicator: show when the game saves.
-10) Texture filtering option ("uglymode"): point sampling through an RT64 patch (tools/lib_patch.py).
-11) Option for a brighter black-most paint color, like 2049's (but not as bright).
-12) Higher drone difficulty levels (after the catch-up option; drones cheat heavily at high levels).
+5) Save indicator: show when the game saves.
+6) Texture filtering option ("uglymode"): point sampling through an RT64 patch (tools/lib_patch.py).
+7) Option for a brighter black-most paint color, like 2049's (but not as bright).
+8) Higher drone difficulty levels (after the catch-up option; drones cheat heavily at high levels).
+9) Model swap framework

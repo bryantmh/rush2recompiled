@@ -11195,6 +11195,18 @@ func = "race_pause_menu_step_800AFD44"
 before_vram = 0x800B00C0
 text = "    rush2_music_pause_release(rdram, ctx);"
 
+# Pause Menu Extras (src/pause_menu.cpp): the list's rows make room for SKIP TRACK before its widgets are built, and
+# the list's input is taken first ($a0 = buttons pressed, $v0 = B or START).
+[[patches.hook]]
+func = "pause_menu_build_widgets_800AFB50"
+before_vram = 0x800AFB50
+text = "    rush2_pause_widgets(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800B0060
+text = "    rush2_pause_menu_input(rdram, ctx);"
+
 # Drone Catch-Up off: the drones' base rubber band values (src/npc_cars.cpp).
 [[patches.hook]]
 func = "rubber_band_800A1A98"

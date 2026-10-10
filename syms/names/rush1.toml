@@ -4155,7 +4155,7 @@ ref = "docs/rush1_research.md#checkpoints"
 vram = 0x800BB680
 name = "hud_setup_widgets_pause_like"
 sig = "void hud_setup_widgets_pause_like(s32 unused, void *a1)"
-desc = "Same code as Rush 2 hud_setup_widgets_pause_like_800AFB50 (93 instructions, address-masked match, float constants equal). Frees hud_pause_widget_a and hud_pause_widgets_ptr widgets and the slot range, then creates 3 widget sets (hud_pause_widget_b etc.) with rects (0x2A,0xC3)/(0x46,0x37,0xFA,0x69); pause menu setup, counterpart of hud_free_three_widgets."
+desc = "Same code as Rush 2 pause_menu_build_widgets_800AFB50 (93 instructions, address-masked match, float constants equal). Stores the pause state (0x8002305C = state) and builds that screen's widgets: frees the old ones, and for state 1 the dimming box (0x55,0x2A)-(0xEB,0xC3) and the list's 13 widgets from table 0x800BF03C; states 5 and 6 the ARE YOU SURE box (0x46,0x37,0xFA,0x69) and its 5 widgets (0x800BF244). Hooked at entry (src/pause_menu.cpp: rows laid out for SKIP TRACK)."
 status = "inferred"
 rush2 = 0x800AFB50
 link = "same-code"

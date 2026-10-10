@@ -349,6 +349,8 @@ void rush2_music_pause_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_music_continue(uint8_t* rdram, recomp_context* ctx);
 void rush2_music_pause_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_music_pause_release(uint8_t* rdram, recomp_context* ctx);
+void rush2_pause_widgets(uint8_t* rdram, recomp_context* ctx);
+void rush2_pause_menu_input(uint8_t* rdram, recomp_context* ctx);
 void rush2_drone_catch_up(uint8_t* rdram, recomp_context* ctx);
 void rush2_car_rows_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_car_rows_text(uint8_t* rdram, recomp_context* ctx);

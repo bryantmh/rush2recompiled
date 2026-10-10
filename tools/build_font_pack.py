@@ -9,6 +9,12 @@ game's own pixels are packed.
   python tools/build_font_pack.py trace-hud <texture dump dir>...  Redraw the HUD images listed in hud.json.
   python tools/build_font_pack.py pack                            Rasterize the SVGs and write the .rtz.
   python tools/build_font_pack.py images <image dump> <out dir>   Write every dumped 2D image as <RT64 hash>.png.
+  python tools/build_font_pack.py check <svg>                     List glyphs whose outline is cut off by their cell
+                                                                  (overhang left, right, top, bottom in texels).
+  python tools/build_font_pack.py fit <svg> <clip id> [y0 y1] [--stroke W] [--scale S]
+                                                                  Squeeze a glyph to fit its cell; with y0 y1, set the
+                                                                  rows its ink spans (e.g. a "/" to the digits'); W
+                                                                  thins its outline so a narrow cell squeezes it less.
 
 font_tables.json comes from running the game with RUSH2_DUMP_FONT_TABLES=<path> (src/fonts.cpp). It holds each font's
 pages: the sheet's pixels and the rectangle of every character in it. The HUD images come from RT64 texture dumps
@@ -1334,8 +1340,82 @@ def pack():
     print(f'Wrote {len(textures)} sheets to {OUTPUT} ({len(buffer.getvalue()) // 1024} KiB)')
 
 
+GLYPH_PATH = re.compile(r'<path fill="rgb\(255,255,255\)"[^>]*?stroke-width="([\d.]+)"[^>]*?clip-path="url\(#(c\d+)\)" d="([^"]*)"')
+CLIP_RECT = re.compile(r'<clipPath id="(c\d+)"><rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/>')
+POINT = re.compile(r'(-?[\d.]+),(-?[\d.]+)')
+
+
+def glyph_overhangs(svg_path):
+    """Yields (clip id, overhang left, right, top, bottom) for each glyph whose outline (fill plus half its stroke)
+    reaches past its cell, where the game cuts it off flat. Bounds come from the path's points, curve controls
+    included."""
+    with open(svg_path, encoding='utf-8') as f:
+        text = f.read()
+    cells = {m[1]: tuple(float(v) for v in m.groups()[1:]) for m in CLIP_RECT.finditer(text)}
+    for m in GLYPH_PATH.finditer(text):
+        half = float(m[1]) / 2
+        x, y, w, h = cells[m[2]]
+        pts = np.array([[float(a), float(b)] for a, b in POINT.findall(m[3])])
+        yield (m[2], x - (pts[:, 0].min() - half), pts[:, 0].max() + half - (x + w),
+               y - (pts[:, 1].min() - half), pts[:, 1].max() + half - (y + h))
+
+
+def fit_glyph(svg_path, clip_id, y0=None, y1=None, stroke=None, scale=None):
+    """Squeezes one glyph horizontally about its center so its outline fits its cell, and, given y0 and y1, moves its
+    ink to span exactly those rows (to line a symbol up with the digits). A thinner outline (stroke, in texels) leaves
+    a glyph in a narrow cell more of its width; scale overrides the squeeze when a trace of outline past the cell
+    looks better than a narrow glyph. Edits the SVG in place.
+
+    The game lines characters up by their cells' tops, so y0 and y1 are in the sheet's rows offset by the difference
+    between this cell's top and the reference glyph's (a "/" cell starting a row above the digits' needs its ink a
+    row higher than theirs)."""
+    with open(svg_path, encoding='utf-8', newline='') as f:
+        text = f.read()
+    cells = {m[1]: tuple(float(v) for v in m.groups()[1:]) for m in CLIP_RECT.finditer(text)}
+    m = next(m for m in GLYPH_PATH.finditer(text) if m[2] == clip_id)
+    if stroke is not None:
+        text = text[:m.start(1)] + f'{stroke:g}' + text[m.end(1):]
+        m = next(m for m in GLYPH_PATH.finditer(text) if m[2] == clip_id)
+    half = float(m[1]) / 2
+    cx, _, cw, _ = cells[clip_id]
+    pts = np.array([[float(a), float(b)] for a, b in POINT.findall(m[3])])
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    mid = (lo[0] + hi[0]) / 2
+    # Keep the ink centered where it was, or on the cell's center if that's the only place it fits.
+    room = min(mid - cx, cx + cw - mid) - half - 0.02
+    if room <= 0:
+        mid, room = cx + cw / 2, cw / 2 - half - 0.02
+    sx = scale if scale is not None else min(1.0, room / max((hi[0] - lo[0]) / 2, 1e-6))
+    sy, ty = 1.0, 0.0
+    if y0 is not None:
+        sy = (y1 - y0) / (hi[1] - lo[1])
+        ty = y0 - lo[1] * sy
+
+    def move(p):
+        return f'{mid + (float(p[1]) - mid) * sx:.3f},{float(p[2]) * sy + ty:.3f}'
+
+    d = POINT.sub(move, m[3])
+    text = text[:m.start(3)] + d + text[m.end(3):]
+    with open(svg_path, 'w', encoding='utf-8', newline='') as f:
+        f.write(text)
+    print(f'{clip_id}: x scale {sx:.3f}, y {lo[1]:.2f}-{hi[1]:.2f} -> {lo[1] * sy + ty:.2f}-{hi[1] * sy + ty:.2f}')
+
+
 if __name__ == '__main__':
-    if len(sys.argv) == 3 and sys.argv[1] == 'trace':
+    if len(sys.argv) == 3 and sys.argv[1] == 'check':
+        for clip_id, *over in glyph_overhangs(sys.argv[2]):
+            if max(over) > 0.25:
+                print(clip_id, ' '.join(f'{v:+.2f}' for v in over))
+    elif len(sys.argv) >= 4 and sys.argv[1] == 'fit':
+        args = sys.argv[4:]
+        opts = {}
+        for flag in ('--stroke', '--scale'):
+            if flag in args:
+                i = args.index(flag)
+                opts[flag[2:]] = float(args[i + 1])
+                del args[i:i + 2]
+        fit_glyph(sys.argv[2], sys.argv[3], *(float(v) for v in args), **opts)
+    elif len(sys.argv) == 3 and sys.argv[1] == 'trace':
         trace(sys.argv[2])
     elif len(sys.argv) >= 3 and sys.argv[1] == 'trace-hud':
         trace_hud(sys.argv[2:])

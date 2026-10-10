@@ -938,12 +938,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8002305C
-name = "race_num_players"
-type = "u8"
-desc = "Player count byte set by pause HUD setup and pause menu; read by main loop, HUD, input defaults, PVS, player join. (low confidence)"
-area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "pause_state"
+type = "s8"
+desc = "Pause menu state: 0 racing, 1 the list, 2 OPTIONS, 3 CONTROLS, 4 AUDIO, 5/6 RESTART's/QUIT's ARE YOU SURE. Set by pause_menu_build_widgets; read by the main loop, HUD and pause step."
+area = "ui"
+status = "verified"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[var]]
 vram = 0x8002305D
@@ -2182,10 +2182,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800BEF48
 name = "text_scale_x"
 type = "f32"
-desc = "Text scale X; set by HUD/menu text callbacks, read by text_print_styled_string. (low confidence)"
+desc = "Text scale. Below 0 (as in a race) text_print_styled_string queues text to be drawn later; 0 or above it is drawn at once (text_draw_string). Set by menu_text_set_scale_from_global with bit 0x10 of 0x800D3F18."
 area = "ui"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[var]]
 vram = 0x800BEF4C
@@ -2285,6 +2285,15 @@ desc = "Widget pointer set by pause-like HUD setup/free. (low confidence)"
 area = "ui"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800BF03C
+name = "pause_list_widgets"
+type = "WidgetDef[13]"
+desc = "The pause list's widget table (0x28 bytes each: +0 model name, +4 x, +6 y, +0x20 update, +0x24 kind): PAUSED, then per row (CONTINUE .. QUIT) its image as kind 0x89 + row and 0x81 + row, y 93 + 15 * row."
+area = "ui"
+status = "verified"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[var]]
 vram = 0x800BF310
@@ -5240,12 +5249,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D3A5C
-name = "menu_widget_jumptable_a_state"
-type = "u32"
-desc = "Word state set by menu widget handler jumptable A, read by circuit generate."
-area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "pause_row_flash"
+type = "s32"
+desc = "Flash level 0-16 of the pause cursor's row: alpha = 0x7F + 8 * level (pause_row_widget_update)."
+area = "ui"
+status = "verified"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[var]]
 vram = 0x800D3A60
@@ -5303,12 +5312,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D3B20
-name = "menu_widget_jumptable_a_word"
-type = "u32"
-desc = "Word written by menu widget handler jumptable A, never read."
-area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "pause_row_flash_step"
+type = "s32"
+desc = "+1 or -1: direction pause_row_flash moves each frame."
+area = "ui"
+status = "verified"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[var]]
 vram = 0x800D3B29
@@ -13313,21 +13322,21 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80119635
-name = "race_pause_menu_flag"
-type = "u8"
-desc = "Pause menu byte set by pause step and read by menu widget handler."
+name = "pause_cursor"
+type = "s8"
+desc = "Pause list cursor: 0 CONTINUE, 1 OPTIONS, 2 CONTROLS, 3 AUDIO, 4 RESTART, 5 QUIT (6 = SKIP TRACK with Pause Menu Extras). Reset to 0 on pausing; the row widget with kind & 0xF == cursor + 1 flashes."
 area = "ui"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[var]]
 vram = 0x80119638
-name = "gfx_image_2d_state_b"
-type = "s32"
-desc = "Image-draw state word reset at framebuffer init and used by gfx_draw_image_2d (low confidence)."
+name = "gfx_image_2d_last"
+type = "u32"
+desc = "The 2D image func_80055F78 last loaded into TMEM; it skips loading the same image again (with 0x80119640/44). Cleared by src/pause_menu.cpp after drawing a model in the 2D list."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[var]]
 vram = 0x8011963C

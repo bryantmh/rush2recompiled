@@ -12157,14 +12157,15 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 
 [[func]]
 vram = 0x800AFB50
-name = "hud_setup_widgets_pause_like"
-sig = "void hud_setup_widgets_pause_like(s32 a0, s32 a1)"
-desc = "Frees hud_pause_widget_a and hud_pause_widgets_ptr widgets and the slot range, then creates 3 widget sets (hud_pause_widget_b etc.) with rects (0x2A,0xC3)/(0x46,0x37,0xFA,0x69); pause menu setup, counterpart of hud_free_three_widgets."
-consts = "0x2A,0xC3 / 0x46,0x37,0xFA,0x69 = widget rects"
-status = "inferred"
+name = "pause_menu_build_widgets"
+sig = "void pause_menu_build_widgets(s32 unused, s32 state)"
+desc = "Stores the pause state (0x8002305C = state) and builds that screen's widgets: frees the old ones, and for state 1 the dimming box (0x55,0x2A)-(0xEB,0xC3) and the list's 13 widgets from table 0x800BF03C; states 5 and 6 the ARE YOU SURE box (0x46,0x37,0xFA,0x69) and its 5 widgets (0x800BF244). Hooked at entry (src/pause_menu.cpp: rows laid out for SKIP TRACK)."
+consts = "0x2A,0xC3 / 0x46,0x37,0xFA,0x69 = box rects; 0xD = list widget count"
+status = "verified"
+ported = true
 rush1 = [0x800BB680]
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[func]]
 vram = 0x800AFCC4
@@ -12977,13 +12978,13 @@ ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
 
 [[func]]
 vram = 0x800B558C
-name = "menu_widget_handler_jumptable_a"
-sig = "s32 menu_widget_handler_jumptable_a(Widget *w)"
-desc = "Menu widget handler with a jump table: advances state with hud_widget_reset / hud_widget_init_type on +0x2C, uses +0x14, race_pause_menu_flag and menu_widget_jumptable_a_state. (low confidence)"
-consts = "0xF0/0xA0 = screen position"
-status = "inferred"
+name = "pause_row_widget_update"
+sig = "s32 pause_row_widget_update(Widget *w)"
+desc = "Update of the pause list's and confirm screens' image widgets: kind (+0x2C) & 0xF 0 = title, 1-6 = a row's flashing half, 9-14 = its other half; centers the widget on x 160 (+0xE = 0xA0 - width / 2) and picks the image half (+0x1C/+0x1E rows). The row whose kind & 0xF == cursor 0x80119635 + 1 flashes: alpha (+0x18) = 0x7F + 8 * 0x800D3A5C, stepped by 0x800D3B20 between 0 and 16."
+consts = "0xA0 = screen center x; 0x7F = lowest flash alpha; 0x10 = flash steps"
+status = "verified"
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[func]]
 vram = 0x800B57EC

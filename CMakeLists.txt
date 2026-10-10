@@ -167,6 +167,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush1/track1_audio.cpp
     ${CMAKE_SOURCE_DIR}/src/rush1/track1_buses.cpp
     ${CMAKE_SOURCE_DIR}/src/music.cpp
+    ${CMAKE_SOURCE_DIR}/src/pause_menu.cpp
     ${CMAKE_SOURCE_DIR}/src/engine_preview.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/engine2049.cpp
     ${CMAKE_SOURCE_DIR}/src/car_engines.cpp
