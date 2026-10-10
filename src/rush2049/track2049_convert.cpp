@@ -1133,18 +1133,19 @@ namespace {
 
     // 2049 dynamic type -> Rush 2 placement name, resolved by Rush 2's breakable table to a model in its shared assets.
     const std::map<std::string, std::string> r49_to_r2 = {
-        { "YIELDHIT", "YIELDHIT" }, { "SHATPANE", "SHATPANE" }, { "FLAG2", "FLAG2" }, { "COLLISION", "COLLISION" },
+        { "YIELDHIT", "YIELDHIT" }, { "SHATPANE", "SHATPANE" }, { "FLAG2", "FLAG2" },
     };
     // Coins become Rush 2 key records (the KEY class, behaviour 8): silver coins KEYS0-7 and gold coins KEYG0-7,
     // numbered per kind in record order. src/collectibles.cpp gives each its bit (silver 0-7, gold 8-15) and draws
     // 2049's coin model.
     const std::map<std::string, std::string> r49_coins = { { "SILVERCOIN", "KEYS" }, { "GOLDCOIN", "KEYG" } };
     constexpr int coins_per_kind = 8;
-    // Types dropped: 2049-only game systems, or nothing to show (WEPICON* by prefix, other kind 6 objects). BULB and
-    // GUARDRAIL have no model and type flags 0x60004, which 2049's spawner (func_800ABCC8) refuses: they do nothing
-    // in 2049 either.
+    // Types dropped: 2049-only game systems, or nothing to show (WEPICON* by prefix, other kind 6 objects). BULB,
+    // GUARDRAIL and COLLISION have no model and type flags 0x60004, which 2049's spawner (func_800ABCC8) refuses: they
+    // do nothing in 2049 either. COLLISION would become a solid Rush 2 collision cylinder (behaviour 0x21); 2049 places
+    // them at trees (Haight's start stretch), which cars drive through in 2049.
     const std::set<std::string> r49_drop = {
-        "BULB", "GUARDRAIL", "WPR_MINE", "TRIGGER",
+        "BULB", "GUARDRAIL", "COLLISION", "WPR_MINE", "TRIGGER",
     };
 
     // Objects 2049 knocks over when a car hits them (src/rush2049/track2049_props.cpp): kind 2 (CONE1, GASPUMP, RAT, RATCONE),

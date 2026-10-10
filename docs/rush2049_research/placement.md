@@ -290,12 +290,11 @@ push cars, and elevators/ramps carry cars on moving polygons.
 | YIELDHIT | YIELDHIT | Rush 2 sign (none in the race tracks; in 2049 the type has no model and is refused) |
 | SHATPANE | SHATPANE | Rush 2 glass (SHATPANEO1-7 in 0x14) |
 | FLAG2_* | FLAG2* | Rush 2 flag (FLAG2O1 in 0x14) |
-| COLLISION | COLLISION | same meaning (collision cylinder from the record) [I for 2049 side] |
 | TROLLEY2, WINDMILL(2/3), all path objects | records named after the 2049 model | animated by src/rush2049/track2049_movers.cpp |
 | FENCE | static FENCEG1 record | none in the race tracks or stunt arenas |
 | GOLDCOIN, SILVERCOIN | KEYG0-7, KEYS0-7 | Rush 2 key records (behaviour 8), numbered per kind in record order; drawn with 2049's coin models (file 68, merged into the geometry with behaviour 8) and kept per profile by src/collectibles.cpp |
 | WEPICON_*, WPR_MINE | dropped | battle only |
-| BULB, GUARDRAIL | dropped | no model, type flags 0x60004: func_800ABCC8 refuses `(low flags & ~4) == 0`, so they do nothing in 2049 either (editor helpers; GUARDRAIL_FW x6 on track 2, BULB in no race track) |
+| BULB, GUARDRAIL, COLLISION | dropped | no model, type flags 0x60004: func_800ABCC8 refuses `(low flags & ~4) == 0`, so they do nothing in 2049 either (editor helpers; GUARDRAIL_FW x6 on track 2, BULB in no race track). COLLISION (88 on track 2, at the trees on both sidewalks of the start stretch) would be a solid Rush 2 collision cylinder (behaviour 0x21); its name string 0x80121380 is read only by the type-table row 0x801177D0, so 2049 has no other reader [V] |
 | GDAT/GTLD, dynamic ids | dropped | Rush 2 builds its own breakable list |
 | Rush 2-only | — | no ambient sound emitters exist in 2049 placements (could be added by hand) |
 

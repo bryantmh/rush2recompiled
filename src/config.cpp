@@ -506,7 +506,7 @@ namespace catch_up_option {
 static void add_catch_up_option(recomp::config::Config& config) {
     config.add_bool_option(
         catch_up_option::id,
-        "Drone Cheating",
+        "Disable Drone Cheating",
         "The computer cars speed up when they fall behind the cars around them and ease off when they pull ahead, as "
         "in Rush 2. Off, their pace comes only from DIFFICULTY and their place in the race, not from how far they "
         "are from the other cars. Takes effect at once, even mid-race.",

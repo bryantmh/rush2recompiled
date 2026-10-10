@@ -337,14 +337,15 @@ class R49Types:
 # 2049 dynamic type -> Rush 2 placement name prefix (resolved by Rush 2's own breakable table to a model in asset
 # 0x14 or 0x12, which Rush 2 always loads for a race). Debris models FENCEO1, GASIGNO1, ... live in some Rush 2 track
 # geometries only, so FENCE etc. are not mapped.
-R49_TO_R2 = {'YIELDHIT': 'YIELDHIT', 'SHATPANE': 'SHATPANE', 'FLAG2': 'FLAG2', 'COLLISION': 'COLLISION'}
+R49_TO_R2 = {'YIELDHIT': 'YIELDHIT', 'SHATPANE': 'SHATPANE', 'FLAG2': 'FLAG2'}
 # Coins become Rush 2 key records (the KEY class, behaviour 8): silver coins KEYS0-7 and gold coins KEYG0-7, numbered
 # per kind in record order. src/collectibles.cpp gives each its bit (silver 0-7, gold 8-15) and draws 2049's coin model.
 R49_COINS = {'SILVERCOIN': 'KEYS', 'GOLDCOIN': 'KEYG'}
 R49_COINS_PER_KIND = 8
-# Types that are dropped (2049-only game systems, or nothing to show). BULB and GUARDRAIL have no model and type flags
-# 0x60004, which 2049's spawner (func_800ABCC8) refuses: they do nothing in 2049 either.
-R49_DROP = {'BULB', 'GUARDRAIL', 'WPR_MINE', 'TRIGGER'} | \
+# Types that are dropped (2049-only game systems, or nothing to show). BULB, GUARDRAIL and COLLISION have no model
+# and type flags 0x60004, which 2049's spawner (func_800ABCC8) refuses: they do nothing in 2049 either (COLLISION would
+# become a solid Rush 2 collision cylinder; 2049 places them at trees, e.g. Haight's start stretch).
+R49_DROP = {'BULB', 'GUARDRAIL', 'COLLISION', 'WPR_MINE', 'TRIGGER'} | \
     {t for t in ['WEPICON_CANN', 'WEPICON_GATT', 'WEPICON_GREN', 'WEPICON_HEAL', 'WEPICON_INVS', 'WEPICON_MINE',
                  'WEPICON_MISS', 'WEPICON_RAM', 'WEPICON_ROCK', 'WEPICON_SHLD', 'WEPICON_SONC', 'WEPICON_POWUP']}
 R2_SAFE_DEBRIS_ASSETS = (0x12, 0x14)       # loaded for every race (func_800A4C98)
