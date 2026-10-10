@@ -135,6 +135,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/controls_menu.cpp
     ${CMAKE_SOURCE_DIR}/src/players_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
+    ${CMAKE_SOURCE_DIR}/src/game_fixes.cpp
     ${CMAKE_SOURCE_DIR}/src/games_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/options_page.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp

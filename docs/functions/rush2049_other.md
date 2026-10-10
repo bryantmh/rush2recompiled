@@ -6,6 +6,7 @@ Names and signatures marked inferred are educated guesses from the code.
 | Address | Symbol | Signature | Description | Constants | Status |
 |---|---|---|---|---|---|
 | 800092E8 | `func_800092E8` |  | Same code as Rush 2 func_80008360 (43 instructions, address-masked match, float constants equal). Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out. |  | inferred |
+| 8008B2E4 | `func_8008B2E4` |  | Random float in [0, x) (the battle's power-up timers). |  | inferred |
 | 8008B4C4 | `func_8008B4C4` |  | Builds an object matrix from a velocity: z row = vel normalized, x row = (vz,0,-vx) normalized or (1,0,0) if length <= 0.01, y = z x x, x = y x z. |  | verified |
 | 8008D6B0 | `math_mat3_copy_8008D6B0` | `void math_mat3_copy(f32 *src, f32 *dst)` | Quaternion/matrix helper used in follower restart (with func_800C0828) to build inv_rest. \| With func_800C0828, computes the inverse rest rotation. |  | inferred |
 | 8008E06C | `node_set_color_8008E06C` |  | Sets a scene node's RGBA color (node +0x3C, nodes 0x44 bytes at 0x8012E700) from *rgba; model_draw_8009C8F0 uses it as the primitive color for nodes with flag 0x2000. The battle overlay gives mounted weapons the car's light level (car state +0x34C, white), HUD weapons white, muzzle flashes FFFF2B. |  | verified |
