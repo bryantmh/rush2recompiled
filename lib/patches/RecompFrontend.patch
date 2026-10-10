@@ -160,6 +160,112 @@ index 4fdf81f..d5ba2a2 100644
              return config;
          }
      }
+diff --git a/recompui/src/elements/ui_element.cpp b/recompui/src/elements/ui_element.cpp
+index 4517152..5f9721d 100644
+--- a/recompui/src/elements/ui_element.cpp
++++ b/recompui/src/elements/ui_element.cpp
+@@ -577,6 +577,10 @@ bool Element::focus() {
+     return base->Focus();
+ }
+ 
++void Element::click() {
++    base->Click();
++}
++
+ void Element::blur() {
+     base->Blur();
+ }
+diff --git a/recompui/src/elements/ui_element.h b/recompui/src/elements/ui_element.h
+index 34eec3f..5c43fc3 100644
+--- a/recompui/src/elements/ui_element.h
++++ b/recompui/src/elements/ui_element.h
+@@ -148,6 +148,8 @@ public:
+     float get_dp_to_pixel_ratio();
+     void enable_focus();
+     bool focus();
++    // Rush 2 recomp: sends the element a click, as a mouse would.
++    void click();
+     void blur();
+     void queue_update();
+     void register_callback(ContextId context, PTR(void) callback, PTR(void) userdata);
+diff --git a/recompui/src/elements/ui_modal.cpp b/recompui/src/elements/ui_modal.cpp
+index b057f46..51dc8b1 100644
+--- a/recompui/src/elements/ui_modal.cpp
++++ b/recompui/src/elements/ui_modal.cpp
+@@ -1,11 +1,27 @@
+ #include "ui_modal.h"
+ #include "ui_element.h"
+ #include "ui_document.h"
++#include "ui_select.h"
+ #include "recompinput/recompinput.h"
+ #include "recompinput/profiles.h"
+ 
+ namespace recompui {
+ 
++// Rush 2 recomp: closes the select whose list is open, if focus is in one (the select or one of its options). Back
++// then just closes the list instead of leaving for the tab bar.
++static bool close_open_select() {
++    for (Element *el = get_current_context().get_focused_element(); el != nullptr; el = el->get_parent()) {
++        if (Select *select = dynamic_cast<Select *>(el)) {
++            if (!select->is_list_open()) {
++                return false;
++            }
++            select->close_list();
++            return true;
++        }
++    }
++    return false;
++}
++
+ class ModalOverlay : public Element {
+ protected:
+     Modal *parent_modal;
+@@ -190,6 +206,9 @@ void Modal::process_event(const Event &e) {
+         }
+         case EventType::MenuAction: {
+             auto action = std::get<EventMenuAction>(e.variant).action;
++            if (action == MenuAction::Back && close_open_select()) {
++                break;
++            }
+             if (menu_action_callbacks.contains(action)) {
+                 menu_action_callbacks[action].callback();
+                 break;
+diff --git a/recompui/src/elements/ui_select.cpp b/recompui/src/elements/ui_select.cpp
+index e289e9e..a69f4d7 100644
+--- a/recompui/src/elements/ui_select.cpp
++++ b/recompui/src/elements/ui_select.cpp
+@@ -297,6 +297,17 @@ namespace recompui {
+         }
+     }
+ 
++    bool Select::is_list_open() {
++        return get_element_with_tag_name(select_element_selectvalue).is_pseudo_class_set("checked");
++    }
++
++    // A click on the select toggles its list, as the mouse does; focus stays on it.
++    void Select::close_list() {
++        if (is_list_open()) {
++            click();
++        }
++    }
++
+     void Select::add_change_callback(std::function<void(SelectOption& option, int option_index)> callback) {
+         change_callbacks.emplace_back(callback);
+     }
+diff --git a/recompui/src/elements/ui_select.h b/recompui/src/elements/ui_select.h
+index cc4932c..b44f4f0 100644
+--- a/recompui/src/elements/ui_select.h
++++ b/recompui/src/elements/ui_select.h
+@@ -78,6 +78,9 @@ namespace recompui {
+         void set_selection(std::string_view option_value) {
+             select_set_selection(option_value);
+         }
++        // Rush 2 recomp: whether the option list is open, and closing it (Back closes it, ui_modal.cpp).
++        bool is_list_open();
++        void close_list();
+     private:
+         void add_option_elements();
+     };
 diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
 index a7954c7..a3edb30 100644
 --- a/recompui/src/renderer/rt64_render_context.cpp

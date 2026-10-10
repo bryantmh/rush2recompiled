@@ -345,16 +345,24 @@ namespace {
             grid->set_display(Display::Flex);
             grid->set_flex_direction(FlexDirection::Row);
             grid->set_gap(32.0f);
-            const rush2::unlocks::Kind columns[2][2] = { { rush2::unlocks::Kind::Car, rush2::unlocks::Kind::Car },
-                                                          { rush2::unlocks::Kind::Track, rush2::unlocks::Kind::Part } };
-            for (const auto& kinds : columns) {
+            // Cars, then tracks, then engines, split evenly over two columns.
+            std::vector<const rush2::unlocks::Item*> shown;
+            for (rush2::unlocks::Kind kind : { rush2::unlocks::Kind::Car, rush2::unlocks::Kind::Track,
+                                               rush2::unlocks::Kind::Part }) {
+                for (const auto& item : rush2::unlocks::items()) {
+                    if (item.kind == kind && rush2::unlocks::item_available(item)) {
+                        shown.push_back(&item);
+                    }
+                }
+            }
+            size_t split = (shown.size() + 1) / 2;
+            for (int c = 0; c < 2; c++) {
                 Element* column = context.create_element<Element>(grid, 0, "div", false);
                 column->set_display(Display::Block);
                 column->set_flex_grow(1.0f);
                 column->set_flex_basis(0.0f);
-                for (const auto& item : rush2::unlocks::items()) {
-                    bool in_column = item.kind == kinds[0] || item.kind == kinds[1];
-                    if (!in_column || !rush2::unlocks::item_available(item)) continue;
+                for (size_t i = c == 0 ? 0 : split; i < (c == 0 ? split : shown.size()); i++) {
+                    const auto& item = *shown[i];
                     bool owned = bought.contains(item.id);
                     Element* row = context.create_element<Element>(column, 0, "div", false);
                     row->set_display(Display::Flex);

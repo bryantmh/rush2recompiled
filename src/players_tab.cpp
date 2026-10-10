@@ -36,10 +36,9 @@ namespace {
         "<recomp-color primary>Split Screen</recomp-color> sets how the screen is split in 2 player races: Top and "
         "Bottom matches the original game, Side by Side gives each player half of the screen's width. It takes effect "
         "at the start of the next race.\n\n"
-        "<recomp-color primary>AI Opponents</recomp-color> chooses each computer car's car, stripe, rims and colors. "
-        "Opponent 1 is the first computer car on the grid. Random keeps the game's own pick. The New York Cabs cheat "
-        "still turns them into taxis, and ghost races keep their recorded cars. Reset puts every opponent back to "
-        "Random. Takes effect at the next race.";
+        "<recomp-color primary>AI Opponents</recomp-color> picks each computer car's car, stripe, rims and colors "
+        "(Opponent 1 is the first computer car on the grid). Random keeps the game's own pick. Reset sets them all back to Random. "
+        "Takes effect at the next race.";
 
     // A row of the list: scrolls itself into view when something in it takes focus, so the list follows the d-pad.
     class ListRow : public Element {

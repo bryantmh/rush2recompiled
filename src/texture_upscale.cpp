@@ -1417,17 +1417,20 @@ void add_exact_image(std::vector<uint8_t> indices, Image image) {
 void add_buttons(rush2::ui::OptionsPage* page) {
     using namespace recompui;
     ContextId context = get_current_context();
-    const std::string note = "Dump the textures you have driven past (in a folder per game, and every Rush 2049 "
-                             "Dreamcast texture), upscale them with any program (Topaz Gigapixel, say), save the "
-                             "results in the same folder under upscaled, then install them.";
-    auto heading = page->add_heading("Your Own Upscales", note + " " + upscaler.status());
-    // The note follows the status (dumping, upscaling) while the page is open.
+    // How it works shows on the right; the note under the title only says what's running (dumping, upscaling).
+    auto heading = page->add_heading("Your Own Upscales", upscaler.status(),
+        "Make your own sharper textures: dump the game's textures, make bigger versions of them with any image "
+        "upscaler, save those in the upscaled folder next to the dump folder, then press "
+        "<recomp-color primary>Install Upscaled</recomp-color>.");
     auto shown = std::make_shared<std::string>(upscaler.status());
     Label* note_label = heading.note;
 
     // The buttons get a row of their own under the heading, so they keep their full size; it scrolls into view as
     // the controller reaches them.
-    Element* row = page->add_row();
+    Element* row = page->add_row(
+        "<recomp-color primary>Dump Textures</recomp-color> saves every texture you've driven past, in a folder per "
+        "game (and all of the Rush 2049 Dreamcast disc's). <recomp-color primary>Dump New Textures</recomp-color> saves "
+        "only the ones that don't have an upscaled version yet.");
 
     // The button whose dump is running, if one is (both write the same folders, so one runs at a time).
     auto dump_running = std::make_shared<Button*>(nullptr);
@@ -1446,7 +1449,7 @@ void add_buttons(rush2::ui::OptionsPage* page) {
     };
     add_dump_button("Dump Textures", false);
     add_dump_button("Dump New Textures", true);
-    page->add_update_callback([dump_running, new_only_running, shown, note_label, note]() {
+    page->add_update_callback([dump_running, new_only_running, shown, note_label]() {
         if (*dump_running != nullptr && !upscaler.is_dumping()) {
             std::string count = std::to_string(upscaler.dumped());
             (*dump_running)->set_text(*new_only_running ? count + " Textures Left to Upscale"
@@ -1456,11 +1459,15 @@ void add_buttons(rush2::ui::OptionsPage* page) {
         std::string status = upscaler.status();
         if (status != *shown && note_label != nullptr) {
             *shown = status;
-            note_label->set_text(note + " " + status);
+            note_label->set_text(status);
+            note_label->set_display(status.empty() ? Display::None : Display::Block);
         }
     });
 
-    row = page->add_row();
+    row = page->add_row(
+        "<recomp-color primary>Open Dump Folder</recomp-color> shows the dumped textures. Save your upscaled versions "
+        "in the upscaled folder next to it, in the same game folders and keeping the file names, then press "
+        "<recomp-color primary>Install Upscaled</recomp-color> to use them.");
     Button* folder_button = context.create_element<Button>(row, "Open Dump Folder", ButtonStyle::Secondary);
     folder_button->add_pressed_callback([]() {
         open_folder(dump_dir());

@@ -431,22 +431,19 @@ namespace {
             head->set_align_items(AlignItems::Center);
             head->set_gap(16.0f);
             head->set_as_navigation_container(NavigationType::Horizontal);
-            Element* titles = context.create_element<Element>(head, 0, "div", false);
-            titles->set_display(Display::Flex);
-            titles->set_flex_direction(FlexDirection::Column);
-            titles->set_flex_grow(1.0f);
-            titles->set_gap(4.0f);
-            context.create_element<Label>(titles, "AI Opponents", theme::Typography::LabelMD);
-            Label* note = context.create_element<Label>(titles,
-                "The computer cars' car, stripe, rims and paint. Random keeps the game's pick.", theme::Typography::Body);
-            note->set_color(theme::color::TextDim);
+            // What the section does is in the tab's description on the right.
+            Label* title = context.create_element<Label>(head, "AI Opponents", theme::Typography::LabelMD);
+            title->set_flex_grow(1.0f);
+            // The buttons keep their size (squeezed, their text runs off center).
             Button* reset = context.create_element<Button>(head, "Reset", ButtonStyle::Secondary);
+            reset->set_flex_shrink(0.0f);
             reset->add_pressed_callback([this]() {
                 reset_choices();
                 stale = true;
                 queue_update();
             });
             button = context.create_element<Button>(head, expanded ? "Hide" : "Show", ButtonStyle::Secondary);
+            button->set_flex_shrink(0.0f);
             button->add_pressed_callback([this]() {
                 expanded = !expanded;
                 queue_update();

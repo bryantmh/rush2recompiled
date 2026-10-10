@@ -12,13 +12,22 @@
 using namespace recompui;
 
 namespace rush2::ui {
-    FocusRow::FocusRow(ResourceId rid, Element* parent) : Element(rid, parent, Events(EventType::Focus), "div", false) {
+    FocusRow::FocusRow(ResourceId rid, Element* parent, std::function<void()> on_show)
+        : Element(rid, parent, Events(EventType::Focus, EventType::Hover), "div", false), on_show(std::move(on_show)) {
         set_width(100.0f, Unit::Percent);
     }
 
+    // RmlUi sends focus and hover to every element of the focus and hover chains, so the row hears them for its
+    // children too.
     void FocusRow::process_event(const Event& e) {
         if (e.type == EventType::Focus && std::get<EventFocus>(e.variant).active) {
             scroll_into_view();
+            if (on_show) {
+                on_show();
+            }
+        }
+        else if (e.type == EventType::Hover && std::get<EventHover>(e.variant).active && on_show) {
+            on_show();
         }
     }
 
@@ -51,10 +60,17 @@ namespace rush2::ui {
         queue_update();
     }
 
-    OptionsPage::Heading OptionsPage::add_heading(const std::string& title, const std::string& note) {
+    std::function<void()> OptionsPage::text_shower(const std::string& text) {
+        if (text.empty()) {
+            return nullptr;
+        }
+        return [this, text]() { show_text(text); };
+    }
+
+    OptionsPage::Heading OptionsPage::add_heading(const std::string& title, const std::string& note, const std::string& description) {
         ContextId context = get_current_context();
         // Some pages put buttons in the heading (Select ROM), so it scrolls into view like any row of buttons.
-        Element* row = context.create_element<FocusRow>(list);
+        Element* row = context.create_element<FocusRow>(list, text_shower(description));
         row->set_display(Display::Flex);
         row->set_flex_direction(FlexDirection::Row);
         row->set_align_items(AlignItems::Center);
@@ -84,9 +100,9 @@ namespace rush2::ui {
         return { row, note_label };
     }
 
-    Element* OptionsPage::add_row() {
+    Element* OptionsPage::add_row(const std::string& description) {
         ContextId context = get_current_context();
-        Element* row = context.create_element<FocusRow>(list);
+        Element* row = context.create_element<FocusRow>(list, text_shower(description));
         row->set_display(Display::Flex);
         row->set_flex_direction(FlexDirection::Row);
         row->set_align_items(AlignItems::Center);
@@ -169,6 +185,12 @@ namespace rush2::ui {
         shown_config = config;
         shown_option = option_id;
         description_text->set_text_unsafe(config != nullptr ? config->get_option(option_id).description : default_description);
+    }
+
+    void OptionsPage::show_text(const std::string& text) {
+        shown_config = nullptr;
+        shown_option.clear();
+        description_text->set_text_unsafe(text);
     }
 
     bool OptionsPage::any_dirty() const {
