@@ -341,6 +341,7 @@ void rush2_car_rows_built(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_dew_paint_rows(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_engines_after_timeout(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_white_accent(uint8_t* rdram, recomp_context* ctx);
+void rush2_fix_formula_rear_wheels(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_stunt_respawn_gear(uint8_t* rdram, recomp_context* ctx);
 void rush2_stunt_respawn_gear_reset(uint8_t* rdram, recomp_context* ctx);

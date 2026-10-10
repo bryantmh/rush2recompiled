@@ -168,6 +168,6 @@ extern "C" void rush2_heap_init(uint8_t* rdram, recomp_context* ctx) {
     // The per-car-type tables move to 35-entry copies at the same time (src/rush2049/car2049.cpp).
     rush2::car2049::init_tables(rdram);
     rush2::car2049::init_assets(rdram);
-    rush2::fix_rocket_windshield(rdram);
+    rush2::fix_car_models(rdram);
     rush2::car2049::init_physics(rdram);
 }

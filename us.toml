@@ -11145,6 +11145,12 @@ func = "car_build_textures_8008582C"
 before_vram = 0x80085C14
 text = "    rush2_fix_white_accent(rdram, ctx);"
 
+# FORMULA's rear wheels drawn at its rear arms' hubs (src/game_fixes.cpp).
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005A8F8
+text = "    rush2_fix_formula_rear_wheels(rdram, ctx);"
+
 # Finish place kept when a finished car runs out of deaths (src/game_fixes.cpp).
 [[patches.hook]]
 func = "race_car_finish_or_respawn_handle_8009E180"

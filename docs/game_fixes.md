@@ -73,8 +73,39 @@ entries {first, last, flags, 0}, ended by first > last. 0x800C5670 (every car bu
 load through the container's texture display lists (0x4830-0x4AF0). The windshield is near-black (entry 190,
 CARPALETTE 8, 8, 8) except for one panel, a solid block of entry 17 framed by entries 179-185 in texture 6 (32 x 64;
 all 184 of its entry-17 texels are the block), which took the MAIN COLOR. Entry 17 is body paint in the other
-textures, so its class can't change. At boot (`rush2_heap_init`, src/assets.cpp) `rush2::fix_rocket_windshield`
+textures, so its class can't change. At boot (`rush2_heap_init`, src/assets.cpp) `fix_rocket_windshield`
 replaces the asset with a copy whose texture 6 uses entry 190 for those texels.
+
+`rush2::fix_car_models` (called from `rush2_heap_init`) makes this fix and the two below. Car model units are 1/16
+ft. `tools/rush1/cartex.py`'s `meshes()` lists a car's triangles by model for checking these.
+
+## Formula suspension
+
+User report. Always on: a vanilla bug (SF Rush has the same model and tile), so it has no option.
+
+The FORMULA's (type 18, asset 0x2F) wishbones are one 64 x 32 CI8 texture (texels at 0x828, a V wide at texel column 0
+with its apex at 63) on two tent-shaped strips across the car, front in FORM1D0_FR1 (z 54-63, y 3-11) and rear in
+FORM1D0_RR1 (z -81 to -90, y 0-8), loaded by the texture list at 0x3070. s runs from -62.6 at x = +38 to 63.5 at
+x = -38, meant to mirror at the middle so both sides run from the chassis to the hub, but the render tile wraps
+(G_SETTILE w1 0x00014060: cms 0, masks 6). So the right-hand wishbones ran backwards, apex at the chassis and wide end
+at the hub. The fixed copy sets the mirror bit (0x100) on that tile.
+
+Every car's wheels are drawn at the descriptor's wheel positions (+0x7C: x +-2.75, z +-3.925 ft in the FORMULA's
+descriptor 7, which most cars share), copied to car state +0xA8 by `car_race_start_pose_setup_8009A264`. At 16 units
+per foot that is z = +-62.8: the front wheels sit on the front arms' hubs (z about 58), but the rear wheels sat 22
+units ahead of the rear arms' hubs (z about -85, under the wing) and inside the sidepods (x up to 40 back to z -65).
+`carselect_preview_update_8005A598` places the wheel nodes (loop at 0x8005A8B8, `$a2` = wheel, 2 and 3 rear, `$t1` =
+physics car, type at +0x7EA): the hook at 0x8005A8F8 (`rush2_fix_formula_rear_wheels`) gives the FORMULA's rear wheels
+z = -85.25 / 16 ft. Only the drawing moves; the physics wheels stay at -3.925.
+
+## Stallion spoiler
+
+User report. Always on: a vanilla bug, so it has no option.
+
+The STALLION's (type 14, asset 0x2B) body is symmetric about x = 0 (sides +-50, rear deck +-16 at z -104), but its
+spoiler runs from x = -36 to 39, trailing edge -13 to 17 (center +2). The spoiler is in every TOP model (MUSTD0_TOP1,
+MUSTD1_TOP1, MUSTD0_DTOP1, MUSTD0_D2TOP2), whose own vertex buffers hold nothing else behind z = -80. The fixed copy
+moves those vertices 2 units left: trailing edge -15 to 15, tips -38 and 37.
 
 ## Stunt respawn gear
 

@@ -35,6 +35,19 @@
 // 1-31 are MAIN COLOR (class table 0x800C5670), so the windshield took the MAIN COLOR. At boot the asset is replaced
 // by a copy whose texture 6 uses entry 190 there (CARPALETTE 8, 8, 8), the near-black of the rest of the windshield.
 //
+// Formula suspension (user report). The FORMULA's (type 18, asset 0x2F) wishbones are one 64 x 32 CI8 texture (0x828,
+// a V, wide at texel 0, apex at 63) on two strips across the car in FORM1D0_FR1 / D0_RR1, s from -62.6 at x = +38 to
+// 63.5 at x = -38: meant to mirror at the middle, but its render tile wraps (SETTILE 0x00014060, also in SF Rush), so
+// the right-hand wishbones ran backwards, apex at the chassis. The copy's tile mirrors in S. Every car's wheels sit at
+// z = +-3.925 ft (descriptor +0x7C; model units are 1/16 ft, so +-62.8), which matches the front arms' hubs (z about
+// 58) but leaves the rear wheels 22 units ahead of the rear arms' hubs (z about -85, under the wing) and inside the
+// sidepods. The wheel draw (func_8005A598) moves the FORMULA's rear wheels back to the hubs; physics is unchanged.
+//
+// Stallion spoiler (user report). The STALLION's (type 14, asset 0x2B) body is symmetric about x = 0, but its spoiler,
+// in every TOP model (D0_TOP1, D1_TOP1, D0_DTOP1, D0_D2TOP2; the only vertices there behind z = -80), runs from x = -36
+// to 39 (trailing edge -13 to 17). The copy moves those vertices 2 units left (trailing edge -15 to 15, like the deck
+// under it at +-16).
+//
 // Stunt respawn gear (option, off by default). func_8009E180 puts player 1's car (car table 0x800D9C10 + car * 9,
 // +8 driver == 8) in 2nd gear (car +0x738 = 2, 0x8009E3E0) on every respawn, which a manual gearbox then has to shift
 // down from at the stunt arenas' slow restarts. The wrecked car then glides to the respawn point
@@ -42,7 +55,10 @@
 // of every such car with 2nd gear again (+0x738, +0x3E0 and +0x3DE = 2, 0x8008E330). On, stunt mode (track slot 11,
 // which also hosts the Rush 2049 arenas and the battle arenas) puts the human cars in 1st at both.
 
+#include <algorithm>
 #include <atomic>
+#include <cstring>
+#include <string>
 #include <vector>
 
 #include "recomp.h"
@@ -144,33 +160,151 @@ extern "C" void rush2_fix_white_accent(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-void rush2::fix_rocket_windshield(uint8_t* rdram) {
-    constexpr int rocket_asset = 0x31;
-    constexpr int windshield_texture = 6;
-    constexpr uint8_t painted = 17, unpainted = 190;
-    std::vector<uint8_t> d;
-    if (!rush2::assets::read_original(rdram, rocket_asset, d) || d.size() < 40) {
-        return;
+namespace {
+    uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
+        return (uint32_t)d[o] << 24 | (uint32_t)d[o + 1] << 16 | (uint32_t)d[o + 2] << 8 | d[o + 3];
     }
-    auto be32 = [&](size_t o) { return (uint32_t)d[o] << 24 | (uint32_t)d[o + 1] << 16 | (uint32_t)d[o + 2] << 8 | d[o + 3]; };
-    // The texture load lists, header words 7-8: G_SETTIMG (0xFD) gives the texels, G_LOADBLOCK (0xF3) their count.
-    uint32_t image = 0;
-    int texture = 0;
-    for (uint32_t o = be32(28); o + 8 <= be32(32) && o + 8 <= d.size(); o += 8) {
-        uint32_t w0 = be32(o), w1 = be32(o + 4);
-        if (w0 >> 24 == 0xFD) {
-            image = w1 & 0xFFFFFF;
+
+    void put32(std::vector<uint8_t>& d, size_t o, uint32_t v) {
+        d[o] = (uint8_t)(v >> 24); d[o + 1] = (uint8_t)(v >> 16); d[o + 2] = (uint8_t)(v >> 8); d[o + 3] = (uint8_t)v;
+    }
+
+    // A car container's texture load lists (header words 7-8): calls fn(offset, w0, w1) for each command.
+    template <typename Fn> void for_each_texture_load(const std::vector<uint8_t>& d, Fn fn) {
+        for (uint32_t o = be32(d, 28); o + 8 <= be32(d, 32) && o + 8 <= d.size(); o += 8) {
+            fn(o, be32(d, o), be32(d, o + 4));
         }
-        else if (w0 >> 24 == 0xF3 && texture++ == windshield_texture) {
-            uint32_t bytes = (((w1 >> 12) & 0xFFF) + 1) * 2;
-            if (image + bytes > d.size()) {
-                return;
+    }
+
+    // The vertex offsets loaded (G_VTX, 0x01) by the display lists of every model whose name contains `part`.
+    std::vector<uint32_t> model_vertices(const std::vector<uint8_t>& d, const char* part) {
+        std::vector<uint32_t> out;
+        uint32_t models = be32(d, 0), names = be32(d, 4), count = be32(d, 16);
+        for (uint32_t m = 0; m < count && names + m * 0x18 + 16 <= d.size(); m++) {
+            std::string name((const char*)&d[names + m * 0x18], strnlen((const char*)&d[names + m * 0x18], 16));
+            if (name.find(part) == std::string::npos) {
+                continue;
             }
-            for (uint32_t i = image; i < image + bytes; i++) {
-                if (d[i] == painted) d[i] = unpainted;
+            uint32_t rec = models + m * 0x34, lods = be32(d, rec);
+            for (uint32_t l = 0; l < lods && l < 4; l++) {
+                std::vector<uint32_t> lists = { be32(d, rec + 4 + l * 12 + 8) & 0xFFFFFF };
+                while (!lists.empty()) {
+                    uint32_t o = lists.back();
+                    lists.pop_back();
+                    for (; o + 8 <= d.size(); o += 8) {
+                        uint32_t w0 = be32(d, o), w1 = be32(d, o + 4);
+                        if (w0 >> 24 == 0x01) {
+                            for (uint32_t k = 0; k < ((w0 >> 12) & 0xFF); k++) {
+                                out.push_back((w1 & 0xFFFFFF) + k * 16);
+                            }
+                        }
+                        else if (w0 >> 24 == 0xDE) {
+                            lists.push_back(w1 & 0xFFFFFF);
+                            if ((w0 >> 16) & 0xFF) break;
+                        }
+                        else if (w0 >> 24 == 0xDF) {
+                            break;
+                        }
+                    }
+                }
             }
-            rush2::assets::replace(rdram, rocket_asset, std::move(d));
+        }
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    }
+
+    void fix_rocket_windshield(uint8_t* rdram) {
+        constexpr int rocket_asset = 0x31;
+        constexpr int windshield_texture = 6;
+        constexpr uint8_t painted = 17, unpainted = 190;
+        std::vector<uint8_t> d;
+        if (!rush2::assets::read_original(rdram, rocket_asset, d) || d.size() < 40) {
             return;
         }
+        // G_SETTIMG (0xFD) gives the texels, G_LOADBLOCK (0xF3) their count.
+        uint32_t image = 0, start = 0, bytes = 0;
+        int texture = 0;
+        for_each_texture_load(d, [&](uint32_t, uint32_t w0, uint32_t w1) {
+            if (w0 >> 24 == 0xFD) {
+                image = w1 & 0xFFFFFF;
+            }
+            else if (w0 >> 24 == 0xF3 && texture++ == windshield_texture) {
+                start = image;
+                bytes = (((w1 >> 12) & 0xFFF) + 1) * 2;
+            }
+        });
+        if (bytes == 0 || start + bytes > d.size()) {
+            return;
+        }
+        for (uint32_t i = start; i < start + bytes; i++) {
+            if (d[i] == painted) d[i] = unpainted;
+        }
+        rush2::assets::replace(rdram, rocket_asset, std::move(d));
+    }
+
+    void fix_formula_suspension(uint8_t* rdram) {
+        constexpr int formula_asset = 0x1D + 18;
+        constexpr uint32_t wishbone_texels = 0x828;
+        constexpr uint32_t mirror_s = 0x100;           // SETTILE cms bit 0 (G_TX_MIRROR)
+        std::vector<uint8_t> d;
+        if (!rush2::assets::read_original(rdram, formula_asset, d) || d.size() < 40) {
+            return;
+        }
+        // The render tile (G_SETTILE, 0xF5, tile 0-6; tile 7 is the load tile) after the wishbone's G_SETTIMG.
+        bool wishbone = false, fixed = false;
+        for_each_texture_load(d, [&](uint32_t o, uint32_t w0, uint32_t w1) {
+            if (w0 >> 24 == 0xFD) {
+                wishbone = (w1 & 0xFFFFFF) == wishbone_texels;
+            }
+            else if (wishbone && w0 >> 24 == 0xF5 && ((w1 >> 24) & 7) != 7) {
+                put32(d, o + 4, w1 | mirror_s);
+                wishbone = false;
+                fixed = true;
+            }
+        });
+        if (fixed) {
+            rush2::assets::replace(rdram, formula_asset, std::move(d));
+        }
+    }
+
+    void fix_stallion_spoiler(uint8_t* rdram) {
+        constexpr int stallion_asset = 0x1D + 14;
+        constexpr int16_t spoiler_z = -80;              // only the spoiler is behind this in the TOP models
+        constexpr int16_t shift_x = -2;
+        std::vector<uint8_t> d;
+        if (!rush2::assets::read_original(rdram, stallion_asset, d) || d.size() < 40) {
+            return;
+        }
+        bool fixed = false;
+        for (uint32_t v : model_vertices(d, "TOP")) {
+            if (v + 16 > d.size() || (int16_t)(d[v + 4] << 8 | d[v + 5]) >= spoiler_z) {
+                continue;
+            }
+            int16_t x = (int16_t)((int16_t)(d[v] << 8 | d[v + 1]) + shift_x);
+            d[v] = (uint8_t)((uint16_t)x >> 8);
+            d[v + 1] = (uint8_t)x;
+            fixed = true;
+        }
+        if (fixed) {
+            rush2::assets::replace(rdram, stallion_asset, std::move(d));
+        }
+    }
+}
+
+void rush2::fix_car_models(uint8_t* rdram) {
+    fix_rocket_windshield(rdram);
+    fix_formula_suspension(rdram);
+    fix_stallion_spoiler(rdram);
+}
+
+// func_8005A598 at 0x8005A8F8, the wheel's z just loaded into $f4 (stored to 0xD4($sp) in the branch's delay slot):
+// $a2 = wheel (2, 3 rear), $t1 = physics car. The FORMULA's rear wheels are drawn at its rear arms' hubs.
+extern "C" void rush2_fix_formula_rear_wheels(uint8_t* rdram, recomp_context* ctx) {
+    constexpr int type_formula = 18;
+    constexpr float rear_hub_z = -85.25f / 16.0f;   // model units are 1/16 ft
+    int wheel = (int16_t)ctx->r6;
+    if ((wheel == 2 || wheel == 3) && MEM_BU(0x7EA, (int32_t)ctx->r9) == type_formula) {
+        ctx->f4.fl = rear_hub_z;
     }
 }

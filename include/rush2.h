@@ -19,8 +19,9 @@ namespace rush2 {
 
     // Stunt Respawn in 1st Gear (src/game_fixes.cpp): stunt mode respawns put the human cars in 1st gear, not 2nd.
     void set_stunt_first_gear(bool enabled);
-    // Rocket windshield (src/game_fixes.cpp): replaces the ROCKET's asset with its windshield unpainted. Call at boot.
-    void fix_rocket_windshield(uint8_t* rdram);
+    // Car model fixes (src/game_fixes.cpp): replaces the ROCKET's asset with its windshield unpainted, the FORMULA's
+    // with its wishbones mirrored and the STALLION's with its spoiler centered. Call at boot.
+    void fix_car_models(uint8_t* rdram);
     // Draw distance factor (src/draw_distance.cpp): 1 is the original. Scales the projection's far plane, the fog and
     // the placed object and LOD cull distances; above 1 it draws every track section but the distant stand-ins
     // regardless of visibility and gives nodes past the fixed-point matrix range float matrices.
