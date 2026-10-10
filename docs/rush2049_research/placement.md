@@ -195,6 +195,23 @@ The port draws it through src/rush2049/battle_render.cpp (slots 160-175), facing
 plane cut the disc and its near half washed over the coin; the port pushes it 3 units (past the coin's 2.5-unit
 radius) straight away from each view's camera so it always sits behind the coin.
 
+
+### 2.2 Node flag 0x400000 = exempt from draw-distance culling **[V]**
+2049 scene nodes (table 0x8012E700, stride 0x44) hold the flags at +0 and the culling word at +4
+(`func_800A7E10` ORs `(box_index << 3) | box_type(7)` into +4, so the culling index is **not** in the flag word as in
+Rush 2). The per-view draw walker `func_8009DD88` (node in $s7, flags in $v1) decodes +4 (`& 7` = box type,
+`(& 0x1FF8) >> 3` = box index into 0x80157248, 0x70 stride pairs of s16 min/max stored x16) and then at 0x8009E41C
+tests `flags << 9` (bit 22 = **0x400000**): set → branch straight to the draw path (0x8009E51C); clear → compute
+`dist(camera, node pos) - 0.0625 * box_half_extent` and, if that exceeds the draw distance, skip the node (0x8009E654).
+The test only runs when the draw distance `0x80151AA0` is below 2000.0; that float is the far/cull distance of the
+current camera mode (default 2000.0 in func_800A5908, set per frame by `func_800AB18C` from the table at 0x8011E7A8).
+- Setter: `func_800ABCC8` (0x800ABF70) ORs 0x400000 into the node flags when the type-table flag halfword (row +0x12)
+  has 0x40. **Only T3PYRAMID** (type flags 0x64268: late pass 0x40000, moving 0x8000) has it: the huge pyramid at the
+  Vegas track stays drawn from any distance instead of popping out with the other far scenery.
+- Bit 22 of 0x801174B4 (race HUD flag) is an unrelated word that the same constant is tested against elsewhere.
+- Rush 2 port: stripped because Rush 2's bit 22+ is its own culling index. Rush 2 only culls through that index and
+  the camera far plane, so nothing is lost beyond the pyramid popping if it leaves the far plane.
+
 ## 3. Rush 2049 animated objects
 
 ### 3.1 PTHD / PATH **[V]**

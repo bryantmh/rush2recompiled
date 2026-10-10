@@ -35,6 +35,7 @@
 #include "recompui/program_config.h"
 #include "recompui/renderer.h"
 #include "recompui/config.h"
+#include "elements/ui_image.h"
 #include "util/file.h"
 #include "recompinput/input_events.h"
 #include "recompinput/recompinput.h"
@@ -56,7 +57,8 @@
 #include "SDL_syswm.h"
 #endif
 
-const std::string version_string = "0.1.0";
+// The latest git tag, set by CMakeLists.txt.
+const std::string version_string = RUSH2_VERSION;
 
 template<typename... Ts>
 void exit_error(const char* str, Ts ...args) {
@@ -483,6 +485,20 @@ static void launcher_init(recompui::LauncherMenu* menu) {
     const recomp::GameEntry& game = supported_games[0];
     auto game_options_menu = menu->init_game_options_menu(game.game_id, game.mod_game_id, game.display_name,
                                                           game.thumbnail_bytes, recompui::GameOptionsMenuLayout::Center);
+    // The Rush 2 Recompiled artwork (icons/logo.png, copied to assets/ by tools/build_icons.py) above the buttons.
+    std::ifstream logo_file{ recompui::file::get_program_path() / "assets" / "logo.png", std::ios::binary };
+    std::vector<char> logo_bytes{ std::istreambuf_iterator<char>(logo_file), std::istreambuf_iterator<char>() };
+    if (!logo_bytes.empty()) {
+        recompui::queue_image_from_bytes_file("rush2_launcher_logo", logo_bytes);
+        auto* logo = recompui::get_current_context().create_element<recompui::Image>(game_options_menu,
+                                                                                    "rush2_launcher_logo");
+        logo->set_width(640.0f);
+        logo->set_height(640.0f);
+        logo->set_margin_bottom(16.0f);
+        // The logo replaces the default text title, and the menu sits low (12% up) to make room for it.
+        menu->remove_default_title();
+        game_options_menu->set_bottom(12.0f, recompui::Unit::Percent);
+    }
     game_options_menu->add_start_game_or_load_rom_option("Locate ROM", "Start Game");
     game_options_menu->add_exit_option();
 }

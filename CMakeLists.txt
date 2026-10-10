@@ -109,6 +109,16 @@ target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES} ${FUNC_CXX_SOURCES})
 # Main executable
 add_executable(Rush2Recompiled)
 
+# The version shown in the launcher is the latest git tag (v1.0.8 -> 1.0.8), read when CMake configures; 0.1.0 without one.
+set(RUSH2_VERSION "0.1.0")
+execute_process(COMMAND git describe --tags --abbrev=0 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE RUSH2_GIT_TAG OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE RUSH2_GIT_RESULT)
+if (RUSH2_GIT_RESULT EQUAL 0 AND RUSH2_GIT_TAG MATCHES "^v?([0-9]+[.][0-9]+[.][0-9]+)")
+    set(RUSH2_VERSION ${CMAKE_MATCH_1})
+endif()
+target_compile_definitions(Rush2Recompiled PRIVATE RUSH2_VERSION="${RUSH2_VERSION}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/.git/packed-refs)
+
 target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/main.cpp
     ${CMAKE_SOURCE_DIR}/src/config.cpp

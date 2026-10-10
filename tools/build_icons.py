@@ -3,7 +3,7 @@
   python tools/build_icons.py
 
 Writes:
-  icons/512.png               App icon, full size.
+  icons/512.png               App icon, full size (resized from icons/logo.png, the Rush 2 Recompiled artwork).
   icons/app.ico               App icon for the Windows executable (16 to 256 px), used by icons/app.rc.
   assets/icon_128.rgba        128x128 RGBA pixels for the window icon (src/main.cpp sets it with SDL).
   tools/font_pack/thumb.png   Mod menu thumbnail for the font pack (tools/build_font_pack.py packs it).
@@ -12,6 +12,7 @@ Everything is drawn at 4x and downsampled. Text uses Inter (assets/InterVariable
 """
 
 import os
+import shutil
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -98,6 +99,12 @@ def draw_road(img, horizon_y):
 
 
 def app_icon(size=512):
+    """The app icon: the artwork in icons/logo.png, which the launcher and README show too."""
+    return Image.open(os.path.join(ROOT, 'icons', 'logo.png')).convert('RGBA').resize((size, size), Image.LANCZOS)
+
+
+def drawn_app_icon(size=512):
+    """The earlier drawn icon, unused now."""
     S = size * SS
     sky = gradient((S, S), (255, 64, 46), (255, 168, 40))
     horizon = int(S * 0.6)
@@ -170,6 +177,7 @@ def main():
 
     icon = app_icon(512)
     icon.save(os.path.join(icons_dir, '512.png'))
+    shutil.copyfile(os.path.join(icons_dir, 'logo.png'), os.path.join(ROOT, 'assets', 'logo.png'))  # Launcher image.
     # Small sizes are drawn from the full-size icon; Windows picks the closest one.
     icon.save(os.path.join(icons_dir, 'app.ico'), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64),
                                                           (128, 128), (256, 256)])

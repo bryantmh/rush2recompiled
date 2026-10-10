@@ -1,4 +1,6 @@
-# Rush 2 Recompiled
+<p align="center">
+  <img src="icons/logo.png" alt="Rush 2 Recompiled" width="280">
+</p>
 
 Rush 2: Extreme Racing USA, the 1998 N64 racer, running natively on your PC with widescreen and ultrawide support, high framerates, sharp text, and improved controller support
 
