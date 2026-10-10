@@ -2891,6 +2891,33 @@ namespace {
             return;
         }
         c.ranged = true;
+        // The ranges are kept on disk (src/track_cache.cpp, which also keys on the build), so they're worked out once
+        // rather than on the first menu frame of every session. The rest of the key is what the results depend on
+        // beyond the build: Car Speeds, the 2049 cars and their source, Torque Rebalance and every car's stock row.
+        std::vector<uint8_t> inputs;
+        auto add = [&inputs](const void* p, size_t n) {
+            inputs.insert(inputs.end(), (const uint8_t*)p, (const uint8_t*)p + n);
+        };
+        uint64_t source = cars_source != nullptr ? cars_source->cache_key() : 0;
+        int flags[] = { c.fast, c.with49, c.rebalanced, (int)tire_values().size() };
+        add(&source, sizeof(source));
+        add(flags, sizeof(flags));
+        for (int type = 0; type < types; type++) {
+            int row[] = { row_byte(rdram, t_tires, 0, type), row_byte(rdram, t_susp, 0, type),
+                          row_byte(rdram, t_torque, 0, type), row_byte(rdram, t_engine, 0, type) };
+            float weight = f32_at(rdram, t_weight + type * 4);
+            add(row, sizeof(row));
+            add(&weight, sizeof(weight));
+        }
+        uint64_t key = rush2::track_cache::hash(inputs.data(), inputs.size());
+        // A file per option combination, so switching one back and forth doesn't work them out again.
+        std::string name = "car_bar_ranges_" + std::to_string(c.fast) + std::to_string(c.with49) + std::to_string(c.rebalanced);
+        std::vector<uint8_t> stored;
+        if (rush2::track_cache::load_blob(name, key, stored) && stored.size() == sizeof(c.lo) + sizeof(c.hi)) {
+            memcpy(&c.lo, stored.data(), sizeof(c.lo));
+            memcpy(&c.hi, stored.data() + sizeof(c.lo), sizeof(c.hi));
+            return;
+        }
         c.lo = { 1e30f, 1e30f, 1e30f, 1e30f };
         c.hi = { -1e30f, -1e30f, -1e30f, -1e30f };
         auto widen = [](float v, float& lo, float& hi) {
@@ -2938,6 +2965,10 @@ namespace {
                 }
             }
         }
+        stored.resize(sizeof(c.lo) + sizeof(c.hi));
+        memcpy(stored.data(), &c.lo, sizeof(c.lo));
+        memcpy(stored.data() + sizeof(c.lo), &c.hi, sizeof(c.hi));
+        rush2::track_cache::save_blob(name, key, stored);
     }
 
     // 0 at the lowest, 1 at the highest.
@@ -2973,7 +3004,8 @@ void rush2::car2049::set_accurate_bars(bool on) {
 // every option that sets a bar's ends, about a second of work, which the first car select (or the unlock system's
 // shop, which runs the car select's setup) would otherwise stall on. It runs here instead while the game is in the
 // menus, track select or car select (game state 0x8010C0D0 0-2: no race is using the test car's slot): on the first
-// frame after boot, and again in the menus after Car Speeds, the 2049 cars or Torque Rebalance change.
+// frame after boot, and again in the menus after Car Speeds, the 2049 cars or Torque Rebalance change. The ranges are
+// cached on disk (find_ranges), so it only takes the second after a new build or a change of those inputs.
 void rush2::car2049::prepare_bars(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t game_state = 0x8010C0D0;
     if (!accurate_bars.load(std::memory_order_relaxed) || cache().ranged) {

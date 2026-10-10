@@ -45,7 +45,7 @@ If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version),
 
 - **The Rush 1 tracks.** All seven race tracks from the original San Francisco Rush
 - **The Rush 1 music.** The nine Rush 1 race songs play on its tracks, picked at random.
-- *- **Rush 1 car decals.** Some of Rush 1's own unique paint jobs are available as a stripe option.
+- **Rush 1 car decals.** Some of Rush 1's own unique paint jobs are available as a stripe option.
 - **Keys.** Collect the keys hidden on the Rush 1 tracks, which are counted per player in the Progress tab and count toward unlocks.
 
 
