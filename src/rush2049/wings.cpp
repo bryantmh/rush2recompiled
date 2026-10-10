@@ -474,6 +474,8 @@ void rush2::wings::init_config() {
             rush2::odometer2049::set_option(std::get<bool>(cur_value));
         });
 
+    // Replaced by the BATTLE track select's TIME LIMIT row (src/rush2049/track2049_menu.cpp), which takes this hidden
+    // option's saved value if it was changed from its default.
     wings_config.add_enum_option(
         battle_time_option_id,
         "Battle Time Limit",
@@ -486,7 +488,8 @@ void rush2::wings::init_config() {
             { rush2::battle::TimeLimit::Five, "Five", "5 Minutes" },
             { rush2::battle::TimeLimit::Ten, "Ten", "10 Minutes" },
         },
-        rush2::battle::TimeLimit::Three
+        rush2::battle::TimeLimit::Three,
+        true
     );
     wings_config.add_option_change_callback(battle_time_option_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {

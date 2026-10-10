@@ -4015,6 +4015,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800C48F8
+name = "trackselect_option_labels"
+type = "const char*[]"
+desc = "Track select option labels, 11 per language (index language * 11 + option): 0 TRACK, 1 BACKWARD, 2 MIRROR, 3 FOG, 4 WIND, 5 LAPS, 6 DRONES, 7 DIFFICULTY, 8 HANDICAP, 9 CHECKPOINTS, 10 DEATHS (read by options_text_cb_names_values_803C6268). The BATTLE select shows LAPS as POINTS and CHECKPOINTS as TIME LIMIT."
+area = "menu"
+status = "verified"
+ref = "docs/rush2049_research/battle.md#71-battle-rules-the-battle-selects-points-and-time-limit-rows"
+
+[[var]]
 vram = 0x800C5334
 name = "placement_class_w0"
 type = "u32"

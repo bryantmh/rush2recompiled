@@ -787,6 +787,38 @@ func = "options_text_cb_names_values_803C6268"
 before_vram = 0x803C6720
 text = "    rush2_track49_drones_value(rdram, ctx);"
 
+# The BATTLE select's POINTS and TIME LIMIT rows (Rush 2049's battle rules) are its LAPS and CHECKPOINTS rows with other
+# labels, values and steps (src/rush2049/track2049_menu.cpp).
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6414
+text = "    rush2_track49_battle_rule_label(rdram, ctx);"
+
+[[patches.hook]]
+func = "options_widget_cb_option_arrow_803C59A0"
+before_vram = 0x803C5C18
+text = "    rush2_track49_battle_rule_arrows(rdram, ctx);"
+
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C666C
+text = "    if (rush2_track49_battle_rule_value(rdram, ctx)) goto L_803C6908;"
+
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6770
+text = "    if (rush2_track49_battle_rule_value(rdram, ctx)) goto L_803C6908;"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC278
+text = "    if (rush2_track49_battle_rule_step(rdram, ctx)) goto L_803AC410;"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC3A4
+text = "    if (rush2_track49_battle_rule_step(rdram, ctx)) goto L_803AC410;"
+
 [[patches.hook]]
 func = "options_widget_cb_slider_803C5798"
 before_vram = 0x803C5930

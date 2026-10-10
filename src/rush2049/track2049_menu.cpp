@@ -49,6 +49,7 @@
 #include "data_files.h"
 #include "rush2_hooks.h"
 #include "assets.h"
+#include "battle.h"
 #include "ghost.h"
 #include "track1.h"
 #include "track2049.h"
@@ -86,6 +87,10 @@ namespace {
     constexpr uint32_t ghost_label_ptr = menu_data + 0xD50;
     constexpr uint32_t battle_label = menu_data + 0xD60;          // "BATTLE"
     constexpr uint32_t battle_label_ptr = menu_data + 0xD70;
+    // 0xD80-0xF3F: the car select's WINGS rows (src/rush2049/wings_menu.cpp)
+    constexpr uint32_t points_label = menu_data + 0xF40;          // "POINTS", the BATTLE select's LAPS row (16 bytes)
+    constexpr uint32_t rule_value = menu_data + 0xF50;            // POINTS' or TIME LIMIT's value text (16 bytes)
+    constexpr uint32_t time_label = menu_data + 0xF70;            // "TIME LIMIT", the BATTLE select's CHECKPOINTS row
     constexpr uint32_t preview_strings = menu_data + 0x1000;      // 16 bytes per 2049 entry: its preview model's name
 
     // Unlock bytes of PIPE (9) and ATARI (10) (func_803AB01C).
@@ -128,7 +133,8 @@ namespace {
     }
 
     // The track select's options (0x803D05D8[row], row = the cursor 0x803D05BC, count 0x803D05CC, top visible row
-    // 0x803D05C4; func_803AB294 builds the list): 0 TRACK, 3 FOG, 4 WIND, 10 DEATHS.
+    // 0x803D05C4; func_803AB294 builds the list): 0 TRACK, 1 BACKWARD, 2 MIRROR, 3 FOG, 4 WIND, 5 LAPS, 6 DRONES,
+    // 7 DIFFICULTY, 8 HANDICAP, 9 CHECKPOINTS, 10 DEATHS (labels 0x800C48F8[language * 11 + option]).
     constexpr uint32_t option_rows = 0x803D05D8;
     constexpr uint32_t option_cursor = 0x803D05BC;
     constexpr uint32_t option_count = 0x803D05CC;
@@ -136,17 +142,20 @@ namespace {
     constexpr int option_track = 0;
     constexpr int option_fog = 3;
     constexpr int option_wind = 4;
+    constexpr int option_laps = 5;      // POINTS on the BATTLE select (rush2_track49_battle_rule_*)
     constexpr int option_drones = 6;
     constexpr int option_difficulty = 7;
+    constexpr int option_checkpoints = 9;   // TIME LIMIT on the BATTLE select
     constexpr int option_deaths = 10;
     constexpr int option_boxes = 4;     // OPTIONTEXTBOX widgets: the rows on screen
 
     // Whether option `option` stays open on track t although STUNT1 greys it: the obstacle course is raced (a car
-    // can die on it), so DEATHS stays; a battle arena's DRONES is its computer opponents and DIFFICULTY their skill
-    // (src/rush2049/battle_ai.cpp).
+    // can die on it), so DEATHS stays; a battle arena's DRONES is its computer opponents, DIFFICULTY their skill
+    // (src/rush2049/battle_ai.cpp), and LAPS and CHECKPOINTS, shown as POINTS and TIME LIMIT, the battle's rules.
     bool option_open(int t, int option) {
         return (t == obstacle_menu_id && option == option_deaths) ||
-               (is_battle_arena(t) && (option == option_drones || option == option_difficulty));
+               (is_battle_arena(t) && (option == option_laps || option == option_checkpoints || option == option_drones ||
+                                       option == option_difficulty));
     }
 
     int cursor_option(uint8_t* rdram) {
@@ -186,14 +195,14 @@ namespace {
     // and the options a course keeps open (option_open). STUNT1 grays out the others; a list with fewer options than the
     // rows on screen needs the hooks below (rush2_track49_option_*). Rows past the list hold TRACK, which shows no
     // slider. After a stunt or battle race the game mode is stunt (2, set by func_800AE670), whose list func_803AB294
-    // stops at WIND, so the BATTLE select adds DRONES and DIFFICULTY back.
+    // stops at WIND, so the BATTLE select lists its own: TRACK, FOG, WIND, POINTS (LAPS), TIME LIMIT (CHECKPOINTS),
+    // DRONES, DIFFICULTY.
     void filter_options(uint8_t* rdram) {
         int t = (int8_t)MEM_B(0, (int32_t)track_id);
         std::vector<int> ids = stock_options;
-        for (int added : { option_drones, option_difficulty }) {
-            if (select_kind == select_battle && std::find(ids.begin(), ids.end(), added) == ids.end()) {
-                ids.insert(std::upper_bound(ids.begin(), ids.end(), added), added);
-            }
+        if (select_kind == select_battle) {
+            ids = { option_track, option_fog, option_wind, option_laps, option_checkpoints, option_drones,
+                    option_difficulty };
         }
         int n = 0;
         for (int id : ids) {
@@ -239,7 +248,10 @@ namespace {
     bool menu_has_2049 = false;
     bool menu_has_rush1 = false;
 
-    // The save file's section (include/data_files.h): { "selected": n, "stunt": n, "battle": n }.
+    // The save file's section (include/data_files.h): { "selected": n, "stunt": n, "battle": n, "points": n,
+    // "minutes": n }. "points" and "minutes" are the BATTLE select's POINTS and TIME LIMIT (rush2::battle::points_to_win,
+    // time_limit_minutes, 0 off); a save without "minutes" takes the old Games tab time limit (src/rush2049/wings.cpp,
+    // hidden now) if it was changed from its default, 3 minutes.
     const std::string selection_section = "track_select";
 
     void load_selection() {
@@ -267,12 +279,22 @@ namespace {
         if (!is_battle_arena(battle_selection)) {
             battle_selection = -1;
         }
+        int points = read("\"points\"");
+        rush2::battle::set_points_to_win(points < 0 ? rush2::battle::default_points : points);
+        int minutes = read("\"minutes\"");
+        if (minutes < 0) {
+            int legacy = rush2::battle::legacy_time_limit_minutes();
+            minutes = legacy == 3 ? rush2::battle::default_minutes : legacy;
+        }
+        rush2::battle::set_time_limit_minutes(minutes);
     }
 
     void write_selection() {
         rush2::data_files::write(rush2::data_files::File::Saves, selection_section,
             "{ \"selected\": " + std::to_string(selection) + ", \"stunt\": " + std::to_string(stunt_selection) +
-            ", \"battle\": " + std::to_string(battle_selection) + " }");
+            ", \"battle\": " + std::to_string(battle_selection) +
+            ", \"points\": " + std::to_string(rush2::battle::points_to_win()) +
+            ", \"minutes\": " + std::to_string(rush2::battle::time_limit_minutes()) + " }");
     }
 
     void save_selection(int value) {
@@ -886,6 +908,100 @@ extern "C" void rush2_track49_deaths_value_t0(uint8_t* rdram, recomp_context* ct
 // the drone count (green otherwise). Not on a battle arena, where DRONES is its computer opponents.
 extern "C" void rush2_track49_drones_value(uint8_t* rdram, recomp_context* ctx) {
     if (option_open((int32_t)ctx->r12, option_drones)) ctx->r12 = 0;
+}
+
+// The BATTLE select's POINTS and TIME LIMIT rows, Rush 2049's battle rules (rush2::battle::points_to_win and
+// time_limit_minutes): its LAPS and CHECKPOINTS rows, which a battle doesn't use, with other labels, values and steps.
+namespace {
+    // The label of option row `option` on the BATTLE select, or 0 for the game's own.
+    uint32_t battle_rule_label(uint8_t* rdram, int option) {
+        if (select_kind != select_battle) return 0;
+        if (option == option_laps) {
+            write_string(rdram, points_label, "POINTS");
+            return points_label;
+        }
+        if (option == option_checkpoints) {
+            write_string(rdram, time_label, "TIME LIMIT");
+            return time_label;
+        }
+        return 0;
+    }
+
+    int32_t call_game(uint8_t* rdram, recomp_context* ctx, void (*func)(uint8_t*, recomp_context*), int32_t a0 = 0,
+                      int32_t a1 = 0, int32_t a2 = 0) {
+        recomp_context saved = *ctx;
+        ctx->r4 = a0;
+        ctx->r5 = a1;
+        ctx->r6 = a2;
+        func(rdram, ctx);
+        int32_t ret = (int32_t)ctx->r2;
+        *ctx = saved;
+        return ret;
+    }
+}
+
+extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx);
+extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx);
+extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx);
+
+// func_803C6268 at 0x803C6414: $s0 = the row's label, about to be placed and printed; $s1 = the row's entry in the
+// option list.
+extern "C" void rush2_track49_battle_rule_label(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t label = battle_rule_label(rdram, (int32_t)MEM_W(0, (int32_t)ctx->r17));
+    if (label != 0) ctx->r16 = (uint64_t)(int64_t)(int32_t)label;
+}
+
+// func_803C59A0 (the arrows either side of the cursor row's label) at 0x803C5C18: $a3 = the label, about to be
+// measured to place the left arrow.
+extern "C" void rush2_track49_battle_rule_arrows(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t label = battle_rule_label(rdram, cursor_option(rdram));
+    if (label != 0) ctx->r7 = (uint64_t)(int64_t)(int32_t)label;
+}
+
+// func_803C6268, LAPS' value (case 5) at 0x803C666C, the digits 1-8 from x 0xFF, and CHECKPOINTS' (case 9) at
+// 0x803C6770, OFF / ON; the chosen value in style 0xA, at y $s2, $s1 = the row's entry. On the BATTLE select the
+// points ("10") or the time limit ("OFF", "8 MIN") is printed instead, centered on the values' column, and the case
+// is skipped (to 0x803C6908, the next row).
+extern "C" int rush2_track49_battle_rule_value(uint8_t* rdram, recomp_context* ctx) {
+    if (select_kind != select_battle) return 0;
+    constexpr int value_center_x = 0x112, style_chosen = 0xA;
+    int option = (int32_t)MEM_W(0, (int32_t)ctx->r17);
+    int minutes = rush2::battle::time_limit_minutes();
+    std::string text = option == option_laps ? std::to_string(rush2::battle::points_to_win())
+                     : minutes == 0 ? "OFF" : std::to_string(minutes) + " MIN";
+    write_string(rdram, rule_value, text);
+    int width = call_game(rdram, ctx, text_measure_string_800732AC, (int32_t)rule_value, -1);
+    call_game(rdram, ctx, text_select_style_800737E4, style_chosen);
+    call_game(rdram, ctx, text_print_string_800734E0, value_center_x - width / 2, (int16_t)ctx->r18,
+              (int32_t)rule_value);
+    return 1;
+}
+
+// func_803ABE0C, LAPS' left / right (case 5) at 0x803AC278 and CHECKPOINTS' (case 9) at 0x803AC3A4: $a1 = the step
+// (-1, 1, or 0 for the default), about to change the menu settings. On the BATTLE select the rule steps as in 2049
+// (setup overlay 0x8038ECBC / 0x8038ED20): the points by 5 from 5 to 50, the time limit off, then 1 to 20 minutes,
+// both wrapping; step 0 gives the default. The case goes to its end (0x803AC410: the menu settings are copied to
+// the race's).
+extern "C" int rush2_track49_battle_rule_step(uint8_t* rdram, recomp_context* ctx) {
+    if (select_kind != select_battle) return 0;
+    int step = (int32_t)ctx->r5;
+    std::lock_guard lock{ menu_mutex };
+    if (cursor_option(rdram) == option_laps) {
+        using namespace rush2::battle;
+        int points = step == 0 ? default_points : points_to_win() + step * points_step;
+        if (points < min_points) points = max_points;
+        if (points > max_points) points = min_points;
+        set_points_to_win(points);
+    }
+    else {
+        using namespace rush2::battle;
+        int minutes = step == 0 ? default_minutes : time_limit_minutes() + step;
+        if (minutes < 0) minutes = max_minutes;
+        if (minutes > max_minutes) minutes = 0;
+        set_time_limit_minutes(minutes);
+    }
+    write_selection();
+    return 1;
 }
 
 // func_803C6268 at 0x803C6354: $s5 = 11, which the option list compares with the track to grey options.

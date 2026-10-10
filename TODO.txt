@@ -21,3 +21,4 @@ General:
       on that port; no profile pick or Create Player for them, and the post-race records and name entry (game state 6,
       func_800A952C, 2 player arrays: docs/players4.md) are players 1 and 2's.
 3) Add a Music skip track feature to the pause menu. It will just be a new pause ;menu item below Audio and above "restart"  Currently music switches every time paused. this is not what we want. It should keep playing a track unless skipped or a new race is begun. Skipping on a track that isn't set to random will play a random song instead. The ui should also show the name of the currently playing song in the bottom right corner in a sort of playback box with some sort of music icon showing that it is music that is playing and the game and track it is from along with its name
+4) Import California Speed
