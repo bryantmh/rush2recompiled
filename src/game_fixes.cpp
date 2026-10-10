@@ -16,6 +16,12 @@
 // coasting adds time, and the next frame clears 0x800FAE98 (0x800AEDC4), but nothing clears 0x800E7BCE until the next
 // race setup (func_800A5ADC, 0x800A6134), so the engines stay silent for the rest of the race. Rush 2049 fixed it;
 // here it is cleared along with the flag.
+//
+// White accent under a white body (user report). func_8008582C copies the car's base palette (CARPALETTE) and, for a
+// white color (index 0), brightens its ramp first: MAIN COLOR's entries 1-31 when MAIN is white (0x80085898-),
+// otherwise ACCENT COLOR's entries 33-63 when ACCENT is white (0x80085960-, an else-if). Each entry becomes a gray of
+// its red channel x 8 x 1.25 (at most 255). With both white the accent ramp was never brightened, so the accent came
+// out darker than with any other body color. The hook at 0x80085C14, where the branches join, brightens it then.
 
 #include "recomp.h"
 
@@ -52,4 +58,21 @@ extern "C" void rush2_fix_dew_paint_rows(uint8_t* rdram, recomp_context* ctx) {
 // func_800AE670 at 0x800AEDC0, about to clear the out of time flag (time was added): the engines run again.
 extern "C" void rush2_fix_engines_after_timeout(uint8_t* rdram, recomp_context* ctx) {
     MEM_B(0, (int32_t)engines_off) = 0;
+}
+
+// func_8008582C at 0x80085C14: 0xA4($sp) = the palette copy, 0xD3($sp) = MAIN COLOR, 0xD7($sp) = ACCENT COLOR.
+extern "C" void rush2_fix_white_accent(uint8_t* rdram, recomp_context* ctx) {
+    int32_t sp = (int32_t)ctx->r29;
+    if (MEM_BU(0xD3, sp) != 0 || MEM_BU(0xD7, sp) != 0) {
+        return;
+    }
+    int32_t palette = MEM_W(0xA4, sp);
+    for (int i = 33; i < 64; i++) {
+        uint16_t e = MEM_HU(i * 2, palette);
+        int v = (int)((float)(((e >> 11) & 0x1F) * 8) * 1.25f);
+        if (v >= 0x100) {
+            v = 0xFF;
+        }
+        MEM_H(i * 2, palette) = (int16_t)(((v << 8) & 0xF800) | ((v * 8) & 0x7C0) | ((v >> 2) & 0x3E) | 1);
+    }
 }

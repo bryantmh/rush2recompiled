@@ -218,7 +218,7 @@ F2FLAG, TRIGGER ×6. Track 6 has 23 MINITRAINN carriages on 7 paths. Full lists:
 - Init func_800C1604: matrix from the node quaternion (func_800BFBE8), position = node pos; registers PTHD flag
   0x20 paths in 0x8013C300; flip-book frame counts.
 - Update func_800C0AC0 (type update callback, called by func_800BEAA0 every frame):
-  1. trigger state machine (flags 0x40/0x200/0x400/0x1000/0x2000/0x4000, sounds 0x80142A78/7A);
+  1. trigger state machine (flags 0x40/0x200/0x400/0x1000/0x2000/0x4000, model handles 0x80142A78/7A = TRIGGERON/OFF);
   2. `t += dt` (0x8002EB94); while `t ≥ node.time`: `t -= time`, step to the next node in the travel direction; at the
      ends apply ping-pong (0x1), halt (0x4000, 0x80), restart at node 0 (func_800C085C) or loop (0x2); a node with
      flag 0x40 halts; at the end of a 0x20 path func_800B2D20 restores the collision group;

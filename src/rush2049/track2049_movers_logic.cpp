@@ -767,6 +767,11 @@ namespace rush2::track2049::movers {
     }
 
     void World::sound_stop(Object& o) {
+        // A start requested in this same update is still playing in 2049, so its stop does nothing yet (a TRIGGER
+        // pad starts its sound and, not moving, stops it in the same update: it was never heard).
+        if (o.sound == Sound::start) {
+            return;
+        }
         if (o.sound_state != 2) {
             o.sound = Sound::stop;
             o.sound_state = 2;

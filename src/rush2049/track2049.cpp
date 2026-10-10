@@ -407,20 +407,25 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
 // func_8007C27C at 0x8007C480: 0x5C($sp) = the section mask chosen for the camera's region 0x78($sp) (-1 = none,
 // which uses the all-visible default).
 extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
-    if (rush2::draw_distance_pvs(rdram, (uint32_t)ctx->r29)) {
-        return;
+    // Rush 2's own region mask tables per track slot (jump table 0x800CF9A4).
+    static constexpr uint32_t rush2_tables[12] = { 0x800C6538, 0x800C6A78, 0x800C7048, 0x800C7788, 0x800C7F38,
+        0x800C8588, 0x800C8B28, 0x800C9268, 0x800C9508, 0x800C9818, 0x800C9BA8, 0x800C9F18 };
+    uint32_t sp = (uint32_t)ctx->r29;
+    uint32_t table = 0;
+    if (!rush2::track1::pvs(rdram, sp, table)) {
+        if (hosting(rdram)) {
+            int32_t region = (int32_t)MEM_W(0, (int32_t)(sp + 0x78));
+            if (region >= 0 && region < track.pvs_count) {
+                MEM_W(0, (int32_t)(sp + 0x5C)) = pvs_table + region * 16;
+            }
+            table = pvs_table;
+        }
+        else {
+            int slot = MEM_B(0, (int32_t)track_id);
+            table = slot >= 0 && slot < 12 ? rush2_tables[slot] : 0;
+        }
     }
-    if (rush2::track1::pvs(rdram, (uint32_t)ctx->r29)) {
-        return;
-    }
-    if (!hosting(rdram)) {
-        return;
-    }
-    int32_t sp = (int32_t)ctx->r29;
-    int32_t region = (int32_t)MEM_W(0, sp + 0x78);
-    if (region >= 0 && region < track.pvs_count) {
-        MEM_W(0, sp + 0x5C) = pvs_table + region * 16;
-    }
+    rush2::draw_distance_pvs(rdram, sp, table);
 }
 
 // func_800A45A8 at 0x800A4644: $v0 = track id; 0 builds Las Vegas's sky model.

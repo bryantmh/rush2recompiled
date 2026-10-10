@@ -17,8 +17,16 @@
 // max_near_scale: the fog then starts later and thickens gradually out to the scaled far plane. Only the values passed
 // to guPerspective are scaled: the game's procedural sky dome (func_80089218) and the fog zones read the view's stored
 // near and far. The object cull distance and LOD distances get the same factor, nodes past the fixed-point range get
-// float matrices (RT64's gEXMatrixFloat, emitted by src/interpolation.cpp), and every section is drawn (the game's
-// all-visible mask).
+// float matrices (RT64's gEXMatrixFloat, emitted by src/interpolation.cpp), and every section is drawn but the
+// distant stand-ins.
+//
+// Distant stand-ins: regions and sections are the same top-level placement records (region i is the camera in
+// section i's box, and the region count u8[0x800CA1A8 + track] is the section count), and the city tracks have
+// sections that their own region's mask hides: crude low-detail copies of far scenery that the visibility table
+// shows only from far away, in place of the real sections it hides there (Lower Manhattan 70-92, Las Vegas 16, 34,
+// 57, 68 and 73; every track but the stunt and battle courses has some). Drawing them up close put a flat teal slab
+// over the sky and a skewed building without collision next to the twin towers. So a section that its own region
+// hides keeps the game's choice (drawn only where the region's mask shows it) and every other section is drawn.
 
 #include <algorithm>
 #include <atomic>
@@ -26,11 +34,14 @@
 #include <cstring>
 
 #include "recomp.h"
+#include "librecomp/addresses.hpp"
 #include "rush2_hooks.h"
 #include "rush2.h"
 
 namespace {
     constexpr uint32_t all_visible_mask = 0x800CA1B8;
+    constexpr uint32_t pvs_counts = 0x800CA1A8;  // u8 per track slot: region (= section) count.
+    constexpr uint32_t track_id = 0x8010C3F0;
     constexpr uint32_t camera_array = 0x800E79D0; // Per-view cameras, 0x40 bytes each; position at +0x24.
     constexpr float max_near_scale = 2.0f;
     constexpr float fixed_range = 2048.0f;        // Largest camera offset the fixed-point matrix holds.
@@ -138,11 +149,36 @@ extern "C" int rush2_draw_distance_matrix_cols(uint8_t* rdram, recomp_context* c
         [&](int r, int c) { return read_f32(rdram, rotation + (c * 4 + r) * 4); });
 }
 
-// Called from the visibility hook (rush2_track49_pvs): 0x5C($sp) = the section mask for the camera's region.
-bool rush2::draw_distance_pvs(uint8_t* rdram, uint32_t sp) {
+// Section i's bit in a 16-byte region mask: two big-endian u64, bit i of the first for i < 64, then 64-127.
+static bool mask_bit(uint8_t* rdram, uint32_t mask, int i) {
+    return (MEM_BU(0, (int32_t)(mask + (i < 64 ? 7 - i / 8 : 15 - (i - 64) / 8))) >> (i % 8) & 1) != 0;
+}
+
+// Called from the visibility hook (rush2_track49_pvs) after the region's mask is chosen: 0x5C($sp) = the section
+// mask, table = the track's region mask table.
+void rush2::draw_distance_pvs(uint8_t* rdram, uint32_t sp, uint32_t table) {
+    static uint32_t widened = 0; // 16 bytes in recomp memory.
     if (scale.load(std::memory_order_relaxed) == 1.0f) {
-        return false;
+        return;
     }
-    MEM_W(0, (int32_t)(sp + 0x5C)) = all_visible_mask;
-    return true;
+    if (table == 0) {
+        MEM_W(0, (int32_t)(sp + 0x5C)) = all_visible_mask;
+        return;
+    }
+    if (widened == 0) {
+        widened = (uint32_t)((uint8_t*)recomp::alloc(rdram, 16) - rdram) + 0x80000000;
+    }
+    int slot = MEM_B(0, (int32_t)track_id);
+    int count = slot >= 0 ? std::min<int>(MEM_BU(0, (int32_t)(pvs_counts + slot)), 128) : 0;
+    uint32_t chosen = (uint32_t)MEM_W(0, (int32_t)(sp + 0x5C));
+    for (int b = 0; b < 16; b++) {
+        MEM_B(0, (int32_t)(widened + b)) = (int8_t)0xFF;
+    }
+    for (int i = 0; i < count; i++) {
+        if (!mask_bit(rdram, table + i * 16, i) && !mask_bit(rdram, chosen, i)) {
+            int byte = i < 64 ? 7 - i / 8 : 15 - (i - 64) / 8;
+            MEM_B(0, (int32_t)(widened + byte)) = (int8_t)(MEM_BU(0, (int32_t)(widened + byte)) & ~(1 << (i % 8)));
+        }
+    }
+    MEM_W(0, (int32_t)(sp + 0x5C)) = widened;
 }

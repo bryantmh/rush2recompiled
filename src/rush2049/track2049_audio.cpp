@@ -119,6 +119,7 @@ namespace {
         int handle = -1;
         int pending_loop = -1;
         int loop_id = -1;   // Sound id of the loop playing, or -1.
+        int pending_stop = -2; // Stop sound (-1 none) waiting for the start sound to finish, or -2.
     };
     std::mutex objects_mutex;
     std::vector<ObjectVoice> object_voices;
@@ -221,11 +222,19 @@ void rush2::track2049::update_object_sounds(uint8_t* rdram, const std::vector<Ob
                 v.handle = s.ids[0] >= 0 ? audio::sfx_start(s.ids[0], volume, pan, 1.0f, surround) : -1;
                 v.pending_loop = -1;
                 v.loop_id = -1;
+                v.pending_stop = -2;
                 break;
             case ObjectSound::loop:
                 v.pending_loop = s.ids[1];
+                v.pending_stop = -2;
                 break;
             case ObjectSound::stop:
+                // func_800BF1C8 stops only once the start sound has finished (TRIGGER pads' click).
+                if (v.handle >= 0 && v.loop_id < 0 && audio::sfx_active(v.handle)) {
+                    v.pending_stop = s.ids[2];
+                    v.pending_loop = -1;
+                    break;
+                }
                 if (v.handle >= 0) audio::sfx_stop(v.handle);
                 v.handle = s.ids[2] >= 0 ? audio::sfx_start(s.ids[2], volume, pan, 1.0f, surround) : -1;
                 v.pending_loop = -1;
@@ -233,6 +242,10 @@ void rush2::track2049::update_object_sounds(uint8_t* rdram, const std::vector<Ob
                 break;
             default:
                 break;
+        }
+        if (v.pending_stop != -2 && (v.handle < 0 || !audio::sfx_active(v.handle))) {
+            v.handle = v.pending_stop >= 0 ? audio::sfx_start(v.pending_stop, volume, pan, 1.0f, surround) : -1;
+            v.pending_stop = -2;
         }
         // The loop starts once the start sound has finished (func_800BF45C).
         if (v.pending_loop >= 0 && (v.handle < 0 || !audio::sfx_active(v.handle))) {

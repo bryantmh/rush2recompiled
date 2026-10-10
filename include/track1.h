@@ -98,8 +98,9 @@ namespace rush2::track1 {
     // Race file loading (start of func_800A4C98): serves the raced Rush 1 track's files and returns true, or puts the
     // host's own back and returns false when no Rush 1 track is raced.
     bool load(uint8_t* rdram);
-    // func_8007C27C at 0x8007C480: the section mask for the camera's region. Returns true if it handled it.
-    bool pvs(uint8_t* rdram, uint32_t sp);
+    // func_8007C27C at 0x8007C480: the section mask for the camera's region. Returns true if it handled it, with
+    // table = its region mask table.
+    bool pvs(uint8_t* rdram, uint32_t sp, uint32_t& table);
     // Seed time in seconds for the record tables of track k (1-7), or 0 if unknown.
     float record_seed(int k, bool backward);
     // func_80093048 at 0x80093298: replaces the race time Rush 2 worked out from the AI lanes with Rush 1's own.

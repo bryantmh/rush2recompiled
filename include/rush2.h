@@ -18,12 +18,13 @@ namespace rush2 {
     void set_lod_disabled(bool disabled);
 
     // Draw distance factor (src/draw_distance.cpp): 1 is the original. Scales the projection's near (up to 2x) and
-    // far planes and the placed object and LOD cull distances; above 1 it draws every track section regardless of
-    // visibility and gives nodes past the fixed-point matrix range float matrices.
+    // far planes and the placed object and LOD cull distances; above 1 it draws every track section but the distant
+    // stand-ins regardless of visibility and gives nodes past the fixed-point matrix range float matrices.
     void set_draw_distance(float factor);
     float draw_distance();
-    // Visibility hook helper: picks the all-visible section mask when the draw distance is extended.
-    bool draw_distance_pvs(uint8_t* rdram, uint32_t sp);
+    // Visibility hook helper, after the region's mask is chosen: when the draw distance is extended, widens it to
+    // every section but the distant stand-ins. table = the track's region mask table (0 = unknown).
+    void draw_distance_pvs(uint8_t* rdram, uint32_t sp, uint32_t table);
     // True (once) if the node matrix at addr was written as floats, so its G_MTX must become a gEXMatrixFloat.
     bool draw_distance_take_float_matrix(uint32_t addr);
 

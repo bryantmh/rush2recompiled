@@ -310,6 +310,18 @@ The diagonal (own region visible) is set for 85–100% of regions in both games,
 - **Capacity:** Rush 2's table for slot t has room for exactly count_t regions. Only NYTWO (slot 3, 123) can hold
   every 2049 track (max 122) in place. Any other slot needs the table moved (§8).
 
+### 5.2.1 Distant stand-ins and the Draw Distance option
+
+Regions and sections are the same top-level placement records: region i is the camera in section i's box, and the
+region count `u8[0x800CA1A8 + track]` is the section count. Every city track has sections that its own region's mask
+hides (Las Vegas 16, 34, 57, 68, 73; Lower Manhattan 70-92; the other race tracks 9-18 each, the stunt and battle
+courses none). They are crude low-detail copies of far scenery that the table shows only from far away, in place of
+the real sections it hides there. The Draw Distance option (src/draw_distance.cpp) used to draw every section with
+the all-visible mask, which put these stand-ins up close: a flat teal slab over the sky and a skewed building without
+collision next to Lower Manhattan's twin towers (user report). Now a section that its own region hides is drawn only
+where the region's mask shows it, and every other section is always drawn. The same rule applies to the hosted Rush 1
+and Rush 2049 tracks, with their own tables.
+
 ### 5.3 Model draw: `func_8007AA48` (Rush 2) vs `func_8009C8F0` (2049)
 
 **Same in both:**

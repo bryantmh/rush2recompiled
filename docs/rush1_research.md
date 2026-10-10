@@ -545,3 +545,25 @@ version's (`rush2::track2049::track_names`, include/track2049.h): 1 Marina, 2 Ha
 6 Presidio. Their banners are in `tools/rush2049/banners/`, and the same tool writes them into
 `include/track2049_banners.h`. Only Metro and Presidio have pictures so far. Marina, Haight, Civic and Mission get
 their names in the 2049 banner font. The stunt arenas, battle arenas and obstacle course keep their numbered logos.
+
+## 13. Fog zones
+
+Both games' per-view fog setup (Rush 1 `func_80082524`, Rush 2 `race_fog_zone_setup_80081074`) sets the view's fog
+start (+0x4C), fog end (+0x4E) and far plane (+0x38) and the object cull distance from tables by player count and the
+FOG option. It then takes, from a per-track list, the nearest zone whose radius holds the camera (distance in x and
+z) and blends those values from the zone's at its center to the normal ones at its edge. Records are 12 bytes,
+{s16 x, z, radius, fog start, fog end, far}, ended by a record with radius 0. Rush 1's lists, a pointer per track at
+0x800CF87C:
+
+| Track | Zones (x, z, radius, fog start, fog end, far) |
+|---|---|
+| 1 Golden Gate | (-1625, 4000, 1200, 950, 1000, 600): the bridge |
+| 2 Embarcadero | 2 zones, fog start 994, far 1500-1700 |
+| 3 Market | none |
+| 4 Downtown | 7 zones, fog start 992, far 1600 |
+| 5 The Heights | 3 zones, fog start 992, far 1700 |
+| 6 Sunset | (0, 600, 1200, 990, 1000, 1500) |
+| 7 The Rock | none |
+
+Rush 2's own list (0x800CA1F8, a pointer per slot) has zones only for Lower Manhattan. While a Rush 1 track is
+applied, src/rush1/track1.cpp copies its zones into recomp memory and points the host slot's entry at the copy.
