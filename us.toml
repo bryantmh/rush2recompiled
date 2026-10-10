@@ -10911,7 +10911,8 @@ text = "    if (rush2_unlocks_text(rdram, ctx)) return;"
 # colors, each car's physics tick (recording player 1, skipping the ghosts' scheduled steps), the drones' driver
 # (skipped for ghosts), the end of a physics tick (the ghosts' steps), car against car (not ghosts), standings, track
 # map and radar dots (not ghosts), the view's fog color (the ghosts' translucency), and the end of the car select's
-# text (the ghost choice).
+# text (the ghost choice). The race setup (also on a restart) starts Rush 2049's odometer over too
+# (src/rush2049/odometer.cpp).
 [[patches.hook]]
 func = "menu_settings_to_race_globals_80094698"
 before_vram = 0x80094A2C
@@ -10920,7 +10921,7 @@ text = "    rush2_ghost_settings(rdram, ctx);"
 [[patches.hook]]
 func = "race_load_track_800A5110"
 before_vram = 0x800A5114
-text = "    rush2_ghost_race_setup(rdram, ctx);"
+text = "    rush2_ghost_race_setup(rdram, ctx); rush2_odometer_race_setup(rdram, ctx);"
 
 [[patches.hook]]
 func = "race_preload_car_assets_800A37F4"
