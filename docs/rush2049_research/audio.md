@@ -70,20 +70,26 @@ re-rolls 5. [V]
 |---|---|---|---|
 | Song | 0, 1, 4, 2, 3, 7 | 0, 1, 4, 2, 3, 7 | 8, 9, 8, 8, 9, 9, 8 |
 
-| Song | File | bpm | Length | Loop | Race track |
-|---|---|---|---|---|---|
-| 0 | 10 | 32 | 255.0 s | to 0 | 1 |
-| 1 | 11 | 151 | 220.9 s | to 0 | 2 |
-| 2 | 12 | 137 | 266.3 s | to 0 | 4 |
-| 3 | 13 | 154 | 268.1 s | to 0 | 5 (sparse intro: 108 notes in the first minute) |
-| 4 | 14 | 132 | 240.0 s | to 0 | 3 |
-| 5 | 15 | 134 | 96.7 s | to 7.2 s | — |
-| 6 | 16 | 142 | 142.0 s | to 13.5 s | — |
-| 7 | 17 | 140 | 246.9 s | to 0 | 6 |
-| 8 | 18 | 103 | 242.3 s | to 0 | — |
-| 9 | 19 | 130 | 265.8 s | to 0 | — |
-| 10 | 20 | 140 | ends (~34 s) | — | — |
-| 11 | 21 | 122 | ends (~32 s) | — | — |
+| Song | File | bpm | Length | Loop | Race track | Disc song |
+|---|---|---|---|---|---|---|
+| 0 | 10 | 32 | 255.0 s | to 0 | 1 (Marina) | Bassy |
+| 1 | 11 | 151 | 220.9 s | to 0 | 2 (Haight) | Garage |
+| 2 | 12 | 137 | 266.3 s | to 0 | 4 (Metro) | Wingey |
+| 3 | 13 | 154 | 268.1 s | to 0 | 5 (Mission; sparse intro: 108 notes in the first minute) | Trancey |
+| 4 | 14 | 132 | 240.0 s | to 0 | 3 (Civic) | — |
+| 5 | 15 | 134 | 96.7 s | to 7.2 s | — | — |
+| 6 | 16 | 142 | 142.0 s | to 13.5 s | — | — |
+| 7 | 17 | 140 | 246.9 s | to 0 | 6 (Presidio) | — |
+| 8 | 18 | 103 | 242.3 s | to 0 | — | — |
+| 9 | 19 | 130 | 265.8 s | to 0 | — | Flier |
+| 10 | 20 | 140 | ends (~34 s) | — | — | — |
+| 11 | 21 | 122 | ends (~32 s) | — | — | — |
+
+Disc song: the Dreamcast `.STR` that the N64 song arranges. Matched by tempo and by time-aligned chroma: 60 s of the
+N64 render (`audio_build.bat --song N`) slid over the whole decoded stream, mean frame correlation 0.54-0.87 for the
+match against 0.26-0.43 for every other stream. Songs 4, 7 and 8 have no clear counterpart (best 0.36, 0.48, 0.49 with
+runners-up within 0.03; 8 sits closest to Noon and Sunset). The Sound tab (src/music.cpp) names the matched N64 songs
+after their disc song and keeps a number for the rest. [I]
 
 Song n is played with `sndSeqPlay(group n, song n, data, NULL)`: no start volume or fade, all tracks on, speed 1
 (func_800979A0; group/song pair table 0x8011F070). A new song only starts once the old one was stopped. [V]
