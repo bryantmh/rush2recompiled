@@ -197,7 +197,8 @@ Main code. **[V]** unless marked.
 
 ## 7. The port (Rush 2)
 
-- Arenas are hosted in STUNT1 (stunt mode), **no computer cars** (2049's battle was multiplayer only).
+- Arenas are hosted in STUNT1 (stunt mode). 2049's battle was multiplayer only; the port's computer opponents are
+  section 9.
 - `src/rush2049/battle.cpp` reads the mount, muzzle and shield tables from the player's ROM (the overlay is inflated at load).
   Rush 2's own cars (types 0-21) carry roof weapons where 2049's second car does, at their body's height **[I]**.
 - **Models** (`src/rush2049/battle_render.cpp`): 2049's files 76 (weapons, projectiles, effects), 63 (coins) and 61 (the
@@ -248,12 +249,12 @@ Main code. **[V]** unless marked.
 - **Explosion** (section 6.2): the 30 `NEXPLOSION` frames at half size, 2049's sound 0x45 (which holds until its
   key-off, sent after 1.5 s **[I]**). Wall and car hits of bullets keep a small scaled muzzle flash **[I]**; there are
   no smoke trails, casings or scorch marks.
-- **Invisibility**: `rush2::ghost::set_faded` (src/ghost.cpp, the ghosts' model hook): the car's own view draws the
 - **Billboards and muzzles [I]**: each explosion frame is a card in its model's xy plane, seen from the camera along its +z (the other way it is culled), so it is
   drawn facing each view's camera (`battle_render::place(..., billboard)`). A shot starts at the weapon's mount plus
   its muzzle in the car body's drawn pose (`body_pose`), not the physics tick's, which the drawn car is ahead of. The
   tracers (`WFX_TRACERG1` reaches 39 behind its origin, `WPR_CANNG1` 63) are cut so they never reach back past the
   muzzle, and on their first frame stretch from it: a bullet goes 66 a tick, farther than its tracer is long.
+- **Invisibility**: `rush2::ghost::set_faded` (src/ghost.cpp, the ghosts' model hook): the car's own view draws the
   whole car translucent, as a ghost; the other views don't draw it (2049 fades it to nothing there), and its shadow
   polygon (car state +0x20C) is hidden in them. The arrow to it is faint (alpha 0x20).
 - **Teams** (2049 `0x8012E67C`): Games tab, Player n Battle Team (blue, red, yellow, green; default one each). Cars of
@@ -292,7 +293,7 @@ Main code. **[V]** unless marked.
 
 ## 8. Known differences and test aids
 
-- No computer opponents (2049's battle was multiplayer only).
+- Computer opponents are the port's own (section 9); 2049's battle was multiplayer only.
 - The results print PLAYER 1-4, not profile names; a power-up comes back after 60 s **[I]**; the coin's scale, the
   bullet hit flashes and the non-weapon model colors are by eye **[I]**; an invisible car is a ghost in its own view,
   not a fade.
@@ -304,3 +305,78 @@ Main code. **[V]** unless marked.
   car pickup kind n (0-7 weapons, 8 heal, 9 invisibility, 10 shield) at 2 s; `kill` destroys car 0 at 8 s; `short`
   makes the battle 25 s; `log` prints the clock, sounds and pickups; `models` lists the arena's model names.
   4 players by script: `RUSH2_TEST_PLAYERS=4` with P2START / P3START / P4START after the BATTLE row is reached.
+
+## 9. Computer opponents (the port's own)
+
+Rush 2049 had no battle AI, so `src/rush2049/battle_ai.cpp` is new code on top of the port's battle rules. How many
+opponents is the BATTLE track select's **DRONES** (0-7; a race has 8 cars, so fewer with more players), and how well
+they drive and fight its **DIFFICULTY** slider (0-5, menu settings +0xA, copied to `0x8010C211` by `func_80094698`).
+The BATTLE select lists both (`option_open`, `filter_options`), and its DIFFICULTY slider stays on screen: the slider
+widget `func_803C5798` moves the value off screen on track 11 (DIFFICULTY at 0x803C5930, HANDICAP at 0x803C5978), and
+the hook there (`rush2_track49_stunt_option_t9`) leaves an arena's DIFFICULTY alone.
+
+- **Cars**: the opponents are Rush 2's drones. `func_80094698` copies the track select's DRONES into the race's drone
+  count `0x800D3E90`; its stunt test gave the arenas none, and the end of it (`rush2_track49_obstacle_settings`,
+  0x80094A30) now writes DRONES (menu settings +0x1, capped at 8 - players) there for a battle arena. The BATTLE
+  select keeps DRONES open (`option_open`) and lists it even in stunt mode (game mode 2, which `func_800AE670` sets
+  for STUNT1 and the arenas and whose option list `func_803AB294` stops at WIND). The drone slots get their cars and colors as in
+  any race (`func_800A37F4`, with the Players tab's AI Opponents choices). A computer car is a drone (car +0x7E8 == 1)
+  in a battle arena that is set up (`rush2::battle::active`).
+- **Driving**: a drone's driver `drone_driver_80074990` is skipped for them (hook at its start, shared with the
+  ghosts) and the AI writes the inputs a player's controls would: car +0x728 steering (-1 left .. 1 right), +0x734
+  throttle and +0x730 brake (0-1, as `input_steering_from_stick_80076694` and the code after it write them for a
+  player: the gas, stick up or its button, to +0x734 and the brake to +0x730; `car_physics_inputs_80071A1C` copies
+  +0x734 to +0x3B4, the drivetrain's throttle), +0x738 gear (1 drive, -1 reverse: `player_join_init_car_80080524` sets -1 while the reverse button is held;
+  a race starts at 1, `0x8008D7BC`). The AI runs in the battle's tick (the movers' hook at 0x800765F4, before the cars
+  step).
+- **Steps**: `physics_tick_drones_80075C3C` steps drones round robin (a few per tick, schedule `0x800CC0E4`), so as
+  for the ghosts an opponent's scheduled step is skipped (`physics_car_tick_80075880` start) and each one is stepped
+  every physics tick at its end (0x8007660C), with `car_material_effects_update_800663CC` after it when
+  `0x800D042C` is set, as the drone loop does. For its step the car is a human's (+0x7E8 = 2, as the ghosts are), so
+  the physics treats it as a player's car (a crash wrecks a drone always, a player's car as the cheats allow,
+  `car_crash_damage_stage_800715E8`), and its clutch +0x72C is set first by `player_join_init_car_dynamics_800806A4`,
+  a player's clutch from rpm and pedals (a drone's stays at the race start's 0). The AI waits for the race (game
+  state 3; a drone's release +0x71C is set during the countdown already) and for the car's release after a respawn.
+- **Navigation grid**: built on a thread from the arena's solid triangles when it is converted (the ones shots hit).
+  Columns of 4 ft (more for a bigger arena, at most 300 across the level surfaces' extent); every surface in a column
+  no steeper than 50 degrees (|normal y| >= 0.64) with 3.5 ft of room above it is a node. A node links to the node
+  of each of its 8 neighbor columns closest in height that rises at most 1.2 x the step or drops at most 30 ft (a
+  drop, one way, costing more) if no triangle steeper than 50 degrees crosses the line between them 2 ft up. Nodes
+  missing a link are at a wall; the cost of a node grows within 3 cells of one. Components join nodes linked either
+  way. `R2_BATTLE_NAV=<file.pgm>` writes the grid as an image.
+- **Routes**: A* (octile distance), avoiding other cars' mines on the ground; replanned every 0.6 s, when the goal
+  moves to another node or the car is far off its route. The car steers for the route point 3-10 cells on (by
+  speed), or straight at its goal within 60 ft when the way is open and the ground level enough.
+- **Skill** by DIFFICULTY: 0 (Easy), 2.5 (Medium) and 5 (Hard) in the table `skills`, the steps between blended;
+  dodging from 2 up. Easy / Medium / Hard: decisions every 0.7 / 0.4 / 0.15 s, top speed x 0.78 / 0.9 / 1, aim
+  window x 2 / 1.3 / 0.9, 45% / 80% / 100% of their chances to fire taken, pickups looked for within 250 / 400 / 600 ft.
+- **Goals** (every 0.15 / 0.4 / 0.7 s by skill, at once when the goal is gone): attack an enemy (nearer, more
+  damaged, the last car to hit it, the one it is already after; not with only mines; an invisible car only within
+  30 ft), a pickup (a weapon when it has the gun, health by how hurt it is, the power-ups; not one another car is
+  twice as close to), or roam to a random open node. A goal that can't be reached is left for 5-10 s.
+- **Firing** (the battle's own `fire`, through the same buttons as a player's, `rush2::battle_ai::buttons`): gun and
+  gatling when `update_aim`'s yaw is within the target's half width x the skill factor, under 350 ft; cannon and rocket
+  when the car points at it (the rocket's flight led), under 400 ft; missile when the target is in a cone ahead
+  under 320 ft; grenade within 60 ft plus the car's speed x 0.9; sonic within 55 ft; mine when a car is behind
+  within 90 ft. Not through walls (the way 2.5 ft up must be open, except for the lobbed and area weapons). The gatling
+  holds FIRE; the others let go a tick between presses. Easy fires at 45% of its chances, Medium 80%.
+- **Speed**: the top speed (130 ft/s x 0.78 / 0.9 / 1 by skill) times how little the car must turn (down to a
+  quarter). Shooting at a car within 60 ft it holds about 35 ft back at that car's speed once it faces it, and keeps
+  going round at 35 ft/s until then (a car turns only while it moves); with the ram it drives into it.
+- **Recovery**: a car with the throttle on that hasn't moved for 0.8 s, or (not chasing a car) whose goal is close behind it, reverses
+  with opposite lock for about a second. One that hasn't got 15 ft anywhere for 10 s (3 s on its roof) is wrecked
+  (car +0x648), and the game respawns it.
+- **Dodge** (Medium, Hard): a missile within 140 ft heading at the car makes it swerve across its path for 0.7 s.
+- **Results**: the winner can be a computer car (`CPU n`, numbered by drone slot) **[I]**; with one player and
+  opponents the player's points box moves below the winner's box.
+- Test aids (env `R2_BATTLE_TEST`): `ai` logs each opponent once a second (goal, target, goal point and distance,
+  wanted speed, position, speed, inputs, weapon, wreck and respawn state); `bots<n>` races n opponents whatever
+  DRONES says; `nofire` keeps them from firing (driving only); with `log` the battle logs every hit
+  (`car N takes X from car M (health H)`). `python tools/battle_ai_log.py RUN_LOG` summarizes a run: each car's goals,
+  mean speed and time stopped, damage and kills dealt. Recipe (1 player, 3 opponents, round over at ~52 s):
+  `R2_BATTLE_TEST=bots3,ai,log,short python tools/rush1/shots.py OUT "8:START,11:DD,11.6:DD,12.2:DD,12.8:DD,13.4:DD,15:A,17.5:A,20:A,22:A,25:A" 40 53`.
+- Seen in game (DM1, 1 player, 1 and 3 opponents): they collect weapons and power-ups, chase and shoot each other and
+  the player, score kills, and a computer car can win (`CPU 2 WINS`). Every weapon's rule fired and hit, each given
+  to all cars with `give<n>` (cannon, grenade, mine, missile, ram, rocket, sonic, and the gun). All cars respawn at the
+  arena's one respawn point, so fights gather there. The BATTLE select's DIFFICULTY row and slider were seen and
+  moved. Not seen: how DIFFICULTY 0 and 5 play, the other arenas, 2-4 players with opponents, the gatling.

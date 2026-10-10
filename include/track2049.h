@@ -15,8 +15,8 @@
 // track, STUNT1, so they are played with Rush 2's stunt rules and scoring. Rush 2049's obstacle course follows them
 // as id 29. It runs from a start to a finish, timed, so it is hosted like a race track (k = obstacle) as a one-lap
 // race without drones, against a 5-minute clock as in Rush 2049. Its eight battle arenas (DM1-DM8) are ids 30-37, hosted
-// by STUNT1 like the stunt arenas (a free-roaming arena with no drones or checkpoints) and played from the Start Game
-// menu's BATTLE row. Rush 2049's battle weapons, health and scoring aren't ported yet (TODO.txt).
+// by STUNT1 like the stunt arenas (a free-roaming arena with no checkpoints; its drones are the Games tab's computer
+// opponents) and played from the Start Game menu's BATTLE row, with Rush 2049's battle rules (src/rush2049/battle.cpp).
 namespace rush2::track2049 {
     constexpr int track_count = 6;
     constexpr int first_menu_id = 12;   // Track select id of 2049 track 1.

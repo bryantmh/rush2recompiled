@@ -12,9 +12,10 @@
 // drones. An arena has one AI path, used both ways, and no visibility table (Rush 2049 draws every section of it);
 // it keeps Rush 2's stunt song and STUNT1's records.
 //
-// Rush 2049's battle arenas (DM1-DM8) are hosted in the stunt slot the same way: a free-roaming arena with no drones or
-// checkpoints. Their game type is battle (game_type), so the rules ported by type apply: no stuck reset, 0.6 s
-// wreck respawn, no map or radar. Weapons, health and kill scoring aren't ported.
+// Rush 2049's battle arenas (DM1-DM8) are hosted in the stunt slot the same way: a free-roaming arena with no
+// checkpoints, whose drones are the computer opponents (src/rush2049/battle_ai.cpp). Their game type is battle
+// (game_type), so the rules ported by type apply: no stuck reset, 0.6 s wreck respawn, no map or radar. The battle
+// itself is src/rush2049/battle.cpp.
 //
 // Rush 2049's obstacle course runs from a start to a finish line against a 5-minute clock, with no stunt scoring, so
 // it is hosted like a race track (raced_track = obstacle) and raced as Rush 2's one-race mode would race it: one lap,
@@ -45,6 +46,7 @@
 
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
+#include "battle_ai.h"
 #include "librecomp/game.hpp"
 #include "rush2_hooks.h"
 #include "battle.h"
@@ -559,9 +561,13 @@ extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* 
     constexpr uint32_t backward = 0x80119848;
     constexpr uint32_t mirror = 0x800D0190;
     if (rush2::track2049::battle_race(rdram)) {
-        // Battle arenas are stunt mode without computer cars: Rush 2049's battle was multiplayer only (computer
-        // opponents are future work).
-        MEM_H(0, (int32_t)drones) = 0;
+        // Battle arenas are stunt mode, which has no drones; Rush 2049's battle was multiplayer only. The drones here
+        // are the computer opponents (src/rush2049/battle_ai.cpp): the track select's DRONES, which the BATTLE select
+        // keeps open (src/rush2049/track2049_menu.cpp).
+        constexpr uint32_t players = 0x8010C3E2;   // s16
+        constexpr uint32_t menu_drones = 0x800D5761;   // s8: menu settings +0x1
+        MEM_H(0, (int32_t)drones) = (int16_t)rush2::battle_ai::race_opponents(MEM_B(0, (int32_t)menu_drones) & 7,
+                                                                               std::max<int>(1, (int16_t)MEM_H(0, (int32_t)players)));
         MEM_B(0, (int32_t)backward) = 0;
         MEM_B(0, (int32_t)mirror) = 0;
         return;

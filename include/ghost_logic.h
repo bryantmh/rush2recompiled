@@ -38,7 +38,7 @@ namespace rush2::ghost {
     constexpr float max_time_2049[6] = { 225.0f, 285.0f, 300.0f, 390.0f, 330.0f, 450.0f }; // 0x80111754
     constexpr int keyframe_ticks = 60;
 
-    // One physics tick's inputs: Rush 2's car +0x728 steering, +0x72C clutch, +0x730 throttle, +0x734 brake, +0x738
+    // One physics tick's inputs: Rush 2's car +0x728 steering, +0x72C clutch, +0x730 brake, +0x734 throttle, +0x738
     // gear, and the wings' button (bit 0) and style (bits 1-2) and stick. Rush 2049 steps its ghost on its own clock
     // (car +0x714 = sample count x step, +0x718 = the step); Rush 2 takes a car's step from its physics clock
     // (0x8010C0E4) and puts a wrecked car back by its game clock (0x80117488), so the sample keeps both as the

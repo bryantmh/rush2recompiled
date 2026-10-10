@@ -7769,21 +7769,22 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 vram = 0x80080524
 name = "player_join_init_car"
 sig = "s32 player_join_init_car(Car *car, PlayerRec *rec)"
-desc = "Joining helper called with (car, record, &port_pressed, &port_state_8) when a player joins a port."
-status = "inferred"
+desc = "A player's gear from its buttons (per frame): the reverse button held sets +0x738 = -1, shift buttons step it (1-4), automatic picks 1-4 by speed (car state +0xE0 >> 2: 51, 81, 111). Skipped while wrecked or respawning. The battle's computer opponents set +0x738 themselves (1 or -1)."
+consts = "-1 = reverse gear; 0x33/0x51/0x6F = shift speeds"
+status = "verified"
 ported = true
 area = "menu"
-ref = "src/players4.cpp"
+ref = "docs/rush2049_research/battle.md#9-computer-opponents-the-ports-own"
 
 [[func]]
 vram = 0x800806A4
 name = "player_join_init_car_dynamics"
-sig = "s32 player_join_init_car_dynamics(Car *car)"
-desc = "Joining helper called with the car when a player joins."
+sig = "void player_join_init_car_dynamics(Car *car)"
+desc = "A player's clutch (+0x72C) per frame from the engine rpm (+0x7F0) and pedals: 1 under 1000 rpm, then by rpm bands (1000, 3000) and +0x730. Also run for the battle's computer opponents before each step (src/rush2049/battle_ai.cpp)."
 status = "inferred"
 ported = true
 area = "menu"
-ref = "src/players4.cpp"
+ref = "docs/rush2049_research/battle.md#9-computer-opponents-the-ports-own"
 
 [[func]]
 vram = 0x80080788
@@ -9137,10 +9138,10 @@ ref = "docs/functions/rush2_collision.md#rush-2-collision-functions"
 vram = 0x8008D7BC
 name = "car_zero_inputs"
 sig = "void car_zero_inputs(Car *car)"
-desc = "Writes car +0x728, +0x72C, +0x730 (brake), +0x734 (throttle) floats (probably 0.0, one is 1.0) and +0x738 halfword; resets control inputs."
-status = "inferred"
+desc = "Race start inputs: steering 0, clutch 0, brake (+0x730) 0, throttle (+0x734) 1, gear 1 (drive)."
+status = "verified"
 area = "car"
-ref = "docs/functions/rush2_car.md#rush-2-car-functions"
+ref = "docs/rush2049_research/battle.md#9-computer-opponents-the-ports-own"
 
 [[func]]
 vram = 0x8008D7E4
