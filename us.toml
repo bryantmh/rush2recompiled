@@ -11140,6 +11140,32 @@ func = "car_build_textures_8008582C"
 before_vram = 0x80085C14
 text = "    rush2_fix_white_accent(rdram, ctx);"
 
+# Keep Music Playing When Paused (src/music.cpp): the pause's stop and CONTINUE's restart are held.
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800AFE38
+text = "    rush2_music_pause_start(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800AFE48
+text = "    rush2_music_pause_release(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800B00B8
+text = "    rush2_music_continue(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800AFD44
+text = "    rush2_music_pause_frame(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800B00C0
+text = "    rush2_music_pause_release(rdram, ctx);"
+
 [[patches.hook]]
 func = "race_start_timer_800AE670"
 before_vram = 0x800AEDC0

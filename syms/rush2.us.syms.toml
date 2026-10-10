@@ -864,7 +864,7 @@ functions = [
     { name = "gfx_rgba5551_to_hsv_mod_80084E74", vram = 0x80084E74, size = 0x68 },
     { name = "car_paint_recolor_palette_80084EDC", vram = 0x80084EDC, size = 0x5A0 },
     { name = "scene_set_flag_8008547C", vram = 0x8008547C, size = 0x30 },
-    { name = "car_paint_texture_build_800854AC", vram = 0x800854AC, size = 0x380 },
+    { name = "car_palette_classify_800854AC", vram = 0x800854AC, size = 0x380 },
     { name = "car_build_textures_8008582C", vram = 0x8008582C, size = 0x6AC },
     { name = "scene_node_new_with_matrix_ex_80085ED8", vram = 0x80085ED8, size = 0xF8 },
     { name = "car_build_scene_nodes_80085FD0", vram = 0x80085FD0, size = 0x730 },

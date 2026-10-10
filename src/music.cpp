@@ -25,6 +25,14 @@
 // (func_80062F50) is noted as the music the game wants; while a preview plays, its plays and stops are held (turned
 // into a volume update, as are any still in the queue when the preview starts), so the game can't take the music
 // back. Stopping the preview (or closing the tab) then plays what the game last asked for.
+//
+// Pause: race_pause_menu_step (func_800AFD44) stops the music when the race pauses (music command 0x40000000 at
+// 0x800AFE40, after func_80062FC4 at 0x800AFE38) and on CONTINUE starts the race's song from the top again with
+// func_8008C370(2, MUSIC setting) at 0x800B00B8 (with a shuffle, a new song). The Keep Music Playing When Paused
+// option (off by default) holds both: the stop becomes a volume update and the restart does nothing, so the song
+// plays on through the pause. The option can be changed with the pause menu open (the Sound tab works in game): the
+// pause step's entry hook then starts the race's song at once (func_8008C370, as CONTINUE would) or stops it (music
+// command 0x40000000, as the pause does), and CONTINUE restarts the song only if it isn't playing.
 
 // As in src/rush2049/wings.cpp: librecomp's nlohmann::json first.
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
@@ -57,6 +65,8 @@
 extern "C" void music_stop_song_80061E10(uint8_t* rdram, recomp_context* ctx);   // Stops the song.
 extern "C" void music_play_sequence_80061E68(uint8_t* rdram, recomp_context* ctx);   // Plays sequence $a0; 0 if busy.
 extern "C" void al_seqp_get_state_800091B0(uint8_t* rdram, recomp_context* ctx);   // alSeqpGetState($a0)
+extern "C" void music_pick_race_song_8008C370(uint8_t* rdram, recomp_context* ctx);   // ($a0 2: race music, $a1 setting)
+extern "C" void music_queue_command_80062F50(uint8_t* rdram, recomp_context* ctx);  // Queues music command $a0.
 
 namespace {
     using namespace recompui;
@@ -64,6 +74,12 @@ namespace {
     constexpr uint32_t track_id = 0x8010C3F0;
     // The other cars' engine sounds (src/car_engines.cpp).
     constexpr const char* other_engines_id = "other_engines";
+    constexpr const char* pause_music_id = "pause_keeps_music";
+    std::atomic<bool> pause_keeps_music = false;
+    // Set around the pause menu's stop and restart calls while the option is on: their music commands are held.
+    std::atomic<bool> pause_hold = false;
+    // During a pause: 1 if the race's song plays on, 0 if it was stopped; -1 outside a pause.
+    std::atomic<int> pause_music = -1;
     constexpr const char* menu_music_description =
         "Plays this game's main menu song in the menus, switching at once when changed. Rush 2 is the game's own; "
         "Shuffle picks a game each time the menu music starts. SF Rush and Rush 2049 need their ROMs (Games tab) and "
@@ -718,6 +734,23 @@ namespace {
                 recompui::config::get_sound_config().set_option_value(other_engines_id, checked);
             });
 
+            // Keep music playing when paused: a switch like the engines one.
+            Element* pause_row = context.create_element<PageRow>(list);
+            pause_row->set_display(Display::Flex);
+            pause_row->set_flex_direction(FlexDirection::Row);
+            pause_row->set_align_items(AlignItems::Center);
+            pause_row->set_padding(12.0f);
+            Element* pause_title = context.create_element<Element>(pause_row, 0, "div", false);
+            pause_title->set_display(Display::Flex);
+            pause_title->set_flex_direction(FlexDirection::Column);
+            pause_title->set_flex_grow(1.0f);
+            context.create_element<Label>(pause_title, "Keep Music Playing When Paused", theme::Typography::LabelMD);
+            Toggle* pause_toggle = context.create_element<Toggle>(pause_row, ToggleSize::Medium);
+            pause_toggle->set_checked(std::get<bool>(config.get_option_value(pause_music_id)));
+            pause_toggle->add_checked_callback([](bool checked) {
+                recompui::config::get_sound_config().set_option_value(pause_music_id, checked);
+            });
+
             // Main menu music: which game's front-end song plays in the menus.
             Element* menu_row = context.create_element<PageRow>(list);
             menu_row->set_display(Display::Flex);
@@ -852,6 +885,13 @@ void rush2::music::create_sound_tab() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::car_engines::set_enabled(std::get<bool>(cur_value));
         });
+    config.add_bool_option(pause_music_id, "Keep Music Playing When Paused",
+        "The race's song plays on through the pause menu. Off, as in Rush 2, pausing stops it and continuing starts "
+        "it over.", false, true);
+    config.add_option_change_callback(pause_music_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            pause_keeps_music = std::get<bool>(cur_value);
+        });
     {
         std::vector<recomp::config::ConfigOptionEnumOption> choices;
         for (Game g : games) {
@@ -917,6 +957,7 @@ void rush2::music::create_sound_tab() {
 void rush2::music::load_config() {
     recomp::config::Config& config = recompui::config::get_sound_config();
     rush2::car_engines::set_enabled(std::get<bool>(config.get_option_value(other_engines_id)));
+    pause_keeps_music = std::get<bool>(config.get_option_value(pause_music_id));
     menu_music = std::get<uint32_t>(config.get_option_value(menu_music_id));
     for (Game g : games) {
         modes[(int)g] = std::get<uint32_t>(config.get_option_value(mode_option_id(g)));
@@ -935,6 +976,10 @@ void rush2::music::load_config() {
 
 // func_8008C370 entry: $a0 = 2 starts the race's music with setting $a1.
 extern "C" void rush2_music_race(uint8_t* rdram, recomp_context* ctx) {
+    if (pause_hold.load()) {
+        return; // Continuing from the pause with the song still playing.
+    }
+    pause_music = -1;
     race_sequence = -1;
     rush2::track2049::queue_race_song(-1);
     if ((int32_t)ctx->r4 != 2 || (ctx->r5 & 0xFF) != 1) {
@@ -976,6 +1021,10 @@ bool rush2::music::game_command(uint8_t* rdram, recomp_context* ctx) {
     uint32_t kind = cmd >> 30;
     if (kind == 3) {
         return false; // Volume and fade.
+    }
+    if (pause_hold.load()) {
+        ctx->r4 = (int32_t)command_volume;
+        return true;
     }
     menu_active = cmd == menu_command;
     if (menu_active) {
@@ -1038,5 +1087,53 @@ extern "C" void rush2_music_preview(uint8_t* rdram, recomp_context* ctx) {
     }
     if (start_preview(rdram, ctx, request)) {
         preview_request.compare_exchange_strong(request, no_request);
+    }
+}
+
+// race_pause_menu_step (func_800AFD44) before the pause's music stop (0x800AFE38): held while Keep Music Playing When
+// Paused is on. Before CONTINUE restarts the song (0x800B00B8): held while the song still plays.
+extern "C" void rush2_music_pause_start(uint8_t* rdram, recomp_context* ctx) {
+    bool keep = pause_keeps_music.load();
+    pause_hold = keep;
+    pause_music = keep ? 1 : 0;
+}
+
+extern "C" void rush2_music_continue(uint8_t* rdram, recomp_context* ctx) {
+    pause_hold = pause_music.load() == 1;
+    pause_music = -1;
+}
+
+// After those calls (0x800AFE48, 0x800B00C0).
+extern "C" void rush2_music_pause_release(uint8_t* rdram, recomp_context* ctx) {
+    pause_hold = false;
+}
+
+// race_pause_menu_step (func_800AFD44) entry, every race frame: while the pause menu is open (0x8002305C), applies a
+// change of Keep Music Playing When Paused at once.
+extern "C" void rush2_music_pause_frame(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t pause_state = 0x8002305C;   // Nonzero while the pause menu (or one of its screens) is open.
+    constexpr uint32_t race_state = 0x8010C0D0;    // u32; 0xA: a race without music restarts (func_800AFD44)
+    constexpr uint32_t music_setting = 0x800D5775;
+    int playing = pause_music.load();
+    if (playing < 0 || MEM_B(0, (int32_t)pause_state) == 0) {
+        return;
+    }
+    bool want = pause_keeps_music.load();
+    if (want == (playing == 1)) {
+        return;
+    }
+    recomp_context call = *ctx;
+    if (want) {
+        if (MEM_W(0, (int32_t)race_state) != 0xA) {
+            call.r4 = 2;
+            call.r5 = MEM_BU(0, (int32_t)music_setting);
+            music_pick_race_song_8008C370(rdram, &call);
+        }
+        pause_music = 1;
+    }
+    else {
+        call.r4 = 0x40000000;
+        music_queue_command_80062F50(rdram, &call);
+        pause_music = 0;
     }
 }

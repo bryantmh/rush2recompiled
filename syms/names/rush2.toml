@@ -8350,7 +8350,7 @@ ref = "docs/functions/rush2_render.md#rush-2-render-functions"
 vram = 0x80084EDC
 name = "car_paint_recolor_palette"
 sig = "void car_paint_recolor_palette(s32 a0, s32 a1, s32 a2)"
-desc = "Recolors the car paint texture/palette (gfx_rgba5551_to_hsv_mod, gfx_color_blend_rgba5551) over 7 loops using the struct at scene_texture_heap_ptr (+0x1600 colors, +0x163C)."
+desc = "Recolors the car paint texture/palette (gfx_rgba5551_to_hsv_mod, gfx_color_blend_rgba5551) over 7 loops using the struct at scene_texture_heap_ptr (+0x1600 colors, +0x163C). / Palette entries with class flag 0x20 take MAIN (+0x1600) and 0x40 ACCENT (+0x1602) through func_80084E74."
 consts = "0x1600 = paint color struct offset, 0x100 = palette entries"
 status = "inferred"
 area = "render"
@@ -8367,13 +8367,13 @@ ref = "docs/functions/rush2_render.md#rush-2-render-functions"
 
 [[func]]
 vram = 0x800854AC
-name = "car_paint_texture_build"
-sig = "void car_paint_texture_build(s32 a0, s32 a1, s32 a2)"
-desc = "Allocates a 0x1640-byte buffer, memsets a 0x200-byte palette at scene_texture_heap_ptr and builds a recolored RGBA5551 paint palette via gfx_color_split_rgba5551; used by car paint/livery setup."
+name = "car_palette_classify"
+sig = "void car_palette_classify(u16 *palette, u16 *dest, u8 *ranges)"
+desc = "Allocates a 0x1640-byte buffer, memsets a 0x200-byte palette at scene_texture_heap_ptr and builds a recolored RGBA5551 paint palette via gfx_color_split_rgba5551; used by car paint/livery setup. / Sorts the car palette into classes from a range table ($a2, 4-byte {first, last, flags, 0} ended by first > last; 0x800C5670 every car, 0x800C5698 DEW): flags 0x22 MAIN, 0x42 ACCENT, 0x10 stripe stamped, 0 fixed. Writes the class table *0x8010C06C (0x1640 bytes, 2 per palette entry)."
 consts = "0x1640 = scene block size, 0x200 = palette bytes"
-status = "inferred"
-area = "render"
-ref = "docs/functions/rush2_render.md#rush-2-render-functions"
+status = "verified"
+area = "car"
+ref = "docs/game_fixes.md#rocket-windshield"
 
 [[func]]
 vram = 0x8008582C
@@ -12177,7 +12177,7 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 vram = 0x800AFD44
 name = "race_pause_menu_step"
 sig = "void race_pause_menu_step(void)"
-desc = "Patched in us.toml. Leaving the screen from the pause menu happens when the screen asks, not on B or Start. | Pause menu step. Leaves the Controller Setup screen when B or Start is pressed (hooked at that check). | Loops over every player's record; START from one pauses at 0x800AFE14 with $s6 = that player."
+desc = "Patched in us.toml. Leaving the screen from the pause menu happens when the screen asks, not on B or Start. | Pause menu step. Leaves the Controller Setup screen when B or Start is pressed (hooked at that check). | Loops over every player's record; START from one pauses at 0x800AFE14 with $s6 = that player. / Pause music (src/music.cpp): the pause queues music stop 0x40000000 at 0x800AFE40 (after func_80062FC4 at 0x800AFE38); CONTINUE restarts the song with func_8008C370(2, MUSIC) at 0x800B00B8; Keep Music Playing When Paused holds both (hooks 0x800AFE38/48, 0x800B00B8/C0) and applies a change made while paused (entry hook)."
 status = "verified"
 ported = true
 area = "menu"

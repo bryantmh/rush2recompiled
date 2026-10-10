@@ -43,3 +43,26 @@ ACCENT COLOR's entries 33-63 when ACCENT is white (0x80085960, an else-if). Each
 channel x 8 x 1.25 (at most 255). With both colors white the accent ramp was never brightened, so a white accent was
 darker on a white car than on any other. The hook at 0x80085C14, where the branches join (0xA4($sp) = the palette
 copy, 0xD3($sp) = MAIN, 0xD7($sp) = ACCENT), brightens the accent ramp then too.
+
+## Rocket windshield
+
+User report. `car_palette_classify_800854AC` sorts a car's palette entries into classes from a range table of 4-byte
+entries {first, last, flags, 0}, ended by first > last. 0x800C5670 (every car but the DEW, which uses 0x800C5698):
+0 fixed, 1-31 MAIN (0x22), 32 fixed, 33-63 ACCENT (0x42), 64-95 stripe stamped (0x10), 96-111 fixed, 112-143 0x10,
+144-207 fixed, 208-255 0x10. The ROCKET's (type 20) container (asset 0x31) has no texture table: its 11 CI8 textures
+load through the container's texture display lists (0x4830-0x4AF0). The windshield is near-black (entry 190,
+CARPALETTE 8, 8, 8) except for one panel, a solid block of entry 17 framed by entries 179-185 in texture 6 (32 x 64;
+all 184 of its entry-17 texels are the block), which took the MAIN COLOR. Entry 17 is body paint in the other
+textures, so its class can't change. At boot (`rush2_heap_init`, src/assets.cpp) `rush2::fix_rocket_windshield`
+replaces the asset with a copy whose texture 6 uses entry 190 for those texels.
+
+## Keep music playing when paused
+
+Option (Sound tab, off by default; src/music.cpp). `race_pause_menu_step_800AFD44` stops the music when the race
+pauses (music command 0x40000000 queued at 0x800AFE40, after `func_80062FC4` at 0x800AFE38) and on CONTINUE restarts
+the race's song from the top with `func_8008C370(2, MUSIC setting)` at 0x800B00B8, which picks a new song under a
+shuffle. While the option is on, hooks around both calls (0x800AFE38-0x800AFE48 and 0x800B00B8-0x800B00C0) hold their
+music commands: the stop becomes a volume update (0xC0000000) and the song choice does nothing, so the song plays on.
+The option can be changed with the pause menu open: the hook at the pause step's entry (0x800AFD44) starts the race's
+song at once (`func_8008C370`, as CONTINUE does) or stops it (command 0x40000000), and CONTINUE holds its restart
+only while the song plays.

@@ -4231,6 +4231,24 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800C5670
+name = "car_palette_class_ranges"
+type = "u8[][4]"
+desc = "Car palette class ranges for car_palette_classify_800854AC, {first, last, flags, 0} ended by first > last: 0 fixed, 1-31 MAIN (0x22), 32 fixed, 33-63 ACCENT (0x42), 64-95 0x10, 96-111 fixed, 112-143 0x10, 144-207 fixed, 208-255 0x10. Every car but the DEW."
+area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800C5698
+name = "dew_palette_class_ranges"
+type = "u8[][4]"
+desc = "The DEW's palette class ranges: 1-31 MAIN, 33-63 ACCENT, 64-255 fixed."
+area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x800C5D5C
 name = "race_scene_asset_w0"
 type = "u32"
