@@ -496,3 +496,24 @@ slots 0 and 1; with 3 or 4 players a second round for players 3 and 4, src/playe
 In the port, src/rush2049/wings_menu.cpp adds WINGS (id 15) above DURABILITY while wings are on: hooks give it its label
 (0x803BC310, 0x803BC350, 0x803BB2E4, 0x803BB34C read a pointer to "WINGS" in place of the table's entry), its value
 (0x803BC63C) and its steps (0x803B98A4).
+
+## 9. Circuit results and the victory screen [V]
+
+A Rush 2 circuit is 28 races, every track 0-6 in each of its 4 direction combinations (the port mixes in the added
+tracks, `func_800A7DCC` hook). The profile's circuit block is player record `+0x464 + humans * 0x60` (pointer kept
+in 0x800D3E40): `+2` races finished, `+4` random seed, `+8` the cars' places, 3 bits a race, 11 bytes a car.
+
+- `func_800A8D1C` (after every circuit race, from `func_800A952C`): packs each car's place into the block, adds 1 to
+  the race count and calls `func_800A7DCC`, which recomputes the standings (0x800D3B28, 0x58 a car: `+1` overall
+  place, `+2` points, `+4 + race` place in each race, `+0x20 + race` points in it). When the count reaches 28 it
+  calls `func_800A8B04`, then adjusts the difficulty from the standings.
+- `func_800A8B04` (circuit complete): counts the finish in the record at `+0x4B0` (1st `+4`, 2nd `+6`, 3rd `+8`,
+  `+2` circuits run, `+0xE` average points, `+0x10` best), keeps the profile that placed first to third in
+  0x8010C3E0 / 0x8010C3D5 / 0x8010C3EF, and for a top-3 finish sets 0x800E7D19 (ATARI unlocked).
+- The victory screen is the title's attract loop (`func_800ABE7C`): the last track's logo card and a demo in the
+  wreath, with the circuit place (a gold medallion and balloons for 1st). `func_800AB824` gives the next track,
+  t + 1, back to 0 from 7 up (so the added tracks never appear), with 10 after 6 once ATARI is unlocked. Checked
+  2026-10-10 with every circuit race on an SF Rush or 2049 track: it ran its whole loop (0-6, 10) without a crash.
+- Its "RUSH2" background (0x800AC0E4-0x800AC130) is a 3 x 7 grid of 128 x 32 HUD elements from (12, 10), clipped to
+  the 4:3 screen. Widescreen continues it with shifted copies of tiles that are fully on screen
+  (`rush2_title_background_tiles`, src/widescreen.cpp; `rush2::hud::set_widget_shift`).

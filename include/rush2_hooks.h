@@ -65,6 +65,7 @@ void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx);
 void rush2_view_scissor(uint8_t* rdram, recomp_context* ctx);
 void rush2_view_scissor_written(uint8_t* rdram, recomp_context* ctx);
 void rush2_frame_clear_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_title_background_tiles(uint8_t* rdram, recomp_context* ctx);
 void rush2_frame_clear_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_model_draw(uint8_t* rdram, recomp_context* ctx);
 

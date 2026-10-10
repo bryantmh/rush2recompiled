@@ -154,6 +154,13 @@ func = "model_draw_8007AA48"
 before_vram = 0x8007AF84
 text = "    rush2_model_draw(rdram, ctx);"
 
+# Title attract background (src/widescreen.cpp): continues the tiled "RUSH2" widgets past the 4:3 edges. func_800ABE7C
+# just finished tiling them (0x800AC0E4-0x800AC130).
+[[patches.hook]]
+func = "menu_title_screen_run_800ABE7C"
+before_vram = 0x800AC134
+text = "    rush2_title_background_tiles(rdram, ctx);"
+
 
 # Rumble alongside the Controller Pak. On hardware a port holds either a Controller Pak or a Rumble Pak, and
 # the game's pak thread only enables rumble for a port when osPfsInitPak fails with an ID/device error and

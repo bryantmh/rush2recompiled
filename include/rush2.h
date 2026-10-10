@@ -94,6 +94,9 @@ namespace rush2 {
         // edge). clear_widget_scales forgets them all (when a HUD is built); set_anchor anchors what is drawn next
         // (text printed after the widget loop) the same way.
         void set_widget_scale(int slot, float scale_x, float scale_y, float anchor = 0.5f);
+        // Draws widget `slot` (dx, dy) pixels from where it is, past the 4:3 edges if need be (the game clips widgets to
+        // the 4:3 screen, so one fully on screen is shifted when drawn). Forgotten when its slot is allocated again.
+        void set_widget_shift(int slot, int32_t dx, int32_t dy = 0);
         void clear_widget_scales();
         void set_anchor(uint8_t* rdram, float fraction);
         // A filled rectangle (screen pixels, RGBA blended by its alpha) in the 2D display list, anchored as above.

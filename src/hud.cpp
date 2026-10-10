@@ -118,12 +118,18 @@ namespace {
 
     // current_origin while a widget is stretched to the window; never equal to a real origin.
     constexpr uint16_t origin_stretched = 0xFFFF;
+    // current_origin while a widget is drawn shifted (rush2::hud::set_widget_shift), by (current_dx, current_dy).
+    constexpr uint16_t origin_shifted = 0xFFFE;
+    int32_t current_dx = 0;
+    int32_t current_dy = 0;
 
     // Whether each widget slot was last allocated by the race HUD setup.
     bool hud_slot[max_widgets];
     bool building_hud = false;
 
     uint16_t slot_origin[max_widgets];
+    int16_t slot_shift_x[max_widgets];
+    int16_t slot_shift_y[max_widgets];
     // Side by side: how far each widget is moved for the draw loop, and its position to restore afterwards.
     bool side_by_side = false;
     int quad_views = 0; // 3 or 4 while the race is drawn in quadrants.
@@ -315,6 +321,23 @@ namespace {
         count += 2;
         write_2d_commands(rdram, cmds, count);
         current_origin = origin_stretched;
+    }
+
+    // Shifts the next rectangles (dx, dy) pixels from where the game puts them, over the whole window. With the
+    // original aspect ratio the game's scissor stays, so nothing shows past what the 4:3 screen showed.
+    void shift_rect(uint8_t* rdram, int32_t dx, int32_t dy) {
+        if (current_origin == origin_shifted && current_dx == dx && current_dy == dy) {
+            return;
+        }
+        bool widescreen = ultramodern::renderer::get_graphics_config().ar_option != ultramodern::renderer::AspectRatio::Original;
+        GfxCommand cmds[6];
+        uint32_t count = begin_rect_align(cmds, widescreen);
+        gEXSetRectAlign(&cmds[count], G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE, dx * 4, dy * 4, dx * 4, dy * 4);
+        count += 2;
+        write_2d_commands(rdram, cmds, count);
+        current_origin = origin_shifted;
+        current_dx = dx;
+        current_dy = dy;
     }
 
     // Image fields.
@@ -1188,6 +1211,13 @@ void rush2::hud::set_widget_scale(int slot, float scale_x, float scale_y, float 
     }
 }
 
+void rush2::hud::set_widget_shift(int slot, int32_t dx, int32_t dy) {
+    if (slot >= 0 && slot < (int)max_widgets) {
+        slot_shift_x[slot] = (int16_t)dx;
+        slot_shift_y[slot] = (int16_t)dy;
+    }
+}
+
 void rush2::hud::clear_widget_scales() {
     for (uint32_t i = 0; i < max_widgets; i++) {
         managed_scale_x[i] = managed_scale_y[i] = 0.0f;
@@ -1243,6 +1273,8 @@ void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx) {
     uint32_t slot = (uint32_t)ctx->r3;
     if (slot < max_widgets) {
         hud_slot[slot] = building_hud;
+        slot_shift_x[slot] = 0;
+        slot_shift_y[slot] = 0;
     }
 }
 
@@ -1933,6 +1965,10 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
     in_hud_callback = hud_slot[slot] && (MEM_BU(widget_flags, widget) & flag_callback) != 0;
     if (is_screen_fill(rdram, widget)) {
         stretch_rect(rdram);
+        return;
+    }
+    if (slot_shift_x[slot] != 0 || slot_shift_y[slot] != 0) {
+        shift_rect(rdram, slot_shift_x[slot], slot_shift_y[slot]);
         return;
     }
     set_rect_origin(rdram, managed_scale_x[slot] != 0.0f ? managed_origin[slot] : slot_origin[slot]);
