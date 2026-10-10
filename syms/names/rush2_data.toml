@@ -12064,7 +12064,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x80111954
 name = "gfx_palette_state"
 type = "u32"
-desc = "Gfx state word updated by frame draw, palette TLUT load, model draw and scene walk (low confidence)."
+desc = "Data pointer (palette record +0x14) of the palette last loaded into TMEM by gfx_load_palette_tlut (func_80078190), which skips the TLUT load when a node's palette matches (unless 0x80022FDC is set); model_draw zeroes it after a LOD with a post list. 0 = none."
 area = "render"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -14039,6 +14039,14 @@ desc = "Byte kept by title screen run (low confidence)."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x802217E0
+name = "car_palette_records"
+type = "Palette[72]"
+desc = "Per car id (0x18 stride) palette record built by car_build_textures (func_8008582C): name[16], u8 first/last TLUT index at +0x10/+0x11, data at +0x14. Stored in node +0x2C of the car's nodes at car record (0x80219DD0 + id * 0x134) +0x2, +0x6, +0x32 only; the other parts draw with the TLUT in TMEM."
+area = "car"
+status = "inferred"
 
 [[var]]
 vram = 0x802401F0
