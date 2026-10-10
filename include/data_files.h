@@ -10,6 +10,7 @@
 //     "collectibles"  SF Rush keys, 2049 coins and unlock purchases per profile (src/collectibles.cpp)
 //     "records"       2049 and SF Rush times and stats per profile (src/rush2049/track2049_records.cpp)
 //     "track_select"  the added track last chosen on the track selects (src/rush2049/track2049_menu.cpp)
+//     "wings"         each player's wing style, chosen on the car select (src/rush2049/wings_menu.cpp)
 //   Ghost recordings are files of their own in saves/ghosts (src/ghost.cpp).
 // - Players: players.json in the config folder.
 //     "controllers"   each player's controller and the keyboard's player (src/input.cpp)
@@ -35,7 +36,7 @@ namespace rush2::data_files {
 
     // Moves the files of older versions into the layout above: car2049.json, collectibles.json,
     // track2049_records.json, track2049.json and the ghosts folder from the app folder into saves, bindings.json into
-    // players.json, and rush2049.json and rush1.json into games.json (src/rush2049/wings.cpp). Call at startup, after the config
+    // players.json, and rush2049.json and rush1.json into games.json (src/rush2049/wings.cpp), and games.json's wing styles into saves. Call at startup, after the config
     // path is registered and before any config is loaded.
     void migrate();
 }

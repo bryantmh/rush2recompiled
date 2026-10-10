@@ -10,7 +10,7 @@
 // The screen's code reads ids through jump tables of 15 cases that skip larger ids (func_803B9478's left/right
 // handling, func_803BC048's values, func_803BB9F8's row art) and compares them elsewhere, so id 15 does nothing there;
 // hooks give it its label (the label table has 15 entries per language), its value and its left/right steps. Each
-// player's choice is kept in the Games config (wing_style_p1-p4, src/rush2049/wings.cpp). The screen has two players' panels
+// player's choice is kept in the saves' "wings" section (rush2::wings::save_style). The screen has two players' panels
 // (car select slots 0 and 1); with 3 or 4 players its second round is players 3 and 4 (src/players4.cpp).
 //
 // A 2049 car's colors are set as Rush 2049 sets them, so each panel has its own rows (the game keeps one list for
@@ -22,12 +22,17 @@
 // and the row widgets' callbacks (their slot from the widget's +0x2C).
 
 #include <algorithm>
+#include <array>
+#include <atomic>
+#include <cstdlib>
+#include <mutex>
 #include <string>
 
 #include "recomp.h"
 
 #include "rush2_hooks.h"
 #include "car2049.h"
+#include "data_files.h"
 #include "players4.h"
 #include "wings_internal.h"
 
@@ -209,8 +214,8 @@ extern "C" void rush2_wings_car_step(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     int player = slot_player(slot);
-    int style = (rush2::wings::get_style_option(player) + step + styles) % styles;
-    rush2::wings::set_style_option(player, style);
+    int style = (rush2::wings::saved_style(player) + step + styles) % styles;
+    rush2::wings::save_style(player, style);
 }
 
 // func_803BC048, a row's label: at 0x803BC310 ($t7 + 0x800C0000 is about to be read at +0x4924 for its width) and
@@ -254,6 +259,55 @@ extern "C" void rush2_wings_car_value(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     write_strings(rdram);
-    int style = std::clamp(rush2::wings::get_style_option(slot_player((int32_t)ctx->r18)), 0, styles - 1);
+    int style = std::clamp(rush2::wings::saved_style(slot_player((int32_t)ctx->r18)), 0, styles - 1);
     ctx->r16 = (uint64_t)(int64_t)(int32_t)(style_names + style * 16);
+}
+
+// The wing styles in the saves: {"styles": [p1, p2, p3, p4]}, each 0-2.
+namespace {
+    const std::string styles_section = "wings";
+    std::array<std::atomic<int>, rush2::wings::max_players> saved_styles = {};
+    std::mutex styles_mutex;
+}
+
+int rush2::wings::saved_style(int player) {
+    return player >= 0 && player < max_players ? saved_styles[player].load() : 0;
+}
+
+void rush2::wings::save_style(int player, int style) {
+    if (player < 0 || player >= max_players) {
+        return;
+    }
+    std::lock_guard lock{ styles_mutex };
+    saved_styles[player] = std::clamp(style, 0, styles - 1);
+    set_player_style(player, saved_styles[player]);
+    std::string json = "{\"styles\": [";
+    for (int i = 0; i < max_players; i++) {
+        json += (i ? ", " : "") + std::to_string(saved_styles[i].load());
+    }
+    rush2::data_files::write(rush2::data_files::File::Saves, styles_section, json + "]}");
+}
+
+void rush2::wings::load_styles() {
+    std::lock_guard lock{ styles_mutex };
+    std::string text = rush2::data_files::read(rush2::data_files::File::Saves, styles_section);
+    size_t at = text.find('[');
+    const char* p = at == std::string::npos ? nullptr : text.c_str() + at + 1;
+    for (int i = 0; i < max_players; i++) {
+        int style = 0;
+        if (p) {
+            char* end = nullptr;
+            long value = std::strtol(p, &end, 10);
+            if (end != p) {
+                style = std::clamp((int)value, 0, styles - 1);
+                p = end;
+                while (*p == ',' || *p == ' ') p++;
+            }
+            else {
+                p = nullptr;
+            }
+        }
+        saved_styles[i] = style;
+        set_player_style(i, style);
+    }
 }

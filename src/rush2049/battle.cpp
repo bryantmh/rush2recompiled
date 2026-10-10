@@ -331,7 +331,6 @@ namespace {
     float race_go = -1.0f;                      // clock_seconds when the race was released (GO), or -1 before
     constexpr float race_hold_fire = 4.0f;      // The drones hold their fire this long after GO, the pack being close
     std::atomic_int cheat_option = 0;            // The Weapons cheat: 0 off, 1-8 a weapon (+1), 9 invisibility, 10 random
-    std::atomic_int team_option[4] = { 0, 1, 2, 3 };
     bool over = false;           // The round's time is up: the results show.
     bool flat_ground = false;    // No collision triangles for this track: grenades and mines meet level ground.
     std::vector<Shot> shots;
@@ -501,7 +500,7 @@ namespace {
 
     int team_of_car(uint8_t* rdram, int car) {
         int player = player_of(rdram, car);
-        return player < 0 ? -1 : std::clamp<int>(team_option[player], 0, 3);
+        return player < 0 ? -1 : std::clamp(player, 0, 3);
     }
 
     // Where car i carries `weapon` (0-7), in its own frame. Rush 2049's cars (types 23-35) use 2049's table; Rush 2's
@@ -2003,12 +2002,8 @@ void rush2::battle::set_weapons_cheat(int option) {
     cheat_option = std::clamp(option, 0, 10);
 }
 
-void rush2::battle::set_team(int player, int team) {
-    if (player >= 0 && player < 4) team_option[player] = std::clamp(team, 0, 3);
-}
-
 int rush2::battle::team_of(int player) {
-    return player >= 0 && player < 4 ? std::clamp<int>(team_option[player], 0, 3) : 0;
+    return player >= 0 && player < 4 ? player : 0;
 }
 
 void rush2::battle::set_data(const std::vector<PickupRecord>& pickup_list, const std::vector<int>& pool_list,

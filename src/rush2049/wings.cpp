@@ -1,4 +1,4 @@
-// Rush 2049 wings: settings (shown in the Games tab; the wing styles on the car select, src/rush2049/wings_menu.cpp) and Rush
+// Rush 2049 wings: settings (shown in the Games tab; the wing styles are the car select's, src/rush2049/wings_menu.cpp) and Rush
 // 2049 ROM handling.
 //
 // San Francisco Rush 2049 lets cars deploy wings while airborne. This port reads the wing models and sound from the
@@ -34,7 +34,6 @@
 
 #include "rush2.h"
 #include "car2049.h"
-#include "battle.h"
 #include "track2049.h"
 #include "wings_internal.h"
 #include "rush2049_dc.h"
@@ -50,14 +49,6 @@ namespace {
     const std::string speeds_option_id = "car_speeds";
     const std::string odometer_option_id = "rush2049_odometer";
     const std::string source_option_id = "rush2049_source";
-    const std::string battle_time_option_id = "battle_time_limit";
-    const std::string battle_team_option_prefix = "battle_team_p";
-    const std::string fire_backward_option_id = "battle_fire_backward";
-    const std::string style_option_prefix = "wing_style_p"; // + the player (1-4): their wings, set on the car select
-
-    std::string style_option(int player) {
-        return style_option_prefix + std::to_string(player + 1);
-    }
     const char* rom_file_name = "rush2049.z64";
 
     constexpr size_t rom_size = 0xC00000;
@@ -69,7 +60,7 @@ namespace {
 
     // The Games tab's config, games.json: the Rush 2049 options here and SF Rush's (src/rush1/rush1_rom.cpp, through
     // games_config()). Owned here instead of through create_config_tab: its options are shown in the Games tab
-    // (src/games_tab.cpp) under the ROM pickers, and the wing styles in the Players tab.
+    // (src/games_tab.cpp) under the ROM pickers. The wing styles are kept in the saves (src/rush2049/wings_menu.cpp).
     recomp::config::Config wings_config{ "Games", config_id, false };
 
     std::mutex rom_mutex;
@@ -226,19 +217,9 @@ namespace {
         wings_config.update_option_disabled(tracks_option_id, disabled);
         wings_config.update_option_disabled(cars_option_id, disabled);
         wings_config.update_option_disabled(odometer_option_id, disabled);
-        // The computer cars' choice is among the Rush 2049 cars, and the battle options are the arenas', which come
-        // with the Rush 2049 tracks.
+        // The computer cars' choice is among the Rush 2049 cars.
         bool cars_on = std::get<bool>(wings_config.get_option_value(cars_option_id));
         wings_config.update_option_disabled(drones_option_id, disabled || !cars_on);
-        bool battles = rush2::track2049::available();
-        wings_config.update_option_disabled(battle_time_option_id, !battles);
-        for (int player = 1; player <= 4; player++) {
-            wings_config.update_option_disabled(battle_team_option_prefix + std::to_string(player), !battles);
-        }
-        wings_config.update_option_disabled(fire_backward_option_id, !battles);
-        for (int player = 0; player < rush2::wings::max_players; player++) {
-            wings_config.update_option_disabled(style_option(player), disabled);
-        }
     }
 
     void select_dreamcast_disc(const std::filesystem::path& path) {
@@ -475,86 +456,6 @@ void rush2::wings::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::odometer2049::set_option(std::get<bool>(cur_value));
         });
-
-    // Replaced by the BATTLE track select's TIME LIMIT row (src/rush2049/track2049_menu.cpp), which takes this hidden
-    // option's saved value if it was changed from its default.
-    wings_config.add_enum_option(
-        battle_time_option_id,
-        "Battle Time Limit",
-        "How long a Rush 2049 battle arena lasts (Start Game > Battle). Takes effect at the next race. Requires a Rush "
-        "2049 (USA) ROM.",
-        {
-            { rush2::battle::TimeLimit::One, "One", "1 Minute" },
-            { rush2::battle::TimeLimit::Two, "Two", "2 Minutes" },
-            { rush2::battle::TimeLimit::Three, "Three", "3 Minutes" },
-            { rush2::battle::TimeLimit::Five, "Five", "5 Minutes" },
-            { rush2::battle::TimeLimit::Ten, "Ten", "10 Minutes" },
-        },
-        rush2::battle::TimeLimit::Three,
-        true
-    );
-    wings_config.add_option_change_callback(battle_time_option_id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::battle::set_time_limit(static_cast<rush2::battle::TimeLimit>(std::get<uint32_t>(cur_value)));
-        });
-    // Rush 2049 has each player pick a team color for a battle (0x8012E67C).
-    for (int player = 0; player < 4; player++) {
-        std::string id = battle_team_option_prefix + std::to_string(player + 1);
-        wings_config.add_enum_option(
-            id,
-            "Player " + std::to_string(player + 1) + " Battle Team",
-            "This player's team in a Rush 2049 battle arena. Cars of the same team don't damage each other and share a "
-            "color. By default every player is a team of their own.",
-            {
-                { 0u, "Blue", "Blue" },
-                { 1u, "Red", "Red" },
-                { 2u, "Yellow", "Yellow" },
-                { 3u, "Green", "Green" },
-            },
-            (uint32_t)player
-        );
-        wings_config.add_option_change_callback(id,
-            [player](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-                rush2::battle::set_team(player, (int)std::get<uint32_t>(cur_value));
-            });
-    }
-    // Not in Rush 2049 (its weapons fire ahead only).
-    wings_config.add_bool_option(
-        fire_backward_option_id,
-        "Fire Backward",
-        "In a battle (the battle arenas, a race with the track select's BATTLE row on, or the Weapons cheat), holding "
-        "the steering stick back while firing shoots the cannon, gatling, rockets, missile and grenades behind the "
-        "car instead of ahead (on a keyboard, the down arrow). Takes effect at once. Requires a Rush 2049 (USA) ROM.",
-        true
-    );
-    wings_config.add_option_change_callback(fire_backward_option_id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::battle::set_fire_backward(std::get<bool>(cur_value));
-        });
-    // Rush 2049 has each player pick one of three wings on the car setup screen; here it is the car select's WINGS
-    // row (src/rush2049/wings_menu.cpp), which keeps each player's choice in these options.
-    for (int player = 0; player < rush2::wings::max_players; player++) {
-        std::string id = style_option(player);
-        wings_config.add_enum_option(
-            id,
-            "Player " + std::to_string(player + 1) + " Wings",
-            "Chooses this player's wings, as on Rush 2049's car setup screen. "
-            "<recomp-color primary>Style 1</recomp-color> steers in the air. "
-            "<recomp-color primary>Style 2</recomp-color> steers harder and glides, but slows the car. "
-            "<recomp-color primary>Style 3</recomp-color> steers hardest and glides farthest.",
-            {
-                { 0u, "Style1", "Style 1" },
-                { 1u, "Style2", "Style 2" },
-                { 2u, "Style3", "Style 3" },
-            },
-            0u,
-            true    // Not listed in a tab: set on the car select.
-        );
-        wings_config.add_option_change_callback(id,
-            [player](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-                rush2::wings::set_player_style(player, (int)std::get<uint32_t>(cur_value));
-            });
-    }
 }
 
 void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
@@ -579,18 +480,10 @@ void rush2::wings::save_config() {
     wings_config.save_config();
 }
 
-int rush2::wings::get_style_option(int player) {
-    return (int)std::get<uint32_t>(wings_config.get_option_value(style_option(player)));
-}
-
-void rush2::wings::set_style_option(int player, int style) {
-    wings_config.update_option_value(style_option(player), (uint32_t)style);
-    wings_config.save_config();
-}
-
 // Runs after recompui::config::finalize() has registered the config path.
 void rush2::wings::load_config() {
     wings_config.load_config();
+    rush2::wings::load_styles();
     load_chosen_source();
     config_loaded = true;
     update_rom_ui();
