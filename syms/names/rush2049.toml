@@ -3542,17 +3542,19 @@ ref = "docs/rush2049_research/placement.md#21-dynamic-object-type-table-0x801175
 
 [[func]]
 vram = 0x8010DF90
-desc = "GOLDCOIN / SILVERCOIN dynamic object type init (kind 6); each coin gets the next index at spawn (silver counter 0x80151964, gold 0x80151610 + 8)."
+name = "coin_init"
+desc = "GOLDCOIN / SILVERCOIN dynamic object type init (kind 6); each coin gets the next index at spawn (silver counter 0x80151964, gold 0x80151610 + 8). / Coin type init (GOLDCOIN/SILVERCOIN): drops a coin the racer has already taken (func_800F7A98) for each player, hiding it per view."
 status = "verified"
-area = "unlocks"
-ref = "docs/unlocks_plan.md#13-rush-2049-coins-v"
+area = "race"
+ref = "docs/rush2049_research/placement.md#23-coin-glow-v"
 
 [[func]]
 vram = 0x8010E0FC
-desc = "GOLDCOIN / SILVERCOIN dynamic object type update."
+name = "coin_update"
+desc = "GOLDCOIN / SILVERCOIN dynamic object type update. / Coin type update: on first run spawns the spinning coin model (GOLDCOING_COIN / SILVERCOINS_COI, angular velocity 3.0) as its own object and gives the placed node COIN_GLOWG1 with color +0x3C 0xFFC800FF (gold, 0x80118E14) / 0xC8E6FFFF (silver, 0x80118E18); removes both once every racer has the coin."
 status = "verified"
-area = "unlocks"
-ref = "docs/unlocks_plan.md#13-rush-2049-coins-v"
+area = "race"
+ref = "docs/rush2049_research/placement.md#23-coin-glow-v"
 
 [[func]]
 vram = 0x8010E4E4

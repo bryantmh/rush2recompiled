@@ -18,6 +18,13 @@
 //   which wants a key in the car's footprint and within about 2 units of its height. SF Rush keys get Rush 1's
 //   breakable test from src/rush1/track1.cpp.
 // - A coin plays Rush 2049's coin sound (0x06) when it is first taken.
+// - Coins shine as in Rush 2049: its coin type (update func_8010E0FC) spawns the spinning GOLDCOING_COIN /
+//   SILVERCOINS_COI model as a separate object and gives the coin's own placed node the model COIN_GLOWG1 (file 62)
+//   with color +0x3C 0xFFC800FF (gold, 0x80118E14) or 0xC8E6FFFF (silver, 0x80118E18): a disc in its model's xy
+//   plane, white in the middle fading to black at the rim (radius 9). Here it is drawn through src/rush2049/
+//   battle_render.cpp (slots 160-175) at each coin not yet taken by every racer, facing the camera, placed every
+//   frame from the coin's breakable (position +0x2C) by the main loop hook: the breakable update hook doesn't run
+//   every frame, and a race's setup clears battle_render's slots after the coins are made.
 // Rush 2's own keys and Dew cans aren't touched: once per frame (rush2_collect_frame) their masks are copied from the
 // Controller Pak image's profiles, the race players' records and the no-profile table, for the Progress tab.
 // Masks are kept per profile name in the save file's "collectibles" section (include/data_files.h). Players
@@ -46,6 +53,7 @@
 #include "data_files.h"
 #include "rush2_hooks.h"
 #include "audio2049.h"
+#include "battle_render.h"
 #include "collectibles.h"
 #include "track1.h"
 #include "track2049.h"
@@ -103,8 +111,27 @@ namespace {
         uint32_t node = 0;
         int16_t id = 0;
         uint16_t model = 0;
+        int glow = -1;      // battle_render slot of its glow, or -1.
+        bool gold = false;
+        int bit = -1;
+        bool taken = false; // By every racer (before the race too): no glow.
     };
     std::map<uint32_t, Coin> coins;
+    constexpr uint32_t race_state = 0x8010C0D0;  // u32, func_800AE670 state: 3 racing, 4-5 race over, 0xA also a race
+    constexpr int glow_slot_first = 160;
+    constexpr int glow_slots = 16;
+    constexpr uint32_t glow_gold = 0xFFC800FF, glow_silver = 0xC8E6FFFF;   // 0x80118E14 / 0x80118E18
+    // The glow is additive with no depth writes: centered on the coin, the spinning coin's plane cuts the disc and its
+    // near half washes over the coin. Pushed past the coin's 2.5-unit radius, away from the camera, it stays behind.
+    constexpr float glow_push = 3.0f;
+    bool glows_shown = false;
+
+    void hide_glows() {
+        for (int i = 0; i < glow_slots; i++) {
+            rush2::battle_render::hide(glow_slot_first + i);
+        }
+        glows_shown = false;
+    }
 
     // Rush 2's key masks, copied once per frame.
     using Rush2Masks = std::array<uint16_t, rush2_courses>;
@@ -490,12 +517,38 @@ extern "C" void rush2_collect_frame(uint8_t* rdram, recomp_context* ctx) {
     }
     std::lock_guard lock{ collect_mutex };
     rush2_snapshot = std::move(snap);
+    int state = MEM_W(0, (int32_t)race_state);
+    bool racing = (state >= 3 && state <= 5) || state == 0xA;
+    if (!coins.empty() && hosted_course(rdram) >= first_rush2049 && racing) {
+        static const float axes[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+        for (const auto& [breakable, coin] : coins) {
+            if (coin.glow < 0) {
+                continue;
+            }
+            if (coin.taken) {
+                rush2::battle_render::hide(coin.glow);
+                continue;
+            }
+            float pos[3];
+            for (int i = 0; i < 3; i++) {
+                uint32_t w = (uint32_t)MEM_W(0, (int32_t)(breakable + 0x2C + i * 4));
+                std::memcpy(&pos[i], &w, sizeof(float));
+            }
+            rush2::battle_render::place(coin.glow, "COIN_GLOWG1", axes, pos, coin.gold ? glow_gold : glow_silver, -1,
+                                        false, true, glow_push);
+            glows_shown = true;
+        }
+    }
+    else if (glows_shown) {
+        hide_glows();
+    }
 }
 
 // Start of func_8008BC64 (the race's object setup, before the placement is instantiated): a new race's coins.
 extern "C" void rush2_collect_race_reset(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ collect_mutex };
     coins.clear();
+    hide_glows();
 }
 
 // func_800BC3F8 at 0x800BC490 ($v1 = the new key, its number at +0x68): on an added track, the bit named by its record.
@@ -516,8 +569,19 @@ extern "C" void rush2_collect_number(uint8_t* rdram, recomp_context* ctx) {
         uint32_t radius;
         std::memcpy(&radius, &coin_radius, sizeof(radius));
         MEM_W(0, (int32_t)(key + 0x54)) = (int32_t)radius;
+        rush2::battle_render::ready(rdram);
         std::lock_guard lock{ collect_mutex };
-        coins[key] = Coin{};
+        Coin coin;
+        coin.glow = coins.size() < glow_slots ? glow_slot_first + (int)coins.size() : -1;
+        coin.gold = bit >= coins_per_kind;
+        coin.bit = bit;
+        int players = (int16_t)MEM_H(0, (int32_t)race_players);
+        std::string name;
+        coin.taken = players > 0;
+        for (int p = 0; p < players; p++) {
+            coin.taken = coin.taken && (masks_of(rdram, p, name)[c] >> bit & 1) != 0;
+        }
+        coins[key] = coin;
     }
 }
 
@@ -566,6 +630,9 @@ extern "C" int rush2_collect_take(uint8_t* rdram, recomp_context* ctx) {
         uint16_t before = mask;
         mask |= (uint16_t)(1u << bit);
         taken = mask != before;
+        for (auto& [address, coin] : coins) {
+            if (coin.bit == (int)bit) coin.taken = true;
+        }
         if (taken && !name.empty()) {
             save_store();
         }
@@ -641,9 +708,13 @@ extern "C" void rush2_collect_breakable_model(uint8_t* rdram, recomp_context* ct
     uint32_t node = (uint32_t)ctx->r11;
     Coin& coin = it->second;
     if (!coin.seen) {
-        coin = Coin{ true, node, (int16_t)MEM_H(0, (int32_t)(breakable + 0x62)), (uint16_t)MEM_HU(0, (int32_t)(node + 0xC)) };
+        coin.seen = true;
+        coin.node = node;
+        coin.id = (int16_t)MEM_H(0, (int32_t)(breakable + 0x62));
+        coin.model = (uint16_t)MEM_HU(0, (int32_t)(node + 0xC));
     }
-    if (coin.node == node && coin.id == (int16_t)MEM_H(0, (int32_t)(breakable + 0x62))) {
+    bool untaken = coin.node == node && coin.id == (int16_t)MEM_H(0, (int32_t)(breakable + 0x62));
+    if (untaken) {
         ctx->r4 = coin.model;
     }
 }
