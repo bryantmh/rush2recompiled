@@ -5168,12 +5168,13 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 
 [[func]]
 vram = 0x80060F24
-name = "hud_menu_widgets_init_b"
-sig = "s32 hud_menu_widgets_init_b(HudWidget *w)"
-desc = "Callback (pointer taken by hud_race_setup_widgets) creating typed widgets and positioning them (constants 0xC0, 0x78, 0xF0 screen positions) using hud_checkpoint_float, race_selected_track_index, race_type and timer_game_time. (low confidence)"
-status = "inferred"
+name = "hud_widget_cb_bonus_time_banner"
+sig = "s32 hud_widget_cb_bonus_time_banner(HudWidget *w)"
+desc = "Bonus time banner (layout entry BONUSTIME4 at 0x60, 0xA0): hidden once bonus_time_banner_end (0x8010C3C4) - timer_game_time - 1 < 0, else blinks 4 times a second (hidden for half of each blink); always hidden in race types 2 and 3. Its box (100,155 - 219,180) is a func_80093B38 box."
+consts = "4 = blinks per second, 0xC0 = alpha for param 1"
+status = "verified"
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/players4.md#finish-overlay"
 
 [[func]]
 vram = 0x8006121C

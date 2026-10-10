@@ -451,6 +451,23 @@ namespace rush2::players4 {
         return slot >= 0 && slot < max_widgets ? widget_roles[slot] : HudRole::Other;
     }
 
+    void hud_widget_boxes(uint8_t* rdram, int8_t* box_of, int count) {
+        std::fill(box_of, box_of + count, (int8_t)-1);
+        for (int i = 0; i < box_count; i++) {
+            int32_t box = (int32_t)(boxes + i * box_size);
+            if (MEM_BU(0, box) == 0) {
+                continue;
+            }
+            for (int part = 0; part < box_parts; part++) {
+                int32_t element = MEM_W(box_elements + part * 4, box);
+                int slot = element != 0 ? MEM_H(element_widget, element) : -1;
+                if (slot >= 0 && slot < count) {
+                    box_of[slot] = (int8_t)i;
+                }
+            }
+        }
+    }
+
     void frame(uint8_t* rdram) {
         MEM_H(0, (int32_t)clamped_players) = (int16_t)std::min<int>(player_count(rdram), 2);
         // Views 2 and 3 draw the scene lists of views 0 and 1.

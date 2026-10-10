@@ -43,6 +43,7 @@
 // lap time box (counted while hidden, so it doesn't jump when the box shows), or over them in the bottom row.
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -1242,8 +1243,26 @@ namespace {
     OdometerPlace odometer_place[4];
 }
 
+namespace {
+    // AI-agent test aid, not in the menu: RUSH2_TEST_BONUS_TIME=<seconds> keeps the bonus time banner up from that game
+    // clock time on, to check the HUD around it without driving to a checkpoint. The banner (func_80060F24) shows
+    // while its end time 0x8010C3C4 (set by func_8008F220 on a checkpoint) is over a second ahead of the clock.
+    const double test_bonus_time = [] {
+        const char* v = std::getenv("RUSH2_TEST_BONUS_TIME");
+        return v != nullptr ? std::atof(v) : 0.0;
+    }();
+    constexpr uint32_t bonus_time_end = 0x8010C3C4; // f32
+    constexpr uint32_t game_clock = 0x80117488;     // f32
+}
+
 // func_8007D9DC, before the widget draw loop. Groups the visible HUD widgets and picks an origin for each group.
 void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
+    if (test_bonus_time > 0.0) {
+        float clock = std::bit_cast<float>(MEM_W(0, (int32_t)game_clock));
+        if (clock >= test_bonus_time) {
+            MEM_W(0, (int32_t)bonus_time_end) = std::bit_cast<int32_t>(clock + 3.0f);
+        }
+    }
     uint32_t count = (uint32_t)MEM_W(0, (int32_t)widget_count);
     count = std::min(count, max_widgets);
     side_by_side = rush2::splitscreen::is_side_by_side(rdram);
@@ -1310,6 +1329,8 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         }
     }
     int parent[max_widgets];
+    int8_t box_of[max_widgets];
+    rush2::players4::hud_widget_boxes(rdram, box_of, (int)max_widgets);
     widgets_checked = count;
     for (uint32_t i = 0; i < count; i++) {
         int32_t widget = (int32_t)(widget_array + i * widget_size);
@@ -1358,8 +1379,11 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         for (uint32_t j = 0; j < i; j++) {
             // Split, each player's time, speedometer, position and radar move on their own (players 3 and 4's start
             // out on top of player 2's). Shared elements group by bounds alone (the track map and its car dots).
+            // Fills of the game's boxes (func_80093B38) only link within their box: the bonus time banner's box, up
+            // after a checkpoint, shares its bottom row with the top of the stunt score panel's (Stunts on All Tracks),
+            // and grouping them pulled the panel to the center while the banner was up.
             int player_i = rush2::players4::hud_widget_player((int)i);
-            if (anchored[j] && same_element(rects[i], rects[j]) &&
+            if (anchored[j] && (!rects[i].fill || box_of[i] == box_of[j]) && same_element(rects[i], rects[j]) &&
                 (!split || (player_i == rush2::players4::hud_widget_player((int)j) &&
                             (player_i < 0 ||
                              rush2::players4::hud_widget_role((int)i) == rush2::players4::hud_widget_role((int)j))))) {

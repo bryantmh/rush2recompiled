@@ -39,6 +39,13 @@ makes one per finished player at the same places, tagged as part of that player'
 place and its box together to the middle of the player's half or quadrant. func_80093B38 keeps 10 boxes at
 0x800C4254 (0x20 each: +0 in use, +0xC five HUD elements, the fill and four edges).
 
+src/hud.cpp links touching fills into one element only within one of these boxes (`hud_widget_boxes`): after a
+checkpoint, the box behind the blinking bonus time banner (BONUSTIME4 at 0x60, 0xA0, blinked by func_80060F24 while
+its end time 0x8010C3C4, set by func_8008F220, is over a second ahead of the clock 0x80117488) spans 100, 155 - 219,
+180, and its bottom row is the top row of the stunt score panel's box (193, 180 - 297, 219, shown on every track with
+Stunts on All Tracks). Grouped, the panel took the center anchor in the widescreen HUD while the banner was up.
+RUSH2_TEST_BONUS_TIME=<seconds> keeps the banner up from that game clock time, to test without reaching a checkpoint.
+
 ## Race over and post-race
 
 func_800AE670 is the game's state machine (D_8010C0D0). func_8008E8EC marks a car finished (+0xEA, race time +0xEC)

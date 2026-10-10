@@ -547,7 +547,7 @@ functions = [
     { name = "hud_widget_init_type_80060DA8", vram = 0x80060DA8, size = 0x3C },
     { name = "hud_widget_cb_open_highscore_init_80060DE4", vram = 0x80060DE4, size = 0x50 },
     { name = "hud_menu_widgets_init_a_80060E34", vram = 0x80060E34, size = 0xF0 },
-    { name = "hud_menu_widgets_init_b_80060F24", vram = 0x80060F24, size = 0x2F8 },
+    { name = "hud_widget_cb_bonus_time_banner_80060F24", vram = 0x80060F24, size = 0x2F8 },
     { name = "gfx_tri_winding_swap_cb_8006121C", vram = 0x8006121C, size = 0xA4 },
     { name = "hud_widget_init_type2_800612C0", vram = 0x800612C0, size = 0x30 },
     { name = "model_find_by_name_bsearch_800612F0", vram = 0x800612F0, size = 0x150 },

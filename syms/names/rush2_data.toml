@@ -10640,12 +10640,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C3C4
-name = "hud_checkpoint_float"
+name = "bonus_time_banner_end"
 type = "f32"
-desc = "Float set by checkpoint_passed and HUD race widget setup, read by HUD menu widgets init (low confidence)."
+desc = "Game clock time the bonus time banner (BONUSTIME4, func_80060F24) stops: set by checkpoint_passed on a checkpoint; the banner blinks while it is over a second ahead of timer_game_time."
 area = "ui"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/players4.md#finish-overlay"
 
 [[var]]
 vram = 0x8010C3D0
