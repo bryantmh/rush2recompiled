@@ -17,6 +17,8 @@ namespace rush2 {
     // Forces every model to its most detailed LOD and turns off LOD distance culling (src/lod.cpp).
     void set_lod_disabled(bool disabled);
 
+    // Stunt Respawn in 1st Gear (src/game_fixes.cpp): stunt mode respawns put the human cars in 1st gear, not 2nd.
+    void set_stunt_first_gear(bool enabled);
     // Draw distance factor (src/draw_distance.cpp): 1 is the original. Scales the projection's near (up to 2x) and
     // far planes and the placed object and LOD cull distances; above 1 it draws every track section but the distant
     // stand-ins regardless of visibility and gives nodes past the fixed-point matrix range float matrices.

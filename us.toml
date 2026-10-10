@@ -11145,6 +11145,24 @@ func = "car_build_textures_8008582C"
 before_vram = 0x80085C14
 text = "    rush2_fix_white_accent(rdram, ctx);"
 
+# Finish place kept when a finished car runs out of deaths (src/game_fixes.cpp).
+[[patches.hook]]
+func = "race_car_finish_or_respawn_handle_8009E180"
+before_vram = 0x8009E180
+text = "    rush2_fix_finish_place(rdram, ctx);"
+
+# Stunt mode respawns in 1st gear (option, src/game_fixes.cpp).
+[[patches.hook]]
+func = "race_car_finish_or_respawn_handle_8009E180"
+before_vram = 0x8009E3E4
+text = "    rush2_stunt_respawn_gear(rdram, ctx);"
+
+# ... and again where the respawn glide ends and the game puts the car back in 2nd (option, src/game_fixes.cpp).
+[[patches.hook]]
+func = "car_physics_tick_all_reset_8008E258"
+before_vram = 0x8008E340
+text = "    rush2_stunt_respawn_gear_reset(rdram, ctx);"
+
 # Keep Music Playing When Paused (src/music.cpp): the pause's stop and CONTINUE's restart are held.
 [[patches.hook]]
 func = "race_pause_menu_step_800AFD44"
@@ -11170,6 +11188,12 @@ text = "    rush2_music_pause_frame(rdram, ctx);"
 func = "race_pause_menu_step_800AFD44"
 before_vram = 0x800B00C0
 text = "    rush2_music_pause_release(rdram, ctx);"
+
+# Drone Catch-Up off: the drones' base rubber band values (src/npc_cars.cpp).
+[[patches.hook]]
+func = "rubber_band_800A1A98"
+before_vram = 0x800A2F14
+text = "    rush2_drone_catch_up(rdram, ctx);"
 
 [[patches.hook]]
 func = "race_start_timer_800AE670"

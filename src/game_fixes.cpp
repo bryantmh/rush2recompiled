@@ -1,4 +1,5 @@
-// Fixes for bugs in the original Rush 2 (US). Each is a small hook into the game's own code; none has a toggle.
+// Fixes for bugs in the original Rush 2 (US), and small gameplay options. Each is a small hook into the game's own
+// code; the fixes have no toggle unless noted.
 //
 // Mountain Dew dragster paint (GitHub issue #5). func_803B9478 (car select frame) works out every frame, at
 // 0x803BA644-0x803BA7E4, whether slot $s7's cursor row can be changed for the slot's car type, into the byte
@@ -17,6 +18,11 @@
 // race setup (func_800A5ADC, 0x800A6134), so the engines stay silent for the rest of the race. Rush 2049 fixed it;
 // here it is cleared along with the flag.
 //
+// Finish place lost to DEATHS (user report). With DEATHS on (0x8010BC98), func_8009E180 (respawn) case 2 is a car
+// out of deaths: it sets the car state's out byte +0x343 and calls race_car_finish (func_8008E8EC) at the race time,
+// and race_car_finish ranks every car with +0x343 > 0 behind all the finishers. A car that had already finished
+// (+0xEA) and then wrecked lost its place to the last one left. A finished car's case 2 becomes a plain respawn.
+//
 // White accent under a white body (user report). func_8008582C copies the car's base palette (CARPALETTE) and, for a
 // white color (index 0), brightens its ramp first: MAIN COLOR's entries 1-31 when MAIN is white (0x80085898-),
 // otherwise ACCENT COLOR's entries 33-63 when ACCENT is white (0x80085960-, an else-if). Each entry becomes a gray of
@@ -28,7 +34,15 @@
 // palette entry 17 framed by entries 179-185 in texture 6 (32 x 64, every one of its 184 texels of entry 17), and
 // 1-31 are MAIN COLOR (class table 0x800C5670), so the windshield took the MAIN COLOR. At boot the asset is replaced
 // by a copy whose texture 6 uses entry 190 there (CARPALETTE 8, 8, 8), the near-black of the rest of the windshield.
+//
+// Stunt respawn gear (option, off by default). func_8009E180 puts player 1's car (car table 0x800D9C10 + car * 9,
+// +8 driver == 8) in 2nd gear (car +0x738 = 2, 0x8009E3E0) on every respawn, which a manual gearbox then has to shift
+// down from at the stunt arenas' slow restarts. The wrecked car then glides to the respawn point
+// (car_wreck_steer_to_respawn, func_800754B4, ends it with car +0x6C8 = -2), and func_8008E258 finishes the respawn
+// of every such car with 2nd gear again (+0x738, +0x3E0 and +0x3DE = 2, 0x8008E330). On, stunt mode (track slot 11,
+// which also hosts the Rush 2049 arenas and the battle arenas) puts the human cars in 1st at both.
 
+#include <atomic>
 #include <vector>
 
 #include "recomp.h"
@@ -47,6 +61,19 @@ namespace {
     constexpr int option_accent = 3;
 
     constexpr uint32_t engines_off = 0x800E7BCE;    // u8: engine sounds get rpm 0 (out of time)
+
+    constexpr uint32_t car_states = 0x801124A0;     // 0x354 each: +0xEA finished, +0x343 out of deaths
+    constexpr int respawn_out_of_deaths = 2;
+
+    constexpr uint32_t track_id = 0x8010C3F0;       // s8: the race's track slot
+    constexpr int stunt_slot = 11;
+    constexpr uint32_t car_kind = 0x7E8;            // u8 in the physics car: 1 drone, 2 human
+    constexpr int car_human = 2;
+    std::atomic<bool> stunt_first_gear = false;
+}
+
+void rush2::set_stunt_first_gear(bool enabled) {
+    stunt_first_gear.store(enabled, std::memory_order_relaxed);
 }
 
 // func_803B9478 at 0x803BA7E8, after slot $s7's row-changeable byte is set: MAIN and ACCENT COLOR for the Dew.
@@ -68,6 +95,36 @@ extern "C" void rush2_fix_dew_paint_rows(uint8_t* rdram, recomp_context* ctx) {
 // func_800AE670 at 0x800AEDC0, about to clear the out of time flag (time was added): the engines run again.
 extern "C" void rush2_fix_engines_after_timeout(uint8_t* rdram, recomp_context* ctx) {
     MEM_B(0, (int32_t)engines_off) = 0;
+}
+
+// func_8009E180 entry: $a0 = respawn case, $a1 = car. A finished car out of deaths respawns instead of being ranked out.
+extern "C" void rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx) {
+    int car = (int16_t)ctx->r5;
+    if ((int16_t)ctx->r4 != respawn_out_of_deaths || car < 0 || car >= 8) {
+        return;
+    }
+    if (MEM_B(0, (int32_t)(car_states + car * 0x354 + 0xEA)) == 1) {
+        ctx->r4 = 1;
+    }
+}
+
+// func_8009E180 at 0x8009E3E4, right after a respawn put player 1's car in 2nd gear: $a3 = car.
+extern "C" void rush2_stunt_respawn_gear(uint8_t* rdram, recomp_context* ctx) {
+    if (stunt_first_gear.load(std::memory_order_relaxed) && MEM_B(0, (int32_t)track_id) == stunt_slot) {
+        MEM_H(0x738, ctx->r7) = 1;
+    }
+}
+
+// func_8008E258 at 0x8008E340, after a car that finished its glide to the respawn point was put in 2nd gear
+// (+0x738 selected, +0x3E0 and +0x3DE the gearbox's): $s0 = physics car.
+extern "C" void rush2_stunt_respawn_gear_reset(uint8_t* rdram, recomp_context* ctx) {
+    int32_t car = (int32_t)ctx->r16;
+    if (stunt_first_gear.load(std::memory_order_relaxed) && MEM_B(0, (int32_t)track_id) == stunt_slot &&
+        MEM_BU(0, (int32_t)(car + car_kind)) == car_human) {
+        MEM_H(0x738, car) = 1;
+        MEM_H(0x3E0, car) = 1;
+        MEM_H(0x3DE, car) = 1;
+    }
 }
 
 // func_8008582C at 0x80085C14: 0xA4($sp) = the palette copy, 0xD3($sp) = MAIN COLOR, 0xD7($sp) = ACCENT COLOR.

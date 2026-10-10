@@ -6704,7 +6704,7 @@ ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-reb
 vram = 0x80071A1C
 name = "car_physics_inputs"
 sig = "void car_physics_inputs(Car *car)"
-desc = "Physics step input stage: front wheel angle +0x390 = +0x3A4 x steering (+0x3A4 = 540/descriptor +0x50 = 33.75), throttle +0x3B4, brake +0x3B8, clutch +0x3B0, gears. | Sets the car's inputs (throttle, brake, clutch, gears, steering wheels at +0x3A4)."
+desc = "Physics step input stage: front wheel angle +0x390 = +0x3A4 x steering (+0x3A4 = 540/descriptor +0x50 = 33.75), throttle +0x3B4, brake +0x3B8, clutch +0x3B0, gears: copies the selected gear +0x738 to the gearbox +0x3DE and +0x3E0 when +0x3D8 == 0 (manual), only +0x3E0 otherwise (automatic). | Sets the car's inputs (throttle, brake, clutch, gears, steering wheels at +0x3A4)."
 status = "verified"
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#steering-terms-completed-v"
@@ -7038,7 +7038,7 @@ ref = "docs/functions/rush2_util.md#rush-2-util-functions"
 vram = 0x800754B4
 name = "car_wreck_steer_to_respawn"
 sig = "void car_wreck_steer_to_respawn(Car *car)"
-desc = "Steers a wrecked car to its respawn target (per car 3 floats at 0x800D39D8 + car*12)."
+desc = "Steers a wrecked car to its respawn target (per car 3 floats at 0x800D39D8 + car*12); counts car +0x6C8 up and ends the glide with +0x6C8 = -2 (0x80075650), which car_physics_tick_all_reset_8008E258 then finishes."
 status = "verified"
 area = "car"
 ref = "src/ghost.cpp"
@@ -9253,11 +9253,11 @@ ref = "docs/functions/rush2_car.md#rush-2-car-functions"
 vram = 0x8008E258
 name = "car_physics_tick_all_reset"
 sig = "void car_physics_tick_all_reset(void)"
-desc = "Loops over all cars (stride 0x81C): resets state, ground contact, integrates position/orientation and engine rpm once; called by race_pose_and_camera_update."
-consts = "0x81C = car stride"
-status = "inferred"
+desc = "Finishes respawns: for every car whose +0x6C8 == -2 (glide to the respawn point done, set by car_wreck_steer_to_respawn) sets +0x6C8 = -1, resets the car (car_reset_state_for_race, ground contact, integration, engine rpm) and puts it in 2nd gear (+0x738, +0x3E0, +0x3DE = 2 at 0x8008E330). Hooked at 0x8008E340 (Stunt Respawn in 1st Gear)."
+consts = "0x81C = car stride; -2 = glide done; 2 = respawn gear"
+status = "verified"
 area = "car"
-ref = "docs/functions/rush2_car.md#rush-2-car-functions"
+ref = "docs/game_fixes.md#stunt-respawn-gear"
 
 [[func]]
 vram = 0x8008E3B4
@@ -10957,11 +10957,13 @@ ref = "us.toml"
 [[func]]
 vram = 0x8009E180
 name = "race_car_finish_or_respawn_handle"
-sig = "void race_car_finish_or_respawn_handle(s32 player, s32 a1)"
-desc = "Per-player race step: race_car_finish, race_end_audio_cmds, race_get_player_slot_ptr, car_place_by_case and respawn_place_car; places a car after finish or respawn. (low confidence)"
-status = "inferred"
+sig = "void race_car_finish_or_respawn_handle(s32 kind, s32 car)"
+desc = "Respawn or finish a car: kind 0 start grid (func_8006DE20), 1 respawn, 2 respawn that can run out of deaths. With DEATHS on (0x8010BC98), kind 2 with car state +0x343 == 0 marks the car out (+0x343 = 1) and calls race_car_finish at the race time, ranking it behind every finisher. Respawns put player 1 in 2nd gear (0x8009E3E0). Hooked at entry (src/game_fixes.cpp, finish place fix, always on): kind 2 becomes 1 for a car already finished (+0xEA); and at 0x8009E3E4 (Stunt Respawn in 1st Gear)."
+consts = "2 = case: respawn that may run out of deaths; 0x354 = car state stride"
+status = "verified"
+ported = true
 area = "race"
-ref = "docs/functions/rush2_race.md#rush-2-race-functions"
+ref = "docs/game_fixes.md#finish-place-and-deaths"
 
 [[func]]
 vram = 0x8009E400
@@ -11345,13 +11347,13 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 vram = 0x800A1A98
 name = "rubber_band"
 sig = "void rubber_band(void)"
-desc = "Rubber band: computes the drone speed multiplier stored at car +0x808. / Places from car state +0xE9 per car (sp+0x1FC), cars sorted by place (sp+0x210); the loop at 0x800A2218 skips a car whose +0x7E6 is 0, and a car neither first nor last reads its neighbors at place - 1 / + 1 (0x800A290C), so a place past the sorted cars reads stack garbage. Hooked at 0x800A2238 to skip ghost cars (src/ghost.cpp)."
+desc = "Rubber band: computes the drone speed multiplier stored at car +0x808. / Places from car state +0xE9 per car (sp+0x1FC), cars sorted by place (sp+0x210); the loop at 0x800A2218 skips a car whose +0x7E6 is 0, and a car neither first nor last reads its neighbors at place - 1 / + 1 (0x800A290C), so a place past the sorted cars reads stack garbage. Hooked at 0x800A2238 to skip ghost cars (src/ghost.cpp). / Drone Cheating option (src/npc_cars.cpp): targets start from DIFFICULTY 0x8010C211 and place as base values $f24 (+0x808) / $f22 (+0x814), bent by the gap to the neighbor through func_800A19B0 into $f2 / $f12, eased toward at 0x800A2F10; hooked at 0x800A2F14 to use the base values when catch-up is off."
 consts = "0x81C = car stride, 0x354 = per-car result stride"
 status = "verified"
 ported = true
 rush2049 = [0x800F93A0]
 area = "car"
-ref = "docs/rush2049_research/cars.md#10-car-speeds-v"
+ref = "docs/npc_cars.md#drone-catch-up"
 
 [[func]]
 vram = 0x800A3028

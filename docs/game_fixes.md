@@ -1,7 +1,7 @@
 # Original game fixes
 
-Bugs in the original Rush 2 (US) that the recomp fixes, always on (src/game_fixes.cpp). Each is a hook into the
-game's own code.
+Bugs in the original Rush 2 (US) that the recomp fixes (src/game_fixes.cpp), always on unless a section says it has
+an option, and a few small gameplay options that live in the same file. Each is a hook into the game's own code.
 
 ## Mountain Dew paint
 
@@ -35,6 +35,26 @@ A checkpoint reached while coasting adds time, and the next frame clears 0x800FA
 0x800E7BCE until the next race setup (func_800A5ADC at 0x800A6134), so the engines stayed silent for the rest of the
 race. Rush 2049 fixed this. The hook at 0x800AEDC0 clears the byte along with the flag.
 
+## Finish place and DEATHS
+
+User report. Always on: a vanilla bug, so it has no option.
+
+With DEATHS on, the race global 0x8010BC98 (s8, copied from the track select struct 0x800D5760 + 0x11 by
+func_80094698 at 0x80094974) is non-zero. `race_car_finish_or_respawn_handle_8009E180` (`$a0` = respawn case, `$a1`
+= car) treats case 2 as a car out of deaths: when the car state's out byte (0x801124A0 + car * 0x354, +0x343) is 0,
+it sets it to 1, clears car +0x648, and calls `race_car_finish_8008E8EC` with the race time. race_car_finish marks the
+car finished (+0xEA, time +0xEC) and sorts every finished car by time, but gives a car with +0x343 > 0 the time
+`0x800CFBE8 + (s32)(9 * 0x8010C430) - car state +0xFC`, so dead cars rank behind every real finisher. Nothing checks
+whether the car had already finished, so a car that crossed the line and then wrecked was re-ranked into the last
+place left.
+
+The fix, a hook at the entry of func_8009E180 (`rush2_fix_finish_place`), changes case 2 to case 1 (a plain respawn,
+which shares the case 2 path apart from the out of deaths block) when the car state's +0xEA is already 1.
+
+Other readers of 0x8010BC98, not changed: car_wreck_trigger_8006E1A8 (0x8006E270), save_commit_settings_to_pak
+(0x800A8C84), record_stats_race_end (0x800A946C), race_update_player_slot_state (0x800AB11C), hud_widget_cb_simple_reset
+(0x800B9C48, the skull icon) and the options list (0x803C6844 / 0x803C6898).
+
 ## White accent on a white car
 
 User report. `car_build_textures_8008582C` copies the car's base palette (CARPALETTE, 0x80119648) and, for the white
@@ -55,6 +75,27 @@ CARPALETTE 8, 8, 8) except for one panel, a solid block of entry 17 framed by en
 all 184 of its entry-17 texels are the block), which took the MAIN COLOR. Entry 17 is body paint in the other
 textures, so its class can't change. At boot (`rush2_heap_init`, src/assets.cpp) `rush2::fix_rocket_windshield`
 replaces the asset with a copy whose texture 6 uses entry 190 for those texels.
+
+## Stunt respawn gear
+
+Option (General > Gameplay, Stunt Respawn in 1st Gear, off by default). `race_car_finish_or_respawn_handle_8009E180`
+puts player 1's car (car table 0x800D9C10 + car * 9, +8 driver == 8) in 2nd gear (car +0x738 = 2, 0x8009E3E0) on
+every respawn. The hook at 0x8009E3E4 sets 1st instead in stunt mode (track slot 11, which also hosts the Rush 2049
+arenas and the battle arenas).
+
+That alone showed 1st and then went back to 2nd (user report, 2026-10-10). After the respawn the wrecked car glides
+to its respawn point: `car_wreck_steer_to_respawn_800754B4` counts car +0x6C8 up and ends the glide with +0x6C8 = -2
+(0x80075650). Next frame `car_physics_tick_all_reset_8008E258`, for every car with +0x6C8 == -2, sets it to -1, resets
+the car (`car_reset_state_for_race_8008E050`, ground contact, integration, engine rpm) and puts it in 2nd gear for
+every car, not just player 1: +0x738 (the selected gear), +0x3E0 and +0x3DE (the gearbox's) = 2 at 0x8008E330-
+0x8008E33C. A second hook at 0x8008E340 (`rush2_stunt_respawn_gear_reset`) sets all three to 1 for human cars
+(physics car +0x7E8 == 2) in stunt mode.
+
+Writers of +0x738: `player_join_init_car_80080524` (the buttons, every frame: reverse held -1, shift down/up step 1-4,
+by speed after reverse is released), `car_zero_inputs_8008D7BC` (1), `car_init_setup_8008DBA0` (0),
+`car_physics_tick_all_reset_8008E258` (2) and the respawn (2). `car_physics_inputs_80071A1C` copies it to the gearbox:
++0x3DE and +0x3E0 when car +0x3D8 is 0 (manual), only +0x3E0 otherwise (automatic picks +0x3DE itself). The HUD gear
+(`hud_widget_cb_model_lookup_800B92F4`, 0x800B9328) reads +0x738.
 
 ## Keep music playing when paused
 

@@ -9506,12 +9506,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010BC98
-name = "settings_game_option"
-type = "u8"
-desc = "Setting byte copied to race globals; read by wreck trigger, respawn, record stats and options text (low confidence on meaning)."
-area = "save"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "race_deaths"
+type = "s8"
+desc = "DEATHS option for the race (track select struct 0x800D5760 + 0x11, copied by func_80094698 at 0x80094974; 0 off). Read by car_wreck_trigger, race_car_finish_or_respawn_handle (out of deaths ranks the car behind the finishers), record stats, the skull HUD widget and the options text."
+area = "race"
+status = "verified"
+ref = "docs/game_fixes.md#finish-place-and-deaths"
 
 [[var]]
 vram = 0x8010BCA0
@@ -10559,12 +10559,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C211
-name = "settings_rubber_band_option"
+name = "race_difficulty"
 type = "u8"
-desc = "Setting byte copied to race globals; read by checkpoint, total time, start timer, ranking and rubber band (low confidence on meaning)."
+desc = "DIFFICULTY for the race (0-5, from the track select struct 0x800D5760 + 0xA by func_80094698). Drives rubber_band_800A1A98: f20 = (1 - difficulty / 5) x the per-track factor 0x800C1A3C, and no place spread at 5. Also read by checkpoint, total time, start timer and ranking."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/npc_cars.md#drone-catch-up"
 
 [[var]]
 vram = 0x8010C254

@@ -59,3 +59,17 @@ type's:
 
 func_80085FD0 is also used by the car select's previews (`$fp` a preview id there), so its hook only applies to the car
 func_80086CA4 (`race_load_car_assets`) is building (hook at `0x80086E0C`, before its call).
+
+## Drone catch-up
+
+Option (General > Gameplay, Drone Cheating, on by default). `rubber_band_800A1A98` gives each computer car (physics
+car +0x7E6 != 0) two multipliers every frame: +0x808, the target speed (the driver aims for lane speed x 1.05 x
++0x808), and +0x814, both eased toward their targets at 0x800A2F10-0x800A2FB4. The targets start from DIFFICULTY
+(0x8010C211, 0-5: f20 = (1 - difficulty / 5) x the per-track factor 0x800C1A3C[track], +12 entries backward) and the
+car's place (f26 = place / (cars - 1), 0 at difficulty 5), which give the base values $f24 (for +0x808) and $f22 (for
++0x814). `func_800A19B0` then bends them by the gap to the car ahead or behind (catching up from behind, easing off
+ahead) into $f2 and $f12. The game falls back to a base value itself in two places: when the clock is out
+(0x800FAE98) or every human has finished (0x8010C0E0) it resets $f12 only, and with the checkpoint flag 0x8010C171
+set it resets both, but only when a comparison against car state +0xE9 passes (not worked out). With catch-up off, the
+hook at 0x800A2F14 (`rush2_drone_catch_up`) puts both base values back every frame, after those paths join, so a
+drone's pace follows DIFFICULTY and its place but not the gaps.

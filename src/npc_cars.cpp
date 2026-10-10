@@ -16,6 +16,17 @@
 // opponent its chosen rim: func_80085FD0 building a race car's wheel nodes (0x800865CC, for the car
 // func_80086CA4 is building, 0x80086E0C), func_8005A598's per-frame wheel texture (sharp at 0x8005AB08, blurred
 // through 0x800CEDAC at 0x8005AAF8), func_80087290 (0x800875F8) and func_8008DBA0's car init (+0x59E, 0x8008DD54).
+//
+// Drone catch-up (General tab's Drone Cheating option, on by default). rubber_band (func_800A1A98) gives each drone
+// (physics car +0x7E6 != 0) two multipliers each frame, the target speed +0x808 (the driver aims for lane speed x 1.05
+// x +0x808) and +0x814, eased toward their targets at 0x800A2F10-0x800A2FB4. The targets start from DIFFICULTY
+// (0x8010C211, 0-5: f20 = (1 - difficulty / 5) x a per-track factor at 0x800C1A3C) and the drone's place
+// (f26 = place / (cars - 1), 0 at difficulty 5), giving the base values $f24 (+0x808) and $f22 (+0x814); func_800A19B0
+// then bends them by the gap to the neighbor ahead or behind (catching up from behind, easing off ahead) into $f2 and
+// $f12. The game itself resets $f12 to its base out of time or once every human has finished (0x800FAE98 /
+// 0x8010C0E0), and both behind the checkpoint flag 0x8010C171 when a test on car state +0xE9 passes. With catch-up
+// off, the hook at 0x800A2F14 puts both base values back every frame, so a drone's pace follows DIFFICULTY and its
+// place but not how far it is from the cars around it.
 
 // librecomp's own nlohmann::json first, so Config::load_config links (see src/rush2049/wings.cpp).
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
@@ -42,6 +53,8 @@
 
 namespace {
     using rush2::npc_cars::count;
+
+    std::atomic<bool> drone_catch_up = true;
 
     constexpr uint32_t cars = 0x800F5470;           // physics cars, 0x81C each
     constexpr uint32_t car_size = 0x81C;
@@ -477,4 +490,17 @@ namespace {
 
 void rush2::npc_cars::add_section(recompui::Element* parent) {
     recompui::get_current_context().create_element<Section>(parent);
+}
+
+// rubber_band (func_800A1A98) at 0x800A2F14, before easing the drone's multipliers toward $f2 (+0x808) and $f12
+// (+0x814): without catch-up, the base values $f24 and $f22 instead.
+extern "C" void rush2_drone_catch_up(uint8_t* rdram, recomp_context* ctx) {
+    if (!drone_catch_up.load(std::memory_order_relaxed)) {
+        ctx->f2.fl = ctx->f24.fl;
+        ctx->f12.fl = ctx->f22.fl;
+    }
+}
+
+void rush2::npc_cars::set_catch_up(bool enabled) {
+    drone_catch_up.store(enabled, std::memory_order_relaxed);
 }

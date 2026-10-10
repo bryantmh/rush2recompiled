@@ -16,6 +16,8 @@ namespace rush2::npc_cars {
     void load_config();
     // Adds the collapsible AI Opponents section to the Players tab's list.
     void add_section(recompui::Element* parent);
+    // Drone Cheating: off, the drones' pace no longer depends on the gap to the cars around them.
+    void set_catch_up(bool enabled);
 }
 
 #endif

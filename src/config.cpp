@@ -480,6 +480,46 @@ static void add_car_stats_option(recomp::config::Config& config) {
         });
 }
 
+namespace stunt_gear_option {
+    const std::string id = "stunt_first_gear";
+}
+
+// Stunt respawn gear: stunt mode respawns put player 1 in 1st gear instead of 2nd (src/game_fixes.cpp).
+static void add_stunt_gear_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        stunt_gear_option::id,
+        "Stunt Respawn in 1st Gear",
+        "In stunt mode, a respawned car with a manual gearbox starts in 1st gear instead of 2nd.",
+        false
+    );
+
+    config.add_option_change_callback(stunt_gear_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::set_stunt_first_gear(std::get<bool>(cur_value));
+        });
+}
+
+namespace catch_up_option {
+    const std::string id = "drone_catch_up";
+}
+
+// Drone catch-up: the computer cars speed up when behind and ease off when ahead (src/npc_cars.cpp).
+static void add_catch_up_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        catch_up_option::id,
+        "Drone Cheating",
+        "The computer cars speed up when they fall behind the cars around them and ease off when they pull ahead, as "
+        "in Rush 2. Off, their pace comes only from DIFFICULTY and their place in the race, not from how far they "
+        "are from the other cars. Takes effect at once, even mid-race.",
+        true
+    );
+
+    config.add_option_change_callback(catch_up_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::npc_cars::set_catch_up(std::get<bool>(cur_value));
+        });
+}
+
 namespace torque_option {
     const std::string id = "torque_rebalance";
 }
@@ -562,7 +602,8 @@ void rush2::init_config() {
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
             { "Controls", { general::options::rumble_strength, general::options::joystick_deadzone,
                             steering_option::id, reverse_option::id } },
-            { "Gameplay", { car_stats_option::id, torque_option::id, ghost_option::id, ghosts_kept_option::id } },
+            { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id,
+                            catch_up_option::id, ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, data_location_option::id } },
         });
         namespace graphics = recompui::config::graphics;
@@ -587,6 +628,8 @@ void rush2::init_config() {
     add_ghosts_kept_option(general_config);
     add_car_stats_option(general_config);
     add_torque_option(general_config);
+    add_stunt_gear_option(general_config);
+    add_catch_up_option(general_config);
     add_data_location_option(general_config);
 
     auto& graphics_config = recompui::config::create_graphics_tab();
@@ -640,6 +683,10 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(car_stats_option::id)));
     rush2::car2049::set_torque_rebalance(std::get<bool>(
         recompui::config::get_general_config().get_option_value(torque_option::id)));
+    rush2::set_stunt_first_gear(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(stunt_gear_option::id)));
+    rush2::npc_cars::set_catch_up(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(catch_up_option::id)));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();
