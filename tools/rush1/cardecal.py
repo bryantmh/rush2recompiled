@@ -26,12 +26,14 @@ from cartex import *
 # Cars with a decal of their own in Rush 1 (the others only have racing stripes, which Rush 2's STRIPE values cover):
 # (Rush 1 palette index ranges of the decal, companion ranges kept only within REACH texels of a decal texel, the
 # Rush 2 panels (D0_n) it goes on). Fixed Rush 1 colours: 33-49 / 100-106 the Camaro's flame ramps (yellow to red),
-# 145-148 whites, 157-159 and 31 blacks; on the VW Bus and Bug 33-63 is a white ramp.
+# 145-148 whites, 157-159 and 31 blacks; on the VW Bus, Bug and Bugatti 33-63 is a white ramp
+# (the Bugatti's hood stripes and the three lines on its engine cover; Rush 2 already has its ALL-STICK lettering).
 CARS = {
     'CAMARO': ([(33, 49), (100, 106)], [(147, 156), (161, 175)], (1, 2, 3, 4, 5, 6)),
     'VWBUS': ([(33, 63)], [], (1, 2, 3, 4, 5, 6)),
     'VWBUG': ([(33, 63)], [], (1, 2, 3, 4, 5, 6)),
     'TAXI': ([(145, 148)], [(31, 31), (157, 159)], (1, 2, 3, 4, 5, 6)),
+    'BUGATTI': ([(33, 63), (145, 148)], [], (1, 2, 3, 4, 5, 6)),
 }
 # Hand-made cuts: {car: {panel n: [(x0, y0, x1, y1), ...]}}, texel rectangles (inclusive) of a Rush 2 panel D0_n where
 # the decal is dropped (fragments where Rush 2's windows and pillars sit apart from Rush 1's). Previews with a texel grid:
@@ -41,6 +43,7 @@ CUTS = {
     'VWBUS': {},
     'VWBUG': {},
     'TAXI': {},
+    'BUGATTI': {},
 }
 R1_PARTS = ('FL1', 'FR1', 'RL1', 'RR1', 'TOP1', 'WIN1')   # Rush 1 D0 body panels (+ greenhouse, own texels)
 R2_PARTS = ('FL1', 'FR1', 'RL1', 'RR1', 'TOP1')

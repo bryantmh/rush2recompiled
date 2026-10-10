@@ -12,7 +12,7 @@
 // the car's 3D shape. The decal keeps Rush 1's colours: the result is one colour map per panel texture (D0_1 ..
 // D0_6; Rush 2 car palette indices, 0 = no decal) plus its quarter-size mip.
 namespace rush2::car1decals {
-    constexpr int car_count = 4;
+    constexpr int car_count = 5;
     constexpr int max_ranges = 2;
 
     struct Range {

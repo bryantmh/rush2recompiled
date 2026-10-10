@@ -23,12 +23,14 @@ namespace rush2::car1decals {
         // Rush 1 asset 25 + its car's place in {BMW, CAMARO, SUPRA, BUGATTI, VWBUS, VIPER, VWBUG, CONCEPT, TAXI, HOTROD, FORM1}.
         // Only the cars with a decal of their own (the others have racing stripes, which Rush 2's STRIPE values cover).
         // Decal ranges: fixed Rush 1 colours, 33-49 / 100-106 the Camaro's flame ramps (yellow to red), 145-148 whites,
-        // 157-159 and 31 blacks; on the VW Bus and Bug 33-63 is a white ramp. Panels: bit n = D0_n. Cuts:
+        // 157-159 and 31 blacks; on the VW Bus, Bug and Bugatti 33-63 is a white ramp (the Bugatti's hood stripes and the
+        // three lines on its engine cover). Panels: bit n = D0_n. Cuts:
         // tools/rush1/cardecal.py CUTS.
         { "CAMARO", 5, 26, { { 33, 49 }, { 100, 106 } }, { { 147, 156 }, { 161, 175 } }, 0b1111110, {} },
         { "VWBUS", 8, 29, { { 33, 63 } }, {}, 0b1111110, {} },
         { "VWBUG", 10, 31, { { 33, 63 } }, {}, 0b1111110, {} },
         { "TAXI", 16, 33, { { 145, 148 } }, { { 31, 31 }, { 157, 159 } }, 0b1111110, {} },
+        { "BUGATTI", 7, 28, { { 33, 63 }, { 145, 148 } }, {}, 0b1111110, {} },
     };
 }
 
