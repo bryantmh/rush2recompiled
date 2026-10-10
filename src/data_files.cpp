@@ -10,6 +10,7 @@
 
 #include "json/json.hpp"
 
+#include "librecomp/game.hpp"
 #include "util/file.h"
 
 #include "data_files.h"
@@ -29,7 +30,7 @@ namespace {
     State states[file_count];
 
     fs::path app_folder() {
-        return recompui::file::get_app_folder_path();
+        return recomp::get_config_path();
     }
 
     fs::path path_of(rush2::data_files::File file) {
@@ -66,7 +67,8 @@ namespace {
         {
             std::ofstream f{ temp, std::ios::trunc };
             f << j.dump(indent) << "\n";
-            if (!f.good()) {
+            f.close(); // Flushes, so a full disk fails here rather than after the rename.
+            if (f.fail()) {
                 printf("[Data] Couldn't write %s\n", temp.string().c_str());
                 return false;
             }

@@ -22,6 +22,7 @@
 #include "recompui/recompui.h"
 #include "recompui/config.h"
 #include "librecomp/config.hpp"
+#include "librecomp/game.hpp"
 #include "util/file.h"
 #include "elements/ui_button.h"
 #include "elements/ui_label.h"
@@ -86,7 +87,7 @@ namespace {
     }
 
     std::filesystem::path stored_rom_path() {
-        return recompui::file::get_app_folder_path() / rom_file_name;
+        return recomp::get_config_path() / rom_file_name;
     }
 
     void set_rom(std::shared_ptr<const std::vector<uint8_t>> rom) {
@@ -130,7 +131,7 @@ namespace {
             }
 
             std::error_code ec;
-            std::filesystem::create_directories(recompui::file::get_app_folder_path(), ec);
+            std::filesystem::create_directories(recomp::get_config_path(), ec);
             std::ofstream out{ stored_rom_path(), std::ios::binary };
             if (!out.write(reinterpret_cast<const char*>(data->data()), data->size())) {
                 recompui::message_box("Failed to copy the SF Rush ROM into the app folder.");

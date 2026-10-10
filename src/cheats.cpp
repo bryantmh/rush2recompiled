@@ -517,6 +517,7 @@ namespace {
                     config.set_option_value(cheat.id, cheat.default_choice);
                 }
             }
+            config.set_option_value(weapons_id, 0u); // Shown with the cheats but not one of the game's (Off).
             config.save_config();
         }
     };

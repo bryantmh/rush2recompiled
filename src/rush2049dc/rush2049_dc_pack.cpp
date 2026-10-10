@@ -45,7 +45,9 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "recompui/recompui.h"
 #include "recompui/renderer.h"
+#include "librecomp/game.hpp"
 #include "util/file.h"
 
 #include "rush2049_dc.h"
@@ -77,7 +79,7 @@ namespace {
     }
 
     std::filesystem::path upscale_store() {
-        return recompui::file::get_app_folder_path() / "texture_upscale" / "dreamcast";
+        return recomp::get_config_path() / "texture_upscale" / "dreamcast";
     }
 
     std::string stamp_of(const rush2::rom2049::Source& source) {
@@ -414,6 +416,14 @@ namespace {
         return upscale::write_file(dir / "rt64.json", std::vector<uint8_t>(database.begin(), database.end()));
     }
 
+    // The folder couldn't be built or read (a full disk, a read-only app folder): say so rather than quietly drawing
+    // the scaled-down textures with the option on.
+    void failed() {
+        std::string message = "Failed to build the Dreamcast Textures in:\n" + upscale::path_utf8(pack_dir()) +
+            "\n\nThe game uses the scaled-down textures until they can be written there.";
+        recompui::message_box(message.c_str());
+    }
+
     // Puts the option's state in effect: builds or loads the folder as needed, in the background.
     void refresh() {
         uint64_t refresh = ++refreshes;
@@ -455,11 +465,21 @@ namespace {
                         set_renderer_pack(false);
                         unload();
                     }
-                    if (!build(*from, stamp, refresh)) return;
+                    if (!build(*from, stamp, refresh)) {
+                        if (refreshes == refresh) failed();
+                        return;
+                    }
                 }
-                std::lock_guard lock{ mutex };
-                if (!load_index(stamp)) return;
-                upscale_generation = 0;
+                bool indexed;
+                {
+                    std::lock_guard lock{ mutex };
+                    indexed = load_index(stamp);
+                    if (indexed) upscale_generation = 0;
+                }
+                if (!indexed) {
+                    failed();
+                    return;
+                }
             }
             std::lock_guard lock{ mutex };
             if (refreshes != refresh) return;

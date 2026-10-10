@@ -1021,7 +1021,7 @@ void rush2::hud::draw_rect(uint8_t* rdram, float x0, float y0, float x1, float y
     if (fx0 < 0 || fy0 < 0 || fx1 > 0xFFF || fy1 > 0xFFF) {
         return;
     }
-    GfxCommand cmds[12];
+    GfxCommand cmds[16];
     uint32_t count = 0;
     auto cmd = [&](uint32_t w0, uint32_t w1) {
         cmds[count].values.word0 = w0;

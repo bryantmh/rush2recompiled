@@ -1031,7 +1031,8 @@ namespace {
             float side = std::sqrt((at[0] - c[0]) * (at[0] - c[0]) + (at[2] - c[2]) * (at[2] - c[2]));
             if (dy < -s.radius || dy > car_hit_height + s.radius || side > s.radius + car_hit_radius) continue;
             float back[3] = { -d[0], -d[1], -d[2] };
-            if (ram_blocks(rdram, i, back)) s.ram_front = true;
+            // Decided by the car finally hit: a nearer car later in the loop replaces a farther one's ram.
+            s.ram_front = ram_blocks(rdram, i, back);
             hit = i;
             best = t;
             memcpy(s.pos, at, sizeof(at));
