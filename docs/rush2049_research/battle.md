@@ -288,8 +288,9 @@ Main code. **[V]** unless marked.
 - **Invisibility**: `rush2::ghost::set_faded` (src/ghost.cpp, the ghosts' model hook): the car's own view draws the
   whole car translucent, as a ghost; the other views don't draw it (2049 fades it to nothing there), and its shadow
   polygon (car state +0x20C) is hidden in them. The arrow to it is faint (alpha 0x20).
-- **Teams** (2049 `0x8012E67C`): Games tab, Player n Battle Team (blue, red, yellow, green; default one each). Cars of
-  a team don't damage each other; the coin and the arrows take the team's color.
+- **Teams** (2049 `0x8012E67C`): not chosen here; each player is a team of their own (blue, red, yellow, green by
+  player, `rush2::battle::team_of`). Cars of a team don't damage each other; the coin and the arrows take the team's
+  color.
 - **Visibility**: DM5 uses its table (section 6.2); the other arenas draw every section.
 - Sounds go through `rush2::audio2049::sfx_start` with 2049's emitter law per local player. The 2049 effects are only
   mixed while something calls `rush2::track2049::effects_running` every frame (they go quiet with the race paused);
@@ -428,7 +429,8 @@ src/rush2049/battle.cpp; not in stunt mode, `0x8010C3E8 == 2`, or a ghost race).
 
 ### 7.3 Firing backward (Settings, Fire Backward)
 
-Not in 2049. With the Fire Backward option (Games tab, on by default, takes effect at once), holding the steering
+Not in 2049. With the Fire Backward option (Games tab under Rush 2049, registered in src/games_tab.cpp with the hidden
+old Battle Time Limit; on by default, takes effect at once), holding the steering
 stick back while firing (the D-pad's down when it steers, the keyboard's down arrow; `rush2::controls::battle_back`
 from `get_race_input`, stick y <= -0.5) shoots behind the car, in the arenas, a race with the BATTLE row and with the
 Weapons cheat. It applies to the weapons that shoot ahead: the cannon, gatling, grenade, missile, rocket and gun (the

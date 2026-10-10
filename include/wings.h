@@ -14,16 +14,17 @@ namespace rush2::ui {
 }
 
 namespace rush2::wings {
-    // The Rush 2049 settings, shown in the Games tab (src/games_tab.cpp) and the wing styles in the Players tab.
-    // init_config adds them; call it before recompui::config::finalize().
+    // The Rush 2049 settings, shown in the Games tab (src/games_tab.cpp). init_config adds them; call it before recompui::config::finalize().
     void init_config();
     // Adds the Rush 2049 section (ROM picker and options) to the Games tab; refresh keeps its ROM status current.
     void add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh);
     void save_config();
-    // A player's (0 or 1) wing style option, 0-2; setting it saves the settings.
-    int get_style_option(int player);
-    void set_style_option(int player, int style);
-    // Loads the saved settings and the stored Rush 2049 ROM. Call after recompui::config::finalize().
+    // A player's (0-3) wing style, 0-2, chosen on the car select and kept in the saves' "wings" section
+    // (src/rush2049/wings_menu.cpp); setting it saves it. load_styles reads them at startup.
+    int saved_style(int player);
+    void save_style(int player, int style);
+    void load_styles();
+    // Loads the saved settings, the wing styles and the stored Rush 2049 ROM. Call after recompui::config::finalize().
     void load_config();
 
     // The Rush 2049 data: the N64 (USA) ROM or the Dreamcast (USA) disc the player provided, or null if neither.

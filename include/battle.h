@@ -58,8 +58,8 @@ namespace rush2::battle {
     // Settings: holding the steering stick back while firing shoots behind the car (rush2::controls::battle_back),
     // with every weapon that shoots ahead (not the mine, ram or sonic blast). On by default.
     void set_fire_backward(bool on);
-    // A player's team (0-3: blue, red, yellow, green; Games tab). Cars of a team don't damage each other.
-    void set_team(int player, int team);
+    // A player's team (0-3: blue, red, yellow, green): each player is a team of their own (Rush 2049's team pick,
+    // 0x8012E67C, isn't ported).
     int team_of(int player);
     // For the arrows over the other cars (src/arrows.cpp): whether car is a live car of the battle in progress, and
     // whether it is invisible.

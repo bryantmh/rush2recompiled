@@ -240,6 +240,32 @@ namespace {
             remove_with_backup(app_folder() / name);
         }
     }
+
+    // The car select's wing styles, once hidden options of games.json (wing_style_p1-p4: "Style1"-"Style3"), as the
+    // saves' "wings" section (src/rush2049/wings_menu.cpp). games.json drops the old ids the next time it's saved.
+    void migrate_wing_styles() {
+        State& s = state_of(rush2::data_files::File::Saves);
+        json games;
+        if (s.root.contains("wings") || !read_json(app_folder() / "games.json", games)) {
+            return;
+        }
+        json styles = json::array();
+        bool found = false;
+        for (int player = 1; player <= 4; player++) {
+            auto it = games.find("wing_style_p" + std::to_string(player));
+            int style = 0;
+            if (it != games.end() && it->is_string()) {
+                const std::string& value = it->get_ref<const std::string&>();
+                style = value == "Style2" ? 1 : value == "Style3" ? 2 : 0;
+                found = true;
+            }
+            styles.push_back(style);
+        }
+        if (found) {
+            s.root["wings"] = json{ { "styles", styles } };
+            write_state(rush2::data_files::File::Saves, s);
+        }
+    }
 }
 
 fs::path rush2::data_files::save_folder() {
@@ -270,4 +296,5 @@ void rush2::data_files::migrate() {
     migrate_ghosts();
     migrate_players();
     migrate_games_config();
+    migrate_wing_styles();
 }
