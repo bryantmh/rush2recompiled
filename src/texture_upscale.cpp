@@ -1374,9 +1374,8 @@ void add_options(recomp::config::Config& config) {
     // Hidden while the mode is one of these: only Custom shows it.
     config.add_option_hidden_dependency(command_option_id, mode_option_id, Mode::Off, Mode::Hq2x, Mode::Hq4x);
 
-    // The config can move as later tabs are added, so the callbacks look it up again. The graphics tab stages changes
-    // until Apply (Temporary while picking, Temporary again on revert), so only an applied or loaded value starts the
-    // upscaler.
+    // The config can move as later tabs are added, so the callbacks look it up again. The graphics tab applies changes
+    // as they're made; the Temporary check only matters if it ever stages them again.
     config.add_option_change_callback(mode_option_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext context) {
             if (context != recomp::config::OptionChangeContext::Temporary) {

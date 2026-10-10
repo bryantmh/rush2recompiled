@@ -26,9 +26,6 @@ General:
       func_800A952C, 2 player arrays: docs/players4.md) are players 1 and 2's.
 3) Add a Music skip track feature to the pause menu. It will just be a new pause ;menu item below Audio and above "restart"  Currently music switches every time paused. this is not what we want. It should keep playing a track unless skipped or a new race is begun. Skipping on a track that isn't set to random will play a random song instead. The ui should also show the name of the currently playing song in the bottom right corner in a sort of playback box with some sort of music icon showing that it is music that is playing and the game and track it is from along with its name
 4) Import California Speed
-5) Code-checked, not yet play-tested: finish place kept with DEATHS (src/game_fixes.cpp, always on), upscaling waits
-    for Apply (src/texture_upscale.cpp), Drone Cheating option (src/npc_cars.cpp).
-6) Stunt Respawn in 1st Gear: second hook added where the respawn glide ends (docs/game_fixes.md#stunt-respawn-gear); play-test.
 7) Weak brakes: no braking in mid-air, and gas + brake held together still accelerates (feels like SF Rush, seen with the
     2049 speed setting). Find whether it's our digital pedal mapping (src/controls.cpp) or the physics; toggle if design.
 8) Show the current track's collected keys/cans/coins on the pause menu (data in src/collectibles.cpp).
@@ -39,4 +36,3 @@ General:
 13) Formula: rear wheels misplaced against the visible suspension, and the suspension isn't mirrored front or back
     (original game bug, no toggle).
 14) Stallion: spoiler is off-center (original game bug, no toggle).
-15) Improper placement of stunt counter whenever checkpoint is reached, specifically when "Bonus Time" is flashing on the screen. This issue occurs when using any HUD/screen settings other than 4:3 original for me. My monitor is 16:9.

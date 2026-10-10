@@ -22,8 +22,25 @@ index 33f79ab..3e6423c 100644
          // Texture pack enable option. Must be an enum with two options.
          // The first option is treated as disabled and the second option is treated as enabled.
          bool is_texture_pack_enable_config_option(const recomp::config::ConfigOption& option, bool show_errors);
+diff --git a/recompui/src/base/ui_state.cpp b/recompui/src/base/ui_state.cpp
+index 277a421..b347a8c 100644
+--- a/recompui/src/base/ui_state.cpp
++++ b/recompui/src/base/ui_state.cpp
+@@ -710,11 +710,7 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
+                 }
+                 last_mouse_pos[0] = cur_event.motion.x;
+                 last_mouse_pos[1] = cur_event.motion.y;
+-
+-                // if controller is the primary input, don't use mouse movement to allow cursor to reactivate
+-                if (recompui::get_cont_active()) {
+-                    break;
+-                }
++                // Rush 2 recomp: moving the mouse brings the cursor back even after controller input, without a click.
+             }
+             // fallthrough
+             case SDL_EventType::SDL_MOUSEBUTTONDOWN:
 diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
-index 4fdf81f..ce13aef 100644
+index 4fdf81f..d5ba2a2 100644
 --- a/recompui/src/config/ui_config_tab_graphics.cpp
 +++ b/recompui/src/config/ui_config_tab_graphics.cpp
 @@ -81,6 +81,7 @@ namespace recompui {
@@ -55,7 +72,62 @@ index 4fdf81f..ce13aef 100644
                  "<br />"
                  "<br />"
                  "<recomp-color primary>Detected display refresh rate: " + std::to_string(refresh_rate) + "hz</recomp-color>";
-@@ -304,7 +310,7 @@ namespace recompui {
+@@ -209,18 +215,34 @@ namespace recompui {
+             config.update_option_description(graphics::options::rr_manual_value, framerate_text);
+         }
+ 
++        // Rush 2 recomp: the tab applies changes as they're made (no Apply button), so the option's change callback
++        // hands the new config to the renderer.
+         void graphics::toggle_fullscreen() {
+-            auto current_wm = get_graphics_enum_value<ultramodern::renderer::WindowMode>(graphics::options::wm_option, OptionChangeContext::Temporary);
++            auto current_wm = get_graphics_enum_value<ultramodern::renderer::WindowMode>(graphics::options::wm_option);
+             auto new_wm = current_wm == ultramodern::renderer::WindowMode::Windowed ? ultramodern::renderer::WindowMode::Fullscreen : ultramodern::renderer::WindowMode::Windowed;
+             get_graphics_config().set_option_value(graphics::options::wm_option, static_cast<uint32_t>(new_wm));
+-            get_graphics_config().apply_option_value(graphics::options::wm_option);
+-            apply_graphics_config();
++        }
++
++        // Rush 2 recomp: renderer options take effect on change. Loading skips it, as the load callback applies the
++        // whole config once every value is in.
++        static void apply_on_change(OptionChangeContext change_context) {
++            if (change_context != OptionChangeContext::Load) {
++                apply_graphics_config();
++            }
++        }
++
++        static void add_apply_callback(recomp::config::Config &config, const std::string &option_id) {
++            config.add_option_change_callback(option_id,
++                [](recomp::config::ConfigValueVariant, recomp::config::ConfigValueVariant, OptionChangeContext change_context) {
++                    apply_on_change(change_context);
++                });
+         }
+ 
+         recomp::config::Config &create_graphics_tab(const std::string &name) {
+             created_graphics_config = true;
+ 
+-            recomp::config::Config &config = recompui::config::create_config_tab(name, graphics::id, true);
++            // Rush 2 recomp: no confirmation, so every option applies as soon as it changes.
++            recomp::config::Config &config = recompui::config::create_config_tab(name, graphics::id, false);
+             config.set_save_callback(apply_graphics_config);
+             config.set_load_callback(apply_graphics_config);
+ 
+@@ -245,6 +267,7 @@ namespace recompui {
+                     [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant prev_value, OptionChangeContext change_context) {
+                         auto new_opt = static_cast<ultramodern::renderer::Resolution>(std::get<uint32_t>(cur_value));
+                         determine_downsampling_display(new_opt, change_context);
++                        apply_on_change(change_context);
+                     }
+                 );
+             }
+@@ -265,6 +288,7 @@ namespace recompui {
+                     [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant prev_value, OptionChangeContext change_context) {
+                         auto resolution_opt = get_graphics_enum_value<ultramodern::renderer::Resolution>(graphics::options::res_option, change_context);
+                         determine_downsampling_display(resolution_opt, change_context);
++                        apply_on_change(change_context);
+                     }
+                 );
+ 
+@@ -304,7 +328,7 @@ namespace recompui {
                  "Framerate",
                  get_framerate_text(60),
                  refresh_rate_options,
@@ -64,7 +136,7 @@ index 4fdf81f..ce13aef 100644
              );
  
              config.add_number_option(
-@@ -318,7 +324,8 @@ namespace recompui {
+@@ -318,7 +342,8 @@ namespace recompui {
                      graphics::options::rr_manual_value,
                      graphics::options::rr_option,
                      ultramodern::renderer::RefreshRate::Original,
@@ -74,6 +146,20 @@ index 4fdf81f..ce13aef 100644
                  );
              }
  
+@@ -359,6 +384,13 @@ namespace recompui {
+                 true
+             );
+ 
++            for (const std::string *option_id : {
++                    &graphics::options::developer_mode, &graphics::options::ar_option, &graphics::options::wm_option,
++                    &graphics::options::rr_option, &graphics::options::rr_manual_value, &graphics::options::msaa_option,
++                    &graphics::options::hr_option, &graphics::options::api_option, &graphics::options::hpfb_option }) {
++                add_apply_callback(config, *option_id);
++            }
++
+             return config;
+         }
+     }
 diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
 index a7954c7..a3edb30 100644
 --- a/recompui/src/renderer/rt64_render_context.cpp

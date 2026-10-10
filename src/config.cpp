@@ -230,8 +230,7 @@ rush2::splitscreen::Layout rush2::splitscreen::get_layout_option() {
     return static_cast<Layout>(std::get<uint32_t>(recompui::config::get_graphics_config().get_option_value(split_option::id)));
 }
 
-// The option lives in the graphics settings, which hold changes until they're applied. The Graphics tab can't have
-// unapplied changes while the Players tab is open, so saving applies only this one.
+// The option lives in the graphics settings, which apply changes as they're made; saving writes them to disk.
 void rush2::splitscreen::set_layout_option(Layout layout) {
     recomp::config::Config& config = recompui::config::get_graphics_config();
     config.set_option_value(split_option::id, static_cast<uint32_t>(layout));
