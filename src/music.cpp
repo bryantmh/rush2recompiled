@@ -93,6 +93,8 @@ namespace {
 
     // In each game's own order: Rush 2's MUSIC setting, SF Rush's random table, Rush 2049's tracks (the N64's, then
     // the disc's by its track table 0x8C0BA76C: races, battles, stunts, obstacle course, then the songs no track plays).
+    // N64 songs carry the name of the disc song they arrange, matched by tempo and time-aligned chroma (docs
+    // rush2049_research/audio.md "Songs"); songs 4, 7 and 8 have no clear disc counterpart and keep a number.
     constexpr std::array<Song, 45> songs = {{
         { Game::Rush2, 0, "r2_0", "Head Thumpin'", "Lower Manhattan" },
         { Game::Rush2, 1, "r2_1", "Tinkle Toon", "Las Vegas" },
@@ -111,20 +113,20 @@ namespace {
         { Game::Rush1, 6, "r1_6", "Song 7", "Any SF Rush track" },
         { Game::Rush1, 12, "r1_12", "Song 8", "Any SF Rush track" },
         { Game::Rush1, 15, "r1_15", "Song 9", "Any SF Rush track" },
-        { Game::Rush2049, 0, "r49_0", "Song 1", "Rush 2049 Track 1, Battle 1", Only::N64 },
-        { Game::Rush2049, 1, "r49_1", "Song 2", "Rush 2049 Track 2, Battle 2", Only::N64 },
-        { Game::Rush2049, 4, "r49_4", "Song 3", "Rush 2049 Track 3, Battle 3", Only::N64 },
-        { Game::Rush2049, 2, "r49_2", "Song 4", "Rush 2049 Track 4, Battle 4", Only::N64 },
-        { Game::Rush2049, 3, "r49_3", "Song 5", "Rush 2049 Track 5, Battle 5", Only::N64 },
-        { Game::Rush2049, 7, "r49_7", "Song 6", "Rush 2049 Track 6, Battle 6", Only::N64 },
+        { Game::Rush2049, 0, "r49_0", "Bassy", "Rush 2049 Marina, Battle 1", Only::N64 },
+        { Game::Rush2049, 1, "r49_1", "Garage", "Rush 2049 Haight, Battle 2", Only::N64 },
+        { Game::Rush2049, 4, "r49_4", "Song 3", "Rush 2049 Civic, Battle 3", Only::N64 },
+        { Game::Rush2049, 2, "r49_2", "Wingey", "Rush 2049 Metro, Battle 4", Only::N64 },
+        { Game::Rush2049, 3, "r49_3", "Trancey", "Rush 2049 Mission, Battle 5", Only::N64 },
+        { Game::Rush2049, 7, "r49_7", "Song 6", "Rush 2049 Presidio, Battle 6", Only::N64 },
         { Game::Rush2049, 8, "r49_8", "Song 7", "Rush 2049 Stunt 1, 2, Obstacle, Battle 7", Only::N64 },
-        { Game::Rush2049, 9, "r49_9", "Song 8", "Rush 2049 Stunt 3, 4, Battle 8", Only::N64 },
-        { Game::Rush2049, disc + 5, "r49dc_5", "Morning", "Rush 2049 Track 1", Only::Disc },
-        { Game::Rush2049, disc + 7, "r49dc_7", "Noon", "Rush 2049 Track 2", Only::Disc },
-        { Game::Rush2049, disc + 12, "r49dc_12", "Sunset", "Rush 2049 Track 3", Only::Disc },
-        { Game::Rush2049, disc + 6, "r49dc_6", "Night", "Rush 2049 Track 4", Only::Disc },
-        { Game::Rush2049, disc + 2, "r49dc_2", "Garage", "Rush 2049 Track 5, Battle 6", Only::Disc },
-        { Game::Rush2049, disc + 13, "r49dc_13", "The Rock", "Rush 2049 Track 6", Only::Disc },
+        { Game::Rush2049, 9, "r49_9", "Flier", "Rush 2049 Stunt 3, 4, Battle 8", Only::N64 },
+        { Game::Rush2049, disc + 5, "r49dc_5", "Morning", "Rush 2049 Marina", Only::Disc },
+        { Game::Rush2049, disc + 7, "r49dc_7", "Noon", "Rush 2049 Haight", Only::Disc },
+        { Game::Rush2049, disc + 12, "r49dc_12", "Sunset", "Rush 2049 Civic", Only::Disc },
+        { Game::Rush2049, disc + 6, "r49dc_6", "Night", "Rush 2049 Metro", Only::Disc },
+        { Game::Rush2049, disc + 2, "r49dc_2", "Garage", "Rush 2049 Mission, Battle 6", Only::Disc },
+        { Game::Rush2049, disc + 13, "r49dc_13", "The Rock", "Rush 2049 Presidio", Only::Disc },
         { Game::Rush2049, disc + 4, "r49dc_4", "High", "Rush 2049 Battle 1, 8", Only::Disc },
         { Game::Rush2049, disc + 15, "r49dc_15", "Vice", "Rush 2049 Battle 2", Only::Disc },
         { Game::Rush2049, disc + 10, "r49dc_10", "Starsky", "Rush 2049 Battle 3", Only::Disc },

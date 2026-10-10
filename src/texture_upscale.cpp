@@ -375,7 +375,7 @@ namespace {
         // new_only (Dump New Textures) then moves every dumped image the upscaled folder has an upscale of to
         // originals, so the dump holds only what's left to upscale, and dumped() counts those.
         void start_dump(bool new_only = false) {
-            if (dumping.exchange(true)) {
+            if (installing_flag || dumping.exchange(true)) {
                 return;
             }
             dump_done = 0;
@@ -512,7 +512,29 @@ namespace {
                    read_image(originals_dir() / folder / name, original);
         }
 
-        // Builds the texture pack mod from the upscaled folder. Returns how many textures it has, or -1 on failure.
+        // Runs Install Upscaled in the background (decoding every upscale and writing the pack takes seconds), to the
+        // end whether or not the settings page stays open: installing() while it runs, then installed() has how many
+        // textures the pack has (-1 on failure).
+        void start_install() {
+            if (dumping || installing_flag.exchange(true)) {
+                return;
+            }
+            std::thread([this]() {
+                install_count = install();
+                installing_flag = false;
+            }).detach();
+        }
+
+        bool installing() const { return installing_flag; }
+        int installed() const { return install_count; }
+
+    private:
+        std::atomic<bool> installing_flag = false;
+        std::atomic<int> install_count = 0;
+
+        // Builds the texture pack mod from the upscaled folder and enables it (on the install thread: the mod calls
+        // lock the mod context, the texture pack ones are queued for the renderer and update_mod_list opens the UI
+        // context). Returns how many textures it has, or -1 on failure.
         int install() {
             std::filesystem::path pack_dir = recomp::mods::get_mods_directory() / pack_id;
             std::filesystem::path texture_dir = pack_dir / "textures";
@@ -592,7 +614,6 @@ namespace {
             return (int)textures.size() + disc_count;
         }
 
-    private:
         std::mutex mutex;
         std::condition_variable changed;
         std::thread worker;
@@ -1409,7 +1430,7 @@ void add_buttons(rush2::ui::OptionsPage* page) {
     auto add_dump_button = [&](const char* text, bool new_only) {
         Button* button = context.create_element<Button>(row, text, ButtonStyle::Secondary);
         button->add_pressed_callback([button, new_only, dump_running, new_only_running]() {
-            if (upscaler.is_dumping()) {
+            if (upscaler.is_dumping() || upscaler.installing()) {
                 return;
             }
             *dump_running = button;
@@ -1441,8 +1462,25 @@ void add_buttons(rush2::ui::OptionsPage* page) {
     });
 
     Button* install_button = context.create_element<Button>(row, "Install Upscaled", ButtonStyle::Secondary);
-    install_button->add_pressed_callback([install_button]() {
-        int count = upscaler.install();
+    // An install still running from before the page was last closed shows here until it ends.
+    auto install_running = std::make_shared<bool>(upscaler.installing());
+    if (*install_running) {
+        install_button->set_text("Installing...");
+    }
+    install_button->add_pressed_callback([install_button, install_running]() {
+        if (upscaler.is_dumping() || upscaler.installing()) {
+            return;
+        }
+        upscaler.start_install();
+        *install_running = true;
+        install_button->set_text("Installing...");
+    });
+    page->add_update_callback([install_button, install_running]() {
+        if (!*install_running || upscaler.installing()) {
+            return;
+        }
+        *install_running = false;
+        int count = upscaler.installed();
         if (count > 0) {
             install_button->set_text("Installed " + std::to_string(count) + " Textures");
         }
