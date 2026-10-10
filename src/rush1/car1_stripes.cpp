@@ -12,8 +12,10 @@
 // field is 0 while it is set. The getter and setter are hooked to convert between the two.
 //
 // To paint it, the lookup runs as for value 1 (SINGLE), and in place of the stamp the decal's texels are written
-// into the panel texture in Rush 1's own colours (fixed car palette entries, so STRIPE COLOR doesn't apply). The rest
-// of the panel keeps Rush 2's paint, so MAIN and ACCENT still colour the car.
+// into the panel texture. The Camaro's flames and the Taxi's checks keep Rush 1's own colors (fixed car palette
+// entries); the white decals (VW Bus, VW Bug, Bugatti: Car::stripe_color) take the STRIPE COLOR, each texel remapped
+// as the stamp remaps a texel under an opaque tile. The rest of the panel keeps Rush 2's paint, so MAIN and ACCENT
+// still color the car.
 
 #include <algorithm>
 #include <atomic>
@@ -50,6 +52,7 @@ namespace {
     constexpr int first_car_asset = 0x1D;
     constexpr uint32_t record_flag = 0x585;           // block byte, bit 0: the SF Rush stripe is chosen
     constexpr int block_size = 13;
+    constexpr uint32_t class_table = 0x8010C06C;      // u8*: car paint class table (func_800854AC), remap table at +0x200
 
     std::atomic_bool option_enabled = true;
 
@@ -396,9 +399,35 @@ extern "C" void rush2_car1_paint_stamp(uint8_t* rdram, recomp_context* ctx) {
     }
     // RDRAM is word-swapped on the host: bytes go through MEM_B.
     uint32_t data = (uint32_t)MEM_W(0, (int32_t)(record + 0x18));
-    for (int i = 0; i < w * h; i++) {
-        if ((*texels)[i] != 0) {
-            MEM_B(0, (int32_t)(data + i)) = (int8_t)(*texels)[i];
+    if (!rush2::car1decals::cars[c].stripe_color) {
+        for (int i = 0; i < w * h; i++) {
+            if ((*texels)[i] != 0) {
+                MEM_B(0, (int32_t)(data + i)) = (int8_t)(*texels)[i];
+            }
         }
+        return;
+    }
+    // In the STRIPE COLOR: the panel's texel is remapped as func_80083F50 remaps it under a fully opaque tile byte
+    // (0xFF). The class table (*0x8010C06C, 2 bytes per palette index: class nibble, shade) picks the entry of the
+    // remap table at +0x200, which func_80084EDC has pointed at the STRIPE COLOR's blends (0x800842A8-0x8008437C).
+    uint32_t classes = (uint32_t)MEM_W(0, (int32_t)class_table);
+    uint32_t remap = classes + 0x200;
+    for (int i = 0; i < w * h; i++) {
+        if ((*texels)[i] == 0) {
+            continue;
+        }
+        int texel = MEM_BU(0, (int32_t)(data + i));
+        int cls = MEM_BU(0, (int32_t)(classes + texel * 2)) & 0xF;
+        int shade = MEM_BU(0, (int32_t)(classes + texel * 2 + 1));
+        int shaded = ((shade * 15 + 15) >> 8) << 4 | 0xF;
+        int out;
+        switch (cls) {
+            case 0: out = MEM_BU(0, (int32_t)(remap + shaded)); break;
+            case 1: out = MEM_BU(0, (int32_t)(remap + 0x100 + shaded)); break;
+            case 2: case 4: out = MEM_BU(0, (int32_t)(remap + 0xFF)); break;
+            case 3: out = MEM_BU(0, (int32_t)(remap + 0x1FF)); break;
+            default: out = texel; break;     // class 5 keeps the texel (fixed colors)
+        }
+        MEM_B(0, (int32_t)(data + i)) = (int8_t)out;
     }
 }

@@ -8295,7 +8295,7 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 vram = 0x80083F50
 name = "car_stamp_stripes_on_panel"
 sig = "void car_stamp_stripes_on_panel(s32 a0, s32 a1, s32 a2, s32 a3, s32 s0, s32 s1, s32 s2, s32 s3)"
-desc = "Stamps Rush 2's stripe tiles onto its own cars' panel textures: per texel, where the tile byte's alpha nibble passes the LOD threshold (16 / (lod + 1) - 1), the panel texel's class (table *0x8010C06C, 2 bytes per palette index: class nibble 0-5, shade) picks how it is remapped through the STRIPE COLOR's tables (*0x8010C06C + colour * 0x200 + 0x200). Skipped for the SF RUSH stripe, which writes its own texels (src/rush1/car1_stripes.cpp)."
+desc = "Stamps Rush 2's stripe tiles onto its own cars' panel textures: per texel, where the tile byte's alpha nibble passes the LOD threshold (16 / (lod + 1) - 1), the panel texel's class (table *0x8010C06C, 2 bytes per palette index: class nibble 0-5, shade) picks how it is remapped through the STRIPE COLOR's tables (*0x8010C06C + colour * 0x200 + 0x200). Skipped for the SF RUSH stripe, which writes its own texels (src/rush1/car1_stripes.cpp); its white decals use the same per-texel remap under an opaque tile (class 0/1: remap[((shade*15+15)>>8)<<4|0xF] (+0x100), class 2/4: remap[0xFF], 3: remap[0x1FF], 5: kept)."
 consts = "0x160C = struct offset; 0x200 = remap table size; 0xF0 | alpha = tile byte; record +0x14 fmt 1, +0x15 siz (panel 2, tile 3)"
 status = "verified"
 area = "car"

@@ -25,12 +25,13 @@ namespace rush2::car1decals {
         // Decal ranges: fixed Rush 1 colours, 33-49 / 100-106 the Camaro's flame ramps (yellow to red), 145-148 whites,
         // 157-159 and 31 blacks; on the VW Bus, Bug and Bugatti 33-63 is a white ramp (the Bugatti's hood stripes and the
         // three lines on its engine cover). Panels: bit n = D0_n. Cuts:
-        // tools/rush1/cardecal.py CUTS.
-        { "CAMARO", 5, 26, { { 33, 49 }, { 100, 106 } }, { { 147, 156 }, { 161, 175 } }, 0b1111110, {} },
-        { "VWBUS", 8, 29, { { 33, 63 } }, {}, 0b1111110, {} },
-        { "VWBUG", 10, 31, { { 33, 63 } }, {}, 0b1111110, {} },
-        { "TAXI", 16, 33, { { 145, 148 } }, { { 31, 31 }, { 157, 159 } }, 0b1111110, {} },
-        { "BUGATTI", 7, 28, { { 33, 63 }, { 145, 148 } }, {}, 0b1111110, {} },
+        // tools/rush1/cardecal.py CUTS. STRIPE COLOR recolors the white decals; the Camaro's flames and the Taxi's checks
+        // keep Rush 1's colors.
+        { "CAMARO", 5, 26, { { 33, 49 }, { 100, 106 } }, { { 147, 156 }, { 161, 175 } }, 0b1111110, false, {} },
+        { "VWBUS", 8, 29, { { 33, 63 } }, {}, 0b1111110, true, {} },
+        { "VWBUG", 10, 31, { { 33, 63 } }, {}, 0b1111110, true, {} },
+        { "TAXI", 16, 33, { { 145, 148 } }, { { 31, 31 }, { 157, 159 } }, 0b1111110, false, {} },
+        { "BUGATTI", 7, 28, { { 33, 63 }, { 145, 148 } }, {}, 0b1111110, true, {} },
     };
 }
 

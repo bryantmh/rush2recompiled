@@ -500,7 +500,11 @@ previews; `tools/rush1/cartex.py` (car files, meshes, palettes).
   field 0); getter func_800B2608, setter func_80097934, car select row (func_803B9478 at 0x803B9B18 / 0x803B9B8C) and
   text (func_803BC048 at 0x803BC3F4 / 0x803BC644) are hooked. In func_8008582C the value looks up SINGLE's tile
   (0x80085D84) so the loop reaches the stamp, and at 0x80085D8C the decal is written into the panel texture (handle at
-  sp+0xBE, car type at sp+0xCE) and the stamp is skipped. The panel is found by its record name, `<car>_D<stage>_<n>` or
+  sp+0xBE, car type at sp+0xCE) and the stamp is skipped. The Camaro and Taxi decals keep Rush 1's colors; the
+  white ones (VW Bus, VW Bug, Bugatti) take the STRIPE COLOR (user request 2026-10-09): each decal texel is remapped
+  as func_80083F50 remaps a texel under a fully opaque tile byte (0xFF, 0x800842A8-0x8008437C). With R = the class
+  table + 0x200 (func_80084EDC points it at the STRIPE COLOR's blends) and the panel texel's class c / shade s: c 0
+  R[((s * 15 + 15) >> 8) << 4 | 0xF], c 1 the same + 0x100, c 2 and 4 R[0xFF], c 3 R[0x1FF], c 5 the texel kept. The panel is found by its record name, `<car>_D<stage>_<n>` or
   the mip `<car>_D<stage>_<n>_4`; panel 4's full texture also ends in `_4`, so the mip is told apart by the name's length
   (a suffix test missed panel 4, the roof, on every car). `RUSH2_CAR1_DUMP=<dir>` writes the built panels
   (`<car>_<n>.bin`) and logs every stamp call (panel, size, whether a decal matched).

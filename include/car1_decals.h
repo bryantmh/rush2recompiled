@@ -31,6 +31,7 @@ namespace rush2::car1decals {
         Range primary[max_ranges];      // Rush 1 palette indices of the decal
         Range companion[max_ranges];    // indices kept only next to a decal texel (the Taxi's black checks)
         int panels;                     // bit n: the decal goes on panel D0_n
+        bool stripe_color;              // in game the decal takes the STRIPE COLOR (src/rush1/car1_stripes.cpp)
         std::vector<Cut> cuts;
     };
     extern const Car cars[car_count];
