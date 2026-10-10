@@ -155,6 +155,7 @@ namespace {
     constexpr int explosion_frames = 30;                    // NEXPLOSIONG1-30 (handles 0x80142908), one each 1/30 s (func_800908A0)
     constexpr float explosion_sound_seconds = 1.5f;         // [I] sound 0x45 holds until its key-off
     constexpr int pickup_sound = 0x60;                      // the WEPICON_* types' sound (type table +0x1C)
+    constexpr int one_short_sound = 2;                      // a car a point short of winning (main 0x800FC650)
     constexpr float pickup_spin = 3.0f;                     // rad/s about its up axis: the type's rate, table 0x80118D70 row 0
 
     // Weapons: 0-7 are the pickups' (WEPICON_CANN, GATT, GREN, MINE, MISS, RAM, ROCK, SONC), 8 is the default gun.
@@ -311,8 +312,12 @@ namespace {
     std::mt19937 rng{ 2049 };
     float clock_seconds = 0.0f;
     bool clock_set = false;
+    int round_points = 0;        // The round's points (kills) to win, set with the clock.
+    bool one_short_played = false;   // 2049's sound when a car is a point short of winning, once a round.
     uint32_t built_head = 0;     // The HUD element list the battle HUD was built for.
-    std::atomic_int limit_option = 3;
+    std::atomic_int limit_option = 3;           // The old Games tab time limit, in minutes (only for migration)
+    std::atomic_int points_option = rush2::battle::default_points;
+    std::atomic_int minutes_option = rush2::battle::default_minutes;
     float hud_spin = 0.0f;
 
     // ------------------------------------------------------------------------------------------------------------
@@ -827,6 +832,8 @@ namespace {
         }
         clock_seconds = 0.0f;
         clock_set = false;
+        round_points = 0;
+        one_short_played = false;
         ready = true;
         if (m == Mode::arena) rush2::battle_ai::begin_round();
     }
@@ -1627,8 +1634,28 @@ void rush2::battle::set_time_limit(TimeLimit limit) {
     limit_option = (int)limit;
 }
 
+int rush2::battle::legacy_time_limit_minutes() {
+    return limit_option;
+}
+
+void rush2::battle::set_points_to_win(int points) {
+    points_option = std::clamp(points - points % points_step, min_points, max_points);
+}
+
+int rush2::battle::points_to_win() {
+    return points_option;
+}
+
+void rush2::battle::set_time_limit_minutes(int minutes) {
+    minutes_option = std::clamp(minutes, 0, max_minutes);
+}
+
+int rush2::battle::time_limit_minutes() {
+    return minutes_option;
+}
+
 int rush2::battle::time_limit_seconds() {
-    return limit_option * 60;
+    return minutes_option > 0 ? minutes_option * 60 : untimed_seconds;
 }
 
 void rush2::battle::set_weapons_cheat(int option) {
@@ -1758,6 +1785,8 @@ namespace {
 
     void end_round(uint8_t* rdram) {
         over = true;
+        static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "log") != nullptr;
+        if (test_log) fprintf(stderr, "[Battle] t=%.2f round over\n", clock_seconds);
         results = Results{};
         for (Shot& shot : shots) {
             if (shot.live) end_shot(rdram, shot);
@@ -1816,8 +1845,31 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
         // becomes the limit.
         if (!clock_set && read_f(rdram, time_allowed) >= 60.0f) {
             bool test_short = test_env != nullptr && strstr(test_env, "short") != nullptr;   // Test aid: a 25 s battle.
+            // The rules are read as the round starts.
+            round_points = points_to_win();
             write_f(rdram, time_allowed, test_short ? 25.0f : (float)time_limit_seconds());
             clock_set = true;
+        }
+        // 2049's main loop at 0x800FC608: the first time a car is a point short of the points, sound 2 plays (once a
+        // round, 0x80114654); a car with the points ends the round (func_800F7F3C), as the time limit does (the results).
+        if (clock_set && state == 3 && round_points > 0 && !over) {
+            for (int i = 0; i < max_cars; i++) {
+                if (!fighters[i].present) continue;
+                if (!one_short_played && fighters[i].kills + 1 == round_points) {
+                    one_short_played = true;
+                    if (rush2::track2049::music_ready() && rush2::audio2049::loaded()) {
+                        int handle = rush2::audio2049::sfx_start(one_short_sound, 1.0f, 0.0f, 1.0f, 0.0f);
+                        if (test_env != nullptr && strstr(test_env, "log") != nullptr) {
+                            fprintf(stderr, "[Battle] t=%.2f car %d a point short: sound %d handle %d\n", clock_seconds, i, one_short_sound, handle);
+                        }
+                    }
+                }
+                if (fighters[i].kills >= round_points) {
+                    MEM_B(0, (int32_t)out_of_time) = 1;
+                    end_round(rdram);
+                    break;
+                }
+            }
         }
         // The battle's time limit. The game's own test of the clock (func_800AE670, state 3: the time allowed less the
         // time raced is under half a second) waits for a far later time in a race without checkpoints (0x800D9E88), as
@@ -1843,7 +1895,14 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
                 if (fighters[i].present) give(rdram, i, std::clamp(atoi(g + 4), 0, 11));
             }
         }
-        if (strstr(test_env, "kill") != nullptr && clock_seconds > 8.0f && clock_seconds <= 8.0f + dt) {
+        // "winkills": car 1 is a point short of the points to win at 8 s and has them at 10 s.
+        if (strstr(test_env, "winkills") != nullptr && clock_seconds > 8.0f && clock_seconds <= 8.0f + dt) {
+            fighters[1].kills = std::max(fighters[1].kills, round_points - 1);
+        }
+        else if (strstr(test_env, "winkills") != nullptr && clock_seconds > 10.0f && clock_seconds <= 10.0f + dt) {
+            fighters[1].kills = std::max(fighters[1].kills, round_points);
+        }
+        else if (strstr(test_env, "kill") != nullptr && clock_seconds > 8.0f && clock_seconds <= 8.0f + dt) {
             fighters[1].present = true;
             damage(rdram, 0, 1, 900.0f);
         }
@@ -2217,11 +2276,15 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
     hud_players = players;
     // Rush 2's own HUD is hidden except the speedometer and the clock: every other element with a callback loses its
     // callback (which would show it again) and is hidden with its widget. The elements are in a pool (func_80060418).
+    // Without a time limit the time left goes too: the round's 1200 s are only 2049's cap (and Rush 2's time left
+    // stops at 999).
+    bool keep_time_left = rush2::battle::time_limit_minutes() > 0;
     int element_total = (int)MEM_W(0, (int32_t)element_count);
     for (int i = 0; i < element_total && i < 0xC8; i++) {
         uint32_t e = (uint32_t)MEM_W(0, (int32_t)(element_pool + (uint32_t)i * 4));
         uint32_t callback = e == 0 ? 0 : (uint32_t)MEM_W(0x28, (int32_t)e);
-        if (callback == 0 || callback == speedometer_callback || callback == race_time_callback || callback == countdown_time_callback) {
+        if (callback == 0 || callback == speedometer_callback || callback == race_time_callback ||
+            (callback == countdown_time_callback && keep_time_left)) {
             continue;
         }
         MEM_W(0x28, (int32_t)e) = 0;

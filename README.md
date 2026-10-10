@@ -31,8 +31,12 @@ If you also own **San Francisco Rush 2049** for the N64 (US version), you can po
 - **The 2049 cars.** All thirteen Rush 2049 cars join the car select after Rush 2's own.
 - **The 2049 music.** Each of the six 2049 tracks plays its own Rush 2049 song.
 - **The 2049 stunt arenas.** The stunt arenas are playable from the track select.
-- **Battle arenas.** Eight deathmatch arenas in the BATTLE row, with weapons, pickups, and arrows pointing to the other cars. Weapons can also be turned on in regular arena races with a cheat.
-- **Coins.** Collect 2049's coins, which are counted per player in the Progress tab and will later be used for unlocks.
+- **Battle arenas.** Eight deathmatch arenas in the BATTLE row, with weapons, pickups, and arrows pointing to the other cars. Computer-controlled drones can fill the arenas, and weapons can also be turned on in regular arena races with a cheat.
+- **Coins.** Collect 2049's coins, which are counted per player in the Progress tab and count toward unlocks.
+
+#### Dreamcast disc (experimental)
+
+Rush 2049 can also be loaded from a Dreamcast disc image instead of the N64 ROM, and a Dreamcast Textures option uses the disc's textures with the N64 version. This is the more experimental option.
 
 ### San Francisco Rush extras
 
@@ -40,8 +44,8 @@ If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version),
 
 - **The Rush 1 tracks.** All seven race tracks from the original San Francisco Rush
 - **The Rush 1 music.** The nine Rush 1 race songs play on its tracks, picked at random.
-- **Rush 1 car decals.** Some of Rush 1's own unique paint jobs are available as a stripe option.
-- **Keys.** Collect the keys hidden on the Rush 1 tracks, which are counted per player in the Progress tab and will later be used for unlocks.
+- *- **Rush 1 car decals.** Some of Rush 1's own unique paint jobs are available as a stripe option.
+- **Keys.** Collect the keys hidden on the Rush 1 tracks, which are counted per player in the Progress tab and count toward unlocks.
 
 
 ## What you need

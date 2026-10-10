@@ -16,8 +16,13 @@ Port: `src/rush2049/battle.cpp`, hosting in `src/rush2049/track2049.cpp` / `src/
   803914A8 803914B4 80391640 80391648 80391650 80391864 80391B00 8039244C 803925C8 803925D0 80392894 80392FE4
   80393518 803936A8; data from 0x80393B34.
 - Game type `0x8014A110 == 6` is battle (stunt 4, obstacle 5). Timer setup at 0x800FC0FC: a battle uses `0x80140BD8`
-  minutes x 60 when `0x80140B08 == 1`, else 1200 s. Both come from the options object (+0x25, +0x27); their defaults
-  live in the setup overlay and weren't read. The port's limit is the Games tab option (default 3 minutes).
+  minutes x 60 when `0x80140B08 == 1`, else 1200 s. Both come from the battle options (+0x25, +0x27; +0x26, the points
+  to win, goes to `0x80142510`), copied by `func_800C9BE0` / `func_800DE45C`. The setup overlay (ROM 0xB5C534,
+  record 0x80146108, left / right at 0x8038EC80-0x8038ED70) edits them: +0x25 time limit on / off, +0x26 points 5-50
+  in steps of 5, +0x27 minutes 1-20 (wrapping); its reset (step 0) gives off, 10 points and 8 minutes, so 2049's
+  default battle is first to 10 points with a 20 minute clock. The main loop at 0x800FC608 compares each player's
+  points (0x80152570) with the target: one short plays a sound (`func_800B61A8(2, 0, 2, 0)`), reaching it ends the
+  round (`func_800F7F3C`). The port has the same rules (section 7.1).
 
 ## 2. Per-car state
 
@@ -266,7 +271,7 @@ Main code. **[V]** unless marked.
   normal track has no `HEALTHBG` image, so it is decoded from 2049's file 63 (4 bit texels, 16 color palette) and
   drawn with `rush2::hud::draw_image`.
 - The clock: the stunt clock `0x8010C204` (Rush 2) is 3.5 during the start countdown and 300 afterwards; only the 300
-  is replaced by the limit. Rush 2's clock test (func_800AE670 state 3) doesn't end a race without checkpoints, so
+  is replaced by the limit (1200 s without a time limit, section 7.1). Rush 2's clock test (func_800AE670 state 3) doesn't end a race without checkpoints, so
   the port sets the out of time flag `0x800FAE98` itself (every tick from the limit on).
 - **Results** (section 6.2): from the limit on, `draw_results` (hud_draw) shows 2049's boxes with the game's own text
   (`text_print_string_800734E0`, boxes by `rush2::hud::draw_rect`): `PLAYER n WINS` or `n-WAY TIE` in the middle, and
@@ -316,6 +321,36 @@ Main code. **[V]** unless marked.
   wide instead of 2049's 200 units, open where the path's ends are apart, and rises a little ring by ring: the
   arenas' paths are a tenth of a race track's size and come within a few units of themselves, so 2049's band was a
   blob whose level tops fought for the depth buffer.
+
+### 7.1 Battle rules (the BATTLE select's POINTS and TIME LIMIT rows)
+
+2049's rules (section 1): the points to win, 5-50 in steps of 5 (default 10), and a time limit, off by default or 1-20
+minutes. 2049 keeps on / off and the minutes apart (its minutes default to 8); here they are one row, OFF then 1-20
+MIN. A round ends when a car reaches the points (2049's main loop at 0x800FC608, which plays sound 2 the first time a
+car is a point short) or when the clock runs out: the time limit, or 2049's 1200 s without one. Both rows wrap as
+2049's do. They replaced the Games tab's Battle Time Limit, which is hidden and only read once: a save without
+`"minutes"` in its `track_select` section takes that option's minutes if they were changed from its old default (3),
+else no time limit. The section keeps `"points"` and `"minutes"` (0 off).
+
+- **The rows** are the track select's LAPS (option 5) and CHECKPOINTS (option 9) rows, which a battle doesn't use.
+  The BATTLE select lists TRACK, FOG, WIND, POINTS, TIME LIMIT, DRONES, DIFFICULTY (`filter_options`), kept open by
+  `option_open` (src/rush2049/track2049_menu.cpp). The option labels are `0x800C48F8[language * 11 + option]`:
+  0 TRACK, 1 BACKWARD, 2 MIRROR, 3 FOG, 4 WIND, 5 LAPS, 6 DRONES, 7 DIFFICULTY, 8 HANDICAP, 9 CHECKPOINTS, 10 DEATHS.
+- Hooks: `rush2_track49_battle_rule_label` (`options_text_cb_names_values_803C6268` at 0x803C6414, $s0 the label
+  about to be placed, $s1 the row's list entry) and `rush2_track49_battle_rule_arrows`
+  (`options_widget_cb_option_arrow_803C59A0` at 0x803C5C18, $a3 the cursor row's label about to be measured for the
+  left arrow) put POINTS and TIME LIMIT in; `rush2_track49_battle_rule_value` (0x803C666C, LAPS' case: digits 1-8
+  from x 0xFF; 0x803C6770, CHECKPOINTS' case: OFF / ON; y in $s2) prints the value centered on x 0x112 and skips to
+  0x803C6908 (the next row); `rush2_track49_battle_rule_step` (`trackselect_frame_803ABE0C` at 0x803AC278, LAPS'
+  left / right case, and 0x803AC3A4, CHECKPOINTS'; $a1 the step, -1 / 1, or 0 for the default) steps the rule and
+  skips to 0x803AC410. The strings are at 0x80300F40 (POINTS), 0x80300F70 (TIME LIMIT) and 0x80300F50 (the value).
+- **The clock**: the time left (`hud_widget_cb_countdown_time_800B94C0`) shows with a time limit and is hidden
+  without one (1200 s is only the cap, and Rush 2's time left stops at 999).
+- Each car counts its own kills, teams too; the computer opponents' kills count as a player's.
+- Seen in game: the rows, their values and wraps on the BATTLE select; a 5 point round with three computer
+  opponents (no clock; the sound when car 1 was a point short; CPU 1 WINS and the points boxes when it had them);
+  the clock from 60 with a 1 minute limit. Test aid `winkills` makes car 1 a point short at 8 s and gives it the
+  points at 10 s.
 
 ## 8. Known differences and test aids
 
