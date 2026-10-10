@@ -125,6 +125,8 @@ namespace rush2 {
 
     // Per-port input (src/input.cpp). Each enabled controller takes the first free N64 port when it presses a button;
     // the keyboard is one more controller. Which player a port is follows who presses START.
+        // No Subways or Buses: no trains or SF Rush buses at the next race setup.
+        bool no_trains();
     namespace input {
         constexpr int num_ports = 4;
 

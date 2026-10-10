@@ -25,6 +25,17 @@
 // - Unlock All Parts offers every ENGINE level on the Rush 2049 cars.
 // Otherwise the unlock system decides what each player's car list holds (src/unlocks.cpp). Its own option, Unlock
 // System, is kept in this tab's config but shown on the Progress tab.
+//
+// Two cheats aren't the game's own:
+// - No Out-of-Bounds Wreck: the wheel probe (collision_poly_extract, func_8006F704) wrecks a car whose wheel is within
+//   0.25 of a surface type 7 polygon (car_wreck_trigger, func_8006E1A8, no sound). Type 7 is the floor under the
+//   places a car shouldn't reach (SEATTLE 135 polygons, ALCATRAZ 14, STUNT1 8). The hook at 0x8006FADC, after the
+//   probe loads the surface type into $v1, turns a human car's type 7 into 0 so the probe returns without the wreck
+//   and the car drives on it. Water (type 3, with its splash) still wrecks, and drones keep the wreck so they are
+//   put back on the road rather than stranded.
+// - No Subways or Buses: subway_init (func_800A4210) leaves the trains' count (0x800D4E74) and pseudo-car pointer
+//   (0x800D50E4) at 0 as it does on a track without trains, so New York's subway trains and SF Rush Sunset's buses
+//   (src/rush1/track1_buses.cpp, which share the system) are never made. Read at race setup.
 
 #include <algorithm>
 #include <array>
@@ -228,6 +239,12 @@ namespace {
     // Not one of the game's: Rush 2049's battle weapons in the other races (src/rush2049/battle.cpp).
     const std::string weapons_id = "cheat_weapons";
 
+    // Not the game's either (see the top of the file).
+    const std::string kill_floor_id = "cheat_no_kill_floor";
+    std::atomic<bool> kill_floor_disabled = false;
+    const std::string no_trains_id = "cheat_no_trains";
+    std::atomic<bool> trains_disabled = false;
+
     const std::string unlock_system_id = "unlock_system";
     std::atomic<bool> unlock_system_enabled = true;
 
@@ -295,10 +312,10 @@ namespace {
                            "cheat_levitation", "cheat_no_car_collisions" } },
         },
         {
-            { "Survival", { "cheat_invincible", "cheat_no_damage", "cheat_auto_abort", "cheat_resurrect_in_place",
-                            "cheat_no_game_timer" } },
+            { "Survival", { "cheat_invincible", "cheat_no_damage", "cheat_auto_abort", kill_floor_id,
+                            "cheat_resurrect_in_place", "cheat_no_game_timer" } },
             { "Race", { "cheat_suicide_mode", "cheat_stunts_all_tracks", "cheat_cone_mines", "cheat_car_mines",
-                        "cheat_killer_rats", weapons_id } },
+                        "cheat_killer_rats", no_trains_id, weapons_id } },
         },
         {
             { "Looks", { "cheat_invisible_car", "cheat_invisible_track", "cheat_upside_down", "cheat_inside_out_car",
@@ -517,7 +534,10 @@ namespace {
                     config.set_option_value(cheat.id, cheat.default_choice);
                 }
             }
-            config.set_option_value(weapons_id, 0u); // Shown with the cheats but not one of the game's (Off).
+            // Shown with the cheats but not the game's.
+            config.set_option_value(weapons_id, 0u);
+            config.set_option_value(kill_floor_id, false);
+            config.set_option_value(no_trains_id, false);
             config.save_config();
         }
     };
@@ -636,6 +656,30 @@ void rush2::cheats::create_tab() {
             rush2::battle::set_weapons_cheat((int)std::get<uint32_t>(cur_value));
         });
 
+    config.add_bool_option(
+        kill_floor_id,
+        "No Out-of-Bounds Wreck",
+        "Landing on the out-of-bounds floor no longer wrecks your car, "
+        "so you can drive on it. Water still wrecks it, and computer cars are still put back on the road.",
+        false
+    );
+    config.add_option_change_callback(kill_floor_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            kill_floor_disabled = std::get<bool>(cur_value);
+        });
+
+    config.add_bool_option(
+        no_trains_id,
+        "No Subways or Buses",
+        "Removes New York's subway trains and the buses on SF Rush's Sunset. "
+        "<recomp-color primary>Takes effect at the next race start or restart.</recomp-color>",
+        false
+    );
+    config.add_option_change_callback(no_trains_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            trains_disabled = std::get<bool>(cur_value);
+        });
+
     for (size_t i = 0; i < cheat_list.size(); i++) {
         const Cheat& cheat = cheat_list[i];
 
@@ -726,6 +770,24 @@ bool rush2::cheats::unlock_all_tracks() {
 
 bool rush2::cheats::unlock_all_parts() {
     return unlock_parts_enabled.load(std::memory_order_relaxed);
+}
+
+bool rush2::cheats::no_trains() {
+    return trains_disabled.load(std::memory_order_relaxed);
+}
+
+// collision_poly_extract (func_8006F704, the wheel probe) at 0x8006FADC, after it loads the surface type of the
+// polygon under the wheel into $v1 (sp+0x138 = the car). Types 3, 4 and 7 go on to their effects, any other returns.
+extern "C" void rush2_cheats_kill_floor(uint8_t* rdram, recomp_context* ctx) {
+    constexpr int kill_floor = 7;
+    constexpr uint32_t car_kind = 0x7E8; // u8: 1 drone, 2 human
+    if (!kill_floor_disabled.load(std::memory_order_relaxed) || (int32_t)ctx->r3 != kill_floor) {
+        return;
+    }
+    int32_t car = MEM_W(0x138, ctx->r29);
+    if (MEM_BU(car_kind, car) == 2) {
+        ctx->r3 = 0;
+    }
 }
 
 bool rush2::cheats::unlock_system() {

@@ -210,6 +210,15 @@ The same in both games: compare `func_8006F704`/`func_8006FC94` with `func_800C6
 - **Type codes:** no remapping is needed. The 2049 data uses only 0, 1, 2, 3, 5, 6 and 7, all with Rush 2 meanings.
 - **Material (bits 4–7):** same extraction and same consumers' pattern in both games: effects and skid code
   `func_80065588`, `func_800663CC`, `func_80067358`; 8 = airborne. Copied unchanged.
+- **Type 7 is the out-of-bounds floor.** Rush 2 counts: SEATTLE 135, ALCATRAZ 14, STUNT1 8 (type 3 water: HAWAII
+  48, ALCATRAZ 59, SEATTLE 14, NYONE 3). The wheel probe `func_8006F704` loads the type into `$v1` at 0x8006FAD8;
+  types 3, 4 and 7 go on to their effects (skipped while the car slot's +0x342/+0x343 is set or car+0x6C8 >= 0),
+  any other returns. Type 7 sets car+0x6D1 and calls `car_wreck_trigger` (`func_8006E1A8`: car index, at most one
+  wreck per 5 s, placement case 2). The body probe `func_8006FC94` wrecks on types 3 and 4 only (0x800700D8).
+  The **No Out-of-Bounds Wreck** cheat (src/cheats.cpp) hooks 0x8006FADC and turns a human car's type 7 into 0.
+- **Subway trains** are pseudo-cars, not polygons: `subway_init` (`func_800A4210`) sets the count `subway_count`
+  (0x800D4E74) and the 0x81C-byte bodies `subway_bodies` (0x800D50E4), both 0 on a track without trains. The
+  **No Subways or Buses** cheat leaves them at 0 (src/rush1/track1_buses.cpp, which also hosts SF Rush Sunset's buses).
 
 ## 6. What converts losslessly
 

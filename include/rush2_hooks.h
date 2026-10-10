@@ -103,6 +103,7 @@ int rush2_draw_distance_matrix_cols(uint8_t* rdram, recomp_context* ctx);
 // Applies the Cheats tab's settings once per frame (src/cheats.cpp).
 void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx);
+void rush2_cheats_kill_floor(uint8_t* rdram, recomp_context* ctx);
 
 // High-resolution font tile clamping around the 2D image loader (src/fonts.cpp).
 void rush2_font_load_begin(uint8_t* rdram, recomp_context* ctx);

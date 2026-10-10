@@ -6449,9 +6449,9 @@ ref = "docs/rush2049_research/race.md#4-how-the-race-is-defined"
 [[func]]
 vram = 0x8006E1A8
 name = "car_wreck_trigger"
-sig = "void car_wreck_trigger(Car *car, s32 a1)"
-desc = "Surface type 3: wheel within 0.25 wrecks the car, plus sound 0x6F (inferred deadly water)."
-consts = "5.0 = timer; 0x6F = sound id"
+sig = "void car_wreck_trigger(s16 car_index, s32 a1)"
+desc = "Wrecks car a0 (car index; a1 = 1 from the probes): unless the last wreck was under 5 s ago, places it by case 2 (func_8006DE20). The wheel probe calls it for surface types 3 (plus sound 0x6F, water) and 7 (the out-of-bounds floor, no sound); the body probe for 3 and 4."
+consts = "5.0 = seconds between wrecks; 2 = placement case (wreck)"
 status = "verified"
 rush2049 = [0x800C54F0]
 area = "collision"
@@ -6536,7 +6536,7 @@ ref = "us.toml"
 vram = 0x8006F704
 name = "collision_poly_extract"
 sig = "void collision_poly_extract(Car *car, f32 *pos, s32 a2, void *a3, s32 stack10, s32 stack14)"
-desc = "Patched in us.toml. Rush 2049 moving track objects (src/rush2049/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes). | Polygon extraction from POLY (flags, matrix, vertices, vlist); leaf query that copies a leaf into an unchecked u16[36] stack buffer (next local 0xA4 -> 0xEC). | Wheel probe (ground query for a wheel). Hooked at 0x8006F99C when a polygon is found ($t9 = its POLY record). Expands a leaf into a u16[36] buffer unchecked."
+desc = "Patched in us.toml. Rush 2049 moving track objects (src/rush2049/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes). | Polygon extraction from POLY (flags, matrix, vertices, vlist); leaf query that copies a leaf into an unchecked u16[36] stack buffer (next local 0xA4 -> 0xEC). | Wheel probe (ground query for a wheel). Hooked at 0x8006F99C when a polygon is found ($t9 = its POLY record). Expands a leaf into a u16[36] buffer unchecked. Hooked at 0x8006FADC ($v1 = surface type, sp+0x138 = the car; types 3, 4, 7 have effects) for the No Out-of-Bounds Wreck cheat (src/cheats.cpp)."
 consts = "250/-200 = surface thresholds, 0x6F = sound id"
 status = "verified"
 ported = true
@@ -11921,7 +11921,7 @@ ref = "docs/rush2049_research/menus.md#3-other-ui-places-indexed-by-the-track-id
 vram = 0x800AB864
 name = "subway_state_clear"
 sig = "void subway_state_clear(void)"
-desc = "Writes (probably clears) subway_state_a byte and subway_state_b word. (low confidence)"
+desc = "Writes (probably clears) subway_count byte and subway_bodies word. (low confidence)"
 status = "inferred"
 area = "track"
 ref = "docs/functions/rush2_track.md#rush-2-track-functions"

@@ -21,6 +21,7 @@
 
 #include "recomp.h"
 #include "rush2_hooks.h"
+#include "rush2.h"
 #include "track1.h"
 #include "track2049.h"
 
@@ -182,9 +183,15 @@ namespace {
 }
 
 // Start of subway_init (func_800A4210, $a0 = whether the heap block is new): on SF Rush track 6, Rush 1's
-// func_800A9DB8 instead. Returns true when it handled the call.
+// func_800A9DB8 instead. With the No Subways or Buses cheat (src/cheats.cpp), what subway_init does on a track
+// without trains: no pseudo-cars. Returns true when it handled the call.
 extern "C" int rush2_track1_buses_init(uint8_t* rdram, recomp_context* ctx) {
     active = false;
+    if (rush2::cheats::no_trains()) {
+        MEM_B(0, (int32_t)subway_count) = 0;
+        MEM_W(0, (int32_t)subway_bodies) = 0;
+        return 1;
+    }
     if (rush2::track1::race_track() != bus_track || MEM_B(0, (int32_t)track_id) != rush2::track2049::host_slot) {
         return 0;
     }

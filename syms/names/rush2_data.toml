@@ -6158,12 +6158,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D4E74
-name = "subway_state_a"
-type = "u8"
-desc = "Byte flag set on title screen, race clear and subway init; read by corner collision and subway update."
+name = "subway_count"
+type = "s8"
+desc = "Number of subway pseudo-cars (train cars; SF Rush Sunset's 8 buses in the port). subway_init (func_800A4210) sets it, 0 on a track without trains (0x800A4474) and with the No Subways or Buses cheat; cleared on the title screen and race clear; read by car against train collision and subway update."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
 
 [[var]]
 vram = 0x800D4E75
@@ -6230,12 +6230,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D50E4
-name = "subway_state_b"
-type = "u32"
-desc = "Word set with subway_state_a on title/race clear/subway init; read by corner collision and subway update."
+name = "subway_bodies"
+type = "Car *"
+desc = "subway_count 0x81C-byte pseudo-car physics structs (heap), the trains' collision bodies; 0 on a track without trains (0x800A447C) and with the No Subways or Buses cheat. Set with subway_count."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
 
 [[var]]
 vram = 0x800D5438

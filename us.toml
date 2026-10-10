@@ -1141,6 +1141,11 @@ before_vram = 0x8006F99C
 text = "    rush2_track49_movers_probe(rdram, ctx);"
 
 [[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006FADC
+text = "    rush2_cheats_kill_floor(rdram, ctx);"
+
+[[patches.hook]]
 func = "car_physics_forces_800706D0"
 before_vram = 0x800706EC
 text = "    rush2_track49_movers_pads(rdram, ctx);"
