@@ -352,6 +352,92 @@ else no time limit. The section keeps `"points"` and `"minutes"` (0 off).
   the clock from 60 with a 1 minute limit. Test aid `winkills` makes car 1 a point short at 8 s and gives it the
   points at 10 s.
 
+### 7.2 Battle in races (the race select's BATTLE row)
+
+Not in 2049. The race track select (ONE RACE, CIRCUIT, PRACTICE; not GHOST RACE, STUNT or BATTLE) has a BATTLE row
+below DEATHS, OFF by default, kept in the save's `track_select` section as `"race_battle"` (a save without it is off).
+It needs the Rush 2049 ROM (the battle's models) and is read when a race starts (`Mode::race` in
+src/rush2049/battle.cpp; not in stunt mode, `0x8010C3E8 == 2`, or a ghost race).
+
+- **The row** is option 11, past the game's 0-10, so every place that indexes a table by the option is hooked
+  (src/rush2049/track2049_menu.cpp, `rush2_track49_battle_*`):
+  - label: `options_text_cb_names_values_803C6268` at 0x803C6410 (about to load `0x800C48F8[language * 11 + option]`
+    into $s0, which an 11 reads past) sets $s0 to "BATTLE" (0x80300F60) and skips the load to 0x803C6414;
+    `options_widget_cb_option_arrow_803C59A0` at 0x803C5C14 does the same for the arrows' label width ($a3, to
+    0x803C5C18).
+  - value: the value jump table 0x803CAF38 has cases for options 1-10, and 0x803C644C skips an 11 to the next row
+    (0x803C6908), so 0x803C6440 (after the label is printed, $s2 the row's y) draws it first, as BACKWARD's case 1
+    (0x803C6468) does: the language's two words `0x800C4A90[language * 2 + 0/1]` (off, on) at x 0x100 and centered on
+    x 0x124 (`text_center_x_variant_8007347C`), the chosen one in style 0xA (green) and the other in style 4.
+  - left / right: the jump table 0x803CAC10 has options 0-10 and sends an 11 to 0x803AC410 (which copies the menu
+    settings to the race's), so 0x803AC078 ($t9 the option, $a1 the step: -1 / 1, or 0 for the default) toggles it
+    (the default is off) and saves.
+  - With HANDICAP (2 players or more) the list is 12 long; the twelfth entry is 0x803D0604, which is the car select's
+    (`menu_select_player_set_state_803B2BB4` sets it when that screen opens). The track select's screen and list are
+    set up again each time it opens.
+- **The race**: every car has the battle's health (800) but no default gun (the gun, weapon 8, doesn't fire in
+  `Mode::race`: only the pickups' weapons do, and a car is back to nothing when one runs out or is dropped); the
+  weapons and power-ups work as in an arena (the
+  Weapons cheat's flat-ground shots on tracks without the battle's collision), and a car brought to 0 is wrecked and
+  respawned by Rush 2 as any wreck. Nothing is fired or taken before GO.
+- **Time**: half as much again. `rush2_track49_race_time` (`path_load_derive_80093048` at 0x80093298, after the game
+  worked out the start time, path header copy +0 at 0x8010BCE8, and each checkpoint's extensions +0x1E / +0x20 from
+  the AI lanes; Rush 1 and 2049 tracks set theirs there too) multiplies them by 1.5 when
+  `rush2::battle::race_battle_applies` (the row on, the Rush 2049 tracks there, not stunt mode, a battle arena or a
+  ghost race). Seen: the test track's start time 38 -> 57 s with the row on, unchanged with it off.
+- **Missile** (3 per pickup, as 2049): faster than the arenas' so it can catch a car at full speed. It starts at the
+  car's speed + 165 ft/s and settles at 360 ft/s (245 mph; 2049's settles at 100) (its gap shrinking by 2x its size per second,
+  about halved every 0.35 s), and turns speed / 100 times 2049's rate (the same turning circle), each step stopping at the target's
+  direction. Seen in game: missiles at 360 ft/s, one closing on a drone from 118 ft and hitting it
+  (`R2_BATTLE_TEST=log,give4,missile` logs each missile's speed and target distance).
+- **Pickups**: a row on each checkpoint line but the start / finish line (header +4, 0x8010BCEC), where the
+  grid waits (Rush 2's path, docs/rush2049_research/race.md section 3: the header copy 0x8010BCE8 has the checkpoint
+  count at +8 (0x8010BCF0) and the checkpoints from +0xC (0x8010BCF4, 0x50 each: +0 the gate's middle, +0xC the
+  direction of travel, +0x22 where the spine, lanes 1-4 and branches cross it); the lane headers at 0x80110020, 8 each,
+  +0 point count, +4 points of 8 bytes). As many as fit 12 ft apart (1 to 8) are evenly spaced (one in the middle of each equal part) across the road
+  at the line, which is measured with Rush 2's ground query `collision_ground_query_8006CF00(pos, out_point,
+  out_matrix)` (it puts cars on the grid and back on the track; returns the POLY record of the polygon nearest in
+  height within 250 ft, walls skipped, or 0; +0 u16 flags, & 0xF the surface type). From the gate's middle it
+  probes 1 ft steps to each side, up to 60 ft, while there is ground of type 0-2 with no step over 0.45 ft (a curb;
+  a banked road rises about 0.35 ft a foot), except a step of up to 1 ft within 15 ft of the middle (a median the
+  middle is on). The row stays 5 ft in from those edges, at least 20 ft wide, 2.5 ft over the ground under each
+  pickup. Game code is called with `battle::tick`'s caller's context (the movers hook), its stack borrowed below
+  its stack pointer; without it the AI lanes' crossings give the width. Each is a random one of the 8 weapons,
+  health, invisibility or shield (the `WEPICON_*` models of file 76, drawn by src/rush2049/battle_render.cpp in
+  slots 60-159; a line that doesn't fit is left empty). One taken comes back 7 s later (about Mario Kart's item boxes) in its place as another kind. On the test track the
+  road came out 68-120 ft wide (the material is not a test: a gate's middle can be on a patch of another one).
+  Test aids: `R2_BATTLE_TEST=road` logs where each side stopped, `startrow` puts a row on the start line too (in
+  view on the grid; the race starts about 23 s into the recipe below).
+- **HUD**: the Weapons cheat's health bar, with the weapon held centered just over it and its ammo to its right, and
+  the power-up in effect over the bar's right end (beside the bar they ran into Rush 2's time, place and radar in
+  quadrants). These models turn about their own middle: `rush2::battle_render::model_center` takes the middle of the
+  bounding box of the vertices a model's display list loads (G_VTX, 1/16 ft), and `center_model` moves the model's
+  origin so that middle is at the HUD point (their origins are off to one side, so they swung around it). The arenas'
+  HUD is as before.
+- **Computer cars** keep Rush 2's drone driver. `rush2_battle_race_steer` (`drone_driver_80074990` at 0x800751C8,
+  just after it stored the steering $f0 to car +0x728, $v1 the car; -1 .. 1, right positive) moves the steering by
+  at most 0.35 toward a wanted pickup 15-170 ft ahead and no more than 12 ft + a tenth of the distance to the side (a
+  weapon while it has only the gun or the same one, health below 3/4, the other power-ups always).
+  `rush2::battle_ai::race_buttons` fires with the arena's rules (`should_fire`, no line of sight test) at the race's
+  DIFFICULTY, from 4 s after GO (the pack is close at the start), only with a pickup's weapon.
+- Seen in game (Marina, 1 and 4 players, 2026-10-09): the row and both values; first 18 pickups on 6 lines, then 25 on Marina's 5 lines past the start; drones taking
+  pickups on every line and steering into them (`R2_BATTLE_TEST=steer` logs it); the weapon, ammo and invisibility
+  HUD in 1 player and quadrants. Test: set `"race_battle": 1` in build/saves' `track_select` (or toggle the row) and
+  `R2_BATTLE_TEST=log,give4 python tools/rush1/shots.py OUT "8:START,11:A,13.5:A,17:A,19.5:A,22:A,24.5:A,27:A,31:A:70" 33 45`
+  (the race from about 29 s). Not seen: the stacked 2 player views, a backward or mirrored race, a Rush 1 or 2049 track.
+
+### 7.3 Firing backward (Settings, Fire Backward)
+
+Not in 2049. With the Fire Backward option (Games tab, on by default, takes effect at once), holding the steering
+stick back while firing (the D-pad's down when it steers, the keyboard's down arrow; `rush2::controls::battle_back`
+from `get_race_input`, stick y <= -0.5) shoots behind the car, in the arenas, a race with the BATTLE row and with the
+Weapons cheat. It applies to the weapons that shoot ahead: the cannon, gatling, grenade, missile, rocket and gun (the
+mine already drops behind, the sonic blast is a ring, the ram has no shot). `fire(rdram, car, backward)` turns the
+shot half a turn, levels it (the guns' own aim is at cars ahead), puts its start at the muzzle mirrored behind the mount,
+and drops the car's speed ahead from what the shot inherits (a grenade or rocket would otherwise fly forward from a
+fast car; the missile's start speed is at least 165 ft/s). The computer cars fire ahead only. Seen in game: player 1's
+grenades thrown behind the car (`R2_BATTLE_TEST=log,give2,fire,back` logs each shot's heading against the car's).
+
 ## 8. Known differences and test aids
 
 - Computer opponents are the port's own (section 9); 2049's battle was multiplayer only.

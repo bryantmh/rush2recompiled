@@ -90,6 +90,7 @@ namespace {
     // 0xD80-0xF3F: the car select's WINGS rows (src/rush2049/wings_menu.cpp)
     constexpr uint32_t points_label = menu_data + 0xF40;          // "POINTS", the BATTLE select's LAPS row (16 bytes)
     constexpr uint32_t rule_value = menu_data + 0xF50;            // POINTS' or TIME LIMIT's value text (16 bytes)
+    constexpr uint32_t battle_row_label = menu_data + 0xF60;      // "BATTLE", the race select's BATTLE row (16 bytes)
     constexpr uint32_t time_label = menu_data + 0xF70;            // "TIME LIMIT", the BATTLE select's CHECKPOINTS row
     constexpr uint32_t preview_strings = menu_data + 0x1000;      // 16 bytes per 2049 entry: its preview model's name
 
@@ -147,6 +148,7 @@ namespace {
     constexpr int option_difficulty = 7;
     constexpr int option_checkpoints = 9;   // TIME LIMIT on the BATTLE select
     constexpr int option_deaths = 10;
+    constexpr int option_battle = 11;   // Added: the race select's BATTLE row (rush2_track49_battle_*)
     constexpr int option_boxes = 4;     // OPTIONTEXTBOX widgets: the rows on screen
 
     // Whether option `option` stays open on track t although STUNT1 greys it: the obstacle course is raced (a car
@@ -204,6 +206,11 @@ namespace {
             ids = { option_track, option_fog, option_wind, option_laps, option_checkpoints, option_drones,
                     option_difficulty };
         }
+        // The race select's BATTLE row, last (below DEATHS), when the battle's models are there (the Rush 2049
+        // tracks) and not for a ghost race. It makes a list of 12 with HANDICAP (2 players or more): the twelfth
+        // entry is at 0x803D0604, which is the car select's (it sets it when it opens; the track select's screen is
+        // set up again each time it opens).
+        if (select_kind == select_race && available() && !rush2::ghost::chosen()) ids.push_back(option_battle);
         int n = 0;
         for (int id : ids) {
             if (select_kind != select_race && id != option_track && id != option_fog && id != option_wind &&
@@ -249,7 +256,8 @@ namespace {
     bool menu_has_rush1 = false;
 
     // The save file's section (include/data_files.h): { "selected": n, "stunt": n, "battle": n, "points": n,
-    // "minutes": n }. "points" and "minutes" are the BATTLE select's POINTS and TIME LIMIT (rush2::battle::points_to_win,
+    // "minutes": n, "race_battle": 0/1 }. "race_battle" is the race select's BATTLE row (rush2::battle::race_battle), off without it.
+    // "points" and "minutes" are the BATTLE select's POINTS and TIME LIMIT (rush2::battle::points_to_win,
     // time_limit_minutes, 0 off); a save without "minutes" takes the old Games tab time limit (src/rush2049/wings.cpp,
     // hidden now) if it was changed from its default, 3 minutes.
     const std::string selection_section = "track_select";
@@ -287,6 +295,7 @@ namespace {
             minutes = legacy == 3 ? rush2::battle::default_minutes : legacy;
         }
         rush2::battle::set_time_limit_minutes(minutes);
+        rush2::battle::set_race_battle(read("\"race_battle\"") == 1);
     }
 
     void write_selection() {
@@ -294,7 +303,8 @@ namespace {
             "{ \"selected\": " + std::to_string(selection) + ", \"stunt\": " + std::to_string(stunt_selection) +
             ", \"battle\": " + std::to_string(battle_selection) +
             ", \"points\": " + std::to_string(rush2::battle::points_to_win()) +
-            ", \"minutes\": " + std::to_string(rush2::battle::time_limit_minutes()) + " }");
+            ", \"minutes\": " + std::to_string(rush2::battle::time_limit_minutes()) +
+            ", \"race_battle\": " + std::to_string(rush2::battle::race_battle() ? 1 : 0) + " }");
     }
 
     void save_selection(int value) {
@@ -1001,6 +1011,72 @@ extern "C" int rush2_track49_battle_rule_step(uint8_t* rdram, recomp_context* ct
         set_time_limit_minutes(minutes);
     }
     write_selection();
+    return 1;
+}
+
+// The race select's BATTLE row (rush2::battle::race_battle): option 11, past the game's 0-10. Each place that indexes
+// a table by the option is hooked: its label (0x800C48F8 + language x 44, which an 11 would read past) in the text
+// (0x803C6410) and for the arrows' width (0x803C59A0 at 0x803C5C14); its value (the value jump table 0x803CAF38 has
+// cases for 1-10; an 11 skips to the next row at 0x803C644C, so 0x803C6440 draws it first); and left / right (the
+// jump table 0x803CAC10 has 0-10; an 11 goes to 0x803AC410, which copies the menu settings, so 0x803AC078 toggles it
+// first). The value is drawn as BACKWARD's (case 1 at 0x803C6468): the language's two words (0x800C4A90 + language x 8,
+// off then on) at x 0x100 and centered on 0x124, the chosen one in style 0xA (green) and the other in style 4.
+namespace {
+    constexpr uint32_t language = 0x800C4618;        // s32
+    constexpr uint32_t onoff_words = 0x800C4A90;     // char*[2] per language: BACKWARD's values, off then on
+
+    uint32_t battle_row_text(uint8_t* rdram) {
+        write_string(rdram, battle_row_label, "BATTLE");
+        return battle_row_label;
+    }
+}
+
+extern "C" void text_center_x_variant_8007347C(uint8_t* rdram, recomp_context* ctx);
+
+// func_803C6268 at 0x803C6410: about to load the row's label into $s0 ($s1 = the row's entry in the option list).
+// Returns 1 with $s0 set for the BATTLE row (the caller skips the load).
+extern "C" int rush2_track49_battle_label(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)MEM_W(0, (int32_t)ctx->r17) != option_battle) return 0;
+    ctx->r16 = (uint64_t)(int64_t)(int32_t)battle_row_text(rdram);
+    return 1;
+}
+
+// func_803C59A0 at 0x803C5C14: about to load the cursor row's label into $a3 to measure it. Returns 1 with $a3 set
+// for the BATTLE row.
+extern "C" int rush2_track49_battle_arrow_label(uint8_t* rdram, recomp_context* ctx) {
+    if (cursor_option(rdram) != option_battle) return 0;
+    ctx->r7 = (uint64_t)(int64_t)(int32_t)battle_row_text(rdram);
+    return 1;
+}
+
+// func_803C6268 at 0x803C6440, after the row's label: the BATTLE row's value (at y $s2), as BACKWARD's. Returns 1 to
+// go on to the next row.
+extern "C" int rush2_track49_battle_value(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)MEM_W(0, (int32_t)ctx->r17) != option_battle) return 0;
+    constexpr int style_chosen = 0xA, style_other = 4;
+    bool on = rush2::battle::race_battle();
+    int lang = (int32_t)MEM_W(0, (int32_t)language);
+    int32_t off_word = MEM_W(0, (int32_t)(onoff_words + lang * 8)), on_word = MEM_W(0, (int32_t)(onoff_words + lang * 8 + 4));
+    int32_t y = (int16_t)ctx->r18;
+    call_game(rdram, ctx, text_select_style_800737E4, on ? style_other : style_chosen);
+    call_game(rdram, ctx, text_print_string_800734E0, 0x100, y, off_word);
+    call_game(rdram, ctx, text_select_style_800737E4, on ? style_chosen : style_other);
+    int x = call_game(rdram, ctx, text_center_x_variant_8007347C, on_word, 0x124);
+    call_game(rdram, ctx, text_print_string_800734E0, (int16_t)x, y, on_word);
+    return 1;
+}
+
+// func_803ABE0C at 0x803AC078: $t9 = the cursor row's option, about to be bounded for the left / right jump table;
+// $a1 = the step (-1, 1, or 0 for the default). The BATTLE row toggles (the default is off) and is saved. Returns 1
+// to go on to the case's end (0x803AC410).
+extern "C" int rush2_track49_battle_step(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)ctx->r25 != option_battle) return 0;
+    bool on = (int32_t)ctx->r5 != 0 && !rush2::battle::race_battle();
+    if (on != rush2::battle::race_battle()) {
+        std::lock_guard lock{ menu_mutex };
+        rush2::battle::set_race_battle(on);
+        write_selection();
+    }
     return 1;
 }
 

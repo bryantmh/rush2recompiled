@@ -819,6 +819,34 @@ func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC3A4
 text = "    if (rush2_track49_battle_rule_step(rdram, ctx)) goto L_803AC410;"
 
+# The race select's BATTLE row (option 11, past the game's tables; src/rush2049/track2049_menu.cpp): its label, the
+# arrows' label width, its value and its left / right.
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6410
+text = "    if (rush2_track49_battle_label(rdram, ctx)) goto L_803C6414;"
+
+[[patches.hook]]
+func = "options_widget_cb_option_arrow_803C59A0"
+before_vram = 0x803C5C14
+text = "    if (rush2_track49_battle_arrow_label(rdram, ctx)) goto L_803C5C18;"
+
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6440
+text = "    if (rush2_track49_battle_value(rdram, ctx)) goto L_803C6908;"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC078
+text = "    if (rush2_track49_battle_step(rdram, ctx)) goto L_803AC410;"
+
+# A race with the BATTLE row: the drones' steering leans toward a pickup ahead (src/rush2049/battle.cpp).
+[[patches.hook]]
+func = "drone_driver_80074990"
+before_vram = 0x800751C8
+text = "    rush2_battle_race_steer(rdram, ctx);"
+
 [[patches.hook]]
 func = "options_widget_cb_slider_803C5798"
 before_vram = 0x803C5930

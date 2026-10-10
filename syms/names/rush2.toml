@@ -6373,8 +6373,8 @@ ref = "docs/rush2049_research/collision.md#node-0x14-bytes-quadtree-over-world-x
 [[func]]
 vram = 0x8006CF00
 name = "collision_ground_query"
-sig = "void collision_ground_query(f32 *pos, s32 a1, f32 *out)"
-desc = "Leaf query that copies a leaf into an unchecked u16[36] stack buffer (next local sp+0x94 -> 0xDC); one of four sites for a 0x10<<q leaf-offset patch. | Ground/wall query that expands a leaf into a u16[36] stack buffer with no bounds check; does an exact point-in-polygon test on every listed polygon."
+sig = "PolyRecord *collision_ground_query(f32 *pos, f32 *out_point, f32 *out_matrix)"
+desc = "Returns the POLY record (u16 flags first: & 0xF surface type) of the non-wall polygon nearest in height to pos within 250 ft, or 0; writes the surface point under pos to out_point and its matrix (rows, +0xC up) to out_matrix. The race BATTLE row probes road widths with it (src/rush2049/battle.cpp ground_at). | Leaf query that copies a leaf into an unchecked u16[36] stack buffer (next local sp+0x94 -> 0xDC); one of four sites for a 0x10<<q leaf-offset patch. | Ground/wall query that expands a leaf into a u16[36] stack buffer with no bounds check; does an exact point-in-polygon test on every listed polygon."
 consts = "36 = max polygons per leaf (buffer size)"
 status = "verified"
 area = "collision"

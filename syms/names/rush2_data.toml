@@ -4024,6 +4024,15 @@ status = "verified"
 ref = "docs/rush2049_research/battle.md#71-battle-rules-the-battle-selects-points-and-time-limit-rows"
 
 [[var]]
+vram = 0x800C4A90
+name = "trackselect_onoff_words"
+type = "const char*[][2]"
+desc = "Per language (x 8 bytes): the track select's two toggle words, off then on, drawn by BACKWARD's value case (0x803C6468) and the race BATTLE row (rush2_track49_battle_value)."
+area = "menu"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x800C5334
 name = "placement_class_w0"
 type = "u32"
@@ -9767,9 +9776,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010BCEC
-name = "path_checkpoint_count"
-type = "u16"
-desc = "Halfword set by path_load, read by checkpoint passed, laps HUD and progress update (checkpoint count; low confidence)."
+name = "path_finish_checkpoint"
+type = "s16"
+desc = "Path header copy +4 (header at 0x8010BCE8): the finish / lap line checkpoint, the first with flag 1 (default 0). src/ghost.cpp gives it to a ghost as its next checkpoint. Not the checkpoint count (that is +8, 0x8010BCF0)."
 area = "track"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -9785,20 +9794,20 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010BCF0
-name = "path_lane_count"
-type = "u16"
-desc = "Halfword read by 13 path/checkpoint/minimap functions, never written in code (low confidence)."
+name = "path_checkpoint_count"
+type = "s16"
+desc = "Path header copy +8 (header at 0x8010BCE8): number of checkpoints (at most 10), the records following at 0x8010BCF4. Read by the race BATTLE row's pickup placement (src/rush2049/battle.cpp); 6 on Marina."
 area = "track"
-status = "inferred"
+status = "verified"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010BCF4
-name = "minimap_const_a"
-type = "f32"
-desc = "Float read by minimap_draw (low confidence)."
-area = "ui"
-status = "inferred"
+name = "path_checkpoints"
+type = "struct { f32 pos[3]; f32 dir[3]; u32 radius2; s16 flags; s16 bonus[2]; s16 crossing[20]; f32 next_distance; }[10]"
+desc = "Path checkpoints, 0x50 each (header copy +0xC): +0 the gate's middle, +0xC the direction of travel (plane normal, y 0), +0x18 gate radius squared (x/z), +0x1C flags (1 finish, 2 armed, 4 loop start), +0x1E/+0x20 time bonus, +0x22 crossing index on the spine [0], lanes [1-4] and branches [5-19], +0x4C spine distance to the next. Read by checkpoint_gate_test_800A1468 and the race BATTLE row's pickups."
+area = "track"
+status = "verified"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
@@ -11729,11 +11738,11 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80110020
-name = "race_lane_time_param"
-type = "s16"
-desc = "Value read by race_time_from_lanes (low confidence)."
-area = "race"
-status = "inferred"
+name = "path_lane_headers"
+type = "struct { u16 count; u8 pad[2]; u8 *points; }[4]"
+desc = "The 4 AI lanes' headers, 8 each: +0 point count, +4 the points (8 bytes each: s16 x, y, z, u8 target mph, u8 behavior). drone_driver_80074990 and drone_steer_along_path_80074284 index it by the drone's lane; the race BATTLE row places its pickups between the lanes' checkpoint crossings."
+area = "track"
+status = "verified"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
@@ -14056,6 +14065,7 @@ type = "Palette[72]"
 desc = "Per car id (0x18 stride) palette record built by car_build_textures (func_8008582C): name[16], u8 first/last TLUT index at +0x10/+0x11, data at +0x14. Stored in node +0x2C of the car's nodes at car record (0x80219DD0 + id * 0x134) +0x2, +0x6, +0x32 only; the other parts draw with the TLUT in TMEM."
 area = "car"
 status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x802401F0

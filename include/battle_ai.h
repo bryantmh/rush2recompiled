@@ -61,6 +61,10 @@ namespace rush2::battle_ai {
     void update(uint8_t* rdram, const World& world);
     // The battle's weapon buttons (rush2::controls::battle_fire / battle_drop) computer car `car` holds this tick.
     uint8_t buttons(int car);
+    // A race with the BATTLE row on (rush2::battle::race_battle): the drones keep Rush 2's driver and only fire. Each
+    // physics tick, the weapon buttons computer car i holds: FIRE when its weapon could hit a car now (the arena's
+    // rules, at the race's DIFFICULTY), let go a tick between shots.
+    uint8_t race_buttons(uint8_t* rdram, const World& world, int i);
     // Whether `car` is a computer car of the battle in progress.
     bool is_bot(uint8_t* rdram, int car);
     // A computer car's number (1-7) for the results, or 0.

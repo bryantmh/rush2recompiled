@@ -2,16 +2,22 @@
 #define __BATTLE_RENDER_H__
 
 #include <cstdint>
+#include <string>
 
 // Draws Rush 2049's battle models (weapons, projectiles, effects, the HUD's models) on any track (src/rush2049/battle_render.cpp):
 // Rush 2049's model files are copied into spare RDRAM as they are, and the models placed here are drawn at the end of
 // each view from display lists of their own, so they need no scene nodes or track geometry.
 namespace rush2::battle_render {
-    constexpr int max_slots = 96;
+    constexpr int max_slots = 160;
 
     // Loads the model files from the Rush 2049 ROM if they aren't (game thread). False without a ROM.
     bool ready(uint8_t* rdram);
     bool has_model(const char* name);
+    // The first model whose name starts with `prefix` (the pickups' names carry a level of detail suffix), or "".
+    std::string find_model(const char* prefix);
+    // The middle of a model's bounding box, in its own axes (world feet before the axes' scale): the vertices its
+    // display list loads (G_VTX, through the lists it calls). False if the model isn't there.
+    bool model_center(uint8_t* rdram, const char* name, float out[3]);
     // Shows `model` in a slot: m's rows are its axes (right, up, forward, with its scale), pos its place in the world.
     // view: the one view it is drawn in, or -1 for all. attached: it rides with that view's camera (a HUD model) and
     // is drawn in view space, so it holds still on screen between game frames (src/interpolation.cpp explains).

@@ -658,8 +658,8 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
     buttons |= brake > 0.0f ? action_buttons[static_cast<int>(Action::Brake)] : 0;
     *gas_out = gas;
     *brake_out = brake;
-    battle_held[port] = uint8_t((action_held(d, b, Action::Fire) ? battle_fire : 0) |
-                                (action_held(d, b, Action::DropWeapon) ? battle_drop : 0));
+    uint8_t battle = uint8_t((action_held(d, b, Action::Fire) ? battle_fire : 0) |
+                             (action_held(d, b, Action::DropWeapon) ? battle_drop : 0));
 
     if (button_down(d, SDL_CONTROLLER_BUTTON_START) || key_down(d, SDL_SCANCODE_RETURN)) {
         buttons |= n64_start;
@@ -699,6 +699,10 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
         const Slots& keys = b[static_cast<int>(Device::Keyboard)][static_cast<int>(Action::Steering)];
         x += input_value(d, keys[1]) - input_value(d, keys[0]);
     }
+
+    // The steering stick held back (up is positive here) aims a weapon behind the car.
+    bool back = y <= -0.5f || key_down(d, SDL_SCANCODE_DOWN);
+    battle_held[port] = uint8_t(battle | (back ? battle_back : 0));
 
     *buttons_out = buttons;
     *x_out = std::clamp(x, -1.0f, 1.0f);

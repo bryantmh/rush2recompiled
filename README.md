@@ -31,7 +31,7 @@ If you also own **San Francisco Rush 2049** for the N64 (US version), you can po
 - **The 2049 cars.** All thirteen Rush 2049 cars join the car select after Rush 2's own.
 - **The 2049 music.** Each of the six 2049 tracks plays its own Rush 2049 song.
 - **The 2049 stunt arenas.** The stunt arenas are playable from the track select.
-- **Battle arenas.** Eight deathmatch arenas in the BATTLE row, with weapons, pickups, and arrows pointing to the other cars. Computer-controlled drones can fill the arenas, and weapons can also be turned on in regular arena races with a cheat.
+- **Battle arenas.** Eight deathmatch arenas in the BATTLE row, with weapons, pickups, and arrows pointing to the other cars. Computer-controlled drones can fill the arenas, and weapons can also be turned on in regular arena races with a cheat. The track select's BATTLE row turns any race into a battle race: a row of weapon and power-up pickups on every checkpoint line past the start, and drones that grab them and shoot.
 - **Coins.** Collect 2049's coins, which are counted per player in the Progress tab and count toward unlocks.
 
 #### Dreamcast disc (experimental)

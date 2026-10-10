@@ -228,8 +228,10 @@ namespace rush2 {
                             float* brake);
         // The fixed menu layout.
         void get_menu_input(int port, uint16_t* buttons, float* x, float* y);
-        // The battle arenas' weapon buttons held on a port as of its last race input: battle_fire, battle_drop.
-        constexpr uint8_t battle_fire = 1, battle_drop = 2;
+        // The battle arenas' weapon buttons held on a port as of its last race input: battle_fire, battle_drop, and
+        // battle_back while the steering stick is held back (the D-pad's down when it steers, the keyboard's down
+        // arrow), which fires a weapon backward (rush2::battle::set_fire_backward).
+        constexpr uint8_t battle_fire = 1, battle_drop = 2, battle_back = 4;
         uint8_t battle_buttons(int port);
         // True if an input on the port's devices is held (used to wait for releases).
         bool any_input_held(int port);
