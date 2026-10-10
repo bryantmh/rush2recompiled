@@ -119,6 +119,8 @@ namespace {
     constexpr uint32_t car_body_mass = 0x5B0;
     constexpr uint32_t car_wrecked = 0x648;          // s8
     constexpr uint32_t car_radius = 0x658;
+    constexpr uint32_t car_speed = 0x3D4;            // f32 ft/s (2049 +0x3F0)
+    constexpr uint32_t car_corners = 0xE8;           // f32[4][3] collision box corners, car-local (2049 +0xF4); 0, 1 the front
     constexpr uint32_t car_active = 0x7E4;           // s16
     constexpr uint32_t car_type = 0x7EA;             // u8: its car type (0-21 Rush 2's, 23-35 Rush 2049's cars)
 
@@ -130,14 +132,13 @@ namespace {
     constexpr int weapon_ammo[8] = { 20, 100, 20, 3, 3, 5, 20, 5 };   // 0x80121D60
     constexpr float pickup_radius = 6.0f, powerup_radius = 4.0f;      // type table 0x80117530 +0x18
     constexpr float touch_margin = 3.5f;                    // a car touches an object within its radius + 3.5
-    constexpr float powerup_respawn = 60.0f;                // type table +0x1C
     constexpr float invisible_seconds = 30.0f;
     constexpr float shield_seconds = 30.0f;                 // func_8038F938
     constexpr float shield_factor = 0.2f;                   // 0x80394DC4
     constexpr float ram_front_factor = 0.35f;               // 0x80394E58 / 0x80394DD4: a ram's front takes less
     constexpr float ram_front_angle = 1.35f;                // 0x80394DE0 / 0x80394DD8 (radians)
     constexpr float explosion_radius2 = 900.0f;             // func_8038D798's radius squared
-    constexpr float gravity = 32.2f;                        // 0x80142764 [I: the value is set at run time]
+    constexpr float gravity = 32.2f;                        // 0x80142764, set to 0x801247F0 at race setup (func_800FB4xx)
     constexpr float car_hit_radius = 6.25f, car_hit_height = 3.5f;   // func_8038DA78
     constexpr float aim_step = 0.01f;                       // 0x80394E8C..94: radians per step
     constexpr float homing_yaw = 0.04f, homing_pitch = 0.03f;         // 0x80394DE4..F0: radians per step
@@ -145,7 +146,10 @@ namespace {
     constexpr int mines_per_car = 3;                        // func_8010C974
     constexpr float sonic_step = 1.0f / 30.0f;              // 0x80394E60: the ring grows by 1 each
     constexpr float sonic_push = 330000.0f, sonic_lift = 66000.0f;    // 0x80394DD0, 0x80394DCC (force)
-    constexpr float ram_damage_base = 160.0f;               // func_800CE358: 160 + 7 x speed; speed scaled here [I]
+    constexpr float ram_damage_base = 160.0f, ram_damage_speed = 7.0f;  // func_800CE358: 160 + 7 x the rammer's speed (ft/s)
+    constexpr float ram_cooldown = 1.0f / 3.0f;             // 0x80124108 / 0x8012410C
+    constexpr float ram_ahead = 2.25f;                      // the car hit must be this far ahead of the rammer's middle
+    constexpr float ram_box_extra = 3.0f;                   // func_8010D3C0: the ram's car is 3 ft longer in front
     constexpr int explosion_sound = 0x45;                   // func_800AF06C: 0x2D at size 1 and up, 0x45 from 0.5, else 0x2F
     constexpr float explosion_scale = 0.5f;                 // func_800AF06C's size for a weapon's explosion
     constexpr int explosion_frames = 30;                    // NEXPLOSIONG1-30 (handles 0x80142908), one each 1/30 s (func_800908A0)
@@ -211,6 +215,8 @@ namespace {
         bool shadow_hidden = false;     // its shadow polygon was hidden here (invisible, in another player's view)
         float regive = 0.0f;            // the Weapons cheat: seconds until it is given its weapon again
         int last_attacker = -1;         // the car that last damaged it (the computer opponents strike back)
+        bool ram_box = false;           // its collision box is lengthened for the ram
+        float box_front = 0.0f, box_radius = 0.0f;   // its own front (corners 0 and 1 z) and radius
     };
 
     struct Pickup {
@@ -219,8 +225,32 @@ namespace {
         float m[9] = {}, local[3] = {};   // The record's own pose, relative to its section
         float angle = 0.0f;
         bool taken = false;
-        float respawn = 0.0f;
+        int holds = -1;                   // a power-up spot (WEPICON_POWUP): the power-up placed there, or -1
     };
+
+    // Rush 2049's power-up managers (battle overlay, table 0x80399AE0): the WEPICON_POWUP pickups are spots, all hidden
+    // at first, and each of three managers keeps one power-up of its own at one spot at a time.
+    struct Spot {
+        int pickup = -1;
+        bool held = false;    // a power-up is placed there (entry +6 == 3)
+        bool last = false;    // the spot a power-up was last taken from, skipped next time (entry +4 == 3)
+    };
+    struct PowerupManager {
+        int kind;             // the power-up it places
+        const char* model;
+        float delay, spread;  // after one is taken, the next comes in delay + random(spread) seconds
+        float timer = 0.0f;   // seconds until it places one; powerup_placed while one is out
+        int spot = -1;
+    };
+    constexpr float powerup_placed = -2.0f;
+    std::vector<Spot> spots;
+    // In 2049's order (func_80390F60 runs func_80390D38, func_80390B10, then its own).
+    PowerupManager powerup_managers[3] = {
+        { kind_heal, "WEPICON_HEALG1", 5.0f, 10.0f },               // func_80390D38: animation 0x161; table +1, +4
+        { kind_shield, "WEPICON_SHLDG1", 90.0f, 60.0f },            // func_80390B10: 0x167; +2, +0xC
+        { kind_invisibility, "WEPICON_INVSG1", 90.0f, 60.0f },      // func_80390F60: 0x162; +3, +8
+    };
+    bool powerups_started = false;
 
     struct Shot {
         bool live = false;
@@ -774,6 +804,8 @@ namespace {
                 for (int k = 0; k < 3; k++) p.local[k] = read_f(rdram, p.record + 0x34 + k * 4);
                 pickups.push_back(p);
             }
+            spots.clear();
+            powerups_started = false;
             // The converter's pool of spare records (the models were drawn from them before src/rush2049/battle_render.cpp)
             // stays hidden.
             for (int record : pool_records) {
@@ -1352,10 +1384,6 @@ namespace {
     // func_8010D3C0: what a pickup gives.
     void give(uint8_t* rdram, int car, int kind) {
         Fighter& f = fighters[car];
-        if (kind == kind_powerup) {
-            static const int options[3] = { kind_heal, kind_invisibility, kind_shield };
-            kind = options[std::uniform_int_distribution<int>(0, 2)(rng)];
-        }
         switch (kind) {
             case kind_heal: f.health = max_health; break;
             case kind_invisibility: f.invisible = invisible_seconds; break;
@@ -1377,21 +1405,88 @@ namespace {
         }
     }
 
-    // func_8010D680: a pickup turns in place. A weapon's comes back once no car holds that weapon, a power-up's after a
-    // minute.
+    // The power-up managers (2049's battle overlay). func_8039133C at the start: every WEPICON_POWUP pickup is a spot,
+    // hidden (func_8010D3C0 hides them as the battle is set up); the first health comes in 5 + random(10) s, the
+    // invisibility and the shield in 15 + random(45) s, one of the two (by a coin) 45 s later. Then each manager, once
+    // its time is up, places its power-up at a random free spot other than the one last taken from (from there on, the
+    // next free one): the pickup's animation becomes that power-up's (0x161 / 0x167 / 0x162, so it gives that) and its
+    // model the power-up's. Once a car takes it, the next comes in 5 + random(10) s (health) or 90 + random(60) s.
+    void update_powerups(uint8_t* rdram, float dt) {
+        static const bool test_powerups = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "powerups") != nullptr;
+        if (!powerups_started) {
+            powerups_started = true;
+            spots.clear();
+            for (int k = 0; k < (int)pickups.size(); k++) {
+                if (pickups[k].rec.kind != kind_powerup) continue;
+                pickups[k].taken = true;
+                pickups[k].holds = -1;
+                hide_node(rdram, pickups[k].node);
+                spots.push_back({ k });
+            }
+            PowerupManager &heal = powerup_managers[0], &shield = powerup_managers[1], &invisible = powerup_managers[2];
+            heal.timer = 5.0f + 10.0f * random_unit();
+            invisible.timer = 15.0f + 45.0f * random_unit();
+            shield.timer = 15.0f + 45.0f * random_unit();
+            (random_unit() > 0.5f ? shield : invisible).timer += 45.0f;
+            for (PowerupManager& m : powerup_managers) m.spot = -1;
+            // Test aid: R2_BATTLE_TEST=powerups places all three after 1 s, at the free spots nearest car 0.
+            if (test_powerups) {
+                for (PowerupManager& m : powerup_managers) m.timer = 1.0f;
+            }
+        }
+        if (spots.empty()) return;
+        for (PowerupManager& m : powerup_managers) {
+            if (m.timer == powerup_placed) {
+                if (!pickups[spots[m.spot].pickup].taken) continue;
+                m.timer = m.delay + m.spread * random_unit();
+                for (Spot& spot : spots) spot.last = false;
+                spots[m.spot].last = true;
+                spots[m.spot].held = false;
+                continue;
+            }
+            m.timer -= dt;
+            if (m.timer >= 0.0f) continue;
+            // (2049 searches until it finds one; with every spot taken or skipped it tries again next step.)
+            int count = (int)spots.size(), start = std::min(count - 1, (int)(random_unit() * (float)count)), found = -1;
+            for (int k = 0; k < count && found < 0; k++) {
+                int at = (start + k) % count;
+                if (!spots[at].held && !spots[at].last) found = at;
+            }
+            if (test_powerups) {
+                float c[3], best = 1e18f;
+                car_pos(rdram, 0, c);
+                for (int at = 0; at < count; at++) {
+                    const float* q = pickups[spots[at].pickup].rec.pos;
+                    float d = (q[0] - c[0]) * (q[0] - c[0]) + (q[2] - c[2]) * (q[2] - c[2]);
+                    if (!spots[at].held && !spots[at].last && d < best) {
+                        best = d;
+                        found = at;
+                    }
+                }
+            }
+            if (found < 0) continue;
+            m.spot = found;
+            m.timer = powerup_placed;
+            spots[found].held = true;
+            Pickup& p = pickups[spots[found].pickup];
+            p.holds = m.kind;
+            p.taken = false;
+            set_model(rdram, p.node, m.model);
+            show_node(rdram, p.node);
+            static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "log") != nullptr;
+            if (test_log) fprintf(stderr, "[Battle] t=%.1f %s placed at spot %d of %d\n", clock_seconds, m.model, found, count);
+        }
+    }
+
+    // func_8010D680: a pickup turns in place. A weapon's comes back once no car holds that weapon; a power-up spot
+    // shows when a manager places a power-up there (update_powerups).
     void update_pickups(uint8_t* rdram, float dt) {
+        update_powerups(rdram, dt);
         for (Pickup& p : pickups) {
             bool weapon_pickup = p.rec.kind >= 0 && p.rec.kind < 8;
             if (p.taken) {
-                bool back;
-                if (weapon_pickup) {
-                    back = true;
-                    for (int i = 0; i < max_cars; i++) back = back && !(fighters[i].present && fighters[i].weapon == p.rec.kind);
-                }
-                else {
-                    p.respawn -= dt;
-                    back = p.respawn <= 0.0f;
-                }
+                bool back = weapon_pickup;
+                for (int i = 0; i < max_cars && back; i++) back = !(fighters[i].present && fighters[i].weapon == p.rec.kind);
                 if (!back) continue;
                 p.taken = false;
                 show_node(rdram, p.node);
@@ -1408,10 +1503,9 @@ namespace {
                 car_pos(rdram, i, c);
                 float d[3] = { c[0] - p.rec.pos[0], c[1] - p.rec.pos[1], c[2] - p.rec.pos[2] };
                 if (dot(d, d) > reach * reach) continue;
-                give(rdram, i, p.rec.kind);
+                give(rdram, i, p.rec.kind == kind_powerup ? p.holds : p.rec.kind);
                 play_sound(rdram, pickup_sound, p.rec.pos);
                 p.taken = true;
-                p.respawn = powerup_respawn;
                 hide_node(rdram, p.node);
                 break;
             }
@@ -1428,6 +1522,36 @@ namespace {
         uint8_t bits = rush2::controls::battle_buttons(MEM_BU(0, (int32_t)(player_slots + player * player_size + 1)));
         if (test_fire && std::fmod(clock_seconds, 0.5f) < 0.25f) bits |= rush2::controls::battle_fire;
         return bits;
+    }
+
+    // The ram's car is 3 ft longer in front (func_8010D3C0 sets its box's front corners, 2049 +0xFC and +0x108, to the
+    // car's length ahead + 3 and its radius +0x654 to match), and its own size again once the ram is used up
+    // (func_8038FCE0). Rush 2's box: corners +0xE8 (front z +0xF0 and +0xFC), radius +0x658, set when the car is set
+    // up (func_8008DBA0, func_8009E6DC), so a box found at its own size again was set up anew.
+    void ram_box(uint8_t* rdram, int i, bool on) {
+        Fighter& f = fighters[i];
+        uint32_t car = car_at(i);
+        uint32_t front0 = car + car_corners + 8, front1 = car + car_corners + 0x14;
+        float front = read_f(rdram, front0);
+        if (on) {
+            if (f.ram_box && front == f.box_front + ram_box_extra) return;
+            f.ram_box = true;
+            f.box_front = front;
+            f.box_radius = read_f(rdram, car + car_radius);
+            float back = -read_f(rdram, car + car_corners + 0x2C);
+            float reach = std::max(front, back), longer = std::max(front + ram_box_extra, back);
+            write_f(rdram, front0, front + ram_box_extra);
+            write_f(rdram, front1, front + ram_box_extra);
+            write_f(rdram, car + car_radius,
+                    std::sqrt(std::max(0.0f, f.box_radius * f.box_radius - reach * reach) + longer * longer));
+        }
+        else if (f.ram_box) {
+            f.ram_box = false;
+            if (front != f.box_front + ram_box_extra) return;
+            write_f(rdram, front0, f.box_front);
+            write_f(rdram, front1, f.box_front);
+            write_f(rdram, car + car_radius, f.box_radius);
+        }
     }
 
     void update_cars(uint8_t* rdram, float dt) {
@@ -1467,6 +1591,7 @@ namespace {
                 if (f.shield_scale <= 0.06f) f.shield_scale = 0.0f;
             }
             f.shield_spin -= 0.005f * steps;
+            ram_box(rdram, i, !wrecked && f.weapon == ram);
             if (wrecked) continue;
 
             int player = -1;
@@ -1490,33 +1615,6 @@ namespace {
                            (f.weapon == gatling && (held & rush2::controls::battle_fire) != 0);
             if (trigger && f.cooldown <= 0.0f && f.ammo != 0 && f.weapon != ram) {
                 fire(rdram, i);
-            }
-
-            // The ram (2049 main func_800CE358): its car damages the cars it runs into, using an ammo each time.
-            if (f.weapon == ram && f.ammo > 0 && f.cooldown <= 0.0f) {
-                float c[3], v[3];
-                car_pos(rdram, i, c);
-                car_vel(rdram, i, v);
-                for (int j = 0; j < max_cars; j++) {
-                    if (j == i || !alive(rdram, j)) continue;
-                    float o[3], ov[3];
-                    car_pos(rdram, j, o);
-                    car_vel(rdram, j, ov);
-                    float d[3] = { o[0] - c[0], o[1] - c[1], o[2] - c[2] };
-                    float reach = read_f(rdram, car_at(i) + car_radius) + read_f(rdram, car_at(j) + car_radius) + 1.0f;
-                    if (dot(d, d) > reach * reach) continue;
-                    float rel[3] = { v[0] - ov[0], v[1] - ov[1], v[2] - ov[2] };
-                    float closing = dot(rel, d) / std::max(length(d), 1e-3f);
-                    if (closing < 20.0f) continue;
-                    damage(rdram, j, i, ram_damage_base + 4.0f * closing / 1.4667f);
-                    play_sound(rdram, weapons[ram].sound, c);
-                    f.cooldown = 1.0f;
-                    if (mode != Mode::cheat && --f.ammo <= 0) {
-                        f.weapon = gun;
-                        f.ammo = -1;
-                    }
-                    break;
-                }
             }
         }
     }
@@ -1631,7 +1729,7 @@ namespace {
         for (const Pickup& p : pickups) {
             rush2::battle_ai::Pickup q;
             memcpy(q.pos, p.rec.pos, sizeof(q.pos));
-            q.kind = p.rec.kind;
+            q.kind = p.rec.kind == kind_powerup ? p.holds : p.rec.kind;
             q.available = !p.taken;
             w.pickups.push_back(q);
         }
@@ -2260,4 +2358,40 @@ extern "C" void rush2_battle_view(uint8_t* rdram, recomp_context* ctx) {
 // played in stunt mode but has no stunt score.
 extern "C" void rush2_battle_hide_stunt_panel(uint8_t* rdram, recomp_context* ctx) {
     if (rush2::track2049::battle_race(rdram)) ctx->r5 = 1;
+}
+
+// Start of Rush 2's car_car_collision_response_8006E2A8 ($a1, $a2 the two cars), 2049's func_800CE358, where 2049's
+// ram is: in a battle (and with the Weapons cheat), a car holding the ram (ammo left, its cooldown done) that collides
+// with a car of another team ahead of its middle by more than 2.25 ft (in its own frame) deals it 160 + 7 x its speed
+// (ft/s), uses an ammo and waits a third of a second; failing that, the other car's ram the same way. The ram doesn't
+// fire.
+extern "C" void rush2_battle_ram(uint8_t* rdram, recomp_context* ctx) {
+    if (mode == Mode::none) return;
+    uint32_t a = (uint32_t)ctx->r5, b = (uint32_t)ctx->r6;
+    auto index = [](uint32_t car) {
+        return car >= cars && car < cars + max_cars * car_size && (car - cars) % car_size == 0 ? (int)((car - cars) / car_size) : -1;
+    };
+    int i = index(a), j = index(b);
+    if (i < 0 || j < 0 || !alive(rdram, i) || !alive(rdram, j)) return;
+    if (team_of_car(rdram, i) >= 0 && team_of_car(rdram, i) == team_of_car(rdram, j)) return;
+    for (int k = 0; k < 2; k++) {
+        int rammer = k == 0 ? i : j, hit = k == 0 ? j : i;
+        Fighter& f = fighters[rammer];
+        if (f.weapon != ram || f.ammo == 0 || f.cooldown > 0.0f) continue;
+        float c[3], o[3], m[9], local[3];
+        car_pos(rdram, rammer, c);
+        car_pos(rdram, hit, o);
+        car_axes(rdram, rammer, m);
+        float d[3] = { o[0] - c[0], o[1] - c[1], o[2] - c[2] };
+        to_local(m, d, local);
+        if (local[2] <= ram_ahead) continue;
+        damage(rdram, hit, rammer, ram_damage_base + ram_damage_speed * read_f(rdram, car_at(rammer) + car_speed));
+        play_sound(rdram, weapons[ram].sound, c);
+        f.cooldown = ram_cooldown;
+        if (mode != Mode::cheat && f.ammo > 0 && --f.ammo == 0) {
+            f.weapon = gun;
+            f.ammo = -1;
+        }
+        return;
+    }
 }

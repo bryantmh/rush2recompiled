@@ -78,7 +78,7 @@ Per weapon **[V]** (`D_8002EB94` is the step's seconds; "explodes" means `func_8
 | 2 grenade | 1/6 s | 3.1667 s | 0.5 | launched 0.5 rad up at 75 ft/s plus the car's velocity; gravity x 2.5; bounces off the arena keeping 0.9 | 800, explodes |
 | 3 mine | 1 s | 5 s in flight | - | let go with 15 ft/s up plus the car's velocity; gravity; horizontal speed x 0.9 a step; first bounce leaves at 15, later ones keep 0.4; at rest it becomes a `WPR_MINE` object | 800 to the car that touches it |
 | 4 missile | 1 s | 15 s | 2.0 | speed = the car's forward speed + 165, then toward 100 ft/s; homes (below) | 960, explodes |
-| 5 ram | - | - | - | passive (`func_800CE358`, main): damages a car it hits, about 160 + 7 x speed, using an ammo | |
+| 5 ram | 1/3 s | - | - | passive, in the car against car collision response (`func_800CE358`, main; below) | 160 + 7 x speed |
 | 6 rocket | 1/6 s | 10 s | 1.0 | 50 ft/s along its aim (pitch only) plus the car's velocity, then accelerates 800 ft/s^2 | 520, explodes |
 | 7 sonic | 1 s | 1 s | - | a ring at the car (below) | 800 / 400 / 200 |
 | 8 gun | 1/6 s | 4 s | 0.5 | 2000 ft/s along its aim (yaw and pitch) | 80, direct |
@@ -108,17 +108,43 @@ weapon: 0x5C, 0x57, 0x5A, 0x58, 0x5B, 0x5D, 0x5E, 0x5F, 0x59 (`func_800B61A8(sou
 - **Sonic** (`func_8038D498`): the ring's size grows by 1 every 1/30 s for its 1 s; it reaches 4 x its size. Each car is
   hit once: 800 while the size is <= 8, 400 while <= 20, then 200, with a force away from the center of 330000 (+66000
   up), x 1, 0.6, 0.5.
+- **Ram** (`func_800CE358`, 2049's car against car collision response; Rush 2 `car_car_collision_response_8006E2A8`):
+  in a battle (type 6) between cars of different teams, a car holding the ram (+0x384 == 5) whose cooldown (+0x3AC)
+  is done hits the other car if that car (not being put back, +0x6C4 == -1) is ahead of its middle by more than 2.25
+  ft in its frame (snapshot position +0x794 through matrix +0x7A0): `func_8038D3A4(rammer, hit, 160 + 7 x the rammer's
+  speed +0x3F0)` (ft/s), ammo -1, cooldown 1/3 s (`0x80124108`); else the other car's ram the same way. Taking the
+  ram makes the car 3 ft longer in front (`func_8010D3C0`: box corners +0xFC and +0x108 = the car table
+  `0x8011F844`'s length ahead + 3, radius +0x654 = sqrt(max(ahead, behind)^2 + half width^2 + height^2)); when its
+  ammo runs out `func_8038FCE0` puts the car's own size back (DROP doesn't). Table `0x8011F844`, 16 bytes per 2049
+  car: length ahead, behind, half width, height (car 0: 6.75, 5.25, 3, 3.5).
 - **Placed mine** (`WPR_MINE`, type row 120: radius 12.5, 45 s; `func_8010C7F4` hit, `func_8010C974` update): a car
   within the radius (+3.5) takes 800, a ram that meets it nose first 280; a car has at most 3 (the oldest goes).
 
 ## 5. Pickups and power-ups
 
 Type table rows 102-113 (`WEPICON_*`, `0x80117530 + row * 0x30`): hit `func_8010D3C0`, update `func_8010D680`, radius 6
-(POWUP 4), +0x1C 60.0. Pickup anim ids 0x15E-0x168 select what a pickup gives: CANN, GATT, GREN, HEAL, INVS, MINE,
-MISS, RAM, ROCK, SHLD, SONC; POWUP is a random power-up. Each arena places the 8 weapons and 6-9 POWUPs.
+(POWUP 4), +0x1C the sound 0x60, +0x14 the animation id. Pickup anim ids 0x15E-0x168 select what a pickup gives:
+CANN, GATT, GREN, HEAL, INVS, MINE, MISS, RAM, ROCK, SHLD, SONC. Each arena places the 8 weapons and POWUPs (none
+places HEAL, INVS or SHLD themselves). **The POWUPs are spots for the health, shield and invisibility power-ups**,
+which the battle overlay's three managers place there in turn (below); row 113's own animation, 0x162, and model
+`WEPICON_INVSG1` are only what a spot starts with.
 
-- A pickup turns in place by its object's own rate **[I: 3 rad/s in the port]**.
-- A taken **weapon pickup comes back when no car holds that weapon** (`func_8010D680`); a power-up after its 60 s **[I]**.
+- A pickup turns in place at its object's rate, 3 rad/s (below).
+- A taken **weapon pickup comes back when no car holds that weapon** (`func_8010D680`); power-ups come and go by the
+  managers.
+- **Power-up managers** (overlay; table `0x80399AE0`: +0 the spot count, +1 / +2 / +3 the health / shield /
+  invisibility manager's spot, +4 / +0xC / +8 their timers, +0x10 the spots, 8 bytes each: object, s16 +4 (3 = the
+  spot last taken from), s16 +6 (1 free, 3 holding a power-up)):
+  - `func_8039133C` at the start (after `func_80391490` counted the POWUPs, which `func_8010D3C0` hides as the battle
+    is set up, flag 0x20): a spot per POWUP; timers health 5 + random(10) s, invisibility and shield 15 + random(45)
+    s each, and 45 s more for one of the two by a coin (`func_8008B2E4(x)` = random in [0, x)).
+  - Each step `func_80390F60` runs the health manager `func_80390D38`, the shield's `func_80390B10`, then (after the
+    cars' invisibility fades) the invisibility's own. A manager whose timer runs out picks a random spot and from it
+    the first one free and not the last taken from, marks it held, and puts its power-up there: the object's
+    animation +0x50 = 0x161 (health), 0x167 (shield) or 0x162 (invisibility), so `func_8010D3C0` gives that, its
+    model swapped (`func_80090770`) and shown (`func_8008B0D8`); its timer is then -2 (one is out).
+  - Once a car takes it (the object's +4 & 2 cleared), the next is due in 5 + random(10) s (health) or 90 +
+    random(60) s (shield, invisibility); that spot becomes the one last taken from and is free again.
 - HEAL sets the health to 800. INVS: flag 1 for 30 s (the car and its weapon fade). SHLD: the globe `WFX_SHIELDG1`
   grows 0.05 a step to the car model's size (`0x80394358`), holds 30 s, shrinks; damage x 0.2 meanwhile.
 
@@ -192,8 +218,8 @@ Main code. **[V]** unless marked.
 - **A pickup's turn**: `func_8010D680` turns it by its object's rate record (object +0x6C, set by the spawner from
   `0x80118D70` + 12 x sub-kind for kind 0): row 0 = (0, 3, 0) rad/s, about its up axis. A taken pickup is hidden
   (`func_8008AE8C`, flag 0x80000000); a weapon's is shown again (`func_8008B0D8`) once no car holds that weapon. Nothing
-  in that function shows a power-up again: the 60 s the port uses is **[I]** (the type row's +0x1C is the sound 0x60,
-  not a time).
+  in that function shows a power-up again: the managers in section 5 do (the port once brought one back after 60 s,
+  a misreading of the type row's +0x1C, which is the sound 0x60).
 
 ## 7. The port (Rush 2)
 
@@ -294,7 +320,18 @@ Main code. **[V]** unless marked.
 ## 8. Known differences and test aids
 
 - Computer opponents are the port's own (section 9); 2049's battle was multiplayer only.
-- The results print PLAYER 1-4, not profile names; a power-up comes back after 60 s **[I]**; the coin's scale, the
+- **Ram**: `rush2_battle_ram` (src/rush2049/battle.cpp) runs at the start of Rush 2's
+  `car_car_collision_response_8006E2A8` ($a1, $a2 the cars; 2049's `func_800CE358`) with 2049's rule, from the cars'
+  current position and matrix (2049 uses the step's snapshot). `ram_box` lengthens the car's box while it holds the
+  ram: Rush 2 corners +0xE8 (front z +0xF0, +0xFC), radius +0x658, written only at car setup (`func_8008DBA0`,
+  `func_8009E6DC`); its own front + 3 ft, the radius grown to match, and put back when the ram goes (DROP and wrecks
+  too). It works with the Weapons cheat as well. Before this the port polled cars within reach closing at 20 ft/s,
+  either way round, with a 1 s cooldown and a made-up speed scale.
+- **Power-ups**: `update_powerups` ports the three managers (section 5) over the POWUP pickups, swapping the spot's
+  scene node to `WEPICON_HEALG1`, `WEPICON_SHLDG1` or `WEPICON_INVSG1` (all in the converted arenas). If no spot is
+  free it tries again the next step (2049 would search forever). Before this every POWUP was out from the start and
+  gave a random one of the three, back 60 s after it was taken.
+- The results print PLAYER 1-4, not profile names; the coin's scale, the
   bullet hit flashes and the non-weapon model colors are by eye **[I]**; an invisible car is a ghost in its own view,
   not a fade.
 - Seen in game: 1 and 4 players in DM1 and DM5 (missiles, mines, kills, wrecks, invisibility, the explosion, the
@@ -303,7 +340,8 @@ Main code. **[V]** unless marked.
   new renderer, HUD Placement Original and 16:9, teams in play.
 - Test aids (env `R2_BATTLE_TEST`, any of): `fire` presses every player's FIRE twice a second; `give<n>` gives every
   car pickup kind n (0-7 weapons, 8 heal, 9 invisibility, 10 shield) at 2 s; `kill` destroys car 0 at 8 s; `short`
-  makes the battle 25 s; `log` prints the clock, sounds and pickups; `models` lists the arena's model names.
+  makes the battle 25 s; `log` prints the clock, sounds, pickups and each power-up placed; `models` lists the arena's
+  model names; `powerups` places all three power-ups after 1 s at the free spots nearest car 0.
   4 players by script: `RUSH2_TEST_PLAYERS=4` with P2START / P3START / P4START after the BATTLE row is reached.
 
 ## 9. Computer opponents (the port's own)
