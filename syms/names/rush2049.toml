@@ -2816,7 +2816,7 @@ ref = "docs/rush2049_research/checkpoints.md#8-car-tracker-checkpoint-window-and
 [[func]]
 vram = 0x800D348C
 name = "car_track_position"
-desc = "2049 human car tracker; counterpart of Rush 2 func_80090570. | Respawn zone logic: puts a wrecked car back on the branch point nearest it for type 2 branches."
+desc = "2049 human car tracker; counterpart of Rush 2 func_80090570. | Respawn zone logic: puts a wrecked car back on the branch point nearest it for type 2 branches. | Battle (game type 6): picks the spine point farthest in x/z from every other car (each at its respawn point +0x660 while +0x6C4 >= 0, else +0x22C), scanning from a random point (LCG 0x8011735C); calls the battle overlay's func_8038CA24(car)."
 status = "verified"
 rush2 = 0x80090570
 link = "same-code"

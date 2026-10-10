@@ -236,6 +236,15 @@ Decompiled with `tools/rush2049/decomp.py` (r2 80090570 80090A40 800A1468 8008F2
   - 2049 only: a branch with type byte 2 (files 159 br 7, 178 br 5) is a respawn-in-place zone: the tracker skips
     the window and the car is put on the branch point itself, +3 ft, speed 0. Rush 2 has types 0 and 1 only.
     Ported: `rush2_track49_respawn_zone*` in `src/rush2049/track2049.cpp` (hooks at 0x80090758, 0x80091368, 0x800918E8).
+  - 2049 battle (game type 6, `0x8014A110`): the tracker `func_800D348C` doesn't look for the nearest point. From a
+    random spine point on (its LCG `0x8011735C`), it takes the spine point farthest in x/z from every other car, each
+    car taken at its respawn point (+0x660) while it is being put back (+0x6C4 >= 0), else where it is (+0x22C); it
+    also calls the battle overlay's `func_8038CA24(car)`. `func_800D3B28` then moves on 0 points (+0x6BC = 0 in types
+    1, 4, 5, 6) and leaves the car standing (no 0x3A speed). Ported for the battle arenas, players and computer
+    opponents alike: `rush2_track49_respawn_zone_place` (hook at 0x800918E8 in `respawn_place_car_80090A40`) puts the
+    car on that point +3 ft with no speed, and gives `func_8006D348` (which faces it along the route) that point
+    (0x1A8($sp), loaded into $a1 by the hooked instruction), branch -1 (0x1B0($sp), $a2) and $a3 = 1. Rush 2 offsets
+    are 2049's + 4 here (+0x664 respawn point, +0x6C8 the respawning index), and the position is +0x224.
   - The helpers are the same code in both games (`func_8008F8B0` = 2049 `func_800D2928`, `func_80090514` =
     `func_800D3430`); no other difference was found.
 - **SF Rush** has the same gate test (`func_800A0BB8`) with its own radii, 316-1000 ft (rush1_research section 6).

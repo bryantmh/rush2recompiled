@@ -648,7 +648,81 @@ extern "C" void rush2_track49_respawn_zone_advance(uint8_t* rdram, recomp_contex
 // func_80090A40 at 0x800918E8, car $s4 placed 1.5 ft over its respawn point (branch 0x1B0($sp); $a3 = a player's
 // car) with its rolling start speed (+0x6C0 = 58): in a respawn zone Rush 2049 puts it 3 ft up with no speed, and
 // clears what its on-the-spot reset clears (flag 0x10 of +0x7F4, +0x648).
+// Rush 2049's battle respawn (its tracker func_800D348C for game type 6): the route point farthest in x and z from
+// every other car, each taken where it is or, while it is being put back (+0x6C8 != -1; 2049 +0x6C4), at its respawn
+// point. The points are tried from a random one on, so a tie goes to a random point. func_800D3B28 then moves on no
+// points in a battle and gives the car no speed. Drones (the battle's computer opponents) go by the same rule.
+static int battle_respawn_point(uint8_t* rdram, uint32_t self) {
+    constexpr uint32_t cars = 0x800F5470, car_size = 0x81C;
+    constexpr uint32_t route = 0x80111940;  // Route header: +0 s16 spine points, +4 the points (s16 x, y, z).
+    static uint32_t seed = 12345;
+    int count = MEM_H(0, (int32_t)route);
+    if (count <= 0) {
+        return -1;
+    }
+    uint32_t points = (uint32_t)MEM_W(0, (int32_t)(route + 4));
+    auto f = [&](uint32_t addr) {
+        uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
+        float v;
+        std::memcpy(&v, &bits, sizeof(v));
+        return v;
+    };
+    seed = seed * 0x41C64E6D + 0x3039;
+    int start = (int)(((seed >> 16) & 0x7FFF) * (uint32_t)count / 0x8000);
+    int best = start;
+    float best_d = -1.0f;
+    for (int k = 0; k < count; k++) {
+        int p = (start + k) % count;
+        uint32_t point = points + (uint32_t)p * 6;
+        float px = (float)MEM_H(0, (int32_t)point), pz = (float)MEM_H(0, (int32_t)(point + 4));
+        float nearest = 1e12f;
+        for (int i = 0; i < 8; i++) {
+            uint32_t car = cars + (uint32_t)i * car_size;
+            if (car == self || MEM_H(0, (int32_t)(car + 0x7E4)) == 0) {
+                continue;
+            }
+            bool respawning = MEM_H(0, (int32_t)(car + 0x6C8)) >= 0;
+            float x = f(car + (respawning ? 0x664 : 0x224)), z = f(car + (respawning ? 0x66C : 0x22C));
+            nearest = std::min(nearest, (px - x) * (px - x) + (pz - z) * (pz - z));
+        }
+        if (nearest > best_d) {
+            best_d = nearest;
+            best = p;
+        }
+    }
+    return best;
+}
+
 extern "C" void rush2_track49_respawn_zone_place(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::game_type(rdram) == rush2::track2049::GameType::battle) {
+        uint32_t car = (uint32_t)ctx->r20;
+        int p = battle_respawn_point(rdram, car);
+        if (p < 0) {
+            return;
+        }
+        uint32_t point = (uint32_t)MEM_W(0, (int32_t)0x80111944) + (uint32_t)p * 6;
+        float pos[3] = { (float)MEM_H(0, (int32_t)point), (float)MEM_H(0, (int32_t)(point + 2)) + 3.0f,
+                         (float)MEM_H(0, (int32_t)(point + 4)) };
+        for (int k = 0; k < 3; k++) {
+            uint32_t bits;
+            std::memcpy(&bits, &pos[k], sizeof(bits));
+            MEM_W(0, (int32_t)(car + 0x664 + k * 4)) = (int32_t)bits;
+        }
+        MEM_W(0, (int32_t)(car + 0x6C0)) = 0;
+        MEM_W(0, (int32_t)(car + 0x7F4)) = MEM_W(0, (int32_t)(car + 0x7F4)) & ~0x10;
+        MEM_B(0, (int32_t)(car + 0x648)) = 0;
+        if (getenv("R2_BATTLE_TEST") != nullptr) {
+            fprintf(stderr, "[Battle] car %d respawns at route point %d (%.0f %.0f %.0f)\n", (int)((car - 0x800F5470) / 0x81C),
+                    p, pos[0], pos[1], pos[2]);
+        }
+        // Faced along the route there (func_8006D348: route point 0x1A8($sp), loaded into $a1 next, of branch $a2 /
+        // 0x1B0($sp), -1 the spine; $a3 = on the route rather than a drone's lane).
+        MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1A8)) = p;
+        MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1B0)) = -1;
+        ctx->r6 = -1;
+        ctx->r7 = 1;
+        return;
+    }
     if (ctx->r7 == 0 || !respawn_zone(rdram, (int32_t)MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1B0)))) {
         return;
     }
