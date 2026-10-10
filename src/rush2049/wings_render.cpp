@@ -48,6 +48,8 @@ namespace {
     constexpr uint32_t car_body_node_stride = 0x134;
     constexpr uint32_t lighting_cache = 0x800E7DE1; // func_8007AA48: nonzero while G_LIGHTING is on.
     constexpr uint32_t palette_cache = 0x80111954; // func_80078190: palette last loaded into TMEM, 0 for none.
+    constexpr uint32_t car_palette_records = 0x802217E0; // func_8008582C: car i's palette record (0x18 bytes: name, first, last index, +0x14 data).
+    constexpr uint32_t car_palette_stride = 0x18;
 
     constexpr uint32_t G_DL_CALL = 0xDE000000;
     constexpr uint32_t G_ENDDL_W0 = 0xDF000000;
@@ -356,7 +358,7 @@ void rush2::wings::draw_car_body(uint8_t* rdram, recomp_context* ctx) {
         write_mtx(rdram, mtx + side * 0x80 + 0x40, flame);
     }
 
-    constexpr uint32_t max_cmds = 64;
+    constexpr uint32_t max_cmds = 80;
     DlWriter dl{ rdram, side_alloc(max_cmds * 8) };
     dl.cmd(G_DL_CALL, (uint32_t)ctx->r30); // The car body.
     for (const auto& c : prologue) {
@@ -385,9 +387,27 @@ void rush2::wings::draw_car_body(uint8_t* rdram, recomp_context* ctx) {
     if (MEM_BU(0, (int32_t)lighting_cache) != 0) {
         dl.cmd(0xD9FFFFFF, 0x00020000);
     }
-    // The wing lists load their own palettes over the car's in TMEM. func_80078190 skips the TLUT load when a
-    // node's palette is the one it loaded last, so the car's next parts would draw with the wing palette.
-    MEM_W(0, (int32_t)palette_cache) = 0;
+    // The wing lists load their own palettes over the car's in TMEM. Only three of a car's nodes carry its palette
+    // (node +0x2C, set by func_8008582C for the nodes at car record +0x2, +0x6 and +0x32); the body, the front
+    // panels and the rest draw with whatever TLUT is loaded, so after the wings they would take the wing colors.
+    // Reload the car's palette the way func_80078190 does: SETTIMG, SETTILE 7 at TMEM 0x100 + first index,
+    // LOADTLUT of (last - first) entries. If the TLUT in place is not the car's, at least make the next node with a
+    // palette reload it (func_80078190 skips the load when its data pointer is the one it loaded last).
+    uint32_t loaded = (uint32_t)MEM_W(0, (int32_t)palette_cache);
+    uint32_t car_palette = car_palette_records + car * car_palette_stride;
+    if (loaded != 0 && (uint32_t)MEM_W(0, (int32_t)(car_palette + 0x14)) == loaded) {
+        uint32_t first = MEM_BU(0, (int32_t)(car_palette + 0x10));
+        uint32_t last = MEM_BU(0, (int32_t)(car_palette + 0x11));
+        dl.cmd(0xFD100000, loaded);
+        dl.cmd(0xE8000000, 0);
+        dl.cmd(0xF5000000 | ((first + 0x100) & 0x1FF), 0x07000000);
+        dl.cmd(0xE6000000, 0);
+        dl.cmd(0xF0000000, 0x07000000 | (((last - first) & 0x3FF) << 14));
+        dl.cmd(0xE7000000, 0);
+    }
+    else {
+        MEM_W(0, (int32_t)palette_cache) = 0;
+    }
     // The car's paint: the primitive and environment colors func_8007AA48 set from the body node (+0x30, +0x34),
     // which the car's other parts draw with. The flames change both.
     uint32_t node = (uint32_t)ctx->r23;
