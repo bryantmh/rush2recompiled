@@ -470,7 +470,7 @@ The track select shows 2049's own preview instead (`build_preview` in `src/rush2
   rewrites the model's vertices in RDRAM each frame: positions from their own-space coordinates (read back once with
   `preview_unplace`) turned and placed again, and for race tracks the tube's top colours (`preview_tube_color`).
 - **Logos:** every 2049 entry's logo is a banner in the 2049 banner font (`tools/build_banners.py`,
-  `tools/banner_font.py`, which has digits for STUNT n / BATTLE n): banners 7–19 of `include/track2049_banners.h`.
+  `tools/banner_font.py`, whose block letters copy METRO and PRESIDIO; the digits for STUNT n / BATTLE n are bitmaps, DIGITS_2049): banners 7–19 of `include/track2049_banners.h`.
 
 ## 8. Car select option list [V]
 

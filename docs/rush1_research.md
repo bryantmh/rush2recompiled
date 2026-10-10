@@ -523,11 +523,17 @@ the format of Rush 2's own logos. Tracks 1-6 use the user-submitted banners in `
 (`trackN_<name>.png`), which `tools/build_banners.py` quantizes to 255 RGBA5551 colors plus a transparent
 entry 0 and writes into the generated header `include/track1_banners.h`. After adding or changing a PNG, rerun the
 tool. A track without a PNG (currently 7, The Rock) gets its name drawn by the tool with the banner font
-(`tools/banner_font.py`) in its game's style: SF Rush's heavy gold letters with a bevel, a navy outline and a drop
-shadow, or Rush 2049's wide square letters with some corners cut at 45 degrees, a dark-to-blue fill and a lime and black
-outline.
-`python tools/banner_font.py OUT.png` previews the alphabet in both styles, and `build_banners.py --preview DIR`
-saves every banner.
+(`tools/banner_font.py`) in its game's style, matched pixel by pixel to the real banners: SF Rush's letters are 18-row
+bitmaps on DOWNTOWN's grid (3-row bars, 4 px stems, 45-degree round corners), touching as on the real logos; the
+word is drawn as one flat shape and lit as a whole like SUNSET: a light over the banner's middle near the top makes
+the gold pale cream in the centre and deep gold at the ends, lights faces turned up and the bottom edge, darkens right
+faces and bars' undersides, and each bar casts a shadow two rows down; a black and a navy line outline it.
+Rush 2049's are blocks (METRO at 16 px, PRESIDIO at 13 px when a name is too long), a black top bar over a lime line,
+navy shading to blue below, counters as lime-ringed holes, notches or slits, some corners cut at 45 degrees. The
+module docstring explains the shading rules and the template grammar.
+`python tools/banner_font.py OUT.png` previews the alphabet in both styles, `--compare` puts each real banner beside
+its name in the font, `build_banners.py --preview DIR` saves every banner, and `tools/banner_zoom.py` zooms a banner
+with a pixel grid for reading letters.
 
 The banners' art has about a thousand colors even at 5 bits a channel, so the CI8 copy can't be exact. The header
 also holds each banner's exact pixels, which `add_banner_images` registers with the renderer at startup

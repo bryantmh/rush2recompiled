@@ -13,7 +13,6 @@ San Francisco Rush 2049:
     before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
-5) Water can be driven on
 
 General:
 1) Better lighting? Bloom for emmissives?
