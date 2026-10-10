@@ -20,6 +20,8 @@ namespace rush2 {
     // Draw distance factor (src/draw_distance.cpp): 1 is the original. Scales the projection's near (up to 2x) and
     // far planes and the placed object and LOD cull distances; above 1 it draws every track section but the distant
     // stand-ins regardless of visibility and gives nodes past the fixed-point matrix range float matrices.
+    // Rocket windshield (src/game_fixes.cpp): replaces the ROCKET's asset with its windshield unpainted. Call at boot.
+    void fix_rocket_windshield(uint8_t* rdram);
     void set_draw_distance(float factor);
     float draw_distance();
     // Visibility hook helper, after the region's mask is chosen: when the draw distance is extended, widens it to

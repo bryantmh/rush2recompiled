@@ -22,8 +22,18 @@
 // otherwise ACCENT COLOR's entries 33-63 when ACCENT is white (0x80085960-, an else-if). Each entry becomes a gray of
 // its red channel x 8 x 1.25 (at most 255). With both white the accent ramp was never brightened, so the accent came
 // out darker than with any other body color. The hook at 0x80085C14, where the branches join, brightens it then.
+//
+// Rocket windshield (user report). The ROCKET's (type 20, asset 0x31) container has no texture table: its 11 CI8
+// textures load through the container's texture display lists (0x4830-0x4AF0). Its windshield is a solid block of
+// palette entry 17 framed by entries 179-185 in texture 6 (32 x 64, every one of its 184 texels of entry 17), and
+// 1-31 are MAIN COLOR (class table 0x800C5670), so the windshield took the MAIN COLOR. At boot the asset is replaced
+// by a copy whose texture 6 uses entry 190 there (CARPALETTE 8, 8, 8), the near-black of the rest of the windshield.
+
+#include <vector>
 
 #include "recomp.h"
+#include "assets.h"
+#include "rush2.h"
 
 #include "rush2_hooks.h"
 
@@ -74,5 +84,36 @@ extern "C" void rush2_fix_white_accent(uint8_t* rdram, recomp_context* ctx) {
             v = 0xFF;
         }
         MEM_H(i * 2, palette) = (int16_t)(((v << 8) & 0xF800) | ((v * 8) & 0x7C0) | ((v >> 2) & 0x3E) | 1);
+    }
+}
+
+void rush2::fix_rocket_windshield(uint8_t* rdram) {
+    constexpr int rocket_asset = 0x31;
+    constexpr int windshield_texture = 6;
+    constexpr uint8_t painted = 17, unpainted = 190;
+    std::vector<uint8_t> d;
+    if (!rush2::assets::read_original(rdram, rocket_asset, d) || d.size() < 40) {
+        return;
+    }
+    auto be32 = [&](size_t o) { return (uint32_t)d[o] << 24 | (uint32_t)d[o + 1] << 16 | (uint32_t)d[o + 2] << 8 | d[o + 3]; };
+    // The texture load lists, header words 7-8: G_SETTIMG (0xFD) gives the texels, G_LOADBLOCK (0xF3) their count.
+    uint32_t image = 0;
+    int texture = 0;
+    for (uint32_t o = be32(28); o + 8 <= be32(32) && o + 8 <= d.size(); o += 8) {
+        uint32_t w0 = be32(o), w1 = be32(o + 4);
+        if (w0 >> 24 == 0xFD) {
+            image = w1 & 0xFFFFFF;
+        }
+        else if (w0 >> 24 == 0xF3 && texture++ == windshield_texture) {
+            uint32_t bytes = (((w1 >> 12) & 0xFFF) + 1) * 2;
+            if (image + bytes > d.size()) {
+                return;
+            }
+            for (uint32_t i = image; i < image + bytes; i++) {
+                if (d[i] == painted) d[i] = unpainted;
+            }
+            rush2::assets::replace(rdram, rocket_asset, std::move(d));
+            return;
+        }
     }
 }
