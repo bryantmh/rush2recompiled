@@ -13,5 +13,3 @@ Names and signatures marked inferred are educated guesses from the code.
 | 800F7620 | `func_800F7620` |  | Accessor for the 13-byte car unlock table 0x80150E30 + player x 13. No jal callers. |  | verified |
 | 800F7A98 | `func_800F7A98` |  | Coin test (is the coin already collected); debug flag 0x801174B4 & 8 counts every coin as collected. |  | verified |
 | 800F7C20 | `func_800F7C20` |  | Coin collect: sets the coin's bit in the course's u16 mask in the profile (race track t at +0xE8 + t x 0x60, mirrored at +0x328 + t x 0x60; stunt arena s at +0x1C8 + s x 0x40). |  | verified |
-| 8010DF90 | `func_8010DF90` |  | GOLDCOIN / SILVERCOIN dynamic object type init (kind 6); each coin gets the next index at spawn (silver counter 0x80151964, gold 0x80151610 + 8). |  | verified |
-| 8010E0FC | `func_8010E0FC` |  | GOLDCOIN / SILVERCOIN dynamic object type update. |  | verified |

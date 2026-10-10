@@ -1,7 +1,8 @@
 // Draws Rush 2049's battle models on any track (include/battle_render.h).
 //
 // Models: Rush 2049's files 76 (WEPICON_* pickups, WEP_* weapons, WPR_* projectiles, WFX_* effects), 63 (the HUD's
-// BCOIN_* coins) and 61 (the explosion's 30 frames NEXPLOSIONG1-30, EXP_*) hold prebuilt F3DEX2 display lists. Each
+// BCOIN_* coins), 61 (the explosion's 30 frames NEXPLOSIONG1-30, EXP_*) and 62 (COIN_GLOWG1, the glow around the
+// race tracks' coins, src/collectibles.cpp) hold prebuilt F3DEX2 display lists. Each
 // file is copied as it is into spare RDRAM and its pointers are rebased the way Rush 2049's loader does, as
 // src/rush2049/wings_render.cpp does for the wings: G_VTX, G_DL and G_SETTIMG addresses in object display lists are relative to
 // the file, G_SETTIMG addresses in the texture load lists (TXLD chunk) to the texture data (IMAG chunk). An object
@@ -51,6 +52,7 @@ namespace {
         { 76, 0x80E20000, 0x24000 },
         { 63, 0x80E44000, 0x4000 },
         { 61, 0x80E48000, 0x38000 },
+        { 62, 0x80F00000, 0x18000 },   // 0x16C70 bytes; 0x80F00000-0x81000000 is otherwise unused
     };
     // Images decoded for rush2::battle_render::image, in the room after file 63 (13736 bytes).
     constexpr int image_file = 63;
@@ -100,6 +102,7 @@ namespace {
         int view = -1;
         bool attached = false;
         bool billboard = false;
+        float push = 0.0f;
         uint32_t gen = 0;
     };
 
@@ -431,7 +434,7 @@ bool rush2::battle_render::has_model(const char* name) {
 }
 
 void rush2::battle_render::place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view, bool attached,
-                                 bool billboard) {
+                                 bool billboard, float push) {
     std::lock_guard lock{ mutex };
     if (slot < 0 || slot >= max_slots) return;
     Item& it = items[slot];
@@ -453,6 +456,7 @@ void rush2::battle_render::place(int slot, const char* model, const float m[9], 
     it.view = view;
     it.attached = attached;
     it.billboard = billboard;
+    it.push = push;
 }
 
 void rush2::battle_render::hide(int slot) {
@@ -507,9 +511,16 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
             const Item& it = items[slot];
             if (!it.on || (it.view >= 0 && it.view != (int)view) || it.attached != (pass == 1)) continue;
             float m[4][4] = {};
+            float rel[3] = { it.pos[0] - cam[0], it.pos[1] - cam[1], it.pos[2] - cam[2] };
+            if (it.push != 0.0f) {
+                float len = std::sqrt(rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]);
+                if (len > 0.001f) {
+                    for (float& v : rel) v += v / len * it.push;
+                }
+            }
             for (int r = 0; r < 3; r++) {
                 for (int c = 0; c < 3; c++) m[r][c] = it.m[r * 3 + c];
-                m[3][r] = (it.pos[r] - cam[r]) * 16.0f;
+                m[3][r] = rel[r] * 16.0f;
             }
             if (it.billboard) {
                 float scale = std::sqrt(it.m[0] * it.m[0] + it.m[1] * it.m[1] + it.m[2] * it.m[2]);

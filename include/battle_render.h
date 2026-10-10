@@ -8,7 +8,7 @@
 // Rush 2049's model files are copied into spare RDRAM as they are, and the models placed here are drawn at the end of
 // each view from display lists of their own, so they need no scene nodes or track geometry.
 namespace rush2::battle_render {
-    constexpr int max_slots = 160;
+    constexpr int max_slots = 176;   // 0-159 src/rush2049/battle.cpp, 160-175 coin glows (src/collectibles.cpp)
 
     // Loads the model files from the Rush 2049 ROM if they aren't (game thread). False without a ROM.
     bool ready(uint8_t* rdram);
@@ -22,9 +22,10 @@ namespace rush2::battle_render {
     // view: the one view it is drawn in, or -1 for all. attached: it rides with that view's camera (a HUD model) and
     // is drawn in view space, so it holds still on screen between game frames (src/interpolation.cpp explains).
     // billboard: it faces each view's camera (a flat sprite like the explosion's frames); m's scale is kept, its
-    // axes are replaced by the view's.
+    // axes are replaced by the view's. push: moved this far (world units) straight away from each view's camera, so a
+    // glow drawn without depth writes stays behind the solid model it surrounds.
     void place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view = -1, bool attached = false,
-               bool billboard = false);
+               bool billboard = false, float push = 0.0f);
     void hide(int slot);
     // A 2D image of Rush 2049's HUD file (HEALTHBG) as RGBA16 texels in RDRAM. False if it isn't there.
     bool image(uint8_t* rdram, const char* name, uint32_t* address, int* w, int* h);

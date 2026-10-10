@@ -183,6 +183,18 @@ func_800A5908, set from the table at 0x8011E7A8 by `func_800AB18C`).
 - Rush 2 port: stripped because Rush 2's bits 22+ are its own culling index; the pyramid is then culled by Rush 2's
   normal rules.
 
+### 2.3 Coin glow **[V]**
+
+GOLDCOIN and SILVERCOIN (types 0 and 1: init func_8010DF90, update func_8010E0FC, kind 6, radius 9.0) are drawn as
+two objects. The update spawns the spinning coin (GOLDCOING_COIN / SILVERCOINS_COI, angular velocity 3.0 at
++0x3C..+0x44) as a separate object, and gives the coin's own placed node the model COIN_GLOWG1 (name 0x80121DB0,
+file 62) and color +0x3C 0xFFC800FF (gold, 0x80118E14) or 0xC8E6FFFF (silver, 0x80118E18). COIN_GLOWG1 is a disc
+of radius 9 in its xy plane, white in the middle and black at the rim, with its own render mode and combiner.
+The port draws it through src/rush2049/battle_render.cpp (slots 160-175), facing the camera, at each untaken coin
+(src/collectibles.cpp). The glow is additive without depth writes, so centered on the coin the spinning coin's
+plane cut the disc and its near half washed over the coin; the port pushes it 3 units (past the coin's 2.5-unit
+radius) straight away from each view's camera so it always sits behind the coin.
+
 ## 3. Rush 2049 animated objects
 
 ### 3.1 PTHD / PATH **[V]**
