@@ -1009,6 +1009,12 @@ area = "render"
 ref = "docs/rush2049_research/geometry.md#42-mirror-mode"
 
 [[func]]
+vram = 0x8008B2E4
+desc = "Random float in [0, x) (the battle's power-up timers)."
+status = "inferred"
+ref = "docs/rush2049_research/battle.md#5-pickups-and-power-ups"
+
+[[func]]
 vram = 0x8008B32C
 name = "mem_copy_words"
 sig = "void *mem_copy_words(void *dst, const void *src, s32 size)"
@@ -2632,6 +2638,15 @@ area = "menu"
 ref = "docs/rush2049_research/audio.md#4-volume-calibration"
 
 [[func]]
+vram = 0x800CE358
+name = "car_car_collision_response"
+desc = "Car against car collision response (Rush 2 car_car_collision_response_8006E2A8, offsets shifted). In a battle it holds the ram: a car with weapon 5 and its cooldown done hits the other car (not respawning) ahead of its middle by > 2.25 ft: damage 160 + 7 x its speed +0x3F0, ammo -1, cooldown 1/3 s (0x80124108)."
+status = "verified"
+rush2 = 0x8006E2A8
+area = "collision"
+ref = "docs/rush2049_research/battle.md#4-weapons"
+
+[[func]]
 vram = 0x800CF06C
 name = "car_ground_contact"
 desc = "Clears contact polygon c.poly648; 2049 counterpart of Rush 2 func_800703EC (ground contact)."
@@ -3478,18 +3493,18 @@ ref = "docs/rush2049_research/battle.md#4-weapons"
 vram = 0x8010D3C0
 name = "battle_pickup_hit"
 sig = "void battle_pickup_hit(Object *obj)"
-desc = "Hit callback of the WEPICON_* types: gives the car the pickup's weapon and ammo (0x80121D60; the same weapon again adds it), full health, 30 s of invisibility or the shield, by the object's anim id 0x15E-0x168."
+desc = "Hit callback of the WEPICON_* types: gives the car the pickup's weapon and ammo (0x80121D60; the same weapon again adds it), full health, 30 s of invisibility or the shield, by the object's anim id 0x15E-0x168 (+0x50; the power-up managers set it on the POWUP spots). The RAM also lengthens the car's box 3 ft in front (+0xFC, +0x108 = table 0x8011F844 length ahead + 3; radius +0x654 recomputed). Called at setup (+4 & 4 clear) it hides the object and counts it (func_80391490), flag 0x20."
 consts = "0x320 = full health; 30.0 = invisibility seconds"
 status = "verified"
 ported = true
 area = "battle"
-ref = "docs/rush2049_research/battle.md#5-pickups-and-power-ups"
+ref = "docs/rush2049_research/battle.md#4-weapons"
 
 [[func]]
 vram = 0x8010D680
 name = "battle_pickup_update"
 sig = "void battle_pickup_update(Anim *anim, s16 a1)"
-desc = "Pickup update (WEPICON_* types): turns it by its rate record (object +0x6C: 0x80118D70 row 0 = 3 rad/s about up), hides a taken one and shows a weapon's again once no car holds that weapon."
+desc = "Pickup update (WEPICON_* types): turns it by its rate record (object +0x6C: 0x80118D70 row 0 = 3 rad/s about up), hides a taken one and shows a weapon's again once no car holds that weapon. Power-ups are shown by the battle overlay's managers (func_80390F60)."
 status = "verified"
 ported = true
 area = "battle"
@@ -3717,6 +3732,46 @@ desc = "Battle overlay. Once a step: gatling casings, then per car the power-ups
 consts = "1/6 (0x80394EB8) = cooldown of cannon, grenade, rocket, gun; 1/15 (0x80394EE4) = gatling; 3.1667 (0x80394EE0) = grenade life; 165 = missile launch speed; 75 / 50 = grenade / rocket launch speed"
 status = "verified"
 ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x80390B10
+name = "battle_powerup_shield"
+desc = "Shield manager: places animation 0x167 (WEPICON_SHLDG1) at a random free spot not the last taken from; the next 90 + random(60) s after it is taken (table +2, +0xC)."
+status = "verified"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x80390D38
+name = "battle_powerup_health"
+desc = "Health manager: places animation 0x161 (WEPICON_HEALG1) at a random free spot not the last taken from; the next 5 + random(10) s after it is taken (table +1, +4)."
+status = "verified"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x80390F60
+name = "battle_powerups_update"
+desc = "Per step: runs the health and shield managers, fades each car's invisibility (+0x3A0..+0x3A8), then the invisibility manager (animation 0x162, 90 + random(60) s; table +3, +8)."
+status = "verified"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x8039133C
+name = "battle_powerups_init"
+desc = "Power-up managers' setup (table 0x80399AE0): a spot per POWUP object (flag 0x20); timers health 5 + random(10) s, invisibility and shield 15 + random(45) s, 45 s more for one of the two."
+status = "verified"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x80391490
+name = "battle_powerup_count"
+desc = "Counts a POWUP spot (table 0x80399AE0 +0), from func_8010D3C0 at setup."
+status = "verified"
 area = "battle"
 ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 

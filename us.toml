@@ -670,6 +670,12 @@ func = "hud_widget_text_cb_player_stats_800B7654"
 before_vram = 0x800B76CC
 text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
 
+# Battle (src/rush2049/battle.cpp): 2049's ram, in the car against car collision response (2049 func_800CE358).
+[[patches.hook]]
+func = "car_car_collision_response_8006E2A8"
+before_vram = 0x8006E2A8
+text = "    rush2_battle_ram(rdram, ctx);"
+
 # Rush 2049 rules by game type (src/rush2049/track2049.cpp): no stuck reset, quick respawn after a wreck, and no track map or
 # radar (their stunt track tests).
 [[patches.hook]]

@@ -6460,10 +6460,10 @@ ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
 vram = 0x8006E2A8
 name = "car_car_collision_response"
 sig = "void car_car_collision_response(Car *a, Car *b, s32 a2, f32 *normal, s32 stack0)"
-desc = "Car-car collision response; collision mass at car +0x5B4, wreck threshold +0x644."
+desc = "Car-car collision response; collision mass at car +0x5B4, wreck threshold +0x644. Hooked at its start for Rush 2049's ram (rush2_battle_ram, src/rush2049/battle.cpp; 2049 func_800CE358)."
 status = "verified"
 area = "collision"
-ref = "docs/rush2049_research/movers.md#7-2049--rush-2-car-field-map"
+ref = "docs/rush2049_research/battle.md#4-weapons"
 
 [[func]]
 vram = 0x8006E8D8
