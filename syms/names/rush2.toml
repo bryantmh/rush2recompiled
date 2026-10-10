@@ -6392,8 +6392,8 @@ ref = "docs/functions/rush2_util.md#rush-2-util-functions"
 [[func]]
 vram = 0x8006D348
 name = "car_grid_place_on_path"
-sig = "void car_grid_place_on_path(s32 a0, s32 a1, Car *car)"
-desc = "Start grid placement helper (path frame, slot offsets)."
+sig = "void car_grid_place_on_path(s32 on_route, s32 point, s32 branch)"
+desc = "Start grid placement helper (path frame, slot offsets). | Also faces a respawned car along the path (respawn_place_car_80090A40), toward the next point after `point`: the route spine (0x80111944) when branch < 0; else route branch `branch` when on_route, drone lane `branch` (0x80110020 + branch*8) when not."
 status = "verified"
 area = "race"
 ref = "docs/rush2049_research/race.md#4-how-the-race-is-defined"
@@ -9513,7 +9513,7 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 vram = 0x80090A40
 name = "respawn_place_car"
 sig = "void respawn_place_car(Car *car)"
-desc = "Patched in us.toml. Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. | Respawn: moves on from the tracker's point along the route (func_8008F8B0) by min(lane speed mph x 1.4667, 146.67) x k x (seconds wrecked + T)/20 points (k = 0.8, 1.1 if state +0x300 set; T = 1.5 s); calls func_8008F220 if it passes the next checkpoint's crossing. | Respawn: moves a player's respawn point on along the branch and places a crashed car 1.5 ft over its respawn point. Hooked at 0x80091368 and 0x800918E8."
+desc = "Patched in us.toml. Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. | Respawn: moves on from the tracker's point along the route (func_8008F8B0) by min(lane speed mph x 1.4667, 146.67) x k x (seconds wrecked + T)/20 points (k = 0.8, 1.1 if state +0x300 set; T = 1.5 s); calls func_8008F220 if it passes the next checkpoint's crossing. | Respawn: moves a player's respawn point on along the branch and places a crashed car 1.5 ft over its respawn point. Hooked at 0x80091368 and 0x800918E8. | Battle arenas: rush2_track49_respawn_zone_place (0x800918E8) puts every car at 2049's battle respawn point (the route point farthest from the other cars), +3 ft, no speed, and points func_8006D348 at it (0x1A8(sp) point, 0x1B0(sp) branch -1, a3 = 1)."
 consts = "146.667 = max speed ft/s, 1.46667 = mph to ft/s"
 status = "verified"
 ported = true

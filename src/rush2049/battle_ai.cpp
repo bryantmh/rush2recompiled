@@ -20,15 +20,21 @@
 // - Goals. A few times a second (more often the higher the skill) each opponent scores its options: each enemy car
 //   (close, damaged, the one that last hit it, the one it is already after), each pickup it can use (a weapon when it
 //   only has the gun, health when it is hurt, the power-ups), or roaming the arena, and takes the best. The current
-//   goal gets a bonus so it doesn't flip between two.
+//   goal gets a bonus so it doesn't flip between two. They spread out: a car other opponents are after or one in a
+//   crowd scores less, a pickup another opponent is closer to and going for is left to it, and a car roams to a place
+//   away from the others. Each opponent draws its own leanings at the round's start (how keen it is to fight or to
+//   collect, the range it shoots from, when it keeps away hurt, its pace).
 // - Weapons. Each weapon has its own rule for when to fire: the gun and gatling when the guns' own aim
 //   (battle.cpp's update_aim) is on the target, the cannon and rockets when the car points at it (with the rocket's
 //   flight time led), missiles when the target is in their homing cone, grenades within their throw, the sonic blast
 //   with a car close by, mines when a car is behind. The ram has no button: the car drives into its target.
-// - Driving. Speed is set from how far the car must turn. Shooting at a car, it holds about 35 ft back at that car's
-//   speed once it faces it, and keeps going round at a turning speed until then. A car that has stopped while trying to go reverses out
-//   with opposite lock; a car that can't get going for long (on its roof, wedged) is wrecked, and the game respawns
-//   it as it does any wrecked car. With the dodge skill a car swerves from a missile coming at it.
+// - Driving. Speed is set from how far the car must turn. Shooting at a car, it holds its range back at that car's
+//   speed once it faces it, and keeps going round at a turning speed until then; with a weapon that needn't point
+//   straight at it (guns, missiles, grenades) it heads for a point beside it, circling it. It steers round other cars
+//   close ahead. A car that has stopped while trying to go reverses out with opposite lock, and one that has had to
+//   twice in a short while leaves the cars alone for a few seconds; a car that can't get going for long (on its roof,
+//   wedged) is wrecked, and the game respawns it as it does any wrecked car (in a battle, at the route point farthest
+//   from the other cars: src/rush2049/track2049.cpp). With the dodge skill a car swerves from a missile coming at it.
 //
 // Skill (the BATTLE track select's DIFFICULTY, 0-5) sets how often a car thinks, its top speed, how close its aim must be and how often it takes a
 // shot, and whether it dodges.
@@ -581,7 +587,21 @@ namespace {
 
     enum class Goal { none, attack, pickup, roam };
 
+    // Each opponent's own leanings, drawn at the round's start, so they don't all play alike.
+    struct Personality {
+        float aggression = 0.0f;   // added to its score for attacking (-15 .. 15)
+        float greed = 0.0f;        // added to its score for pickups (-15 .. 15)
+        float range = 40.0f;       // how far back it holds from a car it shoots at (25 .. 55 ft)
+        float caution = 0.3f;      // the share of its health under which it keeps away from healthier cars
+        float pace = 1.0f;         // share of the skill's top speed (0.9 .. 1)
+    };
+
     struct Brain {
+        Personality p;
+        float side = 1.0f;           // which side of its target it circles to (1 right, -1 left)
+        float side_time = 0.0f;      // seconds until it changes side
+        float pinned = 0.0f;         // seconds the car has had to back out lately
+        float disengage = 0.0f;      // seconds it keeps away from cars after getting pinned
         Goal goal = Goal::none;
         int target = -1;             // the car attacked
         int pickup = -1;             // the pickup sought
@@ -763,11 +783,21 @@ namespace {
             float d = distance(me.pos, o.pos);
             if (o.invisible && d > 30.0f) continue;
             if (!reachable(o.pos)) continue;
-            float score = 70.0f - d * 0.15f + (1.0f - o.health / max_health) * 25.0f;
+            float score = 70.0f + b.p.aggression - d * 0.15f + (1.0f - o.health / max_health) * 25.0f;
             if (j == me.last_attacker) score += 20.0f;
             if (b.goal == Goal::attack && b.target == j) score += 15.0f;
             if (me.weapon == gun) score -= 15.0f;
             if (me.weapon == mine) score -= 45.0f;
+            // Spread out: a car other opponents are already after, or one in a crowd, is worth less.
+            for (int k = 0; k < max_cars; k++) {
+                if (k == i || k == j || !w.cars[k].alive) continue;
+                if (w.cars[k].bot && brains[k].goal == Goal::attack && brains[k].target == j) score -= 14.0f;
+                if (distance(w.cars[k].pos, o.pos) < 30.0f) score -= 8.0f;
+            }
+            // Hurt: keep away from a car in better shape.
+            if (health < b.p.caution && o.health > me.health) score -= 35.0f;
+            // Just got out of a pile: leave the cars alone for a moment.
+            if (b.disengage > 0.0f) score -= 60.0f;
             if (score > best) {
                 best = score;
                 best_goal = Goal::attack;
@@ -794,9 +824,14 @@ namespace {
             else {
                 score = 40.0f + (1.0f - health) * 40.0f - d * 0.2f;
             }
-            // Another car closer to it will likely get there first.
+            score += b.p.greed;
+            // Another car closer to it will likely get there first; another opponent already going for it closer
+            // than this one will.
             for (int j = 0; j < max_cars; j++) {
-                if (j != i && w.cars[j].alive && distance(w.cars[j].pos, p.pos) < d * 0.5f) score -= 25.0f;
+                if (j == i || !w.cars[j].alive) continue;
+                float dj = distance(w.cars[j].pos, p.pos);
+                if (dj < d * 0.5f) score -= 25.0f;
+                if (w.cars[j].bot && brains[j].goal == Goal::pickup && brains[j].pickup == (int)k && dj < d) score -= 40.0f;
             }
             if (b.goal == Goal::pickup && b.pickup == (int)k) score += 15.0f;
             if (score > best) {
@@ -810,19 +845,31 @@ namespace {
             b.path.clear();
         }
         if (best_goal == Goal::roam && (b.goal != Goal::roam || flat_distance(me.pos, b.roam_to) < 20.0f)) {
-            // Somewhere else in the arena it can get to: a random node of its own component.
+            // Somewhere else in the arena it can get to, away from the other cars (and the places other opponents
+            // roam to): the best of a few random open nodes of its own component.
             b.roam_to[0] = me.pos[0];
             b.roam_to[1] = me.pos[1];
             b.roam_to[2] = me.pos[2];
             if (nav != nullptr && my_node >= 0) {
-                for (int tries = 0; tries < 64; tries++) {
+                float best_roam = -1.0f;
+                for (int tries = 0, found = 0; tries < 128 && found < 12; tries++) {
                     int n = std::uniform_int_distribution<int>(0, nav->nodes() - 1)(rng);
                     if (nav->component[n] != nav->component[my_node] || nav->wall_distance[n] < 2) continue;
                     float p[3];
                     nav->node_pos(n, p);
                     if (flat_distance(p, me.pos) < 80.0f) continue;
-                    memcpy(b.roam_to, p, sizeof(p));
-                    break;
+                    found++;
+                    float apart = 200.0f;
+                    for (int j = 0; j < max_cars; j++) {
+                        if (j == i || !w.cars[j].alive) continue;
+                        apart = std::min(apart, flat_distance(p, w.cars[j].pos));
+                        if (w.cars[j].bot && brains[j].goal == Goal::roam) apart = std::min(apart, flat_distance(p, brains[j].roam_to));
+                    }
+                    float score = apart + 60.0f * random_unit();
+                    if (score > best_roam) {
+                        best_roam = score;
+                        memcpy(b.roam_to, p, sizeof(p));
+                    }
                 }
             }
             b.path.clear();
@@ -838,6 +885,13 @@ namespace {
         float dt = w.dt;
         for (float& t : b.unreachable) t = std::max(0.0f, t - dt);
         for (float& t : b.target_unreachable) t = std::max(0.0f, t - dt);
+        b.pinned = std::max(0.0f, b.pinned - dt * 0.25f);
+        b.disengage = std::max(0.0f, b.disengage - dt);
+        b.side_time -= dt;
+        if (b.side_time <= 0.0f) {
+            b.side = random_unit() < 0.5f ? -1.0f : 1.0f;
+            b.side_time = 4.0f + 5.0f * random_unit();
+        }
         b.buttons = 0;
         // The car may drive: the race is on (a drone's +0x71C is already set during the start countdown) and it isn't
         // waiting after a respawn.
@@ -871,6 +925,27 @@ namespace {
             float d = distance(me.pos, t.pos);
             lead(t, std::min(d / 200.0f, 0.6f), dest);
             chase = true;
+            // Close in, a weapon that needn't point straight at the target (the guns turn up to about 26 degrees,
+            // missiles home, grenades arc) heads for a point beside it: the car circles it rather than queueing
+            // behind it with the others.
+            bool beside = me.weapon == gun || me.weapon == gatling || me.weapon == missile || me.weapon == grenade;
+            float flat = flat_distance(me.pos, dest);
+            if (beside && flat < b.p.range * 1.8f && flat > 1.0f) {
+                float offset = std::min(b.p.range * 0.4f, 16.0f) * b.side;
+                float across[3] = { (dest[2] - me.pos[2]) / flat, 0.0f, -(dest[0] - me.pos[0]) / flat };
+                float moved[3] = { dest[0] + across[0] * offset, dest[1], dest[2] + across[2] * offset };
+                // Not into a wall: the other side, or straight at it.
+                if (nav == nullptr || nav->straight(t.pos, moved)) {
+                    memcpy(dest, moved, sizeof(dest));
+                }
+                else {
+                    float other[3] = { dest[0] - across[0] * offset, dest[1], dest[2] - across[2] * offset };
+                    if (nav->straight(t.pos, other)) {
+                        memcpy(dest, other, sizeof(dest));
+                        b.side = -b.side;
+                    }
+                }
+            }
         }
         else if (b.goal == Goal::pickup) {
             memcpy(dest, w.pickups[b.pickup].pos, sizeof(dest));
@@ -905,14 +980,33 @@ namespace {
         }
 
         float steer = std::clamp(angle * 1.8f, -1.0f, 1.0f);
-        float want = top_speed * skill.speed * std::clamp(1.0f - std::fabs(angle) / 1.3f, 0.25f, 1.0f);
-        // Shooting: hold about 35 ft back at the target's speed rather than run into it (the ram runs into it).
+        float want = top_speed * skill.speed * b.p.pace * std::clamp(1.0f - std::fabs(angle) / 1.3f, 0.25f, 1.0f);
+        // Shooting: hold its range back at the target's speed rather than run into it (the ram runs into it).
         // A car turns only while it moves: one that isn't facing its target yet keeps going round at a turning speed.
-        if (chase && me.weapon != ram && dest_distance < 60.0f) {
+        if (chase && me.weapon != ram) {
             const auto& t = w.cars[b.target];
-            float target_speed = std::hypot(t.vel[0], t.vel[2]);
-            want = std::fabs(angle) < 0.5f ? std::min(want, std::max(0.0f, target_speed + (dest_distance - 35.0f) * 1.5f))
-                                           : std::min(want, 35.0f);
+            float target_distance = flat_distance(me.pos, t.pos);
+            if (target_distance < b.p.range + 25.0f) {
+                float target_speed = std::hypot(t.vel[0], t.vel[2]);
+                want = std::fabs(angle) < 0.5f
+                           ? std::min(want, std::max(0.0f, target_speed + (target_distance - b.p.range) * 1.5f))
+                           : std::min(want, 35.0f);
+            }
+        }
+        // Other cars close ahead (not a target it rams): steer round them rather than pile into them.
+        if (b.evade <= 0.0f) {
+            float push = 0.0f;
+            for (int j = 0; j < max_cars; j++) {
+                if (j == i || !w.cars[j].present || !w.cars[j].alive) continue;
+                if (chase && j == b.target && me.weapon == ram) continue;
+                float to[3] = { w.cars[j].pos[0] - me.pos[0], 0.0f, w.cars[j].pos[2] - me.pos[2] };
+                float l[3];
+                to_local(me.m, to, l);
+                float d = std::hypot(l[0], l[2]);
+                if (d > 30.0f || l[2] < 0.0f || std::fabs(l[0]) > 12.0f) continue;
+                push += (l[0] >= 0.0f ? -1.0f : 1.0f) * (1.0f - d / 30.0f);
+            }
+            steer = std::clamp(steer + push * 0.9f, -1.0f, 1.0f);
         }
         if (b.goal == Goal::pickup && dest_distance < 30.0f) want = std::min(want, 45.0f + dest_distance);
         float throttle = std::clamp((want - forward_speed) / 20.0f + 0.3f, 0.0f, 1.0f);
@@ -936,6 +1030,16 @@ namespace {
                 b.reverse = behind ? 0.8f : 1.1f;
                 b.reverse_steer = angle > 0.0f ? -1.0f : 1.0f;
                 b.stuck = 0.0f;
+                // Stuck again and again (in a pile against a wall): back off from the cars for a while.
+                if (!behind) {
+                    b.pinned += 1.0f;
+                    if (b.pinned >= 2.0f) {
+                        b.pinned = 0.0f;
+                        b.disengage = 3.5f;
+                        b.think = 0.0f;
+                        if (b.goal == Goal::attack) b.target_unreachable[b.target] = 3.5f;
+                    }
+                }
             }
         }
         if (b.reverse > 0.0f) {
@@ -1033,7 +1137,16 @@ void rush2::battle_ai::set_arena(const std::vector<float>& triangles) {
 
 void rush2::battle_ai::begin_round() {
     std::lock_guard lock{ ai_mutex };
-    for (Brain& b : brains) b = Brain{};
+    rng.seed(std::random_device{}());
+    for (Brain& b : brains) {
+        b = Brain{};
+        b.p.aggression = -15.0f + 30.0f * random_unit();
+        b.p.greed = -15.0f + 30.0f * random_unit();
+        b.p.range = 25.0f + 30.0f * random_unit();
+        b.p.caution = 0.2f + 0.3f * random_unit();
+        b.p.pace = 0.9f + 0.1f * random_unit();
+        b.side = random_unit() < 0.5f ? -1.0f : 1.0f;
+    }
     ai_clock = 0.0f;
     round_live = true;
 }

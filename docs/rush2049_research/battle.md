@@ -353,7 +353,13 @@ the hook there (`rush2_track49_stunt_option_t9`) leaves an arena's DIFFICULTY al
 - **Goals** (every 0.15 / 0.4 / 0.7 s by skill, at once when the goal is gone): attack an enemy (nearer, more
   damaged, the last car to hit it, the one it is already after; not with only mines; an invisible car only within
   30 ft), a pickup (a weapon when it has the gun, health by how hurt it is, the power-ups; not one another car is
-  twice as close to), or roam to a random open node. A goal that can't be reached is left for 5-10 s.
+  twice as close to), or roam (the best of 12 random open nodes over 80 ft off: farthest from the other cars and
+  from where other opponents roam to, plus up to 60 ft at random). A goal that can't be reached is left for 5-10 s.
+  They spread out: a car is worth 14 less for each other opponent after it and 8 less for each car within 30 ft of
+  it, and a pickup 40 less when another opponent closer to it is going for it.
+- **Personalities**: each opponent draws its own at the round's start (`Personality`): -15..15 added to its attack
+  and pickup scores, the range it shoots from (25-55 ft), the share of health (0.2-0.5) under which it leaves cars
+  healthier than it alone (-35), and 0.9-1 of the skill's top speed.
 - **Firing** (the battle's own `fire`, through the same buttons as a player's, `rush2::battle_ai::buttons`): gun and
   gatling when `update_aim`'s yaw is within the target's half width x the skill factor, under 350 ft; cannon and rocket
   when the car points at it (the rocket's flight led), under 400 ft; missile when the target is in a cone ahead
@@ -361,11 +367,19 @@ the hook there (`rush2_track49_stunt_option_t9`) leaves an arena's DIFFICULTY al
   within 90 ft. Not through walls (the way 2.5 ft up must be open, except for the lobbed and area weapons). The gatling
   holds FIRE; the others let go a tick between presses. Easy fires at 45% of its chances, Medium 80%.
 - **Speed**: the top speed (130 ft/s x 0.78 / 0.9 / 1 by skill) times how little the car must turn (down to a
-  quarter). Shooting at a car within 60 ft it holds about 35 ft back at that car's speed once it faces it, and keeps
-  going round at 35 ft/s until then (a car turns only while it moves); with the ram it drives into it.
+  quarter). Shooting at a car within its range + 25 ft it holds its range back at that car's speed once it faces it,
+  and keeps going round at 35 ft/s until then (a car turns only while it moves); with the ram it drives into it.
+  With the gun, gatling, missile or grenade (which needn't point straight at the target: the guns turn about 26
+  degrees) it heads, within 1.8 x its range, for a point beside the target (0.4 x its range, at most 16 ft, to the
+  side it picks every 4-9 s; the other side if a wall is there), so it circles the car. Other cars within 30 ft
+  ahead and 12 ft to either side push its steering away from them (not a car it rams).
 - **Recovery**: a car with the throttle on that hasn't moved for 0.8 s, or (not chasing a car) whose goal is close behind it, reverses
-  with opposite lock for about a second. One that hasn't got 15 ft anywhere for 10 s (3 s on its roof) is wrecked
+  with opposite lock for about a second; one that has had to twice in a few seconds (in a pile) leaves the cars
+  alone for 3.5 s (attack scores -60) and its target for as long. One that hasn't got 15 ft anywhere for 10 s (3 s on its roof) is wrecked
   (car +0x648), and the game respawns it.
+- **Respawn**: Rush 2049's battle rule (ported, checkpoints.md section 8): every car comes back at the route point
+  farthest from the other cars, standing. Before it was ported every car came back at the same point, and the
+  opponents gathered there. With `R2_BATTLE_TEST` each respawn is logged (`car N respawns at route point P`).
 - **Dodge** (Medium, Hard): a missile within 140 ft heading at the car makes it swerve across its path for 0.7 s.
 - **Results**: the winner can be a computer car (`CPU n`, numbered by drone slot) **[I]**; with one player and
   opponents the player's points box moves below the winner's box.
@@ -377,6 +391,8 @@ the hook there (`rush2_track49_stunt_option_t9`) leaves an arena's DIFFICULTY al
   `R2_BATTLE_TEST=bots3,ai,log,short python tools/rush1/shots.py OUT "8:START,11:DD,11.6:DD,12.2:DD,12.8:DD,13.4:DD,15:A,17.5:A,20:A,22:A,25:A" 40 53`.
 - Seen in game (DM1, 1 player, 1 and 3 opponents): they collect weapons and power-ups, chase and shoot each other and
   the player, score kills, and a computer car can win (`CPU 2 WINS`). Every weapon's rule fired and hit, each given
-  to all cars with `give<n>` (cannon, grenade, mine, missile, ram, rocket, sonic, and the gun). All cars respawn at the
-  arena's one respawn point, so fights gather there. The BATTLE select's DIFFICULTY row and slider were seen and
+  to all cars with `give<n>` (cannon, grenade, mine, missile, ram, rocket, sonic, and the gun). With the respawn rule,
+  spreading and personalities (DM1, 3 opponents, 130 s): 10 respawns at 8 different route points; pairs of opponents
+  within 30 ft of each other in 8% of the log's samples (39% before), stopped 7-12% of the time (14-46%), mean speed
+  44-55 ft/s (15-33). The BATTLE select's DIFFICULTY row and slider were seen and
   moved. Not seen: how DIFFICULTY 0 and 5 play, the other arenas, 2-4 players with opponents, the gatling.
