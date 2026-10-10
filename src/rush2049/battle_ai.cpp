@@ -1173,6 +1173,31 @@ uint8_t rush2::battle_ai::buttons(int car) {
     return car >= 0 && car < max_cars ? brains[car].buttons : 0;
 }
 
+uint8_t rush2::battle_ai::race_buttons(uint8_t* rdram, const World& w, int i) {
+    std::lock_guard lock{ ai_mutex };
+    if (i < 0 || i >= max_cars) return 0;
+    static uint8_t held[max_cars] = {};
+    const auto& me = w.cars[i];
+    if (!me.alive || test_flag("nofire")) return held[i] = 0;
+    // No line of sight test (a race track has no navigation grid): its own rules keep the shots to cars ahead
+    // and in range, and a mine to one close behind.
+    const SkillInfo skill = skill_at(MEM_BU(0, (int32_t)race_difficulty));
+    int shoot = -1;
+    for (int j = 0; j < max_cars && shoot < 0; j++) {
+        if (w.cars[j].alive && enemies(w, i, j) && !(w.cars[j].invisible && distance(me.pos, w.cars[j].pos) > 30.0f) &&
+            should_fire(nullptr, skill, w, i, j)) {
+            shoot = j;
+        }
+    }
+    // A race has no default gun (rush2::battle's Mode::race): nothing to fire without a pickup's weapon.
+    if (me.weapon == gun) shoot = -1;
+    uint8_t want = 0;
+    if (shoot >= 0 && me.weapon != ram && me.cooldown <= 0.0f && random_unit() < skill.fire_chance) want = rush2::controls::battle_fire;
+    if (me.weapon == gatling && shoot >= 0) want = rush2::controls::battle_fire;
+    if (me.weapon != gatling && (held[i] & rush2::controls::battle_fire) != 0) want &= ~rush2::controls::battle_fire;
+    return held[i] = want;
+}
+
 bool rush2::battle_ai::is_bot(uint8_t* rdram, int car) {
     return bot_car(rdram, car);
 }

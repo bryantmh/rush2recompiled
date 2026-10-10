@@ -52,6 +52,7 @@ namespace {
     const std::string source_option_id = "rush2049_source";
     const std::string battle_time_option_id = "battle_time_limit";
     const std::string battle_team_option_prefix = "battle_team_p";
+    const std::string fire_backward_option_id = "battle_fire_backward";
     const std::string style_option_prefix = "wing_style_p"; // + the player (1-4): their wings, set on the car select
 
     std::string style_option(int player) {
@@ -234,6 +235,7 @@ namespace {
         for (int player = 1; player <= 4; player++) {
             wings_config.update_option_disabled(battle_team_option_prefix + std::to_string(player), !battles);
         }
+        wings_config.update_option_disabled(fire_backward_option_id, !battles);
         for (int player = 0; player < rush2::wings::max_players; player++) {
             wings_config.update_option_disabled(style_option(player), disabled);
         }
@@ -516,6 +518,19 @@ void rush2::wings::init_config() {
                 rush2::battle::set_team(player, (int)std::get<uint32_t>(cur_value));
             });
     }
+    // Not in Rush 2049 (its weapons fire ahead only).
+    wings_config.add_bool_option(
+        fire_backward_option_id,
+        "Fire Backward",
+        "In a battle (the battle arenas, a race with the track select's BATTLE row on, or the Weapons cheat), holding "
+        "the steering stick back while firing shoots the cannon, gatling, rockets, missile and grenades behind the "
+        "car instead of ahead (on a keyboard, the down arrow). Takes effect at once. Requires a Rush 2049 (USA) ROM.",
+        true
+    );
+    wings_config.add_option_change_callback(fire_backward_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::battle::set_fire_backward(std::get<bool>(cur_value));
+        });
     // Rush 2049 has each player pick one of three wings on the car setup screen; here it is the car select's WINGS
     // row (src/rush2049/wings_menu.cpp), which keeps each player's choice in these options.
     for (int player = 0; player < rush2::wings::max_players; player++) {

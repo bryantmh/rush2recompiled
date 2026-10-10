@@ -485,7 +485,7 @@ extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
 // the path's AI lanes. Some of Rush 2049's lanes run faster than Rush 2's average even after the Car Speeds lane map
 // (rush2_race_lane_speeds), so the times are scaled by how much faster this path's first lane is than Rush 2's lanes
 // on average in the same Car Speeds mode (docs/rush2049_research/checkpoints.md).
-extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
+static void path_race_time(uint8_t* rdram) {
     constexpr uint32_t header = 0x8010BCE8;       // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
     constexpr uint32_t path_pointer = 0x800D575C; // The loaded path file.
     constexpr float rush2_lane_speed = 139.3f;    // Distance-weighted lane 0 speed of Rush 2's 9 race paths, both ways.
@@ -550,6 +550,23 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
         scale_field(header + 0xC + i * 0x50 + 0x1E);
         scale_field(header + 0xC + i * 0x50 + 0x20);
     }
+}
+
+// func_80093048 at 0x80093298 (see path_race_time). A race with the track select's BATTLE row (rush2::battle::race_battle_applies)
+// gets half as much time again: the start time and every checkpoint's extensions times 1.5 (fights cost time).
+extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
+    path_race_time(rdram);
+    if (!rush2::battle::race_battle_applies(rdram)) return;
+    constexpr uint32_t header = 0x8010BCE8;
+    int count = (int16_t)MEM_H(0, (int32_t)(header + 8));
+    int before = MEM_HU(0, (int32_t)header);
+    auto scale = [&](uint32_t at) { MEM_H(0, (int32_t)at) = (int16_t)std::min(32767, (int)std::lround(MEM_HU(0, (int32_t)at) * 1.5)); };
+    scale(header);
+    for (int i = 0; i < count && i < 10; i++) {
+        scale(header + 0xC + (uint32_t)i * 0x50 + 0x1E);
+        scale(header + 0xC + (uint32_t)i * 0x50 + 0x20);
+    }
+    if (getenv("R2_BATTLE_TEST") != nullptr) fprintf(stderr, "[Battle] race time: start %d -> %d s, %d checkpoints x 1.5\n", before, MEM_HU(0, (int32_t)header), count);
 }
 
 // End of func_80094698, which copied the race options into the race's settings: the obstacle course is raced alone

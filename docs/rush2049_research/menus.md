@@ -120,6 +120,8 @@ A widget record is 0x28 bytes: `char *texture; s16 x, y; 3×-1; 0; 0; 0xFF; call
   (0x803C5774) and keep a list of 4 or fewer from scrolling (0x803AC4FC). In a ghost race (src/ghost.cpp), DRONES
   counts the drones besides the ghosts, from 0 to 7 - players - 3 (hooks at 0x803AC2F0, 0x803AC300, 0x803C6714,
   and 0x803C6738, which dims the digits past it with `func_800735A8`).
+- The race track select adds a 12th option, BATTLE (id 11, below DEATHS: a race with weapons); the hooks that let an
+  id past the game's tables through are in battle.md section 7.2.
 
 **Text colors** [V]: `func_800737E4(style)` reads 8 bytes per style from 0x800BEF6C (fg RGBA, bg RGBA; 0x14 styles,
 style 0x14 flashes) and passes them to `func_800735A8(layer, r, g, b, a on the stack)`, layer 0 = fg, 1 = bg. Grays:

@@ -72,6 +72,7 @@ extern "C" void text_select_font_80088C24(uint8_t* rdram, recomp_context* ctx); 
 extern "C" void text_select_style_800737E4(uint8_t* rdram, recomp_context* ctx);  // Selects a text style.
 extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx); // Width of a string.
 extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx);  // Prints a string at (x, y).
+extern "C" void collision_ground_query_8006CF00(uint8_t* rdram, recomp_context* ctx); // The ground under a point.
 
 namespace {
     using rush2::track2049::PickupRecord;
@@ -110,6 +111,7 @@ namespace {
     constexpr uint32_t widget_size = 0x20;
     constexpr uint32_t cameras = 0x800E79D0;         // Per view, 0x40 bytes: rows +0 right, +0xC up, +0x18 forward; +0x24 position.
     constexpr uint32_t game_state = 0x8010C0D0;      // 0-2 the menus, track select and car select; 3 and up a race
+    constexpr uint32_t race_type = 0x8010C3E8;       // s32: 1 circuit, 2 stunt mode
 
     // Car fields.
     constexpr uint32_t car_force = 0x11C;            // f32[3] external force, car-local, cleared each step
@@ -282,7 +284,8 @@ namespace {
     constexpr int shield_slot_first = 44;        // 44-51: each car's shield
     constexpr int hud_powerup_slot_first = 52;   // 52-55: the HUD's power-up, per view
     constexpr int hud_coin_slot_first = 56;      // 56-59: the HUD's coin, per view
-    constexpr int slot_count = 60;
+    constexpr int race_pickup_slot_first = 60;   // 60-159: a race's pickups (the BATTLE row)
+    constexpr int slot_count = 160;
     struct Slot {
         bool used = false;
         uint32_t color = 0xFFFFFFFF;
@@ -290,8 +293,26 @@ namespace {
         bool attached = false;  // it rides with that view's camera
     };
 
-    // What is running: a battle arena, or the Weapons cheat in another race.
-    enum class Mode { none, arena, cheat };
+    // What is running: a battle arena, a race with the BATTLE row on, or the Weapons cheat in another race.
+    enum class Mode { none, arena, race, cheat };
+
+    // A race's pickups (Mode::race): a row across each checkpoint line but the start / finish
+    // line, evenly spaced across the road (between the AI lanes where they cross it), each a random weapon or
+    // power-up. One taken comes back after race_pickup_return seconds in its place, as another kind.
+    // The road's width at a line is found with Rush 2's ground query (race_row).
+    constexpr int race_pickups_per_line = 8;       // the most in a row: as many as the road has room for
+    constexpr float race_pickup_spacing = 12.0f;   // the least room each takes across the road (the models are about 6 ft)
+    constexpr float race_pickup_return = 7.0f;     // Mario Kart's item boxes are back in a few seconds
+    constexpr float race_missile_speed = 360.0f;   // ft/s (245 mph) a race's missile settles at; 2049's settles at 100
+    struct RacePickup {
+        int checkpoint = 0;
+        int place = 0;          // its place in its row, from the left
+        float pos[3] = {};
+        int kind = 0;           // 0-7 a weapon, 8 heal, 9 invisibility, 10 shield
+        bool taken = false;
+        float back = 0.0f;      // seconds until it is back
+        float angle = 0.0f;
+    };
 
     std::mutex battle_mutex;
     std::vector<PickupRecord> pickup_records;
@@ -303,6 +324,12 @@ namespace {
     Slot slots[slot_count];
     Mode mode = Mode::none;
     int last_state = 0;          // The game state at the last tick: a race starts with its countdown (10).
+    std::atomic_bool race_option = false;       // The race track select's BATTLE row
+    std::atomic_bool fire_backward_option = true; // Settings: the stick held back fires behind the car
+    std::vector<RacePickup> race_pickups;
+    uint8_t race_held[max_cars] = {};           // The weapon buttons each computer car holds this tick (Mode::race)
+    float race_go = -1.0f;                      // clock_seconds when the race was released (GO), or -1 before
+    constexpr float race_hold_fire = 4.0f;      // The drones hold their fire this long after GO, the pack being close
     std::atomic_int cheat_option = 0;            // The Weapons cheat: 0 off, 1-8 a weapon (+1), 9 invisibility, 10 random
     std::atomic_int team_option[4] = { 0, 1, 2, 3 };
     bool over = false;           // The round's time is up: the results show.
@@ -770,6 +797,196 @@ namespace {
         over = false;
     }
 
+    // ------------------------------------------------------------------------------------------------------------
+    // A race's pickups (Mode::race)
+
+    // Rush 2's path (docs/rush2049_research/race.md section 3): the checkpoints (the header copy at 0x8010BCE8: +8 the
+    // count, then 0x50 each from +0xC: +0 the gate's middle, +0xC the direction of travel, +0x22 s16[20] where the
+    // spine [0], the AI lanes [1-4] and the branches cross it) and the lanes' headers (0x80110020, 8 each: +0 u16
+    // point count, +4 the points, 8 bytes each: s16 x, y, z, u8 mph, u8 behavior).
+    constexpr uint32_t checkpoint_count = 0x8010BCF0;   // s16
+    constexpr uint32_t checkpoint_records = 0x8010BCF4;
+    constexpr uint32_t checkpoint_size = 0x50;
+    constexpr int max_checkpoints = 10;
+    constexpr uint32_t lane_headers = 0x80110020;
+    constexpr int lane_count = 4;
+    constexpr float race_pickup_height = 2.5f;          // above the road [I]
+    constexpr float race_pickup_min_width = 20.0f;      // the least width of a line's row of pickups
+    constexpr uint32_t finish_checkpoint = 0x8010BCEC;  // s16: the start / finish line's checkpoint (header +4)
+    const char* const race_pickup_prefixes[11] = { "WEPICON_CANN", "WEPICON_GATT", "WEPICON_GREN", "WEPICON_MINE",
+                                                   "WEPICON_MISS", "WEPICON_RAM", "WEPICON_ROCK", "WEPICON_SONC",
+                                                   "WEPICON_HEAL", "WEPICON_INVS", "WEPICON_SHLD" };
+    std::string race_pickup_models[11];
+
+    // Rush 2's ground query (func_8006CF00, which also puts the cars on the grid and back on the track): the polygon
+    // nearest in height to a point (within 250 ft; walls, types 5 and 6, are skipped), with the surface's point under
+    // it and its matrix. Its POLY record starts with the u16 flags: & 0xF the surface type (docs/rush2049_research/
+    // collision.md section 5), bits 4-7 the material. Game code needs a context: battle::tick's caller's, whose
+    // stack is borrowed below its stack pointer.
+    recomp_context* game_ctx = nullptr;
+    struct Ground {
+        bool found = false;
+        float y = 0.0f;
+        int type = 0, material = 0;
+    };
+    Ground ground_at(uint8_t* rdram, float x, float y, float z) {
+        Ground g;
+        if (game_ctx == nullptr) return g;
+        recomp_context saved = *game_ctx;
+        uint32_t args = ((uint32_t)saved.r29 - 0x100u) & ~0xFu;   // +0 the point, +0x10 the surface's, +0x20 matrix
+        write_f(rdram, args, x);
+        write_f(rdram, args + 4, y);
+        write_f(rdram, args + 8, z);
+        game_ctx->r29 = (uint64_t)(int64_t)(int32_t)(((uint32_t)saved.r29 - 0x1000u) & ~0xFu);
+        game_ctx->r4 = (uint64_t)(int64_t)(int32_t)args;
+        game_ctx->r5 = (uint64_t)(int64_t)(int32_t)(args + 0x10);
+        game_ctx->r6 = (uint64_t)(int64_t)(int32_t)(args + 0x20);
+        collision_ground_query_8006CF00(rdram, game_ctx);
+        uint32_t poly = (uint32_t)game_ctx->r2;
+        *game_ctx = saved;
+        if (poly < 0x80000000u) return g;
+        uint16_t flags = MEM_HU(0, (int32_t)poly);
+        g.found = true;
+        g.y = read_f(rdram, args + 0x14);
+        g.type = flags & 0xF;
+        g.material = (flags >> 4) & 0xF;
+        return g;
+    }
+
+    // A checkpoint line's row: its middle, the unit vector across it (right of the direction of travel) and the
+    // stretch of road it crosses, as offsets along that vector.
+    struct Row {
+        float center[3] = {}, across[3] = {};
+        float lo = 0.0f, hi = 0.0f;
+    };
+    constexpr float road_step = 1.0f;        // ft between probes across the line
+    constexpr float road_reach = 60.0f;      // the most probed on either side of the middle (open ground)
+    constexpr float road_rise = 0.45f;       // a rise or drop over this in one step ends the road (a curb or ledge; a
+                                             // banked road rises about 0.35 ft a foot at 20 degrees)
+    constexpr float road_margin = 5.0f;      // the row's ends stay this far in from the road's edges
+    constexpr float road_median = 15.0f;     // a step of up to 1 ft this close to the middle is a median's curb
+
+    // The road across checkpoint line c: from the middle of its gate, probed with the ground query in road_step steps
+    // to each side while the ground goes on, of a drivable type (0-2), with no step (the sidewalk's curb; a wall has
+    // no ground of its own, so the ground past it is lower or higher, or there is none). Without a ground at
+    // the middle (no game context), the AI lanes' crossings 4 ft wide on each side.
+    Row race_row(uint8_t* rdram, int c) {
+        Row r;
+        uint32_t cp = checkpoint_records + (uint32_t)c * checkpoint_size;
+        float dir[3];
+        for (int k = 0; k < 3; k++) {
+            r.center[k] = read_f(rdram, cp + k * 4);
+            dir[k] = read_f(rdram, cp + 0xC + k * 4);
+        }
+        r.across[0] = -dir[2];
+        r.across[2] = dir[0];
+        float len = std::sqrt(r.across[0] * r.across[0] + r.across[2] * r.across[2]);
+        if (len < 1e-3f) {
+            r.across[0] = 1.0f;
+            len = 1.0f;
+        }
+        r.across[0] /= len;
+        r.across[2] /= len;
+        Ground mid = ground_at(rdram, r.center[0], r.center[1] + 3.0f, r.center[2]);
+        if (mid.found && mid.type <= 2) {
+            for (int side = -1; side <= 1; side += 2) {
+                float last_y = mid.y, edge = 0.0f;
+                for (float d = road_step; d <= road_reach; d += road_step) {
+                    float x = r.center[0] + r.across[0] * d * side, z = r.center[2] + r.across[2] * d * side;
+                    Ground g = ground_at(rdram, x, last_y + 3.0f, z);
+                    // A low step close to the middle is the edge of a median the gate's middle is on: the road goes on.
+                    bool median = g.found && d <= road_median && std::fabs(g.y - last_y) <= 1.0f;
+                    if (!g.found || g.type > 2 || (std::fabs(g.y - last_y) > road_rise && !median)) {
+                        static const bool test_road = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "road") != nullptr;
+                        if (test_road) {
+                            fprintf(stderr, "[Battle] line %d side %d stops at %.0f ft: found %d type %d material %d (middle %d) rise %.1f\n", c, side, d,
+                                    (int)g.found, g.type, g.material, mid.material, g.y - last_y);
+                        }
+                        break;
+                    }
+                    last_y = g.y;
+                    edge = d;
+                }
+                (side < 0 ? r.lo : r.hi) = edge * side;
+            }
+            r.lo += road_margin;
+            r.hi -= road_margin;
+        }
+        else {
+            bool any = false;
+            for (int l = 0; l < lane_count; l++) {
+                int index = (int16_t)MEM_H(0, (int32_t)(cp + 0x22 + (1 + l) * 2));
+                int count = (int)MEM_HU(0, (int32_t)(lane_headers + l * 8));
+                uint32_t points = (uint32_t)MEM_W(0, (int32_t)(lane_headers + l * 8 + 4));
+                if (index < 0 || index >= count || points < 0x80000000u) continue;
+                uint32_t q = points + (uint32_t)index * 8;
+                float x = (float)(int16_t)MEM_H(0, (int32_t)q), z = (float)(int16_t)MEM_H(0, (int32_t)(q + 4));
+                float off = (x - r.center[0]) * r.across[0] + (z - r.center[2]) * r.across[2];
+                r.lo = any ? std::min(r.lo, off) : off;
+                r.hi = any ? std::max(r.hi, off) : off;
+                any = true;
+            }
+            r.lo -= 4.0f;
+            r.hi += 4.0f;
+        }
+        if (r.hi - r.lo < race_pickup_min_width) {
+            float m = (r.lo + r.hi) * 0.5f;
+            r.lo = m - race_pickup_min_width * 0.5f;
+            r.hi = m + race_pickup_min_width * 0.5f;
+        }
+        return r;
+    }
+
+    // A pickup (back) on its line: a new kind.
+    void place_race_pickup(uint8_t*, RacePickup& p) {
+        p.kind = std::uniform_int_distribution<int>(0, 10)(rng);
+        p.taken = false;
+        p.back = 0.0f;
+    }
+
+    // The rows: on each checkpoint line but the start / finish line, where the grid waits, as many as fit across the
+    // road race_pickup_spacing apart (at least 1, at most race_pickups_per_line), one in
+    // the middle of each equal part of the road across the line, race_pickup_height over the ground there.
+    void place_race_pickups(uint8_t* rdram) {
+        race_pickups.clear();
+        for (int k = 0; k < 11; k++) race_pickup_models[k] = rush2::battle_render::find_model(race_pickup_prefixes[k]);
+        int count = std::clamp<int>((int16_t)MEM_H(0, (int32_t)checkpoint_count), 0, max_checkpoints);
+        int finish = (int16_t)MEM_H(0, (int32_t)finish_checkpoint);
+        int lines = 0;
+        race_pickups.reserve((size_t)count * race_pickups_per_line);
+        for (int c = 0; c < count; c++) {
+            // Test aid: R2_BATTLE_TEST=startrow puts a row on the start line too (in view during the countdown).
+            static const bool start_row = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "startrow") != nullptr;
+            if (c == finish && !start_row) continue;
+            Row r = race_row(rdram, c);
+            int row = std::clamp((int)((r.hi - r.lo) / race_pickup_spacing), 1, race_pickups_per_line);
+            if ((int)race_pickups.size() + row > slot_count - race_pickup_slot_first) break;
+            lines++;
+            for (int n = 0; n < row; n++) {
+                RacePickup p;
+                p.checkpoint = c;
+                p.place = n;
+                p.angle = (float)n * 2.1f;
+                float at = r.lo + (r.hi - r.lo) * ((float)n + 0.5f) / (float)row;
+                p.pos[0] = r.center[0] + r.across[0] * at;
+                p.pos[2] = r.center[2] + r.across[2] * at;
+                Ground g = ground_at(rdram, p.pos[0], r.center[1] + 3.0f, p.pos[2]);
+                p.pos[1] = (g.found ? g.y : r.center[1]) + race_pickup_height;
+                place_race_pickup(rdram, p);
+                race_pickups.push_back(p);
+            }
+            static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "log") != nullptr;
+            if (test_log) fprintf(stderr, "[Battle] race line %d: road %.0f .. %.0f ft, %d pickups\n", c, r.lo, r.hi, row);
+        }
+        for (int k = 0; k < (int)race_pickups.size(); k++) color_slot(race_pickup_slot_first + k, neutral_color);
+        if (const char* test = getenv("R2_BATTLE_TEST"); test != nullptr && strstr(test, "log") != nullptr) {
+            fprintf(stderr, "[Battle] race: %d checkpoints (finish %d), %d pickups\n", count, finish, (int)race_pickups.size());
+            for (const RacePickup& p : race_pickups) {
+                fprintf(stderr, "[Battle]   cp %d kind %d at %.0f %.0f %.0f\n", p.checkpoint, p.kind, p.pos[0], p.pos[1], p.pos[2]);
+            }
+        }
+    }
+
     void setup(uint8_t* rdram, Mode m) {
         shutdown(rdram);
         mode = m;
@@ -779,7 +996,7 @@ namespace {
         for (Fighter& f : fighters) f = Fighter{};
         for (Slot& slot : slots) slot = Slot{};
         load_tuning();
-        if (!rush2::battle_render::ready(rdram) && m == Mode::cheat) {
+        if (!rush2::battle_render::ready(rdram) && (m == Mode::cheat || m == Mode::race)) {
             mode = Mode::none;
             return;
         }
@@ -835,6 +1052,11 @@ namespace {
         round_points = 0;
         one_short_played = false;
         ready = true;
+        if (m == Mode::race) {
+            place_race_pickups(rdram);
+            memset(race_held, 0, sizeof(race_held));
+            race_go = -1.0f;
+        }
         if (m == Mode::arena) rush2::battle_ai::begin_round();
     }
 
@@ -968,8 +1190,17 @@ namespace {
 
     float random_unit() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(rng); }
 
-    // func_8038FCE0: car fires its weapon.
-    void fire(uint8_t* rdram, int car) {
+    // The weapons that can fire behind the car (set_fire_backward): those that shoot ahead. The mine already drops
+    // behind, the sonic blast is a ring and the ram has no shot.
+    bool fires_backward(int weapon) {
+        return weapon == cannon || weapon == gatling || weapon == grenade || weapon == missile || weapon == rocket ||
+               weapon == gun;
+    }
+
+    // func_8038FCE0: car fires its weapon. backward (not in 2049): the shot leaves the other way, from the muzzle
+    // mirrored behind the mount, level (the guns' own aim is at the cars ahead), and doesn't take the car's speed
+    // ahead with it (a grenade or rocket would otherwise go forward from a fast car).
+    void fire(uint8_t* rdram, int car, bool backward = false) {
         Fighter& f = fighters[car];
         const WeaponInfo& w = weapons[f.weapon];
         float c[3], v[3], m[9];
@@ -985,6 +1216,14 @@ namespace {
         s.owner = car;
         s.weapon = f.weapon;
         memcpy(s.m, m, sizeof(s.m));
+        backward = backward && fires_backward(f.weapon);
+        float aim_yaw = f.aim_yaw, aim_pitch = f.aim_pitch;
+        if (backward) {
+            yaw(s.m, 3.14159265f);
+            aim_yaw = aim_pitch = 0.0f;
+            float ahead = std::max(0.0f, dot(v, &m[6]));
+            for (int i = 0; i < 3; i++) v[i] -= m[6 + i] * ahead;
+        }
         s.life = w.life;
         s.radius = w.radius;
         f.cooldown = w.cooldown;
@@ -994,23 +1233,23 @@ namespace {
                 for (int i = 0; i < 3; i++) s.vel[i] = s.m[6 + i] * 75.0f + v[i];
                 break;
             case missile:
-                s.speed = dot(v, &s.m[6]) + 165.0f;
+                s.speed = std::max(0.0f, dot(v, &s.m[6])) + 165.0f;
                 break;
             case rocket:
-                pitch(s.m, f.aim_pitch);
+                pitch(s.m, aim_pitch);
                 for (int i = 0; i < 3; i++) s.vel[i] = s.m[6 + i] * 50.0f + v[i];
                 break;
             case gun:
-                yaw(s.m, f.aim_yaw);
-                pitch(s.m, f.aim_pitch);
+                yaw(s.m, aim_yaw);
+                pitch(s.m, aim_pitch);
                 break;
             case cannon:
-                pitch(s.m, f.aim_pitch);
+                pitch(s.m, aim_pitch);
                 break;
             case gatling:
                 // Each shot strays by up to 0.0125 radians.
-                yaw(s.m, f.aim_yaw + random_unit() * 0.025f - 0.0125f);
-                pitch(s.m, f.aim_pitch + random_unit() * 0.025f - 0.0125f);
+                yaw(s.m, aim_yaw + random_unit() * 0.025f - 0.0125f);
+                pitch(s.m, aim_pitch + random_unit() * 0.025f - 0.0125f);
                 break;
             case mine:
                 // Let go behind the car, tipped back, with a toss upward.
@@ -1022,6 +1261,13 @@ namespace {
         }
         // The shot starts at the weapon's mount plus its muzzle (the gun's is on the car itself).
         float local[3] = { tuning.muzzle[f.weapon][0], tuning.muzzle[f.weapon][1], tuning.muzzle[f.weapon][2] };
+        if (backward) local[2] = -local[2];
+        static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "log") != nullptr;
+        if (test_log) {
+            float rel = dot(&s.m[6], &m[6]);
+            fprintf(stderr, "[Battle] t=%.2f car %d fires weapon %d %s (heading . car forward %.2f)\n", clock_seconds, car, f.weapon,
+                    backward ? "backward" : "ahead", rel);
+        }
         if (f.weapon < 8) {
             float mount[3];
             mount_offset(rdram, car, f.weapon, mount);
@@ -1225,11 +1471,31 @@ namespace {
                         memcpy(target, local, sizeof(target));
                         found = true;
                     }
-                    if (found) {
-                        yaw(s.m, (target[0] > 0.0f ? homing_yaw : -homing_yaw) * steps);
-                        pitch(s.m, (target[1] > 0.0f ? homing_pitch : -homing_pitch) * steps);
+                    if (mode == Mode::race) {
+                        // A race's missile is faster than 2049's (it settles at race_missile_speed, over 160 mph so it
+                        // catches a car at full speed) and turns as much faster, so it keeps the arena's turning
+                        // circle; a turn stops at the target's direction, as the faster steps would overshoot it.
+                        float k = std::max(1.0f, s.speed / 100.0f);
+                        if (found) {
+                            float yaw_to = std::atan2(target[0], target[2]), pitch_to = std::atan2(target[1], target[2]);
+                            yaw(s.m, std::clamp(yaw_to, -homing_yaw * steps * k, homing_yaw * steps * k));
+                            pitch(s.m, std::clamp(pitch_to, -homing_pitch * steps * k, homing_pitch * steps * k));
+                        }
+                        s.speed += (race_missile_speed - s.speed) * std::min(1.0f, dt * 2.0f);
+                        // Test aid: R2_BATTLE_TEST=missile logs its speed and the target's distance twice a second.
+                        static const bool test_missile = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "missile") != nullptr;
+                        if (test_missile && std::fmod(s.age, 0.5f) < dt) {
+                            fprintf(stderr, "[Battle] missile of car %d: %.0f ft/s, target %s %.0f ft%s", s.owner, s.speed, found ? "at" : "none",
+                                    found ? length(target) : 0.0f, "\n");
+                        }
                     }
-                    s.speed += (100.0f - s.speed) * dt;
+                    else {
+                        if (found) {
+                            yaw(s.m, (target[0] > 0.0f ? homing_yaw : -homing_yaw) * steps);
+                            pitch(s.m, (target[1] > 0.0f ? homing_pitch : -homing_pitch) * steps);
+                        }
+                        s.speed += (100.0f - s.speed) * dt;
+                    }
                     forward_speed = s.speed;
                     break;
                 }
@@ -1519,6 +1785,56 @@ namespace {
         }
     }
 
+    // A race's pickups (Mode::race) turn in place like an arena's; a car within reach takes one, and it comes back
+    // race_pickup_return seconds later elsewhere on its line as another kind.
+    void update_race_pickups(uint8_t* rdram, float dt) {
+        bool racing = race_go >= 0.0f;
+        for (int k = 0; k < (int)race_pickups.size(); k++) {
+            RacePickup& p = race_pickups[k];
+            int slot = race_pickup_slot_first + k;
+            if (p.taken) {
+                p.back -= dt;
+                if (p.back > 0.0f) continue;
+                place_race_pickup(rdram, p);
+            }
+            const std::string& model = race_pickup_models[p.kind];
+            if (model.empty()) {
+                hide_slot(rdram, slot);
+                continue;
+            }
+            p.angle = std::fmod(p.angle + pickup_spin * dt, 6.2831853f);
+            float m[9] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+            yaw(m, p.angle);
+            float reach = (p.kind < 8 ? pickup_radius : powerup_radius) + touch_margin;
+            for (int i = 0; i < max_cars && racing; i++) {
+                if (!alive(rdram, i)) continue;
+                float c[3];
+                car_pos(rdram, i, c);
+                float d[3] = { c[0] - p.pos[0], c[1] - p.pos[1], c[2] - p.pos[2] };
+                if (dot(d, d) > reach * reach) continue;
+                give(rdram, i, p.kind);
+                play_sound(rdram, pickup_sound, p.pos);
+                p.taken = true;
+                p.back = race_pickup_return;
+                static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "log") != nullptr;
+                if (test_log) fprintf(stderr, "[Battle] t=%.1f car %d takes pickup %d (kind %d, cp %d)\n", clock_seconds, i, k, p.kind, p.checkpoint);
+                break;
+            }
+            if (p.taken) {
+                hide_slot(rdram, slot);
+            }
+            else {
+                place_slot(rdram, slot, model.c_str(), m, p.pos);
+            }
+        }
+    }
+
+    // A computer car of a race (Rush 2's drone, not a ghost).
+    bool race_drone(uint8_t* rdram, int i) {
+        uint32_t car = car_at(i);
+        return MEM_BU(0, (int32_t)(car + 0x7E8)) == 1 && MEM_H(0, (int32_t)(car + car_active)) != 0 && !rush2::ghost::is_ghost_car(i);
+    }
+
     // ------------------------------------------------------------------------------------------------------------
     // Cars
 
@@ -1528,6 +1844,9 @@ namespace {
         static const bool test_fire = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "fire") != nullptr;
         uint8_t bits = rush2::controls::battle_buttons(MEM_BU(0, (int32_t)(player_slots + player * player_size + 1)));
         if (test_fire && std::fmod(clock_seconds, 0.5f) < 0.25f) bits |= rush2::controls::battle_fire;
+        // R2_BATTLE_TEST=back holds player 1's stick back (fires behind the car).
+        static const bool test_back = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "back") != nullptr;
+        if (test_back && player == 0) bits |= rush2::controls::battle_back;
         return bits;
     }
 
@@ -1605,8 +1924,11 @@ namespace {
             for (int p = 0; p < players; p++) {
                 if (player_car(rdram, p) == i) player = p;
             }
-            uint8_t held = player >= 0 ? weapon_buttons(rdram, player)
-                         : mode == Mode::arena && rush2::battle_ai::is_bot(rdram, i) ? rush2::battle_ai::buttons(i) : 0;
+            // A race's cars fire from GO.
+            uint8_t held = mode == Mode::race && race_go < 0.0f ? 0
+                         : player >= 0 ? weapon_buttons(rdram, player)
+                         : mode == Mode::arena && rush2::battle_ai::is_bot(rdram, i) ? rush2::battle_ai::buttons(i)
+                         : mode == Mode::race ? race_held[i] : 0;
             uint8_t pressed = held & ~f.buttons;
             f.buttons = held;
 
@@ -1620,8 +1942,10 @@ namespace {
             // func_8038FCE0: FIRE on a press, or held with the gatling, once the weapon is ready.
             bool trigger = (pressed & rush2::controls::battle_fire) != 0 ||
                            (f.weapon == gatling && (held & rush2::controls::battle_fire) != 0);
+            // A race with the BATTLE row has no default gun: only the pickups' weapons fire.
+            if (mode == Mode::race && f.weapon == gun) trigger = false;
             if (trigger && f.cooldown <= 0.0f && f.ammo != 0 && f.weapon != ram) {
-                fire(rdram, i);
+                fire(rdram, i, fire_backward_option && (held & rush2::controls::battle_back) != 0);
             }
         }
     }
@@ -1656,6 +1980,23 @@ int rush2::battle::time_limit_minutes() {
 
 int rush2::battle::time_limit_seconds() {
     return minutes_option > 0 ? minutes_option * 60 : untimed_seconds;
+}
+
+bool rush2::battle::race_battle_applies(uint8_t* rdram) {
+    return race_option && rush2::track2049::available() && MEM_W(0, (int32_t)race_type) != 2 && !rush2::ghost::chosen() &&
+           rush2::track2049::battle_arena() <= 0;
+}
+
+void rush2::battle::set_fire_backward(bool on) {
+    fire_backward_option = on;
+}
+
+void rush2::battle::set_race_battle(bool on) {
+    race_option = on;
+}
+
+bool rush2::battle::race_battle() {
+    return race_option;
 }
 
 void rush2::battle::set_weapons_cheat(int option) {
@@ -1729,7 +2070,7 @@ namespace {
 
     // What the computer opponents (src/rush2049/battle_ai.cpp) see of the round: the cars, the pickups, the missiles
     // in flight and the mines on the ground.
-    void update_ai(uint8_t* rdram, float dt) {
+    rush2::battle_ai::World make_world(uint8_t* rdram, float dt) {
         rush2::battle_ai::World w;
         w.dt = dt;
         w.over = over;
@@ -1770,7 +2111,22 @@ namespace {
             t.mine = shot.placed;
             w.threats.push_back(t);
         }
-        rush2::battle_ai::update(rdram, w);
+        return w;
+    }
+
+    void update_ai(uint8_t* rdram, float dt) {
+        rush2::battle_ai::update(rdram, make_world(rdram, dt));
+    }
+
+    // A race's drones keep Rush 2's driver (rush2_battle_race_steer nudges it toward pickups) and only decide when to
+    // fire.
+    void update_race_ai(uint8_t* rdram, float dt) {
+        if (race_go < 0.0f && MEM_W(0, (int32_t)game_state) == 3) race_go = clock_seconds;
+        bool fire = race_go >= 0.0f && clock_seconds - race_go >= race_hold_fire;
+        rush2::battle_ai::World w = make_world(rdram, dt);
+        for (int i = 0; i < max_cars; i++) {
+            race_held[i] = fire && fighters[i].present && race_drone(rdram, i) ? rush2::battle_ai::race_buttons(rdram, w, i) : 0;
+        }
     }
 
     // The winner when the time is up (2049 main func_80105EA8): the player with the most kills, or how many tie.
@@ -1819,8 +2175,10 @@ namespace {
     }
 }
 
-void rush2::battle::tick(uint8_t* rdram, float dt) {
+void rush2::battle::tick(uint8_t* rdram, float dt, recomp_context* ctx) {
     std::lock_guard lock{ battle_mutex };
+    game_ctx = ctx;
+    struct Clear { ~Clear() { game_ctx = nullptr; } } clear_ctx;
     int state = MEM_W(0, (int32_t)game_state);
     // Every race starts with its countdown (state 10): the Weapons cheat's races are set up there (an arena also by
     // reset, when its track is loaded).
@@ -1828,7 +2186,9 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
     last_state = state;
     // The Weapons cheat needs the Rush 2049 tracks (the Cheats tab grays it out without them).
     bool cheat = cheat_option != 0 && rush2::track2049::available() && (state == 3 || state == 10);
-    Mode want = battle_race(rdram) ? Mode::arena : cheat ? Mode::cheat : Mode::none;
+    // The BATTLE row: a race (not stunt mode, 0x8010C3E8 == 2, nor a ghost race), with the Rush 2049 tracks too.
+    bool race = rush2::battle::race_battle_applies(rdram) && (state == 3 || state == 10);
+    Mode want = battle_race(rdram) ? Mode::arena : race ? Mode::race : cheat ? Mode::cheat : Mode::none;
     if (want == Mode::none) {
         if (ready || mode != Mode::none) shutdown(rdram);
         return;
@@ -1909,6 +2269,7 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
     }
     update_sounds(rdram);
     if (mode == Mode::arena) update_ai(rdram, dt);
+    if (mode == Mode::race) update_race_ai(rdram, dt);
     if (over) {
         // The round is decided: what is in flight goes on, nothing new is fired or scored.
         update_effects(rdram, dt);
@@ -1917,7 +2278,8 @@ void rush2::battle::tick(uint8_t* rdram, float dt) {
     }
     update_cars(rdram, dt);
     if (mode == Mode::cheat) update_cheat(rdram, dt);
-    update_pickups(rdram, dt);
+    if (mode == Mode::race) update_race_pickups(rdram, dt);
+    else update_pickups(rdram, dt);
     update_shots(rdram, dt);
     update_effects(rdram, dt);
     // An invisible car (2049 fades it out, to nothing in the other views): only its own player's view draws it, as a
@@ -2247,6 +2609,33 @@ namespace {
         }
         return l;
     }
+
+    // A race with the BATTLE row: the Weapons cheat's bar, with the weapon held centered just over it (turning about
+    // its own middle, rush2_battle_view), its ammo to its right, and the power-up in effect over the bar's right end.
+    // Beside the bar they would run into Rush 2's time, place and radar in split screen.
+    constexpr float race_ammo_gap = 16.0f;   // from the weapon's middle to its ammo's
+    Layout race_layout(const View& v, int p) {
+        Layout l = cheat_layout(v, p);
+        float lift = 8.0f * l.bar_sy;
+        l.weapon_x = l.bar_x + health_width * l.bar_sx * 0.5f;
+        l.weapon_y = l.bar_y - lift;
+        l.weapon_anchor = l.bar_anchor;
+        l.powerup_x = l.bar_x + health_width * l.bar_sx;
+        l.powerup_y = l.bar_y - lift;
+        return l;
+    }
+
+    // Moves pos so that model's middle, not its origin, is there (with axes m, scale included): a HUD model then
+    // turns in place.
+    void center_model(uint8_t* rdram, const char* model, const float m[9], float pos[3]) {
+        float c[3];
+        if (!rush2::battle_render::model_center(rdram, model, c)) return;
+        for (int i = 0; i < 3; i++) pos[i] -= c[0] * m[i] + c[1] * m[3 + i] + c[2] * m[6 + i];
+    }
+
+    Layout view_layout(const View& v, int p) {
+        return mode == Mode::arena ? layout_of(v) : mode == Mode::race ? race_layout(v, p) : cheat_layout(v, p);
+    }
 }
 
 void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
@@ -2317,7 +2706,7 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
         if (car < 0 || car >= max_cars) continue;
         const Fighter& f = fighters[car];
         View v = view_of(rdram, p, players);
-        Layout l = mode == Mode::arena ? layout_of(v) : cheat_layout(v, p);
+        Layout l = view_layout(v, p);
         char text[16];
         // Whole texels in a quadrant (the digits are 10 tall): a smaller size loses their top row.
         float digits = l.small ? 10.0f : 12.0f;
@@ -2328,9 +2717,10 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
         else if (!is_wrecked(rdram, car)) {
             draw_cheat_bar(rdram, l, f.health / max_health);
         }
-        if (mode == Mode::arena && f.weapon < 8 && f.ammo > 0 && !is_wrecked(rdram, car)) {
+        if ((mode == Mode::arena || mode == Mode::race) && f.weapon < 8 && f.ammo > 0 && !is_wrecked(rdram, car)) {
             snprintf(text, sizeof(text), "%d", f.ammo);
-            rush2::hud::draw_number(rdram, text, l.weapon_x, l.weapon_y, digits, l.weapon_anchor);
+            float ammo_x = mode == Mode::race ? l.weapon_x + race_ammo_gap * l.bar_sx : l.weapon_x;
+            rush2::hud::draw_number(rdram, text, ammo_x, l.weapon_y, digits, l.weapon_anchor);
         }
     }
     if (mode == Mode::arena && over) draw_results(rdram, ctx);
@@ -2376,16 +2766,17 @@ extern "C" void rush2_battle_view(uint8_t* rdram, recomp_context* ctx) {
     }
     const Fighter& f = fighters[car];
     View v = view_of(rdram, p, players);
-    Layout l = mode == Mode::arena ? layout_of(v) : cheat_layout(v, p);
+    Layout l = view_layout(v, p);
     float pos[3], axes[9], m[9];
     float gain = model_gain(rdram, p, v) * hud_distance;
     // The weapon held, turning about the camera's up axis.
-    if (mode == Mode::arena && f.weapon < 8 && !is_wrecked(rdram, car)) {
+    if ((mode == Mode::arena || mode == Mode::race) && f.weapon < 8 && !is_wrecked(rdram, car)) {
         view_point(rdram, p, v, anchored_x(l.weapon_x, l.weapon_anchor), l.weapon_y, hud_distance, pos, axes);
         memcpy(m, axes, sizeof(m));
         yaw(m, hud_spin);
         scale_matrix(m, (f.weapon == sonic ? sonic_scale : weapon_scale) * gain);
         color_slot(weapon_slot, plain_color);
+        if (mode == Mode::race) center_model(rdram, mount_models[f.weapon], m, pos);
         place_slot(rdram, weapon_slot, mount_models[f.weapon], m, pos);
     }
     else {
@@ -2398,7 +2789,9 @@ extern "C" void rush2_battle_view(uint8_t* rdram, recomp_context* ctx) {
         yaw(m, hud_spin);
         scale_matrix(m, powerup_scale * gain);
         color_slot(powerup_slot, plain_color);
-        place_slot(rdram, powerup_slot, f.invisible > 0.0f ? "WEPICON_INVSG1" : "WEPICON_SHLDG1", m, pos);
+        const char* model = f.invisible > 0.0f ? "WEPICON_INVSG1" : "WEPICON_SHLDG1";
+        if (mode == Mode::race) center_model(rdram, model, m, pos);
+        place_slot(rdram, powerup_slot, model, m, pos);
     }
     else {
         hide_slot(rdram, powerup_slot);
@@ -2457,4 +2850,46 @@ extern "C" void rush2_battle_ram(uint8_t* rdram, recomp_context* ctx) {
         }
         return;
     }
+}
+
+// func_80074990 (the drone driver) at 0x800751C8, just after it stored the car's steering ($f0 to +0x728, $v1 = the
+// car; 1 - the turn toward its lane's point ahead, -1 .. 1 with right positive, as a player's). In a race with the
+// BATTLE row a drone leaves its racing line a little for a pickup it wants ahead: one 15-170 ft in front of it and no
+// more than 12 ft (plus a tenth of the distance) to the side; its steering moves toward the pickup by at most
+// race_nudge. A weapon is wanted while it has only the gun (or the same weapon), health when it is hurt, the power-ups
+// always.
+extern "C" void rush2_battle_race_steer(uint8_t* rdram, recomp_context* ctx) {
+    constexpr float race_nudge = 0.35f;
+    if (mode != Mode::race) return;
+    std::lock_guard lock{ battle_mutex };
+    if (!ready || mode != Mode::race || race_go < 0.0f) return;
+    uint32_t car = (uint32_t)ctx->r3;
+    if (car < cars || car >= cars + max_cars * car_size || (car - cars) % car_size != 0) return;
+    int i = (int)((car - cars) / car_size);
+    if (!alive(rdram, i)) return;
+    const Fighter& f = fighters[i];
+    float c[3], m[9];
+    car_pos(rdram, i, c);
+    car_axes(rdram, i, m);
+    float best = 1e9f, best_angle = 0.0f;
+    for (const RacePickup& p : race_pickups) {
+        if (p.taken || race_pickup_models[p.kind].empty()) continue;
+        bool wanted = p.kind < 8 ? (f.weapon == gun || f.weapon == p.kind) : p.kind != kind_heal || f.health < max_health * 0.75f;
+        if (!wanted) continue;
+        float d[3] = { p.pos[0] - c[0], p.pos[1] - c[1], p.pos[2] - c[2] }, local[3];
+        to_local(m, d, local);
+        if (local[2] < 15.0f || local[2] > 170.0f || std::fabs(local[0]) > 12.0f + local[2] * 0.1f) continue;
+        float score = local[2] + std::fabs(local[0]) * 4.0f;
+        if (score < best) {
+            best = score;
+            best_angle = std::atan2(local[0], local[2]);
+        }
+    }
+    if (best >= 1e9f) return;
+    float steer = read_f(rdram, car + 0x728);
+    float toward = std::clamp(best_angle * 1.8f, -1.0f, 1.0f);
+    float nudged = std::clamp(steer + std::clamp(toward - steer, -race_nudge, race_nudge), -1.0f, 1.0f);
+    write_f(rdram, car + 0x728, nudged);
+    static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "steer") != nullptr;
+    if (test_log) fprintf(stderr, "[Battle] t=%.2f car %d to pickup %.2f rad (score %.0f) steer %.2f -> %.2f\n", clock_seconds, i, best_angle, best, steer, nudged);
 }

@@ -38,12 +38,26 @@ namespace rush2::battle {
     // Race setup: the next physics tick sets everything up again.
     void reset();
     // Once per physics tick of a race (src/rush2049/track2049_movers.cpp); dt in seconds.
-    void tick(uint8_t* rdram, float dt);
+    void tick(uint8_t* rdram, float dt, recomp_context* ctx = nullptr);
     // Whether the race in progress is a battle (its objects are set up).
     bool active(uint8_t* rdram);
     // The Weapons cheat (Cheats tab): gives the players weapons in the other races. 0 off, 1-8 a weapon (cannon,
     // gatling, grenade, mine, missile, ram, rocket, sonic), 9 invisibility, 10 a random weapon each time.
     void set_weapons_cheat(int option);
+    // The race track select's BATTLE row (src/rush2049/track2049_menu.cpp): a race with weapons. Every car has the
+    // battle's health but no default gun, a row of pickups (a random weapon or power-up each) lies on each checkpoint
+    // line, and the
+    // computer cars leave their racing line a little for a pickup ahead and fire at the cars around them. Read when a
+    // race starts.
+    void set_race_battle(bool on);
+    bool race_battle();
+    // Whether the race being set up or run is a battle race: the row is on, the Rush 2049 tracks are there, and it
+    // isn't stunt mode (the arenas, 0x8010C3E8 == 2), a battle arena or a ghost race. Such a race has half as much
+    // time again at its start and checkpoints (rush2_track49_race_time).
+    bool race_battle_applies(uint8_t* rdram);
+    // Settings: holding the steering stick back while firing shoots behind the car (rush2::controls::battle_back),
+    // with every weapon that shoots ahead (not the mine, ram or sonic blast). On by default.
+    void set_fire_backward(bool on);
     // A player's team (0-3: blue, red, yellow, green; Games tab). Cars of a team don't damage each other.
     void set_team(int player, int team);
     int team_of(int player);

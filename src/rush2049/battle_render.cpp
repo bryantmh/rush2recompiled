@@ -17,6 +17,7 @@
 // models are drawn unlit with the render state Rush 2049 has for every model, in the primitive color given.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -105,6 +106,7 @@ namespace {
     std::mutex mutex;
     Item items[rush2::battle_render::max_slots];
     std::map<std::string, uint32_t> models;   // Name (15 characters at most) -> display list address
+    std::map<std::string, std::array<float, 3>> centers;   // model_center's, worked out on first use
     std::shared_ptr<const rush2::rom2049::Source> loaded_rom;
     bool loaded = false;
 
@@ -280,6 +282,7 @@ bool rush2::battle_render::ready(uint8_t* rdram) {
     if (rom != loaded_rom) {
         loaded_rom = rom;
         models.clear();
+        centers.clear();
         loaded = true;
         for (const ModelFile& f : model_files) loaded = load_file(rdram, *rom, f) && loaded;
     }
@@ -366,6 +369,60 @@ bool rush2::battle_render::image(uint8_t* rdram, const char* name, uint32_t* add
     *w = out.w;
     *h = out.h;
     return out.address != 0;
+}
+
+namespace {
+    // Grows box (min x, y, z, max x, y, z) by the vertices display list dl loads, and those of the lists it calls.
+    // After the load the lists' addresses are physical (rebase_dl); vertices are s16 x, y, z first of 16 bytes.
+    void dl_bounds(uint8_t* rdram, uint32_t dl, float box[6], int depth) {
+        if (depth > 8) return;
+        for (int n = 0; n < 4096; n++, dl += 8) {
+            uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)dl), w1 = (uint32_t)MEM_W(0, (int32_t)(dl + 4));
+            uint32_t op = w0 >> 24, target = 0x80000000u | (w1 & 0xFFFFFF);
+            if (op == 0x01) {
+                int count = (int)((w0 >> 12) & 0xFF);
+                for (int v = 0; v < count; v++) {
+                    for (int k = 0; k < 3; k++) {
+                        float c = (float)(int16_t)MEM_H(0, (int32_t)(target + (uint32_t)v * 16 + (uint32_t)k * 2));
+                        box[k] = std::min(box[k], c);
+                        box[3 + k] = std::max(box[3 + k], c);
+                    }
+                }
+            }
+            else if (op == 0xDE) {
+                dl_bounds(rdram, target, box, depth + 1);
+                if (((w0 >> 16) & 0xFF) != 0) return;   // a branch: no return
+            }
+            else if (op == 0xDF) {
+                return;
+            }
+        }
+    }
+}
+
+bool rush2::battle_render::model_center(uint8_t* rdram, const char* name, float out[3]) {
+    std::lock_guard lock{ mutex };
+    std::string key = std::string(name).substr(0, 15);
+    auto c = centers.find(key);
+    if (c == centers.end()) {
+        auto m = models.find(key);
+        if (m == models.end()) return false;
+        float box[6] = { 1e9f, 1e9f, 1e9f, -1e9f, -1e9f, -1e9f };
+        dl_bounds(rdram, m->second, box, 0);
+        std::array<float, 3> mid = { 0.0f, 0.0f, 0.0f };
+        if (box[0] <= box[3]) {
+            for (int k = 0; k < 3; k++) mid[k] = (box[k] + box[3 + k]) * 0.5f / 16.0f;   // vertices are 1/16 ft
+        }
+        c = centers.emplace(key, mid).first;
+    }
+    for (int k = 0; k < 3; k++) out[k] = c->second[k];
+    return true;
+}
+
+std::string rush2::battle_render::find_model(const char* prefix) {
+    std::lock_guard lock{ mutex };
+    auto it = models.lower_bound(prefix);
+    return it != models.end() && it->first.compare(0, strlen(prefix), prefix) == 0 ? it->first : std::string();
 }
 
 bool rush2::battle_render::has_model(const char* name) {
