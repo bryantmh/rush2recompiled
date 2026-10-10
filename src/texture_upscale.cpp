@@ -53,12 +53,14 @@
 #include "recompui/config.h"
 #include "recompui/recompui.h"
 #include "recompui/renderer.h"
+#include "librecomp/game.hpp"
 #include "util/file.h"
 
 #include "options_page.h"
 #include "rush2049_dc.h"
 #include "texture_origin.h"
 #include "texture_upscale.h"
+#include "track_cache.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -85,7 +87,7 @@ namespace {
         return "\"" + path_utf8(path) + "\"";
     }
 
-    std::filesystem::path root() { return recompui::file::get_app_folder_path() / "texture_upscale"; }
+    std::filesystem::path root() { return recomp::get_config_path() / "texture_upscale"; }
     std::filesystem::path dump_dir() { return root() / "dump"; }
     std::filesystem::path upscaled_dir() { return root() / "upscaled"; }
     // Dumped originals Dump New Textures moved out of the dump because they have an upscale; Install reads them.
@@ -228,6 +230,20 @@ namespace {
             }
             mode = new_mode;
             command = new_command;
+            command_key = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(command.data()), command.size());
+            if (mode == Mode::Custom) {
+                // Builds before the per-command folders kept Custom results loose in custom/: they're most likely
+                // from this command, so they move into its folder rather than being upscaled again.
+                std::error_code ec;
+                std::filesystem::path loose = root() / "cache" / mode_folder(Mode::Custom);
+                std::filesystem::path folder = cache_folder(Mode::Custom);
+                for (const auto& file : std::filesystem::directory_iterator(loose, ec)) {
+                    if (file.is_regular_file() && file.path().extension() == ".dds") {
+                        std::filesystem::create_directories(folder, ec);
+                        std::filesystem::rename(file.path(), folder / file.path().filename(), ec);
+                    }
+                }
+            }
             generation++;
             cancel_run = true; // Stops an upscaler that's running for the old mode.
             clear_requested = true;
@@ -551,6 +567,12 @@ namespace {
                 rush2::rom2049::dc::end_upscales();
             }
             if (textures.empty()) {
+                // The textures above are gone, so a pack installed earlier would point at missing files: turn it off.
+                if (std::filesystem::exists(pack_dir / "mod.json", ec)) {
+                    recomp::mods::enable_mod(pack_id, false);
+                    recompui::update_mod_list(false);
+                    recompui::renderer::trigger_texture_pack_update();
+                }
                 return disc_count;
             }
 
@@ -584,6 +606,7 @@ namespace {
         std::vector<uint64_t> new_ui_keys;                    // To append to the UI list.
         Mode mode = Mode::Off;
         std::string command;
+        std::atomic<uint64_t> command_key = 0; // Hash of command: Custom's cache folder, so a new command upscales anew.
         uint64_t generation = 0;
         std::atomic<bool> cancel_run = false;
         bool clear_requested = false;
@@ -1039,8 +1062,14 @@ namespace {
             }
         }
 
+        // Custom results go in a folder per command line (custom/<hash>).
+        std::filesystem::path cache_folder(Mode for_mode) {
+            std::filesystem::path folder = root() / "cache" / mode_folder(for_mode);
+            return for_mode == Mode::Custom ? folder / key_name(command_key) : folder;
+        }
+
         std::filesystem::path cache_path(Mode for_mode, uint64_t key) {
-            return root() / "cache" / mode_folder(for_mode) / (key_name(key) + ".dds");
+            return cache_folder(for_mode) / (key_name(key) + ".dds");
         }
 
         // Live replacement keys differ per mode, so a result that lands after a mode change can't stand in for the

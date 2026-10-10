@@ -17,6 +17,7 @@
 #include <system_error>
 #include <type_traits>
 
+#include "librecomp/game.hpp"
 #include "util/file.h"
 
 #include "track_cache.h"
@@ -38,7 +39,7 @@ namespace {
     static_assert(sizeof(rush2::track2049::TexScroll) == 72, "update track_cache.cpp for TexScroll");
 
     std::filesystem::path cache_dir() {
-        return recompui::file::get_app_folder_path() / "track_cache";
+        return recomp::get_config_path() / "track_cache";
     }
 
     uint64_t build_stamp() {

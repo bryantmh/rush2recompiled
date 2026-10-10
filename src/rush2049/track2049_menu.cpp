@@ -501,7 +501,7 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     else if (select_kind == select_battle) {
         t = battle_selection >= 0 && track_selectable(rdram, battle_selection) ? battle_selection : battle_menu_id;
     }
-    else if (selection >= 0 && entry_available(first_menu_id + selection) && MEM_W(0, (int32_t)game_mode) != 1) {
+    else if (selection >= 0 && track_selectable(rdram, first_menu_id + selection) && MEM_W(0, (int32_t)game_mode) != 1) {
         t = first_menu_id + selection;
     }
     if (t >= 0) {

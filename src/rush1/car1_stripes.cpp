@@ -32,6 +32,7 @@
 
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
+#include "librecomp/game.hpp"
 #include "util/file.h"
 
 #include "assets.h"
@@ -104,7 +105,7 @@ namespace {
     }
 
     std::filesystem::path cache_path(const char* car) {
-        return recompui::file::get_app_folder_path() / "stripe_cache" / (std::string(car) + ".bin");
+        return recomp::get_config_path() / "stripe_cache" / (std::string(car) + ".bin");
     }
 
     bool cache_load(const char* car, uint64_t key, rush2::car1decals::Pattern& out) {

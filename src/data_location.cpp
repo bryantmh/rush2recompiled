@@ -9,7 +9,8 @@
 #include "rush2.h"
 
 // Portable mode: recompui::file::get_app_folder_path() uses the working directory (the executable's folder, see main)
-// instead of %LOCALAPPDATA% when portable.txt exists there. The app folder is resolved once at startup, so switching
+// instead of %LOCALAPPDATA% when portable.txt exists there. It checks the marker on every call, so main resolves it
+// once at startup into recomp::register_config_path() and everything else reads recomp::get_config_path(); switching
 // only takes effect on the next launch. Until then the old folder stays in use, so the move happens at the next launch
 // too: data_move.txt records the folder that was in use and apply_pending_move() copies its data across.
 

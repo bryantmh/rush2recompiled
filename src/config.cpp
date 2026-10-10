@@ -9,6 +9,7 @@
 #include "recompinput/recompinput.h"
 #include "ultramodern/config.hpp"
 #include "librecomp/config.hpp"
+#include "librecomp/game.hpp"
 #include "util/file.h"
 #include "common/rt64_enhancement_configuration.h"
 
@@ -547,7 +548,7 @@ static void add_data_location_option(recomp::config::Config& config) {
 }
 
 void rush2::init_config() {
-    std::filesystem::path recomp_dir = recompui::file::get_app_folder_path();
+    std::filesystem::path recomp_dir = recomp::get_config_path();
     if (!recomp_dir.empty()) {
         std::filesystem::create_directories(recomp_dir);
     }

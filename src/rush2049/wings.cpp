@@ -26,6 +26,7 @@
 #include "recompui/recompui.h"
 #include "recompui/config.h"
 #include "librecomp/config.hpp"
+#include "librecomp/game.hpp"
 #include "util/file.h"
 #include "elements/ui_button.h"
 #include "elements/ui_label.h"
@@ -133,12 +134,12 @@ namespace {
     }
 
     std::filesystem::path stored_rom_path() {
-        return recompui::file::get_app_folder_path() / rom_file_name;
+        return recomp::get_config_path() / rom_file_name;
     }
 
     // The Dreamcast disc's files, as rush2::rom2049::dc::import writes them.
     std::filesystem::path stored_pack_path() {
-        return recompui::file::get_app_folder_path() / rush2::rom2049::dc::pack_file_name;
+        return recomp::get_config_path() / rush2::rom2049::dc::pack_file_name;
     }
 
     void set_rom(std::shared_ptr<const rush2::rom2049::Source> rom) {
@@ -245,7 +246,14 @@ namespace {
         update_rom_ui();
         std::thread([path]() {
             using rush2::rom2049::dc::ImportResult;
-            ImportResult result = rush2::rom2049::dc::import(path, stored_pack_path());
+            ImportResult result;
+            try {
+                result = rush2::rom2049::dc::import(path, stored_pack_path());
+            }
+            catch (const std::exception&) {
+                // A damaged image (a garbled .gdi number, a huge file size in its directory): not a crash.
+                result = ImportResult::FailedToOpen;
+            }
             std::shared_ptr<const rush2::rom2049::Source> source;
             if (result == ImportResult::Good) {
                 source = rush2::rom2049::dc::open_pack(stored_pack_path());
@@ -311,7 +319,7 @@ namespace {
             }
 
             std::error_code ec;
-            std::filesystem::create_directories(recompui::file::get_app_folder_path(), ec);
+            std::filesystem::create_directories(recomp::get_config_path(), ec);
             std::ofstream out{ stored_rom_path(), std::ios::binary };
             if (!out.write(reinterpret_cast<const char*>(data->data()), data->size())) {
                 recompui::message_box("Failed to copy the Rush 2049 ROM into the app folder.");

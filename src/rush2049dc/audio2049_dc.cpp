@@ -174,7 +174,8 @@ namespace {
             else {
                 continue;
             }
-            if (loops && loop_end > loop_start) {
+            // A loop must lie inside the samples: one starting past them would wrap by zero in mix() forever.
+            if (loops && loop_end > loop_start && loop_start < smp.pcm.size()) {
                 smp.loop_start = std::min<uint32_t>(loop_start, (uint32_t)smp.pcm.size());
                 smp.loop_end = std::min<uint32_t>(loop_end, (uint32_t)smp.pcm.size());
             }
