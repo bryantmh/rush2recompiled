@@ -88,6 +88,8 @@ namespace {
     std::filesystem::path root() { return recompui::file::get_app_folder_path() / "texture_upscale"; }
     std::filesystem::path dump_dir() { return root() / "dump"; }
     std::filesystem::path upscaled_dir() { return root() / "upscaled"; }
+    // Dumped originals Dump New Textures moved out of the dump because they have an upscale; Install reads them.
+    std::filesystem::path originals_dir() { return root() / "originals"; }
     std::filesystem::path work_dir() { return root() / "work"; }
     std::filesystem::path ui_list() { return root() / "ui_textures.txt"; }
     constexpr const char* dc_folder = "rush2049dc";
@@ -204,12 +206,14 @@ namespace {
             worker = std::thread([this]() { run(); });
             worker.detach(); // Lives as long as the game; the process ends with it.
             RT64::ActiveTextureObserver = this;
-            // For tests: RUSH2_TEXTURE_DUMP=<seconds> presses Dump Textures that long after boot.
+            // For tests: RUSH2_TEXTURE_DUMP=<seconds> presses Dump Textures that long after boot (Dump New Textures
+            // with RUSH2_TEXTURE_DUMP_NEW=1 as well).
             if (const char* after = getenv("RUSH2_TEXTURE_DUMP")) {
                 int seconds = atoi(after);
-                std::thread([this, seconds]() {
+                bool new_only = getenv("RUSH2_TEXTURE_DUMP_NEW") != nullptr;
+                std::thread([this, seconds, new_only]() {
                     std::this_thread::sleep_for(std::chrono::seconds(seconds));
-                    start_dump();
+                    start_dump(new_only);
                     while (dumping) std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     printf("[upscale] dumped %zu textures\n", dump_count.load());
                     fflush(stdout);
@@ -352,12 +356,14 @@ namespace {
 
         // Starts writing every kept 3D texture to its game's dump folder and every disc image to rush2049dc (skipping
         // ones already there), in the background: dumping() while it runs, then dumped() has how many there are.
-        void start_dump() {
+        // new_only (Dump New Textures) then moves every dumped image the upscaled folder has an upscale of to
+        // originals, so the dump holds only what's left to upscale, and dumped() counts those.
+        void start_dump(bool new_only = false) {
             if (dumping.exchange(true)) {
                 return;
             }
             dump_done = 0;
-            std::thread([this]() {
+            std::thread([this, new_only]() {
                 size_t count = dump_kept();
                 // The disc images in use: drawn from its pack, drawn at the disc's size already, or matched.
                 std::vector<uint64_t> disc_hashes, disc_images;
@@ -374,6 +380,9 @@ namespace {
                     }
                 }
                 count += rush2::rom2049::dc::dump_images(dump_dir() / dc_folder, disc_hashes, disc_images, &dump_done);
+                if (new_only) {
+                    count = move_upscaled_out();
+                }
                 write_dump_readme();
                 dump_count = count;
                 dumping = false;
@@ -429,6 +438,64 @@ namespace {
             return count;
         }
 
+        // Moves each dumped image with an upscale in the upscaled folder to originals (hashes.txt keeps its entry).
+        // Returns how many images are left in the dump.
+        size_t move_upscaled_out() {
+            std::error_code ec;
+            size_t left = 0;
+            for (const std::string& folder : dump_folders()) {
+                std::set<uint64_t> upscaled;
+                for (const auto& file : std::filesystem::directory_iterator(upscaled_dir() / folder, ec)) {
+                    uint64_t key;
+                    if (file.is_regular_file() && parse_key_name(path_utf8(file.path().filename()), key)) {
+                        upscaled.insert(key);
+                    }
+                }
+                std::vector<std::filesystem::path> moves;
+                for (const auto& file : std::filesystem::directory_iterator(dump_dir() / folder, ec)) {
+                    uint64_t key;
+                    if (!file.is_regular_file() || file.path().extension() != ".png" ||
+                        !parse_key_name(path_utf8(file.path().filename()), key)) {
+                        continue;
+                    }
+                    if (upscaled.count(key)) {
+                        moves.push_back(file.path());
+                    }
+                    else {
+                        left++;
+                    }
+                }
+                if (moves.empty()) {
+                    continue;
+                }
+                std::filesystem::path dest = originals_dir() / folder;
+                std::filesystem::create_directories(dest, ec);
+                for (const auto& path : moves) {
+                    std::filesystem::path target = dest / path.filename();
+                    std::filesystem::remove(target, ec);
+                    std::filesystem::rename(path, target, ec);
+                    if (ec) {
+                        // Another drive, say: copy then remove.
+                        ec.clear();
+                        if (std::filesystem::copy_file(path, target, ec)) {
+                            std::filesystem::remove(path, ec);
+                        }
+                        else {
+                            left++;
+                        }
+                    }
+                }
+            }
+            return left;
+        }
+
+        // The dumped original of an upscale: in the dump, or in originals once Dump New Textures moved it.
+        bool read_original(const std::string& folder, uint64_t key, Image& original) {
+            std::string name = key_name(key) + ".png";
+            return read_image(dump_dir() / folder / name, original) ||
+                   read_image(originals_dir() / folder / name, original);
+        }
+
         // Builds the texture pack mod from the upscaled folder. Returns how many textures it has, or -1 on failure.
         int install() {
             std::filesystem::path pack_dir = recomp::mods::get_mods_directory() / pack_id;
@@ -458,7 +525,7 @@ namespace {
                     auto it = index.find(key);
                     Image upscaled, original;
                     if (it == index.end() || done.count(key) || !read_image(file.path(), upscaled) ||
-                        !read_image(dump_dir() / folder / (key_name(key) + ".png"), original)) {
+                        !read_original(folder, key, original)) {
                         continue;
                     }
                     restore_alpha(upscaled, original);
@@ -829,7 +896,9 @@ namespace {
                 "  rush2049dc  every texture of the Rush 2049 Dreamcast disc at its full size (with a disc installed\n"
                 "              and Dreamcast Textures on)\n"
                 "Only textures drawn in 3D are dumped; HUD, menu and font images are left out. Dump again after playing\n"
-                "more tracks and cars to add theirs.\n"
+                "more tracks and cars to add theirs. Dump New Textures leaves out the ones that have an upscale in\n"
+                "\"upscaled\" already (they move to \"originals\", which Install Upscaled still reads), so only the\n"
+                "images left to upscale are here.\n"
                 "\n"
                 "1. Upscale these images with any program (Topaz Gigapixel, an image editor...).\n"
                 "2. Save the results into the same folder under \"upscaled\" next to this one (upscaled/rush2049dc for\n"
@@ -1305,17 +1374,29 @@ void add_buttons(rush2::ui::OptionsPage* page) {
     // the controller reaches them.
     Element* row = page->add_row();
 
-    Button* dump_button = context.create_element<Button>(row, "Dump Textures", ButtonStyle::Secondary);
-    auto dump_started = std::make_shared<bool>(false);
-    dump_button->add_pressed_callback([dump_button, dump_started]() {
-        *dump_started = true;
-        upscaler.start_dump();
-        dump_button->set_text("Dumping...");
-    });
-    page->add_update_callback([dump_button, dump_started, shown, note_label, note]() {
-        if (*dump_started && !upscaler.is_dumping()) {
-            *dump_started = false;
-            dump_button->set_text("Dumped " + std::to_string(upscaler.dumped()) + " Textures");
+    // The button whose dump is running, if one is (both write the same folders, so one runs at a time).
+    auto dump_running = std::make_shared<Button*>(nullptr);
+    auto new_only_running = std::make_shared<bool>(false);
+    auto add_dump_button = [&](const char* text, bool new_only) {
+        Button* button = context.create_element<Button>(row, text, ButtonStyle::Secondary);
+        button->add_pressed_callback([button, new_only, dump_running, new_only_running]() {
+            if (upscaler.is_dumping()) {
+                return;
+            }
+            *dump_running = button;
+            *new_only_running = new_only;
+            upscaler.start_dump(new_only);
+            button->set_text("Dumping...");
+        });
+    };
+    add_dump_button("Dump Textures", false);
+    add_dump_button("Dump New Textures", true);
+    page->add_update_callback([dump_running, new_only_running, shown, note_label, note]() {
+        if (*dump_running != nullptr && !upscaler.is_dumping()) {
+            std::string count = std::to_string(upscaler.dumped());
+            (*dump_running)->set_text(*new_only_running ? count + " Textures Left to Upscale"
+                                                        : "Dumped " + count + " Textures");
+            *dump_running = nullptr;
         }
         std::string status = upscaler.status();
         if (status != *shown && note_label != nullptr) {
@@ -1324,6 +1405,7 @@ void add_buttons(rush2::ui::OptionsPage* page) {
         }
     });
 
+    row = page->add_row();
     Button* folder_button = context.create_element<Button>(row, "Open Dump Folder", ButtonStyle::Secondary);
     folder_button->add_pressed_callback([]() {
         open_folder(dump_dir());

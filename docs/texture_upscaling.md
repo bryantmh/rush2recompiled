@@ -188,9 +188,15 @@ The RT64 patch now handles them this way:
 
 ## Your own upscales (Dump / Install)
 
-The buttons are Dump Textures, Open Dump Folder and Install Upscaled, in a row under the "Your Own Upscales" heading.
-The row is a `rush2::ui::FocusRow` (`OptionsPage::add_row`), which scrolls into view when a button in it takes focus,
-so the controller can reach the buttons.
+The buttons are Dump Textures and Dump New Textures in one row, and Open Dump Folder and Install Upscaled in a second,
+under the "Your Own Upscales" heading. Each row is a `rush2::ui::FocusRow` (`OptionsPage::add_row`), which scrolls into
+view when a button in it takes focus, so the controller can reach the buttons.
+
+**Dump New Textures** does the same dump, then moves every dumped PNG whose key has a file in the matching
+`upscaled/<folder>` to `texture_upscale/originals/<folder>` (`move_upscaled_out`), so the dump folders hold only the
+images still to upscale and can be handed to the upscaler as they are. `hashes.txt` keeps every entry, and Install
+Upscaled reads the original for alpha from the dump or from `originals`. Its button shows how many images are left. A
+plain Dump Textures afterwards writes the moved images back into the dump.
 
 **Dump Textures** runs in the background (the note under the heading shows its progress). It writes every kept 3D
 texture of the session that isn't already in the folder as `texture_upscale/dump/<game>/<key>.png`, in a folder per
