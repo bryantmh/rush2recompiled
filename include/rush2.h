@@ -19,11 +19,11 @@ namespace rush2 {
 
     // Stunt Respawn in 1st Gear (src/game_fixes.cpp): stunt mode respawns put the human cars in 1st gear, not 2nd.
     void set_stunt_first_gear(bool enabled);
-    // Draw distance factor (src/draw_distance.cpp): 1 is the original. Scales the projection's near (up to 2x) and
-    // far planes and the placed object and LOD cull distances; above 1 it draws every track section but the distant
-    // stand-ins regardless of visibility and gives nodes past the fixed-point matrix range float matrices.
     // Rocket windshield (src/game_fixes.cpp): replaces the ROCKET's asset with its windshield unpainted. Call at boot.
     void fix_rocket_windshield(uint8_t* rdram);
+    // Draw distance factor (src/draw_distance.cpp): 1 is the original. Scales the projection's far plane, the fog and
+    // the placed object and LOD cull distances; above 1 it draws every track section but the distant stand-ins
+    // regardless of visibility and gives nodes past the fixed-point matrix range float matrices.
     void set_draw_distance(float factor);
     float draw_distance();
     // Visibility hook helper, after the region's mask is chosen: when the draw distance is extended, widens it to
@@ -31,6 +31,9 @@ namespace rush2 {
     void draw_distance_pvs(uint8_t* rdram, uint32_t sp, uint32_t table);
     // True (once) if the node matrix at addr was written as floats, so its G_MTX must become a gEXMatrixFloat.
     bool draw_distance_take_float_matrix(uint32_t addr);
+    // True (once per view) if the view's fog must be replaced by these float factors (gEXSetFogFloat), emitted after
+    // the extended GBI is enabled.
+    bool draw_distance_take_fog(float& mul, float& offset);
 
     // High-resolution fonts (src/fonts.cpp). install_font_pack copies the built-in pack into the mods folder and must
     // run after the config path is registered. set_hires_fonts_enabled turns the pack and its tile clamping on or off.

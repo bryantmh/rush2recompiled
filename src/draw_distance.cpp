@@ -10,15 +10,18 @@
 //   axis: the translation times 16 must fit the fixed-point matrix's s15.16 range.
 // - The visibility table (func_8007C27C): only the sections listed for the camera's region are drawn.
 //
-// Fog is set in the 0-1000 depth range between the near and far planes (view +0x4C/+0x4E, 996-1000 with FOG 1),
-// which is already the narrowest band the RSP's 16-bit fog multiplier can express. Depth is nearly 1 - 2 * near /
-// distance, so where the fog starts follows the near plane. Scaling near pushes the fog out with the far plane, but
-// a near plane past about 5 units cuts off the road at the bottom of the screen, so near is scaled by at most
-// max_near_scale: the fog then starts later and thickens gradually out to the scaled far plane. Only the values passed
-// to guPerspective are scaled: the game's procedural sky dome (func_80089218) and the fog zones read the view's stored
-// near and far. The object cull distance and LOD distances get the same factor, nodes past the fixed-point range get
-// float matrices (RT64's gEXMatrixFloat, emitted by src/interpolation.cpp), and every section is drawn but the
-// distant stand-ins.
+// Fog is set in the 0-1000 depth range between the near and far planes (view +0x4C/+0x4E, 996-1000 with FOG 1; the
+// G_MW_FOG at 0x8007C918), which is already the narrowest band the RSP's 16-bit fog multiplier can express. Depth is
+// nearly 1 - 2 * near / distance, so where the fog starts follows the near plane: with only far scaled, the fog would
+// start where it always did. Scaling near would push it out, but it clips anything close to the camera (the road at
+// the bottom of the screen, the intro's car models, HUD arrows). So near is left alone and the view's fog is replaced
+// with float factors (gEXSetFogFloat, a recomp addition to RT64, emitted by src/interpolation.cpp after gEXEnable)
+// that give each depth the fog it would have with near and far both scaled: depth is linear in 1 / distance, so the
+// scaled depth is an affine function of the real one and folds into the fog's multiplier and offset. The fog then
+// reaches exactly the scaled distances. Only the values passed to guPerspective are scaled: the game's procedural sky
+// dome (func_80089218) and the fog zones read the view's stored near and far. The object cull distance and LOD
+// distances get the same factor, nodes past the fixed-point range get float matrices (RT64's gEXMatrixFloat, emitted
+// by src/interpolation.cpp), and every section is drawn but the distant stand-ins.
 //
 // Distant stand-ins: regions and sections are the same top-level placement records (region i is the camera in
 // section i's box, and the region count u8[0x800CA1A8 + track] is the section count), and the city tracks have
@@ -43,13 +46,17 @@ namespace {
     constexpr uint32_t pvs_counts = 0x800CA1A8;  // u8 per track slot: region (= section) count.
     constexpr uint32_t track_id = 0x8010C3F0;
     constexpr uint32_t camera_array = 0x800E79D0; // Per-view cameras, 0x40 bytes each; position at +0x24.
-    constexpr float max_near_scale = 2.0f;
     constexpr float fixed_range = 2048.0f;        // Largest camera offset the fixed-point matrix holds.
 
     std::atomic<float> scale = 1.0f;
 
     // The last float matrix written by the matrix builder hooks, until its G_MTX is emitted.
     uint32_t pending_float_matrix = 0;
+
+    // The current view's replacement fog factors, until rush2_interp_projection emits them.
+    bool pending_fog = false;
+    float pending_fog_mul = 0.0f;
+    float pending_fog_offset = 0.0f;
 
     float read_f32(uint8_t* rdram, uint32_t addr) {
         uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
@@ -116,15 +123,51 @@ bool rush2::draw_distance_take_float_matrix(uint32_t addr) {
     return true;
 }
 
-// func_8007C624 at 0x8007CB5C, before guPerspective: $f8 = view far, 0x10($sp) = near * 16 (already stored).
+bool rush2::draw_distance_take_fog(float& mul, float& offset) {
+    if (!pending_fog) {
+        return false;
+    }
+    pending_fog = false;
+    mul = pending_fog_mul;
+    offset = pending_fog_offset;
+    return true;
+}
+
+// func_8007C624 at 0x8007CB5C, before guPerspective: $s0 = view, $f8 = view far, $f24 = 16, 0x10($sp) = near * 16
+// (already stored). The view's G_MW_FOG is already written.
 extern "C" void rush2_draw_distance_projection(uint8_t* rdram, recomp_context* ctx) {
+    pending_fog = false;
     float k = scale.load(std::memory_order_relaxed);
     if (k == 1.0f) {
         return;
     }
     ctx->f8.fl *= k;
-    uint32_t near_addr = (uint32_t)ctx->r29 + 0x10;
-    write_f32(rdram, near_addr, read_f32(rdram, near_addr) * std::min(k, max_near_scale));
+
+    // The game's fog factors (0x8007C930-0x8007C9BC): mul = 128000 / (max - min), offset = (500 - min) * 256 /
+    // (max - min), both s16. RT64's fog alpha is z / w * mul + offset.
+    uint32_t view = (uint32_t)ctx->r16;
+    int32_t fog_min = MEM_HU(0x4C, (int32_t)view);
+    int32_t span = (int32_t)MEM_HU(0x4E, (int32_t)view) - fog_min;
+    if (span <= 0) {
+        return;
+    }
+    double mul = (int16_t)(0x1F400 / span);
+    double offset = (int16_t)((-fog_min * 256 + 0x1F400) / span);
+
+    // guPerspective's z / w = a - b / distance, a = (f + n) / (f - n), b = 2fn / (f - n). With near scaled too it
+    // would be a2 - b2 / distance = a2 - (b2 / b) * (a - z / w).
+    double n = read_f32(rdram, (uint32_t)ctx->r29 + 0x10);
+    double f = (double)ctx->f8.fl * ctx->f24.fl;
+    double n2 = n * k;
+    if (n <= 0.0 || f <= n2) {
+        return;
+    }
+    double a = (f + n) / (f - n), b = 2.0 * f * n / (f - n);
+    double a2 = (f + n2) / (f - n2), b2 = 2.0 * f * n2 / (f - n2);
+    double r = b2 / b;
+    pending_fog_mul = (float)(mul * r);
+    pending_fog_offset = (float)(offset + mul * (a2 - r * a));
+    pending_fog = true;
 }
 
 // func_8007B518 at 0x8007BA50: $f8 = the placed object cull distance (0x80110040).

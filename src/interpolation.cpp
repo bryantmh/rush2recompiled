@@ -339,13 +339,25 @@ void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx) {
 // it also enables the extended GBI (RT64 disables it at the start of every display list).
 void rush2_interp_projection(uint8_t* rdram, recomp_context* ctx) {
     uint32_t cmd_addr = (uint32_t)ctx->r2;
-    GfxCommand cmds[4];
-    gEXEnable(&cmds[0]);
-    projection_group(&cmds[1], view_id(0x20000000u, cur_view, views[cur_view].gen));
-    cmds[3] = read_command(rdram, cmd_addr);
-    view_projection[cur_view] = cmds[3].values.word1;
+    GfxCommand cmds[6];
+    uint32_t count = 0;
+    gEXEnable(&cmds[count++]);
+    // The draw distance's fog, which needs the extended GBI enabled.
+    float fog_mul, fog_offset;
+    if (rush2::draw_distance_take_fog(fog_mul, fog_offset)) {
+        uint32_t mul_bits, offset_bits;
+        memcpy(&mul_bits, &fog_mul, sizeof(mul_bits));
+        memcpy(&offset_bits, &fog_offset, sizeof(offset_bits));
+        gEXSetFogFloat(&cmds[count], mul_bits, offset_bits);
+        count += 2;
+    }
+    projection_group(&cmds[count], view_id(0x20000000u, cur_view, views[cur_view].gen));
+    count += 2;
+    cmds[count] = read_command(rdram, cmd_addr);
+    view_projection[cur_view] = cmds[count].values.word1;
     view_lookat[cur_view] = 0;
-    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 4));
+    count++;
+    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, count));
 }
 
 // func_8007C624, after the root modelview G_MTX (load) is written at $v0.

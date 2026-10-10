@@ -1,3 +1,32 @@
+diff --git a/include/rt64_extended_gbi.h b/include/rt64_extended_gbi.h
+index d387090..f6ddc46 100644
+--- a/include/rt64_extended_gbi.h
++++ b/include/rt64_extended_gbi.h
+@@ -80,7 +80,8 @@
+ #define G_EX_SETVERTEXSEGMENT_V1        0x000031
+ #define G_EX_SETTEXCOORDWRAPPOINT_V1    0x000032
+ #define G_EX_SETRECTASPECT_V1           0x000033
+-#define G_EX_MAX                        0x000034
++#define G_EX_SETFOGFLOAT_V1             0x000034
++#define G_EX_MAX                        0x000035
+ 
+ #define G_EX_ORIGIN_NONE            0x800
+ #define G_EX_ORIGIN_LEFT            0x0
+@@ -579,4 +580,14 @@ typedef union {
+         PARAM(aspect, 2, 0) \
+     )
+ 
++// Sets the vertex fog factor as floats (fog alpha = z / w * mul + offset), past the s16 range of G_MW_FOG. Lasts until
++// the next fog command.
++#define gEXSetFogFloat(cmd, mulBits, offsetBits) \
++    G_EX_COMMAND2(cmd, \
++        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETFOGFLOAT_V1, 24, 0), \
++        0, \
++        (unsigned)(mulBits), \
++        (unsigned)(offsetBits) \
++    )
++
+ #endif // RT64_EXTENDED_GBI
 diff --git a/src/common/rt64_enhancement_configuration.cpp b/src/common/rt64_enhancement_configuration.cpp
 index 1194a96..6dd8171 100644
 --- a/src/common/rt64_enhancement_configuration.cpp
@@ -121,6 +150,44 @@ index 4857f22..5646b55 100644
      });
  
      NLOHMANN_JSON_SERIALIZE_ENUM(UserConfiguration::InternalColorFormat, {
+diff --git a/src/gbi/rt64_gbi_extended.cpp b/src/gbi/rt64_gbi_extended.cpp
+index 20c0d4d..0d0263a 100644
+--- a/src/gbi/rt64_gbi_extended.cpp
++++ b/src/gbi/rt64_gbi_extended.cpp
+@@ -4,6 +4,8 @@
+ 
+ #include "rt64_gbi_extended.h"
+ 
++#include <cstring>
++
+ #include "../include/rt64_extended_gbi.h"
+ 
+ namespace RT64 {
+@@ -331,6 +333,16 @@ namespace RT64 {
+             state->rdp->setRectAspect(aspect);
+         }
+ 
++        void setFogFloatV1(State *state, DisplayList **dl) {
++            *dl = *dl + 1;
++            float mul, offset;
++            const uint32_t mulBits = (*dl)->w0;
++            const uint32_t offsetBits = (*dl)->w1;
++            memcpy(&mul, &mulBits, sizeof(float));
++            memcpy(&offset, &offsetBits, sizeof(float));
++            state->rsp->setFogFloat(mul, offset);
++        }
++
+         void noOpHook(State *state, DisplayList **dl) {
+             uint32_t magicNumber = (*dl)->p0(0, 24);
+             if (magicNumber == RT64_HOOK_MAGIC_NUMBER) {
+@@ -439,6 +451,7 @@ namespace RT64 {
+             Map[G_EX_SETVERTEXSEGMENT_V1] = &setVertexSegmentV1;
+             Map[G_EX_SETTEXCOORDWRAPPOINT_V1] = &setTexcoordWrapPointV1;
+             Map[G_EX_SETRECTASPECT_V1] = &setRectAspectV1;
++            Map[G_EX_SETFOGFLOAT_V1] = &setFogFloatV1;
+             MapInitialized = true;
+         }
+     }
 diff --git a/src/hle/rt64_game_frame.cpp b/src/hle/rt64_game_frame.cpp
 index 87392d0..67fce6b 100644
 --- a/src/hle/rt64_game_frame.cpp
@@ -186,6 +253,35 @@ index 3227ab1..fe845bb 100644
          }
  
          ext.sharedResources->interpolatedCondition.notify_all();
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+index ee2030b..cbd0ad5 100644
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -992,6 +992,12 @@ namespace RT64 {
+         fog.offset = offset;
+         fogChanged = true;
+     }
++
++    void RSP::setFogFloat(float mul, float offset) {
++        fog.mul = mul;
++        fog.offset = offset;
++        fogChanged = true;
++    }
+     
+     void RSP::setTexture(uint8_t tile, uint8_t level, uint8_t on, uint16_t sc, uint16_t tc) {
+         textureState.tile = tile;
+diff --git a/src/hle/rt64_rsp.h b/src/hle/rt64_rsp.h
+index 61bb3b1..bce1d31 100644
+--- a/src/hle/rt64_rsp.h
++++ b/src/hle/rt64_rsp.h
+@@ -280,6 +280,7 @@ namespace RT64 {
+         void setLookAt(uint8_t index, uint32_t address);
+         void setLookAtVectors(interop::float3 x, interop::float3 y);
+         void setFog(int16_t mul, int16_t offset);
++        void setFogFloat(float mul, float offset);
+         void branchZ(uint32_t branchDl, uint16_t vtxIndex, uint32_t zValue, DisplayList **dl);
+         void branchW(uint32_t branchDl, uint16_t vtxIndex, uint32_t wValue, DisplayList **dl);
+         void setTexture(uint8_t tile, uint8_t level, uint8_t on, uint16_t sc, uint16_t tc);
 diff --git a/src/hle/rt64_shared_queue_resources.h b/src/hle/rt64_shared_queue_resources.h
 index 8858dac..904b1af 100644
 --- a/src/hle/rt64_shared_queue_resources.h
