@@ -328,6 +328,8 @@ void rush2_wings_car_arrow_t9(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_car_arrow_t2(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_car_value(uint8_t* rdram, recomp_context* ctx);
 void rush2_car_rows_built(uint8_t* rdram, recomp_context* ctx);
+void rush2_fix_dew_paint_rows(uint8_t* rdram, recomp_context* ctx);
+void rush2_fix_engines_after_timeout(uint8_t* rdram, recomp_context* ctx);
 void rush2_car_rows_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_car_rows_text(uint8_t* rdram, recomp_context* ctx);
 void rush2_car_rows_widget(uint8_t* rdram, recomp_context* ctx, int shift, int swatch);

@@ -11066,3 +11066,15 @@ text = "    rush2_npc_cars_rim_state(rdram, ctx);"
 func = "car_init_setup_8008DBA0"
 before_vram = 0x8008DD54
 text = "    rush2_npc_cars_rim_init(rdram, ctx);"
+
+# Original-game fixes (src/game_fixes.cpp): the Mountain Dew's MAIN and ACCENT COLOR rows can be changed (#5) and
+# the engines sound again once a checkpoint adds time after the clock ran out (#4).
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803BA7E8
+text = "    rush2_fix_dew_paint_rows(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_start_timer_800AE670"
+before_vram = 0x800AEDC0
+text = "    rush2_fix_engines_after_timeout(rdram, ctx);"

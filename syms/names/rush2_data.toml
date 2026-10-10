@@ -7924,10 +7924,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800E7BCE
 name = "engine_sound_type"
 type = "u8"
-desc = "Byte set by race setup and race start timer, read by engine sound rpm/load setter (low confidence)."
+desc = "Engines off: set to 1 when the race clock runs out (func_800AE670 0x800AEF94), cleared at race setup (0x800A6134); while set func_800650DC gives the engine sounds rpm 0. The recomp also clears it when a checkpoint adds time back (issue #4)."
 area = "audio"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/game_fixes.md#engines-after-time-out"
 
 [[var]]
 vram = 0x800E7BCF
@@ -9103,10 +9103,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800FAE98
 name = "race_phase"
 type = "u8"
-desc = "Byte set by race setup and start timer; read by physics inputs, checkpoint test, rubber band, wrong-way and sfx (race phase/countdown state; low confidence)."
+desc = "Out of time flag: set by func_800AE670 when the race clock is down to 0.5 s (with 0x800E7BCE), cleared when time is added (0x800AEDC4) and at race setup; read by physics inputs, checkpoint test, rubber band, wrong-way and sfx."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/game_fixes.md#engines-after-time-out"
 
 [[var]]
 vram = 0x800FAE9C
@@ -15061,10 +15061,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x803CB3AC
 name = "carselect_title_flag"
 type = "u8"
-desc = "Byte built by car select list, read by car title text callback (low confidence)."
+desc = "u8 [2]: car select, whether slot n's cursor row can be changed by left/right for its car type (func_803B9478 0x803BA644-0x803BA7E4, read at 0x803B983C)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/game_fixes.md#mountain-dew-paint"
 
 [[var]]
 vram = 0x803CB3B0
