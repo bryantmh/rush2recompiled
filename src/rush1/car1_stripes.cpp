@@ -1,5 +1,5 @@
 // Rush 1's car decals as a ninth STRIPE value, "SF RUSH", on the Rush 2 cars that have one of their own (the Camaro, VW
-// Bus, VW Bug and Taxi). docs/rush1_research.md section 11; the masks come from src/rush1/car1_decals.cpp.
+// Bus, VW Bug, Taxi and Bugatti). docs/rush1_research.md section 11; the masks come from src/rush1/car1_decals.cpp.
 //
 // Rush 2 paints a car's stripe in func_8008582C: for each of the car's 24 panel textures (D0 and D1 damage stages x 6
 // panels x full and quarter-size mip) func_800843EC looks up the stripe's tile texture by name (prefix table

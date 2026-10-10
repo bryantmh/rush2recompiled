@@ -477,7 +477,9 @@ previews; `tools/rush1/cartex.py` (car files, meshes, palettes).
 - Rush 1 palettes: indices 1-25, 30, 65-86 differ across the ten paint sets (paint ramps); the rest are fixed colours.
   Decal indices per car (`CARS` / `cars[]`): Camaro 33-49 and 100-106 (flame ramps), with greys 147-156 and reds
   161-175 kept next to flame texels; Bus and Bug 33-63 (a white
-  ramp in those files); Taxi 145-148 (white checks) with blacks 31 and 157-159 next to them (black checks). A texel is
+  ramp in those files); Taxi 145-148 (white checks) with blacks 31 and 157-159 next to them (black checks); Bugatti
+  (Exotic) 33-63 and 145-148 (white hood stripes, the three lines on the engine cover, the front side sweeps; Rush 2's
+  Exotic already has the yellow ALL-STICK lettering, Rush 1's 97-101, so that is left out). A texel is
   decal where any of its samples is (and Rush 2 has paint there): Rush 1 blends its decal edges into the paint, and a
   majority rule left every shape a texel thinner per side, visibly sparse. Its colour is the nearest Rush 2 fixed car
   palette entry (96-111 and 144-207, the same for every paint choice) to the mean of those samples. Not 64-255: the
