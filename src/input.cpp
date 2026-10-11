@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -79,18 +80,26 @@ namespace {
     // Holding REVERSE (C-down in the race layout) presses GAS too, instead of only selecting the reverse gear.
     std::atomic_bool reverse_holds_gas = false;
 
-    // Rumble drives the small high-frequency (right) motor only, as the frontend does, unless this is changed.
-    std::atomic<rush2::input::RumbleMotors> rumble_motors = rush2::input::RumbleMotors::Right;
+    // Both motors by default (the Rumble Motors setting's default, src/config.cpp) until the config is applied.
+    std::atomic<rush2::input::RumbleMotors> rumble_motors = rush2::input::RumbleMotors::Both;
     std::atomic_bool rumble_debug = false; // Prints Directional's impacts and levels (--debug-rumble).
 
     std::atomic_bool rumble_active[num_ports] = {};
-    // Side of the latest impact (-1 right to 1 left) and whether it was hard, set by the game thread from the hook in
-    // src/rumble.cpp and taken by the VI thread. A side of 0 means none.
-    std::atomic<float> rumble_impact[num_ports] = {};
-    std::atomic_bool rumble_impact_hard[num_ports] = {};
+    // The latest impact on a port's car, set by the game thread from the hook in src/rumble.cpp and taken by the VI
+    // thread, packed in one word so the side and hardness always travel together: the side's float bits (-1 right to
+    // 1 left) in the low 32 bits, then impact_pending and impact_hard.
+    constexpr uint64_t impact_pending = 1ull << 32;
+    constexpr uint64_t impact_hard = 1ull << 33;
+    std::atomic<uint64_t> rumble_impact[num_ports] = {};
+    // Set by the VI thread outside a race (or out of Directional) so the hook drops its previous tick's acceleration
+    // instead of comparing the next race's first tick with the last one's.
+    std::atomic_bool rumble_impact_reset[num_ports] = {};
     std::array<float, num_ports> cur_rumble{}; // VI thread only.
     std::array<float, num_ports> rumble_side{}; // VI thread only. Side of the last impact, fading out.
     std::array<int, num_ports> rumble_hold{}; // VI thread only. Frames left of the minimum rumble after a hit.
+    // VI thread only. Frames since a hit while the game hasn't rumbled for it yet, or -1 once it has (or with no hit).
+    std::array<int, num_ports> rumble_unconfirmed{ -1, -1, -1, -1 };
+    std::array<int, num_ports> rumble_log_frames{}; // VI thread only. Counts frames between --debug-rumble lines.
     std::array<bool, num_ports> rumble_failed{}; // VI thread only.
 
     // Rumble Motors > Directional tuning. A frame is one update_rumble call, once per VI (60 a second).
@@ -107,6 +116,13 @@ namespace {
     // How much the motor on the far side of a hit is cut by a hit square on to that side (a side of 1): 1 turns it
     // off, 0 leaves it at the full level. Hits at an angle are cut by less, head-on ones not at all.
     constexpr float far_side_loss = 1.0f;
+
+    // A hit only holds the rumble if the game rumbles for it within this many frames, so Directional never rumbles
+    // when the game wouldn't (its Rumble Pak off, or a jolt under its lowest threshold).
+    constexpr int hit_confirm_frames = 8;
+
+    // Under this much side a hit counts as head on in the --debug-rumble lines.
+    constexpr float head_on_side = 0.05f;
 
     // Frames between the console's rumble level lines (--debug-rumble) while Directional is rumbling.
     constexpr int rumble_log_interval_frames = 6;
@@ -581,14 +597,28 @@ void rush2::input::set_rumble_debug(bool enabled) {
     rumble_debug = enabled;
 }
 
+bool rush2::input::rumble_directional() {
+    return rumble_motors.load(std::memory_order_relaxed) == RumbleMotors::Directional;
+}
+
+bool rush2::input::take_rumble_impact_reset(int port) {
+    return port >= 0 && port < num_ports && rumble_impact_reset[port].exchange(false);
+}
+
 void rush2::input::set_rumble_impact(int port, float side, bool hard) {
-    if (port >= 0 && port < num_ports && side != 0.0f) {
-        if (!hard && rumble_impact_hard[port]) {
+    if (port < 0 || port >= num_ports) {
+        return;
+    }
+    uint32_t side_bits;
+    memcpy(&side_bits, &side, sizeof(side_bits));
+    uint64_t value = side_bits | impact_pending | (hard ? impact_hard : 0);
+    uint64_t prev = rumble_impact[port].load();
+    do {
+        // A soft impact doesn't replace a hard one the VI thread hasn't taken yet.
+        if (!hard && (prev & impact_hard)) {
             return;
         }
-        rumble_impact_hard[port] = hard;
-        rumble_impact[port] = side;
-    }
+    } while (!rumble_impact[port].compare_exchange_weak(prev, value));
 }
 
 void rush2::input::set_rumble(int port, bool on) {
@@ -606,18 +636,33 @@ void rush2::input::update_rumble() {
 
     RumbleMotors motors = rumble_motors.load();
     bool directional = motors == RumbleMotors::Directional;
+    // Hits only rumble during an unpaused race in Directional; anything else drops them along with any hold still
+    // running, so a hit just before the finish or a pause doesn't keep rumbling into the menus.
+    bool take_hits = directional && in_race();
     for (int port = 0; port < num_ports; port++) {
         // Take the impact the game thread reported since the last frame.
-        float impact = rumble_impact[port].exchange(0.0f);
-        if (impact != 0.0f) {
-            bool hard = rumble_impact_hard[port].exchange(false);
+        uint64_t impact = rumble_impact[port].exchange(0);
+        if (!take_hits) {
+            rumble_hold[port] = 0;
+            rumble_side[port] = 0.0f;
+            rumble_unconfirmed[port] = -1;
+            rumble_impact_reset[port] = true;
+        }
+        else if (impact & impact_pending) {
+            float side;
+            uint32_t side_bits = (uint32_t)impact;
+            memcpy(&side, &side_bits, sizeof(side));
+            bool hard = (impact & impact_hard) != 0;
             // A hold longer than a soft hit's means a hard impact is still rumbling; soft ones don't cut it short.
             if (hard || rumble_hold[port] <= soft_hit_hold_frames) {
-                rumble_side[port] = impact;
-                rumble_hold[port] = directional ? (hard ? hard_hit_hold_frames : soft_hit_hold_frames) : 0;
-                if (directional && rumble_debug) {
+                rumble_side[port] = side;
+                rumble_hold[port] = hard ? hard_hit_hold_frames : soft_hit_hold_frames;
+                if (rumble_unconfirmed[port] < 0 && !rumble_active[port]) {
+                    rumble_unconfirmed[port] = 0;
+                }
+                if (rumble_debug) {
                     fprintf(stderr, "rumble port %d: %s hit %s (side %+.2f)\n", port, hard ? "HARD" : "soft",
-                        impact > 0.0f ? "LEFT" : "RIGHT", impact);
+                        std::fabs(side) < head_on_side ? "HEAD ON" : side > 0.0f ? "LEFT" : "RIGHT", side);
                 }
             }
         }
@@ -628,8 +673,19 @@ void rush2::input::update_rumble() {
             rumble_side[port] *= side_fade;
         }
 
+        // A hit the game hasn't rumbled for in time doesn't hold the rumble either.
+        if (rumble_unconfirmed[port] >= 0) {
+            if (rumble_active[port]) {
+                rumble_unconfirmed[port] = -1;
+            }
+            else if (++rumble_unconfirmed[port] > hit_confirm_frames) {
+                rumble_unconfirmed[port] = -1;
+                rumble_hold[port] = 0;
+            }
+        }
+
         // The game's rumble, or the hold after a hit, ramps the level up. Otherwise it falls off.
-        if (rumble_active[port] || rumble_hold[port] > 0) {
+        if (rumble_active[port] || (rumble_hold[port] > 0 && rumble_unconfirmed[port] < 0)) {
             cur_rumble[port] = std::min(cur_rumble[port] + 0.17f, 1.0f);
         }
         else {
@@ -667,8 +723,7 @@ void rush2::input::update_rumble() {
         // Long enough to last until the next update; the game turns rumble off on its own.
         constexpr uint32_t duration_ms = 1000000;
         if (directional && rumble_debug && (low_strength != 0 || high_strength != 0)) {
-            static int frames = 0;
-            if (++frames % rumble_log_interval_frames == 0) {
+            if (++rumble_log_frames[port] % rumble_log_interval_frames == 0) {
                 fprintf(stderr, "rumble port %d: left %3d%% right %3d%% (side %+.2f)\n", port,
                     low_strength * 100 / 0xFFFF, high_strength * 100 / 0xFFFF, rumble_side[port]);
             }

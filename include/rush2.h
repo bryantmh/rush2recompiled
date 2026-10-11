@@ -172,6 +172,10 @@ namespace rush2 {
         // Side of the latest impact on a port's car: -1 = right, 1 = left, near 0 = head on. A hard impact (wall,
         // car) rumbles for longer and isn't overridden by the soft ones from the tires sliding.
         void set_rumble_impact(int port, float side, bool hard);
+        // Whether Rumble Motors is Directional, the only setting that uses set_rumble_impact.
+        bool rumble_directional();
+        // True once after a race ends, a pause or a change out of Directional: the impact hook's previous tick is stale.
+        bool take_rumble_impact_reset(int port);
         void set_rumble(int port, bool on);
         void update_rumble();
 

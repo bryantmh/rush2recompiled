@@ -407,7 +407,7 @@ namespace rumble_motors_option {
     const std::string id = "rumble_motors";
 }
 
-// Rumble motors: the original behavior drives only a controller's small right motor (src/input.cpp).
+// Rumble motors: the frontend drives only a controller's small right motor; this defaults to both (src/input.cpp).
 static void add_rumble_motors_option(recomp::config::Config& config) {
     using rush2::input::RumbleMotors;
 
@@ -415,7 +415,7 @@ static void add_rumble_motors_option(recomp::config::Config& config) {
         rumble_motors_option::id,
         "Rumble Motors",
         "Sets which of the controller's motors rumble. "
-        "<recomp-color primary>Right Only</recomp-color> uses only the small right motor, as before. "
+        "<recomp-color primary>Right Only</recomp-color> uses only the small right motor. "
         "<recomp-color primary>Both</recomp-color> also uses the large left motor for a fuller rumble. "
         "<recomp-color primary>Directional</recomp-color> uses both, and hitting a wall on one side of the car "
         "rumbles that side of the controller more.",
@@ -424,7 +424,7 @@ static void add_rumble_motors_option(recomp::config::Config& config) {
             { RumbleMotors::Both, "Both", "Both" },
             { RumbleMotors::Directional, "Directional", "Directional" },
         },
-        RumbleMotors::Right
+        RumbleMotors::Both
     );
 
     config.add_option_change_callback(rumble_motors_option::id,
@@ -742,6 +742,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
     rush2::pause_menu::set_enabled(std::get<bool>(
         recompui::config::get_general_config().get_option_value(pause_extras_option::id)));
+    rush2::input::set_rumble_motors(static_cast<rush2::input::RumbleMotors>(std::get<uint32_t>(
+        recompui::config::get_general_config().get_option_value(rumble_motors_option::id))));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

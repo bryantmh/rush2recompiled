@@ -56,9 +56,11 @@ namespace {
     // Lower this to even out the motors more, or raise it so more hits send the far motor to nothing.
     constexpr float side_gain = 1.6f;
 
-    // Acceleration of the previous tick, per port: only the rise since then marks an impact.
+    // Acceleration of the previous tick, per port: only the rise since then marks an impact. Not valid on a race's first
+    // tick (or after a pause), when there's nothing to compare with yet.
     float previous_lateral[num_ports] = {};
     float previous_longitudinal[num_ports] = {};
+    bool have_previous[num_ports] = {};
 
     float get_f32(uint8_t* rdram, uint32_t addr) {
         uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
@@ -77,14 +79,25 @@ extern "C" void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx) {
     if (port >= num_ports) {
         return;
     }
+    if (rush2::input::take_rumble_impact_reset(port)) {
+        have_previous[port] = false;
+    }
+    if (!rush2::input::rumble_directional()) {
+        return;
+    }
 
     uint32_t car = (uint32_t)ctx->r6;
     float lateral = get_f32(rdram, car + car_lateral);
     float longitudinal = get_f32(rdram, car + car_longitudinal);
     float rise = std::fabs(lateral) - std::fabs(previous_lateral[port]);
     float drop = previous_longitudinal[port] - longitudinal;
+    bool had_previous = have_previous[port];
     previous_lateral[port] = lateral;
     previous_longitudinal[port] = longitudinal;
+    have_previous[port] = true;
+    if (!had_previous) {
+        return;
+    }
 
     bool hard = (rise >= hard_rise && std::fabs(lateral) >= min_lateral) ||
                 (drop >= hard_rise && longitudinal <= -hard_rise);
@@ -94,9 +107,5 @@ extern "C" void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx) {
 
     float side = lateral / (std::fabs(lateral) + std::fabs(longitudinal)) * side_gain;
     side = std::clamp(side, -1.0f, 1.0f);
-    // set_rumble_impact takes a side of exactly 0 to mean no impact.
-    if (side == 0.0f) {
-        side = 0.001f;
-    }
     rush2::input::set_rumble_impact(port, side, hard);
 }
