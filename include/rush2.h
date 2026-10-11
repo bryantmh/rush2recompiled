@@ -152,6 +152,15 @@ namespace rush2 {
         void set_steering_exponent(float exponent);
         // With this on, holding REVERSE also presses the gas, so the car backs up without it.
         void set_reverse_holds_gas(bool enabled);
+        // Which of the controller's motors rumble: only the small high-frequency (right) one, both, or both with
+        // the side of a hit (see set_rumble_impact) favoring the motor on that side.
+        enum class RumbleMotors : uint32_t { Right, Both, Directional };
+        void set_rumble_motors(RumbleMotors motors);
+        // Prints each impact and the motor levels in Directional mode to the console (--debug-rumble), to tune it.
+        void set_rumble_debug(bool enabled);
+        // Side of the latest impact on a port's car: -1 = right, 1 = left, near 0 = head on. A hard impact (wall,
+        // car) rumbles for longer and isn't overridden by the soft ones from the tires sliding.
+        void set_rumble_impact(int port, float side, bool hard);
         void set_rumble(int port, bool on);
         void update_rumble();
 

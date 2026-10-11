@@ -136,8 +136,11 @@ cmake --build build
 ## Running
 
 ```sh
-build/Rush2Recompiled.exe [path/to/rom] [--show-console]
+build/Rush2Recompiled.exe [path/to/rom] [--show-console] [--debug-rumble]
 ```
+
+`--debug-rumble` prints Rumble Motors > Directional's detected impacts and motor levels to the console (use it with
+`--show-console`), for tuning the thresholds in `src/rumble.cpp` and `src/input.cpp`.
 
 The game starts as soon as a valid ROM is found: one stored from an earlier run, one passed on the command line, or one
 next to the executable (or in its parent folder). Otherwise a launcher asks you to locate the ROM.

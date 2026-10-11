@@ -79,9 +79,37 @@ namespace {
     // Holding REVERSE (C-down in the race layout) presses GAS too, instead of only selecting the reverse gear.
     std::atomic_bool reverse_holds_gas = false;
 
+    // Rumble drives the small high-frequency (right) motor only, as the frontend does, unless this is changed.
+    std::atomic<rush2::input::RumbleMotors> rumble_motors = rush2::input::RumbleMotors::Right;
+    std::atomic_bool rumble_debug = false; // Prints Directional's impacts and levels (--debug-rumble).
+
     std::atomic_bool rumble_active[num_ports] = {};
+    // Side of the latest impact (-1 right to 1 left) and whether it was hard, set by the game thread from the hook in
+    // src/rumble.cpp and taken by the VI thread. A side of 0 means none.
+    std::atomic<float> rumble_impact[num_ports] = {};
+    std::atomic_bool rumble_impact_hard[num_ports] = {};
     std::array<float, num_ports> cur_rumble{}; // VI thread only.
+    std::array<float, num_ports> rumble_side{}; // VI thread only. Side of the last impact, fading out.
+    std::array<int, num_ports> rumble_hold{}; // VI thread only. Frames left of the minimum rumble after a hit.
     std::array<bool, num_ports> rumble_failed{}; // VI thread only.
+
+    // Rumble Motors > Directional tuning. A frame is one update_rumble call, once per VI (60 a second).
+
+    // The game's own rumble after a hit lasts only a few frames, too short to feel which motor is on (the large left
+    // motor is slow to spin up), so a hit keeps rumbling for at least this long. Soft ones come from the tires
+    // sliding, hard ones from walls and cars.
+    constexpr int soft_hit_hold_frames = 30;
+    constexpr int hard_hit_hold_frames = 60; // Keep this above the soft hold: it's how a hard hit is told apart.
+
+    // Once the hold is over, how much of the hit's side is left each frame. 0.95 takes about half a second to fade.
+    constexpr float side_fade = 0.95f;
+
+    // How much the motor on the far side of a hit is cut by a hit square on to that side (a side of 1): 1 turns it
+    // off, 0 leaves it at the full level. Hits at an angle are cut by less, head-on ones not at all.
+    constexpr float far_side_loss = 1.0f;
+
+    // Frames between the console's rumble level lines (--debug-rumble) while Directional is rumbling.
+    constexpr int rumble_log_interval_frames = 6;
 
     // Game thread only.
     struct PortState {
@@ -545,20 +573,63 @@ void rush2::input::set_reverse_holds_gas(bool enabled) {
     reverse_holds_gas = enabled;
 }
 
+void rush2::input::set_rumble_motors(RumbleMotors motors) {
+    rumble_motors = motors;
+}
+
+void rush2::input::set_rumble_debug(bool enabled) {
+    rumble_debug = enabled;
+}
+
+void rush2::input::set_rumble_impact(int port, float side, bool hard) {
+    if (port >= 0 && port < num_ports && side != 0.0f) {
+        if (!hard && rumble_impact_hard[port]) {
+            return;
+        }
+        rumble_impact_hard[port] = hard;
+        rumble_impact[port] = side;
+    }
+}
+
 void rush2::input::set_rumble(int port, bool on) {
     if (port >= 0 && port < num_ports) {
         rumble_active[port] = on;
     }
 }
 
-// Same ramp up and fall off as the frontend's update_rumble, but each port only rumbles its own controller.
+// Same ramp up and fall off as the frontend's update_rumble, but each port only rumbles its own controller. In Both
+// and Directional the large left motor is used too, and Directional favors the side of the latest impact.
 void rush2::input::update_rumble() {
     if (!recompui::config::general::has_rumble_strength_option()) {
         return;
     }
 
+    RumbleMotors motors = rumble_motors.load();
+    bool directional = motors == RumbleMotors::Directional;
     for (int port = 0; port < num_ports; port++) {
-        if (rumble_active[port]) {
+        // Take the impact the game thread reported since the last frame.
+        float impact = rumble_impact[port].exchange(0.0f);
+        if (impact != 0.0f) {
+            bool hard = rumble_impact_hard[port].exchange(false);
+            // A hold longer than a soft hit's means a hard impact is still rumbling; soft ones don't cut it short.
+            if (hard || rumble_hold[port] <= soft_hit_hold_frames) {
+                rumble_side[port] = impact;
+                rumble_hold[port] = directional ? (hard ? hard_hit_hold_frames : soft_hit_hold_frames) : 0;
+                if (directional && rumble_debug) {
+                    fprintf(stderr, "rumble port %d: %s hit %s (side %+.2f)\n", port, hard ? "HARD" : "soft",
+                        impact > 0.0f ? "LEFT" : "RIGHT", impact);
+                }
+            }
+        }
+        else if (rumble_hold[port] > 0) {
+            rumble_hold[port]--;
+        }
+        else {
+            rumble_side[port] *= side_fade;
+        }
+
+        // The game's rumble, or the hold after a hit, ramps the level up. Otherwise it falls off.
+        if (rumble_active[port] || rumble_hold[port] > 0) {
             cur_rumble[port] = std::min(cur_rumble[port] + 0.17f, 1.0f);
         }
         else {
@@ -577,9 +648,32 @@ void rush2::input::update_rumble() {
         float amount = cur_rumble[port];
         float smooth_rumble = amount * amount * (3.0f - 2.0f * amount);
         uint16_t strength = (uint16_t)(smooth_rumble * (recompui::config::general::get_rumble_strength() * 0xFFFF / 100));
+        uint16_t low_strength = strength;  // The large left motor.
+        uint16_t high_strength = strength; // The small right motor.
+        if (motors == RumbleMotors::Right) {
+            low_strength = 0;
+        }
+        else if (directional) {
+            // The motor on the side of the hit keeps the full level and the one on the far side is cut by how much
+            // of the hit was to a side (0 for a head-on hit).
+            float side = rumble_side[port];
+            if (side > 0.0f) {
+                high_strength = (uint16_t)(strength * (1.0f - far_side_loss * side));
+            }
+            else {
+                low_strength = (uint16_t)(strength * (1.0f + far_side_loss * side));
+            }
+        }
         // Long enough to last until the next update; the game turns rumble off on its own.
         constexpr uint32_t duration_ms = 1000000;
-        if (SDL_GameControllerRumble(controller, 0, strength, duration_ms) != 0) {
+        if (directional && rumble_debug && (low_strength != 0 || high_strength != 0)) {
+            static int frames = 0;
+            if (++frames % rumble_log_interval_frames == 0) {
+                fprintf(stderr, "rumble port %d: left %3d%% right %3d%% (side %+.2f)\n", port,
+                    low_strength * 100 / 0xFFFF, high_strength * 100 / 0xFFFF, rumble_side[port]);
+            }
+        }
+        if (SDL_GameControllerRumble(controller, low_strength, high_strength, duration_ms) != 0) {
             rumble_failed[port] = true;
         }
     }

@@ -402,6 +402,36 @@ static void add_reverse_option(recomp::config::Config& config) {
         });
 }
 
+namespace rumble_motors_option {
+    const std::string id = "rumble_motors";
+}
+
+// Rumble motors: the original behavior drives only a controller's small right motor (src/input.cpp).
+static void add_rumble_motors_option(recomp::config::Config& config) {
+    using rush2::input::RumbleMotors;
+
+    config.add_enum_option(
+        rumble_motors_option::id,
+        "Rumble Motors",
+        "Sets which of the controller's motors rumble. "
+        "<recomp-color primary>Right Only</recomp-color> uses only the small right motor, as before. "
+        "<recomp-color primary>Both</recomp-color> also uses the large left motor for a fuller rumble. "
+        "<recomp-color primary>Directional</recomp-color> uses both, and hitting a wall on one side of the car "
+        "rumbles that side of the controller more.",
+        {
+            { RumbleMotors::Right, "Right Only", "Right Only" },
+            { RumbleMotors::Both, "Both", "Both" },
+            { RumbleMotors::Directional, "Directional", "Directional" },
+        },
+        RumbleMotors::Right
+    );
+
+    config.add_option_change_callback(rumble_motors_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::input::set_rumble_motors(static_cast<RumbleMotors>(std::get<uint32_t>(cur_value)));
+        });
+}
+
 namespace ghost_option {
     const std::string id = "save_ghosts";
     enum class SaveGhosts : uint32_t { Off, On };
@@ -599,7 +629,7 @@ void rush2::init_config() {
     {
         namespace general = recompui::config::general;
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
-            { "Controls", { general::options::rumble_strength, general::options::joystick_deadzone,
+            { "Controls", { general::options::rumble_strength, rumble_motors_option::id, general::options::joystick_deadzone,
                             steering_option::id, reverse_option::id } },
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id,
                             catch_up_option::id, ghost_option::id, ghosts_kept_option::id } },
@@ -623,6 +653,7 @@ void rush2::init_config() {
     customize_general_options(general_config);
     add_steering_option(general_config);
     add_reverse_option(general_config);
+    add_rumble_motors_option(general_config);
     add_ghost_option(general_config);
     add_ghosts_kept_option(general_config);
     add_car_stats_option(general_config);

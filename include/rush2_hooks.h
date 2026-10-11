@@ -29,6 +29,7 @@ void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
 
 // Scales the car's throttle and brake by trigger pressure (src/input.cpp).
 void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx);
+void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx);
 
 // HUD edge anchoring (src/hud.cpp).
 void rush2_hud_build_begin(uint8_t* rdram, recomp_context* ctx);

@@ -591,6 +591,9 @@ int main(int argc, char** argv) {
         if (strcmp(argv[i], "--input-script") == 0 && i + 1 < argc) {
             parse_input_script(argv[++i]);
         }
+        else if (strcmp(argv[i], "--debug-rumble") == 0) {
+            rush2::input::set_rumble_debug(true);
+        }
     }
     recompui::register_launcher_init_callback(launcher_init);
     recompui::register_launcher_update_callback(launcher_update);

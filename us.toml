@@ -62,6 +62,13 @@ func = "car_set_pedals_80076854"
 before_vram = 0x800769F0
 text = "    rush2_analog_pedals(rdram, ctx);"
 
+# Directional rumble (src/rumble.cpp): in physics_car_tick, at the start of the block that sets a human car's rumble
+# level. $a2 = car, $a3 = player.
+[[patches.hook]]
+func = "physics_car_tick_80075880"
+before_vram = 0x80075B90
+text = "    rush2_rumble_impact(rdram, ctx);"
+
 # Overlay: inflated to 0x803AA800 by func_800A62C0.
 [[patches.hook]]
 func = "overlay_load_800A62C0"

@@ -3710,12 +3710,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C4010
-name = "physics_car_word"
-type = "u32"
-desc = "Word read by physics_car_tick. (low confidence)"
+name = "rumble_thresholds"
+type = "s32[40]"
+desc = "Ascending thresholds (4000, 5000, 6500, ... 600000; the last 4 are 0) that physics_car_tick counts the sum of the absolute values of car+0x4, +0x8 and +0xC against to get a human car's rumble level (0 to 0x28, 4 less when the byte at 0x8010C160 is 0), stored in rumble_levels. Those floats are the car's acceleration in its own frame: +0x4 lateral (positive = pushed right), +0x8 vertical, +0xC longitudinal. See src/rumble.cpp."
 area = "car"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "src/rumble.cpp"
 
 [[var]]
 vram = 0x800C40B0
@@ -6236,6 +6236,15 @@ desc = "subway_count 0x81C-byte pseudo-car physics structs (heap), the trains' c
 area = "race"
 status = "verified"
 ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
+
+[[var]]
+vram = 0x800D50E8
+name = "rumble_levels"
+type = "u8[4]"
+desc = "Each human player's rumble level (0 to 0x28), set by physics_car_tick from rumble_thresholds each race tick and read by rumble_update, which ramps and decays it to switch the Rumble Pak. See src/rumble.cpp."
+area = "car"
+status = "verified"
+ref = "src/rumble.cpp"
 
 [[var]]
 vram = 0x800D5438
