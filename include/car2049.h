@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <string>
 
 #include "recomp.h"
@@ -54,6 +55,9 @@ namespace rush2::car2049 {
     // The number of paint jobs (car select STYLEs) of a car type: a 2049 car from a Dreamcast disc has its own, any
     // other car 0.
     int paint_jobs(int type);
+    // 2049 car k's scuffed panel copies (asset file offsets: pristine texels -> their scuffed copy), which its damage
+    // points the body's loads at (rush2::catalog catalogs them as the panels' _D1 textures).
+    std::map<uint32_t, uint32_t> scuffed_texels(int k);
     // The "Rush 2049 Cars" option (Games tab): whether the car select offers the 2049 cars.
     void set_option(bool enabled);
     // True when the option is on and the Rush 2049 ROM is available.

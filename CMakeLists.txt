@@ -135,6 +135,10 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/fonts.cpp
     ${CMAKE_SOURCE_DIR}/src/texture_upscale.cpp
     ${CMAKE_SOURCE_DIR}/src/texture_upscale_images.cpp
+    ${CMAKE_SOURCE_DIR}/src/texture_census.cpp
+    ${CMAKE_SOURCE_DIR}/src/texture_derive.cpp
+    ${CMAKE_SOURCE_DIR}/src/asset_catalog.cpp
+    ${CMAKE_SOURCE_DIR}/src/asset_catalog_walk.cpp
     ${CMAKE_SOURCE_DIR}/lib/hqx/hq2x.c
     ${CMAKE_SOURCE_DIR}/lib/hqx/hq4x.c
     ${CMAKE_SOURCE_DIR}/src/players4.cpp

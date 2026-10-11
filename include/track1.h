@@ -46,6 +46,12 @@ namespace rush2::track1 {
     constexpr uint32_t main_vram = 0x8005BB10;
     std::shared_ptr<const std::vector<uint8_t>> main_code(const std::vector<uint8_t>& rom);
 
+    // Rush 1 model container `index` (7-35: menus, shared race objects and cars, docs/rush1_research.md section 1.1) as
+    // a Rush 2 container with every model under its own name, for the model dump (src/asset_catalog.cpp). Its lists are
+    // translated and flattened as convert_track does. Its texture table is left out (a record doesn't say whether its
+    // data is texels or a load list); the models' lists load their textures themselves.
+    bool convert_container(const std::vector<uint8_t>& rom, int index, std::vector<uint8_t>& out, std::string& error);
+
     // A Rush 1 track converted to the files of a Rush 2 track slot (src/rush1/track1_convert.cpp, port of
     // tools/rush1/track1.py).
     struct ConvertedTrack {

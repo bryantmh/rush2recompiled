@@ -89,7 +89,9 @@ namespace rush2::upscale {
     std::vector<uint8_t> make_dds(const Image& image);
 
     bool read_image(const std::filesystem::path& path, Image& image); // PNG, JPEG, TGA, BMP (anything stb_image reads).
+    bool decode_image(const std::vector<uint8_t>& bytes, Image& image); // A file's bytes: make_dds's DDS, or what read_image reads.
     bool write_png(const std::filesystem::path& path, const Image& image);
+    bool write_png_bytes(const Image& image, std::vector<uint8_t>& png);
     std::vector<uint8_t> read_file(const std::filesystem::path& path);
     bool write_file(const std::filesystem::path& path, const std::vector<uint8_t>& bytes);
 
@@ -111,8 +113,42 @@ namespace rush2::upscale {
     std::string pack_manifest(const std::string& id, const std::string& name, const std::string& description);
     // Zips a pack folder into an .rtz (mod.json and rt64.json at its root).
     bool zip_folder(const std::filesystem::path& folder, const std::filesystem::path& zip);
+    // Builds a zip in memory one file at a time (each compressed as it's added), then writes it with write_file, which
+    // takes any path (miniz's file functions take narrow ones).
+    class ZipWriter {
+    public:
+        ZipWriter();
+        ~ZipWriter();
+        bool add(const std::string& name, const std::vector<uint8_t>& bytes);
+        bool write(const std::filesystem::path& zip); // Finishes the archive; nothing can be added after.
+    private:
+        struct Impl;
+        std::unique_ptr<Impl> impl;
+    };
+
+    // Reads files out of a zip (an .rtz texture pack) without loading the whole archive.
+    class ZipReader {
+    public:
+        explicit ZipReader(const std::filesystem::path& zip);
+        ~ZipReader();
+        bool is_open() const;
+        bool read(const std::string& name, std::vector<uint8_t>& bytes);
+    private:
+        struct Impl;
+        std::unique_ptr<Impl> impl;
+    };
 
     // The game side (src/texture_upscale.cpp).
+
+    // <app folder>/asset_dump: models/ (Dump Models), textures/ (Dump Textures), user_texture_pack/ (the player's
+    // upscales, which Install Upscaled Textures reads) and generated_texture_cache/ (what the game makes on its own:
+    // the upscaling modes' results, the Custom upscaler's work files, the installed upscales of the Dreamcast disc's
+    // images). migrate_folders moves the older layout (texture_upscale/{dump,originals,upscaled,cache,dreamcast},
+    // model_dump) into it; it runs before the upscaler starts and does nothing once done.
+    std::filesystem::path asset_dump_dir();
+    std::filesystem::path generated_cache_dir();
+    void migrate_folders();
+
     void add_options(recomp::config::Config& config);
     void apply_loaded_options(recomp::config::Config& config);
     void add_buttons(rush2::ui::OptionsPage* page);
@@ -126,6 +162,9 @@ namespace rush2::upscale {
     // Dreamcast Textures (rush2::rom2049::dc::set_textures_enabled), in the same group of the Graphics tab. It is
     // grayed out with the disc as the Rush 2049 source (whose textures are always the disc's) or no disc stored.
     extern const char* const dreamcast_option_id;
+    // Upscale Interface: off, interface textures (menus, HUD, maps, text) are left out of upscaling, the derived
+    // replacements and Dump Textures.
+    extern const char* const interface_option_id;
     void set_dreamcast_option_state(bool disc_source, bool disc_stored);
 }
 

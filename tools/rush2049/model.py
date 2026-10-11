@@ -9,8 +9,8 @@ Rush 2 container (all offsets file relative; the loader func_80077CC0 adds the l
     model   0x34 bytes: u32 lod count (1..4), then 4 x {u16 texture handle, u16 flags, f32 distance, u32 dl}
     name    0x18 bytes: char name[16], f32 radius, u16 kind (breakable class), u16 0. Sorted (binary search over
             15 characters), name i <-> model i.
-    texture 0x20 bytes: char name[16], u16 w, u16 h, u8 fmt, u8 siz, s16 palette index, u32 texels or load list,
-            u32 flags
+    texture 0x20 bytes: char name[16], u16 w, u16 h, u8 siz, u8 fmt (for texels; docs/asset_catalog.md), s16 palette
+            index, u32 texels (flag 0x08000000) or load list, u32 flags
     palette 0x18 bytes: char name[16], u32 0x000F8000 / 0x00FFC000, u32 palette data
 Rush 2049 container: word 0 = offset of {tag, offset, size or count} entries: IMAG, TXLD, OBHD (0x58), PLHD (0x18),
     TXHD (0x24), OBJS, and for tracks PATH (bytes) and PTHD (0x24 records).

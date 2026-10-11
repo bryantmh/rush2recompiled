@@ -627,16 +627,21 @@ bool read_image(const std::filesystem::path& path, Image& image) {
     return true;
 }
 
-bool write_png(const std::filesystem::path& path, const Image& image) {
+bool write_png_bytes(const Image& image, std::vector<uint8_t>& out) {
     int length = 0;
     unsigned char* png = stbi_write_png_to_mem(image.rgba.data(), (int)image.width * 4, (int)image.width,
                                                (int)image.height, 4, &length);
     if (png == nullptr) {
         return false;
     }
-    bool ok = write_file(path, std::vector<uint8_t>(png, png + length));
+    out.assign(png, png + length);
     STBIW_FREE(png);
-    return ok;
+    return true;
+}
+
+bool write_png(const std::filesystem::path& path, const Image& image) {
+    std::vector<uint8_t> png;
+    return write_png_bytes(image, png) && write_file(path, png);
 }
 
 int run_command(const std::string& command_line, const std::atomic<bool>* cancel) {
@@ -731,12 +736,89 @@ std::string pack_manifest(const std::string& id, const std::string& name, const 
     return out;
 }
 
-bool zip_folder(const std::filesystem::path& folder, const std::filesystem::path& zip) {
-    // Built in memory and written with write_file, which handles any path (miniz's file functions take narrow ones).
+struct ZipWriter::Impl {
     mz_zip_archive archive{};
-    if (!mz_zip_writer_init_heap(&archive, 0, 0)) {
-        return false;
+    bool ok = false;
+    bool finished = false;
+};
+
+ZipWriter::ZipWriter() : impl(std::make_unique<Impl>()) {
+    impl->ok = mz_zip_writer_init_heap(&impl->archive, 0, 0) != 0;
+}
+
+ZipWriter::~ZipWriter() {
+    mz_zip_writer_end(&impl->archive);
+}
+
+bool ZipWriter::add(const std::string& name, const std::vector<uint8_t>& bytes) {
+    // Images are compressed already or compress well enough at a fast level.
+    impl->ok = impl->ok && !impl->finished &&
+               mz_zip_writer_add_mem(&impl->archive, name.c_str(), bytes.data(), bytes.size(), MZ_BEST_SPEED) != 0;
+    return impl->ok;
+}
+
+bool ZipWriter::write(const std::filesystem::path& zip) {
+    void* data = nullptr;
+    size_t size = 0;
+    bool ok = impl->ok && !impl->finished && mz_zip_writer_finalize_heap_archive(&impl->archive, &data, &size);
+    impl->finished = true;
+    if (ok) {
+        ok = write_file(zip, std::vector<uint8_t>((uint8_t*)data, (uint8_t*)data + size));
+        mz_free(data); // Handed over by finalize; ending the writer doesn't free it.
     }
+    return ok;
+}
+
+struct ZipReader::Impl {
+    mz_zip_archive archive{};
+    FILE* file = nullptr;
+    bool ok = false;
+};
+
+ZipReader::ZipReader(const std::filesystem::path& zip) : impl(std::make_unique<Impl>()) {
+#ifdef _WIN32
+    impl->file = _wfopen(zip.wstring().c_str(), L"rb");
+#else
+    impl->file = fopen(zip.c_str(), "rb");
+#endif
+    impl->ok = impl->file != nullptr && mz_zip_reader_init_cfile(&impl->archive, impl->file, 0, 0) != 0;
+}
+
+ZipReader::~ZipReader() {
+    if (impl->ok) mz_zip_reader_end(&impl->archive);
+    if (impl->file != nullptr) fclose(impl->file);
+}
+
+bool ZipReader::is_open() const {
+    return impl->ok;
+}
+
+bool ZipReader::read(const std::string& name, std::vector<uint8_t>& bytes) {
+    if (!impl->ok) return false;
+    int index = mz_zip_reader_locate_file(&impl->archive, name.c_str(), nullptr, 0);
+    if (index < 0) return false;
+    size_t size = 0;
+    void* data = mz_zip_reader_extract_to_heap(&impl->archive, (mz_uint)index, &size, 0);
+    if (data == nullptr) return false;
+    bytes.assign((uint8_t*)data, (uint8_t*)data + size);
+    mz_free(data);
+    return true;
+}
+
+bool decode_image(const std::vector<uint8_t>& bytes, Image& image) {
+    if (read_dds(bytes, image)) return true;
+    int width, height;
+    stbi_uc* data = stbi_load_from_memory(bytes.data(), (int)bytes.size(), &width, &height, nullptr, 4);
+    if (data == nullptr) return false;
+    image.width = (uint32_t)width;
+    image.height = (uint32_t)height;
+    image.rgba.assign(data, data + size_t(width) * height * 4);
+    stbi_image_free(data);
+    return true;
+}
+
+bool zip_folder(const std::filesystem::path& folder, const std::filesystem::path& zip) {
+    ZipWriter writer;
     bool ok = true;
     std::error_code ec;
     for (auto it = std::filesystem::recursive_directory_iterator(folder, ec); ok && !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
@@ -744,19 +826,9 @@ bool zip_folder(const std::filesystem::path& folder, const std::filesystem::path
             continue;
         }
         std::string name = path_utf8(std::filesystem::relative(it->path(), folder).generic_u8string());
-        std::vector<uint8_t> bytes = read_file(it->path());
-        // Images are compressed already or compress well enough at a fast level.
-        ok = mz_zip_writer_add_mem(&archive, name.c_str(), bytes.data(), bytes.size(), MZ_BEST_SPEED) != 0;
+        ok = writer.add(name, read_file(it->path()));
     }
-    void* data = nullptr;
-    size_t size = 0;
-    ok = ok && !ec && mz_zip_writer_finalize_heap_archive(&archive, &data, &size);
-    if (ok) {
-        ok = write_file(zip, std::vector<uint8_t>((uint8_t*)data, (uint8_t*)data + size));
-        mz_free(data); // Handed over by finalize; ending the writer doesn't free it.
-    }
-    mz_zip_writer_end(&archive);
-    return ok;
+    return ok && !ec && writer.write(zip);
 }
 
 }

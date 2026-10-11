@@ -710,7 +710,7 @@ index 95618bc..984759e 100644
          std::vector<uint8_t> bytesTMEM;
          bool decodeTMEM = false;
 diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
-index 0848f3e..872bab4 100644
+index 0848f3e..224e36f 100644
 --- a/src/render/rt64_texture_cache.cpp
 +++ b/src/render/rt64_texture_cache.cpp
 @@ -4,6 +4,8 @@
@@ -769,7 +769,22 @@ index 0848f3e..872bab4 100644
      static const uint32_t TextureDataPitchAlignment = 256;
      static const uint32_t TextureDataPlacementAlignment = 512;
  
-@@ -207,6 +240,7 @@ namespace RT64 {
+@@ -60,6 +93,14 @@ namespace RT64 {
+         resolvedHashVersions.clear();
+         fileSystemStreamResolvedPaths.clear();
+ 
++        // The packs themselves too, with what resolves to them: a zip pack stays memory-mapped (and so can't be replaced
++        // or deleted on Windows) for as long as its file system lives, and with no packs left to load
++        // (clearReplacementDirectories alone) nothing else would close it.
++        fileSystems.clear();
++        fileSystemResolvedPaths.clear();
++        fileSystemHashVersions.clear();
++        fileSystemStreamSets.clear();
++
+         usedTexturePoolSize = 0;
+         cachedTexturePoolSize = 0;
+         fileSystemIsDirectory = false;
+@@ -207,6 +248,7 @@ namespace RT64 {
                  textureReplacements[i] = nullptr;
                  textureReplacementShiftedByHalf[i] = false;
                  textureReplacementReferenceCounted[i] = false;
@@ -777,7 +792,7 @@ index 0848f3e..872bab4 100644
                  versions[i]++;
              }
          }
-@@ -231,6 +265,7 @@ namespace RT64 {
+@@ -231,6 +273,7 @@ namespace RT64 {
              cachedTextureReplacementDimensions.emplace_back();
              textureReplacementShiftedByHalf.emplace_back(false);
              textureReplacementReferenceCounted.emplace_back(false);
@@ -785,7 +800,7 @@ index 0848f3e..872bab4 100644
              textureScales.push_back(IdentityScale);
              hashes.push_back(0);
              versions.push_back(0);
-@@ -240,10 +275,11 @@ namespace RT64 {
+@@ -240,10 +283,11 @@ namespace RT64 {
  
          hashMap[hash] = textureIndex;
          textures[textureIndex] = texture;
@@ -798,7 +813,7 @@ index 0848f3e..872bab4 100644
          textureScales[textureIndex] = IdentityScale;
          hashes[textureIndex] = hash;
          versions[textureIndex]++;
-@@ -254,7 +290,7 @@ namespace RT64 {
+@@ -254,7 +298,7 @@ namespace RT64 {
          listIterators[textureIndex] = accessList.begin();
      }
  
@@ -807,7 +822,7 @@ index 0848f3e..872bab4 100644
          const auto it = hashMap.find(hash);
          if (it == hashMap.end()) {
              return;
-@@ -265,6 +301,7 @@ namespace RT64 {
+@@ -265,6 +309,7 @@ namespace RT64 {
          if (texture == textureReplacements[it->second]) {
              // The exception is that the shifting mode can be changed in real-time by the user while editing, so we update it regardless.
              textureReplacementShiftedByHalf[it->second] = shiftedByHalf;
@@ -815,7 +830,7 @@ index 0848f3e..872bab4 100644
              return;
          }
  
-@@ -277,7 +314,12 @@ namespace RT64 {
+@@ -277,7 +322,12 @@ namespace RT64 {
          textureReplacements[it->second] = texture;
          textureReplacementShiftedByHalf[it->second] = shiftedByHalf;
          textureReplacementReferenceCounted[it->second] = referenceCounted;
@@ -829,7 +844,7 @@ index 0848f3e..872bab4 100644
          cachedTextureReplacementDimensions[it->second] = interop::float3(float(texture->width), float(texture->height), float(texture->mipmaps));
          versions[it->second]++;
          globalVersion++;
-@@ -288,10 +330,31 @@ namespace RT64 {
+@@ -288,10 +338,31 @@ namespace RT64 {
          }
      }
  
@@ -862,7 +877,7 @@ index 0848f3e..872bab4 100644
  
          // Find the matching texture index in the hash map.
          const auto it = hashMap.find(hash);
-@@ -306,11 +369,24 @@ namespace RT64 {
+@@ -306,11 +377,24 @@ namespace RT64 {
          if (textureReplaced) {
              textureScale = textureScales[textureIndex];
              textureDimensions = cachedTextureReplacementDimensions[textureIndex];
@@ -888,7 +903,7 @@ index 0848f3e..872bab4 100644
          }
  
          // Remove the existing entry from the list if it exists.
-@@ -362,6 +438,7 @@ namespace RT64 {
+@@ -362,6 +446,7 @@ namespace RT64 {
                  textureReplacements[textureIndex] = nullptr;
                  textureReplacementShiftedByHalf[textureIndex] = false;
                  textureReplacementReferenceCounted[textureIndex] = false;
@@ -896,7 +911,7 @@ index 0848f3e..872bab4 100644
              }
              // Stop iterating if we reach an entry that has been used in the present.
              else if (age == 0) {
-@@ -487,9 +564,19 @@ namespace RT64 {
+@@ -487,9 +572,19 @@ namespace RT64 {
          for (uint32_t i = 0; i < threadCount; i++) {
              streamThreads.push_back(std::make_unique<StreamThread>(this));
          }
@@ -916,7 +931,7 @@ index 0848f3e..872bab4 100644
          waitForAllStreamThreads(true);
          streamThreads.clear();
  
-@@ -500,6 +587,10 @@ namespace RT64 {
+@@ -500,6 +595,10 @@ namespace RT64 {
              uploadThread.reset();
          }
          
@@ -927,7 +942,7 @@ index 0848f3e..872bab4 100644
          descriptorSets.clear();
          tmemUploadResources.clear();
          replacementUploadResources.clear();
-@@ -929,6 +1020,63 @@ namespace RT64 {
+@@ -929,6 +1028,63 @@ namespace RT64 {
          return true;
      }
  
@@ -991,7 +1006,7 @@ index 0848f3e..872bab4 100644
      Texture *TextureCache::loadTextureFromBytes(RenderDevice *device, RenderCommandList *commandList, const std::vector<uint8_t> &fileBytes, std::unique_ptr<RenderBuffer> &dstUploadResource, RenderPool *resourcePool, std::mutex *uploadResourcePoolMutex) {
          const uint32_t PNG_MAGIC = 0x474E5089;
          Texture *replacementTexture = new Texture();
-@@ -942,11 +1090,12 @@ namespace RT64 {
+@@ -942,11 +1098,12 @@ namespace RT64 {
              int width, height;
              stbi_uc *data = stbi_load_from_memory(fileBytes.data(), fileBytes.size(), &width, &height, nullptr, 4);
              if (data != nullptr) {
@@ -1008,7 +1023,7 @@ index 0848f3e..872bab4 100644
              }
  
              break;
-@@ -980,10 +1129,16 @@ namespace RT64 {
+@@ -980,10 +1137,16 @@ namespace RT64 {
          std::vector<RenderTextureBarrier> beforeDecodeBarriers;
          std::vector<RenderTextureBarrier> afterDecodeBarriers;
          std::vector<uint8_t> replacementBytes;
@@ -1025,7 +1040,7 @@ index 0848f3e..872bab4 100644
              beforeCopyBarriers.clear();
              beforeDecodeBarriers.clear();
              afterDecodeBarriers.clear();
-@@ -992,7 +1147,7 @@ namespace RT64 {
+@@ -992,7 +1155,7 @@ namespace RT64 {
              {
                  std::unique_lock queueLock(uploadQueueMutex);
                  uploadQueueChanged.wait(queueLock, [this]() {
@@ -1034,7 +1049,7 @@ index 0848f3e..872bab4 100644
                  });
  
                  if (!uploadQueue.empty()) {
-@@ -1008,6 +1163,13 @@ namespace RT64 {
+@@ -1008,6 +1171,13 @@ namespace RT64 {
                      streamResultQueueCopy.insert(streamResultQueueCopy.end(), streamResultQueue.begin(), streamResultQueue.end());
                      streamResultQueue.clear();
                  }
@@ -1048,7 +1063,7 @@ index 0848f3e..872bab4 100644
              }
              
              if (!streamResultQueueCopy.empty()) {
-@@ -1039,7 +1201,7 @@ namespace RT64 {
+@@ -1039,7 +1209,7 @@ namespace RT64 {
                  }
              }
  
@@ -1057,7 +1072,7 @@ index 0848f3e..872bab4 100644
                  // Create new upload buffers and descriptor heaps to fill out the required size.
                  const size_t queueSize = queueCopy.size();
                  const uint64_t TMEMSize = 0x1000;
-@@ -1059,6 +1221,7 @@ namespace RT64 {
+@@ -1059,6 +1229,7 @@ namespace RT64 {
                  // issues that can't be accounted for. Using dedicated copy queues for these operations has shown to eliminate these issues entirely.
                  copyWorker->commandList->begin();
                  textureMapAdditions.clear();
@@ -1065,7 +1080,7 @@ index 0848f3e..872bab4 100644
  
                  for (size_t i = 0; i < queueSize; i++) {
                      static uint32_t TMEMGlobalCounter = 0;
-@@ -1105,14 +1268,45 @@ namespace RT64 {
+@@ -1105,14 +1276,45 @@ namespace RT64 {
                          static uint32_t TextureGlobalCounter = 0;
                          TextureDecodeDescriptorSet *descSet = descriptorSets[i].get();
                          dstTexture->format = RenderFormat::R8G8B8A8_UNORM;
@@ -1112,7 +1127,7 @@ index 0848f3e..872bab4 100644
                  }
  
                  replacementMapAdditions.clear();
-@@ -1176,6 +1370,45 @@ namespace RT64 {
+@@ -1176,6 +1378,45 @@ namespace RT64 {
                      }
                  }
                  
@@ -1158,7 +1173,7 @@ index 0848f3e..872bab4 100644
                  // Execute the copy worker and signal a semaphore so it synchronizes with the direct worker afterwards.
                  const RenderCommandList *copyCommandList = copyWorker->commandList.get();
                  RenderCommandSemaphore *syncSemaphore = copyToDirectSemaphore.get();
-@@ -1188,6 +1421,7 @@ namespace RT64 {
+@@ -1188,6 +1429,7 @@ namespace RT64 {
  
                  const ShaderRecord &textureDecode = shaderLibrary->textureDecode;
                  bool pipelineSet = false;
@@ -1166,7 +1181,7 @@ index 0848f3e..872bab4 100644
                  for (size_t i = 0; i < queueSize; i++) {
                      const TextureUpload &upload = queueCopy[i];
                      if (upload.decodeTMEM) {
-@@ -1205,6 +1439,7 @@ namespace RT64 {
+@@ -1205,6 +1447,7 @@ namespace RT64 {
                          decodeCB.stride = interop::uint(upload.loadTile.line) << 3;
                          decodeCB.tlut = upload.tlut;
                          decodeCB.palette = upload.loadTile.palette;
@@ -1174,7 +1189,7 @@ index 0848f3e..872bab4 100644
  
                          // Dispatch compute shader for decoding texture.
                          const uint32_t ThreadGroupSize = 8;
-@@ -1214,6 +1449,16 @@ namespace RT64 {
+@@ -1214,6 +1457,16 @@ namespace RT64 {
                          directWorker->commandList->setComputeDescriptorSet(descriptorSets[i]->get(), 0);
                          directWorker->commandList->dispatch(dispatchX, dispatchY, 1);
  
@@ -1191,7 +1206,7 @@ index 0848f3e..872bab4 100644
                          afterDecodeBarriers.emplace_back(RenderTextureBarrier(textureMapAdditions[i].texture->texture.get(), RenderTextureLayout::SHADER_READ));
                      }
                  }
-@@ -1239,10 +1484,16 @@ namespace RT64 {
+@@ -1239,10 +1492,16 @@ namespace RT64 {
                      }
  
                      for (const ReplacementMapAddition &addition : replacementMapAdditions) {
@@ -1209,7 +1224,7 @@ index 0848f3e..872bab4 100644
                  }
  
                  // Make the new queue the remaining subsection of the upload queue that wasn't processed in this batch.
-@@ -1312,9 +1563,9 @@ namespace RT64 {
+@@ -1312,9 +1571,9 @@ namespace RT64 {
          }
      }
  
@@ -1221,7 +1236,7 @@ index 0848f3e..872bab4 100644
      }
  
      bool TextureCache::useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex) {
-@@ -1323,7 +1574,9 @@ namespace RT64 {
+@@ -1323,7 +1582,9 @@ namespace RT64 {
          bool textureReplaced;
          bool hasMipmaps;
          bool shiftedByHalf;
@@ -1232,7 +1247,7 @@ index 0848f3e..872bab4 100644
      }
      
      bool TextureCache::addReplacement(uint64_t hash, const std::string &relativePath, ReplacementShift shift) {
-@@ -1406,6 +1659,168 @@ namespace RT64 {
+@@ -1406,6 +1667,168 @@ namespace RT64 {
          return false;
      }
  
@@ -1401,7 +1416,7 @@ index 0848f3e..872bab4 100644
      void TextureCache::clearReplacementDirectories() {
          // Wait for the streaming threads to be finished.
          waitForAllStreamThreads(true);
-@@ -1431,9 +1846,14 @@ namespace RT64 {
+@@ -1431,9 +1854,14 @@ namespace RT64 {
  
          // Lock the texture map and start changing replacements. This function is assumed to be called from the only
          // thread that is capable of submitting new textures and must've waited beforehand for all textures to be uploaded.

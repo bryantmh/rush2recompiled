@@ -7322,23 +7322,24 @@ ref = "us.toml"
 vram = 0x80078190
 name = "gfx_load_palette_tlut"
 sig = "void gfx_load_palette_tlut(Gfx **dl, Palette *pal)"
-desc = "Emits the post list for LOD flag 0x2 (caller argument). | Loads a palette into TMEM; skips the TLUT load when it thinks the palette is already there (last palette at 0x80111954)."
+desc = "Loads a palette record (0x18 bytes: name[16], u8 first +0x10, u8 last +0x11, data +0x14) into TMEM 0x800 + first * 8: G_SETTIMG RGBA16 of the data, G_SETTILE tile 7 at TMEM 0x100 + first, G_LOADTLUT lrs (last - first) << 2. Skips the load when the data pointer equals the last one loaded (0x80111954) unless 0x80022FDC is set. Also called for LOD flag 0x2 (the caller's palette)."
+consts = "0x100 = TMEM word of the palettes; 0x07000000 = tile 7"
 status = "verified"
 rush1 = [0x80060BDC]
 rush2049 = [0x80099B30]
 area = "render"
-ref = "docs/rush2049_research/geometry.md#22-model-record-0x34"
+ref = "docs/asset_catalog.md#texture-records-and-the-builder-v"
 
 [[func]]
 vram = 0x8007825C
 name = "gfx_build_texture_load_dl"
 sig = "void gfx_build_texture_load_dl(void)"
-desc = "Texture-load builder: reads texture record fields +0x10, +0x12, +0x14, +0x15, +0x16, +0x18, +0x1C. | Texture-load builder reading the first 0x20 bytes of a texture record (shared by 2049's func_80099BFC)."
-consts = "0xE3001001 = setothermode H bits"
+desc = "Texture-load builder (shared by 2049's func_80099BFC): emits a texture record's load. Record flag 0x08000000 clear: G_DL to the texture-load list at +0x18. Set: the texels at +0x18 with +0x14 = siz and +0x15 = fmt (the other way round from list records' bytes), +0x10/+0x12 size, flags 0x10000/0x20000 clamp S/T (mask 0) and 0x40000/0x80000 mirror them, masks log2 of the size (func_80055868); an optional sub-rectangle argument loads part of it. Sets TEXTLUT (E3001001, tracked in 0x80112490), then loads the palette record named at +0x16 (>= 0) with func_80078190."
+consts = "0xE3001001 = setothermode H TEXTLUT; 0x08000000 = texel record (else load list); 0x10000/0x20000 = clamp S/T; 0x40000/0x80000 = mirror S/T"
 status = "verified"
 rush2049 = [0x80099BFC]
 area = "render"
-ref = "docs/rush2049_research/geometry.md#22-model-record-0x34"
+ref = "docs/asset_catalog.md#texture-records-and-the-builder-v"
 
 [[func]]
 vram = 0x8007AA48

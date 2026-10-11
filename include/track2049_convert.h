@@ -131,6 +131,11 @@ namespace rush2::track2049 {
                        const std::vector<std::string>& names,
                        std::vector<uint8_t>& out, std::vector<std::array<float, 3>>& centers, std::string& error);
 
+    // Rush 2049 model file `file` (one holding OBHD objects: menus, effects, weapons, cars, a track's objects, tracks;
+    // the list is in docs/asset_catalog.md) as a Rush 2 container with every object under its own 2049 name, its lists
+    // as 2049 draws them (lit models keep their normals as vertex colors), for the model dump (src/asset_catalog.cpp).
+    bool convert_file(const rush2::rom2049::Source& rom2049, int file, std::vector<uint8_t>& out, std::string& error);
+
     bool convert_track(const rush2::rom2049::Source& rom2049, int k, const std::string& prefix,
                        const std::set<std::string>& shared_models, bool static_paths, ConvertedTrack& out,
                        std::string& error);

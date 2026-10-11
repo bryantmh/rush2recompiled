@@ -15,6 +15,7 @@
 // top to 0x80B00000 instead of 0x803AA800/0x803DA800; the overlay no longer overlaps the
 // heap, so loading it doesn't need to lower the top.
 
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -36,7 +37,7 @@ namespace {
     constexpr uint32_t asset_offsets = 0x80222A00;
     constexpr uint32_t asset_sizes = 0x80222C00;
     constexpr uint32_t fake_rom_base = 0x40000000;
-    constexpr int asset_slots = 0x80; // entries the moved tables have room for
+    constexpr int asset_slots = rush2::assets::slot_count;
 
     constexpr uint32_t heap_low = 0x8010C438;
     constexpr uint32_t heap_high = 0x8010C454;
@@ -54,8 +55,18 @@ namespace {
     };
 
     std::mutex assets_mutex;
+    std::atomic<uint8_t*> game_rdram = nullptr; // Saved by the asset loads, for read_current.
     std::unordered_map<int, Replacement> replaced; // By asset index; holds the original offset and size.
     std::unordered_map<uint32_t, int> by_fake_rom;
+    std::atomic<uint64_t> changes = 0;
+}
+
+uint64_t rush2::assets::generation() {
+    return changes;
+}
+
+uint8_t* rush2::assets::rdram() {
+    return game_rdram.load();
 }
 
 void rush2::assets::replace(uint8_t* rdram, int index, std::vector<uint8_t> data, rush2::origin::Game game) {
@@ -75,6 +86,7 @@ void rush2::assets::replace(uint8_t* rdram, int index, std::vector<uint8_t> data
     uint32_t fake = fake_rom_base + (uint32_t)index * 0x10;
     MEM_W(0, (int32_t)(asset_offsets + index * 4)) = fake;
     MEM_W(0, (int32_t)(asset_sizes + index * 4)) = (uint32_t)data.size();
+    if (it->second.data != data) changes++;
     it->second.data = std::move(data);
     it->second.spans = std::move(spans);
     by_fake_rom[fake] = index;
@@ -90,6 +102,7 @@ void rush2::assets::restore(uint8_t* rdram, int index) {
     MEM_W(0, (int32_t)(asset_sizes + index * 4)) = it->second.size;
     by_fake_rom.erase(fake_rom_base + (uint32_t)index * 0x10);
     replaced.erase(it);
+    changes++;
 }
 
 bool rush2::assets::inflate_raw(const uint8_t* src, size_t src_size, std::vector<uint8_t>& out) {
@@ -122,6 +135,27 @@ bool rush2::assets::read_original(uint8_t* rdram, int index, std::vector<uint8_t
     return inflate_raw(full.data() + rom, full.size() - rom, out);
 }
 
+bool rush2::assets::read_current(int index, std::vector<uint8_t>& out, std::vector<Span>& spans) {
+    uint8_t* rdram = game_rdram.load();
+    if (rdram == nullptr || index < 0 || index >= asset_slots) {
+        return false;
+    }
+    {
+        std::lock_guard lock{ assets_mutex };
+        auto it = replaced.find(index);
+        if (it != replaced.end()) {
+            out = it->second.data;
+            spans = it->second.spans;
+            return true;
+        }
+    }
+    spans.clear();
+    if ((uint32_t)MEM_W(0, (int32_t)(asset_offsets + index * 4)) == 0) {
+        return false;
+    }
+    return read_original(rdram, index, out);
+}
+
 bool rush2::assets::is_replaced(int index) {
     std::lock_guard lock{ assets_mutex };
     return replaced.contains(index);
@@ -133,6 +167,7 @@ bool rush2::assets::is_replaced(int index) {
 extern "C" int rush2_asset_decompress(uint8_t* rdram, recomp_context* ctx) {
     uint32_t rom = (uint32_t)ctx->r4;
     int32_t dest = (int32_t)ctx->r5;
+    game_rdram = rdram;
     std::lock_guard lock{ assets_mutex };
     auto fake = rom >= fake_rom_base ? by_fake_rom.find(rom) : by_fake_rom.end();
     if (fake == by_fake_rom.end()) {

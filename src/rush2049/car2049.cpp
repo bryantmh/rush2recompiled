@@ -996,6 +996,15 @@ int rush2::car2049::paint_jobs(int type) {
     return k >= 0 && k < car_count ? (int)paints[k].job_rgb.size() : 0;
 }
 
+std::map<uint32_t, uint32_t> rush2::car2049::scuffed_texels(int k) {
+    std::map<uint32_t, uint32_t> out;
+    if (k < 0 || k >= car_count) return out;
+    for (const Paint::DamageLoad& d : paints[k].damage_loads) {
+        if (d.damaged != 0) out.emplace(d.pristine, d.damaged);
+    }
+    return out;
+}
+
 void rush2::car2049::check_source(uint8_t* rdram) {
     constexpr uint32_t game_state = 0x8010C0D0;
     if (!cars_loaded || rush2::wings::get_rom() == cars_source) {
