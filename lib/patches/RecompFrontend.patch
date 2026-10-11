@@ -266,6 +266,45 @@ index cc4932c..b44f4f0 100644
      private:
          void add_option_elements();
      };
+diff --git a/recompui/src/elements/ui_slider.cpp b/recompui/src/elements/ui_slider.cpp
+index 7a50da4..e8814d3 100644
+--- a/recompui/src/elements/ui_slider.cpp
++++ b/recompui/src/elements/ui_slider.cpp
+@@ -72,6 +72,21 @@ namespace recompui {
+         }, val);
+     }
+ 
++    bool Slider::handle_navigation_event(Rml::Event &event) {
++        if (event.GetTargetElement() != event.GetCurrentElement()) {
++            return false;
++        }
++        int key = event.GetParameter<int>("key_identifier", Rml::Input::KI_UNKNOWN);
++        if (key != Rml::Input::KI_LEFT && key != Rml::Input::KI_RIGHT) {
++            return false;
++        }
++        if (is_enabled()) {
++            do_step(key == Rml::Input::KI_RIGHT);
++        }
++        event.StopPropagation();
++        return true;
++    }
++
+     void Slider::process_event(const Event& e) {
+         switch (e.type) {
+         case EventType::Focus:
+diff --git a/recompui/src/elements/ui_slider.h b/recompui/src/elements/ui_slider.h
+index 4d8c41e..24f94c7 100644
+--- a/recompui/src/elements/ui_slider.h
++++ b/recompui/src/elements/ui_slider.h
+@@ -41,6 +41,8 @@ namespace recompui {
+         std::string_view get_type_name() override { return "Slider"; }
+ 
+     public:
++        // Left and right step the value and stop there, so the document's navigation can't move focus off the slider.
++        bool handle_navigation_event(Rml::Event &event) override;
+         Slider(ResourceId rid, Element *parent, SliderType type);
+         virtual ~Slider();
+         void set_value(double v);
 diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
 index a7954c7..a3edb30 100644
 --- a/recompui/src/renderer/rt64_render_context.cpp
