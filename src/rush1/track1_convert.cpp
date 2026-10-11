@@ -218,10 +218,10 @@ namespace {
             seg = u32(d, 0) >> 24;
             n_models = u32(d, 4);
             names_at = off(u32(d, 0));
-            tex_at = off(u32(d, 16));
             n_tex = u32(d, 20);
-            pal_at = off(u32(d, 24));
+            tex_at = n_tex ? off(u32(d, 16)) : 0;   // The cars have no texture table (pointer 0).
             n_pal = u32(d, 28);
+            pal_at = n_pal ? off(u32(d, 24)) : 0;
             if (0x20 + size_t(n_models) * 0x34 > d.size() || names_at + size_t(n_models) * 0x18 > d.size() ||
                 tex_at + size_t(n_tex) * 0x20 > d.size() || pal_at + size_t(n_pal) * 0x18 > d.size()) {
                 fail("container tables out of range");
@@ -1462,6 +1462,42 @@ bool rush2::track1::convert_track(const std::vector<uint8_t>& rom, int t, const 
         for (uint32_t i = 0; i < uint32_t(out.pvs_count) * 16; i++) {
             out.pvs.push_back(main.b(pvs_tables[t] + i));
         }
+    }
+    catch (const ConvertError& e) {
+        error = e.message;
+        return false;
+    }
+    return true;
+}
+
+bool rush2::track1::convert_container(const std::vector<uint8_t>& rom, int index, std::vector<uint8_t>& out,
+                                      std::string& error) {
+    try {
+        Container c(asset(rom, index));
+        Builder b;
+        int s = b.add_source(c);
+        // A model that doesn't convert is left out alone: the menu files' AAANULLOBJ placeholders hold a malformed
+        // G_VTX. The texture table is left out: nothing in a record tells a load list from texels (+0x1C's high half
+        // is a palette index), and texels read as a list run away; the models load their textures themselves.
+        std::set<std::string> seen;
+        std::string skipped;
+        for (uint32_t i = 0; i < c.n_models; i++) {
+            std::string name = c.name(i);
+            if (!seen.insert(name.substr(0, 15)).second) continue;
+            try {
+                b.add_model(s, i, name);
+                b.models.back().kind = s16(c.d, c.names_at + i * 0x18 + 20);
+            }
+            catch (const ConvertError& e) {
+                skipped += " " + name + " (" + e.message + ")";
+            }
+        }
+        // The palettes stay: a car's are its paint jobs (BMWREDD0...), which the game loads itself.
+        for (uint32_t i = 0; i < c.n_pal; i++) {
+            b.palettes.push_back({ c.palette_name(i), c.palette(i), s });
+        }
+        if (!skipped.empty()) printf("[Rush1] File %d: left out%s\n", index, skipped.c_str());
+        out = b.build();
     }
     catch (const ConvertError& e) {
         error = e.message;

@@ -36,8 +36,15 @@
 // rectangle below the letters, and the strip ends a little past the 4:3 edges. The rectangle's corners are scaled
 // outward about its center with their texture coordinates, and the track is drawn twice more, one length ahead and
 // one behind, by a side display list called after its own G_DL.
+//
+// Title attract background for widescreen.
+//
+// Between the attract demos the title shows the track's logo and the demo in a wreath over a tiled "RUSH2" background:
+// a grid of 128 x 32 widgets that the game clips to the 4:3 screen. The grid is continued past both edges by copies of
+// its middle column, drawn shifted by whole columns (rush2::hud::set_widget_shift).
 
 #include "recomp.h"
+#include "rush2.h"
 #include "rush2_hooks.h"
 #include "car2049.h"
 #include "ghost.h"
@@ -415,6 +422,52 @@ extern "C" void rush2_view_scissor_written(uint8_t* rdram, recomp_context* ctx) 
     MEM_W(0, (int32_t)(cmd_addr + 4)) = (int32_t)dl;
     pending_left_origin = G_EX_ORIGIN_NONE;
     pending_right_origin = G_EX_ORIGIN_NONE;
+}
+
+extern "C" void hud_widget_create_with_texture_80060418(uint8_t* rdram, recomp_context* ctx);
+extern "C" void hud_widget_reset_80060104(uint8_t* rdram, recomp_context* ctx);
+
+// func_800ABE7C at 0x800AC134, after it tiled the attract background (0x800AC0E4-0x800AC130): "RUSH2" (0x800CB42C)
+// HUD elements at x = 12, 140, 268 and y = 10, 42, ... 202, each with +0x12 = -4, clipped to (12, 10)-(308, 230). The
+// copies are made right after the grid, so they draw behind the screen's other widgets. Each is a copy of a tile fully
+// on screen (middle column; top row, or the row at y = 170), shifted by whole tiles: 4 columns past each 4:3 edge
+// (512 pixels, more than a 32:9 window adds), the right column and bottom row redrawn whole, a row above the grid
+// and one more below it.
+extern "C" void rush2_title_background_tiles(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t tile_name = 0x800CB42C;
+    constexpr int32_t element_widget = 0x34; // s16: a HUD element's widget slot
+    constexpr int32_t tile_w = 128, tile_h = 32, middle_x = 140, top_y = 10, rows = 7, last_whole_y = 170;
+    auto add_copy = [&](int32_t y, int32_t dx, int32_t dy) {
+        recomp_context call = *ctx;
+        call.r4 = (gpr)(int32_t)tile_name;
+        call.r5 = middle_x;
+        call.r6 = y;
+        hud_widget_create_with_texture_80060418(rdram, &call);
+        int32_t element = (int32_t)call.r2;
+        if (element == 0) {
+            return false;
+        }
+        MEM_H(0x12, element) = (int16_t)0xFFFC;
+        call.r4 = (gpr)element;
+        hud_widget_reset_80060104(rdram, &call);
+        rush2::hud::set_widget_shift(MEM_H(element_widget, element), dx, dy);
+        return true;
+    };
+    // Columns past the 4:3 edges, on the grid's rows.
+    for (int32_t row = 0; row < rows; row++) {
+        for (int32_t column : { -4, -3, -2, 1, 2, 3, 4 }) {
+            if (!add_copy(top_y + row * tile_h, column * tile_w, 0)) {
+                return;
+            }
+        }
+    }
+    // A row above and two below, across every column.
+    for (int32_t column = -4; column <= 4; column++) {
+        if (!add_copy(top_y, column * tile_w, -tile_h) || !add_copy(last_whole_y, column * tile_w, tile_h) ||
+            !add_copy(last_whole_y, column * tile_w, 2 * tile_h)) {
+            return;
+        }
+    }
 }
 
 extern "C" void rush2_frame_clear_begin(uint8_t* rdram, recomp_context* ctx) {

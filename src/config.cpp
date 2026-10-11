@@ -17,6 +17,7 @@
 #include "rush2.h"
 #include "players4.h"
 #include "music.h"
+#include "pause_menu.h"
 #include "track1.h"
 #include "track2049.h"
 #include "collectibles.h"
@@ -574,6 +575,27 @@ static void add_torque_option(recomp::config::Config& config) {
         });
 }
 
+namespace pause_extras_option {
+    const std::string id = "pause_menu_extras";
+}
+
+// Pause menu extras: SKIP TRACK, the song box and the collectibles box (src/pause_menu.cpp).
+static void add_pause_extras_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        pause_extras_option::id,
+        "Pause Menu Extras",
+        "Adds <recomp-color primary>SKIP TRACK</recomp-color> to the pause menu, which plays another song. The menu "
+        "also shows the song playing and, racing alone, the keys, Dew cans or coins you've found on the track. "
+        "Off, the pause menu is Rush 2's. Takes effect at once, even while paused.",
+        true
+    );
+
+    config.add_option_change_callback(pause_extras_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::pause_menu::set_enabled(std::get<bool>(cur_value));
+        });
+}
+
 namespace data_location_option {
     const std::string id = "data_location";
     enum class DataLocation : uint32_t { AppData, Portable };
@@ -632,7 +654,7 @@ void rush2::init_config() {
             { "Controls", { general::options::rumble_strength, rumble_motors_option::id, general::options::joystick_deadzone,
                             steering_option::id, reverse_option::id } },
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id,
-                            catch_up_option::id, ghost_option::id, ghosts_kept_option::id } },
+                            catch_up_option::id, pause_extras_option::id, ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, data_location_option::id } },
         });
         namespace graphics = recompui::config::graphics;
@@ -641,7 +663,7 @@ void rush2::init_config() {
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
             { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::mode_option_id,
-                            rush2::upscale::command_option_id } },
+                            rush2::upscale::command_option_id, rush2::upscale::interface_option_id } },
         }, rush2::upscale::add_buttons);
     }
 
@@ -660,6 +682,7 @@ void rush2::init_config() {
     add_torque_option(general_config);
     add_stunt_gear_option(general_config);
     add_catch_up_option(general_config);
+    add_pause_extras_option(general_config);
     add_data_location_option(general_config);
 
     auto& graphics_config = recompui::config::create_graphics_tab();
@@ -717,6 +740,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(stunt_gear_option::id)));
     rush2::npc_cars::set_catch_up(std::get<bool>(
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
+    rush2::pause_menu::set_enabled(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(pause_extras_option::id)));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

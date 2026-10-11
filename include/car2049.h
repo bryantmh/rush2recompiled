@@ -3,7 +3,9 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "recomp.h"
 
@@ -54,6 +56,17 @@ namespace rush2::car2049 {
     // The number of paint jobs (car select STYLEs) of a car type: a 2049 car from a Dreamcast disc has its own, any
     // other car 0.
     int paint_jobs(int type);
+    // A Rush 2 car type drawn as one body, as a 2049 car is (a car mod's mesh, src/car_mods.cpp): its asset (0x1D +
+    // type) becomes `car`, a car container whose <prefix>FRAME1 is the body and whose other parts are empty, dented
+    // by the car's panel damage like a 2049 car's body. scuffed: the body's textures' damaged copies (file offset of
+    // the pristine texels -> the copy), which a damaged panel's triangles draw with. Rush 2's stripes aren't stamped
+    // on it. clear_body_car puts the type's own car back (`own`: the asset as it was before, empty = the ROM's).
+    void set_body_car(uint8_t* rdram, int type, std::vector<uint8_t> car, const std::string& prefix,
+                      const std::map<uint32_t, std::vector<uint8_t>>& scuffed);
+    void clear_body_car(uint8_t* rdram, int type, const std::vector<uint8_t>& own);
+    // 2049 car k's scuffed panel copies (asset file offsets: pristine texels -> their scuffed copy), which its damage
+    // points the body's loads at (rush2::catalog catalogs them as the panels' _D1 textures).
+    std::map<uint32_t, uint32_t> scuffed_texels(int k);
     // The "Rush 2049 Cars" option (Games tab): whether the car select offers the 2049 cars.
     void set_option(bool enabled);
     // True when the option is on and the Rush 2049 ROM is available.

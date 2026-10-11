@@ -55,6 +55,7 @@
 #include "players4.h"
 #include "battle.h"
 #include "odometer2049.h"
+#include "pause_menu.h"
 
 #include "recompui/recompui.h"
 #include "ultramodern/config.hpp"
@@ -117,12 +118,18 @@ namespace {
 
     // current_origin while a widget is stretched to the window; never equal to a real origin.
     constexpr uint16_t origin_stretched = 0xFFFF;
+    // current_origin while a widget is drawn shifted (rush2::hud::set_widget_shift), by (current_dx, current_dy).
+    constexpr uint16_t origin_shifted = 0xFFFE;
+    int32_t current_dx = 0;
+    int32_t current_dy = 0;
 
     // Whether each widget slot was last allocated by the race HUD setup.
     bool hud_slot[max_widgets];
     bool building_hud = false;
 
     uint16_t slot_origin[max_widgets];
+    int16_t slot_shift_x[max_widgets];
+    int16_t slot_shift_y[max_widgets];
     // Side by side: how far each widget is moved for the draw loop, and its position to restore afterwards.
     bool side_by_side = false;
     int quad_views = 0; // 3 or 4 while the race is drawn in quadrants.
@@ -314,6 +321,23 @@ namespace {
         count += 2;
         write_2d_commands(rdram, cmds, count);
         current_origin = origin_stretched;
+    }
+
+    // Shifts the next rectangles (dx, dy) pixels from where the game puts them, over the whole window. With the
+    // original aspect ratio the game's scissor stays, so nothing shows past what the 4:3 screen showed.
+    void shift_rect(uint8_t* rdram, int32_t dx, int32_t dy) {
+        if (current_origin == origin_shifted && current_dx == dx && current_dy == dy) {
+            return;
+        }
+        bool widescreen = ultramodern::renderer::get_graphics_config().ar_option != ultramodern::renderer::AspectRatio::Original;
+        GfxCommand cmds[6];
+        uint32_t count = begin_rect_align(cmds, widescreen);
+        gEXSetRectAlign(&cmds[count], G_EX_ORIGIN_NONE, G_EX_ORIGIN_NONE, dx * 4, dy * 4, dx * 4, dy * 4);
+        count += 2;
+        write_2d_commands(rdram, cmds, count);
+        current_origin = origin_shifted;
+        current_dx = dx;
+        current_dy = dy;
     }
 
     // Image fields.
@@ -1052,7 +1076,7 @@ void rush2::hud::draw_image(uint8_t* rdram, uint32_t address, int w, int h, floa
 }
 
 void rush2::hud::draw_image_part(uint8_t* rdram, uint32_t address, int w, int h, int src_x, int src_y, int src_w, int src_h,
-                                 float x0, float y0, float x1, float y1, float anchor, bool point) {
+                                 float x0, float y0, float x1, float y1, float anchor, bool point, uint8_t alpha) {
     if (MEM_W(0, (int32_t)dl_2d_cursor) == 0 || x1 <= x0 || y1 <= y0 || w <= 0 || h <= 0 || w * h > 2048 ||
         src_w <= 0 || src_h <= 0) {
         return;
@@ -1079,12 +1103,15 @@ void rush2::hud::draw_image_part(uint8_t* rdram, uint32_t address, int w, int h,
         count++;
     };
     gEXEnable(&cmds[count++]);
+    gEXPushPrimColor(&cmds[count++]);
     gEXPushOtherMode(&cmds[count++]);
     gEXPushCombineMode(&cmds[count++]);
     cmd(0xE7000000, 0);
-    // 1-cycle, bilinear (or point), translucent surface blending, no Z (draw_number's); color and alpha = the texel's.
+    // 1-cycle, bilinear (or point), translucent surface blending, no Z (draw_number's); color = the texel's, alpha =
+    // the texel's times the primitive's.
     cmd(0xEF000000 | (point ? 0x000CF0 : 0x002CF0), 0x00504240);
-    uint32_t c_sa = 15, c_sb = 15, c_m = 31, c_a = 1, a_sa = 7, a_sb = 7, a_m = 7, a_a = 1;
+    cmd(0xFA000000, 0xFFFFFF00u | alpha);
+    uint32_t c_sa = 15, c_sb = 15, c_m = 31, c_a = 1, a_sa = 1, a_sb = 7, a_m = 3, a_a = 7;
     cmd(0xFC000000 | (c_sa << 20) | (c_m << 15) | (a_sa << 12) | (a_m << 9) | (c_sa << 5) | c_m,
         (c_sb << 28) | (c_a << 15) | (a_sb << 12) | (a_a << 9) | (c_sb << 24) | (a_sa << 21) | (a_m << 18) | (c_a << 6) | (a_sb << 3) | a_a);
     constexpr uint32_t fmt_rgba = 0, siz_16b = 2, clamp = 2;
@@ -1101,6 +1128,60 @@ void rush2::hud::draw_image_part(uint8_t* rdram, uint32_t address, int w, int h,
     cmd(0xE1000000, ((uint32_t)start_s & 0xFFFF) << 16 | ((uint32_t)start_t & 0xFFFF));
     cmd(0xF1000000, ((uint32_t)std::lround(1024.0f * step_x) & 0xFFFF) << 16 | ((uint32_t)std::lround(1024.0f * step_y) & 0xFFFF));
     cmd(0xE7000000, 0);
+    gEXPopCombineMode(&cmds[count++]);
+    gEXPopOtherMode(&cmds[count++]);
+    gEXPopPrimColor(&cmds[count++]);
+    write_2d_commands(rdram, cmds, count);
+}
+
+void rush2::hud::push_scissor(uint8_t* rdram, float x0, float y0, float x1, float y1, float anchor) {
+    if (MEM_W(0, (int32_t)dl_2d_cursor) == 0) {
+        return;
+    }
+    uint16_t origin = (uint16_t)std::lround(std::clamp(anchor, 0.0f, 1.0f) * G_EX_ORIGIN_RIGHT);
+    // Coordinates relative to the origin's place on the 4:3 screen.
+    float shift = (float)origin * (float)screen_width / (float)G_EX_ORIGIN_RIGHT;
+    GfxCommand cmds[4];
+    uint32_t count = 0;
+    gEXEnable(&cmds[count++]);
+    gEXPushScissor(&cmds[count++]);
+    gEXSetScissor(&cmds[count], G_SC_NON_INTERLACE, origin, origin, (int)std::lround(x0 - shift), (int)std::lround(y0),
+        (int)std::lround(x1 - shift), (int)std::lround(y1));
+    count += 2;
+    write_2d_commands(rdram, cmds, count);
+}
+
+void rush2::hud::pop_scissor(uint8_t* rdram) {
+    if (MEM_W(0, (int32_t)dl_2d_cursor) == 0) {
+        return;
+    }
+    GfxCommand cmds[2];
+    uint32_t count = 0;
+    gEXEnable(&cmds[count++]);
+    gEXPopScissor(&cmds[count++]);
+    write_2d_commands(rdram, cmds, count);
+}
+
+void rush2::hud::call_list(uint8_t* rdram, uint32_t dl) {
+    if (MEM_W(0, (int32_t)dl_2d_cursor) == 0) {
+        return;
+    }
+    GfxCommand cmds[16];
+    uint32_t count = 0;
+    gEXEnable(&cmds[count++]);
+    gEXPushOtherMode(&cmds[count++]);
+    gEXPushCombineMode(&cmds[count++]);
+    gEXPushGeometryMode(&cmds[count++]);
+    gEXPushPrimColor(&cmds[count++]);
+    gEXPushViewport(&cmds[count++]);
+    gEXPushProjectionMatrix(&cmds[count++]);
+    cmds[count].values.word0 = 0xDE000000;
+    cmds[count].values.word1 = dl;
+    count++;
+    gEXPopProjectionMatrix(&cmds[count++]);
+    gEXPopViewport(&cmds[count++]);
+    gEXPopPrimColor(&cmds[count++]);
+    gEXPopGeometryMode(&cmds[count++]);
     gEXPopCombineMode(&cmds[count++]);
     gEXPopOtherMode(&cmds[count++]);
     write_2d_commands(rdram, cmds, count);
@@ -1127,6 +1208,13 @@ void rush2::hud::set_widget_scale(int slot, float scale_x, float scale_y, float 
         managed_scale_x[slot] = scale_x;
         managed_scale_y[slot] = scale_y;
         managed_origin[slot] = (uint16_t)std::lround(std::clamp(anchor, 0.0f, 1.0f) * G_EX_ORIGIN_RIGHT);
+    }
+}
+
+void rush2::hud::set_widget_shift(int slot, int32_t dx, int32_t dy) {
+    if (slot >= 0 && slot < (int)max_widgets) {
+        slot_shift_x[slot] = (int16_t)dx;
+        slot_shift_y[slot] = (int16_t)dy;
     }
 }
 
@@ -1185,6 +1273,8 @@ void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx) {
     uint32_t slot = (uint32_t)ctx->r3;
     if (slot < max_widgets) {
         hud_slot[slot] = building_hud;
+        slot_shift_x[slot] = 0;
+        slot_shift_y[slot] = 0;
     }
 }
 
@@ -1877,6 +1967,10 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
         stretch_rect(rdram);
         return;
     }
+    if (slot_shift_x[slot] != 0 || slot_shift_y[slot] != 0) {
+        shift_rect(rdram, slot_shift_x[slot], slot_shift_y[slot]);
+        return;
+    }
     set_rect_origin(rdram, managed_scale_x[slot] != 0.0f ? managed_origin[slot] : slot_origin[slot]);
     if (managed_scale_x[slot] != 0.0f) {
         if (MEM_W(widget_image, widget) != 0 && (managed_scale_x[slot] != 1.0f || managed_scale_y[slot] != 1.0f)) {
@@ -1927,6 +2021,7 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
             rush2::odometer2049::draw(rdram, p, (float)o.x, (float)o.y, o.scale, anchor);
         }
     }
+    rush2::pause_menu::draw(rdram, ctx);
     end_anchoring(rdram);
     if (inset_lifted) {
         MEM_H(0, (int32_t)clip_inset_x) = saved_inset_x;

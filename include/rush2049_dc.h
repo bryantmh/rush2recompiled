@@ -62,15 +62,19 @@ namespace rush2::rom2049::dc {
     bool image_file(uint64_t image_key, std::vector<uint8_t>& dds, uint64_t& content);
     // Just the key naming its contents (0: no such image), to skip reading a file RT64 has already.
     uint64_t image_content(uint64_t image_key);
+    // The disc's name of an image: its texture record's name (the first texture drawn with it). Empty if unknown.
+    std::string image_name(uint64_t image_key);
 
-    // Dump and install (Settings > Graphics > Your Own Upscales). dump_images writes the disc images in use as
-    // <key>.png into dir, counting them in done: those of the textures drawn under the RT64 hashes given and the
-    // images given (not the damaged car textures, which are made from the undamaged ones). 0 when no disc's images
-    // are built.
-    size_t dump_images(const std::filesystem::path& dir, const std::vector<uint64_t>& hashes,
-                       const std::vector<uint64_t>& image_keys, std::atomic<size_t>* done);
+    // Dump and install (Settings > Graphics > Your Own Upscales). dump_images writes every disc image as
+    // <disc file>/<texture name>.png into dir (docs/asset_catalog.md), counting them in done, except the damaged car
+    // textures, which are made from the undamaged ones, and, without interface, the interface files' (HUD, HUDBATTLE,
+    // SELCAR, SELTRK). named gets each image's path (no extension) and key. 0 when no disc's images are built.
+    size_t dump_images(const std::filesystem::path& dir, bool interface, std::atomic<size_t>* done,
+                       std::vector<std::pair<std::string, uint64_t>>* named = nullptr);
     // Whether key names a disc image, and its full-size original.
     bool is_image(uint64_t key);
+    // Whether the disc's images are built and loaded, so match and dump_images can answer.
+    bool images_ready();
     bool original_image(uint64_t key, rush2::upscale::Image& image);
     // Replaces the player's installed upscales: begin, add each, then end (which puts them in use).
     void begin_upscales();

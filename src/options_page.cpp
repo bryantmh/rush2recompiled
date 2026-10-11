@@ -100,6 +100,19 @@ namespace rush2::ui {
         return { row, note_label };
     }
 
+    Label* OptionsPage::add_option_status(const std::string& option_id) {
+        for (const Row& r : rows) {
+            if (r.element->get_option_id() != option_id) continue;
+            Label* label = get_current_context().create_element<Label>(r.element, "", theme::Typography::Body);
+            label->set_position(Position::Absolute);
+            label->set_top(8.0f);
+            label->set_right(12.0f);
+            label->set_color(theme::color::TextDim);
+            return label;
+        }
+        return nullptr;
+    }
+
     Element* OptionsPage::add_row(const std::string& description) {
         ContextId context = get_current_context();
         Element* row = context.create_element<FocusRow>(list, text_shower(description));

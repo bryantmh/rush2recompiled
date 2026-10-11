@@ -48,6 +48,9 @@ namespace rush2::ui {
         // shows on the right while the row is hovered or focused.
         recompui::Element* add_row(const std::string& description = "");
         void add_option(recomp::config::Config& config, const std::string& option_id);
+        // Dim status text in the top right corner of an added option's row (what it's doing in the background), laid
+        // over the row so showing or clearing it moves nothing. Null if the option isn't on the page.
+        recompui::Label* add_option_status(const std::string& option_id);
         recompui::Element* get_list() { return list; }
         void set_default_description(const std::string& text);
         // Runs once per frame while the page is open (to show progress of work done in the background).

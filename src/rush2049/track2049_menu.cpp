@@ -444,6 +444,11 @@ namespace {
         }
     }
 
+    std::mutex catalog_menu_mutex;
+    std::shared_ptr<const rush2::rom2049::Source> catalog_menu_rom;
+    std::shared_ptr<const std::vector<uint8_t>> catalog_menu_rom1;
+    std::vector<uint8_t> catalog_menu;
+
     // Turns an added track's menu id into its host slot for the race.
     void enter_race(uint8_t* rdram) {
         int t = (int8_t)MEM_B(0, (int32_t)track_id);
@@ -497,6 +502,27 @@ namespace {
 
 // func_803AB294 at 0x803AB5C0, once per track select visit: the initial track is chosen and the screen's assets are
 // about to load. $s0 = &track id.
+bool rush2::track2049::catalog_menu_container(std::vector<uint8_t>& out) {
+    auto rom = available() ? rush2::wings::get_rom() : nullptr;
+    auto rom1 = rush2::track1::available() ? rush2::track1::get_rom() : nullptr;
+    if (rom == nullptr && rom1 == nullptr) return false;
+    std::lock_guard lock{ catalog_menu_mutex };
+    if (catalog_menu.empty() || catalog_menu_rom != rom || catalog_menu_rom1 != rom1) {
+        // As serve_menu_container builds it, into a copy of our own (the game's may be in use).
+        catalog_menu.clear();
+        catalog_menu_rom = rom;
+        catalog_menu_rom1 = rom1;
+        uint8_t* rdram = rush2::assets::rdram();
+        std::vector<uint8_t> asset3, with_2049;
+        if (rdram == nullptr || !rush2::assets::read_original(rdram, 3, asset3)) return false;
+        if (rom != nullptr && !build_menu_container(asset3, *rom, with_2049)) with_2049.clear();
+        const std::vector<uint8_t>& base = with_2049.empty() ? asset3 : with_2049;
+        if (rom1 == nullptr || !rush2::track1::extend_menu_container(base, *rom1, catalog_menu)) catalog_menu = with_2049;
+    }
+    out = catalog_menu;
+    return !out.empty();
+}
+
 void rush2::track2049::prepare_menu_art(uint8_t* rdram) {
     std::lock_guard lock{ menu_mutex };
     serve_menu_container(rdram);

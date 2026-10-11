@@ -96,10 +96,13 @@ Data:
 ### 2.4 Texture record (0x20) and palette record (0x18)
 
 **Texture record:**
-- `char name[16]`, `u16 w`, `u16 h`, `u8 fmt`, `u8 siz`, `s16 palette index` (into the same slot's palette table,
+- `char name[16]`, `u16 w`, `u16 h`, `u8`, `u8`, `s16 palette index` (into the same slot's palette table,
   −1 = none), `u32 data`, `u32 flags`.
-- `data` points either at texels or at a **texture-load list** (e.g. NYONE `CHKPNT` → a list in [7]..[8] that starts
-  with `FD…`). The loader adds the base to +0x18.
+- `data` points either at texels (flag 0x08000000 set) or at a **texture-load list** (clear; e.g. NYONE `CHKPNT` → a
+  list in [7]..[8] that starts with `FD…`, or asset 0x12's `RIM01`-`RIM21`). The loader adds the base to +0x18.
+- For texels, **+0x14 is siz and +0x15 fmt** (Rush 2's car records: `01 02` = CI8); flags 0x10000 / 0x20000 clamp
+  S / T, 0x40000 / 0x80000 mirror them. Details and the palette record's first / last bytes: docs/asset_catalog.md,
+  Texture records and the builder.
 - Fields read by `func_8007825C`: +0x10, +0x12, +0x14, +0x15, +0x16, +0x18, +0x1C.
 
 **Palette record:** `char name[16]`, `u32 0x000F8000` (or `0x00FFC000` in 2049), `u32 palette data`. The loader

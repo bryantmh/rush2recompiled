@@ -41,6 +41,10 @@ namespace rush2::track2049 {
     // The track select's 38-entry diorama tables and asset 3 with the added tracks' dioramas (src/rush2049/track2049_menu.cpp),
     // for screens other than the track select that show them (the unlock system's shop): call before loading asset 3.
     void prepare_menu_art(uint8_t* rdram);
+    // Asset 3 as the track select gets it (with the added tracks' art), built here when the game hasn't yet: for the
+    // catalog (rush2::catalog), which dumps every texture the game can draw whichever menus have been opened. Any
+    // thread. False when no other game's tracks are offered (asset 3 is Rush 2's own).
+    bool catalog_menu_container(std::vector<uint8_t>& out);
     // Track select entry t's diorama model name (in RDRAM) and scale, once prepare_menu_art ran.
     uint32_t diorama_name(uint8_t* rdram, int t);
     float diorama_scale(uint8_t* rdram, int t);

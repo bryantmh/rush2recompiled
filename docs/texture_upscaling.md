@@ -39,7 +39,7 @@ Real-ESRGAN modes (ncnn-vulkan, `realesr-animevideov3`, downloaded on first use)
 
 What's left of it:
 
-- At startup, the recomp deletes the files the ESRGAN modes left: `texture_upscale/realesrgan` and the `esrgan_*`
+- At startup, the recomp deletes the files the ESRGAN modes left: `texture_upscale/realesrgan` (at migration) and the `esrgan_*`
   cache folders.
 - Saved configs map `Esrgan2x` to HQ2x and `Esrgan4x` to HQ4x (`on_json_parse_option`).
 
@@ -56,10 +56,17 @@ framebuffer copies, raw TMEM fallbacks and extended-GBI replacement IDs. The cal
 The rules:
 
 - **Drawn in 2D:** any texture drawn under a rectangle, orthographic or LLE-triangle projection counts as UI and is
-  never upscaled. That covers the HUD, menus, fonts and 2D images.
+  not upscaled (unless Upscale Interface is on, below). That covers the HUD, menus, fonts and 2D images.
   - If it was upscaled already, its live replacement is removed.
-  - Its content key is added to `texture_upscale/ui_textures.txt` so later sessions skip it as well.
+  - Its content key is added to `asset_dump/ui_textures.txt` so later sessions skip it as well.
   - Adding a key to that file by hand (the first 16 characters of a dumped file name) excludes a texture.
+- **Interface art drawn in 3D:** a texture only in the catalog's interface containers (`rush2::catalog::ui_path`:
+  `menus/`, `hud/`, `maps/`, `stunt/icons`; one also on a car or track isn't) counts as UI too, such as HUD pieces drawn
+  with a perspective projection. `take_jobs` asks `rush2::derive::interface_texture` before upscaling anything, so it
+  waits for the derive index (built from the catalog at the first draw).
+- **Upscale Interface** (Settings > Graphics > Textures, off by default, takes effect at once): on, UI textures are
+  upscaled like the rest, 2D draws included (`set_ui` requeues every texture), get derived replacements, and Dump
+  Textures writes them.
 - **Drawn in 3D:** a texture is kept once it has been drawn under a perspective projection on 3 separate submission
   frames. This skips textures that only exist for one frame. On that frame it is decoded from TMEM on the CPU with a
   port of `sampleTMEM` from RT64's `TextureDecoder.hlsli` (`decode_tmem`), so the pixels match RT64's own decode.
@@ -100,6 +107,51 @@ error was 5, mostly from ESRGAN itself treating red and blue slightly differentl
 
 This covers any texture the game recolors through its palette, not only cars. Rush 2's stamped stripes change the
 indices, so each stripe pattern is its own base.
+
+### Rush 2 car paint bases (paint_preview, recolor_paint)
+
+A Rush 2 car body texture has no palette in its file (the game writes it: the paint). The palette is 8 ramps of 32:
+MAIN COLOR 1-31, ACCENT COLOR 33-63, the rest fixed colors or stripe targets (`car_palette_classify_800854AC`, the same
+table for every car, the DEW's included). `rush2::catalog::paint_base` picks these textures: painted CI8 (siz 1) ones
+from Rush 2's own `cars/` containers.
+
+**The catalog's image** is gray: entry i as the 5-bit gray i & 31 (docs/asset_catalog.md). Keys, names and packs go by
+it. CARPALETTE's ramps run from light at entry 1 (230) to black at 30-31, so that image is a negative of the paint
+(light paint dark, black trim (191) white, the glass (0) gray 0), and MAIN, ACCENT and the fixed colors share the grays.
+An upscale of it can't say where MAIN ends and ACCENT begins: the game's paint borders fell back to the N64 texels, a
+staircase past the player's smooth outlines (a user's Hotrod flames, a thin accent line).
+
+**Dump Textures [V, 2026-10-11]** writes `rush2::catalog::paint_preview` for these instead: CARPALETTE with MAIN's ramp
+violet (160, 80, 255) and ACCENT's yellow (255, 215, 40), each entry the paint times CARPALETTE's gray over 230, the
+fixed colors as they are, opaque. No fixed entry has those hues (they are grays, reds, oranges, greens and the glass's
+dark navy; a blue MAIN was tried first and its darker shades matched the glass). `paint_preview_palette` reads
+CARPALETTE from the cars/stripes container (asset 0x1C). The dump's README tells players what the colors mean. Install
+is unchanged: an upscale is still listed under the gray image's key.
+
+**Replacements:** `Base::preview` holds the same preview. `made_from` scales an upscale down to the base's size and
+picks whichever of the preview and the gray image it is closer to, so both kinds of upscale work and no pack needs
+converting:
+- an upscale of the preview: `recolor` from the preview, whose colors tell the paints apart, so the borders follow the
+  upscale;
+- an upscale of the gray image (dumps before this): `recolor_paint`. `recolor` with grays picked texels of the wrong
+  ramp (white specks and ragged edges in a hand upscale's Hotrod flames, a stray red line along the BMW BMD0_1 body
+  curve). `recolor_paint` takes each pixel's four texels around it, weighted bilinearly and by how close each texel's
+  gray is to the pixel's (width 40 grays, so a glass pixel beside paint stays glass). A texel on MAIN or ACCENT gives
+  its ramp's color at the shade the pixel's gray reads as, interpolated between entries (entries the drawn texture
+  doesn't use are interpolated from the nearest ones it does); a fixed-color texel gives `recolor`'s pixel. The borders
+  between MAIN and ACCENT still follow the texels: the gray image has no more to give.
+
+Both go through `Deriver::recolor`: `derive` (same-size matches with the drawn indices; other matches take their old
+colors from `made_from`'s image) and both recolors in `derive_stripes`.
+
+**Checked [V, 2026-10-11]:** in a copy of the build, a race with the Concept and the user's gray pack drew it painted;
+after Dump, nearest-neighbor 2x upscales of the 506 Rush 2 car previews and Install, the Concept drew in its own yellow,
+not the preview's colors (census: 98 derived, none untraced). Offline, `recolor` from a Lanczos upscale of the Hotrod
+HOT_D0_1 preview came within a mean error of 2.1 of the painted panel upscaled directly.
+
+Tests: `tools/texture_upscale_test.cpp` (a synthetic gray panel: on hq2x `recolor_paint` stays within 1.5 mean error
+and a couple of pixels of `recolor`), and real panels with `tools/rush1/paint_case.py CAR TEXTURE DIR` (gray, preview,
+painted and indices) then `upscale_test --paint DIR UPSCALE.png`, which writes every recolor to compare.
 
 ## Live replacements (RT64 patch)
 
@@ -188,43 +240,154 @@ The RT64 patch now handles them this way:
 
 ## Your own upscales (Dump / Install)
 
-The buttons are Dump Textures and Dump New Textures in one row, and Open Dump Folder and Install Upscaled in a second,
-under the "Your Own Upscales" heading. Each row is a `rush2::ui::FocusRow` (`OptionsPage::add_row`), which scrolls into
-view when a button in it takes focus, so the controller can reach the buttons.
+**Folders:** everything lives in `<app folder>/asset_dump` (`asset_dump_dir`):
+- `textures/` holds Dump Textures' images, a folder per game.
+- `models/` holds Dump Models' .glb files (docs/asset_catalog.md).
+- `user_texture_pack/` holds the player's upscales, in the same folders as the dump.
+- `generated_texture_cache/` holds what the game makes on its own:
+  - the upscaling modes' results (`hq2x`, `hq4x`, `custom`);
+  - the Custom upscaler's `work` files;
+  - `dreamcast`, the installed upscales of the disc's images, made only when there are some.
+- `ui_textures.txt` sits at the top.
 
-**Dump New Textures** does the same dump, then moves every dumped PNG whose key has a file in the matching
-`upscaled/<folder>` to `texture_upscale/originals/<folder>` (`move_upscaled_out`), so the dump folders hold only the
-images still to upscale and can be handed to the upscaler as they are. `hashes.txt` keeps every entry, and Install
-Upscaled reads the original for alpha from the dump or from `originals`. Its button shows how many images are left. A
-plain Dump Textures afterwards writes the moved images back into the dump.
+The installed pack is `mods/rush2_custom_textures.rtz`, the one file to share.
 
-**Dump Textures** runs in the background (the note under the heading shows its progress). It writes every kept 3D
-texture of the session that isn't already in the folder as `texture_upscale/dump/<game>/<key>.png`, in a folder per
-game the texture was loaded from (`rush2`, `sfrush`, `rush2049`; `rush2::origin`, docs/rush2049_research/dreamcast.md
-Texture origin), and the Rush 2049 Dreamcast disc's images drawn in the session into `dump/rush2049dc`, at the disc's
-size, damaged car textures left out: with the disc as the source every image it drew, with the N64 ROM (and Dreamcast
-Textures on) the images matched to N64 textures. The images are unpadded so they are clean to edit.
-It also merges each folder's `hashes.txt`, which maps each key to the RT64 hashes it was drawn under, and writes
-`dump/README.txt`. Dumps from several sessions add up. Car paint variants are dumped as separate images; a pack only
-replaces the variants it has. `RUSH2_TEXTURE_DUMP=<seconds>` presses it that long after boot (for tests).
+**Migration [V, 2026-10-11]:** the migrations run on the upscaler's worker thread before it takes any work, so they
+never hold up the window (a player doesn't know they are there); Dump and Install wait for them (`wait_migrated`).
+`tools/startup_time.py` times a launch line by line. `migrate_folders` moves the older layout:
+- `texture_upscale/dump` and `texture_upscale/originals` go to `textures` (a dump always holds every image, so Dump
+  New Textures' originals go back in it);
+- `texture_upscale/upscaled` goes to `user_texture_pack`;
+- `texture_upscale/cache` goes to `generated_texture_cache`, and `texture_upscale/dreamcast` to its `dreamcast`;
+- `work` and `realesrgan` are deleted;
+- `texture_upscale` itself is removed once empty;
+- the old share copy `texture_upscale/rush2_custom_textures.rtz` is deleted.
 
-**Install Upscaled** reads `texture_upscale/upscaled/<the same folders>` (and the top of `upscaled`, where dumps from
-before the per-game folders went). Any size and any format stb_image reads are accepted, and names only need to start
-with the key, so suffixes such as Gigapixel's are fine. Upscales in `upscaled/rush2049dc` of the disc's images go to the
-Dreamcast Textures instead (`texture_upscale/dreamcast`), drawn wherever the disc's images are. For the rest it then:
+A pack folder `mods/rush2_custom_textures` (one holding `mod.json`, from builds that installed a folder) is left as it
+is: it loads as a folder mod. The next Install removes it as it puts the .rtz in (`replace_pack`). It used to be
+zipped at startup, before the window opened.
 
-1. Restores alpha from the dumped original.
-2. Writes each image as a DDS with mips into the folder mod `mods/rush2_custom_textures`, along with `rt64.json` and
-   `mod.json`.
-3. Rescans the mods and enables the pack.
-4. Writes `texture_upscale/rush2_custom_textures.rtz` as a copy to share.
+Then `migrate_names_on_disk` moves key-named upscales (the pushed builds named them by key) to the names in the last
+dump's `names.txt` (docs/asset_catalog.md, Texture dump).
 
-The pack is a folder rather than an .rtz so that installing again can't fail on a pack file RT64 has open on Windows.
+**Buttons:** under the "Your Own Upscales" heading:
+- one row: Dump Textures, Dump Models;
+- a second row: Open Dump Folder (opens `asset_dump`), Install Upscaled Textures.
+
+Each row is a `rush2::ui::FocusRow` (`OptionsPage::add_row`), which scrolls into view when a button in it takes focus,
+so the controller can reach the buttons.
+
+**Status:** each button shows its own progress. What the upscaling mode is doing ("Upscaling textures...", or the
+Custom upscaler's last problem, kept to one line) shows in the top right corner of the Texture Upscaling option
+(`OptionsPage::add_option_status`). The label is laid over the row, so it moves nothing.
+
+**Dump Textures** runs in the background. It writes every texture of every model the game can draw, read from the ROMs
+and named after the model file and model (docs/asset_catalog.md, Texture dump):
+`textures/<game>/<file path>/<name>.png`, in a folder per game the texels come from (`rush2`, `sfrush`, `rush2049`).
+- Only the ROMs' textures: nothing a session drew. `textures` is deleted and written afresh, so it is the same whatever
+  has been played. What the game makes from these as it runs is replaced from their upscales (Derived replacements).
+- Interface containers (`menus/`, `hud/`, `maps/`, `stunt/icons`) and the disc's HUD, HUDBATTLE, SELCAR and SELTRK
+  files are left out unless Upscale Interface is on. A texture they share with a car or track is dumped under that.
+- Every image of the Rush 2049 Dreamcast disc goes into `textures/rush2049dc` at the disc's size, as
+  `<disc file>/<texture name>.png`, damaged car textures left out.
+- The images are unpadded so they are clean to edit.
+- It writes each folder's `names.txt` (path -> key) and `hashes.txt` (key -> the catalog's RT64 hash), and
+  `textures/README.txt`.
+- `RUSH2_TEXTURE_DUMP=<seconds>` presses it that long after boot (for tests), then Install with
+  `RUSH2_TEXTURE_INSTALL=1`.
+
+**Install Upscaled Textures** reads `user_texture_pack/<the same folders>` with their subfolders, plus the top of it,
+where dumps from before the per-game folders went.
+- Any size and any format stb_image reads are accepted.
+- A file name only needs to start with the dumped image's name (or, for an image without one, its key), so suffixes
+  such as Gigapixel's are fine.
+- **Flat folders:** the folders inside a game folder are optional. A file whose path matches no dumped path is matched
+  by its file name alone, the longest dumped file name it starts with (`by_file` in `install`). Dumped file names are
+  unique in a game folder for this (docs/asset_catalog.md, Names), so an upscaler that writes a whole game's images
+  into one folder (Gigapixel) still installs: `user_texture_pack/rush2/1STPLACE~pause_2-gigapixel.png` is
+  `hud/pause_2/1STPLACE~pause_2`. Checked on a copy of a real folder with 1,948 flat `rush2` upscales: every one
+  matched a name, and Install packed 1,407 `rush2` textures. The rest are car paint bases, installed through their
+  paint jobs, and copies the upscaler made of names that used to repeat (`1STPLACE-2`).
+- Upscales of the disc's images in `user_texture_pack/rush2049dc` go to the Dreamcast Textures instead
+  (`generated_texture_cache/dreamcast`), drawn wherever the disc's images are.
+
+For the rest it then:
+1. Restores alpha from the dumped original (`textures/`), and lists the image under its RT64 hashes and its content
+   key (for the derived replacements, which find a texture's upscale by either).
+2. Builds the pack in memory (`ZipWriter`): each image as a DDS with mips, plus `rt64.json` and `mod.json`, written to
+   `mods/rush2_custom_textures.rtz.new`.
+3. Swaps it in (`replace_pack`). Windows can't replace an open file, and two things hold the old pack: RT64
+   memory-maps it and the mod context keeps it open. So it has the renderer drop the pack
+   (`secondary_disable_texture_pack`), closes the mods (`close_mods`), renames the new file over the old one (retrying
+   for up to 5 s while the renderer lets go), and turns the pack back on (`secondary_enable_texture_pack`). With no
+   upscales left, the old pack is deleted instead.
+4. Rescans the mods, enables the pack and refreshes the textures.
+
+RT64 used to keep a zip pack mapped after its replacements were cleared: `ReplacementMap::clear` now also drops the
+pack's file systems (lib/patches/rt64.patch). During the swap RT64 may log "Failed to identify" for the pack once.
+`user_texture_pack` holds the player's source images; `mods/rush2_custom_textures.rtz` is the built pack RT64 loads.
+
+## Derived replacements
+
+A texture pack replaces textures by their RT64 hash, and the dump has the hash of every texture the ROMs hold. What the
+game draws besides those is always one of them changed at run time (docs/asset_catalog.md, Textures made at run time):
+another palette, stripes stamped over, a copy elsewhere in RDRAM, a strip of a big image, a tile taller than its load.
+`rush2::derive` (src/texture_derive.cpp) gives each of those a replacement made from its source's upscale, live, so a
+pack of the dumped images replaces everything the game draws.
+
+- **Packs:** every enabled mod with an `rt64.json` (`.rtz` or folder), read at the first 3D draw and again after Install
+  (`packs_changed`), and whenever a pack is enabled, disabled or reordered in the Mods menu (the texture pack content
+  type's callbacks in src/main.cpp; before that, toggling a pack changed only the textures it replaces by hash, so a
+  Rush 2 car's repainted panels kept whatever they had at the first draw). Images are found by RT64 hash or by content
+  key (Install lists both). A zip is opened only while a
+  batch reads it, as Windows can't replace an open .rtz.
+- **Index:** at the first 3D draw, the catalog's textures (rush2::catalog, the same as the dump: 11,000 with all three
+  ROMs and a disc) and their row pieces (8 texels of palette indices, or colors, keyed with the width and x), about
+  800,000, built in under a second. It is built again when the game's assets change (`rush2::assets::generation`) and a
+  texture didn't trace.
+- **Tracing** a texture drawn that no pack replaces by its hash (once per hash, 3D and 2D, on a worker thread):
+  1. its content key, then its palette indices (`index_key`);
+  2. else the base and row offset most of its row pieces agree on (at least a quarter of them): stamped panels, copies,
+     strips, taller tiles.
+- **Making the replacement** from the base's upscale (scaled to a whole multiple of the base's size):
+  - Exact rows of the base (the same image, or a strip of a big one): the base's upscale as the region of it the
+    texture is (`RT64::ReplacementRegion`), uploaded once for every strip.
+  - A Rush 2 car panel with stripes (`derive_stripes`): the stripe tile and threshold (15, 7, 4 or 3 by detail level)
+    whose stamp covers the changed texels, each palette index's paint and stripe colors from the drawn texels, the
+    panel's upscale recolored to each, blended by the stripe tile's upscale (its own when a pack has one), so the
+    stripes' edges come from the stripe tile's upscale.
+  - Anything else: the base's rows recolored to the drawn colors (`recolor`), rows past the base's ends from the drawn
+    texels scaled up.
+- **Car model mods** (docs/car_mods.md): a mod car's stand-in textures are registered with `set_mod_textures` by
+  their `index_key`. `mod_replace` runs before tracing, and replaces each stand-in drawn with the mod's full-size
+  image (`paint_mod`). The mask's red takes MAIN COLOR and green ACCENT COLOR, read from the stand-in's texels 0 and
+  1 (entries 1 and 33). The scuffed stand-in gets the same image mottled darker. The upscaling modes skip stand-ins.
+- **Precedence:** a pack's own image for the hash wins (RT64 prefers packs over live replacements). The upscaling modes
+  leave derived hashes alone (`owns`).
+- **Interface:** with Upscale Interface off, a texture drawn in 2D, or traced to an interface-only base, gets nothing
+  (outcome `Interface`). Changing the option derives everything again. A mode change clears every live replacement, so
+  it has the derived ones made again too (`packs_changed`).
+
+**Texture census** (a test aid): `RUSH2_TEXTURE_CENSUS=<file>` records every texture drawn (3D and 2D) with the bytes
+it was loaded from, and at `RUSH2_TEXTURE_DUMP`'s time writes, instead of dumping, the ones the catalog can't name by
+key or indices with where their bytes sit in the containers (`tools/texture_census.py OUT STEP...` races one track per
+track select step). With a pack enabled each line also says what became of the texture: pack, derived, no upscale of
+its base, not traced, interface (left alone), or too small or flat (never dumped, `worth_upscaling`), with totals on
+the last line.
+
+**Checked [V, 2026-10-11]:** with `tools/fake_upscales.py --tint --flat` (a magenta-tinted stand-in for every dumped
+texture, saved flat) installed and Upscale Interface off, a race drew 1,110 textures: 455 replaced by the pack, 283
+derived, 164 interface left alone, 208 too small or flat, none untraced or missing an upscale. The screenshots show
+every 3D surface tinted and the HUD as it was. Before Upscale Interface, six tracks of all three games came out the
+same (pack or derived for every texture worth upscaling).
+
+The dump waits for the Dreamcast disc's images when it names 2049 textures after them (`images_ready`): a dump made
+before they were built named 455 textures differently, and upscales of one didn't install with the other.
 
 ## Caveats
 
-- UI detection goes by projection type. A 2D element drawn with a perspective projection would be upscaled; add its
-  key to `ui_textures.txt`.
+- UI detection goes by projection type and the catalog's interface containers. Interface art outside them drawn with a
+  perspective projection would be upscaled; add its key to `ui_textures.txt`.
 - In this container, only the parts below have been built and tested; the full Windows build hasn't been run.
   - Built: the image code (`tools/texture_upscale_test.cpp`: decoding, hqx, recoloring, the garbage check, DDS,
     cancelling a command, and pack files).

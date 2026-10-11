@@ -26,8 +26,8 @@
 // than the texture. Results are kept in matches_<version> (N64 content key, image key) so each texture is compared
 // once.
 //
-// The player's upscales of the disc images (Install Upscaled, from the rush2049dc dump) are kept in
-// <app folder>/texture_upscale/dreamcast/<key>.dds and linked into the folder's "upscaled" directory, where rt64.json
+// The player's upscales of the disc images (Install Upscaled Textures, from the rush2049dc dump) are kept in
+// <app folder>/asset_dump/generated_texture_cache/dreamcast/<key>.dds (made only when there are some) and linked into the folder's "upscaled" directory, where rt64.json
 // and image_file use them in place of the disc's.
 
 #include <algorithm>
@@ -59,7 +59,7 @@ using rush2::rom2049::dc::Match;
 using rush2::rom2049::dc::TextureMode;
 
 namespace {
-    constexpr const char* format = "v2"; // of the folder's files; a new one rebuilds it
+    constexpr const char* format = "v3"; // of the folder's files; a new one rebuilds it
     constexpr const char* matches_file = "matches_v4"; // named for the matcher that made them
     constexpr int thumb_size = 8;
     constexpr size_t thumb_bytes = thumb_size * thumb_size * 4;
@@ -72,6 +72,7 @@ namespace {
         uint8_t flags = 0;
         uint8_t thumb[thumb_bytes] = {};
         std::vector<std::pair<uint64_t, bool>> hashes; // RT64 hash, whether that texture is scaled down
+        std::string name, file; // The first texture's record name and disc file (no extension), for the dumps.
     };
 
     std::filesystem::path pack_dir() {
@@ -79,7 +80,7 @@ namespace {
     }
 
     std::filesystem::path upscale_store() {
-        return recomp::get_config_path() / "texture_upscale" / "dreamcast";
+        return upscale::generated_cache_dir() / "dreamcast";
     }
 
     std::string stamp_of(const rush2::rom2049::Source& source) {
@@ -298,6 +299,8 @@ namespace {
                 info.key = key;
                 info.w = image.width;
                 info.h = image.height;
+                info.name = t.name;
+                info.file = t.file.substr(0, t.file.rfind('.'));
                 make_thumb(image, info.thumb);
                 made.push_back(std::move(info));
             }
@@ -308,11 +311,15 @@ namespace {
         std::vector<uint8_t> out;
         auto put = [&](const void* p, size_t n) { out.insert(out.end(), (const uint8_t*)p, (const uint8_t*)p + n); };
         uint32_t count = (uint32_t)made.size();
-        put("DCI2", 4);
+        put("DCI3", 4);
         put(&count, 4);
         for (const ImageInfo& info : made) {
             uint32_t nh = (uint32_t)info.hashes.size();
             put(&info.key, 8); put(&info.w, 4); put(&info.h, 4); put(&info.flags, 1); put(info.thumb, thumb_bytes);
+            for (const std::string* s : { &info.name, &info.file }) {
+                uint8_t n = (uint8_t)std::min<size_t>(s->size(), 255);
+                put(&n, 1); put(s->data(), n);
+            }
             put(&nh, 4);
             for (const auto& [hash, shrunk] : info.hashes) {
                 uint8_t s = shrunk;
@@ -340,12 +347,25 @@ namespace {
         };
         char magic[4];
         uint32_t count = 0;
-        if (!get(magic, 4) || memcmp(magic, "DCI2", 4) != 0 || !get(&count, 4)) return false;
+        if (!get(magic, 4) || memcmp(magic, "DCI3", 4) != 0 || !get(&count, 4)) return false;
         for (uint32_t i = 0; i < count; i++) {
             ImageInfo info;
             uint32_t nh = 0;
             if (!get(&info.key, 8) || !get(&info.w, 4) || !get(&info.h, 4) || !get(&info.flags, 1) ||
-                !get(info.thumb, thumb_bytes) || !get(&nh, 4) || nh > in.size()) {
+                !get(info.thumb, thumb_bytes)) {
+                unload();
+                return false;
+            }
+            for (std::string* s : { &info.name, &info.file }) {
+                uint8_t n = 0;
+                if (!get(&n, 1) || o + n > in.size()) {
+                    unload();
+                    return false;
+                }
+                s->assign((const char*)&in[o], n);
+                o += n;
+            }
+            if (!get(&nh, 4) || nh > in.size()) {
                 unload();
                 return false;
             }
@@ -615,31 +635,55 @@ bool rush2::rom2049::dc::image_file(uint64_t key, std::vector<uint8_t>& dds, uin
     return !dds.empty();
 }
 
-size_t rush2::rom2049::dc::dump_images(const std::filesystem::path& dir, const std::vector<uint64_t>& hashes,
-                                       const std::vector<uint64_t>& image_keys, std::atomic<size_t>* done) {
-    std::vector<uint64_t> keys;
+std::string rush2::rom2049::dc::image_name(uint64_t key) {
+    std::lock_guard lock{ mutex };
+    auto it = by_key.find(key);
+    return index_ready && it != by_key.end() ? images[it->second].name : std::string();
+}
+
+size_t rush2::rom2049::dc::dump_images(const std::filesystem::path& dir, bool interface, std::atomic<size_t>* done,
+                                       std::vector<std::pair<std::string, uint64_t>>* named) {
+    std::vector<std::pair<uint64_t, std::string>> keys; // With their paths.
     {
         std::lock_guard lock{ mutex };
         if (!index_ready) return 0;
-        std::set<uint64_t> used(image_keys.begin(), image_keys.end());
-        for (uint64_t hash : hashes) {
-            auto it = by_hash.find(hash);
-            if (it != by_hash.end()) used.insert(it->second);
-        }
+        std::set<uint64_t> used;
+        for (const auto& [key, at] : by_key) used.insert(key);
+        // Named <disc file>/<texture name>, "~2"... for another image of the same name; by key when it has none.
+        std::set<std::string> taken;
+        auto safe = [](const std::string& s) {
+            std::string o;
+            for (char c : s) o += (isalnum((unsigned char)c) || c == '_' || c == '-' || c == '.') ? c : '_';
+            return o;
+        };
         for (uint64_t key : used) {
             auto it = by_key.find(key);
-            if (it != by_key.end() && !(images[it->second].flags & flag_damaged)) keys.push_back(key);
+            if (it == by_key.end() || (images[it->second].flags & flag_damaged)) continue;
+            const ImageInfo& info = images[it->second];
+            if (!interface && (info.file == "HUD" || info.file == "HUDBATTLE" || info.file == "SELCAR" ||
+                               info.file == "SELTRK")) {
+                continue; // Interface art (Upscale Interface off).
+            }
+            std::string path = upscale::key_name(key);
+            if (!info.name.empty()) {
+                std::string base = (info.file.empty() ? std::string() : safe(info.file) + "/") + safe(info.name);
+                path = base;
+                for (int n = 2; taken.count(path); n++) path = base + "~" + std::to_string(n);
+            }
+            taken.insert(path);
+            keys.emplace_back(key, path);
         }
     }
     std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    for (uint64_t key : keys) {
-        std::filesystem::path png = dir / (upscale::key_name(key) + ".png");
+    for (const auto& [key, path] : keys) {
+        std::filesystem::path png = dir / std::filesystem::u8path(path + ".png");
         upscale::Image image;
         if (!std::filesystem::exists(png, ec) &&
             upscale::read_dds(upscale::read_file(pack_dir() / (upscale::key_name(key) + ".dds")), image)) {
+            std::filesystem::create_directories(png.parent_path(), ec);
             upscale::write_png(png, image);
         }
+        if (named != nullptr) named->emplace_back(path, key);
         if (done != nullptr) (*done)++;
     }
     return keys.size();
@@ -648,6 +692,11 @@ size_t rush2::rom2049::dc::dump_images(const std::filesystem::path& dir, const s
 bool rush2::rom2049::dc::upscaled_by_player(uint64_t key) {
     std::lock_guard lock{ mutex };
     return upscaled.count(key) != 0;
+}
+
+bool rush2::rom2049::dc::images_ready() {
+    std::lock_guard lock{ mutex };
+    return index_ready;
 }
 
 bool rush2::rom2049::dc::is_image(uint64_t key) {
@@ -663,12 +712,13 @@ bool rush2::rom2049::dc::original_image(uint64_t key, upscale::Image& image) {
 void rush2::rom2049::dc::begin_upscales() {
     std::error_code ec;
     std::filesystem::remove_all(upscale_store(), ec);
-    std::filesystem::create_directories(upscale_store(), ec);
     std::lock_guard lock{ mutex };
     upscaled.clear();
 }
 
 bool rush2::rom2049::dc::add_upscale(uint64_t key, const upscale::Image& image) {
+    std::error_code ec;
+    std::filesystem::create_directories(upscale_store(), ec);
     if (!upscale::write_file(upscale_store() / (upscale::key_name(key) + ".dds"), upscale::make_dds(image))) return false;
     std::lock_guard lock{ mutex };
     upscaled.insert(key);

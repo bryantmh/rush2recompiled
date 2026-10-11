@@ -2,6 +2,7 @@
 #define __MUSIC_H__
 
 #include <cstdint>
+#include <string>
 
 #include "recomp.h"
 
@@ -16,6 +17,15 @@ namespace rush2::music {
     // Start of func_80062F50 (queues music command $a0): notes the music the game asks for, and while a song preview
     // plays holds it by turning $a0 into a volume update. Returns true if it held the command.
     bool game_command(uint8_t* rdram, recomp_context* ctx);
+    // The pause menu's SKIP TRACK (game thread): plays another song now, or makes it the song CONTINUE starts if the
+    // pause stopped the music. False if there is none to play (MUSIC off, or no other song allowed).
+    bool skip_song(uint8_t* rdram, recomp_context* ctx);
+    // The race's song: its name, its game and the courses it plays on ("" for SF Rush's, which play on any of its
+    // tracks). False if none is known (MUSIC off, or outside a race).
+    struct NowPlaying {
+        std::string song, game, course;
+    };
+    bool now_playing(NowPlaying& out);
 }
 
 namespace rush2::track1 {

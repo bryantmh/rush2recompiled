@@ -94,15 +94,26 @@ namespace rush2 {
         // edge). clear_widget_scales forgets them all (when a HUD is built); set_anchor anchors what is drawn next
         // (text printed after the widget loop) the same way.
         void set_widget_scale(int slot, float scale_x, float scale_y, float anchor = 0.5f);
+        // Draws widget `slot` (dx, dy) pixels from where it is, past the 4:3 edges if need be (the game clips widgets to
+        // the 4:3 screen, so one fully on screen is shifted when drawn). Forgotten when its slot is allocated again.
+        void set_widget_shift(int slot, int32_t dx, int32_t dy = 0);
         void clear_widget_scales();
         void set_anchor(uint8_t* rdram, float fraction);
         // A filled rectangle (screen pixels, RGBA blended by its alpha) in the 2D display list, anchored as above.
         void draw_rect(uint8_t* rdram, float x0, float y0, float x1, float y1, uint32_t rgba, float anchor);
         // An RGBA16 image of w x h texels at `address` (at most 2048 texels) over that rectangle, blended by its alpha.
         void draw_image(uint8_t* rdram, uint32_t address, int w, int h, float x0, float y0, float x1, float y1, float anchor);
-        // The part of it src_w x src_h texels from (src_x, src_y) over that rectangle, point sampled if `point`.
+        // The part of it src_w x src_h texels from (src_x, src_y) over that rectangle, point sampled if `point`, its
+        // alpha scaled by `alpha` (0-255).
         void draw_image_part(uint8_t* rdram, uint32_t address, int w, int h, int src_x, int src_y, int src_w, int src_h,
-                             float x0, float y0, float x1, float y1, float anchor, bool point = false);
+                             float x0, float y0, float x1, float y1, float anchor, bool point = false, uint8_t alpha = 255);
+        // Calls display list `dl` from the 2D display list, with the render state (other mode, combiner, geometry mode,
+        // primitive color, viewport and projection) put back after it.
+        void call_list(uint8_t* rdram, uint32_t dl);
+        // Limits what is drawn next to a rectangle of the 4:3 screen anchored at `anchor` (as set_widget_scale), until
+        // pop_scissor.
+        void push_scissor(uint8_t* rdram, float x0, float y0, float x1, float y1, float anchor);
+        void pop_scissor(uint8_t* rdram);
         // Leaves the primitive color at rgba after the 2D drawing so far (G_SETPRIMCOLOR in the 2D display list).
         void set_prim_color(uint8_t* rdram, uint32_t rgba);
         // Draws a number (up to 6 digits) centered on (center_x, center_y) of the 4:3 screen, `height` pixels tall,

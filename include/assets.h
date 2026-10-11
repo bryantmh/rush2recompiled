@@ -2,6 +2,7 @@
 #define __ASSETS_H__
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "texture_origin.h"
@@ -22,8 +23,27 @@ namespace rush2::assets {
     void replace(uint8_t* rdram, int index, std::vector<uint8_t> data, rush2::origin::Game game);
     void restore(uint8_t* rdram, int index);
     bool is_replaced(int index);
+    // The replacement's bytes and spans, if the asset is replaced.
+    bool replacement(int index, std::vector<uint8_t>& data, std::vector<Span>& spans);
     // Decompresses the game's own copy of a deflate-compressed asset from the Rush 2 ROM, ignoring any replacement.
     bool read_original(uint8_t* rdram, int index, std::vector<uint8_t>& out);
+    // The asset as the game loads it now: a replacement's bytes and spans, else Rush 2's own. Callable from any thread
+    // once the game has loaded an asset (it reads the asset table from that load's RDRAM). False if there is none.
+    bool read_current(int index, std::vector<uint8_t>& out, std::vector<Span>& spans);
+    constexpr int slot_count = 0x80; // Asset indices the moved tables have room for.
+    // Counts changes to the replacements (a replace with new bytes, a restore): read_current's results are the same
+    // while it is.
+    uint64_t generation();
+    // The game's RDRAM, once it has loaded an asset (for read_original off the game's threads), else null.
+    uint8_t* rdram();
+
+    // Patches applied to what the game loads (model mods, src/car_mods.cpp): given an asset's bytes (a replacement's,
+    // or Rush 2's own), fills out with the bytes the game gets instead and returns true, or returns false to leave
+    // them. The rest of this API keeps seeing the unpatched bytes (replacement, read_current: the dumps and catalog).
+    // Runs on the thread that replaces or loads, with the assets lock held: it must not call back into here.
+    using Patcher = std::function<bool(uint8_t* rdram, int index, const std::vector<uint8_t>& base, std::vector<uint8_t>& out)>;
+    // Sets the patcher (null: none) and patches every asset again with it, Rush 2's own included (game thread).
+    void set_patcher(uint8_t* rdram, Patcher patcher);
 
     // Raw deflate (no zlib header), as used by both games.
     bool inflate_raw(const uint8_t* src, size_t src_size, std::vector<uint8_t>& out);

@@ -138,3 +138,51 @@ music commands: the stop becomes a volume update (0xC0000000) and the song choic
 The option can be changed with the pause menu open: the hook at the pause step's entry (0x800AFD44) starts the race's
 song at once (`func_8008C370`, as CONTINUE does) or stops it (command 0x40000000), and CONTINUE holds its restart
 only while the song plays.
+
+CONTINUE now restarts the same song: `rush2_music_continue` hands the race's song (the one `func_8008C370` last
+started, or a skip's pick) back to the next `func_8008C370(2, ...)` call, which plays it instead of choosing again
+(src/music.cpp `forced_song`). A new race or RESTART still chooses.
+
+## Pause menu extras
+
+Option (General tab, Gameplay, on by default; src/pause_menu.cpp, include/pause_menu.h). Rush 2's pause menu:
+
+- `race_pause_menu_step_800AFD44` runs it. State `0x8002305C` (s8): 0 racing, 1 the list, 2 OPTIONS, 3 CONTROLS,
+  4 AUDIO, 5 and 6 RESTART's and QUIT's ARE YOU SURE. Cursor `0x80119635` (s8): 0 CONTINUE .. 5 QUIT, reset to 0 when
+  the race pauses; up/down wrap it through 0-5, A on 1-3 enters state cursor + 1, on 4/5 the confirm screens, and B,
+  START or A on CONTINUE resume. The list's input is read per player at 0x800B0060 with `$a0` = buttons pressed and
+  `$v0` = B or START.
+- `hud_setup_widgets_pause_like_800AFB50(_, state)` stores the state and builds its widgets; the list's come from the
+  table `0x800BF03C` (13 records of 0x28 bytes: +0 model name, +4 x, +6 y, +0x20 update `func_800B558C`, +0x24 kind):
+  the PAUSED title (kind 0x80), then per row its image twice, kinds 0x89 + row and 0x81 + row. Rows sit 15 pixels
+  apart from y 93. `func_800B558C` centres each on x 160 and shows a half of the row image: kind & 0xF == cursor + 1
+  is the cursor's row, whose yellow half flashes (alpha 0x7F-0xFF in steps of 8 a frame, `0x800D3A5C`/`0x800D3B20`).
+- The row images (PAUSECONTINUE .. PAUSEQUIT, PAUSEYES/NO/SURE, PAUSED) are 4-bit color indexed images in assets
+  22-24, stored upside down: rows 0-9 the grey half, 10-19 the yellow half; color 1 is the one texel outline, 2 grey,
+  3 yellow (palette shared by the rows). In RDRAM they are reached through the HUD widgets' image pointers (+4).
+
+The extras:
+
+- **SKIP TRACK** between AUDIO and RESTART. Before the widgets are built (hook at 0x800AFB50) the table's rows are
+  moved to y 85-175 to make room; the option off puts back 93-168. The row has no widget: its label is drawn after the
+  HUD's widget loop, built at run time from the row images' own letters (S, T, R, A from RESTART, I and C from
+  CONTINUE, P from OPTIONS, split by connected shapes) plus a K drawn to match, outlined like the rows. On SKIP TRACK
+  the cursor is 6, which no widget's kind matches. The input hook at 0x800B0060 moves the cursor over the seven rows
+  itself (clearing up/down so the game's 0-5 wrap never runs) and takes A on SKIP TRACK. Skipping picks another song
+  of the race's game (any game under Shuffle All, or when the game has no other). With the music playing in the pause
+  it starts at once through `func_8008C370`; stopped, it becomes the song CONTINUE starts.
+- **Song box**, bottom right: the race's song with a note icon, and its game and courses below, which scroll like a
+  music player's when longer than the box (a scissor around the line, `rush2::hud::push_scissor`).
+- **Collectibles box**, top right, one player races only: player 1's finds on the track as Rush 2049's HUD shows its
+  coins, a spinning model beside each count: Rush 2's key `KEYO1` and Dew can `DOTHEDEWO1` (asset 18, loaded for
+  every race), SF Rush's key `KEYL1` and Rush 2049's `GOLDCOING_COIN` / `SILVERCOINS_COI` (converted into the track's
+  container). A model is found with `func_8005BE3C`; its list is the first LOD of record `*(0x80118D78 + slot * 8) +
+  index * 0x34` (+0xC). It is drawn from the 2D display list (`rush2::hud::call_list`, which saves and restores the
+  render state, viewport and projection) under its own orthographic projection in a viewport anchored to the window's
+  right edge (`gEXViewport`), depth just past the near plane, fog factor 0 (`func_8007C624` sets fog again for every
+  view). Afterwards the 2D image loader's cache `0x80119638` is cleared: `func_80055F78` skips loading the image it
+  loaded last, so text after a model was drawn from the model's texture.
+- Both boxes are 8 pixels from the screen's edges and anchored to the window's right edge. Text printed in a race is
+  normally queued (text scale `0x800BEF48` below 0 sends `func_80072DA4` to its queue); the boxes set it to 0 while
+  printing so `func_80072A38` draws at once and takes the anchor, and lift the text clip inset (`0x80023058`, normally
+  cutting text off past x 308), then put both back.

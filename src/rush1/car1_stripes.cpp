@@ -42,6 +42,7 @@
 #include "car1_stripes.h"
 #include "rush2_hooks.h"
 #include "track1.h"
+#include "track_cache.h"
 
 extern "C" void pak_mark_dirty_8005F338(uint8_t* rdram, recomp_context* ctx);   // Marks player-record bytes dirty for the pak save.
 
@@ -73,11 +74,14 @@ namespace {
     }
 
     // The built decals are kept on disk, one file per car in <app folder>/stripe_cache, so a car's decal is built once
-    // rather than in every session. A file is used only if it holds the same key: the hash of the three input files and
-    // of the executable's size and modification time, so another ROM or a new build (a changed builder) builds again.
+    // rather than in every session. A file is used only if it holds the same key: the hash of the Rush 1 ROM and of the
+    // executable's size and modification time, so another ROM or a new build (a changed builder) builds again. The
+    // Rush 2 inputs are the game's own assets of its one supported ROM, so the build covers them. The key needs no
+    // input file: decompressing the three of every car to hash them took ~95 ms a car, a stall of ~0.4 s on the first
+    // car select of each session (the record getter asks for every player's car).
     // File: "R2SC", u32 version, u64 key, then per panel 1-6: i32 w, h, u32 full size, bytes, u32 lod size, bytes.
     constexpr char cache_magic[4] = { 'R', '2', 'S', 'C' };
-    constexpr uint32_t cache_version = 1;
+    constexpr uint32_t cache_version = 2;
 
     uint64_t hash(const uint8_t* data, size_t size, uint64_t h = 0xCBF29CE484222325ull) {
         for (size_t i = 0; i < size; i++) {
@@ -196,10 +200,21 @@ namespace {
         }
         s.built = true;
         const rush2::car1decals::Car& car = rush2::car1decals::cars[c];
+        static const std::vector<uint8_t>* hashed_rom = nullptr;
+        static uint64_t rom_hash = 0;
+        if (hashed_rom != rom1.get()) {
+            rom_hash = rush2::track_cache::hash(rom1->data(), rom1->size());
+            hashed_rom = rom1.get();
+        }
+        uint64_t key = hash((const uint8_t*)&rom_hash, sizeof(rom_hash), build_stamp());
         std::vector<uint8_t> r1, r2, stripes;
         const char* failed = nullptr;
         const char* why = "";
-        if (!rush2::track1::read_asset(*rom1, car.rush1_asset, r1)) {
+        bool cached = cache_load(car.name, key, s.pattern);
+        if (cached) {
+            // The input files are read only to build the decal.
+        }
+        else if (!rush2::track1::read_asset(*rom1, car.rush1_asset, r1)) {
             failed = "reading the Rush 1 car file";
         }
         else if (!rush2::assets::read_original(rdram, first_car_asset + car.rush2_type, r2)) {
@@ -208,18 +223,11 @@ namespace {
         else if (!rush2::assets::read_original(rdram, stripe_asset, stripes)) {
             failed = "reading Rush 2's stripe tiles";
         }
+        else if (rush2::car1decals::build(c, r1, r2, stripes, s.pattern, &why)) {
+            cache_save(car.name, key, s.pattern);
+        }
         else {
-            uint64_t key = hash(r1.data(), r1.size(), build_stamp());
-            key = hash(r2.data(), r2.size(), key);
-            key = hash(stripes.data(), stripes.size(), key);
-            if (!cache_load(car.name, key, s.pattern)) {
-                if (rush2::car1decals::build(c, r1, r2, stripes, s.pattern, &why)) {
-                    cache_save(car.name, key, s.pattern);
-                }
-                else {
-                    failed = "building the masks";
-                }
-            }
+            failed = "building the masks";
         }
         if (failed != nullptr) {
             printf("[Rush1] Couldn't build the %s stripe: %s failed (%s; files %zu, %zu, %zu bytes)\n", car.name, failed, why,

@@ -2863,6 +2863,25 @@ bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, c
 
 // Rush 2049's engine models (setup screen file 56: ENGINE01G1-ENGINE05G1) as a Rush 2 model container, for the unlock
 // system's shop (src/unlocks_shop.cpp): model `names[i]` draws ENGINE0<first + i>G1.
+bool rush2::track2049::convert_file(const rush2::rom2049::Source& rom, int file, std::vector<uint8_t>& out,
+                                    std::string& error) {
+    Bytes data;
+    if (!rom.read_file(file, data)) {
+        error = "can't read Rush 2049 file " + std::to_string(file);
+        return false;
+    }
+    try {
+        std::vector<const Bytes*> files = { &data };
+        std::set<std::string> merged;
+        out = merge_models(files, MergeOptions{}, merged);
+    }
+    catch (const ConvertError& e) {
+        error = e.message;
+        return false;
+    }
+    return true;
+}
+
 bool rush2::track2049::convert_parts(const rush2::rom2049::Source& rom, const std::vector<std::string>& sources,
                                      const std::vector<std::string>& names,
                                      std::vector<uint8_t>& out, std::vector<std::array<float, 3>>& centers,

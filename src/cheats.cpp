@@ -59,6 +59,7 @@
 #include "rush2.h"
 #include "battle.h"
 #include "car2049.h"
+#include "car_mods.h"
 #include "track2049.h"
 #include "unlocks.h"
 
@@ -757,6 +758,7 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
 
     // This is the port's once-per-frame hook at the top of the main loop.
     rush2::car2049::check_source(rdram);
+    rush2::car_mods::check(rdram);
     rush2::car2049::prepare_bars(rdram, ctx);
 }
 

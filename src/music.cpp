@@ -232,6 +232,11 @@ namespace {
     std::atomic_bool menu_reroll = false;   // The option changed: pick a new song rather than retry the last pick.
     // The race's Rush 2 or SF Rush sequence for func_8008C370's tail, or -1.
     std::atomic<int> race_sequence = -1;
+    // The race's song (catalog index, -1 with MUSIC off or none known), and a song the next race music call starts
+    // instead of choosing one: a skip, or the race's song again when CONTINUE restarts the music.
+    std::atomic<int> race_song = -1;
+    std::atomic<int> forced_song = -1;
+    constexpr uint32_t music_setting = 0x800D5775;  // u8: the game's MUSIC setting (0 off, 1 per track, 2-9 a song).
 
     // Preview requests from the UI: a catalog index, stop_request, or none.
     constexpr int no_request = -2;
@@ -314,12 +319,12 @@ namespace {
         return pool[std::uniform_int_distribution<size_t>(0, pool.size() - 1)(rng)];
     }
 
-    // The race's song (catalog index), or -1 to leave it to the game.
-    int choose(uint8_t* rdram) {
+    // The game whose tracks the race is on, and the track's own song (catalog index, -1 if none).
+    Game race_game(uint8_t* rdram, int& original) {
         int8_t t = (int8_t)MEM_B(0, (int32_t)track_id);
         bool host = t == rush2::track2049::host_slot;
         Game g = Game::Rush2;
-        int original = -1;
+        original = -1;
         // A Rush 2049 course: its 2049 track id, whose song Rush 2049 plays by default (audio2049::track_song).
         int course = -1;
         if (host && rush2::track2049::race_track() == rush2::track2049::obstacle) {
@@ -349,7 +354,13 @@ namespace {
         else {
             original = pick(false, Game::Rush2);
         }
+        return g;
+    }
 
+    // The race's song (catalog index), or -1 to leave it to the game.
+    int choose(uint8_t* rdram) {
+        int original = -1;
+        Game g = race_game(rdram, original);
         int song = -1;
         switch ((Mode)modes[(int)g].load()) {
             case Mode::Original:
@@ -953,11 +964,24 @@ extern "C" void rush2_music_race(uint8_t* rdram, recomp_context* ctx) {
     pause_music = -1;
     race_sequence = -1;
     rush2::track2049::queue_race_song(-1);
-    if ((int32_t)ctx->r4 != 2 || (ctx->r5 & 0xFF) != 1) {
+    if ((int32_t)ctx->r4 != 2) {
         return;
     }
+    int song = forced_song.exchange(-1);
+    uint32_t setting = ctx->r5 & 0xFF;
     std::lock_guard lock{ choice_mutex };
-    int song = choose(rdram);
+    if (song >= 0 && setting != 0) {
+        ctx->r5 = 1; // Rush 2's per track path, whose sequence is replaced below.
+    }
+    else if (setting != 1) {
+        // Off or one of Rush 2's songs, left to the game.
+        race_song = setting >= 2 && setting <= 9 ? find_song(Game::Rush2, (int)setting - 2) : -1;
+        return;
+    }
+    else {
+        song = choose(rdram);
+    }
+    race_song = song;
     if (song < 0) {
         return;
     }
@@ -969,6 +993,7 @@ extern "C" void rush2_music_race(uint8_t* rdram, recomp_context* ctx) {
     else {
         int sequence = sequence_of(rdram, ctx, song);
         if (sequence < 0) {
+            race_song = -1;
             return;
         }
         race_sequence = sequence;
@@ -1072,6 +1097,8 @@ extern "C" void rush2_music_pause_start(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_music_continue(uint8_t* rdram, recomp_context* ctx) {
     pause_hold = pause_music.load() == 1;
     pause_music = -1;
+    // A stopped song starts again from the top, the same song (a shuffle would otherwise pick another).
+    forced_song = pause_hold.load() ? -1 : race_song.load();
 }
 
 // After those calls (0x800AFE48, 0x800B00C0).
@@ -1084,7 +1111,6 @@ extern "C" void rush2_music_pause_release(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_music_pause_frame(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t pause_state = 0x8002305C;   // Nonzero while the pause menu (or one of its screens) is open.
     constexpr uint32_t race_state = 0x8010C0D0;    // u32; 0xA: a race without music restarts (func_800AFD44)
-    constexpr uint32_t music_setting = 0x800D5775;
     int playing = pause_music.load();
     if (playing < 0 || MEM_B(0, (int32_t)pause_state) == 0) {
         return;
@@ -1096,6 +1122,7 @@ extern "C" void rush2_music_pause_frame(uint8_t* rdram, recomp_context* ctx) {
     recomp_context call = *ctx;
     if (want) {
         if (MEM_W(0, (int32_t)race_state) != 0xA) {
+            forced_song = race_song.load();
             call.r4 = 2;
             call.r5 = MEM_BU(0, (int32_t)music_setting);
             music_pick_race_song_8008C370(rdram, &call);
@@ -1107,4 +1134,66 @@ extern "C" void rush2_music_pause_frame(uint8_t* rdram, recomp_context* ctx) {
         music_queue_command_80062F50(rdram, &call);
         pause_music = 0;
     }
+}
+
+// The pause menu's SKIP TRACK (src/pause_menu.cpp), on the game thread: another song of the race's game (or of any
+// game with Shuffle All, or when the game has no other), never the one playing. A song playing in the pause (Keep
+// Music Playing When Paused) changes at once through func_8008C370, as a race's start does; a stopped one becomes
+// the song CONTINUE starts.
+bool rush2::music::skip_song(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t setting = MEM_BU(0, (int32_t)music_setting);
+    if (setting == 0) {
+        return false; // MUSIC is off.
+    }
+    int song;
+    {
+        std::lock_guard lock{ choice_mutex };
+        int original = -1;
+        Game g = race_game(rdram, original);
+        int current = race_song.load();
+        if (current >= 0) {
+            last_song = current;
+        }
+        song = pick((Mode)modes[(int)g].load() == Mode::ShuffleAll, g);
+        if (song < 0 || song == current) {
+            song = pick(true, g);
+        }
+        if (song < 0 || song == current) {
+            return false;
+        }
+        last_song = song;
+    }
+    int playing = pause_music.load();
+    if (playing == 0) {
+        race_song = song;
+        return true;
+    }
+    forced_song = song;
+    recomp_context call = *ctx;
+    call.r4 = 2;
+    call.r5 = (int32_t)setting;
+    music_pick_race_song_8008C370(rdram, &call);
+    pause_music = playing;
+    return true;
+}
+
+bool rush2::music::now_playing(NowPlaying& out) {
+    int i = race_song.load();
+    if (i < 0 || i >= song_count) {
+        return false;
+    }
+    const Song& s = songs[i];
+    out.song = s.name;
+    out.game = game_name(s.game);
+    // Where the song plays: Rush 2's track, Rush 2049's courses (without the game's name); SF Rush plays its songs
+    // on any of its tracks.
+    std::string where = s.game == Game::Rush1 ? "" : s.plays_on;
+    if (where.rfind("Rush 2049 ", 0) == 0) {
+        where = where.substr(10);
+    }
+    else if (where.rfind("No Rush 2049", 0) == 0) {
+        where = "";
+    }
+    out.course = where;
+    return true;
 }
