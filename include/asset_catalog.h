@@ -146,6 +146,17 @@ namespace rush2::catalog {
     // status gets what it's on.
     std::vector<Entry> containers(const std::function<void(const std::string&)>& status, bool source_files = false);
 
+    // Rush 2 car paint bases: the CI8 body textures of Rush 2's cars, whose palette the game writes (the paint). The
+    // catalog's image of one is gray (entry i as gray i & 31: keys and packs go by it); Dump Textures writes its
+    // paint_preview instead, so MAIN, ACCENT and the fixed colors look apart (docs/texture_upscaling.md, "Rush 2 car
+    // paint bases").
+    bool paint_base(const Entry& e, const Texture& t);
+    // CARPALETTE (asset 0x1C, the cars/stripes container) with MAIN COLOR's ramp (1-31) violet and ACCENT COLOR's
+    // (33-63) yellow, as 256 RGBA entries; empty when containers lack it.
+    std::vector<uint8_t> paint_preview_palette(const std::vector<Entry>& containers);
+    rush2::upscale::Image paint_preview(const std::vector<uint8_t>& indices, uint32_t width, uint32_t height,
+                                        const std::vector<uint8_t>& palette);
+
     // Dump Models (Settings > Graphics): writes every model of every container (source_files included) as
     // <app folder>/asset_dump/models/<game>/<path>/<model>.glb, plus <path>/_all.glb with all of a container's models and,
     // for a track, <path>/_placed.glb with the track as placed. In the background; returns false if one is running.

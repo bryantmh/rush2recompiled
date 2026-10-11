@@ -7,10 +7,12 @@
 // model comes out under its own game's name. The converters are pure functions of the ROMs, so this runs on any
 // thread.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -158,6 +160,63 @@ bool ui_path(const std::string& path) {
         if (path.rfind(prefix, 0) == 0) return true;
     }
     return false;
+}
+
+bool paint_base(const Entry& e, const Texture& t) {
+    return t.painted && t.siz == 1 /* CI8 */ && e.game_at(t.texels) == rush2::origin::Game::Rush2 && e.path.rfind("cars/", 0) == 0 &&
+           e.path != "cars/stripes" && t.indices.size() == size_t(t.width) * t.height;
+}
+
+std::vector<uint8_t> paint_preview_palette(const std::vector<Entry>& containers) {
+    auto be32 = [](const std::vector<uint8_t>& d, size_t o) {
+        return uint32_t(d[o] << 24 | d[o + 1] << 16 | d[o + 2] << 8 | d[o + 3]);
+    };
+    for (const Entry& e : containers) {
+        if (e.path != "cars/stripes" || !e.data) continue;
+        const std::vector<uint8_t>& d = *e.data;
+        if (d.size() < 0x28) return {};
+        // The record table (as car_mods.cpp's load_car_palette reads it): 0x18-byte records, a 16-byte name first and
+        // the data's offset at +20.
+        uint32_t table = be32(d, 12), count = be32(d, 24);
+        for (uint32_t i = 0; i < count && table + i * 0x18 + 0x18 <= d.size(); i++) {
+            uint32_t r = table + i * 0x18;
+            if (strncmp(reinterpret_cast<const char*>(&d[r]), "CARPALETTE", 16) != 0) continue;
+            uint32_t data = be32(d, r + 20) & 0xFFFFFF;
+            if (data + 512 > d.size()) return {};
+            // MAIN violet, ACCENT yellow: hues no fixed entry has (CARPALETTE's fixed colors are grays, reds, oranges,
+            // greens and the glass's dark navy, which a blue MAIN's darker shades matched). Each ramp entry is the
+            // paint times CARPALETTE's gray over its lightest (230), as car_build_textures_8008582C shades a paint.
+            const uint8_t main[3] = { 160, 80, 255 }, accent[3] = { 255, 215, 40 };
+            std::vector<uint8_t> palette(256 * 4);
+            for (int k = 0; k < 256; k++) {
+                uint16_t c = uint16_t((d[data + k * 2] << 8) | d[data + k * 2 + 1]);
+                uint8_t rgb[3];
+                for (int ch = 0; ch < 3; ch++) {
+                    uint32_t v = (c >> (11 - ch * 5)) & 31;
+                    rgb[ch] = uint8_t((v << 3) | (v >> 2));
+                }
+                const uint8_t* paint = (k >= 1 && k <= 31) ? main : (k >= 33 && k <= 63) ? accent : nullptr;
+                for (int ch = 0; ch < 3; ch++) {
+                    palette[k * 4 + ch] = paint ? uint8_t(std::min(255, paint[ch] * rgb[0] / 230)) : rgb[ch];
+                }
+                palette[k * 4 + 3] = 255; // Opaque, as the gray image is.
+            }
+            return palette;
+        }
+        return {};
+    }
+    return {};
+}
+
+Image paint_preview(const std::vector<uint8_t>& indices, uint32_t width, uint32_t height,
+                    const std::vector<uint8_t>& palette) {
+    Image out;
+    if (palette.size() != 256 * 4 || indices.size() != size_t(width) * height) return out;
+    out.width = width;
+    out.height = height;
+    out.rgba.resize(indices.size() * 4);
+    for (size_t i = 0; i < indices.size(); i++) memcpy(&out.rgba[i * 4], &palette[indices[i] * 4], 4);
+    return out;
 }
 
 std::vector<Entry> containers(const std::function<void(const std::string&)>& status, bool source_files) {

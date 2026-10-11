@@ -14,6 +14,7 @@
 
 #include "nfd.h"
 #include "texture_census.h"
+#include "texture_derive.h"
 
 #include "ultramodern/ultra64.h"
 #include "ultramodern/ultramodern.hpp"
@@ -400,16 +401,21 @@ std::string get_game_thread_name(const OSThread* t) {
     return "[Game] " + std::to_string(t->id);
 }
 
+// Each also tells rush2::derive, which makes the replacements of textures the game changes at run time (repainted car
+// panels, stamped stripes) from the enabled packs: without it, toggling a pack in the Mods menu left those as they were.
 void enable_texture_pack(recomp::mods::ModContext& context, const recomp::mods::ModHandle& mod) {
     recompui::renderer::enable_texture_pack(context, mod);
+    rush2::derive::packs_changed();
 }
 
 void disable_texture_pack(recomp::mods::ModContext&, const recomp::mods::ModHandle& mod) {
     recompui::renderer::disable_texture_pack(mod);
+    rush2::derive::packs_changed();
 }
 
 void reorder_texture_pack(recomp::mods::ModContext&) {
     recompui::renderer::trigger_texture_pack_update();
+    rush2::derive::packs_changed(); // The first pack listing a hash wins.
 }
 
 // --input-script "<seconds>:<button>[:<hold seconds>],..." presses N64 buttons at fixed times after

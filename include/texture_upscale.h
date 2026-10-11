@@ -81,6 +81,12 @@ namespace rush2::upscale {
     // upscaling again: old_colors is the texture the upscale was made from, new_colors the variant (same size).
     Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_colors, Edge edge_s, Edge edge_t);
 
+    // recolor for the upscale of a Rush 2 car paint base (gray: the catalog's image, entry i as gray i & 31; indices:
+    // its palette indices): pixels over the MAIN and ACCENT ramps (entries 1-31, 33-63) take their ramp's color in
+    // new_colors at the shade the upscale's gray gives, so the paints don't bleed into each other at edges.
+    Image recolor_paint(const Image& upscaled, const Image& gray, const Image& new_colors,
+                        const std::vector<uint8_t>& indices, Edge edge_s, Edge edge_t);
+
     // Level 0 of a DDS make_dds wrote.
     bool read_dds(const std::vector<uint8_t>& bytes, Image& image);
 

@@ -108,6 +108,51 @@ error was 5, mostly from ESRGAN itself treating red and blue slightly differentl
 This covers any texture the game recolors through its palette, not only cars. Rush 2's stamped stripes change the
 indices, so each stripe pattern is its own base.
 
+### Rush 2 car paint bases (paint_preview, recolor_paint)
+
+A Rush 2 car body texture has no palette in its file (the game writes it: the paint). The palette is 8 ramps of 32:
+MAIN COLOR 1-31, ACCENT COLOR 33-63, the rest fixed colors or stripe targets (`car_palette_classify_800854AC`, the same
+table for every car, the DEW's included). `rush2::catalog::paint_base` picks these textures: painted CI8 (siz 1) ones
+from Rush 2's own `cars/` containers.
+
+**The catalog's image** is gray: entry i as the 5-bit gray i & 31 (docs/asset_catalog.md). Keys, names and packs go by
+it. CARPALETTE's ramps run from light at entry 1 (230) to black at 30-31, so that image is a negative of the paint
+(light paint dark, black trim (191) white, the glass (0) gray 0), and MAIN, ACCENT and the fixed colors share the grays.
+An upscale of it can't say where MAIN ends and ACCENT begins: the game's paint borders fell back to the N64 texels, a
+staircase past the player's smooth outlines (a user's Hotrod flames, a thin accent line).
+
+**Dump Textures [V, 2026-10-11]** writes `rush2::catalog::paint_preview` for these instead: CARPALETTE with MAIN's ramp
+violet (160, 80, 255) and ACCENT's yellow (255, 215, 40), each entry the paint times CARPALETTE's gray over 230, the
+fixed colors as they are, opaque. No fixed entry has those hues (they are grays, reds, oranges, greens and the glass's
+dark navy; a blue MAIN was tried first and its darker shades matched the glass). `paint_preview_palette` reads
+CARPALETTE from the cars/stripes container (asset 0x1C). The dump's README tells players what the colors mean. Install
+is unchanged: an upscale is still listed under the gray image's key.
+
+**Replacements:** `Base::preview` holds the same preview. `made_from` scales an upscale down to the base's size and
+picks whichever of the preview and the gray image it is closer to, so both kinds of upscale work and no pack needs
+converting:
+- an upscale of the preview: `recolor` from the preview, whose colors tell the paints apart, so the borders follow the
+  upscale;
+- an upscale of the gray image (dumps before this): `recolor_paint`. `recolor` with grays picked texels of the wrong
+  ramp (white specks and ragged edges in a hand upscale's Hotrod flames, a stray red line along the BMW BMD0_1 body
+  curve). `recolor_paint` takes each pixel's four texels around it, weighted bilinearly and by how close each texel's
+  gray is to the pixel's (width 40 grays, so a glass pixel beside paint stays glass). A texel on MAIN or ACCENT gives
+  its ramp's color at the shade the pixel's gray reads as, interpolated between entries (entries the drawn texture
+  doesn't use are interpolated from the nearest ones it does); a fixed-color texel gives `recolor`'s pixel. The borders
+  between MAIN and ACCENT still follow the texels: the gray image has no more to give.
+
+Both go through `Deriver::recolor`: `derive` (same-size matches with the drawn indices; other matches take their old
+colors from `made_from`'s image) and both recolors in `derive_stripes`.
+
+**Checked [V, 2026-10-11]:** in a copy of the build, a race with the Concept and the user's gray pack drew it painted;
+after Dump, nearest-neighbor 2x upscales of the 506 Rush 2 car previews and Install, the Concept drew in its own yellow,
+not the preview's colors (census: 98 derived, none untraced). Offline, `recolor` from a Lanczos upscale of the Hotrod
+HOT_D0_1 preview came within a mean error of 2.1 of the painted panel upscaled directly.
+
+Tests: `tools/texture_upscale_test.cpp` (a synthetic gray panel: on hq2x `recolor_paint` stays within 1.5 mean error
+and a couple of pixels of `recolor`), and real panels with `tools/rush1/paint_case.py CAR TEXTURE DIR` (gray, preview,
+painted and indices) then `upscale_test --paint DIR UPSCALE.png`, which writes every recolor to compare.
+
 ## Live replacements (RT64 patch)
 
 `RT64::addLiveReplacement(hash, contentKey, fileBytes, region = {})` gives the running texture cache a replacement
@@ -291,7 +336,10 @@ another palette, stripes stamped over, a copy elsewhere in RDRAM, a strip of a b
 pack of the dumped images replaces everything the game draws.
 
 - **Packs:** every enabled mod with an `rt64.json` (`.rtz` or folder), read at the first 3D draw and again after Install
-  (`packs_changed`). Images are found by RT64 hash or by content key (Install lists both). A zip is opened only while a
+  (`packs_changed`), and whenever a pack is enabled, disabled or reordered in the Mods menu (the texture pack content
+  type's callbacks in src/main.cpp; before that, toggling a pack changed only the textures it replaces by hash, so a
+  Rush 2 car's repainted panels kept whatever they had at the first draw). Images are found by RT64 hash or by content
+  key (Install lists both). A zip is opened only while a
   batch reads it, as Windows can't replace an open .rtz.
 - **Index:** at the first 3D draw, the catalog's textures (rush2::catalog, the same as the dump: 11,000 with all three
   ROMs and a disc) and their row pieces (8 texels of palette indices, or colors, keyed with the width and x), about

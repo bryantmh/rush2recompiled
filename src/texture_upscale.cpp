@@ -601,6 +601,9 @@ namespace {
                 }
             }
             size_t matched = 0;
+            // Rush 2's car paint bases are written in color (MAIN violet, ACCENT yellow), not as the catalog's gray, so
+            // an upscale shows where each paint ends (rush2::catalog::paint_preview).
+            const std::vector<uint8_t> paint_palette = rush2::catalog::paint_preview_palette(containers);
             for (const rush2::catalog::Entry& e : containers) {
                 if (!interface && rush2::catalog::ui_path(e.path)) {
                     continue; // Interface art (Upscale Interface off); a texture also on a model elsewhere is named there.
@@ -658,7 +661,9 @@ namespace {
                     if (t.hash != 0) h.insert(t.hash);
                     names[n.folder][n.path] = { n.path, t.key };
                     named.emplace(t.key, std::move(n));
-                    images.emplace(t.key, std::move(t.image));
+                    Image preview;
+                    if (rush2::catalog::paint_base(e, t)) preview = rush2::catalog::paint_preview(t.indices, t.width, t.height, paint_palette);
+                    images.emplace(t.key, preview.empty() ? std::move(t.image) : std::move(preview));
                 }
             }
             {
@@ -1289,9 +1294,11 @@ namespace {
                 "  tracks/ALCATRAZ/ALCATRAZL3136.2.png   the second texture model ALCATRAZL3136 brings\n"
                 "  ....mip2.png                   a smaller copy the game draws in the distance (mipmap)\n"
                 "Every texture of every track and car is here, read from the game files. What the game makes from\n"
-                "them as you play uses your upscales of these: car paint jobs (car body textures are gray here, as\n"
-                "the game paints them), stripes stamped on cars, signs it copies. names.txt and hashes.txt are what\n"
-                "Install Upscaled Textures reads: leave them be.\n"
+                "them as you play uses your upscales of these: car paint jobs, stripes stamped on cars, signs it\n"
+                "copies. names.txt and hashes.txt are what Install Upscaled Textures reads: leave them be.\n"
+                "Rush 2's car bodies are shown painted violet (MAIN COLOR) and yellow (ACCENT COLOR): the game repaints\n"
+                "those two in the player's colors, keeping your shading. Keep the two apart and their edges where you\n"
+                "want them; the other colors (glass, lights, trim) are drawn as they are.\n"
                 "\n"
                 "1. Upscale these images with any program (Topaz Gigapixel, an image editor...).\n"
                 "2. Save the results into the same place under \"user_texture_pack\" next to this folder\n"

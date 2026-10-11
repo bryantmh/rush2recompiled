@@ -36,6 +36,8 @@ namespace {
         Image image;
         std::vector<uint8_t> indices;
         bool stripe = false;            // A Rush 2 stripe tile (asset 0x1C, cars/stripes).
+        bool paint = false;             // A Rush 2 car paint base (rush2::catalog::paint_base).
+        Image preview;                  // A paint base's paint_preview: what Dump Textures writes for it.
         bool ui = false;                // Only in interface containers (rush2::catalog::ui_path).
     };
 
@@ -162,6 +164,7 @@ namespace {
             // Interface art: textures only in interface containers (one also on a car or a track isn't).
             std::unordered_set<uint64_t> ui, ui_index, other, other_index;
             std::vector<rush2::catalog::Entry> containers = rush2::catalog::containers([](const std::string&) {});
+            const std::vector<uint8_t> paint_palette = rush2::catalog::paint_preview_palette(containers);
             for (const rush2::catalog::Entry& e : containers) {
                 rush2::catalog::Container c;
                 std::string error;
@@ -172,6 +175,8 @@ namespace {
                     if (t.index_key) (ui_container ? ui_index : other_index).insert(t.index_key);
                     if (by_key.count(t.key)) continue;
                     Base b;
+                    b.paint = rush2::catalog::paint_base(e, t);
+                    if (b.paint) b.preview = rush2::catalog::paint_preview(t.indices, t.width, t.height, paint_palette);
                     b.key = t.key;
                     b.index_key = t.index_key;
                     b.hash = t.hash;
@@ -399,8 +404,8 @@ namespace {
                 memcpy(&painted.rgba[i * 4], &paint[b.indices[i]], 4);
                 memcpy(&striped.rgba[i * 4], &stripe[b.indices[i]], 4);
             }
-            Image up_paint = rush2::upscale::recolor(up, b.image, painted, b.edge_s, b.edge_t);
-            Image up_stripe = rush2::upscale::recolor(up, b.image, striped, b.edge_s, b.edge_t);
+            Image up_paint = recolor(b, up, painted, b.indices);
+            Image up_stripe = recolor(b, up, striped, b.indices);
             // The tile at the panel upscale's size: its own upscale when a pack has one, else its texels.
             Image mask;
             if (!base_upscale(bases[best], mask) || mask.width == 0) mask = tile;
@@ -421,6 +426,7 @@ namespace {
         // The replacement of a drawn texture from its base's upscale: the base's rows where the drawn one has them
         // (with the drawn colors), its own texels, scaled up, past the base's ends.
         Image derive(const Drawn& d, const Base& b, int dy, const Image& up) {
+            const Image& source = made_from(b, up);
             uint32_t s = up.width / b.width;
             Image old_colors, upscaled;
             old_colors.width = d.image.width;
@@ -433,7 +439,7 @@ namespace {
             for (uint32_t r = 0; r < d.image.height; r++) {
                 int br = int(r) + dy;
                 if (br >= 0 && br < int(b.height) && b.width == d.image.width) {
-                    memcpy(&old_colors.rgba[r * row], &b.image.rgba[size_t(br) * row], row);
+                    memcpy(&old_colors.rgba[r * row], &source.rgba[size_t(br) * row], row);
                     memcpy(&upscaled.rgba[size_t(r) * s * up_row], &up.rgba[size_t(br) * s * up_row], up_row * s);
                 }
                 else {
@@ -446,7 +452,30 @@ namespace {
                 }
             }
             if (old_colors.rgba == d.image.rgba) return upscaled;
+            if (dy == 0 && d.image.width == b.width && d.image.height == b.height) return recolor(b, up, d.image, d.indices);
             return rush2::upscale::recolor(upscaled, old_colors, d.image, b.edge_s, b.edge_t);
+        }
+
+        // For a paint base, an upscale of the colored preview (Dump Textures since it writes one) is recolored from
+        // the preview, whose colors tell the paints apart; one of the gray image (older dumps) needs recolor_paint.
+        static Image recolor(const Base& b, const Image& up, const Image& colors, const std::vector<uint8_t>& indices) {
+            const Image& source = made_from(b, up);
+            if (b.paint && &source == &b.image) return rush2::upscale::recolor_paint(up, b.image, colors, indices, b.edge_s, b.edge_t);
+            return rush2::upscale::recolor(up, source, colors, b.edge_s, b.edge_t);
+        }
+
+        // Which image of a base an upscale was made from: a paint base's preview or its gray image, whichever the
+        // upscale, scaled down, is closer to; else the base's image.
+        static const Image& made_from(const Base& b, const Image& up) {
+            if (!b.paint || b.preview.empty() || up.empty()) return b.image;
+            Image down = rush2::upscale::resize_bilinear(up, b.width, b.height);
+            auto distance = [&](const Image& a) {
+                uint64_t total = 0;
+                for (size_t i = 0; i < a.rgba.size(); i++)
+                    if (i % 4 != 3) total += uint64_t(std::abs(int(a.rgba[i]) - int(down.rgba[i])));
+                return total;
+            };
+            return distance(b.preview) < distance(b.image) ? b.preview : b.image;
         }
 
         void run() {

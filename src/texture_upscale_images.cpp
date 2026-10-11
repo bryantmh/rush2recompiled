@@ -573,6 +573,102 @@ Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_c
     return out;
 }
 
+Image recolor_paint(const Image& upscaled, const Image& gray, const Image& new_colors,
+                    const std::vector<uint8_t>& indices, Edge edge_s, Edge edge_t) {
+    // The gray image draws entry i as the 5-bit gray i & 31, so within a ramp the gray is a shade (backwards to the
+    // paint's brightness: CARPALETTE's ramps run from light at entry 1 to black at 30-31), but MAIN, ACCENT and the
+    // fixed colors share the grays and recolor can't tell them apart: an edge pixel took a nearby texel of the wrong
+    // ramp with the same gray (a fringe of the other paint), and detail went on in gray. Here each pixel's ramp comes
+    // from the texels under it, and its color is that ramp's entry at the shade the upscale's gray gives,
+    // interpolated between entries. Pixels over fixed colors keep recolor's result.
+    Image out = recolor(upscaled, gray, new_colors, edge_s, edge_t);
+    const size_t n = size_t(gray.width) * gray.height;
+    if (indices.size() != n || new_colors.width != gray.width || new_colors.height != gray.height) return out;
+    struct Ramp { int first, last, offset; }; // offset: entry - its gray (entry & 31).
+    constexpr Ramp ramps[2] = { { 1, 31, 0 }, { 33, 63, 32 } }; // MAIN, ACCENT (car_palette_classify_800854AC)
+    auto ramp_of = [&](uint8_t index) {
+        for (int r = 0; r < 2; r++)
+            if (index >= ramps[r].first && index <= ramps[r].last) return r;
+        return -1;
+    };
+    // Each ramp entry's drawn color: the texels' own, the rest interpolated between the nearest drawn entries.
+    float color[64][4] = {};
+    bool known[64] = {};
+    bool any_ramp = false;
+    for (size_t i = 0; i < n; i++) {
+        uint8_t index = indices[i];
+        if (ramp_of(index) < 0 || known[index]) continue;
+        for (int k = 0; k < 4; k++) color[index][k] = new_colors.rgba[i * 4 + k];
+        known[index] = any_ramp = true;
+    }
+    if (!any_ramp) return out;
+    for (const Ramp& r : ramps) {
+        for (int e = r.first; e <= r.last; e++) {
+            if (known[e]) continue;
+            int lo = e - 1, hi = e + 1;
+            while (lo >= r.first && !known[lo]) lo--;
+            while (hi <= r.last && !known[hi]) hi++;
+            bool has_lo = lo >= r.first, has_hi = hi <= r.last;
+            if (!has_lo && !has_hi) continue; // No texel on this ramp, so no pixel asks for it.
+            for (int k = 0; k < 4; k++) {
+                if (has_lo && has_hi) color[e][k] = color[lo][k] + (color[hi][k] - color[lo][k]) * float(e - lo) / float(hi - lo);
+                else color[e][k] = color[has_lo ? lo : hi][k];
+            }
+        }
+    }
+    const float scale_x = float(upscaled.width) / float(gray.width);
+    const float scale_y = float(upscaled.height) / float(gray.height);
+    for (uint32_t y = 0; y < upscaled.height; y++) {
+        float fy = (y + 0.5f) / scale_y - 0.5f;
+        int32_t y0 = (int32_t)std::floor(fy);
+        float wy = fy - float(y0);
+        for (uint32_t x = 0; x < upscaled.width; x++) {
+            float fx = (x + 0.5f) / scale_x - 0.5f;
+            int32_t x0 = (int32_t)std::floor(fx);
+            float wx = fx - float(x0);
+            // The four texels around the pixel, weighted as bilinear filtering would, times how well each texel's gray
+            // fits the pixel's: a glass pixel (gray 0) beside paint (gray 107) is glass, not light paint, and an edge
+            // the upscale drew sharp stays sharp.
+            const uint8_t* u = &upscaled.rgba[(size_t(y) * upscaled.width + x) * 4];
+            const float luma = 0.299f * u[0] + 0.587f * u[1] + 0.114f * u[2];
+            constexpr float fit_width = 40.0f; // Grays (about 5 ramp steps).
+            int ramp[4];
+            float weight[4], plain[4], total = 0.0f;
+            bool on_ramp = false;
+            for (int k = 0; k < 4; k++) {
+                int32_t sx = edge_index(x0 + (k & 1), int32_t(gray.width), edge_s);
+                int32_t sy = edge_index(y0 + (k >> 1), int32_t(gray.height), edge_t);
+                size_t at = size_t(sy) * gray.width + sx;
+                ramp[k] = ramp_of(indices[at]);
+                plain[k] = ((k & 1) ? wx : 1.0f - wx) * ((k >> 1) ? wy : 1.0f - wy);
+                float off = (luma - float(gray.rgba[at * 4])) / fit_width;
+                weight[k] = plain[k] * std::exp(-off * off);
+                total += weight[k];
+                on_ramp |= ramp[k] >= 0 && plain[k] > 0.0f;
+            }
+            if (!on_ramp) continue;
+            if (total < 1e-30f) std::copy(plain, plain + 4, weight); // Nothing fits (new detail): position alone.
+            else for (float& wk : weight) wk /= total;
+            float shade = luma * 31.0f / 255.0f;
+            uint8_t* p = &out.rgba[(size_t(y) * out.width + x) * 4];
+            float mix[3] = {};
+            for (int k = 0; k < 4; k++) {
+                if (ramp[k] < 0) {
+                    for (int c = 0; c < 3; c++) mix[c] += weight[k] * p[c]; // A fixed color: recolor's pixel.
+                    continue;
+                }
+                const Ramp& r = ramps[ramp[k]];
+                float at = std::clamp(shade + float(r.offset), float(r.first), float(r.last));
+                int e0 = std::min(int(at), r.last - 1);
+                float t = at - float(e0);
+                for (int c = 0; c < 3; c++) mix[c] += weight[k] * (color[e0][c] + (color[e0 + 1][c] - color[e0][c]) * t);
+            }
+            for (int c = 0; c < 3; c++) p[c] = (uint8_t)std::clamp(int(mix[c] + 0.5f), 0, 255);
+        }
+    }
+    return out;
+}
+
 bool read_dds(const std::vector<uint8_t>& bytes, Image& image) {
     ddspp::Descriptor desc;
     if (bytes.size() < 148 || ddspp::decode_header((unsigned char*)bytes.data(), desc) != ddspp::Success ||
