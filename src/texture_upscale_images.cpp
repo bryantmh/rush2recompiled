@@ -901,6 +901,18 @@ bool ZipReader::read(const std::string& name, std::vector<uint8_t>& bytes) {
     return true;
 }
 
+std::vector<std::string> ZipReader::names() {
+    std::vector<std::string> out;
+    if (!impl->ok) return out;
+    mz_uint count = mz_zip_reader_get_num_files(&impl->archive);
+    for (mz_uint i = 0; i < count; i++) {
+        if (mz_zip_reader_is_file_a_directory(&impl->archive, i)) continue;
+        char name[512];
+        if (mz_zip_reader_get_filename(&impl->archive, i, name, sizeof(name)) > 0) out.push_back(name);
+    }
+    return out;
+}
+
 bool decode_image(const std::vector<uint8_t>& bytes, Image& image) {
     if (read_dds(bytes, image)) return true;
     int width, height;

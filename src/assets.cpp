@@ -27,6 +27,7 @@
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "car2049.h"
+#include "car_mods.h"
 #include "rush2.h"
 #include "track2049_convert.h"
 #include "texture_origin.h"
@@ -50,8 +51,10 @@ namespace {
     struct Replacement {
         uint32_t rom;
         uint32_t size;
-        std::vector<uint8_t> data;
-        std::vector<rush2::assets::Span> spans; // the parts of data from another game than Rush 2
+        std::vector<uint8_t> data;              // what the game loads: base, or base patched (rush2::assets::Patcher)
+        std::vector<uint8_t> base;              // the replacement as given, or Rush 2's own bytes (own false)
+        std::vector<rush2::assets::Span> spans; // the parts of base from another game than Rush 2
+        bool own = true;                        // replaced by replace(); false: only patched
     };
 
     std::mutex assets_mutex;
@@ -59,6 +62,41 @@ namespace {
     std::unordered_map<int, Replacement> replaced; // By asset index; holds the original offset and size.
     std::unordered_map<uint32_t, int> by_fake_rom;
     std::atomic<uint64_t> changes = 0;
+    rush2::assets::Patcher patcher;
+
+    bool is_lz(int index) {
+        // Rush 2's LZ files (func_80077FE0's list): 0x12, 0x13, 0x15-0x18 and the cars 0x1D-0x32.
+        return index == 0x12 || index == 0x13 || (index >= 0x15 && index <= 0x18) || (index >= 0x1D && index <= 0x32);
+    }
+    bool read_rom_asset(int index, uint32_t rom, std::vector<uint8_t>& out) {
+        auto full = recomp::get_rom();
+        if (rom == 0 || rom >= full.size()) return false;
+        if (is_lz(index)) return rush2::track2049::rush2_lz_decompress(full.data() + rom, full.size() - rom, out);
+        return rush2::assets::inflate_raw(full.data() + rom, full.size() - rom, out);
+    }
+
+    // Points the asset table at a replacement's data (assets_mutex held).
+    void install(uint8_t* rdram, int index, const Replacement& r) {
+        uint32_t fake = fake_rom_base + (uint32_t)index * 0x10;
+        MEM_W(0, (int32_t)(asset_offsets + index * 4)) = fake;
+        MEM_W(0, (int32_t)(asset_sizes + index * 4)) = (uint32_t)r.data.size();
+        by_fake_rom[fake] = index;
+    }
+    // The asset table back on Rush 2's own copy (assets_mutex held).
+    void uninstall(uint8_t* rdram, int index, const Replacement& r) {
+        MEM_W(0, (int32_t)(asset_offsets + index * 4)) = r.rom;
+        MEM_W(0, (int32_t)(asset_sizes + index * 4)) = r.size;
+        by_fake_rom.erase(fake_rom_base + (uint32_t)index * 0x10);
+    }
+    // Sets the bytes the game gets for r: base, or base patched (assets_mutex held). True if they changed.
+    bool patch(uint8_t* rdram, int index, Replacement& r) {
+        std::vector<uint8_t> out;
+        bool patched = patcher && patcher(rdram, index, r.base, out);
+        const std::vector<uint8_t>& data = patched ? out : r.base;
+        if (data == r.data) return false;
+        r.data = data;
+        return true;
+    }
 }
 
 uint64_t rush2::assets::generation() {
@@ -83,13 +121,12 @@ void rush2::assets::replace(uint8_t* rdram, int index, std::vector<uint8_t> data
         r.size = (uint32_t)MEM_W(0, (int32_t)(asset_sizes + index * 4));
         it = replaced.emplace(index, std::move(r)).first;
     }
-    uint32_t fake = fake_rom_base + (uint32_t)index * 0x10;
-    MEM_W(0, (int32_t)(asset_offsets + index * 4)) = fake;
-    MEM_W(0, (int32_t)(asset_sizes + index * 4)) = (uint32_t)data.size();
-    if (it->second.data != data) changes++;
-    it->second.data = std::move(data);
-    it->second.spans = std::move(spans);
-    by_fake_rom[fake] = index;
+    Replacement& r = it->second;
+    r.own = true;
+    r.base = std::move(data);
+    r.spans = std::move(spans);
+    if (patch(rdram, index, r)) changes++;
+    install(rdram, index, r);
 }
 
 void rush2::assets::restore(uint8_t* rdram, int index) {
@@ -98,9 +135,19 @@ void rush2::assets::restore(uint8_t* rdram, int index) {
     if (it == replaced.end()) {
         return;
     }
-    MEM_W(0, (int32_t)(asset_offsets + index * 4)) = it->second.rom;
-    MEM_W(0, (int32_t)(asset_sizes + index * 4)) = it->second.size;
-    by_fake_rom.erase(fake_rom_base + (uint32_t)index * 0x10);
+    // Still patched: back to Rush 2's own bytes, patched.
+    Replacement& r = it->second;
+    if (patcher && read_rom_asset(index, r.rom, r.base)) {
+        r.own = false;
+        r.spans.clear();
+        patch(rdram, index, r);
+        if (r.data != r.base) {
+            install(rdram, index, r);
+            changes++;
+            return;
+        }
+    }
+    uninstall(rdram, index, r);
     replaced.erase(it);
     changes++;
 }
@@ -123,16 +170,7 @@ bool rush2::assets::read_original(uint8_t* rdram, int index, std::vector<uint8_t
         auto it = replaced.find(index);
         rom = it != replaced.end() ? it->second.rom : (uint32_t)MEM_W(0, (int32_t)(asset_offsets + index * 4));
     }
-    auto full = recomp::get_rom();
-    if (rom >= full.size()) {
-        return false;
-    }
-    // Rush 2's LZ files (func_80077FE0's list): 0x12, 0x13, 0x15-0x18 and the cars 0x1D-0x32.
-    bool lz = index == 0x12 || index == 0x13 || (index >= 0x15 && index <= 0x18) || (index >= 0x1D && index <= 0x32);
-    if (lz) {
-        return rush2::track2049::rush2_lz_decompress(full.data() + rom, full.size() - rom, out);
-    }
-    return inflate_raw(full.data() + rom, full.size() - rom, out);
+    return read_rom_asset(index, rom, out);
 }
 
 bool rush2::assets::read_current(int index, std::vector<uint8_t>& out, std::vector<Span>& spans) {
@@ -144,7 +182,7 @@ bool rush2::assets::read_current(int index, std::vector<uint8_t>& out, std::vect
         std::lock_guard lock{ assets_mutex };
         auto it = replaced.find(index);
         if (it != replaced.end()) {
-            out = it->second.data;
+            out = it->second.base;
             spans = it->second.spans;
             return true;
         }
@@ -156,9 +194,51 @@ bool rush2::assets::read_current(int index, std::vector<uint8_t>& out, std::vect
     return read_original(rdram, index, out);
 }
 
+bool rush2::assets::replacement(int index, std::vector<uint8_t>& data, std::vector<Span>& spans) {
+    std::lock_guard lock{ assets_mutex };
+    auto it = replaced.find(index);
+    if (it == replaced.end() || !it->second.own) return false;
+    data = it->second.base;
+    spans = it->second.spans;
+    return true;
+}
+
 bool rush2::assets::is_replaced(int index) {
     std::lock_guard lock{ assets_mutex };
-    return replaced.contains(index);
+    auto it = replaced.find(index);
+    return it != replaced.end() && it->second.own;
+}
+
+void rush2::assets::set_patcher(uint8_t* rdram, Patcher p) {
+    std::lock_guard lock{ assets_mutex };
+    patcher = std::move(p);
+    for (int i = 0; i < asset_slots; i++) {
+        auto it = replaced.find(i);
+        if (it != replaced.end()) {
+            Replacement& r = it->second;
+            bool changed = patch(rdram, i, r);
+            if (!r.own && r.data == r.base) { // only patched, and not any more: Rush 2's own again
+                uninstall(rdram, i, r);
+                replaced.erase(it);
+                changes++;
+            }
+            else if (changed) {
+                install(rdram, i, r);
+                changes++;
+            }
+            continue;
+        }
+        if (!patcher) continue;
+        uint32_t rom = (uint32_t)MEM_W(0, (int32_t)(asset_offsets + i * 4));
+        if (rom == 0 || rom >= fake_rom_base) continue;
+        Replacement r;
+        r.rom = rom;
+        r.size = (uint32_t)MEM_W(0, (int32_t)(asset_sizes + i * 4));
+        r.own = false;
+        if (!read_rom_asset(i, rom, r.base) || !patch(rdram, i, r)) continue;
+        install(rdram, i, replaced.emplace(i, std::move(r)).first->second);
+        changes++;
+    }
 }
 
 // Start of func_80077F20 / func_80077F84: $a0 = ROM offset, $a1 = destination. Returns true (with $v0 = size) if
@@ -204,5 +284,6 @@ extern "C" void rush2_heap_init(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::init_tables(rdram);
     rush2::car2049::init_assets(rdram);
     rush2::fix_car_models(rdram);
+    rush2::car_mods::init(rdram);
     rush2::car2049::init_physics(rdram);
 }

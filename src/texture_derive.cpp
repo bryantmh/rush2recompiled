@@ -1,6 +1,8 @@
 // Derived replacements (include/texture_derive.h, docs/texture_upscaling.md "Derived replacements").
 
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
@@ -142,6 +144,19 @@ namespace {
         bool index_ready() {
             std::unique_lock lock(mutex);
             return ready;
+        }
+
+        void set_mod_textures(std::unordered_map<uint64_t, ModTexture> textures) {
+            std::unique_lock lock(mutex);
+            mods = std::move(textures);
+            mod_images_stale = true;
+            reload = true;
+            changed.notify_all();
+        }
+
+        bool mod_texture(uint64_t index_key, uint64_t key) {
+            std::unique_lock lock(mutex);
+            return (index_key != 0 && mods.count(index_key) != 0) || (key != 0 && mods.count(key) != 0);
         }
 
         bool interface_texture(uint64_t key, uint64_t index_key) {
@@ -478,6 +493,117 @@ namespace {
             return distance(b.preview) < distance(b.image) ? b.preview : b.image;
         }
 
+        // A car mod's stand-in drawn (set_mod_textures): its replacement is the mod's image in the paint it's drawn
+        // with. False if d isn't one.
+        bool mod_replace(const Drawn& d) {
+            ModTexture mt;
+            {
+                std::unique_lock lock(mutex);
+                auto it = d.index_key ? mods.find(d.index_key) : mods.end();
+                if (it == mods.end() && d.key != 0) it = mods.find(d.key); // a model mod's true-color stand-in
+                if (it == mods.end()) return false;
+                mt = it->second;
+            }
+            ModImage& m = mod_images[mt.id];
+            if (!m.tried) {
+                m.tried = true;
+                m.ok = mt.load && mt.load(m.image, m.mask) && !m.image.empty();
+            }
+            if (!m.ok) {
+                set_outcome(d.hash, Outcome::NoUpscale);
+                return true;
+            }
+            uint8_t paint[2][3] = { { 255, 255, 255 }, { 255, 255, 255 } };
+            bool found[2] = {};
+            for (size_t i = 0; i < d.indices.size() && i * 4 + 3 < d.image.rgba.size(); i++) {
+                for (int k = 0; k < 2; k++) {
+                    if (!found[k] && d.indices[i] == (k == 0 ? mt.main_entry : mt.accent_entry)) {
+                        memcpy(paint[k], &d.image.rgba[i * 4], 3);
+                        found[k] = true;
+                    }
+                }
+            }
+            Image out = paint_mod(m.image, m.mask, paint, mt.damaged, mt.seed);
+            uint64_t content = d.hash ^ 0xCA2B0D7ull ^ (pack_generation * 0x9E3779B97F4A7C15ull);
+            RT64::addLiveReplacement(d.hash, content, rush2::upscale::make_dds(out));
+            set_outcome(d.hash, Outcome::Derived);
+            std::unique_lock lock(mutex);
+            owned.insert(d.hash);
+            return true;
+        }
+
+        // The mod's image with its painted texels in the drawn paint: a body texel's brightness over the stand-in
+        // ramp's lightest grey (Rush 2's CARPALETTE entry 1, 230) times the paint, so shading in the image stays.
+        // Damaged: the paint mottled lighter and darker in blotches, with a few bright scrapes, as Rush 2's D1 panel
+        // textures are.
+        static Image paint_mod(const Image& image, const Image& mask, const uint8_t paint[2][3], bool damaged,
+                               uint32_t seed) {
+            Image out = image;
+            const bool has_mask = !mask.empty();
+            auto hash = [seed](int x, int y) {
+                uint32_t h = uint32_t(x) * 73856093u ^ uint32_t(y) * 19349663u ^ seed * 83492791u;
+                h ^= h >> 13;
+                h *= 0x5BD1E995u;
+                h ^= h >> 15;
+                return float(h & 0xFFFF) / 65535.0f;
+            };
+            auto noise = [&](float x, float y) {
+                int x0 = int(std::floor(x)), y0 = int(std::floor(y));
+                float fx = x - x0, fy = y - y0;
+                fx = fx * fx * (3.0f - 2.0f * fx);
+                fy = fy * fy * (3.0f - 2.0f * fy);
+                float a = hash(x0, y0) + (hash(x0 + 1, y0) - hash(x0, y0)) * fx;
+                float b = hash(x0, y0 + 1) + (hash(x0 + 1, y0 + 1) - hash(x0, y0 + 1)) * fx;
+                return a + (b - a) * fy;
+            };
+            const float cell = std::max(4.0f, float(image.width) / 24.0f); // blotch size
+            for (uint32_t y = 0; y < image.height; y++) {
+                for (uint32_t x = 0; x < image.width; x++) {
+                    size_t i = (size_t(y) * image.width + x) * 4;
+                    float wm = 0.0f, wa = 0.0f;
+                    if (has_mask) {
+                        size_t mi = (size_t(y * mask.height / image.height) * mask.width + x * mask.width / image.width) * 4;
+                        wm = mask.rgba[mi] / 255.0f;
+                        wa = mask.rgba[mi + 1] / 255.0f;
+                    }
+                    float total = wm + wa;
+                    if (total <= 0.0f) continue;
+                    if (total > 1.0f) {
+                        wm /= total;
+                        wa /= total;
+                        total = 1.0f;
+                    }
+                    float lum = (0.299f * out.rgba[i] + 0.587f * out.rgba[i + 1] + 0.114f * out.rgba[i + 2]) / 230.0f;
+                    if (damaged) {
+                        float n = (noise(x / cell, y / cell) - 0.5f) * 0.45f + (noise(x / cell * 2.7f + 17.0f, y / cell * 2.7f) - 0.5f) * 0.2f;
+                        lum *= 1.0f + n;
+                    }
+                    for (int c = 0; c < 3; c++) {
+                        float painted = (paint[0][c] * wm + paint[1][c] * wa) * lum;
+                        float v = out.rgba[i + c] * (1.0f - total) + painted;
+                        out.rgba[i + c] = uint8_t(std::clamp(v, 0.0f, 255.0f));
+                    }
+                }
+            }
+            if (damaged) {
+                // Scrapes: short bright streaks, about one per 40 x 40 texels of paint.
+                uint32_t scrapes = std::max(1u, image.width * image.height / 1600 / 16);
+                for (uint32_t s = 0; s < scrapes; s++) {
+                    float x = hash(int(s), 101) * image.width, y = hash(int(s), 202) * image.height;
+                    float angle = (hash(int(s), 303) - 0.5f) * 1.2f;
+                    int length = int(cell * (1.0f + hash(int(s), 404) * 2.0f));
+                    for (int t = 0; t < length; t++) {
+                        int px = int(x + std::cos(angle) * t), py = int(y + std::sin(angle) * t);
+                        if (px < 0 || py < 0 || px >= int(image.width) || py >= int(image.height)) break;
+                        size_t i = (size_t(py) * image.width + px) * 4;
+                        float w = has_mask ? mask.rgba[(size_t(py * mask.height / image.height) * mask.width + px * mask.width / image.width) * 4] / 255.0f : 0.0f;
+                        for (int c = 0; c < 3; c++) out.rgba[i + c] = uint8_t(out.rgba[i + c] + (220 - out.rgba[i + c]) * w * 0.7f);
+                    }
+                }
+            }
+            return out;
+        }
+
         void run() {
             std::vector<size_t> todo;
             while (true) {
@@ -509,6 +635,11 @@ namespace {
                 if (do_reload) {
                     upscales.clear();
                     read_packs();
+                    std::unique_lock lock(mutex);
+                    if (mod_images_stale) {
+                        mod_images.clear();
+                        mod_images_stale = false;
+                    }
                 }
                 size_t made = 0, unmatched = 0;
                 for (size_t i : todo) {
@@ -518,6 +649,10 @@ namespace {
                         std::unique_lock lock(mutex);
                         d = all[i];
                         ui_on = ui_enabled;
+                    }
+                    if (mod_replace(d)) {
+                        made++;
+                        continue;
                     }
                     if (!d.world && !ui_on) {
                         set_outcome(d.hash, Outcome::Interface);
@@ -604,6 +739,13 @@ namespace {
         bool ui_enabled = false;           // Upscale Interface.
         std::unordered_set<uint64_t> seen, owned;
         std::unordered_set<uint64_t> ui_keys, ui_index_keys; // Interface art (build()).
+        std::unordered_map<uint64_t, ModTexture> mods;       // Car mods' stand-ins by index_key.
+        bool mod_images_stale = false;
+        struct ModImage {
+            bool tried = false, ok = false;
+            Image image, mask;
+        };
+        std::unordered_map<uint64_t, ModImage> mod_images; // Worker only: decoded once per ModTexture::id.
         std::unordered_map<uint64_t, Outcome> outcomes;
         std::vector<Drawn> all;
         std::deque<size_t> queue;
@@ -666,6 +808,14 @@ Outcome outcome(uint64_t hash) {
 
 void packs_changed() {
     deriver().packs_changed();
+}
+
+void set_mod_textures(std::unordered_map<uint64_t, ModTexture> textures) {
+    deriver().set_mod_textures(std::move(textures));
+}
+
+bool mod_texture(uint64_t index_key, uint64_t key) {
+    return deriver().mod_texture(index_key, key);
 }
 
 }

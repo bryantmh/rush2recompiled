@@ -91,6 +91,14 @@ Texture upscaling keeps its files in the `texture_upscale` folder there: the ups
 
 Want to keep everything on a USB stick or next to the game? Turn on portable mode in the General tab under Data Location. Your data moves into the game's folder the next time you launch.
 
+## Modding: replacing models
+
+Any model in the game can be swapped for your own mesh, of any detail. Run Dump Models to get every model as a `.glb` in `asset_dump/models`. Open the one you want in Blender or a similar program, edit it or model over it in the same position and scale, and export it as glTF Binary (`.glb`) with its textures embedded and no Draco compression. Keep the dumped file name. Make a mod folder in the `mods` folder holding a `mod.json` (with `"game_id": "rush2"`) and your file under `rush2/models/`, for example `rush2/models/tracks/ALCATRAZ/ALCATRAZL4156.glb`. You can zip the folder into an `.rtz`. Turn the mod on in the Mods menu, and the model changes the next time the game loads it. Only the look changes: cars and tracks still drive and collide as before. A whole car can also go in `rush2/cars/<CAR>.glb`, where it takes the player's paint and dents. `tools/car_mod.py` can build that from a mesh and texture. Details are in [docs/car_mods.md](docs/car_mods.md).
+
+## Modding: replacing textures
+
+Any texture can be redrawn or upscaled with whatever tool you like. In Settings > Graphics, under Your Own Upscales, press Dump Textures: every texture in your ROMs is written as a `.png` to `asset_dump/textures`, named after what it belongs to. Edit or upscale the images at any size, and save them under `asset_dump/user_texture_pack` in the same folders, or all in one folder. The file name only has to start with the dumped name, so an upscaler's suffix is fine. Then press Install Upscaled Textures. It builds `mods/rush2_custom_textures.rtz` and turns it on right away, and that one file is what you share. Car bodies are dumped painted violet, yellow and cyan to show where the player's paint goes; keep those areas apart, and the game repaints them in the chosen colors. Textures the game makes as you play, like paint jobs and stripes, are made from your versions automatically.
+
 ## Credits
 
 Built with [N64Recomp](https://github.com/N64Recomp/N64Recomp), [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime), [RecompFrontend](https://github.com/N64Recomp/RecompFrontend) and the [RT64](https://github.com/rt64/rt64) renderer. Texture upscaling uses [hqx](https://github.com/grom358/hqx) (LGPL 2.1, in `lib/hqx`). Big thanks to everyone behind those projects.

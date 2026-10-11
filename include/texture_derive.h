@@ -11,6 +11,8 @@
 // is drawn.
 
 #include <cstdint>
+#include <functional>
+#include <unordered_map>
 #include <vector>
 
 #include "texture_upscale.h"
@@ -39,6 +41,25 @@ namespace rush2::derive {
     Outcome outcome(uint64_t hash);
     // The enabled texture packs changed (Install Upscaled Textures, the mods menu): read them again and derive anew.
     void packs_changed();
+
+    // A car mod's texture (src/car_mods.cpp). The car draws a small stand-in in Rush 2's car palette (its paint ramps
+    // where the mod paints the car); drawn with these palette indices, it is replaced by the mod's full-size image
+    // with its painted texels (mask red = MAIN COLOR, green = ACCENT COLOR) recolored to the paint it is drawn with,
+    // read from the stand-in's texels of palette entries main_entry and accent_entry, and scuffed when `damaged` (a
+    // damaged panel's copy). `load` decodes the image and mask (once per `id`, on the worker thread).
+    struct ModTexture {
+        uint64_t id = 0;
+        std::function<bool(rush2::upscale::Image& image, rush2::upscale::Image& mask)> load;
+        uint8_t main_entry = 1, accent_entry = 33;
+        bool damaged = false;
+        uint32_t seed = 0;
+    };
+    // The mods' textures by stand-in: a car's by its index_key, a model mod's (true color, unpainted) by its
+    // content_key. Replaces the last set and derives again.
+    void set_mod_textures(std::unordered_map<uint64_t, ModTexture> textures);
+    // Whether a texture drawn with these indices or this content is a mod's stand-in (the upscaling modes leave
+    // those alone).
+    bool mod_texture(uint64_t index_key, uint64_t key = 0);
 }
 
 #endif

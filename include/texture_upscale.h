@@ -139,6 +139,7 @@ namespace rush2::upscale {
         ~ZipReader();
         bool is_open() const;
         bool read(const std::string& name, std::vector<uint8_t>& bytes);
+        std::vector<std::string> names(); // Every file's path in the zip (directories left out).
     private:
         struct Impl;
         std::unique_ptr<Impl> impl;

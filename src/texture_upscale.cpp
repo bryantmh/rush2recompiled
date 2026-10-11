@@ -1420,6 +1420,10 @@ namespace {
                 uint64_t key = pending.front();
                 pending.pop_front();
                 Entry& entry = entries[key];
+                if (rush2::derive::mod_texture(entry.index_key, key)) {
+                    entry.queued = false; // A mod's stand-in: replaced with the mod's own image (rush2::derive).
+                    continue;
+                }
                 if (!entry.ui && rush2::derive::interface_texture(key, entry.index_key)) {
                     entry.ui = true; // Only in the catalog's interface containers (drawn in 3D: the race HUD).
                 }

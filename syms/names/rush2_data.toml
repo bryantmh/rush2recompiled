@@ -4348,6 +4348,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800CAF3C
+name = "car_part_prefixes"
+type = "char *[22]"
+desc = "Part name prefix per Rush 2 car type (PICKUP, INTEG, VETTE, SLED, BMW, CAMARO, SUPRA, BUGAT, VWBUS, VIPER, VWBUG, CONCPT, CIVIC, CADDY, MUST, SUV, TAXI, HOTROD, FORM1, GT90, ROCKET, DEW): car_parts_build_80086700 looks up <prefix>FRAME1, <prefix>D0_FR1 ... in the car's container. Car model mods name their glbs by it."
+area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x800CE17B
 name = "track_spawn_pair_a_17b"
 type = "u32"

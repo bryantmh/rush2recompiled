@@ -358,6 +358,10 @@ pack of the dumped images replaces everything the game draws.
     stripes' edges come from the stripe tile's upscale.
   - Anything else: the base's rows recolored to the drawn colors (`recolor`), rows past the base's ends from the drawn
     texels scaled up.
+- **Car model mods** (docs/car_mods.md): a mod car's stand-in textures are registered with `set_mod_textures` by
+  their `index_key`. `mod_replace` runs before tracing, and replaces each stand-in drawn with the mod's full-size
+  image (`paint_mod`). The mask's red takes MAIN COLOR and green ACCENT COLOR, read from the stand-in's texels 0 and
+  1 (entries 1 and 33). The scuffed stand-in gets the same image mottled darker. The upscaling modes skip stand-ins.
 - **Precedence:** a pack's own image for the hash wins (RT64 prefers packs over live replacements). The upscaling modes
   leave derived hashes alone (`owns`).
 - **Interface:** with Upscale Interface off, a texture drawn in 2D, or traced to an interface-only base, gets nothing

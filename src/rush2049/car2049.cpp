@@ -236,8 +236,16 @@ namespace {
         std::vector<std::pair<uint32_t, uint32_t>> flame_tiles; // G_SETTILESIZE offset, its w1
         std::vector<uint32_t> flame_lists;  // file offsets of the flames' display lists
         std::vector<uint32_t> body_lists;   // file offsets of the body's (FRAME1) display lists, every LOD
+        // A Rush 2 type drawn as one body (set_body_car): Rush 2 paints it, so it has no colours of its own, and its
+        // textures' scuffed copies are given (pristine texel offset -> copy).
+        bool body = false;
+        std::map<uint32_t, std::vector<uint8_t>> given_scuffs;
+        // Its first texture record's name: every mod container is laid out alike (the same texture table and texels
+        // offsets), so a body is told apart by this name (src/car_mods.cpp names the records after the car).
+        char first_name[16] = {};
     };
     Paint paints[car_count];
+    Paint bodies[rush2::car2049::rush2_types]; // Rush 2 types drawn as one body (car mods)
     constexpr uint32_t car_banks = 0x80221750;      // s16 texture bank per preview id (moved from 0x800D9D40)
     constexpr uint32_t bank_table = 0x80119220;     // [bank] = texture records, count
     constexpr uint32_t colour_table = 0x800CE19C;   // RGBA per colour option
@@ -674,7 +682,19 @@ namespace {
                 l.commands.insert(l.commands.end(), car.begin() + o, car.begin() + o + 8);
             }
             Paint::JobTexture* job = l.settimg >= 0 ? p.job_texture(l.texels) : nullptr;
-            if (job != nullptr) {
+            auto given = l.settimg >= 0 ? p.given_scuffs.find(l.texels) : p.given_scuffs.end();
+            if (given != p.given_scuffs.end()) {
+                if (given->second.size() == size) {
+                    auto s = scuffed.find(l.texels);
+                    if (s == scuffed.end()) {
+                        align();
+                        s = scuffed.emplace(l.texels, uint32_t(car.size())).first;
+                        car.insert(car.end(), given->second.begin(), given->second.end());
+                    }
+                    l.damaged = s->second;
+                }
+            }
+            else if (job != nullptr) {
                 // A Dreamcast car's texture: its scuffed copy is the converter's (each job's, copied in with the job).
                 if (!job->scuffed.empty() && job->scuffed[0].size() == size && size == job->texels[0].size()) {
                     auto s = scuffed.find(l.texels);
@@ -687,7 +707,7 @@ namespace {
                     job->damaged = s->second;
                 }
             }
-            else if (l.settimg >= 0 && ci8 && width > 0 && size > 0 && l.texels + size <= car.size()) {
+            else if (!p.body && l.settimg >= 0 && ci8 && width > 0 && size > 0 && l.texels + size <= car.size()) {
                 uint32_t painted = 0;
                 for (uint32_t i = 0; i < size; i++) painted += car[l.texels + i] >= 32 && car[l.texels + i] < 128;
                 if (painted * 10 >= size) {
@@ -811,9 +831,25 @@ namespace {
         if (bank < 0 || bank >= (int)MEM_BU(0, (int32_t)0x800D5788)) return nullptr;
         uint32_t records = (uint32_t)MEM_W(0, (int32_t)(bank_table + bank * 8));
         uint32_t count = (uint32_t)MEM_W(0, (int32_t)(bank_table + bank * 8 + 4));
+        auto match = [&](const Paint& p) {
+            return (!p.colours.empty() || p.body) && count == p.texture_count &&
+                   (uint32_t)MEM_W(0, (int32_t)(records + 24)) == records - p.texture_table + p.first_texels &&
+                   (!p.body || [&] {
+                       for (int i = 0; i < 16; i++) {
+                           if (MEM_BU(0, (int32_t)(records + i)) != (uint8_t)p.first_name[i]) return false;
+                           if (p.first_name[i] == 0) break;
+                       }
+                       return true;
+                   }());
+        };
         for (const Paint& p : paints) {
-            if (!p.colours.empty() && count == p.texture_count &&
-                (uint32_t)MEM_W(0, (int32_t)(records + 24)) == records - p.texture_table + p.first_texels) {
+            if (match(p)) {
+                base = records - p.texture_table;
+                return &p;
+            }
+        }
+        for (const Paint& p : bodies) {
+            if (match(p)) {
                 base = records - p.texture_table;
                 return &p;
             }
@@ -978,6 +1014,39 @@ static void load_cars(uint8_t* rdram) {
     else {
         fprintf(stderr, "[2049] Couldn't convert the part models: %s\n", error.c_str());
     }
+}
+
+void rush2::car2049::set_body_car(uint8_t* rdram, int type, std::vector<uint8_t> car, const std::string& prefix,
+                                  const std::map<uint32_t, std::vector<uint8_t>>& scuffed) {
+    if (type < 0 || type >= rush2_types || car.size() < 0x28) return;
+    Paint& p = bodies[type];
+    p = Paint{};
+    p.body = true;
+    p.given_scuffs = scuffed;
+    p.texture_table = be32(car, 8);
+    p.texture_count = be32(car, 20);
+    if (p.texture_count >= 1) {
+        p.first_texels = be32(car, p.texture_table + 24);
+        memcpy(p.first_name, &car[p.texture_table], 16);
+    }
+    collect_body_vertices(car, prefix, p);
+    add_damage_textures(car, prefix + "FRAME1", type, p);
+    if (car.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
+        MEM_W(0, (int32_t)car_slot_size) = (int32_t)((car.size() + 15) & ~15u);
+    }
+    // Rush 2 stamps its stripes on textures named by this prefix (func_800843EC): the body has none.
+    MEM_W(0, (int32_t)(prefixes + type * 4)) = (int32_t)no_prefix;
+    dented.clear();
+    rush2::assets::replace(rdram, 0x1D + type, std::move(car), rush2::origin::Game::Rush2);
+}
+
+void rush2::car2049::clear_body_car(uint8_t* rdram, int type, const std::vector<uint8_t>& own) {
+    if (type < 0 || type >= rush2_types || !bodies[type].body) return;
+    bodies[type] = Paint{};
+    MEM_W(0, (int32_t)(prefixes + type * 4)) = MEM_W(0, (int32_t)(old_prefixes + type * 4));
+    dented.clear();
+    if (own.empty()) rush2::assets::restore(rdram, 0x1D + type);
+    else rush2::assets::replace(rdram, 0x1D + type, own, rush2::origin::Game::Rush2);
 }
 
 void rush2::car2049::init_assets(uint8_t* rdram) {
@@ -1676,6 +1745,10 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     uint32_t bits = (uint32_t)MEM_W(0, (int32_t)(0x801124A0 + car * 0x354 + 0xE4));
+    // In the menus, track and car select (game state 0x8010C0D0 0-2) the car state still holds the last race's damage:
+    // the car select's preview would be drawn crushed (Rush 2 draws its intact panels there).
+    int32_t state = MEM_W(0, (int32_t)0x8010C0D0);
+    if (state >= 0 && state <= 2) bits = 0;
     float level[5];
     uint32_t key = 0;
     for (int k = 0; k < 5; k++) {
