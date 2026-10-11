@@ -3,7 +3,8 @@ each report: which drawn textures the catalog can't name and where their texels 
 
 Usage: python tools/texture_census.py OUT_DIR STEP [STEP ...]
 STEP is how many times the track select is stepped right from the saved track before the race (0 = the saved one).
-Set RUSH2_CENSUS_CAR=N to step the car select left N times from the saved car (to race a given car's textures).
+Set RUSH2_CENSUS_CAR=N to step the car select left N times from the saved car, right for a negative N (to race a
+given car's textures).
 Set RUSH2_EXE to the build to run (it runs in its own folder, portable, with that folder's saves and ROMs); use a copy
 of build/ in tmp/ so the race doesn't touch your own saves. Each race holds the gas for about 75 s. Writes
 OUT_DIR/step<N>.txt (the report), step<N>.txt_images/ (the drawn images) and step<N>_track.png (the track select).
@@ -23,8 +24,9 @@ for step in [int(s) for s in sys.argv[2:]]:
     shot = t + 0.5
     presses.append('%.1f:A' % (t + 1.5))
     t += 4.5  # The car select.
-    for _ in range(int(os.environ.get('RUSH2_CENSUS_CAR', '0'))):
-        presses.append('%.1f:DL' % t)
+    car_steps = int(os.environ.get('RUSH2_CENSUS_CAR', '0'))
+    for _ in range(abs(car_steps)):
+        presses.append('%.1f:%s' % (t, 'DL' if car_steps > 0 else 'DR'))
         t += 0.6
     presses += ['%.1f:A' % t, '%.1f:A' % (t + 3), '%.1f:A:75' % (t + 6)]
     report = os.path.join(out, 'step%d.txt' % step)

@@ -146,16 +146,20 @@ namespace rush2::catalog {
     // status gets what it's on.
     std::vector<Entry> containers(const std::function<void(const std::string&)>& status, bool source_files = false);
 
-    // Rush 2 car paint bases: the CI8 body textures of Rush 2's cars, whose palette the game writes (the paint). The
-    // catalog's image of one is gray (entry i as gray i & 31: keys and packs go by it); Dump Textures writes its
-    // paint_preview instead, so MAIN, ACCENT and the fixed colors look apart (docs/texture_upscaling.md, "Rush 2 car
-    // paint bases").
+    // Car paint bases: the CI8 body textures of Rush 2's and Rush 2049's cars, whose palette the game writes (the
+    // paint). The catalog's image of one is gray (entry i as gray i & 31: keys and packs go by it); Dump Textures writes
+    // its paint_preview instead, so the paints and the fixed colors look apart (docs/texture_upscaling.md, "Car paint
+    // bases"). Their palettes' paint ramps: Rush 2's MAIN 1-31 and ACCENT 33-63 (car_palette_classify_800854AC); Rush
+    // 2049's COLOR 1-3 at 32-63, 64-95 and 96-126 (rush2_car49_paint).
     bool paint_base(const Entry& e, const Texture& t);
-    // CARPALETTE (asset 0x1C, the cars/stripes container) with MAIN COLOR's ramp (1-31) violet and ACCENT COLOR's
-    // (33-63) yellow, as 256 RGBA entries; empty when containers lack it.
-    std::vector<uint8_t> paint_preview_palette(const std::vector<Entry>& containers);
-    rush2::upscale::Image paint_preview(const std::vector<uint8_t>& indices, uint32_t width, uint32_t height,
-                                        const std::vector<uint8_t>& palette);
+    // The 2049 car (0-12) a container is (assets 0x71+), else -1.
+    int car_2049(const Entry& e);
+    // The palette a car container's paint bases are previewed with, 256 RGBA entries: its fixed colors as they are and
+    // the ramps violet, yellow and cyan, shaded as the game shades a paint (Rush 2: CARPALETTE, asset 0x1C, the
+    // cars/stripes container; Rush 2049: the car's own palette). Empty when there's none (a Dreamcast disc's car).
+    std::vector<uint8_t> paint_preview_palette(const std::vector<Entry>& containers, const Entry& car);
+    Image paint_preview(const std::vector<uint8_t>& indices, uint32_t width, uint32_t height,
+                        const std::vector<uint8_t>& palette);
 
     // Dump Models (Settings > Graphics): writes every model of every container (source_files included) as
     // <app folder>/asset_dump/models/<game>/<path>/<model>.glb, plus <path>/_all.glb with all of a container's models and,

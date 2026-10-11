@@ -34,29 +34,24 @@ static Image load_png(const std::filesystem::path& path) {
     return im;
 }
 
-// --paint DIR UPSCALE.png: recolors a real paint base's upscale (DIR from tools/rush1/paint_case.py) and writes
-// DIR/out_recolor.png and DIR/out_recolor_paint.png (an upscale of gray.png) and DIR/out_preview.png (recolor from
-// preview.png: an upscale of the colored dump).
+// --paint DIR UPSCALE.png: recolors a car paint base's upscale as the game does (DIR from tools/rush1/paint_case.py:
+// preview.png, what Dump Textures writes, and painted.png, the panel in a paint job) and writes DIR/out.png (with Keep
+// Car Colors' clamp_chroma) and DIR/out_unclamped.png.
 static int paint_case(const std::filesystem::path& dir, const std::filesystem::path& upscale_path) {
-    Image gray = load_png(dir / "gray.png"), painted = load_png(dir / "painted.png"), up = load_png(upscale_path);
-    FILE* f = fopen((dir / "indices.bin").string().c_str(), "rb");
-    if (gray.empty() || painted.empty() || up.empty() || f == nullptr) {
+    Image preview = load_png(dir / "preview.png"), painted = load_png(dir / "painted.png"), up = load_png(upscale_path);
+    if (preview.empty() || painted.empty() || up.empty()) {
         printf("missing inputs\n");
         return 1;
     }
-    std::vector<uint8_t> indices(size_t(gray.width) * gray.height);
-    size_t got = fread(indices.data(), 1, indices.size(), f);
-    fclose(f);
-    if (got != indices.size()) return 1;
-    uint32_t scale = std::max<uint32_t>(1, (up.width + gray.width / 2) / gray.width);
-    if (up.width != gray.width * scale || up.height != gray.height * scale) {
-        up = resize_bilinear(up, gray.width * scale, gray.height * scale);
+    uint32_t scale = std::max<uint32_t>(1, (up.width + preview.width / 2) / preview.width);
+    if (up.width != preview.width * scale || up.height != preview.height * scale) {
+        up = resize_bilinear(up, preview.width * scale, preview.height * scale);
     }
-    write_png(dir / "out_recolor.png", recolor(up, gray, painted, Edge::Wrap, Edge::Wrap));
-    write_png(dir / "out_recolor_paint.png", recolor_paint(up, gray, painted, indices, Edge::Wrap, Edge::Wrap));
-    Image preview = load_png(dir / "preview.png");
-    if (!preview.empty()) write_png(dir / "out_preview.png", recolor(up, preview, painted, Edge::Wrap, Edge::Wrap));
-    printf("wrote %s\n", (dir / "out_recolor*.png").string().c_str());
+    Image out = recolor(up, preview, painted, Edge::Wrap, Edge::Wrap, true);
+    write_png(dir / "out_unclamped.png", out);
+    clamp_chroma(out, painted, Edge::Wrap, Edge::Wrap);
+    write_png(dir / "out.png", out);
+    printf("wrote %s\n", (dir / "out.png").string().c_str());
     return 0;
 }
 
@@ -176,11 +171,9 @@ int main(int argc, char** argv) {
         CHECK(same.rgba == hq_upscale(red, scale).rgba);
     }
 
-    // A Rush 2 car paint base: the catalog's gray image (entry i as gray i & 31) upscaled, then painted by the game's
-    // palette (MAIN red, ACCENT white, CARPALETTE's ramp), against upscaling the painted panel directly. MAIN and
-    // ACCENT share grays, black trim (191) is gray 31 and the glass (0) gray 0. hq2x only blends neighbors, which
-    // recolor explains exactly; this checks recolor_paint stays close to it (its gain shows on hand-made upscales:
-    // tools/rush1/paint_case.py and --paint).
+    // A Rush 2 car paint base: its dumped preview (MAIN violet, ACCENT yellow, CARPALETTE's ramp, fixed colors as
+    // they are) upscaled, then painted (MAIN red, ACCENT white), against upscaling the painted panel directly. Then an
+    // upscaler's color spill onto a fixed part (green over the glass), which Keep Car Colors' clamp_chroma takes out.
     {
         const uint8_t ramp[32] = { 0, 230, 222, 213, 213, 205, 197, 189, 180, 172, 172, 164, 156, 148, 139, 139, 123,
                                    115, 106, 98, 90, 82, 74, 65, 57, 49, 41, 32, 16, 8, 0, 0 }; // CARPALETTE 0-31
@@ -194,24 +187,23 @@ int main(int argc, char** argv) {
             if (y >= 27 && x < 10) i = 102;                          // a tail light
             panel[y * w + x] = i;
         }
-        auto colors = [&](bool gray_ramp) {
+        auto colors = [&](const uint8_t main[3], const uint8_t accent[3]) {
             Image im; im.width = w; im.height = h; im.rgba.resize(w * h * 4);
             for (uint32_t k = 0; k < w * h; k++) {
                 uint8_t i = panel[k], *p = &im.rgba[k * 4];
                 p[3] = 255;
-                if (gray_ramp) { uint8_t g = uint8_t(((i & 31) << 3) | ((i & 31) >> 2)); p[0] = p[1] = p[2] = g; continue; }
-                if (i >= 1 && i <= 31) { p[0] = uint8_t(248 * ramp[i] / 230); p[1] = p[2] = uint8_t(40 * ramp[i] / 230); }
-                else if (i >= 33 && i <= 63) p[0] = p[1] = p[2] = ramp[i - 32];
-                else if (i == 191) p[0] = p[1] = p[2] = 8;
+                const uint8_t* paint = (i >= 1 && i <= 31) ? main : (i >= 33 && i <= 63) ? accent : nullptr;
+                if (paint) for (int c = 0; c < 3; c++) p[c] = uint8_t(paint[c] * ramp[i & 31] / 230);
+                else if (i == 191) p[0] = p[1] = p[2] = 0;
                 else if (i == 0) { p[0] = 8; p[1] = 24; p[2] = 49; }
                 else { p[0] = 197; p[1] = p[2] = 0; }
             }
             return im;
         };
-        Image gray = colors(true), painted = colors(false);
-        Image direct = hq_upscale(painted, 2), up = hq_upscale(gray, 2);
-        Image old_way = recolor(up, gray, painted, Edge::Wrap, Edge::Wrap);
-        Image new_way = recolor_paint(up, gray, painted, panel, Edge::Wrap, Edge::Wrap);
+        const uint8_t violet[3] = { 160, 80, 255 }, yellow[3] = { 255, 215, 40 }, red[3] = { 248, 40, 40 },
+                      white[3] = { 255, 255, 255 };
+        Image preview = colors(violet, yellow), painted = colors(red, white);
+        Image direct = hq_upscale(painted, 2), up = hq_upscale(preview, 2);
         auto fringes = [&](const Image& a) { // Pixels far off the direct upscale's color.
             int count = 0;
             for (size_t i = 0; i < a.rgba.size(); i += 4) {
@@ -220,19 +212,32 @@ int main(int argc, char** argv) {
             }
             return count;
         };
-        double e_old = mean_error(old_way, direct), e_new = mean_error(new_way, direct);
-        int f_old = fringes(old_way), f_new = fringes(new_way);
-        printf("paint base: recolor error %.2f, %d fringe pixels; recolor_paint error %.2f, %d fringe pixels\n", e_old,
-               f_old, e_new, f_new);
-        // hq2x only blends neighbors, which recolor explains exactly; recolor_paint softens the MAIN-ACCENT edges a
-        // little but mustn't fringe.
-        CHECK(e_new < 2.5 && f_new <= 4);
+        Image out = recolor(up, preview, painted, Edge::Wrap, Edge::Wrap, true);
+        clamp_chroma(out, painted, Edge::Wrap, Edge::Wrap);
+        double error = mean_error(out, direct);
+        int fringe = fringes(out);
+        printf("paint preview: error %.2f, %d fringe pixels\n", error, fringe);
+        CHECK(error < 2.0 && fringe <= 4);
+        // Spill: the glass (dark navy) upscaled green-tinted; clamped, it's back within a few levels of its color.
+        Image spilled = up;
+        for (uint32_t y = 2; y < 12; y++) for (uint32_t x = 96; x < 126; x++) spilled.rgba[(y * w * 2 + x) * 4 + 1] += 40;
+        Image kept = recolor(spilled, preview, painted, Edge::Wrap, Edge::Wrap, true);
+        clamp_chroma(kept, painted, Edge::Wrap, Edge::Wrap);
+        int worst = 0;
+        for (uint32_t y = 2; y < 12; y++) for (uint32_t x = 96; x < 126; x++) {
+            const uint8_t* p = &kept.rgba[(y * w * 2 + x) * 4];
+            float l = 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2];
+            float lg = 0.299f * 8 + 0.587f * 24 + 0.114f * 49;
+            worst = std::max(worst, int(std::abs((p[1] - l) - (24 - lg))));
+        }
+        printf("paint preview: green spill on the glass left %d levels of chroma\n", worst);
+        CHECK(worst <= 4);
         if (argc > 1) {
             std::filesystem::path work = argv[1];
             std::filesystem::create_directories(work);
             write_png(work / "paint_direct.png", direct);
-            write_png(work / "paint_recolor.png", old_way);
-            write_png(work / "paint_recolor_paint.png", new_way);
+            write_png(work / "paint_recolored.png", out);
+            write_png(work / "paint_spill_kept.png", kept);
         }
     }
 

@@ -663,7 +663,8 @@ void rush2::init_config() {
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
             { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::mode_option_id,
-                            rush2::upscale::command_option_id, rush2::upscale::interface_option_id } },
+                            rush2::upscale::command_option_id, rush2::upscale::interface_option_id,
+                            rush2::upscale::car_colors_option_id } },
         }, rush2::upscale::add_buttons);
     }
 

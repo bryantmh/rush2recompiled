@@ -67,6 +67,7 @@
 #include "options_page.h"
 #include "rush2049_dc.h"
 #include "texture_census.h"
+#include "body_sheet.h"
 #include "texture_derive.h"
 #include "texture_origin.h"
 #include "texture_upscale.h"
@@ -83,6 +84,7 @@ const char* const mode_option_id = "texture_upscaling";
 const char* const command_option_id = "texture_upscale_command";
 const char* const dreamcast_option_id = "dreamcast_textures";
 const char* const interface_option_id = "upscale_interface";
+const char* const car_colors_option_id = "keep_car_colors";
 
 namespace {
     // Saved by name ("Hq2x"...), so the values only matter inside this file.
@@ -105,6 +107,8 @@ namespace {
     std::filesystem::path root() { return asset_dump_dir(); }
     std::filesystem::path dump_dir() { return root() / "textures"; }
     std::filesystem::path upscaled_dir() { return root() / "user_texture_pack"; }
+    // Tiles a half-body sheet gives back all of (rush2::sheet::covers): out of the folders to upscale, kept for Install.
+    std::filesystem::path covered_dir() { return root() / "sheet_tiles"; }
     std::filesystem::path work_dir() { return generated_cache_dir() / "work"; }
     std::filesystem::path ui_list() { return root() / "ui_textures.txt"; }
     constexpr const char* dc_folder = "rush2049dc";
@@ -553,12 +557,124 @@ namespace {
         // names unique in a game folder) and the RT64 hash the catalog gives each. Textures the game makes from these
         // at run time (other palettes, stamped stripes, copies) aren't dumped: their replacements are made from these
         // ones' upscales (rush2::derive). Upscales of the pushed builds' dumps, named by key, move to their names.
+        // Where the dump puts a texture: its game folder and its path in it.
+        struct Named {
+            std::string folder, path;
+        };
+        // A 2049 car's container read with its triangles, and its textures' content keys.
+        struct SheetJob {
+            std::string path;
+            rush2::catalog::Container container;
+            std::vector<uint64_t> keys;
+        };
+
+        // The cars' half-body sheets (rush2::sheet), Rush 2's and Rush 2049's: each car's <path>/<CAR>_BODY.png, drawn
+        // from the dumped images of its body's tiles, and each game folder's body_sheets.txt with their layouts, which
+        // Install reads. A tile the car draws only where its sheet gives it back moves to sheet_tiles: upscaling it
+        // alone would do nothing.
+        void write_sheets(std::vector<SheetJob>& jobs, const std::unordered_map<uint64_t, Named>& named,
+                          const std::unordered_map<uint64_t, Image>& images,
+                          std::map<std::string, std::set<std::string>>& file_names) {
+            std::map<std::string, std::vector<rush2::sheet::Sheet>> by_folder;
+            std::map<std::pair<std::string, std::string>, uint64_t> any_key; // (Folder, path) -> key, for the _D1 tiles.
+            for (const auto& [key, n] : named) any_key[{ n.folder, n.path }] = key;
+            auto write = [&](const std::string& folder, const rush2::sheet::Sheet& sheet) {
+                Image image = rush2::sheet::render(sheet, [&](const std::string& tile) -> const Image* {
+                    auto k = any_key.find({ folder, tile });
+                    if (k == any_key.end()) return nullptr;
+                    auto im = images.find(k->second);
+                    return im == images.end() ? nullptr : &im->second;
+                });
+                std::error_code ec;
+                std::filesystem::path out = dump_dir() / folder / std::filesystem::u8path(sheet.path + ".png");
+                std::filesystem::create_directories(out.parent_path(), ec);
+                write_png(out, image);
+                printf("[upscale] dump: %s, %zu pieces of %zu tiles, %ux%u\n", sheet.path.c_str(), sheet.pieces.size(),
+                       rush2::sheet::tiles(sheet).size(), sheet.width, sheet.height);
+            };
+            size_t tile_count = 0, covered_count = 0;
+            auto hide_covered = [&](const std::string& folder, const rush2::sheet::Sheet& sheet,
+                                    const std::map<std::string, std::vector<uint8_t>>& drawn) {
+                for (const std::string& tile : rush2::sheet::tiles(sheet)) {
+                    tile_count++;
+                    auto d = drawn.find(tile);
+                    if (d == drawn.end() || !rush2::sheet::covers(sheet, tile, d->second)) continue;
+                    std::error_code ec;
+                    std::filesystem::path from = dump_dir() / folder / std::filesystem::u8path(tile + ".png");
+                    std::filesystem::path to = covered_dir() / folder / std::filesystem::u8path(tile + ".png");
+                    std::filesystem::create_directories(to.parent_path(), ec);
+                    std::filesystem::rename(from, to, ec);
+                    if (!ec) covered_count++;
+                }
+            };
+            for (SheetJob& job : jobs) {
+                std::vector<std::string> paths(job.keys.size());
+                std::string folder;
+                for (size_t i = 0; i < job.keys.size(); i++) {
+                    auto it = named.find(job.keys[i]);
+                    if (it == named.end()) continue;
+                    if (folder.empty()) folder = it->second.folder;
+                    if (it->second.folder != folder) continue; // The sheet's tiles are all in its game folder.
+                    paths[i] = it->second.path;
+                }
+                if (folder.empty()) continue;
+                std::string car = job.path.substr(job.path.rfind('/') + 1);
+                std::string file = rush2::catalog::file_name(car) + "_BODY";
+                std::set<std::string>& used = file_names[folder];
+                for (int k = 2; used.count(file); k++) file = rush2::catalog::file_name(car) + "_BODY~" + std::to_string(k);
+                rush2::sheet::Sheet sheet;
+                std::map<std::string, std::vector<uint8_t>> drawn; // Tile -> the texels the car draws of it.
+                if (!rush2::sheet::build(job.container, paths, job.path + "/" + file, sheet, &drawn)) continue;
+                used.insert(file);
+                write(folder, sheet);
+                hide_covered(folder, sheet, drawn);
+                // The damaged body (drawn once the car is banged up: Rush 2049's <tile>_D1, Rush 2's ...D1_n for
+                // ...D0_n) has the same layout: its own sheet, <CAR>_BODY_D1, with the pieces whose tile has one
+                // (glass and the like don't).
+                auto damaged_tile = [&](const std::string& tile) -> std::string {
+                    if (any_key.count({ folder, tile + "_D1" })) return tile + "_D1";
+                    size_t at = tile.rfind("D0_");
+                    if (at != std::string::npos && at > tile.rfind('/')) {
+                        std::string d1 = tile.substr(0, at) + "D1_" + tile.substr(at + 3);
+                        if (any_key.count({ folder, d1 })) return d1;
+                    }
+                    return "";
+                };
+                rush2::sheet::Sheet damaged = sheet;
+                damaged.path += "_D1";
+                damaged.pieces.clear();
+                // Rush 2's damaged parts (D2_) draw their tiles themselves; Rush 2049 swaps <tile>_D1 in where the
+                // tile is drawn, so it draws what the tile does.
+                std::map<std::string, std::vector<uint8_t>> drawn_damaged;
+                for (rush2::sheet::Piece piece : sheet.pieces) {
+                    std::string base = piece.tile;
+                    piece.tile = damaged_tile(piece.tile);
+                    if (piece.tile.empty()) continue;
+                    auto d = drawn.find(piece.tile);
+                    if (d == drawn.end()) d = drawn.find(base);
+                    if (d != drawn.end()) drawn_damaged.emplace(piece.tile, d->second);
+                    damaged.pieces.push_back(std::move(piece));
+                }
+                if (!damaged.pieces.empty() && !used.count(file + "_D1")) {
+                    used.insert(file + "_D1");
+                    write(folder, damaged);
+                    hide_covered(folder, damaged, drawn_damaged);
+                    by_folder[folder].push_back(std::move(damaged));
+                }
+                by_folder[folder].push_back(std::move(sheet));
+            }
+            printf("[upscale] dump: %zu of %zu car tiles given back whole by their sheets, moved to sheet_tiles\n",
+                   covered_count, tile_count);
+            for (const auto& [folder, sheets] : by_folder) {
+                std::string text = rush2::sheet::write_layout(sheets);
+                write_file(dump_dir() / folder / "body_sheets.txt", std::vector<uint8_t>(text.begin(), text.end()));
+            }
+        }
+
         size_t dump_named() {
             std::error_code ec;
             std::filesystem::remove_all(dump_dir(), ec);
-            struct Named {
-                std::string folder, path;
-            };
+            std::filesystem::remove_all(covered_dir(), ec);
             std::unordered_map<uint64_t, Named> named;       // By content key.
             std::map<std::string, std::map<uint64_t, std::set<uint64_t>>> hashes; // Folder -> key -> RT64 hashes.
             std::map<std::string, std::map<std::string, DumpName>> names;          // Folder -> path -> name.
@@ -601,18 +717,25 @@ namespace {
                 }
             }
             size_t matched = 0;
-            // Rush 2's car paint bases are written in color (MAIN violet, ACCENT yellow), not as the catalog's gray, so
-            // an upscale shows where each paint ends (rush2::catalog::paint_preview).
-            const std::vector<uint8_t> paint_palette = rush2::catalog::paint_preview_palette(containers);
+            // The cars' containers (with their triangles) and their textures' keys, for the half-body sheets.
+            std::vector<SheetJob> sheet_jobs;
             for (const rush2::catalog::Entry& e : containers) {
                 if (!interface && rush2::catalog::ui_path(e.path)) {
                     continue; // Interface art (Upscale Interface off); a texture also on a model elsewhere is named there.
                 }
                 rush2::catalog::Container c;
                 std::string error;
-                if (!rush2::catalog::read_container(*e.data, c, error, false, false, &e.copies)) {
+                // Every car's triangles, for its sheet (Rush 2's and Rush 2049's; the paint and parts files aren't cars).
+                const bool car = e.path.rfind("cars/", 0) == 0 && e.path != "cars/stripes" && e.path != "cars/parts";
+                if (!rush2::catalog::read_container(*e.data, c, error, car, false, &e.copies)) {
                     continue;
                 }
+                std::vector<uint64_t> keys;
+                for (const rush2::catalog::Texture& t : c.textures) keys.push_back(t.key);
+                // Car paint bases are written in color (the paints violet, yellow and cyan), not as the catalog's gray,
+                // so an upscale shows where each paint ends (rush2::catalog::paint_preview).
+                const std::vector<uint8_t> paint_palette = e.path.rfind("cars/", 0) == 0
+                    ? rush2::catalog::paint_preview_palette(containers, e) : std::vector<uint8_t>{};
                 std::map<std::string, std::string> renamed; // Catalog name -> file name given, for the mipmap levels.
                 for (rush2::catalog::Texture& t : c.textures) {
                     rush2::origin::Game game = e.game_at(t.texels);
@@ -665,6 +788,7 @@ namespace {
                     if (rush2::catalog::paint_base(e, t)) preview = rush2::catalog::paint_preview(t.indices, t.width, t.height, paint_palette);
                     images.emplace(t.key, preview.empty() ? std::move(t.image) : std::move(preview));
                 }
+                if (car) sheet_jobs.push_back({ e.path, std::move(c), std::move(keys) });
             }
             {
                 std::unique_lock lock(mutex);
@@ -680,6 +804,7 @@ namespace {
                 dump_done++;
             }
             printf("[upscale] catalog: %zu textures dumped\n", named.size());
+            write_sheets(sheet_jobs, named, images, file_names);
             size_t count = 0;
             for (const std::string& folder : dump_folders()) {
                 if (folder.empty() || folder == dc_folder) continue;
@@ -749,7 +874,9 @@ namespace {
 
         // The dumped original of an image (the dump holds every one).
         bool read_original(const std::string& folder, const std::string& path, Image& original) {
-            return read_image(dump_dir() / folder / std::filesystem::u8path(path + ".png"), original);
+            // A tile its car's sheet gives back whole is in sheet_tiles (write_sheets).
+            return read_image(dump_dir() / folder / std::filesystem::u8path(path + ".png"), original) ||
+                   read_image(covered_dir() / folder / std::filesystem::u8path(path + ".png"), original);
         }
 
         // Runs Install Upscaled in the background (decoding every upscale and writing the pack takes seconds), to the
@@ -761,6 +888,7 @@ namespace {
             }
             std::thread([this]() {
                 wait_migrated();
+                install_error.clear();
                 install_count = install();
                 installing_flag = false;
             }).detach();
@@ -768,6 +896,8 @@ namespace {
 
         bool installing() const { return installing_flag; }
         int installed() const { return install_count; }
+        // Why the last install failed, for the button ("" when it didn't).
+        const std::string& install_failure() const { return install_error; }
 
     private:
         // Puts new_file in place of the installed pack (or, with new_file empty, deletes it). Both the mod context and
@@ -780,26 +910,88 @@ namespace {
             std::error_code ec;
             recompui::renderer::secondary_disable_texture_pack(pack_id);
             recomp::mods::close_mods();
+            // The derived replacements read car upscales out of it while they're made.
+            std::unique_lock<std::mutex> hold = rush2::derive::hold_packs();
             // The loose folder older builds installed (the same mod id): the .rtz takes its place.
             std::filesystem::path loose_pack = recomp::mods::get_mods_directory() / pack_id;
             if (std::filesystem::exists(loose_pack / "mod.json", ec)) {
                 std::filesystem::remove_all(loose_pack, ec);
             }
             bool ok = false;
-            for (int attempt = 0; attempt < 100 && !ok; attempt++) {
+            for (int attempt = 0; attempt < 200 && !ok; attempt++) {
                 ec.clear();
                 if (new_file.empty()) std::filesystem::remove(pack_file, ec);
                 else std::filesystem::rename(new_file, pack_file, ec);
                 ok = !ec;
                 if (!ok) std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
-            if (!ok) printf("[upscale] Couldn't replace %s: %s\n", path_utf8(pack_file).c_str(), ec.message().c_str());
+            if (!ok) {
+                printf("[upscale] Couldn't replace %s: %s\n", path_utf8(pack_file).c_str(), ec.message().c_str());
+                install_error = "the old pack is in use";
+            }
             recompui::renderer::secondary_enable_texture_pack(pack_id);
             return ok;
         }
 
         std::atomic<bool> installing_flag = false;
         std::atomic<int> install_count = 0;
+        std::string install_error; // Written by the install thread before installing_flag clears.
+
+        // Install's half-body sheets for one game folder (its body_sheets.txt): each upscale of a sheet among files
+        // (named after the sheet's path or file name, as any upscale) is cut into its tiles (add: install one), with the
+        // tile's own upscale, if any, filling what the sheet doesn't give back. Returns the sheet upscales found.
+        template <typename NameOf, typename Add>
+        std::set<std::filesystem::path> install_sheets(const std::string& folder, const std::filesystem::path& root,
+                                                       const std::vector<std::filesystem::path>& files,
+                                                       const std::map<std::string, DumpName>& names, NameOf& name_of,
+                                                       const std::set<uint64_t>& done, Add& add) {
+            std::set<std::filesystem::path> found;
+            std::vector<uint8_t> text = read_file(dump_dir() / folder / "body_sheets.txt");
+            if (text.empty()) return found;
+            std::vector<rush2::sheet::Sheet> sheets = rush2::sheet::read_layout(std::string(text.begin(), text.end()));
+            auto sheet_of = [&](const std::string& stem) -> const rush2::sheet::Sheet* {
+                const rush2::sheet::Sheet* best = nullptr;
+                size_t best_length = 0;
+                std::string file_stem = stem.substr(stem.rfind('/') + 1);
+                for (const rush2::sheet::Sheet& sh : sheets) {
+                    std::string file = sh.path.substr(sh.path.rfind('/') + 1);
+                    size_t length = stem.rfind(sh.path, 0) == 0 ? sh.path.size() : file_stem.rfind(file, 0) == 0 ? file.size() : 0;
+                    if (length > best_length) {
+                        best = &sh;
+                        best_length = length;
+                    }
+                }
+                return best;
+            };
+            std::vector<std::pair<const rush2::sheet::Sheet*, std::filesystem::path>> sheet_upscales;
+            std::map<std::string, std::filesystem::path> tile_upscales; // Dumped path -> its own upscale.
+            for (const std::filesystem::path& file : files) {
+                std::string stem = relative_stem(file, root);
+                if (const rush2::sheet::Sheet* sh = sheet_of(stem)) {
+                    sheet_upscales.emplace_back(sh, file);
+                    found.insert(file);
+                }
+                else if (const DumpName* n = name_of(stem)) {
+                    tile_upscales.emplace(n->path, file);
+                }
+            }
+            for (const auto& [sh, file] : sheet_upscales) {
+                Image up;
+                if (sh->width == 0 || !read_image(file, up)) continue;
+                uint32_t scale = std::max<uint32_t>(1, (up.width + sh->width / 2) / sh->width);
+                if (up.width != sh->width * scale || up.height != sh->height * scale) {
+                    up = resize_bilinear(up, sh->width * scale, sh->height * scale);
+                }
+                for (const std::string& tile : rush2::sheet::tiles(*sh)) {
+                    auto n = names.find(tile);
+                    Image original, fallback, cut;
+                    if (n == names.end() || done.count(n->second.key) || !read_original(folder, tile, original)) continue;
+                    if (auto own = tile_upscales.find(tile); own != tile_upscales.end()) read_image(own->second, fallback);
+                    if (rush2::sheet::cut(*sh, up, tile, original, fallback, cut)) add(n->second.key, tile, std::move(cut), original);
+                }
+            }
+            return found;
+        }
 
         // Builds the texture pack mod from user_texture_pack as mods/rush2_custom_textures.rtz and enables it (on the
         // install thread: the mod calls lock the mod context, the texture pack ones are queued for the renderer and
@@ -869,7 +1061,11 @@ namespace {
                         if (file.is_regular_file()) files.push_back(file.path());
                     }
                 }
+                // Half-body sheets (rush2::sheet): an upscale of one is cut into its tiles' upscales, pixel for pixel,
+                // before the files one by one; texels the sheet doesn't give back come from the tile's own upscale.
+                std::set<std::filesystem::path> sheet_files = install_sheets(folder, root, files, names, name_of, done, add);
                 for (const std::filesystem::path& file : files) {
+                    if (sheet_files.count(file)) continue;
                     std::string stem = relative_stem(file, root);
                     uint64_t key;
                     std::string path;
@@ -928,6 +1124,8 @@ namespace {
             new_file += ".new";
             if (!zip.add("rt64.json", std::vector<uint8_t>(database.begin(), database.end())) ||
                 !zip.add("mod.json", std::vector<uint8_t>(manifest.begin(), manifest.end())) || !zip.write(new_file)) {
+                printf("[upscale] Couldn't write %s\n", path_utf8(new_file).c_str());
+                install_error = "couldn't write the pack";
                 std::filesystem::remove(new_file, ec);
                 return -1;
             }
@@ -1296,9 +1494,16 @@ namespace {
                 "Every texture of every track and car is here, read from the game files. What the game makes from\n"
                 "them as you play uses your upscales of these: car paint jobs, stripes stamped on cars, signs it\n"
                 "copies. names.txt and hashes.txt are what Install Upscaled Textures reads: leave them be.\n"
-                "Rush 2's car bodies are shown painted violet (MAIN COLOR) and yellow (ACCENT COLOR): the game repaints\n"
-                "those two in the player's colors, keeping your shading. Keep the two apart and their edges where you\n"
-                "want them; the other colors (glass, lights, trim) are drawn as they are.\n"
+                "Car bodies are shown painted violet (MAIN COLOR), yellow (ACCENT COLOR) and, on the Rush 2049 cars,\n"
+                "cyan (STRIPE COLOR): the game repaints those in the player's colors, keeping your shading. Keep them\n"
+                "apart and their edges where you want them; the other colors (glass, lights, trim) are drawn as they\n"
+                "are.\n"
+                "A car's body is drawn from several tiles (BMD0_1..., C13_64_1...). Each car's folder also has the whole\n"
+                "side of the car as one image, <CAR>_BODY.png (and <CAR>_BODY_D1.png, the damaged body): upscale that\n"
+                "instead of the tiles, so the upscale runs smoothly across their seams, and save it under its own name\n"
+                "like any other. Install cuts it back into the tiles. The blurry fill between the parts is never drawn.\n"
+                "Keep the image's size ratio (2x, 4x...). Tiles the sheet covers whole are not in this folder (they're\n"
+                "in ../sheet_tiles, for Install): the ones still here have parts the sheet doesn't show.\n"
                 "\n"
                 "1. Upscale these images with any program (Topaz Gigapixel, an image editor...).\n"
                 "2. Save the results into the same place under \"user_texture_pack\" next to this folder\n"
@@ -1763,6 +1968,21 @@ void add_options(recomp::config::Config& config) {
             }
         });
 
+    config.add_bool_option(
+        car_colors_option_id,
+        "Keep Car Colors",
+        "Your upscales of car bodies keep only the colors the original has in each spot. Upscalers can spread the "
+        "dump's strong paint colors into small parts beside them, such as green or pink headlights; this takes that "
+        "out and keeps your detail. Turn it off if you recolor lights or trim on purpose. Takes effect right away.",
+        true
+    );
+    config.add_option_change_callback(car_colors_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext context) {
+            if (context != recomp::config::OptionChangeContext::Temporary) {
+                rush2::derive::set_keep_car_colors(std::get<bool>(cur_value));
+            }
+        });
+
     // The config can move as later tabs are added, so the callbacks look it up again. The graphics tab applies changes
     // as they're made; the Temporary check only matters if it ever stages them again.
     config.add_option_change_callback(mode_option_id,
@@ -1797,6 +2017,7 @@ void apply_loaded_options(recomp::config::Config& config) {
     }
     rush2::rom2049::dc::set_textures_enabled(std::get<bool>(config.get_option_value(dreamcast_option_id)));
     apply_interface(std::get<bool>(config.get_option_value(interface_option_id)));
+    rush2::derive::set_keep_car_colors(std::get<bool>(config.get_option_value(car_colors_option_id)));
     apply_config(config.get_option_value(mode_option_id), config.get_option_value(command_option_id));
 }
 
@@ -1992,7 +2213,9 @@ void add_buttons(rush2::ui::OptionsPage* page) {
             install_button->set_text("Installed " + std::to_string(count) + " Textures");
         }
         else {
-            install_button->set_text(count == 0 ? "Nothing in user_texture_pack" : "Install Failed");
+            const std::string& why = upscaler.install_failure();
+            install_button->set_text(count == 0 ? "Nothing in user_texture_pack"
+                                                : why.empty() ? "Install Failed" : "Install Failed: " + why);
         }
     });
 }

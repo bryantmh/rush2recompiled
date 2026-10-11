@@ -67,6 +67,10 @@ namespace rush2::car2049 {
     // 2049 car k's scuffed panel copies (asset file offsets: pristine texels -> their scuffed copy), which its damage
     // points the body's loads at (rush2::catalog catalogs them as the panels' _D1 textures).
     std::map<uint32_t, uint32_t> scuffed_texels(int k);
+    // 2049 car k's own palette (its CnPALETTE, 256 RGBA5551 entries big-endian) that rush2_car49_paint paints COLOR 1-3
+    // into (entries 32-63, 64-95, 96-126); empty for a Dreamcast disc's car (paint jobs, no ramps) or before the cars
+    // are loaded.
+    std::vector<uint8_t> palette(int k);
     // The "Rush 2049 Cars" option (Games tab): whether the car select offers the 2049 cars.
     void set_option(bool enabled);
     // True when the option is on and the Rush 2049 ROM is available.

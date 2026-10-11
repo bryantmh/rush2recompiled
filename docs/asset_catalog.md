@@ -129,8 +129,8 @@ section 2) and runs every LOD's list as the RSP and RDP would:
   - Tiles RT64 would draw from raw TMEM are skipped; packs and the observer never see them.
 - **Paint:** a paletted draw whose palette no list loads (Rush 2's car bodies) is painted: the game loads the palette
   (the player's paint). It gets no hash, and its image uses a gray ramp: entry & 31 for CI8, since Rush 2's paints are
-  32-color ramps. Keys and packs go by that gray image; Dump Textures writes Rush 2's car paint bases as a colored
-  preview instead (docs/texture_upscaling.md, "Rush 2 car paint bases").
+  32-color ramps. Keys and packs go by that gray image; Dump Textures writes Rush 2's and the 2049 cars' paint bases as a colored
+  preview instead (docs/texture_upscaling.md, "Car paint bases").
 - **Geometry:** `G_VTX` (32-entry buffer), `G_TRI1`, `G_TRI2` and `G_QUAD` give the triangles, grouped by texture.
   - UVs are `(s * scale * shift - uls) / width`, in units of the texture's size.
 - **Every load list [V, 2026-10-10]:** after the models, each texture-load list of the file's load range (header +0x1C
@@ -206,8 +206,8 @@ has been played. It deletes `asset_dump/textures` and writes afresh, per game fo
 
 - **Catalog textures:** every one, at `<container path>/<name>.png`, the file names unique in the folder (Names). The
   first container with an image names it, by content key. The game supplies car body textures' palettes (the
-  paint): Rush 2's are written as a preview with MAIN COLOR violet and ACCENT COLOR yellow
-  (`rush2::catalog::paint_preview`, docs/texture_upscaling.md), the 2049 cars' gray.
+  paint): Rush 2's and the 2049 cars' are written as a preview with the paints violet, yellow (and cyan)
+  (`rush2::catalog::paint_preview`, docs/texture_upscaling.md); a Dreamcast disc's cars stay gray.
 - **Interface art** is left out unless Upscale Interface is on (Settings > Graphics): containers whose path
   `rush2::catalog::ui_path` calls interface (`menus/`, `hud/`, `maps/`, `stunt/icons`) and the disc's HUD, HUDBATTLE,
   SELCAR and SELTRK files. A texture also on a car or track is dumped there.

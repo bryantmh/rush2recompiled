@@ -162,15 +162,68 @@ bool ui_path(const std::string& path) {
     return false;
 }
 
-bool paint_base(const Entry& e, const Texture& t) {
-    return t.painted && t.siz == 1 /* CI8 */ && e.game_at(t.texels) == rush2::origin::Game::Rush2 && e.path.rfind("cars/", 0) == 0 &&
-           e.path != "cars/stripes" && t.indices.size() == size_t(t.width) * t.height;
+namespace {
+    // The preview's paints: violet, yellow and cyan, hues no fixed entry of CARPALETTE has (its fixed colors are grays,
+    // reds, oranges, greens and the glass's dark navy, which a blue MAIN's darker shades matched).
+    constexpr uint8_t preview_paints[3][3] = { { 160, 80, 255 }, { 255, 215, 40 }, { 40, 220, 230 } };
+
+    // The 2049 car (0-12) a container is, else -1.
+    int car_2049_of(const Entry& e) {
+        if (e.game != rush2::origin::Game::Rush2049) return -1;
+        for (int n = 0; n < rush2::car2049::car_count; n++) {
+            if (e.path == "cars/" + file_name(rush2::car2049::display_name(n))) return n;
+        }
+        return -1;
+    }
+
+    // 256 RGBA5551 entries (big-endian) as RGBA, opaque as the gray image is.
+    std::vector<uint8_t> rgba_palette(const uint8_t* entries) {
+        std::vector<uint8_t> palette(256 * 4);
+        for (int k = 0; k < 256; k++) {
+            uint16_t c = uint16_t((entries[k * 2] << 8) | entries[k * 2 + 1]);
+            for (int ch = 0; ch < 3; ch++) {
+                uint32_t v = (c >> (11 - ch * 5)) & 31;
+                palette[k * 4 + ch] = uint8_t((v << 3) | (v >> 2));
+            }
+            palette[k * 4 + 3] = 255;
+        }
+        return palette;
+    }
 }
 
-std::vector<uint8_t> paint_preview_palette(const std::vector<Entry>& containers) {
+bool paint_base(const Entry& e, const Texture& t) {
+    if (!t.painted || t.siz != 1 /* CI8 */ || t.indices.size() != size_t(t.width) * t.height ||
+        e.path.rfind("cars/", 0) != 0) {
+        return false;
+    }
+    rush2::origin::Game game = e.game_at(t.texels);
+    return (game == rush2::origin::Game::Rush2 && e.path != "cars/stripes" && e.path != "cars/parts") ||
+           (game == rush2::origin::Game::Rush2049 && car_2049_of(e) >= 0);
+}
+
+int car_2049(const Entry& e) {
+    return car_2049_of(e);
+}
+
+std::vector<uint8_t> paint_preview_palette(const std::vector<Entry>& containers, const Entry& car) {
     auto be32 = [](const std::vector<uint8_t>& d, size_t o) {
         return uint32_t(d[o] << 24 | d[o + 1] << 16 | d[o + 2] << 8 | d[o + 3]);
     };
+    if (int n = car_2049_of(car); n >= 0) {
+        // The car's own palette with its ramps painted as rush2_car49_paint paints them: the paint, then each entry
+        // 8/256 nearer black.
+        std::vector<uint8_t> own = rush2::car2049::palette(n);
+        if (own.size() != 512) return {};
+        std::vector<uint8_t> palette = rgba_palette(own.data());
+        const int first[3] = { 32, 64, 96 }, last[3] = { 63, 95, 126 };
+        for (int r = 0; r < 3; r++) {
+            for (int k = first[r]; k <= last[r]; k++) {
+                int t = k == first[r] ? 0 : (k - first[r] - 1) * 8;
+                for (int ch = 0; ch < 3; ch++) palette[k * 4 + ch] = uint8_t(preview_paints[r][ch] * (255 - t) >> 8);
+            }
+        }
+        return palette;
+    }
     for (const Entry& e : containers) {
         if (e.path != "cars/stripes" || !e.data) continue;
         const std::vector<uint8_t>& d = *e.data;
@@ -183,23 +236,14 @@ std::vector<uint8_t> paint_preview_palette(const std::vector<Entry>& containers)
             if (strncmp(reinterpret_cast<const char*>(&d[r]), "CARPALETTE", 16) != 0) continue;
             uint32_t data = be32(d, r + 20) & 0xFFFFFF;
             if (data + 512 > d.size()) return {};
-            // MAIN violet, ACCENT yellow: hues no fixed entry has (CARPALETTE's fixed colors are grays, reds, oranges,
-            // greens and the glass's dark navy, which a blue MAIN's darker shades matched). Each ramp entry is the
-            // paint times CARPALETTE's gray over its lightest (230), as car_build_textures_8008582C shades a paint.
-            const uint8_t main[3] = { 160, 80, 255 }, accent[3] = { 255, 215, 40 };
-            std::vector<uint8_t> palette(256 * 4);
-            for (int k = 0; k < 256; k++) {
-                uint16_t c = uint16_t((d[data + k * 2] << 8) | d[data + k * 2 + 1]);
-                uint8_t rgb[3];
-                for (int ch = 0; ch < 3; ch++) {
-                    uint32_t v = (c >> (11 - ch * 5)) & 31;
-                    rgb[ch] = uint8_t((v << 3) | (v >> 2));
-                }
-                const uint8_t* paint = (k >= 1 && k <= 31) ? main : (k >= 33 && k <= 63) ? accent : nullptr;
-                for (int ch = 0; ch < 3; ch++) {
-                    palette[k * 4 + ch] = paint ? uint8_t(std::min(255, paint[ch] * rgb[0] / 230)) : rgb[ch];
-                }
-                palette[k * 4 + 3] = 255; // Opaque, as the gray image is.
+            // MAIN and ACCENT: each entry the paint times CARPALETTE's gray over its lightest (230), as
+            // car_build_textures_8008582C shades a paint.
+            std::vector<uint8_t> palette = rgba_palette(&d[data]);
+            for (int k = 1; k < 64; k++) {
+                if (k == 32) continue;
+                const uint8_t* paint = preview_paints[k < 32 ? 0 : 1];
+                int level = palette[k * 4];
+                for (int ch = 0; ch < 3; ch++) palette[k * 4 + ch] = uint8_t(std::min(255, paint[ch] * level / 230));
             }
             return palette;
         }

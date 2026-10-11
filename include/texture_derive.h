@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -27,6 +28,9 @@ namespace rush2::derive {
     // Upscale Interface (Settings > Graphics): with it off, interface textures (drawn in 2D, or only in the catalog's
     // interface containers, rush2::catalog::ui_path) get no derived replacement.
     void set_ui(bool enabled);
+    // Keep Car Colors (Settings > Graphics, on by default): car paint replacements keep only colors their texels have
+    // nearby (rush2::upscale::clamp_chroma), so an upscaler's color spill onto fixed parts (lights, trim) goes.
+    void set_keep_car_colors(bool enabled);
     // Whether the catalog's index is built, so interface_texture can answer.
     bool index_ready();
     // Whether a texture with this content key or these palette indices is only in interface containers.
@@ -41,6 +45,10 @@ namespace rush2::derive {
     Outcome outcome(uint64_t hash);
     // The enabled texture packs changed (Install Upscaled Textures, the mods menu): read them again and derive anew.
     void packs_changed();
+
+    // Closes the derived replacements' handles on the texture packs and keeps them shut while the returned lock is
+    // held (Install swaps the custom pack's .rtz: an open file can't be replaced on Windows).
+    std::unique_lock<std::mutex> hold_packs();
 
     // A car mod's texture (src/car_mods.cpp). The car draws a small stand-in in Rush 2's car palette (its paint ramps
     // where the mod paints the car); drawn with these palette indices, it is replaced by the mod's full-size image

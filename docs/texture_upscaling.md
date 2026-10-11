@@ -108,12 +108,15 @@ error was 5, mostly from ESRGAN itself treating red and blue slightly differentl
 This covers any texture the game recolors through its palette, not only cars. Rush 2's stamped stripes change the
 indices, so each stripe pattern is its own base.
 
-### Rush 2 car paint bases (paint_preview, recolor_paint)
+### Car paint bases (paint_preview)
 
-A Rush 2 car body texture has no palette in its file (the game writes it: the paint). The palette is 8 ramps of 32:
-MAIN COLOR 1-31, ACCENT COLOR 33-63, the rest fixed colors or stripe targets (`car_palette_classify_800854AC`, the same
-table for every car, the DEW's included). `rush2::catalog::paint_base` picks these textures: painted CI8 (siz 1) ones
-from Rush 2's own `cars/` containers.
+A car body texture has no palette in its file (the game writes it: the paint). `rush2::catalog::paint_ramps` picks
+these textures (painted CI8, siz 1, in a `cars/` container) and gives their palette's paint ramps:
+- **Rush 2's cars:** 8 ramps of 32, MAIN COLOR 1-31 and ACCENT COLOR 33-63 painted, the rest fixed colors or stripe
+  targets (`car_palette_classify_800854AC`, the same table for every car, the DEW's included).
+- **Rush 2049's cars** (assets 0x71+, Rush2049 containers): the car's own palette (CnPALETTE) with COLOR 1-3 (MAIN,
+  ACCENT, STRIPE COLOR) at 32-63, 64-95 and 96-126, as `rush2_car49_paint` (src/rush2049/car2049.cpp) builds them:
+  the paint, then each entry 8/256 nearer black. A Dreamcast disc's car has paint jobs, not ramps: no preview.
 
 **The catalog's image** is gray: entry i as the 5-bit gray i & 31 (docs/asset_catalog.md). Keys, names and packs go by
 it. CARPALETTE's ramps run from light at entry 1 (230) to black at 30-31, so that image is a negative of the paint
@@ -121,37 +124,121 @@ it. CARPALETTE's ramps run from light at entry 1 (230) to black at 30-31, so tha
 An upscale of it can't say where MAIN ends and ACCENT begins: the game's paint borders fell back to the N64 texels, a
 staircase past the player's smooth outlines (a user's Hotrod flames, a thin accent line).
 
-**Dump Textures [V, 2026-10-11]** writes `rush2::catalog::paint_preview` for these instead: CARPALETTE with MAIN's ramp
-violet (160, 80, 255) and ACCENT's yellow (255, 215, 40), each entry the paint times CARPALETTE's gray over 230, the
-fixed colors as they are, opaque. No fixed entry has those hues (they are grays, reds, oranges, greens and the glass's
-dark navy; a blue MAIN was tried first and its darker shades matched the glass). `paint_preview_palette` reads
-CARPALETTE from the cars/stripes container (asset 0x1C). The dump's README tells players what the colors mean. Install
-is unchanged: an upscale is still listed under the gray image's key.
+**Dump Textures [V, 2026-10-11]** writes `rush2::catalog::paint_preview` for these instead: the first ramp violet
+(160, 80, 255), the second yellow (255, 215, 40), the third cyan (40, 220, 230), shaded as the game shades a paint, the
+fixed colors as they are, opaque. No fixed entry of CARPALETTE has those hues (they are grays, reds, oranges, greens and
+the glass's dark navy; a blue MAIN was tried first and its darker shades matched the glass).
+`paint_preview_palette(containers, car)` builds it per car container: Rush 2's from CARPALETTE in the cars/stripes
+container (asset 0x1C), each ramp entry the paint times CARPALETTE's gray over 230; a 2049 car's from its own palette
+(`rush2::car2049::palette`). The dump's README tells players what the colors mean. Install is unchanged: an upscale is
+still listed under the gray image's key.
 
-**Replacements:** `Base::preview` holds the same preview. `made_from` scales an upscale down to the base's size and
-picks whichever of the preview and the gray image it is closer to, so both kinds of upscale work and no pack needs
-converting:
-- an upscale of the preview: `recolor` from the preview, whose colors tell the paints apart, so the borders follow the
-  upscale;
-- an upscale of the gray image (dumps before this): `recolor_paint`. `recolor` with grays picked texels of the wrong
-  ramp (white specks and ragged edges in a hand upscale's Hotrod flames, a stray red line along the BMW BMD0_1 body
-  curve). `recolor_paint` takes each pixel's four texels around it, weighted bilinearly and by how close each texel's
-  gray is to the pixel's (width 40 grays, so a glass pixel beside paint stays glass). A texel on MAIN or ACCENT gives
-  its ramp's color at the shade the pixel's gray reads as, interpolated between entries (entries the drawn texture
-  doesn't use are interpolated from the nearest ones it does); a fixed-color texel gives `recolor`'s pixel. The borders
-  between MAIN and ACCENT still follow the texels: the gray image has no more to give.
+**Replacements:** `Base::preview` holds the same preview, and `upscaled_from` gives it as the image a paint base's
+upscale was made from (the gray image for other bases). `Deriver::recolor` runs `recolor` from the preview, whose
+colors tell the paints apart, so the borders follow the upscale. With `brightness_detail`: what the blend of preview
+colors doesn't explain is added as brightness, the same on every channel. An upscaler drifts hues a little where
+colors meet (a user's Euro LX panels: 6-7 of 255 off the preview); added per channel, as for other palette variants,
+that drift came out as pink, green and cyan tints on a white car, scaled up by the paint being brighter than the
+preview's violet. Pixels over fixed colors (lights, glass, trim) pass through `recolor` as drawn, so an upscaler's color
+spill there (green and pink headlights beside violet paint on a user's Panther C13_64_8) came through too: **Keep Car
+Colors** (Settings > Graphics > Textures, on by default, takes effect at once through `set_keep_car_colors`, which
+derives everything again) runs `rush2::upscale::clamp_chroma` on every car paint replacement: each pixel keeps its
+brightness, and its chroma (each channel minus the brightness) is held within 3 levels of the range the drawn
+texture's 3x3 texels around it have. Pixels over paint are blends of their texels with gray detail, so only colors no
+nearby texel has are changed. Off, deliberate recolors of lights or trim come through.
 
-Both go through `Deriver::recolor`: `derive` (same-size matches with the drawn indices; other matches take their old
-colors from `made_from`'s image) and both recolors in `derive_stripes`.
+Upscales of the gray image (dumps before the preview) aren't read as such: the feature shipped with the preview, so no
+pack has them. `Deriver::recolor` serves `derive` (same-size matches with the drawn indices) and both recolors in
+`derive_stripes`.
 
 **Checked [V, 2026-10-11]:** in a copy of the build, a race with the Concept and the user's gray pack drew it painted;
 after Dump, nearest-neighbor 2x upscales of the 506 Rush 2 car previews and Install, the Concept drew in its own yellow,
 not the preview's colors (census: 98 derived, none untraced). Offline, `recolor` from a Lanczos upscale of the Hotrod
-HOT_D0_1 preview came within a mean error of 2.1 of the painted panel upscaled directly.
+HOT_D0_1 preview came within a mean error of 2.1 of the painted panel upscaled directly. The 2049 cars likewise:
+nearest-neighbor 2x upscales of their 559 previews installed, the 8-BALL raced in its own yellow and gray (census: no
+2049 car texture left unreplaced).
 
-Tests: `tools/texture_upscale_test.cpp` (a synthetic gray panel: on hq2x `recolor_paint` stays within 1.5 mean error
-and a couple of pixels of `recolor`), and real panels with `tools/rush1/paint_case.py CAR TEXTURE DIR` (gray, preview,
-painted and indices) then `upscale_test --paint DIR UPSCALE.png`, which writes every recolor to compare.
+Tests: `tools/texture_upscale_test.cpp` (a synthetic preview panel: `recolor` with `brightness_detail` within 0.11
+mean error and no fringe pixels; a spill of green into a fixed color is held to 2 levels by `clamp_chroma`), and real
+panels with `tools/rush1/paint_case.py CAR TEXTURE DIR` (preview and painted) then `upscale_test --paint DIR
+UPSCALE.png`, which writes the recolor with and without the clamp.
+
+### Half-body sheets
+
+Every car's body is drawn from several tiles, each used on both sides of the car:
+- **Rush 2049:** the model named *FRAME1 (first LOD), 15-25 small tiles (C13_64_1..., mostly 32x16 CI8: the N64's
+  texture memory holds one at a time);
+- **Rush 2:** five parts, `<car>D0_FL1`, `FR1`, `RL1`, `RR1` and `TOP1` (`body_part`; `D0_D...` are the crumpled ones,
+  `D2_` the farther set, FRAME1 the whole car far away), in the car's space so their edges meet, with 5-7 64x32 panels
+  (BMD0_1..., HOT_D0_1...). GT90's parts draw 16x8 stand-ins carried in the models, but in a race the game draws the
+  full GT_D0_n panels (texture census, 2026-10-11): `build` swaps each stand-in for the panel it is a point sample of
+  (texel offset 0-3, under 30% of texels unlike). DEW's parts carry full-size textures of their own. An
+upscale of each tile alone is cut off at the tile's edge, so the body looked disjointed wherever two tiles met.
+`rush2::sheet` (include/body_sheet.h, src/body_sheet.cpp) lays one side's tiles out as one image the way they join on
+the body, and Install cuts an upscale of it back into the tiles.
+
+**build**, from the car container read with geometry:
+- pieces: runs of connected triangles drawing one tile; a piece's `shown` texels are the ones its triangles cover plus
+  a 1-texel rim (`core` without it);
+- every other model at every distance drawn with the body's tiles adds pieces too (Rush 2's hood and light parts, the
+  far car), after the body's: a texel the car draws anywhere should be on the sheet. A triangle running past a clamped
+  tile's edges counts (it draws the edge texels), one past a repeating tile's doesn't;
+- stand-ins (GT90) map to a panel only when no model draws that panel itself: BMW's BMD0_1_4 is a real far texture;
+- the mirror axis is found from the mesh; one side's pieces are kept, and a piece of the other side only when it shows
+  a quarter of its texels or 6 that no kept piece shows (another model's piece: any);
+- UVs first move half a texel: the RDP samples a texel at its whole coordinate, and RT64 shifts a replacement's
+  coordinates by half a texel to match (lib/rt64 TextureSampler.hlsli), so texel k spans UV k - 0.5 to k + 0.5 while
+  the sheet's texel k spans k to k + 1. Without the shift every turned or flipped join was a texel off;
+- where two pieces share a mesh edge they vote for how one sits relative to the other: one of the 8 quarter turns and
+  flips (`orient`, matrices in body_sheet.cpp) and an offset. A straight edge fits a turn and its mirror alike; the
+  right one puts the two triangles on opposite sides of the edge, as on the body (before this check, ties went to
+  whichever came first and neighbors could land mirrored). Each pair keeps the turn and offset most edges agree on
+  (pieces can touch in two places that disagree) and the mean offset of the edges within a texel of it;
+- an edge of another length in the two tiles' texels can't be joined: the art changes scale there (20 to 110 such
+  edges a car), and the sheet keeps the original texels, so those seams stay seams;
+- islands are grown greedily from the best-voted joins, carrying exact offsets and rounding each piece's position once
+  (rounding each against its rounded neighbor added up along a chain), refusing a join whose pieces would overlap by
+  more than max(2, size / 12) texels or that disagrees by more than a texel with a neighbor already placed (a loop the
+  flat sheet can't close), then shelf-packed with a 2-texel gutter. A tile used by several pieces gives each texel back
+  from the first piece showing it (`owned`; the kept side first, larger pieces first). A texel's center maps to
+  `floor(M * (x + 0.5, y + 0.5) + t)`;
+- the dump log's `[sheet]` line per sheet gives the joined edges and how far their two sides land apart (mean, worst):
+  what an upscale shows as a step. The game's own UVs put many neighbors a fraction of a texel apart, which a sheet of
+  whole texels can only round, so up to half a texel is expected; a worst of several texels is an edge where two
+  pieces touch a second time with another offset.
+
+**render** draws rims, then cores (so a core wins over a neighbor's rim), then fills the gaps ring by ring, each empty
+texel the average of its filled neighbors, so an upscaler sees no hard borders. **cut** takes, for each texel of a tile, the scaled block of the sheet
+upscale under the piece that owns it (rotated back), texels no piece owns from the tile's own upscale if the user made
+one, else the tile scaled up.
+
+**Dump** (`write_sheets` in src/texture_upscale.cpp) writes `cars/<CAR>/<CAR>_BODY.png` for each car of both games,
+and `<CAR>_BODY_D1.png` with the same layout over the damaged tiles (Rush 2049's `<tile>_D1`, Rush 2's `...D1_n` for
+`...D0_n`; pieces of tiles without one, like glass, left out), plus
+`body_sheets.txt` in the game folder (`sheet <path> <w> <h>`, then a `piece <tile> <tw> <th> <orient> <x> <y> <shown>
+<core> <owned>` line per piece, masks run-length coded starting with a run of 0s). `build` also gives every tile's
+texels the car draws (`drawn_masks`: any model, any distance; Rush 2049's `_D1` tiles are swapped in where their tile
+is drawn, so they take its mask), and a tile its sheet gives all of those back (`covers`) moves from the dump to
+`asset_dump/sheet_tiles`: upscaling it alone would change nothing. 669 of 700 car tiles move; the rest have texels
+only another use shows (a track texture a car borrows, repeating). `read_original` looks there too. **Install**
+(`install_sheets`) reads
+it first: an upscale named after a sheet (longest path or file name wins, so `_BODY_D1` isn't taken for `_BODY`) is
+scaled to a whole multiple of the sheet if it isn't one, and cut into its tiles' upscales, which then go in like any
+other (the paint ones recolored as above). Sheet files are skipped in the per-file pass.
+
+**Checked [V, 2026-10-11], Rush 2:** all 22 cars got sheets (BMW 8 pieces of 6 tiles 116x81, GT90 127x133 after the
+stand-in swap, Hotrod 18 pieces of 5 tiles), 67 sheets with the damaged ones. With the same striped 4x upscales,
+Install cut 666 tiles; on the car select every Rush 2 car showed the lines running across its panels, the paint and
+stamped stripes still recolored. DEW's showed only in a race: the car select draws its own copy of DEW's textures,
+which the census takes for car select art.
+
+**Checked [V, 2026-10-11], Rush 2049:** all 13 N64 2049 cars got sheets (Panther 13 pieces of 13 tiles 192x83, Magnum
+160x245, Crusher 18 pieces of 12 tiles). In a copy of the build, 4x upscales of the sheets with white diagonal lines
+drawn across them installed and cut correctly. The first layout's lines broke at many seams with small steps (a user
+spotted it): mirrored joins, the missing half-texel shift and rounding that added up, all fixed above. After the fixes
+the lines run on across joined seams (Rocket's long side, Prototype's flank); they still step or turn where the
+neighbors' art is at another scale or a fraction of a texel off in the game's UVs, and at island edges (`[sheet]`
+lines: 0.07 to 1.6 texels mean step on joined edges).
 
 ## Live replacements (RT64 patch)
 
@@ -316,11 +403,14 @@ For the rest it then:
    key (for the derived replacements, which find a texture's upscale by either).
 2. Builds the pack in memory (`ZipWriter`): each image as a DDS with mips, plus `rt64.json` and `mod.json`, written to
    `mods/rush2_custom_textures.rtz.new`.
-3. Swaps it in (`replace_pack`). Windows can't replace an open file, and two things hold the old pack: RT64
-   memory-maps it and the mod context keeps it open. So it has the renderer drop the pack
-   (`secondary_disable_texture_pack`), closes the mods (`close_mods`), renames the new file over the old one (retrying
-   for up to 5 s while the renderer lets go), and turns the pack back on (`secondary_enable_texture_pack`). With no
-   upscales left, the old pack is deleted instead.
+3. Swaps it in (`replace_pack`). Windows can't replace an open file, and three things hold the old pack: RT64
+   memory-maps it, the mod context keeps it open, and the derived replacements read car upscales from it during a
+   batch. So it has the renderer drop the pack (`secondary_disable_texture_pack`), closes the mods (`close_mods`),
+   takes `rush2::derive::hold_packs()` (closes the deriver's handles and keeps them shut until the swap is done),
+   renames the new file over the old one (retrying for up to 10 s while the renderer lets go), and turns the pack back
+   on (`secondary_enable_texture_pack`). With no upscales left, the old pack is deleted instead. A failure shows its
+   reason on the button ("Install Failed: the old pack is in use"). Before the hold, an Install while the game was
+   deriving a race's cars (seconds with a full car pack) failed after the 5 s it retried then.
 4. Rescans the mods, enables the pack and refreshes the textures.
 
 RT64 used to keep a zip pack mapped after its replacements were cleared: `ReplacementMap::clear` now also drops the
@@ -340,7 +430,8 @@ pack of the dumped images replaces everything the game draws.
   type's callbacks in src/main.cpp; before that, toggling a pack changed only the textures it replaces by hash, so a
   Rush 2 car's repainted panels kept whatever they had at the first draw). Images are found by RT64 hash or by content
   key (Install lists both). A zip is opened only while a
-  batch reads it, as Windows can't replace an open .rtz.
+  batch reads it, as Windows can't replace an open .rtz; `hold_packs` (Install) closes it mid-batch and blocks the
+  next read until the swap is done.
 - **Index:** at the first 3D draw, the catalog's textures (rush2::catalog, the same as the dump: 11,000 with all three
   ROMs and a disc) and their row pieces (8 texels of palette indices, or colors, keyed with the width and x), about
   800,000, built in under a second. It is built again when the game's assets change (`rush2::assets::generation`) and a

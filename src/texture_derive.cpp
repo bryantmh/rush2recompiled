@@ -38,7 +38,7 @@ namespace {
         Image image;
         std::vector<uint8_t> indices;
         bool stripe = false;            // A Rush 2 stripe tile (asset 0x1C, cars/stripes).
-        bool paint = false;             // A Rush 2 car paint base (rush2::catalog::paint_base).
+        bool paint = false;             // A car paint base (rush2::catalog::paint_base).
         Image preview;                  // A paint base's paint_preview: what Dump Textures writes for it.
         bool ui = false;                // Only in interface containers (rush2::catalog::ui_path).
     };
@@ -59,6 +59,7 @@ namespace {
 
     constexpr uint32_t segment = 8;     // Texels per row piece the index keys on.
     constexpr size_t common = 64;       // Row pieces in more places than this say nothing about where a texture is.
+    std::atomic_bool keep_car_colors = true; // Keep Car Colors (set_keep_car_colors).
 
     // The value of texel x of row y, for comparing: its palette index, else its color.
     uint32_t texel(const Image& image, const std::vector<uint8_t>& indices, bool indexed, uint32_t x, uint32_t y) {
@@ -127,6 +128,12 @@ namespace {
             return owned.count(hash) != 0;
         }
 
+        std::unique_lock<std::mutex> hold_packs() {
+            std::unique_lock pack_lock(pack_mutex);
+            for (Pack& pack : packs) pack.zip.reset(); // base_upscale opens them again once the lock is let go.
+            return pack_lock;
+        }
+
         void packs_changed() {
             std::unique_lock lock(mutex);
             reload = true;
@@ -138,6 +145,13 @@ namespace {
             if (ui_enabled == enabled) return;
             ui_enabled = enabled;
             reload = true; // Derives everything again, interface art in or out.
+            changed.notify_all();
+        }
+
+        void set_keep_car_colors(bool enabled) {
+            std::unique_lock lock(mutex);
+            if (keep_car_colors.exchange(enabled) == enabled) return;
+            reload = true; // Derives everything again, the car paint with or without the clamp.
             changed.notify_all();
         }
 
@@ -179,11 +193,12 @@ namespace {
             // Interface art: textures only in interface containers (one also on a car or a track isn't).
             std::unordered_set<uint64_t> ui, ui_index, other, other_index;
             std::vector<rush2::catalog::Entry> containers = rush2::catalog::containers([](const std::string&) {});
-            const std::vector<uint8_t> paint_palette = rush2::catalog::paint_preview_palette(containers);
             for (const rush2::catalog::Entry& e : containers) {
                 rush2::catalog::Container c;
                 std::string error;
                 if (!rush2::catalog::read_container(*e.data, c, error, false, false, &e.copies)) continue;
+                const std::vector<uint8_t> paint_palette = e.path.rfind("cars/", 0) == 0
+                    ? rush2::catalog::paint_preview_palette(containers, e) : std::vector<uint8_t>{};
                 const bool ui_container = rush2::catalog::ui_path(e.path);
                 for (rush2::catalog::Texture& t : c.textures) {
                     (ui_container ? ui : other).insert(t.key);
@@ -283,7 +298,7 @@ namespace {
         };
         void read_packs() {
             pack_generation++; // Images made from the packs before are other images now.
-            packs.clear();
+            std::vector<Pack> new_packs; // Swapped in at the end (hold_packs).
             files.clear();
             for (const recomp::mods::ModDetails& mod : recomp::mods::get_all_mod_details("rush2")) {
                 if (!recomp::mods::is_mod_enabled(mod.mod_id)) continue;
@@ -303,8 +318,8 @@ namespace {
                 zip.reset(); // Opened again while a batch reads it: an open .rtz can't be replaced on Windows.
                 nlohmann::json db = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
                 if (!db.is_object() || !db.contains("textures") || !db["textures"].is_array()) continue;
-                size_t index = packs.size();
-                packs.push_back({ path, folder.empty(), nullptr });
+                size_t index = new_packs.size();
+                new_packs.push_back({ path, folder.empty(), nullptr });
                 for (const auto& t : db["textures"]) {
                     if (!t.is_object() || !t.contains("path") || !t.contains("hashes")) continue;
                     const auto& h = t["hashes"];
@@ -313,6 +328,10 @@ namespace {
                     if (!rush2::upscale::parse_key_name(h["rt64"].get<std::string>(), hash)) continue;
                     files.try_emplace(hash, PackFile{ index, t["path"].get<std::string>() }); // The first pack wins.
                 }
+            }
+{
+                std::unique_lock pack_lock(pack_mutex);
+                packs = std::move(new_packs);
             }
             printf("[derive] %zu texture packs, %zu images\n", packs.size(), files.size());
             fflush(stdout);
@@ -329,6 +348,7 @@ namespace {
                 auto f = id ? files.find(id) : files.end();
                 if (f == files.end()) continue;
                 Pack& pack = packs[f->second.pack];
+                std::unique_lock pack_lock(pack_mutex);
                 if (pack.is_zip && !pack.zip) pack.zip = std::make_unique<rush2::upscale::ZipReader>(pack.path);
                 for (const char* ext : { ".dds", ".png" }) {
                     std::vector<uint8_t> bytes;
@@ -419,8 +439,8 @@ namespace {
                 memcpy(&painted.rgba[i * 4], &paint[b.indices[i]], 4);
                 memcpy(&striped.rgba[i * 4], &stripe[b.indices[i]], 4);
             }
-            Image up_paint = recolor(b, up, painted, b.indices);
-            Image up_stripe = recolor(b, up, striped, b.indices);
+            Image up_paint = recolor(b, up, painted);
+            Image up_stripe = recolor(b, up, striped);
             // The tile at the panel upscale's size: its own upscale when a pack has one, else its texels.
             Image mask;
             if (!base_upscale(bases[best], mask) || mask.width == 0) mask = tile;
@@ -441,7 +461,7 @@ namespace {
         // The replacement of a drawn texture from its base's upscale: the base's rows where the drawn one has them
         // (with the drawn colors), its own texels, scaled up, past the base's ends.
         Image derive(const Drawn& d, const Base& b, int dy, const Image& up) {
-            const Image& source = made_from(b, up);
+            const Image& source = upscaled_from(b);
             uint32_t s = up.width / b.width;
             Image old_colors, upscaled;
             old_colors.width = d.image.width;
@@ -467,30 +487,25 @@ namespace {
                 }
             }
             if (old_colors.rgba == d.image.rgba) return upscaled;
-            if (dy == 0 && d.image.width == b.width && d.image.height == b.height) return recolor(b, up, d.image, d.indices);
+            if (dy == 0 && d.image.width == b.width && d.image.height == b.height) return recolor(b, up, d.image);
             return rush2::upscale::recolor(upscaled, old_colors, d.image, b.edge_s, b.edge_t);
         }
 
-        // For a paint base, an upscale of the colored preview (Dump Textures since it writes one) is recolored from
-        // the preview, whose colors tell the paints apart; one of the gray image (older dumps) needs recolor_paint.
-        static Image recolor(const Base& b, const Image& up, const Image& colors, const std::vector<uint8_t>& indices) {
-            const Image& source = made_from(b, up);
-            if (b.paint && &source == &b.image) return rush2::upscale::recolor_paint(up, b.image, colors, indices, b.edge_s, b.edge_t);
-            return rush2::upscale::recolor(up, source, colors, b.edge_s, b.edge_t);
+        // A base's upscale in a drawn texture's colors (same size as the base). A paint base's upscale is of its
+        // colored preview, whose colors tell the paints apart, and what the preview's colors don't explain goes on as
+        // brightness only.
+        static Image recolor(const Base& b, const Image& up, const Image& colors) {
+            Image out = rush2::upscale::recolor(up, upscaled_from(b), colors, b.edge_s, b.edge_t, b.paint);
+            // Keep Car Colors: no colors the drawn texture's texels don't have nearby (an upscaler's spill onto the
+            // fixed parts, which recolor passes through as drawn).
+            if (b.paint && keep_car_colors) rush2::upscale::clamp_chroma(out, colors, b.edge_s, b.edge_t);
+            return out;
         }
 
-        // Which image of a base an upscale was made from: a paint base's preview or its gray image, whichever the
-        // upscale, scaled down, is closer to; else the base's image.
-        static const Image& made_from(const Base& b, const Image& up) {
-            if (!b.paint || b.preview.empty() || up.empty()) return b.image;
-            Image down = rush2::upscale::resize_bilinear(up, b.width, b.height);
-            auto distance = [&](const Image& a) {
-                uint64_t total = 0;
-                for (size_t i = 0; i < a.rgba.size(); i++)
-                    if (i % 4 != 3) total += uint64_t(std::abs(int(a.rgba[i]) - int(down.rgba[i])));
-                return total;
-            };
-            return distance(b.preview) < distance(b.image) ? b.preview : b.image;
+        // The image a base's upscale is of: what Dump Textures wrote, a paint base's preview (gray for a Dreamcast
+        // disc's car, which has none).
+        static const Image& upscaled_from(const Base& b) {
+            return b.paint && !b.preview.empty() ? b.preview : b.image;
         }
 
         // A car mod's stand-in drawn (set_mod_textures): its replacement is the mod's image in the paint it's drawn
@@ -718,7 +733,10 @@ namespace {
                     owned.insert(d.hash);
                     made++;
                 }
-                for (Pack& pack : packs) pack.zip.reset();
+                {
+                    std::unique_lock pack_lock(pack_mutex);
+                    for (Pack& pack : packs) pack.zip.reset();
+                }
                 // A summary now and then, not a line per texture.
                 made_total += made;
                 unmatched_total += unmatched;
@@ -766,6 +784,7 @@ namespace {
             bool is_zip;
             std::unique_ptr<rush2::upscale::ZipReader> zip; // Open during a batch.
         };
+        std::mutex pack_mutex; // Guards packs (hold_packs).
         std::vector<Pack> packs;
         std::unordered_map<uint64_t, PackFile> files;
         std::unordered_map<uint64_t, Image> upscales;
@@ -790,6 +809,10 @@ void set_ui(bool enabled) {
     deriver().set_ui(enabled);
 }
 
+void set_keep_car_colors(bool enabled) {
+    deriver().set_keep_car_colors(enabled);
+}
+
 bool index_ready() {
     return deriver().index_ready();
 }
@@ -808,6 +831,10 @@ Outcome outcome(uint64_t hash) {
 
 void packs_changed() {
     deriver().packs_changed();
+}
+
+std::unique_lock<std::mutex> hold_packs() {
+    return deriver().hold_packs();
 }
 
 void set_mod_textures(std::unordered_map<uint64_t, ModTexture> textures) {

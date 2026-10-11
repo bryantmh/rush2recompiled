@@ -1074,6 +1074,11 @@ std::map<uint32_t, uint32_t> rush2::car2049::scuffed_texels(int k) {
     return out;
 }
 
+std::vector<uint8_t> rush2::car2049::palette(int k) {
+    if (k < 0 || k >= car_count || !paints[k].job_textures.empty()) return {};
+    return paints[k].colours;
+}
+
 void rush2::car2049::check_source(uint8_t* rdram) {
     constexpr uint32_t game_state = 0x8010C0D0;
     if (!cars_loaded || rush2::wings::get_rom() == cars_source) {

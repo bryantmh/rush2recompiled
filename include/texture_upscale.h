@@ -79,13 +79,14 @@ namespace rush2::upscale {
 
     // Makes the upscale of a palette variant from the upscale of another variant of the same indices, without
     // upscaling again: old_colors is the texture the upscale was made from, new_colors the variant (same size).
-    Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_colors, Edge edge_s, Edge edge_t);
+    // brightness_detail: what the blend of old colors doesn't explain is added as brightness only, not per channel (for
+    // a car paint preview's upscale, whose hue drift would tint the paint).
+    Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_colors, Edge edge_s, Edge edge_t,
+                  bool brightness_detail = false);
 
-    // recolor for the upscale of a Rush 2 car paint base (gray: the catalog's image, entry i as gray i & 31; indices:
-    // its palette indices): pixels over the MAIN and ACCENT ramps (entries 1-31, 33-63) take their ramp's color in
-    // new_colors at the shade the upscale's gray gives, so the paints don't bleed into each other at edges.
-    Image recolor_paint(const Image& upscaled, const Image& gray, const Image& new_colors,
-                        const std::vector<uint8_t>& indices, Edge edge_s, Edge edge_t);
+    // Holds each upscaled pixel's chroma to the range of the texels of colors (the texture at its own size, in the colors
+    // it is drawn with) around it, keeping its brightness: takes out colors an upscaler made up (Keep Car Colors).
+    void clamp_chroma(Image& upscaled, const Image& colors, Edge edge_s, Edge edge_t);
 
     // Level 0 of a DDS make_dds wrote.
     bool read_dds(const std::vector<uint8_t>& bytes, Image& image);
@@ -172,6 +173,9 @@ namespace rush2::upscale {
     // Upscale Interface: off, interface textures (menus, HUD, maps, text) are left out of upscaling, the derived
     // replacements and Dump Textures.
     extern const char* const interface_option_id;
+    // Keep Car Colors (rush2::derive::set_keep_car_colors): car paint replacements keep only the colors their texels
+    // have nearby.
+    extern const char* const car_colors_option_id;
     void set_dreamcast_option_state(bool disc_source, bool disc_stored);
 }
 
