@@ -83,6 +83,22 @@ namespace rush2::upscale {
     // a car paint preview's upscale, whose hue drift would tint the paint).
     Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_colors, Edge edge_s, Edge edge_t,
                   bool brightness_detail = false);
+    // recolor in two steps: which two old texels each upscaled pixel blends (the costly search) depends only on the
+    // upscale and the old colors, so a plan made once recolors to any number of new palettes (rush2::derive keeps the
+    // car paint bases' plans: a paint change is then a mix per pixel).
+    struct RecolorPlan {
+        struct Pixel {
+            int16_t cx, cy;     // The old texel nearest the pixel.
+            uint8_t a, b;       // The two texels of the 3x3 around it ((dy + 1) * 3 + dx + 1)...
+            float t;            // ...and how far from a to b.
+        };
+        uint32_t width = 0, height = 0; // The upscale's size.
+        std::vector<Pixel> pixels;
+    };
+    RecolorPlan plan_recolor(const Image& upscaled, const Image& old_colors, Edge edge_s, Edge edge_t,
+                             unsigned threads = 1);
+    Image apply_recolor(const RecolorPlan& plan, const Image& upscaled, const Image& old_colors, const Image& new_colors,
+                        Edge edge_s, Edge edge_t, bool brightness_detail = false);
 
     // Holds each upscaled pixel's chroma to the range of the texels of colors (the texture at its own size, in the colors
     // it is drawn with) around it, keeping its brightness: takes out colors an upscaler made up (Keep Car Colors).
@@ -176,6 +192,9 @@ namespace rush2::upscale {
     // Keep Car Colors (rush2::derive::set_keep_car_colors): car paint replacements keep only the colors their texels
     // have nearby.
     extern const char* const car_colors_option_id;
+    // The built-in upscaler's scale while it's HQ2x or HQ4x, else 0: rush2::derive then makes the cars' upscales
+    // itself where no pack has one (Base car textures get the derived replacements' paint, stripes and decals).
+    uint32_t builtin_scale();
     void set_dreamcast_option_state(bool disc_source, bool disc_stored);
 }
 

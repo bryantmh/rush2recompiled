@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iterator>
 #include <sstream>
+#include <thread>
 
 #include "ddspp/ddspp.h"
 #include "miniz.h" // librecomp's copy, which it links for mod files.
@@ -480,42 +481,108 @@ bool matches_original(const Image& upscaled, const Image& original) {
     return count == 0 || total <= count * 24;
 }
 
-Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_colors, Edge edge_s, Edge edge_t,
-              bool brightness_detail) {
+RecolorPlan plan_recolor(const Image& upscaled, const Image& old_colors, Edge edge_s, Edge edge_t, unsigned threads) {
     // Each upscaled pixel is explained as a blend of two of the original texels around it (or one): the pair whose
-    // old colors, mixed, come closest to the pixel, with a small preference for nearby texels. The pixel becomes the
-    // same mix of those texels' new colors, plus whatever detail the mix didn't explain, scaled by how much brighter
-    // or darker the new colors are. So a dark red pixel on the edge between red paint and a black line turns dark
-    // blue when the paint is blue, instead of keeping a red fringe.
-    Image out = upscaled;
+    // old colors, mixed, come closest to the pixel, with a small preference for nearby texels. Which pair and how much
+    // of each depend only on the upscale and the old colors, so the search is done once and apply_recolor reuses it
+    // for every new palette (a car's paint changes on the car select are then a cheap mix, not this search again).
+    RecolorPlan plan;
+    plan.width = upscaled.width;
+    plan.height = upscaled.height;
+    plan.pixels.resize(size_t(upscaled.width) * upscaled.height);
     const float scale_x = float(upscaled.width) / float(old_colors.width);
     const float scale_y = float(upscaled.height) / float(old_colors.height);
     constexpr float spatial_cost = 60.0f; // Per squared texel of distance, against squared color distance.
-    for (uint32_t y = 0; y < upscaled.height; y++) {
-        float fy = (y + 0.5f) / scale_y - 0.5f;
-        int32_t cy = (int32_t)std::lround(fy);
-        for (uint32_t x = 0; x < upscaled.width; x++) {
-            float fx = (x + 0.5f) / scale_x - 0.5f;
-            int32_t cx = (int32_t)std::lround(fx);
+    // Rows in bands, one per thread (a 4x panel's search is about 7 ms on one).
+    auto rows = [&](uint32_t y_begin, uint32_t y_end) {
+        for (uint32_t y = y_begin; y < y_end; y++) {
+            float fy = (y + 0.5f) / scale_y - 0.5f;
+            int32_t cy = (int32_t)std::lround(fy);
+            for (uint32_t x = 0; x < upscaled.width; x++) {
+                float fx = (x + 0.5f) / scale_x - 0.5f;
+                int32_t cx = (int32_t)std::lround(fx);
 
-            // The 3x3 texels around the nearest one.
-            struct Candidate { float old_color[4], new_color[4], spatial; };
-            Candidate candidates[9];
-            int count = 0;
+                // The 3x3 texels around the nearest one.
+                float old_color[9][4], spatial[9];
+                for (int dy = -1; dy <= 1; dy++) {
+                    int32_t sy = edge_index(cy + dy, int32_t(old_colors.height), edge_t);
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int32_t sx = edge_index(cx + dx, int32_t(old_colors.width), edge_s);
+                        const int c = (dy + 1) * 3 + dx + 1;
+                        const uint8_t* o = &old_colors.rgba[(size_t(sy) * old_colors.width + sx) * 4];
+                        for (int k = 0; k < 4; k++) old_color[c][k] = o[k];
+                        float ddx = float(cx + dx) - fx, ddy = float(cy + dy) - fy;
+                        spatial[c] = ddx * ddx + ddy * ddy;
+                    }
+                }
+
+                const uint8_t* u = &upscaled.rgba[(size_t(y) * upscaled.width + x) * 4];
+                float best_cost = 1e30f, best_t = 0.0f;
+                int best_a = 0, best_b = 0;
+                for (int a = 0; a < 9; a++) {
+                    for (int b = a; b < 9; b++) {
+                        // Projection of the pixel onto the segment between the two old colors.
+                        float seg[4], rel[4], seg_len = 0.0f, dot = 0.0f;
+                        for (int k = 0; k < 4; k++) {
+                            seg[k] = old_color[b][k] - old_color[a][k];
+                            rel[k] = float(u[k]) - old_color[a][k];
+                            seg_len += seg[k] * seg[k];
+                            dot += seg[k] * rel[k];
+                        }
+                        float t = seg_len > 0.0f ? std::clamp(dot / seg_len, 0.0f, 1.0f) : 0.0f;
+                        float distance = 0.0f;
+                        for (int k = 0; k < 4; k++) {
+                            float d = rel[k] - seg[k] * t;
+                            distance += d * d;
+                        }
+                        float cost = distance + spatial_cost * ((1.0f - t) * spatial[a] + t * spatial[b]);
+                        if (cost < best_cost) {
+                            best_cost = cost;
+                            best_t = t;
+                            best_a = a;
+                            best_b = b;
+                        }
+                    }
+                }
+                RecolorPlan::Pixel& p = plan.pixels[size_t(y) * upscaled.width + x];
+                p.cx = int16_t(cx);
+                p.cy = int16_t(cy);
+                p.a = uint8_t(best_a);
+                p.b = uint8_t(best_b);
+                p.t = best_t;
+            }
+        }
+    };
+    threads = std::clamp(threads, 1u, std::max(1u, upscaled.height / 16));
+    std::vector<std::thread> helpers;
+    for (unsigned t = 1; t < threads; t++) {
+        helpers.emplace_back(rows, upscaled.height * t / threads, upscaled.height * (t + 1) / threads);
+    }
+    rows(0, upscaled.height / threads);
+    for (std::thread& h : helpers) h.join();
+    return plan;
+}
+
+Image apply_recolor(const RecolorPlan& plan, const Image& upscaled, const Image& old_colors, const Image& new_colors,
+                    Edge edge_s, Edge edge_t, bool brightness_detail) {
+    // The pixel becomes its plan's mix of the two texels' new colors, plus whatever detail the mix of their old colors
+    // didn't explain, scaled by how much brighter or darker the new colors are. So a dark red pixel on the edge between
+    // red paint and a black line turns dark blue when the paint is blue, instead of keeping a red fringe. A pixel none
+    // of whose 3x3 texels changed stays as upscaled.
+    Image out = upscaled;
+    if (plan.width != upscaled.width || plan.height != upscaled.height) return out;
+    for (uint32_t y = 0; y < upscaled.height; y++) {
+        for (uint32_t x = 0; x < upscaled.width; x++) {
+            const RecolorPlan::Pixel& p = plan.pixels[size_t(y) * upscaled.width + x];
+            size_t at[9];
             bool changed = false;
             for (int dy = -1; dy <= 1; dy++) {
-                int32_t sy = edge_index(cy + dy, int32_t(old_colors.height), edge_t);
+                int32_t sy = edge_index(p.cy + dy, int32_t(old_colors.height), edge_t);
                 for (int dx = -1; dx <= 1; dx++) {
-                    int32_t sx = edge_index(cx + dx, int32_t(old_colors.width), edge_s);
-                    size_t at = (size_t(sy) * old_colors.width + sx) * 4;
-                    Candidate& c = candidates[count++];
-                    for (int k = 0; k < 4; k++) {
-                        c.old_color[k] = old_colors.rgba[at + k];
-                        c.new_color[k] = new_colors.rgba[at + k];
-                    }
-                    changed |= memcmp(&old_colors.rgba[at], &new_colors.rgba[at], 4) != 0;
-                    float ddx = float(cx + dx) - fx, ddy = float(cy + dy) - fy;
-                    c.spatial = ddx * ddx + ddy * ddy;
+                    int32_t sx = edge_index(p.cx + dx, int32_t(old_colors.width), edge_s);
+                    const int c = (dy + 1) * 3 + dx + 1;
+                    at[c] = (size_t(sy) * old_colors.width + sx) * 4;
+                    changed |= memcmp(&old_colors.rgba[at[c]], &new_colors.rgba[at[c]], 4) != 0;
                 }
             }
             if (!changed) {
@@ -523,59 +590,37 @@ Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_c
             }
 
             const uint8_t* u = &upscaled.rgba[(size_t(y) * upscaled.width + x) * 4];
-            float best_cost = 1e30f, best_t = 0.0f;
-            int best_a = 0, best_b = 0;
-            for (int a = 0; a < count; a++) {
-                for (int b = a; b < count; b++) {
-                    const Candidate& ca = candidates[a];
-                    const Candidate& cb = candidates[b];
-                    // Projection of the pixel onto the segment between the two old colors.
-                    float seg[4], rel[4], seg_len = 0.0f, dot = 0.0f;
-                    for (int k = 0; k < 4; k++) {
-                        seg[k] = cb.old_color[k] - ca.old_color[k];
-                        rel[k] = float(u[k]) - ca.old_color[k];
-                        seg_len += seg[k] * seg[k];
-                        dot += seg[k] * rel[k];
-                    }
-                    float t = seg_len > 0.0f ? std::clamp(dot / seg_len, 0.0f, 1.0f) : 0.0f;
-                    float distance = 0.0f;
-                    for (int k = 0; k < 4; k++) {
-                        float d = rel[k] - seg[k] * t;
-                        distance += d * d;
-                    }
-                    float cost = distance + spatial_cost * ((1.0f - t) * ca.spatial + t * cb.spatial);
-                    if (cost < best_cost) {
-                        best_cost = cost;
-                        best_t = t;
-                        best_a = a;
-                        best_b = b;
-                    }
-                }
-            }
-
-            const Candidate& ca = candidates[best_a];
-            const Candidate& cb = candidates[best_b];
+            const uint8_t* oa = &old_colors.rgba[at[p.a]];
+            const uint8_t* ob = &old_colors.rgba[at[p.b]];
+            const uint8_t* na = &new_colors.rgba[at[p.a]];
+            const uint8_t* nb = &new_colors.rgba[at[p.b]];
             float old_mix[4], new_mix[4];
             for (int k = 0; k < 4; k++) {
-                old_mix[k] = ca.old_color[k] + (cb.old_color[k] - ca.old_color[k]) * best_t;
-                new_mix[k] = ca.new_color[k] + (cb.new_color[k] - ca.new_color[k]) * best_t;
+                old_mix[k] = oa[k] + (float(ob[k]) - oa[k]) * p.t;
+                new_mix[k] = na[k] + (float(nb[k]) - na[k]) * p.t;
             }
             float old_luma = 0.299f * old_mix[0] + 0.587f * old_mix[1] + 0.114f * old_mix[2];
             float new_luma = 0.299f * new_mix[0] + 0.587f * new_mix[1] + 0.114f * new_mix[2];
             float detail_scale = std::clamp((new_luma + 16.0f) / (old_luma + 16.0f), 0.0f, 4.0f);
-            uint8_t* p = &out.rgba[(size_t(y) * out.width + x) * 4];
+            uint8_t* o = &out.rgba[(size_t(y) * out.width + x) * 4];
             // brightness_detail: the detail's brightness only, the same on every channel. An upscaler drifts hues a
             // little where colors meet; added per channel, that drift tinted a white car's paint pink and green.
             const float detail_luma = 0.299f * u[0] + 0.587f * u[1] + 0.114f * u[2] - old_luma;
             for (int k = 0; k < 3; k++) {
                 float detail = brightness_detail ? detail_luma : float(u[k]) - old_mix[k];
                 float v = new_mix[k] + detail * detail_scale;
-                p[k] = (uint8_t)std::clamp(int(v + 0.5f), 0, 255);
+                o[k] = (uint8_t)std::clamp(int(v + 0.5f), 0, 255);
             }
-            p[3] = (uint8_t)std::clamp(int(new_mix[3] + (float(u[3]) - old_mix[3]) + 0.5f), 0, 255);
+            o[3] = (uint8_t)std::clamp(int(new_mix[3] + (float(u[3]) - old_mix[3]) + 0.5f), 0, 255);
         }
     }
     return out;
+}
+
+Image recolor(const Image& upscaled, const Image& old_colors, const Image& new_colors, Edge edge_s, Edge edge_t,
+              bool brightness_detail) {
+    return apply_recolor(plan_recolor(upscaled, old_colors, edge_s, edge_t), upscaled, old_colors, new_colors, edge_s,
+                         edge_t, brightness_detail);
 }
 
 void clamp_chroma(Image& upscaled, const Image& colors, Edge edge_s, Edge edge_t) {

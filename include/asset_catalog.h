@@ -154,6 +154,8 @@ namespace rush2::catalog {
     bool paint_base(const Entry& e, const Texture& t);
     // The 2049 car (0-12) a container is (assets 0x71+), else -1.
     int car_2049(const Entry& e);
+    // The Rush 2 car type (0-21, asset 0x1D + type) a container is, else -1.
+    int rush2_car(const Entry& e);
     // The palette a car container's paint bases are previewed with, 256 RGBA entries: its fixed colors as they are and
     // the ramps violet, yellow and cyan, shaded as the game shades a paint (Rush 2: CARPALETTE, asset 0x1C, the
     // cars/stripes container; Rush 2049: the car's own palette). Empty when there's none (a Dreamcast disc's car).

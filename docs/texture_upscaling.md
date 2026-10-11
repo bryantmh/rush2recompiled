@@ -240,6 +240,67 @@ the lines run on across joined seams (Rocket's long side, Prototype's flank); th
 neighbors' art is at another scale or a fraction of a texel off in the game's UVs, and at island edges (`[sheet]`
 lines: 0.07 to 1.6 texels mean step on joined edges).
 
+### SF Rush decals
+
+The SF RUSH stripe (docs/rush1_research.md section 11) writes Rush 1's decal into a Rush 2 car's panel texels at run
+time, so it is in no file. The decal is handled the way Rush 2's stripe tiles are: an image of the decal alone,
+upscaled on its own and laid over the plain body's upscale. `rush2::car1stripes::decal_textures`
+(src/rush1/car1_stripes.cpp) makes the images from the same disk cache the game uses (stripe_cache, keyed on the
+Rush 1 ROM and the build). Each image is transparent off the decal:
+
+- **Fixed-color decals** (Camaro, Taxi) write their palette indices over the panel's. The image shows the decal in its
+  own colors (paint ramp entries in the preview colors).
+- **STRIPE COLOR decals** (Bus, Bug, Bugatti): the game remaps the panel texel to the stripe color's shade. The image
+  is flat cyan, since only its shape is used.
+- **Key:** the image's content key XOR `0x5346525553484443`, so it never equals a drawn image's key. The clean and
+  damaged panels draw the same decal, so they share the image, and Dump Textures writes it once.
+
+Dump Textures writes each one beside its panel as `<panel>_SFRUSH`, with the sheet `<CAR>_BODY_SFRUSH` laid out as the
+body (the `variant` lambda in `write_sheets`). `rush2::sheet::render` keeps a mostly clear layer's alpha and leaves
+the space between its pieces clear; the body's sheets stay opaque.
+
+In the deriver each panel's decal is a base (`Base::plain`, `decal_mask`, `decal_stripe`) whose `indices` are the panel
+with the decal written in, so a fixed-color decal panel traces to it directly. `find_decal` finds the rest: the plain
+panel with only the decal's texels changed. Rush 2's own stripes, which change other texels, keep the plain base.
+`derive_decal` then:
+
+- recolors the plain panel's upscale to the paint;
+- recolors the decal's color layer: a STRIPE COLOR decal takes the plain panel's upscale in the stripe shades; a
+  fixed-color decal takes its own upscale in the colors drawn, with the alpha its recolor mixed in at the edges divided
+  back out;
+- blends the decal layer over the paint by the decal upscale's alpha.
+
+In built-in HQ the decals are padded by clamping, like the stripe tiles.
+
+**Checked [V, 2026-10-11]:**
+
+- The decal sheets for CAMARO, BUGAT, VWBUS, VWBUG and TAXI are clear off the decal.
+- In HQ4x the car select's Taxi in SF RUSH showed smooth checkers over the body.
+- Before the decal-only layer, a pack's test upscale of the full decal panels showed on the Taxi and Van.
+
+### Built-in HQ for cars
+
+With HQ2x or HQ4x and no pack image for a car texture, the upscaling mode leaves the car's textures to the deriver
+(`rush2::derive::builtin_car`, checked in `take_jobs`). `builtin_upscale` makes the upscale a pack would give, so
+built-in mode gets the same paint recolor, Keep Car Colors, stripes and SF Rush decals:
+
+- **Sheets:** `sheets_of(car)` lays out the car's sheets as Dump Textures does (body, damaged, decal, damaged decal).
+  Each is kept on disk as the track_cache blob `body_sheets_<file>`, keyed on the car file's hash.
+- **Upscale:** the sheet holding the tile is rendered from the tiles' previews, padded (clamp), run through hqx and
+  cut into every tile at once. A tile the cut refuses, or a texture on no sheet, is upscaled alone.
+- **Cache:** each result goes on disk as the blob `hq<scale>_<key>` (key | 1), so later boots skip hqx. Blob names
+  can't hold a `/`.
+- **Mode changes:** `set_mode` calls `packs_changed` so a mode change derives again.
+- **Stripe tiles** (cars/stripes) are padded by clamping, not by their own wrap: a stripe tile lies on its panel
+  texel for texel. Wrapped, hqx blended a stripe's opaque edge with the tile's clear far side (alpha 191 at the edge),
+  and `derive_stripes`, which takes the stripe only at full alpha, drew a line of paint down the middle of every fat
+  stripe where two mirrored panels meet. Their blobs are keyed apart so the old ones aren't reused.
+
+**Checked [V, 2026-10-11]:** HQ4x with no pack smoothed both games' cars on the car select. A second launch loaded the
+83 cached blobs without rewriting them. hqx rounds single-texel corners but leaves runs of two or three texels as
+steps (the Hotrod's flames, the Rocket's stripes). That is hqx on 64x32 art, not the sheets: the cached upscale shows
+the same steps as the source.
+
 ## Live replacements (RT64 patch)
 
 `RT64::addLiveReplacement(hash, contentKey, fileBytes, region = {})` gives the running texture cache a replacement
@@ -425,6 +486,30 @@ another palette, stripes stamped over, a copy elsewhere in RDRAM, a strip of a b
 `rush2::derive` (src/texture_derive.cpp) gives each of those a replacement made from its source's upscale, live, so a
 pack of the dumped images replaces everything the game draws.
 
+- **Speed [V, 2026-10-11]:** a car's paint change brings 20-odd new panel textures at once, drawn native until their
+  replacements arrive (visible pop-in on the car select). `recolor` is split into `plan_recolor` (per upscaled pixel,
+  the two old texels and the blend that explain it: 45 pairs searched, about 7 ms for a 4x 64x32 panel) and
+  `apply_recolor` (the mix in new colors, about 1.5 ms); the plan depends only on the upscale and the old colors, so
+  `Deriver::plans` keeps one per base (shared_ptr, 256 at most, cleared on reload) and another paint of a panel only
+  applies it. Each batch matches its textures one by one (the index and packs aren't thread-safe), then recolors,
+  clamps and encodes them on every core (`cache_mutex` guards `upscales` and `plans`), then hands them to RT64 in order.
+  Measured on the car select: a car's first view 115-145 ms of work became 22-30 ms, a repaint of its panels about 3 ms.
+- **Latency [V, 2026-10-11]:** what showed as pop-in was mostly plumbing, not work:
+  - **Handed over at first sight.** A 3D texture now goes to the deriver the first time it is drawn (`Seen::derived`
+    in `textureDrawn`). Before, it went only after `stable_frames` (three frames, 50-100 ms), the upscaling mode's
+    rule for its own textures, which still applies.
+  - **Loads in parallel.** A batch traces its textures, then loads the distinct bases' upscales on every core (disk
+    blobs, pack images to decode, a car's sheets), then recolors. `base_upscale` locks `cache_mutex` only around the
+    map and `pack_mutex` only while reading a zip; `car_locks` keep a car's sheets to one thread.
+    `track_cache::load_blob` reads a file in one call, where a character iterator took milliseconds.
+  - **Plan search split.** The cores the jobs leave free split each plan search by rows (`plan_threads`), so a lone
+    texture's 7 ms search takes about 4 ms.
+  - **Measured on the car select, caches warm:** a repaint takes about 4.5 ms from first draw to RT64, a car change
+    11-15 ms, the first car after boot about 31 ms (115 ms before). RT64 shows a live replacement from the next
+    frame, so a repaint draws the native texture for one frame at most.
+  - **Not done:** stalling the frame until the replacement is ready (the display list thread or `waitForGPUUploads`),
+    which would turn pop-in into stutter.
+  - **Timing:** `RUSH2_DERIVE_TIMING=1` prints each batch's time: waited, matched, derived, handed.
 - **Packs:** every enabled mod with an `rt64.json` (`.rtz` or folder), read at the first 3D draw and again after Install
   (`packs_changed`), and whenever a pack is enabled, disabled or reordered in the Mods menu (the texture pack content
   type's callbacks in src/main.cpp; before that, toggling a pack changed only the textures it replaces by hash, so a

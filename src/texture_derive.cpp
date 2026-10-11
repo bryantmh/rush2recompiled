@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <deque>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -21,7 +22,10 @@
 
 #include "asset_catalog.h"
 #include "assets.h"
+#include "body_sheet.h"
+#include "car1_stripes.h"
 #include "texture_derive.h"
+#include "track_cache.h"
 
 namespace rush2::derive {
 
@@ -41,6 +45,14 @@ namespace {
         bool paint = false;             // A car paint base (rush2::catalog::paint_base).
         Image preview;                  // A paint base's paint_preview: what Dump Textures writes for it.
         bool ui = false;                // Only in interface containers (rush2::catalog::ui_path).
+        int car = -1;                   // From car container car_entries[car] (built-in upscaling, sheets).
+        int decal = -1;                 // A Rush 2 panel with an SF Rush decal: the base of its decal.
+        // An SF Rush decal (rush2::car1stripes::DecalTexture): image is the decal alone, indices the panel's with
+        // the decal written in (what the game draws, for tracing), plain the panel's base. One per panel (the clean
+        // and damaged panels' share the key, so the image and its upscale).
+        int plain = -1;
+        bool decal_stripe = false;      // The decal takes the STRIPE COLOR (only its shape counts).
+        std::vector<uint8_t> decal_mask; // Per texel: 1 where the decal is.
     };
 
     // A texture drawn that no pack replaces.
@@ -49,6 +61,7 @@ namespace {
         Image image;
         std::vector<uint8_t> indices;
         bool world;                     // Drawn in 3D (else 2D: interface).
+        std::chrono::steady_clock::time_point at; // When it was first drawn (RUSH2_DERIVE_TIMING).
     };
 
     // Where a drawn texture's rows are in a base: row r of the drawn texture is row r + dy of the base.
@@ -107,7 +120,7 @@ namespace {
                    bool world) {
             std::unique_lock lock(mutex);
             if (!seen.insert(hash).second) return;
-            all.push_back({ hash, key, index_key, image, std::move(indices), world });
+            all.push_back({ hash, key, index_key, image, std::move(indices), world, std::chrono::steady_clock::now() });
             queue.push_back(all.size() - 1);
             changed.notify_all();
         }
@@ -178,6 +191,12 @@ namespace {
             return ui_keys.count(key) != 0 || (index_key != 0 && ui_index_keys.count(index_key) != 0);
         }
 
+        bool builtin_car(uint64_t key, uint64_t index_key) {
+            if (rush2::upscale::builtin_scale() == 0) return false;
+            std::unique_lock lock(mutex);
+            return car_keys.count(key) != 0 || (index_key != 0 && car_index_keys.count(index_key) != 0);
+        }
+
     private:
         // The catalog's textures and the index of their row pieces, from the game's assets as they are now (the
         // recomp builds some as it goes: the track select's Rush 2049 previews appear when it's opened).
@@ -185,6 +204,7 @@ namespace {
             auto started = std::chrono::steady_clock::now();
             index_generation = rush2::assets::generation();
             bases.clear();
+            car_entries.clear();
             stripes_by_size.clear();
             by_key.clear();
             by_index.clear();
@@ -200,6 +220,13 @@ namespace {
                 const std::vector<uint8_t> paint_palette = e.path.rfind("cars/", 0) == 0
                     ? rush2::catalog::paint_preview_palette(containers, e) : std::vector<uint8_t>{};
                 const bool ui_container = rush2::catalog::ui_path(e.path);
+                const int car = e.path.rfind("cars/", 0) == 0 ? int(car_entries.size()) : -1;
+                if (car >= 0) car_entries.push_back(e);
+                // The SF Rush decal panels, before the textures move into the bases.
+                std::vector<rush2::car1stripes::DecalTexture> decals;
+                if (car >= 0) decals = rush2::car1stripes::decal_textures(e, c, containers, paint_palette);
+                std::vector<uint64_t> texture_keys;
+                for (const rush2::catalog::Texture& t : c.textures) texture_keys.push_back(t.key);
                 for (rush2::catalog::Texture& t : c.textures) {
                     (ui_container ? ui : other).insert(t.key);
                     if (t.index_key) (ui_container ? ui_index : other_index).insert(t.index_key);
@@ -218,20 +245,55 @@ namespace {
                     b.image = std::move(t.image);
                     b.indices = std::move(t.indices);
                     b.stripe = e.path == "cars/stripes";
+                    b.car = car;
                     int id = int(bases.size());
                     by_key.emplace(b.key, id);
                     if (b.index_key) by_index.emplace(b.index_key, id);
                     if (b.stripe) stripes_by_size[(uint64_t(b.width) << 32) | b.height].push_back(id);
                     bases.push_back(std::move(b));
                 }
+                // Each panel's SF Rush decal is a base of its own, in the dump as <panel>_SFRUSH: traced from the
+                // drawn panel by its stamped indices (the fixed colors' decals) or through its plain panel
+                // (find_decal), and drawn over the plain panel's upscale (derive_decal).
+                for (rush2::car1stripes::DecalTexture& dt : decals) {
+                    auto plain = by_key.find(texture_keys[dt.texture]);
+                    if (plain == by_key.end() || bases[plain->second].decal >= 0) continue;
+                    const Base& p = bases[plain->second];
+                    Base b;
+                    b.key = dt.key;
+                    b.width = p.width;
+                    b.height = p.height;
+                    b.indexed = true;
+                    b.edge_s = p.edge_s;
+                    b.edge_t = p.edge_t;
+                    b.image = std::move(dt.image);
+                    b.indices = std::move(dt.indices);
+                    b.decal_mask = std::move(dt.mask);
+                    b.decal_stripe = dt.stripe_color;
+                    b.plain = plain->second;
+                    b.car = car;
+                    int id = int(bases.size());
+                    bases[plain->second].decal = id;
+                    by_key.emplace(b.key, id); // The first of the panels sharing it stands for the image.
+                    bases.push_back(std::move(b));
+                }
             }
+            car_sheets.assign(car_entries.size(), {});
             for (uint64_t k : other) ui.erase(k);
             for (uint64_t k : other_index) ui_index.erase(k);
             for (Base& b : bases) b.ui = ui.count(b.key) != 0;
+            std::unordered_set<uint64_t> car_key_set, car_index_set;
+            for (const Base& b : bases) {
+                if (b.car < 0) continue;
+                car_key_set.insert(b.key);
+                if (b.index_key) car_index_set.insert(b.index_key);
+            }
             {
                 std::unique_lock lock(mutex);
                 ui_keys.swap(ui);
                 ui_index_keys.swap(ui_index);
+                car_keys.swap(car_key_set);
+                car_index_keys.swap(car_index_set);
             }
             std::vector<std::pair<uint64_t, uint32_t>> pieces;
             for (size_t id = 0; id < bases.size(); id++) {
@@ -338,26 +400,194 @@ namespace {
         }
 
         // A pack's upscale of a base (by its RT64 hash, else its content key), decoded once.
+        // A Rush 2 panel drawn with its SF Rush decal: the plain panel with only the decal's texels changed (a STRIPE
+        // COLOR decal's indices follow the color, so the decal base's own indices match only one) has its decal's
+        // base returned, drawn over it (derive_decal). Else m's base.
+        int find_decal(const Drawn& d, const Match& m) const {
+            const Base& plain = bases[m.base];
+            if (m.dy != 0 || plain.decal < 0 || d.indices.size() != plain.indices.size()) return m.base;
+            const Base& decal = bases[plain.decal];
+            size_t changed = 0;
+            for (size_t i = 0; i < d.indices.size(); i++) {
+                if (d.indices[i] == plain.indices[i]) continue;
+                if (!decal.decal_mask[i]) return m.base; // Something else changed it (Rush 2's own stripes).
+                changed++;
+            }
+            return changed > 0 ? plain.decal : m.base;
+        }
+
+        // Built-in upscaling of a car's textures (HQ2x or HQ4x, rush2::upscale::builtin_scale): the upscale a pack
+        // would have, made here, so built-in mode gets what a pack gets (the paint recolored from the preview, Keep Car
+        // Colors, stripes, SF Rush decals). Body tiles are upscaled on their car's sheets (rush2::sheet), so hqx sees
+        // across the seams; anything else alone. Each kept on disk (track_cache, per base and build). A car's sheets
+        // are rendered and cut by one thread at a time (car_locks); its other tiles' threads then find their cuts.
+        bool builtin_upscale(const Base& b, uint32_t scale, Image& out) {
+            const std::string blob = "hq" + std::to_string(scale) + "_" + rush2::upscale::key_name(b.key);
+            // A stripe tile's blob is keyed apart: the first ones were padded with the tile's own edge modes.
+            const uint64_t source = (b.key | 1) ^ (b.stripe ? 0x5354524950453200ull : 0);
+            std::vector<uint8_t> bytes;
+            if (rush2::track_cache::load_blob(blob, source, bytes) && rush2::upscale::read_dds(bytes, out)) return true;
+            auto alone = [&](const Base& t) {
+                const Image& source = upscaled_from(t);
+                // A stripe tile (or an SF Rush decal) lies on its panel texel for texel and never repeats: padded by
+                // wrapping, hqx blended the stripe's opaque edge with the clear far side, and derive_stripes (stripe at
+                // full alpha only) drew a line of paint down the middle of a stripe where two mirrored panels meet.
+                const bool stamp = t.stripe || t.plain >= 0;
+                const Edge s = stamp ? Edge::Clamp : t.edge_s, tt = stamp ? Edge::Clamp : t.edge_t;
+                return rush2::upscale::unpad(
+                    rush2::upscale::hq_upscale(rush2::upscale::pad(source, hq_border, s, tt), scale), source, hq_border);
+            };
+            const std::string name = rush2::upscale::key_name(b.key);
+            if (b.car >= 0) {
+                std::unique_lock car_lock(car_locks[size_t(b.car) % std::size(car_locks)]);
+                {
+                    std::unique_lock cache_lock(cache_mutex); // Cut while this thread waited for the car.
+                    if (auto it = upscales.find(b.key); it != upscales.end() && !it->second.empty()) {
+                        out = it->second;
+                        return true;
+                    }
+                }
+                for (const rush2::sheet::Sheet& sheet : sheets_of(b.car)) {
+                    std::vector<std::string> tiles = rush2::sheet::tiles(sheet);
+                    if (std::find(tiles.begin(), tiles.end(), name) == tiles.end()) continue;
+                    // The whole sheet at once: every tile of it is wanted with this one.
+                    auto base_of = [&](const std::string& tile) -> const Base* {
+                        uint64_t key;
+                        if (!rush2::upscale::parse_key_name(tile, key)) return nullptr;
+                        auto it = by_key.find(key);
+                        return it == by_key.end() ? nullptr : &bases[it->second];
+                    };
+                    Image image = rush2::sheet::render(sheet, [&](const std::string& tile) -> const Image* {
+                        const Base* t = base_of(tile);
+                        return t ? &upscaled_from(*t) : nullptr;
+                    });
+                    Image up = rush2::upscale::unpad(
+                        rush2::upscale::hq_upscale(rush2::upscale::pad(image, hq_border, Edge::Clamp, Edge::Clamp), scale),
+                        image, hq_border);
+                    for (const std::string& tile : tiles) {
+                        const Base* t = base_of(tile);
+                        Image cut;
+                        if (t == nullptr || !rush2::sheet::cut(sheet, up, tile, upscaled_from(*t), alone(*t), cut)) continue;
+                        rush2::track_cache::save_blob("hq" + std::to_string(scale) + "_" + tile, t->key | 1,
+                                                      rush2::upscale::make_dds(cut));
+                        if (t->key == b.key) {
+                            out = cut;
+                        }
+                        else {
+                            std::unique_lock cache_lock(cache_mutex);
+                            upscales[t->key] = std::move(cut);
+                        }
+                    }
+                    if (!out.empty()) return true;
+                }
+            }
+            out = alone(b);
+            rush2::track_cache::save_blob(blob, source, rush2::upscale::make_dds(out));
+            return !out.empty();
+        }
+
+        // A car's sheets for built-in upscaling, laid out as Dump Textures lays them (body, damaged, SF Rush decal),
+        // tiles by key name. Kept on disk (track_cache) per car file and build. Its car_locks entry held.
+        const std::vector<rush2::sheet::Sheet>& sheets_of(int car) {
+            CarSheets& cs = car_sheets[size_t(car)];
+            if (cs.built) return cs.sheets;
+            cs.built = true;
+            const rush2::catalog::Entry& e = car_entries[size_t(car)];
+            if (e.data == nullptr) return cs.sheets;
+            const std::string blob = "body_sheets_" + rush2::catalog::file_name(e.path);
+            // ^ 2: the layouts before the decals were laid out alone (a damaged decal sheet, panels with decals).
+            const uint64_t source = (rush2::track_cache::hash(e.data->data(), e.data->size()) | 1) ^ 2;
+            std::vector<uint8_t> bytes;
+            if (rush2::track_cache::load_blob(blob, source, bytes)) {
+                cs.sheets = rush2::sheet::read_layout(std::string(bytes.begin(), bytes.end()));
+                return cs.sheets;
+            }
+            rush2::catalog::Container c;
+            std::string error;
+            if (rush2::catalog::read_container(*e.data, c, error, true, false, &e.copies)) {
+                std::vector<std::string> paths(c.textures.size());
+                std::unordered_map<std::string, std::string> by_name; // Texture name -> key name.
+                std::unordered_map<std::string, std::string> name_of;  // Key name -> texture name.
+                for (size_t i = 0; i < c.textures.size(); i++) {
+                    if (!by_key.count(c.textures[i].key)) continue;
+                    paths[i] = rush2::upscale::key_name(c.textures[i].key);
+                    by_name.emplace(c.textures[i].name, paths[i]);
+                    name_of.emplace(paths[i], c.textures[i].name);
+                }
+                rush2::sheet::Sheet sheet;
+                if (rush2::sheet::build(c, paths, "body", sheet)) {
+                    // Another version of each tile, laid out the same (as write_sheets in src/texture_upscale.cpp).
+                    auto variant = [&](const rush2::sheet::Sheet& from, const std::string& suffix, auto version_of) {
+                        rush2::sheet::Sheet v = from;
+                        v.path += suffix;
+                        v.pieces.clear();
+                        for (rush2::sheet::Piece piece : from.pieces) {
+                            piece.tile = version_of(piece.tile);
+                            if (!piece.tile.empty()) v.pieces.push_back(std::move(piece));
+                        }
+                        return v;
+                    };
+                    auto damaged = [&](const std::string& tile) -> std::string {
+                        auto n = name_of.find(tile);
+                        if (n == name_of.end()) return "";
+                        if (auto d = by_name.find(n->second + "_D1"); d != by_name.end()) return d->second;
+                        size_t at = n->second.rfind("D0_");
+                        if (at == std::string::npos) return "";
+                        auto d = by_name.find(n->second.substr(0, at) + "D1_" + n->second.substr(at + 3));
+                        return d == by_name.end() ? "" : d->second;
+                    };
+                    auto decal = [&](const std::string& tile) -> std::string {
+                        uint64_t key;
+                        if (!rush2::upscale::parse_key_name(tile, key)) return "";
+                        auto it = by_key.find(key);
+                        if (it == by_key.end() || bases[it->second].decal < 0) return "";
+                        return rush2::upscale::key_name(bases[bases[it->second].decal].key);
+                    };
+                    rush2::sheet::Sheet hurt = variant(sheet, "_D1", damaged);
+                    rush2::sheet::Sheet decals = variant(sheet, "_SFRUSH", decal);
+                    cs.sheets.push_back(std::move(sheet));
+                    for (rush2::sheet::Sheet* v : { &hurt, &decals }) {
+                        if (!v->pieces.empty()) cs.sheets.push_back(std::move(*v));
+                    }
+                }
+            }
+            std::string text = rush2::sheet::write_layout(cs.sheets);
+            rush2::track_cache::save_blob(blob, source, std::vector<uint8_t>(text.begin(), text.end()));
+            return cs.sheets;
+        }
+
+        // Called from several threads at once (a batch loads its bases' upscales on every core, then recolors): the
+        // cache is locked only around its map, a pack's zip only while bytes are read from it, so the decoding, disk
+        // reads and hqx run side by side.
         bool base_upscale(const Base& b, Image& out) {
-            if (auto it = upscales.find(b.key); it != upscales.end()) {
-                out = it->second;
-                return !out.empty();
+            {
+                std::unique_lock cache_lock(cache_mutex);
+                if (auto it = upscales.find(b.key); it != upscales.end()) {
+                    out = it->second;
+                    return !out.empty();
+                }
             }
             Image image;
             for (uint64_t id : { b.hash, b.key }) {
                 auto f = id ? files.find(id) : files.end();
                 if (f == files.end()) continue;
                 Pack& pack = packs[f->second.pack];
-                std::unique_lock pack_lock(pack_mutex);
-                if (pack.is_zip && !pack.zip) pack.zip = std::make_unique<rush2::upscale::ZipReader>(pack.path);
                 for (const char* ext : { ".dds", ".png" }) {
                     std::vector<uint8_t> bytes;
                     std::string name = f->second.path + ext;
-                    bool got = pack.is_zip ? pack.zip->read(name, bytes)
-                                           : !(bytes = rush2::upscale::read_file(pack.path / std::filesystem::u8path(name))).empty();
+                    bool got;
+                    {
+                        std::unique_lock pack_lock(pack_mutex);
+                        if (pack.is_zip && !pack.zip) pack.zip = std::make_unique<rush2::upscale::ZipReader>(pack.path);
+                        got = pack.is_zip ? pack.zip->read(name, bytes)
+                                          : !(bytes = rush2::upscale::read_file(pack.path / std::filesystem::u8path(name))).empty();
+                    }
                     if (got && rush2::upscale::decode_image(bytes, image)) break;
                 }
                 if (!image.empty()) break;
+            }
+            if (image.empty() && b.car >= 0) {
+                if (uint32_t scale = rush2::upscale::builtin_scale()) builtin_upscale(b, scale, image);
             }
             // A whole multiple of the base's size, as recolor needs.
             if (!image.empty()) {
@@ -368,6 +598,7 @@ namespace {
             }
             // A few hundred kept (a 4x upscale of a 64x64 texture is 256 KB): enough for the panels and their stripe
             // tiles a car brings, which are wanted together.
+            std::unique_lock cache_lock(cache_mutex);
             if (upscales.size() >= 256) upscales.clear();
             upscales[b.key] = image;
             out = std::move(image);
@@ -458,6 +689,67 @@ namespace {
             return true;
         }
 
+        // A Rush 2 panel drawn with its SF Rush decal (car1stripes, written into the panel's texels): the plain panel's
+        // upscale in the drawn paint, with the decal over it by its upscale's alpha, as derive_stripes lays a stripe.
+        // A STRIPE COLOR decal's texels are the panel's remapped to the color (so the panel's upscale recolored to the
+        // stripe shades); a fixed-color decal's are its own (its upscale recolored to the colors drawn).
+        Image derive_decal(const Drawn& d, const Base& b, const Base& decal, const Image& up, Image decal_up) {
+            const size_t n = size_t(b.width) * b.height;
+            if (d.indices.size() != n || b.indices.size() != n || decal.decal_mask.size() != n) return derive(d, b, 0, up);
+            // Each palette index's color off the decal and under it, from the texels drawn each way.
+            uint32_t paint[256] = {}, stamped[256] = {};
+            bool has_paint[256] = {}, has_stamped[256] = {};
+            for (size_t i = 0; i < n; i++) {
+                uint32_t color;
+                memcpy(&color, &d.image.rgba[i * 4], 4);
+                (decal.decal_mask[i] ? stamped : paint)[b.indices[i]] = color;
+                (decal.decal_mask[i] ? has_stamped : has_paint)[b.indices[i]] = true;
+            }
+            // An index drawn only one way takes the nearest index's color that way (the ramps run in steps).
+            auto fill = [](uint32_t* colors, const bool* has) {
+                for (int i = 0; i < 256; i++) {
+                    if (has[i]) continue;
+                    for (int k = 1; k < 256; k++) {
+                        if (i - k >= 0 && has[i - k]) { colors[i] = colors[i - k]; break; }
+                        if (i + k < 256 && has[i + k]) { colors[i] = colors[i + k]; break; }
+                    }
+                }
+            };
+            fill(paint, has_paint);
+            Image painted = d.image;
+            for (size_t i = 0; i < n; i++) memcpy(&painted.rgba[i * 4], &paint[b.indices[i]], 4);
+            Image under = recolor(b, up, painted), over;
+            if (decal_up.width != up.width || decal_up.height != up.height) {
+                decal_up = rush2::upscale::resize_bilinear(decal_up, up.width, up.height);
+            }
+            if (decal.decal_stripe) {
+                fill(stamped, has_stamped);
+                Image striped = d.image;
+                for (size_t i = 0; i < n; i++) memcpy(&striped.rgba[i * 4], &stamped[b.indices[i]], 4);
+                over = recolor(b, up, striped);
+            }
+            else {
+                // The decal's own image in the colors drawn on it (clear off it, as the image is).
+                Image colors = decal.image;
+                for (size_t i = 0; i < n; i++) {
+                    if (decal.decal_mask[i]) memcpy(&colors.rgba[i * 4], &d.image.rgba[i * 4], 4);
+                }
+                over = recolor(decal, decal_up, colors);
+            }
+            Image out = under;
+            for (size_t i = 0; i < size_t(up.width) * up.height; i++) {
+                float w = decal_up.rgba[i * 4 + 3] / 255.0f;
+                if (w <= 0.0f || (!decal.decal_stripe && over.rgba[i * 4 + 3] == 0)) continue;
+                // A fixed-color decal's recolor mixes toward its clear texels (black) at its edges: undone by its alpha.
+                float a = decal.decal_stripe ? 1.0f : std::max(over.rgba[i * 4 + 3] / 255.0f, 1.0f / 255.0f);
+                for (int c = 0; c < 3; c++) {
+                    float o = std::min(255.0f, over.rgba[i * 4 + c] / a);
+                    out.rgba[i * 4 + c] = uint8_t(under.rgba[i * 4 + c] * (1 - w) + o * w + 0.5f);
+                }
+            }
+            return out;
+        }
+
         // The replacement of a drawn texture from its base's upscale: the base's rows where the drawn one has them
         // (with the drawn colors), its own texels, scaled up, past the base's ends.
         Image derive(const Drawn& d, const Base& b, int dy, const Image& up) {
@@ -493,9 +785,23 @@ namespace {
 
         // A base's upscale in a drawn texture's colors (same size as the base). A paint base's upscale is of its
         // colored preview, whose colors tell the paints apart, and what the preview's colors don't explain goes on as
-        // brightness only.
-        static Image recolor(const Base& b, const Image& up, const Image& colors) {
-            Image out = rush2::upscale::recolor(up, upscaled_from(b), colors, b.edge_s, b.edge_t, b.paint);
+        // brightness only. The recolor plan is kept per base (plans), so another paint of the same panel is quick.
+        Image recolor(const Base& b, const Image& up, const Image& colors) {
+            std::shared_ptr<const rush2::upscale::RecolorPlan> plan;
+            {
+                std::unique_lock cache_lock(cache_mutex);
+                if (auto it = plans.find(b.key); it != plans.end()) plan = it->second;
+            }
+            if (!plan || plan->width != up.width || plan->height != up.height) {
+                plan = std::make_shared<const rush2::upscale::RecolorPlan>(
+                    rush2::upscale::plan_recolor(up, upscaled_from(b), b.edge_s, b.edge_t, plan_threads));
+                std::unique_lock cache_lock(cache_mutex);
+                // A few hundred kept (a 4x upscale of a 64x32 panel's plan is 400 KB): a car's panels and their
+                // stripe tiles, which are wanted together.
+                if (plans.size() >= 256) plans.clear();
+                plans.insert_or_assign(b.key, plan);
+            }
+            Image out = rush2::upscale::apply_recolor(*plan, up, upscaled_from(b), colors, b.edge_s, b.edge_t, b.paint);
             // Keep Car Colors: no colors the drawn texture's texels don't have nearby (an upscaler's spill onto the
             // fixed parts, which recolor passes through as drawn).
             if (b.paint && keep_car_colors) rush2::upscale::clamp_chroma(out, colors, b.edge_s, b.edge_t);
@@ -648,7 +954,10 @@ namespace {
                     queue.clear();
                 }
                 if (do_reload) {
+                    std::unique_lock cache_lock(cache_mutex);
                     upscales.clear();
+                    plans.clear();
+                    cache_lock.unlock();
                     read_packs();
                     std::unique_lock lock(mutex);
                     if (mod_images_stale) {
@@ -657,6 +966,25 @@ namespace {
                     }
                 }
                 size_t made = 0, unmatched = 0;
+                using clock = std::chrono::steady_clock;
+                const clock::time_point batch_start = clock::now();
+                clock::time_point first_drawn = batch_start;
+                // Matched first, one by one (the index, the packs); the recolors, a car's 20-odd panels at once on a
+                // paint or car change, then run on every core; RT64 gets them in order after.
+                struct Job {
+                    Drawn d;
+                    int base = -1, dy = 0;
+                    Image up;
+                    std::vector<uint8_t> dds;
+                    int decal = -1;             // An SF Rush decal drawn over base (derive_decal), and its upscale.
+                    Image decal_up;
+                };
+                std::vector<Job> jobs;
+                struct Traced {
+                    Drawn d;
+                    int base = -1, dy = 0, decal = -1;
+                };
+                std::vector<Traced> traced;
                 for (size_t i : todo) {
                     Drawn d;
                     bool ui_on;
@@ -665,6 +993,7 @@ namespace {
                         d = all[i];
                         ui_on = ui_enabled;
                     }
+                    first_drawn = std::min(first_drawn, d.at);
                     if (mod_replace(d)) {
                         made++;
                         continue;
@@ -677,7 +1006,7 @@ namespace {
                         set_outcome(d.hash, Outcome::Small);
                         continue;
                     }
-                    if (files.empty()) continue;
+                    if (files.empty() && rush2::upscale::builtin_scale() == 0) continue;
                     if (files.count(d.hash)) { // A pack replaces it as drawn.
                         set_outcome(d.hash, Outcome::Pack);
                         continue;
@@ -697,15 +1026,54 @@ namespace {
                         set_outcome(d.hash, Outcome::Interface);
                         continue;
                     }
-                    Image up;
-                    if (!base_upscale(bases[m.base], up)) {
+                    // A panel with an SF Rush decal: the plain panel's upscale, with the decal's over it.
+                    int decal = -1;
+                    if (bases[m.base].plain >= 0) {
+                        decal = m.base;
+                        m.base = bases[decal].plain;
+                    }
+                    else if (int found = find_decal(d, m); found != m.base) {
+                        decal = found;
+                    }
+                    traced.push_back({ std::move(d), m.base, m.dy, decal });
+                }
+                // The bases' upscales, loaded on every core: disk blobs, pack images to decode, hqx of a car's sheets.
+                // A car's first view brings 20-odd bases, which loaded one by one took 40-120 ms.
+                {
+                    std::vector<int> wanted;
+                    for (const Traced& t : traced) {
+                        wanted.push_back(t.base);
+                        if (t.decal >= 0) wanted.push_back(t.decal);
+                    }
+                    std::sort(wanted.begin(), wanted.end());
+                    wanted.erase(std::unique(wanted.begin(), wanted.end()), wanted.end());
+                    std::atomic<size_t> next_base = 0;
+                    auto load = [&]() {
+                        Image scratch;
+                        for (size_t k; (k = next_base++) < wanted.size();) base_upscale(bases[wanted[k]], scratch);
+                    };
+                    const size_t loaders = std::min<size_t>(wanted.size(), std::max(1u, std::thread::hardware_concurrency()) - 1);
+                    std::vector<std::thread> threads;
+                    for (size_t t = 1; t < loaders; t++) threads.emplace_back(load);
+                    load();
+                    for (std::thread& t : threads) t.join();
+                }
+                for (Traced& t : traced) {
+                    Drawn& d = t.d;
+                    Image up, decal_up;
+                    if (!base_upscale(bases[t.base], up)) {
                         set_outcome(d.hash, Outcome::NoUpscale);
                         continue;
                     }
-                    const Base& b = bases[m.base];
+                    if (t.decal >= 0) {
+                        if (!base_upscale(bases[t.decal], decal_up)) decal_up = bases[t.decal].image; // Its texels, scaled.
+                        jobs.push_back({ std::move(d), t.base, 0, std::move(up), {}, t.decal, std::move(decal_up) });
+                        continue;
+                    }
+                    const Base& b = bases[t.base];
                     const size_t row = size_t(b.width) * 4;
-                    bool rows_of_base = b.width == d.image.width && m.dy >= 0 && m.dy + d.image.height <= b.height &&
-                                        memcmp(&b.image.rgba[m.dy * row], d.image.rgba.data(), d.image.rgba.size()) == 0;
+                    bool rows_of_base = b.width == d.image.width && t.dy >= 0 && t.dy + d.image.height <= b.height &&
+                                        memcmp(&b.image.rgba[t.dy * row], d.image.rgba.data(), d.image.rgba.size()) == 0;
                     if (rows_of_base) {
                         // The base itself, or a strip of it (a big image the game draws in pieces): the base's
                         // upscale, uploaded once, as the region of it this texture is, so filtering runs on across the
@@ -715,27 +1083,64 @@ namespace {
                         if (!RT64::hasLiveReplacementContent(content)) bytes = rush2::upscale::make_dds(up);
                         RT64::ReplacementRegion region;
                         if (d.image.height != b.height) {
-                            region.y = uint32_t(m.dy);
+                            region.y = uint32_t(t.dy);
                             region.sourceWidth = b.width;
                             region.sourceHeight = b.height;
                         }
                         RT64::addLiveReplacement(d.hash, content, bytes, region);
+                        set_outcome(d.hash, Outcome::Derived);
+                        std::unique_lock lock(mutex);
+                        owned.insert(d.hash);
+                        made++;
+                        continue;
                     }
-                    else {
+                    jobs.push_back({ std::move(d), t.base, t.dy, std::move(up), {} });
+                }
+                const clock::time_point matched = clock::now();
+                // The cores the jobs leave over split each plan search (a lone job gets them all).
+                plan_threads = std::max<size_t>(1, (std::max(1u, std::thread::hardware_concurrency()) - 1) /
+                                                       std::max<size_t>(1, jobs.size()));
+                std::atomic<size_t> next_job = 0;
+                auto work = [&]() {
+                    for (size_t j; (j = next_job++) < jobs.size();) {
+                        Job& job = jobs[j];
+                        const Base& b = bases[job.base];
                         Image image;
-                        if (m.dy != 0 || !derive_stripes(d, b, up, image)) image = derive(d, b, m.dy, up);
-                        rush2::upscale::restore_alpha(image, d.image);
-                        uint64_t content = d.hash ^ 0xDE51BEDull ^ (pack_generation * 0x9E3779B97F4A7C15ull);
-                        RT64::addLiveReplacement(d.hash, content, rush2::upscale::make_dds(image));
+                        if (job.decal >= 0) image = derive_decal(job.d, b, bases[job.decal], job.up, job.decal_up);
+                        else if (job.dy != 0 || !derive_stripes(job.d, b, job.up, image)) image = derive(job.d, b, job.dy, job.up);
+                        rush2::upscale::restore_alpha(image, job.d.image);
+                        job.dds = rush2::upscale::make_dds(image);
                     }
-                    set_outcome(d.hash, Outcome::Derived);
+                };
+                const size_t helpers = std::min<size_t>(jobs.size(), std::max(1u, std::thread::hardware_concurrency()) - 1);
+                std::vector<std::thread> threads;
+                for (size_t t = 1; t < helpers; t++) threads.emplace_back(work);
+                work();
+                for (std::thread& t : threads) t.join();
+                const clock::time_point worked = clock::now();
+                for (Job& job : jobs) {
+                    uint64_t content = job.d.hash ^ 0xDE51BEDull ^ (pack_generation * 0x9E3779B97F4A7C15ull);
+                    RT64::addLiveReplacement(job.d.hash, content, std::move(job.dds));
+                    set_outcome(job.d.hash, Outcome::Derived);
                     std::unique_lock lock(mutex);
-                    owned.insert(d.hash);
+                    owned.insert(job.d.hash);
                     made++;
                 }
                 {
                     std::unique_lock pack_lock(pack_mutex);
                     for (Pack& pack : packs) pack.zip.reset();
+                }
+                // RUSH2_DERIVE_TIMING: where a batch's time went, from its first texture's first draw to RT64 having
+                // every replacement (waited: drawn to the batch's start; matched: tracing and the bases' upscales;
+                // derived: the recolors and DDS encoding on every core; handed: addLiveReplacement).
+                static const bool timing = getenv("RUSH2_DERIVE_TIMING") != nullptr;
+                if (timing && !todo.empty()) {
+                    auto ms = [](clock::duration d) { return std::chrono::duration<double, std::milli>(d).count(); };
+                    const clock::time_point done = clock::now();
+                    printf("[derive] batch %zu drawn, %zu jobs: waited %.1f ms, matched %.1f, derived %.1f, handed %.1f, "
+                           "total %.1f ms\n", todo.size(), jobs.size(), ms(batch_start - first_drawn),
+                           ms(matched - batch_start), ms(worked - matched), ms(done - worked), ms(done - first_drawn));
+                    fflush(stdout);
                 }
                 // A summary now and then, not a line per texture.
                 made_total += made;
@@ -757,6 +1162,7 @@ namespace {
         bool ui_enabled = false;           // Upscale Interface.
         std::unordered_set<uint64_t> seen, owned;
         std::unordered_set<uint64_t> ui_keys, ui_index_keys; // Interface art (build()).
+        std::unordered_set<uint64_t> car_keys, car_index_keys; // Car textures (build(): built-in upscaling's own).
         std::unordered_map<uint64_t, ModTexture> mods;       // Car mods' stand-ins by index_key.
         bool mod_images_stale = false;
         struct ModImage {
@@ -788,6 +1194,19 @@ namespace {
         std::vector<Pack> packs;
         std::unordered_map<uint64_t, PackFile> files;
         std::unordered_map<uint64_t, Image> upscales;
+        std::mutex cache_mutex; // Guards upscales and plans while a batch's recolors run on several threads.
+        // By base key: recolor's plan of its upscale.
+        std::unordered_map<uint64_t, std::shared_ptr<const rush2::upscale::RecolorPlan>> plans;
+        // Built-in upscaling of the cars (builtin_upscale): their containers (Base::car) and sheets.
+        struct CarSheets {
+            bool built = false;
+            std::vector<rush2::sheet::Sheet> sheets;
+        };
+        std::vector<rush2::catalog::Entry> car_entries;
+        std::vector<CarSheets> car_sheets;  // Each guarded by its car_locks entry.
+        std::mutex car_locks[16];
+        unsigned plan_threads = 1;         // Threads a recolor plan search may use (set per batch, run()).          // car_sheets[car] and its sheets' rendering: car % 16.
+        static constexpr uint32_t hq_border = 8; // Texels of padding around an image given to hqx.
     };
 
     Deriver& deriver() {
@@ -819,6 +1238,10 @@ bool index_ready() {
 
 bool interface_texture(uint64_t key, uint64_t index_key) {
     return deriver().interface_texture(key, index_key);
+}
+
+bool builtin_car(uint64_t key, uint64_t index_key) {
+    return deriver().builtin_car(key, index_key);
 }
 
 bool owns(uint64_t hash) {

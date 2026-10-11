@@ -382,9 +382,12 @@ void rush2::track_cache::save_2049(int k, const std::string& prefix, uint64_t so
 bool rush2::track_cache::load_blob(const std::string& name, uint64_t source, std::vector<uint8_t>& out) {
     if (source == 0) return false;
     std::lock_guard lock{ cache_mutex };
-    std::ifstream in(blob_file(name), std::ios::binary);
+    std::ifstream in(blob_file(name), std::ios::binary | std::ios::ate);
     if (!in) return false;
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // One read of the whole file (a character iterator took milliseconds for a car texture's upscale).
+    std::vector<uint8_t> bytes(size_t(in.tellg()));
+    in.seekg(0);
+    if (!in.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)bytes.size())) return false;
     Writer expected;
     key(expected, Kind::Blob, 0, name, source);
     size_t at = expected.bytes.size();

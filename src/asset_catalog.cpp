@@ -205,6 +205,14 @@ int car_2049(const Entry& e) {
     return car_2049_of(e);
 }
 
+int rush2_car(const Entry& e) {
+    if (e.game != rush2::origin::Game::Rush2) return -1;
+    for (int type = 0; type < int(std::size(rush2_cars)); type++) {
+        if (e.path == std::string("cars/") + rush2_cars[type]) return type;
+    }
+    return -1;
+}
+
 std::vector<uint8_t> paint_preview_palette(const std::vector<Entry>& containers, const Entry& car) {
     auto be32 = [](const std::vector<uint8_t>& d, size_t o) {
         return uint32_t(d[o] << 24 | d[o + 1] << 16 | d[o + 2] << 8 | d[o + 3]);

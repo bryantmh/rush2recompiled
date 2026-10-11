@@ -512,6 +512,8 @@ previews; `tools/rush1/cartex.py` (car files, meshes, palettes).
   executable's size and modification time, so each car is built once per ROM and build, not every boot.
 - Gotcha: RDRAM is word-swapped on the host; write bytes with MEM_B, never through the alloc pointer.
 
+Texture packs: each decal is dumped alone and its upscale is laid over the body's, like a stripe tile (docs/texture_upscaling.md "SF Rush decals").
+
 ## 12. Track names and track select banners
 
 The N64 game only numbers its tracks (Track 1-7). The recomp uses the names the Rush the Rock arcade update gave

@@ -47,7 +47,8 @@ namespace rush2::sheet {
     bool covers(const Sheet& sheet, const std::string& tile, const std::vector<uint8_t>& drawn);
 
     // The sheet's image from the tiles' dumped images (image_of: a tile path's image, or null). Space between the
-    // pieces is filled from their edges, so an upscaler sees no hard borders there.
+    // pieces is filled from their edges, so an upscaler sees no hard borders there. Mostly clear tiles (the SF Rush
+    // decals alone) keep their alpha, with the space between clear.
     Image render(const Sheet& sheet, const std::function<const Image*(const std::string&)>& image_of);
 
     // A tile's upscale cut from an upscale of the sheet (a whole multiple of the sheet's size). Texels no piece gives

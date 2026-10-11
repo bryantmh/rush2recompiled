@@ -68,6 +68,7 @@
 #include "rush2049_dc.h"
 #include "texture_census.h"
 #include "body_sheet.h"
+#include "car1_stripes.h"
 #include "texture_derive.h"
 #include "texture_origin.h"
 #include "texture_upscale.h"
@@ -120,6 +121,8 @@ namespace {
 
     using rush2::rom2049::dc::TextureMode;
     enum class DcState : uint8_t { Unknown, Pending, None, Matched };
+
+    std::atomic<uint32_t> builtin_car_scale = 0; // builtin_scale(): set_mode.
 
     uint32_t mode_scale(Mode mode) {
         return mode == Mode::Hq4x ? 4 : 2;
@@ -201,6 +204,7 @@ namespace {
         bool ui = false;
         bool kept = false;          // Decoded already (key is 0 when it wasn't worth keeping).
         bool dc_packed = false;     // Left to the Dreamcast Textures' pack; seen again when it changes.
+        bool derived = false;       // A 3D draw handed to rush2::derive (at first sight).
     };
 
     // A piece of work the worker took from the queue, copied out so it runs without the lock.
@@ -266,6 +270,10 @@ namespace {
                 return;
             }
             mode = new_mode;
+            uint32_t scale = (mode == Mode::Hq2x || mode == Mode::Hq4x) ? mode_scale(mode) : 0;
+            if (builtin_car_scale.exchange(scale) != scale) {
+                rush2::derive::packs_changed(); // The cars' upscales come from here now, or no longer.
+            }
             command = new_command;
             command_key = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(command.data()), command.size());
             if (mode == Mode::Custom) {
@@ -392,6 +400,24 @@ namespace {
                     return;
                 }
             }
+            // The derived replacements (car paints, stamped stripes...) get a 3D texture the first time it's drawn,
+            // not after stable_frames: waiting three frames for a repaint showed the native texture that long.
+            if (world && !seen.derived) {
+                seen.derived = true;
+                if (width <= 1024 && height <= 1024 &&
+                    !(dc_mode == TextureMode::Disc && rush2::rom2049::dc::in_texture_pack(hash))) {
+                    std::vector<uint8_t> indices;
+                    Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut,
+                                              width, height, tlut != 0 ? &indices : nullptr);
+                    uint64_t key = content_key(image);
+                    const uint64_t drawn_index_key = tlut != 0 ? index_key(indices, width, height, tile.siz) : 0;
+                    if (rush2::census::enabled()) {
+                        rush2::census::record(hash, key, drawn_index_key, address, tile.fmt, tile.siz, tile.line,
+                                              tile.tmem, width, height, tlut, image);
+                    }
+                    rush2::derive::drawn(hash, key, drawn_index_key, image, std::move(indices), tile.siz, true);
+                }
+            }
             if ((seen.ui && !ui_upscaling) || seen.kept || frame == seen.last_frame) {
                 return;
             }
@@ -413,14 +439,6 @@ namespace {
             Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut, width, height,
                                       tlut != 0 ? &indices : nullptr);
             uint64_t key = content_key(image);
-            const uint64_t drawn_index_key = tlut != 0 ? index_key(indices, width, height, tile.siz) : 0;
-            if (world) { // A 2D draw (Upscale Interface on) was recorded at first sight.
-                if (rush2::census::enabled()) {
-                    rush2::census::record(hash, key, drawn_index_key, address, tile.fmt, tile.siz, tile.line, tile.tmem,
-                                          width, height, tlut, image);
-                }
-                rush2::derive::drawn(hash, key, drawn_index_key, image, indices, tile.siz, true);
-            }
             if (!worth_upscaling(image)) {
                 return;
             }
@@ -640,27 +658,43 @@ namespace {
                     }
                     return "";
                 };
-                rush2::sheet::Sheet damaged = sheet;
-                damaged.path += "_D1";
-                damaged.pieces.clear();
-                // Rush 2's damaged parts (D2_) draw their tiles themselves; Rush 2049 swaps <tile>_D1 in where the
-                // tile is drawn, so it draws what the tile does.
-                std::map<std::string, std::vector<uint8_t>> drawn_damaged;
-                for (rush2::sheet::Piece piece : sheet.pieces) {
-                    std::string base = piece.tile;
-                    piece.tile = damaged_tile(piece.tile);
-                    if (piece.tile.empty()) continue;
-                    auto d = drawn.find(piece.tile);
-                    if (d == drawn.end()) d = drawn.find(base);
-                    if (d != drawn.end()) drawn_damaged.emplace(piece.tile, d->second);
-                    damaged.pieces.push_back(std::move(piece));
-                }
-                if (!damaged.pieces.empty() && !used.count(file + "_D1")) {
-                    used.insert(file + "_D1");
-                    write(folder, damaged);
-                    hide_covered(folder, damaged, drawn_damaged);
-                    by_folder[folder].push_back(std::move(damaged));
-                }
+                // Another version of the tiles laid out as `from` (version_of: a tile's version, "" for none): the sheet
+                // <from's path><suffix> of the pieces whose tile has one. A version the car doesn't draw itself is
+                // swapped in where its tile is drawn, so it draws what the tile does. Returns its drawn texels.
+                auto variant = [&](const rush2::sheet::Sheet& from, const std::string& suffix,
+                                   const std::function<std::string(const std::string&)>& version_of,
+                                   const std::map<std::string, std::vector<uint8_t>>& drawn_from) {
+                    rush2::sheet::Sheet v = from;
+                    v.path += suffix;
+                    v.pieces.clear();
+                    std::map<std::string, std::vector<uint8_t>> drawn_v;
+                    for (rush2::sheet::Piece piece : from.pieces) {
+                        std::string base = piece.tile;
+                        piece.tile = version_of(piece.tile);
+                        if (piece.tile.empty()) continue;
+                        const std::vector<uint8_t>* mask = nullptr;
+                        if (auto d = drawn.find(piece.tile); d != drawn.end()) mask = &d->second;
+                        else if (auto f = drawn_from.find(base); f != drawn_from.end()) mask = &f->second;
+                        if (mask != nullptr) drawn_v.emplace(piece.tile, *mask);
+                        v.pieces.push_back(std::move(piece));
+                    }
+                    std::string name = v.path.substr(v.path.rfind('/') + 1);
+                    if (!v.pieces.empty() && !used.count(name)) {
+                        used.insert(name);
+                        write(folder, v);
+                        hide_covered(folder, v, drawn_v);
+                        by_folder[folder].push_back(std::move(v));
+                    }
+                    return drawn_v;
+                };
+                // Rush 2's damaged parts (D2_) draw their tiles themselves; Rush 2049 swaps <tile>_D1 in.
+                variant(sheet, "_D1", damaged_tile, drawn);
+                // The SF Rush decals alone (<tile>_SFRUSH, rush2::car1stripes::decal_textures), laid out as the body:
+                // <CAR>_BODY_SFRUSH. The damaged panels draw the same decal.
+                auto decal_tile = [&](const std::string& tile) -> std::string {
+                    return any_key.count({ folder, tile + "_SFRUSH" }) ? tile + "_SFRUSH" : "";
+                };
+                variant(sheet, "_SFRUSH", decal_tile, drawn);
                 by_folder[folder].push_back(std::move(sheet));
             }
             printf("[upscale] dump: %zu of %zu car tiles given back whole by their sheets, moved to sheet_tiles\n",
@@ -787,6 +821,21 @@ namespace {
                     Image preview;
                     if (rush2::catalog::paint_base(e, t)) preview = rush2::catalog::paint_preview(t.indices, t.width, t.height, paint_palette);
                     images.emplace(t.key, preview.empty() ? std::move(t.image) : std::move(preview));
+                }
+                // The SF Rush decals: written into the panels at run time, so in no file. Each goes beside its panel
+                // as <panel>_SFRUSH, the decal alone (transparent off it), as the stripe tiles are; the damaged
+                // panel's is the same image.
+                if (car) {
+                    for (rush2::car1stripes::DecalTexture& dt :
+                         rush2::car1stripes::decal_textures(e, c, containers, paint_palette)) {
+                        auto it = named.find(c.textures[dt.texture].key);
+                        if (it == named.end() || named.count(dt.key)) continue;
+                        Named n{ it->second.folder, it->second.path + "_SFRUSH" };
+                        file_names[n.folder].insert(n.path.substr(n.path.rfind('/') + 1));
+                        names[n.folder][n.path] = { n.path, dt.key };
+                        images.emplace(dt.key, std::move(dt.image));
+                        named.emplace(dt.key, std::move(n));
+                    }
                 }
                 if (car) sheet_jobs.push_back({ e.path, std::move(c), std::move(keys) });
             }
@@ -1504,6 +1553,9 @@ namespace {
                 "like any other. Install cuts it back into the tiles. The blurry fill between the parts is never drawn.\n"
                 "Keep the image's size ratio (2x, 4x...). Tiles the sheet covers whole are not in this folder (they're\n"
                 "in ../sheet_tiles, for Install): the ones still here have parts the sheet doesn't show.\n"
+                "With the San Francisco Rush ROM, the cars with an SF RUSH stripe also have <CAR>_BODY_SFRUSH.png: that\n"
+                "decal alone, laid out as the body and see-through elsewhere, like the stripes in cars/stripes. It is\n"
+                "drawn over the body's upscale; cyan marks a decal drawn in the STRIPE COLOR (only its shape counts).\n"
                 "\n"
                 "1. Upscale these images with any program (Topaz Gigapixel, an image editor...).\n"
                 "2. Save the results into the same place under \"user_texture_pack\" next to this folder\n"
@@ -1631,6 +1683,10 @@ namespace {
                 }
                 if (!entry.ui && rush2::derive::interface_texture(key, entry.index_key)) {
                     entry.ui = true; // Only in the catalog's interface containers (drawn in 3D: the race HUD).
+                }
+                if (rush2::derive::builtin_car(key, entry.index_key)) {
+                    entry.queued = false; // A car texture: the derived replacements upscale its base (builtin_scale).
+                    continue;
                 }
                 if (!entry.queued || skip_ui(entry) || entry.ready || dc_held(entry)) {
                     entry.queued = false;
@@ -2019,6 +2075,10 @@ void apply_loaded_options(recomp::config::Config& config) {
     apply_interface(std::get<bool>(config.get_option_value(interface_option_id)));
     rush2::derive::set_keep_car_colors(std::get<bool>(config.get_option_value(car_colors_option_id)));
     apply_config(config.get_option_value(mode_option_id), config.get_option_value(command_option_id));
+}
+
+uint32_t builtin_scale() {
+    return builtin_car_scale;
 }
 
 std::filesystem::path asset_dump_dir() {

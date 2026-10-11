@@ -19,11 +19,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -188,6 +190,31 @@ namespace {
         std::filesystem::rename(tmp, path, ec);
     }
 
+    // The cache key of the decals built from this Rush 1 ROM by this build (hashing the ROM once a session).
+    uint64_t cache_key(const std::shared_ptr<const std::vector<uint8_t>>& rom1) {
+        static std::mutex hash_mutex;
+        static const std::vector<uint8_t>* hashed_rom = nullptr;
+        static uint64_t rom_hash = 0;
+        std::unique_lock lock(hash_mutex);
+        if (hashed_rom != rom1.get()) {
+            rom_hash = rush2::track_cache::hash(rom1->data(), rom1->size());
+            hashed_rom = rom1.get();
+        }
+        return hash((const uint8_t*)&rom_hash, sizeof(rom_hash), build_stamp());
+    }
+
+    // The panel a Rush 2 car texture's name is: _D<stage>_<n> or _D<stage>_<n>_4 (the quarter-size mip; lod), n 1-6,
+    // else 0. Panel 4's full-size texture also ends in _4 (_D0_4), so the mip is told apart by the name's length.
+    int panel_of(const std::string& s, bool& lod) {
+        size_t at = s.rfind("_D", s.size() >= 7 ? s.size() - 7 : 0);
+        lod = at != std::string::npos && s.size() == at + 7 && s.compare(at + 5, 2, "_4") == 0;
+        if (!lod) {
+            at = s.rfind("_D");
+        }
+        int n = (at != std::string::npos && (s.size() == at + 5 || lod) && s[at + 3] == '_') ? s[at + 4] - '0' : 0;
+        return n >= 1 && n <= 6 ? n : 0;
+    }
+
     // Builds car c's decal, or loads it from the cache (building takes a few tens of milliseconds per car).
     bool ensure(uint8_t* rdram, int c) {
         CarState& s = states[c];
@@ -200,13 +227,7 @@ namespace {
         }
         s.built = true;
         const rush2::car1decals::Car& car = rush2::car1decals::cars[c];
-        static const std::vector<uint8_t>* hashed_rom = nullptr;
-        static uint64_t rom_hash = 0;
-        if (hashed_rom != rom1.get()) {
-            rom_hash = rush2::track_cache::hash(rom1->data(), rom1->size());
-            hashed_rom = rom1.get();
-        }
-        uint64_t key = hash((const uint8_t*)&rom_hash, sizeof(rom_hash), build_stamp());
+        uint64_t key = cache_key(rom1);
         std::vector<uint8_t> r1, r2, stripes;
         const char* failed = nullptr;
         const char* why = "";
@@ -381,14 +402,8 @@ extern "C" void rush2_car1_paint_stamp(uint8_t* rdram, recomp_context* ctx) {
     for (int i = 0; i < 16; i++) {
         name[i] = (char)MEM_BU(0, (int32_t)(record + i));
     }
-    // Panel 4's full-size texture also ends in _4 (_D0_4), so the mip is told apart by the name's length.
-    std::string s = name;
-    size_t at = s.rfind("_D", s.size() >= 7 ? s.size() - 7 : 0);
-    bool lod = at != std::string::npos && s.size() == at + 7 && s.compare(at + 5, 2, "_4") == 0;
-    if (!lod) {
-        at = s.rfind("_D");
-    }
-    int n = (at != std::string::npos && (s.size() == at + 5 || lod) && s[at + 3] == '_') ? s[at + 4] - '0' : 0;
+    bool lod;
+    int n = panel_of(name, lod);
     int w = (int)MEM_HU(0, (int32_t)(record + 0x10)), h = (int)MEM_HU(0, (int32_t)(record + 0x12));
     const std::vector<uint8_t>* texels = nullptr;
     if (n >= 1 && n <= 6) {
@@ -438,4 +453,69 @@ extern "C" void rush2_car1_paint_stamp(uint8_t* rdram, recomp_context* ctx) {
         }
         MEM_B(0, (int32_t)(data + i)) = (int8_t)out;
     }
+}
+
+std::vector<rush2::car1stripes::DecalTexture> rush2::car1stripes::decal_textures(
+    const rush2::catalog::Entry& car, const rush2::catalog::Container& c,
+    const std::vector<rush2::catalog::Entry>& containers, const std::vector<uint8_t>& preview_palette) {
+    std::vector<DecalTexture> out;
+    int ci = car_of(rush2::catalog::rush2_car(car));
+    auto rom1 = rush2::track1::get_rom();
+    if (ci < 0 || rom1 == nullptr || car.data == nullptr || preview_palette.size() != 256 * 4) {
+        return out;
+    }
+    // The decal, from the game's cache or built as the game builds it (the Rush 2 files from the catalog).
+    const rush2::car1decals::Car& info = rush2::car1decals::cars[ci];
+    uint64_t key = cache_key(rom1);
+    rush2::car1decals::Pattern pattern;
+    if (!cache_load(info.name, key, pattern)) {
+        const rush2::catalog::Entry* stripes = nullptr;
+        for (const rush2::catalog::Entry& e : containers) {
+            if (e.path == "cars/stripes" && e.data != nullptr) stripes = &e;
+        }
+        std::vector<uint8_t> r1;
+        if (stripes == nullptr || !rush2::track1::read_asset(*rom1, info.rush1_asset, r1) ||
+            !rush2::car1decals::build(ci, r1, *car.data, *stripes->data, pattern)) {
+            return out;
+        }
+        cache_save(info.name, key, pattern);
+    }
+    // The decal alone, as the Rush 2 stripe tiles are: transparent off the decal. A fixed-color decal in its own
+    // colors (the paint ramps' indices in the preview colors); a STRIPE COLOR decal, whose texels the game remaps to
+    // the color's shade of the panel's own (func_80083F50 under an opaque tile byte), flat cyan: only its shape is
+    // used. The same for the clean and the damaged panel.
+    const uint8_t cyan[4] = { 40, 220, 230, 255 };
+    for (size_t i = 0; i < c.textures.size(); i++) {
+        const rush2::catalog::Texture& t = c.textures[i];
+        bool lod;
+        int n = panel_of(t.name, lod);
+        if (n == 0 || t.indices.size() != size_t(t.width) * t.height) continue;
+        const rush2::car1decals::Panel& p = pattern.panel[n];
+        if (p.w == 0 || int(t.width) != (lod ? p.w / 4 : p.w) || int(t.height) != (lod ? p.h / 4 : p.h)) continue;
+        const std::vector<uint8_t>& decal = lod ? p.lod : p.full;
+        if (decal.size() != t.indices.size() ||
+            std::none_of(decal.begin(), decal.end(), [](uint8_t v) { return v != 0; })) {
+            continue;
+        }
+        DecalTexture d;
+        d.texture = i;
+        d.mask.resize(decal.size());
+        d.indices = t.indices;
+        for (size_t k = 0; k < decal.size(); k++) {
+            d.mask[k] = decal[k] != 0;
+            if (decal[k] != 0 && !info.stripe_color) d.indices[k] = decal[k];
+        }
+        d.stripe_color = info.stripe_color;
+        d.image = rush2::catalog::paint_preview(info.stripe_color ? std::vector<uint8_t>(decal.size(), 0) : decal,
+                                                t.width, t.height, preview_palette);
+        for (size_t k = 0; k < decal.size(); k++) {
+            uint8_t* px = &d.image.rgba[k * 4];
+            if (!d.mask[k]) memset(px, 0, 4);
+            else if (info.stripe_color) memcpy(px, cyan, 4);
+            else px[3] = 255;
+        }
+        d.key = rush2::upscale::content_key(d.image) ^ 0x5346525553484443ull; // Never a drawn image's own key.
+        out.push_back(std::move(d));
+    }
+    return out;
 }

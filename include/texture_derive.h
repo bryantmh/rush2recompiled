@@ -46,6 +46,10 @@ namespace rush2::derive {
     // The enabled texture packs changed (Install Upscaled Textures, the mods menu): read them again and derive anew.
     void packs_changed();
 
+    // Whether built-in upscaling (rush2::upscale::builtin_scale) leaves a texture to the derived replacements: a car
+    // texture by its content key or palette index key.
+    bool builtin_car(uint64_t key, uint64_t index_key);
+
     // Closes the derived replacements' handles on the texture packs and keeps them shut while the returned lock is
     // held (Install swaps the custom pack's .rtz: an open file can't be replaced on Windows).
     std::unique_lock<std::mutex> hold_packs();

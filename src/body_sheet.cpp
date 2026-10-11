@@ -724,6 +724,7 @@ Image render(const Sheet& sheet, const std::function<const Image*(const std::str
     out.height = sheet.height;
     out.rgba.assign(size_t(out.width) * out.height * 4, 0);
     std::vector<uint8_t> filled(size_t(out.width) * out.height, 0);
+    size_t drawn = 0, clear = 0;
     // The rims first, then the covered texels over them: where pieces touch, a piece's own texels win.
     for (int pass = 0; pass < 2; pass++) {
         for (const Piece& p : sheet.pieces) {
@@ -738,10 +739,19 @@ Image render(const Sheet& sheet, const std::function<const Image*(const std::str
                     if (cx < 0 || cy < 0 || cx >= int(out.width) || cy >= int(out.height)) continue;
                     size_t o = size_t(cy) * out.width + cx;
                     memcpy(&out.rgba[o * 4], &tile->rgba[i * 4], 4);
-                    out.rgba[o * 4 + 3] = 255;
+                    drawn++;
+                    clear += out.rgba[o * 4 + 3] == 0;
                     filled[o] = 1;
                 }
             }
+        }
+    }
+    // Mostly clear tiles are a layer (the SF Rush decals alone, drawn over the body): their alpha is kept and the
+    // space between stays clear. Else the tiles are the body, shown opaque.
+    const bool opaque = clear * 2 <= drawn;
+    if (opaque) {
+        for (size_t o = 0; o < filled.size(); o++) {
+            if (filled[o]) out.rgba[o * 4 + 3] = 255;
         }
     }
     // The space between: each empty texel the average of its filled neighbors, ring by ring.
@@ -768,7 +778,7 @@ Image render(const Sheet& sheet, const std::function<const Image*(const std::str
                     continue;
                 }
                 for (int c = 0; c < 3; c++) out.rgba[o * 4 + c] = uint8_t(sum[c] / n);
-                out.rgba[o * 4 + 3] = 255;
+                out.rgba[o * 4 + 3] = opaque ? 255 : 0;
                 next[o] = 1;
             }
         }
