@@ -58,7 +58,6 @@ namespace {
     const char* const steering_keys[] = { "Original", "Balanced", "Linear" };
     const char* const reverse_keys[] = { "Gear", "Hold" };
     const char* const mode_keys[] = { "Automatic", "Original", "Directional" };
-    const char* const effects_keys[] = { "Distinct", "Uniform" };
 
     template <typename E, size_t N>
     void read_enum(const nlohmann::json& j, const char* field, const char* const (&keys)[N], E& out) {
@@ -88,8 +87,6 @@ namespace {
         if (s.rumble_mode == RumbleMode::Directional) {
             s.rumble_mode = RumbleMode::Automatic; // The same since uneven motors stopped playing sides.
         }
-        read_enum(j, "rumble_effects", effects_keys, s.rumble_effects);
-        read_number(j, "balance", s.balance, 0.0f, 100.0f);
         read_number(j, "crash_strength", s.crash_strength, 0.0f, 100.0f);
         read_number(j, "screech_strength", s.screech_strength, 0.0f, 100.0f);
         read_number(j, "grind_strength", s.grind_strength, 0.0f, 100.0f);
@@ -109,8 +106,6 @@ namespace {
             { "deadzone", s.deadzone },
             { "rumble_strength", s.rumble_strength },
             { "rumble_mode", mode_keys[(int)s.rumble_mode] },
-            { "rumble_effects", effects_keys[(int)s.rumble_effects] },
-            { "balance", s.balance },
             { "crash_strength", s.crash_strength },
             { "screech_strength", s.screech_strength },
             { "grind_strength", s.grind_strength },
@@ -139,8 +134,6 @@ namespace {
         read_number(j, "joystick_deadzone", s.deadzone, 0.0f, 100.0f);
         read_number(j, "rumble_strength", s.rumble_strength, 0.0f, 100.0f);
         read_enum(j, "rumble_mode", mode_keys, s.rumble_mode);
-        read_enum(j, "rumble_effects", effects_keys, s.rumble_effects);
-        read_number(j, "rumble_balance", s.balance, 0.0f, 100.0f);
         if (s.rumble_mode == RumbleMode::Directional) {
             s.rumble_mode = RumbleMode::Automatic;
         }

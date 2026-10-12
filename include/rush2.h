@@ -166,7 +166,7 @@ namespace rush2 {
         // Scripted presses (--input-script) of GAS (A) or BRAKE (B) count as fully pressed pedals.
         void press_pedals(int port, uint16_t buttons);
         // Steering response, reverse, the stick deadzone and rumble are per profile (include/control_profiles.h).
-        // Plays one effect on every connected controller with a profile's settings, from the Controls tab: a crash on
+        // Plays one effect on the controller last used with a profile's settings, from the Controls tab: a crash on
         // the left or right, or a second and a half of tire screech or wall grinding (left, then right).
         enum class RumbleTest { LeftCrash, RightCrash, Screech, Grind };
         void test_rumble(RumbleTest test, const rush2::control_profiles::Settings& settings);

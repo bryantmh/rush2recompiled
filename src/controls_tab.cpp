@@ -50,8 +50,6 @@ namespace {
         const std::string deadzone = "deadzone";
         const std::string rumble_strength = "rumble_strength";
         const std::string rumble_mode = "rumble_mode";
-        const std::string rumble_effects = "rumble_effects";
-        const std::string balance = "balance";
         const std::string crash = "crash_strength";
         const std::string road = "road_strength";
     }
@@ -83,8 +81,6 @@ namespace {
         s.deadzone = (float)number(ids::deadzone);
         s.rumble_strength = (float)number(ids::rumble_strength);
         s.rumble_mode = enum_value<RumbleMode>(ids::rumble_mode);
-        s.rumble_effects = enum_value<RumbleEffects>(ids::rumble_effects);
-        s.balance = (float)number(ids::balance);
         s.crash_strength = (float)number(ids::crash);
         float road = (float)number(ids::road) / 100.0f;
         s.screech_strength = screech_at_full_road * road;
@@ -92,15 +88,12 @@ namespace {
         return s;
     }
 
-    // Grays out the rumble rows that do nothing with the chosen mode and effects: Original uses none of them, Uniform
-    // plays one level for everything (no crash or road strength).
+    // Grays out the rumble rows that do nothing with the chosen mode: Original plays the game's one level for
+    // everything (no crash or road strength).
     void update_disabled() {
         bool original = enum_value<RumbleMode>(ids::rumble_mode) == RumbleMode::Original;
-        bool uniform = enum_value<RumbleEffects>(ids::rumble_effects) == RumbleEffects::Uniform;
-        profile_config.update_option_disabled(ids::rumble_effects, original);
-        profile_config.update_option_disabled(ids::balance, original);
-        profile_config.update_option_disabled(ids::crash, original || uniform);
-        profile_config.update_option_disabled(ids::road, original || uniform);
+        profile_config.update_option_disabled(ids::crash, original);
+        profile_config.update_option_disabled(ids::road, original);
     }
 
     void show_profile(const std::string& profile) {
@@ -111,8 +104,6 @@ namespace {
         profile_config.update_option_value(ids::deadzone, (double)s.deadzone);
         profile_config.update_option_value(ids::rumble_strength, (double)s.rumble_strength);
         profile_config.update_option_value(ids::rumble_mode, (uint32_t)s.rumble_mode);
-        profile_config.update_option_value(ids::rumble_effects, (uint32_t)s.rumble_effects);
-        profile_config.update_option_value(ids::balance, (double)s.balance);
         profile_config.update_option_value(ids::crash, (double)s.crash_strength);
         profile_config.update_option_value(ids::road, std::min(100.0, 100.0 * s.screech_strength / screech_at_full_road));
         loading = false;
@@ -147,33 +138,20 @@ namespace {
             "with the stick let go.",
             0, 50, 1, 0, true, 5);
 
-        c.add_percent_number_option(ids::rumble_strength, "Rumble Strength",
-            "How strong all rumble is. 0% turns it off.", 100);
         c.add_enum_option(ids::rumble_mode, "Rumble Mode",
-            "<recomp-color primary>Enhanced</recomp-color> gives crashes, scraping along walls and screeching tires "
-            "each their own feel. Controllers with matching left and right motors also rumble the side of the car that "
-            "was hit: a DualSense plugged in with a USB cable, a Steam Controller, a Steam Deck, and Xbox controllers "
-            "with trigger rumble (through the triggers). "
+            "<recomp-color primary>Enhanced</recomp-color> makes crashes a short heavy thump, scraping along a wall a "
+            "rough grind and screeching tires a lighter buzz. Controllers with matching left and right motors also "
+            "rumble the side of the car that was hit: a DualSense, a Steam Controller, a Steam Deck, and Xbox "
+            "controllers with trigger rumble (through the triggers).<br/><br/>"
+            "A DualSense needs a USB cable for its full haptics; over Bluetooth it rumbles like other controllers. "
             "<recomp-color primary>Original</recomp-color> rumbles like the original game.",
             {
                 { RumbleMode::Automatic, "Automatic", "Enhanced" },
                 { RumbleMode::Original, "Original", "Original" },
             },
             RumbleMode::Automatic);
-        c.add_enum_option(ids::rumble_effects, "Rumble Effects",
-            "How Enhanced rumble feels. "
-            "<recomp-color primary>Distinct</recomp-color> makes crashes a short heavy thump, scraping along a wall a "
-            "rough grind and screeching tires a lighter buzz. "
-            "<recomp-color primary>Uniform</recomp-color> rumbles the same way for all of them.",
-            {
-                { RumbleEffects::Distinct, "Distinct", "Distinct" },
-                { RumbleEffects::Uniform, "Uniform", "Uniform" },
-            },
-            RumbleEffects::Distinct);
-        c.add_percent_number_option(ids::balance, "Rumble Balance",
-            "Balances the left and right sides of Enhanced rumble on controllers with matching left and right motors. "
-            "50% rumbles both sides fully; lower turns the right side down and higher turns the left side down.", 50);
-
+        c.add_percent_number_option(ids::rumble_strength, "Rumble Strength",
+            "How strong all rumble is. 0% turns it off.", 100);
         c.add_percent_number_option(ids::crash, "Crash Rumble",
             "How hard the controller thumps when the car crashes into something.", 100);
         c.add_percent_number_option(ids::road, "Road Rumble",
@@ -239,14 +217,12 @@ namespace {
             add_option(profile_config, ids::deadzone);
 
             add_heading("Rumble");
-            add_option(profile_config, ids::rumble_strength);
             add_option(profile_config, ids::rumble_mode);
-            add_option(profile_config, ids::rumble_effects);
-            add_option(profile_config, ids::balance);
+            add_option(profile_config, ids::rumble_strength);
             add_option(profile_config, ids::crash);
             add_option(profile_config, ids::road);
-            Element* tests = add_row("Plays an effect on every connected controller with this profile's settings, as "
-                "in a race. Screech and Grind play on the left side, then the right.");
+            Element* tests = add_row("Plays an effect on the controller you're holding with this profile's settings, "
+                "as in a race. Screech and Grind play on the left side, then the right.");
             add_test(tests, "Left Crash", rush2::input::RumbleTest::LeftCrash);
             add_test(tests, "Right Crash", rush2::input::RumbleTest::RightCrash);
             add_test(tests, "Screech", rush2::input::RumbleTest::Screech);

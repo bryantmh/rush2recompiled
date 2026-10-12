@@ -12,15 +12,14 @@
 namespace rush2::control_profiles {
     enum class SteeringResponse : uint32_t { Original, Balanced, Linear };
     enum class ReverseControl : uint32_t { Gear, Hold };
-    // Original: the game's own rumble, on both motors at one level. Automatic (shown as
-    // Enhanced): each effect with its own feel, on every controller, and by side on matched motors: a DualSense's
-    // actuators (include/dualsense_haptics.h), an Xbox One/Series pad's trigger motors, a Steam Controller's or Steam
-    // Deck's two haptics. Uneven grip motors play no sides (src/input.cpp, RumbleOutput). Directional was a separate
-    // choice when Automatic left other controllers on Original; it's read back as Automatic.
+    // Original: the game's own rumble, on both motors at one level. Automatic (shown as Enhanced): impacts a short
+    // heavy thump, wall grinding a rough rasp and tire screech a lighter buzz, on every controller, and by side on
+    // matched motors: a DualSense's actuators (include/dualsense_haptics.h), an Xbox One/Series pad's trigger motors, a
+    // Steam Controller's or Steam Deck's two haptics. Uneven grip motors play no sides (src/input.cpp, RumbleOutput).
+    // Directional was a separate choice when Automatic left other controllers on Original; it's read back as
+    // Automatic. Older versions also saved "rumble_effects" (Distinct, or Uniform to rumble every effect alike) and a
+    // left/right "balance"; they're ignored now.
     enum class RumbleMode : uint32_t { Automatic, Original, Directional };
-    // Distinct makes impacts a short heavy thump, wall grinding a rough rasp and tire screech a lighter buzz; Uniform
-    // rumbles all of them the same way.
-    enum class RumbleEffects : uint32_t { Distinct, Uniform };
 
     struct Settings {
         SteeringResponse steering = SteeringResponse::Original;
@@ -28,8 +27,6 @@ namespace rush2::control_profiles {
         float deadzone = 5.0f;          // Stick deadzone during races, percent of the stick's travel.
         float rumble_strength = 100.0f; // Percent; 0 turns rumble off.
         RumbleMode rumble_mode = RumbleMode::Automatic;
-        RumbleEffects rumble_effects = RumbleEffects::Distinct;
-        float balance = 50.0f;          // Percent: 0 left only, 50 both fully, 100 right only.
         // Directional tuning, percent.
         float crash_strength = 100.0f;  // The impact thump.
         float screech_strength = 70.0f; // Tire screech.

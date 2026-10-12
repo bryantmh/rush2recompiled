@@ -277,7 +277,7 @@ if (WIN32)
         LINK_FLAGS_RELWITHDEBINFO "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
         LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
     )
-    target_link_libraries(Rush2Recompiled PRIVATE SDL2 Winmm.lib hid.lib)
+    target_link_libraries(Rush2Recompiled PRIVATE SDL2 Winmm.lib hid.lib cfgmgr32.lib ole32.lib)
 
     # Executable icon (drawn by tools/build_icons.py). SDL also uses it for the window.
     target_sources(Rush2Recompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
