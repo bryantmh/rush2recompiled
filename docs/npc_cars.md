@@ -1,6 +1,6 @@
 # AI Opponents (computer car choices)
 
-The Players tab's **AI Opponents** section (src/npc_cars.cpp, saved in npc_cars.json) chooses each computer car's
+The General tab's **AI Opponents** section (end of Gameplay) (src/npc_cars.cpp, saved in npc_cars.json) chooses each computer car's
 car, stripe, rims and MAIN / ACCENT / STRIPE COLOR, like the GameShark codes that set the opponents' cars
 (`800D9C1A + 9n`, the car table's type byte, and `800F6476 + 0x81C n`, the physics car's copy). Every choice starts at
 Random (rims: the car's own), which leaves Rush 2's own picks alone, so no separate toggle is needed.

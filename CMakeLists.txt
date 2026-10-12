@@ -148,9 +148,13 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/widescreen.cpp
     ${CMAKE_SOURCE_DIR}/src/input.cpp
     ${CMAKE_SOURCE_DIR}/src/rumble.cpp
+    ${CMAKE_SOURCE_DIR}/src/dualsense_haptics.cpp
     ${CMAKE_SOURCE_DIR}/src/controls.cpp
     ${CMAKE_SOURCE_DIR}/src/controls_menu.cpp
-    ${CMAKE_SOURCE_DIR}/src/players_tab.cpp
+    ${CMAKE_SOURCE_DIR}/src/controls_tab.cpp
+    ${CMAKE_SOURCE_DIR}/src/control_profiles.cpp
+    ${CMAKE_SOURCE_DIR}/src/steam_haptics.cpp
+    ${CMAKE_SOURCE_DIR}/src/steam_input_filter.cpp
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/game_fixes.cpp
     ${CMAKE_SOURCE_DIR}/src/games_tab.cpp
@@ -245,19 +249,23 @@ if (WIN32)
     add_compile_definitions(NOMINMAX)
     include(FetchContent)
 
-    set(SDL2_VERSION "2.30.3")
+    # SDL3 under the SDL2 API: sdl2-compat's SDL2.dll forwards every SDL2 call (ours, the frontend's and RT64's) to the
+    # SDL3.dll it ships with. SDL3 brings native drivers SDL2 lacks, such as the new Steam Controller (its puck,
+    # 28DE:1304) without Steam running.
+    set(SDL2_COMPAT_VERSION "2.32.74") # Bundles SDL3 3.4.18.
     FetchContent_Declare(
         sdl2
-        URL https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/SDL2-devel-${SDL2_VERSION}-VC.zip
+        URL https://github.com/libsdl-org/sdl2-compat/releases/download/release-${SDL2_COMPAT_VERSION}/sdl2-compat-devel-${SDL2_COMPAT_VERSION}-VC.zip
     )
     FetchContent_MakeAvailable(sdl2)
     target_include_directories(Rush2Recompiled PRIVATE ${sdl2_SOURCE_DIR}/include)
     target_link_directories(Rush2Recompiled PRIVATE ${sdl2_SOURCE_DIR}/lib/x64)
 
-    # Copy SDL2 and dxc DLLs to the output folder
+    # Copy SDL2 (sdl2-compat), SDL3 and dxc DLLs to the output folder
     add_custom_command(TARGET Rush2Recompiled POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${sdl2_SOURCE_DIR}/lib/x64/SDL2.dll"
+            "${sdl2_SOURCE_DIR}/lib/x64/SDL3.dll"
             "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxil.dll"
             "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxcompiler.dll"
             $<TARGET_FILE_DIR:Rush2Recompiled>)
@@ -269,7 +277,7 @@ if (WIN32)
         LINK_FLAGS_RELWITHDEBINFO "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
         LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
     )
-    target_link_libraries(Rush2Recompiled PRIVATE SDL2 Winmm.lib)
+    target_link_libraries(Rush2Recompiled PRIVATE SDL2 Winmm.lib hid.lib)
 
     # Executable icon (drawn by tools/build_icons.py). SDL also uses it for the window.
     target_sources(Rush2Recompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)

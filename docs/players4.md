@@ -7,7 +7,7 @@ tools/players4/relocate.py.
 ## Controllers and joining
 
 There is no fixed controller-to-player mapping. src/input.cpp gives each enabled controller the first free N64 port
-when it presses a button (the Players tab only enables or disables them; the keyboard is one more controller). The game then makes whoever presses START a player: player 1 on the title screen
+when it presses a button (the Controls tab only enables or disables them; the keyboard is one more controller). The game then makes whoever presses START a player: player 1 on the title screen
 (func_800A6B58, hooked so player 1 is the first port with a device), player 2 with func_80093E08, players 3 and 4 by
 src/players4.cpp's `update_joining` on Select Player. Old players.json files (a pinned controller per player) are
 migrated at startup: only whether the keyboard is on carries over.

@@ -139,8 +139,9 @@ cmake --build build
 build/Rush2Recompiled.exe [path/to/rom] [--show-console] [--debug-rumble]
 ```
 
-`--debug-rumble` prints Rumble Motors > Directional's detected impacts and motor levels to the console (use it with
-`--show-console`), for tuning the thresholds in `src/rumble.cpp` and `src/input.cpp`.
+`--debug-rumble` prints Rumble Mode > Enhanced's detected impacts and each side's thump (impact) and screech levels
+(and whether they play on a DualSense's actuators, a Steam Controller's tones, an Xbox pad's triggers, a matched pair of motors or uneven grip motors) to the console (use it with `--show-console`), for tuning the thresholds in
+`src/rumble.cpp`, `src/input.cpp`, `src/dualsense_haptics.cpp` and `src/steam_haptics.cpp` (`tools/steam_haptic_tone.py` plays one Steam Controller tone outside the game). The player-facing Crash Rumble and Road Rumble strengths are per save profile in the Controls tab (`src/controls_tab.cpp`, saved to `players.json` "control_profiles" by `src/control_profiles.cpp`; the first run moves the old General tab values in).
 
 The game starts as soon as a valid ROM is found: one stored from an earlier run, one passed on the command line, or one
 next to the executable (or in its parent folder). Otherwise a launcher asks you to locate the ROM.

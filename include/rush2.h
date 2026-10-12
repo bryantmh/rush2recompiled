@@ -2,8 +2,11 @@
 #define __RUSH2_H__
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
+
+#include "control_profiles.h"
 
 namespace rush2 {
     inline const std::u8string program_id = u8"Rush2Recompiled";
@@ -57,7 +60,7 @@ namespace rush2 {
         enum class Layout : uint32_t { TopBottom, SideBySide };
         // Takes effect when the next race sets up its views.
         void set_layout(Layout layout);
-        // The Split Screen option (src/config.cpp, shown in the Players tab); setting it saves it.
+        // The Split Screen option (src/config.cpp, shown in the Controls tab); setting it saves it.
         Layout get_layout_option();
         void set_layout_option(Layout layout);
         // True while a 2 player race is drawn side by side.
@@ -154,25 +157,31 @@ namespace rush2 {
         bool is_port_scripted(int port);
         // Whether a controller or the keyboard drives the port.
         bool port_has_device(int port);
-        // The player (0-3) on a port, or -1: the game's player records.
+        // The player (0-3) on a port, or -1: the game's player records, none on the title screen.
         int port_player(int port);
+        // The title screen is up (backing out of the main menu, or at boot) until START is pressed on it: every port
+        // is back to no player, and whoever presses START next becomes player 1 (src/players4.cpp).
+        void set_at_title(bool at_title);
         bool get_n64_input(int port, uint16_t* buttons, float* x, float* y);
         // Scripted presses (--input-script) of GAS (A) or BRAKE (B) count as fully pressed pedals.
         void press_pedals(int port, uint16_t buttons);
-        // Response curve for controller stick X: x is replaced by sign(x) * |x|^exponent.
-        void set_steering_exponent(float exponent);
-        // With this on, holding REVERSE also presses the gas, so the car backs up without it.
-        void set_reverse_holds_gas(bool enabled);
-        // Which of the controller's motors rumble: only the small high-frequency (right) one, both, or both with
-        // the side of a hit (see set_rumble_impact) favoring the motor on that side.
-        enum class RumbleMotors : uint32_t { Right, Both, Directional };
-        void set_rumble_motors(RumbleMotors motors);
-        // Prints each impact and the motor levels in Directional mode to the console (--debug-rumble), to tune it.
+        // Steering response, reverse, the stick deadzone and rumble are per profile (include/control_profiles.h).
+        // Plays one effect on every connected controller with a profile's settings, from the Controls tab: a crash on
+        // the left or right, or a second and a half of tire screech or wall grinding (left, then right).
+        enum class RumbleTest { LeftCrash, RightCrash, Screech, Grind };
+        void test_rumble(RumbleTest test, const rush2::control_profiles::Settings& settings);
+        // The side the port's car is cornering hard on this tick (-1 right to 1 left, 0 = not), from src/rumble.cpp.
+        void set_rumble_cornering(int port, float side);
+        // The side of a wall the port's car is grinding along this tick and how hard (0 to 1, by its speed along the
+        // wall; 0 = not touching one), from src/rumble.cpp.
+        void set_rumble_grinding(int port, float side, float intensity);
+        bool rumble_debug_enabled(); // --debug-rumble
+        // Prints each impact and the side levels in Directional mode to the console (--debug-rumble), to tune it.
         void set_rumble_debug(bool enabled);
         // Side of the latest impact on a port's car: -1 = right, 1 = left, near 0 = head on. A hard impact (wall,
         // car) rumbles for longer and isn't overridden by the soft ones from the tires sliding.
         void set_rumble_impact(int port, float side, bool hard);
-        // Whether Rumble Motors is Directional, the only setting that uses set_rumble_impact.
+        // Whether any port rumbles Directional, the only mode that uses set_rumble_impact.
         bool rumble_directional();
         // True once after a race ends, a pause or a change out of Directional: the impact hook's previous tick is stale.
         bool take_rumble_impact_reset(int port);
@@ -190,11 +199,14 @@ namespace rush2 {
             std::string name;
             std::string key; // GUID and serial, identifies the controller across launches.
             bool playstation;
+            bool dualsense; // Has haptics actuators (include/dualsense_haptics.h).
         };
         // Connected controllers, in SDL's order.
         std::vector<ControllerInfo> get_controllers();
+        // Held around everything that enumerates SDL controllers or pumps SDL events (src/input.cpp explains why).
+        std::recursive_mutex& sdl_device_mutex();
 
-        // Controllers turned off in the Players tab (they never take a port), remembered by key.
+        // Controllers turned off in the Controls tab (they never take a port), remembered by key.
         struct DisabledController {
             std::string key;
             std::string name; // For showing a disabled controller that isn't connected.
@@ -259,8 +271,9 @@ namespace rush2 {
         bool update_listen(int port);
 
         // The game's N64 buttons and stick for a port during a race, and how far GAS and BRAKE are pressed (0 to 1).
-        void get_race_input(int port, uint16_t* buttons, float* x, float* y, float steering_exponent, float* gas,
-                            float* brake);
+        // deadzone is the player's profile's stick deadzone, 0 to 1 of the stick's travel.
+        void get_race_input(int port, uint16_t* buttons, float* x, float* y, float steering_exponent, float deadzone,
+                            float* gas, float* brake);
         // The fixed menu layout.
         void get_menu_input(int port, uint16_t* buttons, float* x, float* y);
         // The battle arenas' weapon buttons held on a port as of its last race input: battle_fire, battle_drop, and
@@ -280,9 +293,8 @@ namespace rush2 {
         void end_menu_glyphs(uint8_t* rdram);
     }
 
-    // Players tab: which controller and keyboard each player uses, their wings and the split screen layout
-    // (src/players_tab.cpp).
-    namespace players {
+    // Controls tab: controllers, split screen and each profile's control and rumble settings (src/controls_tab.cpp).
+    namespace controls_tab {
         void create_tab();
     }
 

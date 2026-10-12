@@ -2,7 +2,7 @@
 //
 // Rush 2 has up to four players (two in the original game, src/players4.cpp), on N64 ports 1-4. Which port a device
 // drives isn't chosen: the game makes whoever presses START a player (player 1 on the title screen, players 2-4 on
-// Select Player), so a device only needs a port to press START on. The Players tab (src/players_tab.cpp) enables or
+// Select Player), so a device only needs a port to press START on. The Controls tab (src/controls_tab.cpp) enables or
 // disables each controller and the keyboard (all enabled by default):
 // - An enabled controller takes the first free port when it presses a button, and keeps it until it disconnects or is
 //   disabled. Controllers that never press anything (idle pads, virtual duplicates from Steam Input or DS4Windows)
@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -31,7 +32,9 @@
 
 #include "json/json.hpp"
 
+#include "control_profiles.h"
 #include "data_files.h"
+#include "dualsense_haptics.h"
 #include "recomp.h"
 #include "librecomp/game.hpp"
 #include "recompinput/recompinput.h"
@@ -40,6 +43,8 @@
 
 #include "rush2.h"
 #include "rush2_hooks.h"
+#include "steam_haptics.h"
+#include "steam_input_filter.h"
 
 using rush2::input::num_ports;
 
@@ -60,7 +65,7 @@ namespace {
 
     std::atomic<uint8_t*> game_rdram = nullptr;
 
-    // The Players tab's settings, guarded by players_mutex (read by the game thread, changed by the UI).
+    // The Controls tab's controller settings, guarded by players_mutex (read by the game thread, changed by the UI).
     std::mutex players_mutex;
     std::vector<rush2::input::DisabledController> disabled_controllers;
     bool keyboard_enabled = true;
@@ -73,15 +78,12 @@ namespace {
     std::array<std::atomic<SDL_JoystickID>, num_ports> port_controllers = { no_controller, no_controller, no_controller,
                                                                             no_controller };
 
-    // Exponent applied to stick X before the game's steering. The game cubes the normalized stick X (func_80076694),
-    // which was tuned for the stiff N64 stick; |x|^p with p < 1 cancels part (p = 1/3: all) of that curve.
-    std::atomic<float> steering_exponent = 1.0f;
-
-    // Holding REVERSE (C-down in the race layout) presses GAS too, instead of only selecting the reverse gear.
-    std::atomic_bool reverse_holds_gas = false;
-
-    // Both motors by default (the Rumble Motors setting's default, src/config.cpp) until the config is applied.
-    std::atomic<rush2::input::RumbleMotors> rumble_motors = rush2::input::RumbleMotors::Both;
+    // Steering response, reverse, the stick deadzone and every rumble setting are per profile: each port reads its
+    // player's (include/control_profiles.h). Steering response is an exponent applied to stick X before the game's
+    // steering: the game cubes the normalized stick X (func_80076694), tuned for the stiff N64 stick, and |x|^p with
+    // p < 1 cancels part (p = 1/3: all) of that curve. Reverse Hold presses GAS with REVERSE (C-down in the race
+    // layout) instead of only selecting the reverse gear.
+    std::atomic_bool any_port_directional = false; // Set by the VI thread: gates the impact hook (src/rumble.cpp).
     std::atomic_bool rumble_debug = false; // Prints Directional's impacts and levels (--debug-rumble).
 
     std::atomic_bool rumble_active[num_ports] = {};
@@ -101,25 +103,73 @@ namespace {
     std::array<int, num_ports> rumble_unconfirmed{ -1, -1, -1, -1 };
     std::array<int, num_ports> rumble_log_frames{}; // VI thread only. Counts frames between --debug-rumble lines.
     std::array<bool, num_ports> rumble_failed{}; // VI thread only.
+    // VI thread only. Whether the port's DualSense plays on its actuators (dualsense_haptics.h) instead of SDL rumble.
+    std::array<bool, num_ports> rumble_on_haptics{};
+    // VI thread only. Whether the port's trigger motors were last set non-zero, so leaving them stops them.
+    std::array<bool, num_ports> rumble_triggers_on{};
+    // The cornering side, set every physics tick by src/rumble.cpp (set_rumble_cornering).
+    std::atomic<float> rumble_cornering[num_ports] = {};
+    // Wall grinding's side and intensity, set every physics tick by src/rumble.cpp (set_rumble_grinding).
+    std::atomic<float> rumble_grind_side[num_ports] = {};
+    std::atomic<float> rumble_grind_intensity[num_ports] = {};
+    // VI thread only: the grinding's smoothed level and side.
+    std::array<float, num_ports> grind_level{};
+    std::array<float, num_ports> grind_side{};
+    // VI thread only, Rumble Effects > Distinct: the impact thump's level (1 at a hard hit, fading) and side, frames
+    // since the last hard hit, and the smoothed cornering side the screech plays on.
+    std::array<float, num_ports> impact_level{};
+    std::array<float, num_ports> impact_side{};
+    std::array<int, num_ports> frames_since_impact{};
+    std::array<float, num_ports> screech_side{};
 
-    // Rumble Motors > Directional tuning. A frame is one update_rumble call, once per VI (60 a second).
+    // Rumble Mode > Directional tuning. A frame is one update_rumble call, once per VI (60 a second).
 
-    // The game's own rumble after a hit lasts only a few frames, too short to feel which motor is on (the large left
-    // motor is slow to spin up), so a hit keeps rumbling for at least this long. Soft ones come from the tires
-    // sliding, hard ones from walls and cars.
-    constexpr int soft_hit_hold_frames = 30;
-    constexpr int hard_hit_hold_frames = 60; // Keep this above the soft hold: it's how a hard hit is told apart.
+    // The game's own rumble after a hit lasts only a few frames, too short to feel which side is on (a grip motor is
+    // slow to spin up), so a hard hit (wall, car) keeps rumbling for at least this long. Soft ones, from the tires
+    // sliding, only set the side: the game already rumbles for those, and holding them made slides rumble on.
+    constexpr int soft_hit_hold_frames = 0;
+    constexpr int hard_hit_hold_frames = 20; // Keep this above the soft hold: it's how a hard hit is told apart.
 
     // Once the hold is over, how much of the hit's side is left each frame. 0.95 takes about half a second to fade.
     constexpr float side_fade = 0.95f;
 
-    // How much the motor on the far side of a hit is cut by a hit square on to that side (a side of 1): 1 turns it
-    // off, 0 leaves it at the full level. Hits at an angle are cut by less, head-on ones not at all.
-    constexpr float far_side_loss = 1.0f;
+    // How much the far side of a hit is cut by a hit square on to that side (a side of 1) is the profile's Far Side
+    // Cut: 100% turns it off, 0 leaves it at the full level. Hits at an angle are cut by less, head-on ones not at all.
 
     // A hit only holds the rumble if the game rumbles for it within this many frames, so Directional never rumbles
     // when the game wouldn't (its Rumble Pak off, or a jolt under its lowest threshold).
     constexpr int hit_confirm_frames = 8;
+
+    // Rumble Effects > Distinct tuning.
+    // How much of the impact thump is left each frame: 0.86 fades it out in about a quarter of a second.
+    constexpr float impact_fade = 0.86f;
+    // The game's rumble right after a hard hit is the hit's own, so it's only played as tire screech this many frames
+    // after the last one.
+    constexpr int screech_after_impact_frames = 12;
+    // Each effect's loudness is the profile's Crash Rumble and Road Rumble (control_profiles.h: crash, screech and grind
+    // strength). Rumble motors and triggers play them like the DualSense's voices, as steady levels of different weight
+    // rather than rhythms (pulsing the screech on and off and jumping the grind around felt like stuttering):
+    // - the screech is a light steady rumble, motor_screech_gain of its level, following the game's rumble as closely
+    //   as the DualSense's buzz does (smoothing it made it drag on after the slide),
+    constexpr float motor_screech_gain = 0.35f;
+    // - a crash is a heavy hit on both motors (the light one at motor_hit_light_gain) fading with the thump, and a kick
+    //   on the hit side's trigger that dies faster than the burst (the thump's level to this power),
+    constexpr float motor_hit_light_gain = 0.8f;
+    constexpr float trigger_kick_power = 2.0f;
+    // - grinding along a wall is the heaviest steady rumble: its level times motor_grind_gain (past 1 it saturates the
+    //   motor at full grinding), the light motor at motor_grind_light_gain of the heavy one's.
+    constexpr float motor_grind_gain = 1.25f;
+    constexpr float motor_grind_light_gain = 0.7f;
+    // Xbox triggers: loudness of each effect on its side's trigger.
+    constexpr float trigger_kick_gain = 1.0f;
+    constexpr float trigger_screech_gain = 0.6f;
+    constexpr float trigger_grind_gain = 1.0f;
+    // How fast the screech's side follows the cornering side each frame (1 = at once).
+    constexpr float screech_side_follow = 0.2f;
+    // Wall grinding: how fast its level rises to the grinding's intensity and falls once the car leaves the wall each
+    // frame (physics ticks don't line up with frames, so a frame can miss a tick of contact).
+    constexpr float grind_attack = 0.5f;
+    constexpr float grind_release = 0.15f;
 
     // Under this much side a hit counts as head on in the --debug-rumble lines.
     constexpr float head_on_side = 0.05f;
@@ -203,7 +253,16 @@ namespace {
         port_controllers[port] = id;
         if (id != no_controller) {
             SDL_GameController* controller = get_connected_controller(id);
-            printf("[Input] Controller %d (%s) joined port %d\n", id, controller ? SDL_GameControllerName(controller) : "?", port + 1);
+            if (controller != nullptr) {
+                printf("[Input] Controller %d (%s, %04X:%04X, type %d, rumble %d, trigger rumble %d) joined port %d\n", id,
+                    SDL_GameControllerName(controller), SDL_GameControllerGetVendor(controller),
+                    SDL_GameControllerGetProduct(controller), (int)SDL_GameControllerGetType(controller),
+                    (int)SDL_GameControllerHasRumble(controller), (int)SDL_GameControllerHasRumbleTriggers(controller),
+                    port + 1);
+            }
+            else {
+                printf("[Input] Controller %d (?) joined port %d\n", id, port + 1);
+            }
         }
     }
 
@@ -214,6 +273,7 @@ namespace {
     };
 
     std::vector<Connected> connected_controllers() {
+        std::lock_guard lock{ rush2::input::sdl_device_mutex() };
         std::vector<Connected> out;
         int num_joysticks = SDL_NumJoysticks();
         for (int i = 0; i < num_joysticks; i++) {
@@ -231,7 +291,7 @@ namespace {
         return colon == std::string::npos ? std::string() : key.substr(colon + 1);
     }
 
-    // The connected controllers that are disabled in the Players tab: by their exact key, or else by serial number and
+    // The connected controllers that are disabled in the Controls tab: by their exact key, or else by serial number and
     // vendor and product (the GUID's checksum and driver bytes change when SDL opens the controller through another
     // driver: RawInput, XInput, HIDAPI). Controllers without a serial only match exactly, so disabling one of two
     // identical controllers doesn't also disable the other.
@@ -274,6 +334,26 @@ namespace {
         return port_controllers[port].load() != no_controller || keyboard_port.load() == port;
     }
 
+    // What the Controls tab shows, as of the input thread's last poll: the menu draws on another thread, so it reads
+    // this instead of calling SDL (see sdl_device_mutex).
+    std::mutex snapshot_mutex;
+    std::vector<rush2::input::ControllerInfo> snapshot_controllers; // Under snapshot_mutex.
+    std::vector<SDL_JoystickID> snapshot_off;                       // Under snapshot_mutex.
+
+    void update_snapshot(const std::vector<Connected>& connected, const std::vector<SDL_JoystickID>& off) {
+        std::vector<rush2::input::ControllerInfo> out;
+        for (const Connected& c : connected) {
+            SDL_GameControllerType type = SDL_GameControllerGetType(c.controller);
+            const char* name = SDL_GameControllerName(c.controller);
+            out.push_back({ c.id, name ? name : "Controller", c.key,
+                type == SDL_CONTROLLER_TYPE_PS3 || type == SDL_CONTROLLER_TYPE_PS4 || type == SDL_CONTROLLER_TYPE_PS5,
+                type == SDL_CONTROLLER_TYPE_PS5 });
+        }
+        std::lock_guard lock{ snapshot_mutex };
+        snapshot_controllers = std::move(out);
+        snapshot_off = off;
+    }
+
     void update_port_assignments() {
         std::vector<rush2::input::DisabledController> disabled;
         bool keyboard_on;
@@ -284,6 +364,15 @@ namespace {
         }
         std::vector<Connected> connected = connected_controllers();
         std::vector<SDL_JoystickID> off = find_disabled(connected, disabled);
+        update_snapshot(connected, off);
+
+        // A Steam Controller or Steam Deck (not Steam Input's virtual pad): Steam types keys for it too.
+        bool steam_controller = false;
+        for (const Connected& c : connected) {
+            steam_controller |= SDL_GameControllerGetVendor(c.controller) == 0x28DE &&
+                SDL_GameControllerGetProduct(c.controller) != 0x11FF;
+        }
+        rush2::steam_input_filter::set_steam_controller_connected(steam_controller);
 
         // Free the ports of controllers that disconnected or were disabled.
         for (int port = 0; port < num_ports; port++) {
@@ -388,15 +477,18 @@ void rush2::input::load_players() {
     }
 }
 
+// sdl2-compat keeps one joystick list with no lock ("this will break if you multithread it"): SDL_NumJoysticks and the
+// event pump (on a controller connecting) free and replace it, and index calls read it. Two threads doing that at once
+// corrupt the heap (crashes in SDL3's free under SDL_PollEvent or connected_controllers). Everything that enumerates
+// controllers or pumps events holds this.
+std::recursive_mutex& rush2::input::sdl_device_mutex() {
+    static std::recursive_mutex mutex;
+    return mutex;
+}
+
 std::vector<rush2::input::ControllerInfo> rush2::input::get_controllers() {
-    std::vector<ControllerInfo> out;
-    for (const Connected& c : connected_controllers()) {
-        SDL_GameControllerType type = SDL_GameControllerGetType(c.controller);
-        const char* name = SDL_GameControllerName(c.controller);
-        out.push_back({ c.id, name ? name : "Controller", c.key,
-            type == SDL_CONTROLLER_TYPE_PS3 || type == SDL_CONTROLLER_TYPE_PS4 || type == SDL_CONTROLLER_TYPE_PS5 });
-    }
-    return out;
+    std::lock_guard lock{ snapshot_mutex };
+    return snapshot_controllers;
 }
 
 std::vector<rush2::input::DisabledController> rush2::input::get_disabled_controllers() {
@@ -420,8 +512,8 @@ void rush2::input::set_controller_enabled(const std::string& key, const std::str
 }
 
 bool rush2::input::is_controller_enabled(int32_t joystick_id) {
-    std::vector<SDL_JoystickID> off = find_disabled(connected_controllers(), get_disabled_controllers());
-    return std::find(off.begin(), off.end(), (SDL_JoystickID)joystick_id) == off.end();
+    std::lock_guard lock{ snapshot_mutex };
+    return std::find(snapshot_off.begin(), snapshot_off.end(), (SDL_JoystickID)joystick_id) == snapshot_off.end();
 }
 
 int32_t rush2::input::get_port_controller(int port) {
@@ -465,6 +557,7 @@ void rush2::input::suppress_until_released(int port) {
 
 void rush2::input::set_rdram(uint8_t* rdram) {
     game_rdram = rdram;
+    rush2::control_profiles::update_ports(rdram);
 }
 
 void rush2::input::poll() {
@@ -472,9 +565,15 @@ void rush2::input::poll() {
     update_port_assignments();
 }
 
+static std::atomic<bool> at_title_screen = false;
+
+void rush2::input::set_at_title(bool at_title) {
+    at_title_screen = at_title;
+}
+
 int rush2::input::port_player(int port) {
     uint8_t* rdram = game_rdram.load();
-    if (rdram == nullptr || port < 0 || port >= num_ports) {
+    if (rdram == nullptr || port < 0 || port >= num_ports || at_title_screen.load()) {
         return -1;
     }
     // The players' records (0x800C2140, 0x28 each, +1 the port or 5 for none; four of them, src/players4.cpp). Player 2
@@ -549,8 +648,10 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     float gas = 0.0f;
     float brake = 0.0f;
     bool race = in_race();
+    rush2::control_profiles::Settings settings = rush2::control_profiles::port_settings(port);
     if (race) {
-        rush2::controls::get_race_input(port, &buttons, &x, &y, steering_exponent.load(), &gas, &brake);
+        rush2::controls::get_race_input(port, &buttons, &x, &y, settings.steering_exponent(), settings.deadzone / 100.0f,
+            &gas, &brake);
     }
     else {
         rush2::controls::get_menu_input(port, &buttons, &x, &y);
@@ -567,7 +668,8 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     state.held_over &= buttons;
     buttons &= ~state.held_over;
 
-    if (race && reverse_holds_gas.load() && (buttons & n64_c_down) && !(buttons & n64_a)) {
+    if (race && settings.reverse == rush2::control_profiles::ReverseControl::Hold && (buttons & n64_c_down) &&
+        !(buttons & n64_a)) {
         buttons |= n64_a;
         gas = 1.0f;
     }
@@ -581,16 +683,21 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     return true;
 }
 
-void rush2::input::set_steering_exponent(float exponent) {
-    steering_exponent = exponent;
+void rush2::input::set_rumble_cornering(int port, float side) {
+    if (port >= 0 && port < num_ports) {
+        rumble_cornering[port].store(side, std::memory_order_relaxed);
+    }
 }
 
-void rush2::input::set_reverse_holds_gas(bool enabled) {
-    reverse_holds_gas = enabled;
+void rush2::input::set_rumble_grinding(int port, float side, float intensity) {
+    if (port >= 0 && port < num_ports) {
+        rumble_grind_side[port].store(side, std::memory_order_relaxed);
+        rumble_grind_intensity[port].store(intensity, std::memory_order_relaxed);
+    }
 }
 
-void rush2::input::set_rumble_motors(RumbleMotors motors) {
-    rumble_motors = motors;
+bool rush2::input::rumble_debug_enabled() {
+    return rumble_debug.load(std::memory_order_relaxed);
 }
 
 void rush2::input::set_rumble_debug(bool enabled) {
@@ -598,7 +705,7 @@ void rush2::input::set_rumble_debug(bool enabled) {
 }
 
 bool rush2::input::rumble_directional() {
-    return rumble_motors.load(std::memory_order_relaxed) == RumbleMotors::Directional;
+    return any_port_directional.load(std::memory_order_relaxed);
 }
 
 bool rush2::input::take_rumble_impact_reset(int port) {
@@ -627,26 +734,181 @@ void rush2::input::set_rumble(int port, bool on) {
     }
 }
 
-// Same ramp up and fall off as the frontend's update_rumble, but each port only rumbles its own controller. In Both
-// and Directional the large left motor is used too, and Directional favors the side of the latest impact.
+namespace {
+    // Where a port's Directional rumble plays.
+    enum class RumbleOutput {
+        Haptics,   // A DualSense's two actuators (dualsense_haptics.h): matched, and each can play the thump and buzz.
+        SteamTones, // A Steam Controller's (2026) grip actuators as tones (steam_haptics.h), like the DualSense's.
+        Triggers,  // An Xbox One/Series pad's trigger motors (matched) carry the sides; its unmatched grip motors play the
+                   // thump on the heavy one and the screech on the light one.
+        Pair,      // The two SDL motors as left and right: a Steam Controller's or Steam Deck's matched haptics.
+        Grips,     // Unmatched grip motors (an Xbox pad without trigger rumble, a DualSense over Bluetooth, most other
+                   // pads): no sides, since a big left and small right motor make hits on one side feel unlike the
+                   // other. The heavy motor plays the hit and the grind, the light one the screech under them.
+    };
+
+    // Valve controllers with a matched pair of haptics behind SDL's two rumble channels (low = left, high = right):
+    // the Steam Controller and the Steam Deck through SDL3's own drivers (SDL_hidapi_steam_triton.c and
+    // SDL_hidapi_steamdeck.c, any vendor 0x28DE product), and on a Steam Deck (Steam sets SteamDeck=1) Steam Input's
+    // virtual pad (0x11FF) too. Elsewhere the virtual pad can stand in for any controller, so it isn't counted.
+    bool has_matched_pair(SDL_GameController* controller) {
+        constexpr uint16_t vendor_valve = 0x28DE;
+        constexpr uint16_t product_steam_virtual_gamepad = 0x11FF;
+        static const bool on_deck = [] {
+            const char* value = getenv("SteamDeck");
+            return value != nullptr && strcmp(value, "1") == 0;
+        }();
+        return SDL_GameControllerGetVendor(controller) == vendor_valve &&
+            (SDL_GameControllerGetProduct(controller) != product_steam_virtual_gamepad || on_deck);
+    }
+
+    // How much of a level each side keeps for something on `side` (-1 right to 1 left): the near side all of it, the
+    // far side less the squarer on it was (far_cut: the profile's Far Side Cut, 0 to 1).
+    void side_gains(float side, float far_cut, float* left, float* right) {
+        *left = side >= 0.0f ? 1.0f : 1.0f + far_cut * side;
+        *right = side <= 0.0f ? 1.0f : 1.0f - far_cut * side;
+    }
+
+    // A test of one effect from the Controls tab (test_rumble): played on every connected controller with the tested
+    // profile's settings, as if in a race. Screech and grind play on the left, then the right.
+    constexpr int test_frames = 90;
+    std::mutex test_mutex;
+    rush2::input::RumbleTest test_kind = rush2::input::RumbleTest::LeftCrash; // Under test_mutex.
+    rush2::control_profiles::Settings test_settings;                          // Under test_mutex.
+    int test_left = 0;                                                         // Frames left; under test_mutex.
+}
+
+void rush2::input::test_rumble(RumbleTest test, const rush2::control_profiles::Settings& settings) {
+    std::lock_guard lock{ test_mutex };
+    test_kind = test;
+    test_settings = settings;
+    test_left = test_frames;
+}
+
+// Same ramp up and fall off as the frontend's update_rumble, but each port only rumbles its own controller. Original
+// rumbles both motors at the game's level. Directional rumbles both sides (RumbleOutput) favoring the side of
+// the latest impact; with Rumble Effects > Distinct, impacts are a fading thump on their side and the rest of the game's
+// rumble (tire screech) a lighter buzz on the outside of the turn.
 void rush2::input::update_rumble() {
     if (!recompui::config::general::has_rumble_strength_option()) {
         return;
     }
 
-    RumbleMotors motors = rumble_motors.load();
-    bool directional = motors == RumbleMotors::Directional;
+    using rush2::control_profiles::RumbleMode;
+    using rush2::control_profiles::RumbleEffects;
+
+    // A test from the Controls tab replaces every connected port's settings and race state while it plays.
+    bool testing;
+    RumbleTest test;
+    int test_frame;
+    rush2::control_profiles::Settings tested;
+    {
+        std::lock_guard lock{ test_mutex };
+        testing = test_left > 0;
+        test = test_kind;
+        test_frame = test_frames - test_left;
+        tested = test_settings;
+        if (testing) {
+            test_left--;
+        }
+    }
+
+    std::array<SDL_GameController*, num_ports> controllers{};
+    std::array<rush2::control_profiles::Settings, num_ports> settings;
+    std::array<bool, num_ports> directional{};
+    std::array<RumbleOutput, num_ports> outputs{};
+    bool any_directional = false;
+    bool want_haptics = false;
+    int haptics_port = -1;
+    std::string steam_path; // The first Steam Controller playing Enhanced rumble, for its tones.
+    for (int port = 0; port < num_ports; port++) {
+        SDL_GameController* controller = get_connected_controller(port_controllers[port].load());
+        controllers[port] = controller;
+        settings[port] = testing && controller != nullptr ? tested : rush2::control_profiles::port_settings(port);
+        RumbleMode mode = settings[port].rumble_mode;
+        bool dualsense = controller != nullptr && SDL_GameControllerGetType(controller) == SDL_CONTROLLER_TYPE_PS5;
+        bool triggers = controller != nullptr && SDL_GameControllerHasRumbleTriggers(controller);
+        bool matched_pair = controller != nullptr && has_matched_pair(controller);
+        // Automatic and Directional play the effects on every controller; only matched motors play them by side
+        // (RumbleOutput).
+        directional[port] = mode != RumbleMode::Original;
+        any_directional |= directional[port];
+        outputs[port] = triggers ? RumbleOutput::Triggers : matched_pair ? RumbleOutput::Pair : RumbleOutput::Grips;
+        if (controller != nullptr && directional[port] && steam_path.empty() &&
+            rush2::steam_haptics::is_supported(SDL_GameControllerGetVendor(controller),
+                                              SDL_GameControllerGetProduct(controller))) {
+            const char* path = SDL_GameControllerPath(controller);
+            steam_path = path != nullptr ? path : "";
+            if (!steam_path.empty() && rush2::steam_haptics::active()) {
+                outputs[port] = RumbleOutput::SteamTones;
+            }
+        }
+        if (dualsense && directional[port]) {
+            want_haptics = true;
+            if (haptics_port < 0 && rush2::haptics::active()) {
+                haptics_port = port;
+                outputs[port] = RumbleOutput::Haptics;
+            }
+        }
+    }
+    any_port_directional = any_directional;
+    rush2::haptics::set_wanted(want_haptics);
+    rush2::steam_haptics::set_device(steam_path);
+    if (haptics_port < 0) {
+        rush2::haptics::set_levels({});
+    }
+    else {
+        const auto& s = settings[haptics_port];
+        rush2::haptics::set_tones(s.thump_hz, s.buzz_hz, s.grind_hz);
+    }
+
     // Hits only rumble during an unpaused race in Directional; anything else drops them along with any hold still
     // running, so a hit just before the finish or a pause doesn't keep rumbling into the menus.
-    bool take_hits = directional && in_race();
+    bool racing = in_race();
     for (int port = 0; port < num_ports; port++) {
+        const rush2::control_profiles::Settings& s = settings[port];
+        bool distinct = s.rumble_effects == RumbleEffects::Distinct;
+        float left_balance = std::min(2.0f * (1.0f - s.balance / 100.0f), 1.0f);
+        float right_balance = std::min(2.0f * s.balance / 100.0f, 1.0f);
+        float far_cut = s.far_side_cut / 100.0f;
+        float rumble_strength = s.rumble_strength / 100.0f;
+        bool port_testing = testing && controllers[port] != nullptr;
+
         // Take the impact the game thread reported since the last frame.
         uint64_t impact = rumble_impact[port].exchange(0);
-        if (!take_hits) {
+        if (port_testing) {
+            // The tested effect, as the hooks would report it: a hard hit at the start, or a second and a half of the
+            // game rumbling for a slide or of wall contact, on the left side, then the right.
+            float side = test == RumbleTest::RightCrash || test_frame >= test_frames / 2 ? -1.0f : 1.0f;
+            impact = 0;
+            rumble_active[port] = test == RumbleTest::Screech;
+            rumble_cornering[port] = test == RumbleTest::Screech ? side : 0.0f;
+            rumble_grind_intensity[port] = test == RumbleTest::Grind ? 1.0f : 0.0f;
+            rumble_grind_side[port] = side;
+            if (test_frame == 0) {
+                frames_since_impact[port] = screech_after_impact_frames;
+                if (test == RumbleTest::LeftCrash || test == RumbleTest::RightCrash) {
+                    uint32_t side_bits;
+                    memcpy(&side_bits, &side, sizeof(side_bits));
+                    impact = side_bits | impact_pending | impact_hard;
+                    rumble_active[port] = true; // The game rumbles for the hit.
+                }
+            }
+            if (test_frame == test_frames - 1) {
+                rumble_active[port] = false; // The end of the test lets go of everything.
+                rumble_grind_intensity[port] = 0.0f;
+            }
+        }
+        if (!directional[port] || (!racing && !port_testing)) {
             rumble_hold[port] = 0;
             rumble_side[port] = 0.0f;
             rumble_unconfirmed[port] = -1;
             rumble_impact_reset[port] = true;
+            impact_level[port] = 0.0f;
+            screech_side[port] = 0.0f;
+            frames_since_impact[port] = screech_after_impact_frames;
+            grind_level[port] = 0.0f;
+            rumble_grind_intensity[port] = 0.0f;
         }
         else if (impact & impact_pending) {
             float side;
@@ -654,6 +916,11 @@ void rush2::input::update_rumble() {
             memcpy(&side, &side_bits, sizeof(side));
             bool hard = (impact & impact_hard) != 0;
             // A hold longer than a soft hit's means a hard impact is still rumbling; soft ones don't cut it short.
+            if (hard) {
+                impact_level[port] = 1.0f;
+                impact_side[port] = side;
+                frames_since_impact[port] = 0;
+            }
             if (hard || rumble_hold[port] <= soft_hit_hold_frames) {
                 rumble_side[port] = side;
                 rumble_hold[port] = hard ? hard_hit_hold_frames : soft_hit_hold_frames;
@@ -681,54 +948,189 @@ void rush2::input::update_rumble() {
             else if (++rumble_unconfirmed[port] > hit_confirm_frames) {
                 rumble_unconfirmed[port] = -1;
                 rumble_hold[port] = 0;
+                impact_level[port] = 0.0f;
             }
         }
 
-        // The game's rumble, or the hold after a hit, ramps the level up. Otherwise it falls off.
-        if (rumble_active[port] || (rumble_hold[port] > 0 && rumble_unconfirmed[port] < 0)) {
+        // Distinct's thump fades from the hit (playing once the game rumbled for it), and the screech's side follows
+        // the cornering side.
+        float thump = rumble_unconfirmed[port] < 0 ? impact_level[port] : 0.0f;
+        impact_level[port] *= impact_fade;
+        if (frames_since_impact[port] < screech_after_impact_frames) {
+            frames_since_impact[port]++;
+        }
+        screech_side[port] += (rumble_cornering[port].load(std::memory_order_relaxed) - screech_side[port]) *
+            screech_side_follow;
+        if (directional[port] && (racing || port_testing)) {
+            float grinding = rumble_grind_intensity[port].load(std::memory_order_relaxed);
+            grind_level[port] += (grinding - grind_level[port]) *
+                (grinding > grind_level[port] ? grind_attack : grind_release);
+            if (grinding > 0.0f) {
+                grind_side[port] = rumble_grind_side[port].load(std::memory_order_relaxed);
+                if (!distinct) {
+                    rumble_side[port] = grind_side[port];
+                }
+            }
+        }
+
+        // The game's rumble, or (in Uniform) the hold after a hit or grinding along a wall, ramps the level up.
+        // Otherwise it falls off.
+        if (rumble_active[port] ||
+            (!distinct && ((rumble_hold[port] > 0 && rumble_unconfirmed[port] < 0) || grind_level[port] > 0.1f))) {
             cur_rumble[port] = std::min(cur_rumble[port] + 0.17f, 1.0f);
         }
         else {
             cur_rumble[port] = std::max(cur_rumble[port] * 0.92f - 0.01f, 0.0f);
         }
 
-        SDL_GameController* controller = get_connected_controller(port_controllers[port].load());
+        SDL_GameController* controller = controllers[port];
         if (controller == nullptr) {
             rumble_failed[port] = false;
-            continue;
-        }
-        if (rumble_failed[port]) {
+            rumble_on_haptics[port] = false;
             continue;
         }
 
         float amount = cur_rumble[port];
         float smooth_rumble = amount * amount * (3.0f - 2.0f * amount);
-        uint16_t strength = (uint16_t)(smooth_rumble * (recompui::config::general::get_rumble_strength() * 0xFFFF / 100));
-        uint16_t low_strength = strength;  // The large left motor.
-        uint16_t high_strength = strength; // The small right motor.
-        if (motors == RumbleMotors::Right) {
-            low_strength = 0;
-        }
-        else if (directional) {
-            // The motor on the side of the hit keeps the full level and the one on the far side is cut by how much
-            // of the hit was to a side (0 for a head-on hit).
-            float side = rumble_side[port];
-            if (side > 0.0f) {
-                high_strength = (uint16_t)(strength * (1.0f - far_side_loss * side));
-            }
-            else {
-                low_strength = (uint16_t)(strength * (1.0f + far_side_loss * side));
-            }
-        }
+        float strength = smooth_rumble * rumble_strength;
         // Long enough to last until the next update; the game turns rumble off on its own.
         constexpr uint32_t duration_ms = 1000000;
-        if (directional && rumble_debug && (low_strength != 0 || high_strength != 0)) {
-            if (++rumble_log_frames[port] % rumble_log_interval_frames == 0) {
-                fprintf(stderr, "rumble port %d: left %3d%% right %3d%% (side %+.2f)\n", port,
-                    low_strength * 100 / 0xFFFF, high_strength * 100 / 0xFFFF, rumble_side[port]);
+        RumbleOutput output = outputs[port];
+        if (rumble_triggers_on[port] && (!directional[port] || output != RumbleOutput::Triggers)) {
+            SDL_GameControllerRumbleTriggers(controller, 0, 0, 0);
+            rumble_triggers_on[port] = false;
+        }
+        if (!directional[port]) {
+            rumble_on_haptics[port] = false;
+            // Both motors at the game's level (the frontend only ran the light one, which made wall grinding, the
+            // game's longest rumble, hard to feel).
+            if (!rumble_failed[port] && SDL_GameControllerRumble(controller, (uint16_t)(strength * 0xFFFF),
+                    (uint16_t)(strength * 0xFFFF), duration_ms) != 0) {
+                rumble_failed[port] = true;
+            }
+            continue;
+        }
+
+        // Each side's thump (impacts) and buzz (screech), scaled by Rumble Balance and favoring its side. Uniform plays
+        // the game's whole rumble as one level on the side of the latest hit or slide.
+        float thump_left, thump_right, buzz_left = 0.0f, buzz_right = 0.0f, grind_left = 0.0f, grind_right = 0.0f;
+        float screech = 0.0f;
+        float grind = 0.0f;
+        float hit = thump * rumble_strength * s.crash_strength / 100.0f;
+        if (distinct) {
+            float gain_left, gain_right;
+            side_gains(impact_side[port], far_cut, &gain_left, &gain_right);
+            thump_left = hit * gain_left * left_balance;
+            thump_right = hit * gain_right * right_balance;
+            if (frames_since_impact[port] >= screech_after_impact_frames) {
+                screech = strength * s.screech_strength / 100.0f;
+            }
+            side_gains(screech_side[port], far_cut, &gain_left, &gain_right);
+            buzz_left = screech * gain_left * left_balance;
+            buzz_right = screech * gain_right * right_balance;
+            grind = grind_level[port] * s.grind_strength / 100.0f * rumble_strength;
+            side_gains(grind_side[port], far_cut, &gain_left, &gain_right);
+            grind_left = grind * gain_left * left_balance;
+            grind_right = grind * gain_right * right_balance;
+        }
+        else {
+            float gain_left, gain_right;
+            side_gains(rumble_side[port], far_cut, &gain_left, &gain_right);
+            thump_left = strength * gain_left * left_balance;
+            thump_right = strength * gain_right * right_balance;
+        }
+        if (rumble_debug && (thump_left > 0.0f || thump_right > 0.0f || buzz_left > 0.0f || buzz_right > 0.0f ||
+                             grind_left > 0.0f || grind_right > 0.0f) &&
+            ++rumble_log_frames[port] % rumble_log_interval_frames == 0) {
+            static const char* output_names[] = { "haptics", "steam tones", "triggers", "matched motors", "grip motors" };
+            fprintf(stderr, "rumble port %d (%s): thump L %3d%% R %3d%%  screech L %3d%% R %3d%%  grind L %3d%% R %3d%%\n",
+                port, output_names[(int)output], (int)(thump_left * 100.0f), (int)(thump_right * 100.0f),
+                (int)(buzz_left * 100.0f), (int)(buzz_right * 100.0f), (int)(grind_left * 100.0f),
+                (int)(grind_right * 100.0f));
+        }
+
+        if (output == RumbleOutput::Haptics || output == RumbleOutput::SteamTones) {
+            if (!rumble_on_haptics[port]) {
+                // Stop SDL's rumble, which would otherwise keep going: the actuators take over from here.
+                SDL_GameControllerRumble(controller, 0, 0, 0);
+                rumble_on_haptics[port] = true;
+            }
+            rush2::haptics::Levels levels;
+            levels.thump[0] = thump_left;
+            levels.thump[1] = thump_right;
+            levels.buzz[0] = buzz_left;
+            levels.buzz[1] = buzz_right;
+            levels.grind[0] = grind_left;
+            levels.grind[1] = grind_right;
+            if (output == RumbleOutput::Haptics) {
+                rush2::haptics::set_levels(levels);
+            }
+            else {
+                rush2::steam_haptics::set_levels(levels, s.thump_hz, s.buzz_hz, s.grind_hz);
+            }
+            continue;
+        }
+        rumble_on_haptics[port] = false;
+
+        // Motors play the effects as steady levels of different weight (see motor_screech_gain): they add up, so a hit
+        // during a slide feels like both.
+        auto to_motor = [](float level) { return (uint16_t)(std::clamp(level, 0.0f, 1.0f) * 0xFFFF); };
+        float light_screech = screech * motor_screech_gain;
+        float heavy_grind = grind * motor_grind_gain;
+        float low, high;
+        if (output == RumbleOutput::Triggers) {
+            if (distinct) {
+                // The grips aren't matched: the heavy low-frequency motor carries the hit and the grind, the light
+                // high-frequency one the screech under the rest of the hit and grind.
+                low = hit + heavy_grind;
+                high = hit * motor_hit_light_gain + heavy_grind * motor_grind_light_gain + light_screech;
+                // The matched triggers carry the sides: a quick kick on the hit's side, the screech on the outside of
+                // the turn and the grind on the wall's side.
+                float kick = std::pow(thump, trigger_kick_power) * rumble_strength * s.crash_strength / 100.0f *
+                    trigger_kick_gain;
+                float gain_left, gain_right;
+                side_gains(impact_side[port], far_cut, &gain_left, &gain_right);
+                float trigger_left = kick * gain_left;
+                float trigger_right = kick * gain_right;
+                side_gains(screech_side[port], far_cut, &gain_left, &gain_right);
+                trigger_left += light_screech * trigger_screech_gain * gain_left;
+                trigger_right += light_screech * trigger_screech_gain * gain_right;
+                side_gains(grind_side[port], far_cut, &gain_left, &gain_right);
+                trigger_left += heavy_grind * trigger_grind_gain * gain_left;
+                trigger_right += heavy_grind * trigger_grind_gain * gain_right;
+                SDL_GameControllerRumbleTriggers(controller, to_motor(trigger_left * left_balance),
+                    to_motor(trigger_right * right_balance), duration_ms);
+            }
+            else {
+                // Uniform: the grips both at the level, the triggers favoring the side.
+                low = high = strength;
+                SDL_GameControllerRumbleTriggers(controller, to_motor(thump_left), to_motor(thump_right), duration_ms);
+            }
+            rumble_triggers_on[port] = true;
+        }
+        else if (output == RumbleOutput::Grips) {
+            if (distinct) {
+                low = hit + heavy_grind;
+                high = hit * motor_hit_light_gain + heavy_grind * motor_grind_light_gain + light_screech;
+            }
+            else {
+                low = high = strength;
             }
         }
-        if (SDL_GameControllerRumble(controller, low_strength, high_strength, duration_ms) != 0) {
+        else if (distinct) {
+            // The low-frequency motor as the left side and the high-frequency one as the right (a Steam Controller's
+            // matched pair).
+            float gain_left, gain_right;
+            side_gains(screech_side[port], far_cut, &gain_left, &gain_right);
+            low = thump_left + light_screech * gain_left * left_balance + grind_left * motor_grind_gain;
+            high = thump_right + light_screech * gain_right * right_balance + grind_right * motor_grind_gain;
+        }
+        else {
+            low = thump_left;
+            high = thump_right;
+        }
+        if (!rumble_failed[port] &&
+            SDL_GameControllerRumble(controller, to_motor(low), to_motor(high), duration_ms) != 0) {
             rumble_failed[port] = true;
         }
     }

@@ -231,7 +231,7 @@ pickup effect and the sound. So:
 - **Reading.**
   - The game thread copies a snapshot once per frame, from a hook already called every frame.
   - The page reads the snapshot under a mutex. It never touches RDRAM from the UI thread.
-  - The page refreshes on `EventType::Update` like `PlayersPage` (src/players_tab.cpp).
+  - The page refreshes on `EventType::Update` like `ControlsPage` (src/controls_tab.cpp).
 - **Read-only.** Unlock-all stays in the Cheats tab.
 
 ### 2.6 Progress UI, phase B: in game (later)

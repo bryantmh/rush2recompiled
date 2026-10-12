@@ -55,6 +55,8 @@ namespace rush2::ui {
         void set_default_description(const std::string& text);
         // Runs once per frame while the page is open (to show progress of work done in the background).
         void add_update_callback(std::function<void()> callback) { update_callbacks.push_back(std::move(callback)); }
+        // A callback that shows text in the description pane (for a FocusRow's on_show); null for empty text.
+        std::function<void()> text_shower(const std::string& text);
 
     protected:
         std::string_view get_type_name() override { return "Rush2OptionsPage"; }
@@ -80,7 +82,6 @@ namespace rush2::ui {
 
         void show_description(recomp::config::Config* config, const std::string& option_id);
         void show_text(const std::string& text);
-        std::function<void()> text_shower(const std::string& text);
         void apply_updates(recomp::config::Config* config);
         bool any_dirty() const;
     };

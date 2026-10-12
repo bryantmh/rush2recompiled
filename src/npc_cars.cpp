@@ -1,4 +1,4 @@
-// The computer cars' car, paint, stripe and rims (the Players tab's AI Opponents section), as the GameShark codes for
+// The computer cars' car, paint, stripe and rims (the General tab's AI Opponents section), as the GameShark codes for
 // the opponents' cars did (800D9C1A + 9n: the car table's type byte; 800F6476 + 0x81C n: the physics car's copy).
 //
 // func_800A37F4 (race_preload_car_assets) draws each drone slot's car table entry (0x800D9C10 + slot * 9): +1 type
@@ -416,7 +416,8 @@ namespace {
     // The section: a heading with a button that opens and closes the opponents' choices below it.
     class Section : public Element {
     public:
-        Section(ResourceId rid, Element* parent) : Element(rid, parent, Events(EventType::Update), "div", false) {
+        Section(ResourceId rid, Element* parent, std::function<void()> on_show)
+            : Element(rid, parent, Events(EventType::Update), "div", false) {
             ContextId context = get_current_context();
             set_display(Display::Flex);
             set_flex_direction(FlexDirection::Column);
@@ -425,13 +426,13 @@ namespace {
             set_width(100.0f, Unit::Percent);
             set_as_navigation_container(NavigationType::Vertical);
 
-            Element* head = context.create_element<rush2::ui::FocusRow>(this);
+            Element* head = context.create_element<rush2::ui::FocusRow>(this, on_show);
             head->set_display(Display::Flex);
             head->set_flex_direction(FlexDirection::Row);
             head->set_align_items(AlignItems::Center);
             head->set_gap(16.0f);
             head->set_as_navigation_container(NavigationType::Horizontal);
-            // What the section does is in the tab's description on the right.
+            // What the section does shows in the page's description pane (on_show).
             Label* title = context.create_element<Label>(head, "AI Opponents", theme::Typography::LabelMD);
             title->set_flex_grow(1.0f);
             // The buttons keep their size (squeezed, their text runs off center).
@@ -485,8 +486,12 @@ namespace {
     };
 }
 
-void rush2::npc_cars::add_section(recompui::Element* parent) {
-    recompui::get_current_context().create_element<Section>(parent);
+const char* const rush2::npc_cars::description =
+    "Picks each computer car's car, stripe, rims and colors (Opponent 1 is the first computer car on the grid). "
+    "Random keeps the game's own pick. Reset sets them all back to Random. Takes effect at the next race.";
+
+void rush2::npc_cars::add_section(recompui::Element* parent, std::function<void()> on_show) {
+    recompui::get_current_context().create_element<Section>(parent, std::move(on_show));
 }
 
 // rubber_band (func_800A1A98) at 0x800A2F14, before easing the drone's multipliers toward $f2 (+0x808) and $f12

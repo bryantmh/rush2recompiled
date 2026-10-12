@@ -481,7 +481,7 @@ the hook there (`rush2_track49_stunt_option_t9`) leaves an arena's DIFFICULTY al
   0x80094A30) now writes DRONES (menu settings +0x1, capped at 8 - players) there for a battle arena. The BATTLE
   select keeps DRONES open (`option_open`) and lists it even in stunt mode (game mode 2, which `func_800AE670` sets
   for STUNT1 and the arenas and whose option list `func_803AB294` stops at WIND). The drone slots get their cars and colors as in
-  any race (`func_800A37F4`, with the Players tab's AI Opponents choices). A computer car is a drone (car +0x7E8 == 1)
+  any race (`func_800A37F4`, with the General tab's AI Opponents choices). A computer car is a drone (car +0x7E8 == 1)
   in a battle arena that is set up (`rush2::battle::active`).
 - **Driving**: a drone's driver `drone_driver_80074990` is skipped for them (hook at its start, shared with the
   ghosts) and the AI writes the inputs a player's controls would: car +0x728 steering (-1 left .. 1 right), +0x734

@@ -30,6 +30,7 @@ void rush2_pak_menu_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
 // Scales the car's throttle and brake by trigger pressure (src/input.cpp).
 void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx);
 void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx);
+void rush2_rumble_wall(uint8_t* rdram, recomp_context* ctx);
 
 // HUD edge anchoring (src/hud.cpp).
 void rush2_hud_build_begin(uint8_t* rdram, recomp_context* ctx);
@@ -81,6 +82,7 @@ void rush2_players4_car_label(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_menu(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_state(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_title_port(uint8_t* rdram, recomp_context* ctx);
+void rush2_title_screen_setup(uint8_t* rdram, recomp_context* ctx);
 int rush2_players4_skip_finish_box(uint8_t* rdram, recomp_context* ctx);
 int rush2_players4_finish_rebuild(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_race_views(uint8_t* rdram, recomp_context* ctx);

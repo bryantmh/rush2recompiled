@@ -636,7 +636,7 @@ bool rush2::controls::any_input_held(int port) {
 }
 
 void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_out, float* y_out, float steering_exponent,
-                                     float* gas_out, float* brake_out) {
+                                     float deadzone, float* gas_out, float* brake_out) {
     PortBindings b;
     {
         std::lock_guard lock{ bindings_mutex };
@@ -672,7 +672,16 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
         if (steer == LeftStick || steer == RightStick) {
             float sx, sy;
             stick_axes(d.controller, steer, &sx, &sy);
-            recompinput::apply_joystick_deadzone(sx, sy, &sx, &sy);
+            // The profile's deadzone, the way the frontend's apply_joystick_deadzone does it: each axis is 0 inside it
+            // and rescales from its edge to full.
+            auto apply_deadzone = [deadzone](float v) {
+                if (std::fabs(v) < deadzone || deadzone >= 1.0f) {
+                    return 0.0f;
+                }
+                return std::copysign((std::fabs(v) - deadzone) / (1.0f - deadzone), v);
+            };
+            sx = apply_deadzone(sx);
+            sy = apply_deadzone(sy);
             x += std::copysign(std::pow(std::fabs(sx), steering_exponent), sx);
             y += sy;
         }

@@ -1,27 +1,36 @@
-// Directional rumble: detects which side of a human player's car was hit, for the Rumble Motors > Directional setting.
+// Directional rumble: detects which side of a human player's car was hit, for Rumble Mode > Enhanced (control_profiles.h; called Directional before).
 //
 // How the game rumbles: physics_car_tick (func_80075880) sets a human car's rumble level at the end of each tick. It
 // sums the absolute values of three floats at car+0x4, +0x8 and +0xC, counts how many of 40 ascending thresholds at
 // 0x800C4010 (4000, 5000, ... 600000) the sum reaches, and writes that to the per-player level D_800D50E8[port]. The
 // level ramps and decays in rumble_update (func_80063E4C), which switches the Rumble Pak's single motor on and off.
 //
-// What the three floats are (measured by logging them while hitting the left wall, the right wall and a wall head on):
-// the car's acceleration in its own frame.
-//   +0x4  lateral, positive when the car is pushed to its right (a hit on its left side). Tire slides and cornering
-//         hold it at 5000 to 9000; wall hits spike it to 36000 and up, in a single tick.
+// What the three floats are: the net force on the car in its own frame, written by car_force_sum_8006A02C (the four
+// wheels' forces +0x58.., gravity rotated into the car's frame +0x200.., and the external force accumulator
+// +0x11C..). The collision code adds into that accumulator, but it's back to 0 by the time this hook runs, so the
+// accumulator itself can't tell a hit from cornering.
+//   +0x4  sideways, positive = toward the car's right. Verified 2026-10-11 (tools/rush1/shots.py on the first race):
+//         steering right holds it at about +7000 and left at about -7000 (the tires' cornering force), and driving the
+//         car's left side into the building after the start spiked it from -2900 to +22000 in one tick.
 //   +0x8  vertical, spikes by 10000 to 26000 on bumps, landings and road level changes (not used yet).
-//   +0xC  longitudinal, 700 to 2000 while driving, down to about -765000 in a head-on hit.
+//   +0xC  forward, 700 to 5000 while driving, down to about -150000 to -765000 in a head-on hit.
 //
 // This file turns those into two kinds of impact for src/input.cpp, which decides how long they rumble and on which
-// motor:
-//   soft  the lateral acceleration rose a little: the tires sliding sideways, as felt while drifting.
-//   hard  the lateral acceleration jumped, or the longitudinal one dropped sharply: a wall or another car.
+// side:
+//   soft  the sideways force rose a little: cornering or the tires sliding. Its side is the outside of the turn (a
+//         left turn pushes the car left, which reads as a hit on its right), like being thrown against the door.
+//   hard  the sideways force jumped, or the forward one dropped sharply: a wall or another car.
+// It also reports the cornering side every tick (set_rumble_cornering), which Rumble Effects > Distinct plays the tire
+// screech on while the game rumbles without a recent hard impact, and wall grinding (set_rumble_grinding, found by
+// rush2_rumble_wall), which the force sum misses after the first impact: the game pushes the car out of a wall by moving
+// it, not with a force.
 //
 // All tuning values are in the constants below. Running with --debug-rumble --show-console prints every impact
-// detected in Rumble Motors > Directional and the motor levels, to help with tuning them.
+// detected in Rumble Mode > Directional and the side levels, to help with tuning them.
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "recomp.h"
@@ -62,11 +71,78 @@ namespace {
     float previous_longitudinal[num_ports] = {};
     bool have_previous[num_ports] = {};
 
+    // Wall grinding (rush2_rumble_wall).
+    constexpr uint32_t car_velocity = 0x218; // World velocity, 3 floats.
+    constexpr uint32_t car_matrix = 0x2CC;   // World to car frame, row-major 3x3 (rows: right, up, forward).
+    // Speed along the wall at which grinding rumbles fully, in the velocity's units (close to mph: a scrape logged
+    // with --debug-rumble read 51 down to 36 while the speedometer showed 49 down to 35). Under grind_min_speed, a car
+    // resting against a wall, it doesn't rumble.
+    constexpr float grind_full_speed = 50.0f;
+    constexpr float grind_min_speed = 3.0f;
+    // Like side_gain, for the side of the wall: a wall square to the car's side is a side of 1.
+    constexpr float grind_side_gain = 1.4f;
+
+    // Game thread only. Each port's car (from the last rush2_rumble_impact), and the wall contact found by
+    // rush2_rumble_wall since that car's last rumble block: the strongest one's side and intensity.
+    uint32_t port_car[num_ports] = {};
+    bool wall_contact[num_ports] = {};
+    float wall_side[num_ports] = {};
+    float wall_intensity[num_ports] = {};
+
     float get_f32(uint8_t* rdram, uint32_t addr) {
         uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
         float value;
         memcpy(&value, &bits, sizeof(value));
         return value;
+    }
+}
+
+// In car_wall_collision_query_8006FC94, where a body probe is inside a wall polygon (surface types 5 and 6 and the
+// rest of what the query finds): the game pushes the car out by moving its position (+0x224) along the wall's normal
+// (sp+0xB0, world frame, pointing out of the wall) times the depth. That push never goes through the car's force sum
+// (+0x4..), so a car grinding along a wall only shows in the force sum at the first impact; this catches every tick of
+// it. $s1 = car. Records the contact's side and how fast the car slides along the wall for rush2_rumble_impact.
+extern "C" void rush2_rumble_wall(uint8_t* rdram, recomp_context* ctx) {
+    if (!rush2::input::rumble_directional()) {
+        return;
+    }
+    uint32_t car = (uint32_t)ctx->r17;
+    int port = -1;
+    for (int i = 0; i < num_ports; i++) {
+        if (port_car[i] == car) {
+            port = i;
+        }
+    }
+    if (port < 0) {
+        return;
+    }
+    float normal[3], velocity[3], m[9];
+    for (int i = 0; i < 3; i++) {
+        normal[i] = get_f32(rdram, (uint32_t)ctx->r29 + 0xB0 + 4 * i);
+        velocity[i] = get_f32(rdram, car + car_velocity + 4 * i);
+    }
+    for (int i = 0; i < 9; i++) {
+        m[i] = get_f32(rdram, car + car_matrix + 4 * i);
+    }
+    // The normal in the car's frame: x > 0 pushes the car to its right, so the wall is on its left.
+    float side_x = m[0] * normal[0] + m[1] * normal[1] + m[2] * normal[2];
+    float side = std::clamp(side_x * grind_side_gain, -1.0f, 1.0f);
+    // Speed along the wall: the velocity less its part into the wall.
+    float into = velocity[0] * normal[0] + velocity[1] * normal[1] + velocity[2] * normal[2];
+    float along = 0.0f;
+    for (int i = 0; i < 3; i++) {
+        float v = velocity[i] - into * normal[i];
+        along += v * v;
+    }
+    along = std::sqrt(along);
+    float intensity = std::clamp((along - grind_min_speed) / (grind_full_speed - grind_min_speed), 0.0f, 1.0f);
+    if (!wall_contact[port] || intensity > wall_intensity[port]) {
+        wall_side[port] = side;
+        wall_intensity[port] = intensity;
+    }
+    wall_contact[port] = true;
+    if (rush2::input::rumble_debug_enabled()) {
+        fprintf(stderr, "rumble port %d: wall contact side %+.2f, speed along it %.1f\n", port, side, along);
     }
 }
 
@@ -87,8 +163,21 @@ extern "C" void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx) {
     }
 
     uint32_t car = (uint32_t)ctx->r6;
+    port_car[port] = car;
+    // Wall grinding found this tick (rush2_rumble_wall), or none.
+    rush2::input::set_rumble_grinding(port, wall_contact[port] ? wall_side[port] : 0.0f,
+        wall_contact[port] ? wall_intensity[port] : 0.0f);
+    wall_contact[port] = false;
+
     float lateral = get_f32(rdram, car + car_lateral);
     float longitudinal = get_f32(rdram, car + car_longitudinal);
+    // The side the tires are loaded on right now, every tick (0 under the game's lowest rumble threshold): the outside
+    // of the turn, where Rumble Effects > Distinct plays the tire screech.
+    float cornering = 0.0f;
+    if (std::fabs(lateral) >= min_lateral) {
+        cornering = std::clamp(lateral / (std::fabs(lateral) + std::fabs(longitudinal)) * side_gain, -1.0f, 1.0f);
+    }
+    rush2::input::set_rumble_cornering(port, cornering);
     float rise = std::fabs(lateral) - std::fabs(previous_lateral[port]);
     float drop = previous_longitudinal[port] - longitudinal;
     bool had_previous = have_previous[port];

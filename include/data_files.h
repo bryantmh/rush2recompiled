@@ -15,6 +15,7 @@
 // - Players: players.json in the config folder.
 //     "controllers"   each player's controller and the keyboard's player (src/input.cpp)
 //     "bindings"      each player's controller and keyboard bindings (src/controls.cpp)
+//     "control_profiles"  each game save profile's steering and rumble settings (src/control_profiles.cpp)
 //
 // Sections are passed as JSON text: the executable has two nlohmann::json versions on its include path (see
 // src/rush2049/wings.cpp), so a json type can't cross files.

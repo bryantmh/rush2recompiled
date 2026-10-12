@@ -3721,7 +3721,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800C4010
 name = "rumble_thresholds"
 type = "s32[40]"
-desc = "Ascending thresholds (4000, 5000, 6500, ... 600000; the last 4 are 0) that physics_car_tick counts the sum of the absolute values of car+0x4, +0x8 and +0xC against to get a human car's rumble level (0 to 0x28, 4 less when the byte at 0x8010C160 is 0), stored in rumble_levels. Those floats are the car's acceleration in its own frame: +0x4 lateral (positive = pushed right), +0x8 vertical, +0xC longitudinal. See src/rumble.cpp."
+desc = "Ascending thresholds (4000, 5000, 6500, ... 600000; the last 4 are 0) that physics_car_tick counts the sum of the absolute values of car+0x4, +0x8 and +0xC against to get a human car's rumble level (0 to 0x28, 4 less when the byte at 0x8010C160 is 0), stored in rumble_levels. Those floats are the net force on the car in its own frame, from car_force_sum_8006A02C (wheel forces, gravity and the external accumulator): +0x4 sideways (positive = toward the car's right; verified by steering and a left-side wall hit), +0x8 vertical, +0xC forward. See src/rumble.cpp."
 area = "car"
 status = "verified"
 ref = "src/rumble.cpp"

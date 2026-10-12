@@ -15,11 +15,11 @@ You need to bring your own copy of the game. Nothing from the original cartridge
 - **Crisp fonts.** All the menu text and HUD numbers have been redrawn so they stay sharp at any resolution. You can switch back to the original blurry ones if you miss them.
 - **Upscaled textures (optional).** Turn on Texture Upscaling in the graphics settings and the cars and tracks get smoothed at 2x or 4x with HQ2x/HQ4x, the filters emulators use for texture enhancement. The HUD and menus are left alone. Prefer another upscaler, like Topaz Gigapixel? Dump the textures with one click, upscale them with it, and install the results as your own texture pack.
 - **Saves that just work.** Your players and records are kept on a virtual Controller Pak using the save file uses the same format as emulators.
-- **Rumble.** Supported on any controller that can rumble and at the same time as saves
+- **Rumble.** Supported on any controller that can rumble and at the same time as saves. Directional rumble shakes the side of the controller the car was hit on, with different feels for crashes, wall scrapes and screeching tires, on the two haptic motors of a DualSense plugged in with USB, the triggers of an Xbox One or Series controller, or a Steam Controller or Steam Deck.
 - **Up to 4 players, any controllers.** Xbox, PlayStation and most other controllers work, plus keyboard. Pick which controller belongs to which player and the game remembers it next time.
 - **Rebind everything.** The game's own Controls screen now lets you map any button, trigger, stick or key. It shows the right button icons for your controller.
 - **Split screen.** Two player races can run side by side in addition to the original top and bottom.
-- **AI opponents.** Choose the car, paint and rims of each computer opponent in the Players tab.
+- **AI opponents.** Choose the car, paint and rims of each computer opponent in the General tab.
 - **Ghost races.** Previously a 2049 exclusive feature. Record your runs and race against your own ghost car.
 - **Unlocks.** Earn cars, tracks and engines through an UNLOCKS shop. You can disable and revert to original Rush 2 behavior if you wish
 
@@ -71,10 +71,10 @@ Shortcut: if you drop the ROM in the same folder as the exe, it'll find it on it
 
 Most options live in the settings menu (press Escape, or select).
 
-- **General:** rumble strength, stick deadzone, steering and reverse options, background input, and data location
+- **General:** gameplay options, AI opponents' cars, background input and data location
 - **Graphics:** window mode, resolution, aspect ratio, framerate, anti-aliasing, level of detail, fonts and texture upscaling
 - **Sound:** race music per game, plus whether other cars' engines are heard
-- **Players:** choose which controller (or the keyboard) each player uses. Leave it on Auto and whoever presses a button first gets that player.
+- **Controls:** choose which controllers (and the keyboard) can play, the split screen layout, and each save profile's steering, stick deadzone and rumble settings, with buttons to test each rumble effect
 - **Progress:** see the keys and coins you've collected
 - **Games:** pick your Rush 2049 and San Francisco Rush ROMs, then turn on their tracks, cars and Wings
 - **Cheats:** unlock all tracks and cars, plus driving, survival, race and visual cheats. Enable the cheat menu first.
@@ -91,9 +91,9 @@ Texture upscaling keeps its files in the `texture_upscale` folder there: the ups
 
 Want to keep everything on a USB stick or next to the game? Turn on portable mode in the General tab under Data Location. Your data moves into the game's folder the next time you launch.
 
-## Modding: replacing models
+## Modding: replacing models (experimental)
 
-Any model in the game can be swapped for your own mesh, of any detail. Run Dump Models to get every model as a `.glb` in `asset_dump/models`. Open the one you want in Blender or a similar program, edit it or model over it in the same position and scale, and export it as glTF Binary (`.glb`) with its textures embedded and no Draco compression. Keep the dumped file name. Make a mod folder in the `mods` folder holding a `mod.json` (with `"game_id": "rush2"`) and your file under `rush2/models/`, for example `rush2/models/tracks/ALCATRAZ/ALCATRAZL4156.glb`. You can zip the folder into an `.rtz`. Turn the mod on in the Mods menu, and the model changes the next time the game loads it. Only the look changes: cars and tracks still drive and collide as before. A whole car can also go in `rush2/cars/<CAR>.glb`, where it takes the player's paint and dents. `tools/car_mod.py` can build that from a mesh and texture. Details are in [docs/car_mods.md](docs/car_mods.md).
+Any model in the game can be swapped for your own mesh, of any detail. Run Dump Models to get every model as a `.glb` in `asset_dump/models`. Open the one you want in Blender or a similar program, edit it or model over it in the same position and scale, and export it as glTF Binary (`.glb`) with its textures embedded and no Draco compression. Keep the dumped file name. Make a mod folder in the `mods` folder holding a `mod.json` (with `"game_id": "rush2"`) and your file under `rush2/models/`, for example `rush2/models/tracks/ALCATRAZ/ALCATRAZL4156.glb`. You can zip the folder into an `.rtz`. Turn the mod on in the Mods menu, and the model changes the next time the game loads it. Only the look changes: cars and tracks still drive and collide as before. A whole car can also go in `rush2/cars/<CAR>.glb`, where it takes the player's paint and dents. `tools/car_mod.py` can build that from a mesh and texture.
 
 ## Modding: replacing textures
 

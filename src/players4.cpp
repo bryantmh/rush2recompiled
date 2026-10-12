@@ -855,11 +855,35 @@ void rush2_players4_menu(uint8_t* rdram, recomp_context* ctx) {
     update_joining(rdram, ctx);
 }
 
+namespace {
+    // When the title screen was last set up (rush2_title_screen_setup).
+    std::atomic<int64_t> title_setup_ms = 0;
+    // A START this soon after the title screen comes up was pressed for the screen before it (the race results).
+    constexpr int64_t title_carry_over_ms = 500;
+
+    int64_t now_ms() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+}
+
+// func_803B0270 (menu_title_screen_setup), at its start: the title screen comes up, at boot or backing out of the main
+// menu. Every player leaves (the Controls tab shows each controller as Ready) until START is pressed on it.
+void rush2_title_screen_setup(uint8_t* rdram, recomp_context* ctx) {
+    title_setup_ms = now_ms();
+    rush2::input::set_at_title(true);
+}
+
 // func_800A6B58 (START on the title screen), once it has found the port that pressed START ($s0, and $s1 = port * 2):
-// player 1 is the first port with a controller or the keyboard in the Players tab, whichever device pressed START.
-// Otherwise, after a race, START from the device set up as player 2 or 3 (pressed to get through the results) made it
-// player 1, and it then did nothing on "PRESS START TO JOIN".
+// whoever pressed START becomes player 1. A START in the first moments of the title screen was carried over from the
+// race results (pressed to get through them, maybe by player 2 or 3, who then became player 1 and did nothing on
+// "PRESS START TO JOIN"); then, and when the pressing port has no device, player 1 is the first port with a controller
+// or the keyboard.
 void rush2_players4_title_port(uint8_t* rdram, recomp_context* ctx) {
+    rush2::input::set_at_title(false);
+    if (now_ms() - title_setup_ms.load() >= title_carry_over_ms && rush2::input::port_has_device((int)ctx->r16)) {
+        return;
+    }
     for (int port = 0; port < ports; port++) {
         if (rush2::input::port_has_device(port)) {
             ctx->r16 = port;

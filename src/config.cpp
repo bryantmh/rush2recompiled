@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <type_traits>
 #include <variant>
 
@@ -38,11 +39,13 @@ static void add_remaining_options(rush2::ui::OptionsPage* page, recomp::config::
 
 // Shows a config's options under headings, replacing the frontend's tab for it (which lists them in the order they
 // were added, and is hidden by the caller). Each section is a heading and its option ids; options not listed go last.
+// section_extras adds elements at the end of the named sections.
 static void create_ordered_tab(const std::string& name, const std::string& tab_id, const std::string& config_id,
                                std::vector<std::pair<std::string, std::vector<std::string>>> sections,
-                               std::function<void(rush2::ui::OptionsPage*)> add_extra = nullptr) {
+                               std::function<void(rush2::ui::OptionsPage*)> add_extra = nullptr,
+                               std::map<std::string, std::function<void(rush2::ui::OptionsPage*)>> section_extras = {}) {
     recompui::config::create_tab(name, tab_id,
-        [config_id, sections, add_extra](recompui::ContextId context, recompui::Element* parent) {
+        [config_id, sections, add_extra, section_extras](recompui::ContextId context, recompui::Element* parent) {
             recomp::config::Config& config = recompui::config::get_config(config_id);
             auto* page = context.create_element<rush2::ui::OptionsPage>(parent);
             std::vector<std::string> added;
@@ -51,6 +54,10 @@ static void create_ordered_tab(const std::string& name, const std::string& tab_i
                 for (const std::string& id : ids) {
                     page->add_option(config, id);
                     added.push_back(id);
+                }
+                auto extra = section_extras.find(heading);
+                if (extra != section_extras.end()) {
+                    extra->second(page);
                 }
             }
             add_remaining_options(page, config, added);
@@ -126,9 +133,15 @@ static void customize_graphics_options(recomp::config::Config& config) {
     // Resolution (Auto) and Framerate (Display) already default to what Rush 2 wants.
 }
 
-// Rumble defaults to full strength instead of the frontend's 25%.
+// Rumble strength and the stick deadzone are per profile in the Controls tab (src/controls_tab.cpp). The frontend's
+// options stay registered, hidden (its rumble code checks for rumble_strength, and the menus' stick still uses its
+// deadzone); their old values became the profiles' starting settings (src/control_profiles.cpp).
 static void customize_general_options(recomp::config::Config& config) {
     set_option_default<recomp::config::ConfigOptionNumber>(config, recompui::config::general::options::rumble_strength, 100.0);
+    for (const std::string& id : { recompui::config::general::options::rumble_strength,
+                                   recompui::config::general::options::joystick_deadzone }) {
+        const_cast<recomp::config::ConfigOption&>(config.get_option(id)).hidden = true;
+    }
 }
 
 namespace lod_option {
@@ -218,7 +231,7 @@ static void add_split_option(recomp::config::Config& config) {
             { Layout::SideBySide, "SideBySide", "Side by Side" },
         },
         Layout::TopBottom,
-        true    // Shown in the Players tab (src/players_tab.cpp).
+        true    // Shown in the Controls tab (src/controls_tab.cpp).
     );
 
     config.add_option_change_callback(split_option::id,
@@ -326,110 +339,6 @@ static void add_anisotropy_option(recomp::config::Config& config) {
     config.add_option_change_callback(anisotropy_option::id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             RT64::GeneratedMipmapsAnisotropy = std::min(std::get<uint32_t>(cur_value), 4u);
-        });
-}
-
-namespace steering_option {
-    const std::string id = "steering_response";
-    enum class SteeringResponse : uint32_t { Original, Balanced, Linear };
-}
-
-// Steering response: the game cubes the stick's X deflection, so small movements barely steer and the last part of
-// the stick's travel does most of the turning (src/input.cpp).
-static void add_steering_option(recomp::config::Config& config) {
-    using steering_option::SteeringResponse;
-
-    config.add_enum_option(
-        steering_option::id,
-        "Steering Response",
-        "Sets how strongly the car steers for small stick movements. "
-        "<recomp-color primary>Original</recomp-color> matches the original game, which barely steers near the "
-        "center of the stick and turns sharply near the edge. "
-        "<recomp-color primary>Balanced</recomp-color> steers more near the center. "
-        "<recomp-color primary>Linear</recomp-color> makes steering proportional to how far the stick is pushed.",
-        {
-            { SteeringResponse::Original, "Original", "Original" },
-            { SteeringResponse::Balanced, "Balanced", "Balanced" },
-            { SteeringResponse::Linear, "Linear", "Linear" },
-        },
-        SteeringResponse::Original
-    );
-
-    config.add_option_change_callback(steering_option::id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            // Exponents applied before the game's cube: 1 keeps x^3, 0.55 gives about x^1.65, 1/3 gives x.
-            switch (static_cast<SteeringResponse>(std::get<uint32_t>(cur_value))) {
-                default:
-                case SteeringResponse::Original:
-                    rush2::input::set_steering_exponent(1.0f);
-                    break;
-                case SteeringResponse::Balanced:
-                    rush2::input::set_steering_exponent(0.55f);
-                    break;
-                case SteeringResponse::Linear:
-                    rush2::input::set_steering_exponent(1.0f / 3.0f);
-                    break;
-            }
-        });
-}
-
-namespace reverse_option {
-    const std::string id = "reverse_control";
-    enum class ReverseControl : uint32_t { Gear, Hold };
-}
-
-// Reverse control: the game's REVERSE button only selects the reverse gear while it's held, so the car needs gas
-// too (src/input.cpp).
-static void add_reverse_option(recomp::config::Config& config) {
-    using reverse_option::ReverseControl;
-
-    config.add_enum_option(
-        reverse_option::id,
-        "Reverse Control",
-        "Sets how the Reverse button works. "
-        "<recomp-color primary>Gear</recomp-color> matches the original game: Reverse selects the reverse gear while "
-        "it's held, and the car backs up when the gas is pressed too. "
-        "<recomp-color primary>Hold</recomp-color> drives the car backward whenever Reverse is held, without needing the gas.",
-        {
-            { ReverseControl::Gear, "Gear", "Gear" },
-            { ReverseControl::Hold, "Hold", "Hold" },
-        },
-        ReverseControl::Gear
-    );
-
-    config.add_option_change_callback(reverse_option::id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::input::set_reverse_holds_gas(static_cast<ReverseControl>(std::get<uint32_t>(cur_value)) == ReverseControl::Hold);
-        });
-}
-
-namespace rumble_motors_option {
-    const std::string id = "rumble_motors";
-}
-
-// Rumble motors: the frontend drives only a controller's small right motor; this defaults to both (src/input.cpp).
-static void add_rumble_motors_option(recomp::config::Config& config) {
-    using rush2::input::RumbleMotors;
-
-    config.add_enum_option(
-        rumble_motors_option::id,
-        "Rumble Motors",
-        "Sets which of the controller's motors rumble. "
-        "<recomp-color primary>Right Only</recomp-color> uses only the small right motor. "
-        "<recomp-color primary>Both</recomp-color> also uses the large left motor for a fuller rumble. "
-        "<recomp-color primary>Directional</recomp-color> uses both, and hitting a wall on one side of the car "
-        "rumbles that side of the controller more.",
-        {
-            { RumbleMotors::Right, "Right Only", "Right Only" },
-            { RumbleMotors::Both, "Both", "Both" },
-            { RumbleMotors::Directional, "Directional", "Directional" },
-        },
-        RumbleMotors::Both
-    );
-
-    config.add_option_change_callback(rumble_motors_option::id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::input::set_rumble_motors(static_cast<RumbleMotors>(std::get<uint32_t>(cur_value)));
         });
 }
 
@@ -646,16 +555,19 @@ void rush2::init_config() {
 
     // Tabs, grouped: settings, then players and their progress, then what changes the game. The frontend's General
     // and Graphics tabs are replaced by ones that order their options under headings (added first: the menu opens
-    // on the first tab, hidden or not), and its Controls tab by the Players tab and the game's own Controller Setup
-    // screen.
+    // on the first tab, hidden or not), and its Controls tab by ours (src/controls_tab.cpp) and the game's own
+    // Controller Setup screen.
+    rush2::control_profiles::load(); // Before finalize() saves general.json without the options it moves in from.
     {
         namespace general = recompui::config::general;
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
-            { "Controls", { general::options::rumble_strength, rumble_motors_option::id, general::options::joystick_deadzone,
-                            steering_option::id, reverse_option::id } },
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id,
                             catch_up_option::id, pause_extras_option::id, ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, data_location_option::id } },
+        }, nullptr, {
+            { "Gameplay", [](rush2::ui::OptionsPage* page) {
+                rush2::npc_cars::add_section(page->get_list(), page->text_shower(rush2::npc_cars::description));
+            } },
         });
         namespace graphics = recompui::config::graphics;
         create_ordered_tab(graphics::tab_name, "rush2_graphics", graphics::id, {
@@ -674,9 +586,6 @@ void rush2::init_config() {
     general_options.has_mouse_sensitivity = false;
     auto& general_config = recompui::config::create_general_tab(general_options);
     customize_general_options(general_config);
-    add_steering_option(general_config);
-    add_reverse_option(general_config);
-    add_rumble_motors_option(general_config);
     add_ghost_option(general_config);
     add_ghosts_kept_option(general_config);
     add_car_stats_option(general_config);
@@ -699,7 +608,8 @@ void rush2::init_config() {
     recompui::config::set_tab_visible(recompui::config::graphics::id, false);
 
     rush2::music::create_sound_tab();
-    rush2::players::create_tab();
+    rush2::npc_cars::init_config();
+    rush2::controls_tab::create_tab();
     rush2::collectibles::create_tab();
     rush2::games::create_tab();
     rush2::cheats::create_tab();
@@ -743,8 +653,6 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
     rush2::pause_menu::set_enabled(std::get<bool>(
         recompui::config::get_general_config().get_option_value(pause_extras_option::id)));
-    rush2::input::set_rumble_motors(static_cast<rush2::input::RumbleMotors>(std::get<uint32_t>(
-        recompui::config::get_general_config().get_option_value(rumble_motors_option::id))));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

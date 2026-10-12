@@ -51,6 +51,7 @@
 #include "wings.h"
 #include "track2049.h"
 #include "car_engines.h"
+#include "steam_input_filter.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -150,6 +151,7 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
     SDL_GetWindowWMInfo(window, &wmInfo);
 
 #if defined(_WIN32)
+    rush2::steam_input_filter::install(wmInfo.info.win.window);
     return ultramodern::renderer::WindowHandle{ wmInfo.info.win.window, GetCurrentThreadId() };
 #elif defined(__linux__) || defined(__ANDROID__)
     return ultramodern::renderer::WindowHandle{ window };
@@ -188,6 +190,7 @@ static void show_cursor_on_escape_menu() {
 }
 
 void update_gfx(void*) {
+    std::lock_guard lock{ rush2::input::sdl_device_mutex() };
     show_cursor_on_escape_menu();
     recompinput::handle_events();
 }
@@ -419,13 +422,15 @@ void reorder_texture_pack(recomp::mods::ModContext&) {
 }
 
 // --input-script "<seconds>:<button>[:<hold seconds>],..." presses N64 buttons at fixed times after
-// launch, on top of real input (used for automated testing). Buttons: A B Z START L R CU CD CL CR DU DD DL DR, for
-// controller 1, or with a P2-P4 prefix (P2START) for controllers 2-4.
+// launch, on top of real input (used for automated testing). Buttons: A B Z START L R CU CD CL CR DU DD DL DR, plus SL
+// and SR for the stick fully left and right (to steer), for controller 1, or with a P2-P4 prefix (P2START) for
+// controllers 2-4.
 struct ScriptedPress {
     double time;
     double duration;
     uint16_t button;
     int controller;
+    float stick_x = 0.0f;
 };
 static std::vector<ScriptedPress> input_script;
 static std::chrono::steady_clock::time_point launch_time = std::chrono::steady_clock::now();
@@ -463,6 +468,9 @@ static void parse_input_script(const std::string& script) {
                 press.button = mask;
             }
         }
+        if (name == "SL" || name == "SR") {
+            press.stick_x = name == "SL" ? -1.0f : 1.0f;
+        }
         input_script.push_back(press);
     }
 }
@@ -478,6 +486,9 @@ static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float
         for (const auto& press : input_script) {
             if (press.controller == controller_num && now >= press.time && now < press.time + press.duration) {
                 *buttons |= press.button;
+                if (press.stick_x != 0.0f) {
+                    *x = press.stick_x;
+                }
                 rush2::input::press_pedals(controller_num, press.button);
                 ret = true;
             }

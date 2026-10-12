@@ -69,6 +69,13 @@ func = "physics_car_tick_80075880"
 before_vram = 0x80075B90
 text = "    rush2_rumble_impact(rdram, ctx);"
 
+# Directional rumble's wall grinding (src/rumble.cpp): in car_wall_collision_query, where a body probe is inside a wall
+# and the car is about to be pushed out along the normal at sp+0xB0. $s1 = car.
+[[patches.hook]]
+func = "car_wall_collision_query_8006FC94"
+before_vram = 0x8006FF60
+text = "    rush2_rumble_wall(rdram, ctx);"
+
 # Overlay: inflated to 0x803AA800 by func_800A62C0.
 [[patches.hook]]
 func = "overlay_load_800A62C0"
@@ -8322,6 +8329,13 @@ text = "    rush2_players4_menu(rdram, ctx);"
 func = "menu_title_start_pressed_800A6B58"
 before_vram = 0x800A6D14
 text = "    rush2_players4_title_port(rdram, ctx);"
+
+# Title screen set up (at boot or backing out of the main menu): every player leaves until START is pressed on it, so
+# the Controls tab shows each controller as Ready and whoever presses START becomes player 1 (src/players4.cpp).
+[[patches.hook]]
+func = "menu_title_screen_setup_803B0270"
+before_vram = 0x803B0270
+text = "    rush2_title_screen_setup(rdram, ctx);"
 
 # Car select (func_803B9478): with 3 or 4 players, players 3 and 4 choose in a second round. Once every player has
 # chosen (before the race is started, 0x803B96D4) or one backs out (0x803B9564), the round may change instead.
