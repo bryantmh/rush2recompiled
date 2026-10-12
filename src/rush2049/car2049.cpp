@@ -216,6 +216,7 @@ namespace {
         // Denting: the body's vertices (file offsets) and their pristine positions.
         std::vector<uint32_t> vertices;
         std::vector<std::array<int16_t, 3>> rest;
+        std::vector<float> hood;                // each vertex's share of the hood's fold (0-1), see body_hood
         float extent[3] = { 1.0f, 1.0f, 1.0f }; // half width, height, half length
         // Damage textures: the body's texture loads, each serving one panel (0 FR, 1 FL, 2 RR, 3 RL, 4 top), whose
         // G_SETTIMG reads the pristine texels or their scuffed copy by that panel's damage.
@@ -559,6 +560,8 @@ namespace {
         }
     }
 
+    void body_hood(Paint& p);
+
     // The body's (FRAME1, both LODs) vertices, for denting.
     void collect_body_vertices(const std::vector<uint8_t>& car, const std::string& prefix, Paint& p) {
         std::set<uint32_t> seen_vertices = model_vertices(car, prefix + "FRAME1");
@@ -574,6 +577,53 @@ namespace {
             p.rest.push_back(xyz);
         }
         for (int i = 0; i < 3; i++) p.extent[i] = std::max(1.0f, std::max(-lo[i], hi[i]));
+        body_hood(p);
+    }
+
+    // Rush 2 draws each car's hood as its own parts and swaps them by panel 0's damage level (func_8005CFB0: node
+    // +0xC gets part 35 + level, H0D_L / H2D_L, node +0x10 part 37 + level, H0D_R / H2D_R): H2 is the same hood
+    // buckled, folded up across a crease about two thirds of the way to the nose (PICKUP: up to 13 of the car's 67
+    // units of height). A one-body car (2049's, a car mod) has no hood part, so its hood vertices fold instead: each
+    // vertex's share of the fold, 0 off the hood. The hood is the top surface (no body vertex just above) of the front,
+    // the fold rising from the windshield's base and the nose to the crease.
+    void body_hood(Paint& p) {
+        constexpr float cell_x = 0.12f, cell_z = 0.08f, above = 0.08f;
+        constexpr float start = 0.2f, nose = 0.95f, crease = 0.6f; // z, and the crease's place between them
+        size_t n = p.rest.size();
+        auto norm = [&p](size_t i, int c) { return p.rest[i][c] / p.extent[c]; };
+        // Vertices by (x, z) cell, to find the ones above each in its neighborhood.
+        constexpr int nx = int(2.0f / cell_x) + 2, nz = int(2.0f / cell_z) + 2;
+        auto cell = [](float v, float size, int count) { return std::clamp(int((v + 1.0f) / size), 0, count - 1); };
+        std::vector<std::vector<uint32_t>> grid(size_t(nx * nz));
+        for (size_t i = 0; i < n; i++) {
+            grid[size_t(cell(norm(i, 2), cell_z, nz) * nx + cell(norm(i, 0), cell_x, nx))].push_back(uint32_t(i));
+        }
+        auto smooth = [](float t) {
+            t = std::clamp(t, 0.0f, 1.0f);
+            return t * t * (3.0f - 2.0f * t);
+        };
+        p.hood.assign(n, 0.0f);
+        for (size_t i = 0; i < n; i++) {
+            float x = norm(i, 0), y = norm(i, 1), z = norm(i, 2);
+            if (z <= start || z >= nose || y < 0.15f) continue;
+            int gx = cell(x, cell_x, nx), gz = cell(z, cell_z, nz);
+            bool covered = false;
+            for (int cz = std::max(0, gz - 1); cz <= std::min(nz - 1, gz + 1) && !covered; cz++) {
+                for (int cx = std::max(0, gx - 1); cx <= std::min(nx - 1, gx + 1) && !covered; cx++) {
+                    for (uint32_t j : grid[size_t(cz * nx + cx)]) {
+                        if (std::abs(norm(j, 0) - x) < cell_x && std::abs(norm(j, 2) - z) < cell_z &&
+                            norm(j, 1) > y + above) {
+                            covered = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (covered) continue;
+            float t = (z - start) / (nose - start);
+            float fold = t < crease ? smooth(t / crease) : smooth((1.0f - t) / (1.0f - crease));
+            p.hood[i] = fold * (1.0f - 0.5f * smooth((std::abs(x) - 0.6f) / 0.4f)); // the fenders' edges less
+        }
     }
 
     // A scuffed copy of a painted CI8 texture, as Rush 2's D1 panel textures are of its D0 ones: the paint (2049's
@@ -1734,11 +1784,13 @@ extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // Start of func_8005CFB0, the per-frame callback of each race car ($a0 = its callback entry, car index at +0xE).
-// Rush 2 shows damage by swapping panel models; a 2049 car has one body, so it is dented instead, as 2049 does: the
+// Rush 2 shows damage by swapping panel models; a 2049 car has one body, so it is dented instead (2049 itself
+// shows no damage on race cars, so the dents are this port's, standing in for Rush 2's panels): the
 // body around each damaged corner (front/rear, left/right) is crushed towards the middle, and the roof down, by the
 // panel's damage level (Rush 2's 2-bit levels at car + 0xE4, masks 0x800CE188 / shifts 0x800CE180; collisions raise
 // a panel to 1, func_8006B730 / func_8009A264 / func_800715E8), and restored when it is repaired. A damaged panel's
-// textures also turn to their scuffed copies, as Rush 2's damaged panels use its D1 textures.
+// textures also turn to their scuffed copies, as Rush 2's damaged panels use its D1 textures, and panel 0's damage
+// folds the hood up, as Rush 2 swaps in its buckled hood parts (body_hood).
 extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
     int car = (int16_t)MEM_H(0, (int32_t)((uint32_t)ctx->r4 + 0xE));
     if (car < 0 || car >= 8) {
@@ -1791,6 +1843,10 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
         }
         if (level[4] > 0.0f && y > 0.45f) {
             dy -= (y - 0.45f) / 0.55f * level[4] * (0.3f + 0.15f * jitter);
+        }
+        // The hood buckles up by panel 0's damage, as Rush 2 swaps in its buckled hood (body_hood).
+        if (level[0] > 0.0f && i < p->hood.size()) {
+            dy += p->hood[i] * level[0] * 0.2f * (0.85f + 0.3f * jitter);
         }
         int16_t out[3] = {
             int16_t(std::lround(r[0] + dx * p->extent[0])),

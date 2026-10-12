@@ -1346,10 +1346,12 @@ ref = "docs/rush2049_research/cars.md#8-implementation-v"
 
 [[func]]
 vram = 0x80093B20
-desc = "Reads the per-track car lighting color table at 0x8011AF90 (+4*track): POLY info bits 11-15 (when not 0x30) index it; visual only. Also read by func_800B15B4. Function-level purpose not worked out."
-status = "inferred"
-area = "render"
-ref = "docs/rush2049_research/collision.md#4-poly2-info-upper-bits-the-meaning-changed"
+name = "car_draw_update"
+sig = "void car_draw_update(void *node_rec, s32 visible)"
+desc = "Per-frame update of one car's draw nodes (arg0 = node record, +6 body node, +8 car index). Reads the per-track car lighting color table at 0x8011AF90 (+4*track): POLY info bits 11-15 (when not 0x30) index it; visual only. Shows the CARnHOOD node (car node table 0x80139320 + car*0x40, +0x10) only in hood-camera view (view struct 0x80152818 + car*0x3B8, +0x35D == 1) with fewer than 2 players (0x80151AD0), hidden otherwise; calls func_800930A4 for the Rocket ZX flames."
+status = "verified"
+area = "car"
+ref = "docs/rush2049_research/cars.md#damaged-hood-v"
 
 [[func]]
 vram = 0x80094888
@@ -2079,6 +2081,14 @@ consts = "0x3200/0x1200 = arrow flags; 0x18 = arrow record size at car state +0x
 status = "verified"
 area = "battle"
 ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
+
+[[func]]
+vram = 0x800B200C
+name = "car_nodes_setup"
+desc = "Sets up a car's draw nodes (car node table 0x80139320 + car*0x40): body model from the per-car handle table 0x801427C0 + car*6 (FRAME1, HOOD, SHEEN, built by func_800B2828), HOOD node at +0x10 hidden unless view mode +0x35D == 1, wheel nodes +0x1C.."
+status = "inferred"
+area = "car"
+ref = "docs/rush2049_research/cars.md#damaged-hood-v"
 
 [[func]]
 vram = 0x800B24EC
@@ -3191,6 +3201,15 @@ desc = "2049 drone hint points (0x801108B0); aim targets, not speed limits."
 status = "verified"
 area = "race"
 ref = "docs/rush2049_research/cars.md#10-car-speeds-v"
+
+[[func]]
+vram = 0x800EB90C
+name = "camera_view_mode_update"
+desc = "Per-frame camera view mode of each player (view struct 0x80152818 + car*0x3B8: +0x35C player view index, +0x35D mode 0-3, +0x35E copy): the view button cycles 0-3 (mode 1 = hood camera, resets the offset 0x801526A8; 2 and 3 call func_800E9234); attract mode (0x801174B4 & 8) picks random modes; 5 while 0x80110680[] is set."
+consts = "0x35D = view mode (1 = hood camera); 0x3B8 = view struct size"
+status = "inferred"
+area = "car"
+ref = "docs/rush2049_research/cars.md#damaged-hood-v"
 
 [[func]]
 vram = 0x800EC0DC

@@ -184,8 +184,10 @@ u32 display list, u32 vertices}`.
   it**. The only `lhu 0x1A` readers are `func_8008B000`, `func_8009C8F0`, `func_800BEAA0` and `func_800E7D0C`, and
   none tests 8. It looks like a tool flag. Unused LOD slots repeat it.
 
-**Vertex pointer (+0x24 per LOD):** rebased by the loader. The consumer was not identified. Rush 2 has no such field.
-[I]
+**Vertex pointer (+0x24 per LOD):** rebased by the loader. Rush 2 has no such field. No code reads it [V, 2026-10-11]:
+every reader of the model table 0x801161F4 (func_8008B000, func_80092E2C, func_80096130, func_800965BC,
+func_80096CA8, func_8009C8F0, func_800A7C9C) and every function that decodes a model handle (`& 0x3FF`) was checked.
+It is not a hook for car denting: 2049 deforms no car (rush2049_research/cars.md §1).
 
 **Track data:** no LOD has 0x10, and `kind` is 0 everywhere. Some sections have 2 LODs (e.g. `TRACK1L54064` at 700
 and 2000). Most have distance 0, meaning no distance cut-off.

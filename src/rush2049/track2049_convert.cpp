@@ -2768,9 +2768,9 @@ bool rush2::track2049::convert_track(const rush2::rom2049::Source& rom, int k, c
 
 // A Rush 2049 car (files 88-100) as a Rush 2 car asset for the car type named `name` (Rush 2's car names, table
 // 0x800C0764). Rush 2 builds 39 part names from the car name and the suffixes at 0x800C6180 and uses their handles
-// unchecked (func_80086700): the frame, five body panels (four corners and the roof) in damage stages, and headlights.
-// A 2049 car is one body that 2049 dents by moving its vertices: the body becomes the frame and the panels and lights
-// are empty, so the car draws once whatever damage stage Rush 2 picks.
+// unchecked (func_80086700): the frame, five body panels (four corners and the roof) in damage stages, and the hood
+// halves. A 2049 car is one body (car2049.cpp dents its vertices; 2049 itself shows no damage): the body becomes the
+// frame and the panels and hood parts are empty, so the car draws once whatever damage stage Rush 2 picks.
 bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, const std::string& name,
                                    std::vector<uint8_t>& out, std::string& error) {
     static const char* const parts[] = {
@@ -2795,8 +2795,9 @@ bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, c
         for (const char* part : parts) {
             opt.dummies.push_back(name + part);
         }
-        // HOOD is the hood 2049 throws off a wrecked car (FRAME1 has its own), SHEEN a reflection pass Rush 2 can't
-        // draw: neither is drawn.
+        // HOOD is the hood 2049 draws only in its hood camera (view mode 1, car view +0x35D, one player:
+        // func_80093B20), not damage; Rush 2 has no such view. SHEEN is a reflection pass Rush 2 can't draw. Neither
+        // is drawn. The damaged hood is a fold of the body's own hood (car2049.cpp body_hood).
         std::set<std::string> exclude = { prefix + "HOOD", prefix + "SHEEN" };
         std::vector<const Bytes*> files = { &file };
         // The Rocket ZX's exhaust flames: three effect models (file 62) 2049 attaches behind it (func_800AF690) and

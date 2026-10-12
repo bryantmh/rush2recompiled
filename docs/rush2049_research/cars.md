@@ -9,7 +9,15 @@ Status: implemented (October 2026, `src/rush2049/car2049.cpp`); �4 below is th
 below.
 
 - Files 88–100 = cars 1–13. Each file holds only `CARnFRAME1` (body, 2 LODs), `CARnHOOD` and `CARnSHEEN`: there are
-  no damage panels, so 2049 dents the body by moving its vertices at runtime (code not found yet).
+  no damage panels, and 2049 shows no damage on its race cars: no code in the main binary or the race overlay
+  stores vertex positions into a car model (scan of every x/y/z halfword store, 2026-10-11; the only car damage is
+  the battle health +0x386). The dents on the converted cars are this port's own, standing in for Rush 2's panels.
+  Searched [V, 2026-10-11], main code and race overlay: (a) x/y/z halfword stores, and functions that read a
+  vertex's x/y/z and store halfwords: only HUD rectangles (func_800A7508), world polygons (polygon_set_8008C074),
+  fog, paths, texture scrolls and mover polygons; (b) the OBHD per-LOD vertex pointer: never read (geometry.md §3.1);
+  (c) car nodes (func_800B15B4 -> func_800AF5E0 -> func_8008E26C) point at the shared model with no per-car vertex
+  copy; (d) the model draw func_8009C8F0 edits no vertices; (e) no G_MODIFYVTX (0x02) commands are built.
+  The earlier "2049 dents the body (code not found yet)" was an unverified guess.
 - Names: prefix table 0x80110D3C (`CAR1`..`CAR13`), display names 0x80110D70: FORMULA 1, 8-BALL, ROCKET ZX, MAGNUM,
   SUPER GT, BRUISER, LOCUST LX, GX-2, MINI XS, VENOM, CRUSHER, EURO LX, PANTHER.
 - Physics descriptor: 0xB4 bytes, pointer per car at 0x80110D08 (6 distinct, at 0x801108D0..). Rush 2's is 0xEC bytes
@@ -52,8 +60,8 @@ plan below borrows slots instead.
   players: **HOTROD (17)** and **GT90 (19)**. The AI picks only 0–15, and neither has special cases
   (`func_8008582C` special-cases 0x12/0x14/0x15; `func_800A37F4` forces TAXI on some tracks).
 - Car model: convert `CARnFRAME1` into a Rush 2 car container with all 39 part names (`func_80086700`, suffix list
-  0x800C6180; handles are used unchecked) pointing at the intact body so it draws once; port 2049's vertex denting
-  onto the body's vertices; wheels from Rush 2 or 2049 files 80/81 placed by the descriptor; paint mapped onto Rush 2's
+  0x800C6180; handles are used unchecked) pointing at the intact body so it draws once; dent the body's vertices in place of
+  Rush 2's damaged panels (2049 has no denting to port); wheels from Rush 2 or 2049 files 80/81 placed by the descriptor; paint mapped onto Rush 2's
   main/accent colours.
 - Saves: the selected type is saved in the player record; a 2049 choice keeps the old value and is stored in a side
   file, like the save file's `track_select` section.
@@ -62,10 +70,24 @@ plan below borrows slots instead.
 ## 5. Rush 2 car asset layout [V] (asset 0x1D, PICKUP)
 
 37 models: `PICKUPFRAME1` (the chassis), five body panels `FL1 FR1 RL1 RR1 TOP1` in damage stages `D0_` (intact),
-`D1_TOP1`, `D2_` (wrecked), each with a dented variant (`D0_DFL1`.., `D0_D2FL2`..), and headlights `H0_L/R`,
-`H0D_L/R`, `H2_L/R`, `H2D_L/R`. Textures are per damage stage (`TRK_D0_1`..`TRK_D1_6`, with `_4` variants). So Rush 2
-shows damage by swapping whole panels. For a 2049 car: FRAME1 = the 2049 body (`CARnFRAME1` + `CARnHOOD`), every
-panel and headlight part = an empty display list, and 2049's vertex denting applied to the body.
+`D1_TOP1`, `D2_` (wrecked), each with a dented variant (`D0_DFL1`.., `D0_D2FL2`..), and the hood halves `H0_L/R`,
+`H0D_L/R`, `H2_L/R`, `H2D_L/R` (not headlights: PICKUPH0_L runs from the windshield's base, z 21 y 36, to the nose,
+z 98 y 23; H2 is the same hood buckled up across a crease at z 70, up to y 43). Textures are per damage stage
+(`TRK_D0_1`..`TRK_D1_6`, with `_4` variants). So Rush 2 shows damage by swapping whole panels. For a 2049 car: FRAME1
+= the 2049 body (`CARnFRAME1`), every panel and hood part = an empty display list, and the body dented in place of the
+panels (2049 has no damage of its own).
+
+### Damaged hood [V]
+
+func_8005CFB0 picks the hood halves each frame by panel 0's damage level (mask 0x800CE188[0], shift 0x800CE180[0]):
+node +0xC gets part handle 35 + level (`H0D_L`, `H2D_L`), node +0x10 part 37 + level (`H0D_R`, `H2D_R`), from the
+handle table 0x8010C480 + car * 0x4E. A collision that raises panel 0 to 1 buckles the hood. The 2049 cars and car
+mods are one body, so `body_hood` (src/rush2049/car2049.cpp) marks the body's hood vertices (the top surface of the
+front, z 0.2-0.95 of the half length, no body vertex just above) with a fold weight peaking at a crease 60% of the
+way from the windshield's base to the nose, and `rush2_car49_dent` lifts them by 0.2 of the height times panel 0's
+level. `CARnHOOD` is not a damaged hood: 2049 shows it only in its hood camera (car view struct 0x80152818 + player *
+0x3B8, +0x35D view mode 1 of 0-3, cycled by the view button in func_800EB90C; drawn by func_80093B20 when one player
+races; func_800B200C sets the node up hidden), and hides it otherwise.
 
 ## 6. Car options (part select) plan
 
@@ -84,7 +106,7 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
 
 ## 7. Open questions
 
-1. 2049's denting code (vertex deformation on hits) and where Rush 2 detects hits (its D0/D1/D2 panel swaps).
+1. ~~2049's denting code~~: none exists (§1). Where Rush 2 detects hits (its D0/D1/D2 panel swaps).
 2. Asset 0x1C's contents (car-select previews?) and how the select screen draws them.
 3. How Rush 2 and 2049 paint cars (PRIM/ENV, palettes, texture prefixes 0x800C64C4; 2049's SHEEN pass).
 4. Wheel models and placement.
@@ -101,9 +123,8 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   func_8008A01C). Those sites keep the old base (cartypes.py `ID_EXCLUDE`); relocating them drew the sky model at
   every smoke puff.
 - **Assets.** Each car is converted at boot (`convert_car`, track2049_convert.cpp) into a Rush 2 car container served
-  as asset 0x71 + n: CARnFRAME1 as FRAME1, every other part an empty list. CARnHOOD is not drawn: it is a separate
-  hood piece, off-centre (Rocket ZX: x -41..24), that 2049 doesn't draw on an intact car (the body has its own hood);
-  drawn as the top panel it stuck out of the body. CARnSHEEN (a reflection pass) is left out too. 2049's
+  as asset 0x71 + n: CARnFRAME1 as FRAME1, every other part an empty list. CARnHOOD is not drawn: it is the hood
+  2049's hood camera shows (Damaged hood, above); drawn as the top panel it stuck out of the body. CARnSHEEN (a reflection pass) is left out too. 2049's
   vertex colours are a flat grey that 2049 relights at runtime, so they are set to white; the `TEX0 * SHADE * PRIM`
   combiner loses its PRIM stage (Rush 2 leaves PRIM unset).
 - **Paint.** The game loads each car's own palette (built by func_8008582C from CARPALETTE) as the TLUT of all the
@@ -147,8 +168,8 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   masks 0x800CE188, shifts 0x800CE180; panels FR, FL, RR, RL, top; copied from the physics car's +0x7F4 by
   func_8009A264). Collisions raise a panel to level 1 only (func_8006B730, func_8009A264 and func_800715E8 all stop at
   `slti 2`). A 2049 car instead has its body crushed around each damaged corner (towards the middle, shorter, lower)
-  and its roof pushed down (hook at func_8005CFB0, each race car's per-frame callback), as 2049 dents its single body;
-  repairs restore it.
+  and its roof pushed down (hook at func_8005CFB0, each race car's per-frame callback) (2049 itself shows no damage);
+  panel 0's damage also folds the hood up (Damaged hood, above); repairs restore it.
 - **Computer cars.** func_800A37F4's random drone car (0-15) also draws types 23-35 when the 2049 cars are on.
 - **Damage textures.** Rush 2's damaged panels (D1 models) use its D1 textures: copies of the D0 ones whose paint
   indices are mottled lighter and darker in blotches. func_800843EC builds those names from the per-type prefix

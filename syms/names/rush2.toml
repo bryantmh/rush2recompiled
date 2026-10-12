@@ -4574,12 +4574,12 @@ ref = "us.toml"
 vram = 0x8005CFB0
 name = "car_update_draw_nodes"
 sig = "void car_update_draw_nodes(Node *car_node, s32 a1)"
-desc = "Patched in us.toml. Car preview ids (car select: id = player * 36 + type, was * 22) index the race per-car arrays, which move to 72-entry copies at 0x80218000-0x80221EE8 (tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 36. / Car damage: 2049 cars dent their body instead of swapping panels (src/rush2049/car2049.cpp). | Per-frame callback of each race car (hook point for 2049 car damage denting). Reads car-state +0x344 covered level (level 2 selects a different sound or effect). | Per-frame callback of each race car ($a0 = callback entry, car index at +0xE). Shows damage by swapping panel models (2-bit levels at car +0xE4, masks 0x800CE188, shifts 0x800CE180). Hooked at start to dent 2049 car bodies."
-consts = "0x38 = node size; 0x24A0"
+desc = "Patched in us.toml. Car preview ids (car select: id = player * 36 + type, was * 22) index the race per-car arrays, which move to 72-entry copies at 0x80218000-0x80221EE8 (tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 36. / Car damage: 2049 cars dent their body instead of swapping panels (src/rush2049/car2049.cpp). | Per-frame callback of each race car (hook point for 2049 car damage denting). Reads car-state +0x344 covered level (level 2 selects a different sound or effect). | Per-frame callback of each race car ($a0 = callback entry, car index at +0xE). Shows damage by swapping panel models (2-bit levels at car +0xE4, masks 0x800CE188, shifts 0x800CE180). Hooked at start to dent 2049 car bodies. Hood halves: node +0xC = part 35 + panel 0 level (H0D_L / H2D_L), node +0x10 = part 37 + panel 0 level (H0D_R / H2D_R); H2 is the hood buckled up, so panel 0 damage buckles the hood."
+consts = "0x38 = node size; 0x24A0; 0x46 / 0x4A = handle-table byte offsets of parts 35 / 37 (hood halves)"
 status = "verified"
 ported = true
 area = "car"
-ref = "us.toml"
+ref = "docs/rush2049_research/cars.md#damaged-hood-v"
 
 [[func]]
 vram = 0x8005D890
