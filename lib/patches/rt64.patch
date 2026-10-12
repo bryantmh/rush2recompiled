@@ -1,3 +1,18 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 79dfc38..91f9fb3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -551,6 +551,10 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
+ build_vertex_shader( rt64 "src/shaders/FullScreenVS.hlsl")
+ build_vertex_shader( rt64 "src/shaders/Im3DVS.hlsl")
+ build_pixel_shader(  rt64 "src/shaders/ComposePS.hlsl")
++# Rush 2 recomp: screen space ambient occlusion.
++build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionPS.hlsl")
++build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionPS.hlsl" "src/shaders/AmbientOcclusionPSMS.hlsl" "-D MULTISAMPLING")
++build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionApplyPS.hlsl")
+ build_pixel_shader(  rt64 "src/shaders/DebugPS.hlsl")
+ build_pixel_shader(  rt64 "src/shaders/Im3DPS.hlsl")
+ build_pixel_shader(  rt64 "src/shaders/PostProcessPS.hlsl")
 diff --git a/include/rt64_extended_gbi.h b/include/rt64_extended_gbi.h
 index d387090..f6ddc46 100644
 --- a/include/rt64_extended_gbi.h
@@ -28,24 +43,25 @@ index d387090..f6ddc46 100644
 +
  #endif // RT64_EXTENDED_GBI
 diff --git a/src/common/rt64_enhancement_configuration.cpp b/src/common/rt64_enhancement_configuration.cpp
-index 1194a96..6dd8171 100644
+index 1194a96..5d249a1 100644
 --- a/src/common/rt64_enhancement_configuration.cpp
 +++ b/src/common/rt64_enhancement_configuration.cpp
-@@ -5,6 +5,9 @@
+@@ -5,6 +5,10 @@
  #include "rt64_enhancement_configuration.h"
  
  namespace RT64 {
 +    std::atomic<bool> GeneratedMipmapsEnabled = false;
 +    std::atomic<uint32_t> GeneratedMipmapsAnisotropy = 0;
++    std::atomic<float> AmbientOcclusionStrength = 0.0f;
 +
      // EnhancementConfiguration
      
      EnhancementConfiguration::EnhancementConfiguration() {
 diff --git a/src/common/rt64_enhancement_configuration.h b/src/common/rt64_enhancement_configuration.h
-index 9ac8087..0856d45 100644
+index 9ac8087..a4c7940 100644
 --- a/src/common/rt64_enhancement_configuration.h
 +++ b/src/common/rt64_enhancement_configuration.h
-@@ -4,9 +4,18 @@
+@@ -4,9 +4,22 @@
  
  #pragma once
  
@@ -60,6 +76,10 @@ index 9ac8087..0856d45 100644
 +
 +    // Set by the host application. The most anisotropy those mipmaps are filtered with, as its log2: 0 (none) to 4 (16x).
 +    extern std::atomic<uint32_t> GeneratedMipmapsAnisotropy;
++
++    // Set by the host application. How dark screen space ambient occlusion makes enclosed corners of the 3D scene, 0 (off,
++    // the console's behavior) to 1 (AmbientOcclusionPS.hlsl).
++    extern std::atomic<float> AmbientOcclusionStrength;
 +
      struct EnhancementConfiguration {
          struct Framebuffer {
@@ -588,10 +608,10 @@ index bde2f03..b92a1c4 100644
          int writeCursor;
          int barrierCursor;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..fc985a1 100644
+index 9fae0d4..3309105 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
-@@ -7,6 +7,7 @@
+@@ -7,11 +7,13 @@
  #include "../include/rt64_extended_gbi.h"
  
  #include "common/rt64_elapsed_timer.h"
@@ -599,7 +619,37 @@ index 9fae0d4..fc985a1 100644
  #include "common/rt64_math.h"
  #include "hle/rt64_color_converter.h"
  #include "gbi/rt64_f3d.h"
-@@ -250,6 +251,8 @@ namespace RT64 {
+ #include "shared/rt64_framebuffer_params.h"
+ #include "shared/rt64_raster_params.h"
++#include "shared/rt64_blender.h"
+ 
+ #include "rt64_descriptor_sets.h"
+ #include "rt64_render_worker.h"
+@@ -50,8 +52,14 @@ namespace interop {
+ };
+ 
+ namespace RT64 {
++    // Rush 2 recomp: ambient occlusion distances, in w units. Rush 2's are its vertex units, 1/16 of a
++    // foot (its near plane, 2.5 feet, is w = 40).
++    static const float AmbientOcclusionRadius = 6.0f * 16.0f;
++    static const float AmbientOcclusionFadeStart = 200.0f * 16.0f;
++    static const float AmbientOcclusionFadeEnd = 400.0f * 16.0f;
++
+     // Helper functions.
+-    
++
+     RenderRect convertFixedRect(FixedRect rect, hlslpp::float2 resScale, int32_t fbWidth, float aspectRatioScale, float extOriginPercentage, int32_t horizontalMisalignment, uint16_t leftOrigin, uint16_t rightOrigin) {
+         if (!rect.isNull()) {
+             auto computeOrigin = [=](uint16_t origin) {
+@@ -169,6 +177,7 @@ namespace RT64 {
+     
+     void FramebufferRenderer::resetFramebuffers(RenderWorker *worker, bool ubershadersVisible, float ditherNoiseStrength, const RenderMultisampling &multisampling) {
+         instanceDrawCallVector.clear();
++        occlusionParamsVector.clear();
+         hitGroupVector.clear();
+         renderIndicesVector.clear();
+         rspSmoothNormalVector.clear();
+@@ -250,6 +259,8 @@ namespace RT64 {
                      gpuTile.flags.fromCopy = true;
                      gpuTile.flags.rawTMEM = false;
                      gpuTile.flags.hasMipmaps = false;
@@ -608,7 +658,7 @@ index 9fae0d4..fc985a1 100644
                  }
              }
              else {
-@@ -258,20 +261,29 @@ namespace RT64 {
+@@ -258,20 +269,29 @@ namespace RT64 {
                  bool textureReplaced = false;
                  bool hasMipmaps = false;
                  bool shiftedByHalf = false;
@@ -643,6 +693,244 @@ index 9fae0d4..fc985a1 100644
              }
          }
      }
+@@ -508,14 +528,100 @@ namespace RT64 {
+             }
+         };
+ 
++        // Rush 2 recomp: ambient occlusion. Once the 3D draws that add to it end (at a 2D draw, a clear or the end of the
++        // scene), the first pass reads the depth buffer into the storage's occlusion target, and the second multiplies its
++        // blur into the color target, both over the screen area those draws covered.
++        int32_t pendingOcclusion = -1;
++        RenderRect occlusionRect;
++        auto submitOcclusion = [&]() {
++            const int32_t occlusionIndex = pendingOcclusion;
++            pendingOcclusion = -1;
++            RenderTarget *colorTarget = fbStorage->colorTarget;
++            RenderTarget *depthTarget = fbStorage->depthTarget;
++            if ((occlusionIndex < 0) || (colorTarget == nullptr) || (depthTarget == nullptr)) {
++                return;
++            }
++
++            RenderDevice *device = worker->device;
++            if ((fbStorage->occlusionTexture == nullptr) || (fbStorage->occlusionWidth != colorTarget->width) || (fbStorage->occlusionHeight != colorTarget->height)) {
++                fbStorage->occlusionApplySet.reset();
++                fbStorage->occlusionFramebuffer.reset();
++                fbStorage->occlusionTexture = device->createTexture(RenderTextureDesc::ColorTarget(colorTarget->width, colorTarget->height, RenderFormat::R16G16_FLOAT));
++                const RenderTexture *occlusionTexture = fbStorage->occlusionTexture.get();
++                fbStorage->occlusionFramebuffer = device->createFramebuffer(RenderFramebufferDesc(&occlusionTexture, 1));
++                fbStorage->occlusionApplySet = std::make_unique<TextureCopyDescriptorSet>(device);
++                fbStorage->occlusionApplySet->setTexture(fbStorage->occlusionApplySet->gInput, occlusionTexture, RenderTextureLayout::SHADER_READ);
++                fbStorage->occlusionWidth = colorTarget->width;
++                fbStorage->occlusionHeight = colorTarget->height;
++            }
++
++            if (fbStorage->colorOnly == nullptr) {
++                const RenderTexture *colorTexture = colorTarget->texture.get();
++                fbStorage->colorOnly = device->createFramebuffer(RenderFramebufferDesc(&colorTexture, 1));
++            }
++
++            if (fbStorage->occlusionDepthSet == nullptr) {
++                fbStorage->occlusionDepthSet = std::make_unique<TextureCopyDescriptorSet>(device);
++                fbStorage->occlusionDepthSet->setTexture(fbStorage->occlusionDepthSet->gInput, depthTarget->texture.get(), RenderTextureLayout::DEPTH_READ, depthTarget->textureView.get());
++            }
++
++            const RenderRect rect(std::max(occlusionRect.left, 0), std::max(occlusionRect.top, 0),
++                std::min(occlusionRect.right, int32_t(colorTarget->width)), std::min(occlusionRect.bottom, int32_t(colorTarget->height)));
++            if (rect.isEmpty()) {
++                return;
++            }
++
++            const interop::AmbientOcclusionCB &occlusionCB = occlusionParamsVector[occlusionIndex];
++            const RenderViewport targetViewport(0.0f, 0.0f, float(colorTarget->width), float(colorTarget->height));
++            const bool depthMS = (depthTarget->multisampling.sampleCount > 1);
++            const ShaderRecord &occlusionShader = depthMS ? shaderLibrary->ambientOcclusionMS : shaderLibrary->ambientOcclusion;
++            const ShaderRecord &applyShader = shaderLibrary->ambientOcclusionApply;
++            submitDepthAccess(worker, fbStorage, true, depthState);
++            worker->commandList->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(fbStorage->occlusionTexture.get(), RenderTextureLayout::COLOR_WRITE));
++            worker->commandList->setFramebuffer(fbStorage->occlusionFramebuffer.get());
++            worker->commandList->setViewports(targetViewport);
++            worker->commandList->setScissors(rect);
++            worker->commandList->setPipeline(occlusionShader.pipeline.get());
++            worker->commandList->setGraphicsPipelineLayout(occlusionShader.pipelineLayout.get());
++            worker->commandList->setGraphicsDescriptorSet(fbStorage->occlusionDepthSet->get(), 0);
++            worker->commandList->setGraphicsPushConstants(0, &occlusionCB);
++            worker->commandList->setVertexBuffers(0, nullptr, 0, nullptr);
++            worker->commandList->drawInstanced(3, 1, 0, 0);
++
++            worker->commandList->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(fbStorage->occlusionTexture.get(), RenderTextureLayout::SHADER_READ));
++            worker->commandList->setFramebuffer(fbStorage->colorOnly.get());
++            worker->commandList->setViewports(targetViewport);
++            worker->commandList->setScissors(rect);
++            worker->commandList->setPipeline(applyShader.pipeline.get());
++            worker->commandList->setGraphicsPipelineLayout(applyShader.pipelineLayout.get());
++            worker->commandList->setGraphicsDescriptorSet(fbStorage->occlusionApplySet->get(), 0);
++            worker->commandList->setGraphicsPushConstants(0, &occlusionCB);
++            worker->commandList->drawInstanced(3, 1, 0, 0);
++
++            // Back to the scene's framebuffer, with the depth buffer still read only.
++            worker->commandList->setFramebuffer(fbStorage->colorWriteDepthRead.get());
++            switchToGraphicsPipeline();
++        };
++
+         if (fbStorage->colorTarget != nullptr) {
+             switchToGraphicsPipeline();
+         }
+-        
++
+         for (uint32_t i : rasterScene.instanceIndices) {
+             const InstanceDrawCall &drawCall = instanceDrawCallVector[i];
++            if (pendingOcclusion >= 0) {
++                const bool endsOcclusion =
++                    ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && !drawCall.triangles.perspective) ||
++                    (drawCall.type == InstanceDrawCall::Type::RawTriangles) ||
++                    (drawCall.type == InstanceDrawCall::Type::RegularRect) ||
++                    (drawCall.type == InstanceDrawCall::Type::FillRect);
++                if (endsOcclusion) {
++                    submitOcclusion();
++                }
++            }
++
+             switch (drawCall.type) {
+-            case InstanceDrawCall::Type::IndexedTriangles: 
++            case InstanceDrawCall::Type::IndexedTriangles:
+             case InstanceDrawCall::Type::RawTriangles:
+             case InstanceDrawCall::Type::RegularRect: {
+                 assert(fbStorage->colorTarget != nullptr);
+@@ -578,6 +684,20 @@ namespace RT64 {
+ 
+                 drawCallTriangles(drawCall);
+ 
++                if (triangles.occlusionIndex >= 0) {
++                    if (pendingOcclusion < 0) {
++                        occlusionRect = triangles.scissor;
++                    }
++                    else {
++                        occlusionRect.left = std::min(occlusionRect.left, triangles.scissor.left);
++                        occlusionRect.top = std::min(occlusionRect.top, triangles.scissor.top);
++                        occlusionRect.right = std::max(occlusionRect.right, triangles.scissor.right);
++                        occlusionRect.bottom = std::max(occlusionRect.bottom, triangles.scissor.bottom);
++                    }
++
++                    pendingOcclusion = triangles.occlusionIndex;
++                }
++
+                 // Simulate dither noise.
+                 if (triangles.postBlendDitherNoise) {
+                     if (triangles.postBlendDitherNoiseNegative) {
+@@ -638,6 +758,8 @@ namespace RT64 {
+             }
+         }
+ 
++        submitOcclusion();
++
+         // Mark targets for resolve.
+         if (fbStorage->colorTarget != nullptr) {
+             fbStorage->colorTarget->markForResolve();
+@@ -1506,6 +1628,52 @@ namespace RT64 {
+                 viewportClip = convertViewportRect(viewport.rect(viewportClipRatios), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
+             }
+ 
++            // Rush 2 recomp: what ambient occlusion needs from a perspective projection. Its clip z is
++            // c * w + e (the view only moves and turns things), so a depth buffer value d is translate + scale * (c + e / w)
++            // and w = depthB / (d - depthA). The ratio of its y and w columns' lengths is the y / w that reaches the
++            // viewport's edge.
++            const bool perspectiveProj = (proj.type == Projection::Type::Perspective) && proj.usesViewport() && (p.fbStorage->depthTarget != nullptr);
++            float projDepthA = 0.0f;
++            float projDepthB = 0.0f;
++            int32_t projOcclusionIndex = -1;
++            const float occlusionStrength = AmbientOcclusionStrength;
++            if (perspectiveProj) {
++                const interop::float4x4 &viewProj = drawData.viewProjTransforms[proj.transformsIndex];
++                const interop::RSPViewport &viewport = drawData.rspViewports[proj.transformsIndex];
++                uint32_t wRow = 0;
++                for (uint32_t r = 1; r < 3; r++) {
++                    if (std::abs(viewProj[r][3]) > std::abs(viewProj[wRow][3])) {
++                        wRow = r;
++                    }
++                }
++
++                const float c = viewProj[wRow][2] / viewProj[wRow][3];
++                const float e = viewProj[3][2] - c * viewProj[3][3];
++                projDepthA = viewport.translate.z + viewport.scale.z * c;
++                projDepthB = viewport.scale.z * e;
++
++                if ((occlusionStrength > 0.0f) && (projDepthB != 0.0f)) {
++                    const float yLength = std::sqrt(viewProj[0][1] * viewProj[0][1] + viewProj[1][1] * viewProj[1][1] + viewProj[2][1] * viewProj[2][1]);
++                    const float wLength = std::sqrt(viewProj[0][3] * viewProj[0][3] + viewProj[1][3] * viewProj[1][3] + viewProj[2][3] * viewProj[2][3]);
++                    const int16_t viewportEdges[4] = { 1, 1, -1, -1 };
++                    const RenderViewport viewportRect = convertViewportRect(viewport.rect(viewportEdges), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
++                    interop::AmbientOcclusionCB occlusion = {};
++                    occlusion.depthA = projDepthA;
++                    occlusion.depthB = projDepthB;
++                    occlusion.focal.y = (wLength > 0.0f) ? (yLength / wLength) * (viewportRect.height / 2.0f) : 0.0f;
++                    occlusion.focal.x = occlusion.focal.y;
++                    occlusion.center = { viewportRect.x + viewportRect.width / 2.0f, viewportRect.y + viewportRect.height / 2.0f };
++                    occlusion.radius = AmbientOcclusionRadius;
++                    occlusion.fadeStart = AmbientOcclusionFadeStart;
++                    occlusion.fadeEnd = AmbientOcclusionFadeEnd;
++                    occlusion.strength = std::min(occlusionStrength, 1.0f);
++                    if (occlusion.focal.y > 0.0f) {
++                        projOcclusionIndex = int32_t(occlusionParamsVector.size());
++                        occlusionParamsVector.push_back(occlusion);
++                    }
++                }
++            }
++
+             for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
+                 const GameCall &call = proj.gameCalls[d];
+                 renderIndices.instanceIndex = call.callDesc.callIndex;
+@@ -1623,6 +1791,16 @@ namespace RT64 {
+                         triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
+                         triangles.postBlendDitherNoise = false;
+ 
++                        // Rush 2 recomp: opaque 3D draws that write depth are what ambient occlusion darkens.
++                        const interop::OtherMode &callOtherMode = call.shaderDesc.otherMode;
++                        const bool callCopyMode = (callOtherMode.cycleType() == G_CYC_COPY);
++                        triangles.perspective = perspectiveProj;
++                        triangles.occlusionIndex = -1;
++                        if (perspectiveProj && !callCopyMode && (callOtherMode.zMode() != ZMODE_DEC) && callOtherMode.zUpd() &&
++                            !interop::Blender::usesAlphaBlend(callOtherMode)) {
++                            triangles.occlusionIndex = projOcclusionIndex;
++                        }
++
+                         float invRatioScale = 1.0f / aspectRatioScale;
+                         float horizontalMisalignment = 0.0f;
+                         switch (proj.type) {
+diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
+index 3add9c3..79d5801 100644
+--- a/src/render/rt64_framebuffer_renderer.h
++++ b/src/render/rt64_framebuffer_renderer.h
+@@ -11,6 +11,7 @@
+ #include "hle/rt64_framebuffer_manager.h"
+ #include "hle/rt64_workload.h"
+ #include "preset/rt64_preset_scene.h"
++#include "shared/rt64_ambient_occlusion.h"
+ #include "shared/rt64_frame_params.h"
+ #include "shared/rt64_gpu_tile.h"
+ #include "shared/rt64_render_indices.h"
+@@ -67,6 +68,7 @@ namespace RT64 {
+         uint32_t textureCacheGlobalVersion = 0;
+         bool textureCacheReplacementMapEnabled = false;
+         std::vector<InstanceDrawCall> instanceDrawCallVector;
++        std::vector<interop::AmbientOcclusionCB> occlusionParamsVector; // Rush 2 recomp.
+         std::vector<RenderPipelineProgram> hitGroupVector;
+         std::vector<interop::RenderIndices> renderIndicesVector;
+         std::vector<DynamicTextureView> dynamicTextureViewVector;
+diff --git a/src/render/rt64_framebuffer_renderer_call.h b/src/render/rt64_framebuffer_renderer_call.h
+index f2eee70..b59b60b 100644
+--- a/src/render/rt64_framebuffer_renderer_call.h
++++ b/src/render/rt64_framebuffer_renderer_call.h
+@@ -41,6 +41,10 @@ namespace RT64 {
+                 bool vertexTestZ : 1;
+                 bool postBlendDitherNoise : 1;
+                 bool postBlendDitherNoiseNegative : 1;
++                // Rush 2 recomp: drawn with a perspective projection; the ambient occlusion parameters this draw adds to
++                // (FramebufferRenderer::occlusionParamsVector), or -1.
++                bool perspective : 1;
++                int32_t occlusionIndex;
+             } triangles;
+ 
+             struct {
 diff --git a/src/render/rt64_raster_shader.cpp b/src/render/rt64_raster_shader.cpp
 index 721a01e..8a4a1bb 100644
 --- a/src/render/rt64_raster_shader.cpp
@@ -677,11 +965,77 @@ index 721a01e..8a4a1bb 100644
              "}";
  
          return { vss.str(), pss.str() };
+diff --git a/src/render/rt64_render_target_manager.h b/src/render/rt64_render_target_manager.h
+index 7368711..249ced4 100644
+--- a/src/render/rt64_render_target_manager.h
++++ b/src/render/rt64_render_target_manager.h
+@@ -9,6 +9,7 @@
+ #include "common/rt64_common.h"
+ #include "hle/rt64_framebuffer.h"
+ 
++#include "rt64_descriptor_sets.h"
+ #include "rt64_render_target.h"
+ 
+ namespace RT64 {
+@@ -56,6 +57,15 @@ namespace RT64 {
+         uint64_t colorTargetRevision = 0;
+         uint64_t depthTargetRevision = 0;
+ 
++        // Rush 2 recomp: screen space ambient occlusion (FramebufferRenderer::submitRasterScene), made when first used.
++        std::unique_ptr<RenderTexture> occlusionTexture;
++        std::unique_ptr<RenderFramebuffer> occlusionFramebuffer;
++        std::unique_ptr<RenderFramebuffer> colorOnly;
++        std::unique_ptr<TextureCopyDescriptorSet> occlusionDepthSet;
++        std::unique_ptr<TextureCopyDescriptorSet> occlusionApplySet;
++        uint32_t occlusionWidth = 0;
++        uint32_t occlusionHeight = 0;
++
+         void setup(RenderDevice *device, const RenderFramebufferKey &framebufferKey, RenderTarget *colorTarget, RenderTarget *depthTarget);
+     };
+ 
 diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
-index d1c5273..38d9cf0 100644
+index d1c5273..ea63659 100644
 --- a/src/render/rt64_shader_library.cpp
 +++ b/src/render/rt64_shader_library.cpp
-@@ -573,7 +573,7 @@ namespace RT64 {
+@@ -5,6 +5,7 @@
+ #include "rt64_shader_library.h"
+ 
+ #include "common/rt64_common.h"
++#include "shared/rt64_ambient_occlusion.h"
+ #include "shared/rt64_render_target_copy.h"
+ #include "shared/rt64_rsp_vertex_test_z.h"
+ 
+@@ -49,6 +50,9 @@
+ #include "shaders/FullScreenVS.hlsl.spirv.h"
+ #include "shaders/Im3DVS.hlsl.spirv.h"
+ #include "shaders/ComposePS.hlsl.spirv.h"
++#include "shaders/AmbientOcclusionPS.hlsl.spirv.h"
++#include "shaders/AmbientOcclusionPSMS.hlsl.spirv.h"
++#include "shaders/AmbientOcclusionApplyPS.hlsl.spirv.h"
+ #include "shaders/DebugPS.hlsl.spirv.h"
+ #include "shaders/Im3DPS.hlsl.spirv.h"
+ #include "shaders/PostProcessPS.hlsl.spirv.h"
+@@ -95,6 +99,9 @@
+ #   include "shaders/FullScreenVS.hlsl.dxil.h"
+ #   include "shaders/Im3DVS.hlsl.dxil.h"
+ #   include "shaders/ComposePS.hlsl.dxil.h"
++#   include "shaders/AmbientOcclusionPS.hlsl.dxil.h"
++#   include "shaders/AmbientOcclusionPSMS.hlsl.dxil.h"
++#   include "shaders/AmbientOcclusionApplyPS.hlsl.dxil.h"
+ #   include "shaders/DebugPS.hlsl.dxil.h"
+ #   include "shaders/Im3DPS.hlsl.dxil.h"
+ #   include "shaders/PostProcessPS.hlsl.dxil.h"
+@@ -140,6 +147,9 @@
+ #   include "shaders/FullScreenVS.hlsl.metal.h"
+ #   include "shaders/Im3DVS.hlsl.metal.h"
+ #   include "shaders/ComposePS.hlsl.metal.h"
++#   include "shaders/AmbientOcclusionPS.hlsl.metal.h"
++#   include "shaders/AmbientOcclusionPSMS.hlsl.metal.h"
++#   include "shaders/AmbientOcclusionApplyPS.hlsl.metal.h"
+ #   include "shaders/DebugPS.hlsl.metal.h"
+ #   include "shaders/Im3DPS.hlsl.metal.h"
+ #   include "shaders/PostProcessPS.hlsl.metal.h"
+@@ -573,7 +583,7 @@ namespace RT64 {
          {
              TextureDecodeDescriptorSet descriptorSet;
              layoutBuilder.begin();
@@ -690,6 +1044,74 @@ index d1c5273..38d9cf0 100644
              layoutBuilder.addDescriptorSet(descriptorSet);
              layoutBuilder.end();
              textureDecode.pipelineLayout = layoutBuilder.create(device);
+@@ -851,7 +861,52 @@ namespace RT64 {
+             pipelineDesc.multisampling = multisampling;
+             postProcess.pipeline = device->createGraphicsPipeline(pipelineDesc);
+         }
+-        
++
++        // Rush 2 recomp: screen space ambient occlusion. The first pass reads the depth target and writes the occlusion
++        // and w to a single-sampled half-float target; the second multiplies its blur into the color target's RGB.
++        {
++            TextureCopyDescriptorSet descriptorSet;
++            layoutBuilder.begin();
++            layoutBuilder.addPushConstant(0, 0, sizeof(interop::AmbientOcclusionCB), RenderShaderStageFlag::PIXEL);
++            layoutBuilder.addDescriptorSet(descriptorSet);
++            layoutBuilder.end();
++            ambientOcclusion.pipelineLayout = layoutBuilder.create(device);
++            ambientOcclusionMS.pipelineLayout = layoutBuilder.create(device);
++            ambientOcclusionApply.pipelineLayout = layoutBuilder.create(device);
++
++            std::unique_ptr<RenderShader> occlusionShader = device->createShader(CREATE_SHADER_INPUTS(AmbientOcclusionPSBlobDXIL, AmbientOcclusionPSBlobSPIRV, AmbientOcclusionPSBlobMSL, "PSMain", shaderFormat));
++            std::unique_ptr<RenderShader> occlusionMSShader = device->createShader(CREATE_SHADER_INPUTS(AmbientOcclusionPSMSBlobDXIL, AmbientOcclusionPSMSBlobSPIRV, AmbientOcclusionPSMSBlobMSL, "PSMain", shaderFormat));
++            std::unique_ptr<RenderShader> applyShader = device->createShader(CREATE_SHADER_INPUTS(AmbientOcclusionApplyPSBlobDXIL, AmbientOcclusionApplyPSBlobSPIRV, AmbientOcclusionApplyPSBlobMSL, "PSMain", shaderFormat));
++            RenderGraphicsPipelineDesc pipelineDesc;
++            pipelineDesc.renderTargetBlend[0] = RenderBlendDesc::Copy();
++            pipelineDesc.renderTargetFormat[0] = RenderFormat::R16G16_FLOAT;
++            pipelineDesc.renderTargetCount = 1;
++            pipelineDesc.vertexShader = fullScreenVertexShader.get();
++            pipelineDesc.pipelineLayout = ambientOcclusion.pipelineLayout.get();
++            pipelineDesc.pixelShader = occlusionShader.get();
++            ambientOcclusion.pipeline = device->createGraphicsPipeline(pipelineDesc);
++
++            pipelineDesc.pipelineLayout = ambientOcclusionMS.pipelineLayout.get();
++            pipelineDesc.pixelShader = occlusionMSShader.get();
++            ambientOcclusionMS.pipeline = device->createGraphicsPipeline(pipelineDesc);
++
++            RenderBlendDesc multiplyBlend;
++            multiplyBlend.blendEnabled = true;
++            multiplyBlend.srcBlend = RenderBlend::ZERO;
++            multiplyBlend.dstBlend = RenderBlend::SRC_COLOR;
++            multiplyBlend.blendOp = RenderBlendOperation::ADD;
++            multiplyBlend.srcBlendAlpha = RenderBlend::ZERO;
++            multiplyBlend.dstBlendAlpha = RenderBlend::ONE;
++            multiplyBlend.blendOpAlpha = RenderBlendOperation::ADD;
++            multiplyBlend.renderTargetWriteMask = uint8_t(RenderColorWriteEnable::RED) | uint8_t(RenderColorWriteEnable::GREEN) | uint8_t(RenderColorWriteEnable::BLUE);
++            pipelineDesc.renderTargetBlend[0] = multiplyBlend;
++            pipelineDesc.renderTargetFormat[0] = RenderTarget::colorBufferFormat(usesHDR);
++            pipelineDesc.pipelineLayout = ambientOcclusionApply.pipelineLayout.get();
++            pipelineDesc.pixelShader = applyShader.get();
++            pipelineDesc.multisampling = multisampling;
++            ambientOcclusionApply.pipeline = device->createGraphicsPipeline(pipelineDesc);
++        }
++
+         // Raytracing debug.
+         {
+             FramebufferRendererDescriptorCommonSet descriptorCommonSet(samplerLibrary, deviceCapabilities.raytracing);
+diff --git a/src/render/rt64_shader_library.h b/src/render/rt64_shader_library.h
+index 641f3ec..11a56e0 100644
+--- a/src/render/rt64_shader_library.h
++++ b/src/render/rt64_shader_library.h
+@@ -18,6 +18,9 @@ namespace RT64 {
+         bool usesHardwareResolve = false;
+ 
+         // All shaders.
++        ShaderRecord ambientOcclusion;
++        ShaderRecord ambientOcclusionMS;
++        ShaderRecord ambientOcclusionApply;
+         ShaderRecord bicubicScaling;
+         ShaderRecord boxFilter;
+         ShaderRecord compose;
 diff --git a/src/render/rt64_texture.h b/src/render/rt64_texture.h
 index 95618bc..984759e 100644
 --- a/src/render/rt64_texture.h
@@ -1542,6 +1964,167 @@ index 9131697..f6eb2f7 100644
          void clearReplacementDirectories();
          void reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash = 0);
          bool loadReplacementDirectory(const ReplacementDirectory &replacementDirectory);
+diff --git a/src/shaders/AmbientOcclusionApplyPS.hlsl b/src/shaders/AmbientOcclusionApplyPS.hlsl
+new file mode 100644
+index 0000000..d593ec5
+--- /dev/null
++++ b/src/shaders/AmbientOcclusionApplyPS.hlsl
+@@ -0,0 +1,39 @@
++//
++// RT64
++//
++
++// Rush 2 recomp: screen space ambient occlusion, second pass. Averages the first pass (AmbientOcclusionPS.hlsl) over
++// 4x4 pixels, which holds each of its turns once, skipping pixels at other depths so the occlusion doesn't bleed across
++// edges, and returns it for the pipeline to multiply into the color target.
++
++#include "shared/rt64_ambient_occlusion.h"
++
++[[vk::push_constant]] ConstantBuffer<AmbientOcclusionCB> gConstants : register(b0);
++
++Texture2D<float2> gOcclusion : register(t1);
++
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
++    uint width, height;
++    gOcclusion.GetDimensions(width, height);
++    const int2 maxPixel = int2(width, height) - 1;
++    const int2 pixel = clamp(int2(pos.xy), int2(0, 0), maxPixel);
++    const float2 here = gOcclusion.Load(int3(pixel, 0));
++    if (here.y >= gConstants.fadeEnd) {
++        return float4(1.0f, 1.0f, 1.0f, 1.0f);
++    }
++
++    const float tolerance = here.y * 0.04f + 0.01f;
++    float sum = 0.0f;
++    float weights = 0.0f;
++    for (int y = -2; y < 2; y++) {
++        for (int x = -2; x < 2; x++) {
++            const float2 s = gOcclusion.Load(int3(clamp(pixel + int2(x, y), int2(0, 0), maxPixel), 0));
++            const float weight = saturate(1.0f - abs(s.y - here.y) / tolerance);
++            sum += s.x * weight;
++            weights += weight;
++        }
++    }
++
++    const float ambient = (weights > 0.0f) ? (sum / weights) : here.x;
++    return float4(ambient, ambient, ambient, 1.0f);
++}
+diff --git a/src/shaders/AmbientOcclusionPS.hlsl b/src/shaders/AmbientOcclusionPS.hlsl
+new file mode 100644
+index 0000000..74862a7
+--- /dev/null
++++ b/src/shaders/AmbientOcclusionPS.hlsl
+@@ -0,0 +1,110 @@
++//
++// RT64
++//
++
++// Rush 2 recomp: screen space ambient occlusion, first pass. From the depth buffer, writes each pixel's ambient light
++// (1 open, 0 enclosed) and its w to a half-float target that AmbientOcclusionApplyPS.hlsl blurs and multiplies into the
++// color target. Each pixel tests 12 points on a disc around it, turned by its place in a 4x4 tile, so the 4x4 blur of
++// the second pass averages every turn.
++
++#include "shared/rt64_ambient_occlusion.h"
++
++[[vk::push_constant]] ConstantBuffer<AmbientOcclusionCB> gConstants : register(b0);
++
++#ifdef MULTISAMPLING
++Texture2DMS<float> gDepth : register(t1);
++#else
++Texture2D<float> gDepth : register(t1);
++#endif
++
++static const uint SampleCount = 12;
++static const float BackgroundW = 65504.0f; // The largest half float.
++
++int2 depthSize() {
++    uint width, height;
++#ifdef MULTISAMPLING
++    uint samples;
++    gDepth.GetDimensions(width, height, samples);
++#else
++    gDepth.GetDimensions(width, height);
++#endif
++    return int2(width, height);
++}
++
++// The w of the depth at a pixel, or BackgroundW where nothing was drawn.
++float loadW(int2 pixel, int2 size) {
++    pixel = clamp(pixel, int2(0, 0), size - 1);
++#ifdef MULTISAMPLING
++    const float depth = gDepth.Load(pixel, 0);
++#else
++    const float depth = gDepth.Load(int3(pixel, 0));
++#endif
++    if (depth >= 0.99999f) {
++        return BackgroundW;
++    }
++
++    const float w = gConstants.depthB / (depth - gConstants.depthA);
++    return (w > 0.0f) ? min(w, BackgroundW) : BackgroundW;
++}
++
++float3 viewPosition(float2 pixel, float w) {
++    return float3((pixel - gConstants.center) / gConstants.focal, 1.0f) * w;
++}
++
++float2 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
++    const int2 size = depthSize();
++    const int2 pixel = int2(pos.xy);
++    const float w = loadW(pixel, size);
++    if (w >= gConstants.fadeEnd) {
++        return float2(1.0f, w);
++    }
++
++    // The surface's normal from its neighbors, taking each axis from the side nearer in depth so edges stay sharp.
++    const float2 center = float2(pixel) + 0.5f;
++    const float3 p = viewPosition(center, w);
++    const float3 left = viewPosition(center - float2(1.0f, 0.0f), loadW(pixel - int2(1, 0), size));
++    const float3 right = viewPosition(center + float2(1.0f, 0.0f), loadW(pixel + int2(1, 0), size));
++    const float3 up = viewPosition(center - float2(0.0f, 1.0f), loadW(pixel - int2(0, 1), size));
++    const float3 down = viewPosition(center + float2(0.0f, 1.0f), loadW(pixel + int2(0, 1), size));
++    const float3 dx = (abs(right.z - p.z) < abs(p.z - left.z)) ? (right - p) : (p - left);
++    const float3 dy = (abs(down.z - p.z) < abs(p.z - up.z)) ? (down - p) : (p - up);
++    float3 normal = normalize(cross(dx, dy));
++    if (dot(normal, p) > 0.0f) {
++        normal = -normal;
++    }
++
++    // The disc's radius on screen. Too small to see is left open.
++    const float radiusPixels = gConstants.radius * gConstants.focal.y / w;
++    if (radiusPixels < 1.0f) {
++        return float2(1.0f, w);
++    }
++
++    // The 4x4 ordered dither index turns the disc.
++    const uint bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
++    const uint tileIndex = bayer[(pixel.y & 3) * 4 + (pixel.x & 3)];
++    const float turn = (float(tileIndex) + 0.5f) / 16.0f * 6.2831853f;
++    const float radiusSquared = gConstants.radius * gConstants.radius;
++    const float bias = 0.25f; // Ignores gentle folds, like where two slopes of a road meet.
++    float occlusion = 0.0f;
++    for (uint i = 0; i < SampleCount; i++) {
++        const float t = (float(i) + 0.5f) / float(SampleCount);
++        const float angle = turn + float(i) * 2.3999632f;
++        const float2 offset = float2(cos(angle), sin(angle)) * (radiusPixels * t);
++        const int2 samplePixel = int2(floor(center + offset));
++        const float sampleW = loadW(samplePixel, size);
++        const float3 v = viewPosition(float2(samplePixel) + 0.5f, sampleW) - p;
++        const float vv = dot(v, v);
++        if ((sampleW >= BackgroundW) || (vv < 1e-8f)) {
++            continue;
++        }
++
++        const float cosine = dot(v, normal) * rsqrt(vv);
++        const float falloff = saturate(1.0f - vv / radiusSquared);
++        occlusion += max(cosine - bias, 0.0f) * falloff;
++    }
++
++    float ambient = 1.0f - saturate(occlusion * 4.0f / float(SampleCount)) * gConstants.strength;
++    const float fade = saturate((gConstants.fadeEnd - w) / max(gConstants.fadeEnd - gConstants.fadeStart, 1e-3f));
++    ambient = lerp(1.0f, ambient, fade);
++    return float2(ambient, w);
++}
 diff --git a/src/shaders/RasterPS.hlsl b/src/shaders/RasterPS.hlsl
 index e7895c3..5f2454e 100644
 --- a/src/shaders/RasterPS.hlsl
@@ -1944,6 +2527,41 @@ index 1ceb2ce..069d113 100644
      
      // Alpha channel in framebuffer textures represent the coverage. A modulo operation must be performed
      // to get the value that would correspond to the alpha channel when it's sampled.
+diff --git a/src/shared/rt64_ambient_occlusion.h b/src/shared/rt64_ambient_occlusion.h
+new file mode 100644
+index 0000000..72efb10
+--- /dev/null
++++ b/src/shared/rt64_ambient_occlusion.h
+@@ -0,0 +1,29 @@
++//
++// RT64
++//
++
++#pragma once
++
++#include "shared/rt64_hlsl.h"
++
++#ifdef HLSL_CPU
++namespace interop {
++#endif
++    // Rush 2 recomp: screen space ambient occlusion (AmbientOcclusionPS.hlsl, AmbientOcclusionApplyPS.hlsl).
++    struct AmbientOcclusionCB {
++        // Depth buffer value d to w: w = depthB / (d - depthA).
++        float depthA;
++        float depthB;
++        // Pixels per unit of x / w and y / w, and the pixel the view looks through.
++        float2 focal;
++        float2 center;
++        // Reach of the occlusion and the distance it fades out over, in w units, and how dark it gets (0 to 1).
++        float radius;
++        float fadeStart;
++        float fadeEnd;
++        float strength;
++        uint2 padding;
++    };
++#ifdef HLSL_CPU
++};
++#endif
 diff --git a/src/shared/rt64_gpu_tile.h b/src/shared/rt64_gpu_tile.h
 index 4548f15..6b4e4f8 100644
 --- a/src/shared/rt64_gpu_tile.h

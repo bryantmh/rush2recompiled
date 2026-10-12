@@ -22,6 +22,7 @@
 #include "track1.h"
 #include "track2049.h"
 #include "collectibles.h"
+#include "elements/ui_modal.h"
 #include "options_page.h"
 #include "texture_upscale.h"
 #include "wings.h"
@@ -342,6 +343,42 @@ static void add_anisotropy_option(recomp::config::Config& config) {
         });
 }
 
+namespace ambient_occlusion_option {
+    const std::string id = "ambient_occlusion";
+    enum class AmbientOcclusion : uint32_t { Off, Low, Medium, High };
+
+    float strength(recomp::config::ConfigValueVariant value) {
+        static const float strengths[] = { 0.0f, 0.35f, 0.6f, 0.85f };
+        return strengths[std::min(std::get<uint32_t>(value), 3u)];
+    }
+}
+
+// Ambient occlusion: darkens the 3D scene's corners and creases from the depth buffer (screen space ambient
+// occlusion). A change to RT64, kept in lib/patches/rt64.patch (AmbientOcclusionPS.hlsl, docs/graphics_effects.md).
+static void add_ambient_occlusion_option(recomp::config::Config& config) {
+    using ambient_occlusion_option::AmbientOcclusion;
+
+    config.add_enum_option(
+        ambient_occlusion_option::id,
+        "Ambient Occlusion",
+        "Shades corners, creases and the ground under walls and barriers, the way less light reaches them, which "
+        "gives the scenery more depth. Higher settings shade more. <recomp-color primary>Off</recomp-color> matches "
+        "the original game.",
+        {
+            { AmbientOcclusion::Off, "Off", "Off" },
+            { AmbientOcclusion::Low, "Low", "Low" },
+            { AmbientOcclusion::Medium, "Medium", "Medium" },
+            { AmbientOcclusion::High, "High", "High" },
+        },
+        AmbientOcclusion::Off
+    );
+
+    config.add_option_change_callback(ambient_occlusion_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            RT64::AmbientOcclusionStrength = ambient_occlusion_option::strength(cur_value);
+        });
+}
+
 namespace ghost_option {
     const std::string id = "save_ghosts";
     enum class SaveGhosts : uint32_t { Off, On };
@@ -505,6 +542,27 @@ static void add_pause_extras_option(recomp::config::Config& config) {
         });
 }
 
+namespace menu_background_option {
+    const std::string id = "transparent_menu";
+}
+
+// Transparent menu: clears the menu's dark backdrop so the game shows through while settings change
+// (lib/RecompFrontend ui_modal.cpp, Modal::set_transparent_background).
+static void add_menu_background_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        menu_background_option::id,
+        "Transparent Menu",
+        "Removes the dark backdrop behind this menu so you can see the game while you change settings. "
+        "Takes effect at once.",
+        false
+    );
+
+    config.add_option_change_callback(menu_background_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            recompui::Modal::set_transparent_background(std::get<bool>(cur_value));
+        });
+}
+
 namespace data_location_option {
     const std::string id = "data_location";
     enum class DataLocation : uint32_t { AppData, Portable };
@@ -563,7 +621,7 @@ void rush2::init_config() {
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id,
                             catch_up_option::id, pause_extras_option::id, ghost_option::id, ghosts_kept_option::id } },
-            { "System", { general::options::background_input_mode, data_location_option::id } },
+            { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
         }, nullptr, {
             { "Gameplay", [](rush2::ui::OptionsPage* page) {
                 rush2::npc_cars::add_section(page->get_list(), page->text_shower(rush2::npc_cars::description));
@@ -574,6 +632,7 @@ void rush2::init_config() {
             { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ds_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
+            { "Effects", { ambient_occlusion_option::id } },
             { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::mode_option_id,
                             rush2::upscale::command_option_id, rush2::upscale::interface_option_id,
                             rush2::upscale::car_colors_option_id } },
@@ -593,6 +652,7 @@ void rush2::init_config() {
     add_stunt_gear_option(general_config);
     add_catch_up_option(general_config);
     add_pause_extras_option(general_config);
+    add_menu_background_option(general_config);
     add_data_location_option(general_config);
 
     auto& graphics_config = recompui::config::create_graphics_tab();
@@ -602,6 +662,7 @@ void rush2::init_config() {
     add_font_option(graphics_config);
     add_mipmap_option(graphics_config);
     add_anisotropy_option(graphics_config);
+    add_ambient_occlusion_option(graphics_config);
     add_split_option(graphics_config);
     rush2::upscale::add_options(graphics_config);
     recompui::config::set_tab_visible(recompui::config::general::id, false);
@@ -632,6 +693,8 @@ void rush2::init_config() {
         std::get<uint32_t>(loaded_graphics_config.get_option_value(mipmap_option::id))) == mipmap_option::Mipmaps::Smooth;
     RT64::GeneratedMipmapsAnisotropy = std::min(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(anisotropy_option::id)), 4u);
+    RT64::AmbientOcclusionStrength = ambient_occlusion_option::strength(
+        loaded_graphics_config.get_option_value(ambient_occlusion_option::id));
     rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
     rush2::upscale::apply_loaded_options(loaded_graphics_config);
@@ -651,6 +714,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(stunt_gear_option::id)));
     rush2::npc_cars::set_catch_up(std::get<bool>(
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
+    recompui::Modal::set_transparent_background(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(menu_background_option::id)));
     rush2::pause_menu::set_enabled(std::get<bool>(
         recompui::config::get_general_config().get_option_value(pause_extras_option::id)));
     rush2::input::load_players();

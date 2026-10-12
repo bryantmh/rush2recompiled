@@ -21,3 +21,6 @@ Controller navigation must reach and show everything in a settings page. A row h
 Data the game derives from the ROMs at run time (converted tracks, built car decals and the like) must be cached on disk and reused, not rebuilt every boot. Key the cache on its inputs and the build so a new ROM or build rebuilds it once
 
 RecompUI settings need to be hot-swappable or clearly labeled that they are not
+
+Never assume the saved car or track is the current car or track. They change all the time. Set the ones you want manually
+An ingame run takes a long time. Don't waste time doing one if the answer can easily be found outside the game, or wate time by doing runs piecemeal

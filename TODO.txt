@@ -29,4 +29,4 @@ General:
 6) Texture filtering option ("uglymode"): point sampling through an RT64 patch (tools/lib_patch.py).
 7) Option for a brighter black-most paint color, like 2049's (but not as bright).
 8) Higher drone difficulty levels (after the catch-up option; drones cheat heavily at high levels).
-9) Model swap framework
+9) Model swap framework needs more work

@@ -189,7 +189,7 @@ index 34eec3f..5c43fc3 100644
      void queue_update();
      void register_callback(ContextId context, PTR(void) callback, PTR(void) userdata);
 diff --git a/recompui/src/elements/ui_modal.cpp b/recompui/src/elements/ui_modal.cpp
-index b057f46..51dc8b1 100644
+index b057f46..4d7c3a2 100644
 --- a/recompui/src/elements/ui_modal.cpp
 +++ b/recompui/src/elements/ui_modal.cpp
 @@ -1,11 +1,27 @@
@@ -220,7 +220,53 @@ index b057f46..51dc8b1 100644
  class ModalOverlay : public Element {
  protected:
      Modal *parent_modal;
-@@ -190,6 +206,9 @@ void Modal::process_event(const Event &e) {
+@@ -35,6 +51,28 @@ public:
+     }
+ };
+ 
++// Rush 2 recomp: every live modal, for set_transparent_background().
++static std::vector<Modal *> all_modals;
++static bool modal_backgrounds_transparent = false;
++
++void Modal::set_transparent_background(bool transparent) {
++    modal_backgrounds_transparent = transparent;
++    for (Modal *modal : all_modals) {
++        modal->apply_background();
++    }
++}
++
++void Modal::apply_background() {
++    if (modal_backgrounds_transparent) {
++        modal_overlay->set_background_color(theme::color::Transparent);
++        modal_element->set_background_color(theme::color::Transparent);
++    }
++    else {
++        modal_overlay->set_background_color(theme::color::BGOverlay);
++        modal_element->set_background_color(theme::color::ModalOverlay);
++    }
++}
++
+ constexpr float modal_page_padding = 64.0f;
+ constexpr float modal_page_base_height = 1080.0f;
+ constexpr float modal_height = modal_page_base_height - (modal_page_padding * 2.0f);
+@@ -87,6 +125,8 @@ Modal::Modal(
+     modal_element->set_background_color(theme::color::ModalOverlay);
+     modal_element->set_as_navigation_container(NavigationType::Vertical);
+     modal_element->set_nav_wrapping(true);
++    all_modals.push_back(this);
++    apply_background();
+ 
+     header = context.create_element<ConfigHeaderFooter>(modal_element, true);
+     header->set_padding_top(0.0f);
+@@ -111,6 +151,7 @@ Modal::Modal(
+ }
+ 
+ Modal::~Modal() {
++    std::erase(all_modals, this);
+ }
+ 
+ void Modal::open() {
+@@ -190,6 +231,9 @@ void Modal::process_event(const Event &e) {
          }
          case EventType::MenuAction: {
              auto action = std::get<EventMenuAction>(e.variant).action;
@@ -230,6 +276,22 @@ index b057f46..51dc8b1 100644
              if (menu_action_callbacks.contains(action)) {
                  menu_action_callbacks[action].callback();
                  break;
+diff --git a/recompui/src/elements/ui_modal.h b/recompui/src/elements/ui_modal.h
+index d065a14..c01a3cf 100644
+--- a/recompui/src/elements/ui_modal.h
++++ b/recompui/src/elements/ui_modal.h
+@@ -94,6 +94,11 @@ namespace recompui {
+         void set_menu_action_callback(MenuAction action, std::function<void()> callback, std::string description = "");
+         void remove_menu_action_callback(MenuAction action);
+         void render_menu_actions();
++
++        // Rush 2 recomp: clears the dimming overlay and the panel's background on every modal, so the game shows
++        // through while settings change. Must be called from the UI thread.
++        static void set_transparent_background(bool transparent);
++        void apply_background();
+     };
+ 
+     class TabbedModal : public Modal {
 diff --git a/recompui/src/elements/ui_select.cpp b/recompui/src/elements/ui_select.cpp
 index e289e9e..a69f4d7 100644
 --- a/recompui/src/elements/ui_select.cpp
