@@ -1299,9 +1299,9 @@ before_vram = 0x800BB8AC
 text = "    rush2_track1_gate(rdram, ctx);"
 
 # Circuits with the Rush 2049 tracks (src/rush2049/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
-# Rush 2's 0-6 and the 2049 and SF Rush tracks, and the circuit screen (func_803B6260) instances its dioramas from the
-# 38-entry name table into a 38-entry array at 0x80300840 (was 7 at 0x803C7A44), with the 38-entry scale, cloud height and
-# logo tables (the logo callback is func_803BE528).
+# Rush 2's 0-6, the 2049 and SF Rush tracks and the custom tracks, and the circuit screen (func_803B6260) instances its
+# dioramas from the 64-entry name table into a 64-entry array at 0x80310B00 (was 7 at 0x803C7A44), with the 64-entry
+# scale, cloud height and logo tables (the logo callback is func_803BE528).
 [[patches.hook]]
 func = "circuit_generate_800A7DCC"
 before_vram = 0x800A8588
@@ -1352,27 +1352,27 @@ text = "    rush2_circuit_races_left(rdram, ctx);"
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62A4
-value = 0x3C108030 # lui $s0, 0x8030
+value = 0x3C108031 # lui $s0, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62A8
-value = 0x3C118030 # lui $s1, 0x8030
+value = 0x3C118031 # lui $s1, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62AC
-value = 0x263108D8 # addiu $s1, $s1, 0x8D8
+value = 0x26310C00 # addiu $s1, $s1, 0xC00
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62B0
-value = 0x26100840 # addiu $s0, $s0, 0x840
+value = 0x26100B00 # addiu $s0, $s0, 0xB00
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B640C
-value = 0x3C108030 # lui $s0, 0x8030
+value = 0x3C108031 # lui $s0, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1387,7 +1387,7 @@ value = 0x26310000 # addiu $s1, $s1, 0
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B642C
-value = 0x26100840 # addiu $s0, $s0, 0x840
+value = 0x26100B00 # addiu $s0, $s0, 0xB00
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1397,7 +1397,7 @@ value = 0x3C188031 # lui $t8, 0x8031
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64B0
-value = 0x27180098 # addiu $t8, $t8, 0x98
+value = 0x27180100 # addiu $t8, $t8, 0x100
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1412,12 +1412,12 @@ value = 0xC4260200 # lwc1 $f6, 0x200($at)
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A10
-value = 0x3C118030 # lui $s1, 0x8030
+value = 0x3C118031 # lui $s1, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A14
-value = 0x26310840 # addiu $s1, $s1, 0x840
+value = 0x26310B00 # addiu $s1, $s1, 0xB00
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"

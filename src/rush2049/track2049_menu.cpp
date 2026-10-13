@@ -80,9 +80,9 @@ namespace {
     constexpr uint32_t new_cloud_heights = table_data + 0x200;
     constexpr uint32_t new_logo_names = table_data + 0x300;
     // new carousel array at table_data + 0x400 (64 x 0x1C)
+    constexpr uint32_t new_circuit_instances = table_data + 0xB00; // 64 x s32, the circuit screen's dioramas
     constexpr uint32_t mod_strings = table_data + 0xC00;          // 32 bytes per custom track: its model and logo names
     constexpr uint32_t menu_data = 0x80300000;
-    constexpr uint32_t new_circuit_instances = menu_data + 0x840; // 38 x s32, the circuit screen's dioramas
     constexpr uint32_t new_strings = menu_data + 0x900;           // 32 bytes per added track
     constexpr uint32_t stunt_label = menu_data + 0xD00;           // "STUNT", the Start Game menu's added row
     constexpr uint32_t stunt_label_ptr = menu_data + 0xD10;       // char* to it, read as the row's table entry
@@ -113,10 +113,10 @@ namespace {
     constexpr int rush2_tracks = 12;
     constexpr int r1_first = rush2::track1::first_menu_id;               // 18
     constexpr int r1_end = r1_first + rush2::track1::track_count;       // 25
-    constexpr int mod_menu_id = battle_menu_id + battle_count;          // 38: the first custom track (src/track_mod/)
     constexpr int menu_tracks = 64;                                     // the tables' room
-    constexpr int mod_capacity = menu_tracks - mod_menu_id;             // custom tracks the track select can offer
-    constexpr int circuit_tracks = mod_menu_id;                         // circuits never pick custom tracks
+    constexpr int circuit_tracks = menu_tracks;                         // circuits pick from every entry but arenas
+    static_assert(mod_menu_id == battle_menu_id + battle_count);        // the custom tracks (src/track_mod/) follow
+    static_assert(mod_menu_id + mod_capacity == menu_tracks);
     constexpr int added_tracks = menu_tracks - first_menu_id;           // 2049, Rush 1, stunt, obstacle, battle, custom
     static_assert(first_menu_id + track_count == r1_first);
     static_assert(r1_end == stunt_menu_id);
@@ -945,15 +945,20 @@ extern "C" void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx
 // from the 29-entry tables (us.toml), so they and the 2049 art must be in place.
 extern "C" void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ menu_mutex };
+    refresh_mods();
     serve_menu_container(rdram);
     write_tables(rdram);
 }
 
 // func_800A7DCC after it generated a circuit's races (tracks 0-6). With added tracks available, or only some courses
 // chosen for the circuit (src/circuit.cpp), the tracks are picked again from the chosen ones among Rush 2's 7 and the
-// added tracks (all of them if none is chosen), with Rush 2's rules: no track twice in a row, at most 4 times in all,
+// added tracks, custom tracks included (all of them if none is chosen), with Rush 2's rules: no track twice in a row, at most 4 times in all,
 // and no track in the same direction twice.
 extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
+    {
+        std::lock_guard lock{ menu_mutex };
+        refresh_mods();     // the custom tracks that can be raced (entry_available), as the track select has them
+    }
     std::vector<int> all, pool;
     for (int t = 0; t < circuit_stock_tracks; t++) all.push_back(t);
     for (int t = first_menu_id; t < circuit_tracks; t++) {

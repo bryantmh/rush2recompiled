@@ -19,6 +19,10 @@
 // available. A circuit keeps the length and courses it started with: the start (end of func_800B2A58) records them
 // against its seed in the saves file's "circuits" section. A circuit with no record (started before this setting
 // existed, or entered as a code) is 28 races over every course, as before.
+//
+// Custom tracks (src/track_mod/, track select ids 38-63) are chosen by their folder, since their ids follow the enabled
+// mods: the choices keep the folders turned off (so a newly installed track is in), and a circuit records the folders it
+// started with. A circuit recorded before custom tracks could be chosen has none.
 
 // librecomp's own nlohmann::json first, so Config::load_config links (see src/rush2049/wings.cpp).
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
@@ -29,6 +33,7 @@
 #include <cstdio>
 #include <deque>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -46,6 +51,7 @@
 #include "rush2_hooks.h"
 #include "track1.h"
 #include "track2049.h"
+#include "track_mod_runtime.h"
 
 namespace {
     using rush2::circuit::course_ids;
@@ -86,11 +92,22 @@ namespace {
         return rush2::track1::track_names[t - rush2::track1::first_menu_id];
     }
 
+    // The enabled custom tracks' folders by track select id - mod_menu_id (the ones the track select has room for).
+    std::vector<std::string> mod_folders() {
+        std::vector<std::string> folders;
+        for (const rush2::track_mod::Entry& e : rush2::track_mod::tracks()) {
+            if ((int)folders.size() == rush2::track2049::mod_capacity) break;
+            folders.push_back(e.folder);
+        }
+        return folders;
+    }
+
     // What a circuit was started with.
     struct Setup {
         uint32_t seed = 0;
         int length = stock_length;
         uint32_t courses = 0xFFFFFFFF; // bit t: track t
+        std::set<std::string> mods;    // custom tracks by folder
     };
 
     constexpr const char* saves_section = "circuits";
@@ -118,6 +135,11 @@ namespace {
             for (const auto& c : e["courses"]) {
                 if (c.is_number_integer() && is_course(c.get<int>())) s.courses |= 1u << c.get<int>();
             }
+            if (e.contains("mods") && e["mods"].is_array()) {
+                for (const auto& m : e["mods"]) {
+                    if (m.is_string()) s.mods.insert(m.get<std::string>());
+                }
+            }
             setups.push_back(s);
         }
     }
@@ -129,7 +151,8 @@ namespace {
             for (int t = 0; t < course_ids; t++) {
                 if (s.courses & (1u << t)) courses.push_back(t);
             }
-            list.push_back({ { "seed", s.seed }, { "races", s.length }, { "courses", courses } });
+            list.push_back({ { "seed", s.seed }, { "races", s.length }, { "courses", courses },
+                             { "mods", nlohmann::json(std::vector<std::string>(s.mods.begin(), s.mods.end())) } });
         }
         rush2::data_files::write(rush2::data_files::File::Saves, saves_section,
             nlohmann::json{ { "version", 1 }, { "list", list } }.dump());
@@ -164,9 +187,28 @@ namespace {
 
     const std::string length_id = "races";
 
+    // The custom tracks left out of the next circuit, by folder ('/' between them: folder names can't hold one).
+    const std::string mods_off_id = "mods_off";
+    std::mutex mods_mutex;
+    std::set<std::string> mods_off;
+
     void set_course(int t, bool on) {
         next_courses[t].store(on);
         circuit_config.update_option_value(option_id(t), on);
+    }
+
+    bool mod_on(const std::string& folder) {
+        std::lock_guard lock{ mods_mutex };
+        return !mods_off.contains(folder);
+    }
+
+    void set_mod(const std::string& folder, bool on) {
+        std::lock_guard lock{ mods_mutex };
+        if (on) mods_off.erase(folder);
+        else mods_off.insert(folder);
+        std::string text;
+        for (const std::string& f : mods_off) text += (text.empty() ? "" : "/") + f;
+        circuit_config.update_option_value(mods_off_id, text);
     }
 }
 
@@ -175,6 +217,11 @@ int rush2::circuit::length(uint8_t* rdram) {
 }
 
 bool rush2::circuit::course_chosen(uint8_t* rdram, int t) {
+    int m = t - rush2::track2049::mod_menu_id;
+    if (m >= 0 && m < rush2::track2049::mod_capacity) {
+        std::vector<std::string> folders = mod_folders();
+        return m < (int)folders.size() && current_setup(rdram).mods.contains(folders[m]);
+    }
     return t >= 0 && t < course_ids && (current_setup(rdram).courses & (1u << t)) != 0;
 }
 
@@ -186,6 +233,7 @@ void rush2::circuit::init_config() {
             circuit_config.add_bool_option(option_id(t), course_name(t), "", true, true);
         }
     }
+    circuit_config.add_string_option(mods_off_id, "Custom Tracks Left Out", "", "", true);
 }
 
 void rush2::circuit::load_config() {
@@ -195,6 +243,14 @@ void rush2::circuit::load_config() {
         if (is_course(t)) {
             next_courses[t].store(std::get<bool>(circuit_config.get_option_value(option_id(t))));
         }
+    }
+    std::string text = std::get<std::string>(circuit_config.get_option_value(mods_off_id));
+    std::lock_guard lock{ mods_mutex };
+    mods_off.clear();
+    for (size_t from = 0; from < text.size();) {
+        size_t to = std::min(text.find('/', from), text.size());
+        if (to > from) mods_off.insert(text.substr(from, to - from));
+        from = to + 1;
     }
 }
 
@@ -209,6 +265,9 @@ extern "C" void rush2_circuit_started(uint8_t* rdram, recomp_context* ctx) {
     s.courses = 0;
     for (int t = 0; t < course_ids; t++) {
         if (is_course(t) && next_courses[t].load()) s.courses |= 1u << t;
+    }
+    for (const std::string& folder : mod_folders()) {
+        if (mod_on(folder)) s.mods.insert(folder);
     }
     std::lock_guard lock{ setups_mutex };
     load_setups();
@@ -264,7 +323,8 @@ namespace {
         "Sets how many races a circuit has. Rush 2's circuits have 28. "
         "Applies to the next circuit you start; a circuit in progress keeps its own length.";
     const char* const courses_description =
-        "Picks the courses circuits are made from. The toggles at the top turn all of a game's courses on or off. "
+        "Picks the courses circuits are made from. The toggles at the top turn all of a game's courses, or all the "
+        "modded courses, on or off. "
         "A course that isn't unlocked yet is skipped, and with none on, every course is used. "
         "Applies to the next circuit you start; a circuit in progress keeps its own courses.";
 
@@ -277,6 +337,27 @@ namespace {
     bool all_on(const Game& g) {
         for (int t = g.first; t < g.first + g.count; t++) {
             if (!next_courses[t].load()) return false;
+        }
+        return true;
+    }
+
+    // A custom track: its folder (what the choices keep) and its name.
+    struct ModCourse {
+        std::string folder, name;
+    };
+
+    std::vector<ModCourse> mod_courses() {
+        std::vector<ModCourse> out;
+        for (const rush2::track_mod::Entry& e : rush2::track_mod::tracks()) {
+            if ((int)out.size() == rush2::track2049::mod_capacity) break;
+            out.push_back({ e.folder, e.settings.name });
+        }
+        return out;
+    }
+
+    bool all_mods_on(const std::vector<ModCourse>& mods) {
+        for (const ModCourse& m : mods) {
+            if (!mod_on(m.folder)) return false;
         }
         return true;
     }
@@ -300,7 +381,8 @@ namespace {
     }
 
     // The section: a heading with a button that opens and closes the course list below it. At the top, a toggle per
-    // game turns all its courses on or off; below, a toggle per course.
+    // game turns all its courses on or off, and one all the modded courses; below, a toggle per course, the modded
+    // courses last.
     class Section : public Element {
     public:
         Section(ResourceId rid, Element* parent, const rush2::circuit::TextShower& text_shower)
@@ -381,19 +463,27 @@ namespace {
         bool built = false;
         std::vector<std::pair<int, Toggle*>> game_toggles;  // (index in games, toggle)
         std::vector<std::pair<int, Toggle*>> course_toggles; // (track, toggle)
+        std::vector<ModCourse> mods;                         // the custom tracks when built
+        Toggle* all_mods_toggle = nullptr;
+        std::vector<std::pair<std::string, Toggle*>> mod_toggles; // (folder, toggle)
 
         void refresh() {
             for (auto [g, toggle] : game_toggles) toggle->set_checked(all_on(games[g]));
             for (auto [t, toggle] : course_toggles) toggle->set_checked(next_courses[t].load());
+            if (all_mods_toggle != nullptr) all_mods_toggle->set_checked(all_mods_on(mods));
+            for (const auto& [folder, toggle] : mod_toggles) toggle->set_checked(mod_on(folder));
         }
 
         void build() {
             body->clear_children();
             game_toggles.clear();
             course_toggles.clear();
+            mod_toggles.clear();
+            all_mods_toggle = nullptr;
             built = expanded;
             if (!expanded) return;
             ContextId context = get_current_context();
+            mods = mod_courses();
 
             Element* all = context.create_element<Element>(body, 0, "div", false);
             all->set_display(Display::Flex);
@@ -411,6 +501,14 @@ namespace {
                     refresh();
                 });
                 game_toggles.emplace_back(g, toggle);
+            }
+            if (!mods.empty()) {
+                all_mods_toggle = add_toggle_line(all, "All Modded Courses", true, all_mods_on(mods));
+                all_mods_toggle->add_checked_callback([this](bool on) {
+                    for (const ModCourse& m : mods) set_mod(m.folder, on);
+                    circuit_config.save_config();
+                    refresh();
+                });
             }
 
             for (int g = 0; g < (int)std::size(games); g++) {
@@ -430,6 +528,26 @@ namespace {
                         refresh();
                     });
                     course_toggles.emplace_back(t, toggle);
+                }
+            }
+
+            if (!mods.empty()) {
+                Element* block = context.create_element<Element>(body, 0, "div", false);
+                block->set_display(Display::Flex);
+                block->set_flex_direction(FlexDirection::Column);
+                block->set_gap(6.0f);
+                block->set_padding_top(8.0f);
+                block->set_as_navigation_container(NavigationType::Vertical);
+                context.create_element<Label>(block, "Modded Courses", theme::Typography::LabelSM);
+                for (const ModCourse& m : mods) {
+                    Toggle* toggle = add_toggle_line(block, m.name, false, mod_on(m.folder));
+                    std::string folder = m.folder;
+                    toggle->add_checked_callback([this, folder](bool on) {
+                        set_mod(folder, on);
+                        circuit_config.save_config();
+                        refresh();
+                    });
+                    mod_toggles.emplace_back(m.folder, toggle);
                 }
             }
         }

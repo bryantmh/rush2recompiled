@@ -28,6 +28,8 @@ namespace rush2::track2049 {
     constexpr int stunt_host_slot = 11; // STUNT1: Rush 2's stunt track.
     constexpr int obstacle_menu_id = 29; // Track select id of the obstacle course.
     constexpr int battle_menu_id = 30;   // Track select id of battle arena DM1 (30-37).
+    constexpr int mod_menu_id = 38;      // Track select id of the first custom track (src/track_mod/), up to 63.
+    constexpr int mod_capacity = 26;     // Custom tracks the track select (and circuits) can offer.
     constexpr float obstacle_time = 300.0f; // The obstacle course's clock in seconds, no checkpoint extensions.
 
     // The Rush 2049 Tracks option (Games tab). Tracks are offered when it is on and the 2049 ROM is present.

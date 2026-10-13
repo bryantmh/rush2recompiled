@@ -260,7 +260,8 @@ merges and renames as needed.
 - **Records:** each track keeps its own records, forward and backward, under its folder name.
 - **Ghosts:** saved like the stock tracks'. A ghost holds at most 150 seconds a lap, so a longer lap cuts its ghost
   short.
-- **Circuits** never pick custom tracks.
+- **Circuits:** custom tracks are circuit courses too. Settings > General > Circuit Courses has an All Modded Courses
+  toggle and one per custom track, at the bottom of the list. New tracks are in by default.
 
 ## Not supported yet
 
@@ -280,7 +281,9 @@ merges and renames as needed.
   `include/track_mod_runtime.h` hold the interfaces.
 - **Hosting:** a custom track is raced in the HAWAII slot like a Rush 2049 track (`src/rush2049/track2049.cpp`,
   track cache key 1000 + a hash of the folder), with track select ids 38-63 (`src/rush2049/track2049_menu.cpp`, the
-  tables moved to 0x80310000). Records: `src/rush2049/track2049_records.cpp` (`{"mod": folder}` courses). Ghosts:
+  tables moved to 0x80310000; the circuit review screen's diorama instances at 0x80310B00). Circuits choose custom
+  tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started
+  with). Records: `src/rush2049/track2049_records.cpp` (`{"mod": folder}` courses). Ghosts:
   `src/ghost.cpp` (`mod-<folder>` keys).
 - **Custom surface drag:** hooks at 0x8006B63C (dirt) and 0x8006B6A4 (grass) in `car_wheel_forces_drag_8006AFD8`;
   collision flags are `type | material << 4`, custom surfaces use material slots 3-15 except 8.
