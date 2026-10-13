@@ -2634,12 +2634,13 @@ namespace {
     // triangles drawn over it: white vertices, render mode C8104E50 (translucent, decal depth), SHADE * PRIM with the
     // texture as alpha, TLUT off, and no texture of their own (func_8005CE68 swaps one in and func_8005CFB0 scrolls
     // it). Their UVs are cylinder wraps, which these copy as fitted over Rush 2's cars (1/32 texels):
-    // - DECAL layer (D0_DFR1..): around the vertical axis, s = 2048 at the nose falling 4096 per turn (both sides
-    //   alike here, so no seam at the tail), t following the height over 64 texels;
+    // - DECAL layer (D0_DFR1..): once around the vertical axis, s = 2032 at the nose falling down the +x side and rising
+    //   down the -x side to a seam at the tail, the angle taken over a body 1.85 times wider than a square one; t
+    //   following the height over 64 texels;
     // - SHEEN layer (D0_D2FR2..): around the width axis 8 units below the origin, s = 1008 - 11.37 per degree from
     //   straight up towards the nose, t = 1008 + 11.2 * x.
     // The four models (both damage stages of each) get their own lists (Rush 2's loader rebases each model's lists) over
-    // shared vertex copies.
+    // shared vertices.
     void add_sheen_layers(Bytes& out, const std::string& name) {
         uint32_t models = u32(out, 0), model_names = u32(out, 4), model_count = u32(out, 16);
         auto model_of = [&](const std::string& n) -> int {
@@ -2682,55 +2683,153 @@ namespace {
         float half_width = std::max({ -lo[0], hi[0], 1.0f }), half_length = std::max({ -lo[2], hi[2], 1.0f });
         float height = std::max(hi[1] - lo[1], 1.0f);
         constexpr double degrees = 180.0 / 3.14159265358979323846;
+        constexpr double decal_width = 1.85;   // the DECAL wrap's angle is over a body this much wider than square
 
-        // Each layer's copies of the vertex loads: file offset of the copy per load command.
-        std::vector<uint32_t> copies[2];
-        for (int layer = 0; layer < 2; layer++) {
-            for (const Command& c : commands) {
-                if ((c.w0 >> 24) != 0x01) continue;
-                uint32_t n = (c.w0 >> 12) & 0xFF, at = c.w1 & 0xFFFFFF;
-                while (out.size() % 16) out.push_back(0);
-                uint32_t copy = (uint32_t)out.size();
-                for (uint32_t v = 0; v < n; v++) {
-                    uint32_t src = at + v * 16;
-                    double x = s16(out, src), y = s16(out, src + 2), z = s16(out, src + 4);
-                    double s, t;
-                    if (layer == 0) {
-                        s = 2048.0 - 4096.0 / 360.0 * std::abs(std::atan2(x / half_width, z / half_length) * degrees);
-                        t = 70.0 + 1950.0 * (y - lo[1]) / height;
-                    }
-                    else {
-                        s = 1008.0 - 11.37 * std::atan2(z, y + 8.0) * degrees;
-                        t = 1008.0 + 11.2 * x;
-                    }
-                    uint8_t xyz[8];
-                    memcpy(xyz, &out[src], 8);
-                    out.insert(out.end(), xyz, xyz + 8);
-                    auto add16 = [&](double value) {
-                        int16_t i = (int16_t)std::clamp(std::lround(value), -32768l, 32767l);
-                        out.push_back(uint8_t(uint16_t(i) >> 8));
-                        out.push_back(uint8_t(i));
-                    };
-                    add16(s);
-                    add16(t);
-                    for (uint8_t b : { 0xFE, 0xFE, 0xFE, 0xFF }) out.push_back(b);
+        auto add_vertex = [&](uint32_t src, double s, double t) {
+            uint8_t xyz[8];
+            memcpy(xyz, &out[src], 8);
+            out.insert(out.end(), xyz, xyz + 8);
+            for (double value : { s, t }) {
+                int16_t i = (int16_t)std::clamp(std::lround(value), -32768l, 32767l);
+                out.push_back(uint8_t(uint16_t(i) >> 8));
+                out.push_back(uint8_t(i));
+            }
+            for (uint8_t b : { 0xFE, 0xFE, 0xFE, 0xFF }) out.push_back(b);
+        };
+        auto position = [&](uint32_t src, int k) { return (double)s16(out, src + k * 2); };
+
+        // DECAL layer: the wrap is continuous around the car, so the triangles at the tail's seam get vertices of their
+        // own with s carried past the end (the texture repeats every 4096). Its geometry is rebuilt as triangles over
+        // unique (body vertex, s) pairs, loaded in batches of the body's vertex buffer use.
+        auto decal_s = [&](uint32_t src) {
+            return 2032.0 - 4096.0 / 360.0 * degrees *
+                std::atan2(decal_width * position(src, 0) / half_width, position(src, 2) / half_length);
+        };
+        struct Batch {
+            uint32_t vertices = 0, count = 0;       // file offset and number of its vertices
+            std::vector<std::array<uint8_t, 3>> triangles;
+        };
+        std::vector<Batch> batches;
+        {
+            uint32_t slots[64] = {};
+            uint32_t buffer = 3;
+            std::vector<std::array<std::pair<uint32_t, int>, 3>> triangles;   // (body vertex, s in 1/32 texels)
+            auto triangle = [&](uint32_t packed) {
+                std::array<std::pair<uint32_t, int>, 3> t;
+                double s[3];
+                for (int i = 0; i < 3; i++) {
+                    t[i].first = slots[((packed >> (16 - i * 8)) & 0xFF) / 2 % 64];
+                    if (t[i].first == 0) return;
+                    s[i] = decal_s(t[i].first);
                 }
-                copies[layer].push_back(copy);
+                // The triangle takes the shortest stretch of the wrap: its vertices below the widest gap move a
+                // turn up.
+                double sorted[3] = { s[0], s[1], s[2] };
+                std::sort(sorted, sorted + 3);
+                double gaps[3] = { sorted[0] + 4096.0 - sorted[2], sorted[1] - sorted[0], sorted[2] - sorted[1] };
+                int widest = int(std::max_element(gaps, gaps + 3) - gaps);
+                for (int i = 0; i < 3; i++) {
+                    if (widest > 0 && s[i] <= sorted[widest - 1]) s[i] += 4096.0;
+                    t[i].second = (int)std::lround(s[i]);
+                }
+                triangles.push_back(t);
+            };
+            for (const Command& c : commands) {
+                uint8_t op = uint8_t(c.w0 >> 24);
+                if (op == 0x01) {
+                    uint32_t n = (c.w0 >> 12) & 0xFF, end = (c.w0 & 0xFF) / 2, at = c.w1 & 0xFFFFFF;
+                    buffer = std::max(buffer, std::min(end, 64u));
+                    for (uint32_t v = 0; v < n && end - n + v < 64; v++) slots[end - n + v] = at + v * 16;
+                }
+                else {
+                    triangle(c.w0);
+                    if (op != 0x05) triangle(c.w1);
+                }
+            }
+            std::map<std::pair<uint32_t, int>, uint8_t> in_batch;
+            std::vector<std::pair<uint32_t, int>> order;
+            Batch batch;
+            auto flush = [&]() {
+                if (batch.triangles.empty()) return;
+                while (out.size() % 16) out.push_back(0);
+                batch.vertices = (uint32_t)out.size();
+                batch.count = (uint32_t)order.size();
+                for (const auto& [src, s] : order) {
+                    add_vertex(src, s, 70.0 + 1950.0 * (position(src, 1) - lo[1]) / height);
+                }
+                batches.push_back(std::move(batch));
+                batch = {};
+                in_batch.clear();
+                order.clear();
+            };
+            for (const auto& t : triangles) {
+                size_t fresh = 0;
+                for (int i = 0; i < 3; i++) {
+                    bool repeat = false;
+                    for (int j = 0; j < i; j++) repeat = repeat || t[j] == t[i];
+                    if (!repeat && !in_batch.count(t[i])) fresh++;
+                }
+                if (order.size() + fresh > buffer) flush();
+                std::array<uint8_t, 3> index;
+                for (int i = 0; i < 3; i++) {
+                    auto it = in_batch.find(t[i]);
+                    if (it == in_batch.end()) {
+                        it = in_batch.emplace(t[i], (uint8_t)order.size()).first;
+                        order.push_back(t[i]);
+                    }
+                    index[i] = it->second;
+                }
+                batch.triangles.push_back(index);
+            }
+            flush();
+        }
+
+        // SHEEN layer: copies of the body's vertex loads (file offset of the copy per load command), under its commands.
+        std::vector<uint32_t> copies;
+        for (const Command& c : commands) {
+            if ((c.w0 >> 24) != 0x01) continue;
+            uint32_t n = (c.w0 >> 12) & 0xFF, at = c.w1 & 0xFFFFFF;
+            while (out.size() % 16) out.push_back(0);
+            copies.push_back((uint32_t)out.size());
+            for (uint32_t v = 0; v < n; v++) {
+                uint32_t src = at + v * 16;
+                add_vertex(src, 1008.0 - 11.37 * std::atan2(position(src, 2), position(src, 1) + 8.0) * degrees,
+                           1008.0 + 11.2 * position(src, 0));
             }
         }
         for (int part = 0; part < 4; part++) {
             int m = model_of(name + rush2::track2049::sheen_parts[part]);
             if (m < 0) continue;
-            const std::vector<uint32_t>& copy = copies[part / 2];
             uint32_t list = (uint32_t)out.size();
             add32(out, 0xE7000000); add32(out, 0);
             add32(out, 0xE200001C); add32(out, 0xC8104E50);   // translucent, decal depth
             add32(out, 0xFC41FFFF); add32(out, 0xFFFFF238);   // SHADE * PRIM, alpha TEXEL0
+            if (part < 2) {
+                add32(out, 0xFA000000); add32(out, 0xFFFFFFFF);   // PRIM white, as Rush 2's DECAL lists set it
+            }
             add32(out, 0xE3001001); add32(out, 0x00000000);   // TEXTLUT = NONE
-            size_t load = 0;
-            for (const Command& c : commands) {
-                add32(out, c.w0);
-                add32(out, (c.w0 >> 24) == 0x01 ? (c.w1 & 0xFF000000) | copy[load++] : c.w1);
+            if (part < 2) {
+                auto packed = [](const std::array<uint8_t, 3>& t) {
+                    return uint32_t(t[0] * 2) << 16 | uint32_t(t[1] * 2) << 8 | uint32_t(t[2] * 2);
+                };
+                for (const Batch& b : batches) {
+                    add32(out, 0x01000000 | b.count << 12 | b.count * 2); add32(out, b.vertices);
+                    for (size_t t = 0; t < b.triangles.size(); t += 2) {
+                        if (t + 1 < b.triangles.size()) {
+                            add32(out, 0x06000000 | packed(b.triangles[t])); add32(out, packed(b.triangles[t + 1]));
+                        }
+                        else {
+                            add32(out, 0x05000000 | packed(b.triangles[t])); add32(out, 0);
+                        }
+                    }
+                }
+            }
+            else {
+                size_t load = 0;
+                for (const Command& c : commands) {
+                    add32(out, c.w0);
+                    add32(out, (c.w0 >> 24) == 0x01 ? (c.w1 & 0xFF000000) | copies[load++] : c.w1);
+                }
             }
             add32(out, 0xE7000000); add32(out, 0);
             add32(out, 0xE3001001); add32(out, 0x00008000);   // TEXTLUT = RGBA16, as Rush 2 keeps it

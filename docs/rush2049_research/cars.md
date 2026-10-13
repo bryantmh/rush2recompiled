@@ -384,13 +384,26 @@ the DECAL layer), +0x50/+0x54/+0x58/+0x5C/+0x60 = parts 21/23/25/27/29 (`D0_D2FR
 - With car +0xE4 bit 0x10 it hides every layer node (`func_80058D1C`).
 - UVs (1/32 texels), fitted over every Rush 2 car: the SHEEN layer (and the hood's) is a cylinder around the width
   axis 8 units below the origin, s = 1008 − 11.37 × (degrees from straight up towards the nose), t = 1008 + ~11 × x
-  (rms 2-3 per car); the DECAL layer wraps around the vertical axis, s = 2048 at the nose falling to 0 / 4096 at the
-  tail (a seam of doubled vertices there), t ≈ 30 × y, with per-car authored spacing along the sides.
+  (rms 2-3 per car); the DECAL layer wraps once around the vertical axis, continuously: s = 2032 at the nose, falling
+  to −16 at the tail down the +x side and rising to 4080 down the −x side (a seam of doubled vertices at the tail),
+  t ≈ 30-45 × y (the texture's height over the car's). The spacing is authored per car; s = 2032 − 4096/360 ×
+  atan2(1.85 × x / half width, z / half length) in degrees fits it within 1-2 texels (VETTE, CADDY, SUPRA, HOTROD,
+  INTEG), i.e. a wrap around a body 1.85 times wider than a square one: about 42 texels across the tail or nose and
+  22-26 along a side.
+- DECAL (128 × 64, I4, as the three SHEEN textures) is a panoramic sky: a sun with its reflection under a horizon.
+  Its window's s is `func_8005CFB0`'s −(car heading) × 2048/π − (direction from the camera) × 0x800CF54C, t 0, so the
+  sky stays put while the car turns under it; the SHEEN window is the one that scrolls with the car's motion. A layer
+  node's window is only a scroll: `func_8007825C` loads the whole swapped texture and writes the window as the last
+  `G_SETTILESIZE` (its end words stay 0), wrapping by the texture's size.
+- The DECAL lists also set PRIM white (`FA000000 FFFFFFFF`); the SHEEN lists draw with it.
 
 **2049 cars.** `add_sheen_layers` builds the layers from the converted body's first LOD (same scale as Rush 2's cars):
-copies of its vertex loads with white colours and the fitted UVs (DECAL: the angle taken from the body's half width and
-half length and folded so both sides match, with no seam; t over the body's height), its triangles, and Rush 2's
-layer state, as parts `D0_DFR1` / `D2_DFR1` and `D0_D2FR2` / `D2_D2FR2` (each its own list copy, shared vertices),
+its triangles with white colors, the fitted UVs and Rush 2's layer state. The SHEEN layer is a copy of the body's
+vertex loads under its commands. The DECAL layer takes the fit above (t over the body's height) and, the wrap being
+continuous, is rebuilt as triangles over (body vertex, s) pairs: each triangle takes the shortest stretch of the wrap,
+so the ones across the tail's seam get vertices of their own with s a turn (4096) up. (Until 2026-10-13 the angle
+was folded so both sides matched and taken over a square body: two suns, mirrored about the center line on the tail
+and nose, and 1.4 times too big there.) They are parts `D0_DFR1` / `D2_DFR1` and `D0_D2FR2` / `D2_D2FR2` (each its own list copy, shared vertices),
 so Rush 2 textures and scrolls them like a Rush 2 car's front right panel layers. Denting moves their vertices with
 the body vertex at the same position (Paint::mirrors). `sheen_model` finds the layer nodes from the car records
 (validated against the part handles at 0x80218000 + id × 0x4E) and drops the 2049 ones unless All On, the Rush 2 ones

@@ -9,7 +9,9 @@
 #include "track2049_convert.h"
 
 int main(int argc, char** argv) {
-    std::string path = std::string(getenv("LOCALAPPDATA")) + "\\Rush2Recompiled\\rush2049.z64";
+    // ROM: RUSH2049_ROM, else %LOCALAPPDATA%\Rush2Recompiled\rush2049.z64.
+    const char* env = getenv("RUSH2049_ROM");
+    std::string path = env ? env : std::string(getenv("LOCALAPPDATA")) + "\\Rush2Recompiled\\rush2049.z64";
     std::ifstream f(path, std::ios::binary);
     std::vector<uint8_t> rom((std::istreambuf_iterator<char>(f)), {});
     std::vector<uint8_t> out;
