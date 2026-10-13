@@ -150,6 +150,12 @@ namespace rush2::track2049 {
     bool route_preview(const std::vector<uint8_t>& path, int color, const std::vector<uint8_t>& picture,
                        std::vector<uint8_t>& blob, uint32_t& list, std::vector<uint32_t>& pointers, float& radius);
     constexpr int preview_tube_rings = 100;
+    // A preview's list is followed by room for the track select to turn its model (the tube or the outline) in, so a
+    // frame the renderer is still reading isn't rewritten under it (src/rush2049/track2049_menu.cpp, PreviewModel):
+    // after the list's end, {u32 preview_buffer_tag, u32 the model's commands (the list's first), u32 its vertices
+    // (the first in memory), u32 0}, then per spare buffer 16 bytes per vertex and 8 per command and two more.
+    constexpr uint32_t preview_buffer_tag = 0x52343942;    // "R49B"
+    constexpr int preview_spare_buffers = 2;
     // 2049's track select camera, fitted to a capture of it (§7.5): focal length and center in screen pixels.
     constexpr float preview_focal = 167.0f, preview_center_x = 162.0f, preview_center_y = 116.0f;
     // A point of the displayed model's own space (2049 units: x, y up, z) to the preview's camera space (model

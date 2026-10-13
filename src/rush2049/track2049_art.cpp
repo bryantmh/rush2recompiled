@@ -2268,12 +2268,29 @@ namespace {
         }
     }
 
-    // What Rush 2's dioramas leave set, the end of the vertex chain and the radius.
-    bool preview_finish(Miniature& mini, TrackModel& m) {
+    // The model's part of a preview: how much of the list and the vertices so far is the tube's or the outline's.
+    struct PreviewPart {
+        uint32_t commands = 0, vertices = 0;
+        explicit PreviewPart(const TrackModel& m)
+            : commands(uint32_t(m.parts[list_part].size() / 8)), vertices(uint32_t(m.parts[vertices_part].size() / 16)) {}
+    };
+
+    // What Rush 2's dioramas leave set, the end of the vertex chain and the radius. After the list, the tag and the
+    // room the track select turns the model in (include/track2049.h, preview_buffer_tag).
+    bool preview_finish(Miniature& mini, TrackModel& m, const PreviewPart& model) {
         mini.command(0xE7000000, 0);
         mini.command(0xE200001C, 0xC8112078);        // render mode, as the stock dioramas
         mini.command(0xFCFFFFFF, 0xFFFE7C38);        // shade colour
         mini.command(0xDF000000, 0);
+        if (model.vertices != 0) {
+            Bytes& list = m.parts[list_part];
+            push32(list, rush2::track2049::preview_buffer_tag);
+            push32(list, model.commands);
+            push32(list, model.vertices);
+            push32(list, 0);
+            list.resize(list.size() + size_t(rush2::track2049::preview_spare_buffers) *
+                                      (size_t(model.vertices) * 16 + (size_t(model.commands) + 2) * 8));
+        }
         Bytes& vertices = m.parts[vertices_part];
         if (vertices.size() < 16) return false;
         vertices[vertices.size() - 10] &= 0x7F;      // the last vertex ends the chain
@@ -2313,6 +2330,8 @@ namespace {
             }
         }
 
+        const PreviewPart model(m);
+
         std::vector<std::array<uint8_t, 4>> rgba;
         std::vector<uint8_t> indices;
         std::array<uint16_t, 256> palette{};
@@ -2323,7 +2342,7 @@ namespace {
             if (indices.empty()) quantize_picture(rgba, indices, palette);
             preview_screenshot(mini, m, indices, palette, w, h);
         }
-        return preview_finish(mini, m);
+        return preview_finish(mini, m, model);
     }
 
     // A model's parts as one blob: texels, vertices, then the list, with the list's pointers made blob offsets.
@@ -2361,6 +2380,7 @@ bool rush2::track2049::route_preview(const std::vector<uint8_t>& path, int color
     static const Bytes no_geometry;
     Miniature mini(no_geometry, m);
     preview_tube(tube, color, m);
+    const PreviewPart model(m);
     if (picture.size() == 128 * 128 * 4) {
         std::vector<std::array<uint8_t, 4>> rgba(128 * 128);
         for (size_t i = 0; i < rgba.size(); i++) rgba[i] = { picture[i * 4], picture[i * 4 + 1], picture[i * 4 + 2], picture[i * 4 + 3] };
@@ -2369,7 +2389,7 @@ bool rush2::track2049::route_preview(const std::vector<uint8_t>& path, int color
         quantize_picture(rgba, indices, palette);
         preview_screenshot(mini, m, indices, palette, 128, 128);
     }
-    if (!preview_finish(mini, m) || !flatten(m, blob, list, pointers)) return false;
+    if (!preview_finish(mini, m, model) || !flatten(m, blob, list, pointers)) return false;
     radius = m.radius / 16.0f;
     return true;
 }

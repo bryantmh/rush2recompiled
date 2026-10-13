@@ -714,10 +714,20 @@ namespace {
 
     float preview_phase = 0.0f;                   // the tube highlight's run along the route (0-1, one per 5 s)
     float preview_angle = 0.0f;                   // 0x803B8350: the model's turn (radians, one turn per 10 s)
-    // Per entry: the RDRAM address and own-space positions (preview_unplace) of the model's vertices, looked up once.
+    // Per entry, looked up once: the model's vertices (the tube's or the outline's) in own-space positions
+    // (preview_unplace), and the buffers they are turned into. The renderer reads a frame's list while the game is
+    // already on the next frame, so vertices rewritten where that list loads them tear (a sliver opens where two loads
+    // of a ring straddle the write). Each frame is turned into the next of three buffers, the model's own and the two
+    // spare ones the container holds after its list (preview_buffer_tag), each with a copy of the model's commands
+    // that loads it, and the model record's list is pointed at that buffer's.
+    constexpr int preview_buffers = 1 + rush2::track2049::preview_spare_buffers;
     struct PreviewModel {
         bool looked_up = false;
-        uint32_t vertices = 0;
+        uint32_t record = 0;                        // the model record (+0xC: its LOD 0 list)
+        uint32_t vertices[preview_buffers] = {};    // [0]: the model's own
+        uint32_t lists[preview_buffers] = {};
+        int buffers = 0;                            // 1: no spare ones, turned in place
+        int turn = 0;                               // the buffer last drawn
         std::vector<std::array<float, 3>> local;
     };
     PreviewModel preview_models[menu_tracks];
@@ -735,10 +745,13 @@ namespace {
         MEM_W(0, (int32_t)address) = (int32_t)w;
     }
 
-    // The vertices the preview model's list loads before its screenshot (the tube's or the outline's).
+    // Entry t's preview model: the vertices its list loads before its screenshot, and its buffers (made on the first
+    // lookup after the container loads). `out` holds the last lookup's result.
     void find_model_vertices(uint8_t* rdram, recomp_context* ctx, int t, PreviewModel& out) {
+        const PreviewModel last = std::move(out);
         out = PreviewModel();
         out.looked_up = true;
+        out.turn = last.turn;
         recomp_context saved = *ctx;
         ctx->r4 = (int32_t)preview_names[t];
         ctx->r5 = 0;
@@ -749,9 +762,32 @@ namespace {
         *ctx = saved;
         if (handle < 0 || (handle & 0xFFFF) == 0xFFFF) return;
         uint32_t table = (uint32_t)MEM_W(0, (int32_t)(model_tables + (uint32_t)(handle >> 10) * 8));
-        uint32_t list = (uint32_t)MEM_W(0, (int32_t)(table + (uint32_t)(handle & 0x3FF) * 0x34 + 0xC));
+        uint32_t record = table + (uint32_t)(handle & 0x3FF) * 0x34;
+        uint32_t own = (uint32_t)MEM_W(0xC, (int32_t)record);
+
+        // The end of the model's list, where the buffers' tag is: {tag, the model's commands, its vertices, the
+        // model's own list once the buffers are made}. A container still loaded from an earlier visit may have the
+        // record on a buffer's list, which ends with a branch into the model's own.
+        using namespace rush2::track2049;
+        uint32_t tag = 0;
+        for (uint32_t i = 0, at = own; i < 8192 && (at >> 24) == 0x80; i++, at += 8) {
+            uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
+            if ((w0 >> 16) == 0xDE01) at = (0x80000000 | (w1 & 0x00FFFFFF)) - 8;
+            else if ((w0 >> 24) == 0xDF) { tag = at + 8; break; }
+        }
+        uint32_t commands = 0, count = 0;
+        bool made = false;
+        if (tag != 0 && (uint32_t)MEM_W(0, (int32_t)tag) == preview_buffer_tag) {
+            commands = (uint32_t)MEM_W(4, (int32_t)tag);
+            count = (uint32_t)MEM_W(8, (int32_t)tag);
+            uint32_t list = (uint32_t)MEM_W(12, (int32_t)tag);
+            made = list != 0;
+            if (made) own = list;
+        }
+
         uint32_t first = 0xFFFFFFFF, end = 0;
-        for (int i = 0; i < 4096 && (list >> 24) == 0x80; i++, list += 8) {
+        uint32_t list = own;
+        for (uint32_t i = 0; i < 4096 && (commands == 0 || i < commands) && (list >> 24) == 0x80; i++, list += 8) {
             uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)list), w1 = (uint32_t)MEM_W(4, (int32_t)list);
             uint32_t op = w0 >> 24;
             if (op == 0xFD || op == 0xDF) break;
@@ -761,7 +797,43 @@ namespace {
             end = std::max(end, at + ((w0 >> 12) & 0xFF) * 16);
         }
         if (end <= first || end - first > 0x10000) return;
-        out.vertices = first;
+        out.record = record;
+        out.vertices[0] = first;
+        out.lists[0] = own;
+        out.buffers = 1;
+        if (commands != 0 && commands < 4096 && count == (end - first) / 16) {
+            // Each spare buffer: the vertices, then the model's commands loading them, a branch to the rest of the
+            // model's list and an end.
+            uint32_t at = tag + 16;
+            for (int b = 1; b < preview_buffers; b++) {
+                out.vertices[b] = at;
+                out.lists[b] = at + count * 16;
+                at = out.lists[b] + (commands + 2) * 8;
+                if (made) continue;
+                for (uint32_t o = 0; o < count * 16; o += 4) {
+                    MEM_W(0, (int32_t)(out.vertices[b] + o)) = MEM_W(0, (int32_t)(first + o));
+                }
+                for (uint32_t i = 0; i < commands; i++) {
+                    uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)(own + i * 8)), w1 = (uint32_t)MEM_W(4, (int32_t)(own + i * 8));
+                    if ((w0 >> 24) == 0x01) w1 += out.vertices[b] - first;
+                    MEM_W(0, (int32_t)(out.lists[b] + i * 8)) = (int32_t)w0;
+                    MEM_W(4, (int32_t)(out.lists[b] + i * 8)) = (int32_t)w1;
+                }
+                uint32_t rest = out.lists[b] + commands * 8;
+                MEM_W(0, (int32_t)rest) = (int32_t)0xDE010000;
+                MEM_W(4, (int32_t)rest) = (int32_t)(own + commands * 8);
+                MEM_W(8, (int32_t)rest) = (int32_t)0xDF000000;
+                MEM_W(12, (int32_t)rest) = 0;
+            }
+            MEM_W(12, (int32_t)tag) = (int32_t)own;
+            out.buffers = preview_buffers;
+        }
+        // The own-space positions: read while the vertices are as loaded, and kept across lookups from then on (the
+        // model's own vertices are a buffer too, left turned).
+        if (made && last.vertices[0] == first && last.local.size() == (end - first) / 16) {
+            out.local = last.local;
+            return;
+        }
         for (uint32_t at = first; at < end; at += 16) {
             float placed[3] = { (float)(int16_t)MEM_H(0, (int32_t)at), (float)(int16_t)MEM_H(2, (int32_t)at),
                                 (float)(int16_t)MEM_H(4, (int32_t)at) };
@@ -777,7 +849,7 @@ extern "C" void rush2_track49_select_model(uint8_t* rdram, recomp_context* ctx) 
     int t = (int8_t)MEM_B(0, (int32_t)ctx->r16);
     if (t >= 0 && t < menu_tracks && preview_names[t] != 0) {
         ctx->r4 = (int32_t)preview_names[t];
-        preview_models[t] = PreviewModel();
+        preview_models[t].looked_up = false;
     }
 }
 
@@ -839,11 +911,14 @@ extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
     }
     PreviewModel& model = preview_models[t];
     if (!model.looked_up) find_model_vertices(rdram, ctx, t, model);
-    if (model.vertices == 0) return;
+    if (model.buffers == 0) return;
+    model.turn = (model.turn + 1) % model.buffers;
+    const uint32_t vertices = model.vertices[model.turn];
+    if (model.buffers > 1) MEM_W(0xC, (int32_t)model.record) = (int32_t)model.lists[model.turn];
     for (size_t v = 0; v < model.local.size(); v++) {
         float placed[3];
         preview_place(model.local[v].data(), preview_angle, placed);
-        uint32_t at = model.vertices + uint32_t(v) * 16;
+        uint32_t at = vertices + uint32_t(v) * 16;
         for (int i = 0; i < 3; i++) {
             MEM_H(i * 2, (int32_t)at) = (int16_t)std::clamp(std::lround(placed[i]), -32767L, 32767L);
         }
@@ -857,7 +932,7 @@ extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
         uint8_t rgb[3];
         preview_tube_color(k, ring, preview_phase, rgb);
         for (int v = 0; v < 2; v++) {
-            uint32_t at = model.vertices + uint32_t(ring * 4 + v) * 16 + 12;
+            uint32_t at = vertices + uint32_t(ring * 4 + v) * 16 + 12;
             MEM_B(0, (int32_t)at) = rgb[0];
             MEM_B(1, (int32_t)at) = rgb[1];
             MEM_B(2, (int32_t)at) = rgb[2];

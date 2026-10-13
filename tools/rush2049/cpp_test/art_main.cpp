@@ -27,6 +27,12 @@
 
 namespace fs = std::filesystem;
 
+// Parts of the game the art code references but this test doesn't reach (banner upscales, the coin icon).
+void rush2::upscale::add_exact_image(std::vector<uint8_t>, Image) {}
+bool rush2::track2049::convert_file(const rush2::rom2049::Source&, int, std::vector<uint8_t>&, std::string&) { return false; }
+bool rush2::catalog::read_container(const std::vector<uint8_t>&, Container&, std::string&, bool, bool,
+                                    const std::map<uint32_t, uint32_t>*) { return false; }
+
 namespace {
     bool read_all(const fs::path& path, std::vector<uint8_t>& out) {
         std::ifstream f(path, std::ios::binary);
@@ -160,7 +166,7 @@ int main(int argc, char** argv) {
     for (int k = 1; k <= 6; k++) {
         auto start = std::chrono::steady_clock::now();
         TrackModel tm;
-        if (!build_track_model(*source49, k, tm)) {
+        if (!build_miniature(*source49, k, tm)) {
             printf("track %d: build failed\n", k);
             return 1;
         }
@@ -183,6 +189,44 @@ int main(int argc, char** argv) {
         plot(td.spine);
         for (const auto& b : td.branches) plot(b);
         if (!img.empty()) write_png(out_dir / ("print_route_" + std::to_string(k) + ".png"), img, td.w, td.h);
+    }
+
+    // Each race track's route tube: the seam and any segment whose top would not draw as a clean quad (a ring
+    // narrower than a quarter of the band, or a top triangle that doesn't face up: normal y < 0 is up here).
+    for (int k = 1; k <= 6; k++) {
+        Tube tube;
+        if (!tube_geometry(*source49, k, tube)) { printf("tube %d: failed\n", k); continue; }
+        const auto& r = tube.ring;
+        auto width = [&](int i) { return std::hypot(r[size_t(i) * 4][0] - r[size_t(i) * 4 + 1][0], r[size_t(i) * 4][2] - r[size_t(i) * 4 + 1][2]); };
+        const auto& last = r[size_t(tube_rings - 1) * 4];
+        printf("tube %d: %zu spine points, extent %d, seam gap %.0f, %s\n", k, tube.spine.size(), tube.extent,
+               std::hypot(last[0] - r[0][0], last[2] - r[0][2]), tube.closed ? "closed" : "OPEN");
+        // ART_RINGS=1: the rings either side of the seam (top +side, top -side, floor y).
+        if (getenv("ART_RINGS")) {
+            for (int i : { 96, 97, 98, 99, 0, 1, 2 }) {
+                const auto &p = r[size_t(i) * 4], &q = r[size_t(i) * 4 + 1];
+                printf("    ring %2d: (%8.1f %7.1f %8.1f) (%8.1f %7.1f %8.1f) floor %.1f\n", i, p[0], p[1], p[2], q[0], q[1], q[2],
+                       r[size_t(i) * 4 + 2][1]);
+            }
+        }
+        for (int i = 0; i < tube_rings; i++) {
+            int n = (i + 1) % tube_rings;
+            const auto &a0 = r[size_t(i) * 4], &a1 = r[size_t(i) * 4 + 1], &b0 = r[size_t(n) * 4], &b1 = r[size_t(n) * 4 + 1];
+            // The top's triangles (0, 4, 1) and (1, 4, 5): y of each normal.
+            auto ny = [](const std::array<float, 3>& p, const std::array<float, 3>& q, const std::array<float, 3>& s) {
+                return (q[2] - p[2]) * (s[0] - p[0]) - (q[0] - p[0]) * (s[2] - p[2]);
+            };
+            float n1 = ny(a0, b0, a1), n2 = ny(a1, b0, b1);
+            float len = std::hypot((b0[0] + b1[0] - a0[0] - a1[0]) / 2, (b0[2] + b1[2] - a0[2] - a1[2]) / 2);
+            // How far each edge of the band runs along the segment: near zero or negative on the inside of a turn
+            // tighter than the band is wide, where the top folds over itself.
+            float ux = (b0[0] + b1[0] - a0[0] - a1[0]) / (2 * len), uz = (b0[2] + b1[2] - a0[2] - a1[2]) / (2 * len);
+            float e0 = (b0[0] - a0[0]) * ux + (b0[2] - a0[2]) * uz, e1 = (b1[0] - a1[0]) * ux + (b1[2] - a1[2]) * uz;
+            if (width(i) < tube_half_width / 2 || n1 >= 0 || n2 >= 0 || len < 1 || std::min(e0, e1) < 40) {
+                printf("    segment %d-%d: widths %.0f %.0f, length %.0f, edges %.0f %.0f, top normals %.0f %.0f\n", i, n,
+                       width(i), width(n), len, e0, e1, n1, n2);
+            }
+        }
     }
 
     // The container as the game builds it.

@@ -468,8 +468,19 @@ The track select shows 2049's own preview instead (`build_preview` in `src/rush2
   spot so its front edge clears Rush 2's logo. The node sits at the camera (plus the carousel's slide along x), so
   sliding entries still move in and out.
 - **Animation:** the hook keeps 2049's highlight phase (+Δt/5) and turn (+Δt·2π/10), advanced on the centre entry, and
-  rewrites the model's vertices in RDRAM each frame: positions from their own-space coordinates (read back once with
+  writes the model's vertices in RDRAM each frame: positions from their own-space coordinates (read back once with
   `preview_unplace`) turned and placed again, and for race tracks the tube's top colours (`preview_tube_color`).
+- **Vertex buffers:** the runtime reports a graphics task done before the renderer has read its list, so the game is
+  on the next frame while the last one's vertices are still being loaded. Rewriting them in place tore the model: the
+  tube's closing segment loads ring 0 some 500 commands after the first segment does, and when the write fell between
+  the two a see-through sliver opened at the start line (user report). So each frame is written to the next of three
+  buffers: the model's own vertices and two spare ones. The container holds the room after the preview's list
+  (`preview_finish`: `preview_buffer_tag` "R49B", the count of the model's commands and vertices, a word for the
+  model's own list, then per spare buffer the vertices and a copy of the model's commands). On the first lookup after
+  a load the hook (`find_model_vertices`) fills the spare buffers: the vertices, the commands with their `G_VTX`
+  addresses moved, `DE01` to the rest of the model's list (the screenshot) and `DF`. Each frame it points the model
+  record's LOD 0 list (+0xC, read by the draw function for its `G_DL`) at the buffer just written. A container
+  without the tag is turned in place as before.
 - **Logos:** every 2049 entry's logo is a banner in the 2049 banner font (`tools/build_banners.py`,
   `tools/banner_font.py`, whose block letters copy METRO and PRESIDIO; the digits for STUNT n / BATTLE n are bitmaps, DIGITS_2049): banners 7–19 of `include/track2049_banners.h`.
 
