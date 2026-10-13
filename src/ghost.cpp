@@ -64,6 +64,7 @@
 
 #include "car2049.h"
 #include "collectibles.h"
+#include "dl_copy.h"
 #include "ghost.h"
 #include "ghost_logic.h"
 #include "rush2_hooks.h"
@@ -314,8 +315,7 @@ namespace {
     float game_offset = 0.0f;
 
     // Drawing (game thread).
-    std::map<uint32_t, uint32_t> copies;      // display list -> translucent copy
-    uint32_t copies_cursor = copies_start;
+    rush2::dl::Copier copies{ copies_start, copies_end };   // translucent copies of display lists
     uint32_t side_cursor = side_start;
     std::atomic<uint32_t> fog_color = 0;
 
@@ -846,47 +846,11 @@ namespace {
         return blender | flags | (rm & 0x4) | alpha_compare;
     }
 
-    // A display list address the G_DL commands of the game's models use (KSEG0 or physical) as KSEG0, if it is in
-    // the game heap, where models are loaded; else 0.
-    uint32_t heap_list(uint32_t addr) {
-        uint32_t top = addr >> 24;
-        if (top != 0x80 && top != 0x00) return 0;
-        uint32_t a = 0x80000000u | (addr & 0xFFFFFF);
-        return a >= 0x80400000 && a < 0x80B00000 ? a : 0;
-    }
-
     // A copy of display list `dl` (and the lists it calls) with translucent render modes, or 0 if it can't be made.
-    uint32_t translucent_copy(uint8_t* rdram, uint32_t dl, int depth = 0) {
-        uint32_t src = heap_list(dl);
-        if (src == 0 || depth > 8) return 0;
-        auto it = copies.find(src);
-        if (it != copies.end()) return it->second;
-        std::vector<std::pair<uint32_t, uint32_t>> cmds;
-        for (uint32_t o = src; cmds.size() < 8192; o += 8) {
-            uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)o), w1 = (uint32_t)MEM_W(4, (int32_t)o);
-            cmds.push_back({ w0, w1 });
-            uint8_t op = w0 >> 24;
-            if (op == 0xDF || (op == 0xDE && ((w0 >> 16) & 0xFF) == 1)) break;
-        }
-        uint32_t bytes = (uint32_t)cmds.size() * 8;
-        if (copies_cursor + bytes > copies_end) return 0;
-        uint32_t copy = copies_cursor;
-        copies_cursor += bytes;
-        copies[src] = copy;
-        for (size_t i = 0; i < cmds.size(); i++) {
-            auto [w0, w1] = cmds[i];
-            uint8_t op = w0 >> 24;
-            if (w0 == 0xE200001C) {
-                w1 = translucent_mode(w1);
-            }
-            else if (op == 0xDE || (op == 0xE0 && ((w0 >> 16) & 0xFF) == 1)) {
-                uint32_t sub = translucent_copy(rdram, w1, depth + 1);
-                if (sub != 0) w1 = (w1 & 0xFF000000) | (sub & 0xFFFFFF);
-            }
-            MEM_W(0, (int32_t)(copy + i * 8)) = (int32_t)w0;
-            MEM_W(4, (int32_t)(copy + i * 8)) = (int32_t)w1;
-        }
-        return copy;
+    uint32_t translucent_copy(uint8_t* rdram, uint32_t dl) {
+        return copies.copy(rdram, dl, [](uint32_t& w0, uint32_t& w1) {
+            if (w0 == 0xE200001C) w1 = translucent_mode(w1);
+        });
     }
 
     uint32_t side_alloc(uint32_t bytes) {
@@ -924,8 +888,7 @@ namespace {
         tick_counter = 0;
         stepping = nullptr;
         clocks_swapped = false;
-        copies.clear();
-        copies_cursor = copies_start;
+        copies.reset();
         for (int c = 0; c < 8; c++) {
             rush2::wings::set_ghost_input(c, false, {});
         }

@@ -120,6 +120,11 @@ namespace rush2::car2049 {
     void animate(uint8_t* rdram);
     // Called before func_8007AA48 draws model display list `dl`: queues the Rocket ZX's flames when it is the body.
     void draw_model(uint8_t* rdram, uint32_t dl);
+    // Called last before func_8007AA48 emits the G_DL to $fp ($s7 = the node; `dl` = the model's own display list,
+    // before other hooks swapped it): Rush 2049's car lighting. A 2049 car body sets its PRIM (white, or the colour of
+    // the road under it on a 2049 track); on a 2049 track any other car part is drawn from a copy of its list whose
+    // combiners multiply by that colour (through ENV and PRIM).
+    void light_model(uint8_t* rdram, recomp_context* ctx, uint32_t dl);
 }
 
 #endif

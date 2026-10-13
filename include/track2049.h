@@ -151,11 +151,15 @@ namespace rush2::track2049 {
 
     // Moving objects (src/rush2049/track2049_movers.cpp). set_mover_data hands over the raced track's 2049 geometry and
     // collision files, its path object and turning object placement records and the converted geometry's sorted model
-    // names; reset_movers sets the objects up again on the race's next physics tick.
-    void set_mover_data(const std::vector<uint8_t>& geometry_2049, const std::vector<uint8_t>& collision_2049,
+    // names (k = convert_track's k, 0 for a custom track); reset_movers sets the objects up again on the race's next
+    // physics tick.
+    void set_mover_data(int k, const std::vector<uint8_t>& geometry_2049, const std::vector<uint8_t>& collision_2049,
                         const std::vector<PathRecord>& records, const std::vector<SpinRecord>& spin_records,
                         const std::vector<std::string>& model_names);
     void reset_movers();
+    // Rush 2049's car lighting (2049 func_80093B20, docs/rush2049_research/collision.md#car-lighting): the colour
+    // (RGBA, alpha 0xFF) race car `car` is lit with from the road under its wheels, false when no 2049 track is raced.
+    bool car_light(int car, uint32_t& rgba);
 
     // Props a car knocks over (src/rush2049/track2049_props.cpp): cones, gas pumps, rats, signs and cacti with Rush 2049's
     // reactions. set_prop_data hands over the raced track's prop records and its converted geometry (for model names

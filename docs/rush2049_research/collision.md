@@ -259,10 +259,57 @@ The same in both games: compare `func_8006F704`/`func_8006FC94` with `func_800C6
      - With ≥ 3 wheels on pads, the whole car velocity is pushed to the target speed along the pad direction.
      - Otherwise, a per-wheel force is applied.
    - Needs the 2049 → Rush 2 car-struct offset mapping: 2049 +0x124 → ?, +0x5C0, +0x5EC, +0x64+12i, +0x2EC.
-4. **Lighting colour index and covered fade.** Visual only, no driving effect.
+4. **Lighting colour index and covered fade.** Visual only, no driving effect. Ported, see Car lighting below.
 
 `collision.extras(data_2049)` returns the movers, boost/platform polygons, covered polygons and colour indices for
 a future runtime patch.
+
+### Car lighting
+
+**2049 [V]** (`func_80093B20`, per car and frame):
+- Colour table: pointer at `0x8011AF90 + 4·track` (track = the collision file − 139). Three 26-entry RGBA tables
+  are shared (0x8011AE58 most tracks, 0x8011AEC0 track 4, 0x8011AF28 track 5 and the later arenas). Index 0 is white
+  (0xDCDCDC on track 4), 1–8 greys down to near black, 9–25 pale lamp colours. Track 6 is mostly index 6 (0x282828)
+  with lamp pools in 12, 17, 18, 21, 23 and 24.
+- Each wheel's polygon (car state +0x344/+0x346/+0x348/+0x34A, the info words) gives `table[(info & 0xF800) >> 11]`;
+  the four are averaged per channel (sum >> 2). This also runs for mover polygons, whose bits 11–15 are an object id.
+- In the air: with wheel 2's height (player struct +0x5F4; the wheel heights are +0x5EC + 4w) at 20 or more,
+  t = (h − 20) × 0.1 (0x80123A60) blends toward `table[s32 0x8011B468 + 4·track]`, fully past 30.
+- `func_80092FE0(car, &colour)` writes the colour (alpha 0xFF) into node +0x3C (PRIM) of the car's nodes at car node
+  table 0x80139320 + car·0x40, +2, +0x12, +0x1E, +0x22, +0x26, +0x2A (body and wheels). The body combiner
+  `FC127E03 FF0FF3FF` is TEXEL0 × SHADE, then × PRIM. Game mode 2 gives the other cars PRIM alpha 0x80, and battle
+  cloaking (+0x38C bit 0) takes alpha from +0x3A1.
+- Covered fade: car state +0x360 steps by 0x19 down to 0 while +0x35A (covered, 2049 info bit 8) is set, up to 0xFF
+  otherwise. It is the alpha of the two colours from `0x8011ADC0 + 8·track` that go to the SHEEN node (car node
+  table +0x14), the reflection pass.
+
+**Port** (`src/rush2049/track2049_movers.cpp`, `src/rush2049/car2049.cpp` `light_model`):
+- The converted collision file keeps 2049's polygon numbering, and Rush 2 keeps each wheel's polygon at physics car
+  +0x594, so the 2049 info word is looked up from the 2049 file; the converted info word is not used. The colour is
+  worked out per car and physics tick with wheel 2's Rush 2 height (+0x5E4). The tables are read from the 2049 ROM.
+- 2049 car bodies keep their PRIM combiner; every draw of one (menus too) is wrapped to set PRIM: the car's colour on
+  a 2049 track, white elsewhere. The Rocket ZX's flames (ROKTFLAMEG1-3) have the same combiner and are drawn in their
+  own pass after the world (`rush2_car49_flames_draw`), which sets PRIM white: they glow, unlit.
+- Rush 2 car parts (Rush 2 cars, and the Rush 2 rims under 2049 bodies) use Rush 2's car combiner `FC1216AC
+  F0FFFE38`: TEXEL0 × SHADE, then a blend toward ENV by ENV alpha. Rush 2 uses it to darken cars in tunnels
+  (`func_8005CFB0`, by car state +0x344: body and +6 nodes get ENV black at alpha 0x80 for level 1, 0x3C for level
+  2 and up, PRIM 0xB4B4B4; out of tunnels ENV 0 and PRIM white, 0x800C5620-0x800C5630). The car models (assets
+  0x1D-0x32) use these combiners: `FC1216AC F0FFFE38` (TEXEL0 × SHADE, blend toward ENV), `FC127EAC F0FFF238` (the
+  same with alpha TEXEL0: a translucent overlay over the body), `FC567FFF 4FFE7C38` / `4FFE7638` (SHADE blended
+  toward ENV), `FC41FFFF FFFFF238` (SHADE × PRIM, the plain parts), `FC327FFF FFFFFC38` and `FC127E03 FFFFF3F8`
+  (× PRIM) and `FC127FFF FFFFF238` (TEXEL0 × SHADE). On a 2049 track the parts are drawn from copies of their display
+  lists (`include/dl_copy.h`) in which every ENV blend multiplies by ENV instead (`FC121605 FFFFFFF8`, `FC127E05
+  FFFFF3F8`, `FC42FFFF FFFFFC38` / `FFFFF638`; alpha stages unchanged). The two combiners with neither ENV nor
+  PRIM, `FC127FFF FFFFF238` (most cars' roof and side panels, e.g. the SUV's SUV_TOP / SUV_SIDE) and `FCFFFFFF
+  FFFE7C38` (SHADE), are made to multiply by ENV as well (`FC127E05 FFFFF3F8`, `FCFFFE05 FFFE7DF8`): left alone they
+  stayed at full brightness on track 6 and the panels' window highlights showed as bright spots. ENV = the colour × (1 − the body node's
+  ENV alpha) at alpha 0 and PRIM = the body's PRIM × the colour, alpha kept, so Rush 2's darkening stays. A blend lays
+  a flat film of the colour over the car; leaving the overlay's combiner as a blend at full ENV alpha drew it as
+  bright streaks rolling over the car. A list that can't be copied (a ghost car draws its own copy) falls back to the
+  blend: ENV = black at 1 − (smallest channel) plus the rest of the colour at half strength.
+- A race car's nodes are its body node's subtree (car record 0x80219DD0 + car·0x134, +0) and its four wheel nodes'
+  subtrees (+0x18 + 4w, set up by `func_800837E0`; the wheels are not under the body).
+- Not ported: the SHEEN pass and its covered fade (the port doesn't draw SHEEN), and the mode 2 / cloak alphas.
 
 ## 8. Cross-references a converter must keep consistent
 

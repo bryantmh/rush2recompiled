@@ -1336,6 +1336,16 @@ area = "render"
 ref = "docs/rush2049_research/geometry.md#23-name-record-0x18"
 
 [[func]]
+vram = 0x80092FE0
+name = "car_set_light_colour"
+sig = "void car_set_light_colour(s16 car, u32 *rgba)"
+desc = "Writes the car's lighting colour into node +0x3C (PRIM) of its body and wheel nodes: car node table 0x80139320 + car*0x40, +2, +0x12, +0x1E, +0x22, +0x26, +0x2A. Called by car_draw_update (func_80093B20). Ported as rush2::car2049::light_model."
+status = "verified"
+ported = true
+area = "car"
+ref = "docs/rush2049_research/collision.md#car-lighting"
+
+[[func]]
 vram = 0x800930A4
 name = "rocket_flames"
 desc = "Rocket ZX exhaust flames: placed 2 up and 5.6 back from the car's origin (the -5.6 constant is read in this function); the first two flames' lengths and the third's width flicker around a size that grows with rpm, shrink back when idle. (The car lighting color index table 0x8011AF90 is NOT used here: it is read by func_80093B20 and func_800B15B4.)"
@@ -1348,7 +1358,7 @@ ref = "docs/rush2049_research/cars.md#8-implementation-v"
 vram = 0x80093B20
 name = "car_draw_update"
 sig = "void car_draw_update(void *node_rec, s32 visible)"
-desc = "Per-frame update of one car's draw nodes (arg0 = node record, +6 body node, +8 car index). Reads the per-track car lighting color table at 0x8011AF90 (+4*track): POLY info bits 11-15 (when not 0x30) index it; visual only. Shows the CARnHOOD node (car node table 0x80139320 + car*0x40, +0x10) only in hood-camera view (view struct 0x80152818 + car*0x3B8, +0x35D == 1) with fewer than 2 players (0x80151AD0), hidden otherwise; calls func_800930A4 for the Rocket ZX flames."
+desc = "Per-frame update of one car's draw nodes (arg0 = node record, +6 body node, +8 car index). Car lighting (collision.md Car lighting, ported): averages the per-track colour table at 0x8011AF90 (+4*track) indexed by the four wheels' POLY info bits 11-15 (car state +0x344..+0x34A, any polygon), blends to the in-air entry (0x8011B468) as wheel 2's height (+0x5F4) goes 20-30, and sets it as the body and wheel nodes' PRIM (func_80092FE0); covered fade +0x360 is the SHEEN colours' alpha. Shows the CARnHOOD node (car node table 0x80139320 + car*0x40, +0x10) only in hood-camera view (view struct 0x80152818 + car*0x3B8, +0x35D == 1) with fewer than 2 players (0x80151AD0), hidden otherwise; calls func_800930A4 for the Rocket ZX flames."
 status = "verified"
 area = "car"
 ref = "docs/rush2049_research/cars.md#damaged-hood-v"

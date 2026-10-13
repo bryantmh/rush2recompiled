@@ -28,6 +28,7 @@
 #include "util/file.h"
 
 #include "data_files.h"
+#include "dl_copy.h"
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "rush2.h"
@@ -1889,6 +1890,12 @@ extern "C" void rush2_car49_select_set(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_car49_select_cursor(uint8_t* rdram, recomp_context* ctx) {
     uint32_t at = (uint32_t)ctx->r4;
     int type = (int)(ctx->r2 & 0xFF);
+    // Test aid: RUSH2_TEST_CAR=<type> (Rush 2 0-21, 2049 23-35) opens the car select on that car, whatever the save chose.
+    static const char* test_car = std::getenv("RUSH2_TEST_CAR");
+    if (test_car != nullptr && std::atoi(test_car) >= 0 && std::atoi(test_car) < types && std::atoi(test_car) != 22) {
+        ctx->r2 = (uint64_t)std::atoi(test_car);
+        return;
+    }
     if (rush2::unlocks::shop_car() >= 0) {
         ctx->r2 = (uint64_t)rush2::unlocks::shop_car();
         return;
@@ -2087,9 +2094,232 @@ void rush2::car2049::draw_model(uint8_t* rdram, uint32_t dl) {
     }
 }
 
+// Rush 2049's car lighting (docs/rush2049_research/collision.md#car-lighting). 2049 multiplies its car bodies by PRIM
+// (the converted body keeps that combiner) and sets PRIM to the colour of the road under the car
+// (rush2::track2049::car_light). Rush 2's car parts (its cars, and the rims a 2049 car is drawn with) darken in tunnels
+// in two ways (func_8005CFB0, by car state +0x344): textured parts and some plain ones blend toward ENV by ENV alpha
+// (the body node's ENV, black at alpha 0x80 or 0x3C), and plain SHADE * PRIM parts take the body's PRIM (0xB4B4B4).
+// On a 2049 track the parts are drawn from copies of their lists in which each ENV blend multiplies by ENV instead
+// (lit_combiners), with ENV = the colour times Rush 2's own darkening (1 - its ENV alpha) and ENV alpha 0, so a blend
+// left in place does nothing; PRIM = the body's PRIM times the colour, its alpha kept. A part that can't be copied
+// blends toward an ENV that comes close: black at 1 - the colour's smallest channel, plus the rest at half strength.
+namespace {
+    constexpr uint32_t light_side_start = 0x80F20000;
+    constexpr uint32_t light_side_end = 0x80F40000;
+    uint32_t light_side_cursor = light_side_start;
+    constexpr uint32_t car_body_nodes = 0x80219DD0;   // + car * 0x134: the car's body scene node index
+    constexpr uint32_t car_body_node_stride = 0x134;
+    constexpr uint32_t scene_nodes = 0x800D9E90;
+    constexpr uint32_t scene_node_size = 0x38;
+    constexpr int max_scene_nodes = 0x400;
+    constexpr uint32_t game_state = 0x8010C0D0;       // 0-2 menus and the car select, 3 and up a race
+
+    // Rush 2's car combiners that blend toward ENV by ENV alpha (every one the car models use), and their copies'
+    // multiplying by ENV instead; the alpha stages are unchanged. The last two have no ENV or PRIM at all (Rush 2
+    // never darkens them); they multiply by ENV too, or they stay at full brightness on a dark track (most cars' roof
+    // and side panels: SUV_TOP and the like, whose window highlights then show as bright spots).
+    struct LitCombiner {
+        uint32_t from[2], to[2];
+    };
+    constexpr LitCombiner lit_combiners[] = {
+        { { 0xFC1216AC, 0xF0FFFE38 }, { 0xFC121605, 0xFFFFFFF8 } },  // TEXEL0 * SHADE, then blend -> COMBINED * ENV
+        { { 0xFC127EAC, 0xF0FFF238 }, { 0xFC127E05, 0xFFFFF3F8 } },  // the same, alpha TEXEL0 (the translucent overlay)
+        { { 0xFC567FFF, 0x4FFE7C38 }, { 0xFC42FFFF, 0xFFFFFC38 } },  // SHADE blended -> SHADE * ENV
+        { { 0xFC567FFF, 0x4FFE7638 }, { 0xFC42FFFF, 0xFFFFF638 } },  // the same, alpha PRIM
+        { { 0xFC127FFF, 0xFFFFF238 }, { 0xFC127E05, 0xFFFFF3F8 } },  // TEXEL0 * SHADE, alpha TEXEL0 -> then * ENV
+        { { 0xFCFFFFFF, 0xFFFE7C38 }, { 0xFCFFFE05, 0xFFFE7DF8 } },  // SHADE -> SHADE * ENV
+    };
+    rush2::dl::Copier light_copies{ 0x80F40000, 0x80F80000 };
+
+    std::set<uint32_t> body_list_addresses;           // the loaded 2049 cars' body display lists
+    std::map<int, int> car_of_node;                   // scene node index -> race car, for the race cars' nodes
+    bool light_tables_built = false;
+
+    // The 2049 bodies' display lists and the race cars' scene nodes (a car is its body node's subtree, as
+    // src/ghost.cpp walks it). Rebuilt for each view.
+    void build_light_tables(uint8_t* rdram) {
+        body_list_addresses.clear();
+        car_of_node.clear();
+        int banks = MEM_BU(0, (int32_t)0x800D5788);
+        for (int bank = 0; bank < banks; bank++) {
+            uint32_t base;
+            const Paint* p = bank_instance(rdram, bank, base);
+            if (p == nullptr || p->body) {
+                continue;
+            }
+            for (uint32_t list : p->body_lists) {
+                body_list_addresses.insert((base + list) & 0x1FFFFFFF);
+            }
+        }
+        uint32_t rgba;
+        bool lit = false;
+        if (MEM_W(0, (int32_t)game_state) >= 3) {
+            for (int car = 0; car < 8; car++) {
+                lit |= rush2::track2049::car_light(car, rgba);
+            }
+        }
+        else {
+            light_copies.reset();     // models load again for the next race
+        }
+        for (int car = 0; car < 8 && lit; car++) {
+            // The body's subtree, and the four wheels' (func_800837E0: wheel nodes at +0x18 + 4w of the car's record).
+            uint32_t record = car_body_nodes + uint32_t(car) * car_body_node_stride;
+            for (uint32_t root_offset : { 0x0u, 0x18u, 0x1Cu, 0x20u, 0x24u }) {
+                int root = (int32_t)MEM_W(0, (int32_t)(record + root_offset));
+                std::vector<int> stack = { root };
+                while (!stack.empty()) {
+                    int n = stack.back();
+                    stack.pop_back();
+                    if (n < 0 || n >= max_scene_nodes || car_of_node.contains(n)) continue;
+                    car_of_node[n] = car;
+                    uint32_t node = scene_nodes + uint32_t(n) * scene_node_size;
+                    stack.push_back((int16_t)MEM_H(0, (int32_t)(node + 0xE)));                  // first child
+                    if (n != root) stack.push_back((int16_t)MEM_H(0, (int32_t)(node + 0x10)));  // next sibling
+                }
+            }
+        }
+        light_tables_built = true;
+    }
+
+    uint32_t light_side_alloc(uint32_t bytes) {
+        bytes = (bytes + 7) & ~7u;
+        if (light_side_cursor + bytes > light_side_end) {
+            light_side_cursor = light_side_start;
+        }
+        uint32_t addr = light_side_cursor;
+        light_side_cursor += bytes;
+        return addr;
+    }
+
+    // The ENV a Rush 2 car part blends toward to come close to being multiplied by `rgba`.
+    uint32_t light_env(uint32_t rgba) {
+        float c[3];
+        for (int i = 0; i < 3; i++) c[i] = float((rgba >> (24 - i * 8)) & 0xFF) / 255.0f;
+        float low = std::min({ c[0], c[1], c[2] });
+        float a = 1.0f - low;
+        if (a <= 1.0f / 255.0f) {
+            return 0;
+        }
+        uint32_t env = uint32_t(std::lround(a * 255.0f));
+        for (int i = 0; i < 3; i++) {
+            float e = std::clamp(0.5f * (c[i] - low) / a, 0.0f, 1.0f);
+            env |= uint32_t(std::lround(e * 255.0f)) << (24 - i * 8);
+        }
+        return env;
+    }
+}
+
+void rush2::car2049::light_model(uint8_t* rdram, recomp_context* ctx, uint32_t dl) {
+    // Rebuilt for each view, and at least every 50 ms for screens that draw models outside func_8007C624.
+    static std::chrono::steady_clock::time_point built_at{};
+    auto now = std::chrono::steady_clock::now();
+    if (!light_tables_built || now - built_at > std::chrono::milliseconds(50)) {
+        build_light_tables(rdram);
+        built_at = now;
+    }
+    uint32_t node_addr = (uint32_t)ctx->r23;
+    int car = -1;
+    if (node_addr >= scene_nodes && !car_of_node.empty()) {
+        auto it = car_of_node.find(int((node_addr - scene_nodes) / scene_node_size));
+        if (it != car_of_node.end()) car = it->second;
+    }
+    uint32_t rgba = 0;
+    bool lit = car >= 0 && rush2::track2049::car_light(car, rgba);
+    bool body = body_list_addresses.contains(dl & 0x1FFFFFFF);
+    GfxCommand push, pop;
+    uint32_t colour_cmd;
+    uint32_t colour;
+    if (body) {
+        gEXPushPrimColor(&push);
+        gEXPopPrimColor(&pop);
+        colour_cmd = 0xFA000000;
+        colour = lit ? rgba : 0xFFFFFFFF;
+    }
+    else if (lit) {
+        uint32_t copy = 0;
+        if ((uint32_t)ctx->r30 == dl) {     // not swapped by another hook (a ghost car draws its own copy)
+            copy = light_copies.copy(rdram, dl, [](uint32_t& w0, uint32_t& w1) {
+                for (const LitCombiner& c : lit_combiners) {
+                    if (w0 == c.from[0] && w1 == c.from[1]) {
+                        w0 = c.to[0];
+                        w1 = c.to[1];
+                        return;
+                    }
+                }
+            });
+        }
+        if (copy != 0) {
+            // Rush 2's own darkening: the car body node's ENV (flag 0x4000), black at alpha a, is a multiply by
+            // 1 - a; its PRIM (flag 0x2000) is what the plain parts multiply by.
+            uint32_t body_node = scene_nodes + uint32_t((int32_t)MEM_W(0, (int32_t)(car_body_nodes + uint32_t(car) * car_body_node_stride))) * scene_node_size;
+            uint32_t body_flags = (uint32_t)MEM_W(0, (int32_t)body_node);
+            float keep = (body_flags & 0x4000) ? 1.0f - float(MEM_BU(0, (int32_t)(body_node + 0x37))) / 255.0f : 1.0f;
+            uint32_t body_prim = (body_flags & 0x2000) ? (uint32_t)MEM_W(0, (int32_t)(body_node + 0x30)) : 0xFFFFFFFF;
+            uint32_t env = 0, prim = body_prim & 0xFF;
+            for (int i = 0; i < 3; i++) {
+                int shift = 24 - i * 8;
+                float c = float((rgba >> shift) & 0xFF) / 255.0f;
+                env |= uint32_t(std::clamp(std::lround(c * keep * 255.0f), 0l, 255l)) << shift;
+                prim |= uint32_t(std::clamp(std::lround(c * float((body_prim >> shift) & 0xFF)), 0l, 255l)) << shift;
+            }
+            GfxCommand env_push, env_pop, prim_push, prim_pop;
+            gEXPushEnvColor(&env_push);
+            gEXPopEnvColor(&env_pop);
+            gEXPushPrimColor(&prim_push);
+            gEXPopPrimColor(&prim_pop);
+            uint32_t side = light_side_alloc(8 * 8);
+            uint32_t at = side;
+            auto cmd = [&](uint32_t w0, uint32_t w1) {
+                MEM_W(0, (int32_t)at) = (int32_t)w0;
+                MEM_W(4, (int32_t)at) = (int32_t)w1;
+                at += 8;
+            };
+            cmd(env_push.values.word0, env_push.values.word1);
+            cmd(prim_push.values.word0, prim_push.values.word1);
+            cmd(0xFB000000, env);
+            cmd(0xFA000000, prim);
+            cmd(0xDE000000, copy);
+            cmd(prim_pop.values.word0, prim_pop.values.word1);
+            cmd(env_pop.values.word0, env_pop.values.word1);
+            cmd(0xDF000000, 0);
+            ctx->r30 = (uint64_t)(int64_t)(int32_t)side;
+            return;
+        }
+        // A part whose node carries an ENV with alpha (flag 0x4000) has the game's own darkening on it.
+        uint32_t flags = (uint32_t)MEM_W(0, (int32_t)node_addr);
+        if ((flags & 0x4000) && MEM_BU(0, (int32_t)(node_addr + 0x37)) != 0) {
+            return;
+        }
+        colour = light_env(rgba);
+        if (colour == 0) {
+            return;
+        }
+        gEXPushEnvColor(&push);
+        gEXPopEnvColor(&pop);
+        colour_cmd = 0xFB000000;
+    }
+    else {
+        return;
+    }
+    uint32_t side = light_side_alloc(5 * 8);
+    uint32_t at = side;
+    auto cmd = [&](uint32_t w0, uint32_t w1) {
+        MEM_W(0, (int32_t)at) = (int32_t)w0;
+        MEM_W(4, (int32_t)at) = (int32_t)w1;
+        at += 8;
+    };
+    cmd(push.values.word0, push.values.word1);
+    cmd(colour_cmd, colour);
+    cmd(0xDE000000, (uint32_t)ctx->r30);
+    cmd(pop.values.word0, pop.values.word1);
+    cmd(0xDF000000, 0);
+    ctx->r30 = (uint64_t)(int64_t)(int32_t)side;
+}
+
 // func_8007C624 entry: a new view.
 extern "C" void rush2_car49_flames_view_begin(uint8_t* rdram, recomp_context* ctx) {
     queued_flames.clear();
+    light_tables_built = false;
 }
 
 // func_8007C624 at L_8007D980, after the world-space polygons: draws the queued flames. $s6 = display list cursor.
@@ -2107,6 +2337,13 @@ extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
     for (const auto& c : flame_prologue) {
         cmd(c[0], c[1]);
     }
+    // The flames' combiner multiplies by PRIM (FC127E03 FF0FF3FF, as the body's), which is left at whatever the last
+    // model set, a car's lighting colour (light_model) included: they glow, so white.
+    GfxCommand prim_push, prim_pop;
+    gEXPushPrimColor(&prim_push);
+    gEXPopPrimColor(&prim_pop);
+    gfx(prim_push);
+    cmd(0xFA000000, 0xFFFFFFFF);
     for (const QueuedFlames& q : queued_flames) {
         uint32_t mtx = flame_side_alloc(64);
         for (int i = 0; i < 16; i++) {
@@ -2135,6 +2372,7 @@ extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
     for (const auto& c : flame_epilogue) {
         cmd(c[0], c[1]);
     }
+    gfx(prim_pop);
     // func_8007AA48 only emits G_LIGHTING changes when a model's lighting differs from what it last set.
     if (MEM_BU(0, (int32_t)lighting_cache) != 0) {
         cmd(0xD9FFFFFF, 0x00020000);

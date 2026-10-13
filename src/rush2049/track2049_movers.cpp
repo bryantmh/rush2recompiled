@@ -21,6 +21,7 @@
 // - The tick and car hooks also run the knock-over props (src/rush2049/track2049_props.cpp) and animated textures.
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -122,6 +123,20 @@ namespace {
     std::map<std::string, uint16_t> model_handles;      // Model name -> Rush 2 handle in the track's slot.
     uint32_t tick = 0;
     int contact_poly[max_cars] = { -1, -1, -1, -1, -1, -1, -1, -1 }; // Boost pad / platform polygon under each car.
+
+    // Car lighting (2049 func_80093B20): POLY info bits 11-15 of the polygon under each wheel index the track's colour
+    // table (pointer at 0x8011AF90 + 4 * track, 26 RGBA colours; tracks share three tables), the four wheels' colours
+    // are averaged, and 20-30 units up (wheel 2's height) the colour blends into the table's in-air entry
+    // (0x8011B468 + 4 * track). 2049 writes the result into the PRIM colour (+0x3C) of the car's body and wheel nodes
+    // (func_80092FE0). Its covered-area fade (car state +0x360) only reaches the SHEEN pass, which the port doesn't draw.
+    constexpr uint32_t light_tables = 0x8011AF90;    // 2049: per track, pointer to its colour table
+    constexpr uint32_t light_air = 0x8011B468;       // 2049: per track, s32 table index used in the air
+    constexpr float light_air_rate = 0.1f;            // 2049 0x80123A60
+    constexpr uint32_t car_wheel_height_2 = car_wheel_height + 8;  // 2049 +0x5F4 (its wheel heights are at +0x5EC)
+    int light_track = 0;                              // convert_track's k of the raced track, 0 for none
+    std::vector<uint32_t> light_colours;              // 32 words read from the track's table (2049 reads past 26)
+    uint32_t light_air_colour = 0xFFFFFFFF;
+    std::atomic<uint32_t> car_lights[max_cars] = {};  // RGBA per car, 0 = unlit
 
     // Inputs kept from the track conversion (src/rush2049/track2049.cpp).
     std::vector<uint8_t> geometry_2049, collision_2049;
@@ -268,8 +283,57 @@ namespace {
         }
     }
 
+    // The raced track's car lighting colours, from Rush 2049's main code (track number = k - 1).
+    void setup_lights(const std::vector<uint8_t>& main) {
+        light_colours.clear();
+        auto word = [&](uint32_t vram, uint32_t& out) {
+            uint32_t o = vram - rush2::rom2049::main_vram;
+            if (vram < rush2::rom2049::main_vram || o + 4 > main.size()) return false;
+            out = (uint32_t(main[o]) << 24) | (uint32_t(main[o + 1]) << 16) | (uint32_t(main[o + 2]) << 8) | main[o + 3];
+            return true;
+        };
+        uint32_t table = 0, air = 0;
+        if (light_track < 1 || !word(light_tables + (light_track - 1) * 4, table) ||
+            !word(light_air + (light_track - 1) * 4, air)) {
+            return;
+        }
+        std::vector<uint32_t> colours(32);
+        for (uint32_t i = 0; i < 32; i++) {
+            if (!word(table + i * 4, colours[i])) return;
+        }
+        light_colours = std::move(colours);
+        light_air_colour = light_colours[air & 31];
+    }
+
+    // 2049 func_80093B20's lighting colour for a car whose wheels are on polygons `polys` with wheel 2 `height` above
+    // the ground.
+    uint32_t car_light_colour(const uint16_t polys[4], float height) {
+        uint32_t sum[3] = {};
+        for (int w = 0; w < 4; w++) {
+            uint16_t info = polys[w] < poly_info.size() ? poly_info[polys[w]] : 0;
+            uint32_t c = light_colours[(info & 0xF800) >> 11];
+            for (int i = 0; i < 3; i++) sum[i] += (c >> (24 - i * 8)) & 0xFF;
+        }
+        uint8_t rgb[3] = { uint8_t(sum[0] >> 2), uint8_t(sum[1] >> 2), uint8_t(sum[2] >> 2) };
+        if (height >= 20.0f) {
+            float t = (height - 20.0f) * light_air_rate;
+            if (t > 1.0f) {
+                return light_air_colour | 0xFF;
+            }
+            if (t > 0.0f) {
+                for (int i = 0; i < 3; i++) {
+                    uint8_t air = uint8_t(light_air_colour >> (24 - i * 8));
+                    rgb[i] = uint8_t(int((float)rgb[i] * (1.0f - t) + (float)air * t));
+                }
+            }
+        }
+        return (uint32_t(rgb[0]) << 24) | (uint32_t(rgb[1]) << 16) | (uint32_t(rgb[2]) << 8) | 0xFF;
+    }
+
     bool setup(uint8_t* rdram) {
         active = false;
+        light_colours.clear();
+        for (auto& l : car_lights) l = 0;
         placed.clear();
         trigger_groups.clear();
         if (collision_2049.empty()) {
@@ -290,6 +354,7 @@ namespace {
             fprintf(stderr, "[2049] Moving objects: can't read Rush 2049's main code\n");
             return false;
         }
+        setup_lights(*main_2049);
         std::vector<movers::TypeInfo> types;
         if (!movers::parse_types(main_2049->data(), main_2049->size(), rush2::rom2049::main_vram, types)) {
             fprintf(stderr, "[2049] Moving objects: bad type table\n");
@@ -521,15 +586,24 @@ static void pad_or_platform(uint8_t* rdram, uint32_t car, int poly) {
 }
 
 // The track conversion's inputs this file needs (src/rush2049/track2049.cpp, when a 2049 track is loaded).
-void rush2::track2049::set_mover_data(const std::vector<uint8_t>& geometry_2049_file, const std::vector<uint8_t>& collision_2049_file,
+void rush2::track2049::set_mover_data(int k, const std::vector<uint8_t>& geometry_2049_file, const std::vector<uint8_t>& collision_2049_file,
                                       const std::vector<PathRecord>& records, const std::vector<SpinRecord>& spins,
                                       const std::vector<std::string>& model_names) {
     std::lock_guard lock{ movers_mutex };
+    light_track = k;
     geometry_2049 = geometry_2049_file;
     collision_2049 = collision_2049_file;
     path_records = records;
     spin_records = spins;
     geometry_names = model_names;
+}
+
+bool rush2::track2049::car_light(int car, uint32_t& rgba) {
+    if (car < 0 || car >= max_cars) {
+        return false;
+    }
+    rgba = car_lights[car];
+    return rgba != 0;
 }
 
 // Called at race setup: the objects are set up on the race's first physics tick.
@@ -552,6 +626,10 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
             rush2::track2049::stop_object_sounds();
         }
         active = false;
+        if (!light_colours.empty()) {
+            light_colours.clear();
+            for (auto& l : car_lights) l = 0;
+        }
         return;
     }
     if (setup_pending) {
@@ -622,12 +700,17 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx) {
     rush2::track2049::props_car(rdram, (uint32_t)ctx->r16);
     std::lock_guard lock{ movers_mutex };
-    if (!active) {
-        return;
-    }
     uint32_t car = (uint32_t)ctx->r16;
     int index = (int)((car - cars) / car_size);
     if (index < 0 || index >= max_cars) {
+        return;
+    }
+    if (!light_colours.empty()) {
+        uint16_t polys[4];
+        for (int w = 0; w < 4; w++) polys[w] = MEM_HU(0, (int32_t)(car + car_wheel_poly + w * 2));
+        car_lights[index] = car_light_colour(polys, read_f(rdram, car + car_wheel_height_2));
+    }
+    if (!active) {
         return;
     }
     bool wrecked = MEM_B(0, (int32_t)(car + car_wrecked)) != 0;

@@ -135,7 +135,7 @@ namespace {
             mod_drag = {};
             for (const auto& [name, sf] : mod_settings.surfaces) mod_drag[size_t(sf.material & 15)] = sf.drag;
             track_has_sky = false;
-            rush2::track2049::set_mover_data({}, {}, {}, {}, {});
+            rush2::track2049::set_mover_data(0, {}, {}, {}, {}, {});
             rush2::track2049::set_texanim_data({});
             rush2::track2049::set_prop_data({}, track.geometry);
             rush2::battle::set_data({}, {}, track.geometry, {});
@@ -180,7 +180,7 @@ namespace {
         }
         std::set<std::string> names = rush2::track2049::model_names(track.geometry);
         track_has_sky = names.contains("SKYO1");
-        rush2::track2049::set_mover_data(geometry_2049, collision_2049, track.path_records, track.spin_records,
+        rush2::track2049::set_mover_data(k, geometry_2049, collision_2049, track.path_records, track.spin_records,
                                          std::vector<std::string>(names.begin(), names.end()));
         rush2::track2049::set_texanim_data(track.tex_anims);
         rush2::track2049::set_prop_data(track.prop_records, track.geometry);

@@ -2816,16 +2816,10 @@ bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, c
         error = e.message;
         return false;
     }
-    // 2049 paints the body in the combiner's second cycle (TEXEL0 * SHADE, then * PRIM = paint colour). Rush 2 leaves
-    // PRIM to whatever was drawn last, so drop the PRIM multiply; the paint is applied to the car's palette instead
-    // (src/rush2049/car2049.cpp).
-    static const uint8_t painted[8] = { 0xFC, 0x12, 0x7E, 0x03, 0xFF, 0x0F, 0xF3, 0xFF };
-    static const uint8_t unpainted[8] = { 0xFC, 0x12, 0x7F, 0xFF, 0xFF, 0xFF, 0xF2, 0x38 };
-    for (size_t o = 0; o + 8 <= out.size(); o += 8) {
-        if (memcmp(&out[o], painted, 8) == 0) {
-            memcpy(&out[o], unpainted, 8);
-        }
-    }
+    // The body's combiner (FC127E03 FF0FF3FF: TEXEL0 * SHADE, then * PRIM) is kept: PRIM is the car's lighting colour
+    // from the road under its wheels (2049 func_80093B20 -> func_80092FE0, node +0x3C). Rush 2 leaves PRIM to whatever
+    // was drawn last, so every draw of the body sets it (rush2::car2049::light_model: white, or the colour on a 2049
+    // track). The paint is applied to the car's palette (src/rush2049/car2049.cpp).
     // 2049 lights its cars at runtime over a flat grey (0x88) vertex colour; Rush 2's car vertices are white, so do
     // the same here.
     std::set<uint32_t> seen;
