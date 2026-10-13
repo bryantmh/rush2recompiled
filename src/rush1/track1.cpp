@@ -411,6 +411,19 @@ extern "C" void rush2_track1_wrong_way(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// func_8008CDA4 at 0x8008CF20, comparing the car's y ($f10) with the height below which the car is put back ($f16,
+// -190). Rush 1 (func_8009BE68 at 0x8009BF50) uses -290: track 6's underwater shortcut tunnel and the room under
+// it go down to y -246, so Rush 2's floor reset cars there.
+extern "C" void rush2_track1_fall_floor(uint8_t* rdram, recomp_context* ctx) {
+    if (raced_track == 0) {
+        return;
+    }
+    std::lock_guard lock{ track_mutex };
+    if (applied && MEM_B(0, (int32_t)track_id) == host_slot) {
+        ctx->f16.fl = -290.0f;
+    }
+}
+
 // Rush 1's race timer (func_800B9F8C start, func_8009FFCC checkpoints; docs/rush1_research.md):
 //   start = base - 4 x difficulty + 4 x laps + 16, unscaled;
 //   reaching checkpoint i adds time[lap](i) x (1 + (5 - difficulty) x 0.05), time[2] from lap 3 on.

@@ -3834,7 +3834,8 @@ ref = "docs/rush1_research.md#5-collision-v"
 
 [[func]]
 vram = 0x8009BE68
-desc = "Wrong-way check: maps the car's segment to a lane 0 point (tables 0x800E4E28 / 0x800E66F8) and compares heading with the point 5 ahead; skipped while the car's last or next checkpoint (car +0xA4C / +0xA4E) has flag 4. Like Rush 2's func_8008CDA4."
+desc = "Wrong-way check: maps the car's segment to a lane 0 point (tables 0x800E4E28 / 0x800E66F8) and compares heading with the point 5 ahead; skipped while the car's last or next checkpoint (car +0xA4C / +0xA4E) has flag 4. Like Rush 2's func_8008CDA4. Also resets a car whose y (+4) is below -290 (0x8009BF50); Rush 2 uses -190."
+consts = "-290 = fall floor y (Rush 2: -190)"
 status = "verified"
 rush2 = 0x8008CDA4
 link = "same-code"
