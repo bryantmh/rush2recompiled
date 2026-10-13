@@ -258,14 +258,30 @@ namespace {
     // interpolated frames.
     constexpr float sky_clip_w = 4096.0f;
 
+    // The clip-space w column of each view's full transform (root modelview x view rotation x projection), this game
+    // frame and the last. RT64 draws the frames between the two with the projection interpolated element by element
+    // (projection_group), so a vertex's w there is a blend of its w under the two; the sky is clipped against both
+    // planes so no interpolated frame puts a sky vertex behind the camera during a fast turn.
+    struct SkyClipPlane {
+        bool valid = false;
+        float col[4]; // w = x * col[0] + y * col[1] + z * col[2] + col[3]
+        uint32_t gen = 0;
+    };
+    SkyClipPlane sky_plane_cur[max_views];
+    SkyClipPlane sky_plane_prev[max_views];
+
     struct ClipVtx {
         float pos[3];
         float tc[2];
         float col[4];
-        float w;
+        float w[2]; // Under the current frame's plane and the last frame's.
     };
 
-    ClipVtx read_vtx(uint8_t* rdram, uint32_t addr, const float m[4][4]) {
+    float plane_w(const float pos[3], const SkyClipPlane& p) {
+        return pos[0] * p.col[0] + pos[1] * p.col[1] + pos[2] * p.col[2] + p.col[3];
+    }
+
+    ClipVtx read_vtx(uint8_t* rdram, uint32_t addr, const SkyClipPlane& cur, const SkyClipPlane& prev) {
         ClipVtx v;
         for (int i = 0; i < 3; i++) {
             v.pos[i] = (float)(int16_t)MEM_H(i * 2, (int32_t)addr);
@@ -275,7 +291,8 @@ namespace {
         for (int i = 0; i < 4; i++) {
             v.col[i] = (float)MEM_BU(12 + i, (int32_t)addr);
         }
-        v.w = v.pos[0] * m[0][3] + v.pos[1] * m[1][3] + v.pos[2] * m[2][3] + m[3][3];
+        v.w[0] = plane_w(v.pos, cur);
+        v.w[1] = prev.valid ? plane_w(v.pos, prev) : v.w[0];
         return v;
     }
 
@@ -284,8 +301,26 @@ namespace {
         for (int i = 0; i < 3; i++) v.pos[i] = a.pos[i] + (b.pos[i] - a.pos[i]) * t;
         for (int i = 0; i < 2; i++) v.tc[i] = a.tc[i] + (b.tc[i] - a.tc[i]) * t;
         for (int i = 0; i < 4; i++) v.col[i] = a.col[i] + (b.col[i] - a.col[i]) * t;
-        v.w = a.w + (b.w - a.w) * t;
+        for (int i = 0; i < 2; i++) v.w[i] = a.w[i] + (b.w[i] - a.w[i]) * t;
         return v;
+    }
+
+    // Sutherland-Hodgman: clips the convex polygon in[0..n) against w[plane] >= sky_clip_w into out, returns its size.
+    int clip_against(const ClipVtx* in, int n, int plane, ClipVtx* out) {
+        int k = 0;
+        for (int i = 0; i < n; i++) {
+            const ClipVtx& a = in[i];
+            const ClipVtx& b = in[(i + 1) % n];
+            bool a_in = a.w[plane] >= sky_clip_w;
+            bool b_in = b.w[plane] >= sky_clip_w;
+            if (a_in) {
+                out[k++] = a;
+            }
+            if (a_in != b_in) {
+                out[k++] = lerp_vtx(a, b, (sky_clip_w - a.w[plane]) / (b.w[plane] - a.w[plane]));
+            }
+        }
+        return k;
     }
 
     void write_vtx(uint8_t* rdram, uint32_t addr, const ClipVtx& v) {
@@ -333,6 +368,11 @@ void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx) {
     view.valid = true;
     view.pos = pos;
     view.fwd = fwd;
+
+    if (sky_plane_cur[cur_view].valid) {
+        sky_plane_prev[cur_view] = sky_plane_cur[cur_view];
+    }
+    sky_plane_cur[cur_view].valid = false;
 }
 
 // func_8007C624, after the projection G_MTX (load) is written at $v0. This is the first matrix of the view, so
@@ -422,6 +462,8 @@ void rush2_interp_poly_vtx(uint8_t* rdram, recomp_context* ctx) {
 // that project to infinity, and draw stretched (striped) or drop out, flickering as the camera pitches and turns.
 // The RSP clips them at the real near plane instead. Triangles with a vertex below sky_clip_w are clipped here
 // and redrawn from a side display list, with their texture coordinates and colors interpolated along the edges.
+// They are clipped under this frame's view and the last one's (SkyClipPlane), so the frames RT64 interpolates
+// between them keep the sky in front of the camera during fast turns such as the race start flyover.
 void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
     uint32_t poly = (uint32_t)ctx->r30;
     uint32_t vtx_cmd = clip_vtx_cmd;
@@ -446,16 +488,36 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
     }
     uint32_t first = ((vtx.values.word0 >> 1) & 0x7F) - n;
 
-    float mv[4][4], p[4][4], m[4][4];
-    read_mtx(rdram, kseg0(root), false, mv);
-    read_mtx(rdram, kseg0(proj), false, p);
-    mul_mtx(mv, p, m);
+    // The RSP transforms by the modelview times the projection stack, which is the view's rotation (guLookAtF with
+    // the eye at the origin, multiplied in after the projection load) times the perspective. The root modelview is
+    // only the identity or a mirror, and the polygons are camera-relative in world axes, so without the rotation w
+    // would measure a fixed world axis rather than the view direction.
+    SkyClipPlane& cur = sky_plane_cur[cur_view];
+    if (!cur.valid) {
+        float mv[4][4], p[4][4], m[4][4];
+        read_mtx(rdram, kseg0(root), false, mv);
+        read_mtx(rdram, kseg0(proj), false, p);
+        if (view_lookat[cur_view] != 0) {
+            float lookat[4][4];
+            read_mtx(rdram, kseg0(view_lookat[cur_view]), false, lookat);
+            mul_mtx(lookat, p, p);
+        }
+        mul_mtx(mv, p, m);
+        for (int i = 0; i < 4; i++) {
+            cur.col[i] = m[i][3];
+        }
+        cur.gen = views[cur_view].gen;
+        cur.valid = true;
+    }
+    // After a camera cut RT64 snaps to the new view, so the last frame's plane doesn't matter.
+    SkyClipPlane prev = sky_plane_prev[cur_view];
+    prev.valid = prev.valid && prev.gen == cur.gen;
 
     ClipVtx in[4];
     bool any_near = false;
     for (uint32_t i = 0; i < n; i++) {
-        in[i] = read_vtx(rdram, kseg0(vtx.values.word1) + i * 16, m);
-        any_near |= in[i].w < sky_clip_w;
+        in[i] = read_vtx(rdram, kseg0(vtx.values.word1) + i * 16, cur, prev);
+        any_near |= in[i].w[0] < sky_clip_w || in[i].w[1] < sky_clip_w;
     }
     if (!any_near) {
         return;
@@ -491,27 +553,17 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
-    // Clip each triangle against w >= sky_clip_w (Sutherland-Hodgman: at most 4 vertices each), as a fan.
-    ClipVtx out[16];
+    // Clip each triangle against both planes (at most 5 vertices each), as a fan.
+    ClipVtx out[20];
     int out_count = 0;
-    int out_tris[8][3];
+    int out_tris[12][3];
     int out_tri_count = 0;
     for (int t = 0; t < tri_count; t++) {
         ClipVtx poly_in[3] = { in[tris[t][0]], in[tris[t][1]], in[tris[t][2]] };
-        ClipVtx clipped[4];
-        int k = 0;
-        for (int i = 0; i < 3; i++) {
-            const ClipVtx& a = poly_in[i];
-            const ClipVtx& b = poly_in[(i + 1) % 3];
-            bool a_in = a.w >= sky_clip_w;
-            bool b_in = b.w >= sky_clip_w;
-            if (a_in) {
-                clipped[k++] = a;
-            }
-            if (a_in != b_in) {
-                clipped[k++] = lerp_vtx(a, b, (sky_clip_w - a.w) / (b.w - a.w));
-            }
-        }
+        ClipVtx half[4];
+        ClipVtx clipped[5];
+        int k = clip_against(poly_in, 3, 0, half);
+        k = clip_against(half, k, 1, clipped);
         if (k < 3) {
             continue;
         }
@@ -542,7 +594,7 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
     for (int i = 0; i < out_count; i++) {
         write_vtx(rdram, vtx_addr + i * 16, out[i]);
     }
-    GfxCommand cmds[1 + 8];
+    GfxCommand cmds[1 + 12];
     cmds[0].values.word0 = 0x01000000u | ((uint32_t)out_count << 12) | ((uint32_t)out_count << 1);
     cmds[0].values.word1 = vtx_addr;
     for (int i = 0; i < out_tri_count; i++) {

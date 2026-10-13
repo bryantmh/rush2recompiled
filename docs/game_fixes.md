@@ -186,3 +186,19 @@ The extras:
   normally queued (text scale `0x800BEF48` below 0 sends `func_80072DA4` to its queue); the boxes set it to 0 while
   printing so `func_80072A38` draws at once and takes the anchor, and lift the text clip inset (`0x80023058`, normally
   cutting text off past x 308), then put both back.
+
+## Sky flicker
+
+The sky's world polygons (flag 0x2000) draw at the primitive depth, which puts RT64's near clip on the camera plane,
+so sky triangles reaching beside or behind the camera stretch or drop out. `rush2_interp_poly_end`
+(src/interpolation.cpp, hooked at 0x8007D890 in `func_8007C624`) clips them at w = 4096 itself and redraws them from
+a side display list.
+
+- The clip w is the polygon vertex times the root modelview times the projection stack. `func_8007C624` loads the
+  perspective at 0x8007CB88, then multiplies the view's rotation into the projection at 0x8007CED0 (`guLookAtF`
+  with the eye at the origin); the root modelview (0x8007CF24) is the identity or an X mirror, and the polygon
+  vertices are camera-relative in world axes (0x8007D260). Leaving the rotation out measured a fixed world axis.
+- The triangles are clipped under this frame's plane and the last frame's (same camera generation). RT64 blends the
+  projection element by element in its interpolated frames, so w there lies between the two; clipping against
+  only the current frame let sky vertices swing behind the camera in fast turns (the race start flyover turns about
+  15 degrees a frame).
