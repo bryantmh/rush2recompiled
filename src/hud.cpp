@@ -1472,8 +1472,14 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             // Fills of the game's boxes (func_80093B38) only link within their box: the bonus time banner's box, up
             // after a checkpoint, shares its bottom row with the top of the stunt score panel's (Stunts on All Tracks),
             // and grouping them pulled the panel to the center while the banner was up.
+            // A finished player's place (the finish overlay's images) links only with itself: "PLACE" at 155 reaches
+            // the track map's bottom left corner (its car dots span 211 - 299), and a car's dot there, centered on
+            // both, pulled "PLACE" into the map's group and to the right edge in widescreen until the car drove on.
             int player_i = rush2::players4::hud_widget_player((int)i);
-            if (anchored[j] && (!rects[i].fill || box_of[i] == box_of[j]) && same_element(rects[i], rects[j]) &&
+            bool banner_i = rush2::players4::hud_widget_role((int)i) == rush2::players4::HudRole::Banner;
+            bool banner_j = rush2::players4::hud_widget_role((int)j) == rush2::players4::HudRole::Banner;
+            if (anchored[j] && (rects[i].fill || banner_i == banner_j) &&
+                (!rects[i].fill || box_of[i] == box_of[j]) && same_element(rects[i], rects[j]) &&
                 (!split || (player_i == rush2::players4::hud_widget_player((int)j) &&
                             (player_i < 0 ||
                              rush2::players4::hud_widget_role((int)i) == rush2::players4::hud_widget_role((int)j))))) {

@@ -39,6 +39,15 @@ makes one per finished player at the same places, tagged as part of that player'
 place and its box together to the middle of the player's half or quadrant. func_80093B38 keeps 10 boxes at
 0x800C4254 (0x20 each: +0 in use, +0xC five HUD elements, the fill and four edges).
 
+The table's entries (x, y at +4, +6; callback +0x20, parameter +0x24): entry 0 is func_800B5CAC at 0x58, 0x48; entries
+1-3 are player 1's place (func_800B5A90, parameters 2, 0, 1) at 0x60, 0x22 twice and 0x9B, 0x22 ("PLACE"); entries 4-6
+are player 2's (parameters 0x102, 0x100, 0x101) at the same x and y 0xB0. The track map (HUD layout 0x800C2DB4 entry
+102, func_800B8188) is at 0xD0, 0x50 and its 4 x 4 car dots (entries 103-110, func_800B8900) move over x 0xD3 to
+0xD3 + 0x58, so "PLACE" reaches the map's bottom left corner. A dot there is centered on both images, and
+src/hud.cpp's grouping linked "PLACE" to the map through it: in widescreen "PLACE" jumped to the right edge with the
+map until the car drove on (seen on an SF Rush track whose map has a tip in that corner). The place's images now link
+only with each other.
+
 src/hud.cpp links touching fills into one element only within one of these boxes (`hud_widget_boxes`): after a
 checkpoint, the box behind the blinking bonus time banner (BONUSTIME4 at 0x60, 0xA0, blinked by func_80060F24 while
 its end time 0x8010C3C4, set by func_8008F220, is over a second ahead of the clock 0x80117488) spans 100, 155 - 219,
