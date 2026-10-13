@@ -27,6 +27,8 @@ namespace rush2::engine2049 {
     // (call every frame), revs ENGINE level `level` on player 1's slot as the ENGINE row does, and how far the rev's
     // rpm is from idle (0) to its peak (1).
     void shop_frame();
+    // Whether the last frame was the car select's or the shop's: a car shown on its own, with no scene around it.
+    bool car_preview_shown();
     void shop_rev(uint8_t* rdram, recomp_context* ctx, int level);
     float shop_rev_amount();
 }

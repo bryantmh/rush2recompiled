@@ -403,10 +403,18 @@ and `func_8009C3F8` (asin), tinted from 0x8011ADC0 + 8 × track.
 
 ### Car reflections
 
-Graphics > Sheen Style (`set_sheen_style`, `sheen_model`): **Texture** draws the layers as above. **Reflections**
-wraps each SHEEN layer node (+0x50..+0x60 and the hood's +0xC / +0x10, `SheenSlot::sheen`) in
+Graphics > Car Sheen = **Cube Map** (`Sheen::CubeMap`, `sheen_model`): every car has its layers, as under All On,
+and in a race `sheen_model` wraps each SHEEN layer node (+0x50..+0x60 and the hood's +0xC / +0x10, `SheenSlot::sheen`) in
 `gEXSetCarReflection(id + 1)` / `gEXSetCarReflection(0)` (a side list: the two commands around a `G_DL` to the node's
 list, swapped in through $fp = r30 like the hidden layers' empty list) and drops the DECAL layer nodes (+0x3C..+0x4C),
 a second fake reflection over the same panels. RT64 draws the marked triangles as the paint reflecting a cube map of
 the scene around the nearest car: docs/graphics_effects.md#car-reflections. `id` is the car's preview id, which RT64
-uses only to tell the cars apart when it works out their bounds.
+uses to tell the cars apart when it works out their bounds and normals.
+
+The car select and the shop (`rush2::engine2049::car_preview_shown`, src/engine_preview.cpp) keep the textures: a
+car shown on its own has no scene to reflect, and the reflection only darkened its panels.
+
+`build_sheen_tables` trap: outside those two screens only ids 0-7 (the race's cars) are looked at, and a node with
+no model (handle 0) never counts. The other ids' records are left over from the car select; their stale node indices
+and part handles matched nodes of the race's scene, so the sky and the cars' shadows were taken for DECAL layers and
+dropped whenever reflections were on (and would be under Car Sheen All Off).

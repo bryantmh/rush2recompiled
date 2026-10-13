@@ -380,63 +380,133 @@ static void add_ambient_occlusion_option(recomp::config::Config& config) {
         });
 }
 
+namespace car_reflections_option {
+    const std::string id = "car_reflections";
+
+    // Applies the strength, 5 to 100: RT64 blends the reflections by it.
+    void apply(recomp::config::ConfigValueVariant value) {
+        RT64::CarReflectionStrength = std::clamp((float)std::get<double>(value) / 100.0f, 0.0f, 1.0f);
+    }
+}
+
+namespace reflection_rate_option {
+    const std::string id = "car_reflection_rate";
+    enum class Rate : uint32_t { Thirty, Sixty, EveryFrame };
+
+    // Applies the rate: how many times a second RT64 redraws the reflections, 0 for every frame.
+    void apply(recomp::config::ConfigValueVariant value) {
+        static const float rates[] = { 30.0f, 60.0f, 0.0f };
+        RT64::CarReflectionUpdatesPerSecond = rates[std::min(std::get<uint32_t>(value), 2u)];
+    }
+}
+
+namespace reflection_blur_option {
+    const std::string id = "car_reflection_blur";
+
+    // Applies the blur, 0 to 100 (RT64's CarReflectionPS.hlsl).
+    void apply(recomp::config::ConfigValueVariant value) {
+        RT64::CarReflectionBlur = std::clamp((float)std::get<double>(value) / 100.0f, 0.0f, 1.0f);
+    }
+}
+
 namespace car_sheen_option {
     const std::string id = "car_sheen";
+
+    // Applies the mode. The reflection options only do something under Cube Map, so they are grayed out otherwise.
+    void apply(recomp::config::Config& config, recomp::config::ConfigValueVariant value) {
+        auto mode = static_cast<rush2::car2049::Sheen>(std::get<uint32_t>(value));
+        rush2::car2049::set_sheen(mode);
+        bool off = mode != rush2::car2049::Sheen::CubeMap;
+        config.update_option_disabled(car_reflections_option::id, off);
+        config.update_option_disabled(reflection_blur_option::id, off);
+        config.update_option_disabled(reflection_rate_option::id, off);
+    }
 }
 
-namespace sheen_style_option {
-    const std::string id = "car_sheen_style";
-}
-
-// Car sheen: the reflection passes drawn over the cars (src/rush2049/car2049.cpp). Rush 2's cars have sheen layers;
-// Rush 2049's cars have their own SHEEN pass, which the original Rush 2 never drew.
+// Car sheen: the reflection passes drawn over the cars (src/rush2049/car2049.cpp). Rush 2's cars have sheen layers,
+// which All On also makes for the Rush 2049 cars. Under Cube Map the layers draw as the paint reflecting the scene
+// (sheen_model): RT64 draws a cube map of the scene around the nearest car
+// (docs/rush2049_research/cars.md#car-reflections).
 static void add_car_sheen_option(recomp::config::Config& config) {
     using rush2::car2049::Sheen;
 
     config.add_enum_option(
         car_sheen_option::id,
         "Car Sheen",
-        "Sets which cars show reflections sliding over their paint. "
-        "<recomp-color primary>Original</recomp-color> matches the original game: only the Rush 2 cars have them. "
-        "<recomp-color primary>All On</recomp-color> also gives the Rush 2049 cars their own. "
-        "<recomp-color primary>All Off</recomp-color> takes them off every car.",
+        "Sets the reflections on the cars' paint. "
+        "<recomp-color primary>Original</recomp-color> matches the original game: a sheen slides over the Rush 2 "
+        "cars only. <recomp-color primary>All Off</recomp-color> takes it off every car. "
+        "<recomp-color primary>All On</recomp-color> also gives it to the Rush 2049 cars. "
+        "<recomp-color primary>Cube Map</recomp-color> makes every car's paint reflect the track, sky and cars "
+        "around it during a race, which takes more graphics card time; the three settings below adjust it.",
         {
             { Sheen::Original, "Original", "Original" },
-            { Sheen::AllOn, "AllOn", "All On" },
             { Sheen::AllOff, "AllOff", "All Off" },
+            { Sheen::AllOn, "AllOn", "All On" },
+            { Sheen::CubeMap, "CubeMap", "Cube Map" },
         },
         Sheen::Original
     );
 
     config.add_option_change_callback(car_sheen_option::id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::car2049::set_sheen(static_cast<Sheen>(std::get<uint32_t>(cur_value)));
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext context) {
+            // While the config loads, the tab's config isn't in place yet (touching it crashed): init_config applies
+            // the loaded mode, and its graying, once it is.
+            if (context == recomp::config::OptionChangeContext::Load) {
+                rush2::car2049::set_sheen(static_cast<Sheen>(std::get<uint32_t>(cur_value)));
+                return;
+            }
+            car_sheen_option::apply(recompui::config::get_graphics_config(), cur_value);
         });
 }
 
-// Sheen style: how the sheen layers draw (src/rush2049/car2049.cpp sheen_model). Reflections has RT64 draw a cube map
-// of the scene around the nearest car each frame and the paint reflect it (docs/rush2049_research/cars.md#car-reflections).
-static void add_sheen_style_option(recomp::config::Config& config) {
-    using rush2::car2049::SheenStyle;
-
-    config.add_enum_option(
-        sheen_style_option::id,
-        "Sheen Style",
-        "Sets how the sheen on the cars is drawn. "
-        "<recomp-color primary>Texture</recomp-color> matches the original game: a sheen texture slides over the paint. "
-        "<recomp-color primary>Reflections</recomp-color> makes the paint reflect the track, sky and cars around it, "
-        "drawn from the car's position every frame. Reflections take more graphics card time. "
-        "Car Sheen still sets which cars have sheen.",
-        {
-            { SheenStyle::Texture, "Texture", "Texture" },
-            { SheenStyle::Reflections, "Reflections", "Reflections" },
-        },
-        SheenStyle::Texture
+// The Cube Map sheen's settings: how much of the reflection covers the paint, how soft it is and how often it is
+// redrawn (RT64's car reflections, docs/graphics_effects.md#car-reflections).
+static void add_car_reflections_option(recomp::config::Config& config) {
+    config.add_number_option(
+        car_reflections_option::id,
+        "Car Reflections",
+        "Sets how strongly the paint reflects with Car Sheen set to Cube Map. Higher is shinier.",
+        5.0, 100.0, 5.0, 0, true, 70.0
     );
 
-    config.add_option_change_callback(sheen_style_option::id,
+    config.add_option_change_callback(car_reflections_option::id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::car2049::set_sheen_style(static_cast<SheenStyle>(std::get<uint32_t>(cur_value)));
+            car_reflections_option::apply(cur_value);
+        });
+
+    config.add_number_option(
+        reflection_blur_option::id,
+        "Reflection Blur",
+        "Sets how soft the Cube Map reflections are. <recomp-color primary>0%</recomp-color> is a sharp mirror; "
+        "higher is softer, like glossy paint, and hides the cars' flat panels more.",
+        0.0, 100.0, 5.0, 0, true, 20.0
+    );
+
+    config.add_option_change_callback(reflection_blur_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            reflection_blur_option::apply(cur_value);
+        });
+
+    using reflection_rate_option::Rate;
+    config.add_enum_option(
+        reflection_rate_option::id,
+        "Reflection Rate",
+        "Sets how often the Cube Map reflections are redrawn. <recomp-color primary>30</recomp-color> and "
+        "<recomp-color primary>60</recomp-color> redraw them that many times a second, and "
+        "<recomp-color primary>Every Frame</recomp-color> keeps up with the screen. Higher takes more graphics card "
+        "time.",
+        {
+            { Rate::Thirty, "30", "30" },
+            { Rate::Sixty, "60", "60" },
+            { Rate::EveryFrame, "EveryFrame", "Every Frame" },
+        },
+        Rate::Thirty
+    );
+
+    config.add_option_change_callback(reflection_rate_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            reflection_rate_option::apply(cur_value);
         });
 }
 
@@ -738,7 +808,7 @@ void rush2::init_config() {
             { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ds_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
-            { "Effects", { ambient_occlusion_option::id, car_sheen_option::id, sheen_style_option::id } },
+            { "Effects", { ambient_occlusion_option::id, car_sheen_option::id, car_reflections_option::id, reflection_blur_option::id, reflection_rate_option::id } },
             { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::mode_option_id,
                             rush2::upscale::command_option_id, rush2::upscale::interface_option_id,
                             rush2::upscale::car_colors_option_id } },
@@ -772,7 +842,7 @@ void rush2::init_config() {
     add_anisotropy_option(graphics_config);
     add_ambient_occlusion_option(graphics_config);
     add_car_sheen_option(graphics_config);
-    add_sheen_style_option(graphics_config);
+    add_car_reflections_option(graphics_config);
     add_split_option(graphics_config);
     rush2::upscale::add_options(graphics_config);
     recompui::config::set_tab_visible(recompui::config::general::id, false);
@@ -806,10 +876,10 @@ void rush2::init_config() {
         std::get<uint32_t>(loaded_graphics_config.get_option_value(anisotropy_option::id)), 4u);
     RT64::AmbientOcclusionStrength = ambient_occlusion_option::strength(
         loaded_graphics_config.get_option_value(ambient_occlusion_option::id));
-    rush2::car2049::set_sheen(static_cast<rush2::car2049::Sheen>(
-        std::get<uint32_t>(loaded_graphics_config.get_option_value(car_sheen_option::id))));
-    rush2::car2049::set_sheen_style(static_cast<rush2::car2049::SheenStyle>(
-        std::get<uint32_t>(loaded_graphics_config.get_option_value(sheen_style_option::id))));
+    car_sheen_option::apply(loaded_graphics_config, loaded_graphics_config.get_option_value(car_sheen_option::id));
+    car_reflections_option::apply(loaded_graphics_config.get_option_value(car_reflections_option::id));
+    reflection_blur_option::apply(loaded_graphics_config.get_option_value(reflection_blur_option::id));
+    reflection_rate_option::apply(loaded_graphics_config.get_option_value(reflection_rate_option::id));
     rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
     rush2::upscale::apply_loaded_options(loaded_graphics_config);

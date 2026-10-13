@@ -127,14 +127,12 @@ namespace rush2::car2049 {
     void light_model(uint8_t* rdram, recomp_context* ctx, uint32_t dl);
 
     // Car sheen (Graphics > Car Sheen): Rush 2's translucent sheen layers over the cars. Original draws them on the
-    // Rush 2 cars, All On on the Rush 2049 cars too (layers made from their bodies), All Off on none.
-    enum class Sheen : uint32_t { Original, AllOn, AllOff };
+    // Rush 2 cars, All Off on none, All On on the Rush 2049 cars too (layers made from their bodies). Cube Map has
+    // every car's SHEEN layers draw as the paint reflecting the scene around the car (RT64's car reflections,
+    // gEXSetCarReflection) and drops the DECAL layers; the car select and the shop, where there is no scene to
+    // reflect, draw as All On.
+    enum class Sheen : uint32_t { Original, AllOff, AllOn, CubeMap };
     void set_sheen(Sheen mode);
-    // Car sheen style (Graphics > Sheen Style): Texture draws the layers as the original game does (scrolling sheen
-    // textures), Reflections draws the SHEEN layers as the paint reflecting the scene around the car (RT64's car
-    // reflections, gEXSetCarReflection) and drops the DECAL layers.
-    enum class SheenStyle : uint32_t { Texture, Reflections };
-    void set_sheen_style(SheenStyle style);
     // Before func_8007AA48 emits the G_DL ($s7 = the node): drops a sheen layer the settings hide and marks the ones
     // drawn as reflections.
     void sheen_model(uint8_t* rdram, recomp_context* ctx);

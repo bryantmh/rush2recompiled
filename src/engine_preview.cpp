@@ -42,6 +42,7 @@ namespace {
     };
     Rev revs[2];
     bool car_select_ran = false;
+    bool car_select_shown = false;  // car_select_ran as of the last frame (rush2_engine_preview_frame)
 
     // The rev: idle, throttle up to 6500 rpm, hold, lift off back to idle, stop.
     constexpr float idle_rpm = 1500.0f, peak_rpm = 6500.0f;
@@ -114,6 +115,10 @@ extern "C" void rush2_engine_preview_car_select(uint8_t*, recomp_context*) {
     car_select_ran = true;
 }
 
+bool rush2::engine2049::car_preview_shown() {
+    return car_select_shown;
+}
+
 void rush2::engine2049::shop_frame() {
     car_select_ran = true;
 }
@@ -175,6 +180,7 @@ extern "C" void rush2_engine_preview_start(uint8_t* rdram, recomp_context* ctx) 
 extern "C" void rush2_engine_preview_frame(uint8_t* rdram, recomp_context* ctx) {
     bool in_car_select = car_select_ran;
     car_select_ran = false;
+    car_select_shown = in_car_select;
     if (!in_car_select) {
         stop_all(rdram, ctx);
         return;

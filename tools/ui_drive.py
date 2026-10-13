@@ -4,7 +4,8 @@ Usage: python tools/ui_drive.py OUT_DIR ["<input script>"]
 Launches Rush2Recompiled (RUSH2_EXE for another build, run in its own folder) and then follows commands appended to
 OUT_DIR/cmd.txt, one per line, until `quit` (or the game exits):
     keys ESC RIGHT RIGHT ENTER    posts key presses to the window, 0.6 s apart (faster ones get dropped) (names: ESC ENTER SPACE TAB UP DOWN
-                                  LEFT RIGHT BACK F1-F12, or a single letter or digit)
+                                  LEFT RIGHT BACK F1-F17, or a single letter or digit; F15 is
+                                  the menu's Back, which moves focus to the tab bar)
     click X Y                     left click at client pixel (X, Y), as the shots show it
     wheel X Y N                   mouse wheel at (X, Y), N notches (negative scrolls down)
     wait 1.5                      seconds
@@ -23,7 +24,7 @@ WM_KEYDOWN, WM_KEYUP = 0x0100, 0x0101
 WM_MOUSEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEWHEEL = 0x0200, 0x0201, 0x0202, 0x020A
 KEYS = {'ESC': 0x1B, 'ENTER': 0x0D, 'SPACE': 0x20, 'TAB': 0x09, 'BACK': 0x08,
         'LEFT': 0x25, 'UP': 0x26, 'RIGHT': 0x27, 'DOWN': 0x28}
-KEYS.update({'F%d' % i: 0x6F + i for i in range(1, 13)})
+KEYS.update({'F%d' % i: 0x6F + i for i in range(1, 18)})
 
 
 def press(hwnd, name):
@@ -31,6 +32,8 @@ def press(hwnd, name):
     if vk is None:
         raise ValueError('unknown key ' + name)
     scan = user32.MapVirtualKeyW(vk, 0)
+    if name.upper() in ('LEFT', 'UP', 'RIGHT', 'DOWN'):
+        scan |= 0x100  # extended key, or SDL reads the numpad's
     user32.PostMessageW(hwnd, WM_KEYDOWN, vk, 1 | (scan << 16))
     time.sleep(0.05)
     user32.PostMessageW(hwnd, WM_KEYUP, vk, 1 | (scan << 16) | (0xC0 << 24))

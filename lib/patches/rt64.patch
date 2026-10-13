@@ -1,17 +1,16 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 79dfc38..a4a30f7 100644
+index 79dfc38..358e97b 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -531,6 +531,8 @@ build_compute_shader(rt64 "src/shaders/RSPModifyCS.hlsl")
+@@ -531,6 +531,7 @@ build_compute_shader(rt64 "src/shaders/RSPModifyCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPProcessCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPWorldCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPSmoothNormalCS.hlsl")
 +build_compute_shader(rt64 "src/shaders/CarReflectionCS.hlsl")
-+build_compute_shader(rt64 "src/shaders/CarReflectionNormalCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl" "src/shaders/RSPVertexTestZCSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/RtCopyColorToDepthPS.hlsl")
-@@ -550,7 +552,13 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
+@@ -550,7 +551,13 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
  build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/VideoInterfacePSPixel.hlsl" "-D PIXEL_ANTIALIASING")
  build_vertex_shader( rt64 "src/shaders/FullScreenVS.hlsl")
  build_vertex_shader( rt64 "src/shaders/Im3DVS.hlsl")
@@ -65,25 +64,28 @@ index d387090..112d14d 100644
 +
  #endif // RT64_EXTENDED_GBI
 diff --git a/src/common/rt64_enhancement_configuration.cpp b/src/common/rt64_enhancement_configuration.cpp
-index 1194a96..5d249a1 100644
+index 1194a96..1e58daa 100644
 --- a/src/common/rt64_enhancement_configuration.cpp
 +++ b/src/common/rt64_enhancement_configuration.cpp
-@@ -5,6 +5,10 @@
+@@ -5,6 +5,13 @@
  #include "rt64_enhancement_configuration.h"
  
  namespace RT64 {
 +    std::atomic<bool> GeneratedMipmapsEnabled = false;
 +    std::atomic<uint32_t> GeneratedMipmapsAnisotropy = 0;
 +    std::atomic<float> AmbientOcclusionStrength = 0.0f;
++    std::atomic<float> CarReflectionStrength = 0.5f;
++    std::atomic<float> CarReflectionBlur = 0.0f;
++    std::atomic<float> CarReflectionUpdatesPerSecond = 30.0f;
 +
      // EnhancementConfiguration
      
      EnhancementConfiguration::EnhancementConfiguration() {
 diff --git a/src/common/rt64_enhancement_configuration.h b/src/common/rt64_enhancement_configuration.h
-index 9ac8087..a4c7940 100644
+index 9ac8087..ea7e4db 100644
 --- a/src/common/rt64_enhancement_configuration.h
 +++ b/src/common/rt64_enhancement_configuration.h
-@@ -4,9 +4,22 @@
+@@ -4,9 +4,33 @@
  
  #pragma once
  
@@ -102,6 +104,17 @@ index 9ac8087..a4c7940 100644
 +    // Set by the host application. How dark screen space ambient occlusion makes enclosed corners of the 3D scene, 0 (off,
 +    // the console's behavior) to 1 (AmbientOcclusionPS.hlsl).
 +    extern std::atomic<float> AmbientOcclusionStrength;
++
++    // Set by the host application. How much of the car reflections (gEXSetCarReflection) covers the paint, 0 to 1
++    // (CarReflectionPS.hlsl).
++    extern std::atomic<float> CarReflectionStrength;
++
++    // Set by the host application. How blurred the car reflections are, 0 (a mirror) to 1 (CarReflectionPS.hlsl).
++    extern std::atomic<float> CarReflectionBlur;
++
++    // Set by the host application. How many times a second a view's car reflection cube map is redrawn; the frames in
++    // between reflect the last one drawn. 0 redraws it every frame.
++    extern std::atomic<float> CarReflectionUpdatesPerSecond;
 +
      struct EnhancementConfiguration {
          struct Framebuffer {
@@ -679,10 +692,10 @@ index bde2f03..b92a1c4 100644
          int writeCursor;
          int barrierCursor;
 diff --git a/src/render/rt64_descriptor_sets.h b/src/render/rt64_descriptor_sets.h
-index 69a82ac..f3a60e6 100644
+index 69a82ac..df03596 100644
 --- a/src/render/rt64_descriptor_sets.h
 +++ b/src/render/rt64_descriptor_sets.h
-@@ -643,6 +643,61 @@ namespace RT64 {
+@@ -643,6 +643,42 @@ namespace RT64 {
          }
      };
  
@@ -697,25 +710,6 @@ index 69a82ac..f3a60e6 100644
 +            srcScreenPos = builder.addStructuredBuffer(1);
 +            dstPos = builder.addReadWriteStructuredBuffer(2);
 +            dstCubePos = builder.addReadWriteStructuredBuffer(3);
-+            builder.end();
-+
-+            if (device != nullptr) {
-+                create(device);
-+            }
-+        }
-+    };
-+
-+    // Rush 2 recomp: car reflections (CarReflectionNormalCS.hlsl).
-+    struct CarReflectionNormalDescriptorSet : RenderDescriptorSetBase {
-+        uint32_t srcFaceIndices;
-+        uint32_t srcPos;
-+        uint32_t dstNorm;
-+
-+        CarReflectionNormalDescriptorSet(RenderDevice *device = nullptr) {
-+            builder.begin();
-+            srcFaceIndices = builder.addStructuredBuffer(1);
-+            srcPos = builder.addStructuredBuffer(2);
-+            dstNorm = builder.addReadWriteStructuredBuffer(3);
 +            builder.end();
 +
 +            if (device != nullptr) {
@@ -745,15 +739,16 @@ index 69a82ac..f3a60e6 100644
          uint32_t TMEM;
          uint32_t RGBA32;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..c814d12 100644
+index 9fae0d4..3d09a09 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
-@@ -4,14 +4,19 @@
+@@ -4,14 +4,20 @@
  
  #include "rt64_framebuffer_renderer.h"
  
 +#include <cfloat>
 +#include <map>
++#include <unordered_map>
 +
  #include "../include/rt64_extended_gbi.h"
  
@@ -768,7 +763,7 @@ index 9fae0d4..c814d12 100644
  
  #include "rt64_descriptor_sets.h"
  #include "rt64_render_worker.h"
-@@ -50,8 +55,14 @@ namespace interop {
+@@ -50,8 +56,14 @@ namespace interop {
  };
  
  namespace RT64 {
@@ -784,7 +779,7 @@ index 9fae0d4..c814d12 100644
      RenderRect convertFixedRect(FixedRect rect, hlslpp::float2 resScale, int32_t fbWidth, float aspectRatioScale, float extOriginPercentage, int32_t horizontalMisalignment, uint16_t leftOrigin, uint16_t rightOrigin) {
          if (!rect.isNull()) {
              auto computeOrigin = [=](uint16_t origin) {
-@@ -169,6 +180,8 @@ namespace RT64 {
+@@ -169,6 +181,8 @@ namespace RT64 {
      
      void FramebufferRenderer::resetFramebuffers(RenderWorker *worker, bool ubershadersVisible, float ditherNoiseStrength, const RenderMultisampling &multisampling) {
          instanceDrawCallVector.clear();
@@ -793,7 +788,7 @@ index 9fae0d4..c814d12 100644
          hitGroupVector.clear();
          renderIndicesVector.clear();
          rspSmoothNormalVector.clear();
-@@ -250,6 +263,8 @@ namespace RT64 {
+@@ -250,6 +264,8 @@ namespace RT64 {
                      gpuTile.flags.fromCopy = true;
                      gpuTile.flags.rawTMEM = false;
                      gpuTile.flags.hasMipmaps = false;
@@ -802,7 +797,7 @@ index 9fae0d4..c814d12 100644
                  }
              }
              else {
-@@ -258,20 +273,29 @@ namespace RT64 {
+@@ -258,20 +274,29 @@ namespace RT64 {
                  bool textureReplaced = false;
                  bool hasMipmaps = false;
                  bool shiftedByHalf = false;
@@ -837,7 +832,7 @@ index 9fae0d4..c814d12 100644
              }
          }
      }
-@@ -508,14 +532,100 @@ namespace RT64 {
+@@ -508,14 +533,100 @@ namespace RT64 {
              }
          };
  
@@ -940,7 +935,7 @@ index 9fae0d4..c814d12 100644
              case InstanceDrawCall::Type::RawTriangles:
              case InstanceDrawCall::Type::RegularRect: {
                  assert(fbStorage->colorTarget != nullptr);
-@@ -550,6 +660,23 @@ namespace RT64 {
+@@ -550,6 +661,23 @@ namespace RT64 {
                      continue;
                  }
  
@@ -964,7 +959,7 @@ index 9fae0d4..c814d12 100644
                  // A new pass must be started if decals are required and something wrote to the depth buffer before this call.
                  const interop::OtherMode otherMode = triangles.shaderDesc.otherMode;
                  bool depthDecal = (otherMode.zMode() == ZMODE_DEC);
-@@ -578,6 +705,20 @@ namespace RT64 {
+@@ -578,6 +706,20 @@ namespace RT64 {
  
                  drawCallTriangles(drawCall);
  
@@ -985,7 +980,7 @@ index 9fae0d4..c814d12 100644
                  // Simulate dither noise.
                  if (triangles.postBlendDitherNoise) {
                      if (triangles.postBlendDitherNoiseNegative) {
-@@ -638,6 +779,8 @@ namespace RT64 {
+@@ -638,6 +780,8 @@ namespace RT64 {
              }
          }
  
@@ -994,42 +989,53 @@ index 9fae0d4..c814d12 100644
          // Mark targets for resolve.
          if (fbStorage->colorTarget != nullptr) {
              fbStorage->colorTarget->markForResolve();
-@@ -1316,6 +1459,400 @@ namespace RT64 {
+@@ -1316,6 +1460,533 @@ namespace RT64 {
      }
  #endif
  
 +    // Rush 2 recomp: car reflections. The cube map's faces are CarReflectionFaceSize pixels square, laid out 3 x 2.
 +    static const uint32_t CarReflectionFaceSize = 256;
-+    static const float CarReflectionStrength = 0.85f;
++
++    // Vertices of a car's marked draws closer than this, as a fraction of the car's largest half size, are the same
++    // point of its surface and share a normal.
++    static const float CarReflectionWeldDistance = 0.01f;
 +
 +    // Draws the cube map of a car reflection scene: CarReflectionCS.hlsl puts the frame's vertices in the cube's space
-+    // and projects them to each face, CarReflectionNormalCS.hlsl gives the marked draws smooth normals, and the view's
-+    // own draw calls, with their own pipelines and textures, draw each face of the atlas in turn.
++    // and projects them to each face, and the view's own draw calls, with their own pipelines and textures, draw each
++    // face of the atlas in turn.
 +    void FramebufferRenderer::submitCarReflection(RenderWorker *worker, const Framebuffer &framebuffer, RenderFramebufferStorage *fbStorage, CarReflectionScene &scene) {
 +        RenderDevice *device = worker->device;
 +        RenderCommandList *commandList = worker->commandList.get();
 +        RenderTarget *colorTarget = fbStorage->colorTarget;
 +        const uint32_t atlasWidth = CarReflectionFaceSize * 3;
 +        const uint32_t atlasHeight = CarReflectionFaceSize * 2;
-+        RenderTarget *atlasColor = fbStorage->reflectionColorTarget.get();
++        CarReflectionSlot &slot = carReflectionSlots[scene.slotIndex];
++        RenderTarget *atlasColor = slot.atlasColorTarget.get();
 +        const bool atlasCompatible = (atlasColor != nullptr) && (atlasColor->multisampling.sampleCount == colorTarget->multisampling.sampleCount) && (atlasColor->usesHDR == colorTarget->usesHDR);
 +        if (!atlasCompatible) {
-+            fbStorage->reflectionDrawSet.reset();
-+            fbStorage->reflectionFramebuffer.reset();
-+            fbStorage->reflectionColorTarget = std::make_unique<RenderTarget>(0, RT64::Framebuffer::Type::Color, colorTarget->multisampling, colorTarget->usesHDR);
-+            fbStorage->reflectionDepthTarget = std::make_unique<RenderTarget>(0, RT64::Framebuffer::Type::Depth, colorTarget->multisampling, colorTarget->usesHDR);
-+            fbStorage->reflectionColorTarget->setupColor(worker, atlasWidth, atlasHeight);
-+            fbStorage->reflectionDepthTarget->setupDepth(worker, atlasWidth, atlasHeight);
-+            atlasColor = fbStorage->reflectionColorTarget.get();
++            slot.atlasDrawSet.reset();
++            slot.atlasFramebuffer.reset();
++            slot.atlasColorTarget = std::make_unique<RenderTarget>(0, RT64::Framebuffer::Type::Color, colorTarget->multisampling, colorTarget->usesHDR);
++            slot.atlasDepthTarget = std::make_unique<RenderTarget>(0, RT64::Framebuffer::Type::Depth, colorTarget->multisampling, colorTarget->usesHDR);
++            slot.atlasColorTarget->setupColor(worker, atlasWidth, atlasHeight);
++            slot.atlasDepthTarget->setupDepth(worker, atlasWidth, atlasHeight);
++            atlasColor = slot.atlasColorTarget.get();
 +
 +            const RenderTexture *colorTexture = atlasColor->texture.get();
-+            fbStorage->reflectionFramebuffer = device->createFramebuffer(RenderFramebufferDesc(&colorTexture, 1, fbStorage->reflectionDepthTarget->texture.get()));
-+            fbStorage->reflectionDrawSet = std::make_unique<CarReflectionDrawDescriptorSet>(shaderLibrary->samplerLibrary, device);
-+            fbStorage->reflectionDrawSet->setTexture(fbStorage->reflectionDrawSet->gCube, atlasColor->getResolvedTexture(), RenderTextureLayout::SHADER_READ, atlasColor->getResolvedTextureView());
++            slot.atlasFramebuffer = device->createFramebuffer(RenderFramebufferDesc(&colorTexture, 1, slot.atlasDepthTarget->texture.get()));
++            slot.atlasDrawSet = std::make_unique<CarReflectionDrawDescriptorSet>(shaderLibrary->samplerLibrary, device);
++            slot.atlasDrawSet->setTexture(slot.atlasDrawSet->gCube, atlasColor->getResolvedTexture(), RenderTextureLayout::SHADER_READ, atlasColor->getResolvedTextureView());
++            slot.atlasDrawn = false;
 +        }
 +
-+        RenderTarget *atlasDepth = fbStorage->reflectionDepthTarget.get();
-+        const CarReflectionSlot &slot = carReflectionSlots[scene.slotIndex];
++        // The cube map is due when it was last drawn long enough ago (CarReflectionUpdatesPerSecond; 0 is every frame).
++        // Frames in between, mostly the display's extra frames, reflect the last one drawn.
++        const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
++        const double updatesPerSecond = CarReflectionUpdatesPerSecond;
++        const bool drawAtlas = !slot.atlasDrawn || (updatesPerSecond <= 0.0) || (std::chrono::duration<double>(now - slot.atlasTime).count() >= (1.0 / updatesPerSecond));
++        scene.cb.writeFaces = drawAtlas ? 1 : 0;
++
++        RenderTarget *atlasDepth = slot.atlasDepthTarget.get();
 +        const uint32_t vertexCount = scene.cb.vertexCount;
 +        const uint32_t PosStride = sizeof(float) * 4;
 +        const uint32_t ThreadGroupSize = 64;
@@ -1037,7 +1043,6 @@ index 9fae0d4..c814d12 100644
 +        // The vertices in the cube's space and on its faces.
 +        const RenderBufferBarrier writeBarriers[] = {
 +            RenderBufferBarrier(slot.posBuffer.get(), RenderBufferAccess::WRITE),
-+            RenderBufferBarrier(slot.normBuffer.get(), RenderBufferAccess::WRITE),
 +            RenderBufferBarrier(slot.cubePosBuffer.get(), RenderBufferAccess::WRITE)
 +        };
 +
@@ -1047,28 +1052,20 @@ index 9fae0d4..c814d12 100644
 +        commandList->setComputePushConstants(0, &scene.cb);
 +        commandList->setComputeDescriptorSet(slot.descriptorSet->get(), 0);
 +        commandList->dispatch((vertexCount + ThreadGroupSize - 1) / ThreadGroupSize, 1, 1);
-+        commandList->barriers(RenderBarrierStage::COMPUTE, RenderBufferBarrier(slot.posBuffer.get(), RenderBufferAccess::READ));
-+
-+        // The marked draws' normals.
-+        commandList->setPipeline(shaderLibrary->carReflectionNormal.pipeline.get());
-+        commandList->setComputePipelineLayout(shaderLibrary->carReflectionNormal.pipelineLayout.get());
-+        commandList->setComputeDescriptorSet(slot.normalDescriptorSet->get(), 0);
-+        for (const std::pair<uint32_t, uint32_t> &range : scene.markedIndexRanges) {
-+            interop::CarReflectionNormalCB normalCB = {};
-+            normalCB.indexStart = range.first;
-+            normalCB.indexCount = range.second;
-+            normalCB.weldDistanceSq = scene.weldDistanceSq;
-+            commandList->setComputePushConstants(0, &normalCB);
-+            commandList->dispatch((range.second + ThreadGroupSize - 1) / ThreadGroupSize, 1, 1);
-+        }
 +
 +        const RenderBufferBarrier readBarriers[] = {
 +            RenderBufferBarrier(slot.posBuffer.get(), RenderBufferAccess::READ),
-+            RenderBufferBarrier(slot.normBuffer.get(), RenderBufferAccess::READ),
 +            RenderBufferBarrier(slot.cubePosBuffer.get(), RenderBufferAccess::READ)
 +        };
 +
 +        commandList->barriers(RenderBarrierStage::GRAPHICS, readBarriers, uint32_t(std::size(readBarriers)));
++        if (!drawAtlas) {
++            return;
++        }
++
++        slot.atlasDrawn = true;
++        slot.atlasTime = now;
++        slot.atlasMirror = scene.cb.mirror;
 +
 +        // The faces, drawn like the view itself but without its screen adjustments.
 +        const RenderTextureBarrier targetBarriers[] = {
@@ -1077,7 +1074,7 @@ index 9fae0d4..c814d12 100644
 +        };
 +
 +        commandList->barriers(RenderBarrierStage::GRAPHICS, targetBarriers, uint32_t(std::size(targetBarriers)));
-+        commandList->setFramebuffer(fbStorage->reflectionFramebuffer.get());
++        commandList->setFramebuffer(slot.atlasFramebuffer.get());
 +        commandList->setViewports(RenderViewport(0.0f, 0.0f, float(atlasWidth), float(atlasHeight)));
 +        commandList->setScissors(RenderRect(0, 0, int32_t(atlasWidth), int32_t(atlasHeight)));
 +        commandList->clearColor(0, scene.clearColor);
@@ -1152,14 +1149,19 @@ index 9fae0d4..c814d12 100644
 +        drawCB.screenScale = triangles.screenScale;
 +        drawCB.screenOffset = triangles.screenOffset;
 +        drawCB.atlasFaceSize = float(CarReflectionFaceSize);
-+        drawCB.strength = CarReflectionStrength;
++        drawCB.strength = std::clamp(CarReflectionStrength.load(), 0.0f, 1.0f);
++        drawCB.blur = std::clamp(CarReflectionBlur.load(), 0.0f, 1.0f);
 +        drawCB.cameraPosition = scene.cameraPosition;
-+        drawCB.mirror = scene.cb.mirror;
++        drawCB.mirror = slot.atlasMirror;
++        if ((triangles.reflectionCar >= 0) && (size_t(triangles.reflectionCar) < scene.carBoxes.size())) {
++            drawCB.carMin = scene.carBoxes[triangles.reflectionCar].first;
++            drawCB.carMax = scene.carBoxes[triangles.reflectionCar].second;
++        }
 +
 +        const ShaderRecord &record = shaderLibrary->carReflectionDraw;
 +        commandList->setPipeline(record.pipeline.get());
 +        commandList->setGraphicsPipelineLayout(record.pipelineLayout.get());
-+        commandList->setGraphicsDescriptorSet(fbStorage->reflectionDrawSet->get(), 0);
++        commandList->setGraphicsDescriptorSet(slot.atlasDrawSet->get(), 0);
 +        commandList->setGraphicsPushConstants(0, &drawCB);
 +        commandList->setViewports(framebuffer.viewport);
 +        commandList->setScissors(triangles.scissor);
@@ -1172,7 +1174,9 @@ index 9fae0d4..c814d12 100644
 +    // projection and viewport (a game can load its projection again for each object). Its cube map is centered on the
 +    // bounds of the marked car nearest its camera, in the space the world transforms put vertices in, and redraws the
 +    // view's perspective draws other than the marked ones, over the color the framebuffer was last filled with before the
-+    // view (its sky or fog color, for what the draws leave empty).
++    // view (its sky or fog color, for what the draws leave empty). Each marked car's vertices get smooth normals here:
++    // the paint layers have none of their own (their vertex colors are white), and a car's panels are separate draws, so
++    // the normals are worked out over all of a car's marked triangles at once or every panel edge would show as a crease.
 +    void FramebufferRenderer::addCarReflectionScenes(const DrawParams &p, const FramebufferPair &fbPair, interop::float2 resolution, const std::vector<std::vector<uint32_t>> &cubeInstances, const std::vector<std::vector<uint32_t>> &markedInstances, const std::vector<std::vector<const GameCall *>> &markedCalls, const std::vector<RenderColor> &clearColors) {
 +        if ((p.fbStorage->colorTarget == nullptr) || (p.fbStorage->depthTarget == nullptr)) {
 +            return;
@@ -1266,27 +1270,63 @@ index 9fae0d4..c814d12 100644
 +                viewMarkedCalls.insert(viewMarkedCalls.end(), markedCalls[pr2].begin(), markedCalls[pr2].end());
 +            }
 +
-+            // Each marked car's bounds.
++            // Each marked car's bounds, vertices and triangles.
++            struct CarVertex {
++                uint32_t index;
++                float pos[3];
++                uint32_t point;
++                bool mirrored;
++            };
++
 +            struct CarBounds {
 +                float min[3] = { FLT_MAX, FLT_MAX, FLT_MAX };
 +                float max[3] = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
++                std::vector<CarVertex> vertices;
++                std::unordered_map<uint32_t, uint32_t> vertexOf;
++                std::vector<uint32_t> triangles;
 +            };
 +
 +            std::map<uint32_t, CarBounds> carBounds;
 +            for (const GameCall *call : viewMarkedCalls) {
 +                CarBounds &bounds = carBounds[call->callDesc.extendedFlags.carReflection];
 +                const uint32_t indexEnd = std::min(call->meshDesc.faceIndicesStart + call->callDesc.triangleCount * 3, uint32_t(drawData.faceIndices.size()));
-+                for (uint32_t index = call->meshDesc.faceIndicesStart; index < indexEnd; index++) {
-+                    const uint32_t v = drawData.faceIndices[index];
-+                    if ((v >= vertexCount) || (drawData.worldIndices[v] >= worldMatrixCount)) {
-+                        continue;
++                for (uint32_t index = call->meshDesc.faceIndicesStart; index + 2 < indexEnd; index += 3) {
++                    uint32_t corners[3];
++                    bool valid = true;
++                    for (uint32_t c = 0; c < 3; c++) {
++                        const uint32_t v = drawData.faceIndices[index + c];
++                        if ((v >= vertexCount) || (drawData.worldIndices[v] >= worldMatrixCount)) {
++                            valid = false;
++                            break;
++                        }
++
++                        auto found = bounds.vertexOf.find(v);
++                        if (found != bounds.vertexOf.end()) {
++                            corners[c] = found->second;
++                            continue;
++                        }
++
++                        const hlslpp::float4 modelPos(drawData.posFloats[v * 3 + 0], drawData.posFloats[v * 3 + 1], drawData.posFloats[v * 3 + 2], 1.0f);
++                        const interop::float4x4 &world = worldMatrices[drawData.worldIndices[v]];
++                        const hlslpp::float4 worldPos = hlslpp::mul(modelPos, hlslpp::float4x4(world));
++                        const float worldDet =
++                            world[0][0] * (world[1][1] * world[2][2] - world[1][2] * world[2][1]) -
++                            world[0][1] * (world[1][0] * world[2][2] - world[1][2] * world[2][0]) +
++                            world[0][2] * (world[1][0] * world[2][1] - world[1][1] * world[2][0]);
++
++                        CarVertex vertex = { v, { float(worldPos[0]), float(worldPos[1]), float(worldPos[2]) }, 0, worldDet < 0.0f };
++                        for (uint32_t m = 0; m < 3; m++) {
++                            bounds.min[m] = std::min(bounds.min[m], vertex.pos[m]);
++                            bounds.max[m] = std::max(bounds.max[m], vertex.pos[m]);
++                        }
++
++                        corners[c] = uint32_t(bounds.vertices.size());
++                        bounds.vertexOf.emplace(v, corners[c]);
++                        bounds.vertices.emplace_back(vertex);
 +                    }
 +
-+                    const hlslpp::float4 modelPos(drawData.posFloats[v * 3 + 0], drawData.posFloats[v * 3 + 1], drawData.posFloats[v * 3 + 2], 1.0f);
-+                    const hlslpp::float4 worldPos = hlslpp::mul(modelPos, hlslpp::float4x4(worldMatrices[drawData.worldIndices[v]]));
-+                    for (uint32_t m = 0; m < 3; m++) {
-+                        bounds.min[m] = std::min(bounds.min[m], float(worldPos[m]));
-+                        bounds.max[m] = std::max(bounds.max[m], float(worldPos[m]));
++                    if (valid) {
++                        bounds.triangles.insert(bounds.triangles.end(), corners, corners + 3);
 +                    }
 +                }
 +            }
@@ -1344,14 +1384,8 @@ index 9fae0d4..c814d12 100644
 +            cb.nearDistances = { halfExtents[0] + maxHalfExtent * 0.05f, halfExtents[1] + maxHalfExtent * 0.05f, halfExtents[2] + maxHalfExtent * 0.05f };
 +            cb.resolution = resolution;
 +            scene.cameraPosition = { camera[0] - center[0], camera[1] - center[1], camera[2] - center[2] };
-+            scene.weldDistanceSq = (maxHalfExtent * 0.002f) * (maxHalfExtent * 0.002f);
 +            scene.cubeInstances = std::move(viewCubeInstances);
-+            for (const GameCall *call : viewMarkedCalls) {
-+                scene.markedIndexRanges.emplace_back(call->meshDesc.faceIndicesStart, call->callDesc.triangleCount * 3);
-+            }
-+
 +            scene.screenPosBuffer = p.curWorkload->outputBuffers.screenPosBuffer.buffer.get();
-+            scene.faceIndicesBuffer = p.curWorkload->drawBuffers.faceIndicesBuffer.get();
 +            scene.slotIndex = uint32_t(carReflectionScenes.size());
 +
 +            // The scene's buffers, grown when the frame has more vertices.
@@ -1366,26 +1400,120 @@ index 9fae0d4..c814d12 100644
 +                const RenderBufferFlags bufferFlags = RenderBufferFlag::VERTEX | RenderBufferFlag::STORAGE | RenderBufferFlag::UNORDERED_ACCESS;
 +                const uint64_t posSize = uint64_t(slot.vertexCapacity) * sizeof(float) * 4;
 +                slot.posBuffer = device->createBuffer(RenderBufferDesc::DefaultBuffer(posSize, bufferFlags));
-+                slot.normBuffer = device->createBuffer(RenderBufferDesc::DefaultBuffer(posSize, bufferFlags));
++                slot.normBuffer = device->createBuffer(RenderBufferDesc::UploadBuffer(posSize, RenderBufferFlag::VERTEX));
 +                slot.cubePosBuffer = device->createBuffer(RenderBufferDesc::DefaultBuffer(posSize * 6, bufferFlags));
 +            }
 +
 +            if (slot.descriptorSet == nullptr) {
 +                slot.descriptorSet = std::make_unique<CarReflectionDescriptorSet>(device);
-+                slot.normalDescriptorSet = std::make_unique<CarReflectionNormalDescriptorSet>(device);
 +            }
 +
-+            const DrawBuffers &drawBuffers = p.curWorkload->drawBuffers;
 +            slot.descriptorSet->setBuffer(slot.descriptorSet->srcScreenPos, scene.screenPosBuffer, RenderBufferStructuredView(sizeof(float) * 4));
 +            slot.descriptorSet->setBuffer(slot.descriptorSet->dstPos, slot.posBuffer.get(), RenderBufferStructuredView(sizeof(float) * 4));
 +            slot.descriptorSet->setBuffer(slot.descriptorSet->dstCubePos, slot.cubePosBuffer.get(), RenderBufferStructuredView(sizeof(float) * 4));
-+            slot.normalDescriptorSet->setBuffer(slot.normalDescriptorSet->srcFaceIndices, drawBuffers.faceIndicesBuffer.get(), drawBuffers.faceIndicesBuffer.allocatedSize, RenderBufferStructuredView(sizeof(uint32_t)));
-+            slot.normalDescriptorSet->setBuffer(slot.normalDescriptorSet->srcPos, slot.posBuffer.get(), RenderBufferStructuredView(sizeof(float) * 4));
-+            slot.normalDescriptorSet->setBuffer(slot.normalDescriptorSet->dstNorm, slot.normBuffer.get(), RenderBufferStructuredView(sizeof(float) * 4));
++
++            // The cars' normals. Each of a car's points (its vertices welded by position) sums the normals of the
++            // triangles around it, weighted by their angle at the point so a panel cut into many triangles counts no
++            // more than one cut into few. The triangles' winding gives the normals their side, turned around for parts
++            // drawn with a mirroring world transform, so a car's normals all point the same way through its surface
++            // (which way, CarReflectionPS.hlsl works out), on its concave parts too.
++            float *normals = reinterpret_cast<float *>(slot.normBuffer->map());
++            std::vector<float> pointNormals;
++            std::vector<uint32_t> pointVertices;
++            for (auto &it : carBounds) {
++                CarBounds &car = it.second;
++                if (car.triangles.empty()) {
++                    continue;
++                }
++
++                float carSize = 0.0f;
++                for (uint32_t m = 0; m < 3; m++) {
++                    carSize = std::max(carSize, (car.max[m] - car.min[m]) * 0.5f);
++                }
++
++                const float weldDistanceSq = (carSize * CarReflectionWeldDistance) * (carSize * CarReflectionWeldDistance);
++                pointVertices.clear();
++                for (CarVertex &vertex : car.vertices) {
++                    uint32_t point = 0;
++                    for (; point < pointVertices.size(); point++) {
++                        const float *other = car.vertices[pointVertices[point]].pos;
++                        const float d[3] = { vertex.pos[0] - other[0], vertex.pos[1] - other[1], vertex.pos[2] - other[2] };
++                        if ((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) <= weldDistanceSq) {
++                            break;
++                        }
++                    }
++
++                    if (point == pointVertices.size()) {
++                        pointVertices.emplace_back(uint32_t(&vertex - car.vertices.data()));
++                    }
++
++                    vertex.point = point;
++                }
++
++                pointNormals.assign(pointVertices.size() * 3, 0.0f);
++                for (size_t t = 0; t + 2 < car.triangles.size(); t += 3) {
++                    const CarVertex *corners[3] = { &car.vertices[car.triangles[t]], &car.vertices[car.triangles[t + 1]], &car.vertices[car.triangles[t + 2]] };
++                    hlslpp::float3 pos[3];
++                    for (uint32_t c = 0; c < 3; c++) {
++                        pos[c] = hlslpp::float3(corners[c]->pos[0], corners[c]->pos[1], corners[c]->pos[2]);
++                    }
++
++                    hlslpp::float3 faceNormal = hlslpp::cross(pos[1] - pos[0], pos[2] - pos[0]);
++                    const float faceLengthSq = float(hlslpp::dot(faceNormal, faceNormal));
++                    if (faceLengthSq <= 0.0f) {
++                        continue;
++                    }
++
++                    faceNormal = faceNormal / std::sqrt(faceLengthSq);
++                    if (corners[0]->mirrored) {
++                        faceNormal = -faceNormal;
++                    }
++
++                    for (uint32_t c = 0; c < 3; c++) {
++                        const hlslpp::float3 a = pos[(c + 1) % 3] - pos[c];
++                        const hlslpp::float3 b = pos[(c + 2) % 3] - pos[c];
++                        const float lengths = std::sqrt(float(hlslpp::dot(a, a)) * float(hlslpp::dot(b, b)));
++                        if (lengths <= 0.0f) {
++                            continue;
++                        }
++
++                        const float angle = std::acos(std::clamp(float(hlslpp::dot(a, b)) / lengths, -1.0f, 1.0f));
++                        float *pointNormal = &pointNormals[corners[c]->point * 3];
++                        pointNormal[0] += float(faceNormal.x) * angle;
++                        pointNormal[1] += float(faceNormal.y) * angle;
++                        pointNormal[2] += float(faceNormal.z) * angle;
++                    }
++                }
++
++                for (const CarVertex &vertex : car.vertices) {
++                    const float *pointNormal = &pointNormals[vertex.point * 3];
++                    const float length = std::sqrt(pointNormal[0] * pointNormal[0] + pointNormal[1] * pointNormal[1] + pointNormal[2] * pointNormal[2]);
++                    float *normal = &normals[size_t(vertex.index) * 4];
++                    for (uint32_t m = 0; m < 3; m++) {
++                        normal[m] = (length > 0.0f) ? (pointNormal[m] / length) : 0.0f;
++                    }
++
++                    normal[3] = 0.0f;
++                }
++            }
++
++            slot.normBuffer->unmap();
++
++            // The cars' bounds in the cube's space, and which car and scene each marked draw is part of.
++            std::map<uint32_t, int32_t> carBoxOf;
++            for (const auto &it : carBounds) {
++                const CarBounds &car = it.second;
++                carBoxOf[it.first] = int32_t(scene.carBoxes.size());
++                scene.carBoxes.emplace_back(
++                    interop::float3{ car.min[0] - center[0], car.min[1] - center[1], car.min[2] - center[2] },
++                    interop::float3{ car.max[0] - center[0], car.max[1] - center[1], car.max[2] - center[2] });
++            }
 +
 +            const int32_t sceneIndex = int32_t(carReflectionScenes.size());
-+            for (uint32_t i : viewMarkedInstances) {
-+                instanceDrawCallVector[i].triangles.reflectionIndex = sceneIndex;
++            for (size_t i = 0; i < viewMarkedInstances.size(); i++) {
++                auto &triangles = instanceDrawCallVector[viewMarkedInstances[i]].triangles;
++                triangles.reflectionIndex = sceneIndex;
++                triangles.reflectionCar = carBoxOf[viewMarkedCalls[i]->callDesc.extendedFlags.carReflection];
 +            }
 +
 +            carReflectionScenes.emplace_back(std::move(scene));
@@ -1395,7 +1523,7 @@ index 9fae0d4..c814d12 100644
      void FramebufferRenderer::addFramebuffer(const DrawParams &p) {
          assert(p.fbStorage != nullptr);
          
-@@ -1450,8 +1987,17 @@ namespace RT64 {
+@@ -1450,8 +2121,17 @@ namespace RT64 {
          uint32_t vertexTestZFaceIndicesStart = 0;
          int32_t vertexTestZCallIndex = -1;
          RenderViewport viewportClip;
@@ -1413,7 +1541,7 @@ index 9fae0d4..c814d12 100644
              if (proj.scissorRect.isNull()) {
                  continue;
              }
-@@ -1506,6 +2052,52 @@ namespace RT64 {
+@@ -1506,6 +2186,52 @@ namespace RT64 {
                  viewportClip = convertViewportRect(viewport.rect(viewportClipRatios), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
              }
  
@@ -1466,7 +1594,7 @@ index 9fae0d4..c814d12 100644
              for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
                  const GameCall &call = proj.gameCalls[d];
                  renderIndices.instanceIndex = call.callDesc.callIndex;
-@@ -1623,6 +2215,17 @@ namespace RT64 {
+@@ -1623,6 +2349,18 @@ namespace RT64 {
                          triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
                          triangles.postBlendDitherNoise = false;
  
@@ -1476,6 +1604,7 @@ index 9fae0d4..c814d12 100644
 +                        triangles.perspective = perspectiveProj;
 +                        triangles.occlusionIndex = -1;
 +                        triangles.reflectionIndex = -1;
++                        triangles.reflectionCar = -1;
 +                        if (perspectiveProj && !callCopyMode && (callOtherMode.zMode() != ZMODE_DEC) && callOtherMode.zUpd() &&
 +                            !interop::Blender::usesAlphaBlend(callOtherMode)) {
 +                            triangles.occlusionIndex = projOcclusionIndex;
@@ -1484,7 +1613,7 @@ index 9fae0d4..c814d12 100644
                          float invRatioScale = 1.0f / aspectRatioScale;
                          float horizontalMisalignment = 0.0f;
                          switch (proj.type) {
-@@ -1747,6 +2350,19 @@ namespace RT64 {
+@@ -1747,6 +2485,19 @@ namespace RT64 {
  #           endif
                  {
                      rasterScene.instanceIndices.push_back(instanceIndex);
@@ -1504,7 +1633,7 @@ index 9fae0d4..c814d12 100644
                  }
  
                  instanceDrawCallVector.push_back(instanceDrawCall);
-@@ -1754,6 +2370,8 @@ namespace RT64 {
+@@ -1754,6 +2505,8 @@ namespace RT64 {
              }
          }
  
@@ -1514,10 +1643,17 @@ index 9fae0d4..c814d12 100644
          checkRtScene(rtScene);
  #   endif
 diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
-index 3add9c3..e4f13d3 100644
+index 3add9c3..6abb6d8 100644
 --- a/src/render/rt64_framebuffer_renderer.h
 +++ b/src/render/rt64_framebuffer_renderer.h
-@@ -11,6 +11,8 @@
+@@ -5,12 +5,15 @@
+ #pragma once
+ 
+ #include <stdint.h>
++#include <chrono>
+ 
+ #include "common/rt64_emulator_configuration.h"
+ #include "common/rt64_user_configuration.h"
  #include "hle/rt64_framebuffer_manager.h"
  #include "hle/rt64_workload.h"
  #include "preset/rt64_preset_scene.h"
@@ -1526,7 +1662,7 @@ index 3add9c3..e4f13d3 100644
  #include "shared/rt64_frame_params.h"
  #include "shared/rt64_gpu_tile.h"
  #include "shared/rt64_render_indices.h"
-@@ -58,6 +60,32 @@ namespace RT64 {
+@@ -58,6 +61,41 @@ namespace RT64 {
          uint32_t indexCount;
      };
  
@@ -1535,31 +1671,40 @@ index 3add9c3..e4f13d3 100644
 +    struct CarReflectionScene {
 +        interop::CarReflectionCB cb;
 +        interop::float3 cameraPosition;
-+        float weldDistanceSq = 0.0f;
-+        // The view's draws that the cube map redraws, in order, and the index ranges of its marked draws.
++        // The view's draws that the cube map redraws, in order.
 +        std::vector<uint32_t> cubeInstances;
-+        std::vector<std::pair<uint32_t, uint32_t>> markedIndexRanges;
++        // The bounds of each marked car, in the cube's space (min, then max).
++        std::vector<std::pair<interop::float3, interop::float3>> carBoxes;
 +        const RenderBuffer *screenPosBuffer = nullptr;
-+        const RenderBuffer *faceIndicesBuffer = nullptr;
 +        RenderColor clearColor;
 +        uint32_t slotIndex = 0;
 +        bool drawn = false;
 +    };
 +
-+    // Rush 2 recomp: the vertex buffers of a car reflection scene, kept between frames.
++    // Rush 2 recomp: what a car reflection scene keeps between frames. Its vertex buffers: the normals are written by
++    // the CPU (addCarReflectionScenes), the positions by CarReflectionCS.hlsl. And its cube map atlas, which has the
++    // color target's format and sample count so the frame's own pipelines can draw it, and is only redrawn
++    // RT64::CarReflectionUpdatesPerSecond times a second: the frames in between reflect the last one drawn (atlasMirror
++    // is the mirroring it was drawn with).
 +    struct CarReflectionSlot {
 +        std::unique_ptr<RenderBuffer> posBuffer;
 +        std::unique_ptr<RenderBuffer> normBuffer;
 +        std::unique_ptr<RenderBuffer> cubePosBuffer;
 +        uint32_t vertexCapacity = 0;
 +        std::unique_ptr<CarReflectionDescriptorSet> descriptorSet;
-+        std::unique_ptr<CarReflectionNormalDescriptorSet> normalDescriptorSet;
++        std::unique_ptr<RenderTarget> atlasColorTarget;
++        std::unique_ptr<RenderTarget> atlasDepthTarget;
++        std::unique_ptr<RenderFramebuffer> atlasFramebuffer;
++        std::unique_ptr<CarReflectionDrawDescriptorSet> atlasDrawSet;
++        std::chrono::steady_clock::time_point atlasTime;
++        float atlasMirror = 1.0f;
++        bool atlasDrawn = false;
 +    };
 +
      struct FramebufferRenderer {
          std::vector<uint32_t> textureCacheVersions;
          std::vector<Texture *> textureCacheTextures;
-@@ -67,6 +95,9 @@ namespace RT64 {
+@@ -67,6 +105,9 @@ namespace RT64 {
          uint32_t textureCacheGlobalVersion = 0;
          bool textureCacheReplacementMapEnabled = false;
          std::vector<InstanceDrawCall> instanceDrawCallVector;
@@ -1569,7 +1714,7 @@ index 3add9c3..e4f13d3 100644
          std::vector<RenderPipelineProgram> hitGroupVector;
          std::vector<interop::RenderIndices> renderIndicesVector;
          std::vector<DynamicTextureView> dynamicTextureViewVector;
-@@ -165,6 +196,9 @@ namespace RT64 {
+@@ -165,6 +206,9 @@ namespace RT64 {
          void submitRSPSmoothNormalCompute(RenderWorker *worker, const OutputBuffers *outputBuffers);
          bool submitDepthAccess(RenderWorker *worker, RenderFramebufferStorage *fbStorage, bool readOnly, bool &depthState);
          void submitRasterScene(RenderWorker *worker, const Framebuffer &framebuffer, RenderFramebufferStorage *fbStorage, const RasterScene &rasterScene, bool &depthState);
@@ -1580,10 +1725,10 @@ index 3add9c3..e4f13d3 100644
          void endFramebuffers(RenderWorker *worker, const DrawBuffers *drawBuffers, const OutputBuffers *outputBuffers, bool rtEnabled);
          void recordSetup(RenderWorker *worker, std::vector<BufferUploader *> bufferUploaders, RSPProcessor *rspProcessor, VertexProcessor *vertexProcessor, const OutputBuffers *outputBuffers, bool rtEnabled);
 diff --git a/src/render/rt64_framebuffer_renderer_call.h b/src/render/rt64_framebuffer_renderer_call.h
-index f2eee70..5530d32 100644
+index f2eee70..a0b4bdc 100644
 --- a/src/render/rt64_framebuffer_renderer_call.h
 +++ b/src/render/rt64_framebuffer_renderer_call.h
-@@ -41,6 +41,13 @@ namespace RT64 {
+@@ -41,6 +41,15 @@ namespace RT64 {
                  bool vertexTestZ : 1;
                  bool postBlendDitherNoise : 1;
                  bool postBlendDitherNoiseNegative : 1;
@@ -1594,6 +1739,8 @@ index f2eee70..5530d32 100644
 +                // Rush 2 recomp: drawn as a car's paint reflecting the cube map of this car reflection scene
 +                // (FramebufferRenderer::carReflectionScenes), or -1.
 +                int32_t reflectionIndex;
++                // Rush 2 recomp: the car the draw is part of, in that scene's cars (CarReflectionScene::carBoxes).
++                int32_t reflectionCar;
              } triangles;
  
              struct {
@@ -1632,7 +1779,7 @@ index 721a01e..8a4a1bb 100644
  
          return { vss.str(), pss.str() };
 diff --git a/src/render/rt64_render_target_manager.h b/src/render/rt64_render_target_manager.h
-index 7368711..e33b918 100644
+index 7368711..249ced4 100644
 --- a/src/render/rt64_render_target_manager.h
 +++ b/src/render/rt64_render_target_manager.h
 @@ -9,6 +9,7 @@
@@ -1643,7 +1790,7 @@ index 7368711..e33b918 100644
  #include "rt64_render_target.h"
  
  namespace RT64 {
-@@ -56,6 +57,22 @@ namespace RT64 {
+@@ -56,6 +57,15 @@ namespace RT64 {
          uint64_t colorTargetRevision = 0;
          uint64_t depthTargetRevision = 0;
  
@@ -1656,18 +1803,11 @@ index 7368711..e33b918 100644
 +        uint32_t occlusionWidth = 0;
 +        uint32_t occlusionHeight = 0;
 +
-+        // Rush 2 recomp: the car reflections' cube map atlas (FramebufferRenderer::submitCarReflection), made when first
-+        // used, with the color target's sample count so the frame's own pipelines can draw it.
-+        std::unique_ptr<RenderTarget> reflectionColorTarget;
-+        std::unique_ptr<RenderTarget> reflectionDepthTarget;
-+        std::unique_ptr<RenderFramebuffer> reflectionFramebuffer;
-+        std::unique_ptr<CarReflectionDrawDescriptorSet> reflectionDrawSet;
-+
          void setup(RenderDevice *device, const RenderFramebufferKey &framebufferKey, RenderTarget *colorTarget, RenderTarget *depthTarget);
      };
  
 diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
-index d1c5273..f874423 100644
+index d1c5273..47db0f1 100644
 --- a/src/render/rt64_shader_library.cpp
 +++ b/src/render/rt64_shader_library.cpp
 @@ -5,6 +5,7 @@
@@ -1678,7 +1818,7 @@ index d1c5273..f874423 100644
  #include "shared/rt64_render_target_copy.h"
  #include "shared/rt64_rsp_vertex_test_z.h"
  
-@@ -49,6 +50,13 @@
+@@ -49,6 +50,12 @@
  #include "shaders/FullScreenVS.hlsl.spirv.h"
  #include "shaders/Im3DVS.hlsl.spirv.h"
  #include "shaders/ComposePS.hlsl.spirv.h"
@@ -1686,13 +1826,12 @@ index d1c5273..f874423 100644
 +#include "shaders/AmbientOcclusionPSMS.hlsl.spirv.h"
 +#include "shaders/AmbientOcclusionApplyPS.hlsl.spirv.h"
 +#include "shaders/CarReflectionCS.hlsl.spirv.h"
-+#include "shaders/CarReflectionNormalCS.hlsl.spirv.h"
 +#include "shaders/CarReflectionVS.hlsl.spirv.h"
 +#include "shaders/CarReflectionPS.hlsl.spirv.h"
  #include "shaders/DebugPS.hlsl.spirv.h"
  #include "shaders/Im3DPS.hlsl.spirv.h"
  #include "shaders/PostProcessPS.hlsl.spirv.h"
-@@ -95,6 +103,13 @@
+@@ -95,6 +102,12 @@
  #   include "shaders/FullScreenVS.hlsl.dxil.h"
  #   include "shaders/Im3DVS.hlsl.dxil.h"
  #   include "shaders/ComposePS.hlsl.dxil.h"
@@ -1700,13 +1839,12 @@ index d1c5273..f874423 100644
 +#   include "shaders/AmbientOcclusionPSMS.hlsl.dxil.h"
 +#   include "shaders/AmbientOcclusionApplyPS.hlsl.dxil.h"
 +#   include "shaders/CarReflectionCS.hlsl.dxil.h"
-+#   include "shaders/CarReflectionNormalCS.hlsl.dxil.h"
 +#   include "shaders/CarReflectionVS.hlsl.dxil.h"
 +#   include "shaders/CarReflectionPS.hlsl.dxil.h"
  #   include "shaders/DebugPS.hlsl.dxil.h"
  #   include "shaders/Im3DPS.hlsl.dxil.h"
  #   include "shaders/PostProcessPS.hlsl.dxil.h"
-@@ -140,6 +155,13 @@
+@@ -140,6 +153,12 @@
  #   include "shaders/FullScreenVS.hlsl.metal.h"
  #   include "shaders/Im3DVS.hlsl.metal.h"
  #   include "shaders/ComposePS.hlsl.metal.h"
@@ -1714,13 +1852,12 @@ index d1c5273..f874423 100644
 +#   include "shaders/AmbientOcclusionPSMS.hlsl.metal.h"
 +#   include "shaders/AmbientOcclusionApplyPS.hlsl.metal.h"
 +#   include "shaders/CarReflectionCS.hlsl.metal.h"
-+#   include "shaders/CarReflectionNormalCS.hlsl.metal.h"
 +#   include "shaders/CarReflectionVS.hlsl.metal.h"
 +#   include "shaders/CarReflectionPS.hlsl.metal.h"
  #   include "shaders/DebugPS.hlsl.metal.h"
  #   include "shaders/Im3DPS.hlsl.metal.h"
  #   include "shaders/PostProcessPS.hlsl.metal.h"
-@@ -148,6 +170,7 @@
+@@ -148,6 +167,7 @@
  #include "shared/rt64_fb_common.h"
  #include "shared/rt64_fb_reinterpret.h"
  #include "shared/rt64_texture_copy.h"
@@ -1728,7 +1865,7 @@ index d1c5273..f874423 100644
  #include "shared/rt64_video_interface.h"
  
  #include "rt64_descriptor_sets.h"
-@@ -535,6 +558,33 @@ namespace RT64 {
+@@ -535,6 +555,20 @@ namespace RT64 {
              rspSmoothNormal.pipeline = device->createComputePipeline(pipelineDesc);
          }
  
@@ -1746,23 +1883,10 @@ index d1c5273..f874423 100644
 +            carReflection.pipeline = device->createComputePipeline(pipelineDesc);
 +        }
 +
-+        {
-+            CarReflectionNormalDescriptorSet descriptorSet;
-+            layoutBuilder.begin();
-+            layoutBuilder.addPushConstant(0, 0, sizeof(interop::CarReflectionNormalCB), RenderShaderStageFlag::COMPUTE);
-+            layoutBuilder.addDescriptorSet(descriptorSet);
-+            layoutBuilder.end();
-+            carReflectionNormal.pipelineLayout = layoutBuilder.create(device);
-+
-+            std::unique_ptr<RenderShader> computeShader = device->createShader(CREATE_SHADER_INPUTS(CarReflectionNormalCSBlobDXIL, CarReflectionNormalCSBlobSPIRV, CarReflectionNormalCSBlobMSL, "CSMain", shaderFormat));
-+            RenderComputePipelineDesc pipelineDesc(carReflectionNormal.pipelineLayout.get(), computeShader.get(), 64, 1, 1);
-+            carReflectionNormal.pipeline = device->createComputePipeline(pipelineDesc);
-+        }
-+
          // RSP World.
          {
              RSPWorldDescriptorSet descriptorSet;
-@@ -573,7 +623,7 @@ namespace RT64 {
+@@ -573,7 +607,7 @@ namespace RT64 {
          {
              TextureDecodeDescriptorSet descriptorSet;
              layoutBuilder.begin();
@@ -1771,7 +1895,7 @@ index d1c5273..f874423 100644
              layoutBuilder.addDescriptorSet(descriptorSet);
              layoutBuilder.end();
              textureDecode.pipelineLayout = layoutBuilder.create(device);
-@@ -851,7 +901,106 @@ namespace RT64 {
+@@ -851,7 +885,106 @@ namespace RT64 {
              pipelineDesc.multisampling = multisampling;
              postProcess.pipeline = device->createGraphicsPipeline(pipelineDesc);
          }
@@ -1826,7 +1950,7 @@ index d1c5273..f874423 100644
 +        // the reflection's alpha, depth tested against the scene but not written.
 +        {
 +            CarReflectionDrawDescriptorSet descriptorSet(samplerLibrary);
-+            layoutBuilder.begin();
++            layoutBuilder.begin(false, true);
 +            layoutBuilder.addPushConstant(0, 0, sizeof(interop::CarReflectionDrawCB), RenderShaderStageFlag::VERTEX | RenderShaderStageFlag::PIXEL);
 +            layoutBuilder.addDescriptorSet(descriptorSet);
 +            layoutBuilder.end();
@@ -1880,10 +2004,10 @@ index d1c5273..f874423 100644
          {
              FramebufferRendererDescriptorCommonSet descriptorCommonSet(samplerLibrary, deviceCapabilities.raytracing);
 diff --git a/src/render/rt64_shader_library.h b/src/render/rt64_shader_library.h
-index 641f3ec..47d2f12 100644
+index 641f3ec..3dc2fcb 100644
 --- a/src/render/rt64_shader_library.h
 +++ b/src/render/rt64_shader_library.h
-@@ -18,7 +18,13 @@ namespace RT64 {
+@@ -18,7 +18,12 @@ namespace RT64 {
          bool usesHardwareResolve = false;
  
          // All shaders.
@@ -1892,7 +2016,6 @@ index 641f3ec..47d2f12 100644
 +        ShaderRecord ambientOcclusionApply;
          ShaderRecord bicubicScaling;
 +        ShaderRecord carReflection;
-+        ShaderRecord carReflectionNormal;
 +        ShaderRecord carReflectionDraw;
          ShaderRecord boxFilter;
          ShaderRecord compose;
@@ -2956,16 +3079,16 @@ index 0000000..c9cdb19
 +}
 diff --git a/src/shaders/CarReflectionCS.hlsl b/src/shaders/CarReflectionCS.hlsl
 new file mode 100644
-index 0000000..d518432
+index 0000000..8aed4b9
 --- /dev/null
 +++ b/src/shaders/CarReflectionCS.hlsl
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,63 @@
 +//
 +// RT64
 +//
 +
 +// Rush 2 recomp: car reflections, first step (shared/rt64_car_reflection.h). Puts each vertex back in the cube's space
-+// from the screen position RSPProcessCS.hlsl gave it, for CarReflectionNormalCS.hlsl and CarReflectionVS.hlsl, and
++// from the screen position RSPProcessCS.hlsl gave it, for CarReflectionVS.hlsl, and
 +// projects it to the six cube faces in the screen space the raster vertex shader expects, so the frame's own draw calls
 +// draw the faces. Working from the screen position takes in everything the RSP did to the vertex (interpolation
 +// included), and x, y and w are enough to invert the projection without the depth's precision loss.
@@ -2997,6 +3120,10 @@ index 0000000..d518432
 +    const float3 pos = float3(dot(clip, gConstants.invClip[0]), dot(clip, gConstants.invClip[1]), dot(clip, gConstants.invClip[2]));
 +    dstPos[vertexIndex] = float4(pos, 1.0f);
 +
++    if (gConstants.writeFaces == 0) {
++        return;
++    }
++
 +    // Each face is a 90 degree perspective with an infinite far plane, giving depth 1 - near / w. RasterVS.hlsl turns the
 +    // screen position back into clip space with the resolution: ndc.xy = (screen.xy - res / 2) / (res.x / 2, -res.y / 2).
 +    const float2 halfResolution = gConstants.resolution * 0.5f;
@@ -3019,69 +3146,20 @@ index 0000000..d518432
 +        dstCubePos[f * gConstants.vertexCount + vertexIndex] = faceScreen;
 +    }
 +}
-diff --git a/src/shaders/CarReflectionNormalCS.hlsl b/src/shaders/CarReflectionNormalCS.hlsl
-new file mode 100644
-index 0000000..fea3ebf
---- /dev/null
-+++ b/src/shaders/CarReflectionNormalCS.hlsl
-@@ -0,0 +1,44 @@
-+//
-+// RT64
-+//
-+
-+// Rush 2 recomp: car reflections (shared/rt64_car_reflection.h). Smooth normals for the vertices of one marked draw,
-+// from the positions CarReflectionCS.hlsl put in the cube's space: each vertex sums the normals of the draw's triangles
-+// that touch its position, weighted by their area. The game's paint layers have no normals of their own (their vertex
-+// colors are white), and normals taken from the depth buffer would show every polygon as a flat mirror.
-+
-+#include "shared/rt64_car_reflection.h"
-+
-+[[vk::push_constant]] ConstantBuffer<CarReflectionNormalCB> gConstants : register(b0);
-+StructuredBuffer<uint> srcFaceIndices : register(t1);
-+StructuredBuffer<float4> srcPos : register(t2);
-+RWStructuredBuffer<float4> dstNorm : register(u3);
-+
-+[numthreads(64, 1, 1)]
-+void CSMain(uint index : SV_DispatchThreadID) {
-+    if (index >= gConstants.indexCount) {
-+        return;
-+    }
-+
-+    // A vertex used by several triangles is computed by each of them, with the same result.
-+    const uint vertexIndex = srcFaceIndices[gConstants.indexStart + index];
-+    const float3 vertexPos = srcPos[vertexIndex].xyz;
-+    float3 normal = float3(0.0f, 0.0f, 0.0f);
-+    const uint triangleCount = gConstants.indexCount / 3;
-+    for (uint t = 0; t < triangleCount; t++) {
-+        const uint base = gConstants.indexStart + t * 3;
-+        const float3 a = srcPos[srcFaceIndices[base + 0]].xyz;
-+        const float3 b = srcPos[srcFaceIndices[base + 1]].xyz;
-+        const float3 c = srcPos[srcFaceIndices[base + 2]].xyz;
-+        const float3 da = a - vertexPos;
-+        const float3 db = b - vertexPos;
-+        const float3 dc = c - vertexPos;
-+        const bool touches = (dot(da, da) <= gConstants.weldDistanceSq) || (dot(db, db) <= gConstants.weldDistanceSq) || (dot(dc, dc) <= gConstants.weldDistanceSq);
-+        if (touches) {
-+            normal += cross(b - a, c - a);
-+        }
-+    }
-+
-+    const float lengthSq = dot(normal, normal);
-+    dstNorm[vertexIndex] = float4((lengthSq > 0.0f) ? (normal * rsqrt(lengthSq)) : float3(0.0f, 0.0f, 0.0f), 0.0f);
-+}
 diff --git a/src/shaders/CarReflectionPS.hlsl b/src/shaders/CarReflectionPS.hlsl
 new file mode 100644
-index 0000000..522951e
+index 0000000..828fe57
 --- /dev/null
 +++ b/src/shaders/CarReflectionPS.hlsl
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,97 @@
 +//
 +// RT64
 +//
 +
 +// Rush 2 recomp: car reflections (shared/rt64_car_reflection.h). Reflects the view off the paint's smooth normal into
 +// the cube map and blends it over the paint by a Fresnel term: faint where the paint faces the camera, strong at
-+// grazing angles.
++// grazing angles. With blur, the reflection is the average of a cone of directions, like glossy paint rather than a
++// mirror, which hides how few polygons the cars have.
 +
 +#include "shared/rt64_car_reflection.h"
 +
@@ -3093,33 +3171,83 @@ index 0000000..522951e
 +
 +static const float BaseReflectance = 0.12f;
 +
-+float4 PSMain(in float4 pos : SV_POSITION, in float3 cubePosition : TEXCOORD0, in float3 cubeNormal : TEXCOORD1) : SV_TARGET {
-+    const float3 view = normalize(cubePosition - gConstants.cameraPosition);
-+    float3 normal = cubeNormal;
-+    if (dot(normal, normal) < 1e-8f) {
-+        // A degenerate vertex normal: fall back to the polygon's own.
-+        normal = cross(ddx(cubePosition), ddy(cubePosition));
-+    }
++// The cone's rings: how far each is from the reflected direction at full blur (the tangent of its angle) and how many
++// taps it has.
++static const uint BlurRings = 2;
++static const uint BlurRingTaps = 6;
++static const float BlurRingRadius = 0.14f;
 +
-+    normal = normalize(normal);
-+    if (dot(normal, view) > 0.0f) {
-+        normal = -normal;
-+    }
++// A surface that faces the middle of the car (the inside of a fin) mostly reflects the car, whatever the bounds say:
++// its reflection fades out as the polygon's normal turns from across the direction to the car's center to along it.
++static const float InwardFadeStart = 0.05f;
++static const float InwardFadeEnd = 0.45f;
 +
-+    const float3 reflected = reflect(view, normal);
++// How far a reflection may run inside the car's bounds, as a fraction of the car's largest half size, before it starts
++// to fade and before it is gone. The cube map has no car in it, so a reflection that would hit the car (the inside of a
++// fin, the hood towards the windshield) would show the road on the car's other side instead.
++static const float SelfFadeStart = 0.3f;
++static const float SelfFadeEnd = 0.8f;
++
++// The cube map's color in a direction. Face f is at column f % 3, row f / 3; the top row of a face is y = 1. Kept half
++// a texel inside the face so the filter doesn't take in its neighbor.
++float3 sampleCube(float3 direction) {
 +    float2 faceXY;
-+    const uint face = carReflectionFaceOf(reflected, gConstants.mirror, faceXY);
-+
-+    // Face f is at column f % 3, row f / 3; the top row of a face is y = 1. Kept half a texel inside the face so the
-+    // filter doesn't take in its neighbor.
++    const uint face = carReflectionFaceOf(direction, gConstants.mirror, faceXY);
 +    const float faceSize = gConstants.atlasFaceSize;
 +    const float2 inFace = clamp(float2(faceXY.x, -faceXY.y) * 0.5f + 0.5f, 0.5f / faceSize, 1.0f - 0.5f / faceSize);
 +    const float2 atlasUV = (float2(face % 3, face / 3) + inFace) / float2(3.0f, 2.0f);
-+    const float3 color = gCube.SampleLevel(gSampler, atlasUV, 0.0f).rgb;
++    return gCube.SampleLevel(gSampler, atlasUV, 0.0f).rgb;
++}
++
++float4 PSMain(in float4 pos : SV_POSITION, in float3 cubePosition : TEXCOORD0, in float3 cubeNormal : TEXCOORD1) : SV_TARGET {
++    const float3 view = normalize(cubePosition - gConstants.cameraPosition);
++
++    // The polygon's own normal, towards the camera, tells which way the smooth normal points (the triangles' winding
++    // gives it either sign). Near the car's outline the smooth normal can still lean away from the camera: it is tipped
++    // back to the outline instead of flipped, which would draw a line there.
++    float3 faceNormal = cross(ddx(cubePosition), ddy(cubePosition));
++    faceNormal = (dot(faceNormal, faceNormal) > 0.0f) ? normalize(faceNormal) : -view;
++    if (dot(faceNormal, view) > 0.0f) {
++        faceNormal = -faceNormal;
++    }
++
++    float3 normal = (dot(cubeNormal, cubeNormal) < 1e-8f) ? faceNormal : normalize(cubeNormal);
++    if (dot(normal, faceNormal) < 0.0f) {
++        normal = -normal;
++    }
++
++    const float away = dot(normal, view);
++    if (away > -0.02f) {
++        normal = normalize(normal - view * (away + 0.02f));
++    }
++
++    const float3 reflected = reflect(view, normal);
++    const float3 tangent = normalize(cross(reflected, (abs(reflected.y) < 0.9f) ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f)));
++    const float3 bitangent = cross(reflected, tangent);
++    float3 color = sampleCube(reflected);
++    if (gConstants.blur > 0.0f) {
++        for (uint ring = 0; ring < BlurRings; ring++) {
++            const float radius = BlurRingRadius * gConstants.blur * float(ring + 1);
++            for (uint tap = 0; tap < BlurRingTaps; tap++) {
++                const float angle = (float(tap) + 0.5f * float(ring)) * (6.2831853f / float(BlurRingTaps));
++                color += sampleCube(reflected + (tangent * cos(angle) + bitangent * sin(angle)) * radius);
++            }
++        }
++
++        color /= float(1 + BlurRings * BlurRingTaps);
++    }
++
++    // How far the reflection runs before it leaves the car's bounds.
++    const float3 carSize = (gConstants.carMax - gConstants.carMin) * 0.5f;
++    const float3 slabs = (lerp(gConstants.carMin, gConstants.carMax, step(0.0f, reflected)) - cubePosition) / (abs(reflected) + 1e-6f) * sign(reflected + 1e-12f);
++    const float inside = max(min(slabs.x, min(slabs.y, slabs.z)), 0.0f) / max(carSize.x, max(carSize.y, carSize.z));
++    const float3 toCenter = (gConstants.carMin + gConstants.carMax) * 0.5f - cubePosition;
++    const float inward = dot(faceNormal, toCenter) / max(length(toCenter), 1e-6f);
++    const float selfFade = (1.0f - smoothstep(SelfFadeStart, SelfFadeEnd, inside)) * (1.0f - smoothstep(InwardFadeStart, InwardFadeEnd, inward));
 +
 +    const float facing = saturate(dot(-view, normal));
 +    const float fresnel = BaseReflectance + (1.0f - BaseReflectance) * pow(1.0f - facing, 5.0f);
-+    return float4(color, saturate(fresnel * gConstants.strength));
++    return float4(color, saturate(fresnel * gConstants.strength * selfFade));
 +}
 diff --git a/src/shaders/CarReflectionVS.hlsl b/src/shaders/CarReflectionVS.hlsl
 new file mode 100644
@@ -3596,10 +3724,10 @@ index 0000000..72efb10
 +#endif
 diff --git a/src/shared/rt64_car_reflection.h b/src/shared/rt64_car_reflection.h
 new file mode 100644
-index 0000000..b3c4e5c
+index 0000000..63ac51a
 --- /dev/null
 +++ b/src/shared/rt64_car_reflection.h
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,60 @@
 +//
 +// RT64
 +//
@@ -3630,19 +3758,11 @@ index 0000000..b3c4e5c
 +        float mirror;
 +        // The faces' near planes along each axis: past the car's bounds, so the car doesn't reflect itself.
 +        float3 nearDistances;
-+        float padding0;
++        // Nonzero when the cube map is drawn this frame: the faces' positions are only written then.
++        uint writeFaces;
 +        // The screen positions the raster vertex shader turns into clip space (FramebufferParams::resolution).
 +        float2 resolution;
 +        float2 padding1;
-+    };
-+
-+    // CarReflectionNormalCS.hlsl: smooth normals for a marked draw's vertices.
-+    struct CarReflectionNormalCB {
-+        uint indexStart;
-+        uint indexCount;
-+        // Vertices closer than this (squared) are the same point of the surface.
-+        float weldDistanceSq;
-+        uint padding;
 +    };
 +
 +    // CarReflectionVS.hlsl / CarReflectionPS.hlsl: draws a marked draw's triangles reflecting the cube map.
@@ -3657,6 +3777,13 @@ index 0000000..b3c4e5c
 +        // The camera, in the cube's space.
 +        float3 cameraPosition;
 +        float mirror;
++        // The bounds of the car the draw is part of, in the cube's space: a reflection that crosses them would show the
++        // car itself, which the cube map leaves out, so it fades out (CarReflectionPS.hlsl).
++        float3 carMin;
++        // How wide the cone of directions a reflection averages is, 0 (one direction, a mirror) to 1.
++        float blur;
++        float3 carMax;
++        float padding0;
 +    };
 +#ifdef HLSL_CPU
 +};
