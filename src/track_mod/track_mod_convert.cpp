@@ -820,6 +820,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     std::vector<Gate> gates;
     if (finish) gates.push_back({ "FINISH", to_game(finish->position()), forward(finish), half_width(finish) });
     for (const auto& [k, n] : checkpoints) {
+        if ((int)gates.size() > max_checkpoints) break;   // the extra ones were reported above
         gates.push_back({ "CHECKPOINT_" + std::to_string(k), to_game(n->position()), forward(n), half_width(n) });
     }
     for (size_t i = 0; i < gates.size(); i++) {
@@ -859,7 +860,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (const auto* n : visual) add_collision(n, 0x00);
     }
     std::vector<BuiltPoly> cpolys;
-    build_collision(ctris, out.track.collision, report, &cpolys);
+    bool collision_ok = build_collision(ctris, out.track.collision, report, &cpolys);
 
     // ---- AI path ----
     std::vector<PathPoint> rungs;
@@ -1032,10 +1033,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         snprintf(b, sizeof(b), "AI path: %zu points over %s, target speeds %.0f-%.0f mph.", spine.size(),
                  fmt_ft(out.lap_feet).c_str(), lo, hi);
         report.info(b);
-        if (lo < 100.0f) {
-            report.warning("The AI path has corners the computer cars should take below 100 mph; on harder difficulties the "
-                           "game keeps them above a minimum speed (up to 123 mph), so they may run wide there.");
-        }
+        // No warning for slow corners: the drone driver's floor (0x800C3FFC[gravity cheat], 61 mph at Normal) sits
+        // below every stock lane point (72 mph and up), and this 1.1 g model rates the stock tracks' tightest corners
+        // at 37-51 mph, so it would warn about every stock track.
     }
 
     // ---- checkpoints on the path ----
@@ -1133,7 +1133,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             }
         }
     };
-    if (!spine.empty() && report.ok()) {
+    // Problems the report lists don't stop the track: it is built as it stands so its author can drive it and see
+    // them. Only what leaves nothing to race (no AI path through FINISH, no collision, nothing to draw, over the game's
+    // hard limits) stops it.
+    if (!spine.empty()) {
         write_path(spine, speed_mph, gates, out.track.path);
         // Backward: from the finish line the other way round (point i is forward point n - i), lanes mirrored with
         // the direction, gates turned round, the finish first and then CHECKPOINT_n down to CHECKPOINT_1.
@@ -1149,14 +1152,14 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         write_path(back, target_speeds(back, false), back_gates, out.track.path_backward);
         for (size_t k = 0; k < 4; k++) out.track.demo_starts[0].push_back(int16_t(k * n / 4));
         for (size_t k = 0; k < 4; k++) out.track.demo_starts[1].push_back(int16_t(k * n / 4));
-        out.checkpoints = int(checkpoints.size());
+        out.checkpoints = int(gates.size()) - 1;
     }
 
     // ---- visual geometry ----
     std::vector<VisualTri> vtris;
     for (const auto* n : visual) append_tris(*n, vtris);
     if (vtris.empty()) report.error("Nothing to draw: the track has no visible meshes (only COL_* and markers).");
-    if (!report.ok()) return false;
+    if (spine.empty() || !collision_ok || vtris.empty()) return false;
 
     // Materials -> stand-in textures (one per material).
     std::vector<int> used_materials;
@@ -1348,5 +1351,5 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             build_diorama(out.textures, d, dtris, settings.diorama, out.menu, report);
         }
     }
-    return report.ok();
+    return true;
 }

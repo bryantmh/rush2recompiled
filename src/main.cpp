@@ -50,6 +50,7 @@
 #include "data_files.h"
 #include "wings.h"
 #include "track2049.h"
+#include "track_mod_runtime.h"
 #include "car_engines.h"
 #include "steam_input_filter.h"
 
@@ -615,6 +616,7 @@ int main(int argc, char** argv) {
     }
     recompui::register_launcher_init_callback(launcher_init);
     recompui::register_launcher_update_callback(launcher_update);
+    rush2::track_mod::register_mod_notes();
 
     recomp::rsp::callbacks_t rsp_callbacks{
         .get_rsp_microcode = get_rsp_microcode,

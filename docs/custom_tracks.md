@@ -26,19 +26,22 @@ found and what is wrong (see [Checking your track](#checking-your-track)), so re
 
 ## Packaging
 
-A track lives in a mod, in its own folder under `rush2/tracks/`. The folder's name is the track's id: records and
-ghosts are saved under it, so don't rename it once people race it.
+A track lives in a mod, in its own folder under `tracks/`. The folder's name is the track's id: records and
+ghosts are saved under it, so don't rename it once people race it. For a mod `my_track` holding the track
+`canyon_run`, the game reads exactly `mods/my_track/tracks/canyon_run/track.glb`; folder names must match that
+spelling (no spaces, lower case `tracks`). Older mods that use `rush2/tracks/canyon_run/` still load.
 
 ```
 mods/
   my_track/                   the mod (a folder, or the same contents zipped and renamed to .rtz)
     mod.json
-    rush2/tracks/canyon_run/
-      track.glb               required: the track
-      track.toml              required: its settings
-      logo.png                optional: the name banner on the track select
-      preview.png             optional: the picture behind the route preview
-      diorama.glb             optional: the track select model
+    tracks/
+      canyon_run/             the track's id
+        track.glb             required: the track
+        track.toml            required: its settings
+        logo.png              optional: the name banner on the track select
+        preview.png           optional: the picture behind the route preview
+        diorama.glb           optional: the track select model
 ```
 
 `mod.json`:
@@ -154,8 +157,8 @@ flat ribbon.
   every point from how tightly the path bends. To slow them down where that gets it wrong (jumps, blind crests), place
   an Empty named `AISPEED_<mph>` beside the path, such as `AISPEED_45`: it caps their speed from the nearest path point
   on, in the race direction, until the next `AISPEED_` marker. `AISPEED_0` lifts the cap.
-- **Tight corners:** on harder difficulties the game never lets the computer cars go below a minimum speed (up to
-  123 mph), so corners they should take slower than that make them run wide. The report warns when the path has any.
+- **Tight corners:** on level or rising road the computer cars never aim below 61 mph (92 and 123 mph with the Heavy
+  and Jovian gravity cheats). Stock Rush 2 lanes never ask for less than 72 mph, so this only matters on unusually tight custom corners.
 
 ## track.toml
 
@@ -226,9 +229,15 @@ Materials with Alpha Clip (glTF MASK) draw as cutouts. Blended (BLEND) materials
 
 ## Checking your track
 
-Every time the game converts a track, it writes a report to `track_reports/<folder>.txt` in the game's settings folder
-(`%LOCALAPPDATA%\Rush2Recompiled`, or the game's folder in portable mode). Errors keep the track off the track select;
-warnings and notes point at things worth fixing. Each one names the object and, where it helps, the place.
+Open the Mods menu and select the mod: under its description, each of its tracks is listed with what the game found
+wrong, problems in red and warnings in yellow (a controller can scroll the list). The same report is written to
+`track_reports/<folder>.txt` in the game's settings folder (`%LOCALAPPDATA%\Rush2Recompiled`, or the game's folder in
+portable mode). Each entry names the object and, where it helps, the place.
+
+Problems don't keep a track off the track select: it loads as it stands, so you can drive it and see what they do (a
+checkpoint left at the origin, say, can't be reached, so the clock runs out). A track is left out only when there is
+nothing to race: no AI path through `FINISH`, no collision, nothing to draw, or over one of the size limits below. The
+Mods menu then says it can't be raced and why.
 
 The game converts a track once and reuses the result until its files change. It looks at the files when it starts and
 when mods are turned on or off, so after a new export restart the game, or turn the mod off and on again in the Mods
@@ -289,6 +298,11 @@ merges and renames as needed.
   collision flags are `type | material << 4`, custom surfaces use material slots 3-15 except 8.
 - **Backward:** the converter writes `path_backward` (asset 0x63 + slot): the spine reversed from the finish, the gates
   in reverse order and turned round, target speeds recomputed. See [race.md section 5](rush2049_research/race.md).
+- **Problems in the Mods menu:** `rush2::track_mod::register_mod_notes` gives recompui's mod details panel
+  (`recompui::set_mod_notes_provider`, a `lib/patches/RecompFrontend.patch` addition) each track's errors and warnings.
+  A track not checked yet is converted on a background thread (conversions are serialized by `convert_mutex`); the
+  report is cached beside the track as `trackmod_report_<key>`. `convert` returns false only when nothing can be raced;
+  errors otherwise leave the track loadable.
 - **Full-size textures:** the converter's RGBA16 stand-ins are keyed by `rush2::upscale::rgba16_key`, cached as
   `trackmod_textures_<key>`, and published through `rush2::derive::set_mod_textures("tracks", ...)`.
 - **Testing:** `tools/track_mod_test.bat <track folder> <out folder>` converts a track outside the game, and

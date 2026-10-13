@@ -10,7 +10,7 @@
 
 #include "track2049_convert.h"
 
-// Custom tracks from mods (docs/custom_tracks.md): a mod's rush2/tracks/<id>/ folder holds track.glb (the track built
+// Custom tracks from mods (docs/custom_tracks.md): a mod's tracks/<id>/ folder (or the older rush2/tracks/<id>/) holds track.glb (the track built
 // in Blender) and track.toml (its settings). The converter (src/track_mod/track_mod_convert.cpp) turns them into the
 // files of a Rush 2 track slot, the same set a converted Rush 2049 track has, and they are raced in a borrowed slot the
 // way the 2049 tracks are (src/rush2049/track2049.cpp).
@@ -101,8 +101,8 @@ namespace rush2::track_mod {
         float lap_feet = 0.0f;                  // length of the AI path's loop
     };
 
-    // prefix: the host slot's track prefix ("HAWAII"). Messages go to report; false (with errors in it) when the track
-    // can't be raced.
+    // prefix: the host slot's track prefix ("HAWAII"). Messages go to report. Errors in it don't stop the track: false
+    // only when nothing can be raced (no AI path through FINISH, no collision, nothing to draw, a hard game limit).
     bool convert(const std::vector<uint8_t>& glb, const std::string& toml_text, const std::string& prefix,
                  Converted& out, Report& report, const Extras& extras = {});
 

@@ -174,7 +174,8 @@ namespace {
             17, 0x8010C17A, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_killer_rats", "Killer Rats",
-            "Rats run across the track, and running one over kills you.",
+            "The rats on Lower and Upper Manhattan become giant white rats. Any car that hits one, yours or a "
+            "computer's, is wrecked. Takes effect from the next race.",
             18, 0x8010C17C, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_stunts_all_tracks", "Stunts on All Tracks",

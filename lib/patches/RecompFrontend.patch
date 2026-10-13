@@ -1,3 +1,40 @@
+diff --git a/recompui/include/recompui/recompui.h b/recompui/include/recompui/recompui.h
+index 30c463b..d7c973e 100644
+--- a/recompui/include/recompui/recompui.h
++++ b/recompui/include/recompui/recompui.h
+@@ -3,6 +3,8 @@
+ #include <string>
+ #include <string_view>
+ #include <list>
++#include <functional>
++#include <vector>
+ 
+ #include "SDL.h"
+ #include "RmlUi/Core.h"
+@@ -90,6 +92,23 @@ namespace recompui {
+     void close_prompt();
+     bool is_prompt_open();
+     void update_mod_list(bool scan_mods = true);
++
++    // The game's findings about a mod's content (a custom track's problems, say), listed in the Mods tab's details
++    // panel under the description. The provider is called on the UI thread when the panel shows a mod, and again every
++    // frame while `pending` is set, so it answers from what it already knows and works anything slow out elsewhere.
++    struct ModNote {
++        enum class Level { Error, Warning, Info } level;
++        std::string text;
++    };
++    struct ModNoteSection {
++        std::string title;
++        std::vector<ModNote> notes;
++    };
++    struct ModNotes {
++        std::vector<ModNoteSection> sections;
++        bool pending = false;
++    };
++    void set_mod_notes_provider(std::function<ModNotes(const std::string& mod_id)> provider);
+     void process_game_started();
+ 
+     void apply_color_hack();
 diff --git a/recompui/include/recompui/renderer.h b/recompui/include/recompui/renderer.h
 index 33f79ab..3e6423c 100644
 --- a/recompui/include/recompui/renderer.h
@@ -39,6 +76,135 @@ index 277a421..b347a8c 100644
              }
              // fallthrough
              case SDL_EventType::SDL_MOUSEBUTTONDOWN:
+diff --git a/recompui/src/composites/ui_mod_details_panel.cpp b/recompui/src/composites/ui_mod_details_panel.cpp
+index 88291e2..8ca368d 100644
+--- a/recompui/src/composites/ui_mod_details_panel.cpp
++++ b/recompui/src/composites/ui_mod_details_panel.cpp
+@@ -1,12 +1,47 @@
+ #include "ui_mod_details_panel.h"
+ 
++#include <mutex>
++
+ #include "librecomp/mods.hpp"
++#include "recompui/recompui.h"
+ 
+ namespace recompui {
+ 
+ extern const std::string mod_tab_id;
+ 
+-ModDetailsPanel::ModDetailsPanel(ResourceId rid, Element *parent) : Element(rid, parent) {
++namespace {
++    std::mutex notes_mutex;
++    std::function<ModNotes(const std::string&)> notes_provider;
++}
++
++// A line of the notes list. It takes focus so a controller can move down the list, and scrolls itself into view.
++class ModNoteLine : public Element {
++public:
++    ModNoteLine(ResourceId rid, Element *parent, const std::string &text, LabelStyle style, theme::color color)
++        : Element(rid, parent, Events(EventType::Focus, EventType::Hover)) {
++        enable_focus();
++        set_padding(4.0f);
++        set_border_radius(4.0f);
++        Label *label = get_current_context().create_element<Label>(this, text, style);
++        label->set_color(color);
++    }
++protected:
++    std::string_view get_type_name() override { return "ModNoteLine"; }
++    void process_event(const Event &e) override {
++        if (e.type == EventType::Focus) {
++            bool active = std::get<EventFocus>(e.variant).active;
++            if (active) scroll_into_view();
++            set_background_color(active ? theme::color::PrimaryA20 : theme::color::Transparent);
++        }
++    }
++};
++
++void set_mod_notes_provider(std::function<ModNotes(const std::string& mod_id)> provider) {
++    std::lock_guard lock{ notes_mutex };
++    notes_provider = std::move(provider);
++}
++
++ModDetailsPanel::ModDetailsPanel(ResourceId rid, Element *parent) : Element(rid, parent, Events(EventType::Update)) {
+     set_flex(1.0f, 1.0f, 200.0f);
+     set_height(100.0f, Unit::Percent);
+     set_display(Display::Flex);
+@@ -49,6 +84,10 @@ ModDetailsPanel::ModDetailsPanel(ResourceId rid, Element *parent) : Element(rid,
+         authors_label = context.create_element<Label>(body_container, LabelStyle::Normal);
+         authors_label->set_margin_bottom(16.0f);
+         description_label = context.create_element<Label>(body_container, LabelStyle::Normal);
++        notes_container = context.create_element<Container>(body_container, FlexDirection::Column, JustifyContent::FlexStart);
++        notes_container->set_flex(0.0f, 0.0f);
++        notes_container->set_gap(4.0f);
++        notes_container->set_as_navigation_container(NavigationType::Vertical);
+     }
+     
+     buttons_container = context.create_element<Container>(this, FlexDirection::Row, JustifyContent::SpaceAround);
+@@ -111,6 +150,47 @@ void ModDetailsPanel::set_mod_details(const recomp::mods::ModDetails& details, c
+     else if (toggle_label_visible) {
+         enable_label->set_text("A currently enabled mod requires this mod");
+     }
++
++    // Not rebuilt when the same mod is shown again: the mod menu does that whenever its entry loses focus, which
++    // would take away the note line the focus just moved to.
++    refresh_notes();
++}
++
++void ModDetailsPanel::process_event(const Event &e) {
++    if (e.type == EventType::Update) {
++        refresh_notes();
++    }
++}
++
++// Lists the provider's notes on the shown mod, rebuilding only when they change, and asks again next frame while the
++// provider is still working them out.
++void ModDetailsPanel::refresh_notes() {
++    ModNotes notes;
++    {
++        std::lock_guard lock{ notes_mutex };
++        if (notes_provider) notes = notes_provider(cur_details.mod_id);
++    }
++    std::string signature = cur_details.mod_id + (notes.pending ? ";pending;" : ";");
++    for (const ModNoteSection& s : notes.sections) {
++        signature += s.title + "\n";
++        for (const ModNote& n : s.notes) signature += std::to_string(int(n.level)) + n.text + "\n";
++    }
++    if (signature != notes_signature) {
++        notes_signature = signature;
++        notes_container->clear_children();
++        ContextId context = get_current_context();
++        for (const ModNoteSection& s : notes.sections) {
++            Label* title = context.create_element<Label>(notes_container, s.title, LabelStyle::Normal);
++            title->set_margin_top(16.0f);
++            for (const ModNote& n : s.notes) {
++                const char* tag = n.level == ModNote::Level::Error ? "Problem: " : n.level == ModNote::Level::Warning ? "Warning: " : "";
++                theme::color color = n.level == ModNote::Level::Error ? theme::color::DangerL
++                                   : n.level == ModNote::Level::Warning ? theme::color::WarningL : theme::color::TextDim;
++                context.create_element<ModNoteLine>(notes_container, tag + n.text, LabelStyle::Small, color);
++            }
++        }
++    }
++    if (notes.pending) queue_update();
+ }
+ 
+ void ModDetailsPanel::set_mod_toggled_callback(std::function<void(bool)> callback) {
+diff --git a/recompui/src/composites/ui_mod_details_panel.h b/recompui/src/composites/ui_mod_details_panel.h
+index 2617283..cbfbead 100644
+--- a/recompui/src/composites/ui_mod_details_panel.h
++++ b/recompui/src/composites/ui_mod_details_panel.h
+@@ -23,8 +23,12 @@ public:
+     void disable_toggle();
+ protected:
+     std::string_view get_type_name() override { return "ModDetailsPanel"; }
++    void process_event(const Event &e) override;
+ private:
+     recomp::mods::ModDetails cur_details;
++    Container *notes_container = nullptr;
++    std::string notes_signature;
++    void refresh_notes();
+     Container *thumbnail_container = nullptr;
+     Image *thumbnail_image = nullptr;
+     Container *header_container = nullptr;
 diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
 index 4fdf81f..d5ba2a2 100644
 --- a/recompui/src/config/ui_config_tab_graphics.cpp

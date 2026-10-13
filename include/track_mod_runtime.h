@@ -12,7 +12,8 @@ namespace rush2::track_mod {
     struct Entry {
         std::string mod_id;
         std::filesystem::path mod_path;  // the mod's .rtz or folder
-        std::string folder;              // rush2/tracks/<folder>/
+        std::string folder;              // the track's folder name (its id)
+        std::string dir;                 // its path in the mod: "tracks/<folder>/" or the older "rush2/tracks/<folder>/"
         Settings settings;               // its track.toml (name falls back to the folder)
     };
 
@@ -40,6 +41,10 @@ namespace rush2::track_mod {
     // stand-ins (rush2::derive::set_mod_textures, source "tracks"). Does nothing when that set hasn't changed. load
     // calls it; the track select calls it once after its menu_art calls.
     void publish_textures();
+
+    // Lists each enabled mod's tracks in the Mods tab's details panel with the converter's errors and warnings
+    // (recompui::set_mod_notes_provider). A track loads despite its problems unless nothing can be raced.
+    void register_mod_notes();
 }
 
 #endif

@@ -8257,9 +8257,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800E7D22
 name = "cheat_option_c"
 type = "u8"
-desc = "Cheat menu toggle byte read by drone driver and race setup."
+desc = "Gravity cheat: 0 Light, 1 Normal (default), 2 Heavy, 3 Jovian (src/cheats.cpp). The drone driver also indexes two tables by it (0x80074EE8): while the car moves down (velocity y +0x21C < 0) its lane target speed is scaled by 0x800C3FEC = 0.8/1.0/1.25/1.5, otherwise raised to at least 0x800C3FFC = 75/90/135/180 ft/s (51/61/92/123 mph). Stock Rush 2 lanes are 72 mph and up, so the Normal floor never applies on them."
 area = "menu"
-status = "inferred"
+status = "verified"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]

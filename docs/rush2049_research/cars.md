@@ -331,7 +331,7 @@ From these formulas (1/60 s steps, full throttle, flat ground, traction not limi
 
 **AI.** The drones are physics cars like the players'. Their driver (func_80074990) aims for the lane's target speed
 (u8 mph at lane point +6, x 1.4667 ft/s) x 1.05 x the rubber band (+0x808, func_800A1A98), at least 75/90/135/180
-ft/s (0x800C3FFC[0x800E7D22]), and works the throttle and brake to hold it. Rush 2049's driver (func_800E4B58),
+ft/s by the gravity cheat (0x800C3FFC[0x800E7D22]: Light/Normal/Heavy/Jovian) unless the car is moving down, when the lane speed is scaled by 0x800C3FEC (0.8/1.0/1.25/1.5) instead; no stock lane point is below 72 mph, so at Normal gravity the floor never applies. It works the throttle and brake to hold it. Rush 2049's driver (func_800E4B58),
 rubber band (func_800F93A0, without the per-track factor), minimum speeds and drone speed hint (polygon flags bits
 8-11, x (1 + 0.02 n)) are the same code and constants; its hint points (0x801108B0, func_800EB690) are aim targets,
 not speed limits. Its road drag (func_800E23A4) is Rush 2's for stock cars (wings, off-road tires and surfaces 1-2 add
