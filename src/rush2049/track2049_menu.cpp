@@ -697,6 +697,7 @@ extern "C" void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx) 
 // screen layout moved to the middle of the diorama area: the screenshot centred between the carousel arrows, the model
 // in front of it as 2049 shows it, still (no carousel spin). Race tracks' tubes get 2049's moving white highlight.
 extern "C" void model_find_by_name_8005BE3C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void asset_find_slot_8008696C(uint8_t* rdram, recomp_context* ctx);           // $a0 asset -> slot or -1
 
 namespace {
     constexpr uint32_t camera = 0x800E79D0;       // view 0's camera: rows -right, up, forward, then +0x24 position
@@ -945,9 +946,10 @@ bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_
     }
     std::vector<uint8_t> logo;
     if (!rush2::assets::read_original(rdram, 4 + host_slot, logo)) return false;
-    if (t >= first_menu_id && t < r1_first) {
+    if ((t >= first_menu_id && t < r1_first) || t == obstacle_menu_id) {
         auto rom = rush2::wings::get_rom();
-        return available() && rom != nullptr && build_race_logo(logo, *rom, t - first_menu_id + 1, out);
+        int k = t == obstacle_menu_id ? obstacle : t - first_menu_id + 1;
+        return available() && rom != nullptr && build_race_logo(logo, *rom, k, out);
     }
     if (t >= r1_first && t < r1_end) {
         auto rom = rush2::track1::get_rom();
@@ -965,6 +967,25 @@ bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_
         return set_race_logo(logo, art.logo, art.logo_palette, out);
     }
     return false;
+}
+
+bool rush2::track2049::write_menu_logo(uint8_t* rdram, recomp_context* ctx, int asset, int t) {
+    constexpr uint32_t asset_slots = 0x8010C258;   // 12 bytes a slot: +0 asset, +4 its data
+    std::vector<uint8_t> logo;
+    uint32_t texels, palette;
+    if (!menu_track_logo(rdram, t, logo) || !logo_data_offsets(logo, texels, palette)) {
+        return false;
+    }
+    recomp_context call = *ctx;
+    call.r4 = asset;
+    asset_find_slot_8008696C(rdram, &call);
+    int slot = (int32_t)call.r2;
+    if (slot < 0) return false;
+    uint32_t data = (uint32_t)MEM_W(slot * 12 + 4, (int32_t)asset_slots);
+    if (data == 0) return false;
+    for (uint32_t i = 0; i < 128 * 32; i++) MEM_B(0, (int32_t)(data + texels + i)) = logo[texels + i];
+    for (uint32_t i = 0; i < 512; i++) MEM_B(0, (int32_t)(data + palette + i)) = logo[palette + i];
+    return true;
 }
 
 // func_800A62C0 after the menu overlay is loaded: the overlay's own data starts fresh, and so must the circuit

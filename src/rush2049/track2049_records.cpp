@@ -37,9 +37,10 @@
 // the raced custom track's records: the save file keeps every custom track's as { "mod": "<its folder>" }, and when
 // another one is raced the course is swapped (sync_mod). The high-score screen's seed is the track's best_times.
 //
-// Menu screens (the records screen, profile loading) run outside those windows and only ever see HAWAII's records;
-// 2049 records aren't listed on the records screen, and 2049 results don't count toward unlocks. Clearing a
-// profile's records there, or deleting the profile, clears its 2049 records as well.
+// The records screen in the menus lists the added courses after Rush 2's (screen_entries): while one is shown the
+// screen's index stays on HAWAII's, HAWAII's logo container holds the course's logo, and the list's rows, best times,
+// stats and seed move to the course's as in a race. Custom tracks aren't listed. 2049 results don't count toward
+// Rush 2's unlocks. Clearing a profile's records there, or deleting the profile, clears its 2049 records as well.
 
 #include <algorithm>
 #include <array>
@@ -52,6 +53,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "json/json.hpp"
 
@@ -65,6 +67,7 @@
 #include "track1.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
+#include "unlocks.h"
 #include "wings.h"
 
 using rush2::track2049::host_slot;
@@ -145,6 +148,7 @@ namespace {
 
     uint32_t blocks = 0;        // RDRAM: one block per position, then the no-profile stats.
     uint32_t no_profile_block = 0;
+    uint32_t all_stats_block = 0;   // The records screen's ALL stats of the course it shows (screen_all_stats).
     std::string bound_name[profiles];
     bool bound[profiles] = {};
     Profile bound_copy[profiles];  // The block as last loaded or saved.
@@ -507,9 +511,10 @@ namespace {
             return;
         }
         load_store();
-        uint32_t size = profiles * block_size + courses * stats_size;
+        uint32_t size = profiles * block_size + courses * stats_size + stats_size;
         blocks = (uint32_t)((uint8_t*)recomp::alloc(rdram, size) - rdram) + 0x80000000;
         no_profile_block = blocks + profiles * block_size;
+        all_stats_block = no_profile_block + courses * stats_size;
         for (uint32_t i = 0; i < size; i++) {
             MEM_B(0, (int32_t)(blocks + i)) = 0;
         }
@@ -572,13 +577,7 @@ namespace {
     // Address redirection. Each returns addr unchanged unless it is one of HAWAII's slots and a 2049 track is hosted.
 
     // A stats slot: record + 0x1F0 + slot * 0x20 in the pak image, or an entry of the no-profile table.
-    uint32_t redirect_stats(uint8_t* rdram, uint32_t addr) {
-        int k = hosted(rdram);
-        if (k == 0) {
-            return addr;
-        }
-        ensure_blocks(rdram);
-        sync_mod(rdram);
+    uint32_t redirect_stats_to(uint8_t* rdram, uint32_t addr, int k) {
         for (int backward = 0; backward < 2; backward++) {
             if (addr == no_profile_stats + host_no_profile_slot[backward] * stats_size) {
                 touched = true;
@@ -601,16 +600,22 @@ namespace {
         return addr;
     }
 
-    // A best-times list: record + 0x38 + page * 0xDC + slot * 0xA in the pak image.
-    uint32_t redirect_times(uint8_t* rdram, uint32_t addr) {
+    uint32_t redirect_stats(uint8_t* rdram, uint32_t addr) {
         int k = hosted(rdram);
-        uint32_t off = addr - pak_records;
-        if (k == 0 || addr < pak_records || off >= 4 * pak_stride ||
-            off % pak_stride >= records_per_pak * record_size) {
+        if (k == 0) {
             return addr;
         }
         ensure_blocks(rdram);
         sync_mod(rdram);
+        return redirect_stats_to(rdram, addr, k);
+    }
+
+    // A best-times list: record + 0x38 + page * 0xDC + slot * 0xA in the pak image.
+    uint32_t redirect_times_to(uint8_t* rdram, uint32_t addr, int k) {
+        uint32_t off = addr - pak_records;
+        if (addr < pak_records || off >= 4 * pak_stride || off % pak_stride >= records_per_pak * record_size) {
+            return addr;
+        }
         int p = (off / pak_stride) * records_per_pak + (off % pak_stride) / record_size;
         uint32_t field = off % pak_stride % record_size;
         for (int page = 0; page < 2; page++) {
@@ -623,6 +628,16 @@ namespace {
             }
         }
         return addr;
+    }
+
+    uint32_t redirect_times(uint8_t* rdram, uint32_t addr) {
+        int k = hosted(rdram);
+        if (k == 0) {
+            return addr;
+        }
+        ensure_blocks(rdram);
+        sync_mod(rdram);
+        return redirect_times_to(rdram, addr, k);
     }
 
     // High-score rows
@@ -783,7 +798,7 @@ namespace {
         // The table is indexed by Rush 2049's track id: 0-5 race tracks, 18 the obstacle course.
         int id = k == obstacle_track ? rush2::track2049::obstacle - 1 : k - 1;
         if (k > track_count && k != obstacle_track) {
-            // SF Rush keeps no seed times: the AI lanes' lap time stands in.
+            // SF Rush's own (0x800D157C), one per track.
             float s = rush2::track1::record_seed(k - track_count, backward != 0);
             return s > 1.0f ? s : 90.0f;
         }
@@ -801,6 +816,259 @@ namespace {
         }
         return k == obstacle_track ? obstacle_seed : seeds_2049[backward][k - 1];
     }
+
+    float host_seed(uint8_t* rdram, int backward) {
+        uint32_t bits = (uint32_t)MEM_W(0, (int32_t)(seeds + (host_slot + 12 * backward) * 4));
+        float f;
+        std::memcpy(&f, &bits, sizeof(f));
+        return f;
+    }
+
+    // The records screen (menu overlay: func_803B0A90 per frame, func_803C430C draws the list). Its index
+    // 0x803CB6FC is a track + 12 * backward (24 the circuit), its page 0x803CB6F8 0 average lap, 1 best lap, 2 stats.
+    // While an added course is shown, the index stays on HAWAII's (2 or 14) and screen_k says which course it is, so
+    // the screen and its logo widget run as they do for HAWAII and only the data they read is moved.
+    constexpr uint32_t screen_index = 0x803CB6FC;
+    constexpr uint32_t screen_page = 0x803CB6F8;
+    constexpr uint32_t pipe_open = 0x800E7D50;    // The game's own unlock bytes the screen tests for PIPE (index 9)
+    constexpr uint32_t midway_open = 0x800E7D19;  // and MIDWAY (10).
+    constexpr uint32_t all_stats = 0x803D0298;    // [24] stats of every profile merged (func_803B1B78)
+    constexpr uint32_t all_best_start = 0x803CACD0; // f32: func_803B1B78's starting best time
+    constexpr int logo_asset = 4 + host_slot;     // HAWAII's logo container, which the screen shows for index 2/14
+    int screen_k = 0;       // The added course shown, or 0.
+    int render_k = 0;       // Its rows are swapped in while func_803C430C runs.
+    int shown_logo = -1;    // Track select id of the logo written into logo_asset (host_slot: HAWAII's own).
+
+    int menu_id_of(int k) {
+        if (k == obstacle_track) return rush2::track2049::obstacle_menu_id;
+        if (k > track_count) return rush2::track1::first_menu_id + (k - track_count - 1);
+        return rush2::track2049::first_menu_id + (k - 1);
+    }
+
+    // Whether the screen's profile has track select entry t open (the unlock system's purchases are a profile's,
+    // not the joined players'): the profile it views (0x803D026C >= 0: pak 0x803D0274, record 0x803D027C), or on
+    // TOTALS any profile on the paks.
+    constexpr uint32_t screen_profile = 0x803D026C;  // s16: < 0 TOTALS
+    constexpr uint32_t screen_pak = 0x803D0274;      // s16
+    constexpr uint32_t screen_record = 0x803D027C;   // s16
+
+    bool screen_open(uint8_t* rdram, int t, bool game_unlocked = true) {
+        if ((int16_t)MEM_H(0, (int32_t)screen_profile) >= 0) {
+            int p = (int16_t)MEM_H(0, (int32_t)screen_pak) * records_per_pak + (int16_t)MEM_H(0, (int32_t)screen_record);
+            return p >= 0 && p < profiles &&
+                   rush2::unlocks::track_open_for(read_name(rdram, record(p) + rec_name), t, game_unlocked);
+        }
+        for (int p = 0; p < profiles; p++) {
+            if ((MEM_BU(0, (int32_t)(record(p) + rec_flags)) & 1) != 0 &&
+                rush2::unlocks::track_open_for(read_name(rdram, record(p) + rec_name), t, game_unlocked)) {
+                return true;
+            }
+        }
+        return rush2::unlocks::track_open_for("", t, game_unlocked);   // no profile: the guest's purchases
+    }
+
+    // The added courses to list, in track select order.
+    std::vector<int> screen_courses(uint8_t* rdram) {
+        std::vector<int> ks;
+        for (int k = 1; k <= obstacle_track - 1; k++) {
+            bool on = k <= track_count ? rush2::track2049::available() : rush2::track1::available();
+            if (on && screen_open(rdram, menu_id_of(k))) ks.push_back(k);
+        }
+        if (rush2::track2049::available() && screen_open(rdram, menu_id_of(obstacle_track))) {
+            ks.push_back(obstacle_track);
+        }
+        return ks;
+    }
+
+    struct ScreenEntry {
+        int index, k;
+    };
+
+    // What left and right step through on a page: Rush 2's entries as func_803B0A90 picks them (PIPE and MIDWAY
+    // when open, per screen_open, STUNT1 and the circuit on the stats page only), the added courses forward after Rush 2's forward
+    // tracks and backward after its backward ones (the obstacle course has no backward).
+    std::vector<ScreenEntry> screen_entries(uint8_t* rdram, const std::vector<int>& ks) {
+        int page = MEM_W(0, (int32_t)screen_page);
+        auto shown = [&](int index) {
+            int m = index % 12;
+            if (m < 9) return true;
+            // PIPE and MIDWAY: the game's own unlock, or with the unlock system on, the profile's purchase.
+            if (m == 9) return screen_open(rdram, m, MEM_BU(0, (int32_t)pipe_open) != 0);
+            if (m == 10) return screen_open(rdram, m, MEM_BU(0, (int32_t)midway_open) != 0);
+            return page == 2 && index == 11;
+        };
+        std::vector<ScreenEntry> e;
+        for (int backward = 0; backward < 2; backward++) {
+            for (int index = backward * 12; index < backward * 12 + 12; index++) {
+                if (shown(index)) e.push_back({ index, 0 });
+            }
+            for (int k : ks) {
+                if (!backward || k != obstacle_track) e.push_back({ host_record_slot[0] + 12 * backward, k });
+            }
+        }
+        if (page == 2) e.push_back({ 24, 0 });
+        return e;
+    }
+
+    // func_803B1B78's merge of every profile's stats for one index (the ALL stats page), for course k: the
+    // no-profile stats, then per profile in use the average lap weighted by laps, the counters summed, +0x02 the
+    // largest, and +0x01 from the profile with the fastest first average-lap time.
+    void screen_all_stats(uint8_t* rdram, int k, int backward) {
+        auto seconds = [](uint16_t t) { return float(t >> 13) * 60.0f + float((t >> 7) & 0x3F) + float(t & 0x7F) / 100.0f; };
+        int course = course_of(k, backward);
+        uint32_t agg = all_stats_block;
+        for (uint32_t i = 0; i < stats_size; i++) {
+            MEM_B(i, (int32_t)agg) = MEM_B(0, (int32_t)(no_profile_block + course * stats_size + i));
+        }
+        uint32_t bits = (uint32_t)MEM_W(0, (int32_t)all_best_start);
+        float best;
+        std::memcpy(&best, &bits, sizeof(best));
+        for (int p = 0; p < profiles; p++) {
+            if ((MEM_BU(0, (int32_t)(record(p) + rec_flags)) & 1) == 0) {
+                continue;
+            }
+            bind(rdram, p);
+            uint32_t s = block(p) + course * stats_size;
+            float total = seconds(MEM_HU(4, (int32_t)agg)) * float(MEM_HU(6, (int32_t)agg)) +
+                          seconds(MEM_HU(4, (int32_t)s)) * float(MEM_HU(6, (int32_t)s));
+            uint16_t laps = uint16_t(MEM_HU(6, (int32_t)agg) + MEM_HU(6, (int32_t)s));
+            MEM_H(6, (int32_t)agg) = (int16_t)laps;
+            if (laps > 0) {
+                float avg = total / float(laps);
+                uint32_t whole = (uint32_t)avg, min = whole / 60, sec = whole % 60, hund = (uint32_t)(avg * 100.0f) % 100;
+                if (min >= 8) min = 7, sec = 59, hund = 99;   // func_80094A40's clamp
+                MEM_H(4, (int32_t)agg) = (int16_t)((hund & 0x7F) | ((sec & 0x3F) << 7) | (min << 13));
+            }
+            for (int off = 8; off <= 0x1E; off += 2) {
+                MEM_H(off, (int32_t)agg) = (int16_t)(MEM_HU(off, (int32_t)agg) + MEM_HU(off, (int32_t)s));
+            }
+            if (MEM_BU(2, (int32_t)agg) < MEM_BU(2, (int32_t)s)) {
+                MEM_B(2, (int32_t)agg) = MEM_B(2, (int32_t)s);
+            }
+            float first = seconds(MEM_HU(0, (int32_t)times_in_block(p, course, 0)));
+            if (first < best) {
+                best = first;
+                MEM_B(1, (int32_t)agg) = MEM_B(1, (int32_t)s);
+            }
+        }
+    }
+
+    // Puts the shown entry's logo into HAWAII's logo container (HAWAII's own for anything else).
+    void screen_logo(uint8_t* rdram, recomp_context* ctx, int k) {
+        int want = k != 0 ? menu_id_of(k) : host_slot;
+        if (want != shown_logo && rush2::track2049::write_menu_logo(rdram, ctx, logo_asset, want)) {
+            shown_logo = want;
+        }
+    }
+}
+
+extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx);
+extern "C" void records_screen_spawn_random_particles_803B0650(uint8_t* rdram, recomp_context* ctx);
+
+// func_803B0A90 at 0x803B0B64, the screen opening, after it loaded the logo containers (assets 4-16). It starts on
+// index 0. A race on an added track leaves HAWAII's container holding that track's logo, so HAWAII's own goes back.
+extern "C" void rush2_records_screen_open(uint8_t* rdram, recomp_context* ctx) {
+    screen_k = 0;
+    shown_logo = -1;
+    screen_logo(rdram, ctx, 0);
+}
+
+// func_803B0A90 at 0x803B0AF0, the screen closing: HAWAII's logo goes back for whatever loads it next.
+extern "C" void rush2_records_screen_close(uint8_t* rdram, recomp_context* ctx) {
+    screen_k = 0;
+    if (shown_logo != host_slot && shown_logo != -1) screen_logo(rdram, ctx, 0);
+    shown_logo = -1;
+}
+
+// func_803B0A90 at 0x803B0BC8: $v0 = the buttons pressed, about to be tested for left/right (0x200 left, 0x100
+// right) to step the index. With added courses to list, this steps through screen_entries instead and clears the
+// two bits so the game's own step is skipped, then plays the step's sound and particles as the game does.
+extern "C" void rush2_records_screen_step(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t buttons = (uint32_t)ctx->r2;
+    if ((buttons & 0x300) == 0) {
+        return;
+    }
+    std::vector<int> ks = screen_courses(rdram);
+    if (ks.empty() && !rush2::unlocks::enabled()) {
+        screen_k = 0;
+        return;
+    }
+    std::vector<ScreenEntry> e = screen_entries(rdram, ks);
+    int index = MEM_W(0, (int32_t)screen_index);
+    int at = -1;
+    for (size_t i = 0; i < e.size(); i++) {
+        if (e[i].index == index && e[i].k == screen_k) at = int(i);
+    }
+    if (at < 0) {
+        screen_k = 0;
+        return;
+    }
+    int n = int(e.size());
+    at = (at + ((buttons & 0x200) ? -1 : 1) + n) % n;
+    MEM_W(0, (int32_t)screen_index) = e[at].index;
+    screen_k = e[at].k;
+    ctx->r2 = buttons & ~0x300u;
+    recomp_context call = *ctx;
+    call.r4 = 0x49;
+    menu_play_sound_80064908(rdram, &call);
+    call = *ctx;
+    records_screen_spawn_random_particles_803B0650(rdram, &call);
+    screen_logo(rdram, ctx, screen_k);
+}
+
+// Start of func_803C430C (the records list): swaps the shown course's high-score rows in for HAWAII's (the ALL
+// pages read them), as the race screens do.
+extern "C" void rush2_records_screen_render_enter(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ records_mutex };
+    render_k = 0;
+    int index = MEM_W(0, (int32_t)screen_index);
+    if (screen_k == 0 || (index != host_record_slot[0] && index != host_record_slot[0] + 12) || swapped != 0) {
+        return;
+    }
+    ensure_blocks(rdram);
+    swap_in(rdram, screen_k);
+    render_k = screen_k;
+}
+
+// The jr $ra of func_803C430C (0x803C5460).
+extern "C" void rush2_records_screen_render_exit(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ records_mutex };
+    if (render_k != 0) {
+        swap_out(rdram);
+        render_k = 0;
+    }
+}
+
+// func_803C430C at 0x803C45BC (pages 0 and 1): $a3 = the five times to list (a high-score row's, or one profile's
+// best-times list in the pak image, which moves to the course's), $f6 = the seed time of the index (0x8001CF3C),
+// from which empty rows' made-up times start: moved to the course's.
+extern "C" void rush2_records_screen_times(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ records_mutex };
+    if (render_k == 0) {
+        return;
+    }
+    int backward = MEM_W(0, (int32_t)screen_index) >= 12 ? 1 : 0;
+    ctx->r7 = (gpr)(int32_t)redirect_times_to(rdram, (uint32_t)ctx->r7, render_k);
+    ctx->f6.fl += seed_2049(render_k, backward) - host_seed(rdram, backward);
+}
+
+// func_803C430C at 0x803C49CC (the stats page): 0x68($sp) = the stats to show, ALL's merged entry (0x803D0298 +
+// index * 0x20) or a profile's slot in the pak image. Moved to the course's.
+extern "C" void rush2_records_screen_stats(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ records_mutex };
+    if (render_k == 0) {
+        return;
+    }
+    int index = MEM_W(0, (int32_t)screen_index);
+    uint32_t addr = (uint32_t)MEM_W(0x68, (int32_t)ctx->r29);
+    if (addr == all_stats + uint32_t(index) * stats_size) {
+        screen_all_stats(rdram, render_k, index >= 12 ? 1 : 0);
+        addr = all_stats_block;
+    }
+    else {
+        addr = redirect_stats_to(rdram, addr, render_k);
+    }
+    MEM_W(0x68, (int32_t)ctx->r29) = (int32_t)addr;
 }
 
 // Stats writers, where $t3 = the stats slot (record + 0x1F0 + slot * 0x20, or the no-profile table entry) that

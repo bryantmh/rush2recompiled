@@ -107,7 +107,8 @@ namespace rush2::track1 {
     // func_8007C27C at 0x8007C480: the section mask for the camera's region. Returns true if it handled it, with
     // table = its region mask table.
     bool pvs(uint8_t* rdram, uint32_t sp, uint32_t& table);
-    // Seed time in seconds for the record tables of track k (1-7), or 0 if unknown.
+    // Seed time in seconds for the record tables of track k (1-7): Rush 1's own (0x800D157C), else lane 1's lap time,
+    // or 0 if unknown.
     float record_seed(int k, bool backward);
     // func_80093048 at 0x80093298: replaces the race time Rush 2 worked out from the AI lanes with Rush 1's own.
     // Returns true if a Rush 1 track is raced.

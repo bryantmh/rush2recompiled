@@ -178,6 +178,8 @@ with `$t1` = 0. The Controller Pak service `func_800971A8` finds runs of dirty b
    which is what the game itself does when it reuses a name).
 5. **Seed:** at 0x800608A4 `$f20` += seed49 − seed(HAWAII), seed49 = 2049 boot 0x8002E870[(k − 1) + 19·bw] read from
    the user's ROM (`0x1000 + 0x2E470` in the z64), fallback {47, 81, 65, 97, 78, 117} / {48, 79, 76, 104, 86, 119}.
+   SF Rush tracks use SF Rush's own table, f32 0x800D157C[track] in its main segment (71, 100, 155, 85, 110, 160, 76 s
+   for tracks 1–7, one per track for both directions; its high-score screen `func_8006DB7C` loads it at 0x8006DCDC).
 6. **Clear / delete:** at the start of `func_800B3110` and `func_800B306C` (`$a0` = profile index) the profile's
    2049 records are removed from the file and from any block bound to that name.
 
@@ -211,14 +213,48 @@ on the profile path (its unchanged bytes get rewritten to the pak); harmless.
 - Two profiles with the same name (on different paks) share 2049 records; deleting one clears them for both.
 - With more than 19 distinct guest names in one session, a 2049 or HAWAII guest entry that was swapped out while the
   game reused its name entry shows a blank name (the game blanks such entries the same way).
-- The records screen in the menus doesn't list 2049 tracks; 2049 first places don't count toward unlocks
-  (`func_80094F1C` reads the pak image directly). Both match "HAWAII's records unaffected".
+- 2049 first places don't count toward Rush 2's unlocks (`func_80094F1C` reads the pak image directly), which matches
+  "HAWAII's records unaffected". The records screen lists the added courses (§3.5), but not custom tracks.
 - If the 2049 track fails to convert and HAWAII is raced instead while `race_track()` is set, that race's records
   still go to the 2049 course (`track2049.cpp` has no public "applied" flag).
 - Stunt-mode writes during a hosted race are saved to the file the next time the high-score screen or post-race
   function returns; quitting the program mid-race loses them.
 
-### 3.5 Test plan
+### 3.5 Records screen [V]
+The menu's records screen (`func_803B0A90` per frame, list `func_803C430C`, logo callback `func_803C5468`) reads
+everything from index 0x803CB6FC (track + 12·bw, 24 = CIRCUIT) and page 0x803CB6F8 (0 average lap, 1 best lap,
+2 stats):
+- Left/right (0x803B0BB8–0x803B0D1C): ±1 over 0–23 (0–24 on page 2), wrapping, skipping `idx % 12` = 9 unless byte
+  0x800E7D50, = 10 unless 0x800E7D19, and 11 / 23 except index 11 on page 2. Up/down cycle the page; leaving page 2
+  moves 24 → 0 and 11 → 12.
+- Pages 0/1 (0x803C45A0 / L_803C45A4): `$a3` = the row's times (ALL: 0x800D2160 + page·0x18C + slot·0x12 + 6) or the
+  profile's list (`rec + 0x38 + page·0xDC + slot·0xA`); 0x803CB968 = 0x803CB950 + seed 0x8001CF3C[index] (`$f6`,
+  0x803C45B8). Names: the row's who bytes; 0xFF = default name 0x80240004-relocated table.
+- Page 2: 0x68($sp) = ALL's merged stats 0x803D0298 + index·0x20 or the profile's `rec + 0x1F0 + slot·0x20`, both
+  paths joining at 0x803C49CC. The merged table is built by `func_803B1B78` (callers 0x803B247C, 0x803B2708, the
+  profile list): per index, the no-profile stats 0x800C1DD4 copied, then per profile in use: average lap weighted
+  by laps (+4/+6), u16 +0x08…+0x1E summed, +0x02 the largest, +0x01 from the profile whose page-0 list (at index·0xA,
+  not the slot) starts fastest (from f32 0x803CACD0).
+- Logo: widget type 3 sets texture 0x803C900C[index % 12] (12 for CIRCUIT) from the logo containers 4–16 the screen
+  loads; type 2 (BACKWARD) shows for index ≥ 12 except 24.
+
+The added courses (2049 tracks 1–6, SF Rush 1–7, the obstacle course forward only, each when open) are listed after
+Rush 2's forward tracks and after its backward tracks. "Open" follows the screen's profile, not the joined players:
+with the unlock system on, a course sold in its shop (and PIPE and MIDWAY, instead of the game's bytes) shows when
+the viewed profile bought it, or on TOTALS when any profile on the paks did (`rush2::unlocks::track_open_for`). Hooks (us.toml):
+
+| Site | Hook | Does |
+|---|---|---|
+| 0x803B0BC8 (`$v0` = buttons) | `rush2_records_screen_step` | With added courses available, steps through the list itself, sets the index to HAWAII's (2/14) for an added course, clears 0x300 in `$v0`, plays sound 0x49 and `func_803B0650` as the game does |
+| 0x803B0B64 (opening, after loading 4–16) / 0x803B0AF0 (closing) | `rush2_records_screen_open` / `_close` | Writes HAWAII's own logo into container 6: a race on an added track leaves the hosted track's logo there, which showed that track's banner over HAWAII's records |
+| 0x803C430C / 0x803C5460 | `rush2_records_screen_render_enter` / `_exit` | Swaps the course's high-score rows in for HAWAII's, as §3.2 item 4 |
+| 0x803C45BC | `rush2_records_screen_times` | `$a3` → the course's side-block list; `$f6` += course seed − HAWAII seed |
+| 0x803C49CC | `rush2_records_screen_stats` | 0x68($sp) → the side-block stats, or for ALL a merge of them built as `func_803B1B78` does |
+
+The shown course's logo is written over container 6 (`rush2::track2049::write_menu_logo`, shared with the circuit
+review), so the screen's own logo widget shows it.
+
+### 3.6 Test plan
 1. Race a 2049 track forward with a profile; finish. The post-race table shows default names around the 2049 seed
    (e.g. track 1 about 0:47) and your time; the `records` section of `saves/rush2.n64.us.json` appears with the course.
 2. Pause during the next race on it: same table. Race HAWAII afterwards: HAWAII's table and times are unchanged
@@ -227,4 +263,7 @@ on the profile path (its unchanged bytes get rewritten to the pak); harmless.
 4. Restart the program: the profile's 2049 times reappear; guest entries don't (as in Rush 2).
 5. Race without a profile (guest name entry) on a 2049 track; then on HAWAII; check names are right on both.
 6. Records screen → clear the profile's records: its 2049 entry disappears from the JSON.
+8. Records screen: right from LAS VEGAS steps through Rush 2's forward tracks, then the 2049, SF Rush and obstacle
+   courses with their logos and times (ALL and per profile, all three pages), then the backward ones; HONOLULU
+   shows its own logo and records.
 7. Check the `.mpk` (saves/<game id>.mpk) changes only as for a normal race.

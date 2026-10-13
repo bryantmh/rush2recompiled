@@ -3093,6 +3093,17 @@ area = "race"
 ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
 
 [[func]]
+vram = 0x8006DB7C
+name = "highscore_screen"
+sig = "void highscore_screen(s32 show)"
+desc = "SF Rush's post-race/pause high-score screen (called second from hud_widget_cb_open_highscore 0x800C1CF0, as Rush 2's func_800606A8 from func_800BAD44). Empty rows' made-up times start from f32 0x800D157C[track] (track = s8 0x80100050) + a random 0-15 s (0x8006DCDC); rows at 0x800E4BE8. The seed table is ported as SF Rush's record seeds (rush2::track1::record_seed)."
+consts = "0x800D157C = seed times 71, 100, 155, 85, 110, 160, 76 s (tracks 1-7); 15/32768 = random seconds scale"
+status = "inferred"
+rush2 = 0x800606A8
+area = "menu"
+ref = "docs/rush1_research.md#7-per-track-values-used"
+
+[[func]]
 vram = 0x8006E214
 name = "hud_widget_init_type"
 sig = "Widget *hud_widget_init_type(Widget *w, s32 type)"

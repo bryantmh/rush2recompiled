@@ -15121,6 +15121,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x803CACD0
+name = "records_all_best_start"
+type = "f32"
+desc = "func_803B1B78's starting best time when picking whose +0x01 the ALL stats show."
+area = "menu"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x803CB362
 name = "carselect_list_byte_a"
 type = "u8"
@@ -15545,18 +15554,18 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803CB6F8
-name = "records_screen_state_a"
+name = "records_screen_page"
 type = "s32"
-desc = "Records screen state word set by delete player, records screen and set-word helper; read by time formatting, list render and widgets."
+desc = "Records screen page: 0 average lap, 1 best lap, 2 stats (up/down cycle it in func_803B0A90)."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803CB6FC
-name = "records_screen_state_b"
+name = "records_screen_index"
 type = "s32"
-desc = "Records screen state word read by list render, icon and logo widgets (low confidence)."
+desc = "Records screen track index: track + 12 * backward, 24 = CIRCUIT. Stays on HAWAII's (2/14) while an added course is shown (src/rush2049/track2049_records.cpp)."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -15985,6 +15994,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x803D0298
+name = "records_all_stats"
+type = "u8[24][0x20]"
+desc = "Records screen ALL stats per index, merged from the no-profile stats and every profile's by func_803B1B78."
+area = "menu"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x803D03F0
 name = "menu_name_entry_row_param"
 type = "s16"
@@ -16134,8 +16152,8 @@ name = "trackselect_option_open"
 type = "u8"
 desc = "Whether the track select's cursor option can be changed (1) or is greyed (0), set each frame by func_803ABE0C at 0x803AC640 (circuit, ATARI and STUNT tests); read by the options text, arrow and hint widgets."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#more-circuit-settings-port-v"
 
 [[var]]
 vram = 0x803D0668
@@ -16152,8 +16170,8 @@ name = "trackselect_init_word"
 type = "s32"
 desc = "Word kept by track select init draw (low confidence)."
 area = "menu"
-status = "verified"
-ref = "docs/rush2049_research/menus.md#more-circuit-settings-port-v"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803D0686

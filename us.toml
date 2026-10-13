@@ -1151,6 +1151,44 @@ func = "profile_records_clear_800B3110"
 before_vram = 0x800B3110
 text = "    rush2_track49_records_clear(rdram, ctx);"
 
+# The records screen lists the added tracks' records too (src/rush2049/track2049_records.cpp): left/right step
+# through them, HAWAII's index shows them with their logo in HAWAII's container, and the list's data addresses move
+# to theirs.
+[[patches.hook]]
+func = "records_screen_803B0A90"
+before_vram = 0x803B0B64
+text = "    rush2_records_screen_open(rdram, ctx);"
+
+[[patches.hook]]
+func = "records_screen_803B0A90"
+before_vram = 0x803B0AF0
+text = "    rush2_records_screen_close(rdram, ctx);"
+
+[[patches.hook]]
+func = "records_screen_803B0A90"
+before_vram = 0x803B0BC8
+text = "    rush2_records_screen_step(rdram, ctx);"
+
+[[patches.hook]]
+func = "records_screen_list_render_803C430C"
+before_vram = 0x803C430C
+text = "    rush2_records_screen_render_enter(rdram, ctx);"
+
+[[patches.hook]]
+func = "records_screen_list_render_803C430C"
+before_vram = 0x803C5460
+text = "    rush2_records_screen_render_exit(rdram, ctx);"
+
+[[patches.hook]]
+func = "records_screen_list_render_803C430C"
+before_vram = 0x803C45BC
+text = "    rush2_records_screen_times(rdram, ctx);"
+
+[[patches.hook]]
+func = "records_screen_list_render_803C430C"
+before_vram = 0x803C49CC
+text = "    rush2_records_screen_stats(rdram, ctx);"
+
 [[patches.hook]]
 func = "profile_delete_800B306C"
 before_vram = 0x800B306C
@@ -1412,6 +1450,27 @@ func = "menu_name_check_c_803BCFA4"
 before_vram = 0x803BCFE4
 text = "    rush2_circuit_races_left(rdram, ctx);"
 
+# More Circuit Settings (src/circuit.cpp): DIFFICULTY and DEATHS stay open on every circuit race in the track select.
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803ABF3C
+text = "    rush2_circuit_more_input(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC064
+text = "    rush2_circuit_more_step(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC410
+text = "    rush2_circuit_more_stepped(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC558
+text = "    rush2_circuit_more_grey(rdram, ctx);"
+
 # Accurate Circuit Review (src/circuit.cpp, docs/rush2049_research/menus.md section 9): the circuit's races and player
 # 1's places are kept when it completes (func_800A8B04), and the car player 1 raced each race in when it ends
 # (func_800A8D1C); the victory screen that follows (func_800ABE7C) then shows
@@ -1450,27 +1509,6 @@ text = "    rush2_circuit_review_preload(rdram, ctx);"
 
 [[patches.hook]]
 func = "menu_title_screen_run_800ABE7C"
-# More Circuit Settings (src/circuit.cpp): DIFFICULTY and DEATHS stay open on every circuit race in the track select.
-[[patches.hook]]
-func = "trackselect_frame_803ABE0C"
-before_vram = 0x803ABF3C
-text = "    rush2_circuit_more_input(rdram, ctx);"
-
-[[patches.hook]]
-func = "trackselect_frame_803ABE0C"
-before_vram = 0x803AC064
-text = "    rush2_circuit_more_step(rdram, ctx);"
-
-[[patches.hook]]
-func = "trackselect_frame_803ABE0C"
-before_vram = 0x803AC410
-text = "    rush2_circuit_more_stepped(rdram, ctx);"
-
-[[patches.hook]]
-func = "trackselect_frame_803ABE0C"
-before_vram = 0x803AC558
-text = "    rush2_circuit_more_grey(rdram, ctx);"
-
 before_vram = 0x800ACEA8
 text = "    rush2_circuit_review_preload_logo(rdram, ctx);"
 

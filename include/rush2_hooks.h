@@ -307,6 +307,13 @@ void rush2_track49_records_enter(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_exit(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_seed(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_records_clear(uint8_t* rdram, recomp_context* ctx);
+void rush2_records_screen_open(uint8_t* rdram, recomp_context* ctx);
+void rush2_records_screen_close(uint8_t* rdram, recomp_context* ctx);
+void rush2_records_screen_step(uint8_t* rdram, recomp_context* ctx);
+void rush2_records_screen_render_enter(uint8_t* rdram, recomp_context* ctx);
+void rush2_records_screen_render_exit(uint8_t* rdram, recomp_context* ctx);
+void rush2_records_screen_times(uint8_t* rdram, recomp_context* ctx);
+void rush2_records_screen_stats(uint8_t* rdram, recomp_context* ctx);
 
 // The unlock system's shop (src/unlocks_shop.cpp).
 int rush2_unlocks_track_select(uint8_t* rdram, recomp_context* ctx);

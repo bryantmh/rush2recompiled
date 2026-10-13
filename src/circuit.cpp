@@ -438,13 +438,10 @@ extern "C" void rush2_circuit_more_stepped(uint8_t* rdram, recomp_context* ctx) 
 // track) in its place. The review keeps asset 4 loaded instead (func_800A4B04 does nothing when the asset asked for is
 // loaded) and writes each track's logo over its texels and palette, which works for the added tracks too (their logos
 // aren't assets).
-extern "C" void asset_find_slot_8008696C(uint8_t* rdram, recomp_context* ctx);           // $a0 asset -> slot or -1
-
 namespace {
     constexpr uint32_t menu_track = 0x8010C3F0;    // s8: the track select's (and attract demo's) track
     constexpr uint32_t circuit_races = 0x800D3A60; // 4 bytes a race: track, direction bits, fog, wind
     constexpr int32_t block_places = 0x8;          // 3 bits a race (low bit first), 11 bytes a car, player 1 first
-    constexpr uint32_t asset_slots = 0x8010C258;   // 12 bytes a slot: +0 asset, +4 its data
     constexpr uint32_t car_table = 0x800D9C10;     // 9 bytes a car slot: +1 type, +2..+5 paint, +8 driver (8 = player 1)
     constexpr uint32_t rim_table = 0x80201020;     // u8 [row][36 types]: TIRE RIMS, row 0 drones, row player + 1
     constexpr int car_types = 36;
@@ -468,21 +465,7 @@ namespace {
 
     // Writes track t's logo over the card's (the loaded asset 4).
     void write_logo(uint8_t* rdram, recomp_context* ctx, int t) {
-        std::vector<uint8_t> logo;
-        uint32_t texels, palette;
-        if (!rush2::track2049::menu_track_logo(rdram, t, logo) ||
-            !rush2::track2049::logo_data_offsets(logo, texels, palette)) {
-            return;
-        }
-        recomp_context call = *ctx;
-        call.r4 = card_logo;
-        asset_find_slot_8008696C(rdram, &call);
-        int slot = (int32_t)call.r2;
-        if (slot < 0) return;
-        uint32_t data = (uint32_t)MEM_W(slot * 12 + 4, (int32_t)asset_slots);
-        if (data == 0) return;
-        for (uint32_t i = 0; i < 128 * 32; i++) MEM_B(0, (int32_t)(data + texels + i)) = logo[texels + i];
-        for (uint32_t i = 0; i < 512; i++) MEM_B(0, (int32_t)(data + palette + i)) = logo[palette + i];
+        rush2::track2049::write_menu_logo(rdram, ctx, card_logo, t);
     }
 }
 

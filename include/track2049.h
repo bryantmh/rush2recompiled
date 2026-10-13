@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "recomp.h"
 #include "track2049_convert.h"
 
 // Rush 2049 race tracks added to Rush 2 (src/rush2049/track2049*.cpp).
@@ -88,6 +89,9 @@ namespace rush2::track2049 {
     int host_menu_track(uint8_t* rdram, int t);
     // Track select entry t's in-race logo container (asset 4 + the slot host_menu_track gives it), as the race shows it.
     bool menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_t>& out);
+    // Writes that logo's texels and palette over the loaded logo asset `asset` (4-16), which the game's widgets then
+    // draw (the circuit review's card, the records screen). False if the asset isn't loaded or t has no logo.
+    bool write_menu_logo(uint8_t* rdram, recomp_context* ctx, int asset, int t);
 
     // The 2049 track (1-6, or obstacle) raced in the host slot, or 0 (src/rush2049/track2049.cpp).
     int race_track();

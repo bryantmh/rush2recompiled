@@ -332,7 +332,7 @@ camera position from the start of `func_8007C27C`).
 | Sky | Rush 2's procedural dome. Rush 1 uses the same with the same texture names, SKY01 and SKYFOUR. |
 | Songs | Rush 1's own (§9). Rush 2 songs 1, 0, 4, 2, 3, 5, 6 if its music isn't available. |
 | Demo starts | spine quarters |
-| Record seeds | lane 1's lap time at its target speeds |
+| Record seeds | Rush 1's own: f32 0x800D157C[track] = 71, 100, 155, 85, 110, 160, 76 s for tracks 1-7, one per track for both directions (its high-score screen `func_8006DB7C` loads it at 0x8006DCDC and adds a random 0-15 s once). Lane 1's lap time only if the ROM can't be read. |
 | Checkpoint times | Rush 1's own (`rush2::track1::race_time`, hooked into `rush2_track49_race_time`): header +0 and checkpoint +0x1E / +0x20 get Rush 1's start and lap 1 / lap 2 times, divided by Rush 2's factor 1 + (5 − difficulty) × 0.075. Rush 2 otherwise works them out from the AI lane speeds (`func_800924E4`), never 45 s. |
 | Fall floor | Rush 1's own, y −290 (`func_8009BE68` at 0x8009BF50; Rush 2's `func_8008CDA4` uses −190 at 0x8008CEF4). A human car below it is put back. Track 6's underwater shortcut tunnel (y −246 near x 900, z −5850) and the stunt room (y −224 to −236 near x 2000, z 1600) are below −190, so Rush 2's floor put cars back there. Hook `rush2_track1_fall_floor` at 0x8008CF20 (src/rush1/track1.cpp). |
 

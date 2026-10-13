@@ -47,6 +47,9 @@ namespace rush2::unlocks {
     void filter_car_list(uint8_t* rdram, int player);
     // Whether track select may offer track t: PIPE (9) and MIDWAY (10) are passed what the game decided.
     bool track_open(uint8_t* rdram, int track, bool game_unlocked = true);
+    // track_open for the profile named `name` instead of the joined players, for screens that show a profile (the
+    // records screen): with the unlock system on, whether that profile bought the track (if it is sold).
+    bool track_open_for(const std::string& name, int track, bool game_unlocked = true);
     // Whether player p may pick a 2049 car's ENGINE level (0-8).
     bool engine_open(uint8_t* rdram, int player, int level);
     // Whether player p may pick Rush 2049's tire `tire` (1 SLICKS, 2 PRO SLICKS) on a car's TIRES row.

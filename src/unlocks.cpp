@@ -266,6 +266,17 @@ bool rush2::unlocks::track_open(uint8_t* rdram, int track, bool game_unlocked) {
     return false;
 }
 
+bool rush2::unlocks::track_open_for(const std::string& name, int track, bool game_unlocked) {
+    if (rush2::cheats::unlock_all_tracks()) {
+        return true;
+    }
+    const Item* item = find(Kind::Track, track);
+    if (!enabled()) {
+        return item == nullptr || track > midway_track || game_unlocked;
+    }
+    return item == nullptr ? game_unlocked : owns(name, *item);
+}
+
 bool rush2::unlocks::engine_open(uint8_t* rdram, int player, int level) {
     if (level < free_engines || !enabled() || rush2::cheats::unlock_all_parts()) {
         return true;

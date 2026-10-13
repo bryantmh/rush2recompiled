@@ -473,6 +473,23 @@ float rush2::track1::record_seed(int k, bool backward) {
     if (k < 1 || k > track_count) {
         return 0.0f;
     }
+    // Rush 1's own seed: its high-score screen (func_8006DB7C at 0x8006DCDC) fills empty rows from f32 0x800D157C[track]
+    // (one per track, both directions) plus a random 0-15 s.
+    constexpr uint32_t seed_table = 0x800D157C;
+    if (auto rom = get_rom()) {
+        auto main = main_code(*rom);
+        size_t at = seed_table - main_vram + size_t(k - 1) * 4;
+        if (main != nullptr && main->size() >= at + 4) {
+            const std::vector<uint8_t>& m = *main;
+            uint32_t bits = (uint32_t(m[at]) << 24) | (uint32_t(m[at + 1]) << 16) | (uint32_t(m[at + 2]) << 8) | m[at + 3];
+            float f;
+            std::memcpy(&f, &bits, sizeof(f));
+            if (f > 1.0f && f < 480.0f) {
+                return f;
+            }
+        }
+    }
+    // Without it, lane 1's lap time.
     std::lock_guard lock{ track_mutex };
     float s = lap_seconds[k - 1][backward ? 1 : 0];
     if (s <= 0.0f) {
