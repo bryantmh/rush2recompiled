@@ -37,7 +37,7 @@ SCHEMA(8, "P2,18 P2,3 P2,6 w w w w w", 0)  // kind_params
 SCHEMA(9, "Q5", 0)  // flip_list
 SCHEMA(10, "Q7", 0)  // scroll_list
 SCHEMA(11, "P3,5", 0)  // demo_list
-SCHEMA(12, "w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w", 0)  // desc
+SCHEMA(12, "w w w w w w w w w w w w w w w w w w w w w w w w f f f f w w w w w w w w w w w w w w w w w", 0)  // desc
 SCHEMA(13, "P12,1", 0)  // desc_ptr
 SCHEMA(14, "V1 h h h h h h w w w z", 0)  // engine_layer
 // COPY(segment, N64 address, disc address, schema, count), STR(segment, N64 address, text), WORD(...)
@@ -729,7 +729,7 @@ VALUE(1, 146, 17)
 VALUE(1, 149, 66)
 VALUE(1, 152, 10)
 VALUE(1, 153, 14)
-// FUNC(disc function, N64 function): type-table callbacks
+// FUNC(disc address, N64 address): type-table callbacks, tire curves
 FUNC(0x00000000, 0x00000000)
 FUNC(0x8C0568CC, 0x800C1604)
 FUNC(0x8C056AC0, 0x800C0AC0)
@@ -749,6 +749,8 @@ FUNC(0x8C05A422, 0x8010E694)
 FUNC(0x8C05A4A2, 0x80094888)
 FUNC(0x8C05A58C, 0x8010E72C)
 FUNC(0x8C05A61A, 0x8010E828)
+FUNC(0x8C0A8B1C, 0x8011F814)
+FUNC(0x8C0A8B34, 0x8011F82C)
 #undef SEGMENT
 #undef SCHEMA
 #undef COPY

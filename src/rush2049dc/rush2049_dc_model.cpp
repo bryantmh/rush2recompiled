@@ -1363,7 +1363,17 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                 uint32_t nodes = (pthd[r] << 24) | (pthd[r + 1] << 16) | (pthd[r + 2] << 8) | pthd[r + 3];
                 put32(pthd, r, nodes - dc_path + path_at);
             }
-            pthd_at = place(pthd);
+            // +24 links a TRIGGER pad to the object it opens: the file offset of that object's header (0 for none).
+            pthd_at = (uint32_t)out.size();
+            auto [dc_pthd, dc_count] = m.chunks["PTHD"];
+            for (uint32_t k = 0; k < pthd_count; k++) {
+                size_t r = (size_t)k * 36 + 24;
+                uint32_t link = (pthd[r] << 24) | (pthd[r + 1] << 16) | (pthd[r + 2] << 8) | pthd[r + 3];
+                if (link >= dc_pthd && link - dc_pthd < dc_count * 36) {
+                    put32(pthd, r, link - dc_pthd + pthd_at);
+                }
+            }
+            place(pthd);
             align8(out);
         }
         struct Entry {

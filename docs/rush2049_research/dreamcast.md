@@ -67,6 +67,12 @@ no bigger than the N64's (`fixed_window_files`); every other file keeps each tex
 Collision (`TRACKnROAD`): little-endian header, SEG, NODE, POLY, VERT and MOVER records; the VLIST and LEAF byte
 streams are already big endian and copied as they are. Paths are the N64's format. Placement is swapped and renamed.
 
+A path header (PTHD, 36 bytes) holds two file offsets, and both move with the converted file's layout: +0x1C its
+nodes, +0x18 the header of the object a TRIGGER pad opens (movers.md §2). The link was copied as the disc's offset
+until 2026-10-13, so `parse_paths` dropped it and no switch opened anything with the disc as the source (41 pads on
+the six race tracks; the other files have no paths). Track 4's group 7 pad opens an object the disc names T7 and the
+N64 T2; the other 40 links name the same objects as the N64's.
+
 ## Code tables [V]
 
 `tools/rush2049/dc_tables.py` writes `src/rush2049dc/rush2049_dc_tables.inc`, a program `src/rush2049dc/rush2049_dc_tables.cpp` runs: each
@@ -76,6 +82,12 @@ model handles, map 1 sound effects (DC -> N64, from `dc_sounds.py`). `--report` 
 segments field by field. Disc addresses: type table 0x8C0BFD80 (0x34 rows), handle names 0x8C0AD8E4, kind
 parameters 0x8C0C1744, flip-books 0x8C0C3170, scrolls 0x8C0C38C4, fog 0x8C0BDD56, PVS 0x8C0C49B0, car descriptors
 0x8C0BB894, engine sounds 0x8C0B92A0 (0x1C per layer), battle mounts 0x8C0D1DF0, weapon sounds 0x8C0D1D7C.
+
+Pointers a consumer compares go through the address map (`FUNC` rows): the type table's callbacks, and the car
+descriptors' four tire curve pointers at +0x60 (disc 0x8C0A8B1C front, 0x8C0A8B34 rear -> N64 0x8011F814,
+0x8011F82C). car2049.cpp `build_physics` picks a wheel's curve by the N64 rear address; copied as plain words the
+disc's pointers matched neither, so all four wheels got the front curve (16000 where the rear has 32000) and every
+disc car's rear slid. The disc's car tables are otherwise the N64's, value for value.
 
 ## Audio [V]
 

@@ -13,7 +13,8 @@ Schemas (layout tokens, space separated; DC bytes read -> N64 bytes written):
   w  4->4 32-bit value          r  4->4 32-bit value stored as two swapped halfwords on the disc
   h  2->2 16-bit value          b  1->1 byte
   s  4->4 string pointer: the string goes to the heap after the segment, renamed to the N64's object name
-  f  4->4 function pointer, through the function map (code compares a few type-table callbacks)
+  f  4->4 function or data pointer, through the function map (code compares a few type-table callbacks and the
+          car descriptors' tire curves)
   Hm 2->2 s16 through value map m (the N64's numbering; -1 stays -1)
   Vm 4->4 s32 through value map m (map 1: sound effect ids, tools/rush2049/dc_sounds.py; unpaired ones become -1)
   Pk,n  4->4 pointer to n elements of schema k (heap)    Qk  pointer to a list of schema k up to its end mark
@@ -57,8 +58,9 @@ SCHEMAS = {
     'scroll_list': ('Q7', None),
     # Demo start spine indices: up to 5 per track direction.
     'demo_list': ('P3,5', None),
-    # Car descriptors (0xB4 bytes of words).
-    'desc': (' '.join(['w'] * 45), None),
+    # Car descriptors (0xB4 bytes of words; +0x60 the four wheels' tire curves, pointers the port tells apart by their
+    # N64 addresses).
+    'desc': (' '.join(['w'] * 24 + ['f'] * 4 + ['w'] * 17), None),
     'desc_ptr': ('P12,1', None),
     # Engine sound layers (N64 0x20 bytes, disc 0x1C): sound, base rpm, span, rpm points[3], pad, volumes[3].
     'engine_layer': ('V1 h h h h h h w w w z', None),
@@ -243,6 +245,9 @@ def build_program(exe, seg):
         (0x801245AC, 0x8C0A8A10, 'word', 1),     # speedometer over true speed (1.2)
     ]:
         copy(MAIN, n64, dc, schema, count)
+    # The descriptors point at the tire curves copied above.
+    funcs.setdefault(0x8C0A8B1C, set()).add(0x8011F814)
+    funcs.setdefault(0x8C0A8B34, set()).add(0x8011F82C)
 
     # Record seeds (boot segment 0x8002E870, 38 floats).
     copy(BOOT, 0x8002E870, 0x8C0A7840, 'word', 38)
@@ -256,7 +261,7 @@ def build_program(exe, seg):
 
 
 def load_renames():
-    path = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'rush2049_dc_names.inc')
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'rush2049dc', 'rush2049_dc_names.inc')
     out = {}
     for line in open(path):
         m = re.match(r'RENAME\("([^"]*)", "([^"]*)"\)', line)
@@ -453,7 +458,7 @@ def emit(path, seg, ops, maps, funcs):
         for m, d in sorted(maps.items()):
             for k, v in sorted(d.items()):
                 f.write('VALUE(%d, %d, %d)\n' % (m, k, v))
-        f.write('// FUNC(disc function, N64 function): type-table callbacks\n')
+        f.write('// FUNC(disc address, N64 address): type-table callbacks, tire curves\n')
         for k, v in sorted(funcs.items()):
             f.write('FUNC(0x%08X, 0x%08X)\n' % (k, v))
         for mac in ('SEGMENT', 'SCHEMA', 'COPY', 'STR', 'WORD', 'VALUE', 'FUNC'):
