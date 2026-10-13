@@ -1872,7 +1872,7 @@ ref = "docs/rush2049_research/placement.md#11-loading-and-instantiation"
 [[func]]
 vram = 0x800AC9BC
 name = "collision_node_find"
-desc = "2049 NODE quadtree descend query (counterpart of func_8006CD60)."
+desc = "NODE quadtree descent (Rush 2 func_8006CD60): the same except that the splits are rounded toward zero (+1 before the shift when min + max is negative), matching how both games' tools split nodes."
 status = "verified"
 rush2 = 0x8006CD60
 rush1 = [0x8007A138]
@@ -2616,7 +2616,7 @@ status = "verified"
 rush2 = 0x8006F704
 link = "role"
 area = "collision"
-ref = "docs/rush2049_research/collision.md#poly-0x18-bytes-v-layout"
+ref = "docs/rush2049_research/collision.md#quadtree-lookups-v"
 
 [[func]]
 vram = 0x800C760C

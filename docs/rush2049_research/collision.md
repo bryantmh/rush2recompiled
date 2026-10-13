@@ -21,9 +21,9 @@ self-check (`python collision.py` from `tools/rush2049`).
   - a re-purposed polygon `info` word
   - the sections in a different order
 - **Converter result.** `convert()` turns all 19 2049 files into valid Rush 2 files.
-  - 18 of 19 are semantically identical to the source for everything Rush 2 reads.
-  - File 141 (race track 3) needs its quadtree partly merged to fit Rush 2's 16-bit leaf offsets. The merged leaves
-    are supersets of the originals, which keeps ground queries the same.
+  - All 19 are semantically identical to the source for everything Rush 2 reads, quadtree included.
+  - The recomp walks a converted file's quadtree the 2049 way (split rounding, query cell, 17-bit leaf offsets): see
+    Quadtree lookups below. Rush 2's own walk misses walls on 2049's data.
 - **Lost without code support:**
   - moving collision (movers)
   - boost pads
@@ -83,7 +83,7 @@ self-check (`python collision.py` from `tools/rush2049`).
 | +4 | s16 xmin, xmax, zmin, zmax (integer world units) |
 | +0xC | u16 child[4] |
 
-- **Quadrant:** q = (x ≥ midX) + 2·(z ≥ midZ).
+- **Quadrant:** q = (x ≥ midX) + 2·(z < midZ) (`func_8006CD60`, `func_800AC9BC`).
 - **Child mask:**
   - Bit q set → child[q] is a node index. Index 0 = null quadrant (no collision).
   - Bit q clear → child[q] is a byte offset into LEAF (0 = empty).
@@ -93,11 +93,42 @@ self-check (`python collision.py` from `tools/rush2049`).
   - 2049 uses an exact floor.
 - **Midpoint rounding differs:**
   - Rush 2: `(min+max)>>1` (floor).
-  - 2049: rounds toward zero.
-  - Both games' build tools split children toward zero, so Rush 2 is already "off" on its own data.
-  - Sampling 200k cells per track: 0.01–0.35 % of cells route to a different leaf in both games. **None of them lose a
-    ground polygon**, because leaves overlap.
-  - Converted files behave in Rush 2 exactly as Rush 2's own tracks do. Negligible.
+  - 2049: rounds toward zero (`func_800AC9BC`: +1 before the shift when the sum is negative).
+  - Both games' build tools split children toward zero, so Rush 2 is already "off" on its own data, which is how the
+    original Rush 2 behaves on its own tracks.
+  - On 2049's data it loses walls: see Quadtree lookups.
+
+### Quadtree lookups **[V]**
+
+Rush 2's walk differs from 2049's in the split rounding and the query cell above, and it has no 17-bit leaf offsets.
+The split strips (cells on a split line whose min + max is negative and odd) go to the wrong child, and walls often lie
+on those lines. Such a wall is then listed only for the cells on its far side, so a car coming from the near side
+never tests it and drives into it (reported on 2049 track 6's covered shortcut: x ≈ −1176 and −1195, z −1830 to
+−150). `collision.py` `wall_gaps(c, rules)` counts them: walking 2049's files with Rush 2's rules, 45–195 walls per race
+track (file 144: 62 of 2510) and 0–117 per arena have cells whose leaf lacks them; with 2049's rules, none (one edge
+cell on file 144). Floors never lose a polygon, since floor leaves overlap.
+
+2049's leaf queries take the cell as x − 1.0 then truncate, for negative x that isn't a whole number, then call
+`func_800ACA9C` (checked in `func_800C4200` at 0x800C42B8 and `collision_poly_extract_800C6AA0` at 0x800C6B50).
+Rush 2's four (`func_8006CF00`, `func_8006F704`, `func_8006FC94`, `func_8008BDC0`) subtract 0.99 (floats at
+0x800CF7B0/B4, 0x800CF80C-18 and the like) before `func_8006CE28`.
+
+**Port** (src/rush2049/track2049_collision.cpp, hooks in us.toml):
+- The converter keeps 2049's tree unchanged and tags the file: root NODE +2 (unread by both games) = 0x80 | the leaf
+  section size's bits 16–22, and the mask keeps bit 4 + q where a leaf offset passes 16 bits. The header's u16 leaf size
+  holds the low 16 bits.
+- On a tagged file only (Rush 2's, SF Rush's and custom tracks keep Rush 2's walk):
+  - `func_800814B0` at 0x80081550: the leaf section size gets its upper bits back, so the vertex lists are found.
+  - `func_8006CD60` at 0x8006CDA8: the splits are rounded toward zero.
+  - The four queries, after their cell (0x8006CFBC, 0x8006F7D0, 0x8006FD60, 0x8008BF78): 2049's exact floor.
+  - Their leaf fetches (0x8006CFEC, 0x8006F820, 0x8006FD88, 0x8008BFAC): + 0x10000 for mask bit 4 + q.
+- `collision.py` `lookup_check` walks each converted file as the hooks do and the 2049 file as 2049 does, over every
+  wall cell and 200 000 random cells: the leaves are the same for all 19 files.
+- In game, `RUSH2_TEST_COLLISION=1` probes every floor polygon with `func_8006CF00` under both walks on the race's first
+  tick and logs the difference. Track 6: 956 894 probes, 727 floors found only with 2049's walk, none lost. Track 3
+  (17-bit offsets): 444 found, 6 that 2049's leaf answers with a surface nearer in height (its leaf lists the floor:
+  checked offline).
+- Leaves stay at most 29 polygons (file 139), inside the queries' u16[36] stack buffers (`func_8006FC94` has 40).
 
 ### POLY, 0x18 bytes **[V layout]**
 
@@ -222,20 +253,17 @@ The same in both games: compare `func_8006F704`/`func_8006FC94` with `func_800C6
 
 ## 6. What converts losslessly
 
-- **Copied as-is:** SEG, NODE (mask high bits cleared), POLY flags, matrices, VERT, polygon vertex lists (re-encoded,
-  same offsets) and leaf lists.
+- **Copied as-is:** SEG, NODE (2049's tree, tagged: see Quadtree lookups), POLY flags, matrices, VERT, polygon vertex
+  lists (re-encoded, same offsets) and leaf lists.
 - **Checks:** the self-check re-parses each output, validates every index and compares it with the source.
-- **File 141 (2049 track 3):** the leaf section is 99 492 bytes, which exceeds 16-bit offsets.
-  - `merge_leaves()` greedily collapses 1022 bottom nodes into their parents to reach 65 533 bytes.
-  - Every source leaf maps to an output leaf containing a superset of its polygons (checked).
-  - Merged leaves are capped at 36 polygons (65 523 bytes; max leaf 26 → 36). The four queries copy a leaf into an
-    unchecked u16[36] stack buffer: the next local sits 72 bytes in for `func_8006CF00` (sp+0x94 → 0xDC),
-    `func_8006F704` (0xA4 → 0xEC) and `func_8008BDC0` (0x108 → 0x150); `func_8006FC94` has 40 (0xF4 → 0x144).
-    The old 255 cap gave a 59-polygon leaf that overwrote `func_8006FC94`'s saved point pointer (sp+0x15C), crashing
-    in `func_8006C670`. Rush 2's own tracks reach 34.
-  - Point queries test every listed polygon exactly, so results are unchanged; only CPU work changes.
-  - **Alternative:** a 4-line patch for the 0x10<<q bit at the leaf fetch in `func_8006CF00`, `func_8006F704`,
-    `func_8006FC94` and `func_8008BDC0`. It would allow an unmodified tree.
+- **File 141 (2049 track 3):** the leaf section is 99 492 bytes (0x184A4), past 16-bit offsets. It is kept whole,
+  with 2049's 17-bit offsets (see Quadtree lookups).
+  - Earlier versions merged 1022 bottom nodes into supersets to fit 16 bits. That changed which walls a point was
+    tested against near the merged cells, and merged leaves had to stay at 36 polygons or fewer: the four queries copy
+    a leaf into an unchecked u16[36] stack buffer (the next local sits 72 bytes in for `func_8006CF00`, sp+0x94 → 0xDC,
+    `func_8006F704`, 0xA4 → 0xEC, and `func_8008BDC0`, 0x108 → 0x150; `func_8006FC94` has 40, 0xF4 → 0x144). A
+    59-polygon leaf overwrote `func_8006FC94`'s saved point pointer (sp+0x15C), crashing in `func_8006C670`. Rush 2's
+    own tracks reach 34.
 
 ## 7. What is lost, and the Rush 2 code needed for full fidelity
 

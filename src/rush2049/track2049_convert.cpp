@@ -1611,8 +1611,7 @@ namespace {
         uint8_t mask;          // Bit q: child q is a node, else a leaf. 2049: bit 4+q adds 0x10000 to the leaf offset.
         int16_t bounds[4];
         uint32_t child[4];     // Node index, or the raw leaf offset.
-        uint32_t leaf[4];      // Leaf key (offset) of leaf quadrants, 0 = empty.
-        bool dead;
+        uint32_t leaf[4];      // Leaf offset of leaf quadrants, 0 = empty.
     };
 
     struct CPoly {
@@ -1635,50 +1634,16 @@ namespace {
         std::vector<CPoly> polys;
         std::vector<const uint8_t*> verts;
         Bytes vlist, leaf_blob;
-        std::map<uint32_t, CLeaf> leaves; // By offset (or merge key).
+        std::map<uint32_t, CLeaf> leaves; // By offset.
         std::vector<Bytes> raws;
         std::map<Bytes, int> raw_ids;
-
-        // Referenced-leaf bookkeeping for the leaf section size: references per leaf key, referenced keys per raw.
-        std::unordered_map<uint32_t, int> leaf_refs;
-        std::vector<int> raw_refs;
-        size_t section_size = 1;
 
         int intern(const Bytes& raw) {
             auto [it, added] = raw_ids.try_emplace(raw, (int)raws.size());
             if (added) {
                 raws.push_back(raw);
-                raw_refs.push_back(0);
             }
             return it->second;
-        }
-
-        void ref(uint32_t key, int delta) {
-            if (!key) {
-                return;
-            }
-            int& n = leaf_refs[key];
-            int before = n;
-            n += delta;
-            if ((before == 0) == (n == 0)) {
-                return;
-            }
-            int raw = leaves.at(key).raw;
-            int& r = raw_refs[raw];
-            if (n > 0) {
-                if (r++ == 0) section_size += raws[raw].size();
-            }
-            else if (--r == 0) {
-                section_size -= raws[raw].size();
-            }
-        }
-
-        void ref_node(const CNode& n, int delta) {
-            for (int q = 0; q < 4; q++) {
-                if (!(n.mask & (1 << q))) {
-                    ref(n.leaf[q], delta);
-                }
-            }
         }
     };
 
@@ -1922,117 +1887,11 @@ namespace {
         return out;
     }
 
-    // Collapses bottom-level quadtree nodes into one leaf in their parent until the leaf section fits 16-bit offsets
-    // (Collision.merge_leaves). The merged leaf holds the union of its children's polygons; the ground and wall
-    // queries test every listed polygon exactly, so the result is the same. Largest saving first, as a heap of
-    // (-saving, node).
-    void merge_leaves(Collision& c, size_t limit) {
-        uint32_t next_key = (c.leaves.empty() ? 0 : c.leaves.rbegin()->first) + 0x1000000;
-
-        struct Candidate {
-            int64_t saved;
-            std::vector<int> polys;
-            Bytes raw;
-        };
-        auto candidate = [&](int i) -> std::optional<Candidate> {
-            const CNode& n = c.nodes[i];
-            if (i == 0 || n.dead) {
-                return std::nullopt;
-            }
-            for (int q = 0; q < 4; q++) {
-                if ((n.mask & (1 << q)) && n.child[q] != 0) {
-                    return std::nullopt;
-                }
-            }
-            std::set<int> polys;
-            int64_t saved = 0;
-            for (int q = 0; q < 4; q++) {
-                if (!(n.mask & (1 << q)) && n.leaf[q]) {
-                    const CLeaf& leaf = c.leaves.at(n.leaf[q]);
-                    polys.insert(leaf.polys.begin(), leaf.polys.end());
-                    saved += (int64_t)c.raws[leaf.raw].size();
-                }
-            }
-            // The queries expand a leaf into a u16[36] stack buffer with no bound check (func_8006CF00, func_8006F704,
-            // func_8008BDC0); longer leaves overwrite the callers' locals, e.g. func_8006FC94's saved point pointer at
-            // sp+0x15C, crashing in func_8006C670. Rush 2's own tracks reach 34.
-            if (polys.size() > 36) {
-                return std::nullopt;
-            }
-            Candidate cand;
-            cand.polys.assign(polys.begin(), polys.end());
-            cand.raw = encode_leaf(cand.polys);
-            cand.saved = saved - (int64_t)cand.raw.size();
-            return cand;
-        };
-
-        using Entry = std::pair<int64_t, int>;
-        std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> heap;
-        for (size_t i = 0; i < c.nodes.size(); i++) {
-            if (auto cand = candidate((int)i)) {
-                heap.push({ -cand->saved, (int)i });
-            }
-        }
-        while (!heap.empty() && c.section_size > limit) {
-            int i = heap.top().second;
-            heap.pop();
-            auto cand = candidate(i);
-            if (!cand) {
-                continue;
-            }
-            CNode& n = c.nodes[i];
-            CNode& par = c.nodes[n.parent];
-            uint32_t key = next_key++;
-            c.leaves[key] = { cand->polys, c.intern(cand->raw) };
-            for (int k = 0; k < 4; k++) {
-                if ((par.mask & (1 << k)) && par.child[k] == (uint32_t)i) {
-                    par.mask &= ~(1 << k);
-                    par.leaf[k] = key;
-                    par.child[k] = 0;
-                    c.ref(key, 1);
-                }
-            }
-            c.ref_node(n, -1);
-            n.dead = true;
-            if (auto pc = candidate(n.parent)) {
-                heap.push({ -pc->saved, n.parent });
-            }
-        }
-
-        // Compact the node indices, keeping the source order.
-        std::vector<int> new_index(c.nodes.size(), -1);
-        std::vector<CNode> nodes;
-        for (size_t i = 0; i < c.nodes.size(); i++) {
-            if (!c.nodes[i].dead) {
-                new_index[i] = (int)nodes.size();
-                nodes.push_back(c.nodes[i]);
-            }
-        }
-        for (CNode& n : nodes) {
-            if (n.parent >= 0) {
-                n.parent = new_index[n.parent];
-                if (n.parent < 0) {
-                    fail("collision: merged node still has children");
-                }
-            }
-            for (int k = 0; k < 4; k++) {
-                if ((n.mask & (1 << k)) && n.child[k]) {
-                    if (new_index[n.child[k]] < 0) {
-                        fail("collision: merged node still referenced");
-                    }
-                    n.child[k] = new_index[n.child[k]];
-                }
-            }
-        }
-        c.nodes = std::move(nodes);
-        if (c.section_size > limit) {
-            fail("collision: leaf section still " + hex(c.section_size) + " after merging");
-        }
-    }
-
     // Rush 2 file: header {u16 nSeg, nNode, nPoly, nVert, leafBytes, vlistBytes}, then SEG NODE POLY VERT LEAF VLIST.
     // Leaf lists are deduplicated (byte 0 stays reserved so offset 0 means empty); vertex lists keep the source order
-    // with Rush 2's run markers (0xC0 | n).
+    // with Rush 2's run markers (0xC0 | n). The tree is 2049's, unchanged, and is walked the 2049 way: the root node's
+    // unused byte +2 holds 0x80 (2049 lookups) | the leaf section size's bits 16-22, which the header can't hold, and
+    // leaf offsets past 16 bits keep 2049's mask bit 4 + q (src/rush2049/track2049_collision.cpp).
     Bytes build_collision_rush2(const Collision& c) {
         std::vector<size_t> order(c.polys.size());
         for (size_t i = 0; i < order.size(); i++) {
@@ -2075,8 +1934,8 @@ namespace {
             }
             remap[off] = it->second;
         }
-        if (lblob.size() > 0xFFFF) {
-            fail("collision: leaf section " + hex(lblob.size()) + " exceeds 16-bit leaf offsets");
+        if (lblob.size() > 0x7FFFFF) {
+            fail("collision: leaf section " + hex(lblob.size()) + " too large");
         }
         for (size_t count : { c.segs.size(), c.nodes.size(), c.polys.size(), c.verts.size() }) {
             if (count > 0xFFFF) {
@@ -2085,28 +1944,37 @@ namespace {
         }
 
         Bytes out;
-        for (size_t v : { c.segs.size(), c.nodes.size(), c.polys.size(), c.verts.size(), lblob.size(), vblob.size() }) {
+        for (size_t v : { c.segs.size(), c.nodes.size(), c.polys.size(), c.verts.size(), lblob.size() & 0xFFFF,
+                          vblob.size() }) {
             add16(out, (uint32_t)v);
         }
         for (const uint8_t* s : c.segs) {
             out.insert(out.end(), s, s + seg_size);
         }
-        for (const CNode& n : c.nodes) {
+        for (size_t i = 0; i < c.nodes.size(); i++) {
+            const CNode& n = c.nodes[i];
+            uint8_t mask = n.mask & 0x0F;
+            uint32_t child[4];
+            for (int q = 0; q < 4; q++) {
+                child[q] = n.child[q];
+                if (!(n.mask & (1 << q))) {
+                    child[q] = n.leaf[q] ? (uint32_t)remap.at(n.leaf[q]) : 0;
+                    if (child[q] > 0xFFFF) {
+                        mask |= 0x10 << q;
+                    }
+                }
+                else if (child[q] > 0xFFFF) {
+                    fail("collision: node child out of range");
+                }
+            }
             add16(out, (uint16_t)n.parent);
-            out.push_back(0);
-            out.push_back(n.mask & 0x0F);
+            out.push_back(i == 0 ? (uint8_t)(0x80 | (lblob.size() >> 16)) : 0);
+            out.push_back(mask);
             for (int16_t b : n.bounds) {
                 add16(out, (uint16_t)b);
             }
             for (int q = 0; q < 4; q++) {
-                uint32_t v = n.child[q];
-                if (!(n.mask & (1 << q))) {
-                    v = n.leaf[q] ? (uint32_t)remap.at(n.leaf[q]) : 0;
-                }
-                if (v > 0xFFFF) {
-                    fail("collision: node child out of range");
-                }
-                add16(out, v);
+                add16(out, child[q] & 0xFFFF);
             }
         }
         for (size_t i = 0; i < c.polys.size(); i++) {
@@ -2135,12 +2003,6 @@ namespace {
             if ((p.flags & 0xF) == 0xF) {
                 fail("collision: source polygon already disabled (type 0xF)");
             }
-        }
-        for (const CNode& n : c.nodes) {
-            c.ref_node(n, 1);
-        }
-        if (c.section_size > 0xFFFF) {
-            merge_leaves(c, 0xFFFF);
         }
         return build_collision_rush2(c);
     }

@@ -33,6 +33,7 @@ VLIST_RUN = {R2: (0xC0, 0x3F), R49: (0xE0, 0x1F)}
 SPLINE_FLAGS = 0x3000
 TYPE_WALL = (5, 6)
 TYPE_DISABLED = 0xF          # 2049 runtime only (func_800B2CB4)
+TAG_2049 = 0x80              # root NODE +2 of a converted file: walk the tree the 2049 way (src/rush2049/track2049_collision.cpp)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -129,6 +130,8 @@ class Collision:
             n_seg, n_node, n_poly, n_vert, leaf_bytes, vlist_bytes = struct.unpack('>6H', data[:12])
             n_mover = 0
             o = 12
+            if n_node and data[o + n_seg * SEG_SIZE + 2] & TAG_2049:   # converted from 2049: see build_rush2
+                leaf_bytes |= (data[o + n_seg * SEG_SIZE + 2] & 0x7F) << 16
         else:
             n_seg, n_node, n_poly, n_vert, n_mover, vlist_bytes, leaf_bytes = struct.unpack('>6HI', data[:16])
             o = 16
@@ -201,7 +204,7 @@ class Collision:
             x0, x1, z0, z1 = n['bounds']
             if x0 > x1 or z0 > z1:
                 errs.append('node %d bad bounds' % i)
-            if self.game == R2 and n['mask'] & 0xF0:
+            if self.game == R2 and n['mask'] & 0xF0 and not self.nodes[0]['pad'] & TAG_2049:
                 errs.append('node %d has 2049-only leaf high bits' % i)
             for q in range(4):
                 if n['mask'] & (1 << q):
@@ -284,91 +287,16 @@ class Collision:
                     unique_leaf_bytes=len({raw for _, raw in self.leaves.values()}) and
                     sum(len(r) for r in {raw for _, raw in self.leaves.values()}) + 1)
 
-    # -- fitting Rush 2's 16-bit leaf offsets ----------------------------------------------------------------
-    def referenced_leaves(self):
-        return {n['leaf'][q] for n in self.nodes if not n.get('dead') for q in range(4)
-                if not n['mask'] & (1 << q) and n['leaf'][q]}
-
-    def leaf_section_size(self):
-        return 1 + sum(len(r) for r in {self.leaves[o][1] for o in self.referenced_leaves()})
-
-    def merge_leaves(self, limit=0xFFFF):
-        """Collapse bottom-level quadtree nodes into a single leaf in their parent until the leaf section fits.
-
-        A merged leaf holds the union of its four children's polygon lists. The ground/wall queries
-        (func_8006CF00, func_8006F704, func_8006FC94, func_8008BDC0) run an exact point-in-polygon test on every
-        listed polygon and keep the best hit, so a superset list returns the same polygon as long as every source
-        leaf was complete; only the amount of work changes. Returns the number of nodes removed."""
-        if self.leaf_section_size() <= limit:
-            return 0
-        import heapq
-        next_key = [max(self.leaves, default=0) + 0x1000000]
-
-        def leaf_polys(off):
-            return self.leaves[off][0] if off else []
-
-        def child_is_leaf(n, q):
-            return not n['mask'] & (1 << q) or n['child'][q] == 0
-
-        def candidate(i):
-            n = self.nodes[i]
-            if i == 0 or n.get('dead') or not all(child_is_leaf(n, q) for q in range(4)):
-                return None
-            polys = sorted({p for q in range(4) if not n['mask'] & (1 << q) for p in leaf_polys(n['leaf'][q])})
-            if len(polys) > 36:     # the queries' unchecked stack buffers hold 36 (func_8008BDC0); Rush 2 reaches 34
-                return None
-            raw = encode_leaf(polys)
-            saved = sum(len(self.leaves[n['leaf'][q]][1]) for q in range(4)
-                        if not n['mask'] & (1 << q) and n['leaf'][q]) - len(raw)
-            return saved, polys, raw
-
-        heap = []
-        for i in range(len(self.nodes)):
-            c = candidate(i)
-            if c:
-                heapq.heappush(heap, (-c[0], i))
-        removed = 0
-        while heap and self.leaf_section_size() > limit:
-            _, i = heapq.heappop(heap)
-            c = candidate(i)
-            if not c:
-                continue
-            saved, polys, raw = c
-            n = self.nodes[i]
-            par = self.nodes[n['parent']]
-            q = par['child'].index(i) if i in par['child'] else None
-            key = next_key[0]
-            next_key[0] += 1
-            self.leaves[key] = (polys, raw)
-            for k in range(4):            # parent's quadrant k that points at this node becomes a leaf
-                if par['mask'] & (1 << k) and par['child'][k] == i:
-                    par['mask'] &= ~(1 << k)
-                    par['leaf'][k] = key
-                    par['child'][k] = 0
-            n['dead'] = True
-            removed += 1
-            pc = candidate(n['parent'])
-            if pc:
-                heapq.heappush(heap, (-pc[0], n['parent']))
-        # compact node indices, keeping source order
-        alive = [i for i, n in enumerate(self.nodes) if not n.get('dead')]
-        newidx = {old: new for new, old in enumerate(alive)}
-        nodes = []
-        for i in alive:
-            n = self.nodes[i]
-            n['parent'] = newidx[n['parent']] if n['parent'] >= 0 else -1
-            for k in range(4):
-                if n['mask'] & (1 << k) and n['child'][k]:
-                    n['child'][k] = newidx[n['child'][k]]
-            nodes.append(n)
-        self.nodes = nodes
-        if self.leaf_section_size() > limit:
-            raise ValueError('leaf section still 0x%X after merging' % self.leaf_section_size())
-        return removed
-
     # -- writing ---------------------------------------------------------------------------------------------
-    def build_rush2(self):
-        """Serialise as a Rush 2 file. Leaf lists are re-packed (deduplicated); vertex lists use Rush 2 run markers."""
+    def referenced_leaves(self):
+        return {n['leaf'][q] for n in self.nodes for q in range(4) if not n['mask'] & (1 << q) and n['leaf'][q]}
+
+    def build_rush2(self, tag_2049=False):
+        """Serialise as a Rush 2 file. Leaf lists are re-packed (deduplicated); vertex lists use Rush 2 run markers.
+
+        tag_2049 marks a converted 2049 file for the recomp's 2049 lookups (src/rush2049/track2049_collision.cpp):
+        root NODE +2 (unread by Rush 2) = TAG_2049 | the leaf section size's bits 16-22, which the u16 header field
+        can't hold, and leaf offsets past 16 bits set mask bit 4 + q as 2049 does."""
         # vertex lists, kept in the source file's order
         vblob = bytearray()
         voffs = [0] * len(self.polys)
@@ -392,20 +320,25 @@ class Collision:
                 placed[raw] = len(lblob)
                 lblob += raw
             remap[off] = placed[raw]
-        if len(lblob) > 0xFFFF:
-            raise ValueError('leaf section 0x%X exceeds Rush 2 16-bit leaf offsets' % len(lblob))
+        if len(lblob) > (0x7FFFFF if tag_2049 else 0xFFFF):
+            raise ValueError('leaf section 0x%X too large' % len(lblob))
         out = bytearray(struct.pack('>6H', len(self.segs), len(self.nodes), len(self.polys), len(self.verts),
-                                    len(lblob), len(vblob)))
+                                    len(lblob) & 0xFFFF, len(vblob)))
         for s in self.segs:
             out += s
-        for n in self.nodes:
+        for i, n in enumerate(self.nodes):
             child = list(n['child'])
+            mask = n['mask'] & 0x0F
             for q in range(4):
                 if not n['mask'] & (1 << q):
                     off = n['leaf'][q]
                     child[q] = remap[off] if off else 0
+                    if child[q] > 0xFFFF:
+                        mask |= 0x10 << q
+                        child[q] &= 0xFFFF
+            pad = TAG_2049 | len(lblob) >> 16 if tag_2049 and i == 0 else 0
             x0, x1, z0, z1 = n['bounds']
-            out += struct.pack('>hBBhhhhHHHH', n['parent'], 0, n['mask'] & 0x0F, x0, x1, z0, z1, *child)
+            out += struct.pack('>hBBhhhhHHHH', n['parent'], pad, mask, x0, x1, z0, z1, *child)
         for p, vo in zip(self.polys, voffs):
             out += struct.pack('>HH9hH', p['flags'], p['info'], *p['matrix'], vo)
         for v in self.verts:
@@ -435,14 +368,13 @@ def convert_info(info):
     return out
 
 
-def convert(data_2049, keep_info=False, merge=True, report=None):
+def convert(data_2049, keep_info=False, report=None):
     """Convert one Rush 2049 collision file to Rush 2 format.
 
     - POLY+2 is remapped with convert_info() unless keep_info.
     - VLIST run markers are re-encoded (0xE0|n -> 0xC0|n); offsets do not move.
     - The 2049 MOVER section is dropped: its polygons stay at the rest pose stored in POLY/VERT.
-    - If the leaf section does not fit Rush 2's 16-bit offsets and merge is set, bottom quadtree nodes are merged
-      (see Collision.merge_leaves); otherwise a ValueError is raised.
+    - The quadtree is kept as it is and the file is tagged for 2049's lookups (build_rush2's tag_2049).
     report, if a dict, receives what was changed or dropped."""
     c = Collision.parse(data_2049, R49)
     errs = c.validate()
@@ -460,12 +392,7 @@ def convert(data_2049, keep_info=False, merge=True, report=None):
         if (p['flags'] & 0xF) == TYPE_DISABLED:
             raise ValueError('source polygon already disabled (type 0xF)')
     c.game = R2
-    rep['nodes_merged'] = 0
-    if c.leaf_section_size() > 0xFFFF:
-        if not merge:
-            raise ValueError('leaf section 0x%X exceeds Rush 2 16-bit leaf offsets' % c.leaf_section_size())
-        rep['nodes_merged'] = c.merge_leaves()
-    return c.build_rush2()
+    return c.build_rush2(tag_2049=True)
 
 
 def extras(data_2049):
@@ -482,50 +409,93 @@ def extras(data_2049):
                 light_index={i: p['info'] >> 11 for i, p in enumerate(c.polys) if not p['info'] & 0x30 and p['info'] >> 11})
 
 
-def leaf_paths(c):
-    """Yield (quadrant path from root, poly list or None for null) for every leaf of the quadtree."""
-    stack = [(0, ())]
-    while stack:
-        i, path = stack.pop()
-        n = c.nodes[i]
-        for q in range(4):
-            if n['mask'] & (1 << q):
-                if n['child'][q]:
-                    stack.append((n['child'][q], path + (q,)))
-                else:
-                    yield path + (q,), None
-            else:
-                off = n['leaf'][q]
-                yield path + (q,), (c.leaves[off][0] if off else [])
+def cell(v, rules):
+    """A query point's integer cell: 2049 floors exactly (0x800C6B50), Rush 2 truncates v - 0.99 for negative v
+    (func_8006CF00 and the other three leaf queries)."""
+    import math
+    if rules == R49:
+        return math.floor(v)
+    return int(v - 0.99) if v < 0 else int(v)
 
 
-def leaf_at(c, path):
+def leaf_for_cell(c, x, z, rules):
+    """Polygons of the leaf holding cell (x, z), descending from the root as func_8006CD60 (Rush 2: split =
+    (min + max) >> 1) or func_800AC9BC (2049: rounded toward zero) does; None for a null quadrant. Leaf offsets
+    take mask bit 4 + q as 0x10000 (parse() already applied it)."""
     i = 0
-    for depth, q in enumerate(path):
+    while True:
         n = c.nodes[i]
+        x0, x1, z0, z1 = n['bounds']
+        if rules == R49:
+            mx, mz = int((x0 + x1) / 2), int((z0 + z1) / 2)
+        else:
+            mx, mz = (x0 + x1) >> 1, (z0 + z1) >> 1
+        q = (x >= mx) + 2 * (z < mz)
         if n['mask'] & (1 << q):
             if not n['child'][q]:
-                return None, depth
+                return None
             i = n['child'][q]
         else:
             off = n['leaf'][q]
-            return (c.leaves[off][0] if off else []), depth
-    raise ValueError('path ends at a node')
+            return c.leaves[off][0] if off else []
 
 
-def cover_check(src, out):
-    """Every source leaf must map to an output leaf with a superset of its polygons. Returns (exact, merged, bad)."""
-    exact = merged = bad = 0
-    for path, polys in leaf_paths(src):
-        got, depth = leaf_at(out, path)
-        want = set(polys or [])
-        if not want.issubset(set(got or [])):
-            bad += 1
-        elif depth == len(path) - 1 and sorted(want) == sorted(set(got or [])):
-            exact += 1
-        else:
-            merged += 1
-    return exact, merged, bad
+def world_polygon(c, p):
+    """A polygon's vertices in world space: vertex 0 is its origin, the rest are in its local frame (matrix rows =
+    world -> local)."""
+    vs = [vert_xyz(c.verts[i]) for i in p['verts']]
+    m = [x / 16384.0 for x in p['matrix']]
+    o = vs[0]
+    return [o] + [tuple(o[j] + sum(m[r * 3 + j] * v[r] for r in range(3)) for j in range(3)) for v in vs[1:]]
+
+
+def wall_cells(c, wall_types=TYPE_WALL):
+    """{poly: cells} for each wall polygon: the integer cells its x/z footprint crosses (edges sampled every 1/4
+    unit, pulled 3 % toward the centroid so edges lying on cell lines don't count)."""
+    import math
+    out = {}
+    for pi, p in enumerate(c.polys):
+        if (p['flags'] & 0xF) not in wall_types:
+            continue
+        w = world_polygon(c, p)
+        cx = sum(v[0] for v in w) / len(w)
+        cz = sum(v[2] for v in w) / len(w)
+        w = [(cx + (v[0] - cx) * 0.97, cz + (v[2] - cz) * 0.97) for v in w]
+        cells = set()
+        for a, b in zip(w, w[1:] + w[:1]):
+            steps = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) * 4))
+            for s in range(steps + 1):
+                t = s / steps
+                cells.add((math.floor(a[0] + (b[0] - a[0]) * t), math.floor(a[1] + (b[1] - a[1]) * t)))
+        out[pi] = cells
+    return out
+
+
+def wall_gaps(c, rules):
+    """Wall polygons missing from the leaf of a cell they cross, walking the tree with `rules`: {poly: cells}.
+    Walls a car can drive into from the side whose leaf doesn't list them."""
+    gaps = {}
+    for pi, cells in wall_cells(c).items():
+        for x, z in cells:
+            if pi not in (leaf_for_cell(c, x, z, rules) or ()):
+                gaps.setdefault(pi, set()).add((x, z))
+    return gaps
+
+
+def lookup_check(src, out, samples=200000):
+    """Cells (every wall cell, then random ones over the root) whose leaf differs between the 2049 file walked the
+    2049 way and the converted file walked as the recomp's hooks do for a tagged file. Returns the mismatch count."""
+    import random
+    cells = set().union(*wall_cells(src).values()) if src.polys else set()
+    x0, x1, z0, z1 = src.nodes[0]['bounds']
+    rnd = random.Random(1)
+    cells |= {(rnd.randrange(x0, x1), rnd.randrange(z0, z1)) for _ in range(samples)}
+    bad = 0
+    for x, z in cells:
+        a = leaf_for_cell(src, x, z, R49)
+        b = leaf_for_cell(out, x, z, R49)
+        bad += (a is None) != (b is None) or sorted(a or []) != sorted(b or [])
+    return bad
 
 
 def semantic_equal(a, b):
@@ -605,14 +575,13 @@ def selfcheck():
             src = Collision.parse(data, R49)
             for p in src.polys:
                 p['info'] = convert_info(p['info'])
-            if rep['nodes_merged']:
-                ex, mg, bad = cover_check(src, o)
-                sem = semantic_equal(src, o)
-                sem = [d for d in sem if not d.startswith('node')] + (['%d leaves lost polygons' % bad] if bad else [])
-                how = 'merged %d nodes (%d leaves exact, %d merged, superset OK)' % (rep['nodes_merged'], ex, mg)                     if not sem else 'DIFF ' + ','.join(sem[:3])
-            else:
-                sem = semantic_equal(src, o)
-                how = 'semantic-OK' if not sem else 'DIFF ' + ','.join(sem[:3])
+            sem = semantic_equal(src, o)
+            bad = lookup_check(src, o)
+            gaps = len(wall_gaps(src, R2))
+            how = ('semantic-OK' if not sem else 'DIFF ' + ','.join(sem[:3]))
+            how += '; lookups same as 2049' if not bad else '; %d cells look up a different leaf' % bad
+            how += '; %d walls with gaps under Rush 2 rules' % gaps
+            sem += ['lookups'] if bad else []
             line += '  -> rush2 0x%X bytes %s %s; dropped %d movers, %d force + %d platform polys' % (
                 len(out), 'valid' if not oerrs else 'INVALID ' + '; '.join(oerrs[:3]), how,
                 rep['movers_dropped'], rep['force_polys'], rep['platform_polys'])

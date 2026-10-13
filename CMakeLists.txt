@@ -195,6 +195,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_menu.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_records.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_collision.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_movers.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_movers_logic.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_props.cpp
