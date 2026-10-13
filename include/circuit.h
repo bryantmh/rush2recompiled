@@ -37,6 +37,10 @@ namespace rush2::circuit {
     // More Circuit Settings (General tab): the track select lets DIFFICULTY and DEATHS change on every circuit race,
     // DIFFICULTY included. Takes effect at once.
     void set_more_settings(bool enabled);
+
+    // Fixed Circuit Difficulty (General tab): a circuit race no longer steps the circuit's difficulty toward the
+    // standings. Read at the end of each circuit race.
+    void set_fixed_difficulty(bool enabled);
 }
 
 #endif

@@ -615,3 +615,14 @@ The General tab's More Circuit Settings (default Off; src/circuit.cpp) opens DIF
 race: hooks at 0x803ABF3C ($a0) and 0x803AC558 ($v0) skip the circuit test for those two options, one at 0x803AC064
 loads +0xA and +0x11 from the block before the step (the menu's may have changed in a single race since), and one at
 0x803AC410 writes DIFFICULTY to the block's bits 3-5 and marks the byte dirty (`pak_mark_dirty`).
+
+### Circuit difficulty adjustment [V]
+After every circuit race, `func_800A8D1C` (0x800A8FF8-0x800A9148) steps the block's difficulty by one toward the
+standings and marks the byte dirty. `$a2` = the human's place in the standings (0 = 1st; the better of two humans,
+0x800D3B28 +1 and +0x59), `$a0` = the leader's points minus the second car's (u16 +2 of the 0x58-byte standings
+entries), `$v0` = the difficulty. It rises when: 1st and lead >= 20 and difficulty < 5; 1st and lead >= 6 and < 4;
+place < 2 and < 3; place < 4 and < 2; place < 6 and 0. Otherwise it falls when above that place's value (1st with a
+lead of 20+ -> 5, 6-19 -> 4, under 6 or 2nd -> 3, 3rd-4th -> 2, 5th-6th -> 1, 7th-8th -> 0).
+
+The General tab's Fixed Circuit Difficulty (default Off; src/circuit.cpp) skips it: a hook at 0x800A8FF8 goes to the
+function's end (0x800A914C).

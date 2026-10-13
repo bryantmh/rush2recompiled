@@ -420,6 +420,28 @@ extern "C" void rush2_circuit_more_stepped(uint8_t* rdram, recomp_context* ctx) 
     std::fflush(stdout);
 }
 
+// Fixed Circuit Difficulty. After every circuit race, func_800A8D1C (0x800A8FF8-0x800A9148) steps the circuit's
+// difficulty (block +1 bits 3-5) by one toward the standings: $a2 = the best human's place (0 = 1st), $a0 = the leader's
+// points over the second car's. It rises below 5 in 1st with a lead of 20 or more, below 4 in 1st with a lead of 6 or
+// more, below 3 in 1st or 2nd, below 2 in 3rd or 4th and at 0 in 5th or 6th; otherwise it falls when it is above
+// that place's value. With the option on, the hook at 0x800A8FF8 goes straight to the function's end (0x800A914C).
+namespace {
+    std::atomic<bool> fixed_difficulty = false;
+}
+
+void rush2::circuit::set_fixed_difficulty(bool enabled) {
+    fixed_difficulty.store(enabled);
+}
+
+// func_800A8D1C at 0x800A8FF8, about to step the difficulty: nonzero skips it.
+extern "C" int rush2_circuit_fixed_difficulty(uint8_t* rdram, recomp_context* ctx) {
+    bool fixed = fixed_difficulty.load();
+    printf("[circuit] Race %d done: standing %d, difficulty %d %s\n", finished(rdram), (int)(int32_t)ctx->r6 + 1,
+        (MEM_BU(block_flags, (int32_t)ctx->r8) >> 3) & 7, fixed ? "kept" : "follows the standings");
+    std::fflush(stdout);
+    return fixed ? 1 : 0;
+}
+
 // Accurate Circuit Review. When a circuit completes, the game goes on to its victory screen, which is the title's
 // attract loop (func_800ABE7C): a card with a track's logo, then a demo race on it in a wreath with a medal, track
 // after track (func_800AB824: 0-6, then 10 with ATARI unlocked). The screen's place (1st to 3rd in the circuit, or

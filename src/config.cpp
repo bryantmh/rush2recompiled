@@ -596,6 +596,28 @@ static void add_more_circuit_option(recomp::config::Config& config) {
         });
 }
 
+namespace circuit_fixed_difficulty_option {
+    const std::string id = "circuit_fixed_difficulty";
+}
+
+// Fixed circuit difficulty: a circuit's difficulty no longer follows the standings (src/circuit.cpp).
+static void add_circuit_fixed_difficulty_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        circuit_fixed_difficulty_option::id,
+        "Fixed Circuit Difficulty",
+        "Stops a circuit from changing its own difficulty. Rush 2 moves the difficulty one step after every circuit "
+        "race: up when you lead the standings, down when you trail. On, it stays where it is, or where you set it "
+        "with <recomp-color primary>More Circuit Settings</recomp-color>. "
+        "Takes effect at the end of the next circuit race.",
+        false
+    );
+
+    config.add_option_change_callback(circuit_fixed_difficulty_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::circuit::set_fixed_difficulty(std::get<bool>(cur_value));
+        });
+}
+
 namespace pause_extras_option {
     const std::string id = "pause_menu_extras";
 }
@@ -695,7 +717,7 @@ void rush2::init_config() {
         namespace general = recompui::config::general;
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id,
-                            catch_up_option::id, pause_extras_option::id, circuit_review_option::id, more_circuit_option::id, ghost_option::id, ghosts_kept_option::id } },
+                            catch_up_option::id, pause_extras_option::id, circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id, ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
         }, nullptr, {
             { "Gameplay", [](rush2::ui::OptionsPage* page) {
@@ -730,6 +752,7 @@ void rush2::init_config() {
     add_pause_extras_option(general_config);
     add_circuit_review_option(general_config);
     add_more_circuit_option(general_config);
+    add_circuit_fixed_difficulty_option(general_config);
     add_menu_background_option(general_config);
     add_data_location_option(general_config);
 
@@ -804,6 +827,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(circuit_review_option::id)));
     rush2::circuit::set_more_settings(std::get<bool>(
         recompui::config::get_general_config().get_option_value(more_circuit_option::id)));
+    rush2::circuit::set_fixed_difficulty(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(circuit_fixed_difficulty_option::id)));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

@@ -1476,6 +1476,12 @@ func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC558
 text = "    rush2_circuit_more_grey(rdram, ctx);"
 
+# Fixed Circuit Difficulty (src/circuit.cpp): skips the step toward the standings that ends every circuit race.
+[[patches.hook]]
+func = "save_write_settings_to_pak_800A8D1C"
+before_vram = 0x800A8FF8
+text = "    if (rush2_circuit_fixed_difficulty(rdram, ctx)) goto L_800A914C;"
+
 # Accurate Circuit Review (src/circuit.cpp, docs/rush2049_research/menus.md section 9): the circuit's races and player
 # 1's places are kept when it completes (func_800A8B04), and the car player 1 raced each race in when it ends
 # (func_800A8D1C); the victory screen that follows (func_800ABE7C) then shows
