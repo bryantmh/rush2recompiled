@@ -70,18 +70,18 @@ plan below borrows slots instead.
 ## 5. Rush 2 car asset layout [V] (asset 0x1D, PICKUP)
 
 37 models: `PICKUPFRAME1` (the chassis), five body panels `FL1 FR1 RL1 RR1 TOP1` in damage stages `D0_` (intact),
-`D1_TOP1`, `D2_` (wrecked), each with a dented variant (`D0_DFL1`.., `D0_D2FL2`..), and the hood halves `H0_L/R`,
-`H0D_L/R`, `H2_L/R`, `H2D_L/R` (not headlights: PICKUPH0_L runs from the windshield's base, z 21 y 36, to the nose,
+`D1_TOP1`, `D2_` (wrecked), each with two translucent sheen layers over it (`D0_DFL1`.. and `D0_D2FL2`.., §11; not
+dents), and the hood halves `H0_L/R`, `H2_L/R` with their sheen layers `H0D_L/R`, `H2D_L/R` (not headlights: PICKUPH0_L runs from the windshield's base, z 21 y 36, to the nose,
 z 98 y 23; H2 is the same hood buckled up across a crease at z 70, up to y 43). Textures are per damage stage
 (`TRK_D0_1`..`TRK_D1_6`, with `_4` variants). So Rush 2 shows damage by swapping whole panels. For a 2049 car: FRAME1
-= the 2049 body (`CARnFRAME1`), every panel and hood part = an empty display list, and the body dented in place of the
-panels (2049 has no damage of its own).
+= the 2049 body (`CARnFRAME1`), every panel and hood part = an empty display list (but the sheen layers are made from
+the body, §11), and the body dented in place of the panels (2049 has no damage of its own).
 
 ### Damaged hood [V]
 
 func_8005CFB0 picks the hood halves each frame by panel 0's damage level (mask 0x800CE188[0], shift 0x800CE180[0]):
 node +0xC gets part handle 35 + level (`H0D_L`, `H2D_L`), node +0x10 part 37 + level (`H0D_R`, `H2D_R`), from the
-handle table 0x8010C480 + car * 0x4E. A collision that raises panel 0 to 1 buckles the hood. The 2049 cars and car
+handle table 0x8010C480 + car * 0x4E (+0xC / +0x10 hold the halves' sheen layers, §11). A collision that raises panel 0 to 1 buckles the hood. The 2049 cars and car
 mods are one body, so `body_hood` (src/rush2049/car2049.cpp) marks the body's hood vertices (the top surface of the
 front, z 0.2-0.95 of the half length, no body vertex just above) with a fold weight peaking at a crease 60% of the
 way from the windshield's base to the nose, and `rush2_car49_dent` lifts them by 0.2 of the height times panel 0's
@@ -124,7 +124,7 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   every smoke puff.
 - **Assets.** Each car is converted at boot (`convert_car`, track2049_convert.cpp) into a Rush 2 car container served
   as asset 0x71 + n: CARnFRAME1 as FRAME1, every other part an empty list. CARnHOOD is not drawn: it is the hood
-  2049's hood camera shows (Damaged hood, above); drawn as the top panel it stuck out of the body. CARnSHEEN (a reflection pass) is left out too. 2049's
+  2049's hood camera shows (Damaged hood, above); drawn as the top panel it stuck out of the body. CARnSHEEN (a reflection pass) is left out too (§11). 2049's
   vertex colours are a flat grey that 2049 relights at runtime, so they are set to white; the `TEX0 * SHADE * PRIM`
   combiner loses its PRIM stage (Rush 2 leaves PRIM unset).
 - **Paint.** The game loads each car's own palette (built by func_8008582C from CARPALETTE) as the TLUT of all the
@@ -356,3 +356,47 @@ speeds the lanes were set to and drive its straights flat out.
 190 -> 158, 120 -> 100. With Rush 2 speeds, `rush2_race_lane_speeds` (before func_800924E4 works out the race time
 from the lanes) divides every 2049 path's lane speeds by it; with Rush 2049 speeds the other paths (Rush 2's,
 SF Rush's) are multiplied by it and 2049's stay native.
+
+## 11. Car sheen [V]
+
+Graphics > Car Sheen (`src/rush2049/car2049.cpp` `sheen_model`, `add_sheen_layers` in track2049_convert.cpp):
+**Original** draws Rush 2's sheen layers on its own cars only (the 2049 cars had none), **All On** on the 2049 cars
+too, **All Off** on no car. Hot-swappable: the layers' nodes are drawn or dropped (an empty list) per draw.
+
+**Rush 2's layers.** The car parts named `D0_D*` / `D2_D*` and `H0D_*` / `H2D_*` (§5) are not dents: they are
+translucent copies of the panels' and hood halves' triangles drawn over them, white vertices, untextured in the
+container, render mode `C8104E50` (translucent, decal depth), combiner `FC41FFFF FFFFF238` (SHADE × PRIM, alpha
+TEXEL0), `E3001001 0` (TLUT off) and LOD flag 0x1 (the node's texture swap). Car record (0x80219DD0 + id × 0x134)
+slots, as `func_80085FD0` builds them: +0x3C/+0x40/+0x44/+0x48/+0x4C = parts 11/13/15/17/19 (`D0_DFR1`.. `D0_DTOP1`,
+the DECAL layer), +0x50/+0x54/+0x58/+0x5C/+0x60 = parts 21/23/25/27/29 (`D0_D2FR2`.. `D0_D2TOP2`, the SHEEN layer),
++0xC/+0x10 = parts 35/37 (`H0D_L`, `H0D_R`, the hood's SHEEN layer; the hood halves themselves are +0x4/+0x8, parts
+31/33); each slot's other damage stage is the next part.
+- Textures: `func_8005CE68(car, $t0 = 0x21, $s5)` sets the texture swap (`func_8005A4C0`: node +0x14..+0x20, one per
+  LOD, or all four with a2 < 0) of +0x3C and +0x44 to DECAL and of +0x50, +0x58 and +0xC to the sheen texture; the
+  other layer nodes draw with what their row's first node left in TMEM. The handles are 0x80113F40 (37, names
+  0x800C60EC: SPARK01.., DECAL at index 0x21, SHEEN10 / SHEEN7 / SHEEN2 at 0x22-0x24, loaded by `func_8008A1FC`).
+  `func_8005CFB0` picks SHEEN7 at covered level (car state +0x344) 1, otherwise SHEEN2 when 0x800D1FA8 >= 3 and
+  SHEEN10 below. All are intensity maps (sparkles, city lights, streaks).
+- Scrolling: each frame `func_8005CFB0` points node +0x28 (the tile window `func_8007825C` writes as the last
+  `G_SETTILESIZE`) of +0x50, +0x58 and +0xC at the car's SHEEN window 0x8010FEB8 + car × 8 and of +0x3C and +0x44 at
+  its DECAL window 0x8010F808 + car × 8, recomputed from the car's heading (`func_8005C8E8` = atan2) and the camera
+  (view 0x800E79D0 + view × 0x40, car state +0x347), wrapped to 0x1000 / 0x800.
+- With car +0xE4 bit 0x10 it hides every layer node (`func_80058D1C`).
+- UVs (1/32 texels), fitted over every Rush 2 car: the SHEEN layer (and the hood's) is a cylinder around the width
+  axis 8 units below the origin, s = 1008 − 11.37 × (degrees from straight up towards the nose), t = 1008 + ~11 × x
+  (rms 2-3 per car); the DECAL layer wraps around the vertical axis, s = 2048 at the nose falling to 0 / 4096 at the
+  tail (a seam of doubled vertices there), t ≈ 30 × y, with per-car authored spacing along the sides.
+
+**2049 cars.** `add_sheen_layers` builds the layers from the converted body's first LOD (same scale as Rush 2's cars):
+copies of its vertex loads with white colours and the fitted UVs (DECAL: the angle taken from the body's half width and
+half length and folded so both sides match, with no seam; t over the body's height), its triangles, and Rush 2's
+layer state, as parts `D0_DFR1` / `D2_DFR1` and `D0_D2FR2` / `D2_D2FR2` (each its own list copy, shared vertices),
+so Rush 2 textures and scrolls them like a Rush 2 car's front right panel layers. Denting moves their vertices with
+the body vertex at the same position (Paint::mirrors). `sheen_model` finds the layer nodes from the car records
+(validated against the part handles at 0x80218000 + id × 0x4E) and drops the 2049 ones unless All On, the Rush 2 ones
+at All Off.
+
+**Rush 2049's own SHEEN model** (not used): each car file's `CARnSHEEN` (render mode `00504E50`, combiner
+`FC309661 552EFF7F`) under a node `func_800B15B4` creates with flag 0x80000, which `func_8009C8F0` draws with
+`G_TEXTURE_GEN` and a LookAt from `func_8009C5E0` (guLookAtReflect) and a window scrolled by `func_8008C768` (atan2)
+and `func_8009C3F8` (asin), tinted from 0x8011ADC0 + 8 × track.

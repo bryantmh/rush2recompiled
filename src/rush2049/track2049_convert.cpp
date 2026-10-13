@@ -2628,11 +2628,129 @@ bool rush2::track2049::convert_track(const rush2::rom2049::Source& rom, int k, c
     return true;
 }
 
+namespace {
+    // Rush 2's sheen layers for a converted 2049 car (docs/rush2049_research/cars.md#11-car-sheen-v), made from its
+    // body `name` + FRAME1 (first LOD) in the converted container `out`. Rush 2's layers are copies of a panel's
+    // triangles drawn over it: white vertices, render mode C8104E50 (translucent, decal depth), SHADE * PRIM with the
+    // texture as alpha, TLUT off, and no texture of their own (func_8005CE68 swaps one in and func_8005CFB0 scrolls
+    // it). Their UVs are cylinder wraps, which these copy as fitted over Rush 2's cars (1/32 texels):
+    // - DECAL layer (D0_DFR1..): around the vertical axis, s = 2048 at the nose falling 4096 per turn (both sides
+    //   alike here, so no seam at the tail), t following the height over 64 texels;
+    // - SHEEN layer (D0_D2FR2..): around the width axis 8 units below the origin, s = 1008 - 11.37 per degree from
+    //   straight up towards the nose, t = 1008 + 11.2 * x.
+    // The four models (both damage stages of each) get their own lists (Rush 2's loader rebases each model's lists) over
+    // shared vertex copies.
+    void add_sheen_layers(Bytes& out, const std::string& name) {
+        uint32_t models = u32(out, 0), model_names = u32(out, 4), model_count = u32(out, 16);
+        auto model_of = [&](const std::string& n) -> int {
+            for (uint32_t m = 0; m < model_count; m++) {
+                if (cstr(out, model_names + m * 0x18, 16) == first15(n)) return (int)m;
+            }
+            return -1;
+        };
+        int body = model_of(name + "FRAME1");
+        if (body < 0) return;
+        uint32_t body_record = models + uint32_t(body) * 0x34;
+        uint32_t body_list = u32(out, body_record + 4 + 8);
+        uint32_t body_distance = u32(out, body_record + 4 + 4);
+        uint32_t body_radius = u32(out, model_names + uint32_t(body) * 0x18 + 16);
+
+        // The body's vertex loads and triangles, in order.
+        struct Command {
+            uint32_t w0, w1;
+        };
+        std::vector<Command> commands;
+        for (uint32_t pc = body_list; pc + 8 <= out.size(); pc += 8) {
+            uint32_t w0 = u32(out, pc), w1 = u32(out, pc + 4);
+            uint8_t op = uint8_t(w0 >> 24);
+            if (op == 0xDF) break;
+            if (op == 0x01 || op == 0x05 || op == 0x06 || op == 0x07) commands.push_back({ w0, w1 });
+        }
+        float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
+        for (const Command& c : commands) {
+            if ((c.w0 >> 24) != 0x01) continue;
+            uint32_t n = (c.w0 >> 12) & 0xFF, at = c.w1 & 0xFFFFFF;
+            for (uint32_t v = 0; v < n; v++) {
+                for (int k = 0; k < 3; k++) {
+                    float p = (float)s16(out, at + v * 16 + k * 2);
+                    lo[k] = std::min(lo[k], p);
+                    hi[k] = std::max(hi[k], p);
+                }
+            }
+        }
+        if (lo[0] > hi[0]) return;
+        float half_width = std::max({ -lo[0], hi[0], 1.0f }), half_length = std::max({ -lo[2], hi[2], 1.0f });
+        float height = std::max(hi[1] - lo[1], 1.0f);
+        constexpr double degrees = 180.0 / 3.14159265358979323846;
+
+        // Each layer's copies of the vertex loads: file offset of the copy per load command.
+        std::vector<uint32_t> copies[2];
+        for (int layer = 0; layer < 2; layer++) {
+            for (const Command& c : commands) {
+                if ((c.w0 >> 24) != 0x01) continue;
+                uint32_t n = (c.w0 >> 12) & 0xFF, at = c.w1 & 0xFFFFFF;
+                while (out.size() % 16) out.push_back(0);
+                uint32_t copy = (uint32_t)out.size();
+                for (uint32_t v = 0; v < n; v++) {
+                    uint32_t src = at + v * 16;
+                    double x = s16(out, src), y = s16(out, src + 2), z = s16(out, src + 4);
+                    double s, t;
+                    if (layer == 0) {
+                        s = 2048.0 - 4096.0 / 360.0 * std::abs(std::atan2(x / half_width, z / half_length) * degrees);
+                        t = 70.0 + 1950.0 * (y - lo[1]) / height;
+                    }
+                    else {
+                        s = 1008.0 - 11.37 * std::atan2(z, y + 8.0) * degrees;
+                        t = 1008.0 + 11.2 * x;
+                    }
+                    uint8_t xyz[8];
+                    memcpy(xyz, &out[src], 8);
+                    out.insert(out.end(), xyz, xyz + 8);
+                    auto add16 = [&](double value) {
+                        int16_t i = (int16_t)std::clamp(std::lround(value), -32768l, 32767l);
+                        out.push_back(uint8_t(uint16_t(i) >> 8));
+                        out.push_back(uint8_t(i));
+                    };
+                    add16(s);
+                    add16(t);
+                    for (uint8_t b : { 0xFE, 0xFE, 0xFE, 0xFF }) out.push_back(b);
+                }
+                copies[layer].push_back(copy);
+            }
+        }
+        for (int part = 0; part < 4; part++) {
+            int m = model_of(name + rush2::track2049::sheen_parts[part]);
+            if (m < 0) continue;
+            const std::vector<uint32_t>& copy = copies[part / 2];
+            uint32_t list = (uint32_t)out.size();
+            add32(out, 0xE7000000); add32(out, 0);
+            add32(out, 0xE200001C); add32(out, 0xC8104E50);   // translucent, decal depth
+            add32(out, 0xFC41FFFF); add32(out, 0xFFFFF238);   // SHADE * PRIM, alpha TEXEL0
+            add32(out, 0xE3001001); add32(out, 0x00000000);   // TEXTLUT = NONE
+            size_t load = 0;
+            for (const Command& c : commands) {
+                add32(out, c.w0);
+                add32(out, (c.w0 >> 24) == 0x01 ? (c.w1 & 0xFF000000) | copy[load++] : c.w1);
+            }
+            add32(out, 0xE7000000); add32(out, 0);
+            add32(out, 0xE3001001); add32(out, 0x00008000);   // TEXTLUT = RGBA16, as Rush 2 keeps it
+            add32(out, 0xDF000000); add32(out, 0);
+            uint32_t record = models + uint32_t(m) * 0x34;
+            put32(out, record, 1);                              // one LOD, as the body's first
+            put32(out, record + 4, 0x00000001);                 // no texture of its own, LOD flag 0x1 (texture swap)
+            put32(out, record + 8, body_distance);
+            put32(out, record + 12, list);
+            put32(out, model_names + uint32_t(m) * 0x18 + 16, body_radius);
+        }
+    }
+}
+
 // A Rush 2049 car (files 88-100) as a Rush 2 car asset for the car type named `name` (Rush 2's car names, table
 // 0x800C0764). Rush 2 builds 39 part names from the car name and the suffixes at 0x800C6180 and uses their handles
 // unchecked (func_80086700): the frame, five body panels (four corners and the roof) in damage stages, and the hood
-// halves. A 2049 car is one body (car2049.cpp dents its vertices; 2049 itself shows no damage): the body becomes the
-// frame and the panels and hood parts are empty, so the car draws once whatever damage stage Rush 2 picks.
+// halves, and over them the sheen layers (D and D2 parts). A 2049 car is one body (car2049.cpp dents its vertices; 2049
+// itself shows no damage): the body becomes the frame and the panels and hood parts are empty, so the car draws once
+// whatever damage stage Rush 2 picks. Its sheen layers are made from the body (add_sheen_layers).
 bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, const std::string& name,
                                    std::vector<uint8_t>& out, std::string& error) {
     static const char* const parts[] = {
@@ -2714,6 +2832,13 @@ bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, c
         for (uint32_t l = 0; l < u32(out, r) && l < 4; l++) {
             whiten(u32(out, r + 4 + l * 12 + 8));
         }
+    }
+    try {
+        add_sheen_layers(out, name);
+    }
+    catch (const ConvertError& e) {
+        error = e.message;
+        return false;
     }
     return true;
 }

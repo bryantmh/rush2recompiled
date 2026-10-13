@@ -1129,14 +1129,15 @@ ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008C768
-name = "math_load_const_floats_x12"
-sig = "void math_load_const_floats_x12(void)"
-desc = "Same code as Rush 2 math_load_const_floats_x12_8005C8E8 (67 instructions, address-masked match, float constants equal). Loads constant float vectors (x3 twice, x6 twice) and the angle constants 800CF4CC..D8 (+/-pi/2, +/-pi); called by projection, drone driver and car code. (low confidence)"
-status = "inferred"
+name = "math_atan2"
+sig = "f32 math_atan2(f32 y, f32 x)"
+desc = "atan2(f12, f14) in radians (x = 0: +/-pi/2 or 0). Same code as Rush 2 func_8005C8E8. The car SHEEN window uses atan2(v.x, v.z)."
+consts = "0x801238F4/F8 = +/-pi/2; 0x801238FC/0x80123900 = +/-pi"
+status = "verified"
 rush2 = 0x8005C8E8
 link = "same-code"
 area = "util"
-ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
+ref = "docs/rush2049_research/cars.md#11-car-sheen-v"
 
 [[func]]
 vram = 0x8008C884
@@ -1604,9 +1605,19 @@ area = "other"
 ref = "docs/rush2049_research/movers.md#43-pose"
 
 [[func]]
+vram = 0x8009C5E0
+name = "gu_look_at_reflect"
+sig = "void gu_look_at_reflect(LookAt *l, f32 xEye, f32 yEye, f32 zEye, f32 xAt, f32 yAt, f32 zAt, f32 xUp, f32 yUp, f32 zUp)"
+desc = "guLookAtReflect: X = normalize(up x d), Y = d x X with d = normalize(eye - at), as bytes *128 (clamped to 127 above only) at +8 and +0x18. Used by func_8009C8F0 for node flag 0x80000 (car SHEEN environment map)."
+consts = "0x80123AEC.. = 1e-4 minimum squared lengths; 127 = upper clamp of the direction bytes; 0x80 = colours at +0x11, +0x15"
+status = "verified"
+area = "render"
+ref = "docs/rush2049_research/cars.md#11-car-sheen-v"
+
+[[func]]
 vram = 0x8009C8F0
 name = "model_draw"
-desc = "2049 model draw function: same LOD choice (node +0xC scale); lighting per LOD flag 0x10, node flag 0x80000 environment map, 0x200000 alpha fade by distance; sets TEXTLUT before each texture. | Model draw with LOD flags (0x1 texture swap, 0x2 post display list, 0x4 primitive color from the node, 0x10 lit, 0x8000 texture handle valid). Rush 2's equivalent is func_8007AA48."
+desc = "2049 model draw function: same LOD choice (node +0xC scale); lighting per LOD flag 0x10, node flag 0x80000 environment map, 0x200000 alpha fade by distance; sets TEXTLUT before each texture. Model draw with LOD flags (0x1 texture swap, 0x2 post display list, 0x4 primitive color from the node, 0x10 lit, 0x8000 texture handle valid). Rush 2's equivalent is func_8007AA48. Node flag 0x80000 (car SHEEN): LookAt from the camera to the node (func_8009C5E0, X mirrored), G_TEXTURE_GEN on, fog off, 1-cycle, G_TEXTURE S = width * 128, T = height * 64, and the texture window (node +0x34) at s = -atan2(v.x, v.z) * 4096/pi + 6144, t = -asin(v.y) * 4096/pi + 2048 for v = normalize(node - camera)."
 status = "verified"
 rush2 = 0x8007AA48
 link = "role"
@@ -2077,10 +2088,10 @@ ref = "docs/rush2049_research/cars.md#8-implementation-v"
 
 [[func]]
 vram = 0x800B15B4
-desc = "Applies the per-track car SHEEN prim/env tint (table 0x8011ADC0)."
+desc = "Builds a car's draw nodes (car node table 0x80139320 + car * 0x40) from the handle table 0x801427C0: body +0, +0x10, and the SHEEN node +0x14 under the body (node flags 0x4000 | 0x200000 | 0x80000 | 0x80; texture handle 0x8016137A via func_8008D870), whose PRIM / ENV (node +0x3C / +0x40) come from 0x8011ADC0 + 8 * track (0x8014978C) in a race or 0x8011AE58 in the menus (a2 != 0)."
 status = "verified"
-area = "render"
-ref = "docs/rush2049_research/race.md#71-tables"
+area = "car"
+ref = "docs/rush2049_research/cars.md#1-rush-2049-car-data-v"
 
 [[func]]
 vram = 0x800B1B48

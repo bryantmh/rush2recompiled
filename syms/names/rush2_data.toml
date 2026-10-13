@@ -4295,10 +4295,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C60EC
-name = "race_scene_asset_w3"
-type = "u32"
-desc = "Word read by race_scene_load_assets. (low confidence)"
-area = "track"
+name = "race_effect_texture_names"
+type = "char *[37]"
+desc = "Names of the race effect textures race_scene_load_assets (func_8008A1FC) looks up into race_effect_texture_handles: SPARK01..06, SHADBLUR, ARROW, SKID04, FBALL00..30, DECAL (0x21), SHEEN10 (0x22), SHEEN7 (0x23), SHEEN2 (0x24)."
+area = "render"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
@@ -4864,7 +4864,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D1FA8
 name = "race_graphics_setting_byte"
 type = "u8"
-desc = "Setting byte from menu/boot defaults, read by car scene nodes, fog zones, sky cloud scroll and trackselect."
+desc = "Setting byte from menu/boot defaults, read by car scene nodes, fog zones, sky cloud scroll and trackselect. 3 and up: the cars' sheen layers take SHEEN2 instead of SHEEN10 (func_8005CFB0, func_80085FD0)."
 area = "render"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -11746,6 +11746,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x8010F808
+name = "car_decal_windows"
+type = "u16[8][4]"
+desc = "Per car (8 bytes): the DECAL layer texture window func_8005CFB0 recomputes each frame (t kept 0) and points node +0x28 of the car record +0x3C and +0x44 layer nodes at."
+area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x8010F968
 name = "car_probe_const"
 type = "f32[4]"
@@ -11787,6 +11796,15 @@ name = "car_probe_flag"
 type = "u8"
 desc = "Byte read by car collision probe points (low confidence)."
 area = "collision"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x8010FEB8
+name = "car_sheen_windows"
+type = "u16[8][4]"
+desc = "Per car (8 bytes): the SHEEN layer texture window (s, t, then its end) func_8005CFB0 recomputes each frame from the car heading and the camera and points node +0x28 of the car record +0x50, +0x58 and +0xC layer nodes at."
+area = "car"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
@@ -12588,6 +12606,15 @@ name = "race_loop_start_param"
 type = "s16"
 desc = "Halfword read by race_progress_wrap_to_loop_start (low confidence)."
 area = "race"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x80113F40
+name = "race_effect_texture_handles"
+type = "u16[37]"
+desc = "Texture handles (container << 10 | index) of race_effect_texture_names, filled by func_8008A1FC each race; func_8005CE68 sets the cars' sheen layers from DECAL and SHEEN10 / SHEEN7 / SHEEN2."
+area = "render"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 

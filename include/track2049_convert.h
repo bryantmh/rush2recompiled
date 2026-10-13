@@ -119,9 +119,12 @@ namespace rush2::track2049 {
     // path-following object at its spawn nodes, as world-space top-level records after the sections (listed in
     // path_records). Returns false with a message in error if the track can't be converted.
     // Rush 2049 car `car` (1-13) as a Rush 2 car asset (asset 0x1D + type) for the Rush 2 car named `name`.
-    // The Rocket ZX (car 3) also gets its exhaust flames, models ROKTFLAMEG1-3 of effects file 62.
+    // The Rocket ZX (car 3) also gets its exhaust flames, models ROKTFLAMEG1-3 of effects file 62. The body also
+    // becomes Rush 2's sheen layers, parts `name` + sheen_parts: D0_DFR1 / D2_DFR1 (the DECAL layer, car record
+    // +0x3C) and D0_D2FR2 / D2_D2FR2 (the SHEEN layer, +0x50), drawn only when Car Sheen is All On.
     constexpr int rocket_car = 3;
     constexpr int effects_file = 62;
+    constexpr const char* sheen_parts[] = { "D0_DFR1", "D2_DFR1", "D0_D2FR2", "D2_D2FR2" };
     bool convert_car(const rush2::rom2049::Source& rom2049, int car, const std::string& name, std::vector<uint8_t>& out,
                      std::string& error);
 

@@ -21,7 +21,6 @@ Names and signatures marked inferred are educated guesses from the code.
 | 80059178 | `unused_math_const_80059178` | `void unused_math_const_80059178(void)` | Unused small float function using global 800CF450 (0.0001) and 1.0. (low confidence) |  | inferred |
 | 800593CC | `unused_getter_800593CC` | `s32 unused_getter_800593CC(void *p)` | Tiny unused getter (0x28 bytes). (low confidence) |  | inferred |
 | 80059B7C | `stub_empty_80059B7C` | `void stub_empty(s32 a0, s32 a1, s32 a2)` | Tiny unused stub (0x20 bytes) taking a2. (low confidence) |  | inferred |
-| 8005C8E8 | `math_load_const_floats_x12_8005C8E8` | `void math_load_const_floats_x12(void)` | Loads constant float vectors (x3 twice, x6 twice) and the angle constants 800CF4CC..D8 (+/-pi/2, +/-pi); called by projection, drone driver and car code. (low confidence) | 1.5708 = pi/2; 3.14159 = pi | inferred |
 | 8005C9F4 | `stub_empty_8005C9F4` | `void stub_empty(void)` | Empty function. |  | inferred |
 | 8005C9FC | `unused_math_const_matrix_8005C9FC` | `void unused_math_const_matrix(void)` | Unused function loading 12 float constants from 800CF4DC..800CF508 (1.0, 0.5, 1.5708 and polynomial coefficients) to build a matrix or curve. (low confidence) |  | inferred |
 | 8005DF90 | `stub_empty_8005DF90` | `void stub_empty(void)` | Empty function. |  | inferred |

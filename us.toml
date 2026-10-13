@@ -6379,12 +6379,12 @@ vram = 0x8005CE18
 value = 0x27399DD0 # addiu $t9, $t9, 0x3F90 -> 80219DD0
 
 [[patches.instruction]]
-func = "car_set_wheel_rim_textures_8005CE68"
+func = "car_set_sheen_textures_8005CE68"
 vram = 0x8005CE9C
 value = 0x3C198022 # lui -> 8022
 
 [[patches.instruction]]
-func = "car_set_wheel_rim_textures_8005CE68"
+func = "car_set_sheen_textures_8005CE68"
 vram = 0x8005CEA0
 value = 0x27399DD0 # addiu $t9, $t9, 0x3F90 -> 80219DD0
 

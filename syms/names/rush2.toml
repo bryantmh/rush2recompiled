@@ -4317,11 +4317,12 @@ ref = "docs/functions/rush2_util.md#rush-2-util-functions"
 
 [[func]]
 vram = 0x8005A4C0
-name = "car_set_wheel_rim_texture"
-sig = "s32 car_set_wheel_rim_texture(Node *wheel, s32 a1, s32 a2)"
-desc = "Sets the wheel rim texture on the wheel node (called from func_80085FD0)."
-status = "inferred"
-area = "car"
+name = "node_set_texture"
+sig = "s32 node_set_texture(s16 node, void *texture, s32 lod)"
+desc = "Sets scene node `node`'s texture swap (node +0x14 + lod * 4, read by func_8007AA48 for LOD flag 0x1) to texture record `texture`; lod < 0 sets all four. Used for wheel rims (RIM n) and the car sheen layers (func_8005CE68)."
+consts = "0x38 = node size; 0x800D9E90 = node table"
+status = "verified"
+area = "render"
 ref = "docs/rush2049_research/cars.md#8-implementation-v"
 
 [[func]]
@@ -4483,14 +4484,14 @@ ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
 
 [[func]]
 vram = 0x8005C8E8
-name = "math_load_const_floats_x12"
-sig = "void math_load_const_floats_x12(void)"
-desc = "Loads constant float vectors (x3 twice, x6 twice) and the angle constants 800CF4CC..D8 (+/-pi/2, +/-pi); called by projection, drone driver and car code. (low confidence)"
-consts = "1.5708 = pi/2; 3.14159 = pi"
-status = "inferred"
+name = "math_atan2"
+sig = "f32 math_atan2(f32 y, f32 x)"
+desc = "atan2(f12, f14) in radians: +/-pi/2 (or 0) when x is 0, else the arctangent of the quotient moved into the right quadrant. Same code as 2049 func_8008C768 (67 instructions, address-masked match)."
+consts = "+/-pi/2 and +/-pi (0x800CF4CC..D8)"
+status = "verified"
 rush2049 = [0x8008C768]
-area = "other"
-ref = "docs/functions/rush2_other.md#rush-2-other-functions"
+area = "util"
+ref = "docs/rush2049_research/cars.md#11-car-sheen-v"
 
 [[func]]
 vram = 0x8005C9F4
@@ -4561,14 +4562,14 @@ ref = "us.toml"
 
 [[func]]
 vram = 0x8005CE68
-name = "car_set_wheel_rim_textures"
-sig = "void car_set_wheel_rim_textures(s32 a0, s32 a1, s32 a2, Car *car)"
-desc = "Patched in us.toml. Car preview ids (car select: id = player * 36 + type, was * 22) index the race per-car arrays, which move to 72-entry copies at 0x80218000-0x80221EE8 (tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 36."
-consts = "0x3FF id mask"
-status = "inferred"
+name = "car_set_sheen_textures"
+sig = "void car_set_sheen_textures(s32 a0, s32 a1, s32 a2, s16 car)"
+desc = "Sets the car sheen layers' textures (node texture swap via func_8005A4C0, every LOD): DECAL handle index $t0 on car record (0x80219DD0 + car * 0x134) slots +0x3C and +0x44 (the D layer), sheen handle index $s5 on +0x50, +0x58 (the D2 layer) and +0xC (the hood's layer); the rest of each row draws with the texture left in TMEM. Callers: func_80085FD0, func_80089738, func_8005CFB0 (SHEEN7 at covered level 1, else SHEEN2 when 0x800D1FA8 >= 3, else SHEEN10). Patched in us.toml: car preview ids (id = player * 36 + type, was * 22) index the race per-car arrays, moved to 72-entry copies at 0x80218000-0x80221EE8 (tools/rush2049/cartypes.py id_toml)."
+consts = "0x134 = car record size; 0x80113F40 = effect texture handles ($t0 / $s5 index them: 0x21 DECAL, 0x22 SHEEN10, 0x23 SHEEN7, 0x24 SHEEN2)"
+status = "verified"
 ported = true
 area = "car"
-ref = "us.toml"
+ref = "docs/rush2049_research/cars.md#11-car-sheen-v"
 
 [[func]]
 vram = 0x8005CFB0

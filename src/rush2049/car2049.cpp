@@ -218,6 +218,8 @@ namespace {
         std::vector<uint32_t> vertices;
         std::vector<std::array<int16_t, 3>> rest;
         std::vector<float> hood;                // each vertex's share of the hood's fold (0-1), see body_hood
+        // The sheen layers' vertices (track2049::sheen_parts) at each body vertex's position, dented with it.
+        std::vector<std::vector<uint32_t>> mirrors;
         float extent[3] = { 1.0f, 1.0f, 1.0f }; // half width, height, half length
         // Damage textures: the body's texture loads, each serving one panel (0 FR, 1 FL, 2 RR, 3 RL, 4 top), whose
         // G_SETTIMG reads the pristine texels or their scuffed copy by that panel's damage.
@@ -578,6 +580,15 @@ namespace {
             p.rest.push_back(xyz);
         }
         for (int i = 0; i < 3; i++) p.extent[i] = std::max(1.0f, std::max(-lo[i], hi[i]));
+        std::map<std::array<int16_t, 3>, size_t> at_position;
+        for (size_t i = 0; i < p.rest.size(); i++) at_position.emplace(p.rest[i], i);
+        p.mirrors.assign(p.vertices.size(), {});
+        for (const char* part : rush2::track2049::sheen_parts) {
+            for (uint32_t v : model_vertices(car, prefix + part)) {
+                auto it = at_position.find(vertex_at(car, v));
+                if (it != at_position.end()) p.mirrors[it->second].push_back(v);
+            }
+        }
         body_hood(p);
     }
 
@@ -1856,6 +1867,9 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
         };
         for (int c = 0; c < 3; c++) {
             MEM_H(0, (int32_t)(base + p->vertices[i] + c * 2)) = (uint16_t)out[c];
+            if (i < p->mirrors.size()) {
+                for (uint32_t m : p->mirrors[i]) MEM_H(0, (int32_t)(base + m + c * 2)) = (uint16_t)out[c];
+            }
         }
     }
 }
@@ -2316,10 +2330,87 @@ void rush2::car2049::light_model(uint8_t* rdram, recomp_context* ctx, uint32_t d
     ctx->r30 = (uint64_t)(int64_t)(int32_t)side;
 }
 
+// Car sheen (Graphics > Car Sheen, docs/rush2049_research/cars.md#11-car-sheen-v). Rush 2 lays translucent sheen layers
+// over its cars: each panel's D part (car record +0x3C..+0x4C, the DECAL texture) and D2 part (+0x50..+0x60: SHEEN10,
+// SHEEN7 in lit tunnels, or SHEEN2 by 0x800D1FA8) and the hood's H0D / H2D halves (+0xC, +0x10), drawn SHADE * PRIM
+// with the texture as alpha; func_8005CFB0 sets their textures (func_8005CE68) and scrolls them each frame (node +0x28).
+// The converted 2049 cars carry the same layers made from their bodies (track2049::sheen_parts), which Rush 2 textures
+// and scrolls the same way. Original draws the Rush 2 cars' layers only, All On every car's, All Off none.
+namespace {
+    std::atomic<Sheen> sheen_mode{ Sheen::Original };
+    constexpr uint32_t car_part_handles = 0x80218000;  // + id * 0x4E: the 39 part model handles of car preview id `id`
+    constexpr int car_ids = 72;                        // preview ids (player * 36 + type); a race's cars are 0-7
+
+    // The sheen layers' car record slots and the part each holds (its other damage stage is the next part).
+    struct SheenSlot {
+        uint32_t offset;
+        int part;
+    };
+    constexpr SheenSlot sheen_slots[] = {
+        { 0x3C, 11 }, { 0x40, 13 }, { 0x44, 15 }, { 0x48, 17 }, { 0x4C, 19 },
+        { 0x50, 21 }, { 0x54, 23 }, { 0x58, 25 }, { 0x5C, 27 }, { 0x60, 29 },
+        { 0x0C, 35 }, { 0x10, 37 },
+    };
+
+    std::map<int, bool> sheen_nodes;  // scene node index of a sheen layer -> it belongs to a 2049 car
+    bool sheen_tables_built = false;
+
+    // The scene nodes of every car's sheen layers, checked against the parts their slots hold (records of ids not built
+    // since the last load keep stale node indices). Rebuilt for each view.
+    void build_sheen_tables(uint8_t* rdram) {
+        sheen_nodes.clear();
+        for (int id = 0; id < car_ids; id++) {
+            uint32_t base;
+            const Paint* p = car_instance(rdram, id, base);
+            bool rush2049 = p != nullptr && !p->body;
+            uint32_t record = car_body_nodes + uint32_t(id) * car_body_node_stride;
+            uint32_t parts = car_part_handles + uint32_t(id) * 0x4E;
+            for (const SheenSlot& s : sheen_slots) {
+                int n = (int32_t)MEM_W(0, (int32_t)(record + s.offset));
+                if (n < 0 || n >= max_scene_nodes) continue;
+                uint16_t h = MEM_HU(0, (int32_t)(scene_nodes + uint32_t(n) * scene_node_size + 0xC));
+                if (h != MEM_HU(0, (int32_t)(parts + s.part * 2)) && h != MEM_HU(0, (int32_t)(parts + s.part * 2 + 2))) continue;
+                sheen_nodes.emplace(n, rush2049);
+            }
+        }
+        sheen_tables_built = true;
+    }
+}
+
+void rush2::car2049::set_sheen(Sheen mode) {
+    sheen_mode = mode;
+}
+
+void rush2::car2049::sheen_model(uint8_t* rdram, recomp_context* ctx) {
+    static std::chrono::steady_clock::time_point built_at{};
+    auto now = std::chrono::steady_clock::now();
+    if (!sheen_tables_built || now - built_at > std::chrono::milliseconds(50)) {
+        build_sheen_tables(rdram);
+        built_at = now;
+    }
+    uint32_t node_addr = (uint32_t)ctx->r23;
+    if (node_addr < scene_nodes) {
+        return;
+    }
+    auto it = sheen_nodes.find(int((node_addr - scene_nodes) / scene_node_size));
+    if (it == sheen_nodes.end()) {
+        return;
+    }
+    Sheen mode = sheen_mode;
+    bool shown = it->second ? mode == Sheen::AllOn : mode != Sheen::AllOff;
+    if (!shown) {
+        uint32_t empty = light_side_alloc(8);
+        MEM_W(0, (int32_t)empty) = (int32_t)0xDF000000;
+        MEM_W(4, (int32_t)empty) = 0;
+        ctx->r30 = (uint64_t)(int64_t)(int32_t)empty;
+    }
+}
+
 // func_8007C624 entry: a new view.
 extern "C" void rush2_car49_flames_view_begin(uint8_t* rdram, recomp_context* ctx) {
     queued_flames.clear();
     light_tables_built = false;
+    sheen_tables_built = false;
 }
 
 // func_8007C624 at L_8007D980, after the world-space polygons: draws the queued flames. $s6 = display list cursor.

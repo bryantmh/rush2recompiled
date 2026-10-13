@@ -507,6 +507,8 @@ extern "C" void rush2_model_draw(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::animate(rdram);
     // The ghost car of a ghost race, translucent (src/ghost.cpp), around whatever draws its models.
     rush2::ghost::draw_model(rdram, ctx);
+    // Car sheen (src/rush2049/car2049.cpp): drops the sheen layers the setting hides.
+    rush2::car2049::sheen_model(rdram, ctx);
     // Rush 2049's car lighting (src/rush2049/car2049.cpp), around all of the above.
     rush2::car2049::light_model(rdram, ctx, dl);
 }

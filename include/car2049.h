@@ -125,6 +125,13 @@ namespace rush2::car2049 {
     // the road under it on a 2049 track); on a 2049 track any other car part is drawn from a copy of its list whose
     // combiners multiply by that colour (through ENV and PRIM).
     void light_model(uint8_t* rdram, recomp_context* ctx, uint32_t dl);
+
+    // Car sheen (Graphics > Car Sheen): Rush 2's translucent sheen layers over the cars. Original draws them on the
+    // Rush 2 cars, All On on the Rush 2049 cars too (layers made from their bodies), All Off on none.
+    enum class Sheen : uint32_t { Original, AllOn, AllOff };
+    void set_sheen(Sheen mode);
+    // Before func_8007AA48 emits the G_DL ($s7 = the node): drops a sheen layer the setting hides.
+    void sheen_model(uint8_t* rdram, recomp_context* ctx);
 }
 
 #endif
