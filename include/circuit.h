@@ -33,6 +33,10 @@ namespace rush2::circuit {
     // Accurate Circuit Review (General tab): the victory screen after a circuit shows its races, in order, each with
     // the car player 1 raced in it, racing or wrecked by the place there. Read when that screen starts.
     void set_accurate_review(bool enabled);
+
+    // More Circuit Settings (General tab): the track select lets DIFFICULTY and DEATHS change on every circuit race,
+    // DIFFICULTY included. Takes effect at once.
+    void set_more_settings(bool enabled);
 }
 
 #endif

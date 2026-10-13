@@ -95,7 +95,8 @@ A widget record is 0x28 bytes: `char *texture; s16 x, y; 3×-1; 0; 0; 0xFF; call
 - Literal track tests: track 11 (STUNT) forces backward and mirror off; track 10 (ATARI) forces fog 1 and wind 0.
 
 **Greyed options** [V] (0x803ABF28–0x803AC000, and 0x803AC59C–0x803AC638 → flag 0x803D0608):
-- In circuit mode with race index > 0, nothing can be changed. In circuit mode at race 0, DEATHS is greyed.
+- In circuit mode with race index > 0, nothing can be changed. In circuit mode at race 0, only DEATHS can be changed
+  (corrected 2026-10-13 from the code; see section 9, More circuit settings).
 - On ATARI (10), FOG and WIND are greyed.
 - On STUNT (11), everything except TRACK, FOG and WIND is greyed.
 - On LA (5), the FOG label reads "SMOG" (0x800C4A98) (`func_803C59A0` 0x803C5BC0, `func_803C6268`).
@@ -597,3 +598,20 @@ Every demo runs forward. Tried 2026-10-13: a backward demo shows only sky in the
 (0x800D1FA8) apply to the whole screen: mirror flips the wreath and gold coin out of sight, and fog hid everything.
 Checked 2026-10-13: a 4-race circuit over Hawaii, Marina, Golden Gate
 and the Wario Stadium mod showed each logo and demo in order with the wreath and coin.
+
+### More circuit settings (port) [V]
+A circuit race takes DIFFICULTY and DEATHS from the circuit block's `+1` byte, not the menu settings:
+`func_80094698` sets difficulty 0x8010C211 = bits 3-5 and deaths 0x8010BC98 = bit 1 (and laps 3, drones 7, handicap 2,
+checkpoints on). `func_800B2A58` starts a circuit at difficulty 2 (`+1` bits 3-5 = 0x10, 0x800B2B24) with the menu's
+DEATHS (+0x11, through `func_800B29DC`, which sets or clears bit 1 of the current profile's block). The track select's
+DEATHS step (case 10, 0x803AC3D0) toggles +0x11 and in circuit mode writes it to the block with `func_800B29DC`; its
+DIFFICULTY step (case 7, 0x803AC308) only changes the menu's +0xA. `func_803ABE0C` greys options twice:
+- input (0x803ABF28-0x803ABF74): mode 1 and race 0x800D3DF0 > 0, or an option other than DEATHS, -> 0x803AC000 (no
+  step); otherwise the track tests (ATARI, STUNT).
+- the greyed flag 0x803D0608 (0x803AC554-0x803AC640, 0 = greyed) that the option text (`func_803C6268`) and arrows
+  (`func_803C59A0`) read: the same tests. The DIFFICULTY slider shows 0x8010C211, so the circuit's value.
+
+The General tab's More Circuit Settings (default Off; src/circuit.cpp) opens DIFFICULTY and DEATHS on every circuit
+race: hooks at 0x803ABF3C ($a0) and 0x803AC558 ($v0) skip the circuit test for those two options, one at 0x803AC064
+loads +0xA and +0x11 from the block before the step (the menu's may have changed in a single race since), and one at
+0x803AC410 writes DIFFICULTY to the block's bits 3-5 and marks the byte dirty (`pak_mark_dirty`).

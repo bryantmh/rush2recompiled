@@ -574,6 +574,28 @@ static void add_circuit_review_option(recomp::config::Config& config) {
         });
 }
 
+namespace more_circuit_option {
+    const std::string id = "more_circuit_settings";
+}
+
+// More circuit settings: DIFFICULTY and DEATHS can change on any circuit race (src/circuit.cpp).
+static void add_more_circuit_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        more_circuit_option::id,
+        "More Circuit Settings",
+        "Lets you change <recomp-color primary>DIFFICULTY</recomp-color> in a circuit, and change it and "
+        "<recomp-color primary>DEATHS</recomp-color> before any race of the circuit, not just the first. "
+        "Off, a circuit is always at Rush 2's difficulty and DEATHS can only be set before its first race. "
+        "Takes effect at once.",
+        false
+    );
+
+    config.add_option_change_callback(more_circuit_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::circuit::set_more_settings(std::get<bool>(cur_value));
+        });
+}
+
 namespace pause_extras_option {
     const std::string id = "pause_menu_extras";
 }
@@ -673,7 +695,7 @@ void rush2::init_config() {
         namespace general = recompui::config::general;
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id,
-                            catch_up_option::id, pause_extras_option::id, circuit_review_option::id, ghost_option::id, ghosts_kept_option::id } },
+                            catch_up_option::id, pause_extras_option::id, circuit_review_option::id, more_circuit_option::id, ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
         }, nullptr, {
             { "Gameplay", [](rush2::ui::OptionsPage* page) {
@@ -707,6 +729,7 @@ void rush2::init_config() {
     add_catch_up_option(general_config);
     add_pause_extras_option(general_config);
     add_circuit_review_option(general_config);
+    add_more_circuit_option(general_config);
     add_menu_background_option(general_config);
     add_data_location_option(general_config);
 
@@ -779,6 +802,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(pause_extras_option::id)));
     rush2::circuit::set_accurate_review(std::get<bool>(
         recompui::config::get_general_config().get_option_value(circuit_review_option::id)));
+    rush2::circuit::set_more_settings(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(more_circuit_option::id)));
     rush2::input::load_players();
     rush2::controls::load();
     rush2::wings::load_config();

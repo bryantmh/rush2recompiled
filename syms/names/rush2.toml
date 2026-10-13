@@ -12762,13 +12762,13 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 
 [[func]]
 vram = 0x800B29DC
-name = "save_get_pak_flag"
-sig = "s32 save_get_pak_flag(s32 a0)"
-desc = "Reads and updates bits of save_pak_settings_word (mask 0xFFFD, 0x464) using save_profile_index and race_selected_track_index; returns the flag. (low confidence)"
-consts = "0xFFFD = mask, 0x464 = offset"
-status = "inferred"
+name = "circuit_set_deaths"
+sig = "void circuit_set_deaths(u8 on)"
+desc = "Points 0x800D3E40 at the current profile's circuit block (player record +0x464 + humans * 0x60) and sets (on != 0) or clears bit 1 (DEATHS) of its +1 byte. Called by func_800B2A58 (new circuit, menu +0x11) and the track select's DEATHS step in circuit mode. No pak_mark_dirty."
+consts = "0x464 = circuit block in the player record; 0x60 = block size per human count; bit 1 of +1 = deaths"
+status = "verified"
 area = "save"
-ref = "docs/functions/rush2_save.md#rush-2-save-functions"
+ref = "docs/rush2049_research/menus.md#more-circuit-settings-port-v"
 
 [[func]]
 vram = 0x800B2A58
@@ -14045,7 +14045,7 @@ ref = "us.toml"
 vram = 0x803ABE0C
 name = "trackselect_frame"
 sig = "void trackselect_frame(void)"
-desc = "Patched in us.toml. Rush 2049 track select entries (src/rush2049/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and func_803ABE0C (per frame); its tables and carousel array are repointed to 30-entry copies at 0x80300000 (Rush 2's 12 tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29). / Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. / The row count follows the unlock system's UNLOCKS row (6 or 7 rows; src/rush2049/track2049_menu.cpp). / END 4 player relocations The unlock system's shop (src/... | Track select per-frame handler (overlay): reads buttons (0x80125A68/0x8011962A), calls func_803AB294(1) to draw dioramas, on B calls func_803AB294(0) to tear down; left/right dispatch through jump table 0x803CAC10 editing the menu settings struct 0x800D5760; TRACK case cycles carouselIndex and track; saves track nibble into player record +0x30. Called from func_800AE670. | Track select per-frame step; reads the track id byte, TRACK option wraps. Hooked at start and at 0x803AC104, 0x803AC670/0x803AC6B8, 0x803ABFBC, 0x803AC554. / Moving down 0x803AC4C8: top row steps unless top + 4 == count; DRONES case 0x803AC2CC wraps menu settings +0x1 with & 7. Hooked at 0x803AC4FC (short lists never scroll), 0x803AC2F0 / 0x803AC300 (ghost race DRONES)."
+desc = "Patched in us.toml. Rush 2049 track select entries (src/rush2049/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and func_803ABE0C (per frame); its tables and carousel array are repointed to 30-entry copies at 0x80300000 (Rush 2's 12 tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29). / Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. / The row count follows the unlock system's UNLOCKS row (6 or 7 rows; src/rush2049/track2049_menu.cpp). / END 4 player relocations The unlock system's shop (src/... | Track select per-frame handler (overlay): reads buttons (0x80125A68/0x8011962A), calls func_803AB294(1) to draw dioramas, on B calls func_803AB294(0) to tear down; left/right dispatch through jump table 0x803CAC10 editing the menu settings struct 0x800D5760; TRACK case cycles carouselIndex and track; saves track nibble into player record +0x30. Called from func_800AE670. | Track select per-frame step; reads the track id byte, TRACK option wraps. Hooked at start and at 0x803AC104, 0x803AC670/0x803AC6B8, 0x803ABFBC, 0x803AC554. / Moving down 0x803AC4C8: top row steps unless top + 4 == count; DRONES case 0x803AC2CC wraps menu settings +0x1 with & 7. Hooked at 0x803AC4FC (short lists never scroll), 0x803AC2F0 / 0x803AC300 (ghost race DRONES). / Circuit greying: input test 0x803ABF28-0x803ABF74 and greyed flag 0x803D0608 at 0x803AC554-0x803AC640 (a circuit leaves only DEATHS, on its first race). More Circuit Settings (src/circuit.cpp) hooks 0x803ABF3C, 0x803AC064, 0x803AC410, 0x803AC558."
 status = "verified"
 ported = true
 area = "menu"

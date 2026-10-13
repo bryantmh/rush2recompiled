@@ -195,6 +195,10 @@ void rush2_circuit_complete_t9(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_complete_v0(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_last_race(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_races_left(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_more_input(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_more_grey(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_more_step(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_more_stepped(uint8_t* rdram, recomp_context* ctx);
 // Accurate Circuit Review (src/circuit.cpp).
 void rush2_circuit_review_snapshot(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_review_title(uint8_t* rdram, recomp_context* ctx);

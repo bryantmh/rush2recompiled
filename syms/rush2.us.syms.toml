@@ -1302,7 +1302,7 @@ functions = [
     { name = "car_options_copy_rgb_800B26E0", vram = 0x800B26E0, size = 0x1C },
     { name = "car_record_get_byte1_800B26FC", vram = 0x800B26FC, size = 0x10 },
     { name = "str_format_name_entry_800B270C", vram = 0x800B270C, size = 0x2D0 },
-    { name = "save_get_pak_flag_800B29DC", vram = 0x800B29DC, size = 0x7C },
+    { name = "circuit_set_deaths_800B29DC", vram = 0x800B29DC, size = 0x7C },
     { name = "save_reset_pak_settings_block_800B2A58", vram = 0x800B2A58, size = 0x174 },
     { name = "save_reset_all_settings_800B2BCC", vram = 0x800B2BCC, size = 0x4A0 },
     { name = "profile_delete_800B306C", vram = 0x800B306C, size = 0xA4 },

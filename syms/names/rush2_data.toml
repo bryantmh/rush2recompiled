@@ -9544,7 +9544,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010BC98
 name = "race_deaths"
 type = "s8"
-desc = "DEATHS option for the race (track select struct 0x800D5760 + 0x11, copied by func_80094698 at 0x80094974; 0 off). Read by car_wreck_trigger, race_car_finish_or_respawn_handle (out of deaths ranks the car behind the finishers), record stats, the skull HUD widget and the options text."
+desc = "DEATHS option for the race (track select struct 0x800D5760 + 0x11, copied by func_80094698 at 0x80094974; 0 off). Read by car_wreck_trigger, race_car_finish_or_respawn_handle (out of deaths ranks the car behind the finishers), record stats, the skull HUD widget and the options text. In a circuit, from the circuit block +1 bit 1 instead."
 area = "race"
 status = "verified"
 ref = "docs/game_fixes.md#finish-place-and-deaths"
@@ -10597,7 +10597,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C211
 name = "race_difficulty"
 type = "u8"
-desc = "DIFFICULTY for the race (0-5, from the track select struct 0x800D5760 + 0xA by func_80094698). Drives rubber_band_800A1A98: f20 = (1 - difficulty / 5) x the per-track factor 0x800C1A3C, and no place spread at 5. Also read by checkpoint, total time, start timer and ranking."
+desc = "DIFFICULTY for the race (0-5, from the track select struct 0x800D5760 + 0xA by func_80094698). Drives rubber_band_800A1A98: f20 = (1 - difficulty / 5) x the per-track factor 0x800C1A3C, and no place spread at 5. Also read by checkpoint, total time, start timer and ranking. In a circuit, from the circuit block +1 bits 3-5 instead (2 unless More Circuit Settings changed it)."
 area = "race"
 status = "verified"
 ref = "docs/npc_cars.md#drone-catch-up"
@@ -16130,9 +16130,9 @@ ref = "docs/rush2049_research/menus.md#13-options"
 
 [[var]]
 vram = 0x803D0608
-name = "trackselect_option_flag"
+name = "trackselect_option_open"
 type = "u8"
-desc = "Byte set by track select frame, read by options text, arrow and hint widgets (low confidence)."
+desc = "Whether the track select's cursor option can be changed (1) or is greyed (0), set each frame by func_803ABE0C at 0x803AC640 (circuit, ATARI and STUNT tests); read by the options text, arrow and hint widgets."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -16152,8 +16152,8 @@ name = "trackselect_init_word"
 type = "s32"
 desc = "Word kept by track select init draw (low confidence)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#more-circuit-settings-port-v"
 
 [[var]]
 vram = 0x803D0686

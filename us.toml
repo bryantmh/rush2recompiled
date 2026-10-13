@@ -1450,6 +1450,27 @@ text = "    rush2_circuit_review_preload(rdram, ctx);"
 
 [[patches.hook]]
 func = "menu_title_screen_run_800ABE7C"
+# More Circuit Settings (src/circuit.cpp): DIFFICULTY and DEATHS stay open on every circuit race in the track select.
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803ABF3C
+text = "    rush2_circuit_more_input(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC064
+text = "    rush2_circuit_more_step(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC410
+text = "    rush2_circuit_more_stepped(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC558
+text = "    rush2_circuit_more_grey(rdram, ctx);"
+
 before_vram = 0x800ACEA8
 text = "    rush2_circuit_review_preload_logo(rdram, ctx);"
 

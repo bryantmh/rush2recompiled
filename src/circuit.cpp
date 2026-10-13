@@ -339,6 +339,87 @@ extern "C" void rush2_circuit_races_left(uint8_t* rdram, recomp_context* ctx) {
     ctx->r19 = (uint64_t)(int64_t)races;
 }
 
+// More Circuit Settings. A circuit race takes its DIFFICULTY and DEATHS from the circuit block, not the menu settings
+// (func_80094698: 0x8010C211 = block +1 bits 3-5, 0x8010BC98 = block +1 bit 1). func_800B2A58 starts a circuit with
+// difficulty 2 and the menu's DEATHS (+0x11); the track select's DEATHS step writes the block too (func_800B29DC).
+// func_803ABE0C greys every option in a circuit except DEATHS on the first race and every option after it, in two
+// places: the input test (0x803ABF28-0x803ABF74, mode 1 and race 0x800D3DF0 > 0 or option != DEATHS -> 0x803AC000,
+// no step) and the flag the option text and arrows grey from (0x803AC554-0x803AC594 -> 0x803D0608 = 0). With the option
+// on, both take the track's own tests for DIFFICULTY and DEATHS on any circuit race, a step starts from the circuit's
+// values (the menu's may have changed since, in a single race) and DIFFICULTY's is written to the block.
+extern "C" void pak_mark_dirty_8005F338(uint8_t* rdram, recomp_context* ctx);     // $a0 address, $a1 length, $t1 = 0
+
+namespace {
+    constexpr uint32_t game_mode = 0x8010C3E8;        // s32: 1 = circuit
+    constexpr uint32_t menu_settings = 0x800D5760;    // the track select's settings
+    constexpr int32_t menu_difficulty = 0xA;          // s8 0..5
+    constexpr int32_t menu_deaths = 0x11;             // s8 0/1
+    constexpr int32_t block_flags = 0x1;              // u8: bit 0 in progress, bit 1 deaths, bits 3-5 difficulty
+    constexpr uint32_t option_cursor = 0x803D05BC;    // s32: the track select's cursor row
+    constexpr uint32_t option_rows = 0x803D05D8;      // s32 [rows]: option id per row
+    constexpr int option_difficulty = 7;
+    constexpr int option_deaths = 10;
+
+    std::atomic<bool> more_settings = false;
+
+    bool more_settings_option(uint8_t* rdram) {
+        if (!more_settings.load()) return false;
+        int row = (int32_t)MEM_W(0, (int32_t)option_cursor);
+        int option = (int32_t)MEM_W(0, (int32_t)(option_rows + row * 4));
+        return option == option_difficulty || option == option_deaths;
+    }
+
+    bool in_circuit(uint8_t* rdram) {
+        return (int32_t)MEM_W(0, (int32_t)game_mode) == 1 && (uint32_t)MEM_W(0, (int32_t)circuit_block) != 0;
+    }
+}
+
+void rush2::circuit::set_more_settings(bool enabled) {
+    more_settings.store(enabled);
+}
+
+// func_803ABE0C at 0x803ABF3C: $a0 = whether this is a circuit, about to take the circuit's greying.
+extern "C" void rush2_circuit_more_input(uint8_t* rdram, recomp_context* ctx) {
+    if (ctx->r4 != 0 && more_settings_option(rdram)) ctx->r4 = 0;
+}
+
+// func_803ABE0C at 0x803AC558: $v0 = whether this is not a circuit, about to take the circuit's greyed flag.
+extern "C" void rush2_circuit_more_grey(uint8_t* rdram, recomp_context* ctx) {
+    if (ctx->r2 == 0 && more_settings_option(rdram)) ctx->r2 = 1;
+}
+
+// func_803ABE0C at 0x803AC064, about to step the cursor's option: DIFFICULTY and DEATHS step from the circuit's.
+extern "C" void rush2_circuit_more_step(uint8_t* rdram, recomp_context* ctx) {
+    if (!more_settings_option(rdram) || !in_circuit(rdram)) return;
+    uint32_t block = (uint32_t)MEM_W(0, (int32_t)circuit_block);
+    uint8_t flags = MEM_BU(block_flags, (int32_t)block);
+    MEM_B(menu_difficulty, (int32_t)menu_settings) = (int8_t)((flags >> 3) & 7);
+    MEM_B(menu_deaths, (int32_t)menu_settings) = (int8_t)((flags >> 1) & 1);
+}
+
+// func_803ABE0C at 0x803AC410, an option stepped: a circuit keeps the DIFFICULTY chosen (DEATHS the game wrote).
+extern "C" void rush2_circuit_more_stepped(uint8_t* rdram, recomp_context* ctx) {
+    if (!more_settings_option(rdram) || !in_circuit(rdram)) return;
+    uint32_t block = (uint32_t)MEM_W(0, (int32_t)circuit_block);
+    uint8_t flags = MEM_BU(block_flags, (int32_t)block);
+    int row = (int32_t)MEM_W(0, (int32_t)option_cursor);
+    if ((int32_t)MEM_W(0, (int32_t)(option_rows + row * 4)) == option_difficulty) {
+        int difficulty = (int8_t)MEM_B(menu_difficulty, (int32_t)menu_settings) & 7;
+        uint8_t now = (uint8_t)((flags & ~0x38) | (difficulty << 3));
+        if (now != flags) {
+            flags = now;
+            MEM_B(block_flags, (int32_t)block) = (int8_t)now;
+            recomp_context call = *ctx;
+            call.r4 = (uint64_t)(int64_t)(int32_t)(block + block_flags);
+            call.r5 = 1;
+            call.r9 = 0;
+            pak_mark_dirty_8005F338(rdram, &call);
+        }
+    }
+    printf("[circuit] Race %d: difficulty %d, deaths %d\n", finished(rdram) + 1, (flags >> 3) & 7, (flags >> 1) & 1);
+    std::fflush(stdout);
+}
+
 // Accurate Circuit Review. When a circuit completes, the game goes on to its victory screen, which is the title's
 // attract loop (func_800ABE7C): a card with a track's logo, then a demo race on it in a wreath with a medal, track
 // after track (func_800AB824: 0-6, then 10 with ATARI unlocked). The screen's place (1st to 3rd in the circuit, or
