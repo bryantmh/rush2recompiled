@@ -428,6 +428,11 @@ time += dt → func_800763FC → **func_80075FB8 (subways)** → func_80075DC0 (
    hit)` for every trigger group (skip wrecked cars: +0x648). Rush 2 cars 0..7 map to bits 24..31.
 7. **In-place animations:** placement nodes of TROLLEY2/WINDMILL/WINDMILL2: `rotate_in_place(nodeMatrix, sub, dt)`
    per tick (2049: per frame).
+8. **Restart:** RESTART runs func_800A5110 again but skips its track file queue (func_800A4C98 is called only while
+   0x8010C3F8 is 0), so no placement or collision file is reloaded: records, scene node flags and models and the moved
+   collision groups still hold the last race's state [V]. The port resets the movers, props, battle and animated
+   textures from the hook at func_800A5110's start (`rush2_track49_race_start`, `reset_race_objects`), and the setups
+   write every record's start pose, model and hidden flag back and restore every collision group.
 
 ---------------------------------------------------------------------------------------------------------------------
 

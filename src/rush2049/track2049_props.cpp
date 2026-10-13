@@ -296,6 +296,14 @@ namespace {
                 hide(rdram, p);
                 p.state = Prop::State::done;
             }
+            else {
+                // A RESTART reloads no placement file: the records and nodes still hold the last race's props.
+                write_pose(rdram, p);
+                set_model(rdram, p, read_name(rdram, p.record));
+                if (p.node != 0) {
+                    MEM_W(0, (int32_t)p.node) = (uint32_t)MEM_W(0, (int32_t)p.node) & ~node_hidden;
+                }
+            }
             props.push_back(p);
         }
         fprintf(stderr, "[2049] %zu props\n", props.size());

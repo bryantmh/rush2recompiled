@@ -441,10 +441,14 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         loaded_track = k;
     }
     apply(rdram);
-    rush2::track2049::reset_movers();
-    rush2::track2049::reset_props();
+    rush2::track2049::reset_race_objects();
+}
+
+void rush2::track2049::reset_race_objects() {
+    reset_movers();
+    reset_props();
     rush2::battle::reset();
-    rush2::track2049::texanim_reset();
+    texanim_reset();
 }
 
 // func_8007C27C at 0x8007C480: 0x5C($sp) = the section mask chosen for the camera's region 0x78($sp) (-1 = none,

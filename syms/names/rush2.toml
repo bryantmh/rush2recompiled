@@ -11512,12 +11512,12 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 vram = 0x800A4C98
 name = "track_assets_queue"
 sig = "s32 track_assets_queue(void)"
-desc = "Patched in us.toml. Rush 2049 tracks (src/rush2049/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the visible sections for the camera's region, func_800A45A8 builds the sky. / Rush 2049 cars on the car select (src/rush2049/car2049.cpp): the per-player car list (0x803CB368) and carousel (0x803CB980, 0x210 per player) and the asset tables (0x800C185C, 0x8001CD64) move to larger copies; the 2049 types are appended to the list, load as assets 0x71 + n, and keep their per-car options in side slots. | Track-specific race load step called from func_800A5110. Queues track geometry 0x33+t, placement 0x3F+t, collision 0x4B+t, AI path 0x57+t(+12), plus assets 0x12 and 0x14; sums file sizes and checks free heap (fails cleanly with 0), allocates, queues loads. | Queues the race's track files (asset loads). Hooked at start."
+desc = "Patched in us.toml. Rush 2049 tracks (src/rush2049/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the visible sections for the camera's region, func_800A45A8 builds the sky. / Rush 2049 cars on the car select (src/rush2049/car2049.cpp): the per-player car list (0x803CB368) and carousel (0x803CB980, 0x210 per player) and the asset tables (0x800C185C, 0x8001CD64) move to larger copies; the 2049 types are appended to the list, load as assets 0x71 + n, and keep their per-car options in side slots. | Track-specific race load step called from func_800A5110. Queues track geometry 0x33+t, placement 0x3F+t, collision 0x4B+t, AI path 0x57+t(+12), plus assets 0x12 and 0x14; sums file sizes and checks free heap (fails cleanly with 0), allocates, queues loads. | Queues the race's track files (asset loads). Hooked at start. func_800A5110 calls it only while 0x8010C3F8 is 0: a RESTART skips it and reloads no track file."
 consts = "0x2EE0 = extra buffer size"
 status = "verified"
 ported = true
 area = "track"
-ref = "us.toml"
+ref = "docs/rush2049_research/movers.md#8-rush-2-hook-design-recommended"
 
 [[func]]
 vram = 0x800A5110

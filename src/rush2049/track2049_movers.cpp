@@ -398,8 +398,10 @@ namespace {
             if (p.object >= 0) {
                 used[p.object] = true;
             }
-            else if (p.node != 0) {
-                MEM_W(0, (int32_t)p.node) = (uint32_t)MEM_W(0, (int32_t)p.node) | node_hidden;
+            // Set either way: a RESTART reloads no placement file, so the nodes keep the last race's flags.
+            if (p.node != 0) {
+                uint32_t flags = (uint32_t)MEM_W(0, (int32_t)p.node);
+                MEM_W(0, (int32_t)p.node) = p.object >= 0 ? flags & ~node_hidden : flags | node_hidden;
             }
             placed.push_back(p);
         }

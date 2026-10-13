@@ -180,6 +180,9 @@ namespace rush2::track2049 {
 
     // Rush 2049 music and object sounds (src/rush2049/track2049_audio.cpp). update_object_sounds takes one entry per moving
     // object each tick, in a fixed order; mix_audio adds the 2049 audio to the game's output (interleaved stereo,
+    // Every race setup, a RESTART included (which reloads no track files): the moving objects, props, battle and
+    // animated textures start over on the race's next physics tick.
+    void reset_race_objects();
     // scale = the level of a full-scale sample).
     struct ObjectSound {
         enum Request { none, start, loop, stop } request = none;

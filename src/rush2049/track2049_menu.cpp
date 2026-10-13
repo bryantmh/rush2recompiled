@@ -920,9 +920,11 @@ extern "C" int rush2_track49_keys(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_800A5ADC at 0x800A5B2C (race start, before the race's cars and objects are set up) and the start of
-// func_800A5110 (race setup, also reached directly by func_800A57C8).
+// func_800A5110 (race setup, also reached directly by func_800A57C8). A RESTART runs func_800A5110 but skips its track
+// file queue (func_800A4C98, only when 0x8010C3F8 is 0), so the 2049 objects are reset here too.
 extern "C" void rush2_track49_race_start(uint8_t* rdram, recomp_context* ctx) {
     enter_race(rdram);
+    rush2::track2049::reset_race_objects();
 }
 
 int rush2::track2049::host_menu_track(uint8_t* rdram, int t) {
