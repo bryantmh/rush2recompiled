@@ -514,6 +514,37 @@ in 0x800D3E40): `+2` races finished, `+4` random seed, `+8` the cars' places, 3 
   wreath, with the circuit place (a gold medallion and balloons for 1st). `func_800AB824` gives the next track,
   t + 1, back to 0 from 7 up (so the added tracks never appear), with 10 after 6 once ATARI is unlocked. Checked
   2026-10-10 with every circuit race on an SF Rush or 2049 track: it ran its whole loop (0-6, 10) without a crash.
+- `func_800B2A58` starts a new circuit (CIRCUIT > NEW CIRCUIT, 0x803B7410; also run before a circuit code is
+  decoded by `func_800B2BCC`, which then sets the seed and race count): clears the block, sets `+4` = timer
+  (0x80117488) & 0xFFFFF and `+1` bit 0 (circuit in progress).
+
+### Circuit length and courses (port) [V]
+
+The General tab's Circuit Length select (4 to 28 races) and Circuit Courses section (a toggle per course of Rush 2
+0-6, Rush 2049 12-17 and SF Rush 18-24, and one per game for all of them) are in src/circuit.cpp. A circuit keeps
+what was chosen when it started: the hook at the end of `func_800B2A58` (0x800B2BBC) records the length and courses
+against the block's seed in the saves file's "circuits" section; a circuit with no record is 28 races over every
+course. Rush 2 compares the length 28 in six places, each hooked to use the circuit's length L:
+
+| Where | Test | Hook |
+|---|---|---|
+| `func_800A7DCC` 0x800A7E5C | current race 0x800D3DF0 = min(finished, 27) | $v0 capped at L - 1 |
+| `func_800A8D1C` 0x800A8F54 | finished >= 28 completes the circuit (`func_800A8B04`) | $t7 >= L reads as 28 |
+| `func_800A952C` 0x800A9670 | the race just run (index) < 27: set up the next race | $t9 >= L - 1 reads as 27 |
+| `func_803B6CA8` 0x803B6CB8 | NEXT RACE offered (0x803C7894) while finished < 28 | $v0 >= L reads as 28 |
+| `func_803B7018` 0x803B7158 | back from a race with finished >= 28: results (state 0xC) | $t9 >= L reads as 28 |
+| `func_803BCFA4` 0x803BCFE0 | circuit screen "N RACES TO GO" = 28 - finished ($s3 = 28) | $s3 = L |
+
+The standings loops (0x800A8708) only read the races finished, and the places (3 bits a race) have room for 29, so
+they need nothing. The circuit code entry (`func_800B2BCC` 0x800B2C70, finished < 28) is left alone: codes hold
+28-race circuits. The generator hook (`rush2_track49_circuit`) draws from the circuit's chosen courses among those
+available and unlocked (all of them if none is chosen), and leaves the game's own picks when that is exactly Rush 2's
+0-6. Checked 2026-10-12: a 4-race circuit over Hawaii, Marina and Golden Gate drew only those, showed "2 RACES TO GO"
+after 2 and went to the victory screen after race 4.
+
+Rush 2049's own circuits are BEGINNER / INTERMEDIATE / ADVANCED / EXTREME (strings 572-575 of its text file 0); how
+many races each has was not found in its code, so the select offers race counts instead.
+
 - Its "RUSH2" background (0x800AC0E4-0x800AC130) is a 3 x 7 grid of 128 x 32 HUD elements from (12, 10), clipped to
   the 4:3 screen. Widescreen continues it with shifted copies of tiles that are fully on screen
   (`rush2_title_background_tiles`, src/widescreen.cpp; `rush2::hud::set_widget_shift`).

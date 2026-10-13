@@ -12773,11 +12773,12 @@ ref = "docs/functions/rush2_save.md#rush-2-save-functions"
 vram = 0x800B2A58
 name = "save_reset_pak_settings_block"
 sig = "void save_reset_pak_settings_block(void)"
-desc = "Clears a 0x60-byte block (memset), marks pak dirty (0x60 bytes at save_pak_settings_word), sets the pak flag via save_get_pak_flag and memcpys 0xC0 bytes of defaults into the save/options data; resets saved settings."
+desc = "Starts a new circuit (NEW CIRCUIT, and before a circuit code is decoded): clears the profile's 0x60-byte circuit block (pointer 0x800D3E40), sets its seed +4 = timer 0x80117488 & 0xFFFFF and flag +1 bit 0 (in progress), marks the pak dirty, then copies 0xC0 bytes of default settings. Hooked at its end (0x800B2BBC) to record the circuit's length and courses (src/circuit.cpp)."
 consts = "0x60 = settings block, 0xC0 = defaults size"
-status = "inferred"
+status = "verified"
+ported = true
 area = "save"
-ref = "docs/functions/rush2_save.md#rush-2-save-functions"
+ref = "docs/rush2049_research/menus.md#9-circuit-results-and-the-victory-screen-v"
 
 [[func]]
 vram = 0x800B2BCC
@@ -14859,11 +14860,12 @@ ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
 vram = 0x803B6CA8
 name = "menu_reset_options_from_pak_flags"
 sig = "s32 menu_reset_options_from_pak_flags(void)"
-desc = "Writes option bytes menu_option_c7894/menu_option_b from save_pak_settings_word (0x1C mask) and returns a value. (low confidence)"
-consts = "0x1C = flag mask"
-status = "inferred"
+desc = "Circuit menu: sets 0x803C7894 = circuit in progress and races finished < 28 (NEXT RACE offered) and 0x803C7898 = circuit in progress (block +1 bit 0). Hooked at 0x803B6CB8 to compare with the circuit's length (src/circuit.cpp)."
+consts = "0x1C = 28 races in a circuit"
+status = "verified"
+ported = true
 area = "menu"
-ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
+ref = "docs/rush2049_research/menus.md#circuit-length-and-courses-port-v"
 
 [[func]]
 vram = 0x803B6CFC
@@ -15140,11 +15142,12 @@ ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
 vram = 0x803BCFA4
 name = "menu_name_check_c"
 sig = "void menu_name_check_c(void)"
-desc = "Name record check variant using format \"%d\" and the save byte save_pak_settings_word+2 (0x1C comparison). (low confidence)"
-consts = "0x1C = flag mask"
-status = "inferred"
+desc = "Circuit screen text: 'N RACES TO GO' (sprintf %d of 28 - races finished, singular string when 1). Hooked at 0x803BCFE4 to use the circuit's length (src/circuit.cpp)."
+consts = "0x1C = 28 races in a circuit"
+status = "verified"
+ported = true
 area = "menu"
-ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
+ref = "docs/rush2049_research/menus.md#circuit-length-and-courses-port-v"
 
 [[func]]
 vram = 0x803BD080

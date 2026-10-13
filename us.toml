@@ -1312,6 +1312,43 @@ value = 0x3C118030 # lui $s1, 0x8030
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
+# Circuit length (src/circuit.cpp): a circuit keeps the length and courses it started with (end of func_800B2A58), and
+# the six tests of Rush 2's 28 races compare with that length instead.
+[[patches.hook]]
+func = "save_reset_pak_settings_block_800B2A58"
+before_vram = 0x800B2BBC
+text = "    rush2_circuit_started(rdram, ctx);"
+
+[[patches.hook]]
+func = "circuit_generate_800A7DCC"
+before_vram = 0x800A7E5C
+text = "    rush2_circuit_race_index(rdram, ctx);"
+
+[[patches.hook]]
+func = "save_write_settings_to_pak_800A8D1C"
+before_vram = 0x800A8F54
+text = "    rush2_circuit_complete_t7(rdram, ctx);"
+
+[[patches.hook]]
+func = "postrace_records_update_800A952C"
+before_vram = 0x800A9670
+text = "    rush2_circuit_last_race(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_reset_options_from_pak_flags_803B6CA8"
+before_vram = 0x803B6CB8
+text = "    rush2_circuit_complete_v0(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_setup_options_803B7018"
+before_vram = 0x803B7158
+text = "    rush2_circuit_complete_t9(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_name_check_c_803BCFA4"
+before_vram = 0x803BCFE4
+text = "    rush2_circuit_races_left(rdram, ctx);"
+
 vram = 0x803B62AC
 value = 0x263108D8 # addiu $s1, $s1, 0x8D8
 

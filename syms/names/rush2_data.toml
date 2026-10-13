@@ -5377,10 +5377,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D3DF0
 name = "circuit_track_select_byte"
 type = "u8"
-desc = "Byte set by circuit generate/records/pak write, read by race car assignment and track select (selected circuit/track, low confidence)."
+desc = "Current circuit race index: min(races finished, 27) set by circuit_generate (min(finished, length - 1) with src/circuit.cpp); the race list 0x800D3A60 is generated up to it."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#circuit-length-and-courses-port-v"
 
 [[var]]
 vram = 0x800D3DF2
@@ -5466,11 +5466,11 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 [[var]]
 vram = 0x800D3E40
 name = "save_pak_settings_word"
-type = "u32"
-desc = "Settings word written by circuit generate/pak save, read by many menus and save functions."
+type = "u8 *"
+desc = "Pointer to the current profile's 0x60-byte circuit block (player record +0x464 + humans * 0x60): +1 flags (bit 0 in progress), +2 races finished, +4 seed, +8 places (3 bits a race, 11 bytes a car)."
 area = "save"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#circuit-length-and-courses-port-v"
 
 [[var]]
 vram = 0x800D3E44

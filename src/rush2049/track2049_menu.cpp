@@ -51,6 +51,7 @@
 #include "assets.h"
 #include "battle.h"
 #include "ghost.h"
+#include "circuit.h"
 #include "track1.h"
 #include "track2049.h"
 #include "unlocks.h"
@@ -838,18 +839,18 @@ extern "C" void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx
     write_tables(rdram);
 }
 
-// func_800A7DCC after it generated a circuit's races (tracks 0-6). With added tracks available, the tracks are
-// picked again from Rush 2's 7 and the added tracks, with Rush 2's rules: no track twice in a row, at most 4 times in
-// all, and no track in the same direction twice.
+// func_800A7DCC after it generated a circuit's races (tracks 0-6). With added tracks available, or only some courses
+// chosen for the circuit (src/circuit.cpp), the tracks are picked again from the chosen ones among Rush 2's 7 and the
+// added tracks (all of them if none is chosen), with Rush 2's rules: no track twice in a row, at most 4 times in all,
+// and no track in the same direction twice.
 extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
-    if (!available() && !rush2::track1::available()) {
-        return;
-    }
-    int last = (int8_t)MEM_B(0, (int32_t)circuit_last);
-    std::vector<int> pool;
-    for (int t = 0; t < circuit_stock_tracks; t++) pool.push_back(t);
+    std::vector<int> all, pool;
+    for (int t = 0; t < circuit_stock_tracks; t++) all.push_back(t);
     for (int t = first_menu_id; t < menu_tracks; t++) {
-        if (entry_available(t) && !is_stunt_course(t) && rush2::unlocks::track_open(rdram, t)) pool.push_back(t);
+        if (entry_available(t) && !is_stunt_course(t) && rush2::unlocks::track_open(rdram, t)) all.push_back(t);
+    }
+    for (int t : all) {
+        if (rush2::circuit::course_chosen(rdram, t)) pool.push_back(t);
     }
     // Seeded from the game's random state ($s0 points at it), so the same circuit seed gives the same races.
     std::mt19937 rng{ (uint32_t)MEM_W(0, (int32_t)ctx->r16) };
@@ -960,6 +961,13 @@ namespace {
             write_string(rdram, time_label, "TIME LIMIT");
             return time_label;
         }
+    if (pool.empty()) {
+        pool = all;
+    }
+    if (pool.size() == circuit_stock_tracks && pool.back() == circuit_stock_tracks - 1) {
+        return; // Rush 2's own tracks: the game's picks stand.
+    }
+    int last = (int8_t)MEM_B(0, (int32_t)circuit_last);
         return 0;
     }
 

@@ -14,6 +14,7 @@
 #include "util/file.h"
 #include "common/rt64_enhancement_configuration.h"
 
+#include "circuit.h"
 #include "npc_cars.h"
 #include "rush2.h"
 #include "players4.h"
@@ -625,6 +626,7 @@ void rush2::init_config() {
         }, nullptr, {
             { "Gameplay", [](rush2::ui::OptionsPage* page) {
                 rush2::npc_cars::add_section(page->get_list(), page->text_shower(rush2::npc_cars::description));
+                rush2::circuit::add_section(page->get_list(), [page](const std::string& text) { return page->text_shower(text); });
             } },
         });
         namespace graphics = recompui::config::graphics;
@@ -670,6 +672,7 @@ void rush2::init_config() {
 
     rush2::music::create_sound_tab();
     rush2::npc_cars::init_config();
+    rush2::circuit::init_config();
     rush2::controls_tab::create_tab();
     rush2::collectibles::create_tab();
     rush2::games::create_tab();
@@ -722,6 +725,7 @@ void rush2::init_config() {
     rush2::controls::load();
     rush2::wings::load_config();
     rush2::npc_cars::load_config();
+    rush2::circuit::load_config();
     rush2::track1::load_config();
     rush2::music::load_config();
 }

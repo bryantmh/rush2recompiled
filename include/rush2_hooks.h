@@ -185,6 +185,15 @@ void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx);
+
+// Circuit length and courses (src/circuit.cpp).
+void rush2_circuit_started(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_race_index(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_complete_t7(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_complete_t9(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_complete_v0(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_last_race(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_races_left(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_mode(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_settings_t8(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_settings_t6(uint8_t* rdram, recomp_context* ctx);
