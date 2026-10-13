@@ -307,7 +307,9 @@ namespace {
     };
 
     std::mutex players_mutex;
-    std::map<std::string, std::unique_ptr<Player>> players; // By path; under players_mutex.
+    // By path; under players_mutex. Never destroyed: a player's thread runs as long as the game, and destroying it at
+    // exit would abort the process (a joinable std::thread) and write a crash dump, which held up closing.
+    std::map<std::string, std::unique_ptr<Player>>& players = *new std::map<std::string, std::unique_ptr<Player>>;
     std::once_flag manager_started;
 
     // Stops the players no longer wanted (joining their threads, which can take a moment, off the VI thread).
