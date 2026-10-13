@@ -2881,6 +2881,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800C1818
+name = "title_medal_names"
+type = "char*[4]"
+desc = "Medal model names by place: COIN_GD, COIN_SL, COIN_BR, COIN_BK (func_800ABE7C)."
+area = "menu"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#accurate-circuit-review-port-v"
+
+[[var]]
 vram = 0x800C1828
 name = "title_screen_word"
 type = "u32"
@@ -10784,12 +10793,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C3F0
-name = "race_num_humans"
-type = "u8"
-desc = "Byte set by title, race run, player slot setup and track select; read by ~54 functions (HUD, camera, demo pick); likely number of human players (low confidence)."
-area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "menu_track_id"
+type = "s8"
+desc = "Track select id of the track to race (0-11 Rush 2, 12+ added tracks; the race setup hook turns an added track into its host slot) and of the title/victory screen's attract demo (func_800AB824 gives the next)."
+area = "menu"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#accurate-circuit-review-port-v"
 
 [[var]]
 vram = 0x8010C3F1
@@ -13718,12 +13727,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80125AAE
-name = "title_screen_byte_b"
-type = "u8"
-desc = "Byte kept by title screen run between frames (low confidence)."
+name = "title_phase"
+type = "s8"
+desc = "Victory/title screen (func_800ABE7C) phase counter: demo at 0, next track committed at 2, wraps after 4; negative counts up after the setup."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#accurate-circuit-review-port-v"
 
 [[var]]
 vram = 0x80125AB8
@@ -13808,12 +13817,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80125B11
-name = "title_screen_byte_d"
-type = "u8"
-desc = "Byte kept by title screen run between frames (low confidence)."
+name = "title_place"
+type = "s8"
+desc = "Victory screen's place: 0-2 = 1st-3rd in the circuit (0x8010C3C0/3D5/3E0 not -1), 3 = the plain title. Sets balloons (27 - 9 x place), music and the medal."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#accurate-circuit-review-port-v"
 
 [[var]]
 vram = 0x80125B14
@@ -13934,12 +13943,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80125B42
-name = "title_screen_half_d"
+name = "title_medal_node"
 type = "s16"
-desc = "Halfword read by title screen run (low confidence)."
+desc = "Scene node of the victory screen's medal; its model (0x800D9EBC + node x 0x38) is COIN_GD/SL/BR/BK by the place 0x80125B11."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/menus.md#accurate-circuit-review-port-v"
 
 [[var]]
 vram = 0x80125B44

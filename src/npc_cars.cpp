@@ -156,6 +156,14 @@ namespace {
     }
 }
 
+bool rush2::npc_cars::type_available(int type) {
+    return type_allowed(type);
+}
+
+void rush2::npc_cars::set_slot_rim(int slot, int rim) {
+    if (slot >= 0 && slot < max_cars) slot_rims[slot] = rim;
+}
+
 // func_800A37F4 at 0x800A3E80: drone slot $s2's colors have been drawn ($s1 = its car table entry).
 extern "C" void rush2_npc_cars_apply(uint8_t* rdram, recomp_context* ctx) {
     int slot = (int32_t)ctx->r18;

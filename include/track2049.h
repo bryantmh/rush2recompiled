@@ -78,6 +78,16 @@ namespace rush2::track2049 {
     // Rush 2's in-race logo container for the host slot (asset 4 + host), with its texture replaced by track k's logo.
     bool build_race_logo(const std::vector<uint8_t>& rush2_logo, const rush2::rom2049::Source& rom2049, int k,
                          std::vector<uint8_t>& out);
+    // A Rush 2 logo container's (asset 4 + track) 128 x 32 CI8 texels and 256-color palette: their offsets in it, and
+    // the container with them replaced (texels rows bottom-up, palette RGBA5551 big endian).
+    bool logo_data_offsets(const std::vector<uint8_t>& logo, uint32_t& texels, uint32_t& palette);
+    bool set_race_logo(const std::vector<uint8_t>& logo, const std::vector<uint8_t>& texels,
+                       const std::vector<uint8_t>& palette, std::vector<uint8_t>& out);
+    // Track select entry t (a race track of any game) set up to be raced as a race would set it up: the menu track id
+    // 0x8010C3F0 becomes the slot it runs in, which this returns (the race setup hook leaves it so). Game thread.
+    int host_menu_track(uint8_t* rdram, int t);
+    // Track select entry t's in-race logo container (asset 4 + the slot host_menu_track gives it), as the race shows it.
+    bool menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_t>& out);
 
     // The 2049 track (1-6, or obstacle) raced in the host slot, or 0 (src/rush2049/track2049.cpp).
     int race_track();

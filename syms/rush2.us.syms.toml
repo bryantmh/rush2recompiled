@@ -872,7 +872,7 @@ functions = [
     { name = "asset_queue_count_800867D4", vram = 0x800867D4, size = 0xA0 },
     { name = "stub_empty_80086874", vram = 0x80086874, size = 0x8 },
     { name = "asset_load_next_8008687C", vram = 0x8008687C, size = 0xF0 },
-    { name = "asset_queue_process_8008696C", vram = 0x8008696C, size = 0xF4 },
+    { name = "asset_find_slot_8008696C", vram = 0x8008696C, size = 0xF4 },
     { name = "asset_load_80086A60", vram = 0x80086A60, size = 0x188 },
     { name = "asset_slots_clear_80086BE8", vram = 0x80086BE8, size = 0x8C },
     { name = "asset_queue_flush_80086C74", vram = 0x80086C74, size = 0x30 },

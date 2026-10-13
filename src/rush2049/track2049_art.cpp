@@ -2667,23 +2667,37 @@ void rush2::track2049::add_banner_images() {
     }
 }
 
-bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const rush2::rom2049::Source& rom2049, int k,
-                                       std::vector<uint8_t>& out) {
-    (void)rom2049;  // the banners are built in (include/track2049_banners.h)
-    // Rush 2's logo containers hold one texture and its palette; overwrite their data in place.
+bool rush2::track2049::logo_data_offsets(const std::vector<uint8_t>& logo, uint32_t& texels, uint32_t& palette) {
+    // Rush 2's logo containers hold one texture and its palette.
     if (logo.size() < 0x28 || be32(logo, 20) != 1 || be32(logo, 24) != 1) {
         return false;
     }
     uint32_t tex = be32(logo, 8), pal = be32(logo, 12);
-    uint32_t texels = be32(logo, tex + 24), palette = be32(logo, pal + 20);
-    if (be16(logo, tex + 16) != logo_w || be16(logo, tex + 18) != logo_h || texels + logo_w * logo_h > logo.size() ||
-        palette + 512 > logo.size()) {
+    if (tex + 28 > logo.size() || pal + 24 > logo.size()) {
         return false;
     }
+    texels = be32(logo, tex + 24);
+    palette = be32(logo, pal + 20);
+    return be16(logo, tex + 16) == logo_w && be16(logo, tex + 18) == logo_h &&
+           texels + logo_w * logo_h <= logo.size() && palette + 512 <= logo.size();
+}
+
+bool rush2::track2049::set_race_logo(const std::vector<uint8_t>& logo, const std::vector<uint8_t>& texels,
+                                     const std::vector<uint8_t>& palette, std::vector<uint8_t>& out) {
+    uint32_t t, p;
+    if (!logo_data_offsets(logo, t, p) || texels.size() != size_t(logo_w * logo_h) || palette.size() != 512) {
+        return false;
+    }
+    out = logo;
+    memcpy(&out[t], texels.data(), texels.size());
+    memcpy(&out[p], palette.data(), palette.size());
+    return true;
+}
+
+bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const rush2::rom2049::Source& rom2049, int k,
+                                       std::vector<uint8_t>& out) {
+    (void)rom2049;  // the banners are built in (include/track2049_banners.h)
     std::vector<uint8_t> t, p;
     build_logo(k, t, p);
-    out = logo;
-    memcpy(&out[texels], t.data(), t.size());
-    memcpy(&out[palette], p.data(), p.size());
-    return true;
+    return set_race_logo(logo, t, p, out);
 }

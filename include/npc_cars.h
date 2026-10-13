@@ -23,6 +23,12 @@ namespace rush2::npc_cars {
     extern const char* const description;
     // Drone Cheating: off, the drones' pace no longer depends on the gap to the cars around them.
     void set_catch_up(bool enabled);
+
+    // Game thread. Whether car type `type` can be raced now (Rush 2's, or 2049's while they are offered).
+    bool type_available(int type);
+    // Game thread, from the car draw hook (func_800A37F4 at 0x800A3E80, after rush2_npc_cars_apply): drone car slot
+    // `slot` gets TIRE RIMS `rim` (RIM01 + rim) in this race, as an opponent's chosen rims do.
+    void set_slot_rim(int slot, int rim);
 }
 
 #endif

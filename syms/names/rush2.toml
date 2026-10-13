@@ -8450,13 +8450,13 @@ ref = "us.toml"
 
 [[func]]
 vram = 0x8008696C
-name = "asset_queue_process"
-sig = "s32 asset_queue_process(s32 wait)"
-desc = "Processes the asset load queue (asset_queue_flag/head/param/tail, 0x1E entries x 0x30); called from asset_load, race_load_track. (low confidence)"
-consts = "0x1E = queue entries, 0x30 = entry size"
-status = "inferred"
+name = "asset_find_slot"
+sig = "s32 asset_find_slot(s32 asset)"
+desc = "Returns the asset slot (12 bytes at 0x8010C258: +0 asset id, +4 data) holding asset a0, or -1 (two fixed slots, then 0x1E pairs). Called before loading to skip loaded assets."
+consts = "0x1E = slot pairs after the two fixed slots; 0xC = slot size"
+status = "verified"
 area = "util"
-ref = "docs/functions/rush2_util.md#rush-2-util-functions"
+ref = "docs/rush2049_research/menus.md#accurate-circuit-review-port-v"
 
 [[func]]
 vram = 0x80086A60

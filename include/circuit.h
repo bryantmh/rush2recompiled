@@ -29,6 +29,10 @@ namespace rush2::circuit {
     // Game thread. The current circuit's (0x800D3E40's) length in races, and whether it may pick track t.
     int length(uint8_t* rdram);
     bool course_chosen(uint8_t* rdram, int t);
+
+    // Accurate Circuit Review (General tab): the victory screen after a circuit shows its races, in order, each with
+    // the car player 1 raced in it, racing or wrecked by the place there. Read when that screen starts.
+    void set_accurate_review(bool enabled);
 }
 
 #endif

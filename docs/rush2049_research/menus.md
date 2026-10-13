@@ -548,3 +548,52 @@ many races each has was not found in its code, so the select offers race counts 
 - Its "RUSH2" background (0x800AC0E4-0x800AC130) is a 3 x 7 grid of 128 x 32 HUD elements from (12, 10), clipped to
   the 4:3 screen. Widescreen continues it with shifted copies of tiles that are fully on screen
   (`rush2_title_background_tiles`, src/widescreen.cpp; `rush2::hud::set_widget_shift`).
+
+### Accurate circuit review (port) [V]
+
+How the victory screen (`func_800ABE7C`) works:
+- **Setup (`a0 = 1`):** it saves the menu track 0x8010C3F0 in 0x80125AA8 and sets it to 0, then loads Las Vegas's logo
+  (asset 4, 0x800AC0DC). The logo card is a widget made from texture "VEGAS" in that asset (0x800AC2E4), so asset 4
+  must be loaded when the widget is made. The screen's place 0x80125B11 is 0 / 1 / 2 when profile byte 0x8010C3C0 /
+  0x8010C3D5 / 0x8010C3E0 is not -1, and 3 (the plain title) otherwise. Balloons are 27 - 9 x place, and the music
+  depends on place. The medal is scene node 0x80125B42 (s16). Its model is looked up by name, `func_800612F0`(name,
+  &index, 0, model count 0x800D5788 - 1), from 0x800C1818[min(place, 3)] = COIN_GD, COIN_SL, COIN_BR, COIN_BK, and
+  stored at 0x800D9EBC + node x 0x38 (0x800AC70C-0x800AC760).
+- **Loop:** phase counter 0x80125AAE, demo state 0x8010C424, and 0x80125C70 / 0x80125C80 toggles. While the card shows,
+  `func_800AB824` gives the next track, and `func_800A4B04`(current + 4, next + 4) loads its logo in the current logo's
+  slot (0x800ACE8C). `func_800A4B04` does nothing when the asked-for asset is already loaded. At phase 2 (0x800ACFC0),
+  `func_800AB878` sets the next track's asset slots up and `func_800AB824` is called again, storing the result in
+  0x8010C3F0. The demo is `func_800AB91C`(1) every frame at phase 0. It sets up once (`race_setup`, flag 0x800C17F8)
+  and steps the race after that.
+- `func_80094698` forces an attract race (game state 0x8010C0D0 = 2) to run forward and unmirrored, with fog 1 and
+  wind 0.
+- The demo's car follows the place: `func_800AB91C` gets it in $s2 and, when it is 3 (not top 3), sets car 0's
+  physics flags +0x7F4 |= 0x70 (0x10 = wrecked) and physics_thread_flag 0x800201E4 = 0 every frame
+  (0x800ABA94-0x800ABAB4). So the demo shows a racing car after a top-3 circuit and a wrecked one otherwise.
+- Asset slots are 12 bytes at 0x8010C258 (+0 asset id, +4 data). `func_8008696C`(asset) returns the slot holding it,
+  or -1. A loaded logo container keeps the file's layout, so its texels and palette sit at the file's offsets.
+
+The General tab's Accurate Circuit Review (default On; src/circuit.cpp) replaces the tour with the circuit's races:
+- `func_800A8B04` (circuit complete, hook at its start): keeps the race list 0x800D3A60 (tracks) and player 1's place in
+  each race. Places are 3 bits a race, low bit first, at block +8 + car x 11. Checked 2026-10-13 against the standings
+  (0x800D3B28 + car x 0x58 + 4 + race) for all 8 cars.
+- 0x800AC0D0: the next setup of the screen takes the kept list (it is dropped either way).
+- 0x800AC0E4: writes the first race's logo over the loaded asset 4. 0x800AC764 (after the medal lookup): hosts the
+  first track (`rush2::track2049::host_menu_track`; added tracks run in host slot 2, as in a race).
+- 0x800ACE94: $v0 = 0, so `func_800A4B04` keeps asset 4 loaded. 0x800ACEA8: writes the next race's logo over it. The
+  logo comes from `rush2::track2049::menu_track_logo`: the original asset for Rush 2 tracks, `build_race_logo` for
+  2049 and SF Rush, and the [menu] logo for custom tracks.
+- 0x800ACFDC: hosts the next race's track ($v0 = its slot). The list loops.
+- 0x800ACF94, before the demo's `func_800AB91C`(1): $s2 = 0 for 1st to 3rd in the race shown, 3 below, so the car is
+  racing or wrecked by that race's place. The medal, balloons and music keep the circuit's place.
+- `func_800A8D1C` (each circuit race's result, hook at its start, race index = block +2): keeps player 1's car with the
+  circuit's record in the saves file ("circuits" list, `cars`: [race, type, MAIN, ACCENT, STRIPE, STRIPE COLOR, rim]).
+  Player 1's car table entry is the one with driver byte +8 = 8 (0x800D9C10 + slot x 9: +1 type, +2..+5 paint); its
+  rims are 0x80201020[row 1][type] (RIM01 + value). Circuits run before this have no cars and keep the demo's own.
+- `func_800A37F4` at 0x800A3E80 (the car draw, after the AI Opponents' and ghosts' hooks): in a review demo, car slot
+  0 (the car the screen shows and wrecks) gets that race's car, paint and rims (`rush2::npc_cars::set_slot_rim`).
+
+Every demo runs forward. Tried 2026-10-13: a backward demo shows only sky in the wreath. Mirror (0x800D0190) and fog
+(0x800D1FA8) apply to the whole screen: mirror flips the wreath and gold coin out of sight, and fog hid everything.
+Checked 2026-10-13: a 4-race circuit over Hawaii, Marina, Golden Gate
+and the Wario Stadium mod showed each logo and demo in order with the wreath and coin.

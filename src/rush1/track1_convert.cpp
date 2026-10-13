@@ -32,6 +32,7 @@
 
 #include "track1.h"
 #include "track1_banners.h"
+#include "track2049.h"
 #include "texture_upscale.h"
 
 namespace {
@@ -1606,23 +1607,12 @@ void rush2::track1::add_banner_images() {
 
 bool rush2::track1::build_race_logo(const std::vector<uint8_t>& logo, const std::vector<uint8_t>& rom, int t,
                                     std::vector<uint8_t>& out) {
-    // Rush 2's logo containers hold one texture and its palette; overwrite their data in place.
     try {
-        if (logo.size() < 0x28 || u32(logo, 20) != 1 || u32(logo, 24) != 1) return false;
-        uint32_t tex = u32(logo, 8), pal = u32(logo, 12);
-        uint32_t texels = u32(logo, tex + 24), palette = u32(logo, pal + 20);
-        if (u16(logo, tex + 16) != logo_w || u16(logo, tex + 18) != logo_h || texels + logo_w * logo_h > logo.size() ||
-            palette + 512 > logo.size()) {
-            return false;
-        }
         Bytes t_bytes, p_bytes;
         build_logo(t, t_bytes, p_bytes);
-        out = logo;
-        memcpy(&out[texels], t_bytes.data(), t_bytes.size());
-        memcpy(&out[palette], p_bytes.data(), p_bytes.size());
+        return rush2::track2049::set_race_logo(logo, t_bytes, p_bytes, out);
     }
     catch (const ConvertError&) {
         return false;
     }
-    return true;
 }

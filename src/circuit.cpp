@@ -32,6 +32,7 @@
 #include <atomic>
 #include <cstdio>
 #include <deque>
+#include <map>
 #include <mutex>
 #include <set>
 #include <string>
@@ -47,6 +48,7 @@
 
 #include "circuit.h"
 #include "data_files.h"
+#include "npc_cars.h"
 #include "options_page.h"
 #include "rush2_hooks.h"
 #include "track1.h"
@@ -102,12 +104,19 @@ namespace {
         return folders;
     }
 
-    // What a circuit was started with.
+    // Player 1's car in a circuit race: its car table entry's type, MAIN, ACCENT, STRIPE and STRIPE COLOR (0x800D9C10 +
+    // slot * 9, +1..+5) and its TIRE RIMS (RIM01 + rim).
+    struct Car {
+        int type = 0, main = 0, accent = 0, stripe = 0, stripe_color = 0, rim = 0;
+    };
+
+    // What a circuit was started with, and the car player 1 raced each race in (by race index).
     struct Setup {
         uint32_t seed = 0;
         int length = stock_length;
         uint32_t courses = 0xFFFFFFFF; // bit t: track t
         std::set<std::string> mods;    // custom tracks by folder
+        std::map<int, Car> cars;
     };
 
     constexpr const char* saves_section = "circuits";
@@ -140,6 +149,16 @@ namespace {
                     if (m.is_string()) s.mods.insert(m.get<std::string>());
                 }
             }
+            if (e.contains("cars") && e["cars"].is_array()) {
+                for (const auto& c : e["cars"]) {
+                    if (!c.is_array() || c.size() != 7) continue;
+                    bool ints = true;
+                    for (const auto& v : c) ints = ints && v.is_number_integer();
+                    if (!ints) continue;
+                    s.cars[c[0].get<int>()] = { c[1].get<int>(), c[2].get<int>(), c[3].get<int>(), c[4].get<int>(),
+                                                c[5].get<int>(), c[6].get<int>() };
+                }
+            }
             setups.push_back(s);
         }
     }
@@ -151,8 +170,14 @@ namespace {
             for (int t = 0; t < course_ids; t++) {
                 if (s.courses & (1u << t)) courses.push_back(t);
             }
+            // cars: [race, type, main, accent, stripe, stripe color, rim] each.
+            nlohmann::json cars = nlohmann::json::array();
+            for (const auto& [race, c] : s.cars) {
+                cars.push_back({ race, c.type, c.main, c.accent, c.stripe, c.stripe_color, c.rim });
+            }
             list.push_back({ { "seed", s.seed }, { "races", s.length }, { "courses", courses },
-                             { "mods", nlohmann::json(std::vector<std::string>(s.mods.begin(), s.mods.end())) } });
+                             { "mods", nlohmann::json(std::vector<std::string>(s.mods.begin(), s.mods.end())) },
+                             { "cars", cars } });
         }
         rush2::data_files::write(rush2::data_files::File::Saves, saves_section,
             nlohmann::json{ { "version", 1 }, { "list", list } }.dump());
@@ -312,6 +337,219 @@ extern "C" void rush2_circuit_last_race(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_circuit_races_left(uint8_t* rdram, recomp_context* ctx) {
     int races = std::max(rush2::circuit::length(rdram), finished(rdram));
     ctx->r19 = (uint64_t)(int64_t)races;
+}
+
+// Accurate Circuit Review. When a circuit completes, the game goes on to its victory screen, which is the title's
+// attract loop (func_800ABE7C): a card with a track's logo, then a demo race on it in a wreath with a medal, track
+// after track (func_800AB824: 0-6, then 10 with ATARI unlocked). The screen's place (1st to 3rd in the circuit, or
+// not) picks the medal, the balloons, the music and the demo's car: racing, or wrecked when not in the top 3
+// (func_800AB91C sets car 0's flags +0x7F4 |= 0x70 every frame when the place it gets in $s2 is 3, 0x800ABA94-
+// 0x800ABAB4). With the option on, the loop shows the circuit's own races, in the order they were run, and each demo's
+// car follows player 1's place in that race; the medal, balloons and music keep the circuit's place. That car (car 0,
+// the one the camera follows) is also the car player 1 raced there: each circuit race's car is kept with the circuit's
+// record (saves "circuits"), and the demo's car draw (func_800A37F4 at 0x800A3E80) gives it to car 0. Each demo runs
+// forward, unmirrored, as every attract race does (func_80094698 forces it): tried, a backward demo shows only sky in
+// the wreath, and mirror and fog apply to the whole screen, flipping the wreath and coin out of sight or fogging them.
+//
+// The demo is the attract race (func_800AB91C), which runs the menu track 0x8010C3F0. An added track runs in its host
+// slot as a race would (rush2::track2049::host_menu_track). The logo card is a widget the setup makes from Las Vegas's
+// logo (texture "VEGAS" of asset 4, loaded for track 0); func_800A4B04 then loads each next track's logo (asset 4 +
+// track) in its place. The review keeps asset 4 loaded instead (func_800A4B04 does nothing when the asset asked for is
+// loaded) and writes each track's logo over its texels and palette, which works for the added tracks too (their logos
+// aren't assets).
+extern "C" void asset_find_slot_8008696C(uint8_t* rdram, recomp_context* ctx);           // $a0 asset -> slot or -1
+
+namespace {
+    constexpr uint32_t menu_track = 0x8010C3F0;    // s8: the track select's (and attract demo's) track
+    constexpr uint32_t circuit_races = 0x800D3A60; // 4 bytes a race: track, direction bits, fog, wind
+    constexpr int32_t block_places = 0x8;          // 3 bits a race (low bit first), 11 bytes a car, player 1 first
+    constexpr uint32_t asset_slots = 0x8010C258;   // 12 bytes a slot: +0 asset, +4 its data
+    constexpr uint32_t car_table = 0x800D9C10;     // 9 bytes a car slot: +1 type, +2..+5 paint, +8 driver (8 = player 1)
+    constexpr uint32_t rim_table = 0x80201020;     // u8 [row][36 types]: TIRE RIMS, row 0 drones, row player + 1
+    constexpr int car_types = 36;
+    constexpr uint32_t attract_mode = 0x800E7BB0;  // u8
+
+    struct ReviewRace {
+        int track, place;
+        bool has_car = false;
+        Car car;
+    };
+
+    std::atomic<bool> accurate_review = true;
+    // Game thread.
+    std::vector<ReviewRace> completed;   // the circuit that just completed, for the victory screen
+    std::vector<ReviewRace> review;      // the victory screen's, while it shows them
+    size_t review_index = 0, review_next = 0;
+    bool reviewing = false;
+    bool review_hosted = false;          // a review track may still be hosted
+
+    constexpr int card_logo = 4;                   // Las Vegas's logo, the asset the card's widget is made from
+
+    // Writes track t's logo over the card's (the loaded asset 4).
+    void write_logo(uint8_t* rdram, recomp_context* ctx, int t) {
+        std::vector<uint8_t> logo;
+        uint32_t texels, palette;
+        if (!rush2::track2049::menu_track_logo(rdram, t, logo) ||
+            !rush2::track2049::logo_data_offsets(logo, texels, palette)) {
+            return;
+        }
+        recomp_context call = *ctx;
+        call.r4 = card_logo;
+        asset_find_slot_8008696C(rdram, &call);
+        int slot = (int32_t)call.r2;
+        if (slot < 0) return;
+        uint32_t data = (uint32_t)MEM_W(slot * 12 + 4, (int32_t)asset_slots);
+        if (data == 0) return;
+        for (uint32_t i = 0; i < 128 * 32; i++) MEM_B(0, (int32_t)(data + texels + i)) = logo[texels + i];
+        for (uint32_t i = 0; i < 512; i++) MEM_B(0, (int32_t)(data + palette + i)) = logo[palette + i];
+    }
+}
+
+void rush2::circuit::set_accurate_review(bool enabled) {
+    accurate_review.store(enabled);
+}
+
+// Start of func_800A8D1C (a circuit race's result, before the race count goes up): keeps the car player 1 raced in it
+// with the circuit's record.
+extern "C" void rush2_circuit_race_car(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t block = (uint32_t)MEM_W(0, (int32_t)circuit_block);
+    if (block == 0) return;
+    int race = finished(rdram);
+    if (race < 0 || race >= stock_length) return;
+    int slot = 0;
+    for (int i = 0; i < 8; i++) {
+        if (MEM_BU(8, (int32_t)(car_table + i * 9)) == 8) {
+            slot = i;
+            break;
+        }
+    }
+    uint32_t entry = car_table + slot * 9;
+    Car c;
+    c.type = MEM_BU(1, (int32_t)entry);
+    c.main = MEM_BU(2, (int32_t)entry);
+    c.accent = MEM_BU(3, (int32_t)entry);
+    c.stripe = MEM_BU(4, (int32_t)entry);
+    c.stripe_color = MEM_BU(5, (int32_t)entry);
+    if (c.type >= car_types) return;
+    c.rim = MEM_BU(0, (int32_t)(rim_table + car_types + c.type));
+    uint32_t seed = (uint32_t)MEM_W(block_seed, (int32_t)block);
+    std::lock_guard lock{ setups_mutex };
+    load_setups();
+    Setup* found = nullptr;
+    for (Setup& s : setups) {
+        if (s.seed == seed) found = &s;
+    }
+    if (found == nullptr) {
+        // A circuit with no record (older, or from a code) is Rush 2's: 28 races over every course.
+        setups.push_back(Setup{ seed });
+        while (setups.size() > setups_kept) setups.pop_front();
+        found = &setups.back();
+    }
+    found->cars[race] = c;
+    save_setups();
+    printf("[circuit] Race %d: car %d, paint %d/%d, stripe %d/%d, rims %d\n", race + 1, c.type, c.main, c.accent,
+           c.stripe, c.stripe_color, c.rim + 1);
+    std::fflush(stdout);
+}
+
+// Start of func_800A8B04 (the circuit is complete): its races are generated up to the last (0x800D3A60) and player
+// 1's place in each is packed into the block.
+extern "C" void rush2_circuit_review_snapshot(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t block = (uint32_t)MEM_W(0, (int32_t)circuit_block);
+    completed.clear();
+    if (block == 0) return;
+    int races = std::clamp(finished(rdram), 0, stock_length);
+    std::map<int, Car> cars = current_setup(rdram).cars;
+    for (int r = 0; r < races; r++) {
+        ReviewRace race;
+        if (auto c = cars.find(r); c != cars.end()) {
+            race.has_car = true;
+            race.car = c->second;
+        }
+        uint32_t entry = circuit_races + r * 4;
+        race.track = (int8_t)MEM_B(0, (int32_t)entry);
+        race.place = 0;
+        for (int k = 0; k < 3; k++) {
+            int bit = r * 3 + k;
+            race.place |= ((MEM_BU(block_places + bit / 8, (int32_t)block) >> (bit % 8)) & 1) << k;
+        }
+        completed.push_back(race);
+    }
+}
+
+// func_800ABE7C's setup at 0x800AC0D0: the menu track has just been set to 0 (Las Vegas), about to load its logo
+// (asset 4), which the card's widget is made from.
+extern "C" void rush2_circuit_review_title(uint8_t* rdram, recomp_context* ctx) {
+    reviewing = accurate_review.load() && !completed.empty();
+    if (reviewing) {
+        review = std::move(completed);
+        review_index = review_next = 0;
+        std::string order;
+        for (const ReviewRace& r : review) order += " " + std::to_string(r.track) + "/" + std::to_string(r.place + 1);
+        printf("[circuit] Review (track/place):%s\n", order.c_str());
+        std::fflush(stdout);
+    }
+    else if (review_hosted) {
+        // Not left hosted for the title's own demos.
+        rush2::track2049::host_menu_track(rdram, (int8_t)MEM_B(0, (int32_t)menu_track));
+        review_hosted = false;
+    }
+    completed.clear();
+}
+
+// At 0x800AC0E4, after the setup loaded Las Vegas's logo.
+extern "C" void rush2_circuit_review_title_logo(uint8_t* rdram, recomp_context* ctx) {
+    if (reviewing) write_logo(rdram, ctx, review[0].track);
+}
+
+// At 0x800AC764, after the setup gave the medal its model. The card's widget is made, so the first demo's track can be
+// set: nothing else in the setup reads it.
+extern "C" void rush2_circuit_review_first(uint8_t* rdram, recomp_context* ctx) {
+    if (!reviewing) return;
+    rush2::track2049::host_menu_track(rdram, review[0].track);
+    review_hosted = true;
+}
+
+// At 0x800ACE94: $v0 = func_800AB824's next track, whose logo (asset 4 + $v0) func_800A4B04 is about to load in place
+// of the shown one. Track 0's is asset 4, the loaded one, so it loads nothing.
+extern "C" void rush2_circuit_review_preload(uint8_t* rdram, recomp_context* ctx) {
+    if (!reviewing) return;
+    review_next = (review_index + 1) % review.size();
+    ctx->r2 = card_logo - 4;
+}
+
+// At 0x800ACEA8, after func_800A4B04.
+extern "C" void rush2_circuit_review_preload_logo(uint8_t* rdram, recomp_context* ctx) {
+    if (reviewing) write_logo(rdram, ctx, review[review_next].track);
+}
+
+// At 0x800ACFDC: $v0 = func_800AB824's next track, about to become the menu track the next demo runs.
+extern "C" void rush2_circuit_review_next(uint8_t* rdram, recomp_context* ctx) {
+    if (!reviewing) return;
+    review_index = review_next;
+    const ReviewRace& race = review[review_index];
+    ctx->r2 = rush2::track2049::host_menu_track(rdram, race.track);
+}
+
+// func_800A37F4 at 0x800A3E80 (after the AI Opponents' and the ghosts' hooks): car slot $s2's paint has been drawn
+// ($s1 = its car table entry). A review demo's car 0 is the car player 1 raced there.
+extern "C" void rush2_circuit_review_car(uint8_t* rdram, recomp_context* ctx) {
+    if (!reviewing || (int32_t)ctx->r18 != 0 || MEM_BU(0, (int32_t)attract_mode) == 0) return;
+    const ReviewRace& race = review[review_index];
+    if (!race.has_car || !rush2::npc_cars::type_available(race.car.type)) return;
+    uint32_t entry = (uint32_t)ctx->r17;
+    MEM_B(1, (int32_t)entry) = (int8_t)race.car.type;
+    MEM_B(2, (int32_t)entry) = (int8_t)race.car.main;
+    MEM_B(3, (int32_t)entry) = (int8_t)race.car.accent;
+    MEM_B(4, (int32_t)entry) = (int8_t)race.car.stripe;
+    MEM_B(5, (int32_t)entry) = (int8_t)race.car.stripe_color;
+    rush2::npc_cars::set_slot_rim(0, race.car.rim);
+}
+
+// At 0x800ACF94, about to run the demo (func_800AB91C(1), which reads the screen's place in $s2): the place in the
+// race shown, top 3 or not.
+extern "C" void rush2_circuit_review_demo(uint8_t* rdram, recomp_context* ctx) {
+    if (reviewing) ctx->r18 = review[review_index].place < 3 ? 0 : 3;
 }
 
 namespace {
@@ -557,3 +795,4 @@ namespace {
 void rush2::circuit::add_section(recompui::Element* parent, const TextShower& text_shower) {
     recompui::get_current_context().create_element<Section>(parent, text_shower);
 }
+

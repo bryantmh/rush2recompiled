@@ -1354,6 +1354,57 @@ func = "menu_name_check_c_803BCFA4"
 before_vram = 0x803BCFE4
 text = "    rush2_circuit_races_left(rdram, ctx);"
 
+# Accurate Circuit Review (src/circuit.cpp, docs/rush2049_research/menus.md section 9): the circuit's races and player
+# 1's places are kept when it completes (func_800A8B04), and the car player 1 raced each race in when it ends
+# (func_800A8D1C); the victory screen that follows (func_800ABE7C) then shows
+# them in order: its logo (0x800AC0D0, after the logo load 0x800AC0E4), its first track (after the medal lookup,
+# 0x800AC764), the next track's logo (after func_800AB824, 0x800ACE94, and after func_800A4B04, 0x800ACEA8), the next
+# demo (after func_800AB824, 0x800ACFDC) and the demo's car, racing or wrecked by the place in that race (0x800ACF94).
+[[patches.hook]]
+func = "save_commit_settings_to_pak_800A8B04"
+before_vram = 0x800A8B04
+text = "    rush2_circuit_review_snapshot(rdram, ctx);"
+
+[[patches.hook]]
+func = "save_write_settings_to_pak_800A8D1C"
+before_vram = 0x800A8D1C
+text = "    rush2_circuit_race_car(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_title_screen_run_800ABE7C"
+before_vram = 0x800AC0D0
+text = "    rush2_circuit_review_title(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_title_screen_run_800ABE7C"
+before_vram = 0x800AC0E4
+text = "    rush2_circuit_review_title_logo(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_title_screen_run_800ABE7C"
+before_vram = 0x800AC764
+text = "    rush2_circuit_review_first(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_title_screen_run_800ABE7C"
+before_vram = 0x800ACE94
+text = "    rush2_circuit_review_preload(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_title_screen_run_800ABE7C"
+before_vram = 0x800ACEA8
+text = "    rush2_circuit_review_preload_logo(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_title_screen_run_800ABE7C"
+before_vram = 0x800ACFDC
+text = "    rush2_circuit_review_next(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_title_screen_run_800ABE7C"
+before_vram = 0x800ACF94
+text = "    rush2_circuit_review_demo(rdram, ctx);"
+
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62A4
@@ -11085,7 +11136,7 @@ text = "    rush2_ghost_drone_type(rdram, ctx);"
 [[patches.hook]]
 func = "race_preload_car_assets_800A37F4"
 before_vram = 0x800A3E80
-text = "    rush2_npc_cars_apply(rdram, ctx); rush2_ghost_drone_colors(rdram, ctx); ctx->r3 = MEM_BU(1, (int32_t)ctx->r17);"
+text = "    rush2_npc_cars_apply(rdram, ctx); rush2_ghost_drone_colors(rdram, ctx); rush2_circuit_review_car(rdram, ctx); ctx->r3 = MEM_BU(1, (int32_t)ctx->r17);"
 
 [[patches.hook]]
 func = "physics_car_tick_80075880"

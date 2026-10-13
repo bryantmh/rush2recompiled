@@ -925,6 +925,46 @@ extern "C" void rush2_track49_race_start(uint8_t* rdram, recomp_context* ctx) {
     enter_race(rdram);
 }
 
+int rush2::track2049::host_menu_track(uint8_t* rdram, int t) {
+    // As the track select's start does: nothing hosted, so a Rush 2 track in the host slot is itself.
+    set_race_track(0);
+    rush2::track1::set_race_track(0);
+    set_stunt_arena(0);
+    set_battle_arena(0);
+    rush2::track_mod::set_race_track(-1);
+    MEM_B(0, (int32_t)track_id) = (int8_t)t;
+    enter_race(rdram);
+    return (int8_t)MEM_B(0, (int32_t)track_id);
+}
+
+bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_t>& out) {
+    if (t >= 0 && t < rush2_tracks) {
+        return rush2::assets::read_original(rdram, 4 + t, out);
+    }
+    std::vector<uint8_t> logo;
+    if (!rush2::assets::read_original(rdram, 4 + host_slot, logo)) return false;
+    if (t >= first_menu_id && t < r1_first) {
+        auto rom = rush2::wings::get_rom();
+        return available() && rom != nullptr && build_race_logo(logo, *rom, t - first_menu_id + 1, out);
+    }
+    if (t >= r1_first && t < r1_end) {
+        auto rom = rush2::track1::get_rom();
+        return rush2::track1::available() && rom != nullptr && rush2::track1::build_race_logo(logo, *rom, t - r1_first, out);
+    }
+    if (is_mod_track(t)) {
+        // The custom track's own logo; a race shows the host's (track_mod has no race logo).
+        rush2::track_mod::MenuArt art;
+        {
+            std::lock_guard lock{ menu_mutex };
+            size_t i = size_t(t - mod_menu_id);
+            if (i < mod_ok.size() && mod_ok[i]) art.logo = mod_arts[i].logo, art.logo_palette = mod_arts[i].logo_palette;
+        }
+        if (art.logo.empty() && !rush2::track_mod::menu_art(t - mod_menu_id, art)) return false;
+        return set_race_logo(logo, art.logo, art.logo_palette, out);
+    }
+    return false;
+}
+
 // func_800A62C0 after the menu overlay is loaded: the overlay's own data starts fresh, and so must the circuit
 // screen's diorama instances that moved out of it.
 extern "C" void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx) {

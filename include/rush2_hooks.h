@@ -195,6 +195,17 @@ void rush2_circuit_complete_t9(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_complete_v0(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_last_race(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_races_left(uint8_t* rdram, recomp_context* ctx);
+// Accurate Circuit Review (src/circuit.cpp).
+void rush2_circuit_review_snapshot(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_review_title(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_review_title_logo(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_review_first(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_review_preload(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_review_preload_logo(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_review_next(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_review_demo(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_review_car(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_race_car(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stunt_mode(uint8_t* rdram, recomp_context* ctx);
