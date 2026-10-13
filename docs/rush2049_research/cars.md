@@ -400,3 +400,13 @@ at All Off.
 `FC309661 552EFF7F`) under a node `func_800B15B4` creates with flag 0x80000, which `func_8009C8F0` draws with
 `G_TEXTURE_GEN` and a LookAt from `func_8009C5E0` (guLookAtReflect) and a window scrolled by `func_8008C768` (atan2)
 and `func_8009C3F8` (asin), tinted from 0x8011ADC0 + 8 × track.
+
+### Car reflections
+
+Graphics > Sheen Style (`set_sheen_style`, `sheen_model`): **Texture** draws the layers as above. **Reflections**
+wraps each SHEEN layer node (+0x50..+0x60 and the hood's +0xC / +0x10, `SheenSlot::sheen`) in
+`gEXSetCarReflection(id + 1)` / `gEXSetCarReflection(0)` (a side list: the two commands around a `G_DL` to the node's
+list, swapped in through $fp = r30 like the hidden layers' empty list) and drops the DECAL layer nodes (+0x3C..+0x4C),
+a second fake reflection over the same panels. RT64 draws the marked triangles as the paint reflecting a cube map of
+the scene around the nearest car: docs/graphics_effects.md#car-reflections. `id` is the car's preview id, which RT64
+uses only to tell the cars apart when it works out their bounds.

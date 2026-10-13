@@ -1,12 +1,13 @@
-# Graphics effects: ambient occlusion
+# Graphics effects: ambient occlusion and car reflections
 
-A renderer effect the original game doesn't have, in Settings > Graphics > Effects and switchable while the game
+Renderer effects the original game doesn't have, in Settings > Graphics > Effects and switchable while the game
 runs. It is a change to RT64, kept in `lib/patches/rt64.patch` (edit under `lib/rt64`, then
 `python tools/lib_patch.py save rt64`).
 
 | Option | Values | Default | RT64 global |
 |---|---|---|---|
 | Ambient Occlusion (`ambient_occlusion`) | Off, Low, Medium, High = strength 0, 0.35, 0.6, 0.85 | Off | `RT64::AmbientOcclusionStrength` |
+| Sheen Style (`car_sheen_style`) | Texture, Reflections | Texture | none: the game marks draws with `gEXSetCarReflection` |
 
 The option lives in `src/config.cpp` (`add_ambient_occlusion_option`). The global is
 declared in `lib/rt64/src/common/rt64_enhancement_configuration.h` and read every frame by
@@ -51,6 +52,58 @@ When it runs (`submitRasterScene`): every opaque, depth-writing draw with a pers
 before the next 2D draw (rectangle, raw triangles, a non-perspective projection), clear, or the end of the scene, so
 the HUD drawn after the 3D isn't shaded, and in split screen each view's run is shaded once, over its own area.
 Blended draws drawn before that point (smoke, glass) are shaded by what's behind them.
+
+## Car reflections
+
+Settings > Graphics > Sheen Style = **Reflections**: the cars' paint reflects the scene around them instead of
+sliding a sheen texture over it. Hot-swappable (the game decides per draw). Car Sheen still picks which cars have
+sheen; under **Original** the 2049 cars have none, so use **All On** to see them reflect too.
+
+**Game side** (`sheen_model` in `src/rush2049/car2049.cpp`, docs/rush2049_research/cars.md#car-reflections): each SHEEN
+layer node (car record +0x50..+0x60 and the hood's +0xC / +0x10) has its display list wrapped in
+`gEXSetCarReflection(car + 1)` ... `gEXSetCarReflection(0)`, and the DECAL layer nodes (+0x3C..+0x4C) draw nothing.
+The layers are copies of the panels' triangles drawn over them, so they are exactly the paint, already hidden with
+the car, dented with it and swapped with its damage stages.
+
+**RT64 side** (`lib/patches/rt64.patch`): `G_EX_SETCARREFLECTION_V1` (0x35) sets `DrawExtendedFlags::carReflection`,
+which splits draw calls like the other extended flags. Then, per frame:
+
+1. `addFramebuffer` sorts each perspective projection's indexed draws into marked ones and the rest (the ones a cube
+   map can redraw), and keeps the last fill color before each projection. `addCarReflectionScenes` makes one
+   `CarReflectionScene` per view: the projections with the same view projection (`modViewProjTransforms`, what the GPU
+   used) and viewport. It works out each marked car's bounds from the marked draws' vertices
+   (`posFloats` x `lerpWorldTransforms`, the space the world transforms put vertices in) and centers the cube on the
+   car nearest the camera. The camera is where clip x, y and w are 0. Every marked car in the view reflects that one
+   cube, so AI cars further away show the player car's surroundings.
+2. At the view's first marked draw, `submitCarReflection` draws the cube:
+   - `CarReflectionCS.hlsl` puts every vertex back in the cube's space from its screen position. It inverts only the
+     view projection's x, y and w columns (`CarReflectionCB::invClip`, the car's center folded in), so the depth's
+     precision loss doesn't matter and anything the RSP did to the vertex (interpolation, `G_MODIFYVTX`) is taken in.
+     It then projects each vertex to the six faces: a 90 degree perspective with an infinite far plane (depth
+     `1 - near / w`), written as screen positions the raster vertex shader turns back into clip space with
+     `FramebufferParams::resolution`. Each face's near plane is the car's half size on that axis plus 5%, so the
+     car's own body is clipped out of its reflection; the wheels still show in the lower faces.
+   - `CarReflectionNormalCS.hlsl` gives the marked draws' vertices smooth normals: each vertex sums the area-weighted
+     normals of the draw's triangles touching its position. The layers' vertex colors are white with no normals, and
+     normals from the depth buffer would make each polygon a flat mirror.
+   - The view's own draw calls, with their own pipelines, textures and render params, draw each face of a 768 x 512
+     atlas (six 256 px faces, 3 x 2) that has the color target's format and sample count, so those pipelines fit it.
+     The atlas is cleared to the view's fill color (the sky or fog color, for what the draws leave empty) and
+     resolved when multisampled. Decals in the faces test against the dummy depth buffer, so they may be missing.
+   - The faces mirror (`CarReflectionCB::mirror`) when the view projection's x, y, w part, counting the viewport's
+     flips, has the other handedness, so triangles keep their winding and back faces stay culled.
+3. Each marked draw is drawn by `drawCarReflection` (`CarReflectionVS.hlsl`, `CarReflectionPS.hlsl`) instead of its
+   own combiner: the view off the smooth normal into the cube (face by the largest axis, the face layout in
+   `CarReflection.hlsli`), blended over the paint with Fresnel alpha `0.12 + 0.88 (1 - cos)^5` x 0.85, depth tested
+   `LESS_EQUAL` (nudged 1e-6 towards the camera) against the paint it lies on, no depth write.
+
+Limits: the cube only has what the view drew, so scenery the game itself left out (its PVS by camera region, LOD
+distances) is missing; RT64 doesn't run `G_CULLDL`, so the placement box culls don't remove anything; draws in
+other projections (a sky drawn with its own projection) are left out; one cube per view. Cost per view with marked
+cars: a compute pass over the frame's vertices, the view's draws six more times at 256 px, and the normals.
+
+Not yet checked in game (written in a session without a GPU): look for inverted faces (mirror sign), the car showing
+in its own reflection (near planes), and the sky in the up face.
 
 ## Soft particles (removed)
 

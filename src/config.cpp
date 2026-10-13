@@ -384,6 +384,10 @@ namespace car_sheen_option {
     const std::string id = "car_sheen";
 }
 
+namespace sheen_style_option {
+    const std::string id = "car_sheen_style";
+}
+
 // Car sheen: the reflection passes drawn over the cars (src/rush2049/car2049.cpp). Rush 2's cars have sheen layers;
 // Rush 2049's cars have their own SHEEN pass, which the original Rush 2 never drew.
 static void add_car_sheen_option(recomp::config::Config& config) {
@@ -407,6 +411,32 @@ static void add_car_sheen_option(recomp::config::Config& config) {
     config.add_option_change_callback(car_sheen_option::id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::car2049::set_sheen(static_cast<Sheen>(std::get<uint32_t>(cur_value)));
+        });
+}
+
+// Sheen style: how the sheen layers draw (src/rush2049/car2049.cpp sheen_model). Reflections has RT64 draw a cube map
+// of the scene around the nearest car each frame and the paint reflect it (docs/rush2049_research/cars.md#car-reflections).
+static void add_sheen_style_option(recomp::config::Config& config) {
+    using rush2::car2049::SheenStyle;
+
+    config.add_enum_option(
+        sheen_style_option::id,
+        "Sheen Style",
+        "Sets how the sheen on the cars is drawn. "
+        "<recomp-color primary>Texture</recomp-color> matches the original game: a sheen texture slides over the paint. "
+        "<recomp-color primary>Reflections</recomp-color> makes the paint reflect the track, sky and cars around it, "
+        "drawn from the car's position every frame. Reflections take more graphics card time. "
+        "Car Sheen still sets which cars have sheen.",
+        {
+            { SheenStyle::Texture, "Texture", "Texture" },
+            { SheenStyle::Reflections, "Reflections", "Reflections" },
+        },
+        SheenStyle::Texture
+    );
+
+    config.add_option_change_callback(sheen_style_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::car2049::set_sheen_style(static_cast<SheenStyle>(std::get<uint32_t>(cur_value)));
         });
 }
 
@@ -708,7 +738,7 @@ void rush2::init_config() {
             { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ds_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
-            { "Effects", { ambient_occlusion_option::id, car_sheen_option::id } },
+            { "Effects", { ambient_occlusion_option::id, car_sheen_option::id, sheen_style_option::id } },
             { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::mode_option_id,
                             rush2::upscale::command_option_id, rush2::upscale::interface_option_id,
                             rush2::upscale::car_colors_option_id } },
@@ -742,6 +772,7 @@ void rush2::init_config() {
     add_anisotropy_option(graphics_config);
     add_ambient_occlusion_option(graphics_config);
     add_car_sheen_option(graphics_config);
+    add_sheen_style_option(graphics_config);
     add_split_option(graphics_config);
     rush2::upscale::add_options(graphics_config);
     recompui::config::set_tab_visible(recompui::config::general::id, false);
@@ -777,6 +808,8 @@ void rush2::init_config() {
         loaded_graphics_config.get_option_value(ambient_occlusion_option::id));
     rush2::car2049::set_sheen(static_cast<rush2::car2049::Sheen>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(car_sheen_option::id))));
+    rush2::car2049::set_sheen_style(static_cast<rush2::car2049::SheenStyle>(
+        std::get<uint32_t>(loaded_graphics_config.get_option_value(sheen_style_option::id))));
     rush2::set_hires_fonts_enabled(static_cast<font_option::FontMode>(
         std::get<uint32_t>(loaded_graphics_config.get_option_value(font_option::id))) == font_option::FontMode::HighResolution);
     rush2::upscale::apply_loaded_options(loaded_graphics_config);
