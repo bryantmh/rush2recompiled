@@ -452,10 +452,19 @@ void rush2_interp_poly_vtx(uint8_t* rdram, recomp_context* ctx) {
     clip_vtx_cmd = (uint32_t)ctx->r2;
 }
 
+// sky_setup_800A45A8 at 0x800A48F8: $s7 = the dome's primitive depth (0x7FFF), stored at each piece's +6.
+// The dome draws after the world with Z_CMP so it only fills where nothing was drawn. RT64 turns depth 0x7FFF into
+// exactly 1.0 ((z & 0x7FFF) / 32767), the same as the game's Z clear (0xFFFC), and compares with LESS, so every sky
+// pixel failed and the fog colour showed instead of the clouds. One step nearer (0.99994) passes against the clear and
+// is still behind any geometry the far plane lets through.
+void rush2_sky_depth(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r23 = 0x7FFE;
+}
+
 // func_8007C624 at L_8007D890, after a world-space polygon's G_VTX and triangles. $fp = polygon.
 //
-// The sky dome's polygons (flag 0x2000) are drawn at the primitive depth 0x7FFF so they stay behind everything.
-// RT64 outputs prim depth as z = 0.99997 * w, so the GPU's near clip (z >= 0) lands on the camera plane (w = 0)
+// The sky dome's polygons (flag 0x2000) are drawn at the primitive depth 0x7FFE so they stay behind everything
+// (rush2_sky_depth). RT64 outputs prim depth as z = 0.99994 * w, so the GPU's near clip (z >= 0) lands on the camera plane (w = 0)
 // instead of the projection's near plane. The dome surrounds the camera, so many of its triangles have a vertex
 // beside or behind it: the overhead cap's center is within a few degrees of the camera plane whenever the camera is
 // level, and the lower rings wrap around past the widescreen edges. Those triangles get cut into vertices at w = 0

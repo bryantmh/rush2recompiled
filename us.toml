@@ -618,6 +618,11 @@ text = "    rush2_track49_sky(rdram, ctx);"
 
 [[patches.hook]]
 func = "sky_setup_800A45A8"
+before_vram = 0x800A48F8
+text = "    rush2_sky_depth(rdram, ctx);"
+
+[[patches.hook]]
+func = "sky_setup_800A45A8"
 before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 

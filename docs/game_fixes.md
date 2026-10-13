@@ -198,6 +198,12 @@ a side display list.
   perspective at 0x8007CB88, then multiplies the view's rotation into the projection at 0x8007CED0 (`guLookAtF`
   with the eye at the origin); the root modelview (0x8007CF24) is the identity or an X mirror, and the polygon
   vertices are camera-relative in world axes (0x8007D260). Leaving the rotation out measured a fixed world axis.
+- **The dome was hidden.** `sky_setup_800A45A8` gives the dome prim depth 0x7FFF. RT64 turns that into exactly 1.0
+  (`(z & 0x7FFF) / 32767`, rt64_rdp.cpp), the same as the game's Z clear (0xFFFC, `D16::toF`). The sky draws after
+  the world with Z_CMP and RT64 compares with LESS, so every sky pixel failed and the fog colour showed instead of the
+  SKY01/SKYFOUR clouds (Rush 2 and SF Rush tracks; 2049 tracks draw a sky model). `rush2_sky_depth` (hooked at
+  0x800A48F8, where `$s7` = 0x7FFF) makes it 0x7FFE (0.99994), which passes against the clear and stays behind
+  anything the far plane lets through.
 - The triangles are clipped under this frame's plane and the last frame's (same camera generation). RT64 blends the
   projection element by element in its interpolated frames, so w there lies between the two; clipping against
   only the current frame let sky vertices swing behind the camera in fast turns (the race start flyover turns about

@@ -56,6 +56,7 @@ void rush2_interp_root_modelview(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_poly(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_poly_vtx(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_sky_depth(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_view_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_level_enter(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_level_exit(uint8_t* rdram, recomp_context* ctx);
