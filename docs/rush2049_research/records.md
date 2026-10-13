@@ -266,6 +266,26 @@ TOTALS every pak profile's and the guests' ORed, as `func_803B1B78` ORs Rush 2's
 The shown course's logo is written over container 6 (`rush2::track2049::write_menu_logo`, shared with the circuit
 review), so the screen's own logo widget shows it.
 
+### 3.5.1 Stunt arenas [V]
+Rush 2049's stunt arenas 1–4 are hosted by STUNT1 (track 11), which has no lap records, only stats. Its stats page
+(index 11, 0x803C49CC–0x803C4D58) has its own layout, all read through 0x68($sp): the four stunt counters
++0x16/+0x18/+0x1A/+0x1C (2 WHEELS, AIR TIME, FLIPS, ROLLS), BEST STUNT +0x02 and BEST SCORE +0x1E. STUNT1's record
+slot is 10 (`rec + 0x1F0 + 10·0x20`), the same slot as MIDWAY forward, since the game takes 1 off from 11 up; its
+no-profile entry is 11. Only the track (in a session) or the screen's index tells the two apart.
+
+Without redirection an arena session wrote STUNT1's own slot, and the screen had no entry for the arenas. Now:
+- The arenas are added tracks 16–19 of the side blocks (stats only; the best-time lists stay empty), saved as
+  `{ "track": "stunt1" }` … `"stunt4"`.
+- The stats writers' hook (§3.3, `rush2_track49_records_stats`) also redirects STUNT1's slot (record slot 10 or
+  no-profile entry 11) while `track` == 11 and `rush2::track2049::stunt_arena()` is set.
+- The records screen lists the open arenas on the stats page only, after the SF Rush courses and before the
+  obstacle course, on index 11: STUNT1's logo container (asset 15) gets the arena's banner, 0x68($sp) moves to the
+  arena's stats (or the ALL merge), and the icons show the arena's 16 coins. No high-score rows are swapped. Leaving
+  the stats page moves the game's index 11 → 12, which drops the arena.
+- Opening the records screen saves side-block changes not yet written (a stunt session quit before its end).
+
+Stunt results from before this change stay in STUNT1's own slot; they can't be told apart from STUNT1's.
+
 ### 3.6 Test plan
 1. Race a 2049 track forward with a profile; finish. The post-race table shows default names around the 2049 seed
    (e.g. track 1 about 0:47) and your time; the `records` section of `saves/rush2.n64.us.json` appears with the course.
@@ -275,6 +295,8 @@ review), so the screen's own logo widget shows it.
 4. Restart the program: the profile's 2049 times reappear; guest entries don't (as in Rush 2).
 5. Race without a profile (guest name entry) on a 2049 track; then on HAWAII; check names are right on both.
 6. Records screen → clear the profile's records: its 2049 entry disappears from the JSON.
+9. Stunt arena: play a session in one (STUNT row, RUSH2_TEST_TRACK=25), then the records screen's stats page: the
+   arena follows the SF Rush courses with its own counters; STUNT's own page is unchanged by the session.
 8. Records screen: right from LAS VEGAS steps through Rush 2's forward tracks, then the 2049, SF Rush and obstacle
    courses with their logos and times (ALL and per profile, all three pages), then the backward ones; HONOLULU
    shows its own logo and records.

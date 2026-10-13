@@ -41,6 +41,12 @@
 // screen's index stays on HAWAII's, HAWAII's logo container holds the course's logo, and the list's rows, best times,
 // stats and seed move to the course's as in a race. Custom tracks aren't listed. 2049 results don't count toward
 // Rush 2's unlocks. Clearing a profile's records there, or deleting the profile, clears its 2049 records as well.
+//
+// Rush 2049's stunt arenas are hosted by STUNT1 (track 11), which has no lap records, only stats (the stunt counters
+// and best scores of its stats page). They are numbered 16-19 below and get the same treatment with STUNT1's slots:
+// the stunt stats writers' addresses move to the arena's side-block stats during a session in one, and the records
+// screen lists the arenas on its stats page after the other added courses, on STUNT1's index. The save file keeps
+// them as { "track": "stunt1".."stunt4" }.
 
 #include <algorithm>
 #include <array>
@@ -106,12 +112,20 @@ namespace {
     static_assert(host_slot < 11, "the host's backward slot is computed for tracks below 11");
     constexpr int host_record_slot[2] = { host_slot, host_slot + 12 - 1 };
     constexpr int host_no_profile_slot[2] = { host_slot, host_slot + 12 };
+    // STUNT1's, which hosts the stunt arenas: its record slot is 10, MIDWAY's as well (the game takes 1 off from 11
+    // up), so only the track tells them apart.
+    constexpr int stunt_host = rush2::track2049::stunt_host_slot;
+    static_assert(stunt_host == 11, "the stunt host's record slot is computed for track 11");
+    constexpr int stunt_record_slot[2] = { stunt_host - 1, stunt_host + 12 - 1 };
+    constexpr int stunt_no_profile_slot[2] = { stunt_host, stunt_host + 12 };
 
     // The added tracks forward and backward: course = (track - 1) + 14 * backward.
     constexpr int r1_count = rush2::track1::track_count;
     constexpr int obstacle_track = track_count + r1_count + 1;     // The obstacle course (forward only).
     constexpr int mod_track = obstacle_track + 1;                  // The raced custom track.
-    constexpr int extra_tracks = mod_track;
+    constexpr int stunt_count = rush2::track2049::stunt_count;
+    constexpr int stunt_track = mod_track + 1;                     // Stunt arena 1 (stats only, forward only).
+    constexpr int extra_tracks = stunt_track + stunt_count - 1;
     constexpr int courses = extra_tracks * 2;
 
     // A side block in RDRAM per player-record position: the stats of each course, then its two pages of times.
@@ -168,6 +182,16 @@ namespace {
 
     int course_of(int k, int backward) {
         return (k - 1) + extra_tracks * backward;
+    }
+
+    bool is_stunt(int k) {
+        return k >= stunt_track && k < stunt_track + stunt_count;
+    }
+
+    // The stunt arena hosted by the current session in STUNT1, as an added track number, or 0.
+    int hosted_stunt(uint8_t* rdram) {
+        int n = rush2::track2049::stunt_arena();
+        return MEM_B(0, (int32_t)track_id) == stunt_host && n >= 1 && n <= stunt_count ? stunt_track + n - 1 : 0;
     }
 
     // The added track hosted by the current race (1-6 Rush 2049, 7-13 SF Rush, 14 the obstacle course), or 0.
@@ -361,6 +385,14 @@ namespace {
                 if (cj["track"].is_string() && cj["track"].get<std::string>() == "obstacle") {
                     k = obstacle_track;
                 }
+                else if (cj["track"].is_string()) {
+                    std::string text = cj["track"].get<std::string>();
+                    int n = text.size() == 6 && text.compare(0, 5, "stunt") == 0 ? text[5] - '0' : 0;
+                    if (n < 1 || n > stunt_count) {
+                        continue;
+                    }
+                    k = stunt_track + n - 1;
+                }
                 else if (cj["track"].is_number_integer()) {
                     k = cj["track"].get<int>();
                     bool sfrush = cj.contains("game") && cj["game"].is_string() && cj["game"].get<std::string>() == "sfrush";
@@ -400,6 +432,9 @@ namespace {
                 entry["backward"] = course >= extra_tracks;
                 if (k == obstacle_track) {
                     entry["track"] = "obstacle";
+                }
+                else if (is_stunt(k)) {
+                    entry["track"] = "stunt" + std::to_string(k - stunt_track + 1);
                 }
                 else if (k > track_count) {
                     entry["game"] = "sfrush";
@@ -574,12 +609,15 @@ namespace {
         }
     }
 
-    // Address redirection. Each returns addr unchanged unless it is one of HAWAII's slots and a 2049 track is hosted.
+    // Address redirection. Each returns addr unchanged unless it is one of HAWAII's slots and a 2049 track is hosted
+    // (for the stats, also one of STUNT1's while it hosts a stunt arena).
 
     // A stats slot: record + 0x1F0 + slot * 0x20 in the pak image, or an entry of the no-profile table.
     uint32_t redirect_stats_to(uint8_t* rdram, uint32_t addr, int k) {
+        const int* record_slot = is_stunt(k) ? stunt_record_slot : host_record_slot;
+        const int* no_profile_slot = is_stunt(k) ? stunt_no_profile_slot : host_no_profile_slot;
         for (int backward = 0; backward < 2; backward++) {
-            if (addr == no_profile_stats + host_no_profile_slot[backward] * stats_size) {
+            if (addr == no_profile_stats + no_profile_slot[backward] * stats_size) {
                 touched = true;
                 return no_profile_block + course_of(k, backward) * stats_size;
             }
@@ -591,7 +629,7 @@ namespace {
         int p = (off / pak_stride) * records_per_pak + (off % pak_stride) / record_size;
         uint32_t field = off % pak_stride % record_size;
         for (int backward = 0; backward < 2; backward++) {
-            if (field == rec_stats + host_record_slot[backward] * stats_size) {
+            if (field == rec_stats + record_slot[backward] * stats_size) {
                 bind(rdram, p);
                 touched = true;
                 return block(p) + course_of(k, backward) * stats_size;
@@ -602,6 +640,9 @@ namespace {
 
     uint32_t redirect_stats(uint8_t* rdram, uint32_t addr) {
         int k = hosted(rdram);
+        if (k == 0) {
+            k = hosted_stunt(rdram);
+        }
         if (k == 0) {
             return addr;
         }
@@ -834,10 +875,12 @@ namespace {
     constexpr uint32_t midway_open = 0x800E7D19;  // and MIDWAY (10).
     constexpr uint32_t all_stats = 0x803D0298;    // [24] stats of every profile merged (func_803B1B78)
     constexpr uint32_t all_best_start = 0x803CACD0; // f32: func_803B1B78's starting best time
-    constexpr int logo_asset = 4 + host_slot;     // HAWAII's logo container, which the screen shows for index 2/14
+    // The logo containers the screen shows for index 2/14 (HAWAII's) and for 11 (STUNT1's).
+    constexpr int logo_assets[2] = { 4 + host_slot, 4 + stunt_host };
+    constexpr int logo_own[2] = { host_slot, stunt_host };
     int screen_k = 0;       // The added course shown, or 0.
-    int render_k = 0;       // Its rows are swapped in while func_803C430C runs.
-    int shown_logo = -1;    // Track select id of the logo written into logo_asset (host_slot: HAWAII's own).
+    int render_k = 0;       // Its rows are swapped in while func_803C430C runs (a stunt arena has none).
+    int shown_logo[2] = { -1, -1 }; // Track select id of the logo written into each of logo_assets (logo_own: its own).
 
     // The stats page's 16 icons (widgets of func_803C5514, slot n = widget +0x2C & 0xF): KEYICON for keys 0-11 and
     // DEWICON for Dew cans 12-15 (asset 2; 16 x 32 frames, left not found, right found), lit by bit n of the track's
@@ -850,6 +893,7 @@ namespace {
     uint32_t icon_names = 0;        // RDRAM: "KEYICON", "DEWICON" (16 bytes each), for the widgets' texture names.
 
     int menu_id_of(int k) {
+        if (is_stunt(k)) return rush2::track2049::stunt_menu_id + (k - stunt_track);
         if (k == obstacle_track) return rush2::track2049::obstacle_menu_id;
         if (k > track_count) return rush2::track1::first_menu_id + (k - track_count - 1);
         return rush2::track2049::first_menu_id + (k - 1);
@@ -877,12 +921,26 @@ namespace {
         return rush2::unlocks::track_open_for("", t, game_unlocked);   // no profile: the guest's purchases
     }
 
-    // The added courses to list, in track select order.
+    // The screen's index while it shows added course k.
+    int screen_index_of(int k, int backward) {
+        return is_stunt(k) ? stunt_host : host_slot + 12 * backward;
+    }
+
+    // Whether the screen is on its added course (its index is the one the course is shown on).
+    bool screen_on_course(uint8_t* rdram) {
+        int index = MEM_W(0, (int32_t)screen_index);
+        return screen_k != 0 && (index == screen_index_of(screen_k, 0) || index == screen_index_of(screen_k, 1));
+    }
+
+    // The added courses to list, in track select order (the stunt arenas are listed on the stats page only).
     std::vector<int> screen_courses(uint8_t* rdram) {
         std::vector<int> ks;
         for (int k = 1; k <= obstacle_track - 1; k++) {
             bool on = k <= track_count ? rush2::track2049::available() : rush2::track1::available();
             if (on && screen_open(rdram, menu_id_of(k))) ks.push_back(k);
+        }
+        for (int k = stunt_track; k < stunt_track + stunt_count; k++) {
+            if (rush2::track2049::available() && screen_open(rdram, menu_id_of(k))) ks.push_back(k);
         }
         if (rush2::track2049::available() && screen_open(rdram, menu_id_of(obstacle_track))) {
             ks.push_back(obstacle_track);
@@ -912,8 +970,11 @@ namespace {
             for (int index = backward * 12; index < backward * 12 + 12; index++) {
                 if (shown(index)) e.push_back({ index, 0 });
             }
+            // The stunt arenas, like STUNT1, are forward and on the stats page only.
             for (int k : ks) {
-                if (!backward || k != obstacle_track) e.push_back({ host_record_slot[0] + 12 * backward, k });
+                if (is_stunt(k) ? page == 2 && !backward : !backward || k != obstacle_track) {
+                    e.push_back({ screen_index_of(k, backward), k });
+                }
             }
         }
         if (page == 2) e.push_back({ 24, 0 });
@@ -963,9 +1024,9 @@ namespace {
         }
     }
 
-    // Puts the shown entry's logo into HAWAII's logo container (HAWAII's own for anything else).
+    // Whether added course k's stats page shows Rush 2049 coins.
     bool coin_course(int k) {
-        return k >= 1 && k <= track_count;
+        return (k >= 1 && k <= track_count) || is_stunt(k);
     }
 
     // Course k's keys or coins found by the screen's profile, or on TOTALS by every profile on the paks and the
@@ -988,15 +1049,20 @@ namespace {
         uint16_t bits = 0;
         for (const rush2::collectibles::Progress& pr : rush2::collectibles::progress()) {
             if (!names.contains(pr.name)) continue;
-            bits |= k <= track_count ? pr.rush2049[size_t(k - 1)] : pr.sfrush[size_t(k - track_count - 1)];
+            bits |= is_stunt(k) ? pr.stunt2049[size_t(k - stunt_track)]
+                  : k <= track_count ? pr.rush2049[size_t(k - 1)] : pr.sfrush[size_t(k - track_count - 1)];
         }
         return bits;
     }
 
+    // Puts the shown entry's logo into the logo container its index shows, HAWAII's or for a stunt arena STUNT1's
+    // (each container's own for anything else).
     void screen_logo(uint8_t* rdram, recomp_context* ctx, int k) {
-        int want = k != 0 ? menu_id_of(k) : host_slot;
-        if (want != shown_logo && rush2::track2049::write_menu_logo(rdram, ctx, logo_asset, want)) {
-            shown_logo = want;
+        for (int i = 0; i < 2; i++) {
+            int want = k != 0 && is_stunt(k) == (i == 1) ? menu_id_of(k) : logo_own[i];
+            if (want != shown_logo[i] && rush2::track2049::write_menu_logo(rdram, ctx, logo_assets[i], want)) {
+                shown_logo[i] = want;
+            }
         }
         // The coin pictures, built once from the 2049 ROM.
         static std::vector<uint8_t> coin_texels[2], coin_palette[2];
@@ -1028,18 +1094,21 @@ extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx);
 extern "C" void records_screen_spawn_random_particles_803B0650(uint8_t* rdram, recomp_context* ctx);
 
 // func_803B0A90 at 0x803B0B64, the screen opening, after it loaded the logo containers (assets 4-16). It starts on
-// index 0. A race on an added track leaves HAWAII's container holding that track's logo, so HAWAII's own goes back.
+// index 0. A race on an added track leaves its host's container (HAWAII's, or STUNT1's for a stunt arena) holding that
+// track's logo, so their own go back. Stunt stats not yet saved (a session quit before its end) are saved here.
 extern "C" void rush2_records_screen_open(uint8_t* rdram, recomp_context* ctx) {
     screen_k = 0;
-    shown_logo = -1;
+    shown_logo[0] = shown_logo[1] = -1;
     screen_logo(rdram, ctx, 0);
+    std::lock_guard lock{ records_mutex };
+    save_changes(rdram);
 }
 
-// func_803B0A90 at 0x803B0AF0, the screen closing: HAWAII's logo goes back for whatever loads it next.
+// func_803B0A90 at 0x803B0AF0, the screen closing: the hosts' logos go back for whatever loads them next.
 extern "C" void rush2_records_screen_close(uint8_t* rdram, recomp_context* ctx) {
     screen_k = 0;
-    if ((shown_logo != host_slot && shown_logo != -1) || coin_icons) screen_logo(rdram, ctx, 0);
-    shown_logo = -1;
+    if (shown_logo[0] != -1 || shown_logo[1] != -1 || coin_icons) screen_logo(rdram, ctx, 0);
+    shown_logo[0] = shown_logo[1] = -1;
 }
 
 // func_803B0A90 at 0x803B0BC8: $v0 = the buttons pressed, about to be tested for left/right (0x200 left, 0x100
@@ -1081,15 +1150,21 @@ extern "C" void rush2_records_screen_step(uint8_t* rdram, recomp_context* ctx) {
 // Start of func_803C430C (the records list): swaps the shown course's high-score rows in for HAWAII's (the ALL
 // pages read them), as the race screens do.
 extern "C" void rush2_records_screen_render_enter(uint8_t* rdram, recomp_context* ctx) {
+    // Leaving the stats page moves the game's index off STUNT1's (11 to 12), and so off a stunt arena.
+    if (is_stunt(screen_k) && !screen_on_course(rdram)) {
+        screen_k = 0;
+        screen_logo(rdram, ctx, 0);
+    }
     icon_bits = screen_k != 0 ? screen_found(rdram, screen_k) : 0;
     std::lock_guard lock{ records_mutex };
     render_k = 0;
-    int index = MEM_W(0, (int32_t)screen_index);
-    if (screen_k == 0 || (index != host_record_slot[0] && index != host_record_slot[0] + 12) || swapped != 0) {
+    if (!screen_on_course(rdram) || swapped != 0) {
         return;
     }
     ensure_blocks(rdram);
-    swap_in(rdram, screen_k);
+    if (!is_stunt(screen_k)) {
+        swap_in(rdram, screen_k);
+    }
     render_k = screen_k;
 }
 
@@ -1119,8 +1194,7 @@ extern "C" int rush2_records_screen_icon(uint8_t* rdram, recomp_context* ctx) {
             hud_widget_set_texture_by_name_80080D40(rdram, &call);
         }
     }
-    int index = MEM_W(0, (int32_t)screen_index);
-    if (screen_k == 0 || (index != host_record_slot[0] && index != host_record_slot[0] + 12)) {
+    if (!screen_on_course(rdram)) {
         return 0;
     }
     int k = screen_k;
@@ -1147,7 +1221,9 @@ extern "C" int rush2_records_screen_icon(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_records_screen_render_exit(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ records_mutex };
     if (render_k != 0) {
-        swap_out(rdram);
+        if (swapped != 0) {
+            swap_out(rdram);
+        }
         render_k = 0;
     }
 }
@@ -1157,7 +1233,7 @@ extern "C" void rush2_records_screen_render_exit(uint8_t* rdram, recomp_context*
 // from which empty rows' made-up times start: moved to the course's.
 extern "C" void rush2_records_screen_times(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ records_mutex };
-    if (render_k == 0) {
+    if (render_k == 0 || is_stunt(render_k)) {
         return;
     }
     int backward = MEM_W(0, (int32_t)screen_index) >= 12 ? 1 : 0;
@@ -1166,7 +1242,8 @@ extern "C" void rush2_records_screen_times(uint8_t* rdram, recomp_context* ctx) 
 }
 
 // func_803C430C at 0x803C49CC (the stats page): 0x68($sp) = the stats to show, ALL's merged entry (0x803D0298 +
-// index * 0x20) or a profile's slot in the pak image. Moved to the course's.
+// index * 0x20) or a profile's slot in the pak image. Moved to the course's. Index 11 (STUNT1, and so a stunt arena)
+// has its own layout from there to 0x803C4D58: the stunt counters +0x16-0x1C, then the bests +0x02 and +0x1E.
 extern "C" void rush2_records_screen_stats(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ records_mutex };
     if (render_k == 0) {

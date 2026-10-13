@@ -1030,6 +1030,12 @@ bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_
         auto rom = rush2::track1::get_rom();
         return rush2::track1::available() && rom != nullptr && rush2::track1::build_race_logo(logo, *rom, t - r1_first, out);
     }
+    if (t >= stunt_menu_id && t < stunt_menu_id + stunt_count) {
+        // A stunt arena's, in its own host's container (STUNT1's).
+        auto rom = rush2::wings::get_rom();
+        return available() && rom != nullptr && rush2::assets::read_original(rdram, 4 + stunt_host_slot, logo) &&
+               build_race_logo(logo, *rom, stunt_first + (t - stunt_menu_id), out);
+    }
     if (is_mod_track(t)) {
         // The custom track's own logo; a race shows the host's (track_mod has no race logo).
         rush2::track_mod::MenuArt art;
