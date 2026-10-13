@@ -272,6 +272,9 @@ namespace {
         active = false;
         placed.clear();
         trigger_groups.clear();
+        if (collision_2049.empty()) {
+            return false;   // a track without 2049 data (a custom track)
+        }
         if (!parse_collision(collision_2049)) {
             fprintf(stderr, "[2049] Moving objects: bad collision file\n");
             return false;

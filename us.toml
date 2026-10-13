@@ -523,6 +523,18 @@ func = "car_wheel_forces_drag_8006AFD8"
 before_vram = 0x8006B5E4
 text = "    rush2_wings_drag(rdram, ctx);"
 
+# Custom track surfaces (src/rush2049/track2049.cpp rush2_trackmod_drag_*): a [surfaces] entry's drag replaces the dirt or
+# grass coefficient under the rear wheels.
+[[patches.hook]]
+func = "car_wheel_forces_drag_8006AFD8"
+before_vram = 0x8006B63C
+text = "    rush2_trackmod_drag_dirt(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_wheel_forces_drag_8006AFD8"
+before_vram = 0x8006B6A4
+text = "    rush2_trackmod_drag_grass(rdram, ctx);"
+
 [[patches.hook]]
 func = "car_init_setup_8008DBA0"
 before_vram = 0x8008DF84
@@ -949,7 +961,7 @@ text = "    rush2_track49_race_start(rdram, ctx);"
 [[patches.instruction]]
 func = "trackselect_setup_carousel_rows_803AB0E4"
 vram = 0x803AB0EC
-value = 0x3C038030 # lui     $v1, 0x8030
+value = 0x3C038031 # lui     $v1, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_setup_carousel_rows_803AB0E4"
@@ -959,7 +971,7 @@ value = 0x80630400 # lb     $v1, 0x400($v1)
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6F0
-value = 0x3C198030 # lui     $t9, 0x8030
+value = 0x3C198031 # lui     $t9, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -969,7 +981,7 @@ value = 0x27390400 # addiu    $t9, $t9, 0x400
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB88C
-value = 0x3C0F8030 # lui     $t7, 0x8030
+value = 0x3C0F8031 # lui     $t7, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -979,7 +991,7 @@ value = 0x81EF0400 # lb     $t7, 0x400($t7)
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABAC4
-value = 0x3C0E8030 # lui     $t6, 0x8030
+value = 0x3C0E8031 # lui     $t6, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -989,7 +1001,7 @@ value = 0x25CE0400 # addiu    $t6, $t6, 0x400
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABCD0
-value = 0x3C0E8030 # lui     $t6, 0x8030
+value = 0x3C0E8031 # lui     $t6, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -999,7 +1011,7 @@ value = 0x25CE0400 # addiu    $t6, $t6, 0x400
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB7B8
-value = 0x3C048030 # lui     $a0, 0x8030
+value = 0x3C048031 # lui     $a0, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -1009,62 +1021,62 @@ value = 0x8C840000 # lw     $a0, 0x0($a0)
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABB0C
-value = 0x3C128030 # lui     $s2, 0x8030
+value = 0x3C128031 # lui     $s2, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABB14
-value = 0x265200A0 # addiu    $s2, $s2, 0xA0
+value = 0x26520100 # addiu    $s2, $s2, 0x100
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB890
-value = 0x3C018030 # lui     $at, 0x8030
+value = 0x3C018031 # lui     $at, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB8B0
-value = 0xC42A0140 # lwc1    $f10, 0x140($at)
+value = 0xC42A0200 # lwc1    $f10, 0x200($at)
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABCF0
-value = 0x3C018030 # lui     $at, 0x8030
+value = 0x3C018031 # lui     $at, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABD00
-value = 0xC4260140 # lwc1    $f6, 0x140($at)
+value = 0xC4260200 # lwc1    $f6, 0x200($at)
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6234
-value = 0x3C058030 # lui     $a1, 0x8030
+value = 0x3C058031 # lui     $a1, 0x8031
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6248
-value = 0x8CA501E0 # lw     $a1, 0x1E0($a1)
+value = 0x8CA50300 # lw     $a1, 0x300($a1)
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6220
-value = 0x304E001F # andi    $t6, $v0, 0x1F
+value = 0x304E003F # andi    $t6, $v0, 0x3F
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB67C
-value = 0x2A210026 # slti    $at, $s1, 0x26
+value = 0x2A210040 # slti    $at, $s1, 0x40
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6D0
-value = 0x241E0026 # addiu    $fp, $zero, 0x26
+value = 0x241E0040 # addiu    $fp, $zero, 0x40
 
 [[patches.instruction]]
 func = "trackselect_frame_803ABE0C"
 vram = 0x803AC0FC
-value = 0x28C10026 # slti    $at, $a2, 0x26
+value = 0x28C10040 # slti    $at, $a2, 0x40
 
 # Rush 2049 track records (src/rush2049/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
@@ -1300,18 +1312,6 @@ func = "menu_screen_circuit_803B6260"
 before_vram = 0x803B6260
 text = "    rush2_track49_circuit_screen(rdram, ctx);"
 
-[[patches.instruction]]
-func = "menu_screen_circuit_803B6260"
-vram = 0x803B62A4
-value = 0x3C108030 # lui $s0, 0x8030
-
-[[patches.instruction]]
-func = "menu_screen_circuit_803B6260"
-vram = 0x803B62A8
-value = 0x3C118030 # lui $s1, 0x8030
-
-[[patches.instruction]]
-func = "menu_screen_circuit_803B6260"
 # Circuit length (src/circuit.cpp): a circuit keeps the length and courses it started with (end of func_800B2A58), and
 # the six tests of Rush 2's 28 races compare with that length instead.
 [[patches.hook]]
@@ -1349,6 +1349,18 @@ func = "menu_name_check_c_803BCFA4"
 before_vram = 0x803BCFE4
 text = "    rush2_circuit_races_left(rdram, ctx);"
 
+[[patches.instruction]]
+func = "menu_screen_circuit_803B6260"
+vram = 0x803B62A4
+value = 0x3C108030 # lui $s0, 0x8030
+
+[[patches.instruction]]
+func = "menu_screen_circuit_803B6260"
+vram = 0x803B62A8
+value = 0x3C118030 # lui $s1, 0x8030
+
+[[patches.instruction]]
+func = "menu_screen_circuit_803B6260"
 vram = 0x803B62AC
 value = 0x263108D8 # addiu $s1, $s1, 0x8D8
 
@@ -1365,7 +1377,7 @@ value = 0x3C108030 # lui $s0, 0x8030
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6410
-value = 0x3C118030 # lui $s1, 0x8030
+value = 0x3C118031 # lui $s1, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1380,7 +1392,7 @@ value = 0x26100840 # addiu $s0, $s0, 0x840
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64AC
-value = 0x3C188030 # lui $t8, 0x8030
+value = 0x3C188031 # lui $t8, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1390,12 +1402,12 @@ value = 0x27180098 # addiu $t8, $t8, 0x98
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64D8
-value = 0x3C018030 # lui $at, 0x8030
+value = 0x3C018031 # lui $at, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64EC
-value = 0xC4260140 # lwc1 $f6, 0x140($at)
+value = 0xC4260200 # lwc1 $f6, 0x200($at)
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -1410,32 +1422,32 @@ value = 0x26310840 # addiu $s1, $s1, 0x840
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A80
-value = 0x3C018030 # lui $at, 0x8030
+value = 0x3C018031 # lui $at, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A8C
-value = 0xC4240140 # lwc1 $f4, 0x140($at)
+value = 0xC4240200 # lwc1 $f4, 0x200($at)
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6AA8
-value = 0x3C068030 # lui $a2, 0x8030
+value = 0x3C068031 # lui $a2, 0x8031
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6ABC
-value = 0x8CC600A0 # lw $a2, 0xA0($a2)
+value = 0x8CC60100 # lw $a2, 0x100($a2)
 
 [[patches.instruction]]
 func = "circuit_widget_cb_logo_803BE528"
 vram = 0x803BE584
-value = 0x3C058030 # lui $a1, 0x8030
+value = 0x3C058031 # lui $a1, 0x8031
 
 [[patches.instruction]]
 func = "circuit_widget_cb_logo_803BE528"
 vram = 0x803BE598
-value = 0x8CA501E0 # lw $a1, 0x1E0($a1)
+value = 0x8CA50300 # lw $a1, 0x300($a1)
 
 # Car Speeds: map the path's AI lane speeds before the race time is worked out from them (src/rush2049/track2049.cpp).
 [[patches.hook]]

@@ -33,10 +33,15 @@
 // - The high-score screen fills empty rows with made-up times from the track's seed time (0x8001CF3C); for a 2049
 //   track the seed comes from Rush 2049's own table (2049 boot 0x8002E870).
 //
+// Custom tracks (src/track_mod/) race in the host slot too and get one more course, numbered 15 below, which holds
+// the raced custom track's records: the save file keeps every custom track's as { "mod": "<its folder>" }, and when
+// another one is raced the course is swapped (sync_mod). The high-score screen's seed is the track's best_times.
+//
 // Menu screens (the records screen, profile loading) run outside those windows and only ever see HAWAII's records;
 // 2049 records aren't listed on the records screen, and 2049 results don't count toward unlocks. Clearing a
 // profile's records there, or deleting the profile, clears its 2049 records as well.
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -45,6 +50,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 
 #include "json/json.hpp"
@@ -58,6 +64,7 @@
 #include "collectibles.h"
 #include "track1.h"
 #include "track2049.h"
+#include "track_mod_runtime.h"
 #include "wings.h"
 
 using rush2::track2049::host_slot;
@@ -100,7 +107,8 @@ namespace {
     // The added tracks forward and backward: course = (track - 1) + 14 * backward.
     constexpr int r1_count = rush2::track1::track_count;
     constexpr int obstacle_track = track_count + r1_count + 1;     // The obstacle course (forward only).
-    constexpr int extra_tracks = obstacle_track;
+    constexpr int mod_track = obstacle_track + 1;                  // The raced custom track.
+    constexpr int extra_tracks = mod_track;
     constexpr int courses = extra_tracks * 2;
 
     // A side block in RDRAM per player-record position: the stats of each course, then its two pages of times.
@@ -143,6 +151,13 @@ namespace {
     bool touched = false;          // A side block was handed to the game since the last save.
 
     Row session_rows[courses][2]; // The 2049 high-score rows while swapped out (guests; profiles are re-merged).
+
+    // Custom tracks' records by profile name and folder, [backward]; the mod_track course of store and of the blocks
+    // holds loaded_mod's.
+    using ModCourses = std::array<Course, 2>;
+    std::map<std::string, std::map<std::string, ModCourses>> mod_store;
+    std::map<std::string, std::array<std::array<Row, 2>, 2>> mod_rows;   // session rows by folder, [backward][page]
+    std::string loaded_mod;
     Row host_rows[2][2];          // HAWAII's rows while the 2049 ones are swapped in, [backward][page].
     int depth = 0;
     int swapped = 0;              // The 2049 track whose rows are swapped in, or 0.
@@ -166,6 +181,9 @@ namespace {
         int r = rush2::track1::race_track();
         if (r >= 1 && r <= r1_count) {
             return track_count + r;
+        }
+        if (rush2::track_mod::race_track() >= 0) {
+            return mod_track;
         }
         return 0;
     }
@@ -266,6 +284,45 @@ namespace {
         return s;
     }
 
+    void read_course(const nlohmann::json& cj, Course& c) {
+        if (cj.contains("stats") && cj["stats"].is_string()) {
+            from_hex(cj["stats"].get<std::string>(), c.stats, sizeof(c.stats));
+        }
+        const char* pages[2] = { "race", "lap" };
+        for (int page = 0; page < 2; page++) {
+            if (cj.contains(pages[page]) && cj[pages[page]].is_array()) {
+                const auto& list = cj[pages[page]];
+                for (size_t i = 0; i < 5 && i < list.size(); i++) {
+                    c.times[page][i] = parse_time(list[i]);
+                }
+            }
+        }
+    }
+
+    nlohmann::json write_course(const Course& c) {
+        nlohmann::json pages[2] = { nlohmann::json::array(), nlohmann::json::array() };
+        for (int page = 0; page < 2; page++) {
+            for (int i = 0; i < 5; i++) {
+                pages[page].push_back(c.times[page][i] != 0 ? nlohmann::json(format_time(c.times[page][i]))
+                                                             : nlohmann::json(nullptr));
+            }
+        }
+        return { { "race", pages[0] }, { "lap", pages[1] }, { "stats", to_hex(c.stats, sizeof(c.stats)) } };
+    }
+
+    // The store's mod_track courses back into mod_store (they hold loaded_mod's records).
+    void stash_mod() {
+        if (loaded_mod.empty()) {
+            return;
+        }
+        for (auto& [name, profile] : store) {
+            ModCourses mc = { profile[course_of(mod_track, 0)], profile[course_of(mod_track, 1)] };
+            if (!mc[0].zero() || !mc[1].zero() || mod_store[name].count(loaded_mod)) {
+                mod_store[name][loaded_mod] = mc;
+            }
+        }
+    }
+
     void load_store() {
         if (store_loaded) {
             return;
@@ -287,11 +344,16 @@ namespace {
             }
             Profile& profile = store[name];
             for (const auto& cj : pj["courses"]) {
-                if (!cj.is_object() || !cj.contains("track")) {
+                if (!cj.is_object() || (!cj.contains("track") && !cj.contains("mod"))) {
                     continue;
                 }
                 int k;
                 int backward = cj.value("backward", false) ? 1 : 0;
+                if (cj.contains("mod") && cj["mod"].is_string()) {
+                    Course& c = mod_store[name][cj["mod"].get<std::string>()][backward];
+                    read_course(cj, c);
+                    continue;
+                }
                 if (cj["track"].is_string() && cj["track"].get<std::string>() == "obstacle") {
                     k = obstacle_track;
                 }
@@ -308,45 +370,30 @@ namespace {
                 else {
                     continue;
                 }
-                Course& c = profile[course_of(k, backward)];
-                if (cj.contains("stats") && cj["stats"].is_string()) {
-                    from_hex(cj["stats"].get<std::string>(), c.stats, sizeof(c.stats));
-                }
-                const char* pages[2] = { "race", "lap" };
-                for (int page = 0; page < 2; page++) {
-                    if (cj.contains(pages[page]) && cj[pages[page]].is_array()) {
-                        const auto& list = cj[pages[page]];
-                        for (size_t i = 0; i < 5 && i < list.size(); i++) {
-                            c.times[page][i] = parse_time(list[i]);
-                        }
-                    }
-                }
+                read_course(cj, profile[course_of(k, backward)]);
             }
         }
     }
 
     void save_store() {
+        stash_mod();
         nlohmann::json list = nlohmann::json::array();
-        for (const auto& [name, profile] : store) {
+        std::set<std::string> names;
+        for (const auto& [name, profile] : store) names.insert(name);
+        for (const auto& [name, mods] : mod_store) names.insert(name);
+        for (const std::string& name : names) {
             nlohmann::json course_list = nlohmann::json::array();
+            auto it = store.find(name);
+            const Profile profile = it != store.end() ? it->second : Profile{};
             for (int course = 0; course < courses; course++) {
                 const Course& c = profile[course];
-                if (c.zero()) {
+                int k = course % extra_tracks + 1;
+                if (c.zero() || k == mod_track) {
                     continue;
                 }
-                nlohmann::json pages[2] = { nlohmann::json::array(), nlohmann::json::array() };
-                for (int page = 0; page < 2; page++) {
-                    for (int i = 0; i < 5; i++) {
-                        pages[page].push_back(c.times[page][i] != 0 ? nlohmann::json(format_time(c.times[page][i]))
-                                                                     : nlohmann::json(nullptr));
-                    }
-                }
-                int k = course % extra_tracks + 1;
-                nlohmann::json entry = { { "track", k > track_count ? k - track_count : k },
-                                         { "backward", course >= extra_tracks },
-                                         { "race", pages[0] },
-                                         { "lap", pages[1] },
-                                         { "stats", to_hex(c.stats, sizeof(c.stats)) } };
+                nlohmann::json entry = write_course(c);
+                entry["track"] = k > track_count ? k - track_count : k;
+                entry["backward"] = course >= extra_tracks;
                 if (k == obstacle_track) {
                     entry["track"] = "obstacle";
                 }
@@ -354,6 +401,18 @@ namespace {
                     entry["game"] = "sfrush";
                 }
                 course_list.push_back(entry);
+            }
+            auto mods = mod_store.find(name);
+            if (mods != mod_store.end()) {
+                for (const auto& [folder, mc] : mods->second) {
+                    for (int backward = 0; backward < 2; backward++) {
+                        if (mc[backward].zero()) continue;
+                        nlohmann::json entry = write_course(mc[backward]);
+                        entry["mod"] = folder;
+                        entry["backward"] = backward != 0;
+                        course_list.push_back(entry);
+                    }
+                }
             }
             if (!course_list.empty()) {
                 list.push_back({ { "name", printable(name) },
@@ -430,6 +489,13 @@ namespace {
         save_block(rdram, p);
         auto it = store.find(name);
         Profile profile = it != store.end() ? it->second : Profile{};
+        if (it == store.end() && !loaded_mod.empty()) {
+            auto mods = mod_store.find(name);
+            if (mods != mod_store.end() && mods->second.count(loaded_mod)) {
+                profile[course_of(mod_track, 0)] = mods->second[loaded_mod][0];
+                profile[course_of(mod_track, 1)] = mods->second[loaded_mod][1];
+            }
+        }
         write_block(rdram, p, profile);
         bound_name[p] = name;
         bound_copy[p] = profile;
@@ -447,6 +513,47 @@ namespace {
         for (uint32_t i = 0; i < size; i++) {
             MEM_B(0, (int32_t)(blocks + i)) = 0;
         }
+    }
+
+    // Makes the mod_track course (store, side blocks, session rows) hold the raced custom track's records.
+    void sync_mod(uint8_t* rdram) {
+        std::string folder = rush2::track_mod::race_folder();
+        if (folder.empty() || folder == loaded_mod) {
+            return;
+        }
+        for (int p = 0; p < profiles; p++) {
+            save_block(rdram, p);
+        }
+        stash_mod();
+        for (auto& [name, profile] : store) {
+            ModCourses mc{};
+            auto mods = mod_store.find(name);
+            if (mods != mod_store.end() && mods->second.count(folder)) mc = mods->second[folder];
+            profile[course_of(mod_track, 0)] = mc[0];
+            profile[course_of(mod_track, 1)] = mc[1];
+        }
+        for (int p = 0; p < profiles; p++) {
+            if (!bound[p]) continue;
+            auto it = store.find(bound_name[p]);
+            Profile profile = it != store.end() ? it->second : Profile{};
+            if (it == store.end()) {
+                ModCourses mc{};
+                auto mods = mod_store.find(bound_name[p]);
+                if (mods != mod_store.end() && mods->second.count(folder)) mc = mods->second[folder];
+                profile[course_of(mod_track, 0)] = mc[0];
+                profile[course_of(mod_track, 1)] = mc[1];
+            }
+            write_block(rdram, p, profile);
+            bound_copy[p] = profile;
+        }
+        for (int backward = 0; backward < 2; backward++) {
+            for (int page = 0; page < 2; page++) {
+                if (!loaded_mod.empty()) mod_rows[loaded_mod][backward][page] = session_rows[course_of(mod_track, backward)][page];
+                auto rows = mod_rows.find(folder);
+                session_rows[course_of(mod_track, backward)][page] = rows != mod_rows.end() ? rows->second[backward][page] : Row{};
+            }
+        }
+        loaded_mod = folder;
     }
 
     void save_changes(uint8_t* rdram) {
@@ -471,6 +578,7 @@ namespace {
             return addr;
         }
         ensure_blocks(rdram);
+        sync_mod(rdram);
         for (int backward = 0; backward < 2; backward++) {
             if (addr == no_profile_stats + host_no_profile_slot[backward] * stats_size) {
                 touched = true;
@@ -502,6 +610,7 @@ namespace {
             return addr;
         }
         ensure_blocks(rdram);
+        sync_mod(rdram);
         int p = (off / pak_stride) * records_per_pak + (off % pak_stride) / record_size;
         uint32_t field = off % pak_stride % record_size;
         for (int page = 0; page < 2; page++) {
@@ -662,6 +771,15 @@ namespace {
     }
 
     float seed_2049(int k, int backward) {
+        if (k == mod_track) {
+            // The fastest of the track's best_times (track.toml), or 90 s.
+            rush2::track_mod::Settings settings;
+            float best = 0.0f;
+            if (rush2::track_mod::race_settings(settings)) {
+                for (float t : settings.best_times) if (t > 1.0f && (best == 0.0f || t < best)) best = t;
+            }
+            return best > 1.0f ? std::min(best, 479.0f) : 90.0f;
+        }
         // The table is indexed by Rush 2049's track id: 0-5 race tracks, 18 the obstacle course.
         int id = k == obstacle_track ? rush2::track2049::obstacle - 1 : k - 1;
         if (k > track_count && k != obstacle_track) {
@@ -714,6 +832,7 @@ extern "C" void rush2_track49_records_enter(uint8_t* rdram, recomp_context* ctx)
     int k = hosted(rdram);
     if (k != 0) {
         ensure_blocks(rdram);
+        sync_mod(rdram);
         swap_in(rdram, k);
     }
 }
@@ -752,7 +871,9 @@ void rush2::track2049::clear_profile_records(uint8_t* rdram, int p) {
             bound_copy[q] = Profile{};
         }
     }
-    if (store.erase(name) != 0) {
+    bool had = store.erase(name) != 0;
+    had = mod_store.erase(name) != 0 || had;
+    if (had) {
         save_store();
     }
 }

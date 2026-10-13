@@ -47,6 +47,7 @@
 #include "pause_menu.h"
 #include "track1.h"
 #include "track2049.h"
+#include "track_mod_runtime.h"
 
 extern "C" void pause_menu_build_widgets_800AFB50(uint8_t* rdram, recomp_context* ctx); // Pause widgets for state $a1.
 extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx);             // Plays a menu sound.
@@ -482,7 +483,10 @@ namespace {
             out.push_back({ "SILVER", { "SILVERCOINS_COI" }, bits(m & silver_bits), coins_per_kind });
         };
         int k = rush2::track2049::race_track();
-        if (host && k > 0) {
+        if (host && rush2::track_mod::race_track() >= 0 && k == 0 && rush2::track1::race_track() == 0) {
+            // A custom track (src/track_mod/): no collectibles (not HAWAII's keys and cans).
+        }
+        else if (host && k > 0) {
             if (k <= rush2049_courses) {
                 coins(p.rush2049[k - 1]);
             }

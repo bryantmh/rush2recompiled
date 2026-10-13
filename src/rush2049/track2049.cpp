@@ -33,6 +33,7 @@
 
 #include <cstdio>
 #include <algorithm>
+#include <optional>
 #include <cmath>
 #include <atomic>
 #include <cstdlib>
@@ -58,6 +59,7 @@
 #include "track_cache.h"
 #include "car2049.h"
 #include "rush2049_rom.h"
+#include "track_mod_runtime.h"
 #include "wings.h"
 
 using rush2::track2049::host_slot;
@@ -113,11 +115,32 @@ namespace {
     };
     Saved saved;
 
+    // Custom tracks from mods (src/track_mod/) are hosted here too, as k = mod_k + their index.
+    constexpr int mod_k = 1000;
+    rush2::track_mod::Settings mod_settings;   // The raced custom track's track.toml.
+    std::array<std::optional<float>, 16> mod_drag;  // Its [surfaces] drag by polygon material slot.
+
     // Converts 2049 track k (convert_track's k) from the user's ROM for the slot in `slot`.
     // The converted track comes from the disk cache (src/track_cache.cpp) when this build converted it from the same
     // source before; converting runs inside the race setup, on the race's first frame. The source key is the N64 ROM's
     // hash, or for a Dreamcast disc the track's own geometry and collision files.
     bool convert(uint8_t* rdram, int k) {
+        if (k >= mod_k) {
+            rush2::track_mod::Converted mod;
+            if (!rush2::track_mod::load(k - mod_k, prefix_of(slot), mod)) {
+                return false;
+            }
+            track = std::move(mod.track);
+            mod_settings = mod.settings;
+            mod_drag = {};
+            for (const auto& [name, sf] : mod_settings.surfaces) mod_drag[size_t(sf.material & 15)] = sf.drag;
+            track_has_sky = false;
+            rush2::track2049::set_mover_data({}, {}, {}, {}, {});
+            rush2::track2049::set_texanim_data({});
+            rush2::track2049::set_prop_data({}, track.geometry);
+            rush2::battle::set_data({}, {}, track.geometry, {});
+            return true;
+        }
         auto rom = rush2::wings::get_rom();
         if (rom == nullptr) {
             return false;
@@ -207,6 +230,18 @@ namespace {
         if (loaded_track <= rush2::track2049::track_count) {
             MEM_H(0, (int32_t)(songs + slot * 2)) = track_songs[loaded_track - 1];
         }
+        else if (loaded_track >= mod_k) {
+            // music = "track1".."track8": Rush 2's songs by their track select order; anything else keeps the host's.
+            const std::string& m = mod_settings.music;
+            if (m.size() == 6 && m.compare(0, 5, "track") == 0 && m[5] >= '1' && m[5] <= '8') {
+                MEM_H(0, (int32_t)(songs + slot * 2)) = int16_t(m[5] - '1');
+            }
+            uint32_t bits;
+            memcpy(&bits, &mod_settings.cloud_scroll, 4);
+            MEM_W(0, (int32_t)(cloud_scroll + slot * 4)) = bits;
+            memcpy(&bits, &mod_settings.sky_parallax, 4);
+            MEM_W(0, (int32_t)(sky_parallax + slot * 4)) = bits;
+        }
         if (demo_table == 0) {
             demo_table = (uint32_t)((uint8_t*)recomp::alloc(rdram, 2 * 32 * 2) - rdram) + 0x80000000;
         }
@@ -262,6 +297,10 @@ namespace {
 
     bool hosting(uint8_t* rdram) {
         return applied && MEM_B(0, (int32_t)track_id) == slot;
+    }
+
+    bool hosting_mod(uint8_t* rdram) {
+        return hosting(rdram) && loaded_track >= mod_k;
     }
 }
 
@@ -362,6 +401,10 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         k = rush2::track2049::battle_first + raced_battle - 1;
         want_slot = stunt_host_slot;
     }
+    else if (rush2::track_mod::race_track() >= 0 && t == host_slot) {
+        k = mod_k + rush2::track_mod::race_track();
+        want_slot = host_slot;
+    }
     if (k == 0 || (applied && slot != want_slot)) {
         restore(rdram);
     }
@@ -373,7 +416,7 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         loaded_track = 0;   // The conversion depends on the slot's track prefix.
     }
     // The Games tab can switch the Rush 2049 source between races: a track converted from the other one is redone.
-    if (loaded_source != rush2::wings::get_rom()) {
+    if (k < mod_k && loaded_source != rush2::wings::get_rom()) {
         loaded_track = 0;
     }
     if (loaded_track != k) {
@@ -391,7 +434,7 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         race_logo.clear();
         std::vector<uint8_t> logo;
         auto rom = rush2::wings::get_rom();
-        if (rom == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
+        if (k >= mod_k || rom == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
             !rush2::track2049::build_race_logo(logo, *rom, k, race_logo)) {
             race_logo.clear();
         }
@@ -498,11 +541,30 @@ static void path_race_time(uint8_t* rdram) {
     if (rush2::track1::race_time(rdram)) {
         return;
     }
+    int count = (int16_t)MEM_H(0, (int32_t)(header + 8));
+    // A custom track with times in its track.toml: start_time is the clock at the start and also what crossing the
+    // finish line adds; checkpoint_time[n - 1] is what CHECKPOINT_n adds on lap 1 and on later laps (Rush 2 has no
+    // separate lap 3+ time). Without them, and in backward races (whose checkpoints come in the other order), the
+    // game's own times from the AI lanes stand.
+    if (hosting_mod(rdram)) {
+        constexpr uint32_t backward = 0x80119848;
+        if (mod_settings.start_time && count > 0 && count <= 10 && MEM_B(0, (int32_t)backward) == 0) {
+            int16_t start = (int16_t)std::lround(*mod_settings.start_time);
+            MEM_H(0, (int32_t)header) = start;
+            MEM_H(0, (int32_t)(header + 0xC + 0x1E)) = start;
+            MEM_H(0, (int32_t)(header + 0xC + 0x20)) = start;
+            for (int i = 1; i < count && i - 1 < (int)mod_settings.checkpoint_time.size(); i++) {
+                const auto& t = mod_settings.checkpoint_time[i - 1];
+                MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x1E)) = (int16_t)std::lround(t[0]);
+                MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x20)) = (int16_t)std::lround(t[1]);
+            }
+        }
+        return;
+    }
     if (rush2::track2049::race_track() == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
         return;
     }
     uint32_t file = (uint32_t)MEM_W(0, (int32_t)path_pointer);
-    int count = (int16_t)MEM_H(0, (int32_t)(header + 8));
     if (file == 0 || count <= 0 || count > 10) {
         return;
     }
@@ -582,6 +644,9 @@ extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* 
     constexpr uint32_t checkpoints = 0x8010C17B;   // u8: the race is against the clock
     constexpr uint32_t backward = 0x80119848;
     constexpr uint32_t mirror = 0x800D0190;
+    // AI-agent test aid, not in the menu: RUSH2_TEST_BACKWARD=1 races backward without going to the option row.
+    static const bool test_backward = getenv("RUSH2_TEST_BACKWARD") != nullptr;
+    if (test_backward) MEM_B(0, (int32_t)backward) = 1;
     if (rush2::track2049::battle_race(rdram)) {
         // Battle arenas are stunt mode, which has no drones; Rush 2049's battle was multiplayer only. The drones here
         // are the computer opponents (src/rush2049/battle_ai.cpp): the track select's DRONES, which the BATTLE select
@@ -778,4 +843,29 @@ extern "C" void rush2_track49_map_t0(uint8_t* rdram, recomp_context* ctx) {
 
 extern "C" void rush2_track49_map_t2(uint8_t* rdram, recomp_context* ctx) {
     if (rush2::track2049::no_map(rdram)) ctx->r10 = stunt_host_slot;
+}
+
+// func_8006AFD8 at 0x8006B63C ($f10) and 0x8006B6A4 ($f8): the drag coefficient of the dirt or grass both rear wheels
+// are on (0x800C1A30 / 0x800C1A34: -10 / -15), about to be multiplied by 1 - the off-road factor and the forward speed
+// and added to the longitudinal force (+0x54). On a custom track, rear wheels on a [surfaces] material (car +0x610 /
+// +0x612: the materials the wheel probe func_8006F704 stores at +0x60C + 2 x wheel) take that surface's -drag, the
+// average when the two wheels are on different ones.
+namespace {
+    float surface_coefficient(uint8_t* rdram, uint32_t car, float stock) {
+        if (!hosting_mod(rdram)) return stock;
+        float sum = 0.0f;
+        for (int32_t wheel = 2; wheel < 4; wheel++) {
+            int material = MEM_H(0x60C + wheel * 2, (int32_t)car) & 15;   // signed offset (an unsigned one misaddresses)
+            sum += mod_drag[size_t(material)] ? -*mod_drag[size_t(material)] : stock;
+        }
+        return sum * 0.5f;
+    }
+}
+
+extern "C" void rush2_trackmod_drag_dirt(uint8_t* rdram, recomp_context* ctx) {
+    ctx->f10.fl = surface_coefficient(rdram, (uint32_t)ctx->r16, ctx->f10.fl);
+}
+
+extern "C" void rush2_trackmod_drag_grass(uint8_t* rdram, recomp_context* ctx) {
+    ctx->f8.fl = surface_coefficient(rdram, (uint32_t)ctx->r16, ctx->f8.fl);
 }

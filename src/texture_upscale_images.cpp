@@ -255,6 +255,18 @@ uint64_t content_key(const Image& image) {
     return XXH3_64bits_digest(&state);
 }
 
+uint64_t rgba16_key(const std::vector<uint8_t>& texels, uint32_t width, uint32_t height) {
+    std::vector<uint8_t> tmem(4096, 0);
+    uint32_t row = width * 2;
+    for (uint32_t y = 0; y < height; y++) {
+        for (uint32_t x = 0; x < row; x++) {
+            uint32_t to = y * row + ((y & 1) ? (((x / 4) ^ 1) * 4 + (x & 3)) : x);
+            if (to < tmem.size()) tmem[to] = texels[y * row + x];
+        }
+    }
+    return content_key(decode_tmem(tmem.data(), 0 /* RGBA */, 2 /* 16b */, 0, row / 8, 0, 0, width, height));
+}
+
 std::string key_name(uint64_t key) {
     char text[17];
     snprintf(text, sizeof(text), "%016llx", (unsigned long long)key);
@@ -315,6 +327,27 @@ Image crop(const Image& image, uint32_t x, uint32_t y, uint32_t width, uint32_t 
     out.rgba.resize(size_t(width) * height * 4);
     for (uint32_t row = 0; row < height; row++) {
         memcpy(&out.rgba[size_t(row) * width * 4], &image.rgba[(size_t(y + row) * image.width + x) * 4], size_t(width) * 4);
+    }
+    return out;
+}
+
+Image shrink(const Image& src, uint32_t w, uint32_t h) {
+    Image out;
+    out.width = w;
+    out.height = h;
+    out.rgba.assign(size_t(w) * h * 4, 0);
+    for (uint32_t y = 0; y < h; y++) {
+        uint32_t y0 = y * src.height / h, y1 = std::max(y0 + 1, (y + 1) * src.height / h);
+        for (uint32_t x = 0; x < w; x++) {
+            uint32_t x0 = x * src.width / w, x1 = std::max(x0 + 1, (x + 1) * src.width / w);
+            uint32_t sum[4] = {}, n = 0;
+            for (uint32_t sy = y0; sy < y1; sy++) for (uint32_t sx = x0; sx < x1; sx++) {
+                const uint8_t* p = &src.rgba[(size_t(sy) * src.width + sx) * 4];
+                for (int c = 0; c < 4; c++) sum[c] += p[c];
+                n++;
+            }
+            for (int c = 0; c < 4; c++) out.rgba[(size_t(y) * w + x) * 4 + c] = uint8_t(sum[c] / std::max(1u, n));
+        }
     }
     return out;
 }

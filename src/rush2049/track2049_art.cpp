@@ -1797,9 +1797,9 @@ namespace {
         std::vector<Point> spine;
     };
 
-    bool tube_geometry(const rush2::rom2049::Source& rom, int k, Tube& tube) {
-        Bytes path;
-        if (!rom.read_file(path_file + k, path)) return false;
+    // The tube of AI path file `path` (a 2049 file, or a converted track's, which has the same layout); battle: an
+    // arena's narrower band (below).
+    bool tube_from_path(const Bytes& path, bool battle, Tube& tube) {
         std::vector<Point> spine;
         std::vector<std::vector<Point>> branches;
         if (!read_path(path, spine, branches) || spine.size() < 4 || path.size() < 12 + 10 * 0x50) return false;
@@ -1824,7 +1824,7 @@ namespace {
         // a twentieth of its extent wide, open where the path's ends are apart, and each ring a little higher than
         // the one before, so where the band crosses itself one top is cleanly over the other.
         float half_width = tube_half_width, lift = tube_lift, rise = 0.0f, max_gap = tube_max_gap;
-        if (is_battle(k)) {
+        if (battle) {
             half_width = float(extent) * 0.025f;
             lift = half_width * 0.5f;
             rise = half_width * 0.02f;
@@ -1881,17 +1881,22 @@ namespace {
         return true;
     }
 
+    bool tube_geometry(const rush2::rom2049::Source& rom, int k, Tube& tube) {
+        Bytes path;
+        return rom.read_file(path_file + k, path) && tube_from_path(path, is_battle(k), tube);
+    }
+
     // Appends the tube's vertices (to_model: a ring point, world units around the centre, to model units) and its list
     // as 2049 builds them, with the selected colours at highlight phase `phase` (negative: no highlight).
     template <typename ToModel>
-    void emit_tube(const Tube& tube, int k, float phase, TrackModel& m, ToModel to_model) {
+    void emit_tube(const Tube& tube, int color, float phase, TrackModel& m, ToModel to_model) {
         const auto& ring = tube.ring;
         // Vertices, chained for the loader's mirror pass like 2049's (flag 0x8000; the last ends the chain).
         Bytes& vertices = m.parts[vertices_part];
         const uint32_t base = uint32_t(vertices.size());
         for (int i = 0; i < tube_rings; i++) {
             uint8_t top[3];
-            rush2::track2049::preview_tube_color(number_of(k), i, phase, top);
+            rush2::track2049::preview_tube_color(color, i, phase, top);
             for (int v = 0; v < 4; v++) {
                 const auto& p = ring[size_t(i) * 4 + size_t(v)];
                 float mv[3];
@@ -1948,7 +1953,7 @@ namespace {
         if (!tube_geometry(rom, k, tube)) return false;
         m.print.spine = tube.spine;
         const float scale = 2 * diorama_half_size / float(tube.extent);
-        emit_tube(tube, k, tube_highlight ? 0.0f : -1.0f, m, [&](const std::array<float, 3>& p, float* out) {
+        emit_tube(tube, number_of(k), tube_highlight ? 0.0f : -1.0f, m, [&](const std::array<float, 3>& p, float* out) {
             for (int j = 0; j < 3; j++) out[j] = p[j] * scale;
         });
         Bytes& vertices = m.parts[vertices_part];
@@ -1959,6 +1964,8 @@ namespace {
     }
 
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Logo
     // ---------------------------------------------------------------------------------------------------------------
     // Logo
 
@@ -2178,6 +2185,105 @@ namespace {
         return use_miniature && k <= rush2::track2049::track_count ? build_miniature(rom, k, m) : build_tube(rom, k, m);
     }
 
+    // The preview's route tube (display scale 5000 / extent, placed as 2049 places it), colored as race track `color`'s.
+    void preview_tube(const Tube& tube, int color, TrackModel& m) {
+        const float scale = 50.0f / float(tube.extent);   // (p + c) / 100 x 5000 / extent
+        emit_tube(tube, color, 0.0f, m, [&](const std::array<float, 3>& p, float* out) {
+            float q[3] = { p[0] * scale, p[1] * scale, p[2] * scale };
+            rush2::track2049::preview_place(q, 0.0f, out);
+        });
+    }
+
+    // The screenshot: w (128) x h CI8 `indices` with `palette` in 128 x 16 strips, translucent (its corners are clear),
+    // z-compared but not written, after the model so the model hides it.
+    void preview_screenshot(Miniature& mini, TrackModel& m, const std::vector<uint8_t>& indices,
+                            std::array<uint16_t, 256> palette, int w, int h) {
+        // Clear entries black, so filtering darkens the round edge instead of fringing it with the key colour.
+        for (uint16_t& c : palette) {
+            if (!(c & 1)) c = 0;
+        }
+        // Strips of preview_strip_h rows starting a row above the preview_strip_shown rows each draws, so the
+        // filter has both neighbours at the seams: the image with its first and last rows repeated around it.
+        const int strips = (h + preview_strip_shown - 1) / preview_strip_shown;
+        Bytes& texels = m.parts[texels_part];
+        align(texels, 8);
+        const uint32_t at = uint32_t(texels.size());
+        for (int row = -1; row < strips * preview_strip_shown + preview_strip_h - preview_strip_shown - 1; row++) {
+            int r = std::clamp(row, 0, h - 1);
+            texels.insert(texels.end(), indices.begin() + r * w, indices.begin() + (r + 1) * w);
+        }
+        const uint32_t pal = uint32_t(texels.size());
+        for (uint16_t c : palette) push16(texels, c);
+
+        mini.command(0xE7000000, 0);
+        mini.command(0xE200001C, 0x0C184A50);    // pass, then z-compared translucent surface
+        mini.command(0xFCFFFFFF, 0xFFFCF238);    // texel 0, colour and alpha
+        mini.command(0xD7000002, 0xFFFFFFFF);    // G_TEXTURE on, tile 0, scale 1
+        mini.command(0xFD100000, pal, texels_part);  // SETTIMG palette
+        mini.command(0xE8000000, 0);             // TILESYNC
+        mini.command(0xF5000100, 0x07000000);    // SETTILE 7 at TMEM 0x100
+        mini.command(0xE6000000, 0);             // LOADSYNC
+        mini.command(0xF0000000, 0x073FC000);    // LOADTLUT 256 entries
+        mini.command(0xE7000000, 0);
+        const uint32_t clamp = (2u << 18) | (2u << 8);
+        const float d = preview_disc_depth / rush2::track2049::preview_focal;
+        for (int strip = 0; strip < strips; strip++) {
+            mini.command(0xFD500000, at + uint32_t(strip * w * preview_strip_shown), texels_part); // SETTIMG CI 16-bit
+            mini.command(0xF5500000, 0x07000000 | clamp);   // SETTILE 7
+            mini.command(0xE6000000, 0);                     // LOADSYNC
+            mini.command(0xF3000000, 0x073FF080);            // LOADBLOCK 1024 16-bit texels, 16 words per row
+            mini.command(0xE7000000, 0);
+            mini.command(0xF5482000, clamp);                 // SETTILE 0: CI8, 16 words per row, TMEM 0
+            mini.command(0xF2000000, 0x001FC03C);            // SETTILESIZE 128 x 16
+            Group quad;
+            int rows = std::min(preview_strip_shown, h - strip * preview_strip_shown);
+            float y0 = preview_disc_y + float(strip * preview_strip_shown), y1 = y0 + float(rows);
+            float x0 = preview_disc_x, x1 = preview_disc_x + float(w);
+            auto corner = [&](float sx, float sy, float s, float t) {
+                float x = (sx - rush2::track2049::preview_center_x) * d, y = (rush2::track2049::preview_center_y - sy) * d;
+                return quad.add({ x * preview_units, y * preview_units, preview_disc_depth * preview_units, s, t, 255, 255, 255 });
+            };
+            int a = corner(x0, y0, 0, 1), b = corner(x1, y0, float(w), 1);
+            int c = corner(x1, y1, float(w), float(1 + rows)), e = corner(x0, y1, 0, float(1 + rows));
+            quad.quad(a, b, c, e);
+            emit_group(mini, quad);
+        }
+    }
+
+    // A Rush 2049 or Dreamcast RGBA picture as the screenshot's CI8: index 255 clear, the rest a median cut of the
+    // opaque texels.
+    void quantize_picture(const std::vector<std::array<uint8_t, 4>>& rgba, std::vector<uint8_t>& indices,
+                          std::array<uint16_t, 256>& palette) {
+        std::vector<std::array<uint8_t, 3>> px(rgba.size());
+        for (size_t i = 0; i < rgba.size(); i++) px[i] = { rgba[i][0], rgba[i][1], rgba[i][2] };
+        Texture t;
+        quantize(px, t);
+        indices = t.texels;
+        palette = t.palette;
+        palette[255] = 0;
+        for (size_t i = 0; i < rgba.size(); i++) {
+            if (rgba[i][3] < 128) indices[i] = 255;
+            else if (indices[i] == 255) indices[i] = 254;
+        }
+    }
+
+    // What Rush 2's dioramas leave set, the end of the vertex chain and the radius.
+    bool preview_finish(Miniature& mini, TrackModel& m) {
+        mini.command(0xE7000000, 0);
+        mini.command(0xE200001C, 0xC8112078);        // render mode, as the stock dioramas
+        mini.command(0xFCFFFFFF, 0xFFFE7C38);        // shade colour
+        mini.command(0xDF000000, 0);
+        Bytes& vertices = m.parts[vertices_part];
+        if (vertices.size() < 16) return false;
+        vertices[vertices.size() - 10] &= 0x7F;      // the last vertex ends the chain
+        m.radius = 0;
+        for (size_t o = 0; o + 16 <= vertices.size(); o += 16) {
+            float x = int16_t(be16(vertices, o)), y = int16_t(be16(vertices, o + 2)), z = int16_t(be16(vertices, o + 4));
+            m.radius = std::max(m.radius, std::sqrt(x * x + y * y + z * z));
+        }
+        return true;
+    }
+
     bool build_preview(const rush2::rom2049::Source& rom, const Bytes& ui, int k, TrackModel& m) {
         static const Bytes no_geometry;
         Miniature mini(no_geometry, m);
@@ -2187,11 +2293,7 @@ namespace {
         if (race) {
             Tube tube;
             if (!tube_geometry(rom, k, tube)) return false;
-            const float scale = 50.0f / float(tube.extent);   // (p + c) / 100 x 5000 / extent
-            emit_tube(tube, k, 0.0f, m, [&](const std::array<float, 3>& p, float* out) {
-                float q[3] = { p[0] * scale, p[1] * scale, p[2] * scale };
-                rush2::track2049::preview_place(q, 0.0f, out);
-            });
+            preview_tube(tube, number_of(k), m);
         }
         else if (!is_obstacle(k)) {
             Group outline;
@@ -2210,8 +2312,6 @@ namespace {
             }
         }
 
-        // The screenshot: 128 x 128 CI8 in 128 x 16 strips, translucent (its corners are clear), z-compared but not
-        // written, after the model so the model hides it.
         std::vector<std::array<uint8_t, 4>> rgba;
         std::vector<uint8_t> indices;
         std::array<uint16_t, 256> palette{};
@@ -2219,88 +2319,61 @@ namespace {
         bool thumbnail = rom.is_dreamcast() ? disc_thumbnail(rom, k, rgba, w, h)
                                             : read_thumbnail(ui, k, rgba, w, h, &indices, &palette);
         if (thumbnail && w == 128 && h > 0) {
-            if (indices.empty()) {
-                // A Dreamcast source's RGBA thumbnail: index 255 is clear, the rest a median cut of the opaque texels.
-                std::vector<std::array<uint8_t, 3>> px(rgba.size());
-                for (size_t i = 0; i < rgba.size(); i++) px[i] = { rgba[i][0], rgba[i][1], rgba[i][2] };
-                Texture t;
-                quantize(px, t);
-                indices = t.texels;
-                palette = t.palette;
-                palette[255] = 0;
-                for (size_t i = 0; i < rgba.size(); i++) {
-                    if (rgba[i][3] < 128) indices[i] = 255;
-                    else if (indices[i] == 255) indices[i] = 254;
-                }
-            }
-            // Clear entries black, so filtering darkens the round edge instead of fringing it with the key colour.
-            for (uint16_t& c : palette) {
-                if (!(c & 1)) c = 0;
-            }
-            // Strips of preview_strip_h rows starting a row above the preview_strip_shown rows each draws, so the
-            // filter has both neighbours at the seams: the image with its first and last rows repeated around it.
-            const int strips = (h + preview_strip_shown - 1) / preview_strip_shown;
-            Bytes& texels = m.parts[texels_part];
-            align(texels, 8);
-            const uint32_t at = uint32_t(texels.size());
-            for (int row = -1; row < strips * preview_strip_shown + preview_strip_h - preview_strip_shown - 1; row++) {
-                int r = std::clamp(row, 0, h - 1);
-                texels.insert(texels.end(), indices.begin() + r * w, indices.begin() + (r + 1) * w);
-            }
-            const uint32_t pal = uint32_t(texels.size());
-            for (uint16_t c : palette) push16(texels, c);
-
-            mini.command(0xE7000000, 0);
-            mini.command(0xE200001C, 0x0C184A50);    // pass, then z-compared translucent surface
-            mini.command(0xFCFFFFFF, 0xFFFCF238);    // texel 0, colour and alpha
-            mini.command(0xD7000002, 0xFFFFFFFF);    // G_TEXTURE on, tile 0, scale 1
-            mini.command(0xFD100000, pal, texels_part);  // SETTIMG palette
-            mini.command(0xE8000000, 0);             // TILESYNC
-            mini.command(0xF5000100, 0x07000000);    // SETTILE 7 at TMEM 0x100
-            mini.command(0xE6000000, 0);             // LOADSYNC
-            mini.command(0xF0000000, 0x073FC000);    // LOADTLUT 256 entries
-            mini.command(0xE7000000, 0);
-            const uint32_t clamp = (2u << 18) | (2u << 8);
-            const float d = preview_disc_depth / rush2::track2049::preview_focal;
-            for (int strip = 0; strip < strips; strip++) {
-                mini.command(0xFD500000, at + uint32_t(strip * w * preview_strip_shown), texels_part); // SETTIMG CI 16-bit
-                mini.command(0xF5500000, 0x07000000 | clamp);   // SETTILE 7
-                mini.command(0xE6000000, 0);                     // LOADSYNC
-                mini.command(0xF3000000, 0x073FF080);            // LOADBLOCK 1024 16-bit texels, 16 words per row
-                mini.command(0xE7000000, 0);
-                mini.command(0xF5482000, clamp);                 // SETTILE 0: CI8, 16 words per row, TMEM 0
-                mini.command(0xF2000000, 0x001FC03C);            // SETTILESIZE 128 x 16
-                Group quad;
-                int rows = std::min(preview_strip_shown, h - strip * preview_strip_shown);
-                float y0 = preview_disc_y + float(strip * preview_strip_shown), y1 = y0 + float(rows);
-                float x0 = preview_disc_x, x1 = preview_disc_x + float(w);
-                auto corner = [&](float sx, float sy, float s, float t) {
-                    float x = (sx - rush2::track2049::preview_center_x) * d, y = (rush2::track2049::preview_center_y - sy) * d;
-                    return quad.add({ x * preview_units, y * preview_units, preview_disc_depth * preview_units, s, t, 255, 255, 255 });
-                };
-                int a = corner(x0, y0, 0, 1), b = corner(x1, y0, float(w), 1);
-                int c = corner(x1, y1, float(w), float(1 + rows)), e = corner(x0, y1, 0, float(1 + rows));
-                quad.quad(a, b, c, e);
-                emit_group(mini, quad);
-            }
+            if (indices.empty()) quantize_picture(rgba, indices, palette);
+            preview_screenshot(mini, m, indices, palette, w, h);
         }
+        return preview_finish(mini, m);
+    }
 
-        // What Rush 2's dioramas leave set.
-        mini.command(0xE7000000, 0);
-        mini.command(0xE200001C, 0xC8112078);        // render mode, as the stock dioramas
-        mini.command(0xFCFFFFFF, 0xFFFE7C38);        // shade colour
-        mini.command(0xDF000000, 0);
-        Bytes& vertices = m.parts[vertices_part];
-        if (vertices.size() < 16) return false;
-        vertices[vertices.size() - 10] &= 0x7F;      // the last vertex ends the chain
-        m.radius = 0;
-        for (size_t o = 0; o + 16 <= vertices.size(); o += 16) {
-            float x = int16_t(be16(vertices, o)), y = int16_t(be16(vertices, o + 2)), z = int16_t(be16(vertices, o + 4));
-            m.radius = std::max(m.radius, std::sqrt(x * x + y * y + z * z));
+    // A model's parts as one blob: texels, vertices, then the list, with the list's pointers made blob offsets.
+    bool flatten(TrackModel& m, Bytes& blob, uint32_t& list, std::vector<uint32_t>& pointers) {
+        uint32_t base[part_count] = {};
+        blob.clear();
+        for (int part : { texels_part, vertices_part, list_part }) {
+            align(blob, 8);
+            base[part] = uint32_t(blob.size());
+            blob.insert(blob.end(), m.parts[part].begin(), m.parts[part].end());
+        }
+        list = base[list_part];
+        pointers.clear();
+        for (const Fixup& f : m.fixups) {
+            if (f.in != list_part || f.to == loads_part) return false;
+            uint32_t at = base[list_part] + f.at;
+            put32(blob, at, be32(blob, at) + base[f.to]);
+            pointers.push_back(at);
         }
         return true;
     }
+}
 
+void rush2::track2049::quantize_ci8(const std::vector<std::array<uint8_t, 4>>& rgba, std::vector<uint8_t>& indices,
+                                    std::array<uint16_t, 256>& palette) {
+    quantize_picture(rgba, indices, palette);
+}
+
+bool rush2::track2049::route_preview(const std::vector<uint8_t>& path, int color, const std::vector<uint8_t>& picture,
+                                     std::vector<uint8_t>& blob, uint32_t& list, std::vector<uint32_t>& pointers,
+                                     float& radius) {
+    Tube tube;
+    if (!tube_from_path(path, false, tube)) return false;
+    TrackModel m;
+    static const Bytes no_geometry;
+    Miniature mini(no_geometry, m);
+    preview_tube(tube, color, m);
+    if (picture.size() == 128 * 128 * 4) {
+        std::vector<std::array<uint8_t, 4>> rgba(128 * 128);
+        for (size_t i = 0; i < rgba.size(); i++) rgba[i] = { picture[i * 4], picture[i * 4 + 1], picture[i * 4 + 2], picture[i * 4 + 3] };
+        std::vector<uint8_t> indices;
+        std::array<uint16_t, 256> palette{};
+        quantize_picture(rgba, indices, palette);
+        preview_screenshot(mini, m, indices, palette, 128, 128);
+    }
+    if (!preview_finish(mini, m) || !flatten(m, blob, list, pointers)) return false;
+    radius = m.radius / 16.0f;
+    return true;
+}
+
+namespace {
     // ---------------------------------------------------------------------------------------------------------------
     // Container
 
@@ -2376,18 +2449,160 @@ std::string rush2::track2049::menu_logo_name(int k) {
     return (is_battle(k) ? "R49BLOGO" : is_stunt(k) ? "R49SLOGO" : "R49LOGO") + std::to_string(number_of(k));
 }
 
+namespace {
+    struct NamedModel {
+        std::string name;
+        TrackModel model;
+        uint32_t list = 0;      // the list's start in its list part
+    };
+
+    // Appends models (and logos) to asset 3. Layout: Rush 2's data up to the end of its texture-load lists ([8]), the
+    // models' texture-load lists right after (so the loader's linear SETTIMG scan of [7]..[8] covers them), the rest of
+    // Rush 2's data moved up by their size, then the models' texels, vertices and lists, the logos and the tables
+    // (every record, sorted by name: lookups are binary searches).
+    bool extend_with(const std::vector<uint8_t>& asset3, std::vector<NamedModel>& tracks,
+                     const std::vector<rush2::track2049::MenuLogo>& logos, std::vector<uint8_t>& out) {
+        if (asset3.size() < 0x28) {
+            return false;
+        }
+        uint32_t h[10];
+        for (int i = 0; i < 10; i++) h[i] = be32(asset3, i * 4);
+        if (h[0] + h[4] * 0x34 > asset3.size() || h[1] + h[4] * 0x18 > asset3.size() ||
+            h[2] + h[5] * 0x20 > asset3.size() || h[3] + h[6] * 0x18 > asset3.size() || h[7] > h[8] || h[8] > asset3.size() ||
+            h[8] % 8) {
+            return false;
+        }
+        const uint32_t insert_at = h[8];
+        std::vector<std::array<uint32_t, part_count>> base(tracks.size());
+        Bytes loads;
+        for (size_t t = 0; t < tracks.size(); t++) {
+            base[t][loads_part] = insert_at + uint32_t(loads.size());
+            loads.insert(loads.end(), tracks[t].model.parts[loads_part].begin(), tracks[t].model.parts[loads_part].end());
+            align(loads, 8);
+        }
+        const uint32_t delta = uint32_t(loads.size());
+        out.assign(asset3.begin(), asset3.begin() + insert_at);
+        out.insert(out.end(), loads.begin(), loads.end());
+        out.insert(out.end(), asset3.begin() + insert_at, asset3.end());
+        auto moved = [&](uint32_t offset) { return offset >= insert_at ? offset + delta : offset; };
+
+        struct Model { std::string name; std::vector<uint8_t> rec, name_rec; };
+        struct Texture { std::string name; std::vector<uint8_t> rec; std::string palette; };
+        struct Palette { std::string name; std::vector<uint8_t> rec; };
+        std::vector<Model> models;
+        std::vector<Texture> textures;
+        std::vector<Palette> palettes;
+        std::set<uint32_t> shifted;
+        for (uint32_t i = 0; i < h[4]; i++) {
+            Model mo{ name_of(asset3, h[1] + i * 0x18),
+                std::vector<uint8_t>(asset3.begin() + h[0] + i * 0x34, asset3.begin() + h[0] + (i + 1) * 0x34),
+                std::vector<uint8_t>(asset3.begin() + h[1] + i * 0x18, asset3.begin() + h[1] + (i + 1) * 0x18) };
+            for (uint32_t l = 0; l < 4; l++) {
+                uint32_t list = be32(mo.rec, 4 + l * 12 + 8);
+                if (list == 0) continue;
+                put32(mo.rec, 4 + l * 12 + 8, moved(list));
+                if (shifted.insert(moved(list)).second) shift_list(out, moved(list), insert_at, delta);
+            }
+            models.push_back(std::move(mo));
+        }
+        for (uint32_t i = 0; i < h[6]; i++) {
+            Palette p{ name_of(asset3, h[3] + i * 0x18),
+                std::vector<uint8_t>(asset3.begin() + h[3] + i * 0x18, asset3.begin() + h[3] + (i + 1) * 0x18) };
+            put32(p.rec, 20, moved(be32(p.rec, 20)));
+            palettes.push_back(std::move(p));
+        }
+        for (uint32_t i = 0; i < h[5]; i++) {
+            uint32_t r = h[2] + i * 0x20;
+            int16_t pal = int16_t(be16(asset3, r + 0x16));
+            Texture t{ name_of(asset3, r), std::vector<uint8_t>(asset3.begin() + r, asset3.begin() + r + 0x20),
+                pal >= 0 && uint32_t(pal) < h[6] ? palettes[size_t(pal)].name : std::string() };
+            put32(t.rec, 24, moved(be32(t.rec, 24)));
+            textures.push_back(std::move(t));
+        }
+
+        for (size_t i = 0; i < tracks.size(); i++) {
+            TrackModel& tm = tracks[i].model;
+            auto& b = base[i];
+            for (int part : { texels_part, vertices_part, list_part }) {
+                align(out, 8);
+                b[size_t(part)] = uint32_t(out.size());
+                out.insert(out.end(), tm.parts[part].begin(), tm.parts[part].end());
+            }
+            for (const Fixup& f : tm.fixups) {
+                uint32_t at = b[size_t(f.in)] + f.at;
+                uint32_t w = be32(out, at);
+                put32(out, at, (w & 0xFF000000) | ((w & 0xFFFFFF) + b[size_t(f.to)]));
+            }
+            const std::string& model_name = tracks[i].name;
+            std::vector<uint8_t> rec(0x34, 0), name_rec(0x18, 0);
+            put32(rec, 0, 1);
+            put32(rec, 4, 0);                     // LOD 0: texture handle 0, flags 0, distance 0 (always drawn)
+            put32(rec, 8, 0);
+            put32(rec, 12, b[list_part] + tracks[i].list);
+            auto nb = name_bytes(model_name);
+            memcpy(name_rec.data(), nb.data(), 16);
+            put32(name_rec, 16, float_bits(tm.radius / 16.0f));
+            models.push_back({ model_name, rec, name_rec });
+        }
+        for (const rush2::track2049::MenuLogo& logo : logos) {
+            const std::vector<uint8_t>& texels = logo.texels;
+            const std::vector<uint8_t>& palette = logo.palette;
+            align(out, 8);
+            uint32_t texel_off = uint32_t(out.size());
+            out.insert(out.end(), texels.begin(), texels.end());
+            uint32_t palette_off = uint32_t(out.size());
+            out.insert(out.end(), palette.begin(), palette.end());
+            const std::string& logo_name = logo.name;
+            std::vector<uint8_t> trec(0x20, 0), prec(0x18, 0);
+            auto lb = name_bytes(logo_name);
+            memcpy(trec.data(), lb.data(), 16);
+            trec[16] = 0; trec[17] = 128; trec[18] = 0; trec[19] = 32;   // w, h
+            trec[20] = 0x01; trec[21] = 0x02;                              // as Rush 2's logos
+            put32(trec, 24, texel_off);
+            put32(trec, 28, 0x48008000);
+            memcpy(prec.data(), lb.data(), 16);
+            put32(prec, 16, 0x00FF8000);
+            put32(prec, 20, palette_off);
+            textures.push_back({ logo_name, trec, logo_name });
+            palettes.push_back({ logo_name, prec });
+        }
+
+        auto by_name = [](const auto& a, const auto& b) { return a.name < b.name; };
+        std::sort(models.begin(), models.end(), by_name);
+        std::sort(textures.begin(), textures.end(), by_name);
+        std::sort(palettes.begin(), palettes.end(), by_name);
+
+        align(out, 8);
+        uint32_t model_off = uint32_t(out.size());
+        for (const Model& m : models) out.insert(out.end(), m.rec.begin(), m.rec.end());
+        uint32_t texture_off = uint32_t(out.size());
+        for (Texture& t : textures) {
+            int16_t index = -1;
+            for (size_t i = 0; i < palettes.size(); i++) {
+                if (palettes[i].name == t.palette) index = int16_t(i);
+            }
+            t.rec[0x16] = uint8_t(uint16_t(index) >> 8);
+            t.rec[0x17] = uint8_t(index);
+            out.insert(out.end(), t.rec.begin(), t.rec.end());
+        }
+        uint32_t palette_off = uint32_t(out.size());
+        for (const Palette& p : palettes) out.insert(out.end(), p.rec.begin(), p.rec.end());
+        uint32_t name_off = uint32_t(out.size());
+        for (const Model& m : models) out.insert(out.end(), m.name_rec.begin(), m.name_rec.end());
+        put32(out, 0, model_off);
+        put32(out, 4, name_off);
+        put32(out, 8, texture_off);
+        put32(out, 12, palette_off);
+        put32(out, 16, uint32_t(models.size()));
+        put32(out, 20, uint32_t(textures.size()));
+        put32(out, 24, uint32_t(palettes.size()));
+        put32(out, 32, insert_at + delta);        // [8]: the texture-load lists now end after the added ones
+        return true;
+    }
+}
+
 bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, const rush2::rom2049::Source& rom2049,
                                             std::vector<uint8_t>& out) {
-    if (asset3.size() < 0x28) {
-        return false;
-    }
-    uint32_t h[10];
-    for (int i = 0; i < 10; i++) h[i] = be32(asset3, i * 4);
-    if (h[0] + h[4] * 0x34 > asset3.size() || h[1] + h[4] * 0x18 > asset3.size() ||
-        h[2] + h[5] * 0x20 > asset3.size() || h[3] + h[6] * 0x18 > asset3.size() || h[7] > h[8] || h[8] > asset3.size() ||
-        h[8] % 8) {
-        return false;
-    }
     std::vector<uint8_t> ui;
     if (!rom2049.read_file(ui_file, ui)) {
         return false;
@@ -2397,147 +2612,38 @@ bool rush2::track2049::build_menu_container(const std::vector<uint8_t>& asset3, 
     for (int n = 0; n < stunt_count; n++) ks.push_back(stunt_first + n);
     ks.push_back(obstacle);
     for (int n = 0; n < battle_count; n++) ks.push_back(battle_first + n);
-    // Each track's diorama (for the unlock shop and the circuit screen), then its track select preview.
-    std::vector<TrackModel> tracks(ks.size() * 2);
+    // Each track's diorama (for the unlock shop and the circuit screen), then its track select preview, and its logo.
+    std::vector<NamedModel> tracks(ks.size() * 2);
+    std::vector<MenuLogo> logos(ks.size());
     for (size_t i = 0; i < ks.size(); i++) {
-        if (!build_track_model(rom2049, ui, ks[i], tracks[i * 2]) || !build_preview(rom2049, ui, ks[i], tracks[i * 2 + 1])) {
+        if (!build_track_model(rom2049, ui, ks[i], tracks[i * 2].model) ||
+            !build_preview(rom2049, ui, ks[i], tracks[i * 2 + 1].model)) {
             printf("[2049] Track %d's track select art doesn't build from the %s\n", ks[i],
                    rom2049.is_dreamcast() ? "Dreamcast disc" : "N64 ROM");
             fflush(stdout);
             return false;
         }
+        tracks[i * 2].name = menu_model_name(ks[i]);
+        tracks[i * 2 + 1].name = menu_preview_name(ks[i]);
+        logos[i].name = menu_logo_name(ks[i]);
+        build_logo(ks[i], logos[i].texels, logos[i].palette);
     }
+    return extend_with(asset3, tracks, logos, out);
+}
 
-    // Layout: Rush 2's data up to the end of its texture-load lists ([8]), the 2049 texture-load lists right after
-    // (so the loader's linear SETTIMG scan of [7]..[8] covers them), the rest of Rush 2's data moved up by their size,
-    // then the dioramas' texels, vertices and lists, the logos and the tables.
-    const uint32_t insert_at = h[8];
-    std::vector<std::array<uint32_t, part_count>> base(tracks.size());
-    Bytes loads;
-    for (size_t t = 0; t < tracks.size(); t++) {
-        base[t][loads_part] = insert_at + uint32_t(loads.size());
-        loads.insert(loads.end(), tracks[t].parts[loads_part].begin(), tracks[t].parts[loads_part].end());
-        align(loads, 8);
+bool rush2::track2049::extend_menu_container(const std::vector<uint8_t>& asset3, const std::vector<MenuModel>& models,
+                                             const std::vector<MenuLogo>& logos, std::vector<uint8_t>& out) {
+    // Each model's blob as one list part whose pointers point into itself.
+    std::vector<NamedModel> named(models.size());
+    for (size_t i = 0; i < models.size(); i++) {
+        named[i].name = models[i].name;
+        TrackModel& m = named[i].model;
+        m.parts[list_part] = models[i].blob;
+        for (uint32_t p : models[i].pointers) m.fixups.push_back({ list_part, p, list_part });
+        m.radius = models[i].radius * 16.0f;
+        named[i].list = models[i].list;
     }
-    const uint32_t delta = uint32_t(loads.size());
-    out.assign(asset3.begin(), asset3.begin() + insert_at);
-    out.insert(out.end(), loads.begin(), loads.end());
-    out.insert(out.end(), asset3.begin() + insert_at, asset3.end());
-    auto moved = [&](uint32_t offset) { return offset >= insert_at ? offset + delta : offset; };
-
-    struct Model { std::string name; std::vector<uint8_t> rec, name_rec; };
-    struct Texture { std::string name; std::vector<uint8_t> rec; std::string palette; };
-    struct Palette { std::string name; std::vector<uint8_t> rec; };
-    std::vector<Model> models;
-    std::vector<Texture> textures;
-    std::vector<Palette> palettes;
-    std::set<uint32_t> shifted;
-    for (uint32_t i = 0; i < h[4]; i++) {
-        Model mo{ name_of(asset3, h[1] + i * 0x18),
-            std::vector<uint8_t>(asset3.begin() + h[0] + i * 0x34, asset3.begin() + h[0] + (i + 1) * 0x34),
-            std::vector<uint8_t>(asset3.begin() + h[1] + i * 0x18, asset3.begin() + h[1] + (i + 1) * 0x18) };
-        for (uint32_t l = 0; l < 4; l++) {
-            uint32_t list = be32(mo.rec, 4 + l * 12 + 8);
-            if (list == 0) continue;
-            put32(mo.rec, 4 + l * 12 + 8, moved(list));
-            if (shifted.insert(moved(list)).second) shift_list(out, moved(list), insert_at, delta);
-        }
-        models.push_back(std::move(mo));
-    }
-    for (uint32_t i = 0; i < h[6]; i++) {
-        Palette p{ name_of(asset3, h[3] + i * 0x18),
-            std::vector<uint8_t>(asset3.begin() + h[3] + i * 0x18, asset3.begin() + h[3] + (i + 1) * 0x18) };
-        put32(p.rec, 20, moved(be32(p.rec, 20)));
-        palettes.push_back(std::move(p));
-    }
-    for (uint32_t i = 0; i < h[5]; i++) {
-        uint32_t r = h[2] + i * 0x20;
-        int16_t pal = int16_t(be16(asset3, r + 0x16));
-        Texture t{ name_of(asset3, r), std::vector<uint8_t>(asset3.begin() + r, asset3.begin() + r + 0x20),
-            pal >= 0 && uint32_t(pal) < h[6] ? palettes[size_t(pal)].name : std::string() };
-        put32(t.rec, 24, moved(be32(t.rec, 24)));
-        textures.push_back(std::move(t));
-    }
-
-    for (size_t i = 0; i < tracks.size(); i++) {
-        int k = ks[i / 2];
-        TrackModel& tm = tracks[i];
-        auto& b = base[i];
-        for (int part : { texels_part, vertices_part, list_part }) {
-            align(out, 8);
-            b[size_t(part)] = uint32_t(out.size());
-            out.insert(out.end(), tm.parts[part].begin(), tm.parts[part].end());
-        }
-        for (const Fixup& f : tm.fixups) {
-            uint32_t at = b[size_t(f.in)] + f.at;
-            uint32_t w = be32(out, at);
-            put32(out, at, (w & 0xFF000000) | ((w & 0xFFFFFF) + b[size_t(f.to)]));
-        }
-        std::string model_name = i % 2 ? menu_preview_name(k) : menu_model_name(k);
-        std::vector<uint8_t> rec(0x34, 0), name_rec(0x18, 0);
-        put32(rec, 0, 1);
-        put32(rec, 4, 0);                     // LOD 0: texture handle 0, flags 0, distance 0 (always drawn)
-        put32(rec, 8, 0);
-        put32(rec, 12, b[list_part]);
-        auto nb = name_bytes(model_name);
-        memcpy(name_rec.data(), nb.data(), 16);
-        put32(name_rec, 16, float_bits(tm.radius / 16.0f));
-        models.push_back({ model_name, rec, name_rec });
-        if (i % 2) continue;
-
-        std::vector<uint8_t> texels, palette;
-        build_logo(k, texels, palette);
-        align(out, 8);
-        uint32_t texel_off = uint32_t(out.size());
-        out.insert(out.end(), texels.begin(), texels.end());
-        uint32_t palette_off = uint32_t(out.size());
-        out.insert(out.end(), palette.begin(), palette.end());
-        std::string logo_name = menu_logo_name(k);
-        std::vector<uint8_t> trec(0x20, 0), prec(0x18, 0);
-        auto lb = name_bytes(logo_name);
-        memcpy(trec.data(), lb.data(), 16);
-        trec[16] = 0; trec[17] = 128; trec[18] = 0; trec[19] = 32;   // w, h
-        trec[20] = 0x01; trec[21] = 0x02;                              // as Rush 2's logos
-        put32(trec, 24, texel_off);
-        put32(trec, 28, 0x48008000);
-        memcpy(prec.data(), lb.data(), 16);
-        put32(prec, 16, 0x00FF8000);
-        put32(prec, 20, palette_off);
-        textures.push_back({ logo_name, trec, logo_name });
-        palettes.push_back({ logo_name, prec });
-    }
-
-    auto by_name = [](const auto& a, const auto& b) { return a.name < b.name; };
-    std::sort(models.begin(), models.end(), by_name);
-    std::sort(textures.begin(), textures.end(), by_name);
-    std::sort(palettes.begin(), palettes.end(), by_name);
-
-    align(out, 8);
-    uint32_t model_off = uint32_t(out.size());
-    for (const Model& m : models) out.insert(out.end(), m.rec.begin(), m.rec.end());
-    uint32_t texture_off = uint32_t(out.size());
-    for (Texture& t : textures) {
-        int16_t index = -1;
-        for (size_t i = 0; i < palettes.size(); i++) {
-            if (palettes[i].name == t.palette) index = int16_t(i);
-        }
-        t.rec[0x16] = uint8_t(uint16_t(index) >> 8);
-        t.rec[0x17] = uint8_t(index);
-        out.insert(out.end(), t.rec.begin(), t.rec.end());
-    }
-    uint32_t palette_off = uint32_t(out.size());
-    for (const Palette& p : palettes) out.insert(out.end(), p.rec.begin(), p.rec.end());
-    uint32_t name_off = uint32_t(out.size());
-    for (const Model& m : models) out.insert(out.end(), m.name_rec.begin(), m.name_rec.end());
-    put32(out, 0, model_off);
-    put32(out, 4, name_off);
-    put32(out, 8, texture_off);
-    put32(out, 12, palette_off);
-    put32(out, 16, uint32_t(models.size()));
-    put32(out, 20, uint32_t(textures.size()));
-    put32(out, 24, uint32_t(palettes.size()));
-    put32(out, 32, insert_at + delta);        // [8]: the texture-load lists now end after the 2049 ones
-    return true;
+    return extend_with(asset3, named, logos, out);
 }
 
 void rush2::track2049::add_banner_images() {

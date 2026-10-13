@@ -34,6 +34,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -50,10 +51,12 @@
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "battle.h"
-#include "ghost.h"
 #include "circuit.h"
+#include "ghost.h"
 #include "track1.h"
 #include "track2049.h"
+#include "texture_upscale.h"
+#include "track_mod_runtime.h"
 #include "unlocks.h"
 #include "wings.h"
 
@@ -70,14 +73,15 @@ namespace {
     constexpr uint32_t cloud_heights = 0x803C91B0;
     constexpr uint32_t logo_names = 0x803C9668;
 
-    // Their 30-entry copies (us.toml points the screen at these).
+    // Their copies, with room for 64 entries (us.toml points the screen at these, by these offsets).
+    constexpr uint32_t table_data = 0x80310000;
+    constexpr uint32_t new_diorama_names = table_data + 0x000;
+    constexpr uint32_t new_diorama_scales = table_data + 0x100;
+    constexpr uint32_t new_cloud_heights = table_data + 0x200;
+    constexpr uint32_t new_logo_names = table_data + 0x300;
+    // new carousel array at table_data + 0x400 (64 x 0x1C)
+    constexpr uint32_t mod_strings = table_data + 0xC00;          // 32 bytes per custom track: its model and logo names
     constexpr uint32_t menu_data = 0x80300000;
-    // The tables have room for 40 entries each (us.toml addresses them by these offsets).
-    constexpr uint32_t new_diorama_names = menu_data + 0x000;
-    constexpr uint32_t new_diorama_scales = menu_data + 0x0A0;
-    constexpr uint32_t new_cloud_heights = menu_data + 0x140;
-    constexpr uint32_t new_logo_names = menu_data + 0x1E0;
-    // new carousel array at menu_data + 0x400 (38 x 0x1C)
     constexpr uint32_t new_circuit_instances = menu_data + 0x840; // 38 x s32, the circuit screen's dioramas
     constexpr uint32_t new_strings = menu_data + 0x900;           // 32 bytes per added track
     constexpr uint32_t stunt_label = menu_data + 0xD00;           // "STUNT", the Start Game menu's added row
@@ -109,8 +113,11 @@ namespace {
     constexpr int rush2_tracks = 12;
     constexpr int r1_first = rush2::track1::first_menu_id;               // 18
     constexpr int r1_end = r1_first + rush2::track1::track_count;       // 25
-    constexpr int menu_tracks = battle_menu_id + battle_count;          // 38
-    constexpr int added_tracks = menu_tracks - first_menu_id;           // 2049, Rush 1, stunt, obstacle and battle entries
+    constexpr int mod_menu_id = battle_menu_id + battle_count;          // 38: the first custom track (src/track_mod/)
+    constexpr int menu_tracks = 64;                                     // the tables' room
+    constexpr int mod_capacity = menu_tracks - mod_menu_id;             // custom tracks the track select can offer
+    constexpr int circuit_tracks = mod_menu_id;                         // circuits never pick custom tracks
+    constexpr int added_tracks = menu_tracks - first_menu_id;           // 2049, Rush 1, stunt, obstacle, battle, custom
     static_assert(first_menu_id + track_count == r1_first);
     static_assert(r1_end == stunt_menu_id);
     static_assert(stunt_menu_id + stunt_count == obstacle_menu_id);
@@ -167,8 +174,19 @@ namespace {
     }
 
 
-    // Whether added track select entry t (12-37) can be chosen.
+    // The custom tracks the track select offers: whether each converted (its art built), and the enabled mods they came
+    // from (rebuilt when those change).
+    std::vector<bool> mod_ok;
+    std::vector<rush2::track_mod::MenuArt> mod_arts;
+    std::string mod_signature;
+
+    bool is_mod_track(int t) {
+        return t >= mod_menu_id && t < menu_tracks;
+    }
+
+    // Whether added track select entry t (12-63) can be chosen.
     bool entry_available(int t) {
+        if (is_mod_track(t)) return size_t(t - mod_menu_id) < mod_ok.size() && mod_ok[size_t(t - mod_menu_id)];
         if (t >= first_menu_id && t < r1_first) return available();
         if (t >= r1_first && t < r1_end) return rush2::track1::available();
         if (is_stunt_course(t)) return available();
@@ -255,6 +273,8 @@ namespace {
     // select reads through).
     bool menu_has_2049 = false;
     bool menu_has_rush1 = false;
+    bool menu_has_mods = false;
+    std::string menu_container_mods;      // mod_signature the container was built with
 
     // The save file's section (include/data_files.h): { "selected": n, "stunt": n, "battle": n, "points": n,
     // "minutes": n, "race_battle": 0/1 }. "race_battle" is the race select's BATTLE row (rush2::battle::race_battle), off without it.
@@ -373,6 +393,24 @@ namespace {
                 MEM_W(0, (int32_t)(new_cloud_heights + t * 4)) = 0x41700000;  // 15.0, as most stock dioramas
             }
         }
+        if (menu_has_mods) {
+            uint32_t m = mod_strings;
+            for (size_t i = 0; i < mod_ok.size(); i++, m += 32) {
+                if (!mod_ok[i]) continue;
+                int t = mod_menu_id + int(i);
+                // The author's diorama, or Rush 2049's preview of the route, posed and animated as the 2049 tracks'
+                // previews are (rush2_track49_select_pose).
+                write_string(rdram, m, rush2::track_mod::diorama_model_name(int(i)));
+                MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = m;
+                if (mod_arts[i].route_preview) preview_names[t] = m;
+                // The stock dioramas show about 800 model units on their longer side (VEGASTRACK 1000 x 0.8,
+                // HAWAIITRACK 1161 x 0.7, CRASHTRACK 1283 x 0.6); the converter makes an authored one 1200.
+                MEM_W(0, (int32_t)(new_diorama_scales + t * 4)) = 0x3F2AAAAB;    // 0.667
+                write_string(rdram, m + 16, rush2::track_mod::logo_texture_name(int(i)));
+                MEM_W(0, (int32_t)(new_logo_names + t * 4)) = m + 16;
+                MEM_W(0, (int32_t)(new_cloud_heights + t * 4)) = 0x41700000;  // 15.0, as most stock dioramas
+            }
+        }
         if (!available() || !menu_has_2049) {
             return;
         }
@@ -398,26 +436,59 @@ namespace {
         }
     }
 
-    // Asset 3 with the 2049 and Rush 1 dioramas and logos, rebuilt when a ROM or option changes.
+    // The enabled mods' custom tracks: converted (or read from the cache) when the enabled mods change, for their track
+    // select art. A track that doesn't convert isn't offered; its report (<config>/track_reports) says why.
+    void refresh_mods() {
+        std::vector<rush2::track_mod::Entry> entries = rush2::track_mod::tracks();
+        std::string signature;
+        for (const auto& e : entries) signature += e.mod_id + "/" + e.folder + ";";
+        if (signature == mod_signature) return;
+        mod_signature = signature;
+        mod_ok.clear();
+        mod_arts.clear();
+        if (entries.size() > size_t(mod_capacity)) {
+            printf("[trackmod] The track select has room for %d custom tracks; %zu are left out\n", mod_capacity,
+                   entries.size() - size_t(mod_capacity));
+        }
+        for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
+            rush2::track_mod::MenuArt art;
+            mod_ok.push_back(rush2::track_mod::menu_art(int(i), art));
+            // The logo drawn in full color, as the 2049 banners are (rush2::upscale::add_exact_image).
+            if (mod_ok.back()) {
+                rush2::upscale::Image image;
+                image.width = 128;
+                image.height = 32;
+                image.rgba = art.logo_rgba;
+                rush2::upscale::add_exact_image(art.logo, std::move(image));
+            }
+            mod_arts.push_back(std::move(art));
+        }
+        rush2::track_mod::publish_textures();   // the dioramas' (and tracks') full-size textures
+    }
+
+    // Asset 3 with the 2049, Rush 1 and custom tracks' dioramas and logos, rebuilt when a ROM, option or mod changes.
     void serve_menu_container(uint8_t* rdram) {
         auto rom = available() ? rush2::wings::get_rom() : nullptr;
         auto rom1 = rush2::track1::available() ? rush2::track1::get_rom() : nullptr;
-        if (rom == nullptr && rom1 == nullptr) {
+        bool mods = std::find(mod_ok.begin(), mod_ok.end(), true) != mod_ok.end();
+        if (rom == nullptr && rom1 == nullptr && !mods) {
             rush2::assets::restore(rdram, 3);
-            menu_has_2049 = menu_has_rush1 = false;
+            menu_has_2049 = menu_has_rush1 = menu_has_mods = false;
             return;
         }
-        if (menu_container_built && menu_container_rom == rom && menu_container_rom1 == rom1 && !menu_container.empty() &&
-            rush2::assets::is_replaced(3)) {
+        bool same = menu_container_built && menu_container_rom == rom && menu_container_rom1 == rom1 &&
+                    menu_container_mods == mod_signature;
+        if (same && !menu_container.empty() && rush2::assets::is_replaced(3)) {
             return;
         }
-        if (!menu_container_built || menu_container_rom != rom || menu_container_rom1 != rom1) {
+        if (!same) {
             menu_container.clear();
             menu_container_rom = rom;
             menu_container_rom1 = rom1;
+            menu_container_mods = mod_signature;
             menu_container_built = true;
-            menu_has_2049 = menu_has_rush1 = false;
-            std::vector<uint8_t> asset3, with_2049;
+            menu_has_2049 = menu_has_rush1 = menu_has_mods = false;
+            std::vector<uint8_t> asset3, with_2049, with_rush1;
             if (!rush2::assets::read_original(rdram, 3, asset3)) {
                 printf("[2049] Failed to read the track select art\n");
             }
@@ -428,17 +499,33 @@ namespace {
                 }
                 menu_has_2049 = !with_2049.empty();
                 const std::vector<uint8_t>& base = with_2049.empty() ? asset3 : with_2049;
-                if (rom1 == nullptr || !rush2::track1::extend_menu_container(base, *rom1, menu_container)) {
-                    menu_container = with_2049;
+                if (rom1 != nullptr && rush2::track1::extend_menu_container(base, *rom1, with_rush1)) {
+                    menu_has_rush1 = true;
+                }
+                const std::vector<uint8_t>& base2 = menu_has_rush1 ? with_rush1 : base;
+                std::vector<MenuModel> models;
+                std::vector<MenuLogo> logos;
+                for (size_t i = 0; i < mod_ok.size(); i++) {
+                    if (!mod_ok[i]) continue;
+                    const rush2::track_mod::MenuArt& art = mod_arts[i];
+                    MenuModel model{ rush2::track_mod::diorama_model_name(int(i)), art.diorama, art.diorama_list,
+                                     art.diorama_pointers, std::max(art.diorama_radius, 1.0f) };
+                    if (model.blob.empty()) model.blob = { 0xDF, 0, 0, 0, 0, 0, 0, 0 };   // draws nothing
+                    models.push_back(std::move(model));
+                    logos.push_back({ rush2::track_mod::logo_texture_name(int(i)), art.logo, art.logo_palette });
+                }
+                if (!models.empty() && extend_menu_container(base2, models, logos, menu_container)) {
+                    menu_has_mods = true;
                 }
                 else {
-                    menu_has_rush1 = true;
+                    if (!models.empty()) printf("[trackmod] Couldn't add the custom tracks' track select art\n");
+                    if (menu_has_2049 || menu_has_rush1) menu_container = base2;
                 }
             }
         }
         if (menu_container.empty()) {
             rush2::assets::restore(rdram, 3);
-            menu_has_2049 = menu_has_rush1 = false;
+            menu_has_2049 = menu_has_rush1 = menu_has_mods = false;
         }
         else {
             rush2::assets::replace(rdram, 3, menu_container);
@@ -453,7 +540,18 @@ namespace {
     // Turns an added track's menu id into its host slot for the race.
     void enter_race(uint8_t* rdram) {
         int t = (int8_t)MEM_B(0, (int32_t)track_id);
-        if (t >= first_menu_id && t < r1_first) {
+        if (t >= first_menu_id && t < mod_menu_id) {
+            rush2::track_mod::set_race_track(-1);
+        }
+        if (is_mod_track(t)) {
+            set_race_track(0);
+            rush2::track1::set_race_track(0);
+            set_stunt_arena(0);
+            set_battle_arena(0);
+            rush2::track_mod::set_race_track(t - mod_menu_id);
+            MEM_B(0, (int32_t)track_id) = host_slot;
+        }
+        else if (t >= first_menu_id && t < r1_first) {
             set_race_track(t - first_menu_id + 1);
             rush2::track1::set_race_track(0);
             set_stunt_arena(0);
@@ -492,6 +590,7 @@ namespace {
             if (t != host_slot) {
                 set_race_track(0);
                 rush2::track1::set_race_track(0);
+                rush2::track_mod::set_race_track(-1);
             }
             if (t != stunt_host_slot) {
                 set_stunt_arena(0);
@@ -526,6 +625,7 @@ bool rush2::track2049::catalog_menu_container(std::vector<uint8_t>& out) {
 
 void rush2::track2049::prepare_menu_art(uint8_t* rdram) {
     std::lock_guard lock{ menu_mutex };
+    refresh_mods();
     serve_menu_container(rdram);
     write_tables(rdram);
 }
@@ -548,8 +648,10 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     rush2::track1::set_race_track(0);
     set_stunt_arena(0);
     set_battle_arena(0);
+    rush2::track_mod::set_race_track(-1);
     restore_host(rdram);
     rush2::track1::restore_host(rdram);
+    refresh_mods();
     serve_menu_container(rdram);
     write_tables(rdram);
     int t = -1;
@@ -562,6 +664,11 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     }
     else if (selection >= 0 && track_selectable(rdram, first_menu_id + selection) && MEM_W(0, (int32_t)game_mode) != 1) {
         t = first_menu_id + selection;
+    }
+    // Test aid: RUSH2_TEST_TRACK=<track select id> opens the screen on that track, whatever the save chose.
+    static const char* test_track = std::getenv("RUSH2_TEST_TRACK");
+    if (test_track != nullptr && track_selectable(rdram, std::atoi(test_track))) {
+        t = std::atoi(test_track);
     }
     if (t >= 0) {
         MEM_B(0, (int32_t)track_id) = uint8_t(t);
@@ -740,8 +847,11 @@ extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
             MEM_H(i * 2, (int32_t)at) = (int16_t)std::clamp(std::lround(placed[i]), -32767L, 32767L);
         }
     }
+    // The tube's color: race track k's, or race track 4's red for a custom track's route (src/track_mod/track_mod_menu.cpp).
     int k = t - first_menu_id + 1;
-    if (k < 1 || k > track_count || model.local.size() < size_t(preview_tube_rings) * 4) return;
+    if (is_mod_track(t)) k = 4;
+    else if (k < 1 || k > track_count) return;
+    if (model.local.size() < size_t(preview_tube_rings) * 4) return;
     for (int ring = 0; ring < preview_tube_rings; ring++) {
         uint8_t rgb[3];
         preview_tube_color(k, ring, preview_phase, rgb);
@@ -818,7 +928,7 @@ extern "C" void rush2_track49_race_start(uint8_t* rdram, recomp_context* ctx) {
 // func_800A62C0 after the menu overlay is loaded: the overlay's own data starts fresh, and so must the circuit
 // screen's diorama instances that moved out of it.
 extern "C" void rush2_track49_overlay_loaded(uint8_t* rdram, recomp_context* ctx) {
-    for (int t = 0; t < menu_tracks; t++) {
+    for (int t = 0; t < circuit_tracks; t++) {
         MEM_W(0, (int32_t)(new_circuit_instances + t * 4)) = 0xFFFFFFFF;
     }
     write_string(rdram, stunt_label, "STUNT");
@@ -846,12 +956,19 @@ extern "C" void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx
 extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     std::vector<int> all, pool;
     for (int t = 0; t < circuit_stock_tracks; t++) all.push_back(t);
-    for (int t = first_menu_id; t < menu_tracks; t++) {
+    for (int t = first_menu_id; t < circuit_tracks; t++) {
         if (entry_available(t) && !is_stunt_course(t) && rush2::unlocks::track_open(rdram, t)) all.push_back(t);
     }
     for (int t : all) {
         if (rush2::circuit::course_chosen(rdram, t)) pool.push_back(t);
     }
+    if (pool.empty()) {
+        pool = all;
+    }
+    if (pool.size() == circuit_stock_tracks && pool.back() == circuit_stock_tracks - 1) {
+        return; // Rush 2's own tracks: the game's picks stand.
+    }
+    int last = (int8_t)MEM_B(0, (int32_t)circuit_last);
     // Seeded from the game's random state ($s0 points at it), so the same circuit seed gives the same races.
     std::mt19937 rng{ (uint32_t)MEM_W(0, (int32_t)ctx->r16) };
     std::map<int, int> uses;
@@ -961,13 +1078,6 @@ namespace {
             write_string(rdram, time_label, "TIME LIMIT");
             return time_label;
         }
-    if (pool.empty()) {
-        pool = all;
-    }
-    if (pool.size() == circuit_stock_tracks && pool.back() == circuit_stock_tracks - 1) {
-        return; // Rush 2's own tracks: the game's picks stand.
-    }
-    int last = (int8_t)MEM_B(0, (int32_t)circuit_last);
         return 0;
     }
 

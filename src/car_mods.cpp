@@ -294,28 +294,6 @@ namespace {
         return false;
     }
 
-    // Box-filters an image down to w x h.
-    Image shrink(const Image& src, uint32_t w, uint32_t h) {
-        Image out;
-        out.width = w;
-        out.height = h;
-        out.rgba.assign(size_t(w) * h * 4, 0);
-        for (uint32_t y = 0; y < h; y++) {
-            uint32_t y0 = y * src.height / h, y1 = std::max(y0 + 1, (y + 1) * src.height / h);
-            for (uint32_t x = 0; x < w; x++) {
-                uint32_t x0 = x * src.width / w, x1 = std::max(x0 + 1, (x + 1) * src.width / w);
-                uint32_t sum[4] = {}, n = 0;
-                for (uint32_t sy = y0; sy < y1; sy++) for (uint32_t sx = x0; sx < x1; sx++) {
-                    const uint8_t* p = &src.rgba[(size_t(sy) * src.width + sx) * 4];
-                    for (int c = 0; c < 4; c++) sum[c] += p[c];
-                    n++;
-                }
-                for (int c = 0; c < 4; c++) out.rgba[(size_t(y) * w + x) * 4 + c] = uint8_t(sum[c] / std::max(1u, n));
-            }
-        }
-        return out;
-    }
-
     struct StandIn {
         uint32_t width = 0, height = 0;
         std::vector<uint8_t> texels, scuffed;
@@ -349,8 +327,8 @@ namespace {
         float aspect = float(image.width) / float(image.height);
         s.width = aspect >= 1.5f ? 64 : 32;
         s.height = aspect <= 0.67f ? 64 : 32;
-        Image small = shrink(image, s.width, s.height);
-        Image small_mask = mask.empty() ? Image{} : shrink(mask, s.width, s.height);
+        Image small = rush2::upscale::shrink(image, s.width, s.height);
+        Image small_mask = mask.empty() ? Image{} : rush2::upscale::shrink(mask, s.width, s.height);
         std::vector<int> fixed;
         for (int i = 0; i < 256; i++) {
             bool painted = (i >= 1 && i <= 31) || (i >= 33 && i <= 95) || (i >= 112 && i <= 143) || i >= 208;
@@ -646,21 +624,6 @@ namespace {
         return s;
     }
 
-    // The content key RT64 gives an RGBA16 texture block-loaded to TMEM 0 (odd rows have their 32-bit words swapped in
-    // pairs, as the load leaves them) and decoded with line words per row.
-    uint64_t rgba16_key(const std::vector<uint8_t>& texels, uint32_t width, uint32_t height) {
-        std::vector<uint8_t> tmem(4096, 0);
-        uint32_t row = width * 2;
-        for (uint32_t y = 0; y < height; y++) {
-            for (uint32_t x = 0; x < row; x++) {
-                uint32_t to = y * row + ((y & 1) ? (((x / 4) ^ 1) * 4 + (x & 3)) : x);
-                if (to < tmem.size()) tmem[to] = texels[y * row + x];
-            }
-        }
-        Image image = rush2::upscale::decode_tmem(tmem.data(), 0 /* RGBA */, 2 /* 16b */, 0, row / 8, 0, 0, width, height);
-        return rush2::upscale::content_key(image);
-    }
-
     void make_true_color(const Model& model, TrueColor& s) {
         Image image;
         if (s.image < 0 || !rush2::upscale::decode_image(model.images[s.image], image) || image.empty()) {
@@ -670,7 +633,7 @@ namespace {
         float aspect = float(image.width) / float(image.height);
         s.width = aspect >= 1.5f ? 64 : 32; // 4 KB at most: TMEM
         s.height = aspect <= 0.67f ? 64 : 32;
-        Image small = shrink(image, s.width, s.height);
+        Image small = rush2::upscale::shrink(image, s.width, s.height);
         s.texels.resize(size_t(s.width) * s.height * 2);
         for (size_t i = 0; i < size_t(s.width) * s.height; i++) {
             const uint8_t* q = &small.rgba[i * 4];
@@ -678,7 +641,7 @@ namespace {
             s.texels[i * 2] = uint8_t(c >> 8);
             s.texels[i * 2 + 1] = uint8_t(c);
         }
-        s.key = rgba16_key(s.texels, s.width, s.height);
+        s.key = rush2::upscale::rgba16_key(s.texels, s.width, s.height);
     }
 
     // A mod model's stand-ins, kept on disk by the glb (decoding the images is the slow part).
@@ -707,7 +670,7 @@ namespace {
                 if (o + size > blob.size()) break;
                 s.texels.assign(blob.begin() + o, blob.begin() + o + size);
                 o += size;
-                s.key = rgba16_key(s.texels, s.width, s.height);
+                s.key = rush2::upscale::rgba16_key(s.texels, s.width, s.height);
                 m.stand_ins.push_back(std::move(s));
             }
             if (m.stand_ins.size() != n || n != images.size()) m.stand_ins.clear();
@@ -1144,7 +1107,7 @@ namespace {
                 }
             }
         }
-        rush2::derive::set_mod_textures(std::move(textures));
+        rush2::derive::set_mod_textures("cars", std::move(textures));
     }
 
     void apply(uint8_t* rdram) {

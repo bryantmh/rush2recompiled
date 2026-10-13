@@ -3,8 +3,8 @@
 // Player 1's car is recorded in every race (Settings > General > Save Ghosts; else only in GHOST RACE, the Start Game
 // menu's row, src/rush2049/track2049_menu.cpp, which takes ONE RACE's path) from its release at the start (car + 0x71C, set by
 // func_8008D6F8 at GO) to the finish, one sample per physics tick. A finished run among the profile's fastest on that
-// track, direction and lap count (Ghosts Kept, 3 by default) is kept, a file per run (<key>_<profile>_<n>.ghost) in
-// the save folder's "ghosts" folder in place of Rush 2049's Controller Pak notes, and the slowest beyond them deleted.
+// track, direction and lap count (Ghosts Kept, 3 by default) is kept, a file per run (<key>_<profile>_<n>.ghost; a
+// custom track's key starts mod-<its folder> instead of trackNN) in the save folder's "ghosts" folder in place of Rush 2049's Controller Pak notes, and the slowest beyond them deleted.
 // As on Rush 2049's car select, up to three kept ghosts race in GHOST RACE (GHOST 1-3, chosen on the car select with
 // the C buttons, the fastest by default), each a computer car: the last drone slots, after the track select's DRONES
 // (0x800D3E90 = both counts; DRONES stops at 7 - players - 3, so every GHOST row has a slot):
@@ -69,6 +69,7 @@
 #include "rush2_hooks.h"
 #include "track1.h"
 #include "track2049.h"
+#include "track_mod_runtime.h"
 #include "track2049_convert.h"
 #include "wings.h"
 
@@ -258,6 +259,7 @@ namespace {
         int backward = 0;
         int mirror = 0;
         int laps = 0;
+        std::string mod;        // a custom track's folder (src/track_mod/), raced in the host slot
         bool operator==(const Key&) const = default;
     };
 
@@ -328,6 +330,12 @@ namespace {
         char name[64];
         std::snprintf(name, sizeof(name), "track%02d_%s%s_%dlap", k.track, k.backward ? "backward" : "forward",
                       k.mirror ? "_mirror" : "", k.laps);
+        if (!k.mod.empty()) {
+            // mod-<folder>_forward..., the folder kept to file name characters.
+            std::string folder;
+            for (char c : k.mod) folder += std::isalnum((unsigned char)c) || c == '-' ? c : '_';
+            return "mod-" + folder + std::string(name).substr(7);
+        }
         return name;
     }
 
@@ -377,6 +385,7 @@ namespace {
     Key current_key(uint8_t* rdram) {
         Key k;
         k.track = menu_track(rdram);
+        if (k.track == rush2::track2049::host_slot) k.mod = rush2::track_mod::race_folder();
         k.backward = MEM_BU(0, (int32_t)backward_flag) != 0;
         k.mirror = MEM_BU(0, (int32_t)mirror_flag) == 1;
         k.laps = (int16_t)MEM_H(0, (int32_t)race_laps);

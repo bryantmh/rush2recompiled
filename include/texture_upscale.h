@@ -50,6 +50,10 @@ namespace rush2::upscale {
     // Identifies an image by its contents: textures RT64 hashes differently (another palette load, another tile)
     // but that decode to the same pixels share one upscale.
     uint64_t content_key(const Image& image);
+    // The content key RT64 gives an RGBA16 texture (texels big endian, width x height) block-loaded to TMEM 0, odd rows
+    // with their 32-bit words swapped in pairs as the load leaves them: the mods' true-color stand-ins (car models,
+    // custom tracks), which rush2::derive::set_mod_textures replaces with the full-size image.
+    uint64_t rgba16_key(const std::vector<uint8_t>& texels, uint32_t width, uint32_t height);
     std::string key_name(uint64_t key); // 16 hex digits, the file name of the image everywhere.
     bool parse_key_name(const std::string& name, uint64_t& key); // From the first 16 characters of a file name.
 
@@ -59,6 +63,8 @@ namespace rush2::upscale {
     Image pad(const Image& image, uint32_t border, Edge edge_s, Edge edge_t);
     Image crop(const Image& image, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
     Image resize_bilinear(const Image& image, uint32_t width, uint32_t height);
+    // Box-filters an image down to width x height (each pixel the average of the source pixels it covers).
+    Image shrink(const Image& image, uint32_t width, uint32_t height);
 
     // Fixes up an upscaler's output against the original: puts the original's alpha back (scaled up) when the
     // upscaler dropped it, and keeps cutout textures (alpha only 0 or 255) cutouts.

@@ -12,7 +12,6 @@ San Francisco Rush 2049:
     before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
-4) Damanged Hoods aren't visible on the 2049 cars (car conversion gap, src/rush2049/car2049.cpp)
 5) Gravity feels too low on 2049 tracks. Check against 2049's physics before changing anything (may be by design).
 6) Option for 2049 floor friction (cars roll more than slide).
 7) Clear-coat reflections on the 2049 cars (2049 had none; would need Rush 2's environment-map material).

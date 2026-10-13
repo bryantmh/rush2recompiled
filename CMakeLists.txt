@@ -139,6 +139,10 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/texture_derive.cpp
     ${CMAKE_SOURCE_DIR}/src/body_sheet.cpp
     ${CMAKE_SOURCE_DIR}/src/car_mods.cpp
+    ${CMAKE_SOURCE_DIR}/src/gltf_scene.cpp
+    ${CMAKE_SOURCE_DIR}/src/track_mod/track_mod.cpp
+    ${CMAKE_SOURCE_DIR}/src/track_mod/track_mod_convert.cpp
+    ${CMAKE_SOURCE_DIR}/src/track_mod/track_mod_menu.cpp
     ${CMAKE_SOURCE_DIR}/src/asset_catalog.cpp
     ${CMAKE_SOURCE_DIR}/src/asset_catalog_walk.cpp
     ${CMAKE_SOURCE_DIR}/lib/hqx/hq2x.c
@@ -155,11 +159,11 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/control_profiles.cpp
     ${CMAKE_SOURCE_DIR}/src/steam_haptics.cpp
     ${CMAKE_SOURCE_DIR}/src/steam_input_filter.cpp
+    ${CMAKE_SOURCE_DIR}/src/circuit.cpp
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/game_fixes.cpp
     ${CMAKE_SOURCE_DIR}/src/games_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/options_page.cpp
-    ${CMAKE_SOURCE_DIR}/src/circuit.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/src/assets.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/rush2049_rom.cpp
@@ -217,6 +221,7 @@ target_sources(Rush2Recompiled PRIVATE
 
 target_include_directories(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/lib/tomlplusplus
     ${CMAKE_SOURCE_DIR}/lib/hqx
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/sse2neon

@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -67,8 +68,9 @@ namespace rush2::derive {
         uint32_t seed = 0;
     };
     // The mods' textures by stand-in: a car's by its index_key, a model mod's (true color, unpainted) by its
-    // content_key. Replaces the last set and derives again.
-    void set_mod_textures(std::unordered_map<uint64_t, ModTexture> textures);
+    // content_key (a custom track's too: rush2::upscale::rgba16_key). source names who sets them ("cars", "tracks"):
+    // replaces that source's last set, keeps the others', and derives again.
+    void set_mod_textures(const std::string& source, std::unordered_map<uint64_t, ModTexture> textures);
     // Whether a texture drawn with these indices or this content is a mod's stand-in (the upscaling modes leave
     // those alone).
     bool mod_texture(uint64_t index_key, uint64_t key = 0);

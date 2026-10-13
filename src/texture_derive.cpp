@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <deque>
 #include <list>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -173,9 +174,11 @@ namespace {
             return ready;
         }
 
-        void set_mod_textures(std::unordered_map<uint64_t, ModTexture> textures) {
+        void set_mod_textures(const std::string& source, std::unordered_map<uint64_t, ModTexture> textures) {
             std::unique_lock lock(mutex);
-            mods = std::move(textures);
+            mod_sources[source] = std::move(textures);
+            mods.clear();
+            for (const auto& [name, set] : mod_sources) mods.insert(set.begin(), set.end());
             mod_images_stale = true;
             reload = true;
             changed.notify_all();
@@ -1163,7 +1166,8 @@ namespace {
         std::unordered_set<uint64_t> seen, owned;
         std::unordered_set<uint64_t> ui_keys, ui_index_keys; // Interface art (build()).
         std::unordered_set<uint64_t> car_keys, car_index_keys; // Car textures (build(): built-in upscaling's own).
-        std::unordered_map<uint64_t, ModTexture> mods;       // Car mods' stand-ins by index_key.
+        std::unordered_map<uint64_t, ModTexture> mods;       // Mods' stand-ins (every source's) by key.
+        std::map<std::string, std::unordered_map<uint64_t, ModTexture>> mod_sources;
         bool mod_images_stale = false;
         struct ModImage {
             bool tried = false, ok = false;
@@ -1260,8 +1264,8 @@ std::unique_lock<std::mutex> hold_packs() {
     return deriver().hold_packs();
 }
 
-void set_mod_textures(std::unordered_map<uint64_t, ModTexture> textures) {
-    deriver().set_mod_textures(std::move(textures));
+void set_mod_textures(const std::string& source, std::unordered_map<uint64_t, ModTexture> textures) {
+    deriver().set_mod_textures(source, std::move(textures));
 }
 
 bool mod_texture(uint64_t index_key, uint64_t key) {

@@ -1,6 +1,7 @@
 #ifndef __TRACK2049_H__
 #define __TRACK2049_H__
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -38,6 +39,27 @@ namespace rush2::track2049 {
     // appended to Rush 2's own asset 3.
     bool build_menu_container(const std::vector<uint8_t>& rush2_asset3, const rush2::rom2049::Source& rom2049,
                               std::vector<uint8_t>& out);
+    // A model for extend_menu_container: its texels, vertices and list in `blob` (the list at `list`), `pointers` the
+    // offsets of the blob's words pointing into it, radius in world units.
+    struct MenuModel {
+        std::string name;
+        std::vector<uint8_t> blob;
+        uint32_t list = 0;
+        std::vector<uint32_t> pointers;
+        float radius = 0.0f;
+    };
+    // A logo for it: 128 x 32 CI8 texels (rows bottom-up, as Rush 2 stores its logos) and 256 RGBA5551 colors.
+    struct MenuLogo {
+        std::string name;
+        std::vector<uint8_t> texels, palette;
+    };
+    // A container (asset 3, or one build_menu_container made) with these models and logos added the way
+    // build_menu_container adds the 2049 tracks' (custom tracks, src/track_mod/).
+    bool extend_menu_container(const std::vector<uint8_t>& asset3, const std::vector<MenuModel>& models,
+                               const std::vector<MenuLogo>& logos, std::vector<uint8_t>& out);
+    // An RGBA picture as CI8 (median cut; index 255 clear, for texels with alpha below 128), as the previews' are.
+    void quantize_ci8(const std::vector<std::array<uint8_t, 4>>& rgba, std::vector<uint8_t>& indices,
+                      std::array<uint16_t, 256>& palette);
     // The track select's 38-entry diorama tables and asset 3 with the added tracks' dioramas (src/rush2049/track2049_menu.cpp),
     // for screens other than the track select that show them (the unlock system's shop): call before loading asset 3.
     void prepare_menu_art(uint8_t* rdram);
@@ -94,6 +116,13 @@ namespace rush2::track2049 {
     // track's preview starts with the tube's preview_tube_rings x 4 vertices, ring by ring (top +side, top -side,
     // floor -side, floor +side), which the track select recolors each frame (preview_tube_color).
     std::string menu_preview_name(int k);
+    // Rush 2049's track select preview (as menu_preview_name's) of AI path file `path` (a converted track's): its route
+    // tube colored as race track `color`'s (1-6), and behind it `picture` (128 x 128 RGBA, rows top-down; empty for
+    // none) as 2049's round screenshot. Texels, vertices and the list (at `list`) in `blob`, `pointers` the offsets of
+    // the words in it pointing into it (to rebase), radius in world units. Custom tracks without an authored diorama
+    // show it (src/track_mod/track_mod.cpp); the track select poses and animates it like the 2049 tracks'.
+    bool route_preview(const std::vector<uint8_t>& path, int color, const std::vector<uint8_t>& picture,
+                       std::vector<uint8_t>& blob, uint32_t& list, std::vector<uint32_t>& pointers, float& radius);
     constexpr int preview_tube_rings = 100;
     // 2049's track select camera, fitted to a capture of it (§7.5): focal length and center in screen pixels.
     constexpr float preview_focal = 167.0f, preview_center_x = 162.0f, preview_center_y = 116.0f;
