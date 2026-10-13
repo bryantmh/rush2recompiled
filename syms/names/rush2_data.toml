@@ -10534,10 +10534,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C17C
 name = "cheat_option_k"
 type = "u8"
-desc = "Killer Rats cheat (menu item 18): rats run across the track and kill the car that runs one over. Read by breakables update and ratcone spawn."
+desc = "Killer Rats cheat (menu item 18). Read by track_object_spawn_ratcone at track load (the rats on NYONE/NYTWO get the BADRAT texture and 4x size, and a car that touches one is wrecked) and every frame by breakables_update (rats lose the camera-facing node flag 0x8000 while on)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/cheats.md#killer-rats"
 
 [[var]]
 vram = 0x8010C180

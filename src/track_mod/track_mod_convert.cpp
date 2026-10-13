@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <array>
 #include <map>
 #include <set>
 #include <sstream>
@@ -112,10 +113,13 @@ namespace {
         std::string object;
     };
 
+    constexpr int max_poly_verts = 8;       // stock polygons: 3 and 4 almost always, at most 9
+
     struct BuiltPoly {
         uint16_t flags;
         int16_t m[9];
-        Vec3 v0, l1, l2;    // origin (world) and two local vertices
+        Vec3 v0;                            // origin (world)
+        std::vector<Vec3> l;                // the other vertices, local (y = 0)
         float x0, x1, z0, z1;
     };
 
@@ -128,30 +132,85 @@ namespace {
 
     bool build_collision(const std::vector<CollisionTri>& tris, std::vector<uint8_t>& out, Report& report,
                          std::vector<BuiltPoly>* polys_out) {
-        std::vector<BuiltPoly> polys;
-        size_t flipped = 0, degenerate = 0;
-        std::map<std::string, size_t> flipped_by;
+        // Each face keeps the side its normal gives it, down-facing drivable ones included: the stock tracks have up to
+        // 294 per track, nearly all tunnel roofs and bridge undersides above other road (tools/stock_track_glb.py).
+        // The vertices wind so that, with x along the first edge and y the normal, every later vertex has local z > 0
+        // (z = x cross y; every stock polygon does: func_8006C670's edge tests).
+        struct Face { uint16_t flags; Vec3 n; std::vector<Vec3> v; bool dead = false; };
+        std::vector<Face> faces;
+        size_t degenerate = 0;
         for (const CollisionTri& t : tris) {
-            int type = t.flags & 0xF;
-            bool ground = type != 5 && type != 6;
             Vec3 n = normalize(cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0])));
             if (length(n) < 0.5f) { degenerate++; continue; }
             if (dot(n, t.front) < 0) n = mul(n, -1.0f);       // the face's own front
-            if (ground && n[1] < 0) { n = mul(n, -1.0f); flipped++; flipped_by[t.object]++; }
-            Vec3 v[3] = { t.v[0], t.v[1], t.v[2] };
-            // Local frame: x along the first edge, y the normal, z = x cross y; the vertices must wind so that the
-            // third has local z > 0 (every stock polygon does: func_8006C670's edge tests).
-            Vec3 x = normalize(sub(v[1], v[0]));
-            Vec3 z = cross(x, n);
-            if (dot(sub(v[2], v[0]), z) < 0) {
-                std::swap(v[1], v[2]);
-                x = normalize(sub(v[1], v[0]));
-                z = cross(x, n);
+            Face f{ t.flags, n, { t.v[0], t.v[1], t.v[2] } };
+            if (dot(cross(sub(f.v[1], f.v[0]), sub(f.v[2], f.v[0])), n) > 0) std::swap(f.v[1], f.v[2]);
+            faces.push_back(std::move(f));
+        }
+        if (degenerate) report.info(std::to_string(degenerate) + " collision triangles have no area and were skipped.");
+
+        // Flat neighbours of the same surface merge into convex polygons, as the stock collision is built (mostly
+        // quads): a modeller's triangles would otherwise take one of the game's 8191 polygons each.
+        auto key = [](const Vec3& p) {
+            return std::array<int32_t, 3>{ int32_t(std::lround(p[0] * 32.0f)), int32_t(std::lround(p[1] * 32.0f)),
+                                           int32_t(std::lround(p[2] * 32.0f)) };
+        };
+        using Edge = std::pair<std::array<int32_t, 3>, std::array<int32_t, 3>>;
+        std::map<Edge, size_t> edge_of;
+        for (size_t i = 0; i < faces.size(); i++) {
+            const auto& v = faces[i].v;
+            for (size_t k = 0; k < v.size(); k++) edge_of[{ key(v[k]), key(v[(k + 1) % v.size()]) }] = i;
+        }
+        auto convex = [](const std::vector<Vec3>& v, const Vec3& n) {
+            for (size_t k = 0; k < v.size(); k++) {
+                const Vec3 &a = v[k], &b = v[(k + 1) % v.size()], &c = v[(k + 2) % v.size()];
+                if (dot(cross(sub(b, a), sub(c, b)), n) > 0.01f) return false;
             }
+            return true;
+        };
+        for (bool merged = true; merged;) {
+            merged = false;
+            for (size_t i = 0; i < faces.size(); i++) {
+                Face& a = faces[i];
+                if (a.dead) continue;
+                for (size_t k = 0; k < a.v.size() && a.v.size() < size_t(max_poly_verts); k++) {
+                    const Vec3 &p = a.v[k], &q = a.v[(k + 1) % a.v.size()];
+                    auto it = edge_of.find({ key(q), key(p) });
+                    if (it == edge_of.end() || it->second == i) continue;
+                    Face& b = faces[it->second];
+                    if (b.dead || b.flags != a.flags || dot(a.n, b.n) < 0.9995f) continue;
+                    if (a.v.size() + b.v.size() - 2 > size_t(max_poly_verts)) continue;
+                    bool flat = true;
+                    for (const Vec3& w : b.v) flat = flat && std::fabs(dot(sub(w, a.v[0]), a.n)) < 0.05f;
+                    if (!flat) continue;
+                    // b runs q, p, then its own vertices: those are spliced between p and q.
+                    size_t j = 0;
+                    while (j < b.v.size() && key(b.v[j]) != key(q)) j++;
+                    if (j == b.v.size()) continue;
+                    std::vector<Vec3> joined(a.v.begin(), a.v.begin() + k + 1);
+                    for (size_t s = 2; s < b.v.size(); s++) joined.push_back(b.v[(j + s) % b.v.size()]);
+                    joined.insert(joined.end(), a.v.begin() + k + 1, a.v.end());
+                    if (!convex(joined, a.n)) continue;
+                    for (size_t s = 0; s < b.v.size(); s++) edge_of.erase({ key(b.v[s]), key(b.v[(s + 1) % b.v.size()]) });
+                    for (size_t s = 0; s < a.v.size(); s++) edge_of.erase({ key(a.v[s]), key(a.v[(s + 1) % a.v.size()]) });
+                    a.v = std::move(joined);
+                    for (size_t s = 0; s < a.v.size(); s++) edge_of[{ key(a.v[s]), key(a.v[(s + 1) % a.v.size()]) }] = i;
+                    b.dead = true;
+                    merged = true;
+                    k = size_t(-1);     // start this face's edges over
+                }
+            }
+        }
+
+        std::vector<BuiltPoly> polys;
+        for (const Face& f : faces) {
+            if (f.dead) continue;
+            const std::vector<Vec3>& v = f.v;
+            Vec3 x = normalize(sub(v[1], v[0]));
+            Vec3 z = normalize(cross(x, f.n));
             Vec3 y = normalize(cross(z, x));
-            z = normalize(z);
             BuiltPoly p{};
-            p.flags = t.flags;
+            p.flags = f.flags;
             const Vec3* rows[3] = { &x, &y, &z };
             float mq[9];
             for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) {
@@ -159,27 +218,20 @@ namespace {
                 mq[r * 3 + c] = p.m[r * 3 + c] / 16384.0f;
             }
             p.v0 = v[0];
-            auto local = [&](const Vec3& w) {
-                Vec3 d = sub(w, v[0]);
-                return Vec3{ mq[0] * d[0] + mq[1] * d[1] + mq[2] * d[2], 0.0f, mq[6] * d[0] + mq[7] * d[1] + mq[8] * d[2] };
-            };
-            p.l1 = local(v[1]);
-            p.l2 = local(v[2]);
-            p.x0 = std::min({ v[0][0], v[1][0], v[2][0] });
-            p.x1 = std::max({ v[0][0], v[1][0], v[2][0] });
-            p.z0 = std::min({ v[0][2], v[1][2], v[2][2] });
-            p.z1 = std::max({ v[0][2], v[1][2], v[2][2] });
-            polys.push_back(p);
-        }
-        if (degenerate) report.info(std::to_string(degenerate) + " collision triangles have no area and were skipped.");
-        for (const auto& [obj, n] : flipped_by) {
-            report.warning(obj + ": " + std::to_string(n) + " drivable faces point down (flipped normals). They were turned "
-                           "up; recalculate normals in Blender (Mesh > Normals > Recalculate Outside) to be sure.");
+            p.x0 = p.x1 = v[0][0];
+            p.z0 = p.z1 = v[0][2];
+            for (size_t k = 1; k < v.size(); k++) {
+                Vec3 d = sub(v[k], v[0]);
+                p.l.push_back(Vec3{ mq[0] * d[0] + mq[1] * d[1] + mq[2] * d[2], 0.0f, mq[6] * d[0] + mq[7] * d[1] + mq[8] * d[2] });
+                p.x0 = std::min(p.x0, v[k][0]); p.x1 = std::max(p.x1, v[k][0]);
+                p.z0 = std::min(p.z0, v[k][2]); p.z1 = std::max(p.z1, v[k][2]);
+            }
+            polys.push_back(std::move(p));
         }
         if (polys.empty()) { report.error("No collision: add COL_ROAD_* meshes (or a visible track mesh)."); return false; }
         if (polys.size() > 8191) {
-            report.error("Collision has " + std::to_string(polys.size()) + " triangles; the game's limit is 8191. "
-                         "Simplify the COL_* meshes.");
+            report.error("Collision has " + std::to_string(polys.size()) + " polygons after merging flat neighbours; the "
+                         "game's limit is 8191. Simplify the COL_* meshes.");
             return false;
         }
         for (const BuiltPoly& p : polys) {
@@ -192,13 +244,16 @@ namespace {
             }
         }
 
-        // Quadtree over x/z (func_8006CD60): q = (x >= mid) + 2 * (z < mid); the halves share the mid line.
+        // Quadtree over x/z (func_8006CD60): q = (x >= mid) + 2 * (z < mid); the halves share the mid line. Built
+        // Rush 2's way first; when the cell lists pass Rush 2's 64 KB (as Rush 2049's track 3 does), again in the form
+        // the port of 2049's tracks reads (src/rush2049/track2049_collision.cpp): splits rounded toward zero, leaf
+        // offsets past 16 bits flagged by mask bit 4 + q, and the root node's byte +2 = 0x80 | the size's bits 16-22.
         struct Node { int16_t parent; uint8_t mask; int16_t b[4]; uint16_t child[4]; };
         std::vector<Node> nodes;
-        std::vector<uint8_t> leaves(1, 0);              // byte 0 pads so offset 0 means empty
-        std::map<std::vector<uint8_t>, uint16_t> leaf_at;
-        bool overflow = false;
-        auto encode_leaf = [&](const std::vector<int>& list) -> uint16_t {
+        std::vector<uint8_t> leaves;
+        std::map<std::vector<uint8_t>, uint32_t> leaf_at;
+        bool overflow = false, tagged = false, crowded = false;
+        auto encode_leaf = [&](const std::vector<int>& list) -> uint32_t {
             if (list.empty()) return 0;
             std::vector<uint8_t> raw;
             raw.push_back(uint8_t(list.size()));
@@ -210,8 +265,8 @@ namespace {
             }
             auto it = leaf_at.find(raw);
             if (it != leaf_at.end()) return it->second;
-            if (leaves.size() + raw.size() > 0xFFFF) { overflow = true; return 0; }
-            uint16_t off = uint16_t(leaves.size());
+            if (leaves.size() + raw.size() > (tagged ? 0x7FFFFFu : 0xFFFFu)) { overflow = true; return 0; }
+            uint32_t off = uint32_t(leaves.size());
             leaves.insert(leaves.end(), raw.begin(), raw.end());
             leaf_at[raw] = off;
             return off;
@@ -225,7 +280,7 @@ namespace {
             [&](int parent, int x0, int x1, int z0, int z1, const std::vector<int>& list) -> int {
             int me = int(nodes.size());
             nodes.push_back(Node{ int16_t(parent), 0, { int16_t(x0), int16_t(x1), int16_t(z0), int16_t(z1) }, { 0, 0, 0, 0 } });
-            int mx = (x0 + x1) >> 1, mz = (z0 + z1) >> 1;
+            int mx = tagged ? (x0 + x1) / 2 : (x0 + x1) >> 1, mz = tagged ? (z0 + z1) / 2 : (z0 + z1) >> 1;
             for (int q = 0; q < 4; q++) {
                 int cx0 = (q & 1) ? mx : x0, cx1 = (q & 1) ? x1 : mx;
                 int cz0 = (q & 2) ? z0 : mz, cz1 = (q & 2) ? mz : z1;
@@ -238,9 +293,11 @@ namespace {
                     nodes[me].child[q] = uint16_t(child);
                 }
                 else {
-                    if (sub_list.size() > 255) sub_list.resize(255), overflow = true;
+                    if (sub_list.size() > 255) sub_list.resize(255), overflow = crowded = true;
                     biggest = std::max(biggest, sub_list.size());
-                    nodes[me].child[q] = encode_leaf(sub_list);
+                    uint32_t off = encode_leaf(sub_list);
+                    nodes[me].child[q] = uint16_t(off);
+                    if (off > 0xFFFF) nodes[me].mask |= uint8_t(1 << (4 + q));
                 }
             }
             return me;
@@ -251,48 +308,59 @@ namespace {
         }
         std::vector<int> all(polys.size());
         for (size_t i = 0; i < polys.size(); i++) all[i] = int(i);
-        make_node(-1, int(std::floor(bx0)) - 2, int(std::ceil(bx1)) + 2, int(std::floor(bz0)) - 2, int(std::ceil(bz1)) + 2, all);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            nodes.clear();
+            leaves.assign(1, 0);                        // byte 0 pads so offset 0 means empty
+            leaf_at.clear();
+            overflow = false;
+            biggest = 0;
+            make_node(-1, int(std::floor(bx0)) - 2, int(std::ceil(bx1)) + 2, int(std::floor(bz0)) - 2, int(std::ceil(bz1)) + 2, all);
+            if (!overflow || tagged || crowded) break;   // the tagged form only helps with size
+            tagged = true;
+        }
         if (overflow || nodes.size() > 0x7FFF) {
-            report.error("The collision is too dense for the game's collision index (more than 64 KB of cell lists, or "
-                         "over 255 triangles in one small spot). Simplify the COL_* meshes.");
+            report.error("The collision is too dense for the game's collision index (over 8 MB of cell lists, or over 255 "
+                         "polygons in one small spot). Simplify the COL_* meshes.");
             return false;
         }
 
+        // Each polygon's vertices are consecutive: a 3-byte run (first index, 0xC0 | how many more follow).
         std::vector<uint8_t> vlist;
-        for (size_t i = 0; i < polys.size(); i++) {
-            add16(vlist, uint16_t(i * 3));
-            add8(vlist, 0xC2);                        // run: the next two indices follow
+        size_t vert_count = 0;
+        for (const BuiltPoly& p : polys) {
+            add16(vlist, uint16_t(vert_count));
+            add8(vlist, uint8_t(0xC0 | p.l.size()));
+            vert_count += 1 + p.l.size();
         }
         out.clear();
-        for (uint16_t v : { uint16_t(0), uint16_t(nodes.size()), uint16_t(polys.size()), uint16_t(polys.size() * 3),
-                            uint16_t(leaves.size()), uint16_t(vlist.size()) }) {
+        for (uint16_t v : { uint16_t(0), uint16_t(nodes.size()), uint16_t(polys.size()), uint16_t(vert_count),
+                            uint16_t(leaves.size() & 0xFFFF), uint16_t(vlist.size()) }) {
             add16(out, v);
         }
-        for (const Node& n : nodes) {
+        for (size_t i = 0; i < nodes.size(); i++) {
+            const Node& n = nodes[i];
             add16(out, uint16_t(n.parent));
-            add8(out, 0);
+            add8(out, i == 0 && tagged ? uint8_t(0x80 | (leaves.size() >> 16)) : 0);
             add8(out, n.mask);
             for (int16_t b : n.b) add16(out, uint16_t(b));
             for (uint16_t c : n.child) add16(out, c);
         }
         for (size_t i = 0; i < polys.size(); i++) {
             add16(out, polys[i].flags);
-            add16(out, 3);                            // info: 3 vertices
+            add16(out, uint16_t(1 + polys[i].l.size()));   // info: vertex count
             for (int16_t m : polys[i].m) add16(out, uint16_t(m));
-            add16(out, uint16_t(i * 3));              // vertex list offset
+            add16(out, uint16_t(i * 3));              // its run in the vertex list
         }
         for (const BuiltPoly& p : polys) {
             encode_vert(out, p.v0);
-            encode_vert(out, p.l1);
-            encode_vert(out, p.l2);
+            for (const Vec3& l : p.l) encode_vert(out, l);
         }
         out.insert(out.end(), leaves.begin(), leaves.end());
         out.insert(out.end(), vlist.begin(), vlist.end());
-        char b[160];
-        snprintf(b, sizeof(b), "Collision: %zu triangles, %zu index cells (largest %zu), %zu bytes.", polys.size(),
-                 nodes.size(), biggest, out.size());
+        char b[192];
+        snprintf(b, sizeof(b), "Collision: %zu polygons from %zu triangles, %zu index cells (largest %zu), %zu bytes.",
+                 polys.size(), tris.size(), nodes.size(), biggest, out.size());
         report.info(b);
-        if (flipped) report.info(std::to_string(flipped) + " drivable collision faces were turned to face up.");
         if (polys_out) *polys_out = std::move(polys);
         return true;
     }
@@ -309,12 +377,17 @@ namespace {
             Vec3 d = sub(p, q.v0);
             float lx = m[0] * d[0] + m[1] * d[1] + m[2] * d[2], ly = m[3] * d[0] + m[4] * d[1] + m[5] * d[2];
             float lz = m[6] * d[0] + m[7] * d[1] + m[8] * d[2];
-            // point in triangle (0,0), l1, l2 in local x/z
-            float ax = 0, az = 0, bx = q.l1[0], bz = q.l1[2], cx = q.l2[0], cz = q.l2[2];
+            // point in the convex polygon (0,0), l... in local x/z
             auto side = [](float x0, float z0, float x1, float z1, float px, float pz) { return (x1 - x0) * (pz - z0) - (z1 - z0) * (px - x0); };
-            float s0 = side(ax, az, bx, bz, lx, lz), s1 = side(bx, bz, cx, cz, lx, lz), s2 = side(cx, cz, ax, az, lx, lz);
-            bool in = (s0 >= -0.5f && s1 >= -0.5f && s2 >= -0.5f) || (s0 <= 0.5f && s1 <= 0.5f && s2 <= 0.5f);
-            if (!in) continue;
+            bool pos = true, neg = true;
+            for (size_t k = 0; k <= q.l.size(); k++) {
+                float ax = k ? q.l[k - 1][0] : 0.0f, az = k ? q.l[k - 1][2] : 0.0f;
+                float bx = k < q.l.size() ? q.l[k][0] : 0.0f, bz = k < q.l.size() ? q.l[k][2] : 0.0f;
+                float s = side(ax, az, bx, bz, lx, lz);
+                pos = pos && s >= -0.5f;
+                neg = neg && s <= 0.5f;
+            }
+            if (!pos && !neg) continue;
             // height of the plane at (x, z): move along world y until local y = 0
             float h = std::fabs(m[4]) > 1e-4f ? p[1] - ly / m[4] : NAN;
             if (std::isnan(h)) continue;
@@ -322,6 +395,32 @@ namespace {
             if (dd < reach && dd < best_d) { best_d = dd; best = h; }
         }
         return best;
+    }
+
+    // Whether a drivable surface lies within `reach` ft of p along its own normal, walls of type 6 included: Rush 2's
+    // Pipe drives on near-vertical tube walls that a straight-down probe (ground_under) can't see.
+    bool surface_near(const std::vector<BuiltPoly>& polys, const Vec3& p, float reach) {
+        for (const BuiltPoly& q : polys) {
+            int type = q.flags & 0xF;
+            if (type == 5) continue;
+            if (p[0] < q.x0 - reach || p[0] > q.x1 + reach || p[2] < q.z0 - reach || p[2] > q.z1 + reach) continue;
+            float m[9];
+            for (int i = 0; i < 9; i++) m[i] = q.m[i] / 16384.0f;
+            Vec3 d = sub(p, q.v0);
+            float lx = m[0] * d[0] + m[1] * d[1] + m[2] * d[2], ly = m[3] * d[0] + m[4] * d[1] + m[5] * d[2];
+            float lz = m[6] * d[0] + m[7] * d[1] + m[8] * d[2];
+            if (std::fabs(ly) > reach) continue;
+            bool pos = true, neg = true;
+            for (size_t k = 0; k <= q.l.size(); k++) {
+                float ax = k ? q.l[k - 1][0] : 0.0f, az = k ? q.l[k - 1][2] : 0.0f;
+                float bx = k < q.l.size() ? q.l[k][0] : 0.0f, bz = k < q.l.size() ? q.l[k][2] : 0.0f;
+                float s = (bx - ax) * (lz - az) - (bz - az) * (lx - ax);
+                pos = pos && s >= -0.5f;
+                neg = neg && s <= 0.5f;
+            }
+            if (pos || neg) return true;
+        }
+        return false;
     }
 
     // ---- textures ------------------------------------------------------------------------------------------------
@@ -970,7 +1069,12 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                            "dropped onto the road; shape the curve to follow the road's height so bridges and tunnels "
                            "pick the right level.");
         }
-        if (no_road) report.warning(std::to_string(no_road) + " AI path points have no road under them at all.");
+        // Stock paths pass over road everywhere but their jumps (0-3 points a track; Pipe's tube 32 of 738), so only
+        // more than 2% is worth a warning.
+        if (no_road * 50 > spine.size()) {
+            report.warning(std::to_string(no_road) + " of " + std::to_string(spine.size()) + " AI path points have no "
+                           "road under them at all.");
+        }
     }
 
     // ---- target speeds ----
@@ -978,8 +1082,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // AISPEED_ marker caps the speed from it on in either direction. forward: the race the report speaks of.
     auto target_speeds = [&](const std::vector<PathPoint>& sp, bool forward) {
         size_t n = sp.size();
-        std::vector<float> v(n), mph(n);
-        const float grip = 32.2f * 1.1f;            // ft/s^2 of cornering the AI may use
+        std::vector<float> v(n), mph(n), radius(n);
         for (size_t i = 0; i < n; i++) {
             const Vec3& a = sp[(i + n - 3) % n].p;
             const Vec3& b = sp[i].p;
@@ -987,8 +1090,28 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             Vec3 ab = sub(b, a), bc = sub(c, b), ac = sub(c, a);
             ab[1] = bc[1] = ac[1] = 0.0f;
             float area2 = std::fabs(ab[0] * bc[2] - ab[2] * bc[0]);
-            float r = area2 > 1e-3f ? length(ab) * length(bc) * length(ac) / (2.0f * area2) : 1e9f;
-            v[i] = std::min(std::sqrt(grip * r), 200.0f * 1.4667f);
+            radius[i] = area2 > 1e-3f ? length(ab) * length(bc) * length(ac) / (2.0f * area2) : 1e9f;
+        }
+        // The stock lanes' speeds hardly follow the corner a point is in (a grip model rates their tightest corners at
+        // 37-51 mph where they hold 72-100). They follow the tightest corner in the next 500 ft, and only loosely: this
+        // table matches that radius's quantiles to the lane speeds' over every lane of Rush 2's ten circuit tracks and
+        // Rush 2049's six race tracks (2049's / 1.2), so the speeds spread as the stock ones do (tools/stock_track_glb.py).
+        static const float table[][2] = { { 91, 83 }, { 114, 97 }, { 154, 107 }, { 205, 118 }, { 270, 124 },
+                                          { 347, 131 }, { 430, 136 }, { 538, 142 }, { 725, 149 }, { 1088, 153 },
+                                          { 1800, 158 } };
+        const size_t ahead = size_t(500.0f / spine_step);
+        for (size_t i = 0; i < n; i++) {
+            float r = 1e9f;
+            for (size_t k = 0; k <= ahead; k++) r = std::min(r, radius[(i + k) % n]);
+            float s = table[0][1];
+            if (r >= table[10][0]) s = table[10][1];
+            else for (int t = 0; t < 10; t++) {
+                if (r > table[t][0] && r <= table[t + 1][0]) {
+                    float f = std::log(r / table[t][0]) / std::log(table[t + 1][0] / table[t][0]);
+                    s = table[t][1] + (table[t + 1][1] - table[t][1]) * f;
+                }
+            }
+            v[i] = s * 1.4667f;
         }
         // AISPEED caps: from the nearest point on, until the next marker (0 lifts the cap).
         std::vector<std::pair<size_t, float>> caps;
@@ -1070,13 +1193,15 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (size_t i = 0; i < spine.size(); i++) {
             for (float f : lane_offsets) {
                 Vec3 p = add(spine[i].p, mul(spine[i].lateral, f * spine[i].half_width));
-                if (std::isnan(ground_under(cpolys, p, 40.0f))) {
+                if (!surface_near(cpolys, p, 40.0f)) {
                     if (!off_road) first = p;
                     off_road++;
                 }
             }
         }
-        if (off_road) {
+        // Every stock track has a few such points over its jumps: at most 0.7% of them (Crash), Pipe's tube aside
+        // (tools/stock_track_glb.py), so only more than that is worth a warning.
+        if (off_road * 50 > spine.size() * 4) {
             report.warning(std::to_string(off_road) + " of " + std::to_string(spine.size() * 4) + " AI racing-line points "
                            "have no road under them (first near " + fmt_pos(first) + "). Keep AIPATH_main's ribbon on the "
                            "road; narrow its Extrude or move the curve.");
@@ -1096,7 +1221,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             if (c < order.size()) {
                 const Gate& g = order[c];
                 for (float f : g.pos) addf(d, f);
-                for (float f : g.dir) addf(d, f);
+                // Pointing back against the race, as in every stock path file (the gate test 0x800A15BC takes a
+                // side change either way).
+                for (float f : g.dir) addf(d, -f);
                 add32(d, uint32_t(std::min(65535.0f, g.radius) * std::min(65535.0f, g.radius)));
                 add16(d, c == 0 ? 7 : 0);          // finish: lap line, arms lap counting, loop start
                 add16(d, 45);

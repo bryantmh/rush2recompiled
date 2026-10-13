@@ -20,11 +20,16 @@ def names_of(geo):
 
 
 def leaf_for(c, x, z):
-    """func_8006CD60: descend from the root; returns the leaf's polygon list."""
+    """func_8006CD60: descend from the root; returns the leaf's polygon list. A file tagged in the root's byte +2
+    (0x80: src/rush2049/track2049_collision.cpp, the form the converter takes past 64 KB of leaves) splits toward zero."""
     n = c.nodes[0]
+    toward_zero = bool(n['pad'] & 0x80)
     while True:
         x0, x1, z0, z1 = n['bounds']
-        mx, mz = (x0 + x1) >> 1, (z0 + z1) >> 1
+        if toward_zero:
+            mx, mz = int((x0 + x1) / 2), int((z0 + z1) / 2)
+        else:
+            mx, mz = (x0 + x1) >> 1, (z0 + z1) >> 1
         q = (0 if x < mx else 1) + (2 if z < mz else 0)
         if n['mask'] & (1 << q):
             k = n['child'][q]

@@ -4296,14 +4296,14 @@ ref = "src/unlocks_shop.cpp"
 
 [[func]]
 vram = 0x8005A340
-name = "mem_copy_words"
-sig = "void *mem_copy_words(void *dst, const void *src, u32 n)"
-desc = "memcpy-like copy using 4-byte units when aligned (mask 3) with byte tail; used by car select preview, track select and circuit menu code."
-status = "inferred"
+name = "math_mat3_scale"
+sig = "void math_mat3_scale(const f32 *src, f32 *dst, f32 scale)"
+desc = "Multiplies the nine floats of a 3x3 matrix by scale: dst[i] = src[i] * scale (src and dst may be the same; scale is passed in $a2). The rat spawner scales a rat's pose by 4.0 with the Killer Rats cheat on. Not a memcpy."
+status = "verified"
 rush1 = [0x80068AA0]
 rush2049 = [0x8008B32C]
 area = "util"
-ref = "docs/functions/rush2_util.md#rush-2-util-functions"
+ref = "docs/cheats.md#killer-rats"
 
 [[func]]
 vram = 0x8005A3B4
@@ -4827,12 +4827,12 @@ ref = "docs/functions/rush2_track.md#rush-2-track-functions"
 [[func]]
 vram = 0x8005EF74
 name = "breakable_behavior_g_hit"
-sig = "s32 breakable_behavior_g_hit(Breakable *b, s32 a1)"
-desc = "Hit callback of behavior g and ratcone: hides node b+0x4 (mode 3), records hit state (byte b+0x60, halfword b+0x62) and plays an object effect sound (0x777 offset)."
-consts = "0x777 = sound id base"
-status = "inferred"
+sig = "void breakable_behavior_g_hit(Breakable *b, s32 car)"
+desc = "Breakable hit callback (+0x58) that wrecks the car, called by breakable_update_all with the touching car. Does nothing if the car is already wrecked (car +0x648). For the rat (0x777, set with Killer Rats on) it plays the object sound and leaves the rat in place; for other ids it clears +0x60 and hides the node (mode 3). Either way it then sets car +0x648 = 1."
+consts = "0x777 = rat breakable id; car +0x648 = wrecked"
+status = "verified"
 area = "track"
-ref = "docs/functions/rush2_track.md#rush-2-track-functions"
+ref = "docs/cheats.md#killer-rats"
 
 [[func]]
 vram = 0x8005F00C
@@ -7400,12 +7400,12 @@ ref = "docs/functions/rush2_render.md#rush-2-render-functions"
 
 [[func]]
 vram = 0x8007BF2C
-name = "view_basis_matrix_init"
-sig = "void view_basis_matrix_init(f32 *m)"
-desc = "Writes nine floats (offsets 0,4,8,0x10,0x14,0x18,0x20,0x24,0x28) of a 3x3-in-4x4-stride matrix from mat3_identity_const_a/b, 0.001 and 1.0; builds a near-identity basis for view_fog_setup. (low confidence)"
-status = "inferred"
+name = "view_billboard_basis"
+sig = "void view_billboard_basis(f32 *m)"
+desc = "Builds the yaw-only rotation (4x4 stride) used for nodes with flag 0x8000: from the horizontal part of the camera's look-at matrix 0x800E7CC8 (elements +0x8, +0x28, normalized), so the node is an upright card facing the camera. Output 0x800E7C78, from view_fog_setup."
+status = "verified"
 area = "render"
-ref = "docs/functions/rush2_render.md#rush-2-render-functions"
+ref = "docs/cheats.md#killer-rats"
 
 [[func]]
 vram = 0x8007BFBC
@@ -12103,11 +12103,11 @@ ref = "us.toml"
 vram = 0x800AF460
 name = "track_behavior_ratcone_o3"
 sig = "void track_behavior_ratcone_o3(void)"
-desc = "RATCONEO3 behavior (textures RATCONEA, BADRAT); runs only from behavior 38."
+desc = "Killer Rats texture swap, called by track_object_spawn_ratcone when the cheat is on: stores the RATCONEA (grey rat) and BADRAT (pale rat) texture handles in 0x80111880 / 0x80111938 and runs mirror_winding_walk(RATCONEO3, 10), which replaces RATCONEA with BADRAT in the model's display lists."
 consts = "38 = behavior id; 0x3FF mask"
 status = "verified"
 area = "track"
-ref = "docs/rush2049_research/placement.md#15-hard-coded-names-and-failure-safety"
+ref = "docs/cheats.md#killer-rats"
 
 [[func]]
 vram = 0x800AF570
@@ -13877,11 +13877,11 @@ ref = "docs/functions/rush2_track.md#rush-2-track-functions"
 vram = 0x800BC888
 name = "track_object_spawn_ratcone"
 sig = "void track_object_spawn_ratcone(void *a0, void *placement)"
-desc = "Placement creator for rat cone: breakable_alloc, copies words (0x40800000 float 4.0) and calls track_behavior_ratcone_o3; callbacks func_8005EC14/ED38/EF74."
+desc = "Placement creator for RATCONE (rat, breakable 0x777): breakable_alloc; with Killer Rats (0x8010C17C) off, hit callback breakable_behavior_g_step and after-hit update breakable_behavior_follow_pair; on, hit callback breakable_behavior_g_hit, no update, the node's pose scaled by 4.0 (math_mat3_scale) and track_behavior_ratcone_o3 (BADRAT texture)."
 consts = "0x777 = behavior id"
-status = "inferred"
+status = "verified"
 area = "track"
-ref = "docs/functions/rush2_track.md#rush-2-track-functions"
+ref = "docs/cheats.md#killer-rats"
 
 [[func]]
 vram = 0x800BC990

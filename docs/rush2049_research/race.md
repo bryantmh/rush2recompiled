@@ -72,7 +72,7 @@ don't matter. They hold whatever the editor dumped, sometimes stale.
 | Off | Type | Meaning |
 |---|---|---|
 | +00 | f32[3] | Centre of the gate. |
-| +0C | f32[3] | Unit direction of travel (the plane normal; y is always 0). |
+| +0C | f32[3] | Unit plane normal, y always 0. In every stock file (Rush 2 and 2049 race paths) it points back against the race; the gate test (`func_800A1468` at 0x800A15BC) only watches for a side change, so either sign works. |
 | +18 | u32 | Radius² of the gate, tested in 2D on x/z. |
 | +1C | s16 | Flags: 1 = finish/lap line, 2 = lap counting armed once passed, 4 = loop start. Flags may combine; 7 = all three on the start line. |
 | +1E / +20 | s16 | Time bonus for lap 1 / later laps. **Overwritten with 45** (runtime). |

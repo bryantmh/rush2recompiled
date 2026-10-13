@@ -37,7 +37,7 @@
 
 namespace {
     // Bump when the converter's output changes for the same input (the build stamp already covers new builds).
-    constexpr uint64_t converter_version = 2;
+    constexpr uint64_t converter_version = 3;
     constexpr int cache_k = 1000;   // track_cache keys of mod tracks: 1000 + a hash of the folder (2049 tracks use 1-37)
 
     std::mutex mutex;

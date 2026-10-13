@@ -7,7 +7,7 @@ Layout (big-endian):
   0x000  header, 12 bytes: u16 base_time (ignored, runtime forces 90), s16 loop_cp, s16 finish_cp, s16 arm_cp
          (all three recomputed from checkpoint flags), s16 n_cp, s16 pad
   0x00C  10 checkpoint records x 0x50 (first n_cp used):
-         +00 f32 pos[3]  +0C f32 dir[3] (direction of travel; crossing plane normal)  +18 u32 radius^2
+         +00 f32 pos[3]  +0C f32 dir[3] (crossing plane normal; stock files point it back against the race)  +18 u32 radius^2
          +1C s16 flags (1 = finish/lap line, 2 = lap counting armed after passing, 4 = loop start / wrap target)
          +1E s16 time bonus lap 1, +20 s16 time bonus later laps (both overwritten with 45 at load)
          +22 s16 cross[20] (runtime: crossing index on spine, lanes 0-3, branches 0-14)

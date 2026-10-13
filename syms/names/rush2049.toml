@@ -1016,15 +1016,15 @@ ref = "docs/rush2049_research/battle.md#5-pickups-and-power-ups"
 
 [[func]]
 vram = 0x8008B32C
-name = "mem_copy_words"
-sig = "void *mem_copy_words(void *dst, const void *src, s32 size)"
-desc = "Same code as Rush 2 mem_copy_words_8005A340 (29 instructions, address-masked match, float constants equal). memcpy-like copy using 4-byte units when aligned (mask 3) with byte tail; used by car select preview, track select and circuit menu code."
+name = "math_mat3_scale"
+sig = "void math_mat3_scale(const f32 *src, f32 *dst, f32 scale)"
+desc = "Same code as Rush 2 math_mat3_scale_8005A340 (address-masked match): multiplies the nine floats of a 3x3 matrix by scale, dst[i] = src[i] * scale. Not a memcpy."
 status = "inferred"
 rush2 = 0x8005A340
 rush1 = [0x80068AA0]
 link = "same-code"
 area = "util"
-ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
+ref = "docs/cheats.md#killer-rats"
 
 [[func]]
 vram = 0x8008B3C8

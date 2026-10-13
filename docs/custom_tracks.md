@@ -98,8 +98,10 @@ textured as dirt but named `COL_ROAD_*` drives like road.
 | `COL_KILL_*` | Falls and pits that reset the car |
 | `COL_<NAME>_*` | A custom surface from track.toml, such as `COL_MUD_*` |
 
-Faces must point up (or into the track, for walls). The report warns about drivable faces that point down; fix them
-with Mesh > Normals > Recalculate Outside.
+Faces count on the side their normals point to: up for road, into the track for walls. A drivable face that points
+down is a ceiling (a tunnel roof, a bridge's underside), as in the stock tracks, so check normals with Mesh > Normals >
+Recalculate Outside if the car falls through a road. Flat neighbouring triangles of the same surface are joined into
+the game's larger polygons, as the stock collision is built, so triangulating doesn't cost you anything.
 
 ### Custom surfaces
 
@@ -148,13 +150,14 @@ flat ribbon.
 - **Height:** shape the curve to follow the road up and down. The game drops it onto the road below it, so over
   bridges and through tunnels a flat curve can pick the wrong level.
 - **Width:** the ribbon's width sets how far apart the computer cars' four racing lines spread. Keep the whole ribbon on
-  the road and clear of walls, or the cars on the outer lines drive into them. The report counts the points that have
-  no road under them.
+  the road and clear of walls, or the cars on the outer lines drive into them. The report warns when more than 2% of
+  the racing-line points have no road near them (the stock tracks have up to 0.7%, over their jumps).
 - **Direction:** the path should run the way `FINISH` points; if it runs the other way, the game reverses it.
 - **Backward races** use the same path the other way round, made automatically. Signs and arrows you model point one
   way only, so they face the wrong way in backward races.
-- **Speeds:** the computer cars brake only where the path tells them to, so the game works out a target speed for
-  every point from how tightly the path bends. To slow them down where that gets it wrong (jumps, blind crests), place
+- **Speeds:** the computer cars brake only where the path tells them to, so the game sets a target speed for every
+  point from the tightest bend in the next 500 ft, the way the stock tracks' speeds run (83 to 158 mph, fitted to all
+  of Rush 2's circuit tracks and Rush 2049's race tracks). To slow them down where that gets it wrong (jumps, blind crests), place
   an Empty named `AISPEED_<mph>` beside the path, such as `AISPEED_45`: it caps their speed from the nearest path point
   on, in the race direction, until the next `AISPEED_` marker. `AISPEED_0` lifts the cap.
 - **Tight corners:** on level or rising road the computer cars never aim below 61 mph (92 and 123 mph with the Heavy
@@ -245,7 +248,7 @@ menu. The report covers, among other things:
 
 - markers that are missing, misnumbered, out of order along the path, or not crossed by it
 - an AI path that isn't a ribbon, isn't closed, floats above the road or leaves it
-- collision faces that point down, and collision that is too dense
+- collision that is too dense
 - unknown `COL_` names, a `*` typed literally in a name, track.toml mistakes
 - the track's size, its textures, and each custom surface's settings
 
@@ -253,7 +256,7 @@ menu. The report covers, among other things:
 
 | What | Limit | Why |
 |---|---|---|
-| Collision triangles | 8,191, and at most 255 in one small area | The game's collision format. Stock Rush 2 tracks use about 2,500. |
+| Collision polygons | 8,191 after flat neighbours are joined, and at most 255 in one small area | The game's collision format. Stock tracks use 2,100 to 7,100. |
 | Track triangles | about 40,000 (rule of thumb) | The whole track is loaded into the game's memory, which it shares with the cars. |
 | Track size | about 10 km (32,000 ft) from the origin in any direction | Positions are stored as 16-bit numbers. |
 | Checkpoints | 9 | The game has 10 gates including the finish line. |
@@ -279,6 +282,8 @@ merges and renames as needed.
 - Translucent (blended) materials
 - Moving parts such as lifts, trains and doors
 - Stunt and battle arenas
+- A run-up before the lap: the AI path must be a closed loop through `FINISH` (NY One and Rush 2049's race 6 start
+  outside their loop)
 - Setting the fog distance
 - Surface grip, such as ice or sticky surfaces (Rush 2 only changes slowdown per surface)
 - New sounds, dust or skid marks for custom surfaces
@@ -305,6 +310,14 @@ merges and renames as needed.
   errors otherwise leave the track loadable.
 - **Full-size textures:** the converter's RGBA16 stand-ins are keyed by `rush2::upscale::rgba16_key`, cached as
   `trackmod_textures_<key>`, and published through `rush2::derive::set_mod_textures("tracks", ...)`.
+- **Collision:** `build_collision` keeps each face's normal (no flipping), merges flat same-surface neighbours into
+  convex polygons of up to 8 vertices, and builds the quadtree Rush 2's way; past 64 KB of leaves it builds the tagged
+  form the 2049 port reads (splits toward zero, 17-bit leaf offsets, root byte +2 = 0x80 | size bits 16-22:
+  `src/rush2049/track2049_collision.cpp`).
+- **Checked against the stock tracks:** `tools/stock_track_glb.py OUT --check` exports Rush 2's ten circuit tracks and
+  Rush 2049's six race tracks as custom tracks (collision, gates from the path files, a ribbon over the stock spine),
+  converts them and counts each message across them. A message every stock track raises means the check is wrong. Stock
+  path files point each gate's direction back against the race; the converter writes them the same way.
 - **Testing:** `tools/track_mod_test.bat <track folder> <out folder>` converts a track outside the game, and
   `tools/track_mod_check.py <out folder>` checks the result. In game, `RUSH2_TEST_TRACK=38` opens the track select on
   the first custom track, `RUSH2_TEST_MOD_TRACK=<n>` races custom track n in place of HAWAII, and

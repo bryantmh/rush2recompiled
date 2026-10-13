@@ -3,6 +3,7 @@ file can hold several sessions' changes).
 
 Usage: python tools/stage_hunks.py FILE REGEX [REGEX...]   stage the matching hunks
        python tools/stage_hunks.py --dry FILE REGEX...      list which hunks would be staged
+       python tools/stage_hunks.py --not FILE REGEX...      stage the hunks that match none (leave one feature out)
 A hunk is staged when any of its added or removed lines matches any REGEX. Hunks are taken with no context lines, so
 neighbouring changes from different sessions stay separate.
 """
@@ -10,8 +11,9 @@ import re, subprocess, sys
 
 def main():
     args = sys.argv[1:]
-    dry = args and args[0] == '--dry'
-    if dry:
+    dry = invert = False
+    while args and args[0] in ('--dry', '--not'):
+        dry, invert = dry or args[0] == '--dry', invert or args[0] == '--not'
         args = args[1:]
     if len(args) < 2:
         sys.exit(__doc__)
@@ -28,7 +30,7 @@ def main():
             head.append(line)
         else:
             cur.append(line)
-    keep = [h for h in hunks if any(p.search(l[1:]) for l in h[1:] if l[:1] in '+-' for p in pats)]
+    keep = [h for h in hunks if invert != any(p.search(l[1:]) for l in h[1:] if l[:1] in '+-' for p in pats)]
     for h in hunks:
         print(('stage ' if h in keep else 'skip  ') + h[0].strip()[:100])
     if dry or not keep:
