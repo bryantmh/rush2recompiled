@@ -250,6 +250,14 @@ track's fogged modes and hid the distant scenery behind it: the Golden Gate (TRA
 sky is its own model (`DC_DOMEBLUE` top, `DC_SUNSET1-4` panels with v 0 at the horizon), tinted blue at the top by its
 vertex colors (0xFF0000D7 and the like), so it doesn't look like the N64's sky.
 
+## Car unlocks [V]
+
+The disc locks its cars as the N64 does. 0x8C02D434 is the N64's func_800F2A28 (docs/unlocks_plan.md §1.3): the car
+table 0x8C12C7E4 + player x 13 gets cars 0-5 always and cars 6-12 from the profile's coin totals with the same
+thresholds (all 48 race silver, 24 and 36 race gold, all 32 stunt silver, 16 and 24 stunt gold, every coin). It counts
+the coin masks with 0x8C02C958 over the same profile offsets (+0xE8 + t x 0x60, +0x548 + s x 0x40). The word at
+0x8C0BEEBC equal to 1 opens all 13 (the N64's 0x801164C0).
+
 ## Not done
 
 - In-game checks of menus and thumbnails (`list_image` decodes the RGBA load lists), wings, battle arenas.

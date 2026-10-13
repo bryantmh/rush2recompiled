@@ -33,6 +33,7 @@
 #include "assets.h"
 #include "rush2.h"
 #include "car2049.h"
+#include "engine2049.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
@@ -2336,30 +2337,46 @@ void rush2::car2049::light_model(uint8_t* rdram, recomp_context* ctx, uint32_t d
 // with the texture as alpha; func_8005CFB0 sets their textures (func_8005CE68) and scrolls them each frame (node +0x28).
 // The converted 2049 cars carry the same layers made from their bodies (track2049::sheen_parts), which Rush 2 textures
 // and scrolls the same way. Original draws the Rush 2 cars' layers only, All On every car's, All Off none.
+// Cube Map (docs/rush2049_research/cars.md#car-reflections) wraps every car's SHEEN layers (D2 and hood) in
+// gEXSetCarReflection(car + 1) so RT64 draws them as the paint reflecting a cube map of the scene around the car, and
+// drops the DECAL layers, whose texture is a second fake reflection over the same panels. The car select and the shop
+// have no scene around the car, so they keep the textures.
 namespace {
     std::atomic<Sheen> sheen_mode{ Sheen::Original };
     constexpr uint32_t car_part_handles = 0x80218000;  // + id * 0x4E: the 39 part model handles of car preview id `id`
     constexpr int car_ids = 72;                        // preview ids (player * 36 + type); a race's cars are 0-7
+    constexpr int race_car_ids = 8;
 
-    // The sheen layers' car record slots and the part each holds (its other damage stage is the next part).
+    // The sheen layers' car record slots, the part each holds (its other damage stage is the next part), and whether it
+    // is a SHEEN layer (the one drawn as a reflection) rather than a DECAL layer.
     struct SheenSlot {
         uint32_t offset;
         int part;
+        bool sheen;
     };
     constexpr SheenSlot sheen_slots[] = {
-        { 0x3C, 11 }, { 0x40, 13 }, { 0x44, 15 }, { 0x48, 17 }, { 0x4C, 19 },
-        { 0x50, 21 }, { 0x54, 23 }, { 0x58, 25 }, { 0x5C, 27 }, { 0x60, 29 },
-        { 0x0C, 35 }, { 0x10, 37 },
+        { 0x3C, 11, false }, { 0x40, 13, false }, { 0x44, 15, false }, { 0x48, 17, false }, { 0x4C, 19, false },
+        { 0x50, 21, true }, { 0x54, 23, true }, { 0x58, 25, true }, { 0x5C, 27, true }, { 0x60, 29, true },
+        { 0x0C, 35, true }, { 0x10, 37, true },
     };
 
-    std::map<int, bool> sheen_nodes;  // scene node index of a sheen layer -> it belongs to a 2049 car
+    struct SheenNode {
+        bool rush2049;  // the layer belongs to a 2049 car
+        int car;        // the car's preview id
+        bool sheen;     // a SHEEN layer (SheenSlot::sheen)
+    };
+    std::map<int, SheenNode> sheen_nodes;  // scene node index of a sheen layer -> what it is
     bool sheen_tables_built = false;
 
     // The scene nodes of every car's sheen layers, checked against the parts their slots hold (records of ids not built
-    // since the last load keep stale node indices). Rebuilt for each view.
+    // since the last load keep stale node indices). Outside the car select and the shop only the race's cars count:
+    // the other ids' records are left over from those screens, and their stale node indices and part handles can match
+    // nodes of the race's scene (its sky and the cars' shadows were taken for sheen layers). An empty record's node 0
+    // with no model (handle 0) isn't a layer either. Rebuilt for each view.
     void build_sheen_tables(uint8_t* rdram) {
         sheen_nodes.clear();
-        for (int id = 0; id < car_ids; id++) {
+        int ids = rush2::engine2049::car_preview_shown() ? car_ids : race_car_ids;
+        for (int id = 0; id < ids; id++) {
             uint32_t base;
             const Paint* p = car_instance(rdram, id, base);
             bool rush2049 = p != nullptr && !p->body;
@@ -2369,8 +2386,9 @@ namespace {
                 int n = (int32_t)MEM_W(0, (int32_t)(record + s.offset));
                 if (n < 0 || n >= max_scene_nodes) continue;
                 uint16_t h = MEM_HU(0, (int32_t)(scene_nodes + uint32_t(n) * scene_node_size + 0xC));
+                if (h == 0) continue;
                 if (h != MEM_HU(0, (int32_t)(parts + s.part * 2)) && h != MEM_HU(0, (int32_t)(parts + s.part * 2 + 2))) continue;
-                sheen_nodes.emplace(n, rush2049);
+                sheen_nodes.emplace(n, SheenNode{ rush2049, id, s.sheen });
             }
         }
         sheen_tables_built = true;
@@ -2396,13 +2414,32 @@ void rush2::car2049::sheen_model(uint8_t* rdram, recomp_context* ctx) {
     if (it == sheen_nodes.end()) {
         return;
     }
+    const SheenNode& node = it->second;
     Sheen mode = sheen_mode;
-    bool shown = it->second ? mode == Sheen::AllOn : mode != Sheen::AllOff;
-    if (!shown) {
+    bool reflections = mode == Sheen::CubeMap && !rush2::engine2049::car_preview_shown();
+    bool shown = node.rush2049 ? (mode == Sheen::AllOn || mode == Sheen::CubeMap) : mode != Sheen::AllOff;
+    if (!shown || (reflections && !node.sheen)) {
         uint32_t empty = light_side_alloc(8);
         MEM_W(0, (int32_t)empty) = (int32_t)0xDF000000;
         MEM_W(4, (int32_t)empty) = 0;
         ctx->r30 = (uint64_t)(int64_t)(int32_t)empty;
+        return;
+    }
+    if (reflections) {
+        GfxCommand begin, end;
+        gEXSetCarReflection(&begin, node.car + 1);
+        gEXSetCarReflection(&end, 0);
+        uint32_t side = light_side_alloc(4 * 8);
+        uint32_t words[8] = {
+            begin.values.word0, begin.values.word1,
+            0xDE000000, (uint32_t)ctx->r30,
+            end.values.word0, end.values.word1,
+            0xDF000000, 0,
+        };
+        for (int i = 0; i < 8; i++) {
+            MEM_W(i * 4, (int32_t)side) = (int32_t)words[i];
+        }
+        ctx->r30 = (uint64_t)(int64_t)(int32_t)side;
     }
 }
 
