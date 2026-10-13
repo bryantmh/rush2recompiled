@@ -918,7 +918,7 @@ namespace {
         int course = course_of(k, backward);
         uint32_t agg = all_stats_block;
         for (uint32_t i = 0; i < stats_size; i++) {
-            MEM_B(i, (int32_t)agg) = MEM_B(0, (int32_t)(no_profile_block + course * stats_size + i));
+            MEM_B(0, (int32_t)(agg + i)) = MEM_B(0, (int32_t)(no_profile_block + course * stats_size + i));
         }
         uint32_t bits = (uint32_t)MEM_W(0, (int32_t)all_best_start);
         float best;
