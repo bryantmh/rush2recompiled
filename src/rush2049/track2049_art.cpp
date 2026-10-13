@@ -73,6 +73,7 @@
 #include <unordered_map>
 #include <string>
 
+#include "asset_catalog.h"
 #include "rush2049_rom.h"
 #include "track2049.h"
 #include "track2049_banners.h"
@@ -2700,4 +2701,72 @@ bool rush2::track2049::build_race_logo(const std::vector<uint8_t>& logo, const r
     std::vector<uint8_t> t, p;
     build_logo(k, t, p);
     return set_race_logo(logo, t, p, out);
+}
+
+bool rush2::track2049::coin_icon(const rush2::rom2049::Source& rom2049, bool gold, std::vector<uint8_t>& texels,
+                                 std::vector<uint8_t>& palette) {
+    // The coin model's face is its first texture ("<model>.1": the Midway logo; ".2" is the back), 64 x 64.
+    std::vector<uint8_t> file;
+    std::string error;
+    rush2::catalog::Container container;
+    if (!convert_file(rom2049, coins_file, file, error) || !rush2::catalog::read_container(file, container, error, false)) {
+        return false;
+    }
+    const std::string model = gold ? "GOLDCOING_COIN" : "SILVERCOINS_COI";
+    const rush2::catalog::Texture* face = nullptr;
+    for (const rush2::catalog::Texture& t : container.textures) {
+        if (t.name == model + ".1" || (face == nullptr && t.name == model)) face = &t;
+    }
+    if (face == nullptr || face->image.width < 16 || face->image.height < 16) return false;
+    const rush2::upscale::Image& im = face->image;
+    // Shrunk to 16 x 16 (box filter, colors weighted by alpha) in the middle of each 16 x 32 frame: the right frame
+    // the coin, the left its opaque texels in one dark color (the coin's average color at a fifth, as KEYICON's
+    // dark key is its gold).
+    constexpr int frame_w = 16, frame_h = 32, coin = 16, top = (frame_h - coin) / 2, width = 2 * frame_w;
+    std::vector<std::array<uint8_t, 4>> rgba(size_t(width * frame_h), std::array<uint8_t, 4>{ 0, 0, 0, 0 });
+    double sum[3] = {};
+    int opaque = 0;
+    for (int y = 0; y < coin; y++) {
+        for (int x = 0; x < coin; x++) {
+            uint32_t x0 = uint32_t(x) * im.width / coin, x1 = uint32_t(x + 1) * im.width / coin;
+            uint32_t y0 = uint32_t(y) * im.height / coin, y1 = uint32_t(y + 1) * im.height / coin;
+            double c[3] = {}, a = 0;
+            int n = 0;
+            for (uint32_t sy = y0; sy < y1; sy++) {
+                for (uint32_t sx = x0; sx < x1; sx++, n++) {
+                    const uint8_t* p = &im.rgba[(size_t(sy) * im.width + sx) * 4];
+                    for (int k = 0; k < 3; k++) c[k] += p[k] * (p[3] / 255.0);
+                    a += p[3];
+                }
+            }
+            if (n == 0 || a / n < 128) continue;
+            std::array<uint8_t, 4> px{ 0, 0, 0, 255 };
+            for (int k = 0; k < 3; k++) {
+                px[k] = uint8_t(std::clamp(c[k] * 255.0 / a, 0.0, 255.0));
+                sum[k] += px[k];
+            }
+            opaque++;
+            rgba[size_t((top + y) * width + frame_w + x)] = px;
+        }
+    }
+    if (opaque == 0) return false;
+    std::array<uint8_t, 4> dark{ uint8_t(sum[0] / opaque / 5), uint8_t(sum[1] / opaque / 5), uint8_t(sum[2] / opaque / 5), 255 };
+    for (int y = 0; y < frame_h; y++) {
+        for (int x = 0; x < frame_w; x++) {
+            if (rgba[size_t(y * width + frame_w + x)][3] != 0) rgba[size_t(y * width + x)] = dark;
+        }
+    }
+    std::vector<uint8_t> indices;
+    std::array<uint16_t, 256> colors{};
+    quantize_ci8(rgba, indices, colors);
+    texels.resize(size_t(width * frame_h));
+    for (int y = 0; y < frame_h; y++) {
+        memcpy(&texels[size_t((frame_h - 1 - y) * width)], &indices[size_t(y * width)], width);   // rows bottom up
+    }
+    palette.resize(512);
+    for (int i = 0; i < 256; i++) {
+        palette[size_t(i * 2)] = uint8_t(colors[size_t(i)] >> 8);
+        palette[size_t(i * 2 + 1)] = uint8_t(colors[size_t(i)]);
+    }
+    return true;
 }

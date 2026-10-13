@@ -969,22 +969,59 @@ bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_
     return false;
 }
 
+namespace {
+    // Where loaded asset `asset` is in RDRAM, or 0.
+    uint32_t loaded_asset(uint8_t* rdram, recomp_context* ctx, int asset) {
+        constexpr uint32_t asset_slots = 0x8010C258;   // 12 bytes a slot: +0 asset, +4 its data
+        recomp_context call = *ctx;
+        call.r4 = asset;
+        asset_find_slot_8008696C(rdram, &call);
+        int slot = (int32_t)call.r2;
+        return slot < 0 ? 0 : (uint32_t)MEM_W(slot * 12 + 4, (int32_t)asset_slots);
+    }
+}
+
 bool rush2::track2049::write_menu_logo(uint8_t* rdram, recomp_context* ctx, int asset, int t) {
-    constexpr uint32_t asset_slots = 0x8010C258;   // 12 bytes a slot: +0 asset, +4 its data
     std::vector<uint8_t> logo;
     uint32_t texels, palette;
     if (!menu_track_logo(rdram, t, logo) || !logo_data_offsets(logo, texels, palette)) {
         return false;
     }
-    recomp_context call = *ctx;
-    call.r4 = asset;
-    asset_find_slot_8008696C(rdram, &call);
-    int slot = (int32_t)call.r2;
-    if (slot < 0) return false;
-    uint32_t data = (uint32_t)MEM_W(slot * 12 + 4, (int32_t)asset_slots);
+    uint32_t data = loaded_asset(rdram, ctx, asset);
     if (data == 0) return false;
     for (uint32_t i = 0; i < 128 * 32; i++) MEM_B(0, (int32_t)(data + texels + i)) = logo[texels + i];
     for (uint32_t i = 0; i < 512; i++) MEM_B(0, (int32_t)(data + palette + i)) = logo[palette + i];
+    return true;
+}
+
+bool rush2::track2049::write_menu_texture(uint8_t* rdram, recomp_context* ctx, int asset, const std::string& name,
+                                          const std::vector<uint8_t>& texels, const std::vector<uint8_t>& palette) {
+    // Rush 2 model container: +8 texture records (0x20: name[16], u16 w, u16 h, u32, u32 texels), +12 palette
+    // records (0x18: name[16], u32, u32 colors), +20 / +24 their counts.
+    std::vector<uint8_t> file;
+    if (!rush2::assets::read_original(rdram, asset, file) || file.size() < 0x28) return false;
+    auto be32 = [&](size_t o) { return uint32_t(file[o] << 24 | file[o + 1] << 16 | file[o + 2] << 8 | file[o + 3]); };
+    auto named = [&](size_t rec) { return strncmp((const char*)&file[rec], name.c_str(), 16) == 0; };
+    uint32_t tex_at = 0, pal_at = 0, size = 0;
+    for (uint32_t i = 0; i < be32(20); i++) {
+        size_t rec = be32(8) + size_t(i) * 0x20;
+        if (rec + 0x20 <= file.size() && named(rec)) {
+            tex_at = be32(rec + 24);
+            size = uint32_t((file[rec + 16] << 8 | file[rec + 17]) * (file[rec + 18] << 8 | file[rec + 19]));
+        }
+    }
+    for (uint32_t i = 0; i < be32(24); i++) {
+        size_t rec = be32(12) + size_t(i) * 0x18;
+        if (rec + 0x18 <= file.size() && named(rec)) pal_at = be32(rec + 20);
+    }
+    if (tex_at == 0 || pal_at == 0 || tex_at + size > file.size() || pal_at + 512 > file.size()) return false;
+    if (!texels.empty() && (texels.size() != size || palette.size() != 512)) return false;
+    uint32_t data = loaded_asset(rdram, ctx, asset);
+    if (data == 0) return false;
+    const uint8_t* t = texels.empty() ? &file[tex_at] : texels.data();
+    const uint8_t* p = texels.empty() ? &file[pal_at] : palette.data();
+    for (uint32_t i = 0; i < size; i++) MEM_B(0, (int32_t)(data + tex_at + i)) = (int8_t)t[i];
+    for (uint32_t i = 0; i < 512; i++) MEM_B(0, (int32_t)(data + pal_at + i)) = (int8_t)p[i];
     return true;
 }
 

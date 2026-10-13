@@ -2305,7 +2305,7 @@ namespace {
     constexpr int shared_model_file = 78; // F1FLAG / F2FLAG frames, TRIGGEROFF / TRIGGERON.
     constexpr int battle_hud_file = 63;   // HEALTHBG / HEALTHBAR images and BCOIN_* coins of the battle HUD.
     constexpr int battle_model_file = 76; // WEPICON_* pickups, WPR_* projectiles, WFX_* effects and WEP_* weapons.
-    constexpr int coin_model_file = 68;   // GOLDCOIN / SILVERCOIN; their models run Rush 2's key behaviour (8).
+    constexpr int coin_model_file = rush2::track2049::coins_file;   // GOLDCOIN / SILVERCOIN; their models run Rush 2's key behaviour (8).
     const std::map<std::string, uint16_t> coin_kinds = { { "GOLDCOING_COIN", 8 }, { "SILVERCOINS_COI", 8 } };
 
     // 2049 PVS entry: four u32, bit (i & 31) of word i >> 5 = section i visible. Rush 2 entry: two u64, sections

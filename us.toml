@@ -1190,6 +1190,11 @@ before_vram = 0x803C49CC
 text = "    rush2_records_screen_stats(rdram, ctx);"
 
 [[patches.hook]]
+func = "records_widget_cb_icon_803C5514"
+before_vram = 0x803C5514
+text = "    if (rush2_records_screen_icon(rdram, ctx)) return;"
+
+[[patches.hook]]
 func = "profile_delete_800B306C"
 before_vram = 0x800B306C
 text = "    rush2_player_deleted(rdram, ctx);"

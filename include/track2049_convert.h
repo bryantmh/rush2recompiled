@@ -124,6 +124,7 @@ namespace rush2::track2049 {
     // +0x3C) and D0_D2FR2 / D2_D2FR2 (the SHEEN layer, +0x50), drawn only when Car Sheen is All On.
     constexpr int rocket_car = 3;
     constexpr int effects_file = 62;
+    constexpr int coins_file = 68;        // GOLDCOIN / SILVERCOIN models (race tracks' coins).
     constexpr const char* sheen_parts[] = { "D0_DFR1", "D2_DFR1", "D0_D2FR2", "D2_D2FR2" };
     bool convert_car(const rush2::rom2049::Source& rom2049, int car, const std::string& name, std::vector<uint8_t>& out,
                      std::string& error);

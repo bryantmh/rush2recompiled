@@ -92,6 +92,16 @@ namespace rush2::track2049 {
     // Writes that logo's texels and palette over the loaded logo asset `asset` (4-16), which the game's widgets then
     // draw (the circuit review's card, the records screen). False if the asset isn't loaded or t has no logo.
     bool write_menu_logo(uint8_t* rdram, recomp_context* ctx, int asset, int t);
+    // Writes texels (as stored, width x height bytes: CI8) and a 256-color palette (512 bytes) over texture `name`
+    // of loaded asset `asset` and its palette of the same name; empty texels write the asset's own back. False if the
+    // asset isn't loaded or has no such CI8 texture.
+    bool write_menu_texture(uint8_t* rdram, recomp_context* ctx, int asset, const std::string& name,
+                            const std::vector<uint8_t>& texels, const std::vector<uint8_t>& palette);
+    // Rush 2049's silver or gold coin (the face of file 68's coin model) as a 32 x 32 CI8 icon of two 16 x 32 frames
+    // like Rush 2's KEYICON: left a flat dark silhouette (not found), right the coin (found); rows bottom up, palette
+    // RGBA5551 big endian. For the records screen.
+    bool coin_icon(const rush2::rom2049::Source& rom2049, bool gold, std::vector<uint8_t>& texels,
+                   std::vector<uint8_t>& palette);
 
     // The 2049 track (1-6, or obstacle) raced in the host slot, or 0 (src/rush2049/track2049.cpp).
     int race_track();

@@ -5135,7 +5135,7 @@ ref = "us.toml"
 [[func]]
 vram = 0x80060DA8
 name = "hud_widget_init_type"
-sig = "Widget *hud_widget_init_type(Widget *w, s32 type)"
+sig = "s32 hud_widget_init_type(Widget *w, s8 hidden)"
 desc = "Resets widget (hud_widget_reset) and sets type byte at w+0x1A; widely used by menu widget handlers (61 callers). / The byte at +0x1A is the widget's hidden flag: menu callbacks pass 1 to hide the widget (option boxes under sliders, car select arrows); returns it."
 consts = "0x1A = widget type byte"
 status = "verified"
@@ -7866,8 +7866,8 @@ ref = "docs/rush2049_research/menus.md#12-widgets-v"
 [[func]]
 vram = 0x80080DBC
 name = "hud_widget_setup_icon"
-sig = "void hud_widget_setup_icon(Widget *w, s32 a1, s32 a2, s32 a3)"
-desc = "Sets a widget texture (hud_widget_set_texture_by_name with w->0), resets the widget, and fills icon fields +0x19..0x22 (size/position halfwords); used by 17 HUD callbacks (speedometer, lap counter, minimap)."
+sig = "void hud_widget_setup_icon(Widget *w, s32 frame, s32 frame_w, s32 frame_h)"
+desc = "Picks frame `frame` of a widget's texture laid out in frame_w x frame_h cells (texture width / frame_w per row), setting the widget's source rectangle (+0x1C..+0x22; +0x19 counts frames from the right). Looks the texture up by the widget's name (+0) first if it has none. Records screen icons: (w, found, 0x10, 0x20)."
 status = "inferred"
 rush1 = [0x80081F38]
 rush2049 = [0x800FE5B0]
@@ -15661,8 +15661,8 @@ ref = "docs/rush2049_research/menus.md#3-other-ui-places-indexed-by-the-track-id
 vram = 0x803C5514
 name = "records_widget_cb_icon"
 sig = "s32 records_widget_cb_icon(Widget *w)"
-desc = "Records screen widget callback blitting a 0x10x0x20 icon with positions from records_profile_count and records_profile_filter_a/b. (low confidence)"
-consts = "0x10x0x20 = icon size"
+desc = "Records screen stats icon (slot n = widget +0x2C & 0xF: KEYICON 0-11, DEWICON 12-15): hidden off the stats page or on CIRCUIT, else frame = bit n of the key mask 0x803D0280[index % 12] (TOTALS) or record +0x18 + (index % 12) * 2. Hooked at entry for the added courses' keys and coins."
+consts = "0x10/0x20 = icon frame size"
 status = "inferred"
 area = "menu"
 ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"

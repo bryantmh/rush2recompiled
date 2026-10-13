@@ -251,6 +251,18 @@ the viewed profile bought it, or on TOTALS when any profile on the paks did (`ru
 | 0x803C45BC | `rush2_records_screen_times` | `$a3` → the course's side-block list; `$f6` += course seed − HAWAII seed |
 | 0x803C49CC | `rush2_records_screen_stats` | 0x68($sp) → the side-block stats, or for ALL a merge of them built as `func_803B1B78` does |
 
+Stats page icons: 16 widgets (`func_803C5514`, slot n = widget +0x2C & 0xF) at y 76, KEYICON for slots 0–11 and
+DEWICON for 12–15, both 32 × 32 CI8 textures of asset 2 holding two 16 × 32 frames (left not found: a flat dark
+silhouette; right found; rows bottom up). `func_80060DA8(w, hide)` sets widget +0x1A (hidden off page 2 or on
+CIRCUIT) and `func_80080DBC(w, lit, 0x10, 0x20)` picks the frame; lit = bit n of the u16 mask 0x803D0280[index % 12]
+(TOTALS) or `rec + 0x18 + (index % 12)·2`. For an added course the hook at the entry (`rush2_records_screen_icon`)
+does this itself: an SF Rush course shows its own keys (bit n = key n + 1, as many as the track has) and no cans; a
+2049 race track its 16 coins, silver bits 0–7 and gold 8–15 (src/collectibles.cpp), with KEYICON and DEWICON
+overwritten by coin pictures (`rush2::track2049::coin_icon`: the face texture of file 68's coin model shrunk to
+16 × 16, its dark frame the opaque texels in the coin's average color at a fifth) and slots 8–11 retargeted to
+DEWICON (`func_80080D40(w, name, 1)`); the obstacle course shows none. The masks are the viewed profile's, or on
+TOTALS every pak profile's and the guests' ORed, as `func_803B1B78` ORs Rush 2's.
+
 The shown course's logo is written over container 6 (`rush2::track2049::write_menu_logo`, shared with the circuit
 review), so the screen's own logo widget shows it.
 

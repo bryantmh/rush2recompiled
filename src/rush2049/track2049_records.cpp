@@ -839,6 +839,16 @@ namespace {
     int render_k = 0;       // Its rows are swapped in while func_803C430C runs.
     int shown_logo = -1;    // Track select id of the logo written into logo_asset (host_slot: HAWAII's own).
 
+    // The stats page's 16 icons (widgets of func_803C5514, slot n = widget +0x2C & 0xF): KEYICON for keys 0-11 and
+    // DEWICON for Dew cans 12-15 (asset 2; 16 x 32 frames, left not found, right found), lit by bit n of the track's
+    // mask. An SF Rush course shows its keys (bit n = key n + 1) and no cans; a 2049 race track its 16 coins, silver
+    // bits 0-7 and gold bits 8-15: KEYICON holds the silver coin and DEWICON the gold one meanwhile, and slots 8-11
+    // draw DEWICON. Other added courses (the obstacle course) show none.
+    constexpr int icon_asset = 2;
+    bool coin_icons = false;        // The coin pictures are in KEYICON / DEWICON.
+    uint16_t icon_bits = 0;         // The shown course's mask, worked out by the list each frame.
+    uint32_t icon_names = 0;        // RDRAM: "KEYICON", "DEWICON" (16 bytes each), for the widgets' texture names.
+
     int menu_id_of(int k) {
         if (k == obstacle_track) return rush2::track2049::obstacle_menu_id;
         if (k > track_count) return rush2::track1::first_menu_id + (k - track_count - 1);
@@ -954,10 +964,62 @@ namespace {
     }
 
     // Puts the shown entry's logo into HAWAII's logo container (HAWAII's own for anything else).
+    bool coin_course(int k) {
+        return k >= 1 && k <= track_count;
+    }
+
+    // Course k's keys or coins found by the screen's profile, or on TOTALS by every profile on the paks and the
+    // players without one (as func_803B1B78 ORs Rush 2's key masks).
+    uint16_t screen_found(uint8_t* rdram, int k) {
+        if (k < 1 || k == obstacle_track || k == mod_track) return 0;
+        std::set<std::string> names;
+        bool totals = (int16_t)MEM_H(0, (int32_t)screen_profile) < 0;
+        if (!totals) {
+            int p = (int16_t)MEM_H(0, (int32_t)screen_pak) * records_per_pak + (int16_t)MEM_H(0, (int32_t)screen_record);
+            if (p < 0 || p >= profiles) return 0;
+            names.insert(read_name(rdram, record(p) + rec_name));
+        }
+        else {
+            for (int p = 0; p < profiles; p++) {
+                if ((MEM_BU(0, (int32_t)(record(p) + rec_flags)) & 1) != 0) names.insert(read_name(rdram, record(p) + rec_name));
+            }
+            names.insert("");
+        }
+        uint16_t bits = 0;
+        for (const rush2::collectibles::Progress& pr : rush2::collectibles::progress()) {
+            if (!names.contains(pr.name)) continue;
+            bits |= k <= track_count ? pr.rush2049[size_t(k - 1)] : pr.sfrush[size_t(k - track_count - 1)];
+        }
+        return bits;
+    }
+
     void screen_logo(uint8_t* rdram, recomp_context* ctx, int k) {
         int want = k != 0 ? menu_id_of(k) : host_slot;
         if (want != shown_logo && rush2::track2049::write_menu_logo(rdram, ctx, logo_asset, want)) {
             shown_logo = want;
+        }
+        // The coin pictures, built once from the 2049 ROM.
+        static std::vector<uint8_t> coin_texels[2], coin_palette[2];
+        bool coins = coin_course(k);
+        if (coins && coin_texels[0].empty()) {
+            auto rom = rush2::wings::get_rom();
+            for (int gold = 0; gold < 2 && rom != nullptr; gold++) {
+                if (!rush2::track2049::coin_icon(*rom, gold != 0, coin_texels[gold], coin_palette[gold])) {
+                    coin_texels[0].clear();
+                    break;
+                }
+            }
+        }
+        if (coins && coin_texels[0].empty()) {
+            coins = false;
+        }
+        if (coins != coin_icons) {
+            static const std::vector<uint8_t> none;
+            rush2::track2049::write_menu_texture(rdram, ctx, icon_asset, "KEYICON", coins ? coin_texels[0] : none,
+                                                 coins ? coin_palette[0] : none);
+            rush2::track2049::write_menu_texture(rdram, ctx, icon_asset, "DEWICON", coins ? coin_texels[1] : none,
+                                                 coins ? coin_palette[1] : none);
+            coin_icons = coins;
         }
     }
 }
@@ -976,7 +1038,7 @@ extern "C" void rush2_records_screen_open(uint8_t* rdram, recomp_context* ctx) {
 // func_803B0A90 at 0x803B0AF0, the screen closing: HAWAII's logo goes back for whatever loads it next.
 extern "C" void rush2_records_screen_close(uint8_t* rdram, recomp_context* ctx) {
     screen_k = 0;
-    if (shown_logo != host_slot && shown_logo != -1) screen_logo(rdram, ctx, 0);
+    if ((shown_logo != host_slot && shown_logo != -1) || coin_icons) screen_logo(rdram, ctx, 0);
     shown_logo = -1;
 }
 
@@ -1019,6 +1081,7 @@ extern "C" void rush2_records_screen_step(uint8_t* rdram, recomp_context* ctx) {
 // Start of func_803C430C (the records list): swaps the shown course's high-score rows in for HAWAII's (the ALL
 // pages read them), as the race screens do.
 extern "C" void rush2_records_screen_render_enter(uint8_t* rdram, recomp_context* ctx) {
+    icon_bits = screen_k != 0 ? screen_found(rdram, screen_k) : 0;
     std::lock_guard lock{ records_mutex };
     render_k = 0;
     int index = MEM_W(0, (int32_t)screen_index);
@@ -1028,6 +1091,56 @@ extern "C" void rush2_records_screen_render_enter(uint8_t* rdram, recomp_context
     ensure_blocks(rdram);
     swap_in(rdram, screen_k);
     render_k = screen_k;
+}
+
+extern "C" void hud_widget_set_texture_by_name_80080D40(uint8_t* rdram, recomp_context* ctx);
+extern "C" void hud_widget_init_type_80060DA8(uint8_t* rdram, recomp_context* ctx);
+extern "C" void hud_widget_setup_icon_80080DBC(uint8_t* rdram, recomp_context* ctx);
+
+// Start of func_803C5514, a stats page icon ($a0 = the widget, returns 1). Gives slots 8-11 DEWICON while the coins
+// are shown (KEYICON otherwise), and for an added course does the function's work with the course's keys or coins
+// instead of HAWAII's: hidden off the stats page, else lit by its bit. Returns 1 when it did (the function is skipped).
+extern "C" int rush2_records_screen_icon(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t w = (uint32_t)ctx->r4;
+    int n = MEM_W(0x2C, (int32_t)w) & 0xF;
+    if (icon_names == 0) {
+        icon_names = (uint32_t)((uint8_t*)recomp::alloc(rdram, 32) - rdram) + 0x80000000;
+        write_name(rdram, icon_names, "KEYICON");
+        write_name(rdram, icon_names + 16, "DEWICON");
+    }
+    if (n < 12) {
+        uint32_t want = icon_names + (coin_icons && n >= 8 ? 16 : 0);
+        uint32_t name = (uint32_t)MEM_W(0, (int32_t)w);
+        if (name == 0 || read_name(rdram, name) != read_name(rdram, want)) {
+            recomp_context call = *ctx;
+            call.r4 = (gpr)(int32_t)w;
+            call.r5 = (gpr)(int32_t)want;
+            call.r6 = 1;
+            hud_widget_set_texture_by_name_80080D40(rdram, &call);
+        }
+    }
+    int index = MEM_W(0, (int32_t)screen_index);
+    if (screen_k == 0 || (index != host_record_slot[0] && index != host_record_slot[0] + 12)) {
+        return 0;
+    }
+    int k = screen_k;
+    bool shown = MEM_W(0, (int32_t)screen_page) == 2 &&
+                 (coin_course(k) ? coin_icons
+                                 : k > track_count && k < obstacle_track && n < rush2::collectibles::sfrush_keys[size_t(k - track_count - 1)]);
+    recomp_context call = *ctx;
+    call.r4 = (gpr)(int32_t)w;
+    call.r5 = shown ? 0 : 1;
+    hud_widget_init_type_80060DA8(rdram, &call);
+    if (shown) {
+        call = *ctx;
+        call.r4 = (gpr)(int32_t)w;
+        call.r5 = (icon_bits >> n) & 1;
+        call.r6 = 0x10;
+        call.r7 = 0x20;
+        hud_widget_setup_icon_80080DBC(rdram, &call);
+    }
+    ctx->r2 = 1;
+    return 1;
 }
 
 // The jr $ra of func_803C430C (0x803C5460).
