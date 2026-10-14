@@ -30,7 +30,7 @@ All maths is single precision, in the operation order given (the C++ keeps it; F
 | 0x80156994 | 1 when osMemSize > 4 MB (Expansion Pak), set at 0x800E7DAC [V] |
 | 0x801174B4 | game state bits; update needs `& 0x7C0000` or `& 8`; `& 8` without Expansion Pak = no movers [V code, I meaning: 8 = multiplayer] |
 | 0x801170FC | paused: updates return immediately [V] |
-| 0x8014A110 | game mode; 2 = battle-only nodes/groups [I], 5 = group moves only within 150/450 ft of car 0 [V code]; race uses neither [I] |
+| 0x8014A110 | game type = the main menu row (0x8039A134-0x8039A1E0 in the menu overlay; strings SINGLE RACE, PRACTICE, GHOST RACE, CIRCUIT, STUNT, OBSTACLE, BATTLE): 2 = GHOST RACE (the only type with ghosts, func_800F6AB8): paths with a collision group are left out unless a node has flag 0x1000000, and only car 0 runs object callbacks [V]; 3 = circuit; 5 = group moves only within 150/450 ft of car 0 [V code] |
 
 **Frame order [V]:** frame function func_800FD464 → func_800FBF88 (game step: func_800EC0DC car snapshot
 extrapolation, func_800FA9B4 per-car loop → func_800BEAA0 car-vs-object callbacks) → func_800F733C → **func_800B0868**
@@ -268,7 +268,9 @@ v1*M[i][1])`, func_800A61B0); `TMUL` = local→world (func_8009E820); `LEN` = `s
 
 ### 6.1 Dispatch
 func_800BEAA0(car) per car per rendered frame (from func_800FA9B4 at 0x800FACD8 in the game step; skipped like the
-spawn when `0x801174B4 & 8` without Expansion Pak): finds the GDAT leaf containing the car (car-state +0x8/+0x10 x/z),
+spawn when `0x801174B4 & 8` without Expansion Pak; only for cars of kind 0 or 6, byte 7 of `0x80153E88 + 8 x car`, and
+in GHOST RACE, game type `0x8014A110 == 2`, only for car 0, at 0x800FACA8-0x800FACD8 [V]): finds the GDAT leaf containing
+the car (car-state +0x8/+0x10 x/z),
 and for each object of that leaf with obj+4 bits 2 and 8 switches on the type slot (jump table 0x80123E5C); slots 3–5
 are called `(obj, &carIdx, 0, 0)`. **A body only hits a car whose GDAT leaf lists it.** Body boxes
 (0x80118C10 + 32·class: xmin, xmax, zmax, zmin, ymax, ymin, radius, mass):
@@ -349,6 +351,23 @@ else p.flags &= ~(1 << (24+idx))
 ```
 Edge-triggered by the occupancy bits 24–31, except one-shot paths which re-trigger every frame while occupied.
 Port: `World::car_on_group(car, group, on)`, `World::fire(group)`.
+
+**Ghosts in 2049's GHOST RACE** [V]: 2049's ghosts race only in GHOST RACE (game type 2; func_800F6AB8 sets them up
+only then); they are extra human-kind cars (kind 6, byte 7 of `0x80153E88 + 8 x car`, written at 0x800F72A0; race setup
+gives every human player 6 at 0x800FB0B0) stepped by the same physics as the player (func_800E6AF8 -> func_800E56F8).
+Two GHOST RACE rules keep a ghost on its recorded line:
+- func_800B2DF8 (0x800B2E7C-0x800B2EE8) leaves out every path with a collision group (+0x16 > 0: pad-operated doors,
+  gates, moving walls, the pads themselves) unless one of its nodes has flag 0x1000000, and switches that group off
+  (func_800B2CB4: its polygons become surface type 0xF, no collision), for every car.
+- func_800BEAA0 runs for car 0 alone (§6.1), so a ghost presses no remaining pad, knocks over no prop and isn't
+  pushed by a moving body.
+
+The port does it differently (user decision, 2026-10-14): ghosts touch nothing but the track in every race, and the
+world stays whole for the player and the computer drivers. A ghost skips the trigger pads and moving bodies
+(`rush2_track49_movers_car`), the props (`props_car`), cars and subway trains (src/ghost.cpp), and the moving objects'
+polygons (`rush2_ghost_leaf_filter`, src/rush2049/track2049_movers.cpp: the wheel probe's and the wall query's leaf
+lists drop every MOVER polygon for a ghost). A ghost whose recording rode a moving floor drops through it and is put
+back on the recording at the next keyframe (every 60 ticks).
 
 ---------------------------------------------------------------------------------------------------------------------
 

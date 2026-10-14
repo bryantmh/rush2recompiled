@@ -9,7 +9,7 @@
 // Rush 2049's ghost recording and playback, ported as pure logic: no RDRAM, no recomp context (the Rush 2 side is
 // src/ghost.cpp). Addresses are Rush 2049's (tools/rush2049/out/d49m.asm):
 //
-// - func_800F6AB8 (race setup, game mode 2 = practice): each human player gets a 0x58-byte ghost header
+// - func_800F6AB8 (race setup, game type 0x8014A110 = 2, GHOST RACE: the only mode with ghosts): each human player gets a 0x58-byte ghost header
 //   (0x80142530 + i * 0x58) recording its track (+6), direction (+7), car (+8, +9, colors +0xA), name (+0x16), time
 //   step (+0x34, 0x8002AFB8) and a sample buffer (+0x4C) of (max_time[track] + 10) * 60 samples, max_time being
 //   the f32[6] at 0x80111754. Loaded ghosts become extra "player" cars driven from their samples.

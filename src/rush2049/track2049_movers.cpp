@@ -36,6 +36,7 @@
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "battle.h"
+#include "ghost.h"
 #include "rush2049_rom.h"
 #include "track2049.h"
 #include "track2049_movers_logic.h"
@@ -71,6 +72,7 @@ namespace {
     constexpr uint32_t car_snap_pos = 0x7B0;
     constexpr uint32_t car_snap_matrix = 0x7BC;
     constexpr uint32_t car_corners = 0xE8;          // 4 x f32[3], car-local
+    constexpr uint32_t car_index = 0x7E0;           // s16
     constexpr uint32_t car_active = 0x7E4;          // s16
     constexpr uint32_t car_velocity = 0x218;        // f32[3] world
     constexpr uint32_t car_position = 0x224;        // f32[3] world
@@ -118,6 +120,7 @@ namespace {
     movers::World world;
     std::vector<Placed> placed;
     std::vector<Mover> mover_records;
+    std::vector<bool> mover_poly;   // Per polygon: it belongs to a moving object (a MOVER record).
     std::vector<uint16_t> poly_info;                    // 2049 info word of each collision polygon.
     std::set<int16_t> trigger_groups;
     std::map<std::string, uint16_t> model_handles;      // Model name -> Rush 2 handle in the track's slot.
@@ -164,6 +167,7 @@ namespace {
     bool parse_collision(const std::vector<uint8_t>& c) {
         mover_records.clear();
         poly_info.clear();
+        mover_poly.clear();
         if (c.size() < 0x10) {
             return false;
         }
@@ -176,6 +180,7 @@ namespace {
         for (uint32_t i = 0; i < n_poly; i++) {
             poly_info.push_back(be16(c, poly + i * 0x18 + 2));
         }
+        mover_poly.assign(n_poly, false);
         for (uint32_t i = 0; i < n_mover; i++) {
             size_t o = mover + i * 0x20;
             Mover m;
@@ -185,6 +190,7 @@ namespace {
             m.vert = be16(c, o + 0x16);
             for (int j = 0; j < 4; j++) m.rest_vert[j] = (int16_t)be16(c, o + 0x18 + j * 2);
             mover_records.push_back(m);
+            if (m.poly < n_poly) mover_poly[m.poly] = true;
         }
         return true;
     }
@@ -717,10 +723,13 @@ extern "C" void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     bool wrecked = MEM_B(0, (int32_t)(car + car_wrecked)) != 0;
+    // Ghost cars (src/ghost.cpp) touch nothing but the track: no trigger pads and no moving bodies here, no moving
+    // objects' polygons (rush2_ghost_leaf_filter), props (props_car), cars or subway trains (src/ghost.cpp).
+    bool ghost = rush2::ghost::is_ghost_car(index);
     // Trigger pads (0x8010C2E4): a wheel's polygon tagged 0x20 with the pad's group in bits 11-15.
     for (int16_t group : trigger_groups) {
         bool on = false;
-        if (!wrecked) {
+        if (!wrecked && !ghost) {
             for (int w = 0; w < 4; w++) {
                 uint16_t poly = MEM_HU(0, (int32_t)(car + car_wheel_poly + w * 2));
                 if (poly < poly_info.size()) {
@@ -732,13 +741,35 @@ extern "C" void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx) {
         world.car_on_group(index, group, on);
     }
     // Moving bodies, every other tick (2049 applies them once per rendered frame).
-    if ((tick & 1) == 0 && MEM_H(0, (int32_t)(car + car_active)) != 0) {
+    if ((tick & 1) == 0 && !ghost && MEM_H(0, (int32_t)(car + car_active)) != 0) {
         for (const auto& o : world.objects()) {
             if (o.body && o.cars && o.type >= 0) {
                 body_vs_car(rdram, car, o);
             }
         }
     }
+}
+
+// Ghost cars touch nothing but the track: after collision_leaf_read_8006CCEC filled a query's list of the leaf's
+// polygons ($t1 of them, u16 indices at `list`), a ghost's list loses the moving objects' polygons (doors, gates,
+// moving walls and floors). A ghost whose recording rode a moving floor drops through it and is put back on its
+// recording at the next keyframe (src/ghost.cpp).
+// collision_poly_extract_8006F704 (wheel probe) at 0x8006F85C: list sp+0xA4, the car at sp+0x138.
+// car_wall_collision_query_8006FC94 at 0x8006FDB4: list sp+0xF4, the car in $s1.
+extern "C" void rush2_ghost_leaf_filter(uint8_t* rdram, recomp_context* ctx, uint32_t list, uint32_t car) {
+    std::lock_guard lock{ movers_mutex };
+    if (!active || mover_poly.empty() || !rush2::ghost::is_ghost_car(MEM_H(0, (int32_t)(car + car_index)))) {
+        return;
+    }
+    int count = (int)ctx->r9, kept = 0;
+    for (int i = 0; i < count; i++) {
+        uint16_t poly = MEM_HU(0, (int32_t)(list + i * 2));
+        if (poly >= mover_poly.size() || !mover_poly[poly]) {
+            MEM_H(0, (int32_t)(list + kept * 2)) = (int16_t)poly;
+            kept++;
+        }
+    }
+    ctx->r9 = kept;
 }
 
 // func_800706D0 at 0x800706DC, before a car's wheel probes: $a0 = the car.

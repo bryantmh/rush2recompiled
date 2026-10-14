@@ -580,12 +580,15 @@ namespace rush2::track2049::movers {
         }
         for (int k = 0; k < (int)paths_.size(); k++) {
             Path& p = paths_[k];
+            // 2049's GHOST RACE (game type 2, its only mode with ghosts; 0x800B2E7C-0x800B2EE8): a path with a
+            // collision group (pad-operated doors, gates, moving walls, the pads themselves) is left out and its group
+            // switched off (func_800B2CB4) unless one of its nodes is flagged to stay.
             if (options.mode == 2 && p.group > 0) {
-                bool battle = false;
+                bool kept = false;
                 for (const PathNode& n : p.nodes) {
-                    battle = battle || (n.flags & node_battle);
+                    kept = kept || (n.flags & node_ghost_race);
                 }
-                if (!battle) {
+                if (!kept) {
                     group_op(GroupOp::disable, p.group);
                     continue;
                 }

@@ -67,7 +67,7 @@ namespace rush2::track2049::movers {
         node_rotation_fixed = 0x20, // matrix = this node's quaternion, no interpolation
         node_halt = 0x40,
         node_spawned = 0x1000,      // runtime
-        node_battle = 0x1000000,
+        node_ghost_race = 0x1000000, // the path is kept in GHOST RACE (game type 2, func_800B2DF8 at 0x800B2EB4)
         node_constant_speed2 = 0x10000000,
     };
 
@@ -152,8 +152,9 @@ namespace rush2::track2049::movers {
         bool backward = false;      // 2049 0x80152570 (Rush 2 0x80119848)
         bool expansion = true;      // 2049 0x80156994 (osMemSize > 4 MB): spawn everything
         bool restricted = false;    // 2049 0x801174B4 & 8 [I: multiplayer]: without expansion nothing spawns
-        int mode = 0;               // 2049 0x8014A110 (rush2::track2049::GameType): 5 = obstacle course; 2 = some
-                                    // nodes and groups left out (meaning unknown, no hosted course uses it)
+        int mode = 0;               // 2049 0x8014A110 (rush2::track2049::GameType): 5 = obstacle course; 2 = 2049's
+                                    // GHOST RACE (paths with a collision group left out unless flagged; never set
+                                    // here: the port's ghosts ignore moving objects instead, rush2_ghost_leaf_filter)
     };
 
     class World {

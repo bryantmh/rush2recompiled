@@ -1243,6 +1243,18 @@ func = "collision_poly_extract_8006F704"
 before_vram = 0x8006F99C
 text = "    rush2_track49_movers_probe(rdram, ctx);"
 
+# Ghost cars touch nothing but the track: the wheel probe's and the wall query's polygon lists lose the moving
+# objects' polygons for a ghost (src/rush2049/track2049_movers.cpp).
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006F85C
+text = "    rush2_ghost_leaf_filter(rdram, ctx, (uint32_t)ctx->r29 + 0xA4, (uint32_t)MEM_W(0x138, ctx->r29));"
+
+[[patches.hook]]
+func = "car_wall_collision_query_8006FC94"
+before_vram = 0x8006FDB4
+text = "    rush2_ghost_leaf_filter(rdram, ctx, (uint32_t)ctx->r29 + 0xF4, (uint32_t)ctx->r17);"
+
 [[patches.hook]]
 func = "collision_poly_extract_8006F704"
 before_vram = 0x8006FADC

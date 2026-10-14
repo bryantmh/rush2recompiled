@@ -2138,7 +2138,7 @@ ref = "docs/rush2049_research/collision.md#mover-0x20-bytes-2049-only-moving-col
 [[func]]
 vram = 0x800B2DF8
 name = "path_objects_spawn"
-desc = "Spawns path objects: for each PTHD present in this direction/mode (flags 4 forward, 8 backward) creates objects for every node with flag 1 via func_800ABCC8 (parent -1, world positions); disables absent 0x800 groups with func_800B2CB4. Refuses if 0x801174B4 & 8 without Expansion Pak. Replaces GTLD ids by spawned object pointers. | Spawns path objects per spawn node (calls func_800ABCC8); nothing spawns in the restricted mode without the Expansion Pak; reads PTHD flags."
+desc = "Spawns path objects: for each PTHD present in this direction/mode (flags 4 forward, 8 backward) creates objects for every node with flag 1 via func_800ABCC8 (parent -1, world positions); disables absent 0x800 groups with func_800B2CB4. In GHOST RACE (0x8014A110 == 2, 0x800B2E7C-0x800B2EE8) a path with a collision group (+0x16 > 0) is left out and its group disabled unless one of its nodes has flag 0x1000000. Refuses if 0x801174B4 & 8 without Expansion Pak. Replaces GTLD ids by spawned object pointers. | Spawns path objects per spawn node (calls func_800ABCC8); nothing spawns in the restricted mode without the Expansion Pak; reads PTHD flags."
 status = "verified"
 area = "race"
 ref = "docs/rush2049_research/movers.md#2-data-corrections-to-placementmd"
@@ -2425,7 +2425,7 @@ ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 [[func]]
 vram = 0x800BEAA0
 name = "car_object_callbacks"
-desc = "Per car per rendered frame: finds the GDAT quadtree leaf containing the car (car-state +0x8/+0x10), and for each object of the leaf with obj+4 bits 2 and 8 switches on the type callback slot (jump table 0x80123E5C); slots 3-5 are called (obj, &carIdx, 0, 0). Skipped when 0x801174B4 & 8 without Expansion Pak. Also reads LOD flags at +0x1A. | Car hits a dynamic object whose position is within radius + 3.5: calls the type's init once and plays the type's sound (+0x1C)."
+desc = "Per car per rendered frame: finds the GDAT quadtree leaf containing the car (car-state +0x8/+0x10), and for each object of the leaf with obj+4 bits 2 and 8 switches on the type callback slot (jump table 0x80123E5C); slots 3-5 are called (obj, &carIdx, 0, 0). Skipped when 0x801174B4 & 8 without Expansion Pak. Also reads LOD flags at +0x1A. | Car hits a dynamic object whose position is within radius + 3.5: calls the type's init once and plays the type's sound (+0x1C). | Run only for cars of kind 0 or 6 (byte 7 of 0x80153E88 + 8 x car; 6 = human cars, ghosts included), and in GHOST RACE (0x8014A110 == 2, the only mode with ghosts) only for car 0 (func_800FA9B4 at 0x800FACA8-0x800FACD8): ghosts press no trigger pad, hit no prop and aren't pushed by moving bodies."
 status = "verified"
 ported = true
 area = "collision"
@@ -3301,7 +3301,7 @@ ref = "src/unlocks.cpp"
 
 [[func]]
 vram = 0x800F6AB8
-desc = "Reads maximum ghost-recording time (table 0x80111754). | Ghost recording setup: capacity (s32)((max_time[track] + 10.0) x 60.0); +5 = -1, car and player fields, +0x34 time step, +0x54 capacity, +0x4C a new buffer."
+desc = "Reads maximum ghost-recording time (table 0x80111754). | Ghost recording setup: capacity (s32)((max_time[track] + 10.0) x 60.0); +5 = -1, car and player fields, +0x34 time step, +0x54 capacity, +0x4C a new buffer. | Gives each loaded ghost car the human car kind 6 (byte 7 of its 0x80153E88 entry, 0x800F72A0); does nothing unless the game type 0x8014A110 is 2 (GHOST RACE)."
 status = "verified"
 ported = true
 area = "race"
