@@ -21,6 +21,22 @@ In both modes the 2049 cars keep Rush 2's STANDARD torque map, Rush 2's steering
 Car Speeds = Rush 2049 brings them to 2049's top speed (158 mph) but leaves 0-60 about 0.2 s slower than native. The
 bars ignore Car Speeds: they read the type's descriptor, and the mode is applied to a per-car copy at race start.
 
+### Gravity: Rush 2 vs Rush 2049 [V]
+
+Both games take gravity as 32.2 x a table entry picked by a race setting, but the tables differ:
+
+- Rush 2: `0x80110018` = 32.2 (`0x800CFF54`) x `0x800CB580[0x800E7D22]` = {0.8, **1.0**, 1.5, 2.0} (Light, Normal,
+  Heavy, Jovian; the gravity cheat, Normal = index 1), stored at 0x800A6170 (func_800A5ADC).
+- Rush 2049: `0x80142764` = 32.2 (`0x801247F4`) x `0x801202F8[0x801543C8]` = {1.0, **1.15**, 1.3, 1.5}, stored at
+  0x800FB9C0 (func_800FB2C8). The game-mode defaults (func_800C9BE0, e.g. 0x800C9D64, 0x800C9F50) set the index to
+  1, the same Normal index its drone tables use (`0x801161D4` = {0.8, 1.0, 1.25, 1.5}, `0x801161E4` = {75, 90, 135,
+  180}, Rush 2's 0x800C3FEC / 0x800C3FFC). So 2049's Normal gravity is 37.03 ft/s², 15% above Rush 2's. 2049
+  recomputes the car's gravity force every step (func_800E1C30 at 0x800E1D78: +0x2D8 = -(mass +0x5C0 x g)); Rush 2
+  sets it once at car init (+0x2C4).
+- The port gives 2049 tracks (any `track2049::game_type` but none) 2049's multiplier for the gravity cheat's setting:
+  `rush2_track49_gravity` (src/rush2049/track2049.cpp) rewrites the value func_800A5ADC stores, hooked at 0x800A5E3C
+  ($f8) and 0x800A615C ($f6). Before October 2026 they ran on Rush 2's table and fell 15% slower than in 2049.
+
 ## 1. Formulas
 
 ### Drivetrain [V] (both games, cars.md §10)

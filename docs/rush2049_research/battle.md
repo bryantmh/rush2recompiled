@@ -541,6 +541,17 @@ the hook there (`rush2_track49_stunt_option_t9`) leaves an arena's DIFFICULTY al
 - **Respawn**: Rush 2049's battle rule (ported, checkpoints.md section 8): every car comes back at the route point
   farthest from the other cars, standing. Before it was ported every car came back at the same point, and the
   opponents gathered there. With `R2_BATTLE_TEST` each respawn is logged (`car N respawns at route point P`).
+- **Start grid**: Rush 2's grid (slot table 0x800CC2BC: 8 cars as lateral, along the route from point 0 toward point
+  1 in ft: (0,0) (17,0) (-8.5,-20) (8.5,-20) (0,-40) (17,-40) (-8.5,-60) (8.5,-60)) reaches further back than 2049's
+  battles needed (4 cars at most). On course 8 (save battle id 32) the back row lay past the floor's edge: with 7
+  opponents those cars (the player's among them) fell under the arena, to y -134 against route point 0's 34, and
+  the out-of-bounds reset put them back only sometimes. The converter (`spine_lanes` in
+  src/rush2049/track2049_convert.cpp) now starts an arena's route where the whole grid, each slot either side, has
+  floor within 4 ft of the start's height (course 8: from (-316 34 -227) to (-316 34 -187); every other battle and
+  stunt arena already fitted and keeps its start). `python tools/rush2049/paths.py grid` reports each arena's start
+  and the slots off the floor. Safety net: `fix_start_grid` (src/rush2049/battle.cpp) wrecks a car more than 15 ft
+  over or under route point 0 in the countdown so the battle respawn puts it back (calling
+  `respawn_place_car_80090A40` directly crashed). With `log` the countdown logs route point 0 and each car's place.
 - **Cost and issue 20 (freezes with opponents)**: the AI runs in `rush2::battle::tick`, called from the movers hook in
   physics_tick_80076578, which runs on the physics and controller thread (input_thread_main_80076DE0). A slow AI
   update stalls that thread: the clock, the cars and controller reads stop while the picture and sound go on, as

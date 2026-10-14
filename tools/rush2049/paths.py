@@ -22,6 +22,7 @@ Layout (big-endian):
          (s16 x,y,z, u8 target speed in mph, u8 behaviour code)
 
 Usage: python paths.py          -> self-check over every Rush 2 and Rush 2049 path file
+       python paths.py grid     -> each arena's start and whether Rush 2's start grid has floor there
 """
 import math, struct, sys
 
@@ -263,7 +264,36 @@ def floor_heights(collision_2049):
     return heights
 
 
-def spine_lanes(path, collision_2049, loop=True):
+# Rush 2's start grid, slot table 0x800CC2BC: 8 cars as (lateral, along the route from point 0 toward point 1), feet.
+GRID_SLOTS = [(0, 0), (17, 0), (-8.5, -20), (8.5, -20), (0, -40), (17, -40), (-8.5, -60), (8.5, -60)]
+GRID_SLACK = 4
+
+
+def grid_slots_missing(pts, i, heights):
+    """The start grid's slots (each either side, the lateral sign aside) with no floor within GRID_SLACK of spine
+    point i's height when the race starts there."""
+    import math
+    p, q = pts[i], pts[(i + 1) % len(pts)]
+    fx, fz = q[0] - p[0], q[2] - p[2]
+    n = math.hypot(fx, fz)
+    if n < 1e-6:
+        return [(s, 1) for s in GRID_SLOTS]
+    fx, fz = fx / n, fz / n
+    missing = []
+    for lat, along in GRID_SLOTS:
+        for side in (1, -1):
+            lx = lat * side
+            x, z = p[0] + fx * along + fz * lx, p[2] + fz * along - fx * lx
+            if not any(abs(h - p[1]) <= GRID_SLACK for h in heights(x, z)):
+                missing.append(((lat, along), side))
+    return missing
+
+
+def grid_fits(pts, i, heights):
+    return not grid_slots_missing(pts, i, heights)
+
+
+def spine_lanes(path, collision_2049, loop=True, grid=True):
     """A stunt arena's path for Rush 2. Rush 2 starts a stunt race at spine point 0, facing point 1, at the spine's
     height (func_800A34A8), and puts a crashed car back on the nearest point of its lanes (func_80090A40). The
     arenas' spines lie on their floors already; as a safeguard each spine point is put on the highest floor under it
@@ -296,6 +326,11 @@ def spine_lanes(path, collision_2049, loop=True):
         grounded.append(on)
     first = next((i for q in (2, 1) for i in range(n_spine)
                   if min(grounded[i], grounded[(i + 1) % n_spine]) >= q), 0) if loop else 0
+    # Rush 2's start grid reaches 60 ft back (GRID_SLOTS): the start moves on to the first grounded point whose whole
+    # grid has floor (grid_fits), as the converter does (spine_lanes in src/rush2049/track2049_convert.cpp).
+    if grid and loop and not grid_fits(pts, first, heights):
+        first = next((i for i in ((first + k) % n_spine for k in range(1, n_spine))
+                      if grounded[i] == 2 and grounded[(i + 1) % n_spine] == 2 and grid_fits(pts, i, heights)), first)
     pts = pts[first:] + pts[:first]
     out = bytearray(d[:spine])
     for pt in pts:
@@ -361,5 +396,26 @@ def selfcheck():
     return ok
 
 
+def grid_report():
+    """Each arena's start (spine point 0 after spine_lanes) and whether Rush 2's whole start grid has floor there."""
+    import roms, track
+    q = roms.Rush2049()
+    ok = True
+    for k in list(range(track.BATTLE_FIRST, track.BATTLE_FIRST + 8)) + list(range(track.STUNT_FIRST, track.STUNT_FIRST + 4)):
+        coll = q.file(138 + k)
+        heights = floor_heights(coll)
+        path = convert(q.file(track.path_files(k)[0]))
+        pts = parse(spine_lanes(path, coll))['spine']
+        old = parse(spine_lanes(path, coll, grid=False))['spine']
+        missing = grid_slots_missing(pts, 0, heights)
+        old_missing = len(grid_slots_missing(old, 0, heights))
+        ok &= not missing
+        print('k=%2d start (%d %d %d) %s; before the grid rule (%d %d %d), %d of 16 slot sides off the floor' % (
+            k, *pts[0][:3], 'grid on floor' if not missing else 'MISSING %s' % missing, *old[0][:3], old_missing))
+    return ok
+
+
 if __name__ == '__main__':
+    if sys.argv[1:] == ['grid']:
+        sys.exit(0 if grid_report() else 1)
     sys.exit(0 if selfcheck() else 1)

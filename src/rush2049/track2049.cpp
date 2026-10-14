@@ -705,6 +705,25 @@ extern "C" void rush2_track49_respawn_delay(uint8_t* rdram, recomp_context* ctx)
     }
 }
 
+// func_800A5ADC (race setup) before it stores gravity (0x80110018, 32.2 x the gravity cheat's multiplier) at 0x800A5E4C
+// ($f8) and 0x800A6170 ($f6). Rush 2049 races with 32.2 x {1.0, 1.15, 1.3, 1.5} (0x801202F8) where Rush 2 has {0.8,
+// 1.0, 1.5, 2.0} (0x800CB580), both Normal at index 1, so its tracks get 2049's multiplier for the same setting
+// (docs/rush2049_research/car_physics.md, "Gravity: Rush 2 vs Rush 2049").
+extern "C" void rush2_track49_gravity(uint8_t* rdram, float* gravity) {
+    if (rush2::track2049::game_type(rdram) == rush2::track2049::GameType::none) {
+        return;
+    }
+    constexpr float rush2_scale[4] = { 0.8f, 1.0f, 1.5f, 2.0f };
+    constexpr float rush2049_scale[4] = { 1.0f, 1.15f, 1.3f, 1.5f };
+    float scale = *gravity / 32.2f;
+    int index = 1;
+    for (int i = 0; i < 4; i++) {
+        if (std::fabs(scale - rush2_scale[i]) < std::fabs(scale - rush2_scale[index])) index = i;
+    }
+    *gravity = 32.2f * rush2049_scale[index];
+    fprintf(stderr, "[2049] gravity %.2f ft/s^2 (setting %d)\n", *gravity, index);
+}
+
 // Rush 2049's respawn zones: a branch of type 2 (branch record byte 0; race 2's paths have one each way, off the
 // route) puts a wrecked car back on the branch point nearest to it, standing still, where other branches and the
 // spine put it back within its checkpoint stretch and then some way on (Rush 2049 func_800D348C / func_800D3B28,

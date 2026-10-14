@@ -726,6 +726,17 @@ func = "race_wreck_respawn_wait_8008E40C"
 before_vram = 0x8008E678
 text = "    rush2_track49_respawn_delay(rdram, ctx);"
 
+# Rush 2049's gravity multipliers on its tracks (src/rush2049/track2049.cpp), before each store of 0x80110018.
+[[patches.hook]]
+func = "race_setup_800A5ADC"
+before_vram = 0x800A5E3C
+text = "    rush2_track49_gravity(rdram, &ctx->f8.fl);"
+
+[[patches.hook]]
+func = "race_setup_800A5ADC"
+before_vram = 0x800A615C
+text = "    rush2_track49_gravity(rdram, &ctx->f6.fl);"
+
 # Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot.
 [[patches.hook]]
 func = "car_track_position_80090570"
