@@ -541,17 +541,18 @@ the hook there (`rush2_track49_stunt_option_t9`) leaves an arena's DIFFICULTY al
 - **Respawn**: Rush 2049's battle rule (ported, checkpoints.md section 8): every car comes back at the route point
   farthest from the other cars, standing. Before it was ported every car came back at the same point, and the
   opponents gathered there. With `R2_BATTLE_TEST` each respawn is logged (`car N respawns at route point P`).
-- **Start grid**: Rush 2's grid (slot table 0x800CC2BC: 8 cars as lateral, along the route from point 0 toward point
-  1 in ft: (0,0) (17,0) (-8.5,-20) (8.5,-20) (0,-40) (17,-40) (-8.5,-60) (8.5,-60)) reaches further back than 2049's
-  battles needed (4 cars at most). On course 8 (save battle id 32) the back row lay past the floor's edge: with 7
-  opponents those cars (the player's among them) fell under the arena, to y -134 against route point 0's 34, and
-  the out-of-bounds reset put them back only sometimes. The converter (`spine_lanes` in
-  src/rush2049/track2049_convert.cpp) now starts an arena's route where the whole grid, each slot either side, has
-  floor within 4 ft of the start's height (course 8: from (-316 34 -227) to (-316 34 -187); every other battle and
-  stunt arena already fitted and keeps its start). `python tools/rush2049/paths.py grid` reports each arena's start
-  and the slots off the floor. Safety net: `fix_start_grid` (src/rush2049/battle.cpp) wrecks a car more than 15 ft
-  over or under route point 0 in the countdown so the battle respawn puts it back (calling
-  `respawn_place_car_80090A40` directly crashed). With `log` the countdown logs route point 0 and each car's place.
+- **Start (no grid)**: Rush 2049's battle start (`func_800C4F68` case 0, game types 6 and 4) uses no start grid:
+  player p starts on checkpoint record [0, 2, 1, 3][p] of the arena's path file (each battle arena's has 4, one in
+  each corner: its spawn points), at the record's position, facing against its direction (x and z negated, y 0),
+  and `func_800D3B28` adds no grid slot (+0x704 = 0 for types 4, 5, 6). 2049 has 4 cars at most; an opponent past
+  those (cars 4-7) starts around the arena as the battle respawn does: the route point farthest in x and z from the
+  starts already taken, facing along the route. Ported as `rush2_track49_battle_start` (src/rush2049/track2049.cpp,
+  hook at 0x80090C1C in `respawn_place_car_80090A40`'s start branch, +0x6C4 == 0, where the start point +0x670 was
+  just copied to +0x6D8 and the matrix +0x67C to +0x6E4; $t9 = 0x800FAE6C, nonzero skips the grid slot of table
+  0x800CC2BC into +0x708). Before it the arenas used Rush 2's 8-slot grid (rows of 2 back to 60 ft behind route
+  point 0): on course 8 (save battle id 32) with 7 opponents the back row lay past the floor's edge and those cars,
+  the player's among them, fell under the arena. With `R2_BATTLE_TEST` each start is logged; with `log` the
+  countdown logs route point 0 and each car's place.
 - **Cost and issue 20 (freezes with opponents)**: the AI runs in `rush2::battle::tick`, called from the movers hook in
   physics_tick_80076578, which runs on the physics and controller thread (input_thread_main_80076DE0). A slow AI
   update stalls that thread: the clock, the cars and controller reads stop while the picture and sound go on, as

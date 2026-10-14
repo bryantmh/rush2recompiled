@@ -2272,42 +2272,6 @@ namespace {
                 }
             }
         }
-        // Rush 2's start grid (slot table 0x800CC2BC: 8 cars, lateral and along the route from point 0 toward point 1)
-        // reaches 60 ft back. On course 8 the back row was past the floor's edge and those cars fell under the arena
-        // (battle with 7 opponents). The start moves on to the first grounded point whose whole grid (each slot
-        // either side, the lateral sign aside) has floor within grid_slack of the point's height.
-        if (loop) {
-            constexpr double grid_slack = 4;
-            constexpr double slots[8][2] = { { 0, 0 }, { 17, 0 }, { -8.5, -20 }, { 8.5, -20 },
-                                             { 0, -40 }, { 17, -40 }, { -8.5, -60 }, { 8.5, -60 } };
-            auto grid_fits = [&](size_t i) {
-                const auto& p = pts[i];
-                const auto& q = pts[(i + 1) % n_spine];
-                double fx = q[0] - p[0], fz = q[2] - p[2], len = std::hypot(fx, fz);
-                if (len < 1e-6) return false;
-                fx /= len;
-                fz /= len;
-                for (const auto& s : slots) {
-                    for (double side : { 1.0, -1.0 }) {
-                        double lateral = s[0] * side;
-                        double x = p[0] + fx * s[1] + fz * lateral, z = p[2] + fz * s[1] - fx * lateral;
-                        bool floor = false;
-                        for (double h : floor_heights(tris, x, z)) floor = floor || std::fabs(h - p[1]) <= grid_slack;
-                        if (!floor) return false;
-                    }
-                }
-                return true;
-            };
-            if (!grid_fits(first)) {
-                for (size_t k = 1; k < n_spine; k++) {
-                    size_t i = (first + k) % n_spine;
-                    if (grounded[i] == 2 && grounded[(i + 1) % n_spine] == 2 && grid_fits(i)) {
-                        first = i;
-                        break;
-                    }
-                }
-            }
-        }
         std::rotate(pts.begin(), pts.begin() + (ptrdiff_t)first, pts.end());
         Bytes out(d.begin(), d.begin() + (ptrdiff_t)spine);
         for (const auto& p : pts) {

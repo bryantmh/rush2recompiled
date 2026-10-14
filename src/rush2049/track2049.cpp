@@ -44,6 +44,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <array>
 
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
@@ -846,6 +847,107 @@ extern "C" void rush2_track49_respawn_zone_place(uint8_t* rdram, recomp_context*
     MEM_W(0, (int32_t)(car + 0x6C0)) = 0;
     MEM_W(0, (int32_t)(car + 0x7F4)) = MEM_W(0, (int32_t)(car + 0x7F4)) & ~0x10;
     MEM_B(0, (int32_t)(car + 0x648)) = 0;
+}
+
+// Rush 2049's battle start (func_800C4F68 case 0, game types 6 and 4): no start grid. Player p starts on checkpoint
+// record [0, 2, 1, 3][p] of the arena's path (every battle arena has 4, one in each corner: its spawn points), at the
+// record's position, facing against its direction (x and z negated, y 0; the stock files' directions point back
+// against the race), and func_800D3B28 adds no grid slot (+0x704 = 0 for types 4, 5, 6). Rush 2049 has 4 cars at
+// most; a computer opponent past those (cars 4-7) starts around the arena as the battle's respawn does
+// (battle_respawn_point): the route point farthest in x and z from the starts already taken, facing along the route.
+// Rush 2 shares the layout (offsets are 2049's + 4): respawn_place_car_80090A40's start branch (+0x6C4 == 0) copied
+// the start point +0x670 to +0x6D8 and the matrix +0x67C to +0x6E4 just before 0x80090C1C, where $t9 holds
+// 0x800FAE6C, which (nonzero) skips the grid slot (table 0x800CC2BC into +0x708). Without this the 8-slot grid's back
+// row lay past the floor's edge on course 8 and those cars fell under the arena.
+static bool battle_start_point(uint8_t* rdram, int index, float pos[3], float forward[3]) {
+    constexpr uint32_t checkpoints = 0x8010BCF4, checkpoint_size = 0x50;   // path header copy 0x8010BCE8: +8 count
+    constexpr int spawn_of_player[4] = { 0, 2, 1, 3 };
+    auto f = [&](uint32_t addr) {
+        uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
+        float v;
+        std::memcpy(&v, &bits, sizeof(v));
+        return v;
+    };
+    int spawns = std::min<int>(4, MEM_H(0, (int32_t)0x8010BCF0));
+    if (index < spawns) {
+        uint32_t cp = checkpoints + (uint32_t)spawn_of_player[index] * checkpoint_size;
+        for (int k = 0; k < 3; k++) pos[k] = f(cp + k * 4);
+        forward[0] = -f(cp + 0xC);
+        forward[1] = 0.0f;
+        forward[2] = -f(cp + 0x14);
+    }
+    else {
+        int count = MEM_H(0, (int32_t)0x80111940);
+        if (count <= 1) return false;
+        uint32_t points = (uint32_t)MEM_W(0, (int32_t)0x80111944);
+        auto point = [&](int p, float out[3]) {
+            uint32_t at = points + (uint32_t)(p % count) * 6;
+            for (int k = 0; k < 3; k++) out[k] = (float)MEM_H(0, (int32_t)(at + k * 2));
+        };
+        // The starts taken: the spawn points, then the opponents before this one.
+        std::vector<std::array<float, 3>> taken;
+        float fwd[3];
+        for (int j = 0; j < index; j++) {
+            std::array<float, 3> p;
+            if (battle_start_point(rdram, j, p.data(), fwd)) taken.push_back(p);
+        }
+        int best = 0;
+        float best_d = -1.0f;
+        for (int p = 0; p < count; p++) {
+            float at[3];
+            point(p, at);
+            float nearest = 1e12f;
+            for (const auto& t : taken) nearest = std::min(nearest, (at[0] - t[0]) * (at[0] - t[0]) + (at[2] - t[2]) * (at[2] - t[2]));
+            if (nearest > best_d) {
+                best_d = nearest;
+                best = p;
+            }
+        }
+        float next[3];
+        point(best, pos);
+        point(best + 1, next);
+        forward[0] = next[0] - pos[0];
+        forward[1] = 0.0f;
+        forward[2] = next[2] - pos[2];
+    }
+    float len = std::sqrt(forward[0] * forward[0] + forward[2] * forward[2]);
+    if (len < 1e-4f) return false;
+    forward[0] /= len;
+    forward[2] /= len;
+    return true;
+}
+
+extern "C" void rush2_track49_battle_start(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::game_type(rdram) != rush2::track2049::GameType::battle) {
+        return;
+    }
+    uint32_t car = (uint32_t)ctx->r20;
+    int index = (int)((car - 0x800F5470) / 0x81C);
+    float pos[3], forward[3];
+    if (index < 0 || index >= 8 || !battle_start_point(rdram, index, pos, forward)) {
+        return;
+    }
+    // Rows: right (up x forward), up, forward, as func_800C4F68 builds them.
+    const float matrix[9] = { forward[2], 0.0f, -forward[0], 0.0f, 1.0f, 0.0f, forward[0], 0.0f, forward[2] };
+    auto write = [&](uint32_t addr, float v) {
+        uint32_t bits;
+        std::memcpy(&bits, &v, sizeof(bits));
+        MEM_W(0, (int32_t)addr) = (int32_t)bits;
+    };
+    for (int k = 0; k < 3; k++) {
+        write(car + 0x670 + k * 4, pos[k]);
+        write(car + 0x6D8 + k * 4, pos[k]);
+        write(car + 0x708 + k * 4, 0.0f);
+    }
+    for (int k = 0; k < 9; k++) {
+        write(car + 0x67C + k * 4, matrix[k]);
+        write(car + 0x6E4 + k * 4, matrix[k]);
+    }
+    ctx->r25 = 1;   // no grid slot
+    if (getenv("R2_BATTLE_TEST") != nullptr) {
+        fprintf(stderr, "[Battle] car %d starts at (%.0f %.0f %.0f) facing (%.2f %.2f)\n", index, pos[0], pos[1], pos[2], forward[0],
+                forward[2]);
+    }
 }
 
 // The HUD's track map (func_800B8188 at 0x800B81D8, $s4), its car dots (func_800B8900 at 0x800B8950, $a1), its

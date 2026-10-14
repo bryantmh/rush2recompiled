@@ -760,6 +760,11 @@ before_vram = 0x800918E8
 text = "    rush2_track49_respawn_zone_place(rdram, ctx);"
 
 [[patches.hook]]
+func = "respawn_place_car_80090A40"
+before_vram = 0x80090C1C
+text = "    rush2_track49_battle_start(rdram, ctx);"
+
+[[patches.hook]]
 func = "minimap_draw_800B8188"
 before_vram = 0x800B81D8
 text = "    rush2_track49_map_s4(rdram, ctx);"

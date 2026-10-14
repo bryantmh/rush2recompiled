@@ -338,7 +338,6 @@ namespace {
     std::mt19937 rng{ 2049 };
     float clock_seconds = 0.0f;
     bool clock_set = false;
-    bool start_checked[max_cars] = {};   // the start grid's cars put back (fix_start_grid)
     int round_points = 0;        // The round's points (kills) to win, set with the clock.
     bool one_short_played = false;   // 2049's sound when a car is a point short of winning, once a round.
     uint32_t built_head = 0;     // The HUD element list the battle HUD was built for.
@@ -853,31 +852,6 @@ namespace {
         return g;
     }
 
-    // A safety net for the start grid. Rush 2's grid (8 slots, rows of 2 back to 60 ft behind route point 0, race.md
-    // section 4) reaches further back than Rush 2049's battles needed (4 cars at most); the converter starts each
-    // arena's route where the whole grid has floor (spine_lanes, track2049_convert.cpp). A car that still ends up
-    // more than start_slack ft over or under route point 0 in the countdown (it fell off the floor's edge) is wrecked
-    // (+0x648, as the opponents' stuck rule does), and Rush 2's respawn puts it back (in a battle at the route point
-    // farthest from the other cars; track2049.cpp), rather than leaving it under the arena (the out-of-bounds reset
-    // didn't always come). Calling respawn_place_car_80090A40 here directly crashed the game.
-    void fix_start_grid(uint8_t* rdram) {
-        constexpr float start_slack = 15.0f;
-        uint32_t spine = (uint32_t)MEM_W(0, (int32_t)0x80111944);
-        float anchor = (float)MEM_H(0, (int32_t)(spine + 2));
-        for (int i = 0; i < max_cars; i++) {
-            if (!fighters[i].present || start_checked[i]) continue;
-            float p[3];
-            car_pos(rdram, i, p);
-            if (std::fabs(p[1] - anchor) <= start_slack) continue;
-            start_checked[i] = true;
-            MEM_B(0, (int32_t)(car_at(i) + car_wrecked)) = 1;
-            if (const char* test = getenv("R2_BATTLE_TEST"); test != nullptr && strstr(test, "log") != nullptr) {
-                fprintf(stderr, "[Battle] car %d started %.0f ft %s route point 0: wrecked to respawn\n", i, std::fabs(p[1] - anchor),
-                        p[1] < anchor ? "under" : "over");
-            }
-        }
-    }
-
     // A checkpoint line's row: its middle, the unit vector across it (right of the direction of travel) and the
     // stretch of road it crosses, as offsets along that vector.
     struct Row {
@@ -1074,7 +1048,6 @@ namespace {
         }
         clock_seconds = 0.0f;
         clock_set = false;
-        memset(start_checked, 0, sizeof(start_checked));
         round_points = 0;
         one_short_played = false;
         ready = true;
@@ -2221,8 +2194,6 @@ void rush2::battle::tick(uint8_t* rdram, float dt, recomp_context* ctx) {
     }
     if (!ready) return;
     const char* test_env = getenv("R2_BATTLE_TEST");
-    // The grid is in place by 2 s into the countdown (3.5 s).
-    if (mode == Mode::arena && state == 10 && clock_seconds >= 2.0f) fix_start_grid(rdram);
     if (mode == Mode::arena) {
         // The stunt clock: 0x8010C204 holds the time allowed, which the HUD counts down from. It is the start
         // countdown's 3.5 s until the race begins (writing it early would stretch the countdown) and then 300, which

@@ -2604,6 +2604,17 @@ area = "collision"
 ref = "docs/functions/rush2049_collision.md#rush-2049-collision-functions"
 
 [[func]]
+vram = 0x800C4F68
+name = "car_start_place"
+sig = "void car_start_place(s16 mode, Car *car, s32 a2)"
+desc = "Sets a car's start/place point +0x66C and matrix +0x678 (case 0: race start; case 2: from +0x794). Battle (type 6) and type 4: no grid, player p (+0x7C6) on checkpoint record [0,2,1,3][p] of the path header copy 0x80151CE8, facing against its direction (x, z negated, y 0); func_800D3B28 adds no grid slot for types 4-6. Ported as rush2_track49_battle_start (src/rush2049/track2049.cpp, hook 0x80090C1C)."
+consts = "0x50 = checkpoint record size"
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/battle.md#9-computer-opponents-the-ports-own"
+
+[[func]]
 vram = 0x800C54F0
 desc = "2049 surface type 3 wreck handler (wheel within 0.25 wrecks car, sound 0x15); counterpart of func_8006E1A8."
 status = "verified"
