@@ -6,6 +6,8 @@ Rush 2: Extreme Racing USA, the 1998 N64 racer, running natively on your PC with
 
 You need to bring your own copy of the game. Nothing from the original cartridge is included here.
 
+Join the [Discord](https://discord.gg/nYfFAKMnyx) or watch the [YouTube video](https://youtu.be/Dd5F3HraMxA) introducing the project.
+
 ## What you get
 
 - **Widescreen.** Play in 4:3 like the original, 16:9, or expand the view to fill whatever window size you like.
