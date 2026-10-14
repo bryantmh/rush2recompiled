@@ -3850,7 +3850,7 @@ name = "battle_score_kill"
 desc = "Scores a kill (killer, victim, amount): kill matrix 0x80149428[k*4+v] += amount; (car,car,-1) is a self-wreck, which only when D_80146130 is set queues a coin animation that takes a point (state +0x3A3, not below 0)."
 status = "inferred"
 area = "collision"
-ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 
 [[func]]
 vram = 0x80391650
@@ -3890,7 +3890,7 @@ vram = 0x803936A8
 name = "battle_coin_anim_update"
 desc = "Steps the queued point coin animations (0x80395E70, 0x18 bytes each); after 41 frames adds the entry's amount to state +0x3A3 (points)."
 status = "inferred"
-ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 
 [[func]]
 vram = 0x8039D300

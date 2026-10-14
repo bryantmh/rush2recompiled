@@ -1,9 +1,12 @@
 // Online play: opens the host's UDP port on the router with UPnP (miniupnpc), so players outside the LAN can join by
 // the host's address without the host forwarding the port by hand (docs/online.md#hosting-over-the-internet). Runs on
 // its own thread because discovering the router takes up to a few seconds. The mapping is removed when the lobby
-// closes; a lease of an hour keeps a crashed game from leaving it open for good.
+// closes; it is leased for an hour, so a crashed game doesn't leave it open for good, and the thread renews it every
+// 50 minutes while the lobby stays open.
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <mutex>
 #include <string>
@@ -27,6 +30,12 @@ namespace {
     std::string control_url;
     std::string service_type;
     std::string mapped_port;
+    std::string mapped_lan_address;
+
+    // Set by upnp_close to end the renewal wait.
+    bool stopping = false;
+    std::condition_variable stop_cv;
+    constexpr auto renew_every = std::chrono::minutes(50);
 
     void set_status(const std::string& text) {
         std::lock_guard lock{ upnp_mutex };
@@ -83,6 +92,7 @@ namespace {
             control_url = urls.controlURL;
             service_type = data.first.servicetype;
             mapped_port = port_text;
+            mapped_lan_address = lan_address;
             public_ip = external;
         }
         FreeUPNPUrls(&urls);
@@ -98,15 +108,38 @@ namespace {
             set_status("Port " + port_text + " opened on the router. Players outside the LAN join with " +
                 std::string(external) + (port == rush2::online::default_port ? "" : ":" + port_text) + ".");
         }
+
+        // Renew the lease until the lobby closes.
+        std::unique_lock lock{ upnp_mutex };
+        while (!stop_cv.wait_for(lock, renew_every, []() { return stopping; })) {
+            if (!mapped) {
+                break;
+            }
+            // The router call takes a moment: the UI reads the status meanwhile.
+            std::string url = control_url, service = service_type, port_text = mapped_port, lan = mapped_lan_address;
+            lock.unlock();
+            UPNP_AddPortMapping(url.c_str(), service.c_str(), port_text.c_str(), port_text.c_str(), lan.c_str(),
+                "Rush 2 Recompiled", "UDP", nullptr, "3600");
+            lock.lock();
+        }
     }
 }
 
 void rush2::online::upnp_open(uint16_t port) {
     upnp_close();
+    {
+        std::lock_guard lock{ upnp_mutex };
+        stopping = false;
+    }
     upnp_thread = std::thread{ [port]() { open_port(port); } };
 }
 
 void rush2::online::upnp_close() {
+    {
+        std::lock_guard lock{ upnp_mutex };
+        stopping = true;
+    }
+    stop_cv.notify_all();
     if (upnp_thread.joinable()) {
         upnp_thread.join();
     }

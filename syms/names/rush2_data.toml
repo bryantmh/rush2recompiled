@@ -830,12 +830,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8002301C
-name = "race_time_base"
+name = "frame_retraces"
 type = "u32"
-desc = "Word set by game_thread_main_init; read by cam chase/dispatch, race clock init, prop anim. (low confidence)"
+desc = "Word set by game_thread_main_init; read by cam chase/dispatch, race clock init, prop anim. (low confidence) | The frame's length in vertical retraces, measured by game_thread_main_init_800B4EB0 ($s2 points here at 0x800B5464); online every frame is 2."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-race"
 
 [[var]]
 vram = 0x80023020
@@ -2342,12 +2342,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800BF31C
-name = "race_reset_flag"
+name = "front_end_from_logos"
 type = "u8"
-desc = "Flag used by race_reset_hud_and_globals. (low confidence)"
+desc = "Flag used by race_reset_hud_and_globals. (low confidence) | func_8009FD68 sends the front end to screen 0xE (boot logos, then the title) when set, else 0xF (the car select); set at boot, cleared there."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800BF320
@@ -2936,12 +2936,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C1A9C
-name = "race_end_flag"
+name = "race_restart_flag"
 type = "u8"
-desc = "Flag set by pause menu and race_setup; read by race_end_to_menu. (low confidence)"
+desc = "Flag set by pause menu and race_setup; read by race_end_to_menu. (low confidence) | func_800AAC64 restarts the race when 1 (the pause menu sets it for RESTART), goes to the front end when 0."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800C1CB7
@@ -3550,10 +3550,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800C2274
 name = "race_active_count"
 type = "u8"
-desc = "Count of active racers set by race_count_active; read by pause screen text. (low confidence)"
+desc = "Count of active racers set by race_count_active; read by pause screen text. (low confidence) | Per player byte (func_8008EBE0 lap timing): moved to 0x802407F0 with room for 8 (tools/players4/relocate.py)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#eight-players"
 
 [[var]]
 vram = 0x800C2278
@@ -6430,10 +6430,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D5751
 name = "race_stunt_record_flag"
 type = "u8"
-desc = "Byte set at race start, read by stunt/max record stat functions."
+desc = "Byte set at race start, read by stunt/max record stat functions. | 1 in stunt mode: set by the race start for a race on track 11 (func_800AE670 0x800AE7A4)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#stunt-and-battle"
 
 [[var]]
 vram = 0x800D5754
@@ -7958,12 +7958,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800E7BB4
-name = "menu_screen_state"
+name = "front_end_next_screen"
 type = "u32"
-desc = "Current frontend menu screen/state word written by ~18 menu screens and read by frontend loop and race_run_full."
+desc = "Current frontend menu screen/state word written by ~18 menu screens and read by frontend loop and race_run_full. | The front end screen to go to (func_800AE288 switches when it differs from 0x800E7BC4)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800E7BB8
@@ -7985,12 +7985,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800E7BC4
-name = "menu_dispatch_param_a"
+name = "front_end_screen"
 type = "u16"
-desc = "Halfword set by screen dispatch and frontend loop, read by frontend loop (low confidence)."
+desc = "Halfword set by screen dispatch and frontend loop, read by frontend loop (low confidence). | The front end screen up (s16, -1 none): 0xC main menu, 0xE logos, 0x10 title, 0x11/0x12 attract (func_800AE0D4)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800E7BC8
@@ -10759,10 +10759,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C3E8
 name = "race_type"
 type = "u32"
-desc = "Word set by start game, race_run_full and start timer; read by 33 car/camera/HUD/checkpoint functions (race type/mode; low confidence)."
+desc = "Word set by start game, race_run_full and start timer; read by 33 car/camera/HUD/checkpoint functions (race type/mode; low confidence). | 0 race, 1 circuit, 2 stunt (the race start sets 2 for a race on track 11 with 0x800D5751 = 1)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#stunt-and-battle"
 
 [[var]]
 vram = 0x8010C3EC
