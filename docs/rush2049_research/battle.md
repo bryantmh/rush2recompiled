@@ -541,6 +541,26 @@ the hook there (`rush2_track49_stunt_option_t9`) leaves an arena's DIFFICULTY al
 - **Respawn**: Rush 2049's battle rule (ported, checkpoints.md section 8): every car comes back at the route point
   farthest from the other cars, standing. Before it was ported every car came back at the same point, and the
   opponents gathered there. With `R2_BATTLE_TEST` each respawn is logged (`car N respawns at route point P`).
+- **Cost and issue 20 (freezes with opponents)**: the AI runs in `rush2::battle::tick`, called from the movers hook in
+  physics_tick_80076578, which runs on the physics and controller thread (input_thread_main_80076DE0). A slow AI
+  update stalls that thread: the clock, the cars and controller reads stop while the picture and sound go on, as
+  in the issue's video (Rush 2049 course 8, save battle id 32, frozen right after the player respawned). Its grid is 180 x 301 columns,
+  111405 nodes, nearly twice the A* cap of 60000 expansions. `find_path` only checks undirected components (links
+  are one-way over drops and steps), so a goal can share a component and still be out of reach: the search then
+  runs to the cap and fails (about 10 ms on a fast PC). When `straight()` still says the way is open, `steer_point`
+  sets no `unreachable` timer, the path stays empty and the search repeats on every tick. Measured there (7
+  opponents, `slow`): one car ran the failing search on every tick from t=83.90 s to t=83.99 s. Several cars
+  chasing a car out of reach (the respawn rule puts it at the route point farthest from the rest) multiply that
+  per tick. Reproduced with test aid `unreach` (every opponent sent, from 5 s on, for a point it can see and drive
+  straight at but no link leads to; on course 8, 20249 of 111405 nodes share the opponents' component and are out
+  of reach): 5 failing searches of 60000 nodes an update, 33-38 ms, game speed 48-83%.
+  Fixed: the grid keeps its strongly connected components (90 on course 8) and which reach which (`Nav::reaches`),
+  used by `find_path`, target and pickup choice and roaming, so no search starts for a goal out of reach; a failed
+  search waits 1 s (or the goal moving 3 cells) before the next; a chased goal that moved less than 3 cells keeps
+  the route; all opponents share 100000 expanded nodes an update (they take turns going first; one out of budget
+  keeps its route and searches next update). After: the same test at 100% speed, no update over 20 ms; 7 opponents
+  on course 8 dealt 11716 damage in 40 s (8214 before). Test aid `slow` logs an opponent's update over 10 ms, a
+  whole update over 20 ms (searches run, failed, nodes expanded) and the game speed once a second.
 - **Dodge** (Medium, Hard): a missile within 140 ft heading at the car makes it swerve across its path for 0.7 s.
 - **Results**: the winner can be a computer car (`CPU n`, numbered by drone slot) **[I]**; with one player and
   opponents the player's points box moves below the winner's box.

@@ -42,6 +42,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -267,6 +268,19 @@ namespace {
         std::vector<uint8_t> drop;       // nodes * 8: the link drops off a ledge
         std::vector<uint8_t> wall_distance;   // in cells, to a node missing a link (up to 4)
         std::vector<int> component;      // nodes linked either way share one
+        // Directed reachability (links are one way over drops and steep steps): the strongly connected component of
+        // each node, and per component a bit set of the components reachable from it (empty if there are too many).
+        std::vector<int> scc;
+        int scc_count = 0, scc_words = 0;
+        std::vector<uint64_t> scc_reach;
+
+        // Whether a car at node a can get to node b along the links.
+        bool reaches(int a, int b) const {
+            if (a < 0 || b < 0) return false;
+            if (component[a] != component[b]) return false;
+            if (scc[a] == scc[b] || scc_reach.empty()) return true;
+            return (scc_reach[(size_t)scc[a] * scc_words + scc[b] / 64] >> (scc[b] % 64)) & 1;
+        }
 
         int column_of(float x, float z) const {
             int ix = (int)std::floor((x - x0) / cell), iz = (int)std::floor((z - z0) / cell);
@@ -470,8 +484,74 @@ namespace {
             }
             components++;
         }
-        printf("[BattleAI] Navigation grid: %d x %d columns of %.1f ft, %d nodes, %d components\n", nav->nx, nav->nz,
-               nav->cell, count, components);
+        // Strongly connected components (Tarjan's, without recursion). A component is finished only after every
+        // component it reaches, so in finishing order each one's reach is itself and its successors' reach.
+        nav->scc.assign(count, -1);
+        {
+            std::vector<int> index(count, -1), low(count, 0), stack, frames;
+            std::vector<uint8_t> on_stack(count, 0), next_dir(count, 0);
+            int counter = 0;
+            for (int root = 0; root < count; root++) {
+                if (index[root] >= 0) continue;
+                frames.assign(1, root);
+                index[root] = low[root] = counter++;
+                stack.push_back(root);
+                on_stack[root] = 1;
+                while (!frames.empty()) {
+                    int n = frames.back();
+                    if (next_dir[n] < dirs) {
+                        int m = nav->links[(size_t)n * dirs + next_dir[n]++];
+                        if (m < 0) continue;
+                        if (index[m] < 0) {
+                            index[m] = low[m] = counter++;
+                            stack.push_back(m);
+                            on_stack[m] = 1;
+                            frames.push_back(m);
+                        }
+                        else if (on_stack[m]) {
+                            low[n] = std::min(low[n], index[m]);
+                        }
+                        continue;
+                    }
+                    frames.pop_back();
+                    if (!frames.empty()) low[frames.back()] = std::min(low[frames.back()], low[n]);
+                    if (low[n] == index[n]) {
+                        int m;
+                        do {
+                            m = stack.back();
+                            stack.pop_back();
+                            on_stack[m] = 0;
+                            nav->scc[m] = nav->scc_count;
+                        } while (m != n);
+                        nav->scc_count++;
+                    }
+                }
+            }
+        }
+        constexpr int max_scc_bits = 8192;   // 8 MB of reach bits at most
+        if (nav->scc_count <= max_scc_bits) {
+            nav->scc_words = (nav->scc_count + 63) / 64;
+            nav->scc_reach.assign((size_t)nav->scc_count * nav->scc_words, 0);
+            std::vector<int> first(nav->scc_count + 1, 0), members(count);
+            for (int n = 0; n < count; n++) first[nav->scc[n] + 1]++;
+            for (int k = 0; k < nav->scc_count; k++) first[k + 1] += first[k];
+            std::vector<int> fill(first.begin(), first.end() - 1);
+            for (int n = 0; n < count; n++) members[fill[nav->scc[n]]++] = n;
+            for (int k = 0; k < nav->scc_count; k++) {
+                uint64_t* row = &nav->scc_reach[(size_t)k * nav->scc_words];
+                row[k / 64] |= 1ull << (k % 64);
+                for (int at = first[k]; at < first[k + 1]; at++) {
+                    for (int d = 0; d < dirs; d++) {
+                        int m = nav->links[(size_t)members[at] * dirs + d];
+                        if (m < 0 || nav->scc[m] == k) continue;
+                        const uint64_t* other = &nav->scc_reach[(size_t)nav->scc[m] * nav->scc_words];
+                        for (int w = 0; w < nav->scc_words; w++) row[w] |= other[w];
+                    }
+                }
+            }
+        }
+        printf("[BattleAI] Navigation grid: %d x %d columns of %.1f ft, %d nodes, %d components, %d one-way areas%s\n", nav->nx,
+               nav->nz, nav->cell, count, components, nav->scc_count, nav->scc_reach.empty() ? " (too many to track)" : "");
         fflush(stdout);
         // Test aid: R2_BATTLE_NAV=<file.pgm> writes the grid as an image (white: open, gray: near a wall, black:
         // nothing; the highest node of each column).
@@ -512,11 +592,67 @@ namespace {
         uint32_t stamp = 0;
     };
 
-    bool find_path(const Nav& nav, Search& s, int start, int goal, const std::vector<std::array<float, 3>>& avoid,
-                   std::vector<float>& out) {
+    // Test aid counters (R2_BATTLE_TEST=slow): searches and nodes expanded in the current update.
+    int searches_run = 0, searches_failed = 0, nodes_expanded = 0;
+
+    // Test aid: R2_BATTLE_TEST=unreach (issue 20) sends every opponent, from 5 s on, for a point a car at `from` can see
+    // and drive straight at but whose node no link leads to from its own (one-way links: drops, steps). Before the
+    // fix each opponent searched the whole grid for it on every tick.
+    bool unreach_set = false;
+    float unreach_dest[3] = {};
+
+    void pick_unreachable(const Nav& nav, const float from[3]) {
+        int start = nav.locate(from);
+        if (start < 0) return;
+        std::vector<uint8_t> seen(nav.nodes(), 0);
+        std::vector<int> queue{ start };
+        seen[start] = 1;
+        for (size_t q = 0; q < queue.size(); q++) {
+            for (int d = 0; d < dirs; d++) {
+                int m = nav.links[(size_t)queue[q] * dirs + d];
+                if (m >= 0 && !seen[m]) {
+                    seen[m] = 1;
+                    queue.push_back(m);
+                }
+            }
+        }
+        int best = -1;
+        float best_d = 1e9f;
+        for (int n = 0; n < nav.nodes(); n++) {
+            if (seen[n] || nav.component[n] != nav.component[start]) continue;
+            float p[3];
+            nav.node_pos(n, p);
+            float d = flat_distance(from, p);
+            if (d < 30.0f || d > 300.0f || d >= best_d || !nav.straight(from, p)) continue;
+            best = n;
+            best_d = d;
+        }
+        fprintf(stderr, "[BattleAI] unreach: %zu of %d nodes reachable from node %d; ", queue.size(), nav.nodes(), start);
+        if (best < 0) {
+            fprintf(stderr, "no open, unreachable node within 300 ft\n");
+            return;
+        }
+        nav.node_pos(best, unreach_dest);
+        unreach_set = true;
+        fprintf(stderr, "opponents sent to node %d (%.0f %.0f %.0f), %.0f ft away\n", best, unreach_dest[0], unreach_dest[1],
+                unreach_dest[2], best_d);
+    }
+
+    // The search work all opponents may do in one update (nodes expanded), shared out so no update stalls the
+    // physics thread it runs on (issue 20), and one search's cap.
+    constexpr int search_budget_per_update = 100000, search_cap = 60000;
+    int search_budget = search_budget_per_update;
+
+    enum class PathResult { found, none, later };
+
+    // `later`: this update's search budget ran out first; the caller keeps what it had and tries again next update.
+    PathResult find_path(const Nav& nav, Search& s, int start, int goal, const std::vector<std::array<float, 3>>& avoid,
+                         std::vector<float>& out) {
         out.clear();
         int count = nav.nodes();
-        if (start < 0 || goal < 0 || nav.component[start] != nav.component[goal]) return false;
+        if (!nav.reaches(start, goal)) return PathResult::none;
+        if (search_budget <= 0) return PathResult::later;
+        int limit = std::min(search_cap, search_budget);
         if ((int)s.g.size() != count) {
             s.g.assign(count, 0.0f);
             s.from.assign(count, -1);
@@ -540,7 +676,7 @@ namespace {
         open.push({ heuristic(start), start });
         int expanded = 0;
         static const float wall_cost[5] = { 3.0f, 1.2f, 0.4f, 0.1f, 0.0f };
-        while (!open.empty() && expanded < 60000) {
+        while (!open.empty() && expanded < limit) {
             auto [f, n] = open.top();
             open.pop();
             if (n == goal) break;
@@ -567,7 +703,13 @@ namespace {
                 open.push({ g + heuristic(m), m });
             }
         }
-        if (s.seen[goal] != s.stamp) return false;
+        searches_run++;
+        nodes_expanded += expanded;
+        search_budget -= expanded;
+        if (s.seen[goal] != s.stamp) {
+            searches_failed++;
+            return expanded >= limit && limit < search_cap ? PathResult::later : PathResult::none;
+        }
         std::vector<int> nodes;
         for (int n = goal; n >= 0; n = s.from[n]) {
             nodes.push_back(n);
@@ -579,7 +721,7 @@ namespace {
             nav.node_pos(n, p);
             out.insert(out.end(), { p[0], p[1], p[2] });
         }
-        return true;
+        return PathResult::found;
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -611,6 +753,7 @@ namespace {
         size_t path_at = 0;          // the point it is heading past
         float replan = 0.0f;
         int path_goal = -1;          // the node the route leads to
+        bool path_failed = false;    // the last search for path_goal found no way (tried again after `replan`)
         float stuck = 0.0f, reverse = 0.0f, reverse_steer = 0.0f;
         float idle = 0.0f;           // seconds without getting anywhere
         float idle_from[3] = {};
@@ -669,15 +812,33 @@ namespace {
         if (!b.path.empty() && b.path_at < b.path.size() / 3) {
             off_route = flat_distance(me.pos, &b.path[b.path_at * 3]) > nav->cell * 8.0f;
         }
-        if (start >= 0 && (b.path.empty() || goal != b.path_goal || b.replan <= 0.0f || off_route)) {
-            b.replan = 0.6f;
-            b.path_goal = goal;
-            b.path_at = 0;
-            if (!find_path(*nav, search, start, goal, avoid, b.path)) {
-                b.path.clear();
-                return nav->straight(me.pos, dest);
+        // A goal that moved less than 3 cells (a car chased) keeps the route: the car heads from its end to dest.
+        bool goal_moved = goal != b.path_goal;
+        if (goal_moved && b.path_goal >= 0 && b.path_goal < nav->nodes()) {
+            float a[3], c[3];
+            nav->node_pos(goal, a);
+            nav->node_pos(b.path_goal, c);
+            goal_moved = flat_distance(a, c) > nav->cell * 3.0f || std::fabs(a[1] - c[1]) > 6.0f;
+        }
+        if (start >= 0 && ((b.path.empty() && !b.path_failed) || goal_moved || b.replan <= 0.0f || off_route)) {
+            std::vector<float> route;
+            PathResult result = find_path(*nav, search, start, goal, avoid, route);
+            if (result == PathResult::later) {
+                // Out of this update's search budget: the route it had, or straight on, and a search next update.
+                b.replan = 0.0f;
+                if (b.path.empty()) return true;
+            }
+            else {
+                b.path_goal = goal;
+                b.path_at = 0;
+                b.path_failed = result == PathResult::none;
+                // A failed search isn't run again on every tick (issue 20): after a second, or for a goal moved on.
+                b.replan = b.path_failed ? 1.0f : 0.6f;
+                b.path.swap(route);
+                if (b.path_failed) return nav->straight(me.pos, dest);
             }
         }
+        if (b.path.empty()) return b.path_failed ? nav->straight(me.pos, dest) : true;
         size_t points = b.path.size() / 3;
         // Past the points behind the car: the nearest of the next few.
         size_t best = b.path_at;
@@ -774,7 +935,7 @@ namespace {
         auto reachable = [&](const float p[3]) {
             if (nav == nullptr || my_node < 0) return true;
             int n = nav->locate(p);
-            return n >= 0 && nav->component[n] == nav->component[my_node];
+            return nav->reaches(my_node, n);
         };
         // Enemy cars.
         for (int j = 0; j < max_cars; j++) {
@@ -854,7 +1015,7 @@ namespace {
                 float best_roam = -1.0f;
                 for (int tries = 0, found = 0; tries < 128 && found < 12; tries++) {
                     int n = std::uniform_int_distribution<int>(0, nav->nodes() - 1)(rng);
-                    if (nav->component[n] != nav->component[my_node] || nav->wall_distance[n] < 2) continue;
+                    if (!nav->reaches(my_node, n) || nav->wall_distance[n] < 2) continue;
                     float p[3];
                     nav->node_pos(n, p);
                     if (flat_distance(p, me.pos) < 80.0f) continue;
@@ -950,6 +1111,7 @@ namespace {
         else if (b.goal == Goal::pickup) {
             memcpy(dest, w.pickups[b.pickup].pos, sizeof(dest));
         }
+        if (unreach_set) memcpy(dest, unreach_dest, sizeof(dest));
         float point[3];
         if (!steer_point(nav, b, me, dest, avoid, dt, point)) {
             // No way there: try something else for a while.
@@ -1148,6 +1310,7 @@ void rush2::battle_ai::begin_round() {
         b.side = random_unit() < 0.5f ? -1.0f : 1.0f;
     }
     ai_clock = 0.0f;
+    unreach_set = false;
     round_live = true;
 }
 
@@ -1156,15 +1319,59 @@ void rush2::battle_ai::update(uint8_t* rdram, const World& world) {
     auto nav = current_nav();
     const SkillInfo skill = skill_at(MEM_BU(0, (int32_t)race_difficulty));
     ai_clock += world.dt;
-    for (int i = 0; i < max_cars; i++) {
+    // Test aid: R2_BATTLE_TEST=slow logs an update that takes over 20 ms, with its path searches.
+    static const bool test_slow = test_flag("slow");
+    auto started = std::chrono::steady_clock::now();
+    searches_run = searches_failed = nodes_expanded = 0;
+    search_budget = search_budget_per_update;
+    if (!unreach_set && nav != nullptr && ai_clock > 5.0f && test_flag("unreach")) {
+        for (int i = 0; i < max_cars; i++) {
+            if (world.cars[i].present && world.cars[i].bot && world.cars[i].alive) {
+                pick_unreachable(*nav, world.cars[i].pos);
+                break;
+            }
+        }
+    }
+    // With `slow`, the game's speed once a second of the round: its seconds per wall clock second.
+    static std::chrono::steady_clock::time_point speed_from = started;
+    static float speed_clock = 0.0f;
+    if (test_slow && ai_clock - speed_clock >= 1.0f) {
+        double wall = std::chrono::duration<double>(started - speed_from).count();
+        if (speed_clock > 0.0f && wall > 0.0) {
+            fprintf(stderr, "[BattleAI] t=%.1f game speed %.0f%%\n", ai_clock, (ai_clock - speed_clock) / wall * 100.0);
+        }
+        speed_clock = ai_clock;
+        speed_from = started;
+    }
+    // The opponents take turns going first, so the search budget doesn't always run out on the same ones.
+    static int first = 0;
+    first = (first + 1) % max_cars;
+    for (int k = 0; k < max_cars; k++) {
+        int i = (first + k) % max_cars;
         if (!world.cars[i].present || !world.cars[i].bot) continue;
         Brain& b = brains[i];
+        auto car_started = std::chrono::steady_clock::now();
+        int car_searches = searches_run;
         run(rdram, nav.get(), b, skill, world, i);
+        if (test_slow) {
+            double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - car_started).count();
+            if (ms > 10.0) {
+                fprintf(stderr, "[BattleAI] t=%.2f car %d took %.1f ms: goal %d target %d pickup %d, %d searches, path %zu\n", ai_clock, i,
+                        ms, (int)b.goal, b.target, b.pickup, searches_run - car_searches, b.path.size() / 3);
+            }
+        }
         uint32_t car = car_at(i);
         write_f(rdram, car + car_steer, b.steer);
         write_f(rdram, car + car_throttle, b.throttle);
         write_f(rdram, car + car_brake, b.brake);
         MEM_H(0, (int32_t)(car + car_gear)) = (int16_t)b.gear;
+    }
+    if (test_slow) {
+        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        if (ms > 20.0) {
+            fprintf(stderr, "[BattleAI] t=%.2f slow update %.1f ms: %d searches (%d failed), %d nodes expanded\n", ai_clock, ms,
+                    searches_run, searches_failed, nodes_expanded);
+        }
     }
 }
 
