@@ -1,0 +1,19 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Rush 2: Extreme Racing USA",
+  "wikidata": "Q1634362",
+  "system": "N64",
+  "type": "recomp",
+  "original": {
+    "region": "USA",
+    "sha1": "01b0a31b1accc18061e8c85f6c5edf0dbd79f097"
+  },
+  "project": "Rush 2 Recompiled",
+  "status": "released",
+  "targets": ["Windows"],
+  "toolchain": ["N64Recomp", "RT64"],
+  "links": [
+    { "label": "Discord", "url": "https://discord.gg/nYfFAKMnyx" },
+    { "label": "Introduction video", "url": "https://youtu.be/Dd5F3HraMxA" }
+  ]
+}
