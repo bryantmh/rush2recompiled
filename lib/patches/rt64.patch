@@ -302,11 +302,26 @@ index 87392d0..67fce6b 100644
              }
  
 diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
-index 3227ab1..fe845bb 100644
+index 3227ab1..883cf36 100644
 --- a/src/hle/rt64_present_queue.cpp
 +++ b/src/hle/rt64_present_queue.cpp
-@@ -403,6 +403,14 @@ namespace RT64 {
+@@ -10,6 +10,9 @@
+ #include "rt64_workload_queue.h"
+ 
+ namespace RT64 {
++    // Rush 2 recomp: called before (1) and after (0) each swap chain present when set (the hitch profiler's frame marker).
++    void (*presentProfileMark)(int begin) = nullptr;
++
+     // PresentQueue
+ 
+     PresentQueue::PresentQueue() {
+@@ -400,9 +403,19 @@ namespace RT64 {
+ 
+                 RenderCommandSemaphore *waitSemaphore = drawSemaphores[swapChainIndex].get();
+                 presentTimestamp = Timer::current();
++                if (presentProfileMark != nullptr) presentProfileMark(1);
                  swapChainValid = ext.swapChain->present(swapChainIndex, &waitSemaphore, 1);
++                if (presentProfileMark != nullptr) presentProfileMark(0);
                  presentProfiler.logAndRestart();
              }
 +
@@ -320,7 +335,7 @@ index 3227ab1..fe845bb 100644
          }
      }
  
-@@ -411,6 +419,7 @@ namespace RT64 {
+@@ -411,6 +424,7 @@ namespace RT64 {
              std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
              InterpolatedFrameCounters &frameCounters = ext.sharedResources->interpolatedFrames[ext.sharedResources->interpolatedFramesIndex];
              frameCounters.presented = frameCounters.count;

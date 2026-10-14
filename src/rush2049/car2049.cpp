@@ -19,6 +19,7 @@
 #include <map>
 #include <set>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -3311,6 +3312,13 @@ namespace {
         std::map<std::tuple<int, int, int, int, int, float>, TestResult> straight, handling;
         bool ranged = false;
         TestResult lo, hi;
+        // Working the ranges out a slice at a time (prepare_bars): every setup to test, how many are done, and the disk
+        // cache entry the result goes to.
+        bool planned = false;
+        std::vector<TestSetup> plan_straight, plan_handling;
+        size_t done = 0;
+        uint64_t key = 0;
+        std::string name;
     };
     TestCache test_cache;
 
@@ -3394,15 +3402,16 @@ namespace {
     // extremes, every TORQUE curve, a 2049 car's lowest and highest ENGINE, and the tires with the least and most
     // pavement drag; for DRIFTING and CONTROL both weight extremes and every TIRES and SUSPENSION choice (LOOSE..TIGHT,
     // and WHEELIE on the Hot Rod, func_803B9478), on the car's stock TORQUE and ENGINE.
-    void find_ranges(uint8_t* rdram, TestCar& car) {
-        TestCache& c = cache();
-        if (c.ranged) {
+    // plan_ranges reads them from the disk cache or lists the setups to test; run_ranges tests them until a deadline, so
+    // prepare_bars can spread the work over menu frames instead of stalling one.
+    void plan_ranges(uint8_t* rdram, TestCache& c) {
+        if (c.ranged || c.planned) {
             return;
         }
-        c.ranged = true;
+        c.planned = true;
         // The ranges are kept on disk (src/track_cache.cpp, which also keys on the build), so they're worked out once
-        // rather than on the first menu frame of every session. The rest of the key is what the results depend on
-        // beyond the build: Car Speeds, the 2049 cars and their source, Torque Rebalance and every car's stock row.
+        // rather than in every session. The rest of the key is what the results depend on beyond the build: Car Speeds,
+        // the 2049 cars and their source, Torque Rebalance and every car's stock row.
         std::vector<uint8_t> inputs;
         auto add = [&inputs](const void* p, size_t n) {
             inputs.insert(inputs.end(), (const uint8_t*)p, (const uint8_t*)p + n);
@@ -3418,21 +3427,16 @@ namespace {
             add(row, sizeof(row));
             add(&weight, sizeof(weight));
         }
-        uint64_t key = rush2::track_cache::hash(inputs.data(), inputs.size());
+        c.key = rush2::track_cache::hash(inputs.data(), inputs.size());
         // A file per option combination, so switching one back and forth doesn't work them out again.
-        std::string name = "car_bar_ranges_" + std::to_string(c.fast) + std::to_string(c.with49) + std::to_string(c.rebalanced);
+        c.name = "car_bar_ranges_" + std::to_string(c.fast) + std::to_string(c.with49) + std::to_string(c.rebalanced);
         std::vector<uint8_t> stored;
-        if (rush2::track_cache::load_blob(name, key, stored) && stored.size() == sizeof(c.lo) + sizeof(c.hi)) {
+        if (rush2::track_cache::load_blob(c.name, c.key, stored) && stored.size() == sizeof(c.lo) + sizeof(c.hi)) {
             memcpy(&c.lo, stored.data(), sizeof(c.lo));
             memcpy(&c.hi, stored.data() + sizeof(c.lo), sizeof(c.hi));
+            c.ranged = true;
             return;
         }
-        c.lo = { 1e30f, 1e30f, 1e30f, 1e30f };
-        c.hi = { -1e30f, -1e30f, -1e30f, -1e30f };
-        auto widen = [](float v, float& lo, float& hi) {
-            lo = std::min(lo, v);
-            hi = std::max(hi, v);
-        };
         for (int type = 0; type < types; type++) {
             if (!selectable(type)) {
                 continue;
@@ -3454,9 +3458,7 @@ namespace {
                                 s.engine = power != 0 ? engine_levels - 1 : 0;
                             }
                             s.tires = tire;
-                            TestResult r = straight_of(car, s);
-                            widen(r.accel, c.lo.accel, c.hi.accel);
-                            widen(r.top, c.lo.top, c.hi.top);
+                            c.plan_straight.push_back(s);
                         }
                     }
                 }
@@ -3467,17 +3469,62 @@ namespace {
                         s.weight = weight;
                         s.tires = tire;
                         s.susp = susp;
-                        TestResult r = handling_of(car, s);
-                        widen(r.slide, c.lo.slide, c.hi.slide);
-                        widen(r.control, c.lo.control, c.hi.control);
+                        c.plan_handling.push_back(s);
                     }
                 }
             }
         }
-        stored.resize(sizeof(c.lo) + sizeof(c.hi));
+    }
+
+    // Tests the planned setups until `deadline` (none: all of them); once every one is done, sets the ranges and stores
+    // them on disk.
+    void run_ranges(TestCar& car, TestCache& c, std::optional<std::chrono::steady_clock::time_point> deadline) {
+        size_t total = c.plan_straight.size() + c.plan_handling.size();
+        while (c.done < total) {
+            if (deadline && std::chrono::steady_clock::now() >= *deadline) {
+                return;
+            }
+            if (c.done < c.plan_straight.size()) {
+                straight_of(car, c.plan_straight[c.done]);
+            }
+            else {
+                handling_of(car, c.plan_handling[c.done - c.plan_straight.size()]);
+            }
+            c.done++;
+        }
+        // Every result is in the cache now.
+        c.lo = { 1e30f, 1e30f, 1e30f, 1e30f };
+        c.hi = { -1e30f, -1e30f, -1e30f, -1e30f };
+        auto widen = [](float v, float& lo, float& hi) {
+            lo = std::min(lo, v);
+            hi = std::max(hi, v);
+        };
+        for (const TestSetup& s : c.plan_straight) {
+            TestResult r = straight_of(car, s);
+            widen(r.accel, c.lo.accel, c.hi.accel);
+            widen(r.top, c.lo.top, c.hi.top);
+        }
+        for (const TestSetup& s : c.plan_handling) {
+            TestResult r = handling_of(car, s);
+            widen(r.slide, c.lo.slide, c.hi.slide);
+            widen(r.control, c.lo.control, c.hi.control);
+        }
+        c.ranged = true;
+        c.plan_straight.clear();
+        c.plan_handling.clear();
+        std::vector<uint8_t> stored(sizeof(c.lo) + sizeof(c.hi));
         memcpy(stored.data(), &c.lo, sizeof(c.lo));
         memcpy(stored.data() + sizeof(c.lo), &c.hi, sizeof(c.hi));
-        rush2::track_cache::save_blob(name, key, stored);
+        rush2::track_cache::save_blob(c.name, c.key, stored);
+    }
+
+    // The ranges now, finishing whatever prepare_bars hasn't done yet.
+    void find_ranges(uint8_t* rdram, TestCar& car) {
+        TestCache& c = cache();
+        plan_ranges(rdram, c);
+        if (!c.ranged) {
+            run_ranges(car, c, std::nullopt);
+        }
     }
 
     // 0 at the lowest, 1 at the highest.
@@ -3509,12 +3556,14 @@ void rush2::car2049::set_accurate_bars(bool on) {
     accurate_bars = on;
 }
 
-// The top of the main loop, once per frame (rush2_cheats_frame). find_ranges drives every selectable car through
-// every option that sets a bar's ends, about a second of work, which the first car select (or the unlock system's
-// shop, which runs the car select's setup) would otherwise stall on. It runs here instead while the game is in the
-// menus, track select or car select (game state 0x8010C0D0 0-2: no race is using the test car's slot): on the first
-// frame after boot, and again in the menus after Car Speeds, the 2049 cars or Torque Rebalance change. The ranges are
-// cached on disk (find_ranges), so it only takes the second after a new build or a change of those inputs.
+// The top of the main loop, once per frame (rush2_cheats_frame). Working out the bars' ranges drives every selectable
+// car through every option that sets a bar's ends, about a second of work, which the first car select (or the unlock
+// system's shop, which runs the car select's setup) would otherwise stall on. It runs here instead, a few
+// milliseconds a frame so no frame stalls, while the game is in the menus, track select or car select (game state
+// 0x8010C0D0 0-2: no race is using the test car's slot): from the first frame after boot, and again in the menus after
+// Car Speeds, the 2049 cars or Torque Rebalance change. A car select reached before it finishes does the rest at once
+// (find_ranges). The ranges are cached on disk (plan_ranges), so this only runs after a new build or a change of those
+// inputs.
 void rush2::car2049::prepare_bars(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t game_state = 0x8010C0D0;
     if (!accurate_bars.load(std::memory_order_relaxed) || cache().ranged) {
@@ -3524,8 +3573,14 @@ void rush2::car2049::prepare_bars(uint8_t* rdram, recomp_context* ctx) {
     if (state < 0 || state > 2) {
         return;
     }
+    constexpr auto slice = std::chrono::milliseconds(6);
+    TestCache& c = cache();
+    plan_ranges(rdram, c);
+    if (c.ranged) {
+        return;
+    }
     TestCar car(rdram, ctx);
-    find_ranges(rdram, car);
+    run_ranges(car, c, std::chrono::steady_clock::now() + slice);
 }
 
 extern "C" void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx) {

@@ -61,6 +61,7 @@
 #include "car2049.h"
 #include "car_mods.h"
 #include "track2049.h"
+#include "track_mod_runtime.h"
 #include "unlocks.h"
 
 extern "C" void unlocks_check_tracks_80094F1C(uint8_t* rdram, recomp_context* ctx);
@@ -762,6 +763,7 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::check_source(rdram);
     rush2::car_mods::check(rdram);
     rush2::car2049::prepare_bars(rdram, ctx);
+    rush2::track_mod::prepare_in_background();
 }
 
 bool rush2::cheats::unlock_all_cars() {

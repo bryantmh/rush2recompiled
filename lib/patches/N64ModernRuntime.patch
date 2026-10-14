@@ -1,5 +1,5 @@
 diff --git a/librecomp/include/librecomp/mods.hpp b/librecomp/include/librecomp/mods.hpp
-index 37556bd..a20c127 100644
+index 37556bd..f39a56d 100644
 --- a/librecomp/include/librecomp/mods.hpp
 +++ b/librecomp/include/librecomp/mods.hpp
 @@ -224,6 +224,7 @@ namespace recomp {
@@ -20,7 +20,17 @@ index 37556bd..a20c127 100644
  
              std::vector<NativeLibraryManifest> native_libraries;
              std::unique_ptr<ModFileHandle> file_handle;
-@@ -510,7 +514,8 @@ namespace recomp {
+@@ -341,7 +345,8 @@ namespace recomp {
+             void register_game(const std::string& mod_game_id);
+             void register_embedded_mod(const std::string& mod_id, std::span<const uint8_t> mod_bytes);
+             void register_deprecated_mod(const std::string& mod_id, DeprecationStatus deprecation_status, const Version& maximum_version);
+-            std::vector<ModOpenErrorDetails> scan_mod_folder(const std::filesystem::path& mod_folder);
++            std::vector<ModOpenErrorDetails> scan_mod_folder(const std::filesystem::path& mod_folder, bool only_new = false);
++            std::vector<ModOpenErrorDetails> scan_new_mods(const std::filesystem::path& mod_folder);
+             void close_mods();
+             void load_mods_config();
+             void enable_mod(const std::string& mod_id, bool enabled, bool trigger_save);
+@@ -510,7 +515,8 @@ namespace recomp {
                      .dependencies = manifest.dependencies,
                      .runtime_toggleable = is_runtime_toggleable(),
                      .enabled_by_default = manifest.enabled_by_default,
@@ -30,6 +40,15 @@ index 37556bd..a20c127 100644
                  };
              }
          private:
+@@ -624,6 +630,8 @@ namespace recomp {
+         void register_embedded_mod(const std::string& mod_id, std::span<const uint8_t> mod_bytes);
+         void register_deprecated_mod(const std::string& mod_id, DeprecationStatus deprecation_status, const Version &maximum_version);
+         void scan_mods();
++        // Adds mods put in the mods folder since the last scan, leaving the open ones alone. Safe while the game runs.
++        void scan_new_mods();
+         void close_mods();
+         std::filesystem::path get_mods_directory();
+         std::optional<ModDetails> get_details_for_mod(const std::string& mod_id);
 diff --git a/librecomp/src/mod_manifest.cpp b/librecomp/src/mod_manifest.cpp
 index 71560eb..fe5783d 100644
 --- a/librecomp/src/mod_manifest.cpp
@@ -226,6 +245,89 @@ index 71560eb..fe5783d 100644
      }
  
      // Scan for content types present in this mod.
+diff --git a/librecomp/src/mods.cpp b/librecomp/src/mods.cpp
+index 0f7de83..13215c9 100644
+--- a/librecomp/src/mods.cpp
++++ b/librecomp/src/mods.cpp
+@@ -794,13 +794,19 @@ void recomp::mods::ModContext::dirty_mod_configuration_thread_process() {
+     }
+ }
+ 
+-std::vector<recomp::mods::ModOpenErrorDetails> recomp::mods::ModContext::scan_mod_folder(const std::filesystem::path& mod_folder) {
++// only_new keeps the open mods and opens just the files and folders none of them came from.
++std::vector<recomp::mods::ModOpenErrorDetails> recomp::mods::ModContext::scan_mod_folder(const std::filesystem::path& mod_folder, bool only_new) {
+     std::vector<recomp::mods::ModOpenErrorDetails> ret{};
+     std::error_code ec;
+-    close_mods();
++    if (!only_new) {
++        close_mods();
++    }
+ 
+     static const std::vector<ModContentTypeId> empty_content_types{};
+     for (const auto& mod_path : std::filesystem::directory_iterator{mod_folder, std::filesystem::directory_options::skip_permission_denied, ec}) {
++        if (only_new && opened_mods_by_filename.contains(mod_path.path().filename().native())) {
++            continue;
++        }
+         bool is_mod = false;
+         bool requires_manifest = true;
+         std::reference_wrapper<const std::vector<ModContentTypeId>> supported_content_types = std::cref(empty_content_types);
+@@ -883,6 +889,32 @@ void recomp::mods::ModContext::load_mods_config() {
+     }
+ }
+ 
++// Opens mods added to the folder since the last scan without closing the open ones (code mods may be running from
++// them), appends them to the order, and enables the new ones the way load_mods_config does: listed as enabled in the
++// mods config, or unknown to it and enabled by default. Mid-game, enable_mod skips what can't start then (code mods)
++// and runs the content callbacks for the rest (texture packs).
++std::vector<recomp::mods::ModOpenErrorDetails> recomp::mods::ModContext::scan_new_mods(const std::filesystem::path& mod_folder) {
++    size_t first_new = opened_mods.size();
++    std::vector<ModOpenErrorDetails> ret = scan_mod_folder(mod_folder, true);
++    if (opened_mods.size() == first_new) {
++        return ret;
++    }
++    rebuild_mod_order_lookup();
++
++    std::unordered_set<std::string> config_enabled_mods;
++    std::vector<std::string> config_mod_order;
++    std::string config_game_mode;
++    parse_mods_config(mods_config_path, config_game_mode, config_enabled_mods, config_mod_order);
++    for (size_t i = first_new; i < opened_mods.size(); i++) {
++        const std::string mod_id = opened_mods[i].manifest.mod_id;
++        bool known = std::find(config_mod_order.begin(), config_mod_order.end(), mod_id) != config_mod_order.end();
++        if (config_enabled_mods.contains(mod_id) || (!known && opened_mods[i].manifest.enabled_by_default)) {
++            enable_mod(mod_id, true, false);
++        }
++    }
++    return ret;
++}
++
+ void recomp::mods::ModContext::rebuild_mod_order_lookup() {
+     // Initialize the mod order lookup to all -1 so that mods that aren't enabled have an order index of -1.
+     mod_order_lookup.resize(opened_mods.size());
+diff --git a/librecomp/src/recomp.cpp b/librecomp/src/recomp.cpp
+index 1200f77..e3086d9 100644
+--- a/librecomp/src/recomp.cpp
++++ b/librecomp/src/recomp.cpp
+@@ -120,6 +120,19 @@ void recomp::mods::scan_mods() {
+     mod_context->load_mods_config();
+ }
+ 
++void recomp::mods::scan_new_mods() {
++    std::vector<recomp::mods::ModOpenErrorDetails> mod_open_errors;
++    {
++        std::lock_guard mod_lock{ mod_context_mutex };
++        mod_open_errors = mod_context->scan_new_mods(config_path / mods_directory);
++    }
++    for (const auto& cur_error : mod_open_errors) {
++        printf("Error opening mod " PATHFMT ": %s (%s)\n", cur_error.mod_path.c_str(), recomp::mods::error_to_string(cur_error.error).c_str(), cur_error.error_param.c_str());
++    }
++    printf("Scanned for new mods\n");
++    fflush(stdout);
++}
++
+ void recomp::mods::close_mods() {
+     {
+         std::lock_guard mod_lock{ mod_context_mutex };
 diff --git a/ultramodern/include/ultramodern/config.hpp b/ultramodern/include/ultramodern/config.hpp
 index 2f22456..982c103 100644
 --- a/ultramodern/include/ultramodern/config.hpp
@@ -247,7 +349,7 @@ index 2f22456..982c103 100644
  
          NLOHMANN_JSON_SERIALIZE_ENUM(ultramodern::renderer::HighPrecisionFramebuffer, {
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
-index 090cc42..b492f9d 100644
+index 090cc42..db553f3 100644
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
 @@ -306,6 +306,7 @@ uint32_t ultramodern::get_target_framerate(uint32_t original) {
@@ -258,3 +360,24 @@ index 090cc42..b492f9d 100644
              return display_refresh_rate.load();
      }
  }
+@@ -325,6 +326,10 @@ void ultramodern::trigger_config_action() {
+ std::atomic<ultramodern::renderer::SetupResult> renderer_setup_result = ultramodern::renderer::SetupResult::Success;
+ std::atomic<ultramodern::renderer::GraphicsApi> renderer_chosen_api = ultramodern::renderer::GraphicsApi::Auto;
+ 
++// Rush 2 recomp: called before (1) and after (0) the renderer processes each display list when set (the hitch profiler's
++// game frame marker).
++namespace ultramodern { void (*displaylist_profile_mark)(int begin) = nullptr; }
++
+ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_ready, ultramodern::renderer::WindowHandle window_handle) {
+     bool enabled_instant_present = false;
+     using namespace std::chrono_literals;
+@@ -370,7 +375,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+                 ultramodern::extensions::on_displaylist_submitted(displaylist);
+ 
+                 [[maybe_unused]] auto renderer_start = std::chrono::high_resolution_clock::now();
++                if (ultramodern::displaylist_profile_mark != nullptr) ultramodern::displaylist_profile_mark(1);
+                 renderer_context->send_dl(&task_action->task);
++                if (ultramodern::displaylist_profile_mark != nullptr) ultramodern::displaylist_profile_mark(0);
+                 [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
+ 
+                 dp_complete();

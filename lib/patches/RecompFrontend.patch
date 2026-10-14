@@ -77,7 +77,7 @@ index 277a421..b347a8c 100644
              // fallthrough
              case SDL_EventType::SDL_MOUSEBUTTONDOWN:
 diff --git a/recompui/src/composites/ui_mod_details_panel.cpp b/recompui/src/composites/ui_mod_details_panel.cpp
-index 88291e2..181bd44 100644
+index 88291e2..38daf7e 100644
 --- a/recompui/src/composites/ui_mod_details_panel.cpp
 +++ b/recompui/src/composites/ui_mod_details_panel.cpp
 @@ -1,12 +1,47 @@
@@ -140,7 +140,26 @@ index 88291e2..181bd44 100644
      }
      
      buttons_container = context.create_element<Container>(this, FlexDirection::Row, JustifyContent::SpaceAround);
-@@ -111,6 +150,59 @@ void ModDetailsPanel::set_mod_details(const recomp::mods::ModDetails& details, c
+@@ -83,7 +122,7 @@ void ModDetailsPanel::disable_toggle() {
+     enable_toggle->set_enabled(false);
+ }
+ 
+-void ModDetailsPanel::set_mod_details(const recomp::mods::ModDetails& details, const std::string &thumbnail, bool toggle_checked, bool toggle_enabled, bool toggle_label_visible, bool configure_enabled, recomp::mods::DeprecationStatus deprecation_status) {
++void ModDetailsPanel::set_mod_details(const recomp::mods::ModDetails& details, const std::string &thumbnail, bool toggle_checked, bool toggle_enabled, bool toggle_label_visible, bool configure_enabled, recomp::mods::DeprecationStatus deprecation_status, const std::string &toggle_note) {
+     cur_details = details;
+ 
+     thumbnail_image->set_src(thumbnail);
+@@ -105,12 +144,68 @@ void ModDetailsPanel::set_mod_details(const recomp::mods::ModDetails& details, c
+     configure_button->set_enabled(configure_enabled);
+     enable_label->set_display(toggle_label_visible ? Display::Block : Display::None);
+ 
+-    if (toggle_label_visible && (deprecation_status != recomp::mods::DeprecationStatus::Unknown)) {
++    if (toggle_label_visible && !toggle_note.empty()) {
++        enable_label->set_text(toggle_note);
++    }
++    else if (toggle_label_visible && (deprecation_status != recomp::mods::DeprecationStatus::Unknown)) {
+         enable_label->set_text(recomp::mods::deprecation_status_to_message(deprecation_status));
+     }
      else if (toggle_label_visible) {
          enable_label->set_text("A currently enabled mod requires this mod");
      }
@@ -201,10 +220,20 @@ index 88291e2..181bd44 100644
  
  void ModDetailsPanel::set_mod_toggled_callback(std::function<void(bool)> callback) {
 diff --git a/recompui/src/composites/ui_mod_details_panel.h b/recompui/src/composites/ui_mod_details_panel.h
-index 2617283..cbfbead 100644
+index 2617283..0d825c5 100644
 --- a/recompui/src/composites/ui_mod_details_panel.h
 +++ b/recompui/src/composites/ui_mod_details_panel.h
-@@ -23,8 +23,12 @@ public:
+@@ -15,7 +15,8 @@ class ModDetailsPanel : public Element {
+ public:
+     ModDetailsPanel(ResourceId rid, Element *parent);
+     virtual ~ModDetailsPanel();
+-    void set_mod_details(const recomp::mods::ModDetails& details, const std::string &thumbnail, bool toggle_checked, bool toggle_enabled, bool toggle_label_visible, bool configure_enabled, recomp::mods::DeprecationStatus deprecation_status);
++    void set_mod_details(const recomp::mods::ModDetails& details, const std::string &thumbnail, bool toggle_checked, bool toggle_enabled, bool toggle_label_visible, bool configure_enabled, recomp::mods::DeprecationStatus deprecation_status,
++        const std::string &toggle_note = "");
+     void set_mod_toggled_callback(std::function<void(bool)> callback);
+     void set_mod_configure_pressed_callback(std::function<void()> callback);
+     Toggle* get_enable_toggle() { return enable_toggle; }
+@@ -23,8 +24,12 @@ public:
      void disable_toggle();
  protected:
      std::string_view get_type_name() override { return "ModDetailsPanel"; }
@@ -244,10 +273,29 @@ index 1f98b3c..7031967 100644
                          installation.mod_file = target_path;
                      }
 diff --git a/recompui/src/composites/ui_mod_menu.cpp b/recompui/src/composites/ui_mod_menu.cpp
-index 02455fd..ca70787 100644
+index 02455fd..09768c5 100644
 --- a/recompui/src/composites/ui_mod_menu.cpp
 +++ b/recompui/src/composites/ui_mod_menu.cpp
-@@ -303,20 +303,6 @@ void ModMenu::open_mods_folder() {
+@@ -279,9 +279,15 @@ void ModMenu::refresh_mods(bool scan_mods) {
+         recompui::release_image(thumbnail);
+     }
+ 
+-    // Prevent scanning mods after starting the game.
+-    if (scan_mods && !ultramodern::is_game_started()) {
+-        recomp::mods::scan_mods();
++    // A full rescan closes every mod, so once the game has started (code mods may be running) only new mods are
++    // added. New code mods are listed but stay off until a restart.
++    if (scan_mods) {
++        if (ultramodern::is_game_started()) {
++            recomp::mods::scan_new_mods();
++        }
++        else {
++            recomp::mods::scan_mods();
++        }
+     }
+     mod_details = recomp::mods::get_all_mod_details(game_mod_id);
+     create_mod_list();
+@@ -303,20 +309,6 @@ void ModMenu::open_mods_folder() {
  #endif
  }
  
@@ -268,7 +316,19 @@ index 02455fd..ca70787 100644
  void ModMenu::mod_toggled(bool enabled) {
      if (active_mod_index >= 0) {
          recomp::mods::enable_mod(mod_details[active_mod_index].mod_id, enabled);
-@@ -639,10 +625,6 @@ void ModMenu::process_event(const Event &e) {
+@@ -344,7 +336,10 @@ void ModMenu::mod_selected(uint32_t mod_index) {
+         bool deprecated = recomp::mods::is_mod_deprecated(mod_details[mod_index].mod_id, mod_details[mod_index].version);
+         bool toggle_enabled = !auto_enabled && !deprecated && (mod_details[mod_index].runtime_toggleable || !ultramodern::is_game_started());
+         bool configure_enabled = !config_schema.options.empty();
+-        mod_details_panel->set_mod_details(mod_details[mod_index], thumbnail_src, toggle_checked, toggle_enabled, auto_enabled || deprecated, configure_enabled, deprecation_status);
++        // A code mod found by a mid-game refresh can't be turned on until the next launch.
++        bool needs_restart = !auto_enabled && !deprecated && !toggle_checked && !mod_details[mod_index].runtime_toggleable && ultramodern::is_game_started();
++        mod_details_panel->set_mod_details(mod_details[mod_index], thumbnail_src, toggle_checked, toggle_enabled, auto_enabled || deprecated || needs_restart, configure_enabled, deprecation_status,
++            needs_restart ? "Restart the game to turn this mod on" : "");
+         mod_entry_buttons[active_mod_index]->set_selected(true);
+     }
+ }
+@@ -639,10 +634,6 @@ void ModMenu::process_event(const Event &e) {
              mods_dirty = false;
              mod_scan_queued = false;
          }
@@ -279,26 +339,34 @@ index 02455fd..ca70787 100644
          if (active_mod_index != -1) {        
              bool auto_enabled = recomp::mods::is_mod_auto_enabled(mod_details[active_mod_index].mod_id);
              bool deprecated = recomp::mods::is_mod_deprecated(mod_details[active_mod_index].mod_id, mod_details[active_mod_index].version);
-@@ -720,15 +702,11 @@ ModMenu::ModMenu(ResourceId rid, Element *parent) : Element(rid, parent) {
+@@ -672,7 +663,9 @@ ModMenu::ModMenu(ResourceId rid, Element *parent) : Element(rid, parent) {
+     set_justify_content(JustifyContent::FlexStart);
+     set_width(100.0f, Unit::Percent);
+     set_height(100.0f, Unit::Percent);
+-    
++    // Down from the list or the details panel reaches the footer's buttons (a controller had no way to them).
++    set_as_navigation_container(NavigationType::Vertical);
++
+     {
+         body_container = context.create_element<Container>(this, FlexDirection::Row, JustifyContent::FlexStart);
+         body_container->set_as_navigation_container(NavigationType::Horizontal);
+@@ -720,12 +713,11 @@ ModMenu::ModMenu(ResourceId rid, Element *parent) : Element(rid, parent) {
          footer_container->set_border_bottom_right_radius(16.0f);
          {
              Button* configure_button = mod_details_panel->get_configure_button();
 -            install_mods_button = context.create_element<Button>(footer_container, "Install Mods", recompui::ButtonStyle::Primary);
 -            install_mods_button->add_pressed_callback([this](){ open_install_dialog(); });
 -
-+            // No Install Mods or rescan buttons: the game starts as soon as the ROM is valid, and mods can't be
-+            // rescanned once it has started, so new mods are picked up from the mods folder on the next launch.
++            // No Install Mods button: the game starts as soon as the ROM is valid, and that blocks installing.
              Element* footer_spacer = context.create_element<Element>(footer_container);
              footer_spacer->set_flex(1.0f, 0.0f);
  
--            refresh_button = context.create_element<IconButton>(footer_container, "icons/Reset.svg", recompui::ButtonStyle::Secondary, recompui::IconButtonSize::XLarge);
--            refresh_button->add_pressed_callback([this](){ refresh_mods(true); });
--
-             mods_folder_button = context.create_element<Button>(footer_container, "Open Mods Folder", recompui::ButtonStyle::Tertiary);
-             mods_folder_button->add_pressed_callback([this](){ open_mods_folder(); });
-         } // footer_container
++            // Picks up mods put in the mods folder since launch, while the game runs too (see refresh_mods).
+             refresh_button = context.create_element<IconButton>(footer_container, "icons/Reset.svg", recompui::ButtonStyle::Secondary, recompui::IconButtonSize::XLarge);
+             refresh_button->add_pressed_callback([this](){ refresh_mods(true); });
+ 
 diff --git a/recompui/src/composites/ui_mod_menu.h b/recompui/src/composites/ui_mod_menu.h
-index 294c371..13dd628 100644
+index 294c371..5e5e2b0 100644
 --- a/recompui/src/composites/ui_mod_menu.h
 +++ b/recompui/src/composites/ui_mod_menu.h
 @@ -84,7 +84,6 @@ protected:
@@ -309,15 +377,14 @@ index 294c371..13dd628 100644
      void mod_toggled(bool enabled);
      void mod_selected(uint32_t mod_index);
      void mod_dragged(uint32_t mod_index, EventDrag drag);
-@@ -103,8 +102,6 @@ private:
+@@ -103,7 +102,6 @@ private:
      ModDetailsPanel *mod_details_panel = nullptr;
      Container *body_empty_container = nullptr;
      Container *footer_container = nullptr;
 -    Button *install_mods_button = nullptr;
--    IconButton *refresh_button = nullptr;
+     IconButton *refresh_button = nullptr;
      Button *mods_folder_button = nullptr;
      int32_t active_mod_index = -1;
-     std::vector<ModEntryButton *> mod_entry_buttons;
 diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
 index 4fdf81f..d5ba2a2 100644
 --- a/recompui/src/config/ui_config_tab_graphics.cpp

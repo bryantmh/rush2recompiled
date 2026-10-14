@@ -37,6 +37,10 @@ namespace rush2::track_mod {
     // the first race of it doesn't convert again). False when the track can't be converted: its report says why.
     bool menu_art(int index, MenuArt& out);
 
+    // Starts a background thread that converts the enabled mods' tracks into the disk cache whenever the enabled mods
+    // change, so the track select doesn't convert them when it opens. The first call starts it; later calls do nothing.
+    void prepare_in_background();
+
     // Has the textures of the tracks load and menu_art have seen (the enabled ones) drawn full size in place of their
     // stand-ins (rush2::derive::set_mod_textures, source "tracks"). Does nothing when that set hasn't changed. load
     // calls it; the track select calls it once after its menu_art calls.

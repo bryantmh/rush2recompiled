@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -441,6 +442,35 @@ bool rush2::track_mod::menu_art(int index, MenuArt& out) {
     if (!convert_and_store(f, host_prefix, converted)) return false;
     out = std::move(converted.menu);
     return true;
+}
+
+void rush2::track_mod::prepare_in_background() {
+    static std::atomic_bool started = false;
+    if (started.exchange(true)) return;
+    // One thread for the session: about once a second it rescans the enabled mods, and when they changed, converts each
+    // of their tracks that the disk cache doesn't hold yet (menu_art stores it). The track select then reads them from
+    // the cache instead of converting them on the frame it opens.
+    std::thread([]() {
+        std::string prepared;
+        while (true) {
+            std::string signature;
+            size_t count = 0;
+            {
+                std::lock_guard lock{ mutex };
+                scan();
+                signature = entries_signature;
+                count = entries.size();
+            }
+            if (signature != prepared) {
+                prepared = signature;
+                for (size_t i = 0; i < count; i++) {
+                    MenuArt art;
+                    menu_art(int(i), art);
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }).detach();
 }
 
 void rush2::track_mod::register_mod_notes() {

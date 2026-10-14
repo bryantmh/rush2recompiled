@@ -40,6 +40,7 @@
 // whichever game folder names them.
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -47,6 +48,7 @@
 #include <deque>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -221,6 +223,7 @@ namespace {
     public:
         void start() {
             rush2::derive::start();
+            std::thread([this]() { decode_loop(); }).detach(); // Lives as long as the game, like the worker.
             // The layout migrations run on the worker before it upscales anything, never holding up the window (a
             // player doesn't know they are there). Dump and Install wait for them (wait_migrated).
             worker = std::thread([this]() {
@@ -367,36 +370,27 @@ namespace {
         }
 
         // RT64::TextureObserver. Runs on the display list thread for every textured tile, so it does as little as it
-        // can: one map lookup for textures it has decided on already.
+        // can: one map lookup for textures it has decided on already. A texture seen for the first time (or kept after
+        // stable_frames) is decoded on the decode thread (decode_loop) from a copy of TMEM, not here: decoding the
+        // dozens of textures a new race shows at once held up its first frame.
         void textureDrawn(uint64_t hash, const uint8_t* tmem, const RT64::LoadTile& tile, uint16_t width, uint16_t height,
                           uint32_t tlut, bool world, uint64_t frame, uint32_t address) override {
             std::unique_lock lock(mutex);
             Seen& seen = seen_hashes[hash];
+            DrawnJob job;
             if (!world) {
                 if (!seen.ui) {
                     seen.ui = true;
-                    if (!exact_images.empty() && tlut != 0 && tile.siz == 1) {
-                        find_exact(hash, tmem, tile, width, height, tlut);
-                    }
+                    job.exact = !exact_images.empty() && tlut != 0 && tile.siz == 1;
                     // Packs replace 2D textures too; ones the game makes at run time (strips of a big image, other
                     // palettes) are derived from the catalog's (the upscaling modes leave 2D alone).
-                    if (width <= 1024 && height <= 1024) {
-                        std::vector<uint8_t> indices;
-                        Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut,
-                                                  width, height, tlut != 0 ? &indices : nullptr);
-                        uint64_t drawn_index_key = tlut != 0 ? index_key(indices, width, height, tile.siz) : 0;
-                        uint64_t key = content_key(image);
-                        if (rush2::census::enabled()) {
-                            rush2::census::record(hash, key, drawn_index_key, address, tile.fmt, tile.siz, tile.line,
-                                                  tile.tmem, width, height, tlut, image);
-                        }
-                        rush2::derive::drawn(hash, key, drawn_index_key, image, std::move(indices), tile.siz, false);
-                    }
+                    job.ui = width <= 1024 && height <= 1024;
                     if (seen.key != 0) {
                         mark_ui(seen.key);
                     }
                 }
                 if (!ui_upscaling) {
+                    queue_drawn(job, hash, tmem, tile, width, height, tlut, world, address);
                     return;
                 }
             }
@@ -404,45 +398,126 @@ namespace {
             // not after stable_frames: waiting three frames for a repaint showed the native texture that long.
             if (world && !seen.derived) {
                 seen.derived = true;
-                if (width <= 1024 && height <= 1024 &&
-                    !(dc_mode == TextureMode::Disc && rush2::rom2049::dc::in_texture_pack(hash))) {
-                    std::vector<uint8_t> indices;
-                    Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut,
-                                              width, height, tlut != 0 ? &indices : nullptr);
-                    uint64_t key = content_key(image);
-                    const uint64_t drawn_index_key = tlut != 0 ? index_key(indices, width, height, tile.siz) : 0;
-                    if (rush2::census::enabled()) {
-                        rush2::census::record(hash, key, drawn_index_key, address, tile.fmt, tile.siz, tile.line,
-                                              tile.tmem, width, height, tlut, image);
-                    }
-                    rush2::derive::drawn(hash, key, drawn_index_key, image, std::move(indices), tile.siz, true);
-                }
+                job.derived = width <= 1024 && height <= 1024 &&
+                    !(dc_mode == TextureMode::Disc && rush2::rom2049::dc::in_texture_pack(hash));
             }
             if ((seen.ui && !ui_upscaling) || seen.kept || frame == seen.last_frame) {
+                queue_drawn(job, hash, tmem, tile, width, height, tlut, world, address);
                 return;
             }
             seen.last_frame = frame;
             if (++seen.frames < stable_frames) {
+                queue_drawn(job, hash, tmem, tile, width, height, tlut, world, address);
                 return;
             }
 
             seen.kept = true;
             if (width > 1024 || height > 1024) {
-                return; // A tile sized past what TMEM holds; nothing real to upscale.
+                // A tile sized past what TMEM holds; nothing real to upscale.
             }
-            if (dc_mode == TextureMode::Disc && rush2::rom2049::dc::in_texture_pack(hash)) {
+            else if (dc_mode == TextureMode::Disc && rush2::rom2049::dc::in_texture_pack(hash)) {
                 seen.dc_packed = true;
                 source_packed++; // Drawn with the disc's image from its texture pack.
+            }
+            else {
+                job.kept = true;
+            }
+            queue_drawn(job, hash, tmem, tile, width, height, tlut, world, address);
+        }
+
+    private:
+        // A texture textureDrawn handed to the decode thread, with its own copy of TMEM.
+        struct DrawnJob {
+            bool exact = false;     // a 2D CI8 texture to look for among the exact images (find_exact)
+            bool ui = false;        // first seen in 2D: to rush2::derive
+            bool derived = false;   // first seen in 3D: to rush2::derive
+            bool kept = false;      // drawn for stable_frames: to keep and upscale (drawn_kept)
+            uint64_t hash = 0;
+            std::array<uint8_t, 4096> tmem;
+            RT64::LoadTile tile;
+            uint16_t width = 0, height = 0;
+            uint32_t tlut = 0, address = 0;
+            bool world = false;
+        };
+        std::mutex drawn_mutex;
+        std::condition_variable drawn_changed;
+        std::deque<std::unique_ptr<DrawnJob>> drawn_jobs;
+
+        // Queues `job` if it has anything to do (mutex held; copies TMEM).
+        void queue_drawn(DrawnJob& job, uint64_t hash, const uint8_t* tmem, const RT64::LoadTile& tile, uint16_t width,
+                         uint16_t height, uint32_t tlut, bool world, uint32_t address) {
+            if (!job.exact && !job.ui && !job.derived && !job.kept) {
                 return;
             }
+            auto queued = std::make_unique<DrawnJob>(job);
+            queued->hash = hash;
+            memcpy(queued->tmem.data(), tmem, queued->tmem.size());
+            queued->tile = tile;
+            queued->width = width;
+            queued->height = height;
+            queued->tlut = tlut;
+            queued->world = world;
+            queued->address = address;
+            {
+                std::lock_guard drawn_lock(drawn_mutex);
+                drawn_jobs.push_back(std::move(queued));
+            }
+            drawn_changed.notify_one();
+        }
+
+        // The decode thread: does textureDrawn's decoding, in the order the textures were drawn.
+        void decode_loop() {
+            while (true) {
+                std::unique_ptr<DrawnJob> job;
+                {
+                    std::unique_lock drawn_lock(drawn_mutex);
+                    drawn_changed.wait(drawn_lock, [this]() { return !drawn_jobs.empty(); });
+                    job = std::move(drawn_jobs.front());
+                    drawn_jobs.pop_front();
+                }
+                decode_drawn(*job);
+            }
+        }
+
+        void decode_drawn(const DrawnJob& j) {
+            const uint8_t* tmem = j.tmem.data();
+            const RT64::LoadTile& tile = j.tile;
+            if (j.exact) {
+                std::unique_lock lock(mutex);
+                find_exact(j.hash, tmem, tile, j.width, j.height, j.tlut);
+            }
+            if (j.ui || j.derived) {
+                std::vector<uint8_t> indices;
+                Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, j.tlut,
+                                          j.width, j.height, j.tlut != 0 ? &indices : nullptr);
+                uint64_t drawn_index_key = j.tlut != 0 ? index_key(indices, j.width, j.height, tile.siz) : 0;
+                uint64_t key = content_key(image);
+                if (rush2::census::enabled()) {
+                    rush2::census::record(j.hash, key, drawn_index_key, j.address, tile.fmt, tile.siz, tile.line,
+                                          tile.tmem, j.width, j.height, j.tlut, image);
+                }
+                rush2::derive::drawn(j.hash, key, drawn_index_key, image, std::move(indices), tile.siz, j.derived);
+            }
+            if (j.kept) {
+                drawn_kept(j);
+            }
+        }
+
+        // A texture drawn for stable_frames: kept, and queued for upscaling or given its upscale.
+        void drawn_kept(const DrawnJob& j) {
+            const uint8_t* tmem = j.tmem.data();
+            const RT64::LoadTile& tile = j.tile;
+            const uint64_t hash = j.hash;
+            const bool world = j.world;
             std::vector<uint8_t> indices;
-            Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, tlut, width, height,
-                                      tlut != 0 ? &indices : nullptr);
+            Image image = decode_tmem(tmem, tile.fmt, tile.siz, tile.tmem, tile.line, tile.palette, j.tlut, j.width,
+                                      j.height, j.tlut != 0 ? &indices : nullptr);
             uint64_t key = content_key(image);
             if (!worth_upscaling(image)) {
                 return;
             }
-            seen.key = key;
+            std::unique_lock lock(mutex);
+            seen_hashes[hash].key = key;
             auto [it, inserted] = entries.try_emplace(key);
             Entry& entry = it->second;
             if (inserted) {
@@ -450,10 +525,10 @@ namespace {
                 entry.edge_s = edge_of(tile.cms, tile.masks);
                 entry.edge_t = edge_of(tile.cmt, tile.maskt);
                 entry.ui = ui_keys.count(key) != 0 || !world;
-                entry.origin = rush2::origin::at(address);
+                entry.origin = rush2::origin::at(j.address);
                 entry.fmt = tile.fmt;
-                if (tlut != 0) {
-                    entry.index_key = index_key(indices, width, height, tile.siz);
+                if (j.tlut != 0) {
+                    entry.index_key = index_key(indices, j.width, j.height, tile.siz);
                     // The first palette variant of these indices is the one that gets upscaled.
                     auto [base_it, new_base] = bases.try_emplace(entry.index_key, key);
                     if (!new_base && base_it->second != key) {
@@ -494,6 +569,7 @@ namespace {
             }
         }
 
+    public:
         // Starts Dump Textures in the background: every texture of the catalog (the ROMs' own, rush2::catalog) into
         // its game's folder and every Dreamcast disc image into rush2049dc. dumping() while it runs, then dumped() has
         // how many there are. textures/ is made afresh each time: it only ever holds what the ROMs have.

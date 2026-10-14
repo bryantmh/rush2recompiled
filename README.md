@@ -108,7 +108,7 @@ Every mod is a folder or `.rtz` in the `mods` folder (Settings > Mods > Open Mod
 }
 ```
 
-`description` and `short_description` are optional, and a `thumb.png` beside it is the mod's picture. A field that's missing or written wrong doesn't hide the mod: it gets a default (the file name for `id`, 0.0.0 for versions) and the mod's page in the Mods menu lists the problems under "mod.json". Mods are found when the game starts, so restart after adding one.
+`description` and `short_description` are optional, and a `thumb.png` beside it is the mod's picture. A field that's missing or written wrong doesn't hide the mod: it gets a default (the file name for `id`, 0.0.0 for versions) and the mod's page in the Mods menu lists the problems under "mod.json". A mod added while the game runs shows up when you press the refresh button next to Open Mods Folder; a mod with code (`mod_syms.bin`) only turns on after a restart.
 
 ## Modding: replacing models (experimental)
 

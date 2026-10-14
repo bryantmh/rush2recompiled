@@ -126,6 +126,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/data_files.cpp
     ${CMAKE_SOURCE_DIR}/src/atomics.cpp
     ${CMAKE_SOURCE_DIR}/src/threads.cpp
+    ${CMAKE_SOURCE_DIR}/src/hitch_profiler.cpp
     ${CMAKE_SOURCE_DIR}/src/pak.cpp
     ${CMAKE_SOURCE_DIR}/src/hud.cpp
     ${CMAKE_SOURCE_DIR}/src/interpolation.cpp

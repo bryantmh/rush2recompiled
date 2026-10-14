@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "hitch_profiler.h"
 #include "nfd.h"
 #include "texture_census.h"
 #include "texture_derive.h"
@@ -545,6 +546,7 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
     // Set up high resolution timing period.
     timeBeginPeriod(1);
+    rush2::hitch::start();
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--show-console") == 0) {
