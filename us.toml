@@ -12014,3 +12014,11 @@ text = "    rush2_online_present_begin(rdram, ctx);"
 func = "race_start_timer_800AE670"
 before_vram = 0x800AF1F4
 text = "    rush2_online_present_end(rdram, ctx);"
+
+# The race start pose setup (func_8009A264) picks a value per car type from a table row: 0 for computer cars, the
+# player number + 1 for human cars. The table has rows for players 1 and 2 only (both all zeros); players 3 and up read
+# whatever follows, a crash in an online race of 6 or more (docs/online.md#eight-players). They get player 1's row.
+[[patches.hook]]
+func = "car_race_start_pose_setup_8009A264"
+before_vram = 0x8009A41C
+text = "    if ((int32_t)ctx->r2 > 2) ctx->r2 = 1;"

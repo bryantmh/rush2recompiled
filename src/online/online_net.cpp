@@ -756,6 +756,16 @@ bool rush2::online::host(const HostOptions& options) {
     slots[0].name = my_name;
     slots[0].car = my_car;
     slots[0].games = my_games;
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_FAKE=K fills K more slots with players who aren't there (their
+    // cars get no input, as a dropped player's), to try big races on one machine.
+    if (const char* fake = std::getenv("RUSH2_ONLINE_FAKE")) {
+        for (int i = 1; i <= std::atoi(fake) && i < max_players; i++) {
+            slots[i].used = true;
+            slots[i].ready = true;
+            slots[i].name = "Fake " + std::to_string(i + 1);
+            slots[i].car.type = (uint8_t)i;
+        }
+    }
     error_text.clear();
     clear_race();
     cur_state = State::Lobby;
