@@ -69,6 +69,8 @@ Every machine sets the race up the same way and then runs it in lockstep:
 - **Checks**: when the race loads, each machine reports a hash of the cars' physics and race state, the player records
   and the seeds; the race starts only if all match. Every 30 frames they compare the same hash; a mismatch ends the race
   for everyone ("desync"). A player whose input doesn't come for 15 s is dropped: their car coasts.
+- **Waiting**: while a frame's inputs are late by over a second, a notice over the game names who it waits for
+  (`race_status`, RecompUI's `open_notification`); it closes when they arrive.
 - **Pause** is off (`race_pause_menu_step_800AFD44` returns at once).
 
 ## One view per machine
@@ -171,5 +173,4 @@ for the players4 tools.
 ## Known limitations
 
 - The engine sounds and rumble follow player 1's car on every machine (see one view per machine).
-- A player waiting on someone's input sees the game hold; `race_status()` has the message but no overlay shows it yet.
 - The battle's own state isn't in the desync hash (a difference shows once it moves a car).

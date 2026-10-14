@@ -1109,24 +1109,27 @@ void rush2::online::submit_local_input(uint32_t frame, const PlayerInput& input)
     }
 }
 
-bool rush2::online::wait_frame_inputs(uint32_t frame, PlayerInput* out) {
+rush2::online::Wait rush2::online::wait_frame_inputs(uint32_t frame, PlayerInput* out, int timeout_ms) {
     std::unique_lock lock{ state_mutex };
     auto started = clock_type::now();
     while (true) {
         if (race_over || cur_state == State::Offline) {
             waiting = false;
-            return false;
+            return Wait::Ended;
         }
         auto it = frames.find(frame);
         if (go && it != frames.end()) {
             std::copy(it->second.begin(), it->second.end(), out);
             frames.erase(frames.begin(), it);
             waiting = false;
-            return true;
+            return Wait::Ready;
         }
         if (!waiting) {
             waiting = true;
             waiting_since = started;
+        }
+        if (timeout_ms >= 0 && clock_type::now() - started >= std::chrono::milliseconds(timeout_ms)) {
+            return Wait::Timeout;
         }
         inputs_cv.wait_for(lock, std::chrono::milliseconds(50));
     }

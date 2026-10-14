@@ -142,9 +142,10 @@ namespace rush2::online {
     bool racing();
     // The machine's own input for the frame `frame + input delay`. Called once per game frame.
     void submit_local_input(uint32_t frame, const PlayerInput& input);
-    // Waits until every player's input for `frame` has arrived and copies them to `out` (max_players entries).
-    // Returns false if the race ended (a disconnect from the host, or leave()).
-    bool wait_frame_inputs(uint32_t frame, PlayerInput* out);
+    // Waits up to timeout_ms (negative: for good) for every player's input for `frame` and copies them to `out`
+    // (max_players entries).
+    enum class Wait { Ready, Timeout, Ended };  // Ended: the race ended (a disconnect from the host, or leave()).
+    Wait wait_frame_inputs(uint32_t frame, PlayerInput* out, int timeout_ms = -1);
     // The number of game frames between sampling an input and applying it.
     uint32_t input_delay();
     // The race's seed and settings, fixed when it started.

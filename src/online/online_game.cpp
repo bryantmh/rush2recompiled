@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "recomp.h"
+#include "recompui/recompui.h"
 #include "online.h"
 #include "rush2.h"
 #include "battle.h"
@@ -498,6 +499,23 @@ namespace {
     }
 }
 
+namespace {
+    // A notice over the game while it waits on another player ("Waiting for ..."; race_status), empty to close it.
+    std::string shown_notice;
+    void show_wait_notice(const std::string& text) {
+        if (text == shown_notice) {
+            return;
+        }
+        if (text.empty()) {
+            recompui::close_prompt();
+        }
+        else {
+            recompui::open_notification("Online Race", text);
+        }
+        shown_notice = text;
+    }
+}
+
 // Top of the game thread's frame (func_800B0228's loop), once per frame in menus and races.
 extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     game_frame++;
@@ -566,7 +584,12 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         local.battle = rush2::controls::battle_buttons(0);
     }
     submit_local_input(race_frame + input_delay(), local);
-    if (!wait_frame_inputs(race_frame, frame_inputs.data())) {
+    Wait got;
+    while ((got = wait_frame_inputs(race_frame, frame_inputs.data(), 250)) == Wait::Timeout) {
+        show_wait_notice(race_status());
+    }
+    show_wait_notice({});
+    if (got == Wait::Ended) {
         lockstep = false;
         return;
     }
