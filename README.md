@@ -93,6 +93,23 @@ Texture upscaling keeps its files in the `texture_upscale` folder there: the ups
 
 Want to keep everything on a USB stick or next to the game? Turn on portable mode in the General tab under Data Location. Your data moves into the game's folder the next time you launch.
 
+## Modding: mod.json
+
+Every mod is a folder or `.rtz` in the `mods` folder (Settings > Mods > Open Mods Folder) with a `mod.json` at its root:
+
+```json
+{
+  "game_id": "rush2",
+  "id": "my_mod",
+  "display_name": "My Mod",
+  "version": "1.0.0",
+  "authors": ["You"],
+  "minimum_recomp_version": "0.0.0"
+}
+```
+
+`description` and `short_description` are optional, and a `thumb.png` beside it is the mod's picture. A field that's missing or written wrong doesn't hide the mod: it gets a default (the file name for `id`, 0.0.0 for versions) and the mod's page in the Mods menu lists the problems under "mod.json". Mods are found when the game starts, so restart after adding one.
+
 ## Modding: replacing models (experimental)
 
 Any model in the game can be swapped for your own mesh, of any detail. Run Dump Models to get every model as a `.glb` in `asset_dump/models`. Open the one you want in Blender or a similar program, edit it or model over it in the same position and scale, and export it as glTF Binary (`.glb`) with its textures embedded and no Draco compression. Keep the dumped file name. Make a mod folder in the `mods` folder holding a `mod.json` (with `"game_id": "rush2"`) and your file under `rush2/models/`, for example `rush2/models/tracks/ALCATRAZ/ALCATRAZL4156.glb`. You can zip the folder into an `.rtz`. Turn the mod on in the Mods menu, and the model changes the next time the game loads it. Only the look changes: cars and tracks still drive and collide as before. A whole car can also go in `rush2/cars/<CAR>.glb`, where it takes the player's paint and dents. `tools/car_mod.py` can build that from a mesh and texture.

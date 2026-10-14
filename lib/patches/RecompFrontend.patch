@@ -77,7 +77,7 @@ index 277a421..b347a8c 100644
              // fallthrough
              case SDL_EventType::SDL_MOUSEBUTTONDOWN:
 diff --git a/recompui/src/composites/ui_mod_details_panel.cpp b/recompui/src/composites/ui_mod_details_panel.cpp
-index 88291e2..8ca368d 100644
+index 88291e2..181bd44 100644
 --- a/recompui/src/composites/ui_mod_details_panel.cpp
 +++ b/recompui/src/composites/ui_mod_details_panel.cpp
 @@ -1,12 +1,47 @@
@@ -140,7 +140,7 @@ index 88291e2..8ca368d 100644
      }
      
      buttons_container = context.create_element<Container>(this, FlexDirection::Row, JustifyContent::SpaceAround);
-@@ -111,6 +150,47 @@ void ModDetailsPanel::set_mod_details(const recomp::mods::ModDetails& details, c
+@@ -111,6 +150,59 @@ void ModDetailsPanel::set_mod_details(const recomp::mods::ModDetails& details, c
      else if (toggle_label_visible) {
          enable_label->set_text("A currently enabled mod requires this mod");
      }
@@ -163,6 +163,18 @@ index 88291e2..8ca368d 100644
 +    {
 +        std::lock_guard lock{ notes_mutex };
 +        if (notes_provider) notes = notes_provider(cur_details.mod_id);
++    }
++    // mod.json problems that were filled in with defaults come first.
++    if (!cur_details.manifest_warnings.empty()) {
++        ModNoteSection manifest_section;
++        manifest_section.title = "mod.json";
++        for (const std::string& w : cur_details.manifest_warnings) {
++            ModNote note;
++            note.level = ModNote::Level::Warning;
++            note.text = w;
++            manifest_section.notes.push_back(std::move(note));
++        }
++        notes.sections.insert(notes.sections.begin(), std::move(manifest_section));
 +    }
 +    std::string signature = cur_details.mod_id + (notes.pending ? ";pending;" : ";");
 +    for (const ModNoteSection& s : notes.sections) {
@@ -205,6 +217,107 @@ index 2617283..cbfbead 100644
      Container *thumbnail_container = nullptr;
      Image *thumbnail_image = nullptr;
      Container *header_container = nullptr;
+diff --git a/recompui/src/composites/ui_mod_installer.cpp b/recompui/src/composites/ui_mod_installer.cpp
+index 1f98b3c..7031967 100644
+--- a/recompui/src/composites/ui_mod_installer.cpp
++++ b/recompui/src/composites/ui_mod_installer.cpp
+@@ -43,8 +43,8 @@ namespace recompui {
+             exists = (open_error == recomp::mods::ModOpenError::Good);
+ 
+             if (exists) {
+-                installation.mod_id = manifest.mod_id;
+-                installation.display_name = manifest.display_name;
++                installation.mod_id = manifest.mod_id.empty() ? std::string((const char *)(target_path.stem().u8string().c_str())) : manifest.mod_id;
++                installation.display_name = manifest.display_name.empty() ? installation.mod_id : manifest.display_name;
+                 installation.mod_version = manifest.version;
+                 installation.mod_file = target_path;
+             }
+@@ -160,8 +160,8 @@ namespace recompui {
+                     exists = (open_error == recomp::mods::ModOpenError::Good);
+ 
+                     if (exists) {
+-                        installation.mod_id = manifest.mod_id;
+-                        installation.display_name = manifest.display_name;
++                        installation.mod_id = manifest.mod_id.empty() ? std::string((const char *)(target_path.stem().u8string().c_str())) : manifest.mod_id;
++                        installation.display_name = manifest.display_name.empty() ? installation.mod_id : manifest.display_name;
+                         installation.mod_version = manifest.version;
+                         installation.mod_file = target_path;
+                     }
+diff --git a/recompui/src/composites/ui_mod_menu.cpp b/recompui/src/composites/ui_mod_menu.cpp
+index 02455fd..ca70787 100644
+--- a/recompui/src/composites/ui_mod_menu.cpp
++++ b/recompui/src/composites/ui_mod_menu.cpp
+@@ -303,20 +303,6 @@ void ModMenu::open_mods_folder() {
+ #endif
+ }
+ 
+-void ModMenu::open_install_dialog() {
+-    recompui::file::open_file_dialog_multiple([](bool success, const std::list<std::filesystem::path>& paths) {
+-        if (success) {
+-            ContextId old_context = recompui::try_close_current_context();
+-
+-            recompui::drop_files(paths);
+-
+-            if (old_context != ContextId::null()) {
+-                old_context.open();
+-            }
+-        }
+-    });
+-}
+-
+ void ModMenu::mod_toggled(bool enabled) {
+     if (active_mod_index >= 0) {
+         recomp::mods::enable_mod(mod_details[active_mod_index].mod_id, enabled);
+@@ -639,10 +625,6 @@ void ModMenu::process_event(const Event &e) {
+             mods_dirty = false;
+             mod_scan_queued = false;
+         }
+-        if (ultramodern::is_game_started()) {
+-            install_mods_button->set_enabled(false);
+-            refresh_button->set_enabled(false);
+-        }
+         if (active_mod_index != -1) {        
+             bool auto_enabled = recomp::mods::is_mod_auto_enabled(mod_details[active_mod_index].mod_id);
+             bool deprecated = recomp::mods::is_mod_deprecated(mod_details[active_mod_index].mod_id, mod_details[active_mod_index].version);
+@@ -720,15 +702,11 @@ ModMenu::ModMenu(ResourceId rid, Element *parent) : Element(rid, parent) {
+         footer_container->set_border_bottom_right_radius(16.0f);
+         {
+             Button* configure_button = mod_details_panel->get_configure_button();
+-            install_mods_button = context.create_element<Button>(footer_container, "Install Mods", recompui::ButtonStyle::Primary);
+-            install_mods_button->add_pressed_callback([this](){ open_install_dialog(); });
+-
++            // No Install Mods or rescan buttons: the game starts as soon as the ROM is valid, and mods can't be
++            // rescanned once it has started, so new mods are picked up from the mods folder on the next launch.
+             Element* footer_spacer = context.create_element<Element>(footer_container);
+             footer_spacer->set_flex(1.0f, 0.0f);
+ 
+-            refresh_button = context.create_element<IconButton>(footer_container, "icons/Reset.svg", recompui::ButtonStyle::Secondary, recompui::IconButtonSize::XLarge);
+-            refresh_button->add_pressed_callback([this](){ refresh_mods(true); });
+-
+             mods_folder_button = context.create_element<Button>(footer_container, "Open Mods Folder", recompui::ButtonStyle::Tertiary);
+             mods_folder_button->add_pressed_callback([this](){ open_mods_folder(); });
+         } // footer_container
+diff --git a/recompui/src/composites/ui_mod_menu.h b/recompui/src/composites/ui_mod_menu.h
+index 294c371..13dd628 100644
+--- a/recompui/src/composites/ui_mod_menu.h
++++ b/recompui/src/composites/ui_mod_menu.h
+@@ -84,7 +84,6 @@ protected:
+ private:
+     void refresh_mods(bool scan_mods);
+     void open_mods_folder();
+-    void open_install_dialog();
+     void mod_toggled(bool enabled);
+     void mod_selected(uint32_t mod_index);
+     void mod_dragged(uint32_t mod_index, EventDrag drag);
+@@ -103,8 +102,6 @@ private:
+     ModDetailsPanel *mod_details_panel = nullptr;
+     Container *body_empty_container = nullptr;
+     Container *footer_container = nullptr;
+-    Button *install_mods_button = nullptr;
+-    IconButton *refresh_button = nullptr;
+     Button *mods_folder_button = nullptr;
+     int32_t active_mod_index = -1;
+     std::vector<ModEntryButton *> mod_entry_buttons;
 diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
 index 4fdf81f..d5ba2a2 100644
 --- a/recompui/src/config/ui_config_tab_graphics.cpp
