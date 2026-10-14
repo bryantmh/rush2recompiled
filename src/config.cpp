@@ -17,6 +17,7 @@
 #include "circuit.h"
 #include "npc_cars.h"
 #include "rush2.h"
+#include "online.h"
 #include "players4.h"
 #include "music.h"
 #include "pause_menu.h"
@@ -878,6 +879,7 @@ void rush2::init_config() {
     rush2::collectibles::create_tab();
     rush2::games::create_tab();
     rush2::cheats::create_tab();
+    rush2::online_tab::create_tab();
     recompui::config::create_mods_tab();
 
     recompui::config::finalize();
@@ -939,4 +941,6 @@ void rush2::init_config() {
     rush2::circuit::load_config();
     rush2::track1::load_config();
     rush2::music::load_config();
+    // Last: the lobby compares the settings of the configs loaded above.
+    rush2::online_tab::load_config();
 }

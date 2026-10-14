@@ -27,6 +27,7 @@
 #include "control_profiles.h"
 #include "options_page.h"
 #include "rush2.h"
+#include "online.h"
 
 namespace {
     using namespace recompui;
@@ -213,6 +214,9 @@ namespace {
 
             add_heading("Driving");
             add_option(profile_config, ids::steering);
+
+            add_heading("Online", "", "How other players see you in online races (the Online tab).");
+            add_option(rush2::online_tab::config(), "display_name");
             add_option(profile_config, ids::reverse);
             add_option(profile_config, ids::deadzone);
 

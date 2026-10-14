@@ -377,6 +377,11 @@ namespace {
             static bool raced = false;
             if (!raced && used >= wanted && ready) {
                 raced = start_race();
+                static std::string reported;
+                if (!raced && last_error() != reported) {
+                    reported = last_error();
+                    std::fprintf(stderr, "[online] can't start: %s\n", reported.c_str());
+                }
             }
         }
         else {

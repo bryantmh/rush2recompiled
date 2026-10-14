@@ -290,6 +290,10 @@ void rush2::npc_cars::init_config() {
     }
 }
 
+recomp::config::Config& rush2::npc_cars::config() {
+    return npc_config;
+}
+
 void rush2::npc_cars::load_config() {
     npc_config.load_config();
     for (int npc = 0; npc < count; npc++) {

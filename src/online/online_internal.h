@@ -17,7 +17,7 @@ namespace rush2::online {
 
     // Messages, each starting with its type byte. Host -> client unless marked client -> host.
     enum class Msg : uint8_t {
-        Hello = 1,        // client -> host: u32 protocol, str key, str name, car, u8 games
+        Hello = 1,        // client -> host: u32 protocol, str key, str name, car, u8 games, long str gameplay
         Welcome = 2,      // u8 slot, str lobby name, u8 max players
         Reject = 3,       // str reason
         Roster = 4,       // roster
@@ -34,6 +34,7 @@ namespace rush2::online {
         Desync = 15,      // u32 frame: the machines' races differ; the race ends
         LoadMismatch = 16,// a machine set up a different race; the race ends
         Finished = 17,    // client -> host: the race is over on this machine
+        SetGameplay = 18, // client -> host: long str
     };
 
     // ENet channels.
@@ -50,6 +51,12 @@ namespace rush2::online {
         void str(const std::string& s) {
             size_t n = std::min<size_t>(s.size(), 255);
             u8(uint8_t(n));
+            data.insert(data.end(), s.begin(), s.begin() + n);
+        }
+        // A string of up to 64 KB.
+        void long_str(const std::string& s) {
+            size_t n = std::min<size_t>(s.size(), 0xFFFF);
+            u16(uint16_t(n));
             data.insert(data.end(), s.begin(), s.begin() + n);
         }
         void bytes(const std::vector<uint8_t>& b) {
@@ -74,7 +81,6 @@ namespace rush2::online {
             u8(s.track);
             u8(s.laps);
             u8(s.fill_with_ai ? 1 : 0);
-            bytes(s.gameplay);
         }
         void roster(const RosterEntry* entries) {
             for (int i = 0; i < max_players; i++) {
@@ -84,6 +90,7 @@ namespace rush2::online {
                 u16(e.ping_ms);
                 car(e.car);
                 u8(e.games);
+                long_str(e.gameplay);
             }
         }
     };
@@ -104,6 +111,16 @@ namespace rush2::online {
         uint32_t u32() { uint32_t lo = u16(); return lo | (uint32_t(u16()) << 16); }
         std::string str() {
             size_t n = u8();
+            if (at + n > size) {
+                bad = true;
+                return {};
+            }
+            std::string s(reinterpret_cast<const char*>(data + at), n);
+            at += n;
+            return s;
+        }
+        std::string long_str() {
+            size_t n = u16();
             if (at + n > size) {
                 bad = true;
                 return {};
@@ -145,7 +162,6 @@ namespace rush2::online {
             s.track = u8();
             s.laps = u8();
             s.fill_with_ai = u8() != 0;
-            s.gameplay = bytes();
             return s;
         }
         void roster(RosterEntry* entries) {
@@ -159,6 +175,7 @@ namespace rush2::online {
                 e.ping_ms = u16();
                 e.car = car();
                 e.games = u8();
+                e.gameplay = long_str();
             }
         }
 

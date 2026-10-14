@@ -35,8 +35,6 @@ namespace rush2::online {
         uint8_t track = 0;    // The track select's index for the mode (src/online/online_game.cpp).
         uint8_t laps = 3;
         bool fill_with_ai = true;  // Empty car slots race as computer cars.
-        // The host's gameplay settings for the race (src/online/online_game.cpp: options that change the race).
-        std::vector<uint8_t> gameplay;
 
         bool operator==(const RaceSettings&) const = default;
     };
@@ -56,6 +54,9 @@ namespace rush2::online {
         uint16_t ping_ms = 0;
         CarChoice car;
         uint8_t games = 0;       // The other games' ROMs the player has (games_* bits): what tracks all can race.
+        // The player's settings that change the race (src/online_tab.cpp, "config/option=value" lines): a race starts
+        // only when every player's match the host's.
+        std::string gameplay;
     };
 
     constexpr uint8_t games_rush2049 = 1;  // San Francisco Rush 2049 (src/rush2049/rush2049_rom.cpp).
@@ -114,6 +115,8 @@ namespace rush2::online {
 
     // Which other games' ROMs this machine has (games_* bits), sent to the host when joining.
     void set_local_games(uint8_t games);
+    // This machine's settings that change the race (RosterEntry::gameplay).
+    void set_local_gameplay(const std::string& gameplay);
     void set_display_name(const std::string& name);
     std::string display_name();
     void set_car(const CarChoice& car);
@@ -164,6 +167,20 @@ namespace rush2::online {
         // An online race is set up or running on this machine.
         bool in_race();
     }
+}
+
+namespace recomp::config {
+    class Config;
+}
+
+// The Online tab (src/online_tab.cpp).
+namespace rush2::online_tab {
+    // Registers the options and the tab. Call before recompui::config::finalize().
+    void create_tab();
+    // Loads online.json and hands this machine's choices to the session. Call after every other config has loaded.
+    void load_config();
+    // The "online" config (online.json): the display name, which the Controls tab also shows, and the tab's choices.
+    recomp::config::Config& config();
 }
 
 #endif

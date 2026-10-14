@@ -6,6 +6,9 @@
 namespace recompui {
     class Element;
 }
+namespace recomp::config {
+    class Config;
+}
 
 // The computer cars' car, paint, stripe and rims, chosen per opponent in the General tab's AI Opponents section
 // (src/npc_cars.cpp). Every choice starts at Random (or the car's own rims), which keeps Rush 2's random picks.
@@ -16,6 +19,8 @@ namespace rush2::npc_cars {
     void init_config();
     // Loads the saved choices. Call after recompui::config::finalize().
     void load_config();
+    // The choices' config (npc_cars.json), for online lobbies to compare (src/online_tab.cpp).
+    recomp::config::Config& config();
     // Adds the collapsible AI Opponents section to a list (the General tab's, under Gameplay).
     // on_show, if given, runs when the section's heading is hovered or focused (to show its description).
     void add_section(recompui::Element* parent, std::function<void()> on_show = nullptr);

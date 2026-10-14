@@ -69,6 +69,7 @@ namespace {
     std::string my_name = "Player";
     CarChoice my_car;
     uint8_t my_games = 0;
+    std::string my_gameplay;
     uint16_t host_port = default_port;
 
     // Messages for the net thread to send. Target: a slot (host), to_host (client) or to_all (host).
@@ -359,6 +360,7 @@ namespace {
                 std::string name = clean_name(r.str());
                 CarChoice car = r.car();
                 uint8_t games = r.u8();
+                std::string gameplay = r.long_str();
                 if (r.bad) {
                     return;
                 }
@@ -400,6 +402,7 @@ namespace {
                 e.name = name;
                 e.car = car;
                 e.games = games;
+                e.gameplay = gameplay;
                 Writer w;
                 w.u8(uint8_t(Msg::Welcome));
                 w.u8(uint8_t(free));
@@ -424,6 +427,15 @@ namespace {
                     bool ready = r.u8() != 0;
                     if (!r.bad && cur_state == State::Lobby) {
                         slots[slot].ready = ready;
+                        queue(to_all, channel_lobby, roster_message());
+                    }
+                }
+                break;
+            case Msg::SetGameplay:
+                if (slot >= 0) {
+                    std::string gameplay = r.long_str();
+                    if (!r.bad && cur_state == State::Lobby) {
+                        slots[slot].gameplay = gameplay;
                         queue(to_all, channel_lobby, roster_message());
                     }
                 }
@@ -566,6 +578,7 @@ namespace {
                     w.str(my_name);
                     w.car(my_car);
                     w.u8(my_games);
+                    w.long_str(my_gameplay);
                     send_packet(ev.peer, channel_lobby, w.data);
                 }
                 break;
@@ -756,6 +769,7 @@ bool rush2::online::host(const HostOptions& options) {
     slots[0].name = my_name;
     slots[0].car = my_car;
     slots[0].games = my_games;
+    slots[0].gameplay = my_gameplay;
     // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_FAKE=K fills K more slots with players who aren't there (their
     // cars get no input, as a dropped player's), to try big races on one machine.
     if (const char* fake = std::getenv("RUSH2_ONLINE_FAKE")) {
@@ -764,6 +778,7 @@ bool rush2::online::host(const HostOptions& options) {
             slots[i].ready = true;
             slots[i].name = "Fake " + std::to_string(i + 1);
             slots[i].car.type = (uint8_t)i;
+            slots[i].gameplay = my_gameplay;
         }
     }
     error_text.clear();
@@ -932,6 +947,27 @@ void rush2::online::set_local_games(uint8_t games) {
     my_games = games;
 }
 
+void rush2::online::set_local_gameplay(const std::string& gameplay) {
+    std::lock_guard lock{ state_mutex };
+    if (gameplay == my_gameplay) {
+        return;
+    }
+    my_gameplay = gameplay;
+    if (cur_state != State::Lobby) {
+        return;
+    }
+    if (hosting) {
+        slots[0].gameplay = my_gameplay;
+        queue(to_all, channel_lobby, roster_message());
+    }
+    else {
+        Writer w;
+        w.u8(uint8_t(Msg::SetGameplay));
+        w.long_str(my_gameplay);
+        queue(to_host, channel_lobby, w.data);
+    }
+}
+
 void rush2::online::set_display_name(const std::string& name) {
     std::lock_guard lock{ state_mutex };
     my_name = clean_name(name);
@@ -1003,10 +1039,15 @@ bool rush2::online::start_race() {
     if (!hosting || cur_state != State::Lobby) {
         return false;
     }
+    error_text.clear();
     uint32_t max_ping = 0;
     for (int i = 1; i < max_players; i++) {
         if (slots[i].used && !slots[i].ready) {
             error_text = slots[i].name + " isn't ready.";
+            return false;
+        }
+        if (slots[i].used && slots[i].connected && slots[i].gameplay != slots[0].gameplay) {
+            error_text = slots[i].name + "'s gameplay settings differ from yours (the lobby lists them).";
             return false;
         }
         if (slots[i].used) {
