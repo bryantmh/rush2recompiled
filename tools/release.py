@@ -9,6 +9,7 @@ lib is linked to the working tree's lib, which must be checked out at the commit
 After a successful build the commit is pushed (the push that triggered the hook then has nothing left to do), and
 the zipped game folder is uploaded as a release. VERSION holds the major.minor version and is only changed by hand: the
 first release of a version is tagged v<major>.<minor>, and each later one gets the next patch number, up to .999.
+The change list is then announced on Discord (tools/discord_release_notify.py) when a webhook is configured.
 """
 import io
 import os
@@ -19,6 +20,8 @@ import sys
 import tarfile
 import zipfile
 from pathlib import Path
+
+import discord_release_notify
 
 ROOT = Path(__file__).resolve().parent.parent
 WORK = ROOT / ".release"
@@ -165,6 +168,7 @@ def main():
     run(["gh", "release", "create", tag, str(zip_path), "--repo", repo, "--target", sha,
          "--title", f"Build {tag[1:]} ({short})", "--notes", notes, "--latest"], ROOT)
     zip_path.unlink()
+    discord_release_notify.announce(changes, tag, repo)
 
 
 if __name__ == "__main__":
