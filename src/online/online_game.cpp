@@ -1,0 +1,525 @@
+// Online play: what the game does differently in an online race (docs/online.md#the-race).
+//
+// Every machine runs the same race from the same inputs, so everything that moves the race forward has to happen in
+// the same order on every machine:
+// - Physics. Rush 2 runs its physics on the input thread (func_80076DE0), one tick per vertical retrace (60 Hz), and
+//   the game thread's frames (30 Hz) read the result whenever they run: the ticks fall between the game thread's OS
+//   calls depending on timing. Online, the input thread skips its tick (rush2_online_skip_physics) and the game thread
+//   runs exactly two ticks at the top of each frame (func_80076D70: the input step, then the tick).
+// - Frame time. The frame setup measures each frame in retraces (frame_dt, 0x80023028); a frame that took longer on
+//   one machine would move its race clock further. Online every frame is two retraces (rush2_online_frame_time).
+// - Inputs. Each frame waits for every player's input for it (online_net.cpp) and each tick's input step writes them
+//   into the player records (rush2_online_player_input), as the game does from a controller port.
+// - The pause menu is off.
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cstdio>
+#include <cmath>
+#include <cstring>
+#include <cstdlib>
+#include <string>
+#include <vector>
+
+#include "recomp.h"
+#include "online.h"
+#include "rush2.h"
+
+// ultramodern's conversion of a controller's stick to the N64 stick's range and shape (ultramodern/src/input.cpp).
+void convert_to_n64_range(float x, float y, int8_t& stick_x, int8_t& stick_y);
+
+extern "C" void physics_thread_step_once_80076D70(uint8_t* rdram, recomp_context* ctx);
+
+namespace rush2::ram_watch {
+    void frame(uint8_t* rdram, uint32_t frame_number);
+}
+
+namespace {
+    using namespace rush2::online;
+
+    // Game variables.
+    constexpr uint32_t player_records = 0x800C2140;  // 0x28 each: +4 held buttons, +8/+9 stick, +0xA/+0xB stick range
+    constexpr uint32_t player_record_size = 0x28;
+    constexpr int32_t record_held = 0x4;
+    constexpr int32_t record_stick = 0x8;
+    constexpr int32_t record_range = 0xA;
+    constexpr uint32_t physics_flag = 0x800201E4;    // u16: physics ticks run (a race is under way)
+    constexpr uint32_t frame_dt = 0x80023028;        // f32: the frame's length in seconds
+    constexpr uint32_t frame_retraces = 0x8002301C;  // s32: the frame's length in retraces
+    constexpr uint32_t tv_type = 0x80000300;         // 0 PAL, else NTSC/MPAL
+    constexpr uint32_t retrace_period_ntsc = 0x800D0098; // f32
+    constexpr uint32_t retrace_period_pal = 0x800D009C;  // f32
+    constexpr uint32_t rng_seeds[] = { 0x800BD808, 0x800D4030 };
+
+    // The game's own stick processing (func_80076A00): a stick past +-0x38 also sets a d-pad bit, and the stick's range
+    // (what full deflection is) starts at 0x46 and grows by one per tick toward 0x7F while the stick goes past it.
+    constexpr int stick_dpad_threshold = 0x38;
+    constexpr uint16_t stick_left = 0x0200, stick_right = 0x0100, stick_down = 0x0400, stick_up = 0x0800;
+    constexpr int8_t default_range = 0x46;
+    constexpr int8_t max_range = 0x7F;
+
+    uint32_t game_frame = 0;  // Frames since boot, for the RAM watch.
+
+    // The online race on this machine.
+    bool lockstep = false;    // Frames run in lockstep.
+    // Every frame is two retraces, from the race's setup on (read by the scheduler thread, rush2_online_frame_time).
+    std::atomic<bool> fixed_frame_time = false;
+    bool ticking = false;     // Inside the frame's physics ticks: the input step takes the frame's inputs.
+    uint32_t race_frame = 0;  // The next lockstep frame.
+    std::array<PlayerInput, max_players> frame_inputs{};
+    int8_t stick_range[max_players][2];
+
+    // Where this machine's player gets their input (main.cpp's controller callback, which also plays input scripts).
+    bool (*input_source)(int, uint16_t*, float*, float*) = nullptr;
+
+    uint32_t fnv(uint32_t h, const uint8_t* data, size_t size) {
+        for (size_t i = 0; i < size; i++) {
+            h = (h ^ data[i]) * 16777619u;
+        }
+        return h;
+    }
+}
+
+namespace {
+    // Sets this frame's length to two retraces: the retrace count (0x8002301C, which the track's animated props and the
+    // camera also read) and the seconds (frame_dt).
+    void set_fixed_frame_time(uint8_t* rdram) {
+        MEM_W(0, (int32_t)frame_retraces) = 2;
+        uint32_t period_bits = (uint32_t)MEM_W(0, (int32_t)(MEM_W(0, (int32_t)tv_type) != 0 ? retrace_period_ntsc : retrace_period_pal));
+        float period;
+        std::memcpy(&period, &period_bits, sizeof(period));
+        float dt = period * 2.0f;
+        uint32_t dt_bits;
+        std::memcpy(&dt_bits, &dt, sizeof(dt_bits));
+        MEM_W(0, (int32_t)frame_dt) = (int32_t)dt_bits;
+    }
+}
+
+namespace rush2::online::game {
+    void set_input_source(bool (*source)(int, uint16_t*, float*, float*)) {
+        input_source = source;
+    }
+
+    bool pedals(int player, float* gas, float* brake) {
+        if (!ticking || player < 0 || player >= max_players) {
+            return false;
+        }
+        *gas = frame_inputs[player].gas / 255.0f;
+        *brake = frame_inputs[player].brake / 255.0f;
+        return true;
+    }
+}
+
+namespace {
+    // Race setup (what the track and car selects leave for the race start, game state 7).
+    constexpr uint32_t game_state = 0x8010C0D0;      // 0 menus, 1 track select, 2 car select, 7 race start, 3 racing
+    constexpr uint32_t num_players = 0x8010C3E2;     // s16
+    constexpr uint32_t num_views = 0x8010C3EC;       // s16
+    constexpr uint32_t race_type = 0x8010C3E8;       // s32: 0 a race (the race start sets 2 for the stunt track)
+    constexpr uint32_t track_id = 0x8010C3F0;        // u8
+    constexpr uint32_t menu_settings = 0x800D5760;   // +0 laps, +1 drones (func_80094698 copies them to the race)
+    constexpr uint32_t car_table = 0x800D9C10;       // 9 bytes per car slot: +1 type, +2 main, +3 accent, +4 stripe,
+    constexpr uint32_t car_entry_size = 9;           // +5 stripe color
+    constexpr uint32_t demo_flag = 0x800FAE6C;       // u8: the attract demo is running
+    constexpr uint32_t view_cars = 0x80240380;       // u8 per view: the car it follows (moved by players4)
+    constexpr int32_t record_car = 0x0;
+    constexpr int32_t record_port = 0x1;
+    constexpr int32_t record_masks = 0xC;            // u16 per action: the N64 buttons bound to it
+    constexpr int32_t record_masks_size = 0x12;
+    constexpr int32_t record_profile = 0x24;         // The player's save profile (a controller's buffer, 0x6C0 bytes)
+    // Online every player races with the same blank guest profile, so nobody's saved keys or unlocks change the race
+    // (the track's keys spawn when not every racer has them, func_8005F00C). RDRAM 0x80F80000-0x81000000 is unused.
+    constexpr uint32_t guest_profile = 0x80FF0000;
+    constexpr uint32_t profile_size = 0x6C0;
+    constexpr uint8_t no_port = 5;
+    constexpr uint32_t initial_seed = 123456789;     // The game's own first seed (0x800BD808 at boot).
+
+    enum class Phase {
+        Idle,       // No online race.
+        WaitMenus,  // The race was started: waiting for the game to be in the menus to set it up.
+        Loading,    // Set up (game state 7): waiting for the race's first physics frame.
+        Running,    // Lockstep.
+    };
+    Phase phase = Phase::Idle;
+    int local_player = 0;   // This machine's player (car slot) in the race.
+    int race_players = 1;
+
+    // The front end screen up (func_800AE0D4): 0x10 the title screen, 0 the main menu after it, up to 0xD the other
+    // menu screens; 0xE is the boot logos, 0x11 and 0x12 the attract demo, -1 none.
+    constexpr uint32_t menu_screen = 0x800E7BC4;  // s16
+    constexpr int16_t last_menu_screen = 0xD;
+    constexpr int16_t title_screen = 0x10;
+
+    // Whether the game is in the menus (title screen, front end, track or car select), where a race can be set up.
+    bool in_menus(uint8_t* rdram) {
+        int32_t state = MEM_W(0, (int32_t)game_state);
+        int16_t screen = MEM_H(0, (int32_t)menu_screen);
+        bool front_end = state == 0 && ((screen >= 0 && screen <= last_menu_screen) || screen == title_screen);
+        return (front_end || state == 1 || state == 2) && MEM_BU(0, (int32_t)demo_flag) == 0;
+    }
+
+    // Sets the race up as the menus would and starts it (game state 7). Players are the roster's used slots in slot
+    // order: player i drives car slot i.
+    void setup_race(uint8_t* rdram) {
+        RaceSettings settings = race_settings();
+        std::vector<RosterEntry> roster = race_roster();
+        int me = local_slot();
+        race_players = 0;
+        local_player = 0;
+        std::vector<CarChoice> cars;
+        for (int slot = 0; slot < max_players; slot++) {
+            if (!roster[slot].used) {
+                continue;
+            }
+            if (slot == me) {
+                local_player = race_players;
+            }
+            cars.push_back(roster[slot].car);
+            race_players++;
+        }
+        race_players = std::clamp(race_players, 1, 4);
+
+        MEM_H(0, (int32_t)num_players) = (int16_t)race_players;
+        MEM_H(0, (int32_t)num_views) = 1;
+        MEM_W(0, (int32_t)race_type) = 0;
+        MEM_B(0, (int32_t)track_id) = (int8_t)settings.track;
+        MEM_B(0, (int32_t)menu_settings) = (int8_t)std::clamp<int>(settings.laps, 1, 9);
+        MEM_B(1, (int32_t)menu_settings) = (int8_t)(settings.fill_with_ai ? 8 - race_players : 0);
+
+        for (uint32_t i = 0; i < profile_size; i++) {
+            MEM_B(0, (int32_t)(guest_profile + i)) = 0;
+        }
+        const int32_t first = (int32_t)player_records;
+        for (int p = 0; p < race_players; p++) {
+            int32_t record = (int32_t)(player_records + p * player_record_size);
+            if (p > 0) {
+                for (int i = 0; i < record_masks_size; i++) {
+                    MEM_B(record_masks + i, record) = MEM_B(record_masks + i, first);
+                }
+            }
+            MEM_B(record_car, record) = (int8_t)p;
+            MEM_B(record_port, record) = (int8_t)no_port;
+            MEM_W(record_profile, record) = (int32_t)guest_profile;
+            int32_t entry = (int32_t)(car_table + p * car_entry_size);
+            MEM_B(1, entry) = (int8_t)cars[p].type;
+            for (int i = 0; i < 4; i++) {
+                MEM_B(2 + i, entry) = (int8_t)cars[p].colors[i];
+            }
+        }
+        for (uint32_t seed_address : rng_seeds) {
+            MEM_W(0, (int32_t)seed_address) = (int32_t)(seed_address == rng_seeds[0] ? (race_seed() | 1) : 0);
+        }
+        // The one view follows this machine's car; the race setup (func_800A3690) gives that car the view.
+        int view_car = local_player;
+        if (const char* forced = std::getenv("RUSH2_ONLINE_VIEW_CAR")) {  // Test aid: every machine views this car.
+            view_car = std::atoi(forced);
+        }
+        MEM_B(0, (int32_t)view_cars) = (int8_t)view_car;
+        MEM_W(0, (int32_t)game_state) = 7;
+        // From here on every frame is two retraces, this one (the race start) included.
+        set_fixed_frame_time(rdram);
+        fixed_frame_time = true;
+        for (auto& range : stick_range) {
+            range[0] = default_range;
+            range[1] = default_range;
+        }
+        std::fprintf(stderr, "[online] race set up: %d players, this machine is player %d, track %d\n", race_players,
+            local_player + 1, settings.track);
+    }
+
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_DUMP=DIR writes what state_hash covers to DIR/frame_N.bin each
+    // time it's hashed, to find what differs between machines (tools/ram_diff.py compares two).
+    void dump_state(uint8_t* rdram, uint32_t frame) {
+        static const char* dir = std::getenv("RUSH2_ONLINE_DUMP");
+        if (dir == nullptr) {
+            return;
+        }
+        // Laid out at their RDRAM addresses in an 8 MB image, so tools/ram_diff.py names them.
+        static std::vector<uint8_t> image(0x800000);
+        std::fill(image.begin(), image.end(), 0);
+        auto copy = [&](uint32_t address, uint32_t size) {
+            for (uint32_t i = 0; i < size; i++) {
+                image[address - 0x80000000u + i] = (uint8_t)MEM_BU(0, (int32_t)(address + i));
+            }
+        };
+        copy(0x800F5470, 8 * 0x81C);
+        for (uint32_t seed_address : rng_seeds) {
+            copy(seed_address, 4);
+        }
+        char name[512];
+        std::snprintf(name, sizeof(name), "%s/frame_%06u.bin", dir, frame);
+        if (FILE* f = std::fopen(name, "wb")) {
+            std::fwrite(image.data(), 1, image.size(), f);
+            std::fclose(f);
+        }
+    }
+
+    // The state every machine must agree on: the cars' physics and race state and the random seeds.
+    uint32_t state_hash(uint8_t* rdram) {
+        constexpr uint32_t cars = 0x800F5470;
+        constexpr uint32_t car_size = 0x81C;
+        uint32_t h = 2166136261u;
+        auto add = [&](uint32_t address, uint32_t size) {
+            for (uint32_t i = 0; i < size; i++) {
+                uint8_t b = (uint8_t)MEM_BU(0, (int32_t)(address + i));
+                h = (h ^ b) * 16777619u;
+            }
+        };
+        for (int car = 0; car < 8; car++) {
+            add(cars + car * car_size, car_size);
+        }
+        for (uint32_t seed_address : rng_seeds) {
+            add(seed_address, 4);
+        }
+        return h;
+    }
+
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_BOT=SEED drives this machine's car from the frame number alone
+    // (gas held, steering weaving, a brake now and then), so runs repeat exactly.
+    PlayerInput bot_input(uint32_t frame, int seed) {
+        PlayerInput in{};
+        uint32_t h = (frame / 15) * 2654435761u + (uint32_t)seed * 40503u;
+        h ^= h >> 13;
+        h *= 0x5bd1e995u;
+        h ^= h >> 15;
+        in.buttons = 0x8000;  // A: gas
+        in.gas = 255;
+        if ((h & 0x1F) == 0) {
+            in.buttons = 0x4000;  // B: brake
+            in.gas = 0;
+            in.brake = 255;
+        }
+        in.stick_x = int8_t(int((h >> 8) % 161) - 80);
+        return in;
+    }
+
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_TEST=host:N hosts a lobby and starts the race once N players are
+    // in; RUSH2_ONLINE_TEST=join:ADDRESS joins and readies up. RUSH2_ONLINE_NAME sets the name.
+    void test_aid() {
+        static const char* spec = std::getenv("RUSH2_ONLINE_TEST");
+        static bool started = false;
+        if (spec == nullptr) {
+            return;
+        }
+        std::string text = spec;
+        State st = state();
+        if (!started) {
+            started = true;
+            if (const char* name = std::getenv("RUSH2_ONLINE_NAME")) {
+                set_display_name(name);
+            }
+            if (text.rfind("host", 0) == 0) {
+                HostOptions options;
+                options.open_router_port = false;
+                host(options);
+            }
+            else if (text.rfind("join:", 0) == 0) {
+                join(text.substr(5));
+            }
+            return;
+        }
+        if (st != State::Lobby) {
+            return;
+        }
+        if (text.rfind("host", 0) == 0) {
+            int wanted = text.size() > 5 ? std::atoi(text.c_str() + 5) : 1;
+            int used = 0;
+            bool ready = true;
+            for (const RosterEntry& e : roster()) {
+                used += e.used ? 1 : 0;
+                ready &= !e.used || e.ready;
+            }
+            static bool raced = false;
+            if (!raced && used >= wanted && ready) {
+                raced = start_race();
+            }
+        }
+        else {
+            static bool readied = false;
+            if (!readied) {
+                set_ready(true);
+                readied = true;
+            }
+        }
+    }
+}
+
+// Top of the game thread's frame (func_800B0228's loop), once per frame in menus and races.
+extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
+    game_frame++;
+    rush2::ram_watch::frame(rdram, game_frame);
+    rush2::online::update();
+    test_aid();
+
+    State st = state();
+    if (phase == Phase::Idle && st == State::Loading) {
+        phase = Phase::WaitMenus;
+    }
+    if (phase != Phase::Idle && st != State::Loading && st != State::Racing) {
+        // The race ended under us (a disconnect or a desync).
+        phase = Phase::Idle;
+        lockstep = false;
+        fixed_frame_time = false;
+        std::fprintf(stderr, "[online] race ended: %s\n", last_error().c_str());
+        return;
+    }
+    if (phase == Phase::WaitMenus) {
+        if (in_menus(rdram)) {
+            setup_race(rdram);
+            phase = Phase::Loading;
+        }
+        return;
+    }
+    if (phase == Phase::Loading) {
+        if (MEM_HU(0, (int32_t)physics_flag) == 0) {
+            return;
+        }
+        // The race's first physics frame: every machine reports what it set up, then waits for everyone.
+        uint32_t hash = state_hash(rdram);
+        std::fprintf(stderr, "[online] race loaded at frame %u, state %08X\n", game_frame, hash);
+        report_loaded(hash);
+        phase = Phase::Running;
+        lockstep = true;
+        race_frame = 0;
+    }
+    if (!lockstep) {
+        return;
+    }
+
+    // This frame's inputs: send ours (for `delay` frames ahead) and wait for everyone's. This machine's player plays
+    // with the controller on port 1 (the menus' player 1).
+    PlayerInput local{};
+    static const char* bot = std::getenv("RUSH2_ONLINE_BOT");
+    if (bot != nullptr) {
+        local = bot_input(race_frame, std::atoi(bot));
+    }
+    else if (input_source != nullptr) {
+        uint16_t buttons = 0;
+        float x = 0.0f, y = 0.0f;
+        input_source(0, &buttons, &x, &y);
+        local.buttons = buttons;
+        convert_to_n64_range(x, y, local.stick_x, local.stick_y);
+        float gas = 0.0f, brake = 0.0f;
+        rush2::input::get_pedals(0, &gas, &brake);
+        local.gas = uint8_t(std::lround(std::clamp(gas, 0.0f, 1.0f) * 255.0f));
+        local.brake = uint8_t(std::lround(std::clamp(brake, 0.0f, 1.0f) * 255.0f));
+    }
+    submit_local_input(race_frame + input_delay(), local);
+    if (!wait_frame_inputs(race_frame, frame_inputs.data())) {
+        lockstep = false;
+        return;
+    }
+
+    // Test aid: RUSH2_ONLINE_TRACE=DIR writes the cars' physics structs (8 x 0x81C bytes) before every frame's ticks to
+    // DIR/cars.bin, one record per frame, to find the first frame and field where two runs part.
+    static const char* trace_dir = std::getenv("RUSH2_ONLINE_TRACE");
+    if (trace_dir != nullptr) {
+        static FILE* trace = nullptr;
+        if (trace == nullptr) {
+            std::string path = std::string(trace_dir) + "/cars.bin";
+            trace = std::fopen(path.c_str(), "wb");
+        }
+        if (trace != nullptr) {
+            uint8_t cars[8 * 0x81C];
+            for (uint32_t i = 0; i < sizeof(cars); i++) {
+                cars[i] = (uint8_t)MEM_BU(0, (int32_t)(0x800F5470u + i));
+            }
+            std::fwrite(cars, 1, sizeof(cars), trace);
+            std::fflush(trace);
+        }
+    }
+
+    // Test aid: RUSH2_ONLINE_DUMP_AT=F1,F2,... writes all of RDRAM before those frames' ticks to
+    // RUSH2_ONLINE_DUMP/full_F.bin (N64 byte order), to diff two machines' whole memory (tools/ram_diff.py).
+    static const char* dump_at = std::getenv("RUSH2_ONLINE_DUMP_AT");
+    static const char* dump_dir = std::getenv("RUSH2_ONLINE_DUMP");
+    if (dump_at != nullptr && dump_dir != nullptr) {
+        std::string list = std::string(",") + dump_at + ",";
+        if (list.find("," + std::to_string(race_frame) + ",") != std::string::npos) {
+            std::vector<uint8_t> image(0x800000);
+            for (uint32_t i = 0; i < image.size(); i++) {
+                image[i] = (uint8_t)MEM_BU(0, (int32_t)(0x80000000u + i));
+            }
+            std::string path = std::string(dump_dir) + "/full_" + std::to_string(race_frame) + ".bin";
+            if (FILE* f = std::fopen(path.c_str(), "wb")) {
+                std::fwrite(image.data(), 1, image.size(), f);
+                std::fclose(f);
+            }
+        }
+    }
+
+    // Two physics ticks, each with its input step.
+    recomp_context saved = *ctx;
+    ticking = true;
+    for (int tick = 0; tick < 2; tick++) {
+        physics_thread_step_once_80076D70(rdram, ctx);
+        *ctx = saved;
+    }
+    ticking = false;
+
+    // Every 30 frames the machines compare their states (online_net.cpp ends the race if they differ).
+    if (race_frame % 30 == 0) {
+        uint32_t hash = state_hash(rdram);
+        dump_state(rdram, race_frame);
+        report_state_hash(race_frame, hash);
+        static const bool log_hashes = std::getenv("RUSH2_ONLINE_HASHLOG") != nullptr;
+        if (log_hashes) {
+            std::fprintf(stderr, "[online] frame %u hash %08X\n", race_frame, hash);
+        }
+    }
+    race_frame++;
+}
+
+// The frame setup has just measured the frame (func_800B4EB0, $s2 = the retrace count's address): online, every frame
+// is two retraces.
+extern "C" void rush2_online_frame_time(uint8_t* rdram, recomp_context* ctx) {
+    if (!fixed_frame_time) {
+        return;
+    }
+    set_fixed_frame_time(rdram);
+}
+
+
+// The input thread is about to run its input step and physics tick (func_80076DE0 at 0x8007728C): online the game
+// thread runs them instead.
+extern "C" int rush2_online_skip_physics(uint8_t* rdram, recomp_context* ctx) {
+    return racing() ? 1 : 0;
+}
+
+// The input step's per-player loop (func_80076A00 at 0x80076CE0, $s3 = the player record, $s5 = the player) has
+// filled the record from the player's controller port: online it gets the player's input for the frame instead.
+extern "C" void rush2_online_player_input(uint8_t* rdram, recomp_context* ctx) {
+    if (!ticking) {
+        return;
+    }
+    int player = (int)ctx->r21;
+    if (player < 0 || player >= max_players) {
+        return;
+    }
+    int32_t record = (int32_t)ctx->r19;
+    const PlayerInput& in = frame_inputs[player];
+    uint16_t held = in.buttons;
+    if (in.stick_x < -stick_dpad_threshold) held |= stick_left;
+    if (in.stick_x > stick_dpad_threshold) held |= stick_right;
+    if (in.stick_y < -stick_dpad_threshold) held |= stick_down;
+    if (in.stick_y > stick_dpad_threshold) held |= stick_up;
+    int8_t* range = stick_range[player];
+    const int8_t stick[2] = { in.stick_x, in.stick_y };
+    for (int axis = 0; axis < 2; axis++) {
+        int magnitude = stick[axis] < 0 ? -stick[axis] : stick[axis];
+        if (range[axis] < magnitude && range[axis] < max_range) {
+            range[axis]++;
+        }
+    }
+    MEM_H(record_held, record) = (int16_t)held;
+    MEM_B(record_stick, record) = stick[0];
+    MEM_B(record_stick + 1, record) = stick[1];
+    MEM_B(record_range, record) = range[0];
+    MEM_B(record_range + 1, record) = range[1];
+}
+
+// The pause menu step (func_800AFD44): off in online races.
+extern "C" int rush2_online_block_pause(uint8_t* rdram, recomp_context* ctx) {
+    return racing() ? 1 : 0;
+}

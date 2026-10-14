@@ -95,7 +95,7 @@ namespace {
         }
     }
 
-    float lerp(float a, float b, float t) {
+    float mix(float a, float b, float t) {
         return a + (b - a) * t;
     }
 }
@@ -104,9 +104,9 @@ namespace {
     // The rev's rpm at t seconds after its start.
     float rev_rpm(float t) {
         if (t < t_rise || t >= t_idle) return idle_rpm;
-        if (t < t_peak) return lerp(idle_rpm, peak_rpm, (t - t_rise) / (t_peak - t_rise));
+        if (t < t_peak) return mix(idle_rpm, peak_rpm, (t - t_rise) / (t_peak - t_rise));
         if (t < t_fall) return peak_rpm;
-        return lerp(peak_rpm, idle_rpm, (t - t_fall) / (t_idle - t_fall));
+        return mix(peak_rpm, idle_rpm, (t - t_fall) / (t_idle - t_fall));
     }
 }
 
@@ -199,14 +199,14 @@ extern "C" void rush2_engine_preview_frame(uint8_t* rdram, recomp_context* ctx) 
         }
         else if (t < t_peak) {
             float k = (t - t_rise) / (t_peak - t_rise);
-            set_rev(rdram, slot, lerp(idle_rpm, peak_rpm, k), lerp(idle_load, peak_load, k));
+            set_rev(rdram, slot, mix(idle_rpm, peak_rpm, k), mix(idle_load, peak_load, k));
         }
         else if (t < t_fall) {
             set_rev(rdram, slot, peak_rpm, peak_load);
         }
         else if (t < t_idle) {
             float k = (t - t_fall) / (t_idle - t_fall);
-            set_rev(rdram, slot, lerp(peak_rpm, idle_rpm, k), idle_load);
+            set_rev(rdram, slot, mix(peak_rpm, idle_rpm, k), idle_load);
         }
         else {
             set_rev(rdram, slot, idle_rpm, idle_load);

@@ -42,6 +42,7 @@
 #include "recompui/config.h"
 
 #include "rush2.h"
+#include "online.h"
 #include "rush2_hooks.h"
 #include "steam_haptics.h"
 #include "steam_input_filter.h"
@@ -1205,6 +1206,11 @@ void rush2::input::update_rumble() {
     }
 }
 
+void rush2::input::get_pedals(int port, float* gas, float* brake) {
+    *gas = (port >= 0 && port < num_ports) ? pedal_gas[port] : 0.0f;
+    *brake = (port >= 0 && port < num_ports) ? pedal_brake[port] : 0.0f;
+}
+
 void rush2::input::press_pedals(int port, uint16_t buttons) {
     if (port >= 0 && port < num_ports) {
         if (buttons & n64_a) pedal_gas[port] = 1.0f;
@@ -1219,7 +1225,10 @@ extern "C" void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx) {
     gpr player = ctx->r17;
     gpr car = ctx->r16;
     int port = MEM_BU(1, player);
-    if (port >= num_ports) {
+    // Online races take every player's pedals from the frame's inputs (src/online/online_game.cpp).
+    float online_gas = 0.0f, online_brake = 0.0f;
+    bool online = rush2::online::game::pedals((int)(((uint32_t)player - 0x800C2140u) / 0x28u), &online_gas, &online_brake);
+    if (port >= num_ports && !online) {
         return;
     }
     auto scale = [&](int offset, float pressure) {
@@ -1232,9 +1241,9 @@ extern "C" void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx) {
         }
     };
     if (MEM_HU(player_gas_mask, player) == n64_a) {
-        scale(car_throttle, pedal_gas[port]);
+        scale(car_throttle, online ? online_gas : pedal_gas[port]);
     }
     if (MEM_HU(player_brake_mask, player) == n64_b && MEM_B(0, (int32_t)brake_disabled) == 0) {
-        scale(car_brake, pedal_brake[port]);
+        scale(car_brake, online ? online_brake : pedal_brake[port]);
     }
 }

@@ -422,7 +422,9 @@ text = "    rush2_cheats_car_list(rdram, ctx);"
 [[patches.hook]]
 func = "game_main_loop_frame_800B0228"
 before_vram = 0x800B02AC
-text = "    rush2_controls_frame(rdram, ctx);"
+# Online play (src/online/online_game.cpp): the lockstep frame (inputs, then the frame's two physics ticks), once the
+# frame has begun (func_80088C64 returned) and before anything reads input.
+text = "    rush2_online_frame(rdram, ctx);\n    rush2_controls_frame(rdram, ctx);"
 
 # Controller Setup screen (src/controls_menu.cpp). func_800AD7E4 runs the screen and func_800B6134 draws its text.
 # The widget hook replaces the screen's widgets (it sets the count, so the instruction that did is patched out), and
@@ -11523,7 +11525,8 @@ text = "    rush2_music_continue(rdram, ctx);"
 [[patches.hook]]
 func = "race_pause_menu_step_800AFD44"
 before_vram = 0x800AFD44
-text = "    rush2_music_pause_frame(rdram, ctx);"
+# No pause menu in online races (src/online/online_game.cpp).
+text = "    rush2_music_pause_frame(rdram, ctx);\n    if (rush2_online_block_pause(rdram, ctx)) return;"
 
 [[patches.hook]]
 func = "race_pause_menu_step_800AFD44"
@@ -11552,3 +11555,25 @@ text = "    rush2_drone_catch_up(rdram, ctx);"
 func = "race_start_timer_800AE670"
 before_vram = 0x800AEDC0
 text = "    rush2_fix_engines_after_timeout(rdram, ctx);"
+
+# Online play (src/online/online_game.cpp, docs/online.md#the-race).
+
+# The frame setup has measured the frame in retraces ($s2 = the count's address, 0x80023028 = the length): online every
+# frame is two retraces.
+[[patches.hook]]
+func = "game_thread_main_init_800B4EB0"
+before_vram = 0x800B5464
+text = "    rush2_online_frame_time(rdram, ctx);"
+
+# The input thread's input step and physics tick, once per retrace: online the game thread runs them.
+[[patches.hook]]
+func = "input_thread_main_80076DE0"
+before_vram = 0x8007728C
+text = "    if (rush2_online_skip_physics(rdram, ctx)) goto L_800772D4;"
+
+# The input step's per-player loop, after the record was filled from the player's controller port ($s3 = record,
+# $s5 = player): online it takes the player's input for the frame.
+[[patches.hook]]
+func = "input_apply_default_controls_80076A00"
+before_vram = 0x80076CE0
+text = "    rush2_online_player_input(rdram, ctx);"

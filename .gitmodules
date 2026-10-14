@@ -10,3 +10,11 @@
 	path = lib/RecompFrontend
 	url = https://github.com/N64Recomp/RecompFrontend
 	ignore = dirty
+[submodule "lib/enet"]
+	path = lib/enet
+	url = https://github.com/lsalzman/enet
+	ignore = dirty
+[submodule "lib/miniupnp"]
+	path = lib/miniupnp
+	url = https://github.com/miniupnp/miniupnp
+	ignore = dirty

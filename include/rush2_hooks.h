@@ -427,6 +427,13 @@ void rush2_npc_cars_rim_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_npc_cars_rim_state(uint8_t* rdram, recomp_context* ctx);
 void rush2_npc_cars_rim_init(uint8_t* rdram, recomp_context* ctx);
 
+// Online play (src/online/online_game.cpp).
+void rush2_online_frame(uint8_t* rdram, recomp_context* ctx);
+void rush2_online_frame_time(uint8_t* rdram, recomp_context* ctx);
+int rush2_online_skip_physics(uint8_t* rdram, recomp_context* ctx);
+void rush2_online_player_input(uint8_t* rdram, recomp_context* ctx);
+int rush2_online_block_pause(uint8_t* rdram, recomp_context* ctx);
+
 #ifdef __cplusplus
 }
 #endif

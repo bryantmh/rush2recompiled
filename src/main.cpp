@@ -47,6 +47,7 @@
 #include "librecomp/rsp.hpp"
 
 #include "rush2.h"
+#include "online.h"
 #include "data_files.h"
 #include "wings.h"
 #include "track2049.h"
@@ -641,6 +642,8 @@ int main(int argc, char** argv) {
         .get_frames_remaining = get_frames_remaining,
         .set_frequency = set_frequency,
     };
+
+    rush2::online::game::set_input_source(get_n64_input);
 
     ultramodern::input::callbacks_t input_callbacks{
         .poll_input = rush2::input::poll,

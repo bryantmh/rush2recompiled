@@ -78,6 +78,14 @@ set(BUILD_SHARED_LIBS OFF)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime)
 
+# Online play (src/online/, docs/online.md): ENet for the connections, miniupnpc to open the host's port on the router.
+add_subdirectory(${CMAKE_SOURCE_DIR}/lib/enet ${CMAKE_BINARY_DIR}/enet)
+set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(UPNPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
+set(UPNPC_NO_INSTALL ON CACHE BOOL "" FORCE)
+add_subdirectory(${CMAKE_SOURCE_DIR}/lib/miniupnp/miniupnpc ${CMAKE_BINARY_DIR}/miniupnpc)
+
 target_include_directories(rt64 PRIVATE ${CMAKE_BINARY_DIR}/rt64/src)
 
 # imgui trips -Wuninitialized-const-pointer, which recent clang treats as an error.
@@ -118,6 +126,19 @@ if (RUSH2_GIT_RESULT EQUAL 0 AND RUSH2_GIT_TAG MATCHES "^v?([0-9]+[.][0-9]+[.][0
 endif()
 target_compile_definitions(Rush2Recompiled PRIVATE RUSH2_VERSION="${RUSH2_VERSION}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/.git/packed-refs)
+
+# The commit, for online play's compatibility key (src/online/online_net.cpp): only identical builds race together.
+# Read again whenever HEAD moves.
+set(RUSH2_BUILD_ID "unknown")
+execute_process(COMMAND git rev-parse --short=10 HEAD WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE RUSH2_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE RUSH2_GIT_COMMIT_RESULT)
+if (RUSH2_GIT_COMMIT_RESULT EQUAL 0)
+    set(RUSH2_BUILD_ID ${RUSH2_GIT_COMMIT})
+endif()
+target_compile_definitions(Rush2Recompiled PRIVATE RUSH2_BUILD_ID="${RUSH2_BUILD_ID}")
+if (EXISTS ${CMAKE_SOURCE_DIR}/.git/logs/HEAD)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/.git/logs/HEAD)
+endif()
 
 target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/main.cpp
@@ -163,6 +184,12 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/game_fixes.cpp
     ${CMAKE_SOURCE_DIR}/src/games_tab.cpp
+    ${CMAKE_SOURCE_DIR}/src/online_tab.cpp
+    ${CMAKE_SOURCE_DIR}/src/online/online_net.cpp
+    ${CMAKE_SOURCE_DIR}/src/online/online_discovery.cpp
+    ${CMAKE_SOURCE_DIR}/src/online/online_upnp.cpp
+    ${CMAKE_SOURCE_DIR}/src/online/online_game.cpp
+    ${CMAKE_SOURCE_DIR}/src/ram_watch.cpp
     ${CMAKE_SOURCE_DIR}/src/options_page.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/src/assets.cpp
@@ -329,7 +356,17 @@ set(RECOMP_FRONTEND_RT64_PATH ${CMAKE_SOURCE_DIR}/lib/rt64)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/RecompFrontend)
 
+target_include_directories(Rush2Recompiled PRIVATE
+    ${CMAKE_SOURCE_DIR}/lib/enet/include
+    ${CMAKE_SOURCE_DIR}/lib/miniupnp/miniupnpc/include
+)
+if (WIN32)
+    target_link_libraries(Rush2Recompiled PRIVATE ws2_32 iphlpapi)
+endif()
+
 target_link_libraries(Rush2Recompiled PRIVATE
+    enet
+    libminiupnpc-static
     RecompiledFuncs
     recompui
     recompinput
@@ -338,5 +375,9 @@ target_link_libraries(Rush2Recompiled PRIVATE
     rt64
     nfd
 )
+# recompinput uses recompui too; GNU ld only resolves symbols from libraries listed after their user.
+if (NOT WIN32)
+    target_link_libraries(Rush2Recompiled PRIVATE recompui)
+endif()
 
 set_property(TARGET Rush2Recompiled PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
