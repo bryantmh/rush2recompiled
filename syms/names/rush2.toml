@@ -9257,7 +9257,7 @@ ref = "docs/functions/rush2_car.md#rush-2-car-functions"
 vram = 0x8008E258
 name = "car_physics_tick_all_reset"
 sig = "void car_physics_tick_all_reset(void)"
-desc = "Finishes respawns: for every car whose +0x6C8 == -2 (glide to the respawn point done, set by car_wreck_steer_to_respawn) sets +0x6C8 = -1, resets the car (car_reset_state_for_race, ground contact, integration, engine rpm) and puts it in 2nd gear (+0x738, +0x3E0, +0x3DE = 2 at 0x8008E330). Hooked at 0x8008E340 (Stunt Respawn in 1st Gear)."
+desc = "Finishes respawns: for every car whose +0x6C8 == -2 (glide to the respawn point done, set by car_wreck_steer_to_respawn) sets +0x6C8 = -1, resets the car (car_reset_state_for_race, ground contact, integration, engine rpm) and puts it in 2nd gear (+0x738, +0x3E0, +0x3DE = 2 at 0x8008E330). Hooked at 0x8008E340 (Respawn in 1st Gear)."
 consts = "0x81C = car stride; -2 = glide done; 2 = respawn gear"
 status = "verified"
 area = "car"
@@ -10962,7 +10962,7 @@ ref = "us.toml"
 vram = 0x8009E180
 name = "race_car_finish_or_respawn_handle"
 sig = "void race_car_finish_or_respawn_handle(s32 kind, s32 car)"
-desc = "Respawn or finish a car: kind 0 start grid (func_8006DE20), 1 respawn, 2 respawn that can run out of deaths. With DEATHS on (0x8010BC98), kind 2 with car state +0x343 == 0 marks the car out (+0x343 = 1) and calls race_car_finish at the race time, ranking it behind every finisher. Respawns put player 1 in 2nd gear (0x8009E3E0). Hooked at entry (src/game_fixes.cpp, finish place fix, always on): kind 2 becomes 1 for a car already finished (+0xEA); and at 0x8009E3E4 (Stunt Respawn in 1st Gear)."
+desc = "Respawn or finish a car: kind 0 start grid (func_8006DE20), 1 respawn, 2 respawn that can run out of deaths. With DEATHS on (0x8010BC98), kind 2 with car state +0x343 == 0 marks the car out (+0x343 = 1) and calls race_car_finish at the race time, ranking it behind every finisher. Respawns put player 1 in 2nd gear (0x8009E3E0). Hooked at entry (src/game_fixes.cpp, finish place fix, always on): kind 2 becomes 1 for a car already finished (+0xEA); and at 0x8009E3E4 (Respawn in 1st Gear)."
 consts = "2 = case: respawn that may run out of deaths; 0x354 = car state stride"
 status = "verified"
 ported = true

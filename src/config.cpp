@@ -591,12 +591,12 @@ namespace stunt_gear_option {
     const std::string id = "stunt_first_gear";
 }
 
-// Stunt respawn gear: stunt mode respawns put player 1 in 1st gear instead of 2nd (src/game_fixes.cpp).
+// Respawn gear: respawns put the human cars in 1st gear instead of 2nd (src/game_fixes.cpp).
 static void add_stunt_gear_option(recomp::config::Config& config) {
     config.add_bool_option(
         stunt_gear_option::id,
-        "Stunt Respawn in 1st Gear",
-        "In stunt mode, a respawned car with a manual gearbox starts in 1st gear instead of 2nd.",
+        "Respawn in 1st Gear",
+        "A respawned car with a manual gearbox starts in 1st gear instead of 2nd.",
         false
     );
 

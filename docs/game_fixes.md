@@ -109,10 +109,10 @@ moves those vertices 2 units left: trailing edge -15 to 15, tips -38 and 37.
 
 ## Stunt respawn gear
 
-Option (General > Gameplay, Stunt Respawn in 1st Gear, off by default). `race_car_finish_or_respawn_handle_8009E180`
+Option (General > Gameplay, Respawn in 1st Gear, off by default; named Stunt Respawn in 1st Gear and limited to
+stunt mode until 2026-10-13). `race_car_finish_or_respawn_handle_8009E180`
 puts player 1's car (car table 0x800D9C10 + car * 9, +8 driver == 8) in 2nd gear (car +0x738 = 2, 0x8009E3E0) on
-every respawn. The hook at 0x8009E3E4 sets 1st instead in stunt mode (track slot 11, which also hosts the Rush 2049
-arenas and the battle arenas).
+every respawn. The hook at 0x8009E3E4 sets 1st instead, in every mode (stunt and battle arenas, practice, races).
 
 That alone showed 1st and then went back to 2nd (user report, 2026-10-10). After the respawn the wrecked car glides
 to its respawn point: `car_wreck_steer_to_respawn_800754B4` counts car +0x6C8 up and ends the glide with +0x6C8 = -2
@@ -120,7 +120,7 @@ to its respawn point: `car_wreck_steer_to_respawn_800754B4` counts car +0x6C8 up
 the car (`car_reset_state_for_race_8008E050`, ground contact, integration, engine rpm) and puts it in 2nd gear for
 every car, not just player 1: +0x738 (the selected gear), +0x3E0 and +0x3DE (the gearbox's) = 2 at 0x8008E330-
 0x8008E33C. A second hook at 0x8008E340 (`rush2_stunt_respawn_gear_reset`) sets all three to 1 for human cars
-(physics car +0x7E8 == 2) in stunt mode.
+(physics car +0x7E8 == 2).
 
 Writers of +0x738: `player_join_init_car_80080524` (the buttons, every frame: reverse held -1, shift down/up step 1-4,
 by speed after reverse is released), `car_zero_inputs_8008D7BC` (1), `car_init_setup_8008DBA0` (0),

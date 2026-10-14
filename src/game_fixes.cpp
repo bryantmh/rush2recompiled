@@ -48,12 +48,12 @@
 // to 39 (trailing edge -13 to 17). The copy moves those vertices 2 units left (trailing edge -15 to 15, like the deck
 // under it at +-16).
 //
-// Stunt respawn gear (option, off by default). func_8009E180 puts player 1's car (car table 0x800D9C10 + car * 9,
+// Respawn gear (option, off by default). func_8009E180 puts player 1's car (car table 0x800D9C10 + car * 9,
 // +8 driver == 8) in 2nd gear (car +0x738 = 2, 0x8009E3E0) on every respawn, which a manual gearbox then has to shift
-// down from at the stunt arenas' slow restarts. The wrecked car then glides to the respawn point
+// down from at slow restarts (stunt and battle arenas, practice). The wrecked car then glides to the respawn point
 // (car_wreck_steer_to_respawn, func_800754B4, ends it with car +0x6C8 = -2), and func_8008E258 finishes the respawn
-// of every such car with 2nd gear again (+0x738, +0x3E0 and +0x3DE = 2, 0x8008E330). On, stunt mode (track slot 11,
-// which also hosts the Rush 2049 arenas and the battle arenas) puts the human cars in 1st at both.
+// of every such car with 2nd gear again (+0x738, +0x3E0 and +0x3DE = 2, 0x8008E330). On, every mode puts the human
+// cars in 1st at both.
 
 #include <algorithm>
 #include <atomic>
@@ -81,8 +81,6 @@ namespace {
     constexpr uint32_t car_states = 0x801124A0;     // 0x354 each: +0xEA finished, +0x343 out of deaths
     constexpr int respawn_out_of_deaths = 2;
 
-    constexpr uint32_t track_id = 0x8010C3F0;       // s8: the race's track slot
-    constexpr int stunt_slot = 11;
     constexpr uint32_t car_kind = 0x7E8;            // u8 in the physics car: 1 drone, 2 human
     constexpr int car_human = 2;
     std::atomic<bool> stunt_first_gear = false;
@@ -126,7 +124,7 @@ extern "C" void rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx) {
 
 // func_8009E180 at 0x8009E3E4, right after a respawn put player 1's car in 2nd gear: $a3 = car.
 extern "C" void rush2_stunt_respawn_gear(uint8_t* rdram, recomp_context* ctx) {
-    if (stunt_first_gear.load(std::memory_order_relaxed) && MEM_B(0, (int32_t)track_id) == stunt_slot) {
+    if (stunt_first_gear.load(std::memory_order_relaxed)) {
         MEM_H(0x738, ctx->r7) = 1;
     }
 }
@@ -135,8 +133,7 @@ extern "C" void rush2_stunt_respawn_gear(uint8_t* rdram, recomp_context* ctx) {
 // (+0x738 selected, +0x3E0 and +0x3DE the gearbox's): $s0 = physics car.
 extern "C" void rush2_stunt_respawn_gear_reset(uint8_t* rdram, recomp_context* ctx) {
     int32_t car = (int32_t)ctx->r16;
-    if (stunt_first_gear.load(std::memory_order_relaxed) && MEM_B(0, (int32_t)track_id) == stunt_slot &&
-        MEM_BU(0, (int32_t)(car + car_kind)) == car_human) {
+    if (stunt_first_gear.load(std::memory_order_relaxed) && MEM_BU(0, (int32_t)(car + car_kind)) == car_human) {
         MEM_H(0x738, car) = 1;
         MEM_H(0x3E0, car) = 1;
         MEM_H(0x3DE, car) = 1;
