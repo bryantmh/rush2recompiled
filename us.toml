@@ -708,6 +708,12 @@ func = "hud_widget_text_cb_player_stats_800B7654"
 before_vram = 0x800B76CC
 text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
 
+# Battle: the No Race Timer cheat doesn't hide a battle's time left.
+[[patches.hook]]
+func = "hud_widget_cb_countdown_time_800B94C0"
+before_vram = 0x800B951C
+text = "    rush2_battle_time_left_cheat(rdram, ctx);"
+
 # Battle (src/rush2049/battle.cpp): 2049's ram, in the car against car collision response (2049 func_800CE358).
 [[patches.hook]]
 func = "car_car_collision_response_8006E2A8"

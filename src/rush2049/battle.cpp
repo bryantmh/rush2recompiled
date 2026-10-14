@@ -2355,6 +2355,8 @@ namespace {
     using rush2::views::view_of;
 
     constexpr uint32_t speedometer_callback = 0x800BA2A8;
+    // A manual gearbox's tachometer needle and gear (they show themselves in manual only).
+    constexpr uint32_t tachometer_callback = 0x800B7E88, gear_callback = 0x800B92F4;
     // The clock: Rush 2's stunt mode shows the time left, which is the round's (2049 shows a battle's time too).
     constexpr uint32_t race_time_callback = 0x800B7B1C, countdown_time_callback = 0x800B94C0;
     constexpr uint32_t element_pool = 0x802F6400;     // Pointers to the HUD elements (func_80060418; moved by src/players4.cpp), 0xC8 at most
@@ -2699,8 +2701,9 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
         rush2::hud::set_widget_scale(hud_widgets[p].fill, 1.0f, 1.0f);
     }
     hud_players = players;
-    // Rush 2's own HUD is hidden except the speedometer and the clock: every other element with a callback loses its
-    // callback (which would show it again) and is hidden with its widget. The elements are in a pool (func_80060418).
+    // Rush 2's own HUD is hidden except the speedometer (with a manual gearbox's tachometer and gear) and the clock:
+    // every other element with a callback loses its callback (which would show it again) and is hidden with its
+    // widget. The elements are in a pool (func_80060418).
     // Without a time limit the time left goes too: the round's 1200 s are only 2049's cap (and Rush 2's time left
     // stops at 999).
     bool keep_time_left = rush2::battle::time_limit_minutes() > 0;
@@ -2708,7 +2711,8 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
     for (int i = 0; i < element_total && i < 0xC8; i++) {
         uint32_t e = (uint32_t)MEM_W(0, (int32_t)(element_pool + (uint32_t)i * 4));
         uint32_t callback = e == 0 ? 0 : (uint32_t)MEM_W(0x28, (int32_t)e);
-        if (callback == 0 || callback == speedometer_callback || callback == race_time_callback ||
+        if (callback == 0 || callback == speedometer_callback || callback == tachometer_callback ||
+            callback == gear_callback || callback == race_time_callback ||
             (callback == countdown_time_callback && keep_time_left)) {
             continue;
         }
@@ -2850,6 +2854,12 @@ extern "C" void rush2_battle_view(uint8_t* rdram, recomp_context* ctx) {
 // played in stunt mode but has no stunt score.
 extern "C" void rush2_battle_hide_stunt_panel(uint8_t* rdram, recomp_context* ctx) {
     if (rush2::track2049::battle_race(rdram)) ctx->r5 = 1;
+}
+
+// func_800B94C0 (the time left's callback) at 0x800B951C, $t4 = the No Race Timer cheat (0x800D9E88), which hides
+// the time left. A battle's time limit still runs with the cheat (rush2::battle ends the round), so it stays shown.
+extern "C" void rush2_battle_time_left_cheat(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::battle_race(rdram)) ctx->r12 = 0;
 }
 
 // Start of Rush 2's car_car_collision_response_8006E2A8 ($a1, $a2 the two cars), 2049's func_800CE358, where 2049's
