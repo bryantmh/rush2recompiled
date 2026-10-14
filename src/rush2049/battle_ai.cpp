@@ -1297,9 +1297,17 @@ void rush2::battle_ai::set_arena(const std::vector<float>& triangles) {
     }).detach();
 }
 
+namespace {
+    std::atomic<uint32_t> online_seed = 0;
+}
+
+void rush2::battle_ai::set_online_seed(uint32_t seed) {
+    online_seed = seed;
+}
+
 void rush2::battle_ai::begin_round() {
     std::lock_guard lock{ ai_mutex };
-    rng.seed(std::random_device{}());
+    rng.seed(online_seed != 0 ? online_seed ^ 0x9E3779B9u : std::random_device{}());
     for (Brain& b : brains) {
         b = Brain{};
         b.p.aggression = -15.0f + 30.0f * random_unit();
@@ -1317,6 +1325,12 @@ void rush2::battle_ai::begin_round() {
 void rush2::battle_ai::update(uint8_t* rdram, const World& world) {
     std::lock_guard lock{ ai_mutex };
     auto nav = current_nav();
+    // Online, the grid (built on a thread of its own) is ready on a different frame on each machine: wait for it, so
+    // the computer cars use it from the same frame everywhere (up to 30 s; set_arena always finishes it).
+    for (int waited = 0; online_seed != 0 && nav == nullptr && waited < 30000; waited++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        nav = current_nav();
+    }
     const SkillInfo skill = skill_at(MEM_BU(0, (int32_t)race_difficulty));
     ai_clock += world.dt;
     // Test aid: R2_BATTLE_TEST=slow logs an update that takes over 20 ms, with its path searches.

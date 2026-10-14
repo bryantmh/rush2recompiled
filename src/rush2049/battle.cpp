@@ -57,6 +57,7 @@
 #include "arrows.h"
 #include "audio2049.h"
 #include "battle.h"
+#include "online.h"
 #include "battle_ai.h"
 #include "battle_render.h"
 #include "car2049.h"
@@ -338,6 +339,7 @@ namespace {
     std::vector<Shot> shots;
     std::vector<Effect> effects;
     std::mt19937 rng{ 2049 };
+    std::atomic<uint32_t> online_seed = 0;  // set_online_seed
     float clock_seconds = 0.0f;
     bool clock_set = false;
     int round_points = 0;        // The round's points (kills) to win, set with the clock.
@@ -1854,7 +1856,11 @@ namespace {
     // player 1's FIRE.
     uint8_t weapon_buttons(uint8_t* rdram, int player) {
         static const bool test_fire = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "fire") != nullptr;
-        uint8_t bits = rush2::controls::battle_buttons(MEM_BU(0, (int32_t)(player_slots + player * player_size + 1)));
+        uint8_t bits = 0;
+        // Online, every machine has every player's buttons for the frame (src/online/online_game.cpp).
+        if (!rush2::online::game::battle_buttons(player, &bits)) {
+            bits = rush2::controls::battle_buttons(MEM_BU(0, (int32_t)(player_slots + player * player_size + 1)));
+        }
         if (test_fire && std::fmod(clock_seconds, 0.5f) < 0.25f) bits |= rush2::controls::battle_fire;
         // R2_BATTLE_TEST=back holds player 1's stick back (fires behind the car).
         static const bool test_back = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "back") != nullptr;
@@ -2030,8 +2036,16 @@ void rush2::battle::set_data(const std::vector<PickupRecord>& pickup_list, const
     if (!pickup_list.empty()) rush2::battle_ai::set_arena(solid_triangles);
 }
 
+void rush2::battle::set_online_seed(uint32_t seed) {
+    online_seed = seed;
+    rush2::battle_ai::set_online_seed(seed);
+}
+
 void rush2::battle::reset() {
     std::lock_guard lock{ battle_mutex };
+    if (online_seed != 0) {
+        rng.seed(online_seed);
+    }
     built_head = 0;
     setup_pending = true;
     ready = false;

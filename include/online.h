@@ -23,10 +23,12 @@ namespace rush2::online {
         int8_t stick_y = 0;
         uint8_t gas = 0;       // Analog pedals (src/input.cpp), 0-255 of a pressed pedal.
         uint8_t brake = 0;
+        uint8_t battle = 0;    // The battle's weapon buttons (rush2::controls::battle_buttons bits).
 
         bool operator==(const PlayerInput&) const = default;
     };
 
+    // Stunt and battle are what the track is: Rush 2's stunt track and the Rush 2049 arenas race in stunt mode.
     enum class GameMode : uint8_t { Race, Stunt, Battle };
 
     // What the host chooses for the next race. Each player's car is in their roster entry.
@@ -35,6 +37,9 @@ namespace rush2::online {
         uint8_t track = 0;    // The track select's index for the mode (src/online/online_game.cpp).
         uint8_t laps = 3;
         bool fill_with_ai = true;  // Empty car slots race as computer cars.
+        uint8_t needs_games = 0;   // The games_* ROMs every player needs for the track.
+        uint8_t battle_points = 10;  // A battle's points to win and time limit (0 none): rush2::battle's options.
+        uint8_t battle_minutes = 0;
 
         bool operator==(const RaceSettings&) const = default;
     };
@@ -166,6 +171,8 @@ namespace rush2::online {
         bool pedals(int player, float* gas, float* brake);
         // An online race is set up or running on this machine.
         bool in_race();
+        // In an online race: a player's battle weapon buttons for the frame. False otherwise.
+        bool battle_buttons(int player, uint8_t* out);
     }
 }
 

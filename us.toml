@@ -12022,3 +12022,9 @@ text = "    rush2_online_present_end(rdram, ctx);"
 func = "car_race_start_pose_setup_8009A264"
 before_vram = 0x8009A41C
 text = "    if ((int32_t)ctx->r2 > 2) ctx->r2 = 1;"
+
+# Online: the players' presses reach the frame start's gear shifts (rush2_online_record_presses).
+[[patches.hook]]
+func = "player_join_init_all_80080788"
+before_vram = 0x80080B0C
+text = "    rush2_online_record_presses(rdram, ctx);"

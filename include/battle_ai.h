@@ -11,6 +11,10 @@
 // their driver (func_80074990) replaced, finding their way around the arena on a grid made from its collision and
 // fighting with the battle's own weapons (src/rush2049/battle.cpp).
 namespace rush2::battle_ai {
+    // Online races (rush2::battle::set_online_seed): the round's random numbers start from the seed and update waits
+    // for the navigation grid, so every machine's computer cars drive the same; 0 back to normal.
+    void set_online_seed(uint32_t seed);
+
     // The computer cars a battle with this many players gets when the track select's DRONES asks for `wanted`.
     int race_opponents(int wanted, int players);
 

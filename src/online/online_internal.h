@@ -69,6 +69,7 @@ namespace rush2::online {
             u8(uint8_t(in.stick_y));
             u8(in.gas);
             u8(in.brake);
+            u8(in.battle);
         }
         void car(const CarChoice& c) {
             u8(c.type);
@@ -81,6 +82,9 @@ namespace rush2::online {
             u8(s.track);
             u8(s.laps);
             u8(s.fill_with_ai ? 1 : 0);
+            u8(s.needs_games);
+            u8(s.battle_points);
+            u8(s.battle_minutes);
         }
         void roster(const RosterEntry* entries) {
             for (int i = 0; i < max_players; i++) {
@@ -146,6 +150,7 @@ namespace rush2::online {
             in.stick_y = int8_t(u8());
             in.gas = u8();
             in.brake = u8();
+            in.battle = u8();
             return in;
         }
         CarChoice car() {
@@ -162,6 +167,9 @@ namespace rush2::online {
             s.track = u8();
             s.laps = u8();
             s.fill_with_ai = u8() != 0;
+            s.needs_games = u8();
+            s.battle_points = u8();
+            s.battle_minutes = u8();
             return s;
         }
         void roster(RosterEntry* entries) {

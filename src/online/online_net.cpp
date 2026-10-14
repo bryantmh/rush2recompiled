@@ -1026,9 +1026,9 @@ void rush2::online::set_settings(const RaceSettings& s) {
         return;
     }
     cur_settings = s;
-    // A change of what's raced makes everyone confirm again.
+    // A change of what's raced makes everyone confirm again (players who aren't there have nothing to confirm).
     for (int i = 1; i < max_players; i++) {
-        slots[i].ready = false;
+        slots[i].ready = slots[i].ready && !slots[i].connected;
     }
     queue(to_all, channel_lobby, settings_message());
     queue(to_all, channel_lobby, roster_message());
@@ -1044,6 +1044,10 @@ bool rush2::online::start_race() {
     for (int i = 1; i < max_players; i++) {
         if (slots[i].used && !slots[i].ready) {
             error_text = slots[i].name + " isn't ready.";
+            return false;
+        }
+        if (slots[i].used && slots[i].connected && (slots[i].games & cur_settings.needs_games) != cur_settings.needs_games) {
+            error_text = slots[i].name + " doesn't have the game ROM this track needs (the Games tab).";
             return false;
         }
         if (slots[i].used && slots[i].connected && slots[i].gameplay != slots[0].gameplay) {

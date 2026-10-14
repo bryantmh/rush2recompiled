@@ -16,6 +16,7 @@
 #include "elements/ui_button.h"
 #include "elements/ui_label.h"
 
+#include "battle.h"
 #include "npc_cars.h"
 #include "online.h"
 #include "options_page.h"
@@ -44,27 +45,46 @@ namespace {
         const std::string car = "car";
     }
 
-    // The tracks an online race can be on: Rush 2's race tracks, then its stunt arenas (the game sets stunt mode for
-    // them at the race start). Values are the game's track numbers (0x8010C3F0).
+    // The tracks an online race can be on, by track select id (0x8010C3F0; the race setup turns the added games' ids
+    // into the track they're hosted on, src/rush2049/track2049_menu.cpp): Rush 2's race tracks and stunt arena, then
+    // Rush 2049's tracks, stunt arenas and battle arenas and SF Rush's tracks, which every player needs that game's ROM
+    // for.
     struct TrackChoice {
         uint32_t id;
-        const char* key;
-        const char* name;
+        std::string key;
+        std::string name;
         online::GameMode mode;
+        uint8_t games;
     };
-    const TrackChoice tracks[] = {
-        { 0, "LasVegas", "Las Vegas", online::GameMode::Race },
-        { 1, "LowerManhattan", "Lower Manhattan", online::GameMode::Race },
-        { 2, "Honolulu", "Honolulu", online::GameMode::Race },
-        { 3, "UpperManhattan", "Upper Manhattan", online::GameMode::Race },
-        { 4, "Alcatraz", "Alcatraz", online::GameMode::Race },
-        { 5, "LosAngeles", "Los Angeles", online::GameMode::Race },
-        { 6, "Seattle", "Seattle", online::GameMode::Race },
-        { 7, "Halfpipe", "Halfpipe (Stunt)", online::GameMode::Stunt },
-        { 8, "Crash", "Crash (Stunt)", online::GameMode::Stunt },
-        { 9, "Pipe", "Pipe (Stunt)", online::GameMode::Stunt },
-        { 11, "Stunt", "Stunt (Stunt)", online::GameMode::Stunt },
-    };
+    std::vector<TrackChoice> make_tracks() {
+        std::vector<TrackChoice> out;
+        const char* const rush2_names[] = { "Las Vegas", "Lower Manhattan", "Honolulu", "Upper Manhattan", "Alcatraz",
+            "Los Angeles", "Seattle" };
+        for (uint32_t i = 0; i < std::size(rush2_names); i++) {
+            out.push_back({ i, "Rush2_" + std::to_string(i), rush2_names[i], online::GameMode::Race, 0 });
+        }
+        out.push_back({ 11, "Stunt", "Stunt Arena (Stunt)", online::GameMode::Stunt, 0 });
+        using namespace rush2::track2049;
+        for (int k = 0; k < track_count; k++) {
+            out.push_back({ (uint32_t)(first_menu_id + k), "Rush2049_" + std::to_string(k + 1),
+                std::string(track_names[k]) + " (Rush 2049)", online::GameMode::Race, online::games_rush2049 });
+        }
+        for (int k = 0; k < 4; k++) {
+            out.push_back({ (uint32_t)(stunt_menu_id + k), "Rush2049Stunt_" + std::to_string(k + 1),
+                "Rush 2049 Stunt Arena " + std::to_string(k + 1) + " (Stunt)", online::GameMode::Stunt,
+                online::games_rush2049 });
+        }
+        for (int k = 0; k < 8; k++) {
+            out.push_back({ (uint32_t)(battle_menu_id + k), "Battle_" + std::to_string(k + 1),
+                "Battle Arena " + std::to_string(k + 1) + " (Battle)", online::GameMode::Battle, online::games_rush2049 });
+        }
+        for (int k = 0; k < rush2::track1::track_count; k++) {
+            out.push_back({ (uint32_t)(rush2::track1::first_menu_id + k), "Rush1_" + std::to_string(k + 1),
+                std::string(rush2::track1::track_names[k]) + " (SF Rush)", online::GameMode::Race, online::games_rush1 });
+        }
+        return out;
+    }
+    const std::vector<TrackChoice> tracks = make_tracks();
 
     // Rush 2's cars, by the game's car type number (the car table's +1, src/car_mods.cpp's part prefixes).
     const char* const car_names[] = { "Pickup", "Integra", "Corvette", "Sled", "BMW", "Camaro", "Supra", "Bugatti",
@@ -216,8 +236,11 @@ namespace {
         for (const TrackChoice& t : tracks) {
             if (t.id == track) {
                 s.mode = t.mode;
+                s.needs_games = t.games;
             }
         }
+        s.battle_points = (uint8_t)rush2::battle::points_to_win();
+        s.battle_minutes = (uint8_t)rush2::battle::time_limit_minutes();
         s.laps = (uint8_t)std::clamp(get_number(ids::laps), 1, 9);
         s.fill_with_ai = get_bool(ids::ai);
         return s;
@@ -267,7 +290,9 @@ namespace {
             track_options.push_back({ t.id, t.key, t.name });
         }
         online_config.add_enum_option(ids::track, "Track",
-            "The track of the next race, set by the host. Takes effect at once.", track_options, 0);
+            "The track of the next race, set by the host. Rush 2049 and SF Rush tracks need every player to have that "
+            "game's ROM (the Games tab). A battle uses your BATTLE track select's POINTS and TIME LIMIT. Takes effect "
+            "at once.", track_options, 0);
         online_config.add_number_option(ids::laps, "Laps", "Laps in the next race, set by the host. Takes effect at once.",
             1, 9, 1, 0, false, 3);
         online_config.add_bool_option(ids::ai, "Fill With AI Cars",

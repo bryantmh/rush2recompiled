@@ -37,6 +37,9 @@ namespace rush2::battle {
                   const std::vector<uint8_t>& converted_geometry, const std::vector<float>& solid_triangles);
     // Race setup: the next physics tick sets everything up again.
     void reset();
+    // Online races (src/online/online_game.cpp): every machine's battle runs the same, so its random numbers start from
+    // the race's seed at each race setup, and the computer cars wait for their navigation grid; 0 back to normal.
+    void set_online_seed(uint32_t seed);
     // Once per physics tick of a race (src/rush2049/track2049_movers.cpp); dt in seconds.
     void tick(uint8_t* rdram, float dt, recomp_context* ctx = nullptr);
     // Whether the race in progress is a battle (its objects are set up).
