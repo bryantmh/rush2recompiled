@@ -765,6 +765,46 @@ before_vram = 0x80090C1C
 text = "    rush2_track49_battle_start(rdram, ctx);"
 
 [[patches.hook]]
+func = "car_car_collision_response_8006E2A8"
+before_vram = 0x8006E2F8
+text = "    if (rush2_track49_battle_arena(rdram)) ctx->r24 = 0;"
+
+[[patches.hook]]
+func = "car_car_collision_response_8006E2A8"
+before_vram = 0x8006E36C
+text = "    if (rush2_track49_battle_arena(rdram)) ctx->r25 = 0;"
+
+[[patches.hook]]
+func = "car_car_collision_response_8006E2A8"
+before_vram = 0x8006EA38
+text = "    if (rush2_track49_battle_arena(rdram)) { ctx->r4 = ctx->r9; goto L_8006EA68; }"
+
+[[patches.hook]]
+func = "car_car_collision_response_8006E2A8"
+before_vram = 0x8006EB80
+text = "    if (rush2_track49_battle_arena(rdram)) { ctx->r4 = ctx->r8; goto L_8006EBB0; }"
+
+[[patches.hook]]
+func = "car_crash_damage_stage_800715E8"
+before_vram = 0x8007173C
+text = "    if (rush2_track49_battle_arena(rdram)) goto L_80071768;"
+
+[[patches.hook]]
+func = "car_crash_damage_stage_800715E8"
+before_vram = 0x80071794
+text = "    if (rush2_track49_battle_arena(rdram)) goto L_800717B4;"
+
+[[patches.hook]]
+func = "car_crash_damage_stage_800715E8"
+before_vram = 0x800717B8
+text = "    if (rush2_track49_battle_arena(rdram)) goto L_80071800;"
+
+[[patches.hook]]
+func = "car_apply_damage_state_to_preview_8008D3F8"
+before_vram = 0x8008D5CC
+text = "    rush2_track49_battle_rearm(rdram, ctx);"
+
+[[patches.hook]]
 func = "minimap_draw_800B8188"
 before_vram = 0x800B81D8
 text = "    rush2_track49_map_s4(rdram, ctx);"

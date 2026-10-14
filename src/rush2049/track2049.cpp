@@ -664,6 +664,12 @@ extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* 
         MEM_B(0, (int32_t)mirror) = 0;
         return;
     }
+    // Test aid: R2_BATTLE_TEST=bots<n> races n drones on any course too, whatever DRONES says.
+    if (const char* test = getenv("R2_BATTLE_TEST"); test != nullptr && strstr(test, "bots") != nullptr &&
+        !rush2::track2049::obstacle_race(rdram)) {
+        constexpr uint32_t players = 0x8010C3E2;   // s16
+        MEM_H(0, (int32_t)drones) = (int16_t)rush2::battle_ai::race_opponents(0, std::max<int>(1, (int16_t)MEM_H(0, (int32_t)players)));
+    }
     if (!rush2::track2049::obstacle_race(rdram)) {
         return;
     }
@@ -948,6 +954,32 @@ extern "C" void rush2_track49_battle_start(uint8_t* rdram, recomp_context* ctx) 
         fprintf(stderr, "[Battle] car %d starts at (%.0f %.0f %.0f) facing (%.2f %.2f)\n", index, pos[0], pos[1], pos[2], forward[0],
                 forward[2]);
     }
+}
+
+// In a battle arena (2049's game type 6) a car only wrecks by landing on its roof or by weapons: func_800E0B20 skips
+// the hard-impact, over-400 ft/s and +0x50 out-of-range wrecks and func_800CE358 the car-on-car ones there. Rush 2's
+// car_car_collision_response_8006E2A8 and car_crash_damage_stage_800715E8 test this before each of those wrecks
+// (us.toml) and take their no-wreck path instead.
+extern "C" int rush2_track49_battle_arena(uint8_t* rdram) {
+    return rush2::track2049::game_type(rdram) == rush2::track2049::GameType::battle;
+}
+
+// car_apply_damage_state_to_preview_8008D3F8 at 0x8008D5CC, where a respawned car stops blinking and can be hit again
+// (car +0x804 = 1) once $f0 (whole seconds since the car state's +0x304 stamp, 0 while it glides back) passes $f4
+// (5). 2049's func_800E571C waits 0.6 s (D_80124480) in a battle instead, counted to the frame; the stamp is renewed
+// every frame of the glide, so the 0.6 s start when the car is placed.
+extern "C" void rush2_track49_battle_rearm(uint8_t* rdram, recomp_context* ctx) {
+    if (!rush2_track49_battle_arena(rdram)) {
+        return;
+    }
+    uint32_t state = (uint32_t)ctx->r2;
+    float now, stamp;
+    int32_t bits = MEM_W(0, (int32_t)0x80117488);
+    std::memcpy(&now, &bits, sizeof(now));
+    bits = MEM_W(0, (int32_t)(state + 0x304));
+    std::memcpy(&stamp, &bits, sizeof(stamp));
+    ctx->f4.fl = 0.6f;
+    ctx->f0.fl = now - stamp;
 }
 
 // The HUD's track map (func_800B8188 at 0x800B81D8, $s4), its car dots (func_800B8900 at 0x800B8950, $a1), its

@@ -3040,6 +3040,14 @@ area = "audio"
 ref = "docs/rush2049_research/audio.md#7-engine-sounds"
 
 [[func]]
+vram = 0x800E0B20
+name = "car_crash_wreck_tests"
+desc = "Crash wreck tests: wrecks a car (+0x640) on a force over +0x63C, speed over 400 or +0x50 outside -10..10 (all skipped in battle, game type 6) and on its roof (in types 6/4 also func_803914B4(car,car,-1)). Rush 2 car_crash_damage_stage_800715E8."
+status = "verified"
+rush2 = 0x800715E8
+ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
+
+[[func]]
 vram = 0x800E1500
 name = "car_angular_accel"
 sig = "void car_angular_accel(CarDesc **desc, Vec3 *torque, Vec3 *out)"
@@ -3197,6 +3205,14 @@ rush1 = [0x8007CDD4, 0x8007ECB0]
 link = "same-code"
 area = "race"
 ref = "docs/rush2049_research/cars.md#10-car-speeds-v"
+
+[[func]]
+vram = 0x800E571C
+name = "car_rearm_after_respawn"
+desc = "Sets car +0x7EA/+0x7EB and state +0x308/+0x309 back to 1 (weapons can hit it again) once now - state+0x30C passes 0.6 s (D_80124480) in battle or game type 5, else 5 s."
+consts = "D_80124480=0.6 s battle re-arm delay"
+status = "verified"
+ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
 
 [[func]]
 vram = 0x800E5D64
@@ -3830,10 +3846,11 @@ ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 
 [[func]]
 vram = 0x803914B4
-desc = "2049 battle/stunt-mode overlay function called for surface type 4 polygons."
+name = "battle_score_kill"
+desc = "Scores a kill (killer, victim, amount): kill matrix 0x80149428[k*4+v] += amount; (car,car,-1) is a self-wreck, which only when D_80146130 is set queues a coin animation that takes a point (state +0x3A3, not below 0)."
 status = "inferred"
 area = "collision"
-ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
+ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
 
 [[func]]
 vram = 0x80391650
@@ -3867,6 +3884,13 @@ status = "verified"
 ported = true
 area = "battle"
 ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x803936A8
+name = "battle_coin_anim_update"
+desc = "Steps the queued point coin animations (0x80395E70, 0x18 bytes each); after 41 frames adds the entry's amount to state +0x3A3 (points)."
+status = "inferred"
+ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
 
 [[func]]
 vram = 0x8039D300

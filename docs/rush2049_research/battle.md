@@ -440,6 +440,49 @@ and drops the car's speed ahead from what the shot inherits (a grenade or rocket
 fast car; the missile's start speed is at least 165 ft/s). The computer cars fire ahead only. Seen in game: player 1's
 grenades thrown behind the car (`R2_BATTLE_TEST=log,give2,fire,back` logs each shot's heading against the car's).
 
+### 7.4 Respawn protection and crash wrecks
+
+**Weapons after a respawn (2049).** `respawn_place_car_800D3B28` (block 35, a wrecked car starting back) clears car
++0x7EA / +0x7EB and car state +0x308 / +0x309; `func_800E847C` copies them every frame; `func_800E571C` sets them back
+to 1 once `now - state+0x30C` passes 0.6 s (`D_80124480`) in a battle or game type 5, else 5 s. The glide back to
+the road renews the +0x30C stamp each frame, so the 0.6 s start when the car is placed. Each weapon tests the car
+itself; `battle_damage_8038D3A4` only skips a wrecked car (+0x640) and teammates:
+
+| Weapon | 2049 test | Skips a car that is |
+| --- | --- | --- |
+| Shots (`battle_shot_hit_car_8038DA78`) | +0x6C4 == -1, state +0x308, +0x640 == 0 | gliding back, blinking or wrecked |
+| Sonic ring (`battle_sonic_ring_8038D498`) | +0x6C4 == -1, state +0x308, not hit yet | gliding back or blinking |
+| Explosions (`battle_explode_8038D798`) | +0x640 == 0, state +0x308, state +0x359 == 0 | wrecked or blinking |
+| Mine at rest (`func_8010C7F4`) | +0x640 only | wrecked |
+| Ram (`car_car_collision_response_800CE358`) | target +0x6C4 == -1 | gliding back |
+
+Rush 2 has the same fields 4 bytes on: car +0x6C8 (respawn counter, -1 once placed), car +0x804 (s16, 0 from a
+respawn until the blink ends, 1 otherwise; car state +0x301 mirrors it) and the state's +0x304 stamp, and
+`car_apply_damage_state_to_preview_8008D3F8` sets +0x804 back once whole seconds since the stamp pass 5 (the blink
+lasts about 6 s). The port (src/rush2049/battle.cpp `respawning`, `armed`) applies the table in arenas, and
+`rush2_track49_battle_rearm` (src/rush2049/track2049.cpp, hooked at 0x8008D5CC where `$f0` the seconds is compared
+with `$f4` 5) makes it 2049's 0.6 s, counted to the frame, on 2049 battle arenas. In a race with the BATTLE row or
+the Weapons cheat (not a 2049 mode) no weapon hurts a car while +0x804 is 0, Rush 2's blink kept as it is.
+
+**No impact wrecks in an arena (2049).** In game type 6, `func_800E0B20` skips the force-over-+0x63C wreck and the
+over-400 ft/s or +0x50-out-of-range wreck (the roof wrecks stay; in types 6 and 4 they call `func_803914B4(car, car,
+-1)`, the self-wreck kill), and `car_car_collision_response_800CE358` skips the car-on-car wrecks (state +0x35F's
+wreck-on-contact and the 0.5 x +0x63C force wreck). The port gates Rush 2's matching wrecks with
+`rush2_track49_battle_arena` in us.toml: `car_car_collision_response_8006E2A8` at 0x8006E2F8 and 0x8006E36C (state
++0x34A's wreck-on-contact) and 0x8006EA38 / 0x8006EB80 (the force wreck; it takes the no-wreck call instead), and
+`car_crash_damage_stage_800715E8` at 0x8007173C (force over +0x644), 0x80071794 (+0x3D4 over 400) and 0x800717B8 (+0x44
+outside -10 .. 10). Races with the BATTLE row and the Weapons cheat keep Rush 2's crash wrecks.
+
+**Not ported: the self-wreck point.** `func_803914B4(car, car, -1)` adds -1 to the kill matrix (0x80149428) and, only
+when `D_80146130` (0x80146108 + 0x28) is set, takes a point (state +0x3A3, not below 0) after a 41 frame coin
+animation (`func_803936A8`). Nothing in main or the setup overlay writes `D_80146130` directly, so whether 2049 ever
+docks the point is not known **[I]**; the port leaves a car's points alone when it rolls over.
+
+Seen in game (course 8, `bots3 ai log kill`): car 0 wrecked at 8.0 s, placed about 10.15 s, hittable again at 10.72 s
+(before: 16.13 s); every wreck in 40 s of bots fighting came from a weapon. In a race (`bots5 log rekill15 give4`,
+race_battle on) every car starts with +0x804 = 1, no car took weapon damage while it blinked, a second kill at 15 s
+left car 0 unhurt, and crash wrecks still happened.
+
 ## 8. Known differences and test aids
 
 - Computer opponents are the port's own (section 9); 2049's battle was multiplayer only.
@@ -462,7 +505,9 @@ grenades thrown behind the car (`R2_BATTLE_TEST=log,give2,fire,back` logs each s
   race, the track select bands. Not seen: a pickup's light up close, two players stacked and side by side with the
   new renderer, HUD Placement Original and 16:9, teams in play.
 - Test aids (env `R2_BATTLE_TEST`, any of): `fire` presses every player's FIRE twice a second; `give<n>` gives every
-  car pickup kind n (0-7 weapons, 8 heal, 9 invisibility, 10 shield) at 2 s; `kill` destroys car 0 at 8 s; `short`
+  car pickup kind n (0-7 weapons, 8 heal, 9 invisibility, 10 shield) at 2 s; `kill` destroys car 0 at 8 s; `rekill<s>`
+  tries again at s seconds (to test the blink); `bots<n>` races n computer cars on any course (arenas and races);
+  `short`
   makes the battle 25 s; `log` prints the clock, sounds, pickups and each power-up placed; `models` lists the arena's
   model names; `powerups` places all three power-ups after 1 s at the free spots nearest car 0.
   4 players by script: `RUSH2_TEST_PLAYERS=4` with P2START / P3START / P4START after the BATTLE row is reached.

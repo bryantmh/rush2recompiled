@@ -253,6 +253,8 @@ int rush2_track49_respawn_zone(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_respawn_zone_advance(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_respawn_zone_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_battle_start(uint8_t* rdram, recomp_context* ctx);
+int rush2_track49_battle_arena(uint8_t* rdram);
+void rush2_track49_battle_rearm(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_map_s4(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_map_a1(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_map_t0(uint8_t* rdram, recomp_context* ctx);

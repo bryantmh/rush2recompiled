@@ -73,6 +73,18 @@ Wrap 1024 (512 for GREENFLAME2): a full texture period of 64 (32) texels. At 30 
 0.267 s (0.25), 0.1 s (0.075) and 0.533 s (0.5). Not animated by 2049 although present: BRI_WATER2 on track 4 and
 BRI_WATER3 on track 6 (their tables don't list them). ROKTFLAME and FIREGEN* aren't track textures.
 
+Water has no reflection of its own [V display lists, 2026-10-13]: every model that loads BRI_WATER2 / BRI_WATER3
+(tracks 1-6 and stunt 3; `TRACK2WATER01` / `02`, otherwise numbered `TRACKnL...` models) draws it as a mipmapped
+texture times the vertex color (combiner `FC26A004 1FFC93F8`, texture LOD on), translucent with no depth write
+(render mode `C8104A50`), with no `G_TEXTURE_GEN` and no geometry mode change. The only environment mapping in
+2049's draw function is the car SHEEN node (flag 0x80000, docs/rush2049_research/cars.md).
+
+Open [2026-10-13]: the game is reported to show reflections in water, probably scenery modeled upside down under
+it. A first pass over the converted tracks found no placement record with a mirroring matrix and no upside-down
+twins under the few models that are a single flat water sheet (TRACK2WATER02, TRACK3L25804 / 25805, TRACK5L812,
+TRACK6L7527 / 7528), but it could not judge the rest: most models that load a water texture are whole track
+sections, so the test has to be done per water triangle (its plane, then twins of the vertices under it).
+
 ## 3. Rush 2's own mechanism (for comparison) [V]
 
 R2 `0x800C5D2C[track]` → `func_8008AF48` (set-up) / `func_8008A9C8` (update), jump table R2 `0x800CFB6C`: the same 11

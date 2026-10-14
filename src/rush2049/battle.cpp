@@ -120,6 +120,8 @@ namespace {
     constexpr uint32_t car_matrix = 0x2CC;           // f32[9]: rows right, up, forward
     constexpr uint32_t car_body_mass = 0x5B0;
     constexpr uint32_t car_wrecked = 0x648;          // s8
+    constexpr uint32_t car_respawn = 0x6C8;          // s16: >= 0 while it glides back to the road, -1 once placed
+    constexpr uint32_t car_armed = 0x804;            // s16: 0 from a respawn until its blink ends, 1 otherwise
     constexpr uint32_t car_radius = 0x658;
     constexpr uint32_t car_speed = 0x3D4;            // f32 ft/s (2049 +0x3F0)
     constexpr uint32_t car_corners = 0xE8;           // f32[4][3] collision box corners, car-local (2049 +0xF4); 0, 1 the front
@@ -485,6 +487,13 @@ namespace {
     bool is_wrecked(uint8_t* rdram, int i) { return MEM_B(0, (int32_t)(car_at(i) + car_wrecked)) != 0; }
 
     bool alive(uint8_t* rdram, int i) { return fighters[i].present && !is_wrecked(rdram, i); }
+
+    // 2049's car +0x6C4 != -1: the car is gliding back to the road after a wreck.
+    bool respawning(uint8_t* rdram, int i) { return MEM_H(0, (int32_t)(car_at(i) + car_respawn)) != -1; }
+
+    // 2049's car state +0x308: 0 from a respawn until the car stops blinking (func_800D3B28 clears it, func_800E571C
+    // sets it back), when weapons can't touch it.
+    bool armed(uint8_t* rdram, int i) { return MEM_H(0, (int32_t)(car_at(i) + car_armed)) != 0; }
 
     using rush2::views::local_players;
     using rush2::views::player_car;
@@ -1062,9 +1071,11 @@ namespace {
     // ------------------------------------------------------------------------------------------------------------
     // Damage
 
-    // func_8038D3A4: a car doesn't damage itself; a shield takes 0.2 of it.
+    // func_8038D3A4: a car doesn't damage itself; a shield takes 0.2 of it. In an arena each weapon's own test keeps
+    // a respawned car safe (2049's); in a race or with the Weapons cheat nothing hurts a car while it blinks.
     void damage(uint8_t* rdram, int victim, int attacker, float amount) {
         if (victim < 0 || victim >= max_cars || victim == attacker || !alive(rdram, victim) || amount <= 0.0f) return;
+        if (mode != Mode::arena && !armed(rdram, victim)) return;
         // Nothing to a car of the attacker's team (0x8012E67C).
         if (attacker >= 0 && attacker < max_cars && team_of_car(rdram, attacker) >= 0 &&
             team_of_car(rdram, attacker) == team_of_car(rdram, victim)) {
@@ -1133,10 +1144,10 @@ namespace {
     }
 
     // func_8038D798: every car within the radius takes (1 - d^2 / r^2)^2 of the damage (a ram facing the shot's path
-    // 0.35 of that).
+    // 0.35 of that); a blinking car is skipped.
     void explode(uint8_t* rdram, const float pos[3], const float from[3], int owner, float amount) {
         for (int i = 0; i < max_cars; i++) {
-            if (!alive(rdram, i)) continue;
+            if (!alive(rdram, i) || !armed(rdram, i)) continue;
             float c[3];
             car_pos(rdram, i, c);
             float d[3] = { pos[0] - c[0], pos[1] - c[1], pos[2] - c[2] };
@@ -1299,13 +1310,14 @@ namespace {
     }
 
     // func_8038DA78: the first car (not the shot's owner) whose cylinder the shot's step crosses; the shot stops there.
+    // A car gliding back to the road or blinking isn't there for it.
     int car_hit(uint8_t* rdram, Shot& s) {
         float d[3] = { s.pos[0] - s.prev[0], s.pos[1] - s.prev[1], s.pos[2] - s.prev[2] };
         float flat2 = d[0] * d[0] + d[2] * d[2];
         int hit = -1;
         float best = 1.0f;
         for (int i = 0; i < max_cars; i++) {
-            if (i == s.owner || !alive(rdram, i)) continue;
+            if (i == s.owner || !alive(rdram, i) || respawning(rdram, i) || !armed(rdram, i)) continue;
             float c[3];
             car_pos(rdram, i, c);
             float t = flat2 < 1e-6f ? 0.0f : ((c[0] - s.prev[0]) * d[0] + (c[2] - s.prev[2]) * d[2]) / flat2;
@@ -1351,7 +1363,8 @@ namespace {
             car_pos(rdram, s.owner, s.pos);
         }
         for (int i = 0; i < max_cars; i++) {
-            if (i == s.owner || !alive(rdram, i) || (s.ring_hits & (1u << i)) != 0) continue;
+            // func_8038D498 passes over a car gliding back to the road or blinking.
+            if (i == s.owner || !alive(rdram, i) || respawning(rdram, i) || !armed(rdram, i) || (s.ring_hits & (1u << i)) != 0) continue;
             float c[3];
             car_pos(rdram, i, c);
             float d[3] = { c[0] - s.pos[0], c[1] - s.pos[1], c[2] - s.pos[2] };
@@ -2253,6 +2266,20 @@ void rush2::battle::tick(uint8_t* rdram, float dt, recomp_context* ctx) {
             }
         }
     }
+    if (test_env != nullptr && strstr(test_env, "log") != nullptr) {
+        // Test aid: when each car is wrecked, placed back on the road and can be hit again.
+        static int8_t was_wrecked[max_cars], was_armed[max_cars] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+        for (int i = 0; i < max_cars; i++) {
+            if (!fighters[i].present) continue;
+            int8_t w = is_wrecked(rdram, i) ? 1 : 0, r = armed(rdram, i) ? 1 : 0;
+            if (w != was_wrecked[i] || r != was_armed[i]) {
+                fprintf(stderr, "[Battle] t=%.2f car %d wrecked %d armed %d respawn %d\n", clock_seconds, i, w, r,
+                        (int)MEM_H(0, (int32_t)(car_at(i) + car_respawn)));
+            }
+            was_wrecked[i] = w;
+            was_armed[i] = r;
+        }
+    }
     clock_seconds += dt;
     hud_spin = std::fmod(hud_spin + dt * 2.0f, 6.2831853f);
     if (test_env != nullptr) {
@@ -2272,6 +2299,13 @@ void rush2::battle::tick(uint8_t* rdram, float dt, recomp_context* ctx) {
         else if (strstr(test_env, "kill") != nullptr && clock_seconds > 8.0f && clock_seconds <= 8.0f + dt) {
             fighters[1].present = true;
             damage(rdram, 0, 1, 900.0f);
+        }
+        // "rekill<s>": tries again at s seconds, while car 0 is back on the road and still blinking (in a race it
+        // should live; an arena leaves that to each weapon's own test).
+        else if (const char* r = strstr(test_env, "rekill"); r != nullptr && clock_seconds > (float)atof(r + 6) &&
+                 clock_seconds <= (float)atof(r + 6) + dt) {
+            damage(rdram, 0, 1, 900.0f);
+            fprintf(stderr, "[Battle] rekill: car 0 %s\n", is_wrecked(rdram, 0) ? "wrecked" : "unhurt");
         }
     }
     update_sounds(rdram);
@@ -2857,7 +2891,7 @@ extern "C" void rush2_battle_ram(uint8_t* rdram, recomp_context* ctx) {
         car_axes(rdram, rammer, m);
         float d[3] = { o[0] - c[0], o[1] - c[1], o[2] - c[2] };
         to_local(m, d, local);
-        if (local[2] <= ram_ahead) continue;
+        if (local[2] <= ram_ahead || respawning(rdram, hit)) continue;
         damage(rdram, hit, rammer, ram_damage_base + ram_damage_speed * read_f(rdram, car_at(rammer) + car_speed));
         play_sound(rdram, weapons[ram].sound, c);
         f.cooldown = ram_cooldown;
