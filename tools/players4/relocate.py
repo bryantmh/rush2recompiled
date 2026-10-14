@@ -1,4 +1,4 @@
-"""Moves Rush 2's two-player arrays to bigger copies for four players (src/players4.cpp).
+"""Moves Rush 2's two-player arrays to bigger copies for four players (src/players4.cpp) and eight online.
 
 Each array in MOVES moves to a copy in one 64 KB window of free RDRAM (the old heap area, see src/assets.cpp), so every
 relocated `lui` gets the same high half. The script finds the instructions that address the old range (lui +
@@ -56,14 +56,24 @@ MOVES = [
     (0x800BFC7C, 0x800BFC84, 0x10, 'camera f32 per view'),
     (0x800FAE9C, 0x800FAEA0, 0x8, 'scene node drawn first in each view (s16, -1 for none)'),
     # Race HUD (func_800A06F8, func_8008EFF4, func_800B7B1C).
-    (0x800D35E8, 0x800D35F0, 0x10, 'HUD f32 per player'),
-    (0x800D3A38, 0x800D3A40, 0x10, 'HUD f32 per player'),
-    (0x800D3AF0, 0x800D3AF8, 0x10, 'HUD f32 per player'),
-    (0x800D3968, 0x800D3978, 0x20, 'HUD 8 bytes per player'),
-    (0x800D39B8, 0x800D39C8, 0x20, 'HUD 8 bytes per player'),
-    (0x8010C0D8, 0x8010C0E0, 0x10, 'HUD f32 per player'),
-    (0x8010C3DC, 0x8010C3E0, 0x8, 'HUD s16 per player (player 4 would land on the player count)'),
-    (0x80125AAA, 0x80125AAC, 0x4, 'HUD byte per player'),
+    (0x800D35E8, 0x800D35F0, 0x20, 'HUD f32 per player'),
+    (0x800D3A38, 0x800D3A40, 0x20, 'HUD f32 per player'),
+    (0x800D3AF0, 0x800D3AF8, 0x20, 'HUD f32 per player'),
+    (0x800D3968, 0x800D3978, 0x40, 'HUD 8 bytes per player'),
+    (0x800D39B8, 0x800D39C8, 0x40, 'HUD 8 bytes per player'),
+    (0x8010C0D8, 0x8010C0E0, 0x20, 'HUD f32 per player'),
+    (0x8010C3DC, 0x8010C3E0, 0x10, 'HUD s16 per player (player 4 would land on the player count)'),
+    (0x80125AAA, 0x80125AAC, 0x8, 'HUD byte per player'),
+    # Online races have up to eight players, each machine showing one of them (docs/online.md#eight-players): the
+    # per-player HUD arrays above hold eight, the globals after the player records move so record 7 fits, and the
+    # per-player arrays below that had room for four move to copies for eight.
+    (0x800C2268, 0x800C2274, 0xC, 'post-race globals after the player records (frees room for record 7)'),
+    (0x800C2274, 0x800C2278, 0x8, 'lap timing byte per player (func_8008EBE0)'),
+    (0x800C2278, 0x800C2280, 0x8, 'post-race globals after the player records'),
+    (0x800BF318, 0x800BF31C, 0x8, 'place widget shown, byte per player (func_800B5A90)'),
+    (0x8010C070, 0x8010C074, 0x8, 'HUD byte per player (func_80060E34)'),
+    (0x8010C0B4, 0x8010C0B8, 0x8, 'HUD byte per player (func_800B7654)'),
+    (0x8010C0D4, 0x8010C0D8, 0x8, 'HUD byte per player (func_800B7654)'),
 ]
 
 # Arrays that move to a given place outside the window (old start, old end, new start, new size, meaning): the race

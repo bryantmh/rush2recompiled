@@ -161,6 +161,8 @@ namespace rush2::online {
         void set_input_source(bool (*source)(int port, uint16_t* buttons, float* x, float* y));
         // In an online race's physics tick: a player's pedal pressures (0-1) for the frame. False otherwise.
         bool pedals(int player, float* gas, float* brake);
+        // An online race is set up or running on this machine.
+        bool in_race();
     }
 }
 

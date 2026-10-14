@@ -26,6 +26,7 @@
 #include "recomp.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
+#include "online.h"
 #include "players4.h"
 #include "arrows.h"
 #include "car2049.h"
@@ -74,13 +75,20 @@ namespace {
         { 0x800BFC7C, 0x800BFC84, 0x802406A0 }, // camera f32 per view
         { 0x800FAE9C, 0x800FAEA0, 0x802406B0 }, // scene node drawn first in each view (s16, -1 for none)
         { 0x800D35E8, 0x800D35F0, 0x802406C0 }, // HUD f32 per player
-        { 0x800D3A38, 0x800D3A40, 0x802406D0 }, // HUD f32 per player
-        { 0x800D3AF0, 0x800D3AF8, 0x802406E0 }, // HUD f32 per player
-        { 0x800D3968, 0x800D3978, 0x802406F0 }, // HUD 8 bytes per player
-        { 0x800D39B8, 0x800D39C8, 0x80240710 }, // HUD 8 bytes per player
-        { 0x8010C0D8, 0x8010C0E0, 0x80240730 }, // HUD f32 per player
-        { 0x8010C3DC, 0x8010C3E0, 0x80240740 }, // HUD s16 per player (player 4 would land on the player count)
-        { 0x80125AAA, 0x80125AAC, 0x80240750 }, // HUD byte per player
+        { 0x800D3A38, 0x800D3A40, 0x802406E0 }, // HUD f32 per player
+        { 0x800D3AF0, 0x800D3AF8, 0x80240700 }, // HUD f32 per player
+        { 0x800D3968, 0x800D3978, 0x80240720 }, // HUD 8 bytes per player
+        { 0x800D39B8, 0x800D39C8, 0x80240760 }, // HUD 8 bytes per player
+        { 0x8010C0D8, 0x8010C0E0, 0x802407A0 }, // HUD f32 per player
+        { 0x8010C3DC, 0x8010C3E0, 0x802407C0 }, // HUD s16 per player (player 4 would land on the player count)
+        { 0x80125AAA, 0x80125AAC, 0x802407D0 }, // HUD byte per player
+        { 0x800C2268, 0x800C2274, 0x802407E0 }, // post-race globals after the player records (frees room for record 7)
+        { 0x800C2274, 0x800C2278, 0x802407F0 }, // lap timing byte per player (func_8008EBE0)
+        { 0x800C2278, 0x800C2280, 0x80240800 }, // post-race globals after the player records
+        { 0x800BF318, 0x800BF31C, 0x80240810 }, // place widget shown, byte per player (func_800B5A90)
+        { 0x8010C070, 0x8010C074, 0x80240820 }, // HUD byte per player (func_80060E34)
+        { 0x8010C0B4, 0x8010C0B8, 0x80240830 }, // HUD byte per player (func_800B7654)
+        { 0x8010C0D4, 0x8010C0D8, 0x80240840 }, // HUD byte per player (func_800B7654)
         { 0x80119888, 0x8011CA88, 0x802F0000 }, // HUD elements, 0x40 each (func_80081008)
         { 0x8011CA90, 0x8011CDB0, 0x802F6400 }, // free HUD element pointers (func_80060418)
         { 0x800F9558, 0x800FAE58, 0x802F6C00 }, // 2D widgets, 0x20 each (func_800541F8)
@@ -148,6 +156,12 @@ namespace {
 
     int16_t player_count(uint8_t* rdram) {
         return MEM_H(0, (int32_t)rush2::players4::num_players);
+    }
+
+    // The players this machine shows a HUD, places and engine sounds for: an online race has up to eight players but
+    // shows only this machine's, as player 1 (src/online/online_game.cpp, docs/online.md#eight-players).
+    int shown_players(uint8_t* rdram) {
+        return rush2::online::game::in_race() ? 1 : player_count(rdram);
     }
 
     // Sets up a view's fog for its camera's position, as the game does for views 0 and 1.
@@ -323,7 +337,8 @@ namespace {
     constexpr uint32_t finish_layout = 0x800BF328;
     constexpr int finish_layout_count = 7;
     constexpr uint32_t finish_clone_table = 0x8024A000; // Entries for players 3 and 4.
-    constexpr uint32_t finish_shown = 0x800BF318; // u8 per player: the place widget shows (func_800B5A90).
+    constexpr uint32_t finish_shown = 0x80240810; // u8 per player: the place widget shows (func_800B5A90),
+                                                  // moved from 0x800BF318.
     constexpr uint32_t finish_seen = 0x800BF444;
     constexpr int32_t finish_box_top[4] = { 0x63, 0x1D, 0xDD, 0x3F };    // x0, y0, x1, y1
     constexpr int32_t finish_box_bottom[4] = { 0x63, 0xAB, 0xDD, 0xCD };
@@ -341,7 +356,7 @@ namespace rush2::players4 {
         if (head == 0) {
             return;
         }
-        int players = player_count(rdram);
+        int players = shown_players(rdram);
         if (players > 2) {
             int count = clone_player_entries(rdram, finish_layout, finish_layout_count, finish_clone_table, players, 6);
             append_elements(rdram, ctx, head, finish_clone_table, count);
@@ -371,7 +386,7 @@ namespace rush2::players4 {
                 }
             }
         }
-        for (int player = 0; player < std::min<int>(player_count(rdram), max_players); player++) {
+        for (int player = 0; player < std::min<int>(shown_players(rdram), max_players); player++) {
             if (MEM_BU(player, (int32_t)finish_shown) == 0) {
                 continue;
             }
@@ -414,7 +429,7 @@ namespace rush2::players4 {
         if (head == 0 || head == built_list) {
             return;
         }
-        int players = player_count(rdram);
+        int players = shown_players(rdram);
         if (players > 2) {
             // Copies of player 2's entries for players 3 and 4.
             int count = 0;
@@ -469,7 +484,7 @@ namespace rush2::players4 {
     }
 
     void frame(uint8_t* rdram) {
-        MEM_H(0, (int32_t)clamped_players) = (int16_t)std::min<int>(player_count(rdram), 2);
+        MEM_H(0, (int32_t)clamped_players) = (int16_t)std::min<int>(shown_players(rdram), 2);
         // Views 2 and 3 draw the scene lists of views 0 and 1.
         for (int view = 2; view < max_players; view++) {
             MEM_H(view * 2, (int32_t)scene_list_heads) = MEM_H((view & 1) * 2, (int32_t)scene_list_heads);

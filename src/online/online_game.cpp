@@ -30,6 +30,7 @@
 void convert_to_n64_range(float x, float y, int8_t& stick_x, int8_t& stick_y);
 
 extern "C" void physics_thread_step_once_80076D70(uint8_t* rdram, recomp_context* ctx);
+extern "C" void race_end_to_menu_800AAC64(uint8_t* rdram, recomp_context* ctx);
 
 namespace rush2::ram_watch {
     void frame(uint8_t* rdram, uint32_t frame_number);
@@ -51,6 +52,8 @@ namespace {
     constexpr uint32_t retrace_period_ntsc = 0x800D0098; // f32
     constexpr uint32_t retrace_period_pal = 0x800D009C;  // f32
     constexpr uint32_t rng_seeds[] = { 0x800BD808, 0x800D4030 };
+    constexpr uint32_t car_states = 0x801124A0;      // 0x354 per car: +0x346 the car, +0x347 its view (-1 none)
+    constexpr uint32_t car_state_size = 0x354;
 
     // The game's own stick processing (func_80076A00): a stick past +-0x38 also sets a d-pad bit, and the stick's range
     // (what full deflection is) starts at 0x46 and grows by one per tick toward 0x7F while the stick goes past it.
@@ -142,6 +145,20 @@ namespace {
         Running,    // Lockstep.
     };
     Phase phase = Phase::Idle;
+
+    // The menus' state the race setup overwrites: the player records (all eight), the car table's eight entries, the
+    // race menu settings and the car view 0 follows.
+    struct SavedRange {
+        uint32_t address;
+        uint32_t size;
+    };
+    constexpr SavedRange saved_ranges[] = {
+        { 0x800C2140, 8 * 0x28 },
+        { 0x800D9C10, 8 * 9 },
+        { 0x800D5760, 2 },
+        { 0x80240380, 1 },
+    };
+    std::vector<uint8_t> menu_snapshot;
     int local_player = 0;   // This machine's player (car slot) in the race.
     int race_players = 1;
 
@@ -178,7 +195,15 @@ namespace {
             cars.push_back(roster[slot].car);
             race_players++;
         }
-        race_players = std::clamp(race_players, 1, 4);
+        race_players = std::clamp(race_players, 1, (int)max_players);
+
+        // What the race changes that the menus own, put back when it ends (end_race).
+        menu_snapshot.clear();
+        for (const SavedRange& r : saved_ranges) {
+            for (uint32_t i = 0; i < r.size; i++) {
+                menu_snapshot.push_back((uint8_t)MEM_BU(0, (int32_t)(r.address + i)));
+            }
+        }
 
         MEM_H(0, (int32_t)num_players) = (int16_t)race_players;
         MEM_H(0, (int32_t)num_views) = 1;
@@ -190,16 +215,25 @@ namespace {
         for (uint32_t i = 0; i < profile_size; i++) {
             MEM_B(0, (int32_t)(guest_profile + i)) = 0;
         }
-        const int32_t first = (int32_t)player_records;
+        // Every machine's records start the same: blank but for the button masks, which the binding tables (locked to
+        // the game's layout, src/controls.cpp) make the same everywhere. Records 4-7 fit since the globals after the
+        // records moved (tools/players4/relocate.py).
+        uint8_t masks[record_masks_size];
+        for (int i = 0; i < record_masks_size; i++) {
+            masks[i] = (uint8_t)MEM_BU(record_masks + i, (int32_t)player_records);
+        }
         for (int p = 0; p < race_players; p++) {
             int32_t record = (int32_t)(player_records + p * player_record_size);
-            if (p > 0) {
-                for (int i = 0; i < record_masks_size; i++) {
-                    MEM_B(record_masks + i, record) = MEM_B(record_masks + i, first);
-                }
+            for (int32_t i = 0; i < (int32_t)player_record_size; i++) {
+                MEM_B(i, record) = 0;
+            }
+            for (int i = 0; i < record_masks_size; i++) {
+                MEM_B(record_masks + i, record) = (int8_t)masks[i];
             }
             MEM_B(record_car, record) = (int8_t)p;
             MEM_B(record_port, record) = (int8_t)no_port;
+            MEM_B(record_range, record) = default_range;
+            MEM_B(record_range + 1, record) = default_range;
             MEM_W(record_profile, record) = (int32_t)guest_profile;
             int32_t entry = (int32_t)(car_table + p * car_entry_size);
             MEM_B(1, entry) = (int8_t)cars[p].type;
@@ -268,6 +302,16 @@ namespace {
         };
         for (int car = 0; car < 8; car++) {
             add(cars + car * car_size, car_size);
+        }
+        for (int p = 0; p < race_players; p++) {
+            add(player_records + p * player_record_size, player_record_size);
+        }
+        // The cars' race state, but for the camera's bytes (+0x347 the view, +0x348/+0x349 the camera mode), which
+        // differ by machine.
+        for (int car = 0; car < 8; car++) {
+            uint32_t state = car_states + car * car_state_size;
+            add(state, 0x347);
+            add(state + 0x34A, car_state_size - 0x34A);
         }
         for (uint32_t seed_address : rng_seeds) {
             add(seed_address, 4);
@@ -345,6 +389,34 @@ namespace {
     }
 }
 
+namespace {
+    constexpr uint32_t race_quit_flag = 0x800C1A9C;  // u8: func_800AAC64 goes to the menus (else restarts the race)
+    constexpr int32_t state_post_race = 6;           // func_800A952C: records, lap and race times, name entry
+
+    // Leaves the online race for the menus, as the pause menu's Quit does (func_800AFD44 at 0x800B0040), and puts back
+    // the menus' records, cars and settings. Run at the top of the game thread's frame, where the pause step runs.
+    void end_race(uint8_t* rdram, recomp_context* ctx, bool in_game) {
+        lockstep = false;
+        fixed_frame_time = false;
+        if (in_game) {
+            MEM_B(0, (int32_t)race_quit_flag) = 1;
+            recomp_context saved = *ctx;
+            race_end_to_menu_800AAC64(rdram, ctx);
+            *ctx = saved;
+        }
+        if (!menu_snapshot.empty()) {
+            size_t at = 0;
+            for (const SavedRange& r : saved_ranges) {
+                for (uint32_t i = 0; i < r.size; i++) {
+                    MEM_B(0, (int32_t)(r.address + i)) = (int8_t)menu_snapshot[at++];
+                }
+            }
+            menu_snapshot.clear();
+        }
+        phase = Phase::Idle;
+    }
+}
+
 // Top of the game thread's frame (func_800B0228's loop), once per frame in menus and races.
 extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     game_frame++;
@@ -357,11 +429,17 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         phase = Phase::WaitMenus;
     }
     if (phase != Phase::Idle && st != State::Loading && st != State::Racing) {
-        // The race ended under us (a disconnect or a desync).
-        phase = Phase::Idle;
-        lockstep = false;
-        fixed_frame_time = false;
+        // The race ended under us (the host left, or a desync).
         std::fprintf(stderr, "[online] race ended: %s\n", last_error().c_str());
+        end_race(rdram, ctx, phase != Phase::WaitMenus);
+        return;
+    }
+    if (phase == Phase::Running && MEM_W(0, (int32_t)game_state) == state_post_race) {
+        // Race over: every machine gets here on the same frame. The post-race records (saving to the players'
+        // profiles, the track's record tables, name entry) are for local races; back to the lobby instead.
+        std::fprintf(stderr, "[online] race over at frame %u\n", race_frame);
+        end_race(rdram, ctx, true);
+        race_finished();
         return;
     }
     if (phase == Phase::WaitMenus) {
@@ -519,7 +597,73 @@ extern "C" void rush2_online_player_input(uint8_t* rdram, recomp_context* ctx) {
     MEM_B(record_range + 1, record) = range[1];
 }
 
+// A car's view (car state +0x347, -1 none) also forks the simulation: a wrecked car with a view has its velocity
+// damped while it steers to the respawn point (func_800754B4 at 0x800757AC) and takes the respawn camera path, with
+// its own timing, in the respawn wait (func_8008E40C at 0x8008E4C4). Each machine has a view only on its own car, so
+// online every human car takes the viewed path on every machine; the cars without a view on this machine are given
+// view 3, which a one-view race leaves unused, for the respawn camera writes. The hooks pass the car state and the
+// view just loaded and get back the view to use.
+constexpr int scratch_view = 3;
+
+extern "C" int rush2_online_sim_view(uint8_t* rdram, uint32_t car_state, int view) {
+    if (phase == Phase::Idle || view >= 0) {
+        return view;
+    }
+    int car = MEM_B(0x346, (int32_t)car_state);
+    return car >= 0 && car < race_players ? scratch_view : view;
+}
+
 // The pause menu step (func_800AFD44): off in online races.
 extern "C" int rush2_online_block_pause(uint8_t* rdram, recomp_context* ctx) {
     return racing() ? 1 : 0;
+}
+
+// The race setup (func_800A5ADC at 0x800A5FD0) has just set the view count to the player count, for the split screen
+// it sets up next (func_80054BB0): online each machine has one view.
+extern "C" void rush2_online_race_views(uint8_t* rdram, recomp_context* ctx) {
+    if (phase == Phase::Loading) {
+        MEM_H(0, (int32_t)num_views) = 1;
+    }
+}
+
+bool rush2::online::game::in_race() {
+    return phase != Phase::Idle;
+}
+
+// The race's presentation (the HUD's update and the frame's drawing, func_800AE670 0x800AF1D4-0x800AF1F4) is the
+// game's player 1's. Online player 1 is whoever has the first lobby slot, so around those calls player 1's record swaps cars
+// with this machine's player's and takes controller port 0 (every record has no port online, so no controller reaches the race). The
+// rest of the record, which the race also writes, stays player 1's, and no race code runs in between, so every
+// machine's race stays the same. The engine sounds and rumble (func_80067358, in the physics tick) can't be moved the
+// same way: they write the player cars' +0x660, which the physics reads (func_80071D78), so they stay player 1's.
+namespace {
+    bool presenting = false;
+    int8_t saved_car = 0;
+    int8_t saved_port = 0;
+}
+
+extern "C" void rush2_online_present_begin(uint8_t* rdram, recomp_context* ctx) {
+    if (phase == Phase::Idle || presenting) {
+        return;
+    }
+    const int32_t first = (int32_t)player_records;
+    const int32_t mine = (int32_t)(player_records + local_player * player_record_size);
+    saved_car = MEM_B(record_car, first);
+    saved_port = MEM_B(record_port, first);
+    MEM_B(record_car, first) = MEM_B(record_car, mine);
+    MEM_B(record_car, mine) = saved_car;
+    MEM_B(record_port, first) = 0;
+    presenting = true;
+}
+
+extern "C" void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx) {
+    if (!presenting) {
+        return;
+    }
+    const int32_t first = (int32_t)player_records;
+    const int32_t mine = (int32_t)(player_records + local_player * player_record_size);
+    MEM_B(record_car, mine) = MEM_B(record_car, first);
+    MEM_B(record_car, first) = saved_car;
+    MEM_B(record_port, first) = saved_port;
+    presenting = false;
 }

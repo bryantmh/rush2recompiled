@@ -433,6 +433,10 @@ void rush2_online_frame_time(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_skip_physics(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_player_input(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_block_pause(uint8_t* rdram, recomp_context* ctx);
+void rush2_online_race_views(uint8_t* rdram, recomp_context* ctx);
+void rush2_online_present_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx);
+int rush2_online_sim_view(uint8_t* rdram, uint32_t car_state, int view);
 
 #ifdef __cplusplus
 }
