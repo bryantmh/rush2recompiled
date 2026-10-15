@@ -672,9 +672,10 @@ namespace {
 
     std::vector<ModCourse> mod_courses() {
         std::vector<ModCourse> out;
-        for (const rush2::track_mod::Entry& e : rush2::track_mod::tracks()) {
-            if ((int)out.size() == rush2::track2049::mod_capacity) break;
-            out.push_back({ e.folder, e.settings.name });
+        std::vector<rush2::track_mod::Entry> entries = rush2::track_mod::tracks();
+        for (size_t i = 0; i < entries.size() && i < size_t(rush2::track2049::mod_capacity); i++) {
+            if (rush2::track_mod::is_arena(entries[i].settings)) continue;   // stunt and battle arenas are never in a circuit
+            out.push_back({ entries[i].folder, entries[i].settings.name });
         }
         return out;
     }

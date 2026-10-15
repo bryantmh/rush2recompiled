@@ -854,6 +854,209 @@ def cases():
     return out
 
 
+# --- arenas (track.toml type = "stunt" / "battle") --------------------------------------------------------------------
+# An arena has no lap: the converter writes its START_n as the path's checkpoints (Rush 2049's battle starts player p
+# at checkpoint [0, 2, 1, 3][p]), starts the route at START_1 facing along its arrow (Rush 2's stunt start: spine point
+# 0 facing point 1) and, without AIPATH_main, covers the floor reachable from START_1 with route points. The layout:
+# a 600 ft square floor at 0 walled round, a ramp from it up to a 150 ft deck at 30 ft, and a 100 ft island at 100 ft
+# that nothing reaches.
+
+ARENA_HALF = 300.0
+DECK = ((150.0, 300.0), (-75.0, 75.0), 30.0)        # x range, z range, height (ft)
+RAMP = ((-50.0, 150.0), (-40.0, 40.0))              # x range, z range: from 0 at x -50 to the deck's 30 at x 150
+ISLAND = ((-250.0, -150.0), (150.0, 250.0), 100.0)
+
+
+class ArenaCase:
+    """kind: "stunt" or "battle"; starts: [(x, z, heading degrees)] as START_1.. (heading 0 = +z); pickups: [(name,
+    x, z)] PICKUP_ markers 3 ft over the highest floor there; finish: a FINISH marker (x, z, heading) instead of / besides the starts; route:
+    an AIPATH_main ribbon over these (x, z) points; errors / warnings / infos: regexes the report must hold."""
+
+    def __init__(self, name, kind, starts=(), pickups=(), finish=None, route=None, errors=(), warnings=(), infos=(),
+                 note=''):
+        self.__dict__.update(locals())
+        del self.__dict__['self']
+
+
+def arena_floor_height(x, z):
+    """The floors' heights at (x, z): the main floor, the ramp, the deck and the island where they are."""
+    hs = []
+    if abs(x) <= ARENA_HALF and abs(z) <= ARENA_HALF:
+        hs.append(0.0)
+    (rx0, rx1), (rz0, rz1) = RAMP
+    if rx0 <= x <= rx1 and rz0 <= z <= rz1:
+        hs.append(DECK[2] * (x - rx0) / (rx1 - rx0))
+    for (x0, x1), (z0, z1), h in (DECK, ISLAND):
+        if x0 <= x <= x1 and z0 <= z <= z1:
+            hs.append(h)
+    return hs
+
+
+def arena_mesh(g, name, quads, up=True):
+    """Quads (4 game points each, in order round the quad) as one mesh; up: their front faces up (floors), else
+    toward -x of their own winding (walls take the winding as given)."""
+    verts, nrms, tris = [], [], []
+    for q in quads:
+        for tri in ((q[0], q[1], q[2]), (q[0], q[2], q[3])):
+            e1 = [tri[1][i] - tri[0][i] for i in range(3)]
+            e2 = [tri[2][i] - tri[0][i] for i in range(3)]
+            cr = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+            if up and cr[1] > 0:     # the converter's front is -cross (in game axes)
+                tri = (tri[0], tri[2], tri[1])
+            base = len(verts)
+            verts += [to_gltf(v) for v in tri]
+            nrms += [(0.0, 1.0, 0.0)] * 3
+            tris.append((base, base + 1, base + 2))
+    g.mesh(name, verts, nrms, tris)
+
+
+def build_arena(c, folder):
+    g = Glb()
+    H = ARENA_HALF
+    floors = [[(-H, 0, -H), (H, 0, -H), (H, 0, H), (-H, 0, H)]]
+    (rx0, rx1), (rz0, rz1) = RAMP
+    floors.append([(rx0, 0.0, rz0), (rx1, DECK[2], rz0), (rx1, DECK[2], rz1), (rx0, 0.0, rz1)])
+    for (x0, x1), (z0, z1), h in (DECK, ISLAND):
+        floors.append([(x0, h, z0), (x1, h, z0), (x1, h, z1), (x0, h, z1)])
+    arena_mesh(g, 'COL_ROAD_arena', floors)
+    arena_mesh(g, 'TRACK_arena', floors)
+    walls = []
+    for a, b in (((-H, -H), (H, -H)), ((H, -H), (H, H)), ((H, H), (-H, H)), ((-H, H), (-H, -H))):
+        walls.append([(a[0], 0.0, a[1]), (b[0], 0.0, b[1]), (b[0], 40.0, b[1]), (a[0], 40.0, a[1])])
+    arena_mesh(g, 'COL_WALL_arena', walls, up=False)
+    for i, (x, z, heading) in enumerate(c.starts):
+        d = (math.sin(math.radians(heading)), 0.0, math.cos(math.radians(heading)))
+        g.empty('START_%d' % (i + 1), gate_matrix((x, 5.0, z), d, 20.0))
+    if c.finish:
+        x, z, heading = c.finish
+        g.empty('FINISH', gate_matrix((x, 5.0, z), (math.sin(math.radians(heading)), 0.0, math.cos(math.radians(heading))), 40.0))
+    for name, x, z in c.pickups:
+        t = to_gltf((x, max(arena_floor_height(x, z)) + 3.0, z))
+        g.empty(name, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, t[0], t[1], t[2], 1])
+    if c.route:
+        verts, tris = [], []
+        for k, (x, z) in enumerate(c.route):
+            verts += [to_gltf((x - 10, 0.0, z)), to_gltf((x + 10, 0.0, z))]
+            if k:
+                tris += [(2 * k - 2, 2 * k - 1, 2 * k), (2 * k - 1, 2 * k + 1, 2 * k)]
+        g.mesh('AIPATH_main', verts, [(0.0, 1.0, 0.0)] * len(verts), tris)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, 'track.glb'), 'wb') as f:
+        f.write(g.bytes())
+    with open(os.path.join(folder, 'track.toml'), 'w', newline='\n') as f:
+        f.write('[track]\nname = "%s"\ntype = "%s"\n' % (c.name, c.kind))
+
+
+def check_arena(c, folder):
+    out, text = convert(folder)
+    rp = os.path.join(out, 'report.txt')
+    report = open(rp, encoding='utf-8').read() if os.path.exists(rp) else text
+    fails, notes = [], []
+    errs = re.findall(r'^ERROR: (.*)$', report, re.M)
+    warns = re.findall(r'^Warning: (.*)$', report, re.M)
+    infos = re.findall(r'^(?:Info: )?(.*)$', report, re.M)
+    for rx in c.errors:
+        if not any(re.search(rx, e) for e in errs):
+            fails.append('missing error /%s/' % rx)
+    for e in errs:
+        if not any(re.search(rx, e) for rx in c.errors):
+            fails.append('unexpected ERROR: ' + e[:150])
+    for rx in c.warnings:
+        if not any(re.search(rx, w) for w in warns):
+            fails.append('missing warning /%s/' % rx)
+    for w in warns:
+        if not any(re.search(rx, w) for rx in c.warnings):
+            fails.append('unexpected warning: ' + w[:150])
+    for rx in c.infos:
+        if not re.search(rx, report):
+            fails.append('missing info /%s/' % rx)
+    pf = os.path.join(out, 'path.bin')
+    if not os.path.exists(pf):
+        return fails + ['no path.bin written'], notes
+    fwd = paths.parse(open(pf, 'rb').read())
+    if open(pf, 'rb').read() != open(os.path.join(out, 'path_backward.bin'), 'rb').read():
+        fails.append('the backward path differs (an arena has one path, used both ways)')
+    starts = list(c.starts) or ([c.finish] if c.finish else [])
+    if len(fwd['cps']) != max(1, len(starts[:4])):
+        fails.append('%d checkpoints, want %d (the starts)' % (len(fwd['cps']), max(1, len(starts[:4]))))
+    for i, (x, z, heading) in enumerate(starts[:4]):
+        if i >= len(fwd['cps']):
+            break
+        cp = fwd['cps'][i]
+        d = (math.sin(math.radians(heading)), math.cos(math.radians(heading)))
+        if math.hypot(cp['pos'][0] - x, cp['pos'][2] - z) > 1 or min(abs(cp['pos'][1] - h) for h in arena_floor_height(x, z)) > 1:
+            fails.append('checkpoint %d at %s, want START_%d on the floor at (%.0f, %.0f)' % (i, cp['pos'], i + 1, x, z))
+        # rush2_track49_battle_start faces the car along -dir
+        if -cp['dir'][0] * d[0] - cp['dir'][2] * d[1] < 0.99:
+            fails.append('checkpoint %d direction %s, want -(%.2f, 0, %.2f)' % (i, cp['dir'], d[0], d[1]))
+    sp = fwd['spine']
+    if starts:
+        x, z, heading = starts[0]
+        d = (math.sin(math.radians(heading)), math.cos(math.radians(heading)))
+        if math.hypot(sp[0][0] - x, sp[0][2] - z) > 1:
+            fails.append('route starts at %s, want START_1 (%.0f, %.0f)' % (sp[0], x, z))
+        a = (sp[1][0] - sp[0][0], sp[1][2] - sp[0][2])
+        if (a[0] * d[0] + a[1] * d[1]) / (math.hypot(*a) or 1) < 0.99:
+            fails.append('route point 1 %s isn\'t along START_1\'s arrow' % (sp[1],))
+    for k, q in enumerate(sp):
+        hs = arena_floor_height(q[0], q[2])
+        if not hs or min(abs(q[1] - h) for h in hs) > 2:
+            fails.append('route point %d %s isn\'t on a floor' % (k, q))
+            break
+        if abs(q[1] - ISLAND[2]) < 2 and ISLAND[0][0] <= q[0] <= ISLAND[0][1]:
+            fails.append('route point %d %s is on the island nothing reaches' % (k, q))
+            break
+    if not c.route:
+        # Coverage: every 60 ft of the main floor and the deck has a route point within 45 ft at its height.
+        for cx in range(-270, 271, 60):
+            for cz in range(-270, 271, 60):
+                for h in arena_floor_height(cx, cz):
+                    if h == ISLAND[2] or (0 < h < DECK[2]):
+                        continue
+                    if not any(math.hypot(q[0] - cx, q[2] - cz) < 45 and abs(q[1] - h) < 3 for q in sp):
+                        fails.append('no route point near (%d, %.0f, %d)' % (cx, h, cz))
+    for ln in fwd['lanes']:
+        if [p[:3] for p in ln['points']] != [tuple(q) for q in sp]:
+            fails.append('a lane isn\'t the route')
+            break
+    pk = os.path.join(out, 'pickups.txt')
+    got = [tuple(float(x) for x in line.split()) for line in open(pk)] if os.path.exists(pk) else []
+    want = [(name, x, z) for name, x, z in c.pickups] if c.kind == 'battle' else []
+    kinds = {'PICKUP_CANNON': 0, 'PICKUP_GATLING': 1, 'PICKUP_GRENADE': 2, 'PICKUP_MINE': 3, 'PICKUP_MISSILE': 4,
+             'PICKUP_RAM': 5, 'PICKUP_ROCKET': 6, 'PICKUP_SONIC': 7, 'PICKUP_POWERUP': 11}
+    want = [w for w in want if w[0] in kinds]
+    if len(got) != len(want):
+        fails.append('%d pickups, want %d' % (len(got), len(want)))
+    for (name, x, z), r in zip(want, got):
+        if int(r[0]) != kinds[name] or math.hypot(r[1] - x, r[3] - z) > 1 or abs(r[2] - (max(arena_floor_height(x, z)) + 3.0)) > 0.6:
+            fails.append('pickup %s at %s, want kind %d at (%.0f, 3, %.0f)' % (name, r, kinds[name], x, z))
+    notes.append('%d route points' % len(sp))
+    return fails, notes
+
+
+def arena_cases():
+    starts = [(-200.0, -200.0, 45.0), (200.0, 200.0, 225.0), (200.0, -200.0, -45.0), (-200.0, 200.0, 135.0)]
+    pickups = [('PICKUP_MISSILE', 0.0, -150.0), ('PICKUP_POWERUP', 225.0, 0.0), ('PICKUP_SONIC', -100.0, 0.0),
+               ('PICKUP_LASER', 50.0, 50.0)]
+    return [
+        ArenaCase('arena_battle', 'battle', starts=starts, pickups=pickups,
+                  warnings=[r'PICKUP_LASER: unknown pickup'], infos=[r'Pickups: 2 weapon\(s\), 1 power-up spot',
+                                                                     r"arena's route: \d+ points"],
+                  note='4 starts, pickups (one on the deck), a ramp, an island out of reach'),
+        ArenaCase('arena_battle_extra_starts', 'battle', starts=starts + [(0.0, 0.0, 0.0)], pickups=pickups[:1],
+                  infos=[r'START_5 and up are ignored'], note='a fifth start'),
+        ArenaCase('arena_battle_no_pickups', 'battle', starts=starts[:2], warnings=[r'No PICKUP_ markers'],
+                  infos=[r'2 start\(s\)'], note='2 starts, no pickups'),
+        ArenaCase('arena_stunt', 'stunt', starts=starts[:1], pickups=pickups[:1],
+                  infos=[r'only placed in a battle arena'], note='stunt: one start; a pickup is ignored'),
+        ArenaCase('arena_stunt_finish', 'stunt', finish=(0.0, -250.0, 0.0), note='FINISH stands in for START_1'),
+        ArenaCase('arena_stunt_no_start', 'stunt', warnings=[r'No START_1'], note='no start at all: a stand-in'),
+        ArenaCase('arena_stunt_route', 'stunt', starts=starts[:1],
+                  route=[(-200.0 + 20 * k, -100.0) for k in range(20)], infos=[r"AIPATH_main is the arena's route"],
+                  note="AIPATH_main as the route"),
+    ]
+
+
 def s_of(line, p):
     """Distance along line of its point nearest p (x/z)."""
     best, bs = 1e30, 0.0
@@ -874,7 +1077,7 @@ def main():
         i = args.index('--only')
         only = set(args[i + 1].split(','))
         del args[i:i + 2]
-    all_cases = cases()
+    all_cases = cases() + arena_cases()
     if '--list' in args:
         for c in all_cases:
             print('%-40s %s' % (c.name, c.note))
@@ -885,8 +1088,12 @@ def main():
         if only and c.name not in only:
             continue
         folder = os.path.join(out_dir, c.name)
-        build(c, folder)
-        fails, notes = check(c, folder)
+        if isinstance(c, ArenaCase):
+            build_arena(c, folder)
+            fails, notes = check_arena(c, folder)
+        else:
+            build(c, folder)
+            fails, notes = check(c, folder)
         failed += bool(fails)
         print('%s  %-40s %s' % ('FAIL' if fails else 'PASS', c.name, c.note))
         for f in fails:

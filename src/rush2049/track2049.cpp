@@ -155,7 +155,12 @@ namespace {
             }
             rush2::track2049::set_texanim_data({});
             rush2::track2049::set_prop_data({}, track.geometry);
-            rush2::battle::set_data({}, {}, track.geometry, {});
+            // A battle arena's PICKUP_ markers (drawn with Rush 2049's models, src/rush2049/battle.cpp) and every custom
+            // track's solid triangles, which the weapons' shots stop on.
+            rush2::battle::set_data(track.pickup_records, {}, track.geometry, track.solid_triangles);
+            if (rush2::track_mod::is_arena(mod_settings) && mod_settings.type == "battle" && track.pickup_records.empty()) {
+                rush2::battle_ai::set_arena(track.solid_triangles);   // set_data builds the opponents' grid only with pickups
+            }
             return true;
         }
         auto rom = rush2::wings::get_rom();
@@ -368,9 +373,22 @@ bool rush2::track2049::obstacle_race(uint8_t* rdram) {
     return t == obstacle_menu_id || (t == host_slot && raced_track == obstacle);
 }
 
+// A custom track raced as an arena (track.toml type), in the stunt slot: rush2::track_mod::race_type, or race_race.
+static int mod_arena(int t) {
+    return t == stunt_host_slot && rush2::track_mod::race_track() >= 0 ? rush2::track_mod::race_type()
+                                                                         : rush2::track_mod::race_race;
+}
+
 bool rush2::track2049::battle_race(uint8_t* rdram) {
     int t = (int8_t)MEM_B(0, (int32_t)track_id);
-    return (t >= battle_menu_id && t < battle_menu_id + battle_count) || (t == stunt_host_slot && raced_battle != 0);
+    return (t >= battle_menu_id && t < battle_menu_id + battle_count) || (t == stunt_host_slot && raced_battle != 0) ||
+           mod_arena(t) == rush2::track_mod::race_battle ||
+           (t >= mod_menu_id && t < mod_menu_id + mod_capacity && rush2::track_mod::type_of(t - mod_menu_id) == rush2::track_mod::race_battle);
+}
+
+bool rush2::track2049::battle_arena_race(uint8_t* rdram) {
+    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    return t == stunt_host_slot && (raced_battle != 0 || mod_arena(t) == rush2::track_mod::race_battle);
 }
 
 rush2::track2049::GameType rush2::track2049::game_type(uint8_t* rdram) {
@@ -379,6 +397,7 @@ rush2::track2049::GameType rush2::track2049::game_type(uint8_t* rdram) {
     if (t == host_slot && raced_track != 0) return GameType::race;
     if (t == stunt_host_slot && raced_stunt != 0) return GameType::stunt;
     if (t == stunt_host_slot && raced_battle != 0) return GameType::battle;
+    if (int m = mod_arena(t); m != rush2::track_mod::race_race) return m == rush2::track_mod::race_stunt ? GameType::stunt : GameType::battle;
     return GameType::none;
 }
 
@@ -417,9 +436,14 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         k = rush2::track2049::battle_first + raced_battle - 1;
         want_slot = stunt_host_slot;
     }
-    else if (rush2::track_mod::race_track() >= 0 && t == host_slot) {
+    else if (rush2::track_mod::race_track() >= 0 && t == host_slot && rush2::track_mod::race_type() == rush2::track_mod::race_race) {
         k = mod_k + rush2::track_mod::race_track();
         want_slot = host_slot;
+    }
+    else if (mod_arena(t) != rush2::track_mod::race_race) {
+        // A custom stunt or battle arena, in the stunt slot as Rush 2049's arenas.
+        k = mod_k + rush2::track_mod::race_track();
+        want_slot = stunt_host_slot;
     }
     if (k == 0 || (applied && slot != want_slot)) {
         restore(rdram);

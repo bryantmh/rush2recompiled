@@ -1246,6 +1246,11 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     str("track", "version", s.version);
     str("track", "description", s.description);
     if (s.name.empty()) report.error("track.toml: [track] name is required.");
+    str("track", "type", s.type);
+    if (s.type != "race" && s.type != "stunt" && s.type != "battle") {
+        report.error("track.toml: [track] type must be \"race\", \"stunt\" or \"battle\"; \"" + s.type + "\" is raced as a race.");
+        s.type = "race";
+    }
     // Not track settings: the players pick the lap count and mirror mode, which every track has.
     if (t["race"]["laps"]) report.info("track.toml: laps is ignored (players pick the lap count).");
     if (t["race"]["mirror"]) report.info("track.toml: mirror is ignored (every track can be raced mirrored).");
@@ -1359,7 +1364,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     const rush2::gltf::Node* aipath = nullptr;
     std::map<int, const rush2::gltf::Node*> checkpoints, grid;
     std::vector<std::pair<float, const rush2::gltf::Node*>> aispeeds;
+    std::vector<std::pair<int, const rush2::gltf::Node*>> pickup_nodes;   // PICKUP_<kind>: kind as PickupRecord::kind
     std::vector<const rush2::gltf::Node*> visual, sky;
+    const bool arena = is_arena(settings);
     std::vector<std::pair<uint16_t, const rush2::gltf::Node*>> collision_nodes;
     std::set<std::string> seen;
     // Moving objects: every node under an animated MOVE_<name> (the outermost) moves with it.
@@ -1443,6 +1450,25 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         if (int k = number_after(name, "AISPEED_"); k >= 0) { aispeeds.push_back({ float(k), &n }); continue; }
         if (name == "SKY") { if (mesh) sky.push_back(&n); else report.warning(n.name + " has no mesh; ignored."); continue; }
         if (starts(name, "PROP_")) { report.warning(n.name + ": props aren't supported yet; ignored."); continue; }
+        if (starts(name, "PICKUP_")) {
+            // A battle arena's weapon or power-up pickup, by Rush 2049's weapons (PickupRecord::kind).
+            static const std::pair<const char*, int> kinds[] = { { "CANNON", 0 }, { "GATLING", 1 }, { "GRENADE", 2 },
+                { "MINE", 3 }, { "MISSILE", 4 }, { "RAM", 5 }, { "ROCKET", 6 }, { "SONIC", 7 }, { "POWERUP", 11 } };
+            std::string kind = upper(name.substr(7));
+            int found = -1;
+            for (const auto& [kn, kv] : kinds) if (kind == kn) found = kv;
+            if (found < 0) {
+                report.warning(n.name + ": unknown pickup; use PICKUP_CANNON, PICKUP_GATLING, PICKUP_GRENADE, PICKUP_MINE, "
+                               "PICKUP_MISSILE, PICKUP_RAM, PICKUP_ROCKET, PICKUP_SONIC or PICKUP_POWERUP. Ignored.");
+            }
+            else if (settings.type != "battle") {
+                report.info(n.name + ": pickups are only placed in a battle arena (track.toml type = \"battle\"); ignored.");
+            }
+            else {
+                pickup_nodes.push_back({ found, &n });
+            }
+            continue;
+        }
         if (mesh) { visual.push_back(&n); continue; }
         if (n.loose_edges) { report.warning(n.name + " is only lines (loose edges); ignored."); continue; }
         if (!n.name.empty()) report.info(n.name + " isn't a recognized marker; ignored.");
@@ -1455,7 +1481,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                            "its drag applies nowhere (COL_DIRT and COL_GRASS keep the stock drag).");
         }
     }
-    if (!grid.empty()) {
+    if (!grid.empty() && !arena) {
         report.info("START_1-" + std::to_string(grid.rbegin()->first) + " are ignored: Rush 2 lines the 8 cars up "
                     "itself, two per row, rows 20 ft (6 m) apart, from the finish line back.");
     }
@@ -1467,8 +1493,19 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         return normalize(f);
     };
     auto half_width = [](const rush2::gltf::Node* n) { return length(n->axis(0)) * feet_per_meter; };
-    if (!finish) report.error("No FINISH marker: add an Empty named FINISH on the start/finish line.");
-    if (checkpoints.empty()) report.error("No checkpoints: add Empties CHECKPOINT_1, CHECKPOINT_2, ... around the lap.");
+    if (arena) {
+        // An arena has no lap: its starts are START_n (FINISH stands in for START_1 without them).
+        if (!checkpoints.empty() || (finish && !grid.empty())) {
+            report.info("A " + settings.type + " arena has no lap: " + std::string(checkpoints.empty() ? "FINISH is" :
+                        "FINISH and the CHECKPOINT_n are") + " ignored (the cars start at START_1, START_2, ...).");
+        }
+        checkpoints.clear();
+        if (!grid.empty()) finish = nullptr;
+    }
+    else {
+        if (!finish) report.error("No FINISH marker: add an Empty named FINISH on the start/finish line.");
+        if (checkpoints.empty()) report.error("No checkpoints: add Empties CHECKPOINT_1, CHECKPOINT_2, ... around the lap.");
+    }
     int expected = 1;
     for (const auto& [k, n] : checkpoints) {
         if (k != expected) report.error("Checkpoints must be numbered 1, 2, 3, ... without gaps; CHECKPOINT_" +
@@ -1482,6 +1519,19 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     struct Gate { std::string name; Vec3 pos, dir; float radius; int at = -1; };
     std::vector<Gate> gates;
     if (finish) gates.push_back({ "FINISH", to_game(finish->position()), forward(finish), half_width(finish) });
+    if (arena) {
+        // Start spots: Rush 2049's battle starts player p at checkpoint [0, 2, 1, 3][p] (rush2_track49_battle_start), the
+        // stunt mode at the path's first point, which is START_1's.
+        constexpr size_t max_starts = 4;
+        for (const auto& [k, n] : grid) {
+            if (gates.size() >= max_starts) {
+                report.info("START_" + std::to_string(k) + " and up are ignored: an arena has 4 starts (the other cars "
+                            "start on the route, as far from the others as it goes).");
+                break;
+            }
+            gates.push_back({ "START_" + std::to_string(k), to_game(n->position()), forward(n), 20.0f });
+        }
+    }
     for (const auto& [k, n] : checkpoints) {
         if ((int)gates.size() > max_checkpoints) break;   // the extra ones were reported above
         gates.push_back({ "CHECKPOINT_" + std::to_string(k), to_game(n->position()), forward(n), half_width(n) });
@@ -1489,7 +1539,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     for (size_t i = 0; i < gates.size(); i++) {
         const Gate& g = gates[i];
         if (length(g.dir) < 0.5f) report.error(g.name + " points straight up or down; turn it so its green arrow points down the track.");
-        if (g.radius < 3.0f) report.error(g.name + " is " + fmt_ft(g.radius * 2) + " wide; scale its X to half the road's width.");
+        if (g.radius < 3.0f && !arena) report.error(g.name + " is " + fmt_ft(g.radius * 2) + " wide; scale its X to half the road's width.");
         for (size_t j = 0; j < i; j++) {
             if (length(sub(gates[j].pos, g.pos)) < 1.0f) {   // 3D: markers on stacked roads share x/z
                 report.error(g.name + " and " + gates[j].name + " are in the same place " + fmt_pos(g.pos) +
@@ -1744,6 +1794,12 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             c.insert(c.end(), polys.begin(), polys.end());
             c.insert(c.end(), records.begin(), records.end());
         }
+        // Rush 2049's weapons stop on the track's solid triangles (src/rush2049/battle.cpp; 9 floats a triangle), the fixed
+        // track's: a moving part is somewhere else by then.
+        for (const CollisionTri& c : ctris) {
+            if (c.group != 0) continue;
+            for (const Vec3& v : c.v) for (float f : v) out.track.solid_triangles.push_back(f);
+        }
         // The AI path follows the fixed track only.
         cpolys.erase(std::remove_if(cpolys.begin(), cpolys.end(), [](const BuiltPoly& p) { return p.group > 0; }), cpolys.end());
     }
@@ -1751,8 +1807,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // ---- AI path ----
     std::vector<PathPoint> rungs;
     if (!aipath) {
-        report.error("No AIPATH_main: draw the racing line as a curve named AIPATH_main with Geometry > Extrude set to "
-                     "about half the road's width (a curve with no Extrude isn't exported).");
+        if (!arena) {
+            report.error("No AIPATH_main: draw the racing line as a curve named AIPATH_main with Geometry > Extrude set to "
+                         "about half the road's width (a curve with no Extrude isn't exported).");
+        }
     }
     else if (aipath->primitives.empty()) {
         report.error("AIPATH_main has no surface: give the curve Geometry > Extrude (about half the road's width) so it is "
@@ -1817,7 +1875,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                             std::to_string(rungs.size()) + " cross sections, " + fmt_w(min_w) +
                             (max_w - min_w > 0.5f ? " to " + fmt_w(max_w) : std::string()) + " wide.");
                 float closing = length(sub(rungs.front().p, rungs.back().p));
-                if (!ribbon.closed && closing > median * 3.0f + 10.0f) {
+                if (!ribbon.closed && closing > median * 3.0f + 10.0f && !arena) {
                     report.warning("AIPATH_main isn't a closed loop (its ends are " + fmt_ft(closing) +
                                    " apart); it is closed with a straight line. In Blender: Curve > Toggle Cyclic.");
                 }
@@ -1842,7 +1900,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // computer cars follow it as best they can; the path's own warnings are left out, the error already says what's
     // wrong.
     bool stand_in = false;
-    if (!finish) {
+    if (!arena && !finish) {
         Gate f{ "FINISH", {}, { 0.0f, 0.0f, 1.0f }, 40.0f };
         if (rungs.size() >= 2) {
             f.pos = mul(add(rungs[0].p, rungs[1].p), 0.5f);
@@ -1879,7 +1937,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         report.warning("With no FINISH, a stand-in finish line is used at " + fmt_pos(f.pos) + ".");
         gates.insert(gates.begin(), f);
     }
-    if (rungs.size() < 4) {
+    if (!arena && rungs.size() < 4) {
         stand_in = true;
         auto add_run = [&](const Vec3& a, const Vec3& b, float wa, float wb) {
             Vec3 d = sub(b, a);
@@ -1927,8 +1985,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                        "Fix AIPATH_main for a real one.");
     }
 
-    std::vector<PathPoint> spine;   // every spine_step ft, starting at the finish line
-    if (rungs.size() >= 4) {
+    std::vector<PathPoint> spine;   // every spine_step ft, starting at the finish line (a race's)
+    if (!arena && rungs.size() >= 4) {
         constexpr float gate_height = 30.0f;   // ft above or below the marker a crossing may be
         struct Crossing { float s; bool along; Vec3 at; };   // s: distance along rungs; along: the arrow's way
         size_t nr = rungs.size();
@@ -2335,7 +2393,165 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // Problems the report lists don't stop the track: it is built as it stands so its author can drive it and see
     // them. Only what leaves nothing to race (no AI path through FINISH, no collision, nothing to draw, over the game's
     // hard limits) stops it.
-    if (!spine.empty()) {
+    if (arena) {
+        // ---- an arena's path: its starts as the checkpoints and a route over its floor ----
+        // Rush 2's stunt mode starts the car at spine point 0 facing point 1 (func_800A34A8); Rush 2049's battle starts
+        // the players at the checkpoints, and the other cars and every respawn on the route's points
+        // (rush2_track49_battle_start, the respawn hook at 0x800918E8); a crashed car otherwise comes back on the
+        // nearest point of the lanes (func_80090A40). So the route covers the floor the cars can reach from START_1,
+        // and its lanes are the route itself, as the Rush 2049 arenas' are (track2049_convert.cpp spine_lanes).
+        auto on_ground = [&](Vec3 p) {
+            float h = cpolys.empty() ? NAN : ground_under(cpolys, p, 60.0f);
+            if (!std::isnan(h)) p[1] = h;
+            return p;
+        };
+        std::vector<const CollisionTri*> floors;
+        for (const CollisionTri& c : ctris) {
+            int type = c.flags & 0xF;
+            if (c.group == 0 && type <= 2 && normalize(c.front)[1] > 0.6f) floors.push_back(&c);
+        }
+        if (gates.empty()) {
+            Vec3 lo = { 1e30f, 1e30f, 1e30f }, hi = { -1e30f, -1e30f, -1e30f };
+            for (const CollisionTri* c : floors) for (const Vec3& v : c->v) for (int k = 0; k < 3; k++) {
+                lo[k] = std::min(lo[k], v[k]);
+                hi[k] = std::max(hi[k], v[k]);
+            }
+            Gate g{ "START_1", {}, { 0.0f, 0.0f, 1.0f }, 20.0f };
+            float best = 1e30f;
+            for (const CollisionTri* c : floors) {
+                Vec3 at = mul(add(add(c->v[0], c->v[1]), c->v[2]), 1.0f / 3.0f);
+                float d = dist_xz(at, mul(add(lo, hi), 0.5f));
+                if (d < best) { best = d; g.pos = at; }
+            }
+            report.warning("No START_1 (or FINISH): the cars start at a stand-in spot on the floor, " + fmt_pos(g.pos) +
+                           ". Add Empties START_1, START_2, ... where the cars start, green arrow forward.");
+            gates.push_back(g);
+        }
+        for (Gate& g : gates) g.pos = on_ground(g.pos);
+        if (settings.type == "battle" && gates.size() < 4) {
+            report.info(std::to_string(gates.size()) + " start(s): players past them start on the route, as far from the "
+                        "others as it goes (Rush 2049's rule for the cars past its 4 starts).");
+        }
+        std::vector<PathPoint> route;
+        auto add_point = [&](const Vec3& p) { route.push_back({ p, { 1.0f, 0.0f, 0.0f }, 0.0f }); };
+        add_point(gates[0].pos);
+        add_point(on_ground(add(gates[0].pos, mul(gates[0].dir, spine_step))));
+        if (rungs.size() >= 4) {
+            // AIPATH_main: its points every spine_step ft, from the one nearest START_1 on.
+            std::vector<Vec3> pts;
+            for (size_t i = 0; i + 1 < rungs.size(); i++) {
+                float len = length(sub(rungs[i + 1].p, rungs[i].p));
+                for (float t = 0.0f; t < len; t += spine_step) pts.push_back(add(rungs[i].p, mul(sub(rungs[i + 1].p, rungs[i].p), t / len)));
+            }
+            size_t near = 0;
+            for (size_t i = 0; i < pts.size(); i++) if (length(sub(pts[i], gates[0].pos)) < length(sub(pts[near], gates[0].pos))) near = i;
+            for (size_t k = 0; k < pts.size() && route.size() < 3900; k++) add_point(on_ground(pts[(near + k) % pts.size()]));
+            report.info("AIPATH_main is the arena's route: " + std::to_string(route.size()) + " points.");
+        }
+        else {
+            // A grid over the floor: a point per cell and floor level, those reachable from START_1 by steps to a
+            // neighbouring cell that climb no more than a ramp would, each next one the nearest left.
+            float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
+            for (const CollisionTri* c : floors) for (const Vec3& v : c->v) {
+                x0 = std::min(x0, v[0]); x1 = std::max(x1, v[0]);
+                z0 = std::min(z0, v[2]); z1 = std::max(z1, v[2]);
+            }
+            float cell = std::max(30.0f, std::sqrt(std::max(1.0f, (x1 - x0) * (z1 - z0)) / 2500.0f));
+            std::map<std::pair<int, int>, std::vector<float>> levels;
+            for (const CollisionTri* c : floors) {
+                const Vec3 &a = c->v[0], &b = c->v[1], &q = c->v[2];
+                float d = (b[0] - a[0]) * (q[2] - a[2]) - (q[0] - a[0]) * (b[2] - a[2]);
+                if (std::fabs(d) < 1e-6f) continue;
+                int i0 = int(std::floor((std::min({ a[0], b[0], q[0] }) - x0) / cell)), i1 = int(std::floor((std::max({ a[0], b[0], q[0] }) - x0) / cell));
+                int j0 = int(std::floor((std::min({ a[2], b[2], q[2] }) - z0) / cell)), j1 = int(std::floor((std::max({ a[2], b[2], q[2] }) - z0) / cell));
+                for (int i = i0; i <= i1; i++) for (int j = j0; j <= j1; j++) {
+                    float x = x0 + (float(i) + 0.5f) * cell, z = z0 + (float(j) + 0.5f) * cell;
+                    float u = ((x - a[0]) * (q[2] - a[2]) - (q[0] - a[0]) * (z - a[2])) / d;
+                    float w = ((b[0] - a[0]) * (z - a[2]) - (x - a[0]) * (b[2] - a[2])) / d;
+                    if (u < 0.0f || w < 0.0f || u + w > 1.0f) continue;
+                    float h = a[1] + u * (b[1] - a[1]) + w * (q[1] - a[1]);
+                    auto& l = levels[{ i, j }];
+                    if (std::none_of(l.begin(), l.end(), [&](float e) { return std::fabs(e - h) < 6.0f; })) l.push_back(h);
+                }
+            }
+            struct Node { int i, j; Vec3 p; };
+            std::vector<Node> nodes;
+            std::map<std::pair<int, int>, std::vector<size_t>> at_cell;
+            for (const auto& [ij, hs] : levels) {
+                for (float h : hs) {
+                    at_cell[ij].push_back(nodes.size());
+                    nodes.push_back({ ij.first, ij.second, { x0 + (float(ij.first) + 0.5f) * cell, h, z0 + (float(ij.second) + 0.5f) * cell } });
+                }
+            }
+            size_t start = 0;
+            for (size_t k = 0; k < nodes.size(); k++) {
+                if (length(sub(nodes[k].p, gates[0].pos)) < length(sub(nodes[start].p, gates[0].pos))) start = k;
+            }
+            std::vector<bool> reach(nodes.size(), false);
+            std::vector<size_t> todo;
+            if (!nodes.empty()) { reach[start] = true; todo.push_back(start); }
+            const float climb = cell * 0.7f;       // a 35 degree ramp
+            while (!todo.empty()) {
+                size_t k = todo.back();
+                todo.pop_back();
+                for (int di = -1; di <= 1; di++) for (int dj = -1; dj <= 1; dj++) {
+                    auto it = at_cell.find({ nodes[k].i + di, nodes[k].j + dj });
+                    if (it == at_cell.end()) continue;
+                    for (size_t o : it->second) {
+                        if (!reach[o] && std::fabs(nodes[o].p[1] - nodes[k].p[1]) <= climb) { reach[o] = true; todo.push_back(o); }
+                    }
+                }
+            }
+            std::vector<size_t> left;
+            for (size_t k = 0; k < nodes.size(); k++) if (reach[k]) left.push_back(k);
+            Vec3 cur = route.back().p;
+            while (!left.empty() && route.size() < 3900) {
+                size_t best = 0;
+                float best_d = 1e30f;
+                for (size_t k = 0; k < left.size(); k++) {
+                    Vec3 d = sub(nodes[left[k]].p, cur);
+                    float dd = d[0] * d[0] + d[2] * d[2] + 4.0f * d[1] * d[1];
+                    if (dd < best_d) { best_d = dd; best = k; }
+                }
+                cur = nodes[left[best]].p;
+                add_point(cur);
+                left[best] = left.back();
+                left.pop_back();
+            }
+            report.info("The arena's route: " + std::to_string(route.size()) + " points on the floor reachable from " +
+                        gates[0].name + ", " + fmt_ft(cell) + " apart (draw AIPATH_main to choose them yourself).");
+            if (route.size() <= 2) {
+                report.warning("The arena has no floor (COL_ROAD, COL_DIRT, COL_GRASS or a custom surface) under " +
+                               gates[0].name + ": respawns come back to the start.");
+            }
+        }
+        std::vector<float> mph(route.size(), 100.0f);     // the Rush 2049 arenas' lanes: 100 mph, flags 2
+        write_path(route, mph, gates, out.track.path);
+        out.track.path_backward = out.track.path;
+        out.checkpoints = 0;
+        out.lap_feet = 0.0f;
+        // Battle pickups (src/rush2049/battle.cpp draws them with Rush 2049's models), at least 2.5 ft over the floor.
+        for (const auto& [kind, node] : pickup_nodes) {
+            rush2::track2049::PickupRecord r{ -1, kind, {} };
+            Vec3 p = to_game(node->position());
+            float h = cpolys.empty() ? NAN : ground_under(cpolys, p, 30.0f);
+            if (!std::isnan(h) && p[1] - h < 2.5f) p[1] = h + 2.5f;
+            for (int k = 0; k < 3; k++) r.pos[k] = p[k];
+            out.track.pickup_records.push_back(r);
+        }
+        if (settings.type == "battle") {
+            int weapons = 0, powerups = 0;
+            for (const auto& [kind, node] : pickup_nodes) (kind == 11 ? powerups : weapons)++;
+            if (pickup_nodes.empty()) {
+                report.warning("No PICKUP_ markers: the cars only have their guns. Add Empties such as PICKUP_MISSILE "
+                               "and PICKUP_POWERUP where the pickups float.");
+            }
+            else {
+                report.info("Pickups: " + std::to_string(weapons) + " weapon(s), " + std::to_string(powerups) + " power-up spot(s).");
+            }
+        }
+    }
+    else if (!spine.empty()) {
         write_path(spine, speed_mph, gates, out.track.path);
         // Backward: from the finish line the other way round (point i is forward point n - i), lanes mirrored with
         // the direction, gates turned round, the finish first and then CHECKPOINT_n down to CHECKPOINT_1.
@@ -2411,7 +2627,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         report.error("Nothing to draw: the track has no visible meshes (only markers).");
     }
     // Only a track with nothing to stand on or see, or a collision index the game can't hold, isn't loaded.
-    if (spine.empty() || !collision_ok || vtris.empty()) return false;
+    if ((spine.empty() && out.track.path.empty()) || !collision_ok || vtris.empty()) return false;
 
     // The sky (SKY meshes): one model, SKYO1, which Rush 2's sky code (sky_setup_800A45A8's Las Vegas branch, taken for
     // custom tracks in src/rush2049/track2049.cpp) draws around the camera in every view, before the track, with depth

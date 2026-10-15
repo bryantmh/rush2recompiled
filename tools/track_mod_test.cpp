@@ -77,6 +77,16 @@ int main(int argc, char** argv) {
         }
         write_all(outdir / "mover_records.txt", std::vector<uint8_t>(records.begin(), records.end()));
     }
+    if (!out.track.pickup_records.empty()) {
+        // A battle arena's pickups: kind x y z (game ft) per line.
+        std::string text;
+        for (const auto& p : out.track.pickup_records) {
+            char line[96];
+            snprintf(line, sizeof(line), "%d %.2f %.2f %.2f\n", p.kind, p.pos[0], p.pos[1], p.pos[2]);
+            text += line;
+        }
+        write_all(outdir / "pickups.txt", std::vector<uint8_t>(text.begin(), text.end()));
+    }
     printf("OK: wrote %s\n", outdir.string().c_str());
     return 0;
 }

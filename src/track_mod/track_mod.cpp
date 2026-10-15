@@ -41,7 +41,7 @@
 
 namespace {
     // Bump when the converter's output changes for the same input (the build stamp already covers new builds).
-    constexpr uint64_t converter_version = 10;
+    constexpr uint64_t converter_version = 11;
     constexpr int cache_k = 1000;   // track_cache keys of mod tracks: 1000 + a hash of the folder (2049 tracks use 1-37)
 
     std::mutex mutex;
@@ -206,6 +206,37 @@ void rush2::track_mod::set_race_track(int index) {
     raced = index;
 }
 
+int rush2::track_mod::race_type() {
+    // Looked up again only when the raced track changes (the game's hooks ask every frame).
+    static std::atomic_int looked_up = -2, type = race_race;
+    int r = race_track();
+    if (r != looked_up) {
+        std::lock_guard lock{ mutex };
+        scan();
+        int t = race_race;
+        if (r >= 0 && r < (int)entries.size()) {
+            const std::string& s = entries[r].settings.type;
+            t = s == "stunt" ? race_stunt : s == "battle" ? race_battle : race_race;
+        }
+        type = t;
+        looked_up = r;
+    }
+    return type;
+}
+
+int rush2::track_mod::type_of(int index) {
+    std::lock_guard lock{ mutex };
+    scan();
+    if (index < 0 || index >= (int)entries.size()) return race_race;
+    const std::string& s = entries[index].settings.type;
+    return s == "stunt" ? race_stunt : s == "battle" ? race_battle : race_race;
+}
+
+std::string rush2::track_mod::host_prefix(const Settings& settings) {
+    // src/rush2049/track2049.cpp prefix_of(slot): HAWAII hosts the races, STUNT1 the arenas.
+    return is_arena(settings) ? "STUNT1" : "HAWAII";
+}
+
 std::string rush2::track_mod::race_folder() {
     std::lock_guard lock{ mutex };
     int r = race_track();
@@ -225,9 +256,6 @@ bool rush2::track_mod::race_settings(Settings& out) {
 }
 
 namespace {
-    // Mods race in the host slot, HAWAII (src/rush2049/track2049.cpp prefix_of(host_slot)).
-    const std::string host_prefix = "HAWAII";
-
     struct Files {
         rush2::track_mod::Entry entry;
         std::vector<uint8_t> glb, toml;
@@ -485,7 +513,7 @@ bool rush2::track_mod::menu_art(int index, MenuArt& out) {
         return true;
     }
     Converted converted;
-    if (!convert_and_store(f, host_prefix, converted)) return false;
+    if (!convert_and_store(f, rush2::track_mod::host_prefix(f.entry.settings), converted)) return false;
     out = std::move(converted.menu);
     return true;
 }

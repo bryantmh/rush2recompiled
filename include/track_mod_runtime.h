@@ -25,6 +25,14 @@ namespace rush2::track_mod {
     // whenever the host slot (HAWAII) is raced, for testing without a track select entry.
     int race_track();
     void set_race_track(int index);
+    // The raced custom track's Settings::type: race_race (also for none), race_stunt or race_battle. An arena races in
+    // the stunt track's slot (src/rush2049/track2049.cpp).
+    enum RaceType : int { race_race = 0, race_stunt = 1, race_battle = 2 };
+    int race_type();
+    // Track `index`'s type (a RaceType), or race_race when there is no such track.
+    int type_of(int index);
+    // The track prefix a custom track of these settings is converted with: its host slot's (STUNT1 for an arena).
+    std::string host_prefix(const Settings& settings);
     // The raced custom track's folder name (what its records and ghosts are kept under), or "" for none. Its
     // track.toml settings, for the race's records seed.
     std::string race_folder();

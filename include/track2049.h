@@ -119,6 +119,8 @@ namespace rush2::track2049 {
     bool obstacle_race(uint8_t* rdram);
     // Whether the race is in a battle arena (also true at race setup, before the menu id becomes the host slot's).
     bool battle_race(uint8_t* rdram);
+    // Whether a battle arena (Rush 2049's or a custom one) is hosted in the stunt slot now.
+    bool battle_arena_race(uint8_t* rdram);
 
     // Rush 2049's game type (its 0x8014A110, set by its menus; 2049's timer setup at 0x800FC0FC tells them apart:
     // 1800 s, the stunt MINUTES option, 300 s, the battle time option) for the 2049 course hosted by the current

@@ -75,6 +75,9 @@ namespace rush2::track_mod {
     // track.toml.
     struct Settings {
         std::string name, author, version, description;
+        // [track] type: "race" (a lap through FINISH and the checkpoints), or an arena hosted by Rush 2's stunt track:
+        // "stunt" (Rush 2's stunt mode) or "battle" (Rush 2049's battle, src/rush2049/battle.cpp).
+        std::string type = "race";
         std::optional<float> start_time;
         std::vector<std::array<float, 3>> checkpoint_time;   // per checkpoint: first lap, later laps (third unused)
         std::vector<float> best_times;
@@ -88,6 +91,9 @@ namespace rush2::track_mod {
     };
 
     bool parse_settings(const std::string& toml_text, Settings& out, Report& report);
+
+    // A stunt or battle arena (Settings::type): raced in the stunt track's slot, with no lap.
+    inline bool is_arena(const Settings& s) { return s.type == "stunt" || s.type == "battle"; }
 
     // A true-color stand-in texture of the converted geometry: RGBA16 texels at `offset` in the geometry, drawn from
     // image `image` of the glb. On screen the stand-in is replaced by the full-size image (tinted and cut out as the

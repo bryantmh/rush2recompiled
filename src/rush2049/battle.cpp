@@ -64,6 +64,7 @@
 #include "rush2.h"
 #include "rush2_hooks.h"
 #include "track2049.h"
+#include "track_mod_runtime.h"
 #include "wings.h"
 
 extern "C" void hud_widget_alloc_800541F8(uint8_t* rdram, recomp_context* ctx);   // Allocates a 2D widget.
@@ -231,6 +232,10 @@ namespace {
         float angle = 0.0f;
         bool taken = false;
         int holds = -1;                   // a power-up spot (WEPICON_POWUP): the power-up placed there, or -1
+        // A custom arena's pickup (PickupRecord::record -1) has no placement record: it is drawn in renderer slot
+        // `slot` (from race_pickup_slot_first) with `model`.
+        int slot = -1;
+        std::string model;
     };
 
     // Rush 2049's power-up managers (battle overlay, table 0x80399AE0): the WEPICON_POWUP pickups are spots, all hidden
@@ -568,6 +573,30 @@ namespace {
         for (int k = 0; k < 3; k++) write_f(rdram, record + 0x34 + k * 4, pos[k]);
     }
 
+    void hide_slot(uint8_t*, int slot);
+    void place_slot(uint8_t*, int slot, const char* model, const float m[9], const float pos[3], bool billboard);
+
+    // An arena pickup shown, hidden, given a model or posed: its placement record's scene node (Rush 2049's arenas)
+    // or its renderer slot (a custom arena's, placed each frame it is out).
+    void pickup_show(uint8_t* rdram, Pickup& p) {
+        if (p.slot < 0) show_node(rdram, p.node);
+    }
+
+    void pickup_hide(uint8_t* rdram, Pickup& p) {
+        if (p.slot < 0) hide_node(rdram, p.node);
+        else hide_slot(rdram, p.slot);
+    }
+
+    void pickup_model(uint8_t* rdram, Pickup& p, const std::string& name) {
+        if (p.slot < 0) set_model(rdram, p.node, name);
+        else p.model = rush2::battle_render::find_model(name.c_str());
+    }
+
+    void pickup_pose(uint8_t* rdram, Pickup& p, const float m[9]) {
+        if (p.slot < 0) write_pose(rdram, p.record, m, p.local);
+        else if (!p.taken && !p.model.empty()) place_slot(rdram, p.slot, p.model.c_str(), m, p.rec.pos, false);
+    }
+
     void read_models(const std::vector<uint8_t>& g) {
         models.clear();
         if (g.size() < 0x14) return;
@@ -780,7 +809,7 @@ namespace {
 
     bool battle_race(uint8_t* rdram) {
         int slot = rush2::track2049::loaded_slot();
-        return slot >= 0 && MEM_B(0, (int32_t)track_id) == slot && rush2::track2049::battle_arena() > 0;
+        return slot >= 0 && MEM_B(0, (int32_t)track_id) == slot && rush2::track2049::battle_arena_race(rdram);
     }
 
     void set_faded(int car, int view) {
@@ -1024,9 +1053,22 @@ namespace {
                 uint32_t node = nodes + i * node_size;
                 node_of_matrix[(uint32_t)MEM_W(0, (int32_t)(node + 4))] = node;
             }
+            for (int k = 0; k < 11; k++) race_pickup_models[k] = rush2::battle_render::find_model(race_pickup_prefixes[k]);
+            int next_slot = race_pickup_slot_first;
             for (const PickupRecord& rec : pickup_records) {
                 Pickup p;
                 p.rec = rec;
+                if (rec.record < 0) {
+                    // A custom arena's: in a renderer slot, upright.
+                    if (next_slot >= slot_count) continue;
+                    p.slot = next_slot++;
+                    color_slot(p.slot, neutral_color);
+                    p.m[0] = p.m[4] = p.m[8] = 1.0f;
+                    memcpy(p.local, rec.pos, sizeof(p.local));
+                    if (rec.kind >= 0 && rec.kind < 8) p.model = race_pickup_models[rec.kind];
+                    pickups.push_back(p);
+                    continue;
+                }
                 p.record = record_pointer(rdram, rec.record);
                 auto n = node_of_matrix.find(p.record + 0x10);
                 p.node = n == node_of_matrix.end() ? 0 : n->second;
@@ -1043,7 +1085,7 @@ namespace {
                 if (n != node_of_matrix.end()) hide_node(rdram, n->second);
             }
             rush2::interpolation_clear_view_attached();
-            for (const Pickup& p : pickups) rush2::interpolation_node_color(p.node, neutral_color);
+            for (const Pickup& p : pickups) if (p.slot < 0) rush2::interpolation_node_color(p.node, neutral_color);
             if (const char* test = getenv("R2_BATTLE_TEST"); test != nullptr && strstr(test, "log") != nullptr) {
                 // Test aid: the pickups are world-space records with scene nodes, at the 2049 objects' positions.
                 int with_node = 0;
@@ -1705,7 +1747,7 @@ namespace {
                 if (pickups[k].rec.kind != kind_powerup) continue;
                 pickups[k].taken = true;
                 pickups[k].holds = -1;
-                hide_node(rdram, pickups[k].node);
+                pickup_hide(rdram, pickups[k]);
                 spots.push_back({ k });
             }
             PowerupManager &heal = powerup_managers[0], &shield = powerup_managers[1], &invisible = powerup_managers[2];
@@ -1756,8 +1798,8 @@ namespace {
             Pickup& p = pickups[spots[found].pickup];
             p.holds = m.kind;
             p.taken = false;
-            set_model(rdram, p.node, m.model);
-            show_node(rdram, p.node);
+            pickup_model(rdram, p, m.model);
+            pickup_show(rdram, p);
             static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "log") != nullptr;
             if (test_log) fprintf(stderr, "[Battle] t=%.1f %s placed at spot %d of %d\n", clock_seconds, m.model, found, count);
         }
@@ -1774,13 +1816,13 @@ namespace {
                 for (int i = 0; i < max_cars && back; i++) back = !(fighters[i].present && fighters[i].weapon == p.rec.kind);
                 if (!back) continue;
                 p.taken = false;
-                show_node(rdram, p.node);
+                pickup_show(rdram, p);
             }
             p.angle = std::fmod(p.angle + pickup_spin * dt, 6.2831853f);
             float m[9];
             memcpy(m, p.m, sizeof(m));
             yaw(m, p.angle);
-            write_pose(rdram, p.record, m, p.local);
+            pickup_pose(rdram, p, m);
             float reach = (p.rec.kind == kind_powerup ? powerup_radius : pickup_radius) + touch_margin;
             for (int i = 0; i < max_cars; i++) {
                 if (!alive(rdram, i)) continue;
@@ -1791,7 +1833,7 @@ namespace {
                 give(rdram, i, p.rec.kind == kind_powerup ? p.holds : p.rec.kind);
                 play_sound(rdram, pickup_sound, p.rec.pos);
                 p.taken = true;
-                hide_node(rdram, p.node);
+                pickup_hide(rdram, p);
                 break;
             }
         }
@@ -1996,7 +2038,7 @@ int rush2::battle::time_limit_seconds() {
 
 bool rush2::battle::race_battle_applies(uint8_t* rdram) {
     return race_option && rush2::track2049::available() && MEM_W(0, (int32_t)race_type) != 2 && !rush2::ghost::chosen() &&
-           rush2::track2049::battle_arena() <= 0;
+           !rush2::track2049::battle_arena_race(rdram);
 }
 
 void rush2::battle::set_fire_backward(bool on) {
@@ -2692,11 +2734,14 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
     for (HudWidgets& w : hud_widgets) w = HudWidgets{};
     hud_players = 0;
     int slot = rush2::track2049::loaded_slot();
-    if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot || rush2::track2049::battle_arena() <= 0) return;
+    if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot || !rush2::track2049::battle_arena_race(rdram)) return;
     int players = local_players(rdram);
     static const char frame_name[] = "HEALTHBG";
     for (int c = 0; c < (int)sizeof(frame_name); c++) MEM_B(c, (int32_t)hud_names) = (int8_t)frame_name[c];
-    for (int p = 0; p < players; p++) {
+    // Only the Rush 2049 arenas' converter merges HEALTHBG into the arena's images: a custom arena's bar (no widgets
+    // here) is drawn as the Weapons cheat's, from Rush 2049's HUD file (hud_draw).
+    bool frame_widgets = rush2::track_mod::race_track() < 0;
+    for (int p = 0; p < players && frame_widgets; p++) {
         uint32_t entry = hud_entries + (uint32_t)p * entry_size;
         make_entry(rdram, entry, hud_names, 0, 0);
         hud_widgets[p].frame = build_element(rdram, ctx, entry);
@@ -2758,6 +2803,9 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
         if (mode == Mode::arena && !over) {
             snprintf(text, sizeof(text), "%d", std::min(f.kills, 999));
             rush2::hud::draw_number(rdram, text, l.coin_x, l.coin_y, digits, l.coin_anchor);
+            if (p < hud_players && hud_widgets[p].frame < 0 && !is_wrecked(rdram, car)) {
+                draw_cheat_bar(rdram, l, f.health / max_health);    // a custom arena's (hud_built)
+            }
         }
         else if (!is_wrecked(rdram, car)) {
             draw_cheat_bar(rdram, l, f.health / max_health);

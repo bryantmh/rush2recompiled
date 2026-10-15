@@ -483,8 +483,9 @@ namespace {
             out.push_back({ "SILVER", { "SILVERCOINS_COI" }, bits(m & silver_bits), coins_per_kind });
         };
         int k = rush2::track2049::race_track();
-        if (host && rush2::track_mod::race_track() >= 0 && k == 0 && rush2::track1::race_track() == 0) {
-            // A custom track (src/track_mod/): no collectibles (not HAWAII's keys and cans).
+        if ((host || (t == rush2::track2049::stunt_host_slot && rush2::track_mod::race_type() != rush2::track_mod::race_race)) &&
+            rush2::track_mod::race_track() >= 0 && k == 0 && rush2::track1::race_track() == 0) {
+            // A custom track (src/track_mod/): no collectibles (not HAWAII's keys and cans, nor STUNT1's for an arena).
         }
         else if (host && k > 0) {
             if (k <= rush2049_courses) {

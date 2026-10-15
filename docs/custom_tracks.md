@@ -1,6 +1,6 @@
 # Custom tracks
 
-A mod can add whole new race tracks. You build the track in Blender, export it as one `.glb` file, write a short
+A mod can add whole new race tracks, stunt arenas and battle arenas. You build the track in Blender, export it as one `.glb` file, write a short
 `track.toml` settings file, and put both in a mod. The game converts the track the first time it needs it and lists it
 on the track select after Rush 2049's tracks. It races like any other track: forward, backward or mirrored, with
 computer opponents, checkpoints, records and ghosts.
@@ -18,6 +18,7 @@ found and what is wrong (see [Checking your track](#checking-your-track)), so re
 - [track.toml](#tracktoml)
 - [Sky](#sky)
 - [Moving objects](#moving-objects)
+- [Stunt and battle arenas](#stunt-and-battle-arenas)
 - [Track select art](#track-select-art)
 - [Textures](#textures)
 - [Checking your track](#checking-your-track)
@@ -143,7 +144,8 @@ the display size. Move every marker into place: markers left at the origin are r
 | `AISPEED_<mph>` | Optional speed cap for the computer cars ([The AI path](#the-ai-path)). |
 
 You don't place the starting grid: Rush 2 lines the cars up itself, two per row, rows 20 ft (6 m) apart, back from the
-finish line. Empties named `START_*` are ignored.
+finish line. Empties named `START_*` are ignored on a race track; arenas use them instead of `FINISH` (see
+[Stunt and battle arenas](#stunt-and-battle-arenas)).
 
 ## The AI path
 
@@ -189,6 +191,7 @@ name        = "Canyon Run"            # shown in the game
 author      = "your name"
 version     = "0.1"
 description = "One short line"
+type        = "race"                  # "race" (the default), "stunt" or "battle": see Stunt and battle arenas
 
 [race]
 # Timer (with checkpoints on). Leave these out and the game works it out from the AI path, as stock Rush 2 does.
@@ -302,6 +305,29 @@ Limits:
 The report has a line per moving object (`MOVE_lift: 2 keys over 4.00 s, ride, 2 triangles, collision moves with
 it.`) and warns about a `MOVE_` object without an animation (it stays put, as ordinary track) and a `[movers.<name>]`
 with no object of that name.
+
+## Stunt and battle arenas
+
+Set `type = "stunt"` or `type = "battle"` in track.toml's `[track]` to make an arena instead of a race track. A stunt
+arena is listed on the Start Game menu's STUNT track select and played as Rush 2's stunt mode; a battle arena on the
+BATTLE track select (it needs the Rush 2049 ROM, as the battle does) and played with Rush 2049's weapons and rules.
+
+An arena has no lap, so it needs no `FINISH`, `CHECKPOINT_n` or `AIPATH_main` (the report says it ignores them).
+Instead:
+
+| Name | What |
+|---|---|
+| `START_1` to `START_4` | Where the cars start, green arrow forward. A stunt arena uses `START_1`; a battle puts player 1 on `START_1`, player 2 on `START_2` and so on. Cars past the starts begin on the route, as far from the others as it goes. Without any, `FINISH` stands in for `START_1`, or else a spot in the middle of the floor. |
+| `PICKUP_<kind>` | Battle only: a weapon pickup, `<kind>` one of `CANNON`, `GATLING`, `GRENADE`, `MINE`, `MISSILE`, `RAM`, `ROCKET`, `SONIC`; or `PICKUP_POWERUP`, a power-up spot. Put it where the pickup floats; one too close to the floor is lifted to 2.5 ft (0.8 m) over it. Blender's `.001` suffixes are fine. |
+
+The computer cars and crash respawns need a route over the floor. The game makes one: points about 30 ft (9 m) apart on
+every floor (`COL_ROAD`, `COL_DIRT`, `COL_GRASS` or a custom surface) a car can drive to from `START_1`. To choose the
+route yourself, draw `AIPATH_main` as for a race track. The report gives the route
+(`The arena's route: 442 points on the floor ...`) and counts the pickups (`Pickups: 2 weapon(s), 1 power-up
+spot(s).`).
+
+Arenas take the same `COL_KILL_*`, `SKY`, `MOVE_*` objects and track.toml settings as race tracks; the timer
+settings in `[race]` don't apply.
 
 ## Track select art
 
@@ -439,7 +465,6 @@ merges and renames as needed.
 - Translucent (blended) materials
 - Moving objects that react to the race, such as traffic or a train that waits for the cars: they play on their own
   clock (a ride only waits for a car on its floor)
-- Stunt and battle arenas
 - A run-up before the lap: the AI path must be a closed loop through `FINISH` (NY One and Rush 2049's race 6 start
   outside their loop)
 - Setting the fog distance
@@ -457,6 +482,11 @@ merges and renames as needed.
   tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started
   with). Records: `src/rush2049/track2049_records.cpp` (`{"mod": folder}` courses). Ghosts:
   `src/ghost.cpp` (`mod-<folder>` keys).
+- **Arenas:** track.toml `type` (`rush2::track_mod::RaceType`, `race_type()`) puts a custom stunt or battle arena in
+  the STUNT1 slot (`stunt_host_slot`) and on the STUNT or BATTLE track select (`mod_type`, `is_arena` in
+  `track2049_menu.cpp`); arenas are never in a circuit and have no collectibles. The converter writes `START_n` as the
+  path's gates and a route over the floor as its spine and lanes, and `PICKUP_` markers as `pickup_records` (record
+  -1: no placement record; `battle.cpp` draws them in renderer slots). `tools/track_mod_cases.py` has the arena cases.
 - **Custom surfaces:** collision flags are `type | material << 4`, custom surfaces use material slots 3-15 except 8.
   The wheel probe `collision_poly_extract_8006F704` stores the type (physics) at car +0x5FC + 4 x wheel and the
   material at +0x60C + 2 x wheel. The effects, sounds, particles and stunt scoring only know materials 0-2 and 8

@@ -126,13 +126,23 @@ namespace {
     // Track select entry t's preview model name (in RDRAM; 2049 entries), or 0 for its diorama.
     uint32_t preview_names[menu_tracks] = {};
 
-    bool is_battle_arena(int t) {
-        return t >= battle_menu_id && t < battle_menu_id + battle_count;
+    // The custom tracks' types (rush2::track_mod::RaceType) by track select id - mod_menu_id, from refresh_mods.
+    std::vector<int> mod_types;
+
+    int mod_type(int t) {
+        size_t i = size_t(t - mod_menu_id);
+        return t >= mod_menu_id && i < mod_types.size() ? mod_types[i] : rush2::track_mod::race_race;
     }
 
-    // A stunt or battle arena (hosted by STUNT1, which they are played as).
+    // Rush 2049's battle arenas and the custom ones (track.toml type = "battle").
+    bool is_battle_arena(int t) {
+        return (t >= battle_menu_id && t < battle_menu_id + battle_count) || mod_type(t) == rush2::track_mod::race_battle;
+    }
+
+    // A stunt or battle arena (hosted by STUNT1, which they are played as), Rush 2049's or a custom one.
     bool is_arena(int t) {
-        return (t >= stunt_menu_id && t < stunt_menu_id + stunt_count) || is_battle_arena(t);
+        return (t >= stunt_menu_id && t < stunt_menu_id + stunt_count) || is_battle_arena(t) ||
+               mod_type(t) == rush2::track_mod::race_stunt;
     }
 
     // A stunt or battle arena or the obstacle course: the entries besides STUNT1 whose options the menus grey as
@@ -186,7 +196,11 @@ namespace {
 
     // Whether added track select entry t (12-63) can be chosen.
     bool entry_available(int t) {
-        if (is_mod_track(t)) return size_t(t - mod_menu_id) < mod_ok.size() && mod_ok[size_t(t - mod_menu_id)];
+        if (is_mod_track(t)) {
+            // A custom battle arena needs the Rush 2049 ROM as the battle does (its weapons, pickups and HUD).
+            bool ok = size_t(t - mod_menu_id) < mod_ok.size() && mod_ok[size_t(t - mod_menu_id)];
+            return ok && (mod_type(t) != rush2::track_mod::race_battle || available());
+        }
         if (t >= first_menu_id && t < r1_first) return available();
         if (t >= r1_first && t < r1_end) return rush2::track1::available();
         if (is_stunt_course(t)) return available();
@@ -446,6 +460,12 @@ namespace {
         mod_signature = signature;
         mod_ok.clear();
         mod_arts.clear();
+        mod_types.clear();
+        for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
+            const std::string& type = entries[i].settings.type;
+            mod_types.push_back(type == "stunt" ? rush2::track_mod::race_stunt
+                                : type == "battle" ? rush2::track_mod::race_battle : rush2::track_mod::race_race);
+        }
         if (entries.size() > size_t(mod_capacity)) {
             printf("[trackmod] The track select has room for %d custom tracks; %zu are left out\n", mod_capacity,
                    entries.size() - size_t(mod_capacity));
@@ -549,7 +569,8 @@ namespace {
             set_stunt_arena(0);
             set_battle_arena(0);
             rush2::track_mod::set_race_track(t - mod_menu_id);
-            MEM_B(0, (int32_t)track_id) = host_slot;
+            // A custom arena races in STUNT1's slot (stunt mode), as Rush 2049's arenas.
+            MEM_B(0, (int32_t)track_id) = is_arena(t) ? stunt_host_slot : host_slot;
         }
         else if (t >= first_menu_id && t < r1_first) {
             set_race_track(t - first_menu_id + 1);
@@ -587,7 +608,11 @@ namespace {
             MEM_B(0, (int32_t)track_id) = host_slot;
         }
         else {
-            if (t != host_slot) {
+            // Race start runs this again on the host slot the first call chose: a custom track stays in HAWAII, a
+            // custom arena in STUNT1 (the track select's start clears it, so a stock STUNT1 race is never one).
+            bool mod_arena = t == stunt_host_slot && rush2::track_mod::race_track() >= 0 &&
+                             rush2::track_mod::race_type() != rush2::track_mod::race_race;
+            if (t != host_slot && !mod_arena) {
                 set_race_track(0);
                 rush2::track1::set_race_track(0);
                 rush2::track_mod::set_race_track(-1);
@@ -643,6 +668,7 @@ float rush2::track2049::diorama_scale(uint8_t* rdram, int t) {
 
 extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ menu_mutex };
+    refresh_mods();     // the custom tracks' types, which say which select a saved choice belongs to
     load_selection();
     set_race_track(0);
     rush2::track1::set_race_track(0);
