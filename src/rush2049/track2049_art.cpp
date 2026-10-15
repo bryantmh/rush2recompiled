@@ -1798,9 +1798,32 @@ namespace {
         std::vector<Point> spine;
     };
 
+    // The closest that two separate stretches of the spine come side by side (world units, horizontal), or a huge
+    // number if they never do. Points are on separate stretches when the way round between them along the spine is
+    // over 3 times the gap (across a hairpin it is about 1.6 times, and its two sides meet anyway). Pairs further
+    // apart in height than across are crossings (one stretch over the other), not side by side, and don't count.
+    float spine_clearance(const std::vector<Point>& spine, bool closed) {
+        const size_t n = spine.size();
+        std::vector<float> along(n, 0.0f);
+        for (size_t i = 1; i < n; i++)
+            along[i] = along[i - 1] + std::hypot(spine[i].x - spine[i - 1].x, spine[i].z - spine[i - 1].z);
+        const float total = along[n - 1] + (closed ? std::hypot(spine[0].x - spine[n - 1].x, spine[0].z - spine[n - 1].z) : 0.0f);
+        float best = 1e30f;
+        for (size_t i = 0; i < n; i++) {
+            for (size_t k = i + 1; k < n; k++) {
+                float gap = std::hypot(spine[k].x - spine[i].x, spine[k].z - spine[i].z);
+                if (gap >= best || std::fabs(spine[k].y - spine[i].y) > gap) continue;
+                float way = along[k] - along[i];
+                if (closed) way = std::min(way, total - way);
+                if (way > 3.0f * gap) best = gap;
+            }
+        }
+        return best;
+    }
+
     // The tube of AI path file `path` (a 2049 file, or a converted track's, which has the same layout); battle: an
-    // arena's narrower band (below).
-    bool tube_from_path(const Bytes& path, bool battle, Tube& tube) {
+    // arena's narrower band (below); fit (a custom track's): a band narrow enough to keep its stretches apart (below).
+    bool tube_from_path(const Bytes& path, bool battle, Tube& tube, bool fit = false) {
         std::vector<Point> spine;
         std::vector<std::vector<Point>> branches;
         if (!read_path(path, spine, branches) || spine.size() < 4 || path.size() < 12 + 10 * 0x50) return false;
@@ -1830,6 +1853,17 @@ namespace {
             lift = half_width * 0.5f;
             rise = half_width * 0.02f;
             max_gap = half_width * 4.0f;
+        }
+
+        // 2049's band suits its tracks, which spread over many thousand units; a custom track can pack its stretches
+        // much closer (Wario Stadium's switchbacks run 76 units apart, center to center), and the 200 unit band then
+        // runs into the stretch beside it. Its band is at most 0.7 of the closest gap between stretches side by side
+        // (the rings cut corners a little), never wider than 2049's and never under 1/200 of the extent so it still
+        // shows (a path that tight overlaps a little). The lift above the road is half the band's half width, as 2049's.
+        if (fit && !battle) {
+            float clearance = spine_clearance(spine, true);
+            half_width = std::clamp(clearance * 0.35f, float(extent) * 0.005f, tube_half_width);
+            lift = half_width * 0.5f;
         }
 
         // The last ring joins the spine point nearest the finish checkpoint ahead of it (func_800BA61C with the path
@@ -2375,7 +2409,7 @@ bool rush2::track2049::route_preview(const std::vector<uint8_t>& path, int color
                                      std::vector<uint8_t>& blob, uint32_t& list, std::vector<uint32_t>& pointers,
                                      float& radius) {
     Tube tube;
-    if (!tube_from_path(path, false, tube)) return false;
+    if (!tube_from_path(path, false, tube, true)) return false;
     TrackModel m;
     static const Bytes no_geometry;
     Miniature mini(no_geometry, m);
