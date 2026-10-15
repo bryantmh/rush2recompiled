@@ -210,9 +210,11 @@ namespace {
         following_host = false;
     }
 
+    // The game ROMs this machine has. Its Games tab options (which of their tracks and cars are on) follow the host's
+    // with the rest of the gameplay settings, which the start of a race compares on their own (RosterEntry::gameplay).
     uint8_t local_games() {
-        return (rush2::track2049::available() ? online::games_rush2049 : 0) |
-            (rush2::track1::available() ? online::games_rush1 : 0);
+        return (rush2::wings::rom_available() ? online::games_rush2049 : 0) |
+            (rush2::track1::rom_available() ? online::games_rush1 : 0);
     }
 
     // Pushes this machine's choices to the session (and, hosting, the race settings to everyone).

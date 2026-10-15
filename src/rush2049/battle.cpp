@@ -732,14 +732,18 @@ namespace {
     };
     std::vector<HeldSound> held_sounds;
 
+    int hud_car(uint8_t* rdram, int p);
+
     void play_sound(uint8_t* rdram, int id, const float pos[3], float hold_seconds = 0.0f) {
         // music_ready starts loading the sound banks if nothing has yet (a race with Rush 2's music and cars).
         if (id < 0 || !rush2::track2049::music_ready() || !rush2::audio2049::loaded()) return;
         constexpr float range = 400.0f;
         float volume = 0.0f, pan = 0.0f, surround = 0.0f;
+        // Heard from each view's car and camera. Online every player has a record but only view 0, this machine's
+        // player's, is drawn (hud_car).
         int players = local_players(rdram);
         for (int p = 0; p < players; p++) {
-            int car = player_car(rdram, p);
+            int car = hud_car(rdram, p);
             if (car < 0 || car >= max_cars) continue;
             float listener[3], back[3], up[3];
             car_pos(rdram, car, listener);
@@ -2509,7 +2513,7 @@ namespace {
 
     // The car view p's HUD shows. Online the one view is this machine's player's, who drives car slot local_race_player
     // (src/online/online_game.cpp's setup_race); record 0 is theirs only inside the race's presentation
-    // (rush2_online_present_begin), and the battle's update runs outside it.
+    // (rush2_online_present_begin), and the battle's update runs outside it. play_sound listens from the same car.
     int hud_car(uint8_t* rdram, int p) {
         int local = rush2::online::game::local_race_player();
         if (local >= 0) return p == 0 ? local : -1;

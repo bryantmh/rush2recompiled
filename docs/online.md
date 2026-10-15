@@ -276,8 +276,10 @@ before driving, while its build is still running (`nav_building`: a build that e
 usable triangles, doesn't hold the race), the host's POINTS and TIME LIMIT are used, and the weapon buttons travel
 with the inputs (`rush2::online::game::battle_buttons`). The arena's health bar is this machine's player's car
 (`hud_car`: car slot `local_race_player`, not record 0's, which is theirs only inside the presentation). The Rush 2049
-and SF Rush tracks need every player to have that game's ROM (the roster's `games` bits; the host can't start
-otherwise), and so does a Rush 2049 car (types 23-35) any player picked (`start_race`); a machine that can't load one
+and SF Rush tracks need every player to have that game's ROM (the roster's `games` bits, which say only that the ROM is
+there: the Games tab options that turn its tracks and cars on follow the host's with the other gameplay settings; the
+host can't start otherwise), and so does a Rush 2049 car (types 23-35) any player picked (`start_race`, checked once
+every car is picked); a machine that can't load one
 anyway gives that car the Pickup and the load check ends the race. Online battles haven't been run yet (no Rush 2049 ROM in
 the test setup).
 

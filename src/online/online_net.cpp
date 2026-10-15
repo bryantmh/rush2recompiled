@@ -1178,21 +1178,6 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     }
     cur_settings = settings;
     error_text.clear();
-    // A Rush 2049 car (types 23-35, src/rush2049/car2049.cpp) loads from the Rush 2049 ROM on every machine.
-    std::string car_2049_driver;
-    for (const RosterEntry& e : slots) {
-        if (e.used && e.connected && e.car.type >= rush2::car2049::first_type) {
-            car_2049_driver = e.name;
-            break;
-        }
-    }
-    for (int i = 0; i < max_players && !car_2049_driver.empty(); i++) {
-        if (slots[i].used && slots[i].connected && (slots[i].games & games_rush2049) == 0) {
-            error_text = slots[i].name + " doesn't have the Rush 2049 ROM that " + car_2049_driver +
-                "'s car needs (the Games tab).";
-            return false;
-        }
-    }
     uint32_t max_ping = 0;
     for (int i = 1; i < max_players; i++) {
         if (slots[i].used && slots[i].connected && slots[i].progress != uint8_t(Progress::CarChosen)) {
@@ -1210,6 +1195,22 @@ bool rush2::online::start_race(const RaceSettings& settings) {
         }
         if (slots[i].used) {
             max_ping = std::max<uint32_t>(max_ping, slots[i].ping_ms);
+        }
+    }
+    // Every car is picked by now. A Rush 2049 car (types 23-35, src/rush2049/car2049.cpp) loads from the Rush 2049 ROM
+    // on every machine (the Rush 2049 Cars option already matches, with the rest of the gameplay settings).
+    std::string car_2049_driver;
+    for (const RosterEntry& e : slots) {
+        if (e.used && e.connected && e.car.type >= rush2::car2049::first_type) {
+            car_2049_driver = e.name;
+            break;
+        }
+    }
+    for (int i = 0; i < max_players && !car_2049_driver.empty(); i++) {
+        if (slots[i].used && slots[i].connected && (slots[i].games & games_rush2049) == 0) {
+            error_text = slots[i].name + " doesn't have the Rush 2049 ROM that " + car_2049_driver +
+                "'s car needs (the Games tab).";
+            return false;
         }
     }
     clear_race();
