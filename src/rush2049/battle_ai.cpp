@@ -578,6 +578,7 @@ namespace {
     std::mutex nav_mutex;
     std::shared_ptr<const Nav> nav_ready;   // the arena's grid once built
     std::atomic_int nav_generation = 0;
+    std::atomic_bool nav_building = false;  // set_arena's latest build hasn't finished (it may finish with no grid)
 
     std::shared_ptr<const Nav> current_nav() {
         std::lock_guard lock{ nav_mutex };
@@ -1289,11 +1290,15 @@ void rush2::battle_ai::set_arena(const std::vector<float>& triangles) {
     {
         std::lock_guard lock{ nav_mutex };
         nav_ready = nullptr;
+        nav_building = true;
     }
     std::thread([triangles, generation]() {
         auto nav = build_nav(triangles);
         std::lock_guard lock{ nav_mutex };
-        if (generation == nav_generation) nav_ready = nav;
+        if (generation == nav_generation) {
+            nav_ready = nav;
+            nav_building = false;
+        }
     }).detach();
 }
 
@@ -1326,8 +1331,9 @@ void rush2::battle_ai::update(uint8_t* rdram, const World& world) {
     std::lock_guard lock{ ai_mutex };
     auto nav = current_nav();
     // Online, the grid (built on a thread of its own) is ready on a different frame on each machine: wait for it, so
-    // the computer cars use it from the same frame everywhere (up to 30 s; set_arena always finishes it).
-    for (int waited = 0; online_seed != 0 && nav == nullptr && waited < 30000; waited++) {
+    // the computer cars use it from the same frame everywhere (up to 30 s). Only while a build is running: one that
+    // finished without a grid (an arena with no usable triangles) leaves it null on every machine alike.
+    for (int waited = 0; online_seed != 0 && nav == nullptr && nav_building && waited < 30000; waited++) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         nav = current_nav();
     }

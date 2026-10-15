@@ -272,9 +272,13 @@ stunt flag clear and the car stuck.
 Battles run C++ state of their own (`src/rush2049/battle.cpp`, `battle_ai.cpp`). Online (`rush2::battle::
 set_online_seed`): both of its random number generators start from the race seed at each race setup, the computer
 cars wait for their navigation grid (built on a thread of its own, so ready on a different frame on each machine)
-before driving, the host's POINTS and TIME LIMIT are used, and the weapon buttons travel with the inputs
-(`rush2::online::game::battle_buttons`). The Rush 2049 and SF Rush tracks need every player to have that game's ROM
-(the roster's `games` bits; the host can't start otherwise). Online battles haven't been run yet (no Rush 2049 ROM in
+before driving, while its build is still running (`nav_building`: a build that ends without a grid, an arena with no
+usable triangles, doesn't hold the race), the host's POINTS and TIME LIMIT are used, and the weapon buttons travel
+with the inputs (`rush2::online::game::battle_buttons`). The arena's health bar is this machine's player's car
+(`hud_car`: car slot `local_race_player`, not record 0's, which is theirs only inside the presentation). The Rush 2049
+and SF Rush tracks need every player to have that game's ROM (the roster's `games` bits; the host can't start
+otherwise), and so does a Rush 2049 car (types 23-35) any player picked (`start_race`); a machine that can't load one
+anyway gives that car the Pickup and the load check ends the race. Online battles haven't been run yet (no Rush 2049 ROM in
 the test setup).
 
 ## Gameplay settings
@@ -313,6 +317,13 @@ with 0x800C1A9C = 0; 1 restarts the race), with 0x800BF31C = 1 so the front end 
 0xE) and the title screen instead of the car select (0xF). The front end loop (`menu_frontend_loop_800AE288`) switches
 to the next screen (0x800E7BB4) when it differs from the one up (0x800E7BC4, -1 none).
 
+A desync or a load mismatch ends the race but not the lobby: online_net.cpp's `end_race` marks the race over
+(`racing()` false), the game thread leaves it the same way on the next frame (`race_ended_under_us`), the session goes
+back to the lobby (`race_finished`) and the lobby takes everyone back to the track select as after a race. The host
+stops relaying, comparing hashes and checking loads once the race is over. A player who still hasn't loaded the race 90
+s after it started is dropped (`load_timeout`), as a player whose input stops coming is in the race, and the others start
+without them.
+
 ## Test aids
 
 | Variable | What |
@@ -325,6 +336,7 @@ to the next screen (0x800E7BB4) when it differs from the one up (0x800E7BC4, -1 
 | `RUSH2_ONLINE_BOT=SEED`, `RUSH2_ONLINE_BOT_IDLE=F` | Drive from the frame number (repeatable runs), after F frames. |
 | `RUSH2_ONLINE_SEED` | A fixed race seed. |
 | `RUSH2_ONLINE_HASHLOG` | Log the state hash every 30 frames. |
+| `RUSH2_ONLINE_BREAK=load` / `noload` / `F` | This machine fails a check: a different starting state (load mismatch), never loading (dropped after the load timeout), a different state hash from frame F on (desync). |
 | `RUSH2_ONLINE_TRACE=DIR` | Write the cars' physics before every frame to DIR/cars.bin; `tools/online_trace_diff.py A B` finds the first frame and words that differ. |
 | `RUSH2_ONLINE_DUMP=DIR`, `RUSH2_ONLINE_DUMP_AT=F,...` | Write the hashed state every 30 frames / all of RDRAM before frames F; `tools/ram_diff.py` compares two. |
 | `RUSH2_ONLINE_VIEW_CAR=N` | Every machine's view follows car N (how the view dependence was found). |

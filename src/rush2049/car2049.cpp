@@ -1944,10 +1944,12 @@ extern "C" void rush2_car49_select_get(uint8_t* rdram, recomp_context* ctx) {
     if (rush2::unlocks::shop_car() >= 0) {
         type = rush2::unlocks::shop_car();
     }
-    // Online every machine gives each player's car the type they picked (src/online/online_game.cpp).
+    // Online every machine gives each player's car the type they picked (src/online/online_game.cpp). The host starts
+    // a race with a Rush 2049 car only if every machine has its ROM (rush2::online::start_race); one that can't load it
+    // anyway gets the Pickup, and the race's load check ends the race rather than loading a car that isn't there.
     int online_type = 0;
     if (rush2::online::game::car_type((int)((player - 0x800F5470u) / 0x81Cu), &online_type)) {
-        type = online_type;
+        type = online_type >= rush2_types && (!cars_available() || online_type >= types) ? 0 : online_type;
     }
     MEM_B(0, (int32_t)(player + 0x7EA)) = (int8_t)type;
     // The engine sound (+0x7E9) was read from the ENGINE row with the 5-bit type; a 2049 car's ENGINE row is its power

@@ -128,7 +128,25 @@ namespace {
     }
 
     // Sets this machine's settings to `text`'s ("config/option=value" lines), and writes the configs if `save`.
+    // Runs on the game thread (follow_host_settings), so it holds the config menu's UI context meanwhile: the UI thread
+    // reads the options and their pending updates (ConfigPageOptionsMenu::perform_option_render_updates) and saves the
+    // configs with that context held, as recompui's own mod list updates from other threads do.
+    void apply_settings_locked(const std::string& text, bool save);
+
     void apply_settings(const std::string& text, bool save) {
+        recompui::ContextId previous = recompui::try_close_current_context();
+        recompui::ContextId config_context = recompui::config::get_config_context_id();
+        bool opened = config_context != recompui::ContextId::null() && config_context.open_if_not_already();
+        apply_settings_locked(text, save);
+        if (opened) {
+            config_context.close();
+        }
+        if (previous != recompui::ContextId::null()) {
+            previous.open();
+        }
+    }
+
+    void apply_settings_locked(const std::string& text, bool save) {
         std::vector<recomp::config::Config*> changed;
         for (const auto& [key, value] : parse_settings(text)) {
             std::string id;

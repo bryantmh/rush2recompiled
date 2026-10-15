@@ -2507,10 +2507,19 @@ namespace {
         return slot >= 0 && slot < 400 && MEM_W(0, (int32_t)(widget_at(slot) + 4)) != 0;
     }
 
+    // The car view p's HUD shows. Online the one view is this machine's player's, who drives car slot local_race_player
+    // (src/online/online_game.cpp's setup_race); record 0 is theirs only inside the race's presentation
+    // (rush2_online_present_begin), and the battle's update runs outside it.
+    int hud_car(uint8_t* rdram, int p) {
+        int local = rush2::online::game::local_race_player();
+        if (local >= 0) return p == 0 ? local : -1;
+        return player_car(rdram, p);
+    }
+
     void update_hud(uint8_t* rdram) {
         for (int p = 0; p < hud_players; p++) {
             const HudWidgets& w = hud_widgets[p];
-            int car = player_car(rdram, p);
+            int car = hud_car(rdram, p);
             if (car < 0 || car >= max_cars || !widget_valid(rdram, w.frame)) continue;
             const Fighter& f = fighters[car];
             Layout l = layout_of(view_of(rdram, p, hud_players));
@@ -2760,8 +2769,9 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
     // Not over the pause menu's screens (0x8002305C is set while one is open).
     if (MEM_B(0, (int32_t)0x8002305C) != 0) return;
     int players = mode == Mode::arena ? hud_players : local_players(rdram);
+    if (rush2::online::game::local_race_player() >= 0) players = std::min(players, 1);  // Online: one view (hud_car).
     for (int p = 0; p < players; p++) {
-        int car = player_car(rdram, p);
+        int car = hud_car(rdram, p);
         if (car < 0 || car >= max_cars) continue;
         const Fighter& f = fighters[car];
         View v = view_of(rdram, p, players);

@@ -31,6 +31,7 @@
 #include "enet/enet.h"
 
 #include "online_internal.h"
+#include "car2049.h"
 
 #ifndef RUSH2_VERSION
 #define RUSH2_VERSION "dev"
@@ -50,6 +51,7 @@ namespace {
     constexpr auto roster_period = std::chrono::seconds(1);
     constexpr auto slow_player_notice = std::chrono::seconds(1);  // Show "Waiting for ..." after this.
     constexpr auto slow_player_drop = std::chrono::seconds(15);   // Then drop the player.
+    constexpr auto load_timeout = std::chrono::seconds(90);       // A player who hasn't loaded the race by then is dropped.
     constexpr uint32_t frame_ms = 33;  // A game frame (30 fps): the unit of the input delay.
     constexpr int max_input_delay = 8;
 
@@ -104,6 +106,7 @@ namespace {
     std::map<uint32_t, PlayerInput> pending[max_players];
     uint32_t next_broadcast = 0;
     clock_type::time_point last_progress;
+    clock_type::time_point load_started;
     bool loaded[max_players];
     uint32_t loaded_hash[max_players];
     std::map<uint32_t, std::array<std::optional<uint32_t>, max_players>> hashes;
@@ -239,7 +242,7 @@ namespace {
 
     // Host: broadcasts every frame whose inputs are all in.
     void host_relay() {
-        if (!go || cur_state != State::Racing) {
+        if (!go || race_over || cur_state != State::Racing) {
             return;
         }
         while (true) {
@@ -295,8 +298,21 @@ namespace {
 
     // Host: every machine reported loaded: compares their starting states and lets the race begin.
     void host_check_loaded() {
-        if (cur_state != State::Loading || go) {
+        if (cur_state != State::Loading || go || race_over) {
             return;
+        }
+        // A player still not loaded long after the race started is dropped, as a slow player in the race is (their
+        // car coasts); this machine's own load is never given up on.
+        if (clock_type::now() - load_started > load_timeout) {
+            for (int i = 0; i < max_players; i++) {
+                if (i != my_slot && needs_input(i) && !loaded[i] && slot_peers[i] != nullptr) {
+                    enet_peer_disconnect_now(slot_peers[i], 0);
+                    slot_peers[i] = nullptr;
+                    slots[i].connected = false;
+                    std::fprintf(stderr, "[online] dropped player %d (didn't load the race)\n", i + 1);
+                    queue(to_all, channel_lobby, roster_message());
+                }
+            }
         }
         std::optional<uint32_t> reference;
         for (int i = 0; i < max_players; i++) {
@@ -334,6 +350,10 @@ namespace {
 
     // Host: compares the state hashes reported for a frame once every machine has.
     void host_check_hashes() {
+        if (race_over) {
+            hashes.clear();
+            return;
+        }
         for (auto it = hashes.begin(); it != hashes.end();) {
             const auto& per_slot = it->second;
             bool all = true;
@@ -1158,6 +1178,21 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     }
     cur_settings = settings;
     error_text.clear();
+    // A Rush 2049 car (types 23-35, src/rush2049/car2049.cpp) loads from the Rush 2049 ROM on every machine.
+    std::string car_2049_driver;
+    for (const RosterEntry& e : slots) {
+        if (e.used && e.connected && e.car.type >= rush2::car2049::first_type) {
+            car_2049_driver = e.name;
+            break;
+        }
+    }
+    for (int i = 0; i < max_players && !car_2049_driver.empty(); i++) {
+        if (slots[i].used && slots[i].connected && (slots[i].games & games_rush2049) == 0) {
+            error_text = slots[i].name + " doesn't have the Rush 2049 ROM that " + car_2049_driver +
+                "'s car needs (the Games tab).";
+            return false;
+        }
+    }
     uint32_t max_ping = 0;
     for (int i = 1; i < max_players; i++) {
         if (slots[i].used && slots[i].connected && slots[i].progress != uint8_t(Progress::CarChosen)) {
@@ -1202,6 +1237,7 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     queue(to_all, channel_lobby, w.data);
     queue(to_all, channel_lobby, roster_message());
     cur_state = State::Loading;
+    load_started = clock_type::now();
     error_text.clear();
     return true;
 }

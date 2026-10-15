@@ -17,6 +17,7 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -483,6 +484,14 @@ namespace {
         return h;
     }
 
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_BREAK makes this machine fail a check, for the paths that end a
+    // race: "load" reports a different starting state (a load mismatch), "noload" never reports loaded (the host drops
+    // the player after its load timeout), a frame number F reports a different state hash from frame F on (a desync).
+    const std::string& break_test() {
+        static const std::string spec = std::getenv("RUSH2_ONLINE_BREAK") ? std::getenv("RUSH2_ONLINE_BREAK") : "";
+        return spec;
+    }
+
     // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_BOT=SEED drives this machine's car from the frame number alone
     // (gas held, steering weaving, a brake now and then), so runs repeat exactly.
     PlayerInput bot_input(uint32_t frame, int seed) {
@@ -672,6 +681,17 @@ namespace {
         enable_menu_ports(rdram);
         phase = Phase::Idle;
     }
+
+    // The race ended without the game ending it (the host left, a desync, a load mismatch): back to the menus as the
+    // pause menu's QUIT goes, and, if the lobby is still there, back to the track select with it (race_finished).
+    void race_ended_under_us(uint8_t* rdram, recomp_context* ctx) {
+        std::fprintf(stderr, "[online] race ended: %s\n", last_error().c_str());
+        end_race(rdram, ctx, phase != Phase::WaitMenus);
+        race_finished();
+        if (state() == State::Lobby) {
+            rush2::online::game::race_over();
+        }
+    }
 }
 
 namespace {
@@ -704,10 +724,10 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     if (!quick_test) {
         rush2::online::game::lobby_frame(rdram);
     }
-    if (phase != Phase::Idle && st != State::Loading && st != State::Racing) {
-        // The race ended under us (the host left, or a desync).
-        std::fprintf(stderr, "[online] race ended: %s\n", last_error().c_str());
-        end_race(rdram, ctx, phase != Phase::WaitMenus);
+    if (phase != Phase::Idle && !racing()) {
+        // The race ended under us: the host left (the session is gone), or a desync or a load mismatch ended it
+        // (online_net.cpp's end_race: the lobby stays).
+        race_ended_under_us(rdram, ctx);
         return;
     }
     int32_t now_state = MEM_W(0, (int32_t)game_state);
@@ -753,7 +773,12 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         // The race's first physics frame: every machine reports what it set up, then waits for everyone.
         uint32_t hash = state_hash(rdram);
         std::fprintf(stderr, "[online] race loaded at frame %u, state %08X\n", game_frame, hash);
-        report_loaded(hash);
+        if (break_test() == "load") {
+            hash ^= 1;
+        }
+        if (break_test() != "noload") {
+            report_loaded(hash);
+        }
         phase = Phase::Running;
         lockstep = true;
         race_frame = 0;
@@ -788,7 +813,7 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     }
     rush2::online::game::race_notice({});
     if (got == Wait::Ended) {
-        lockstep = false;
+        race_ended_under_us(rdram, ctx);
         return;
     }
 
@@ -866,6 +891,9 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     if (race_frame % 30 == 0) {
         uint32_t hash = state_hash(rdram);
         dump_state(rdram, race_frame);
+        if (std::isdigit((unsigned char)break_test().c_str()[0]) && race_frame >= (uint32_t)std::atoi(break_test().c_str())) {
+            hash ^= 1;
+        }
         report_state_hash(race_frame, hash);
         static const bool log_hashes = std::getenv("RUSH2_ONLINE_HASHLOG") != nullptr;
         if (log_hashes) {
@@ -1176,7 +1204,8 @@ void rush2::online::game::hud_players_end(uint8_t* rdram) {
     if (hud_depth == 0) {
         return;
     }
-    if (--hud_depth == 0) {
+    // Put back only the 1 set here: if the race ended in between (phase Idle) or the game set its own count, that stays.
+    if (--hud_depth == 0 && phase != Phase::Idle && MEM_H(0, (int32_t)num_players) == 1) {
         MEM_H(0, (int32_t)num_players) = saved_players;
     }
 }

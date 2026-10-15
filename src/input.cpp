@@ -209,9 +209,10 @@ namespace {
     std::array<std::atomic_bool, num_ports> blocked_until_release{};
 
     // How far GAS and BRAKE were pressed in the input last given to the game (0 when their buttons weren't sent).
-    // Written by get_n64_input, read by the pedal hook; both run on the game thread.
-    std::array<float, num_ports> pedal_gas{};
-    std::array<float, num_ports> pedal_brake{};
+    // Written by get_n64_input (the game's controller reads and the online race's own read), read by the pedal hook and
+    // the online race (get_pedals).
+    std::array<std::atomic<float>, num_ports> pedal_gas{};
+    std::array<std::atomic<float>, num_ports> pedal_brake{};
 
     // The game's pedal function (func_80076854) and its player and car structs.
     constexpr uint16_t n64_a = 0x8000;
@@ -766,26 +767,34 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     *buttons_out = 0;
     *x_out = 0.0f;
     *y_out = 0.0f;
-    if (port >= 0 && port < num_ports) {
-        pedal_gas[port] = 0.0f;
-        pedal_brake[port] = 0.0f;
-    }
+    // The pedals are written once, with this read's values: another thread's get_pedals never sees a pedal zeroed
+    // midway through a read (the online race reads them from the game thread while the controller thread reads too).
+    auto no_pedals = [port]() {
+        if (port >= 0 && port < num_ports) {
+            pedal_gas[port] = 0.0f;
+            pedal_brake[port] = 0.0f;
+        }
+    };
 
     if (!is_port_connected(port)) {
+        no_pedals();
         return false;
     }
 
     if (recompinput::game_input_disabled() || hands_off()) {
+        no_pedals();
         return true;
     }
 
     // While the Controller Setup screen listens for a binding, and after it binds one until everything is let go, the
     // game sees nothing from the port.
     if (rush2::controls::is_listening(port)) {
+        no_pedals();
         return true;
     }
     if (blocked_until_release[port]) {
         if (rush2::controls::any_input_held(port)) {
+            no_pedals();
             return true;
         }
         blocked_until_release[port] = false;
@@ -1354,8 +1363,8 @@ void rush2::input::update_rumble() {
 }
 
 void rush2::input::get_pedals(int port, float* gas, float* brake) {
-    *gas = (port >= 0 && port < num_ports) ? pedal_gas[port] : 0.0f;
-    *brake = (port >= 0 && port < num_ports) ? pedal_brake[port] : 0.0f;
+    *gas = (port >= 0 && port < num_ports) ? pedal_gas[port].load() : 0.0f;
+    *brake = (port >= 0 && port < num_ports) ? pedal_brake[port].load() : 0.0f;
 }
 
 void rush2::input::press_pedals(int port, uint16_t buttons) {
@@ -1388,9 +1397,9 @@ extern "C" void rush2_analog_pedals(uint8_t* rdram, recomp_context* ctx) {
         }
     };
     if (MEM_HU(player_gas_mask, player) == n64_a) {
-        scale(car_throttle, online ? online_gas : pedal_gas[port]);
+        scale(car_throttle, online ? online_gas : pedal_gas[port].load());
     }
     if (MEM_HU(player_brake_mask, player) == n64_b && MEM_B(0, (int32_t)brake_disabled) == 0) {
-        scale(car_brake, online ? online_brake : pedal_brake[port]);
+        scale(car_brake, online ? online_brake : pedal_brake[port].load());
     }
 }
