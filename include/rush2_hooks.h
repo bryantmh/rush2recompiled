@@ -432,13 +432,16 @@ void rush2_online_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_frame_time(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_skip_physics(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_player_input(uint8_t* rdram, recomp_context* ctx);
-int rush2_online_block_pause(uint8_t* rdram, recomp_context* ctx);
+int rush2_online_pause_start_only(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_race_views(uint8_t* rdram, recomp_context* ctx);
-int rush2_online_hold_front_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_record_presses(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_present_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_sim_view(uint8_t* rdram, uint32_t car_state, int view);
+int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int car, int kind);
+uint32_t rush2_online_arrow_views(uint8_t* rdram, int car, uint32_t flags);
+int rush2_online_arrow_view(uint8_t* rdram, int view);
+uint32_t rush2_online_view_record(uint8_t* rdram, int view, uint32_t record);
 
 #ifdef __cplusplus
 }

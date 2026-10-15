@@ -3,15 +3,17 @@
 //
 // - Lobby: while the host is anywhere else in its menus, the others wait on the title screen (its attract demo held
 //   off) with their controllers off.
-// - Select Player: when the host opens it, everyone's game opens it too (the front end's next screen, 0x800E7BB4 = 1)
-//   and each player picks their own profile. The host can't leave it (the front end loop holds it on the screen,
-//   rush2_online_hold_front_end) until everyone has and is on the track select.
-// - Track select: the host's. The others' track selects are turned to the host's track, then follow the host's
-//   controller, read-only (their own controllers are off), so they go on to the car select with it.
+// - Select Player: when the host chooses One Race, Stunt or Battle on Start Game, everyone's game goes there too
+//   (START on the title screen, the same choice on Start Game) and each player picks their own profile. The host is
+//   never held: it goes on to its track select, which only takes its confirm once everyone is on theirs.
+// - Track select: the host's. The others' track selects show the host's every frame (track, carousel, options and
+//   cursor; their controllers are off) and confirm when the host's does, so they go on to the car select with it.
 // - Car select: everyone picks their own car. A player who has stays on the screen, controller off
 //   (car_select_done), until all have; then the host starts the race and every car select starts it.
+// Each machine's progress comes from where its own game is, never from what it was told, so a player who backs out
+// or joins late is waited for and nobody waits on a step that already happened.
 // The game's controller reads go through controller_override (main.cpp): ports 2-4 are off throughout, so nobody
-// else joins on the same machine, and port 1 is the player's, off, or the host's controller.
+// else joins on the same machine, and port 1 is the player's, masked, off, or pressed for the player.
 //
 // The race the host chose (race type, track, the track select's settings) goes to every machine with its progress
 // (publish_menu) and sets the race up (online_game.cpp); the menus are only how the players get there.
@@ -20,6 +22,7 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -32,60 +35,105 @@
 
 #include "online.h"
 #include "battle.h"
+#include "collectibles.h"
+#include "track2049.h"
 
 namespace {
     using namespace rush2::online;
+    using rush2::track2049::StartKind;
 
     // Game variables.
     constexpr uint32_t game_state = 0x8010C0D0;      // 0 front end, 1 track select, 2 car select, 7+ the race
     constexpr uint32_t front_end_screen = 0x800E7BC4;      // s16, -1 none (func_800AE0D4's screens)
     constexpr uint32_t front_end_next_screen = 0x800E7BB4; // s32: func_800AE288 switches to it
+    constexpr int screen_start_game = 0;
     constexpr int screen_select_player = 1;
     constexpr int menu_screens_end = 0xE;            // 0-0xD the menus; 0xE-0x12 the logos, title and attract demo
     constexpr int screen_title = 0x10;
     constexpr uint32_t attract_start = 0x8010C034;   // f32: when the title screen came up (its attract demo timer)
     constexpr uint32_t game_time = 0x80117488;       // f32
-    constexpr uint32_t front_end_exit = 0x800FAE6C;  // u8: 2 leaves the front end for the track select (Select Player)
+    // u8: in the front end, 2 leaves it for the track select (Select Player); nonzero while the attract demo runs.
+    constexpr uint32_t front_end_exit = 0x800FAE6C;
     constexpr uint32_t start_game_row = 0x80023064;  // u16: the Start Game menu's row (func_803B12C8)
-    constexpr int screen_start_game = 0;
-    constexpr uint16_t button_start = 0x1000;
     constexpr uint32_t race_type = 0x8010C3E8;       // s32: 0 a race, 1 circuit, 2 practice (Start Game)
     constexpr uint32_t track_id = 0x8010C3F0;        // u8: the track select id
     constexpr uint32_t menu_settings = 0x800D5760;   // the track select's settings (laps, drones, options)
     constexpr uint32_t car_table = 0x800D9C10;       // 9 bytes per car slot: +1 type, +2-+5 colors and stripe
+    constexpr uint32_t player_records = 0x800C2140;  // 0x28 each: +0x24 the save profile
+    constexpr int32_t record_profile = 0x24;
+    constexpr uint32_t profile_size = 0x6C0;
+    // The track select (func_803ABE0C; src/rush2049/track2049_menu.cpp): the carousel entry shown (s16), the option
+    // row under the cursor (s32), the top option row on screen (s32) and the option list's length (s32).
+    constexpr uint32_t carousel_shown = 0x803D05B4;
+    constexpr uint32_t option_cursor = 0x803D05BC;
+    constexpr uint32_t option_top = 0x803D05C4;
+    constexpr uint32_t option_count = 0x803D05CC;
 
-    constexpr uint16_t button_a = 0x8000, button_b = 0x4000, dpad_right = 0x0100;
-    constexpr int settle_frames = 20;  // On the track select this long before it takes input.
+    constexpr uint16_t button_a = 0x8000, button_b = 0x4000, button_start = 0x1000;
+    constexpr int settle_frames = 20;  // On the track select this long before it takes a confirm.
 
     // How the game's controller ports read (controller_override, called from the threads that read them).
-    enum class Ports : int { Off, Own, Blocked, Fed };
+    enum class Ports : int {
+        Off,        // Not online: the controllers as they are.
+        Own,        // The player's controller on port 1.
+        NoConfirm,  // The player's, without A and START.
+        BackOnly,   // The player's B only.
+        Blocked,    // Nothing.
+        Fed,        // Buttons pressed for the player (fed_buttons).
+    };
     std::atomic<int> ports_mode = (int)Ports::Off;
-    std::atomic<uint32_t> fed_input = 0;  // buttons | stick_x << 16 | stick_y << 24
+    std::atomic<uint16_t> fed_buttons = 0;
 
-    void set_ports(Ports mode, uint16_t buttons = 0, int8_t x = 0, int8_t y = 0) {
-        fed_input = (uint32_t)buttons | ((uint32_t)(uint8_t)x << 16) | ((uint32_t)(uint8_t)y << 24);
+    void set_ports(Ports mode, uint16_t buttons = 0) {
+        fed_buttons = buttons;
         ports_mode = (int)mode;
     }
 
     // This machine's place in the lobby.
     bool car_chosen = false;       // Picked a car on the car select (car_select_done).
     bool start_sent = false;       // Host: asked for the race to start.
-    bool hold_front_end = false;   // Host: keep the front end on Select Player (rush2_online_hold_front_end).
     bool allow_back = false;       // Backing out of the car select is how this machine follows the host back.
     bool after_race = false;       // Back to the track select once the post-race is done.
     int frames_in_state = 0;
     int last_state = -1;
     int pulse = 0;
-    int idle_feed = 0;
     std::string notice;            // What the lobby waits for, for the overlay.
+    std::string race_waiting;      // In a race: who it waits for (race_notice).
+
+    // The battle rules the host's track select shows, copied onto this machine's while it follows (they are this
+    // machine's saved settings otherwise: put back after).
+    bool following_rules = false;
+    int own_points = 0, own_minutes = 0;
+    bool own_race_battle = false;
 
     int32_t state_of(uint8_t* rdram) { return MEM_W(0, (int32_t)game_state); }
     int screen_of(uint8_t* rdram) { return MEM_H(0, (int32_t)front_end_screen); }
 
+    // A button pressed for 2 frames out of every `period`.
+    uint16_t pulsed(uint16_t button, int period = 8) {
+        return pulse % period < 2 ? button : 0;
+    }
+
+    bool supported(StartKind kind) {
+        return kind == StartKind::OneRace || kind == StartKind::Stunt || kind == StartKind::Battle;
+    }
+
+    const char* kind_name(StartKind kind) {
+        switch (kind) {
+            case StartKind::Stunt: return "Stunt";
+            case StartKind::Battle: return "Battle";
+            default: return "One Race";
+        }
+    }
+
+    StartKind own_start_kind(uint8_t* rdram) {
+        return rush2::track2049::start_menu_kind(MEM_HU(0, (int32_t)start_game_row));
+    }
+
     RaceSettings menu_settings_now(uint8_t* rdram) {
         RaceSettings s;
         s.race_type = (uint8_t)MEM_W(0, (int32_t)race_type);
-        s.start_row = (uint8_t)MEM_HU(0, (int32_t)start_game_row);
+        s.start_kind = (uint8_t)own_start_kind(rdram);
         s.track = (uint8_t)MEM_BU(0, (int32_t)track_id);
         for (int i = 0; i < (int)s.menu.size(); i++) {
             s.menu[i] = (uint8_t)MEM_BU(i, (int32_t)menu_settings);
@@ -97,6 +145,7 @@ namespace {
         s.needs_games = (t >= 12 && t <= 17) || (t >= 25 && t <= 37) ? games_rush2049 : (t >= 18 && t <= 24) ? games_rush1 : 0;
         s.battle_points = (uint8_t)rush2::battle::points_to_win();
         s.battle_minutes = (uint8_t)rush2::battle::time_limit_minutes();
+        s.race_battle = rush2::battle::race_battle() ? 1 : 0;
         return s;
     }
 
@@ -113,6 +162,7 @@ namespace {
         }
     }
 
+    // The other connected players below progress `below`, by name.
     std::string list_names(const std::vector<RosterEntry>& r, int me, Progress below) {
         std::string names;
         for (int i = 0; i < (int)r.size(); i++) {
@@ -127,6 +177,52 @@ namespace {
         return list_names(r, me, p).empty();
     }
 
+    // The other connected players without the game ROMs `games` (games_* bits).
+    std::string missing_games(const std::vector<RosterEntry>& r, int me, uint8_t games) {
+        std::string names;
+        for (int i = 0; i < (int)r.size(); i++) {
+            if (i != me && r[i].used && r[i].connected && (r[i].games & games) != games) {
+                names += (names.empty() ? "" : ", ") + r[i].name;
+            }
+        }
+        return names;
+    }
+
+    void stop_following_rules() {
+        if (following_rules) {
+            rush2::battle::set_points_to_win(own_points);
+            rush2::battle::set_time_limit_minutes(own_minutes);
+            rush2::battle::set_race_battle(own_race_battle);
+            following_rules = false;
+        }
+    }
+
+    // Shows the host's track select on this one: the track (and the carousel entry showing it), the settings, the
+    // option cursor and the battle rules.
+    void follow_track_select(uint8_t* rdram, const MenuState& hm) {
+        const RaceSettings& s = hm.settings;
+        MEM_B(0, (int32_t)track_id) = (int8_t)s.track;
+        int index = rush2::track2049::carousel_index(rdram, s.track);
+        if (index >= 0) {
+            MEM_H(0, (int32_t)carousel_shown) = (int16_t)index;
+        }
+        for (int i = 0; i < (int)s.menu.size(); i++) {
+            MEM_B(i, (int32_t)menu_settings) = (int8_t)s.menu[i];
+        }
+        int count = MEM_W(0, (int32_t)option_count);
+        MEM_W(0, (int32_t)option_cursor) = std::clamp<int>(hm.option_cursor, 0, std::max(count - 1, 0));
+        MEM_W(0, (int32_t)option_top) = std::clamp<int>(hm.option_top, 1, std::max(count - 1, 1));
+        if (!following_rules) {
+            own_points = rush2::battle::points_to_win();
+            own_minutes = rush2::battle::time_limit_minutes();
+            own_race_battle = rush2::battle::race_battle();
+            following_rules = true;
+        }
+        rush2::battle::set_points_to_win(s.battle_points);
+        rush2::battle::set_time_limit_minutes(s.battle_minutes);
+        rush2::battle::set_race_battle(s.race_battle != 0);
+    }
+
     void host_frame(uint8_t* rdram) {
         int gs = state_of(rdram);
         MenuPhase phase = gs == 1 ? MenuPhase::Track : gs == 2 ? MenuPhase::Car :
@@ -138,7 +234,9 @@ namespace {
         for (int i = 0; i < (int)r.size(); i++) {
             others |= i != me && r[i].used && r[i].connected;
         }
-        bool unsupported = others && (s.race_type == 1 || s.race_type == 2);
+        // Circuit, Practice, Ghost Race and the profile screens (Records, Unlocks) aren't raced online: the others
+        // stay in the lobby.
+        bool unsupported = phase != MenuPhase::Lobby && !supported(StartKind(s.start_kind));
 
         if (phase != MenuPhase::Car) {
             car_chosen = false;
@@ -149,44 +247,39 @@ namespace {
             phase == MenuPhase::SelectPlayer ? Progress::ChoosingPlayer : Progress::Lobby);
 
         bool all_on_track = all_at_least(r, me, Progress::TrackSelect);
-        hold_front_end = phase == MenuPhase::SelectPlayer && (unsupported || !all_on_track);
-        bool input_open = phase == MenuPhase::Track && all_on_track && frames_in_state >= settle_frames;
+        std::string lacking = missing_games(r, me, s.needs_games);
+        bool can_confirm = !unsupported && all_on_track && lacking.empty() && frames_in_state >= settle_frames;
 
-        if (phase == MenuPhase::Track && !input_open) {
-            set_ports(Ports::Blocked);
+        if (gs == 1) {
+            // The host browses its track select freely but confirms only once everyone is on theirs.
+            set_ports(can_confirm || !others ? Ports::Own : Ports::NoConfirm);
         }
-        else if (phase == MenuPhase::Car && car_chosen) {
-            set_ports(Ports::Blocked);
+        else if (gs == 2 && car_chosen) {
+            // B still takes everyone back to the track select, as it does in a local race.
+            set_ports(start_sent ? Ports::Blocked : Ports::BackOnly);
         }
         else {
             set_ports(Ports::Own);
         }
 
-        MenuInput in;
-        uint16_t buttons = 0;
-        float x = 0.0f, y = 0.0f;
-        if (rush2::online::game::read_local_controller(&buttons, &x, &y)) {
-            in.buttons = buttons;
-            in.stick_x = (int8_t)std::clamp(x * 127.0f, -127.0f, 127.0f);
-            in.stick_y = (int8_t)std::clamp(y * 127.0f, -127.0f, 127.0f);
-        }
         MenuState m;
-        m.phase = phase;
+        m.phase = unsupported ? MenuPhase::Lobby : phase;
         m.settings = s;
-        m.input_open = input_open;
-        publish_menu(m, in);
+        m.option_cursor = (int8_t)MEM_W(0, (int32_t)option_cursor);
+        m.option_top = (int8_t)MEM_W(0, (int32_t)option_top);
+        publish_menu(m);
 
-        if (unsupported && phase == MenuPhase::SelectPlayer) {
-            notice = "Online races are One Race, Stunt and Battle: back out and pick one of those.";
+        if (unsupported && others) {
+            notice = "Online races are One Race, Stunt and Battle: back out to Start Game and pick one of those.";
         }
-        else if (phase == MenuPhase::SelectPlayer && !all_on_track) {
-            notice = "Waiting for " + list_names(r, me, Progress::TrackSelect) + " to choose a player.";
+        else if (phase == MenuPhase::Track && !lacking.empty()) {
+            notice = lacking + (lacking.find(',') == std::string::npos ? " doesn't" : " don't") + " have the " +
+                (s.needs_games == games_rush1 ? "SF Rush" : "Rush 2049") + " ROM this track needs.";
         }
-        else if (phase == MenuPhase::Track && !input_open) {
-            std::string names = list_names(r, me, Progress::TrackSelect);
-            notice = names.empty() ? "Getting everyone to the track select..." : "Waiting for " + names + ".";
+        else if (phase == MenuPhase::Track && !all_on_track) {
+            notice = "Waiting for " + list_names(r, me, Progress::TrackSelect) + " to get to the track select.";
         }
-        else if (phase == MenuPhase::Car && !all_at_least(r, me, Progress::CarChosen)) {
+        else if (phase == MenuPhase::Car && car_chosen && !all_at_least(r, me, Progress::CarChosen)) {
             notice = "Waiting for " + list_names(r, me, Progress::CarChosen) + " to pick a car.";
         }
         else if (phase == MenuPhase::Lobby) {
@@ -213,22 +306,25 @@ namespace {
         int gs = state_of(rdram);
         int screen = screen_of(rdram);
         std::vector<RosterEntry> r = roster();
-        std::string host = r.empty() ? "the host" : r[0].name;
-        pulse++;
+        std::string host = r.empty() || r[0].name.empty() ? "the host" : r[0].name;
+        StartKind kind = StartKind(hm.settings.start_kind);
         allow_back = false;
         if (gs != 2) {
             car_chosen = false;
+        }
+        if (gs != 1) {
+            stop_following_rules();
         }
 
         if (hm.phase == MenuPhase::Lobby) {
             if (gs == 1 || gs == 2) {
                 // The host left the race menus: back out to the front end.
                 allow_back = true;
-                set_ports(Ports::Fed, pulse % 4 < 2 ? button_b : 0);
+                set_ports(Ports::Fed, pulsed(button_b, 4));
             }
             else if (screen >= 0 && screen < menu_screens_end && screen != screen_start_game) {
                 // Back from Select Player and the like to Start Game, then to the title screen.
-                set_ports(Ports::Fed, pulse % 8 < 2 ? button_b : 0);
+                set_ports(Ports::Fed, pulsed(button_b));
             }
             else {
                 wait_on_title(rdram);
@@ -241,87 +337,83 @@ namespace {
 
         if (gs == 0) {
             // Everyone picks their own player first, getting there as the host did: START on the title screen (which
-            // makes this machine's controller player 1, func_800A6B58), the host's Start Game row, then Select Player.
+            // makes this machine's controller player 1, func_800A6B58), the host's choice on Start Game (its row
+            // differs by machine), then Select Player.
+            int row = rush2::track2049::start_menu_row(kind);
             if (screen == screen_select_player) {
                 set_ports(Ports::Own);
                 notice = "Choose a player.";
             }
+            else if (screen == screen_start_game && row < 0) {
+                set_ports(Ports::Blocked);
+                notice = std::string("Your game has no ") + kind_name(kind) + " (it needs the Rush 2049 ROM).";
+            }
             else if (screen == screen_start_game) {
-                MEM_H(0, (int32_t)start_game_row) = hm.settings.start_row;
-                set_ports(Ports::Fed, pulse % 8 < 2 ? button_a : 0);
+                MEM_H(0, (int32_t)start_game_row) = (int16_t)row;
+                set_ports(Ports::Fed, pulsed(button_a));
                 notice.clear();
             }
             else if (screen >= menu_screens_end) {
-                set_ports(Ports::Fed, pulse % 8 < 2 ? button_start : 0);
+                set_ports(Ports::Fed, pulsed(button_start));
+                notice.clear();
+            }
+            else if (screen < 0) {
+                set_ports(Ports::Blocked);
                 notice.clear();
             }
             else {
-                // Another menu: back to Start Game.
-                set_ports(Ports::Fed, pulse % 8 < 2 ? button_b : 0);
-                notice.clear();
+                // A screen Select Player opened (a new profile's name, say): the player's own.
+                set_ports(Ports::Own);
+                notice = "Choose a player.";
             }
             set_progress(Progress::ChoosingPlayer);
             return;
         }
 
         if (gs == 1) {
-            bool aligned = MEM_BU(0, (int32_t)track_id) == hm.settings.track;
-            if (hm.phase == MenuPhase::Track && hm.input_open) {
-                // The host's controller drives this track select.
-                MenuInput in;
-                if (next_menu_input(&in)) {
-                    set_ports(Ports::Fed, in.buttons, in.stick_x, in.stick_y);
-                }
-                else {
-                    set_ports(Ports::Fed);
-                }
-                notice = host + " is choosing the track.";
-            }
-            else if (hm.phase == MenuPhase::Car) {
-                // The host went on to the car select: so does this one, with the host's input that took it there
-                // (or an A press if that didn't come).
-                MenuInput in;
-                if (next_menu_input(&in)) {
-                    set_ports(Ports::Fed, in.buttons, in.stick_x, in.stick_y);
-                    idle_feed = 0;
-                }
-                else {
-                    set_ports(Ports::Fed, ++idle_feed > 45 && pulse % 4 < 2 ? button_a : 0);
-                }
+            if (own_start_kind(rdram) != kind) {
+                // This track select is for another kind of race than the host's (the host went back and chose
+                // another): back out and come in again.
+                set_ports(Ports::Fed, pulsed(button_b, 4));
+                set_progress(Progress::Lobby);
                 notice.clear();
+                return;
             }
-            else if (!aligned && frames_in_state >= settle_frames) {
-                // Turn to the host's track before its controller takes over.
-                set_ports(Ports::Fed, pulse % 6 < 2 ? dpad_right : 0);
-                notice = "Waiting for " + host + ".";
+            follow_track_select(rdram, hm);
+            if (hm.phase == MenuPhase::Car && frames_in_state >= settle_frames) {
+                // The host went on to the car select: so does this one.
+                set_ports(Ports::Fed, pulsed(button_a, 4));
+                notice.clear();
             }
             else {
                 set_ports(Ports::Blocked);
-                notice = "Waiting for " + host + ".";
+                notice = hm.phase == MenuPhase::Track ? host + " is choosing the track." :
+                    hm.phase == MenuPhase::Car ? std::string() : "Waiting for " + host + ".";
             }
-            set_progress(aligned && frames_in_state >= settle_frames ? Progress::TrackSelect : Progress::ChoosingPlayer);
+            set_progress(Progress::TrackSelect);
             return;
         }
 
         if (gs == 2) {
-            idle_feed = 0;
             if (hm.phase != MenuPhase::Car) {
                 // The host went back to the track select.
                 allow_back = true;
-                set_ports(Ports::Fed, pulse % 4 < 2 ? button_b : 0);
+                set_ports(Ports::Fed, pulsed(button_b, 4));
                 set_progress(Progress::ChoosingCar);
                 notice.clear();
                 return;
             }
             set_ports(car_chosen ? Ports::Blocked : Ports::Own);
             set_progress(car_chosen ? Progress::CarChosen : Progress::ChoosingCar);
-            notice = car_chosen ? "Waiting for " + list_names(r, local_slot(), Progress::CarChosen) + " to pick a car." :
-                "Pick your car.";
+            notice = !car_chosen ? "Pick your car." : all_at_least(r, local_slot(), Progress::CarChosen) ?
+                "Waiting for " + host + " to start the race." :
+                "Waiting for " + list_names(r, local_slot(), Progress::CarChosen) + " to pick a car.";
             return;
         }
     }
 
-    // The overlay: the lobby's players and what it waits for, over the game (it takes no input).
+    // The overlay: the lobby's players and what it waits for, over the game. It takes no input, and steps aside
+    // whenever a menu or prompt is up (showing a document focuses it).
     struct Overlay {
         recompui::ContextId context = recompui::ContextId::null();
         recompui::Label* title = nullptr;
@@ -349,6 +441,8 @@ namespace {
         if (overlay.context == recompui::ContextId::null()) {
             return;
         }
+        // The overlay itself never captures input, so this is about the other contexts.
+        show = show && !recompui::is_context_capturing_input() && !recompui::is_prompt_open();
         if (!show) {
             if (overlay.shown) {
                 recompui::hide_context(overlay.context);
@@ -396,10 +490,23 @@ void rush2::online::game::init_overlay() {
     context.open();
     context.set_captures_input(false);
     context.set_captures_mouse(false);
-    Element* panel = context.create_element<Element>(context.get_root_element());
-    panel->set_position(Position::Absolute);
-    panel->set_top(16.0f, Unit::Dp);
-    panel->set_left(16.0f, Unit::Dp);
+    // As recompui's prompts lay theirs out: a window, a wrapper filling it, the panel in its top left corner.
+    Element* window = context.create_element<Element>(context.get_root_element());
+    window->set_display(Display::Flex);
+    window->set_flex_direction(FlexDirection::Column);
+    window->set_background_color(theme::color::Transparent);
+    Element* wrapper = context.create_element<Element>(window);
+    wrapper->set_position(Position::Absolute);
+    wrapper->set_top(0);
+    wrapper->set_right(0);
+    wrapper->set_bottom(0);
+    wrapper->set_left(0);
+    wrapper->set_display(Display::Flex);
+    wrapper->set_flex_direction(FlexDirection::Column);
+    wrapper->set_align_items(AlignItems::FlexStart);
+    wrapper->set_justify_content(JustifyContent::FlexStart);
+    wrapper->set_padding(16.0f, Unit::Dp);
+    Element* panel = context.create_element<Element>(wrapper);
     panel->set_display(Display::Flex);
     panel->set_flex_direction(FlexDirection::Column);
     panel->set_padding(12.0f, Unit::Dp);
@@ -421,27 +528,47 @@ void rush2::online::game::init_overlay() {
 }
 
 void rush2::online::game::lobby_frame(uint8_t* rdram) {
+    rush2::online_tab::follow_host_settings();
     State st = state();
+    int gs = state_of(rdram);
     if (st == State::Offline || st == State::Connecting) {
         set_ports(Ports::Off);
-        hold_front_end = false;
         car_chosen = false;
+        start_sent = false;
+        after_race = false;
+        stop_following_rules();
+        rush2::track2049::set_all_tracks_open(false);
+        set_profile_name({});
         update_overlay(false);
         return;
     }
     if (st != State::Lobby) {
-        // The race is starting or running (online_game.cpp).
-        set_ports(state_of(rdram) == 2 ? Ports::Blocked : Ports::Off);
+        // The race is starting or running (online_game.cpp): the overlay is up only while it waits for someone
+        // (race_notice).
+        set_ports(gs == 2 ? Ports::Blocked : Ports::Off);
+        update_overlay(!race_waiting.empty());
+        return;
+    }
+    // A joiner's track select has every track, so the host's is on it.
+    rush2::track2049::set_all_tracks_open(!is_host());
+    frames_in_state = gs == last_state ? frames_in_state + 1 : 0;
+    last_state = gs;
+    pulse++;
+    // Past Select Player the lobby shows the profile's name.
+    if (gs == 1 || gs == 2) {
+        set_profile_name(rush2::collectibles::player_name(rdram, 0));
+    }
+    if (gs != 0 && gs != 1 && gs != 2 && !is_host() && !after_race && MEM_BU(0, (int32_t)front_end_exit) != 0) {
+        // A joiner's attract demo (the byte is set while it runs): START ends it.
+        set_ports(Ports::Fed, pulsed(button_start));
+        set_progress(Progress::Lobby);
         update_overlay(false);
         return;
     }
-    int gs = state_of(rdram);
-    frames_in_state = gs == last_state ? frames_in_state + 1 : 0;
-    last_state = gs;
     if (gs != 0 && gs != 1 && gs != 2) {
         // After a race: the post-race (records, name entry) is this machine's own.
         set_ports(Ports::Own);
-        hold_front_end = false;
+        set_progress(Progress::Lobby);
         update_overlay(false);
         return;
     }
@@ -449,8 +576,7 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         // After the post-race the front end comes up: everyone goes back to the track select with the player they
         // picked, as Select Player sends them there.
         if (gs == 0) {
-            int screen = screen_of(rdram);
-            if (screen >= 0) {
+            if (screen_of(rdram) >= 0) {
                 MEM_B(0, (int32_t)front_end_exit) = 2;
             }
             set_ports(Ports::Blocked);
@@ -470,7 +596,8 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
     static std::string logged;
     int me = local_slot();
     std::vector<RosterEntry> r = roster();
-    std::string now = "state " + std::to_string(gs) + " screen " + std::to_string(screen_of(rdram)) + " progress " +
+    std::string now = "state " + std::to_string(gs) + " screen " + std::to_string(screen_of(rdram)) + " track " +
+        std::to_string(MEM_BU(0, (int32_t)track_id)) + " progress " +
         (me >= 0 && me < (int)r.size() ? std::to_string(r[me].progress) : "?") + " ports " +
         std::to_string(ports_mode.load()) + ": " + notice;
     if (now != logged) {
@@ -478,6 +605,15 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         std::fprintf(stderr, "[lobby] %s\n", now.c_str());
     }
     update_overlay(true);
+}
+
+void rush2::online::game::race_notice(const std::string& text) {
+    if (text == race_waiting) {
+        return;
+    }
+    race_waiting = text;
+    notice = text;
+    update_overlay(!text.empty());
 }
 
 void rush2::online::game::race_over() {
@@ -497,14 +633,23 @@ bool rush2::online::game::controller_override(int port, uint16_t* buttons, float
         *y = 0.0f;
         return true;
     }
-    if (mode == Ports::Fed) {
-        uint32_t fed = fed_input.load();
-        *buttons = (uint16_t)fed;
-        *x = (int8_t)(fed >> 16) / 127.0f;
-        *y = (int8_t)(fed >> 24) / 127.0f;
-        return true;
+    switch (mode) {
+        case Ports::Fed:
+            *buttons = fed_buttons.load();
+            *x = 0.0f;
+            *y = 0.0f;
+            return true;
+        case Ports::NoConfirm:
+            *buttons &= (uint16_t)~(button_a | button_start);
+            return true;
+        case Ports::BackOnly:
+            *buttons &= button_b;
+            *x = 0.0f;
+            *y = 0.0f;
+            return true;
+        default:
+            return false;
     }
-    return false;
 }
 
 bool rush2::online::game::car_select_done(uint8_t* rdram, recomp_context* ctx, bool* stay) {
@@ -517,12 +662,25 @@ bool rush2::online::game::car_select_done(uint8_t* rdram, recomp_context* ctx, b
     }
     if (!car_chosen) {
         car_chosen = true;
+        const char* forced = std::getenv("RUSH2_ONLINE_CAR");
+        if (forced != nullptr && *forced != 0) {  // Test aid: this car type, whatever was picked.
+            MEM_B(1, (int32_t)car_table) = (int8_t)std::atoi(forced);
+        }
         CarChoice car;
         car.type = (uint8_t)MEM_BU(1, (int32_t)car_table);
         for (int i = 0; i < 4; i++) {
             car.colors[i] = (uint8_t)MEM_BU(2 + i, (int32_t)car_table);
         }
-        set_car(car);
+        // The profile the player races with, as the car select left it (online_game.cpp).
+        std::vector<uint8_t> profile;
+        uint32_t address = (uint32_t)MEM_W(record_profile, (int32_t)player_records);
+        if (address >= 0x80000000u && address + profile_size <= 0x80800000u) {
+            profile.resize(profile_size);
+            for (uint32_t i = 0; i < profile_size; i++) {
+                profile[i] = (uint8_t)MEM_BU(0, (int32_t)(address + i));
+            }
+        }
+        set_car(car, profile);
     }
     *stay = true;
     return true;
@@ -533,10 +691,4 @@ bool rush2::online::game::car_select_back(uint8_t* rdram) {
         return false;
     }
     return !allow_back;
-}
-
-// The front end loop (func_800AE288 at 0x800AE2AC, $t6 = 0x800FAE6C: 2 once Select Player is done, which leaves the
-// front end for the track select): the host stays on Select Player until every player is on the track select.
-extern "C" int rush2_online_hold_front_end(uint8_t* rdram, recomp_context* ctx) {
-    return is_host() && state() == State::Lobby && hold_front_end ? 1 : 0;
 }

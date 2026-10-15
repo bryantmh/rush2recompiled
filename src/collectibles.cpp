@@ -55,6 +55,7 @@
 #include "audio2049.h"
 #include "battle_render.h"
 #include "collectibles.h"
+#include "online.h"
 #include "track1.h"
 #include "track2049.h"
 
@@ -307,6 +308,19 @@ namespace {
     // A player's profile name, or "" without a profile.
     std::string name_of_player(uint8_t* rdram, int player) {
         uint32_t slot = player_slots + (uint32_t)player * player_slot_size;
+        int online_player = rush2::online::game::local_race_player();
+        if (online_player >= 0) {
+            // An online race (src/online/online_game.cpp): the records have no profile slot; this machine's player's
+            // points at their own profile, the others' at copies, which collect for nobody here.
+            if (player != online_player) {
+                return "";
+            }
+            uint32_t record = (uint32_t)MEM_W(0, (int32_t)(slot + 0x24));
+            if (record < 0x80000000 || record >= 0x80800000 || (MEM_BU(0, (int32_t)(record + rec_flags)) & 1) == 0) {
+                return "";
+            }
+            return read_name(rdram, record + rec_name, name_size);
+        }
         uint8_t profile_slot = MEM_BU(0, (int32_t)(slot + 1));
         if (profile_slot >= profiles || (int16_t)MEM_H(0, (int32_t)(profile_of_slot + profile_slot * 2)) == -1) {
             return "";
@@ -498,6 +512,9 @@ extern "C" void rush2_collect_frame(uint8_t* rdram, recomp_context* ctx) {
         }
     }
     for (int player = 0; player < local_players; player++) {
+        if (rush2::online::game::local_race_player() >= 0) {
+            break;  // Online the records have no profile slots (name_of_player).
+        }
         uint32_t slot = player_slots + (uint32_t)player * player_slot_size;
         uint8_t profile_slot = MEM_BU(0, (int32_t)(slot + 1));
         uint32_t record = (uint32_t)MEM_W(0, (int32_t)(slot + 0x24));

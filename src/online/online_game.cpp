@@ -10,7 +10,8 @@
 //   one machine would move its race clock further. Online every frame is two retraces (rush2_online_frame_time).
 // - Inputs. Each frame waits for every player's input for it (online_net.cpp) and each tick's input step writes them
 //   into the player records (rush2_online_player_input), as the game does from a controller port.
-// - The pause menu is off.
+// - The pause menu. Every player's presses reach it in lockstep (any START pauses everyone's race), the physics ticks
+//   stop while it is up, and it offers CONTINUE, RESTART and QUIT only (src/pause_menu.cpp).
 
 #include <algorithm>
 #include <array>
@@ -23,7 +24,6 @@
 #include <vector>
 
 #include "recomp.h"
-#include "recompui/recompui.h"
 #include "online.h"
 #include "rush2.h"
 #include "battle.h"
@@ -141,10 +141,13 @@ namespace {
     constexpr int32_t record_masks = 0xC;            // u16 per action: the N64 buttons bound to it
     constexpr int32_t record_masks_size = 0x12;
     constexpr int32_t record_profile = 0x24;         // The player's save profile (a controller's buffer, 0x6C0 bytes)
-    // Online every player races with the same blank guest profile, so nobody's saved keys or unlocks change the race
-    // (the track's keys spawn when not every racer has them, func_8005F00C). RDRAM 0x80F80000-0x81000000 is unused.
-    constexpr uint32_t guest_profile = 0x80FF0000;
+    // Each player races with the profile their car select left (RosterEntry::profile): the race reads the car's type
+    // from it (+0x31, func_8009E6DC at 0x8009E9B8) and the keys from it. This machine's player races with their own
+    // profile, which the race's keys and the post-race save to; the others with copies here, the same on every machine.
+    // RDRAM 0x80F80000-0x81000000 is unused.
+    constexpr uint32_t guest_profiles = 0x80FF0000;
     constexpr uint32_t profile_size = 0x6C0;
+    constexpr int32_t profile_car = 0x31;            // Low 5 bits: the car type (Rush 2's; Rush 2049's are kept apart)
     constexpr uint8_t no_port = 5;
     constexpr uint32_t initial_seed = 123456789;     // The game's own first seed (0x800BD808 at boot).
 
@@ -173,6 +176,7 @@ namespace {
     int saved_battle_minutes = 0;
     int local_player = 0;   // This machine's player (car slot) in the race.
     int race_players = 1;
+    std::vector<uint8_t> race_car_types;  // Each player's car type (rush2::online::game::car_type).
 
     // The front end screen up (func_800AE0D4): 0x10 the title screen, 0 the main menu after it, up to 0xD the other
     // menu screens; 0xE is the boot logos, 0x11 and 0x12 the attract demo, -1 none.
@@ -199,6 +203,7 @@ namespace {
         race_players = 0;
         local_player = 0;
         std::vector<CarChoice> cars;
+        std::vector<const std::vector<uint8_t>*> profiles;
         for (int slot = 0; slot < max_players; slot++) {
             if (!roster[slot].used) {
                 continue;
@@ -207,7 +212,12 @@ namespace {
                 local_player = race_players;
             }
             cars.push_back(roster[slot].car);
+            profiles.push_back(&roster[slot].profile);
             race_players++;
+        }
+        race_car_types.clear();
+        for (const CarChoice& c : cars) {
+            race_car_types.push_back(c.type);
         }
         race_players = std::clamp(race_players, 1, (int)max_players);
 
@@ -239,8 +249,10 @@ namespace {
             MEM_B(i, (int32_t)menu_settings) = (int8_t)settings.menu[i];
         }
 
-        for (uint32_t i = 0; i < profile_size; i++) {
-            MEM_B(0, (int32_t)(guest_profile + i)) = 0;
+        // This machine's player's own profile: record 0's, as Select Player and the car select left it.
+        uint32_t own_profile = (uint32_t)MEM_W(record_profile, (int32_t)player_records);
+        if (own_profile < 0x80000000u || own_profile + profile_size > 0x80800000u) {
+            own_profile = 0;
         }
         // Every machine's records start the same: blank but for the button masks, the game's default layout that the
         // binding tables are locked to (src/controls.cpp). The menus fill them only for players who picked a profile,
@@ -269,7 +281,19 @@ namespace {
             MEM_B(record_port, record) = (int8_t)no_port;
             MEM_B(record_range, record) = default_range;
             MEM_B(record_range + 1, record) = default_range;
-            MEM_W(record_profile, record) = (int32_t)guest_profile;
+            // The profile as the player's car select sent it (the same bytes on every machine; this machine's player's
+            // own already holds them), its car type set to the car they picked.
+            // A player who sent none (the test aids' races) races with a blank one on every machine.
+            const std::vector<uint8_t>& sent = *profiles[p];
+            bool have = sent.size() == profile_size;
+            uint32_t profile = p == local_player && own_profile != 0 && have ? own_profile :
+                guest_profiles + p * profile_size;
+            for (uint32_t i = 0; i < profile_size; i++) {
+                MEM_B(0, (int32_t)(profile + i)) = have ? (int8_t)sent[i] : 0;
+            }
+            uint8_t type_bits = (uint8_t)MEM_BU(profile_car, (int32_t)profile);
+            MEM_B(profile_car, (int32_t)profile) = (int8_t)((type_bits & 0xE0) | (cars[p].type & 0x1F));
+            MEM_W(record_profile, record) = (int32_t)profile;
             int32_t entry = (int32_t)(car_table + p * car_entry_size);
             MEM_B(1, entry) = (int8_t)cars[p].type;
             for (int i = 0; i < 4; i++) {
@@ -353,8 +377,10 @@ namespace {
         for (int car = 0; car < 8; car++) {
             add(cars + car * car_size, car_size);
         }
+        // The records, but for the profile pointer (+0x24): this machine's player's is their own profile.
         for (int p = 0; p < race_players; p++) {
-            add(player_records + p * player_record_size, player_record_size);
+            add(player_records + p * player_record_size, record_profile);
+            add(player_records + p * player_record_size + record_profile + 4, player_record_size - record_profile - 4);
         }
         // The cars' race state, but for the camera's bytes (+0x347 the view, +0x348/+0x349 the camera mode), which
         // differ by machine.
@@ -469,11 +495,13 @@ namespace {
     constexpr uint32_t front_end_from_logos = 0x800BF31C;
     constexpr int32_t state_post_race = 6;           // func_800A952C: records, lap and race times, name entry
     constexpr int32_t state_car_select = 2;
+    constexpr int32_t state_front_end = 0;           // The pause menu's QUIT (func_800AAC64) goes back to it.
 
-    // The race is over (game state 6): the machines part. The post-race works on the game's players 1 and up, so
-    // this machine's player becomes the only one, with the record the menus gave them (their profile and controller)
-    // and their car; it saves their stats and times and runs their name entry as after a local race.
-    void finish_race_locally(uint8_t* rdram) {
+    // The race is over (game state 6, or the front end after the pause menu's QUIT): the machines part. The post-race
+    // works on the game's players 1 and up, so this machine's player becomes the only one, with the record the menus
+    // gave them (their profile and controller) and their car; it saves their stats and times and runs their name entry
+    // as after a local race. After QUIT the cars go back to the menus' too.
+    void finish_race_locally(uint8_t* rdram, bool quit) {
         lockstep = false;
         fixed_frame_time = false;
         rush2::battle::set_online_seed(0);
@@ -484,7 +512,7 @@ namespace {
             for (const SavedRange& r : saved_ranges) {
                 for (uint32_t i = 0; i < r.size; i++, at++) {
                     // The car table stays as raced: the post-race shows the cars.
-                    if (r.address != car_table) {
+                    if (quit || r.address != car_table) {
                         MEM_B(0, (int32_t)(r.address + i)) = (int8_t)menu_snapshot[at];
                     }
                 }
@@ -538,23 +566,6 @@ namespace {
     }
 }
 
-namespace {
-    // A notice over the game while it waits on another player ("Waiting for ..."; race_status), empty to close it.
-    std::string shown_notice;
-    void show_wait_notice(const std::string& text) {
-        if (text == shown_notice) {
-            return;
-        }
-        if (text.empty()) {
-            recompui::close_prompt();
-        }
-        else {
-            recompui::open_notification("Online Race", text);
-        }
-        shown_notice = text;
-    }
-}
-
 // Top of the game thread's frame (func_800B0228's loop), once per frame in menus and races.
 extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     game_frame++;
@@ -578,11 +589,14 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         end_race(rdram, ctx, phase != Phase::WaitMenus);
         return;
     }
-    if (phase == Phase::Running && MEM_W(0, (int32_t)game_state) == state_post_race) {
-        // Race over: every machine gets here on the same frame and leaves the lockstep. The post-race (saving to the
-        // profiles, the track's record tables, name entry) runs on each machine for its own player only.
-        std::fprintf(stderr, "[online] race over at frame %u\n", race_frame);
-        finish_race_locally(rdram);
+    int32_t now_state = MEM_W(0, (int32_t)game_state);
+    if (phase == Phase::Running && (now_state == state_post_race || now_state == state_front_end)) {
+        // Race over, or QUIT from the pause menu: every machine gets here on the same frame and leaves the lockstep.
+        // The post-race (saving to the profiles, the track's record tables, name entry) runs on each machine for its
+        // own player only.
+        std::fprintf(stderr, "[online] race %s at frame %u\n", now_state == state_front_end ? "quit" : "over",
+            race_frame);
+        finish_race_locally(rdram, now_state == state_front_end);
         race_finished();
         rush2::online::game::race_over();
         return;
@@ -649,9 +663,9 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     submit_local_input(race_frame + input_delay(), local);
     Wait got;
     while ((got = wait_frame_inputs(race_frame, frame_inputs.data(), 250)) == Wait::Timeout) {
-        show_wait_notice(race_status());
+        rush2::online::game::race_notice(race_status());
     }
-    show_wait_notice({});
+    rush2::online::game::race_notice({});
     if (got == Wait::Ended) {
         lockstep = false;
         return;
@@ -708,14 +722,24 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         previous_held[p] = held;
     }
 
-    // Two physics ticks, each with its input step.
-    recomp_context saved = *ctx;
-    ticking = true;
-    for (int tick = 0; tick < 2; tick++) {
-        physics_thread_step_once_80076D70(rdram, ctx);
-        *ctx = saved;
+    // Two physics ticks, each with its input step, unless the race is paused (the pause menu clears the flag, as it
+    // stops the input thread's ticks; a RESTART's loading clears it too).
+    if (MEM_HU(0, (int32_t)physics_flag) != 0) {
+        recomp_context saved = *ctx;
+        ticking = true;
+        for (int tick = 0; tick < 2; tick++) {
+            physics_thread_step_once_80076D70(rdram, ctx);
+            *ctx = saved;
+        }
+        ticking = false;
+        // The ticks' input steps set the presses from the records' ports (none): the rest of the frame (the pause
+        // menu, the camera's VIEW) has the players' presses back.
+        for (int p = 0; p < race_players; p++) {
+            int32_t record = (int32_t)(player_records + p * player_record_size);
+            MEM_H(record_pressed, record) = (int16_t)pending_pressed[p];
+            MEM_H(record_repeat, record) = (int16_t)pending_pressed[p];
+        }
     }
-    ticking = false;
 
     // Every 30 frames the machines compare their states (online_net.cpp ends the race if they differ).
     if (race_frame % 30 == 0) {
@@ -790,6 +814,72 @@ extern "C" int rush2_online_sim_view(uint8_t* rdram, uint32_t car_state, int vie
     return car >= 0 && car < race_players ? scratch_view : view;
 }
 
+// The camera update (func_8009D9F4) places a human car's body (its scene node, car state +0xF0) in the loop over the
+// views, for the car each view follows (func_8009D02C at 0x8009D08C-0x8009D0F4: the car's position, raised by the f32
+// at 0x800CFD84, and its matrix, car state +0x48, through func_8009ABDC), and a computer car's after it
+// (0x8009DFD8-0x8009E084, skipping cars whose physics car +0x7E8 is 2, human). Online each machine has one view, so
+// the other players' bodies would stay where they started, only their shadows moving. At 0x8009E01C ($t2 = +0x7E8 of
+// car $s0) a human car without a view is placed as a view places its car, and still skips the computer cars' path.
+// Drawing only.
+extern "C" void car_matrix_copy_and_apply_8009ABDC(uint8_t* rdram, recomp_context* ctx);
+
+extern "C" int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int car, int kind) {
+    constexpr int human = 2;
+    constexpr uint32_t body_raise = 0x800CFD84;     // f32
+    constexpr uint32_t place_scratch = 0x80FFF000;  // A view's 0x40-byte pose block (0x800D79D0 + view x 0x40)
+    if (phase == Phase::Idle || kind != human || car < 0 || car >= race_players) {
+        return kind;
+    }
+    uint32_t state = car_states + car * car_state_size;
+    if (MEM_B(0x347, (int32_t)state) >= 0) {
+        return kind;
+    }
+    float y, raise;
+    uint32_t bits = (uint32_t)MEM_W(4, (int32_t)state);
+    std::memcpy(&y, &bits, 4);
+    bits = (uint32_t)MEM_W(0, (int32_t)body_raise);
+    std::memcpy(&raise, &bits, 4);
+    y += raise;
+    std::memcpy(&bits, &y, 4);
+    MEM_W(0x24, (int32_t)place_scratch) = MEM_W(0, (int32_t)state);
+    MEM_W(0x28, (int32_t)place_scratch) = (int32_t)bits;
+    MEM_W(0x2C, (int32_t)place_scratch) = MEM_W(8, (int32_t)state);
+    recomp_context saved = *ctx;
+    ctx->r4 = (gpr)(int32_t)state;
+    ctx->r5 = (gpr)(int32_t)(place_scratch + 0x24);
+    ctx->r6 = (gpr)(int32_t)(state + 0x48);
+    car_matrix_copy_and_apply_8009ABDC(rdram, ctx);
+    *ctx = saved;
+    return kind;
+}
+
+// The camera update's loop over the views (func_8009D9F4 from 0x8009DA60, $s5 the view, $s4 its player's record,
+// stepped by 0x28) switches the view's camera when its player presses VIEW (record +0x1A, the button's mask, against
+// +2, the presses). Online view 0 is this machine's player's, whose record isn't record 0 on every machine.
+extern "C" uint32_t rush2_online_view_record(uint8_t* rdram, int view, uint32_t record) {
+    if (phase == Phase::Idle || view != 0) {
+        return record;
+    }
+    return player_records + local_player * player_record_size;
+}
+
+// With two or more players each human car gets an ARROW polygon over it (race_load_car_assets_80086CA4 at
+// 0x80086FF8-0x80087048), drawn in the other player's view: its flags are 0x200 | 1 << (1 - car), the views it is
+// drawn in, and its update (func_80059B9C at 0x80059BF4) sizes it by the distance from view (car ^ 1)'s camera. Both
+// assume two players with a view each. Online the arrows over the other players' cars are drawn in this machine's one
+// view and sized from it; this machine's player's car has none.
+extern "C" uint32_t rush2_online_arrow_views(uint8_t* rdram, int car, uint32_t flags) {
+    if (phase == Phase::Idle) {
+        return flags;
+    }
+    constexpr uint32_t arrow_flags = 0x200;
+    return car == local_player ? arrow_flags : arrow_flags | 1;
+}
+
+extern "C" int rush2_online_arrow_view(uint8_t* rdram, int view) {
+    return phase == Phase::Idle ? view : 0;
+}
+
 // The frame start's per-player loop (func_80080788 at 0x80080B0C, $a2 = the record) has set the record's presses from
 // its port, none online: they become the player's presses of the last lockstep frame, before func_80080524 shifts
 // gears and the like from them.
@@ -807,15 +897,17 @@ extern "C" void rush2_online_record_presses(uint8_t* rdram, recomp_context* ctx)
     pending_pressed[p] = 0;
 }
 
-// The pause menu step (func_800AFD44): off in online races.
-extern "C" int rush2_online_block_pause(uint8_t* rdram, recomp_context* ctx) {
-    return racing() ? 1 : 0;
+// The pause menu step (func_800AFD44 at 0x800AFDE0): a player didn't press START; the game pauses anyway if their
+// port's controller (0x8010C150[player], the pad at 0x80023044 + 6 x player) reports the bit 8. Online that would read
+// this machine's controllers, which differ by machine: only the players' START (their lockstep presses) pauses.
+extern "C" int rush2_online_pause_start_only(uint8_t* rdram, recomp_context* ctx) {
+    return lockstep ? 1 : 0;
 }
 
 // The race setup (func_800A5ADC at 0x800A5FD0) has just set the view count to the player count, for the split screen
-// it sets up next (func_80054BB0): online each machine has one view.
+// it sets up next (func_80054BB0): online each machine has one view (at the race start and at a RESTART).
 extern "C" void rush2_online_race_views(uint8_t* rdram, recomp_context* ctx) {
-    if (phase == Phase::Loading) {
+    if (phase != Phase::Idle) {
         MEM_H(0, (int32_t)num_views) = 1;
     }
 }
@@ -826,6 +918,18 @@ bool rush2::online::game::read_local_controller(uint16_t* buttons, float* x, flo
 
 bool rush2::online::game::in_race() {
     return phase != Phase::Idle;
+}
+
+bool rush2::online::game::car_type(int car, int* type) {
+    if (phase == Phase::Idle || car < 0 || car >= (int)race_car_types.size()) {
+        return false;
+    }
+    *type = race_car_types[car];
+    return true;
+}
+
+int rush2::online::game::local_race_player() {
+    return phase == Phase::Idle ? -1 : local_player;
 }
 
 bool rush2::online::game::battle_buttons(int player, uint8_t* out) {

@@ -236,6 +236,18 @@ namespace rush2::track2049 {
     // Clears the 2049 and SF Rush records of profile p (pak * 5 + record) and drops its saved block
     // (src/rush2049/track2049_records.cpp).
     void clear_profile_records(uint8_t* rdram, int p);
+
+    // The Start Game menu's choices (src/rush2049/track2049_menu.cpp, its rows top to bottom: some are only there
+    // with the Rush 2049 tracks or the unlock system, so a row's place differs by machine).
+    enum class StartKind : int { OneRace, Circuit, Practice, Ghost, Stunt, Battle, Records, Unlocks, Setup, None = -1 };
+    // What row `row` of the Start Game menu is, and the row of a choice (-1 if this machine's menu hasn't it).
+    StartKind start_menu_kind(int row);
+    int start_menu_row(StartKind kind);
+    // Online lobbies (src/online/online_lobby.cpp): while on, the track select offers every track this machine has,
+    // whatever its profile unlocked, so the host's choice is on it.
+    void set_all_tracks_open(bool on);
+    // The track select's carousel entry showing track `t`, or -1 (the carousel is built as the screen opens).
+    int carousel_index(uint8_t* rdram, int t);
 }
 
 #endif

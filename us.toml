@@ -9090,12 +9090,12 @@ vram = 0x80054F14
 value = 0x25EF01F0 # addiu $t7, $t7, 0x1888 -> 802401F0
 
 [[patches.instruction]]
-func = "car_shadow_update_a_80059B9C"
+func = "car_arrow_update_80059B9C"
 vram = 0x80059C4C
 value = 0x3C088024 # lui -> 8024
 
 [[patches.instruction]]
-func = "car_shadow_update_a_80059B9C"
+func = "car_arrow_update_80059B9C"
 vram = 0x80059C50
 value = 0x250800F0 # addiu $t0, $t0, 0x7A58 -> 802400F0
 
@@ -11935,8 +11935,13 @@ text = "    rush2_music_continue(rdram, ctx);"
 [[patches.hook]]
 func = "race_pause_menu_step_800AFD44"
 before_vram = 0x800AFD44
-# No pause menu in online races (src/online/online_game.cpp).
-text = "    rush2_music_pause_frame(rdram, ctx);\n    if (rush2_online_block_pause(rdram, ctx)) return;"
+text = "    rush2_music_pause_frame(rdram, ctx);"
+
+# Online races: only the players' START pauses, not this machine's controllers (src/online/online_game.cpp).
+[[patches.hook]]
+func = "race_pause_menu_step_800AFD44"
+before_vram = 0x800AFDE0
+text = "    if (rush2_online_pause_start_only(rdram, ctx)) goto L_800B0208;"
 
 [[patches.hook]]
 func = "race_pause_menu_step_800AFD44"
@@ -12004,6 +12009,30 @@ func = "race_setup_800A5ADC"
 before_vram = 0x800A5FD0
 text = "    rush2_online_race_views(rdram, ctx);"
 
+# Online: the other players' cars, which have no view on this machine, get their bodies placed as a view places its
+# car's (rush2_online_body_kind).
+[[patches.hook]]
+func = "cam_update_all_players_8009D9F4"
+before_vram = 0x8009E01C
+text = "    ctx->r10 = (gpr)(int32_t)rush2_online_body_kind(rdram, ctx, (int)(int16_t)ctx->r16, (int)(int32_t)ctx->r10);"
+
+# Online: this machine's one view takes its player's camera changes (rush2_online_view_record).
+[[patches.hook]]
+func = "cam_update_all_players_8009D9F4"
+before_vram = 0x8009DA60
+text = "    ctx->r20 = (gpr)(int32_t)rush2_online_view_record(rdram, (int)(int32_t)ctx->r21, (uint32_t)ctx->r20);"
+
+# Online: an ARROW over every other player's car, in this machine's one view (rush2_online_arrow_views).
+[[patches.hook]]
+func = "race_load_car_assets_80086CA4"
+before_vram = 0x8008702C
+text = "    ctx->r15 = (gpr)(int32_t)rush2_online_arrow_views(rdram, (int)MEM_H(0xC6, ctx->r29), (uint32_t)ctx->r15);"
+
+[[patches.hook]]
+func = "car_arrow_update_80059B9C"
+before_vram = 0x80059BF8
+text = "    ctx->r5 = (gpr)(int32_t)rush2_online_arrow_view(rdram, (int)(int32_t)ctx->r5);"
+
 # Online: the HUD and the frame's drawing show this machine's player (rush2_online_present_begin).
 [[patches.hook]]
 func = "race_start_timer_800AE670"
@@ -12028,9 +12057,3 @@ text = "    if ((int32_t)ctx->r2 > 2) ctx->r2 = 1;"
 func = "player_join_init_all_80080788"
 before_vram = 0x80080B0C
 text = "    rush2_online_record_presses(rdram, ctx);"
-
-# Online lobbies: the host's front end stays on Select Player until every player has chosen one (src/online/online_lobby.cpp).
-[[patches.hook]]
-func = "menu_frontend_loop_800AE288"
-before_vram = 0x800AE2AC
-text = "    if (rush2_online_hold_front_end(rdram, ctx)) ctx->r14 = 0;"

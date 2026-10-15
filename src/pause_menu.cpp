@@ -44,6 +44,7 @@
 #include "rush2.h"
 #include "collectibles.h"
 #include "music.h"
+#include "online.h"
 #include "pause_menu.h"
 #include "track1.h"
 #include "track2049.h"
@@ -831,6 +832,25 @@ void rush2_pause_widgets(uint8_t* rdram, recomp_context* ctx) {
 // B or START (resume, whatever the cursor is on).
 void rush2_pause_menu_input(uint8_t* rdram, recomp_context* ctx) {
     if (MEM_B(0, (int32_t)pause_state) != 1) {
+        return;
+    }
+    if (rush2::online::game::in_race()) {
+        // An online race (src/online/online_game.cpp): the menu is everyone's, and OPTIONS, CONTROLS, AUDIO and SKIP
+        // TRACK change this machine's own settings, so up and down move over CONTINUE, RESTART and QUIT only.
+        static constexpr int online_rows[] = { 0, 4, 5 };
+        int c = MEM_B(0, (int32_t)cursor);
+        int i = c == 4 ? 1 : c == 5 ? 2 : 0;
+        if (online_rows[i] != c) {
+            MEM_B(0, (int32_t)cursor) = 0;
+        }
+        uint16_t pressed = (uint16_t)ctx->r4;
+        if (ctx->r2 == 0 && (pressed & (button_up | button_down)) != 0) {
+            bool up = (pressed & button_up) != 0;
+            i = (i + (up ? 2 : 1)) % 3;
+            MEM_B(0, (int32_t)cursor) = (int8_t)online_rows[i];
+            play_sound(rdram, ctx, up ? sound_up : sound_down);
+            ctx->r4 = (int32_t)(pressed & ~(button_up | button_down));
+        }
         return;
     }
     bool on = enabled.load();

@@ -13,7 +13,7 @@
 namespace rush2::online {
     // Bumped whenever the messages below change; machines with different versions can't play together (it is part of
     // the compatibility key too, but the hello checks it first to give a clearer reason).
-    constexpr uint32_t protocol_version = 1;
+    constexpr uint32_t protocol_version = 2;
 
     // Messages, each starting with its type byte. Host -> client unless marked client -> host.
     enum class Msg : uint8_t {
@@ -22,10 +22,10 @@ namespace rush2::online {
         Reject = 3,       // str reason
         Roster = 4,       // roster
         Settings = 5,     // settings
-        SetCar = 6,       // client -> host: car
+        SetCar = 6,       // client -> host: car, bytes profile
         SetProgress = 7,  // client -> host: u8 progress
         SetName = 8,      // client -> host: str
-        Start = 9,        // u32 seed, u8 input delay, settings, roster
+        Start = 9,        // u32 seed, u8 input delay, settings, roster, max_players x bytes profile
         Loaded = 10,      // client -> host: u32 hash
         Go = 11,          // every machine has loaded: the race begins
         Input = 12,       // client -> host: u32 frame, input
@@ -35,7 +35,7 @@ namespace rush2::online {
         LoadMismatch = 16,// a machine set up a different race; the race ends
         Finished = 17,    // client -> host: the race is over on this machine
         SetGameplay = 18, // client -> host: long str
-        MenuState = 19,   // u8 phase, u8 input open, settings, u16 buttons, s8 stick x, s8 stick y
+        MenuState = 19,   // u8 phase, settings, s8 option cursor, s8 option top
     };
 
     // ENet channels.
@@ -81,7 +81,7 @@ namespace rush2::online {
         void settings(const RaceSettings& s) {
             u8(uint8_t(s.mode));
             u8(s.race_type);
-            u8(s.start_row);
+            u8(s.start_kind);
             u8(s.track);
             for (uint8_t b : s.menu) {
                 u8(b);
@@ -89,6 +89,7 @@ namespace rush2::online {
             u8(s.needs_games);
             u8(s.battle_points);
             u8(s.battle_minutes);
+            u8(s.race_battle);
         }
         void roster(const RosterEntry* entries) {
             for (int i = 0; i < max_players; i++) {
@@ -170,7 +171,7 @@ namespace rush2::online {
             RaceSettings s;
             s.mode = GameMode(u8());
             s.race_type = u8();
-            s.start_row = u8();
+            s.start_kind = u8();
             s.track = u8();
             for (uint8_t& b : s.menu) {
                 b = u8();
@@ -178,6 +179,7 @@ namespace rush2::online {
             s.needs_games = u8();
             s.battle_points = u8();
             s.battle_minutes = u8();
+            s.race_battle = u8();
             return s;
         }
         void roster(RosterEntry* entries) {

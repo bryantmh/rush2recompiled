@@ -12,11 +12,13 @@
 #include <vector>
 
 #include "recompui/config.h"
+#include "recompui/recompui.h"
 #include "librecomp/config.hpp"
 #include "elements/ui_button.h"
 #include "elements/ui_label.h"
 
 #include "battle.h"
+#include "data_files.h"
 #include "npc_cars.h"
 #include "online.h"
 #include "options_page.h"
@@ -129,30 +131,10 @@ namespace {
         return nullptr;
     }
 
-    // The names of the settings that differ between two players' settings.
-    std::vector<std::string> differences(const std::string& mine, const std::string& theirs) {
-        std::vector<std::string> names;
-        auto a = parse_settings(mine);
-        auto b = parse_settings(theirs);
-        for (const auto& [key, value] : b) {
-            auto it = std::find_if(a.begin(), a.end(), [&](const auto& p) { return p.first == key; });
-            if (it != a.end() && it->second == value) {
-                continue;
-            }
-            std::string id;
-            recomp::config::Config* config = find_option(key, id);
-            names.push_back(config != nullptr ? config->get_option(id).name : key);
-        }
-        if (a.size() != b.size() && names.empty()) {
-            names.push_back("(a different set of settings)");
-        }
-        return names;
-    }
-
-    // Sets this machine's settings to the host's (the joiner's choice, from the lobby).
-    void match_settings(const std::string& host) {
+    // Sets this machine's settings to `text`'s ("config/option=value" lines), and writes the configs if `save`.
+    void apply_settings(const std::string& text, bool save) {
         std::vector<recomp::config::Config*> changed;
-        for (const auto& [key, value] : parse_settings(host)) {
+        for (const auto& [key, value] : parse_settings(text)) {
             std::string id;
             recomp::config::Config* config = find_option(key, id);
             if (config == nullptr) {
@@ -172,10 +154,46 @@ namespace {
                 changed.push_back(config);
             }
         }
-        for (recomp::config::Config* config : changed) {
-            config->save_config();
+        if (save) {
+            for (recomp::config::Config* config : changed) {
+                config->save_config();
+            }
         }
-        online::set_local_gameplay(gameplay_settings());
+    }
+
+    // While a joined lobby's settings are the host's, this machine's own are kept in players.json's "online_backup"
+    // section ({ "settings": lines }), so they come back on leaving, or at the next start if the game closed first.
+    const std::string backup_section = "online_backup";
+    bool following_host = false;
+
+    std::string read_backup() {
+        std::string text = rush2::data_files::read(rush2::data_files::File::Players, backup_section);
+        if (text.empty()) {
+            return {};
+        }
+        nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+        if (j.is_discarded() || !j.is_object() || !j.contains("settings") || !j["settings"].is_string()) {
+            return {};
+        }
+        return j["settings"].get<std::string>();
+    }
+
+    void write_backup(const std::string& settings) {
+        nlohmann::json j = nlohmann::json::object();
+        if (!settings.empty()) {
+            j["settings"] = settings;
+        }
+        rush2::data_files::write(rush2::data_files::File::Players, backup_section, j.dump());
+    }
+
+    // Puts this machine's own settings back (and writes them), if they were set aside.
+    void restore_own_settings() {
+        std::string own = read_backup();
+        if (!own.empty()) {
+            apply_settings(own, true);
+            write_backup({});
+        }
+        following_host = false;
     }
 
     uint8_t local_games() {
@@ -368,7 +386,7 @@ namespace {
                 std::to_string(online::local_slot()) + online::router_status() + online::public_address();
             for (const online::RosterEntry& e : online::roster()) {
                 s += "|" + std::to_string(e.used) + std::to_string(e.connected) + std::to_string(e.progress) + e.name +
-                    std::to_string(e.car.type) + std::to_string(e.ping_ms / 20) + e.gameplay;
+                    std::to_string(e.car.type) + std::to_string(e.ping_ms / 20);
             }
             return s;
         }
@@ -383,7 +401,6 @@ namespace {
             }
             std::vector<online::RosterEntry> players = online::roster();
             int me = online::local_slot();
-            bool settings_differ = false;
             for (size_t i = 0; i < players.size(); i++) {
                 const online::RosterEntry& e = players[i];
                 if (!e.used) {
@@ -401,19 +418,12 @@ namespace {
                 }
                 line += "  -  " + std::string(progress_text(e.progress));
                 context.create_element<Label>(lobby_box, line, theme::Typography::Body);
-                if (i != 0 && e.connected) {
-                    std::vector<std::string> names = differences(players[0].gameplay, e.gameplay);
-                    if (!names.empty()) {
-                        std::string list;
-                        for (const std::string& n : names) {
-                            list += (list.empty() ? "" : ", ") + n;
-                        }
-                        Label* diff = context.create_element<Label>(lobby_box, "     Settings differ from the host's: " +
-                            list, theme::Typography::Body);
-                        diff->set_color(theme::color::Warning);
-                        settings_differ |= (int)i == me;
-                    }
-                }
+            }
+            if (!online::is_host()) {
+                Label* note = context.create_element<Label>(lobby_box, "While you are in the lobby your gameplay "
+                    "settings (General tab's Gameplay, Games, Cheats, AI Opponents) are the host's. Yours come back "
+                    "when you leave.", theme::Typography::Body);
+                note->set_color(theme::color::TextDim);
             }
             if (online::is_host()) {
                 std::string addresses;
@@ -431,12 +441,7 @@ namespace {
             }
 
             Element* row = make_row(context, lobby_box, online::is_host() ? "Leave closes the lobby." :
-                "Match Host Settings sets your gameplay settings to the host's. Leave leaves the lobby.");
-            if (st == online::State::Lobby && !online::is_host() && settings_differ) {
-                Button* match = context.create_element<Button>(row, "Match Host Settings", ButtonStyle::Secondary);
-                std::string host = players[0].gameplay;
-                match->add_pressed_callback([host]() { match_settings(host); });
-            }
+                "Leave leaves the lobby.");
             Button* leave = context.create_element<Button>(row, "Leave", ButtonStyle::Secondary);
             leave->add_pressed_callback([]() { online::leave(); });
         }
@@ -492,7 +497,40 @@ recomp::config::Config& rush2::online_tab::config() {
 
 void rush2::online_tab::load_config() {
     online_config.load_config();
+    // The game closed in a lobby last time: this machine's own gameplay settings come back.
+    restore_own_settings();
     apply_choices();
+}
+
+void rush2::online_tab::follow_host_settings() {
+    static int frames = 0;
+    if (++frames % 15 != 0 || recompui::is_context_capturing_input()) {
+        return;  // A menu is open: the configs are the UI's.
+    }
+    online::State st = online::state();
+    bool joined = !online::is_host() && st != online::State::Offline && st != online::State::Connecting;
+    if (!joined) {
+        if (following_host) {
+            restore_own_settings();
+            online::set_local_gameplay(gameplay_settings());
+        }
+        return;
+    }
+    // Not mid-race: the race runs with the settings it started with.
+    std::vector<online::RosterEntry> players = online::roster();
+    if (st != online::State::Lobby || players.empty() || !players[0].used || players[0].gameplay.empty()) {
+        return;
+    }
+    std::string mine = gameplay_settings();
+    if (mine != players[0].gameplay) {
+        if (!following_host && read_backup().empty()) {
+            write_backup(mine);
+        }
+        following_host = true;
+        apply_settings(players[0].gameplay, false);
+        mine = gameplay_settings();
+    }
+    online::set_local_gameplay(mine);
 }
 
 void rush2::online_tab::create_tab() {

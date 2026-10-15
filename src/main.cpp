@@ -501,8 +501,8 @@ static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float
 
 // The launcher only appears when no valid ROM is stored, offering to locate one. Once a ROM is valid (found at startup
 // or just picked), the game starts right away.
-// The game's controller reads: as get_n64_input, but an online lobby turns ports off or feeds them the host's
-// controller (src/online/online_lobby.cpp). The online race reads this machine's controller with get_n64_input.
+// The game's controller reads: as get_n64_input, but an online lobby turns ports off, masks buttons or presses them
+// for the player (src/online/online_lobby.cpp). The online race reads this machine's controller with get_n64_input.
 static bool get_game_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     bool ret = get_n64_input(controller_num, buttons, x, y);
     if (rush2::online::game::controller_override(controller_num, buttons, x, y)) {

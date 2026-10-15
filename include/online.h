@@ -38,12 +38,13 @@ namespace rush2::online {
     struct RaceSettings {
         GameMode mode = GameMode::Race;
         uint8_t race_type = 0;     // 0x8010C3E8 as the host's Start Game menu left it.
-        uint8_t start_row = 0;     // The host's Start Game row (0x80023064: One Race, Circuit, ..., Stunt, Battle).
+        uint8_t start_kind = 0;    // What the host chose on Start Game (rush2::track2049::StartKind).
         uint8_t track = 0;         // The track select id (0x8010C3F0).
         std::array<uint8_t, 0x20> menu{};  // The track select's settings (0x800D5760: laps, drones, options).
         uint8_t needs_games = 0;   // The games_* ROMs every player needs for the track.
         uint8_t battle_points = 10;  // A battle's points to win and time limit (0 none): rush2::battle's options.
         uint8_t battle_minutes = 0;
+        uint8_t race_battle = 0;     // The race track select's BATTLE row (rush2::battle::race_battle): weapons.
 
         bool operator==(const RaceSettings&) const = default;
     };
@@ -69,13 +70,10 @@ namespace rush2::online {
     struct MenuState {
         MenuPhase phase = MenuPhase::Lobby;
         RaceSettings settings;     // As the host's menus have them now.
-        bool input_open = false;   // The host's track select takes input (everyone is on it).
-    };
-    // The host's controller in its track select, which the others' read-only track select follows.
-    struct MenuInput {
-        uint16_t buttons = 0;
-        int8_t stick_x = 0;
-        int8_t stick_y = 0;
+        // The host's track select as it shows it, which the others' track selects copy: the option row under the
+        // cursor (0x803D05BC) and the top row on screen (0x803D05C4).
+        int8_t option_cursor = 0;
+        int8_t option_top = 1;
     };
 
     struct RosterEntry {
@@ -86,9 +84,12 @@ namespace rush2::online {
         uint16_t ping_ms = 0;
         CarChoice car;
         uint8_t games = 0;       // The other games' ROMs the player has (games_* bits): what tracks all can race.
-        // The player's settings that change the race (src/online_tab.cpp, "config/option=value" lines): a race starts
-        // only when every player's match the host's.
+        // The player's settings that change the race (src/online_tab.cpp, "config/option=value" lines). The others'
+        // games take the host's (rush2::online_tab::follow_host_settings).
         std::string gameplay;
+        // The save profile the player races with (0x6C0 bytes, the record the car select left: car type, keys and
+        // the like), sent with the car (set_car) and in the race start only, not in every roster.
+        std::vector<uint8_t> profile;
     };
 
     constexpr uint8_t games_rush2049 = 1;  // San Francisco Rush 2049 (src/rush2049/rush2049_rom.cpp).
@@ -150,17 +151,18 @@ namespace rush2::online {
     void set_local_gameplay(const std::string& gameplay);
     void set_display_name(const std::string& name);
     std::string display_name();
-    void set_car(const CarChoice& car);
+    // The name of the save profile this machine's player picked on Select Player, which the lobby shows in place of
+    // the display name; empty for none.
+    void set_profile_name(const std::string& name);
+    void set_car(const CarChoice& car, const std::vector<uint8_t>& profile);
     // This machine's progress through the menus (RosterEntry::progress).
     void set_progress(Progress progress);
     // Host only: starts the race with these settings once every player has picked a car. Returns false (with
     // last_error) if it can't.
     bool start_race(const RaceSettings& settings);
-    // Host: publishes its menu state and its controller for the frame. Others: the host's latest menu state (false
-    // before any came), and its controller inputs in order (false when none are waiting).
-    void publish_menu(const MenuState& state, const MenuInput& input);
+    // Host: publishes its menu state for the frame. Others: the host's latest menu state (false before any came).
+    void publish_menu(const MenuState& state);
     bool host_menu(MenuState* out);
-    bool next_menu_input(MenuInput* out);
 
     // LAN lobbies heard in the last few seconds. Listening starts on first call.
     std::vector<LanLobby> lan_lobbies();
@@ -203,6 +205,11 @@ namespace rush2::online {
         bool pedals(int player, float* gas, float* brake);
         // An online race is set up or running on this machine.
         bool in_race();
+        // In an online race: the car type player (car slot) `car` picked, which the race gives their car whatever its
+        // profile says (src/rush2049/car2049.cpp, rush2_car49_select_get). False otherwise.
+        bool car_type(int car, int* type);
+        // In an online race: this machine's player (car slot), whose record has their own profile; -1 otherwise.
+        int local_race_player();
         // In an online race: a player's battle weapon buttons for the frame. False otherwise.
         bool battle_buttons(int player, uint8_t* out);
         // The car select once this machine's players have picked their cars (src/players4.cpp's hook, func_803B9478 at
@@ -212,13 +219,15 @@ namespace rush2::online {
         // The car select when a player backs out (0x803B9564): true to stay on it (online, unless the host went back).
         bool car_select_back(uint8_t* rdram);
         bool start_from_car_select(uint8_t* rdram, recomp_context* ctx);
-        // The game's controller read (main.cpp): online lobbies block ports or feed them the host's input. True if
+        // The game's controller read (main.cpp): online lobbies block ports or press buttons for the player. True if
         // it replaced the input.
         bool controller_override(int port, uint16_t* buttons, float* x, float* y);
         // Each game frame outside an online race (online_game.cpp): leads this machine through the host's menus.
         void lobby_frame(uint8_t* rdram);
         // The race is over on this machine (its post-race next): the lobby takes it back to the track select.
         void race_over();
+        // In a race: what it waits for ("Waiting for ...", race_status), shown on the lobby overlay; empty for nothing.
+        void race_notice(const std::string& text);
         // Creates the lobby overlay (on the UI thread, at startup).
         void init_overlay();
         // This machine's player's controller (port 1, as the game would read it). False without one.
@@ -238,6 +247,10 @@ namespace rush2::online_tab {
     void load_config();
     // The "online" config (online.json): the display name, which the Controls tab also shows, and the tab's choices.
     recomp::config::Config& config();
+    // Game thread, every frame: in a joined lobby this machine's gameplay settings follow the host's (kept in memory,
+    // with this machine's own backed up in the save file); out of one they are put back. Changes wait while a menu is
+    // open (the configs are the UI's then).
+    void follow_host_settings();
 }
 
 #endif

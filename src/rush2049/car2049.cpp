@@ -34,6 +34,7 @@
 #include "rush2.h"
 #include "car2049.h"
 #include "engine2049.h"
+#include "online.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
@@ -1942,6 +1943,11 @@ extern "C" void rush2_car49_select_get(uint8_t* rdram, recomp_context* ctx) {
     }
     if (rush2::unlocks::shop_car() >= 0) {
         type = rush2::unlocks::shop_car();
+    }
+    // Online every machine gives each player's car the type they picked (src/online/online_game.cpp).
+    int online_type = 0;
+    if (rush2::online::game::car_type((int)((player - 0x800F5470u) / 0x81Cu), &online_type)) {
+        type = online_type;
     }
     MEM_B(0, (int32_t)(player + 0x7EA)) = (int8_t)type;
     // The engine sound (+0x7E9) was read from the ENGINE row with the 5-bit type; a 2049 car's ENGINE row is its power

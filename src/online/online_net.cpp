@@ -68,14 +68,15 @@ namespace {
     std::string cur_lobby_name;
     std::string error_text;
     std::string my_name = "Player";
+    std::string my_profile_name;   // The save profile picked on Select Player: the lobby shows it if set.
     CarChoice my_car;
+    std::vector<uint8_t> my_profile;
     uint8_t my_games = 0;
     std::string my_gameplay;
     uint16_t host_port = default_port;
     // Client: the host's menus (publish_menu).
     MenuState host_menu_state;
     bool have_host_menu = false;
-    std::deque<MenuInput> host_inputs;
 
     // Messages for the net thread to send. Target: a slot (host), to_host (client) or to_all (host).
     constexpr int to_host = -1;
@@ -133,6 +134,11 @@ namespace {
         return w.data;
     }
 
+    // The name the lobby shows for this machine's player.
+    std::string shown_name() {
+        return my_profile_name.empty() ? my_name : my_profile_name;
+    }
+
     int used_count() {
         int n = 0;
         for (const RosterEntry& e : slots) {
@@ -166,7 +172,6 @@ namespace {
 
     void reset_session() {
         have_host_menu = false;
-        host_inputs.clear();
         cur_state = State::Offline;
         hosting = false;
         my_slot = -1;
@@ -423,8 +428,10 @@ namespace {
             case Msg::SetCar:
                 if (slot >= 0) {
                     CarChoice car = r.car();
+                    std::vector<uint8_t> profile = r.bytes();
                     if (!r.bad && cur_state == State::Lobby) {
                         slots[slot].car = car;
+                        slots[slot].profile = profile;
                         queue(to_all, channel_lobby, roster_message());
                     }
                 }
@@ -527,6 +534,9 @@ namespace {
                 RaceSettings settings = r.settings();
                 RosterEntry roster[max_players];
                 r.roster(roster);
+                for (RosterEntry& e : roster) {
+                    e.profile = r.bytes();
+                }
                 if (r.bad || cur_state != State::Lobby) {
                     return;
                 }
@@ -544,27 +554,14 @@ namespace {
             case Msg::MenuState: {
                 MenuState m;
                 m.phase = MenuPhase(r.u8());
-                m.input_open = r.u8() != 0;
                 m.settings = r.settings();
-                MenuInput in;
-                in.buttons = r.u16();
-                in.stick_x = int8_t(r.u8());
-                in.stick_y = int8_t(r.u8());
+                m.option_cursor = int8_t(r.u8());
+                m.option_top = int8_t(r.u8());
                 if (r.bad) {
                     return;
                 }
                 host_menu_state = m;
                 have_host_menu = true;
-                // The host's controller only matters while its track select takes input: the others' follow it.
-                if (m.phase == MenuPhase::Track && m.input_open) {
-                    host_inputs.push_back(in);
-                    while (host_inputs.size() > 120) {
-                        host_inputs.pop_front();
-                    }
-                }
-                else {
-                    host_inputs.clear();
-                }
                 break;
             }
             case Msg::Go:
@@ -608,7 +605,7 @@ namespace {
                     w.u8(uint8_t(Msg::Hello));
                     w.u32(protocol_version);
                     w.str(compatibility_key());
-                    w.str(my_name);
+                    w.str(shown_name());
                     w.car(my_car);
                     w.u8(my_games);
                     w.long_str(my_gameplay);
@@ -798,8 +795,9 @@ bool rush2::online::host(const HostOptions& options) {
     my_slot = 0;
     slots[0].used = true;
     slots[0].connected = true;
-    slots[0].name = my_name;
+    slots[0].name = shown_name();
     slots[0].car = my_car;
+    slots[0].profile = my_profile;
     slots[0].games = my_games;
     slots[0].gameplay = my_gameplay;
     // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_FAKE=K fills K more slots with players who aren't there (their
@@ -995,22 +993,44 @@ void rush2::online::set_local_gameplay(const std::string& gameplay) {
     }
 }
 
+namespace {
+    // Sends this machine's shown name to the lobby (state_mutex held).
+    void send_name() {
+        if (cur_state == State::Offline || cur_state == State::Connecting) {
+            return;
+        }
+        if (hosting) {
+            if (slots[0].name != shown_name()) {
+                slots[0].name = shown_name();
+                queue(to_all, channel_lobby, roster_message());
+            }
+        }
+        else {
+            Writer w;
+            w.u8(uint8_t(Msg::SetName));
+            w.str(shown_name());
+            queue(to_host, channel_lobby, w.data);
+        }
+    }
+}
+
 void rush2::online::set_display_name(const std::string& name) {
     std::lock_guard lock{ state_mutex };
+    std::string before = shown_name();
     my_name = clean_name(name);
-    if (cur_state == State::Offline) {
+    if (shown_name() != before) {
+        send_name();
+    }
+}
+
+void rush2::online::set_profile_name(const std::string& name) {
+    std::lock_guard lock{ state_mutex };
+    std::string cleaned = name.empty() ? std::string() : clean_name(name);
+    if (cleaned == my_profile_name) {
         return;
     }
-    if (hosting) {
-        slots[0].name = my_name;
-        queue(to_all, channel_lobby, roster_message());
-    }
-    else {
-        Writer w;
-        w.u8(uint8_t(Msg::SetName));
-        w.str(my_name);
-        queue(to_host, channel_lobby, w.data);
-    }
+    my_profile_name = cleaned;
+    send_name();
 }
 
 std::string rush2::online::display_name() {
@@ -1018,20 +1038,23 @@ std::string rush2::online::display_name() {
     return my_name;
 }
 
-void rush2::online::set_car(const CarChoice& car) {
+void rush2::online::set_car(const CarChoice& car, const std::vector<uint8_t>& profile) {
     std::lock_guard lock{ state_mutex };
     my_car = car;
+    my_profile = profile;
     if (cur_state != State::Lobby) {
         return;
     }
     if (hosting) {
         slots[0].car = car;
+        slots[0].profile = profile;
         queue(to_all, channel_lobby, roster_message());
     }
     else {
         Writer w;
         w.u8(uint8_t(Msg::SetCar));
         w.car(car);
+        w.bytes(profile);
         queue(to_host, channel_lobby, w.data);
     }
 }
@@ -1058,7 +1081,7 @@ void rush2::online::set_progress(Progress progress) {
     queue(to_host, channel_lobby, w.data);
 }
 
-void rush2::online::publish_menu(const MenuState& m, const MenuInput& in) {
+void rush2::online::publish_menu(const MenuState& m) {
     std::lock_guard lock{ state_mutex };
     if (!hosting || cur_state != State::Lobby) {
         return;
@@ -1067,11 +1090,9 @@ void rush2::online::publish_menu(const MenuState& m, const MenuInput& in) {
     Writer w;
     w.u8(uint8_t(Msg::MenuState));
     w.u8(uint8_t(m.phase));
-    w.u8(m.input_open ? 1 : 0);
     w.settings(m.settings);
-    w.u16(in.buttons);
-    w.u8(uint8_t(in.stick_x));
-    w.u8(uint8_t(in.stick_y));
+    w.u8(uint8_t(m.option_cursor));
+    w.u8(uint8_t(m.option_top));
     queue(to_all, channel_lobby, w.data);
 }
 
@@ -1081,16 +1102,6 @@ bool rush2::online::host_menu(MenuState* out) {
         return false;
     }
     *out = host_menu_state;
-    return true;
-}
-
-bool rush2::online::next_menu_input(MenuInput* out) {
-    std::lock_guard lock{ state_mutex };
-    if (host_inputs.empty()) {
-        return false;
-    }
-    *out = host_inputs.front();
-    host_inputs.pop_front();
     return true;
 }
 
@@ -1112,7 +1123,8 @@ bool rush2::online::start_race(const RaceSettings& settings) {
             return false;
         }
         if (slots[i].used && slots[i].connected && slots[i].gameplay != slots[0].gameplay) {
-            error_text = slots[i].name + "'s gameplay settings differ from yours (the lobby lists them).";
+            // Their game takes these settings once no menu is open on it (rush2::online_tab::follow_host_settings).
+            error_text = "Waiting for " + slots[i].name + "'s game to take your settings (a menu is open on it).";
             return false;
         }
         if (slots[i].used) {
@@ -1138,6 +1150,9 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     w.u8(uint8_t(delay));
     w.settings(race_set);
     w.roster(race_slots);
+    for (const RosterEntry& e : race_slots) {
+        w.bytes(e.profile);
+    }
     queue(to_all, channel_lobby, w.data);
     queue(to_all, channel_lobby, roster_message());
     cur_state = State::Loading;
@@ -1256,6 +1271,10 @@ void rush2::online::race_finished() {
     }
     clear_race();
     cur_state = State::Lobby;
+    // Everyone goes through the menus again (their progress comes back as their games get there).
+    for (RosterEntry& e : slots) {
+        e.progress = uint8_t(Progress::Lobby);
+    }
     if (hosting) {
         // Players who left mid-race leave the lobby now.
         for (int i = 1; i < max_players; i++) {
