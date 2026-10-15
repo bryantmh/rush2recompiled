@@ -39,10 +39,10 @@ extern "C" void menu_screen_dispatch_800AE0D4(uint8_t* rdram, recomp_context* ct
 extern "C" void music_queue_stop_80062FA4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void carselect_build_list_803B81F0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void overlay_load_800A62C0(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_get_logo_color_800B2694(uint8_t* rdram, recomp_context* ctx);
-extern "C" void car_options_get_byte1_field_800B2640(uint8_t* rdram, recomp_context* ctx);
+extern "C" void car_record_get_main_color_800B2694(uint8_t* rdram, recomp_context* ctx);
+extern "C" void car_record_get_accent_color_800B2640(uint8_t* rdram, recomp_context* ctx);
 extern "C" void car_options_get_color_lo_800B2608(uint8_t* rdram, recomp_context* ctx);
-extern "C" void car_options_get_color_hi_800B25D0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void car_record_get_stripe_color_800B25D0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void carselect_lookup_value_f_800B259C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void carselect_get_stat_value_b_800B2468(uint8_t* rdram, recomp_context* ctx);
 extern "C" void carselect_get_stat_value_a_800B2424(uint8_t* rdram, recomp_context* ctx);
@@ -225,10 +225,10 @@ namespace {
             void (*get)(uint8_t*, recomp_context*);
         };
         static const Table tables[] = {
-            { 0x80201190, false, carselect_get_logo_color_800B2694 },
-            { 0x80201248, false, car_options_get_byte1_field_800B2640 },
+            { 0x80201190, false, car_record_get_main_color_800B2694 },
+            { 0x80201248, false, car_record_get_accent_color_800B2640 },
             { 0x80201300, false, car_options_get_color_lo_800B2608 },
-            { 0x802013B8, false, car_options_get_color_hi_800B25D0 },
+            { 0x802013B8, false, car_record_get_stripe_color_800B25D0 },
             { 0x80201020, false, carselect_lookup_value_f_800B259C },  // Rims (the wheels' texture).
             { 0x802006E8, true, carselect_get_stat_value_b_800B2468 },  // Front wheel scale.
             { 0x802009B8, true, carselect_get_stat_value_a_800B2424 },  // Rear wheel scale.
