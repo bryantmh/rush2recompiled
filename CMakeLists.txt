@@ -189,6 +189,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/online/online_discovery.cpp
     ${CMAKE_SOURCE_DIR}/src/online/online_upnp.cpp
     ${CMAKE_SOURCE_DIR}/src/online/online_game.cpp
+    ${CMAKE_SOURCE_DIR}/src/online/online_lobby.cpp
     ${CMAKE_SOURCE_DIR}/src/ram_watch.cpp
     ${CMAKE_SOURCE_DIR}/src/options_page.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp

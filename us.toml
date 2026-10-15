@@ -12028,3 +12028,9 @@ text = "    if ((int32_t)ctx->r2 > 2) ctx->r2 = 1;"
 func = "player_join_init_all_80080788"
 before_vram = 0x80080B0C
 text = "    rush2_online_record_presses(rdram, ctx);"
+
+# Online lobbies: the host's front end stays on Select Player until every player has chosen one (src/online/online_lobby.cpp).
+[[patches.hook]]
+func = "menu_frontend_loop_800AE288"
+before_vram = 0x800AE2AC
+text = "    if (rush2_online_hold_front_end(rdram, ctx)) ctx->r14 = 0;"

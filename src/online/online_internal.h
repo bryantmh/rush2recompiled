@@ -23,7 +23,7 @@ namespace rush2::online {
         Roster = 4,       // roster
         Settings = 5,     // settings
         SetCar = 6,       // client -> host: car
-        SetReady = 7,     // client -> host: u8
+        SetProgress = 7,  // client -> host: u8 progress
         SetName = 8,      // client -> host: str
         Start = 9,        // u32 seed, u8 input delay, settings, roster
         Loaded = 10,      // client -> host: u32 hash
@@ -35,6 +35,7 @@ namespace rush2::online {
         LoadMismatch = 16,// a machine set up a different race; the race ends
         Finished = 17,    // client -> host: the race is over on this machine
         SetGameplay = 18, // client -> host: long str
+        MenuState = 19,   // u8 phase, u8 input open, settings, u16 buttons, s8 stick x, s8 stick y
     };
 
     // ENet channels.
@@ -79,9 +80,11 @@ namespace rush2::online {
         }
         void settings(const RaceSettings& s) {
             u8(uint8_t(s.mode));
+            u8(s.race_type);
             u8(s.track);
-            u8(s.laps);
-            u8(s.fill_with_ai ? 1 : 0);
+            for (uint8_t b : s.menu) {
+                u8(b);
+            }
             u8(s.needs_games);
             u8(s.battle_points);
             u8(s.battle_minutes);
@@ -89,7 +92,8 @@ namespace rush2::online {
         void roster(const RosterEntry* entries) {
             for (int i = 0; i < max_players; i++) {
                 const RosterEntry& e = entries[i];
-                u8(uint8_t((e.used ? 1 : 0) | (e.connected ? 2 : 0) | (e.ready ? 4 : 0)));
+                u8(uint8_t((e.used ? 1 : 0) | (e.connected ? 2 : 0)));
+                u8(e.progress);
                 str(e.name);
                 u16(e.ping_ms);
                 car(e.car);
@@ -164,9 +168,11 @@ namespace rush2::online {
         RaceSettings settings() {
             RaceSettings s;
             s.mode = GameMode(u8());
+            s.race_type = u8();
             s.track = u8();
-            s.laps = u8();
-            s.fill_with_ai = u8() != 0;
+            for (uint8_t& b : s.menu) {
+                b = u8();
+            }
             s.needs_games = u8();
             s.battle_points = u8();
             s.battle_minutes = u8();
@@ -178,7 +184,7 @@ namespace rush2::online {
                 uint8_t flags = u8();
                 e.used = (flags & 1) != 0;
                 e.connected = (flags & 2) != 0;
-                e.ready = (flags & 4) != 0;
+                e.progress = u8();
                 e.name = str();
                 e.ping_ms = u16();
                 e.car = car();

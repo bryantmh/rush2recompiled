@@ -769,6 +769,10 @@ extern "C" {
 
 // func_803B9478 (car select) once every player has chosen, before the race is started: true to stay on the screen.
 int rush2_players4_cars_chosen(uint8_t* rdram, recomp_context* ctx) {
+    bool stay = false;
+    if (rush2::online::game::car_select_done(rdram, ctx, &stay)) {
+        return stay;
+    }
     int total = rush2::players4::joined_players(rdram);
     if (total <= 2) {
         car_round = 0;
@@ -806,6 +810,9 @@ void rush2_players4_car_label(uint8_t* rdram, recomp_context* ctx) {
 
 // func_803B9478 (car select) when a player backs out: true to stay on the screen.
 int rush2_players4_cars_back(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::online::game::car_select_back(rdram)) {
+        return true;
+    }
     if (car_round == 0) {
         return false;
     }

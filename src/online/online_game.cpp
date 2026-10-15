@@ -187,7 +187,9 @@ namespace {
 
     // Sets the race up as the menus would and starts it (game state 7). Players are the roster's used slots in slot
     // order: player i drives car slot i.
-    void setup_race(uint8_t* rdram, recomp_context* ctx) {
+    // from_car_select: the car select has every player's car (rush2::online::game::car_select_done) and starts the race
+    // itself once this returns; otherwise the race starts from wherever the front end is (the test aids).
+    void setup_race(uint8_t* rdram, recomp_context* ctx, bool from_car_select) {
         RaceSettings settings = race_settings();
         std::vector<RosterEntry> roster = race_roster();
         int me = local_slot();
@@ -225,12 +227,14 @@ namespace {
 
         MEM_H(0, (int32_t)num_players) = (int16_t)race_players;
         MEM_H(0, (int32_t)num_views) = 1;
-        // A race: the race start (func_800AE670 state 7) turns one on the stunt track (11, and the Rush 2049 arenas
-        // hosted there) into stunt mode itself, race type 2.
-        MEM_W(0, (int32_t)race_type) = 0;
+        // The race the host chose in its menus: race type (the race start, func_800AE670 state 7, turns a race on the
+        // stunt track, 11, and the Rush 2049 arenas hosted there, into stunt mode itself), track and the track
+        // select's settings (laps, drones, options; func_80094698 copies them to the race).
+        MEM_W(0, (int32_t)race_type) = settings.race_type;
         MEM_B(0, (int32_t)track_id) = (int8_t)settings.track;
-        MEM_B(0, (int32_t)menu_settings) = (int8_t)std::clamp<int>(settings.laps, 1, 9);
-        MEM_B(1, (int32_t)menu_settings) = (int8_t)(settings.fill_with_ai ? 8 - race_players : 0);
+        for (int i = 0; i < (int)settings.menu.size(); i++) {
+            MEM_B(i, (int32_t)menu_settings) = (int8_t)settings.menu[i];
+        }
 
         for (uint32_t i = 0; i < profile_size; i++) {
             MEM_B(0, (int32_t)(guest_profile + i)) = 0;
@@ -281,15 +285,17 @@ namespace {
         // The front end is left as its loop leaves it for a race (func_800AE288 at 0x800AE428-0x800AE458): the screen up
         // is told it's left ($s1 the screen, $s0 0) and none is up. The title screen keeps its data in the heap the
         // race reuses, and would otherwise be left after the race with that data gone.
-        if (MEM_H(0, (int32_t)menu_screen) >= 0) {
+        if (!from_car_select && MEM_H(0, (int32_t)menu_screen) >= 0) {
             recomp_context saved = *ctx;
             ctx->r17 = (gpr)(int32_t)MEM_H(0, (int32_t)menu_screen);
             ctx->r16 = 0;
             menu_screen_dispatch_800AE0D4(rdram, ctx);
             *ctx = saved;
         }
-        MEM_H(0, (int32_t)menu_screen) = -1;
-        MEM_W(0, (int32_t)game_state) = 7;
+        if (!from_car_select) {
+            MEM_H(0, (int32_t)menu_screen) = -1;
+            MEM_W(0, (int32_t)game_state) = 7;
+        }
         // From here on every frame is two retraces, this one (the race start) included.
         set_fixed_frame_time(rdram);
         fixed_frame_time = true;
@@ -383,17 +389,21 @@ namespace {
         return in;
     }
 
-    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_TEST=host:N hosts a lobby and starts the race once N players are
-    // in; RUSH2_ONLINE_TEST=join:ADDRESS joins and readies up. RUSH2_ONLINE_NAME sets the name; RUSH2_ONLINE_TRACK and
-    // RUSH2_ONLINE_MODE the host's race.
-    void test_aid() {
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_TEST=host:N hosts a lobby and starts a race at once from the
+    // title screen once N players are in (skipping the menus); RUSH2_ONLINE_TEST=join:ADDRESS joins and says it has a
+    // car. RUSH2_ONLINE_NAME sets the name; RUSH2_ONLINE_TRACK the track select id and RUSH2_ONLINE_RACE_TYPE the race
+    // type. RUSH2_ONLINE_TEST=menus:host / menus:join:ADDRESS only hosts or joins, for going through the menus.
+    void test_aid(uint8_t* rdram) {
         static const char* spec = std::getenv("RUSH2_ONLINE_TEST");
         static bool started = false;
         if (spec == nullptr) {
             return;
         }
         std::string text = spec;
-        State st = state();
+        bool menus = text.rfind("menus:", 0) == 0;
+        if (menus) {
+            text = text.substr(6);
+        }
         if (!started) {
             started = true;
             if (const char* name = std::getenv("RUSH2_ONLINE_NAME")) {
@@ -403,36 +413,38 @@ namespace {
                 HostOptions options;
                 options.open_router_port = false;
                 host(options);
-                // RUSH2_ONLINE_TRACK=N and RUSH2_ONLINE_MODE=race|stunt|battle pick the race.
-                RaceSettings s = settings();
-                if (const char* track = std::getenv("RUSH2_ONLINE_TRACK")) {
-                    s.track = (uint8_t)std::atoi(track);
-                }
-                if (const char* mode = std::getenv("RUSH2_ONLINE_MODE")) {
-                    std::string m = mode;
-                    s.mode = m == "stunt" ? GameMode::Stunt : m == "battle" ? GameMode::Battle : GameMode::Race;
-                }
-                set_settings(s);
             }
             else if (text.rfind("join:", 0) == 0) {
                 join(text.substr(5));
             }
             return;
         }
-        if (st != State::Lobby) {
+        if (menus || state() != State::Lobby) {
             return;
         }
         if (text.rfind("host", 0) == 0) {
             int wanted = text.size() > 5 ? std::atoi(text.c_str() + 5) : 1;
             int used = 0;
-            bool ready = true;
+            bool chosen = true;
             for (const RosterEntry& e : roster()) {
                 used += e.used ? 1 : 0;
-                ready &= !e.used || e.ready;
+                chosen &= !e.used || !e.connected || e.progress == uint8_t(Progress::CarChosen);
             }
+            set_progress(Progress::CarChosen);
             static bool raced = false;
-            if (!raced && used >= wanted && ready) {
-                raced = start_race();
+            if (!raced && used >= wanted && chosen && in_menus(rdram)) {
+                RaceSettings s;
+                for (int i = 0; i < (int)s.menu.size(); i++) {
+                    s.menu[i] = (uint8_t)MEM_BU(i, (int32_t)menu_settings);
+                }
+                if (const char* track = std::getenv("RUSH2_ONLINE_TRACK")) {
+                    s.track = (uint8_t)std::atoi(track);
+                }
+                if (const char* type = std::getenv("RUSH2_ONLINE_RACE_TYPE")) {
+                    s.race_type = (uint8_t)std::atoi(type);
+                }
+                s.mode = s.track >= 30 && s.track < 38 ? GameMode::Battle : s.track == 11 ? GameMode::Stunt : GameMode::Race;
+                raced = start_race(s);
                 static std::string reported;
                 if (!raced && last_error() != reported) {
                     reported = last_error();
@@ -441,11 +453,7 @@ namespace {
             }
         }
         else {
-            static bool readied = false;
-            if (!readied) {
-                set_ready(true);
-                readied = true;
-            }
+            set_progress(Progress::CarChosen);
         }
     }
 }
@@ -457,6 +465,34 @@ namespace {
     // up from the title screen too) may not have.
     constexpr uint32_t front_end_from_logos = 0x800BF31C;
     constexpr int32_t state_post_race = 6;           // func_800A952C: records, lap and race times, name entry
+    constexpr int32_t state_car_select = 2;
+
+    // The race is over (game state 6): the machines part. The post-race works on the game's players 1 and up, so
+    // this machine's player becomes the only one, with the record the menus gave them (their profile and controller)
+    // and their car; it saves their stats and times and runs their name entry as after a local race.
+    void finish_race_locally(uint8_t* rdram) {
+        lockstep = false;
+        fixed_frame_time = false;
+        rush2::battle::set_online_seed(0);
+        rush2::battle::set_points_to_win(saved_battle_points);
+        rush2::battle::set_time_limit_minutes(saved_battle_minutes);
+        if (!menu_snapshot.empty()) {
+            size_t at = 0;
+            for (const SavedRange& r : saved_ranges) {
+                for (uint32_t i = 0; i < r.size; i++, at++) {
+                    // The car table stays as raced: the post-race shows the cars.
+                    if (r.address != car_table) {
+                        MEM_B(0, (int32_t)(r.address + i)) = (int8_t)menu_snapshot[at];
+                    }
+                }
+            }
+            menu_snapshot.clear();
+        }
+        MEM_B(record_car, (int32_t)player_records) = (int8_t)local_player;
+        MEM_H(0, (int32_t)num_players) = 1;
+        MEM_H(0, (int32_t)num_views) = 1;
+        phase = Phase::Idle;
+    }
 
     // Leaves the online race for the menus, as the pause menu's Quit does (func_800AFD44 at 0x800B0040), and puts back
     // the menus' records, cars and settings. Run at the top of the game thread's frame, where the pause step runs.
@@ -521,11 +557,17 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     game_frame++;
     rush2::ram_watch::frame(rdram, game_frame);
     rush2::online::update();
-    test_aid();
+    test_aid(rdram);
 
     State st = state();
     if (phase == Phase::Idle && st == State::Loading) {
         phase = Phase::WaitMenus;
+    }
+    // The test aids' quick races skip the menus (and the lobby that leads players through them).
+    static const bool quick_test = std::getenv("RUSH2_ONLINE_TEST") != nullptr &&
+        std::string(std::getenv("RUSH2_ONLINE_TEST")).rfind("menus:", 0) != 0;
+    if (phase == Phase::Idle && !quick_test) {
+        rush2::online::game::lobby_frame(rdram);
     }
     if (phase != Phase::Idle && st != State::Loading && st != State::Racing) {
         // The race ended under us (the host left, or a desync).
@@ -534,16 +576,18 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     if (phase == Phase::Running && MEM_W(0, (int32_t)game_state) == state_post_race) {
-        // Race over: every machine gets here on the same frame. The post-race records (saving to the players'
-        // profiles, the track's record tables, name entry) are for local races; back to the lobby instead.
+        // Race over: every machine gets here on the same frame and leaves the lockstep. The post-race (saving to the
+        // profiles, the track's record tables, name entry) runs on each machine for its own player only.
         std::fprintf(stderr, "[online] race over at frame %u\n", race_frame);
-        end_race(rdram, ctx, true);
+        finish_race_locally(rdram);
         race_finished();
         return;
     }
     if (phase == Phase::WaitMenus) {
-        if (in_menus(rdram)) {
-            setup_race(rdram, ctx);
+        // From the car select, the race starts there (rush2::online::game::car_select_done); from anywhere else in
+        // the menus (the test aids), here.
+        if (MEM_W(0, (int32_t)game_state) != state_car_select && in_menus(rdram)) {
+            setup_race(rdram, ctx, false);
             phase = Phase::Loading;
         }
         return;
@@ -757,6 +801,10 @@ extern "C" void rush2_online_race_views(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+bool rush2::online::game::read_local_controller(uint16_t* buttons, float* x, float* y) {
+    return input_source != nullptr && input_source(0, buttons, x, y);
+}
+
 bool rush2::online::game::in_race() {
     return phase != Phase::Idle;
 }
@@ -805,4 +853,15 @@ extern "C" void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx) {
     MEM_B(record_car, first) = saved_car;
     MEM_B(record_port, first) = saved_port;
     presenting = false;
+}
+
+// The car select, every player having picked a car (rush2::online::game::car_select_done): true if the race starts
+// now. It is set up for the car select to start it (game state 7, as after a local car select).
+bool rush2::online::game::start_from_car_select(uint8_t* rdram, recomp_context* ctx) {
+    if (phase != Phase::WaitMenus) {
+        return false;
+    }
+    setup_race(rdram, ctx, true);
+    phase = Phase::Loading;
+    return true;
 }

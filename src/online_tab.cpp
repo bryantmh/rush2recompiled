@@ -39,57 +39,7 @@ namespace {
         const std::string port = "host_port";
         const std::string max_players = "host_max_players";
         const std::string upnp = "host_open_router_port";
-        const std::string track = "race_track";
-        const std::string laps = "race_laps";
-        const std::string ai = "race_fill_with_ai";
-        const std::string car = "car";
     }
-
-    // The tracks an online race can be on, by track select id (0x8010C3F0; the race setup turns the added games' ids
-    // into the track they're hosted on, src/rush2049/track2049_menu.cpp): Rush 2's race tracks and stunt arena, then
-    // Rush 2049's tracks, stunt arenas and battle arenas and SF Rush's tracks, which every player needs that game's ROM
-    // for.
-    struct TrackChoice {
-        uint32_t id;
-        std::string key;
-        std::string name;
-        online::GameMode mode;
-        uint8_t games;
-    };
-    std::vector<TrackChoice> make_tracks() {
-        std::vector<TrackChoice> out;
-        const char* const rush2_names[] = { "Las Vegas", "Lower Manhattan", "Honolulu", "Upper Manhattan", "Alcatraz",
-            "Los Angeles", "Seattle" };
-        for (uint32_t i = 0; i < std::size(rush2_names); i++) {
-            out.push_back({ i, "Rush2_" + std::to_string(i), rush2_names[i], online::GameMode::Race, 0 });
-        }
-        out.push_back({ 11, "Stunt", "Stunt Arena (Stunt)", online::GameMode::Stunt, 0 });
-        using namespace rush2::track2049;
-        for (int k = 0; k < track_count; k++) {
-            out.push_back({ (uint32_t)(first_menu_id + k), "Rush2049_" + std::to_string(k + 1),
-                std::string(track_names[k]) + " (Rush 2049)", online::GameMode::Race, online::games_rush2049 });
-        }
-        for (int k = 0; k < 4; k++) {
-            out.push_back({ (uint32_t)(stunt_menu_id + k), "Rush2049Stunt_" + std::to_string(k + 1),
-                "Rush 2049 Stunt Arena " + std::to_string(k + 1) + " (Stunt)", online::GameMode::Stunt,
-                online::games_rush2049 });
-        }
-        for (int k = 0; k < 8; k++) {
-            out.push_back({ (uint32_t)(battle_menu_id + k), "Battle_" + std::to_string(k + 1),
-                "Battle Arena " + std::to_string(k + 1) + " (Battle)", online::GameMode::Battle, online::games_rush2049 });
-        }
-        for (int k = 0; k < rush2::track1::track_count; k++) {
-            out.push_back({ (uint32_t)(rush2::track1::first_menu_id + k), "Rush1_" + std::to_string(k + 1),
-                std::string(rush2::track1::track_names[k]) + " (SF Rush)", online::GameMode::Race, online::games_rush1 });
-        }
-        return out;
-    }
-    const std::vector<TrackChoice> tracks = make_tracks();
-
-    // Rush 2's cars, by the game's car type number (the car table's +1, src/car_mods.cpp's part prefixes).
-    const char* const car_names[] = { "Pickup", "Integra", "Corvette", "Sled", "BMW", "Camaro", "Supra", "Bugatti",
-        "VW Bus", "Viper", "VW Beetle", "Concept", "Civic", "Cadillac", "Mustang", "SUV", "Taxi", "Hot Rod",
-        "Formula", "Prototype", "Rocket", "Mountain Dew" };
 
     std::string get_string(const std::string& id) {
         return std::get<std::string>(online_config.get_option_value(id));
@@ -228,30 +178,6 @@ namespace {
         online::set_local_gameplay(gameplay_settings());
     }
 
-    online::RaceSettings chosen_settings() {
-        online::RaceSettings s;
-        uint32_t track = get_enum(ids::track);
-        s.track = (uint8_t)track;
-        s.mode = online::GameMode::Race;
-        for (const TrackChoice& t : tracks) {
-            if (t.id == track) {
-                s.mode = t.mode;
-                s.needs_games = t.games;
-            }
-        }
-        s.battle_points = (uint8_t)rush2::battle::points_to_win();
-        s.battle_minutes = (uint8_t)rush2::battle::time_limit_minutes();
-        s.laps = (uint8_t)std::clamp(get_number(ids::laps), 1, 9);
-        s.fill_with_ai = get_bool(ids::ai);
-        return s;
-    }
-
-    online::CarChoice chosen_car() {
-        online::CarChoice c;
-        c.type = (uint8_t)get_enum(ids::car);
-        return c;
-    }
-
     uint8_t local_games() {
         return (rush2::track2049::available() ? online::games_rush2049 : 0) |
             (rush2::track1::available() ? online::games_rush1 : 0);
@@ -260,12 +186,8 @@ namespace {
     // Pushes this machine's choices to the session (and, hosting, the race settings to everyone).
     void apply_choices() {
         online::set_display_name(get_string(ids::name));
-        online::set_car(chosen_car());
         online::set_local_games(local_games());
         online::set_local_gameplay(gameplay_settings());
-        if (online::is_host()) {
-            online::set_settings(chosen_settings());
-        }
     }
 
     void add_options() {
@@ -285,26 +207,7 @@ namespace {
             "Asks your router (UPnP) to forward the port to this machine while you host, so players can join over "
             "the internet. Not every router allows it; the lobby shows whether it worked. Takes effect the next time "
             "you host.", true);
-        std::vector<recomp::config::ConfigOptionEnumOption> track_options;
-        for (const TrackChoice& t : tracks) {
-            track_options.push_back({ t.id, t.key, t.name });
-        }
-        online_config.add_enum_option(ids::track, "Track",
-            "The track of the next race, set by the host. Rush 2049 and SF Rush tracks need every player to have that "
-            "game's ROM (the Games tab). A battle uses your BATTLE track select's POINTS and TIME LIMIT. Takes effect "
-            "at once.", track_options, 0);
-        online_config.add_number_option(ids::laps, "Laps", "Laps in the next race, set by the host. Takes effect at once.",
-            1, 9, 1, 0, false, 3);
-        online_config.add_bool_option(ids::ai, "Fill With AI Cars",
-            "Races start with computer cars in the slots no player takes (eight cars in all). Set by the host. Takes "
-            "effect at once.", true);
-        std::vector<recomp::config::ConfigOptionEnumOption> car_options;
-        for (uint32_t i = 0; i < std::size(car_names); i++) {
-            car_options.push_back({ i, std::string("Car") + std::to_string(i), car_names[i] });
-        }
-        online_config.add_enum_option(ids::car, "Car", "The car you race online. Takes effect at once.", car_options, 0);
-
-        for (const std::string& id : { ids::name, ids::car, ids::track, ids::laps, ids::ai }) {
+        for (const std::string& id : { ids::name }) {
             online_config.add_option_change_callback(id,
                 [](recomp::config::ConfigValueVariant, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
                     apply_choices();
@@ -323,9 +226,21 @@ namespace {
         "Race up to 8 players on separate machines, on your local network or over the internet.<br/><br/>"
         "<recomp-color primary>Host</recomp-color> a lobby and share your address, or "
         "<recomp-color primary>Join</recomp-color> one by its host's address or from the list of lobbies on your "
-        "network. The host picks the track; everyone picks a car and readies up, then the host starts the race from "
-        "the game's title screen or menus.<br/><br/>"
+        "network. Then everything happens in the game: the host goes to Start Game (One Race, Stunt or Battle) and "
+        "everyone's game follows it. Each player picks their own player and car; the track select is the host's."
+        "<br/><br/>"
         "Everyone needs the same version of this app and the same game ROMs.";
+
+    const char* progress_text(uint8_t p) {
+        switch (online::Progress(p)) {
+            case online::Progress::Lobby: return "in the lobby";
+            case online::Progress::ChoosingPlayer: return "choosing a player";
+            case online::Progress::TrackSelect: return "at the track select";
+            case online::Progress::ChoosingCar: return "picking a car";
+            case online::Progress::CarChosen: return "ready";
+        }
+        return "";
+    }
 
     std::string state_text() {
         switch (online::state()) {
@@ -380,16 +295,8 @@ namespace {
                 options.port = host_port();
                 options.max_players = get_number(ids::max_players);
                 options.open_router_port = get_bool(ids::upnp);
-                if (online::host(options)) {
-                    online::set_settings(chosen_settings());
-                }
+                online::host(options);
             });
-
-            add_heading("Race", "", "The host's race settings and your car.");
-            add_option(online_config, ids::track);
-            add_option(online_config, ids::laps);
-            add_option(online_config, ids::ai);
-            add_option(online_config, ids::car);
             update_buttons();
         }
 
@@ -460,7 +367,7 @@ namespace {
             std::string s = std::to_string((int)online::state()) + (online::is_host() ? "h" : "j") +
                 std::to_string(online::local_slot()) + online::router_status() + online::public_address();
             for (const online::RosterEntry& e : online::roster()) {
-                s += "|" + std::to_string(e.used) + std::to_string(e.connected) + std::to_string(e.ready) + e.name +
+                s += "|" + std::to_string(e.used) + std::to_string(e.connected) + std::to_string(e.progress) + e.name +
                     std::to_string(e.car.type) + std::to_string(e.ping_ms / 20) + e.gameplay;
             }
             return s;
@@ -483,7 +390,6 @@ namespace {
                     continue;
                 }
                 std::string line = std::to_string(i + 1) + ". " + e.name;
-                line += "  -  " + std::string(e.car.type < std::size(car_names) ? car_names[e.car.type] : "?");
                 if ((int)i == me) {
                     line += "  (you)";
                 }
@@ -493,7 +399,7 @@ namespace {
                 else if (i != 0) {
                     line += "  " + std::to_string(e.ping_ms) + " ms";
                 }
-                line += e.ready || i == 0 ? "" : "  -  not ready";
+                line += "  -  " + std::string(progress_text(e.progress));
                 context.create_element<Label>(lobby_box, line, theme::Typography::Body);
                 if (i != 0 && e.connected) {
                     std::vector<std::string> names = differences(players[0].gameplay, e.gameplay);
@@ -524,31 +430,12 @@ namespace {
                 net->set_color(theme::color::TextDim);
             }
 
-            Element* row = make_row(context, lobby_box, online::is_host() ?
-                "Start Race takes everyone to the race once all are ready (the game must be on its title screen or "
-                "menus). Leave closes the lobby." : "Ready tells the host you're set. Leave leaves the lobby.");
-            if (st == online::State::Lobby) {
-                if (online::is_host()) {
-                    Button* start = context.create_element<Button>(row, "Start Race", ButtonStyle::Primary);
-                    start->add_pressed_callback([]() {
-                        apply_choices();
-                        online::start_race();
-                    });
-                }
-                else {
-                    bool ready = me >= 0 && me < (int)players.size() && players[me].ready;
-                    Button* toggle = context.create_element<Button>(row, ready ? "Not Ready" : "Ready",
-                        ready ? ButtonStyle::Secondary : ButtonStyle::Primary);
-                    toggle->add_pressed_callback([ready]() {
-                        apply_choices();
-                        online::set_ready(!ready);
-                    });
-                    if (settings_differ) {
-                        Button* match = context.create_element<Button>(row, "Match Host Settings", ButtonStyle::Secondary);
-                        std::string host = players[0].gameplay;
-                        match->add_pressed_callback([host]() { match_settings(host); });
-                    }
-                }
+            Element* row = make_row(context, lobby_box, online::is_host() ? "Leave closes the lobby." :
+                "Match Host Settings sets your gameplay settings to the host's. Leave leaves the lobby.");
+            if (st == online::State::Lobby && !online::is_host() && settings_differ) {
+                Button* match = context.create_element<Button>(row, "Match Host Settings", ButtonStyle::Secondary);
+                std::string host = players[0].gameplay;
+                match->add_pressed_callback([host]() { match_settings(host); });
             }
             Button* leave = context.create_element<Button>(row, "Leave", ButtonStyle::Secondary);
             leave->add_pressed_callback([]() { online::leave(); });

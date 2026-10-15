@@ -19,6 +19,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -71,6 +72,10 @@ namespace {
     uint8_t my_games = 0;
     std::string my_gameplay;
     uint16_t host_port = default_port;
+    // Client: the host's menus (publish_menu).
+    MenuState host_menu_state;
+    bool have_host_menu = false;
+    std::deque<MenuInput> host_inputs;
 
     // Messages for the net thread to send. Target: a slot (host), to_host (client) or to_all (host).
     constexpr int to_host = -1;
@@ -160,6 +165,8 @@ namespace {
     }
 
     void reset_session() {
+        have_host_menu = false;
+        host_inputs.clear();
         cur_state = State::Offline;
         hosting = false;
         my_slot = -1;
@@ -422,11 +429,11 @@ namespace {
                     }
                 }
                 break;
-            case Msg::SetReady:
+            case Msg::SetProgress:
                 if (slot >= 0) {
-                    bool ready = r.u8() != 0;
-                    if (!r.bad && cur_state == State::Lobby) {
-                        slots[slot].ready = ready;
+                    uint8_t progress = r.u8();
+                    if (!r.bad && cur_state == State::Lobby && progress != slots[slot].progress) {
+                        slots[slot].progress = progress;
                         queue(to_all, channel_lobby, roster_message());
                     }
                 }
@@ -532,6 +539,32 @@ namespace {
                 }
                 cur_state = State::Loading;
                 error_text.clear();
+                break;
+            }
+            case Msg::MenuState: {
+                MenuState m;
+                m.phase = MenuPhase(r.u8());
+                m.input_open = r.u8() != 0;
+                m.settings = r.settings();
+                MenuInput in;
+                in.buttons = r.u16();
+                in.stick_x = int8_t(r.u8());
+                in.stick_y = int8_t(r.u8());
+                if (r.bad) {
+                    return;
+                }
+                host_menu_state = m;
+                have_host_menu = true;
+                // The host's controller only matters while its track select takes input: the others' follow it.
+                if (m.phase == MenuPhase::Track && m.input_open) {
+                    host_inputs.push_back(in);
+                    while (host_inputs.size() > 120) {
+                        host_inputs.pop_front();
+                    }
+                }
+                else {
+                    host_inputs.clear();
+                }
                 break;
             }
             case Msg::Go:
@@ -765,7 +798,6 @@ bool rush2::online::host(const HostOptions& options) {
     my_slot = 0;
     slots[0].used = true;
     slots[0].connected = true;
-    slots[0].ready = true;  // The host starts the race when ready.
     slots[0].name = my_name;
     slots[0].car = my_car;
     slots[0].games = my_games;
@@ -775,7 +807,7 @@ bool rush2::online::host(const HostOptions& options) {
     if (const char* fake = std::getenv("RUSH2_ONLINE_FAKE")) {
         for (int i = 1; i <= std::atoi(fake) && i < max_players; i++) {
             slots[i].used = true;
-            slots[i].ready = true;
+            slots[i].progress = uint8_t(Progress::CarChosen);
             slots[i].name = "Fake " + std::to_string(i + 1);
             slots[i].car.type = (uint8_t)i;
             slots[i].gameplay = my_gameplay;
@@ -891,11 +923,6 @@ std::vector<RosterEntry> rush2::online::roster() {
     return std::vector<RosterEntry>(std::begin(slots), std::end(slots));
 }
 
-RaceSettings rush2::online::settings() {
-    std::lock_guard lock{ state_mutex };
-    return cur_settings;
-}
-
 int rush2::online::max_players_setting() {
     std::lock_guard lock{ state_mutex };
     return max_players_opt;
@@ -1009,41 +1036,75 @@ void rush2::online::set_car(const CarChoice& car) {
     }
 }
 
-void rush2::online::set_ready(bool ready) {
+void rush2::online::set_progress(Progress progress) {
     std::lock_guard lock{ state_mutex };
-    if (cur_state != State::Lobby || hosting) {
+    if (cur_state != State::Lobby) {
         return;
     }
+    if (hosting) {
+        if (slots[0].progress != uint8_t(progress)) {
+            slots[0].progress = uint8_t(progress);
+            queue(to_all, channel_lobby, roster_message());
+        }
+        return;
+    }
+    if (my_slot < 0 || slots[my_slot].progress == uint8_t(progress)) {
+        return;
+    }
+    slots[my_slot].progress = uint8_t(progress);  // Until the host's roster says so.
     Writer w;
-    w.u8(uint8_t(Msg::SetReady));
-    w.u8(ready ? 1 : 0);
+    w.u8(uint8_t(Msg::SetProgress));
+    w.u8(uint8_t(progress));
     queue(to_host, channel_lobby, w.data);
 }
 
-void rush2::online::set_settings(const RaceSettings& s) {
+void rush2::online::publish_menu(const MenuState& m, const MenuInput& in) {
     std::lock_guard lock{ state_mutex };
-    if (!hosting || cur_state != State::Lobby || s == cur_settings) {
+    if (!hosting || cur_state != State::Lobby) {
         return;
     }
-    cur_settings = s;
-    // A change of what's raced makes everyone confirm again (players who aren't there have nothing to confirm).
-    for (int i = 1; i < max_players; i++) {
-        slots[i].ready = slots[i].ready && !slots[i].connected;
-    }
-    queue(to_all, channel_lobby, settings_message());
-    queue(to_all, channel_lobby, roster_message());
+    cur_settings = m.settings;
+    Writer w;
+    w.u8(uint8_t(Msg::MenuState));
+    w.u8(uint8_t(m.phase));
+    w.u8(m.input_open ? 1 : 0);
+    w.settings(m.settings);
+    w.u16(in.buttons);
+    w.u8(uint8_t(in.stick_x));
+    w.u8(uint8_t(in.stick_y));
+    queue(to_all, channel_lobby, w.data);
 }
 
-bool rush2::online::start_race() {
+bool rush2::online::host_menu(MenuState* out) {
+    std::lock_guard lock{ state_mutex };
+    if (hosting || !have_host_menu) {
+        return false;
+    }
+    *out = host_menu_state;
+    return true;
+}
+
+bool rush2::online::next_menu_input(MenuInput* out) {
+    std::lock_guard lock{ state_mutex };
+    if (host_inputs.empty()) {
+        return false;
+    }
+    *out = host_inputs.front();
+    host_inputs.pop_front();
+    return true;
+}
+
+bool rush2::online::start_race(const RaceSettings& settings) {
     std::lock_guard lock{ state_mutex };
     if (!hosting || cur_state != State::Lobby) {
         return false;
     }
+    cur_settings = settings;
     error_text.clear();
     uint32_t max_ping = 0;
     for (int i = 1; i < max_players; i++) {
-        if (slots[i].used && !slots[i].ready) {
-            error_text = slots[i].name + " isn't ready.";
+        if (slots[i].used && slots[i].connected && slots[i].progress != uint8_t(Progress::CarChosen)) {
+            error_text = slots[i].name + " hasn't picked a car.";
             return false;
         }
         if (slots[i].used && slots[i].connected && (slots[i].games & cur_settings.needs_games) != cur_settings.needs_games) {
@@ -1070,7 +1131,6 @@ bool rush2::online::start_race() {
     race_set = cur_settings;
     for (int i = 0; i < max_players; i++) {
         race_slots[i] = slots[i];
-        slots[i].ready = i == 0;
     }
     Writer w;
     w.u8(uint8_t(Msg::Start));

@@ -434,6 +434,7 @@ int rush2_online_skip_physics(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_player_input(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_block_pause(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_race_views(uint8_t* rdram, recomp_context* ctx);
+int rush2_online_hold_front_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_record_presses(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_present_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx);
