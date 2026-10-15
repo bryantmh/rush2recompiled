@@ -154,8 +154,9 @@ namespace {
     // Each player races with the profile their car select left (RosterEntry::profile): the race reads the car's type
     // from it (+0x31, func_8009E6DC at 0x8009E9B8) and the keys from it. This machine's player races with their own
     // profile, which the race's keys and the post-race save to; the others with copies here, the same on every machine.
-    // RDRAM 0x80F80000-0x81000000 is unused.
-    constexpr uint32_t guest_profiles = 0x80FF0000;
+    // In spare RDRAM 0x80E10000-0x80E20000 (between the wings model and battle_render; see src/controls_menu.cpp's map).
+    // 0x80F80000-0x81000000 is the Light Probes' per-car copies (src/car_probes.cpp).
+    constexpr uint32_t guest_profiles = 0x80E10000;  // 8 x 0x6C0, to 0x80E13600
     constexpr uint32_t profile_size = 0x6C0;
     constexpr int32_t profile_car = 0x31;            // Low 5 bits: the car type (Rush 2's; Rush 2049's are kept apart)
     constexpr int32_t profile_section_end = 0x33;    // +0 is the byte sum of +1..+0x33, checked when the pak loads
@@ -975,7 +976,7 @@ extern "C" void car_matrix_copy_and_apply_8009ABDC(uint8_t* rdram, recomp_contex
 extern "C" int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int car, int kind) {
     constexpr int human = 2;
     constexpr uint32_t body_raise = 0x800CFD84;     // f32
-    constexpr uint32_t place_scratch = 0x80FFF000;  // A view's 0x40-byte pose block (0x800D79D0 + view x 0x40)
+    constexpr uint32_t place_scratch = 0x80E14000;  // A view's 0x40-byte pose block (0x800D79D0 + view x 0x40)
     if (phase == Phase::Idle || kind != human || car < 0 || car >= race_players) {
         return kind;
     }

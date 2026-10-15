@@ -118,7 +118,7 @@ Every machine sets the race up the same way and then runs it in lockstep:
   0x8009E9B8; the Rush 2049 types through `rush2_car49_select_get`, which online gives each car the type its player
   picked, `rush2::online::game::car_type`), and the keys from it. Each player sends the profile their car select left
   (0x6C0 bytes, with the car; `set_car`), and the race start carries them all. This machine's player races with their
-  own profile, so the keys they take and the post-race save to it; the others race with copies at 0x80FF0000 +
+  own profile, so the keys they take and the post-race save to it; the others race with copies at 0x80E10000 +
   player * 0x6C0, the same bytes on every machine. The hash leaves the records' profile pointer out. One shared blank
   profile made every human car type 0 in the physics while each machine loaded the picked car's model.
 - **The players' saves**: this machine's player's profile is their Controller Pak note itself. The race setup never

@@ -111,7 +111,10 @@ namespace {
     uint32_t loaded_hash[max_players];
     std::map<uint32_t, std::array<std::optional<uint32_t>, max_players>> hashes;
 
-    // Net thread.
+    // Net thread. net_thread is started and joined from the UI thread (host, join, leave) and joined from the game
+    // thread (update, after the thread ended itself), so those take thread_mutex: two threads joining the same
+    // std::thread at once crashed. update only tries it, so the game thread never waits.
+    std::mutex thread_mutex;
     std::thread net_thread;
     std::atomic<bool> net_running = false;
     ENetHost* enet_host = nullptr;
@@ -765,6 +768,7 @@ namespace {
     }
 
     void stop_net_thread() {
+        std::lock_guard lock{ thread_mutex };
         net_running = false;
         if (net_thread.joinable()) {
             net_thread.join();
@@ -859,8 +863,11 @@ bool rush2::online::host(const HostOptions& options) {
     std::fprintf(stderr, "[online] hosting \"%s\" on port %u\n", cur_lobby_name.c_str(), options.port);
     last_beacon = clock_type::time_point{};
     last_roster = clock_type::now();
-    net_running = true;
-    net_thread = std::thread{ net_loop };
+    {
+        std::lock_guard thread_lock{ thread_mutex };
+        net_running = true;
+        net_thread = std::thread{ net_loop };
+    }
     if (options.open_router_port) {
         upnp_open(options.port);
     }
@@ -928,8 +935,11 @@ bool rush2::online::join(const std::string& text) {
     clear_race();
     cur_state = State::Connecting;
     connect_started = clock_type::now();
-    net_running = true;
-    net_thread = std::thread{ net_loop };
+    {
+        std::lock_guard thread_lock{ thread_mutex };
+        net_running = true;
+        net_thread = std::thread{ net_loop };
+    }
     return true;
 }
 
@@ -1394,7 +1404,8 @@ std::string rush2::online::race_status() {
 void rush2::online::update() {
     // A client's net thread stops itself when the connection is lost; join it here so the next host or join starts
     // clean.
-    if (!net_running && net_thread.joinable()) {
+    std::unique_lock lock{ thread_mutex, std::try_to_lock };
+    if (lock.owns_lock() && !net_running && net_thread.joinable()) {
         net_thread.join();
     }
 }
