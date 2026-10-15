@@ -39,6 +39,10 @@ namespace rush2::track_mod {
     // The raced custom track's folder name (what its records and ghosts are kept under), or "" for none. Its
     // track.toml settings, for the race's records seed.
     std::string race_folder();
+    // Track `index`'s identity for online play: its mod and folder and a hash of every file its conversion reads
+    // ("mod/folder#hash"), so two machines race it only with the same files. "" until the track has been read (the
+    // track select's menu_art reads every enabled track).
+    std::string identity(int index);
     bool race_settings(Settings& out);
 
     // Track `index` converted for the slot with track prefix `prefix`, from the disk cache when this build converted

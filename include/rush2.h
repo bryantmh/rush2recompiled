@@ -167,6 +167,8 @@ namespace rush2 {
         bool get_n64_input(int port, uint16_t* buttons, float* x, float* y);
         // Scripted presses (--input-script) of GAS (A) or BRAKE (B) count as fully pressed pedals.
         void press_pedals(int port, uint16_t buttons);
+        // How far GAS and BRAKE were pressed (0-1) in the input get_n64_input last gave for a port.
+        void get_pedals(int port, float* gas, float* brake);
         // Steering response, reverse, the stick deadzone and rumble are per profile (include/control_profiles.h).
         // Plays one effect on the controller last used with a profile's settings, from the Controls tab: a crash on
         // the left or right, or a second and a half of tire screech or wall grinding (left, then right).

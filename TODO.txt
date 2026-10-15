@@ -40,3 +40,6 @@ Custom tracks:
 3) Racing lines: the four AI lines always sit at -0.6/-0.2/+0.2/+0.6 of the AIPATH_main ribbon's half width, while stock
     lanes are placed one by one (off-centre, crossing, some repeated). Let authors draw their own lines.
 4) Real support for defining Start_# positions
+
+Online:
+Every player except the host hears the host's engine instead of their own

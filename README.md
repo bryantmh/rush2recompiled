@@ -20,6 +20,7 @@ Join the [Discord](https://discord.gg/nYfFAKMnyx) or watch the [YouTube video](h
 - **Rumble.** Supported on any controller that can rumble and at the same time as saves. Enhanced rumble gives crashes, wall scrapes and screeching tires each their own feel on every controller, and shakes the side of the car that was hit on the haptics of every DualSense plugged in with USB, Steam Controller and Steam Deck, and on the triggers of Xbox One and Series controllers.
 - **Up to 4 players, any controllers.** Xbox, PlayStation and most other controllers work, plus keyboard. Pick which controller belongs to which player and the game remembers it next time.
 - **Rebind everything.** The game's own Controls screen now lets you map any button, trigger, stick or key. It shows the right button icons for your controller.
+- **Online races.** Up to 8 players on separate computers, on your network or over the internet: host a lobby from the Online tab and share your address, or join one. No server needed. Race, stunt and Rush 2049 battle arenas (docs/online.md).
 - **Split screen.** Two player races can run side by side in addition to the original top and bottom.
 - **AI opponents.** Choose the car, paint and rims of each computer opponent in the General tab.
 - **Ghost races.** Previously a 2049 exclusive feature. Record your runs and race against your own ghost car.

@@ -830,12 +830,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8002301C
-name = "race_time_base"
+name = "frame_retraces"
 type = "u32"
-desc = "Word set by game_thread_main_init; read by cam chase/dispatch, race clock init, prop anim. (low confidence)"
+desc = "Word set by game_thread_main_init; read by cam chase/dispatch, race clock init, prop anim. (low confidence) | The frame's length in vertical retraces, measured by game_thread_main_init_800B4EB0 ($s2 points here at 0x800B5464); online every frame is 2."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-race"
 
 [[var]]
 vram = 0x80023020
@@ -919,6 +919,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x80023044
+name = "controller_pads"
+type = "u8[4][6]"
+desc = "Per controller port, 6 bytes (the pads as read); the pause menu step (0x800AFDFC) pauses when byte 0 of a player's port has bit 8, skipped online (machine-local)."
+area = "input"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x80023058
 name = "gfx_view_width"
 type = "u16"
@@ -992,12 +1001,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80023064
-name = "menu_state_u16_a"
+name = "start_game_row"
 type = "u16"
-desc = "Menu state halfword written by many menu screens; read by options, start game, name entry. (low confidence)"
+desc = "Menu state halfword written by many menu screens; read by options, start game, name entry. (low confidence) | The Start Game menu's row (func_803B12C8: One Race, Circuit, Practice, Ghost Race, Stunt, ...); online joiners take the host's."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x80023066
@@ -2342,12 +2351,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800BF31C
-name = "race_reset_flag"
+name = "front_end_from_logos"
 type = "u8"
-desc = "Flag used by race_reset_hud_and_globals. (low confidence)"
+desc = "Flag used by race_reset_hud_and_globals. (low confidence) | func_8009FD68 sends the front end to screen 0xE (boot logos, then the title) when set, else 0xF (the car select); set at boot, cleared there."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800BF320
@@ -2936,12 +2945,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C1A9C
-name = "race_end_flag"
+name = "race_restart_flag"
 type = "u8"
-desc = "Flag set by pause menu and race_setup; read by race_end_to_menu. (low confidence)"
+desc = "Flag set by pause menu and race_setup; read by race_end_to_menu. (low confidence) | func_800AAC64 restarts the race when 1 (the pause menu sets it for RESTART), goes to the front end when 0."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800C1CB7
@@ -3550,10 +3559,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800C2274
 name = "race_active_count"
 type = "u8"
-desc = "Count of active racers set by race_count_active; read by pause screen text. (low confidence)"
+desc = "Count of active racers set by race_count_active; read by pause screen text. (low confidence) | Per player byte (func_8008EBE0 lap timing): moved to 0x802407F0 with room for 8 (tools/players4/relocate.py)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#eight-players"
 
 [[var]]
 vram = 0x800C2278
@@ -4541,6 +4550,15 @@ vram = 0x800CF39E
 name = "const_model_find_by_name_2"
 type = "u8"
 desc = "Constant read by model_find_by_name (static data, never written)."
+area = "render"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800CFD84
+name = "car_body_raise"
+type = "f32"
+desc = "How far a view's car body is raised above the car's position when cam_update_dispatch_8009D02C places it (0x8009D0B8)."
 area = "render"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -6430,10 +6448,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D5751
 name = "race_stunt_record_flag"
 type = "u8"
-desc = "Byte set at race start, read by stunt/max record stat functions."
+desc = "Byte set at race start, read by stunt/max record stat functions. | 1 in stunt mode: set by the race start for a race on track 11 (func_800AE670 0x800AE7A4)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#stunt-and-battle"
 
 [[var]]
 vram = 0x800D5754
@@ -6828,6 +6846,15 @@ name = "breakables_param_word_c"
 type = "u32"
 desc = "Word read by breakables_update (low confidence)."
 area = "track"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800D79D0
+name = "view_car_pose"
+type = "struct { u8 pad[0x24]; f32 pos[3]; u8 pad2[0x10]; }[4]"
+desc = "Per view, 0x40 bytes: +0x24 the followed car's position as cam_update_dispatch_8009D02C places its body (raised by 0x800CFD84); the ARROW update (func_80059B9C) measures its distance from it."
+area = "render"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
@@ -7958,12 +7985,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800E7BB4
-name = "menu_screen_state"
+name = "front_end_next_screen"
 type = "u32"
-desc = "Current frontend menu screen/state word written by ~18 menu screens and read by frontend loop and race_run_full."
+desc = "Current frontend menu screen/state word written by ~18 menu screens and read by frontend loop and race_run_full. | The front end screen to go to (func_800AE288 switches when it differs from 0x800E7BC4)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800E7BB8
@@ -7985,12 +8012,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800E7BC4
-name = "menu_dispatch_param_a"
+name = "front_end_screen"
 type = "u16"
-desc = "Halfword set by screen dispatch and frontend loop, read by frontend loop (low confidence)."
+desc = "Halfword set by screen dispatch and frontend loop, read by frontend loop (low confidence). | The front end screen up (s16, -1 none): 0xC main menu, 0xE logos, 0x10 title, 0x11/0x12 attract (func_800AE0D4)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800E7BC8
@@ -9157,10 +9184,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800FAE6C
 name = "race_game_mode"
 type = "u8"
-desc = "Byte set by menus, attract run and race reset; read by ~39 functions (cameras, collisions, sound, checkpoints); game/race mode selector (low confidence on meaning)."
+desc = "Byte set by menus, attract run and race reset; read by ~39 functions (cameras, collisions, sound, checkpoints); game/race mode selector (low confidence on meaning). | 2 leaves the front end for the track select: Select Player sets it, and func_800AE288 then leaves the screen and sets game state 1. Nonzero while the attract demo runs."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x800FAE70
@@ -10039,19 +10066,19 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C030
 name = "hud_highscore_screen_ptr"
 type = "u32"
-desc = "Word used by HUD highscore screen build/free, finish overlay and race end (likely a screen/widget pointer; low confidence)."
+desc = "Head of the HUD element list (each element: +0x28 callback, +0x2C parameter (player number etc.), +0x3C next); also used by the highscore screen build/free, finish overlay and race end."
 area = "ui"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#the-hud-online"
 
 [[var]]
 vram = 0x8010C034
 name = "race_time_accum"
 type = "f32"
-desc = "Float accumulator written/read by ~28 race, HUD and menu functions (float_accum; race clock/time accumulator)."
+desc = "Float accumulator written/read by ~28 race, HUD and menu functions (float_accum; race clock/time accumulator). | On the title screen, when it came up: func_800AE288 goes on to the attract demo once the game clock (0x80117488) is far enough past it."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x8010C038
@@ -10325,12 +10352,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C150
-name = "input_thread_state_a"
-type = "u8"
-desc = "Byte private to input thread."
+name = "controller_map"
+type = "s8[4]"
+desc = "Byte private to input thread. | Per port: the controller read for it, -1 none (src/players4.cpp); the pause step reads it by player."
 area = "input"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-race"
 
 [[var]]
 vram = 0x8010C151
@@ -10759,10 +10786,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C3E8
 name = "race_type"
 type = "u32"
-desc = "Word set by start game, race_run_full and start timer; read by 33 car/camera/HUD/checkpoint functions (race type/mode; low confidence)."
+desc = "Word set by start game, race_run_full and start timer; read by 33 car/camera/HUD/checkpoint functions (race type/mode; low confidence). | 0 race, 1 circuit, 2 stunt (the race start sets 2 for a race on track 11 with 0x800D5751 = 1)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#stunt-and-battle"
 
 [[var]]
 vram = 0x8010C3EC
@@ -13340,9 +13367,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8011962A
-name = "menu_player_slot"
-type = "s16"
-desc = "Current player/profile slot set by player join, read by most menu screens (low confidence)."
+name = "menu_pressed_buttons"
+type = "u16"
+desc = "The menus' pressed buttons this frame: player_join_init_all_80080788 ORs in each port's presses whose input_port_state_80125AC4 byte is set; the track select reads it (0x9000 confirm, 0x4000 back, 0x2300 left/right). Was menu_player_slot."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -13628,9 +13655,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80125A68
-name = "menu_profile_index"
-type = "s16"
-desc = "Selected player/profile index set by player join, read by option, circuit, records and track select screens (low confidence)."
+name = "menu_repeat_buttons"
+type = "u16"
+desc = "The menus' repeat (auto-repeat) buttons: as menu_pressed_buttons_8011962A, from each enabled port's repeat buttons. Was menu_profile_index."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -13792,7 +13819,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x80125AC4
 name = "input_port_state"
 type = "u8[4]"
-desc = "Per-port state bytes written by input_set_port_state (write-only here)."
+desc = "Per-port menu input enable: player_join_init_all_80080788 takes a port's presses into the menu buttons only while its byte is set. Set by input_set_port_state_80093DC0; the pause menu clears all four and sets records 0 and 1's ports back (port 5, none, is ignored)."
 area = "input"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -14185,6 +14212,15 @@ status = "verified"
 ref = "docs/rush2049_research/cars.md#paint-colors-v"
 
 [[var]]
+vram = 0x80221750
+name = "car_banks"
+type = "s16[72]"
+desc = "Texture bank per car preview id (moved from 0x800D9D40); race_preload_car_assets_800A37F4 sets one per car slot to the model container its asset loads into."
+area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x802217E0
 name = "car_palette_records"
 type = "Palette[72]"
@@ -14201,6 +14237,15 @@ desc = "Per view projection set by cam_build_view_matrix (func_80054A50): +0xC h
 area = "render"
 status = "inferred"
 ref = "docs/rush2049_research/menus.md#75-in-the-port-the-track-select-preview"
+
+[[var]]
+vram = 0x80240720
+name = "race_time_digits"
+type = "u8[8][8]"
+desc = "Race time digits per player, 8 bytes each (race_format_time_digits_8008ECC4's output, written by hud_widget_cb_race_time_display_800B7B1C for its player). The race time widget reads player 1's (+0) only."
+area = "ui"
+status = "inferred"
+ref = "docs/online.md#the-hud-online"
 
 [[var]]
 vram = 0x803C67F0
@@ -15194,12 +15239,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803CB39C
-name = "carselect_list_byte_c"
-type = "u8"
-desc = "Write-only byte from car select list build (low confidence)."
+name = "car_select_chosen"
+type = "u8[2]"
+desc = "Write-only byte from car select list build (low confidence). | Per player: has picked a car (set by A or START at 0x803B9608; a chosen player is skipped but for B, which takes everyone back)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x803CB3A0
@@ -16094,21 +16139,21 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803D05AC
-name = "trackselect_sel_a"
+name = "track_select_shown_track"
 type = "s16"
-desc = "Track select halfword set at init and frame (low confidence)."
+desc = "Track select halfword set at init and frame (low confidence). | The track the screen last showed; when 0x8010C3F0 differs, the frame end writes it to player 1's record +0x30."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x803D05AE
-name = "trackselect_sel_b"
+name = "track_select_carousel_count"
 type = "s16"
-desc = "Track select halfword set at init, read by frame (low confidence)."
+desc = "Track select halfword set at init, read by frame (low confidence). | The number of carousel entries (the tracks the track select offers)."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x803D05B0
@@ -16130,21 +16175,21 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803D05B4
-name = "trackselect_row"
+name = "track_select_carousel_shown"
 type = "s16"
-desc = "Track select current row, set at init and frame, read by carousel row setup (low confidence)."
+desc = "Track select current row, set at init and frame, read by carousel row setup (low confidence). | The carousel entry the track select shows (its TRACK option steps it with the track, wrapping at 0x803D05AE); online joiners set it to the host track's entry."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x803D05BC
-name = "trackselect_option_sel"
+name = "track_select_option_cursor"
 type = "s32"
-desc = "Track select: the cursor row in the option list 0x803D05D8."
+desc = "Track select: the cursor row in the option list 0x803D05D8. | The option row under the cursor (0x803D05D8[row])."
 area = "menu"
 status = "verified"
-ref = "docs/rush2049_research/menus.md#13-options"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x803D05C0
@@ -16157,21 +16202,21 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803D05C4
-name = "trackselect_option_row"
+name = "track_select_option_top"
 type = "s32"
-desc = "Track select: the top option row on screen (1 at open: TRACK, row 0, has no text row)."
+desc = "Track select: the top option row on screen (1 at open: TRACK, row 0, has no text row). | The top option row on screen (1 when the screen opens)."
 area = "menu"
 status = "verified"
-ref = "docs/rush2049_research/menus.md#13-options"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x803D05CC
-name = "trackselect_state"
+name = "track_select_option_count"
 type = "s32"
-desc = "Track select: the number of options in the list 0x803D05D8 (func_803AB294)."
+desc = "Track select: the number of options in the list 0x803D05D8 (func_803AB294). | The option list's length."
 area = "menu"
 status = "verified"
-ref = "docs/rush2049_research/menus.md#13-options"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x803D0608

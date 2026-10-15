@@ -57,6 +57,7 @@
 #include "arrows.h"
 #include "audio2049.h"
 #include "battle.h"
+#include "online.h"
 #include "battle_ai.h"
 #include "battle_render.h"
 #include "car2049.h"
@@ -344,6 +345,7 @@ namespace {
     std::vector<Shot> shots;
     std::vector<Effect> effects;
     std::mt19937 rng{ 2049 };
+    std::atomic<uint32_t> online_seed = 0;  // set_online_seed
     float clock_seconds = 0.0f;
     bool clock_set = false;
     int round_points = 0;        // The round's points (kills) to win, set with the clock.
@@ -760,14 +762,18 @@ namespace {
     };
     std::vector<HeldSound> held_sounds;
 
+    int hud_car(uint8_t* rdram, int p);
+
     void play_sound(uint8_t* rdram, int id, const float pos[3], float hold_seconds = 0.0f) {
         // music_ready starts loading the sound banks if nothing has yet (a race with Rush 2's music and cars).
         if (id < 0 || !rush2::track2049::music_ready() || !rush2::audio2049::loaded()) return;
         constexpr float range = 400.0f;
         float volume = 0.0f, pan = 0.0f, surround = 0.0f;
+        // Heard from each view's car and camera. Online every player has a record but only view 0, this machine's
+        // player's, is drawn (hud_car).
         int players = local_players(rdram);
         for (int p = 0; p < players; p++) {
-            int car = player_car(rdram, p);
+            int car = hud_car(rdram, p);
             if (car < 0 || car >= max_cars) continue;
             float listener[3], back[3], up[3];
             car_pos(rdram, car, listener);
@@ -1897,7 +1903,11 @@ namespace {
     // player 1's FIRE.
     uint8_t weapon_buttons(uint8_t* rdram, int player) {
         static const bool test_fire = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "fire") != nullptr;
-        uint8_t bits = rush2::controls::battle_buttons(MEM_BU(0, (int32_t)(player_slots + player * player_size + 1)));
+        uint8_t bits = 0;
+        // Online, every machine has every player's buttons for the frame (src/online/online_game.cpp).
+        if (!rush2::online::game::battle_buttons(player, &bits)) {
+            bits = rush2::controls::battle_buttons(MEM_BU(0, (int32_t)(player_slots + player * player_size + 1)));
+        }
         if (test_fire && std::fmod(clock_seconds, 0.5f) < 0.25f) bits |= rush2::controls::battle_fire;
         // R2_BATTLE_TEST=back holds player 1's stick back (fires behind the car).
         static const bool test_back = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "back") != nullptr;
@@ -2073,8 +2083,16 @@ void rush2::battle::set_data(const std::vector<PickupRecord>& pickup_list, const
     if (!pickup_list.empty()) rush2::battle_ai::set_arena(solid_triangles);
 }
 
+void rush2::battle::set_online_seed(uint32_t seed) {
+    online_seed = seed;
+    rush2::battle_ai::set_online_seed(seed);
+}
+
 void rush2::battle::reset() {
     std::lock_guard lock{ battle_mutex };
+    if (online_seed != 0) {
+        rng.seed(online_seed);
+    }
     built_head = 0;
     setup_pending = true;
     ready = false;
@@ -2536,10 +2554,19 @@ namespace {
         return slot >= 0 && slot < 400 && MEM_W(0, (int32_t)(widget_at(slot) + 4)) != 0;
     }
 
+    // The car view p's HUD shows. Online the one view is this machine's player's, who drives car slot local_race_player
+    // (src/online/online_game.cpp's setup_race); record 0 is theirs only inside the race's presentation
+    // (rush2_online_present_begin), and the battle's update runs outside it. play_sound listens from the same car.
+    int hud_car(uint8_t* rdram, int p) {
+        int local = rush2::online::game::local_race_player();
+        if (local >= 0) return p == 0 ? local : -1;
+        return player_car(rdram, p);
+    }
+
     void update_hud(uint8_t* rdram) {
         for (int p = 0; p < hud_players; p++) {
             const HudWidgets& w = hud_widgets[p];
-            int car = player_car(rdram, p);
+            int car = hud_car(rdram, p);
             if (car < 0 || car >= max_cars || !widget_valid(rdram, w.frame)) continue;
             const Fighter& f = fighters[car];
             Layout l = layout_of(view_of(rdram, p, hud_players));
@@ -2792,8 +2819,9 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
     // Not over the pause menu's screens (0x8002305C is set while one is open).
     if (MEM_B(0, (int32_t)0x8002305C) != 0) return;
     int players = mode == Mode::arena ? hud_players : local_players(rdram);
+    if (rush2::online::game::local_race_player() >= 0) players = std::min(players, 1);  // Online: one view (hud_car).
     for (int p = 0; p < players; p++) {
-        int car = player_car(rdram, p);
+        int car = hud_car(rdram, p);
         if (car < 0 || car >= max_cars) continue;
         const Fighter& f = fighters[car];
         View v = view_of(rdram, p, players);

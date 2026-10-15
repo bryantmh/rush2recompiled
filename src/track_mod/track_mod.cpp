@@ -64,6 +64,10 @@ namespace {
         return e.mod_id + "/" + e.folder;
     }
 
+    // The hash of each track's files as read_files last read them (by report_key), for rush2::track_mod::identity.
+    std::mutex sources_mutex;
+    std::map<std::string, uint64_t> sources;
+
     void remember_report(const rush2::track_mod::Entry& e, const rush2::track_mod::Report& report, bool loads) {
         std::lock_guard lock{ reports_mutex };
         reports[report_key(e)] = { report, loads };
@@ -322,6 +326,10 @@ namespace {
         h = rush2::track_cache::hash(f.extras.preview.data(), f.extras.preview.size(), h);
         h = rush2::track_cache::hash(f.extras.sky_container.data(), f.extras.sky_container.size(), h);
         f.source = rush2::track_cache::hash(f.extras.diorama.data(), f.extras.diorama.size(), h);
+        {
+            std::lock_guard lock{ sources_mutex };
+            sources[report_key(e)] = f.source;
+        }
         uint64_t name = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(e.folder.data()), e.folder.size());
         f.cache_key = cache_k + int(name % 1000000);
         return true;
@@ -512,6 +520,22 @@ bool rush2::track_mod::load(int index, const std::string& prefix, Converted& out
     bool ok = convert_and_store(f, prefix, out);
     if (ok) publish_textures();
     return ok;
+}
+
+std::string rush2::track_mod::identity(int index) {
+    Entry e;
+    {
+        std::lock_guard lock{ mutex };
+        scan();
+        if (index < 0 || index >= (int)entries.size()) return {};
+        e = entries[index];
+    }
+    std::lock_guard lock{ sources_mutex };
+    auto it = sources.find(report_key(e));
+    if (it == sources.end()) return {};
+    char hash[24];
+    std::snprintf(hash, sizeof(hash), "#%016llX", (unsigned long long)it->second);
+    return report_key(e) + hash;
 }
 
 bool rush2::track_mod::menu_art(int index, MenuArt& out) {

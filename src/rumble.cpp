@@ -36,6 +36,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "rush2.h"
+#include "online.h"
 
 namespace {
     // Offsets in the car struct.
@@ -151,7 +152,7 @@ extern "C" void rush2_rumble_wall(uint8_t* rdram, recomp_context* ctx) {
 // a small lateral part next to a huge longitudinal one, so its side stays near 0 and it rumbles both motors.
 // Does not change the game's own rumble level.
 extern "C" void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx) {
-    int port = MEM_BU(1, ctx->r7);
+    int port = rush2::online::game::rumble_port((uint32_t)ctx->r7, MEM_BU(1, ctx->r7));
     if (port >= num_ports) {
         return;
     }

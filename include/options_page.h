@@ -40,7 +40,8 @@ namespace rush2::ui {
 
         struct Heading {
             recompui::Element* row;    // Elements added to it (a button) go to the right of the title.
-            recompui::Label* note;     // Dim text under the title, empty unless given.
+            recompui::Label* note;     // Dim text under the title, empty unless given (hidden while empty).
+            recompui::Label* title;
         };
         // note is short status text under the title; description shows on the right while the heading is hovered.
         Heading add_heading(const std::string& title, const std::string& note = "", const std::string& description = "");
@@ -51,6 +52,8 @@ namespace rush2::ui {
         // Dim status text in the top right corner of an added option's row (what it's doing in the background), laid
         // over the row so showing or clearing it moves nothing. Null if the option isn't on the page.
         recompui::Label* add_option_status(const std::string& option_id);
+        // An added option's row (to show or hide it), or null.
+        recompui::Element* get_option_row(const std::string& option_id);
         recompui::Element* get_list() { return list; }
         void set_default_description(const std::string& text);
         // Runs once per frame while the page is open (to show progress of work done in the background).

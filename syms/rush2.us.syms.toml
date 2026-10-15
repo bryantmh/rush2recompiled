@@ -458,7 +458,7 @@ functions = [
     { name = "carselect_update_preview_800599A0", vram = 0x800599A0, size = 0x140 },
     { name = "math_mat3_transform_vec3_transposed_80059AE0", vram = 0x80059AE0, size = 0x9C },
     { name = "stub_empty_80059B7C", vram = 0x80059B7C, size = 0x20 },
-    { name = "car_shadow_update_a_80059B9C", vram = 0x80059B9C, size = 0x188 },
+    { name = "car_arrow_update_80059B9C", vram = 0x80059B9C, size = 0x188 },
     { name = "car_model_update_parts_80059D24", vram = 0x80059D24, size = 0x568 },
     { name = "math_mat3_copy_8005A28C", vram = 0x8005A28C, size = 0x4C },
     { name = "node_set_pos_matrix_8005A2D8", vram = 0x8005A2D8, size = 0x68 },

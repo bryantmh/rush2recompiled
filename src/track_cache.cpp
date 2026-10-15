@@ -31,12 +31,15 @@ namespace {
     constexpr uint32_t format_version = 2;
     enum class Kind : uint32_t { Rush1 = 1, Rush2049 = 2, Blob = 3 };
 
-    // A field added to a converted track struct has to be added to write()/read() below; then update these sizes.
+    // A field added to a converted track struct has to be added to write()/read() below; then update these sizes (as
+    // MSVC lays the structs out; other standard libraries size their members differently).
+#ifdef _MSC_VER
     static_assert(sizeof(rush2::track1::ConvertedTrack) == 392, "update track_cache.cpp for ConvertedTrack (track1)");
     static_assert(sizeof(rush2::track2049::ConvertedTrack) == 440, "update track_cache.cpp for ConvertedTrack (2049)");
     static_assert(sizeof(rush2::track1::ConvertedTrack::Timing) == 64, "update track_cache.cpp for Timing");
     static_assert(sizeof(rush2::track2049::TexFlipbook) == 72, "update track_cache.cpp for TexFlipbook");
     static_assert(sizeof(rush2::track2049::TexScroll) == 72, "update track_cache.cpp for TexScroll");
+#endif
 
     std::filesystem::path cache_dir() {
         return recomp::get_config_path() / "track_cache";
@@ -49,11 +52,11 @@ namespace {
             wchar_t buf[MAX_PATH * 4];
             DWORD n = GetModuleFileNameW(nullptr, buf, (DWORD)std::size(buf));
             if (n > 0 && n < std::size(buf)) exe = std::filesystem::path(std::wstring(buf, n));
-#else
-            std::error_code ec;
-            exe = std::filesystem::read_symlink("/proc/self/exe", ec);
 #endif
             std::error_code ec;
+#ifndef _WIN32
+            exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+#endif
             uint64_t size = exe.empty() ? 0 : (uint64_t)std::filesystem::file_size(exe, ec);
             uint64_t time = exe.empty() ? 0 : (uint64_t)std::filesystem::last_write_time(exe, ec).time_since_epoch().count();
             return rush2::track_cache::hash((const uint8_t*)&time, sizeof(time),

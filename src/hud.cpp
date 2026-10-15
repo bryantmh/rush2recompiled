@@ -54,6 +54,7 @@
 #include "rush2.h"
 #include "players4.h"
 #include "battle.h"
+#include "online.h"
 #include "odometer2049.h"
 #include "pause_menu.h"
 
@@ -1229,12 +1230,15 @@ extern "C" {
 // func_800A06F8 entry and exit: the race HUD setup, which creates all of its widgets.
 void rush2_hud_build_begin(uint8_t* rdram, recomp_context* ctx) {
     building_hud = true;
+    rush2::online::game::hud_players_begin(rdram);
 }
 
 void rush2_hud_build_end(uint8_t* rdram, recomp_context* ctx) {
     // Players 3 and 4's elements, built while the widgets they create still count as the HUD's.
     rush2::players4::hud_built(rdram, ctx);
     rush2::battle::hud_built(rdram, ctx);
+    rush2::online::game::hud_built(rdram);
+    rush2::online::game::hud_players_end(rdram);
     building_hud = false;
 }
 

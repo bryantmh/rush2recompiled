@@ -27,6 +27,7 @@
 #include "control_profiles.h"
 #include "options_page.h"
 #include "rush2.h"
+#include "online.h"
 
 namespace {
     using namespace recompui;
@@ -203,6 +204,10 @@ namespace {
             layouts->add_index_changed_callback([](uint32_t index) {
                 rush2::splitscreen::set_layout_option(index == 1 ? Layout::SideBySide : Layout::TopBottom);
             });
+
+            // The online name is this machine's, not a profile's: above the profile picker and the sections it sets.
+            add_heading("Online", "", "How other players see you in online races (the Online tab).");
+            add_option(rush2::online_tab::config(), "display_name");
 
             const std::string profile_description = "The game save profile whose settings are shown below. Each player "
                 "uses the settings of the profile they picked on Select Player; " + no_profile_label + " is for players "

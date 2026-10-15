@@ -48,6 +48,7 @@
 #include "librecomp/rsp.hpp"
 
 #include "rush2.h"
+#include "online.h"
 #include "data_files.h"
 #include "wings.h"
 #include "track2049.h"
@@ -513,7 +514,18 @@ static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float
 
 // The launcher only appears when no valid ROM is stored, offering to locate one. Once a ROM is valid (found at startup
 // or just picked), the game starts right away.
+// The game's controller reads: as get_n64_input, but an online lobby turns ports off, masks buttons or presses them
+// for the player (src/online/online_lobby.cpp). The online race reads this machine's controller with get_n64_input.
+static bool get_game_input(int controller_num, uint16_t* buttons, float* x, float* y) {
+    bool ret = get_n64_input(controller_num, buttons, x, y);
+    if (rush2::online::game::controller_override(controller_num, buttons, x, y)) {
+        return controller_num == 0 ? true : ret;
+    }
+    return ret;
+}
+
 static void launcher_init(recompui::LauncherMenu* menu) {
+    rush2::online::game::init_overlay();
     const recomp::GameEntry& game = supported_games[0];
     auto game_options_menu = menu->init_game_options_menu(game.game_id, game.mod_game_id, game.display_name,
                                                           game.thumbnail_bytes, recompui::GameOptionsMenuLayout::Center);
@@ -669,9 +681,11 @@ int main(int argc, char** argv) {
         .set_frequency = set_frequency,
     };
 
+    rush2::online::game::set_input_source(get_n64_input);
+
     ultramodern::input::callbacks_t input_callbacks{
         .poll_input = rush2::input::poll,
-        .get_input = get_n64_input,
+        .get_input = get_game_input,
         .set_rumble = rush2::input::set_rumble,
         .get_connected_device_info = get_connected_device_info,
     };

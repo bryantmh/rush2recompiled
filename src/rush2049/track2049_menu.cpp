@@ -262,11 +262,15 @@ namespace {
         return (int32_t)MEM_W(0, (int32_t)option_count);
     }
 
+    // rush2::track2049::set_all_tracks_open: an online lobby's track select has every track this machine has.
+    std::atomic<bool> all_tracks_open = false;
+
     // Whether the track select offers track t (0-37): func_803AB01C's unlocks, the added tracks, and the stunt and
     // battle filter.
     bool track_selectable(uint8_t* rdram, int t) {
         bool unlocked;
-        if (t < 9) unlocked = true;
+        if (all_tracks_open) unlocked = t <= stunt_host_slot || entry_available(t);
+        else if (t < 9) unlocked = true;
         else if (t == 9) unlocked = rush2::unlocks::track_open(rdram, t, MEM_BU(0, (int32_t)pipe_unlocked) != 0);
         else if (t == 10) unlocked = rush2::unlocks::track_open(rdram, t, MEM_BU(0, (int32_t)atari_unlocked) != 0);
         else if (t == stunt_host_slot) unlocked = true;
@@ -1513,6 +1517,67 @@ extern "C" void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx) {
     rush2::ghost::set_chosen(kind == row_ghost);
     rush2::unlocks::set_shop_chosen(kind == row_unlocks);
     ctx->r10 = stock_row(kind);
+}
+
+static_assert((int)rush2::track2049::StartKind::Setup == row_setup);
+
+rush2::track2049::StartKind rush2::track2049::start_menu_kind(int row) {
+    return (StartKind)row_kind(row);
+}
+
+int rush2::track2049::start_menu_row(StartKind kind) {
+    std::vector<int> rows = mode_rows();
+    for (int row = 0; row < (int)rows.size(); row++) {
+        if (rows[row] == (int)kind) return row;
+    }
+    return -1;
+}
+
+void rush2::track2049::set_all_tracks_open(bool on) {
+    all_tracks_open = on;
+}
+
+std::string rush2::track2049::online_track_key(int t) {
+    std::lock_guard lock{ menu_mutex };
+    if (!is_mod_track(t) || !entry_available(t)) {
+        return {};
+    }
+    return rush2::track_mod::identity(t - mod_menu_id);
+}
+
+int rush2::track2049::track_for_online_key(const std::string& key) {
+    if (key.empty()) {
+        return -1;
+    }
+    std::lock_guard lock{ menu_mutex };
+    for (size_t i = 0; i < mod_ok.size(); i++) {
+        if (mod_ok[i] && rush2::track_mod::identity(int(i)) == key) {
+            return mod_menu_id + int(i);
+        }
+    }
+    return -1;
+}
+
+std::string rush2::track2049::mod_track_name(int t) {
+    if (!is_mod_track(t)) {
+        return {};
+    }
+    std::vector<rush2::track_mod::Entry> entries = rush2::track_mod::tracks();
+    size_t i = size_t(t - mod_menu_id);
+    return i < entries.size() ? entries[i].settings.name : std::string();
+}
+
+// The carousel array (table_data + 0x400, 0x1C bytes per entry, +0 the track (u8); func_803AB294 builds it) and its
+// count (s16 0x803D05AE).
+int rush2::track2049::carousel_index(uint8_t* rdram, int t) {
+    constexpr uint32_t carousel = table_data + 0x400;
+    constexpr uint32_t carousel_entry = 0x1C;
+    constexpr uint32_t carousel_count = 0x803D05AE;
+    int count = std::min<int>(MEM_H(0, (int32_t)carousel_count), menu_tracks);
+    for (int i = 0; i < count; i++) {
+        if (MEM_BU(0, (int32_t)(carousel + i * carousel_entry)) == t) return i;
+    }
+    return -1;
 }
 
 // func_803B12C8 at 0x803B15FC (the cursor wrapped above the first row; $t8 is the row it goes to) and 0x803B1654
