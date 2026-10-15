@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trackview</title>
+<!-- Trackview page: draws tools/trackview/bake.py output. See docs/custom_tracks.md#track-previewer -->
+<style>
+:root { --bg:#15171c; --panel:#1e2128; --line:#30343e; --text:#d8dce4; --dim:#8a919e; --accent:#5aa9ff;
+        --err:#ff5d5d; --warn:#ffc04d; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; display:flex; height:100vh; overflow:hidden; }
+#side { width:340px; min-width:340px; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:10px 12px; }
+#view { flex:1; position:relative; }
+canvas { display:block; }
+h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:14px 0 6px; }
+select, button { background:#2a2e37; color:var(--text); border:1px solid var(--line); border-radius:4px; padding:4px 8px; font:inherit; }
+button:hover { border-color:var(--accent); }
+select { width:100%; }
+.row { display:flex; gap:6px; align-items:center; margin:3px 0; }
+.row label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+.sw { width:12px; height:12px; border-radius:2px; display:inline-block; flex:none; }
+#report div { padding:4px 6px; border-left:3px solid var(--line); margin:3px 0; cursor:default; white-space:pre-wrap; word-break:break-word; }
+#report div.at { cursor:pointer; }
+#report div.at:hover { background:#272b33; }
+#report .error { border-color:var(--err); }
+#report .warning { border-color:var(--warn); }
+#report .info { color:var(--dim); }
+#grad { height:10px; border-radius:2px; margin:4px 0 2px; }
+.scale { display:flex; justify-content:space-between; color:var(--dim); font-size:11px; }
+#hud { position:absolute; left:10px; bottom:70px; background:rgba(20,22,27,.85); border:1px solid var(--line); border-radius:4px; padding:6px 9px; pointer-events:none; white-space:pre; font:12px/1.4 ui-monospace, monospace; display:none; }
+#status { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); color:var(--dim); font-size:15px; white-space:pre-wrap; max-width:70%; }
+#keys { position:absolute; right:10px; bottom:70px; color:var(--dim); font-size:11px; text-align:right; pointer-events:none; }
+.stat { color:var(--dim); font-size:12px; }
+button:disabled { opacity:.45; cursor:default; border-color:var(--line); }
+#timeline { position:absolute; left:0; right:0; bottom:0; background:rgba(24,26,32,.94); border-top:1px solid var(--line); padding:6px 12px 8px; }
+#timeline .row { margin:0; }
+#timeline:has(#replay[style*="none"]) { display:none; }
+#timeline button { min-width:34px; }
+#scrubwrap { position:relative; flex:1; height:22px; }
+#scrub { width:100%; margin:0; position:absolute; top:4px; }
+#marks { position:absolute; left:7px; right:7px; top:0; height:4px; pointer-events:none; }
+#marks .mark { position:absolute; width:2px; height:6px; top:-1px; }
+.mark.wreck, .ev.wreck { --c:var(--err); } .mark.stuck, .ev.stuck { --c:var(--warn); } .mark.finish, .ev.finish { --c:#5ddb6b; }
+.mark.respawn { --c:#5aa9ff; }
+#marks .mark { background:var(--c); }
+#time, #speed { font:12px ui-monospace, monospace; color:var(--dim); white-space:nowrap; }
+#cars table { width:100%; border-collapse:collapse; font-size:12px; }
+#cars th { text-align:left; color:var(--dim); font-weight:normal; padding:2px 4px; }
+#cars td { padding:2px 4px; border-top:1px solid var(--line); white-space:nowrap; }
+#cars tr[data-car] { cursor:pointer; } #cars tr[data-car]:hover { background:#272b33; } #cars tr.sel { background:#24344a; }
+#cars .sw { margin-right:5px; vertical-align:-1px; }
+#cars .st { color:var(--warn); }
+.bar { display:inline-block; height:8px; margin-right:2px; vertical-align:0; border-radius:1px; }
+.bar.thr { background:#5ddb6b; } .bar.brk { background:#ff5d5d; }
+#events { max-height:220px; overflow-y:auto; }
+.ev { padding:3px 6px; border-left:3px solid var(--c, var(--line)); margin:2px 0; cursor:pointer; font-size:12px; }
+.ev:hover { background:#272b33; } .ev .sw { margin-right:5px; vertical-align:-1px; }
+</style>
+</head>
+<body>
+<div id="side">
+  <div class="row"><select id="track"></select></div>
+  <div class="row"><button id="reload" title="Convert the track again from its files">Reload</button>
+    <button id="frame" title="Frame the whole track (F)">Frame</button>
+    <select id="dir" style="width:auto"><option value="forward">Forward</option><option value="backward">Backward</option></select></div>
+  <div class="stat" id="stats"></div>
+
+  <h2>Layers</h2>
+  <div id="layers"></div>
+
+  <h2>Racing line target speed</h2>
+  <div id="legend"></div>
+
+  <h2>Collision surfaces</h2>
+  <div id="surfaces"></div>
+
+  <h2>AI run</h2>
+  <div class="row"><button id="runai">Run AI</button><span class="stat" id="runstatus"></span></div>
+  <div id="cars"></div>
+  <h2>Race events</h2>
+  <div id="events"></div>
+
+  <h2>Converter report</h2>
+  <div id="report"></div>
+</div>
+<div id="view"><div id="status">Loading…</div><div id="hud"></div>
+  <div id="keys">drag: orbit · right drag: pan · wheel: zoom · click: inspect · F: frame<br>
+    space: play · J/L: rewind/fast forward · K: pause · ←/→: 2 s (shift 10 s) · ,/.: one tick · click a car row: follow</div>
+  <div id="timeline"><div id="replay" style="display:none"><div class="row">
+    <button id="tostart" title="To the start">⏮</button><button id="rew" title="Rewind, faster each press (J)">⏪</button>
+    <button id="play" title="Play / pause (space)">⏯</button><button id="ff" title="Fast forward, faster each press (L)">⏩</button>
+    <button id="toend" title="To the end">⏭</button>
+    <div id="scrubwrap"><div id="marks"></div><input type="range" id="scrub" min="0" max="10000" value="0"></div>
+    <span id="time"></span><span id="speed"></span><button id="unfollow" title="Stop following a car (Esc)">Free camera</button>
+  </div></div></div></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { createReplay } from './replay.js';
+
+const $ = id => document.getElementById(id);
+const FT = 3.2808399;
+const SPEED_MIN = 60, SPEED_MAX = 160;   // mph; stock lanes run 72-158
+const SURFACE_COLORS = { ROAD:'#7d8590', DIRT:'#a8743c', GRASS:'#4f9a3c', WALL:'#c4566a', WATER:'#3a7fd6', KILL:'#e0303a' };
+const CUSTOM_COLORS = ['#c58af9', '#e8c547', '#4fd1c5', '#f08a4b', '#8fb3ff', '#d36fb0', '#9ad35a', '#ff9eaa',
+                       '#6ee0ff', '#c9a26b', '#b0b0ff', '#7fe0a0'];
+const LAYERS = [ ['collision','Collision', true], ['visible','Track model (track.glb)', false],
+  ['spine','AI spine', true], ['lane0','Racing line 1 (outer)', true], ['lane1','Racing line 2', true],
+  ['lane2','Racing line 3', true], ['lane3','Racing line 4 (outer)', true], ['arrows','Race direction', true],
+  ['gates','Checkpoint gates', true], ['crossings','Where lines cross gates', true], ['marks','Report positions', true],
+  ['cars','Cars (replay)', true], ['trails','Car trails', true] ];
+
+const store = { get(k, d) { try { const v = localStorage.getItem('trackview.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+                set(k, v) { try { localStorage.setItem('trackview.' + k, JSON.stringify(v)); } catch {} } };
+
+// ---- scene -------------------------------------------------------------------------------------------------
+const view = $('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+view.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#15171c');
+const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 20000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.screenSpacePanning = false;
+
+// The point the camera orbits, shown while the camera moves (drag, pan, zoom) and briefly after: three axes and a dot,
+// drawn over everything at a constant size on screen.
+const pivot = new THREE.Group();
+for (const [axis, color] of [[[1, 0, 0], '#ff5d5d'], [[0, 1, 0], '#5ddb6b'], [[0, 0, 1], '#4dc3ff']]) {
+  const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...axis).multiplyScalar(-1), new THREE.Vector3(...axis)]);
+  pivot.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true })));
+}
+pivot.add(new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshBasicMaterial({ color: '#ffffff', depthTest: false, transparent: true })));
+pivot.traverse(o => { o.renderOrder = 20; });
+pivot.visible = false;
+scene.add(pivot);
+let pivotMoving = new URLSearchParams(location.search).has('pivot'), pivotUntil = 0;   // ?pivot: always shown (screenshots)
+controls.addEventListener('start', () => { pivotMoving = true; });
+controls.addEventListener('end', () => { pivotMoving = false; pivotUntil = performance.now() + 500; });
+controls.addEventListener('change', () => { if (!pivotMoving) pivotUntil = Math.max(pivotUntil, performance.now() + 500); });
+function updatePivot() {
+  const left = pivotMoving ? 1 : Math.min(1, (pivotUntil - performance.now()) / 250);
+  pivot.visible = left > 0;
+  if (!pivot.visible) return;
+  pivot.position.copy(controls.target);
+  pivot.scale.setScalar(camera.position.distanceTo(controls.target) * 0.05);
+  pivot.traverse(o => { if (o.material) o.material.opacity = left; });
+}
+scene.add(new THREE.HemisphereLight('#dfe8ff', '#3a3226', 1.6));
+const sun = new THREE.DirectionalLight('#ffffff', 1.4);
+sun.position.set(0.4, 1, 0.3);
+scene.add(sun);
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+const groups = {};
+for (const [k] of LAYERS) { groups[k] = new THREE.Group(); scene.add(groups[k]); }
+let layerOn = Object.assign(Object.fromEntries(LAYERS.map(([k, , d]) => [k, d])), store.get('layers', {}));
+// ?show=a,b&hide=c overrides the saved layers (for links and scripted screenshots)
+for (const [key, on] of [['show', true], ['hide', false]])
+  for (const k of (new URLSearchParams(location.search).get(key) || '').split(',')) if (k in layerOn) layerOn[k] = on;
+let surfaceOn = {};
+let data = null, folder = null, glbFor = null, bounds = null;
+const pickables = [];   // {pts: Vector3[], label, info(i)}
+const replay = createReplay({ scene, camera, controls, groups, $, store });
+
+function speedColor(mph) {
+  const t = Math.min(1, Math.max(0, (mph - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)));
+  return new THREE.Color().setHSL(0.0 + t * 0.55, 0.85, 0.55);   // red (slow) to cyan (fast)
+}
+const v3 = a => new THREE.Vector3(a[0], a[1], a[2]);
+const blender = p => `(${p.x.toFixed(1)}, ${(-p.z).toFixed(1)}, ${p.y.toFixed(1)})`;
+const LIFT = 0.25;   // meters lines are drawn above the collision they sit on
+
+function clear(g) {
+  for (const o of [...g.children]) {
+    g.remove(o);
+    o.traverse(c => { c.geometry?.dispose(); if (c.material) [].concat(c.material).forEach(m => { m.map?.dispose(); m.dispose(); }); });
+  }
+}
+
+// ---- building ----------------------------------------------------------------------------------------------
+function buildCollision() {
+  clear(groups.collision);
+  const c = data.collision;
+  const per = c.surfaces.map(() => []);
+  for (let t = 0; t < c.surf.length; t++) per[c.surf[t]].push(...c.pos.slice(t * 9, t * 9 + 9));
+  let custom = 0;
+  c.surfaces.forEach((s, i) => {
+    s.color = s.kind === 'custom' ? CUSTOM_COLORS[custom++ % CUSTOM_COLORS.length] : (SURFACE_COLORS[s.name] || '#999');
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(per[i], 3));
+    g.computeVertexNormals();
+    const wall = s.name === 'WALL';
+    const m = new THREE.MeshLambertMaterial({ color: s.color, side: THREE.DoubleSide, transparent: wall, opacity: wall ? 0.22 : 1,
+                                              depthWrite: !wall, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.userData.surface = s.name;
+    mesh.visible = surfaceOn[s.name] !== false;
+    groups.collision.add(mesh);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(g, 20), new THREE.LineBasicMaterial({ color: '#000', transparent: true, opacity: 0.18 }));
+    mesh.add(edges);
+  });
+  g_bounds();
+  $('surfaces').innerHTML = '';
+  for (const s of c.surfaces) {
+    const n = c.surf.filter(x => x === c.surfaces.indexOf(s)).length;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<label><input type="checkbox" ${surfaceOn[s.name] !== false ? 'checked' : ''}><span class="sw" style="background:${s.color}"></span>${s.name}${s.kind === 'custom' ? ' (custom)' : ''}</label><span class="stat">${n} tris</span>`;
+    row.querySelector('input').onchange = e => {
+      surfaceOn[s.name] = e.target.checked;
+      groups.collision.children.forEach(m => { if (m.userData.surface === s.name) m.visible = e.target.checked; });
+    };
+    $('surfaces').append(row);
+  }
+}
+
+function g_bounds() {
+  bounds = new THREE.Box3().setFromObject(groups.collision);
+  if (bounds.isEmpty()) bounds.setFromPoints(data[dirKey()].spine.map(v3));
+}
+
+function line(pts, colors, opts = {}) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap(p => [p.x, p.y + LIFT, p.z]), 3));
+  if (colors) g.setAttribute('color', new THREE.Float32BufferAttribute(colors.flatMap(c => [c.r, c.g, c.b]), 3));
+  return new (opts.loop ? THREE.LineLoop : THREE.Line)(g, new THREE.LineBasicMaterial({ vertexColors: !!colors, color: opts.color || '#fff', depthTest: opts.depthTest ?? true }));
+}
+
+function textSprite(text, color) {
+  const cv = document.createElement('canvas');
+  const ctx = cv.getContext('2d');
+  ctx.font = 'bold 44px system-ui';
+  cv.width = Math.ceil(ctx.measureText(text).width) + 24; cv.height = 60;
+  ctx.font = 'bold 44px system-ui';
+  ctx.fillStyle = 'rgba(15,17,22,.8)'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = color; ctx.textBaseline = 'middle'; ctx.fillText(text, 12, 32);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: false }));
+  s.scale.set(cv.width / cv.height * 0.028, 0.028, 1);
+  s.renderOrder = 10;
+  return s;
+}
+
+function dirKey() { return $('dir').value === 'backward' && data.backward ? 'backward' : 'forward'; }
+
+function buildPath() {
+  for (const k of ['spine', 'lane0', 'lane1', 'lane2', 'lane3', 'arrows', 'gates', 'crossings']) clear(groups[k]);
+  pickables.length = 0;
+  const p = data[dirKey()];
+  const spine = p.spine.map(v3);
+  // distance along the spine, for the inspector
+  const along = [0];
+  for (let i = 1; i < spine.length; i++) along.push(along[i - 1] + spine[i].distanceTo(spine[i - 1]));
+  groups.spine.add(line(spine, null, { color: '#ffffff', loop: true }));
+  pickables.push({ group: 'spine', pts: spine, info: i => `AI spine point ${i} of ${spine.length}\n${along[i].toFixed(0)} m (${(along[i] * FT).toFixed(0)} ft) from the start` });
+  p.lanes.forEach((ln, li) => {
+    const pts = ln.pts.map(v3);
+    const cols = ln.pts.map((_, i) => speedColor(ln.speed[i]));
+    groups['lane' + li].add(line(pts, cols, { loop: true }));
+    const pm = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts.map(q => q.clone().setY(q.y + LIFT))),
+                                new THREE.PointsMaterial({ size: 3, sizeAttenuation: false, vertexColors: true }));
+    pm.geometry.setAttribute('color', new THREE.Float32BufferAttribute(cols.flatMap(c => [c.r, c.g, c.b]), 3));
+    groups['lane' + li].add(pm);
+    pickables.push({ group: 'lane' + li, pts, info: i => {
+      return `Racing line ${li + 1}, point ${i} of ${pts.length}\ntarget ${ln.speed[i]} mph (${(ln.speed[i] * 88 / 60).toFixed(0)} ft/s)`; } });
+  });
+  // race direction: cones along the spine about every 40 m
+  const cone = new THREE.ConeGeometry(2.2, 7, 12).rotateX(Math.PI / 2);
+  const coneMat = new THREE.MeshBasicMaterial({ color: '#f2f5ff' });
+  let next = 0;
+  for (let i = 0; i < spine.length; i++) {
+    if (along[i] < next) continue;
+    next = along[i] + 40;
+    const a = spine[i], b = spine[(i + 1) % spine.length];
+    const m = new THREE.Mesh(cone, coneMat);
+    m.position.copy(a).setY(a.y + 3.5);
+    m.lookAt(b.x, b.y + 3.5, b.z);
+    groups.arrows.add(m);
+  }
+  // gates
+  const up = new THREE.Vector3(0, 1, 0);
+  p.checkpoints.forEach((c, ci) => {
+    const pos = v3(c.pos), dir = v3(c.dir).normalize();
+    const finish = c.flags & 1;
+    // the backward path holds the same gates in reverse race order: label them by their Blender names
+    const n = p.checkpoints.length;
+    const name = finish ? 'FINISH' : 'CHECKPOINT_' + (dirKey() === 'backward' ? n - ci : ci);
+    const color = finish ? '#ffffff' : '#ffd24d';
+    const lat = new THREE.Vector3().crossVectors(up, dir).normalize();
+    const w = Math.min(c.radius, 500);
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(w * 2, 9), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false }));
+    quad.position.copy(pos).setY(pos.y + 4.5);
+    quad.lookAt(pos.clone().add(dir).setY(pos.y + 4.5));
+    groups.gates.add(quad);
+    const edge = line([pos.clone().addScaledVector(lat, -w), pos.clone().addScaledVector(lat, w)], null, { color });
+    groups.gates.add(edge);
+    groups.gates.add(new THREE.ArrowHelper(dir, pos.clone().setY(pos.y + 9), 18, color, 6, 4));
+    const label = textSprite(name, color);
+    label.position.copy(pos).setY(pos.y + 12);
+    groups.gates.add(label);
+    // crossings: spine (white) and each lane (its index)
+    const ball = new THREE.SphereGeometry(0.9, 10, 8);
+    c.cross.forEach((idx, k) => {
+      const pts = k === 0 ? spine : p.lanes[k - 1].pts.map(v3);
+      if (idx < 0 || idx >= pts.length) return;
+      const m = new THREE.Mesh(ball, new THREE.MeshBasicMaterial({ color: k === 0 ? '#ffffff' : ['#ff6b6b', '#ffb36b', '#6bd5ff', '#b28bff'][k - 1] }));
+      m.position.copy(pts[idx]).setY(pts[idx].y + LIFT + 0.5);
+      groups.crossings.add(m);
+    });
+    pickables.push({ group: 'gates', pts: [pos], info: () => `${name}${ci ? ', gate ' + ci + ' of ' + (n - 1) + ' in race order' : ''}\nhalf width ${c.radius.toFixed(1)} m (${(c.radius * FT).toFixed(0)} ft)\n` +
+      `crossed at spine point ${c.cross[0]}, lines ${c.cross.slice(1).join(', ')}\n${c.dist.toFixed(0)} m to the next gate along the spine` });
+  });
+  legend();
+  stats();
+}
+
+function buildMarks() {
+  clear(groups.marks);
+  $('report').innerHTML = '';
+  const rank = { error: 0, warning: 1, info: 2 };
+  for (const m of [...data.report].sort((a, b) => rank[a.level] - rank[b.level])) {
+    const d = document.createElement('div');
+    d.className = m.level + (m.at.length ? ' at' : '');
+    d.textContent = m.text;
+    if (m.at.length) d.onclick = () => focusOn(v3(m.at[0]), 60);
+    $('report').append(d);
+    m.at.forEach(a => {
+      const pin = new THREE.Mesh(new THREE.OctahedronGeometry(4), new THREE.MeshBasicMaterial({ color: m.level === 'error' ? '#ff5d5d' : m.level === 'warning' ? '#ffc04d' : '#5aa9ff' }));
+      pin.position.set(a[0], a[1] + 10, a[2]);
+      groups.marks.add(pin);
+      const stem = line([new THREE.Vector3(a[0], a[1], a[2]), new THREE.Vector3(a[0], a[1] + 10, a[2])], null, { color: '#ffc04d' });
+      groups.marks.add(stem);
+      pickables.push({ group: 'marks', pts: [new THREE.Vector3(a[0], a[1], a[2])], info: () => m.text });
+    });
+  }
+}
+
+function legend() {
+  const stops = [0, .25, .5, .75, 1].map(t => `#${speedColor(SPEED_MIN + t * (SPEED_MAX - SPEED_MIN)).getHexString()} ${t * 100}%`);
+  $('legend').innerHTML = `<div id="grad" style="background:linear-gradient(90deg, ${stops.join(',')})"></div>
+    <div class="scale"><span>${SPEED_MIN} mph</span><span>${(SPEED_MIN + SPEED_MAX) / 2}</span><span>${SPEED_MAX} mph</span></div>`;
+}
+
+function stats() {
+  const p = data[dirKey()], c = data.collision;
+  let len = 0;
+  for (let i = 0; i < p.spine.length; i++) len += v3(p.spine[i]).distanceTo(v3(p.spine[(i + 1) % p.spine.length]));
+  const sp = p.lanes.flatMap(l => l.speed);
+  $('stats').textContent = `${c.polys} collision polygons · ${p.spine.length} path points · lap ${(len / 1000).toFixed(2)} km · ` +
+    `${p.checkpoints.length - 1} checkpoints · speeds ${Math.min(...sp)}-${Math.max(...sp)} mph`;
+}
+
+async function buildVisible() {
+  if (!layerOn.visible || glbFor === folder) return;
+  glbFor = folder;
+  clear(groups.visible);
+  status('Loading track.glb…');
+  try {
+    const gltf = await new GLTFLoader().loadAsync('/glb?folder=' + encodeURIComponent(folder));
+    if (glbFor !== folder) return;
+    // what the game draws: not the collision, AI path or markers
+    gltf.scene.traverse(o => { if (/^(COL_|AIPATH|AISPEED_|FINISH|CHECKPOINT_|START_)/.test(o.name)) o.visible = false; });
+    groups.visible.add(gltf.scene);
+    status('');
+  } catch (e) { status('track.glb failed to load: ' + e.message); glbFor = null; }
+}
+
+// ---- interaction -------------------------------------------------------------------------------------------
+function applyLayers() {
+  for (const [k] of LAYERS) groups[k].visible = !!layerOn[k];
+  store.set('layers', layerOn);
+  buildVisible();
+}
+
+function layerUI() {
+  $('layers').innerHTML = '';
+  for (const [k, label] of LAYERS) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<label><input type="checkbox" ${layerOn[k] ? 'checked' : ''}>${label}</label>`;
+    row.querySelector('input').onchange = e => { layerOn[k] = e.target.checked; applyLayers(); };
+    $('layers').append(row);
+  }
+}
+
+function frameAll() {
+  if (!bounds || bounds.isEmpty()) return;
+  const c = bounds.getCenter(new THREE.Vector3()), s = bounds.getSize(new THREE.Vector3());
+  const r = s.length() / 2 / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 0.8;
+  controls.target.copy(c);
+  camera.position.copy(c).add(new THREE.Vector3(0.3, 1, 0.55).setLength(r));
+  camera.far = r * 10;
+  camera.updateProjectionMatrix();
+}
+
+function focusOn(p, dist) {
+  const off = camera.position.clone().sub(controls.target).setLength(dist);
+  controls.target.copy(p);
+  camera.position.copy(p).add(off);
+}
+
+function status(t) { $('status').textContent = t; $('status').style.display = t ? '' : 'none'; }
+
+const ray = new THREE.Raycaster();
+function pick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  camera.updateMatrixWorld();
+  scene.updateMatrixWorld();
+  let best = null, bestD = 12;   // pixels
+  const v = new THREE.Vector3();
+  for (const pk of pickables) {
+    if (!groups[pk.group].visible) continue;
+    pk.pts.forEach((p, i) => {
+      v.copy(p).project(camera);
+      if (v.z > 1) return;
+      const d = Math.hypot((v.x + 1) / 2 * r.width - mx, (1 - v.y) / 2 * r.height - my);
+      if (d < bestD) { bestD = d; best = { pk, i, p }; }
+    });
+  }
+  let text = '';
+  if (best) text = best.pk.info(best.i) + '\nBlender ' + blender(best.p);
+  else if (groups.collision.visible) {
+    ray.setFromCamera(new THREE.Vector2(mx / r.width * 2 - 1, -(my / r.height) * 2 + 1), camera);
+    const hit = ray.intersectObjects(groups.collision.children.filter(m => m.visible && m.isMesh), false)[0];
+    if (hit) text = `Surface ${hit.object.userData.surface}\nBlender ${blender(hit.point)}`;
+  }
+  $('hud').textContent = text;
+  $('hud').style.display = text ? 'block' : 'none';
+}
+let down = null;
+renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) < 4 && e.button === 0) pick(e);
+  down = null;
+});
+window.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') frameAll(); });
+$('frame').onclick = frameAll;
+$('dir').onchange = () => { buildPath(); applyLayers(); };
+$('track').onchange = () => { location.hash = $('track').value; };
+$('reload').onclick = () => load(folder, true);
+window.addEventListener('hashchange', () => load(decodeURIComponent(location.hash.slice(1))));
+
+async function load(f, force = false) {
+  if (!f) return;
+  const first = folder !== f;
+  folder = f;
+  $('track').value = f;
+  status(force ? 'Converting…' : 'Loading…');
+  const res = await fetch(`/bake?folder=${encodeURIComponent(f)}${force ? '&force=1' : ''}`).then(r => r.json());
+  if (folder !== f) return;
+  data = res;
+  if (res.error || !res.collision) {
+    for (const g of Object.values(groups)) clear(g);
+    $('report').innerHTML = '';
+    if (res.report) { data.report = res.report; buildMarks(); }
+    status('Conversion failed.\n' + (res.error || res.console || 'See the report.'));
+    return;
+  }
+  status('');
+  surfaceOn = {};
+  buildCollision();
+  buildPath();
+  buildMarks();
+  if (force) glbFor = null;
+  applyLayers();
+  if (first) { frameAll(); replay.setTrack(f); }
+  $('hud').style.display = 'none';
+  // ?click=x,y inspects that page pixel once loaded (scripted screenshots)
+  const click = new URLSearchParams(location.search).get('click');
+  if (click && first) { controls.update(); const [x, y] = click.split(',').map(Number); pick({ clientX: x, clientY: y }); }
+}
+
+async function init() {
+  if (new URLSearchParams(location.search).get('dir') === 'backward') $('dir').value = 'backward';
+  layerUI();
+  const list = await fetch('/tracks').then(r => r.json());
+  const byGroup = {};
+  for (const t of list) (byGroup[t.group] ??= []).push(t);
+  for (const [g, ts] of Object.entries(byGroup)) {
+    const og = document.createElement('optgroup');
+    og.label = g;
+    for (const t of ts) og.append(new Option(t.name, t.folder.replace(/\\/g, '/')));
+    $('track').append(og);
+  }
+  if (!list.length) return status('No tracks found. Pass --track <folder>.');
+  const want = decodeURIComponent(location.hash.slice(1));
+  load([...$('track').options].some(o => o.value === want) ? want : $('track').options[0].value);
+}
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => { replay.frame(Math.min(clock.getDelta(), 0.1)); controls.update(); updatePivot(); renderer.render(scene, camera); });
+init();
+</script>
+</body>
+</html>

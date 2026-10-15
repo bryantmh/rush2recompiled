@@ -66,6 +66,7 @@
 #include "collectibles.h"
 #include "dl_copy.h"
 #include "ghost.h"
+#include "sim_run.h"
 #include "ghost_logic.h"
 #include "rush2_hooks.h"
 #include "track1.h"
@@ -1139,10 +1140,13 @@ extern "C" void rush2_ghost_tick_end(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_8006F3C0 (car against car) at 0x8006F434: $t9 = the testing car's ($s3) collision flag; 0 skips its tests.
+// A simulation run's parked player 1 (src/sim_run.cpp) is out of every car-against-car test too, so computer cars
+// lapping the grid drive through it.
 extern "C" void rush2_ghost_collide_self(uint8_t* rdram, recomp_context* ctx) {
     for (const Racer& r : racers) {
         if (r.car >= 0 && (uint32_t)ctx->r19 == car_addr(r.car)) ctx->r25 = 0;
     }
+    if (rush2::sim::parked(rdram, (uint32_t)ctx->r19)) ctx->r25 = 0;
 }
 
 // func_8006F3C0 at 0x8006F470: $t1 = whether the other car ($s2) is in the race; 0 skips it.
@@ -1150,6 +1154,7 @@ extern "C" void rush2_ghost_collide_other(uint8_t* rdram, recomp_context* ctx) {
     for (const Racer& r : racers) {
         if (r.car >= 0 && (uint32_t)ctx->r18 == car_addr(r.car)) ctx->r9 = 0;
     }
+    if (rush2::sim::parked(rdram, (uint32_t)ctx->r18)) ctx->r9 = 0;
 }
 
 // func_800A1468 at 0x800A1674: $ra = the number of race cars (0x8010C15A) about to be ranked. The ghosts, the last

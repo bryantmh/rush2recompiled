@@ -670,6 +670,14 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     if (test_track != nullptr && track_selectable(rdram, std::atoi(test_track))) {
         t = std::atoi(test_track);
     }
+    // RUSH2_TEST_MOD_FOLDER=<folder> does the same for the custom track of that folder (tools/trackview's AI runs).
+    static const char* test_folder = std::getenv("RUSH2_TEST_MOD_FOLDER");
+    if (test_folder != nullptr) {
+        std::vector<rush2::track_mod::Entry> mods = rush2::track_mod::tracks();
+        for (size_t i = 0; i < mods.size(); i++) {
+            if (mods[i].folder == test_folder && track_selectable(rdram, mod_menu_id + int(i))) t = mod_menu_id + int(i);
+        }
+    }
     if (t >= 0) {
         MEM_B(0, (int32_t)track_id) = uint8_t(t);
         MEM_H(0, (int32_t)shown_track) = int16_t(t);

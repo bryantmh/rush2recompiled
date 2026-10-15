@@ -129,6 +129,8 @@ Rush 2's four (`func_8006CF00`, `func_8006F704`, `func_8006FC94`, `func_8008BDC0
   (17-bit offsets): 444 found, 6 that 2049's leaf answers with a surface nearer in height (its leaf lists the floor:
   checked offline).
 - Leaves stay at most 29 polygons (file 139), inside the queries' u16[36] stack buffers (`func_8006FC94` has 40).
+- Custom tracks (`src/track_mod/track_mod_convert.cpp`) cap leaves at 36 for the same buffers; up to 255 crashed the
+  stock Alcatraz export in `func_8006FC94`'s query (docs/custom_tracks.md).
 
 ### POLY, 0x18 bytes **[V layout]**
 

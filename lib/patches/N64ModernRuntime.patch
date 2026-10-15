@@ -348,11 +348,136 @@ index 2f22456..982c103 100644
          });
  
          NLOHMANN_JSON_SERIALIZE_ENUM(ultramodern::renderer::HighPrecisionFramebuffer, {
+diff --git a/ultramodern/include/ultramodern/ultramodern.hpp b/ultramodern/include/ultramodern/ultramodern.hpp
+index 3b28af3..96f61b0 100644
+--- a/ultramodern/include/ultramodern/ultramodern.hpp
++++ b/ultramodern/include/ultramodern/ultramodern.hpp
+@@ -87,6 +87,14 @@ std::chrono::high_resolution_clock::duration time_since_start();
+ void measure_input_latency();
+ void sleep_milliseconds(uint32_t millis);
+ void sleep_until(const std::chrono::high_resolution_clock::time_point& time_point);
++// Turbo (Rush 2 recomp: headless simulation runs): the game's clocks (osGetCount, osGetTime, timers, VIs) follow a
++// virtual clock that the VI thread steps one VI at a time, as soon as the game has gone idle after the last one (the
++// idle thread's pause_self found no game thread to run and no message to deliver: turbo_idle), and the gfx thread
++// skips rendering and presenting. Once on it stays on for the process.
++void set_turbo();
++bool is_turbo();
++void turbo_idle();
++bool external_messages_pending();
+ 
+ // Graphics
+ uint32_t get_target_framerate(uint32_t original);
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
-index 090cc42..db553f3 100644
+index 090cc42..38d324f 100644
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
-@@ -306,6 +306,7 @@ uint32_t ultramodern::get_target_framerate(uint32_t original) {
+@@ -1,3 +1,5 @@
++#include <algorithm>
++#include <condition_variable>
+ #include <thread>
+ #include <atomic>
+ #include <chrono>
+@@ -179,6 +181,27 @@ extern moodycamel::LightweightSemaphore graphics_shutdown_ready;
+ 
+ void set_dummy_vi(bool odd);
+ 
++// Turbo (see ultramodern.hpp): how many times the game has gone idle, and the count when the last VI was sent.
++void turbo_set_time(int64_t micros);
++static std::atomic<uint64_t> turbo_idles{ 0 };
++static uint64_t turbo_idles_at_vi = 0;
++static std::mutex turbo_mutex;
++static std::condition_variable turbo_cv;
++
++void ultramodern::turbo_idle() {
++    turbo_idles.fetch_add(1, std::memory_order_acq_rel);
++    turbo_cv.notify_one();
++}
++
++// Blocks until the game has gone idle since the last VI (every game thread has done its work and waits), or 50 ms
++// pass (a game waiting on a timer or the RSP goes idle without finishing; the next VI lets it carry on).
++static void turbo_wait_ready() {
++    using namespace std::chrono_literals;
++    std::unique_lock lock{ turbo_mutex };
++    turbo_cv.wait_for(lock, 50ms, [] { return turbo_idles.load(std::memory_order_acquire) > turbo_idles_at_vi; });
++    turbo_idles_at_vi = turbo_idles.load(std::memory_order_acquire);
++}
++
+ void vi_thread_func() {
+     ultramodern::set_native_thread_name("VI Thread");
+     // This thread should be prioritized over every other thread in the application, as it's what allows
+@@ -189,29 +212,38 @@ void vi_thread_func() {
+     int remaining_retraces = 1;
+ 
+     while (!exited) {
+-        // Determine the next VI time (more accurate than adding 16ms each VI interrupt)
+-        auto next = ultramodern::get_start() + (total_vis * 1000000us) / (60 * ultramodern::get_speed_multiplier());
+-        //if (next > std::chrono::high_resolution_clock::now()) {
+-        //    printf("Sleeping for %" PRIu64 " us to get from %" PRIu64 " us to %" PRIu64 " us \n",
+-        //        (next - std::chrono::high_resolution_clock::now()) / 1us,
+-        //        (std::chrono::high_resolution_clock::now() - events_context.start) / 1us,
+-        //        (next - events_context.start) / 1us);
+-        //} else {
+-        //    printf("No need to sleep\n");
+-        //}
+-        // Detect if there's more than a second to wait and wait a fixed amount instead for the next VI if so, as that usually means the system clock went back in time.
+-        if (std::chrono::floor<std::chrono::seconds>(next - std::chrono::high_resolution_clock::now()) > 1s) {
+-            // printf("Skipping the next VI wait\n");
+-            next = std::chrono::high_resolution_clock::now();
++        bool turbo = ultramodern::is_turbo();
++        if (turbo) {
++            // The next VI as soon as the game is ready for it, 1/60 s later in virtual time.
++            turbo_wait_ready();
++            total_vis++;
++            turbo_set_time(int64_t(total_vis * 1000000 / 60));
+         }
+-        ultramodern::sleep_until(next);
+-        auto time_now = ultramodern::time_since_start();
+-        // Calculate how many VIs have passed
+-        uint64_t new_total_vis = (time_now * (60 * ultramodern::get_speed_multiplier()) / 1000ms) + 1;
+-        if (new_total_vis > total_vis + 1) {
+-            //printf("Skipped % " PRId64 " frames in VI interupt thread!\n", new_total_vis - total_vis - 1);
++        else {
++            // Determine the next VI time (more accurate than adding 16ms each VI interrupt)
++            auto next = ultramodern::get_start() + (total_vis * 1000000us) / (60 * ultramodern::get_speed_multiplier());
++            //if (next > std::chrono::high_resolution_clock::now()) {
++            //    printf("Sleeping for %" PRIu64 " us to get from %" PRIu64 " us to %" PRIu64 " us \n",
++            //        (next - std::chrono::high_resolution_clock::now()) / 1us,
++            //        (std::chrono::high_resolution_clock::now() - events_context.start) / 1us,
++            //        (next - events_context.start) / 1us);
++            //} else {
++            //    printf("No need to sleep\n");
++            //}
++            // Detect if there's more than a second to wait and wait a fixed amount instead for the next VI if so, as that usually means the system clock went back in time.
++            if (std::chrono::floor<std::chrono::seconds>(next - std::chrono::high_resolution_clock::now()) > 1s) {
++                // printf("Skipping the next VI wait\n");
++                next = std::chrono::high_resolution_clock::now();
++            }
++            ultramodern::sleep_until(next);
++            auto time_now = ultramodern::time_since_start();
++            // Calculate how many VIs have passed
++            uint64_t new_total_vis = (time_now * (60 * ultramodern::get_speed_multiplier()) / 1000ms) + 1;
++            if (new_total_vis > total_vis + 1) {
++                //printf("Skipped % " PRId64 " frames in VI interupt thread!\n", new_total_vis - total_vis - 1);
++            }
++            total_vis = new_total_vis;
+         }
+-        total_vis = new_total_vis;
+ 
+         // If the game hasn't started yet, set a dummy VI mode and origin.
+         if (!ultramodern::is_game_started()) {
+@@ -224,7 +256,10 @@ void vi_thread_func() {
+ 
+         // Queue a screen update for the graphics thread with the current VI register state.
+         // Doing this before the VI update is equivalent to updating the screen after the previous frame's scanout finished.
+-        events_context.action_queue.enqueue(ScreenUpdateAction{ events_context.vi.regs });
++        // Turbo shows nothing.
++        if (!turbo) {
++            events_context.action_queue.enqueue(ScreenUpdateAction{ events_context.vi.regs });
++        }
+ 
+         // Update VI registers and swap VI modes.
+         events_context.vi.update_vi();
+@@ -306,6 +341,7 @@ uint32_t ultramodern::get_target_framerate(uint32_t original) {
          case ultramodern::renderer::RefreshRate::Manual:
              return config.rr_manual_value;
          case ultramodern::renderer::RefreshRate::Display:
@@ -360,7 +485,7 @@ index 090cc42..db553f3 100644
              return display_refresh_rate.load();
      }
  }
-@@ -325,6 +326,10 @@ void ultramodern::trigger_config_action() {
+@@ -325,6 +361,10 @@ void ultramodern::trigger_config_action() {
  std::atomic<ultramodern::renderer::SetupResult> renderer_setup_result = ultramodern::renderer::SetupResult::Success;
  std::atomic<ultramodern::renderer::GraphicsApi> renderer_chosen_api = ultramodern::renderer::GraphicsApi::Auto;
  
@@ -371,13 +496,133 @@ index 090cc42..db553f3 100644
  void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_ready, ultramodern::renderer::WindowHandle window_handle) {
      bool enabled_instant_present = false;
      using namespace std::chrono_literals;
-@@ -370,7 +375,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -370,7 +410,11 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  ultramodern::extensions::on_displaylist_submitted(displaylist);
  
                  [[maybe_unused]] auto renderer_start = std::chrono::high_resolution_clock::now();
+-                renderer_context->send_dl(&task_action->task);
 +                if (ultramodern::displaylist_profile_mark != nullptr) ultramodern::displaylist_profile_mark(1);
-                 renderer_context->send_dl(&task_action->task);
++                if (!ultramodern::is_turbo()) { // turbo draws nothing
++                    renderer_context->send_dl(&task_action->task);
++                }
 +                if (ultramodern::displaylist_profile_mark != nullptr) ultramodern::displaylist_profile_mark(0);
                  [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
  
                  dp_complete();
+diff --git a/ultramodern/src/mesgqueue.cpp b/ultramodern/src/mesgqueue.cpp
+index 961de3d..987f0e2 100644
+--- a/ultramodern/src/mesgqueue.cpp
++++ b/ultramodern/src/mesgqueue.cpp
+@@ -33,6 +33,10 @@ void dequeue_external_messages(RDRAM_ARG1) {
+     }
+ }
+ 
++bool ultramodern::external_messages_pending() {
++    return external_messages.size_approx() != 0;
++}
++
+ void ultramodern::wait_for_external_message(RDRAM_ARG1) {
+     QueuedMessage to_send;
+     external_messages.wait_dequeue(to_send);
+diff --git a/ultramodern/src/scheduling.cpp b/ultramodern/src/scheduling.cpp
+index a22f747..7fce0b9 100644
+--- a/ultramodern/src/scheduling.cpp
++++ b/ultramodern/src/scheduling.cpp
+@@ -31,6 +31,10 @@ void ultramodern::check_running_queue(RDRAM_ARG1) {
+ 
+ extern "C" void pause_self(RDRAM_ARG1) {
+     while (true) {
++        // The idle thread: no game thread can run. With no message waiting either, turbo may send the next VI.
++        if (ultramodern::is_turbo() && !ultramodern::external_messages_pending()) {
++            ultramodern::turbo_idle();
++        }
+         // Wait until an external message arrives, then allow the next thread to run.
+         ultramodern::wait_for_external_message(PASS_RDRAM1);
+         ultramodern::check_running_queue(PASS_RDRAM1);
+diff --git a/ultramodern/src/timer.cpp b/ultramodern/src/timer.cpp
+index 276301b..bb02c5a 100644
+--- a/ultramodern/src/timer.cpp
++++ b/ultramodern/src/timer.cpp
+@@ -1,3 +1,4 @@
++#include <atomic>
+ #include <thread>
+ #include <variant>
+ #include <set>
+@@ -19,6 +20,33 @@ static int64_t ostime_offset = 0;
+ constexpr uint32_t speed_multiplier = 1;
+ // N64 CPU counter ticks per millisecond
+ constexpr uint32_t counter_per_ms = 46'875 * speed_multiplier;
++// Turbo (see ultramodern.hpp): the virtual time since start, in microseconds, that the VI thread steps.
++static std::atomic<bool> turbo_on{ false };
++static std::atomic<int64_t> turbo_micros{ 0 };
++
++// Time since start that the game's clocks run on: real time, or the virtual time in turbo.
++static std::chrono::high_resolution_clock::duration elapsed() {
++    if (turbo_on.load(std::memory_order_acquire)) {
++        return std::chrono::microseconds(turbo_micros.load(std::memory_order_acquire));
++    }
++    return std::chrono::high_resolution_clock::now() - start_time;
++}
++
++void ultramodern::set_turbo() {
++    if (!turbo_on.load()) {
++        turbo_micros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_time).count();
++        turbo_on.store(true, std::memory_order_release);
++    }
++}
++
++bool ultramodern::is_turbo() {
++    return turbo_on.load(std::memory_order_acquire);
++}
++
++// Called by the VI thread in turbo after each VI: the virtual time it is now.
++void turbo_set_time(int64_t micros) {
++    turbo_micros.store(micros, std::memory_order_release);
++}
+ 
+ struct OSTimer {
+     PTR(OSTimer) unused1;
+@@ -63,7 +91,7 @@ std::chrono::high_resolution_clock::time_point ticks_to_timepoint(uint64_t ticks
+ }
+ 
+ uint64_t time_now() {
+-    return duration_to_ticks(std::chrono::high_resolution_clock::now() - start_time);
++    return duration_to_ticks(elapsed());
+ }
+ 
+ void timer_thread(RDRAM_ARG1) {
+@@ -120,6 +148,15 @@ void timer_thread(RDRAM_ARG1) {
+         // Determine how long to wait to reach the timer's timestamp
+         auto wait_duration = ticks_to_timepoint(cur_timer->timestamp) - std::chrono::high_resolution_clock::now();
+ 
++        // In turbo the timestamp is in virtual time, which runs faster than real time: wait a millisecond at most and
++        // look again.
++        bool turbo = ultramodern::is_turbo();
++        if (turbo) {
++            using namespace std::chrono_literals;
++            wait_duration = time_now() >= cur_timer->timestamp ? std::chrono::high_resolution_clock::duration{ -1 } :
++                std::chrono::high_resolution_clock::duration{ 1ms };
++        }
++
+         // Wait for either the duration to complete or a new action to come through
+         if (wait_duration.count() >= 0 && timer_context.action_queue.wait_dequeue_timed(cur_action, wait_duration)) {
+             // Timer was interrupted by a new action 
+@@ -128,6 +165,9 @@ void timer_thread(RDRAM_ARG1) {
+             // Process the new action
+             process_timer_action(cur_action);
+         }
++        else if (turbo && time_now() < cur_timer->timestamp) {
++            active_timers.insert(cur_timer_);
++        }
+         else {
+             // Waiting for the timer completed, so send the timer's message to its message queue
+             ultramodern::enqueue_external_message(cur_timer->mq, cur_timer->msg, false, true);
+@@ -154,7 +194,7 @@ std::chrono::high_resolution_clock::time_point ultramodern::get_start() {
+ }
+ 
+ std::chrono::high_resolution_clock::duration ultramodern::time_since_start() {
+-    return std::chrono::high_resolution_clock::now() - start_time;
++    return elapsed();
+ }
+ 
+ extern "C" u32 osGetCount() {

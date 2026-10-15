@@ -20,6 +20,7 @@ found and what is wrong (see [Checking your track](#checking-your-track)), so re
 - [Textures](#textures)
 - [Checking your track](#checking-your-track)
 - [Size limits](#size-limits)
+- [Previewing your track](#previewing-your-track)
 - [How custom tracks race](#how-custom-tracks-race)
 - [Not supported yet](#not-supported-yet)
 - [For developers](#for-developers)
@@ -282,6 +283,57 @@ menu. The report covers, among other things:
 | Checkpoints | 9 | The game has 10 gates including the finish line. |
 | Custom surfaces | 12 | The collision format's surface slots. |
 | Custom tracks | 26 across all enabled mods | Track select slots. |
+## Previewing your track
+
+Trackview shows your track in a web browser the way the game will load it. You don't have to start the game or drive
+there to see it.
+
+![Trackview showing a converted track](images/trackview.png)
+
+It shows:
+
+- the collision, colored by surface (road, dirt, grass, walls, kill and water, and your own surfaces), each of which
+  you can hide
+- the AI path: its center line with arrows for the race direction, and the four racing lines colored by the speed
+  the computer cars aim for
+- the finish line and checkpoints, and where each racing line crosses them
+- the converter's report, with each place it mentions marked on the track
+- the backward race (pick Backward)
+
+Click any point for its details (a racing line point's target speed, its Blender coordinates). Drag to orbit, right
+drag to pan, scroll to zoom, F to frame the track; while you move the camera a small cross marks the point it turns
+around.
+
+**Run AI** races the computer cars around your track in the real game. The race runs hidden and as fast as your PC
+manages: a three-lap race takes about half a minute. The game uses its own settings and save for it, so nothing
+you've set or saved is touched. Then watch the race: play, pause, rewind and fast forward on the timeline, follow a
+car by clicking it in the car list, and jump to wrecks, respawns, lap times and cars that got stuck from the event
+list.
+
+### Installing it
+
+Trackview comes with the game's source code, not the release download. You need:
+
+- a copy of this repository with the game built (see [BUILDING.md](BUILDING.md)); the Rush 2 ROM in `build/` is all
+  Run AI needs
+- [Python](https://www.python.org/downloads/) 3.12 or newer, with no extra packages
+- the Visual Studio Build Tools from the build guide (trackview builds the track converter with them the first time)
+- Edge, Chrome or Firefox, online the first time the page loads (it fetches three.js)
+
+### Starting it
+
+From the repository's folder:
+
+```
+python tools/trackview/server.py --track "C:\path\to\your mod\rush2\tracks\my_track"
+```
+
+Your browser opens on the page (`http://127.0.0.1:8766`). Pick a track at the top left. Besides `--track` folders
+(give it more than once for several), it lists the tracks of the mods in `build/mods/`. After a new export press
+Reload. Close the command window to stop it.
+
+How it works inside is in [Track previewer](#track-previewer) and [Race replays](#race-replays).
+
 
 Vertex counts per object, the number of objects or materials, and name lengths don't matter: the converter splits,
 merges and renames as needed.
@@ -365,7 +417,16 @@ merges and renames as needed.
 - **Collision:** `build_collision` keeps each face's normal (no flipping), merges flat same-surface neighbours into
   convex polygons of up to 8 vertices, and builds the quadtree Rush 2's way; past 64 KB of leaves it builds the tagged
   form the 2049 port reads (splits toward zero, 17-bit leaf offsets, root byte +2 = 0x80 | size bits 16-22:
-  `src/rush2049/track2049_collision.cpp`).
+  `src/rush2049/track2049_collision.cpp`). A leaf holds at most 36 polygons (`max_leaf`): the game's queries copy a
+  leaf into an unchecked u16[36] stack buffer, and a longer one overwrites the callers' locals
+  (docs/rush2049_research/collision.md). With leaves of up to 255 the stock Alcatraz export had cells of 70, and a
+  computer car's wall query (`car_wall_collision_query_8006FC94`) about 35 s into a race got its saved point pointer
+  (sp+0x15C) overwritten by polygon numbers and crashed in `collision_poly_point_test_8006C670` (until 2026-10-15).
+  A cell lists the polygons whose x/z outline (not box: a long diagonal strip's box covers far more than the strip,
+  and stacked boxes on pipes and terraced slopes crowded single spots past 36) comes within 1 ft of it, walls within
+  6 ft (the wall query reaches 5 ft past the car) unless that crowds the cell past 36. A cell past 36 splits below
+  `min_cell` until it fits; one that never does fails with "too dense". `tools/rush2049/collision.py` validation
+  flags leaves past 36.
 - **Reading the ribbon:** `read_ribbon` builds the rungs from the mesh's shape, never the order its vertices are
   stored in. Blender's glTF export of a cyclic curve stores the first rung's two vertices twice each (the UV seam: u
   wraps 1 to 0), so pairing stored vertices two at a time read a 0 m first rung and failed every cyclic curve with
@@ -395,4 +456,68 @@ merges and renames as needed.
 - **Testing:** `tools/track_mod_test.bat <track folder> <out folder>` converts a track outside the game, and
   `tools/track_mod_check.py <out folder>` checks the result. In game, `RUSH2_TEST_TRACK=38` opens the track select on
   the first custom track, `RUSH2_TEST_MOD_TRACK=<n>` races custom track n in place of HAWAII, and
-  `RUSH2_TEST_BACKWARD=1` races backward.
+  `RUSH2_TEST_BACKWARD=1` races backward. `RUSH2_TEST_MOD_FOLDER=<folder>` opens the track select on the custom track
+  of that folder instead (`src/rush2049/track2049_menu.cpp`).
+
+### Track previewer
+
+`python tools/trackview/server.py` opens a browser preview of every track folder under `build/mods/*/tracks/` and
+`tmp/stock_tracks/` (`--track <folder>` adds others; `.rtz` mods must be unzipped). `tools/trackview/bake.py` runs the
+converter outside the game (`tmp/track_mod_test/track_mod_test.exe`, rebuilt through `tools/track_mod_test.bat` when
+its sources are newer) and reads its output with `tools/rush2049/collision.py` and `paths.py`, so the page shows what
+the game loads, not the glb: collision colored by surface (custom surfaces named from the report's `Surface COL_<NAME>
+... (slot n)` lines), the spine with race-direction cones, the four lanes colored by target speed, the gates with
+their stored crossings (spine and each lane; -1 falls back to `paths.recompute`), the backward path (backward gate i
+is forward gate n - i, labeled by its Blender name), and the report with each quoted position pinned. Clicking a
+point shows its index, target speed and Blender coordinates. While the camera moves, a small three-axis marker shows
+the point it orbits. Results are cached in `tmp/trackview/`, keyed on track.glb, track.toml, the converter exe and
+bake.py; Reload converts again. The page works in glTF meters (game = (-x, y, z) x 3.2808399 ft), so track.glb draws
+over it as is. `?show=a,b&hide=c`, `?dir=backward`, `?click=x,y` and `?pivot` set layers, the path, an inspector click
+and the orbit marker from the URL, for headless screenshots
+(`msedge --headless=new --use-angle=swiftshader --virtual-time-budget=20000 --screenshot=...`).
+
+### Race replays
+
+The previewer's **Run AI** races the track headless in the real game, about 50 times faster than real time (a 7-minute
+Wario Stadium race takes about 30 s, 20 of them the menus), and replays it. `tools/trackview/runs.py` starts
+`build/Rush2Recompiled.exe` as a simulation run (`src/sim_run.cpp`, `RUSH2_SIM=1`):
+
+- **Its own data folder** (`RUSH2_DATA_DIR` = `tmp/trackview/sim_data/`, registered as the config path in main): the
+  run starts from default settings and a fresh save, so nothing the player has set (cheats, options, opponents,
+  unlocks) changes it, and it never writes to the player's data. Before each run its settings, saves and mod configs
+  are deleted (its `track_cache` and other caches are kept), the ROMs are hard-linked in from `build/`, and its only
+  mod, `trackview`, is generated with `tracks/<folder>` a directory junction to the track folder, so any track folder
+  the viewer lists can be raced.
+- **No window, no sound, no real input:** the window is created hidden, audio isn't queued, and only the menu input
+  script (`8:START,11:A,13:A,22:A,25:A,27:A,32:A`, `RUSH2_TEST_MOD_FOLDER=<folder>` picking the track,
+  `RUSH2_TEST_CAR=0`, `RUSH2_TEST_BACKWARD=1` for the backward path) reaches the game.
+- **Turbo** from the race's first physics tick (`lib/patches/N64ModernRuntime.patch`, `ultramodern::set_turbo`): the
+  game's clocks (osGetCount, osGetTime, timers, VIs) run on a virtual clock that the VI thread steps 1/60 s at a time,
+  as soon as the game has gone idle after the last VI (the idle thread's `pause_self` finds no game thread to run and
+  no message waiting: `ultramodern::turbo_idle`), and the gfx thread skips rendering and presenting. Game threads run
+  one at a time by N64 priority, so pacing on the physics tick alone starved the game thread (the countdown never
+  ended). Rush 2's physics steps a fixed 1/60 s per VI, so the race is the one real time would give. The script's
+  presses stop once turbo is on. `RUSH2_SIM_TURBO=0` runs the same race in real time.
+- **Race rules:** the time limit is off (the No Race Timer cheat flag, 0x800D9E88 = 1). Player 1 is parked at the
+  back of the grid and kept out of it: no stuck reset (`rush2_track49_stuck_timer`, which would otherwise put it back
+  further along the course every few seconds) and no car-against-car tests (`rush2_ghost_collide_self` / `_other`).
+  The computer cars keep every rule of the base game, their stuck resets and catch-up included.
+
+`src/race_record.cpp` records from the end of every physics tick (`physics_tick_80076578` at 0x8007660C, the hook
+`src/ghost.cpp` steps its ghosts from): per car its drawn pose (car state 0x801124A0 + car x 0x354: position +0,
+velocity +0xC, orientation rows up +0x30 and forward +0x3C), speed (+0x3D4), steering, throttle and brake (+0x728,
++0x734, +0x730), laps (+0x7FD), next checkpoint (+0x7FE), place (state +0xE9), finished (+0xEA), wreck state
+(+0x342), respawn glide (+0x6C8) and the physics clock of its last step (+0x714). The file's layout is in the source's
+header comment. The recording ends once every computer car (+0x7E8 = 1) has finished or gone a minute without reaching
+a new checkpoint, or the race ends, writing `<file>.done` (ticks, why, finish times); a sim run then exits. Only the
+latest run of a track is kept: `tmp/trackview/runs/<folder>.r2rc`. `python tools/trackview/rec_dump.py <file>` prints
+one as text.
+
+The page (`tools/trackview/static/replay.js`) draws the cars as boxes with trails and plays the recording on its
+physics clock: play/pause, rewind and fast forward from 1x to 32x, a scrubber marked with wrecks (red), stuck spells
+(yellow: a computer car under 15 ft/s for 3 s while racing) and finishes (green), and single ticks. Drones are stepped
+every other physics tick (round robin) and the car state publishes a step's pose a tick after the step's clock moves,
+so each car is interpolated between the ticks where its pose changes, at the step times recorded with them, and snaps
+across a jump of more than 20 m (a respawn). The car table shows each car's place, lap, speed, throttle and brake;
+clicking a row follows that car, and clicking an event jumps to 2 s before it. `?seek=<s>&follow=<car>` opens the
+recording there.

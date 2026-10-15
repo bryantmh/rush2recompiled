@@ -44,7 +44,12 @@ namespace {
     constexpr float spine_step = 20.0f;         // ft between AI path points (the stock files' spacing)
     constexpr int max_checkpoints = 9;          // 10 checkpoint records, the finish line one of them
     constexpr int leaf_limit = 12;              // polygons per quadtree leaf before it splits
-    constexpr int min_cell = 32;                // ft: smallest quadtree cell
+    constexpr int min_cell = 32;                // ft: smallest quadtree cell for leaf_limit
+    // The game's collision queries copy a leaf into an unchecked u16[36] stack buffer (func_8006CF00, func_8006F704,
+    // func_8008BDC0; func_8006FC94 has 40): a longer leaf overwrites the callers' locals, e.g. func_8006FC94's saved
+    // point pointer at sp+0x15C, crashing in func_8006C670 (docs/rush2049_research/collision.md). Rush 2's own tracks
+    // reach 34. A leaf past this splits below min_cell until it fits.
+    constexpr int max_leaf = 36;
 
     // Render state of Rush 2's own track sections (most common in HAWAII's lists).
     constexpr uint32_t mode_opaque = 0xC8112230;   // fog, then AA z-buffered opaque surface
@@ -303,6 +308,7 @@ namespace {
         Vec3 v0;                            // origin (world)
         std::vector<Vec3> l;                // the other vertices, local (y = 0)
         float x0, x1, z0, z1;
+        std::vector<std::array<float, 2>> xz;   // world x/z outline (convex), for the quadtree's cell test
     };
 
     void encode_vert(std::vector<uint8_t>& d, const Vec3& v) {
@@ -402,6 +408,7 @@ namespace {
             p.v0 = v[0];
             p.x0 = p.x1 = v[0][0];
             p.z0 = p.z1 = v[0][2];
+            for (const Vec3& w : v) p.xz.push_back({ w[0], w[2] });
             for (size_t k = 1; k < v.size(); k++) {
                 Vec3 d = sub(v[k], v[0]);
                 p.l.push_back(Vec3{ mq[0] * d[0] + mq[1] * d[1] + mq[2] * d[2], 0.0f, mq[6] * d[0] + mq[7] * d[1] + mq[8] * d[2] });
@@ -459,9 +466,30 @@ namespace {
             leaf_at[raw] = off;
             return off;
         };
-        auto overlaps = [&](const BuiltPoly& p, int x0, int x1, int z0, int z1) {
-            // Inclusive and a foot wide: the game's cell is floor(x) (and x - 0.99 for negatives).
-            return p.x1 >= x0 - 1 && p.x0 <= x1 + 1 && p.z1 >= z0 - 1 && p.z0 <= z1 + 1;
+        auto overlaps = [&](const BuiltPoly& p, int x0, int x1, int z0, int z1, bool wide = true) {
+            // Inclusive and a foot wide: the game's cell is floor(x) (and x - 0.99 for negatives). Walls also reach
+            // the wall query's 5 ft (func_8006FC94's 0x144($sp)) past the cell, so a car at its edge still meets them
+            // (the stock files list polygons well past their cells), unless that crowds a cell past max_leaf.
+            float m = wide && ((p.flags & 0xF) == 5 || (p.flags & 0xF) == 6) ? 6.0f : 1.0f;
+            float rx0 = float(x0) - m, rx1 = float(x1) + m, rz0 = float(z0) - m, rz1 = float(z1) + m;
+            if (p.x1 < rx0 || p.x0 > rx1 || p.z1 < rz0 || p.z0 > rz1) return false;
+            // The polygon itself, not just its box (separating axes of its x/z outline): a long diagonal strip's box
+            // covers far more cells than the strip, and the stacked boxes of a pipe or a terraced slope would
+            // otherwise crowd one cell past max_leaf where the stock files, which list polygons this way, stay under.
+            const auto& o = p.xz;
+            for (size_t k = 0; k < o.size(); k++) {
+                const auto &a = o[k], &b = o[(k + 1) % o.size()];
+                float nx = b[1] - a[1], nz = a[0] - b[0];
+                if (nx * nx + nz * nz < 1e-8f) continue;
+                float pmin = 1e30f, pmax = -1e30f;
+                for (const auto& w : o) { float d = nx * w[0] + nz * w[1]; pmin = std::min(pmin, d); pmax = std::max(pmax, d); }
+                float rmin = 1e30f, rmax = -1e30f;
+                for (float cx : { rx0, rx1 }) for (float cz : { rz0, rz1 }) {
+                    float d = nx * cx + nz * cz; rmin = std::min(rmin, d); rmax = std::max(rmax, d);
+                }
+                if (rmax < pmin - 1e-3f || rmin > pmax + 1e-3f) return false;
+            }
+            return true;
         };
         size_t biggest = 0;
         std::function<int(int, int, int, int, int, const std::vector<int>&)> make_node =
@@ -474,14 +502,19 @@ namespace {
                 int cz0 = (q & 2) ? z0 : mz, cz1 = (q & 2) ? mz : z1;
                 std::vector<int> sub_list;
                 for (int i : list) if (overlaps(polys[i], cx0, cx1, cz0, cz1)) sub_list.push_back(i);
-                bool split = (int)sub_list.size() > leaf_limit && cx1 - cx0 > min_cell && cz1 - cz0 > min_cell;
+                bool split = ((int)sub_list.size() > leaf_limit && cx1 - cx0 > min_cell && cz1 - cz0 > min_cell) ||
+                             ((int)sub_list.size() > max_leaf && cx1 - cx0 > 4 && cz1 - cz0 > 4);
                 if (split) {
                     int child = make_node(me, cx0, cx1, cz0, cz1, sub_list);
                     nodes[me].mask |= uint8_t(1 << q);
                     nodes[me].child[q] = uint16_t(child);
                 }
                 else {
-                    if (sub_list.size() > 255) sub_list.resize(255), overflow = crowded = true;
+                    if ((int)sub_list.size() > max_leaf) {
+                        sub_list.clear();
+                        for (int i : list) if (overlaps(polys[i], cx0, cx1, cz0, cz1, false)) sub_list.push_back(i);
+                    }
+                    if ((int)sub_list.size() > max_leaf) sub_list.resize(max_leaf), overflow = crowded = true;
                     biggest = std::max(biggest, sub_list.size());
                     uint32_t off = encode_leaf(sub_list);
                     nodes[me].child[q] = uint16_t(off);
@@ -507,7 +540,7 @@ namespace {
             tagged = true;
         }
         if (overflow || nodes.size() > 0x7FFF) {
-            report.error("The collision is too dense for the game's collision index (over 8 MB of cell lists, or over 255 "
+            report.error("The collision is too dense for the game's collision index (over 8 MB of cell lists, or over 36 "
                          "polygons in one small spot). Simplify the COL_* meshes.");
             return false;
         }

@@ -62,6 +62,7 @@
 #include "car2049.h"
 #include "rush2049_rom.h"
 #include "track_mod_runtime.h"
+#include "sim_run.h"
 #include "wings.h"
 
 using rush2::track2049::host_slot;
@@ -732,9 +733,10 @@ extern "C" void rush2_track49_obstacle_clock(uint8_t* rdram, recomp_context* ctx
 // func_8008CDA4 at 0x8008D014, for car $s0 that hasn't fallen below y -190: about to run the stuck timer (+0x7F8, the
 // time the car became slow; 0 = not slow), which resets the car once it has been slow for 6 s. Rush 2049 skips that
 // timer for its stunt, obstacle and battle types (0x800CF830): clearing the start time each frame keeps it from
-// running. Rush 2's stunt mode skips it already.
+// running. Rush 2's stunt mode skips it already. A simulation run's parked player 1 isn't reset either
+// (src/sim_run.cpp).
 extern "C" void rush2_track49_stuck_timer(uint8_t* rdram, recomp_context* ctx) {
-    if (rush2::track2049::stuck_reset_off(rdram)) {
+    if (rush2::track2049::stuck_reset_off(rdram) || rush2::sim::parked(rdram, (uint32_t)ctx->r16)) {
         MEM_W(0, (int32_t)((uint32_t)ctx->r16 + 0x7F8)) = 0;
     }
 }

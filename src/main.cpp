@@ -54,6 +54,7 @@
 #include "track_mod_runtime.h"
 #include "car_engines.h"
 #include "steam_input_filter.h"
+#include "sim_run.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -130,6 +131,9 @@ SDL_Window* window;
 
 ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::gfx_data_t) {
     uint32_t flags = SDL_WINDOW_RESIZABLE;
+    if (rush2::sim::active()) {
+        flags |= SDL_WINDOW_HIDDEN; // a simulation run shows nothing (src/sim_run.cpp)
+    }
 
 #if defined(__APPLE__)
     flags |= SDL_WINDOW_METAL;
@@ -216,6 +220,9 @@ static uint32_t discarded_output_frames;
 constexpr uint32_t bytes_per_frame = input_channels * sizeof(float);
 
 void queue_samples(int16_t* audio_data, size_t sample_count) {
+    if (rush2::sim::active()) {
+        return; // a simulation run is silent, and in turbo makes audio far faster than it plays
+    }
     static std::vector<float> swap_buffer;
     static std::array<float, duplicated_input_frames * input_channels> duplicated_sample_buffer;
 
@@ -478,12 +485,17 @@ static void parse_input_script(const std::string& script) {
 }
 
 static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
-    bool ret = rush2::input::get_n64_input(controller_num, buttons, x, y);
+    // A simulation run takes only the script's presses, on a player 1 that is always connected (src/sim_run.cpp).
+    bool ret = rush2::sim::active() ? controller_num == 0 : rush2::input::get_n64_input(controller_num, buttons, x, y);
+    if (rush2::sim::active()) {
+        *buttons = 0;
+        *x = *y = 0.0f;
+    }
     // A port the script presses on is a connected controller from the start, so the game doesn't pause for it.
     if (controller_num >= 0 && controller_num < 4 && script_uses_controller[controller_num]) {
         ret = true;
     }
-    if (!input_script.empty()) {
+    if (!input_script.empty() && !ultramodern::is_turbo()) { // in turbo a press would last seconds of race time
         double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - launch_time).count();
         for (const auto& press : input_script) {
             if (press.controller == controller_num && now >= press.time && now < press.time + press.duration) {
@@ -590,8 +602,16 @@ int main(int argc, char** argv) {
 
     recompui::register_primary_font("InterVariable.ttf", "Inter Variable");
 
-    rush2::data_location::apply_pending_move();
-    recomp::register_config_path(recompui::file::get_app_folder_path());
+    if (!rush2::sim::data_dir().empty()) {
+        // A simulation run keeps its own settings and save (src/sim_run.cpp), and never moves the player's data.
+        std::error_code ec;
+        std::filesystem::create_directories(rush2::sim::data_dir(), ec);
+        recomp::register_config_path(rush2::sim::data_dir());
+    }
+    else {
+        rush2::data_location::apply_pending_move();
+        recomp::register_config_path(recompui::file::get_app_folder_path());
+    }
     rush2::data_files::migrate();
     rush2::install_font_pack();
 

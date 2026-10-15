@@ -224,6 +224,8 @@ class Collision:
                 errs.append('leaf 0x%X runs past section' % off)
             if len(polys) != raw[0]:
                 errs.append('leaf 0x%X count mismatch' % off)
+            if self.game == R2 and len(polys) > 36:   # overflows the queries' u16[36] stack buffers (func_8008BDC0)
+                errs.append('leaf 0x%X has %d polygons (the game holds 36)' % (off, len(polys)))
             for p in polys:
                 if p >= n_poly:
                     errs.append('leaf 0x%X poly %d out of range' % (off, p))

@@ -11491,7 +11491,7 @@ text = "    if (rush2_ghost_drive(rdram, ctx) || rush2_battle_ai_drive(rdram, ct
 [[patches.hook]]
 func = "physics_tick_80076578"
 before_vram = 0x8007660C
-text = "    rush2_ghost_tick_end(rdram, ctx); rush2_battle_ai_tick_end(rdram, ctx);"
+text = "    rush2_ghost_tick_end(rdram, ctx); rush2_battle_ai_tick_end(rdram, ctx); rush2_race_record_tick(rdram, ctx);"
 
 [[patches.hook]]
 func = "car_collide_with_cars_8006F3C0"

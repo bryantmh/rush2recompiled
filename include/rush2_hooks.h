@@ -384,6 +384,8 @@ void rush2_ghost_tick_end(uint8_t* rdram, recomp_context* ctx);
 int rush2_battle_ai_drive(uint8_t* rdram, recomp_context* ctx);
 int rush2_battle_ai_car_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_battle_ai_tick_end(uint8_t* rdram, recomp_context* ctx);
+// Race recorder for tools/trackview (src/race_record.cpp, RUSH2_RACE_RECORD).
+void rush2_race_record_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_collide_self(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_collide_other(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_standings(uint8_t* rdram, recomp_context* ctx);
