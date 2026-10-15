@@ -634,6 +634,7 @@ static void path_race_time(uint8_t* rdram) {
 }
 
 // func_80093048 at 0x80093298 (see path_race_time). A race with the track select's BATTLE row (rush2::battle::race_battle_applies)
+// gets half as much time again: the start time and every checkpoint's extensions times 1.5 (fights cost time).
 // Entry of func_80092BC4 (spine, $a0 = checkpoint) and func_80092884 (lane, $a0 = checkpoint, $a1 = lane 0-3), which
 // func_80092D6C calls at path load and stores into the header copy's checkpoint +0x22 slots. A custom track's path file
 // (0x800D575C) already holds its crossings there, worked out by the converter from its markers in 3D (src/track_mod/
@@ -661,7 +662,6 @@ extern "C" bool rush2_mod_checkpoint_crossing(uint8_t* rdram, recomp_context* ct
     return true;
 }
 
-// gets half as much time again: the start time and every checkpoint's extensions times 1.5 (fights cost time).
 extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     path_race_time(rdram);
     if (!rush2::battle::race_battle_applies(rdram)) return;
@@ -1067,23 +1067,6 @@ extern "C" void rush2_trackmod_wheel_fallback(uint8_t* rdram, recomp_context* ct
 extern "C" void car_engine_torque_lookup_80070A78(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
-    float surface_coefficient(uint8_t* rdram, uint32_t car, float stock) {
-        float sum = 0.0f;
-        for (int wheel = 2; wheel < 4; wheel++) {
-            int slot = custom_slot(rdram, car, wheel);
-            sum += slot >= 0 ? -*mod_drag[size_t(slot)] : stock;
-        }
-        return sum * 0.5f;
-    }
-}
-
-extern "C" void rush2_trackmod_drag_dirt(uint8_t* rdram, recomp_context* ctx) {
-    ctx->f10.fl = surface_coefficient(rdram, (uint32_t)ctx->r16, ctx->f10.fl);
-}
-
-extern "C" void rush2_trackmod_drag_grass(uint8_t* rdram, recomp_context* ctx) {
-    ctx->f8.fl = surface_coefficient(rdram, (uint32_t)ctx->r16, ctx->f8.fl);
-}
     float f32_at(uint8_t* rdram, uint32_t addr) {
         int32_t bits = MEM_W(0, (int32_t)addr);
         float value;
@@ -1105,6 +1088,14 @@ extern "C" void rush2_trackmod_drag_grass(uint8_t* rdram, recomp_context* ctx) {
     // wheels are on (0x800C1A30 / 0x800C1A34: -10 / -15), about to be multiplied by 1 - the off-road factor and the
     // forward speed and added to the longitudinal force (+0x54). Rear wheels on a custom surface take its -drag, the
     // average when the two wheels are on different ones.
+    float surface_coefficient(uint8_t* rdram, uint32_t car, float stock) {
+        float sum = 0.0f;
+        for (int wheel = 2; wheel < 4; wheel++) {
+            int slot = custom_slot(rdram, car, wheel);
+            sum += slot >= 0 ? -*mod_drag[size_t(slot)] : stock;
+        }
+        return sum * 0.5f;
+    }
 
     // func_80070DB8 (engine torque) with both rear wheels on dirt or grass (types at +0x604 / +0x608) above 40 rad/s
     // of wheel speed (+0x3D4) uses the off-road torque: the common torque map (+0x400) x descriptor +0xC4, in place of
@@ -1146,6 +1137,15 @@ extern "C" void rush2_trackmod_drag_grass(uint8_t* rdram, recomp_context* ctx) {
         MEM_W(0x14, (int32_t)sp) = outgoing[1];
         return offroad * weight + road * (1.0f - weight);
     }
+}
+
+extern "C" void rush2_trackmod_drag_dirt(uint8_t* rdram, recomp_context* ctx) {
+    ctx->f10.fl = surface_coefficient(rdram, (uint32_t)ctx->r16, ctx->f10.fl);
+}
+
+extern "C" void rush2_trackmod_drag_grass(uint8_t* rdram, recomp_context* ctx) {
+    ctx->f8.fl = surface_coefficient(rdram, (uint32_t)ctx->r16, ctx->f8.fl);
+}
 
 extern "C" void rush2_trackmod_torque_dirt(uint8_t* rdram, recomp_context* ctx) {
     ctx->f6.fl = surface_torque(rdram, ctx, ctx->f6.fl);

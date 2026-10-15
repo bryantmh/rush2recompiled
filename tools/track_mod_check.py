@@ -55,6 +55,12 @@ def main(outdir):
     problems += ['collision: ' + e for e in errs[:20]]
     print('collision: %d polys, %d nodes, %d leaves, validate %s' % (len(c.polys), len(c.nodes), len(c.leaves),
                                                                       'OK' if not errs else '%d problems' % len(errs)))
+    # Surfaces: polygon count per flags value (type = low 4 bits, material slot = bits 4-7).
+    census = {}
+    for poly in c.polys:
+        census[poly['flags']] = census.get(poly['flags'], 0) + 1
+    print('  surfaces: ' + ', '.join('flags 0x%04X (type %d, material %d) x%d' % (f, f & 0xF, (f >> 4) & 0xF, n)
+                                     for f, n in sorted(census.items())))
 
     p = paths.parse(open(os.path.join(outdir, 'path.bin'), 'rb').read())
     print('path: %d checkpoints, spine %d, lanes %s, ends at %d of %d bytes' % (

@@ -140,6 +140,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/texture_derive.cpp
     ${CMAKE_SOURCE_DIR}/src/body_sheet.cpp
     ${CMAKE_SOURCE_DIR}/src/car_mods.cpp
+    ${CMAKE_SOURCE_DIR}/src/car_probes.cpp
+    ${CMAKE_SOURCE_DIR}/src/car_probes_bake.cpp
     ${CMAKE_SOURCE_DIR}/src/gltf_scene.cpp
     ${CMAKE_SOURCE_DIR}/src/track_mod/track_mod.cpp
     ${CMAKE_SOURCE_DIR}/src/track_mod/track_mod_convert.cpp
@@ -162,9 +164,9 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/steam_input_filter.cpp
     ${CMAKE_SOURCE_DIR}/src/circuit.cpp
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
+    ${CMAKE_SOURCE_DIR}/src/paint_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/game_fixes.cpp
     ${CMAKE_SOURCE_DIR}/src/games_tab.cpp
-    ${CMAKE_SOURCE_DIR}/src/paint_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/options_page.cpp
     ${CMAKE_SOURCE_DIR}/src/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/src/assets.cpp

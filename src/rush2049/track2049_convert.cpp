@@ -1629,6 +1629,7 @@ namespace {
     };
 
     struct Collision {
+        std::vector<int> mover_polys;     // The polygon of each MOVER record.
         std::vector<const uint8_t*> segs;
         std::vector<CNode> nodes;
         std::vector<CPoly> polys;
@@ -1756,6 +1757,7 @@ namespace {
         // MOVER: u16 object id, u16 poly, s16 rest matrix[9], u16 vertex, u8 rest vertex[8]. Dropped: the moving
         // polygons stay at their rest pose.
         for (size_t i = 0; i < n_mover; i++, o += mover_size) {
+            c.mover_polys.push_back(u16(data, o + 2));
             if (u16(data, o + 2) >= n_poly) {
                 fail("collision: mover " + std::to_string(i) + " polygon out of range");
             }
@@ -2156,8 +2158,11 @@ namespace {
 
     // Every solid polygon of a Rush 2049 collision file as world triangles, 9 floats each (the battle arenas'
     // projectiles are swept against them, src/rush2049/battle.cpp). Type 0xF polygons (disabled movers) are left out.
-    std::vector<float> solid_triangles(const Bytes& collision_2049) {
-        Collision c;
+    // polys: also each triangle's polygon index; parsed: the file parsed (its MOVER records' polygons).
+    std::vector<float> solid_triangles(const Bytes& collision_2049, std::vector<int>* polys = nullptr,
+                                       Collision* parsed = nullptr) {
+        Collision local;
+        Collision& c = parsed ? *parsed : local;
         parse_collision49(collision_2049, c);
         auto vertex = [&](int k, double* out) {
             const uint8_t* r = c.verts.at((size_t)k);
@@ -2189,6 +2194,9 @@ namespace {
                     for (int a = 0; a < 3; a++) {
                         out.push_back((float)w[k][a]);
                     }
+                }
+                if (polys) {
+                    polys->push_back(int(&p - c.polys.data()));
                 }
             }
         }
@@ -3045,6 +3053,87 @@ bool rush2::track2049::convert_parts(const rush2::rom2049::Source& rom, const st
                 centers[i] = { (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2 };
             }
         }
+    }
+    return true;
+}
+
+bool rush2::track2049::car_light_table(const std::vector<uint8_t>& main, int k, std::vector<uint32_t>& colours,
+                                       uint32_t& air) {
+    constexpr uint32_t light_tables = 0x8011AF90;   // Per track, a pointer to its colour table
+    constexpr uint32_t light_air = 0x8011B468;      // Per track, the s32 table index used in the air
+    auto word = [&](uint32_t vram, uint32_t& out) {
+        uint32_t o = vram - rush2::rom2049::main_vram;
+        if (vram < rush2::rom2049::main_vram || o + 4 > main.size()) return false;
+        out = (uint32_t(main[o]) << 24) | (uint32_t(main[o + 1]) << 16) | (uint32_t(main[o + 2]) << 8) | main[o + 3];
+        return true;
+    };
+    uint32_t table = 0, air_index = 0;
+    if (k < 1 || !word(light_tables + (k - 1) * 4, table) || !word(light_air + (k - 1) * 4, air_index)) {
+        return false;
+    }
+    std::vector<uint32_t> out(32);
+    for (uint32_t i = 0; i < 32; i++) {
+        if (!word(table + i * 4, out[i])) return false;
+    }
+    colours = std::move(out);
+    air = colours[air_index & 31];
+    return true;
+}
+
+bool rush2::track2049::car_light_paint(const rush2::rom2049::Source& rom, int k, std::vector<float>& tris,
+                                       std::vector<uint32_t>& colours, uint32_t* base) {
+    tris.clear();
+    colours.clear();
+    auto main = rom.segment(rush2::rom2049::Segment::Main);
+    Bytes collision;
+    std::vector<uint32_t> table;
+    uint32_t air;
+    if (main == nullptr || !rom.read_file(138 + k, collision) || !car_light_table(*main, k, table, air)) {
+        return false;
+    }
+    try {
+        Collision c;
+        std::vector<int> polys;
+        std::vector<float> all = solid_triangles(collision, &polys, &c);
+        std::set<int> movers(c.mover_polys.begin(), c.mover_polys.end());
+        std::vector<std::pair<float, uint32_t>> floors;   // Area of each upward triangle, its colour
+        for (size_t t = 0; t < polys.size(); t++) {
+            const CPoly& p = c.polys[polys[t]];
+            uint32_t index = (p.info & 0xF800) >> 11;
+            if ((p.info & 0x30) || movers.contains(polys[t])) {
+                continue;
+            }
+            const float* v = &all[t * 9];
+            float e1[3] = { v[3] - v[0], v[4] - v[1], v[5] - v[2] }, e2[3] = { v[6] - v[0], v[7] - v[1], v[8] - v[2] };
+            float n[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+            float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (len > 0 && std::fabs(n[1]) / len > 0.7f) {
+                floors.push_back({ 0.5f * len, table[index] });
+            }
+            if (index == 0) {
+                continue;
+            }
+            tris.insert(tris.end(), all.begin() + t * 9, all.begin() + t * 9 + 9);
+            colours.push_back(table[index]);
+        }
+        if (base) {
+            // The area-weighted median by brightness.
+            auto lum = [](uint32_t c) { return 0.299f * (c >> 24) + 0.587f * ((c >> 16) & 0xFF) + 0.114f * ((c >> 8) & 0xFF); };
+            std::sort(floors.begin(), floors.end(), [&](const auto& a, const auto& b) { return lum(a.second) < lum(b.second); });
+            double total = 0, run = 0;
+            for (const auto& f : floors) total += f.first;
+            *base = table[0];
+            for (const auto& f : floors) {
+                run += f.first;
+                if (run >= total / 2) {
+                    *base = f.second;
+                    break;
+                }
+            }
+        }
+    }
+    catch (const ConvertError&) {
+        return false;
     }
     return true;
 }

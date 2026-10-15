@@ -35,6 +35,7 @@
 #include "rush2.h"
 #include "car2049.h"
 #include "paint_colors.h"
+#include "car_probes.h"
 #include "engine2049.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
@@ -2186,13 +2187,16 @@ namespace {
 
     std::set<uint32_t> body_list_addresses;           // the loaded 2049 cars' body display lists
     std::map<int, int> car_of_node;                   // scene node index -> race car, for the race cars' nodes
+    std::map<int, int> parent_of_node;                // the same nodes -> their parent, -1 for the subtrees' roots
     bool light_tables_built = false;
+    bool probes_ready = false;                        // Car Lighting = Light Probes, with the raced track's probes
 
     // The 2049 bodies' display lists and the race cars' scene nodes (a car is its body node's subtree, as
     // src/ghost.cpp walks it). Rebuilt for each view.
     void build_light_tables(uint8_t* rdram) {
         body_list_addresses.clear();
         car_of_node.clear();
+        parent_of_node.clear();
         int banks = MEM_BU(0, (int32_t)0x800D5788);
         for (int bank = 0; bank < banks; bank++) {
             uint32_t base;
@@ -2213,21 +2217,24 @@ namespace {
         }
         else {
             light_copies.reset();     // models load again for the next race
+            rush2::probes::reset();
         }
-        for (int car = 0; car < 8 && lit; car++) {
+        probes_ready = rush2::probes::update(rdram);
+        for (int car = 0; car < 8 && (lit || probes_ready); car++) {
             // The body's subtree, and the four wheels' (func_800837E0: wheel nodes at +0x18 + 4w of the car's record).
             uint32_t record = car_body_nodes + uint32_t(car) * car_body_node_stride;
             for (uint32_t root_offset : { 0x0u, 0x18u, 0x1Cu, 0x20u, 0x24u }) {
                 int root = (int32_t)MEM_W(0, (int32_t)(record + root_offset));
-                std::vector<int> stack = { root };
+                std::vector<std::pair<int, int>> stack = { { root, -1 } };    // node, parent
                 while (!stack.empty()) {
-                    int n = stack.back();
+                    auto [n, parent] = stack.back();
                     stack.pop_back();
                     if (n < 0 || n >= max_scene_nodes || car_of_node.contains(n)) continue;
                     car_of_node[n] = car;
+                    parent_of_node[n] = parent;
                     uint32_t node = scene_nodes + uint32_t(n) * scene_node_size;
-                    stack.push_back((int16_t)MEM_H(0, (int32_t)(node + 0xE)));                  // first child
-                    if (n != root) stack.push_back((int16_t)MEM_H(0, (int32_t)(node + 0x10)));  // next sibling
+                    stack.push_back({ (int16_t)MEM_H(0, (int32_t)(node + 0xE)), n });                  // first child
+                    if (n != root) stack.push_back({ (int16_t)MEM_H(0, (int32_t)(node + 0x10)), parent });  // next sibling
                 }
             }
         }
@@ -2242,6 +2249,29 @@ namespace {
         uint32_t addr = light_side_cursor;
         light_side_cursor += bytes;
         return addr;
+    }
+
+    // A race car node's rotation in the world (rows, for row vectors): its transform's (node +0x4: 3x3 rotation by
+    // rows, the translation at +0x24) times its parents', up to the subtree's root, which is in world space.
+    void node_rotation(uint8_t* rdram, int n, float out[9]) {
+        float m[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+        for (int depth = 0; n >= 0 && n < max_scene_nodes && depth < 16; depth++) {
+            uint32_t transform = (uint32_t)MEM_W(4, (int32_t)(scene_nodes + uint32_t(n) * scene_node_size));
+            if (transform >= 0x80000000u && transform < 0x80800000u) {
+                float r[9], p[9];
+                for (int i = 0; i < 9; i++) {
+                    uint32_t bits = (uint32_t)MEM_W(i * 4, (int32_t)transform);
+                    memcpy(&r[i], &bits, 4);
+                }
+                for (int i = 0; i < 3; i++) {
+                    for (int j = 0; j < 3; j++) p[i * 3 + j] = m[i * 3] * r[j] + m[i * 3 + 1] * r[3 + j] + m[i * 3 + 2] * r[6 + j];
+                }
+                memcpy(m, p, sizeof(m));
+            }
+            auto it = parent_of_node.find(n);
+            n = it != parent_of_node.end() ? it->second : -1;
+        }
+        memcpy(out, m, sizeof(m));
     }
 
     // The ENV a Rush 2 car part blends toward to come close to being multiplied by `rgba`.
@@ -2279,6 +2309,43 @@ void rush2::car2049::light_model(uint8_t* rdram, recomp_context* ctx, uint32_t d
     uint32_t rgba = 0;
     bool lit = car >= 0 && rush2::track2049::car_light(car, rgba);
     bool body = body_list_addresses.contains(dl & 0x1FFFFFFF);
+    // Car Lighting = Light Probes (src/car_probes.cpp): the part's copy with its vertex colors lit by the probes.
+    // Rush 2's own tunnel darkening is left out (ENV alpha 0, PRIM white, as out of a tunnel), the probes darken
+    // instead; PRIM's alpha is kept.
+    if (probes_ready && car >= 0) {
+        float rot[9];
+        node_rotation(rdram, int((node_addr - scene_nodes) / scene_node_size), rot);
+        uint32_t relit = rush2::probes::relight(rdram, car, (uint32_t)ctx->r30, rot);
+        if (relit != 0) {
+            uint32_t prim_alpha = 0xFF;
+            if (!body) {
+                uint32_t body_node = scene_nodes + uint32_t((int32_t)MEM_W(0, (int32_t)(car_body_nodes + uint32_t(car) * car_body_node_stride))) * scene_node_size;
+                if ((uint32_t)MEM_W(0, (int32_t)body_node) & 0x2000) prim_alpha = MEM_BU(0, (int32_t)(body_node + 0x33));
+            }
+            GfxCommand env_push, env_pop, prim_push, prim_pop;
+            gEXPushEnvColor(&env_push);
+            gEXPopEnvColor(&env_pop);
+            gEXPushPrimColor(&prim_push);
+            gEXPopPrimColor(&prim_pop);
+            uint32_t side = light_side_alloc(8 * 8);
+            uint32_t at = side;
+            auto cmd = [&](uint32_t w0, uint32_t w1) {
+                MEM_W(0, (int32_t)at) = (int32_t)w0;
+                MEM_W(4, (int32_t)at) = (int32_t)w1;
+                at += 8;
+            };
+            cmd(env_push.values.word0, env_push.values.word1);
+            cmd(prim_push.values.word0, prim_push.values.word1);
+            cmd(0xFB000000, 0);
+            cmd(0xFA000000, 0xFFFFFF00 | prim_alpha);
+            cmd(0xDE000000, relit);
+            cmd(prim_pop.values.word0, prim_pop.values.word1);
+            cmd(env_pop.values.word0, env_pop.values.word1);
+            cmd(0xDF000000, 0);
+            ctx->r30 = (uint64_t)(int64_t)(int32_t)side;
+            return;
+        }
+    }
     GfxCommand push, pop;
     uint32_t colour_cmd;
     uint32_t colour;

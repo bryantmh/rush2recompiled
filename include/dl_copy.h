@@ -68,6 +68,16 @@ namespace rush2::dl {
             return copy;
         }
 
+        // `bytes` (rounded up to 8) of the copies' space for other data the copies point at (src/car_probes.cpp: the
+        // vertices a car's relit copies load), or 0 if there's no room left. Freed by reset() like the copies.
+        uint32_t alloc(uint32_t bytes) {
+            bytes = (bytes + 7) & ~7u;
+            if (cursor_ + bytes > end_) return 0;
+            uint32_t at = cursor_;
+            cursor_ += bytes;
+            return at;
+        }
+
         void reset() {
             copies_.clear();
             cursor_ = start_;

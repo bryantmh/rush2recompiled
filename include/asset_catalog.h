@@ -58,6 +58,7 @@ namespace rush2::catalog {
     struct Mesh {
         int texture = -1;           // Index into Container::textures, or -1.
         bool lit = false;           // Vertex colors are normals (2049 LOD flag 0x10).
+        uint64_t combine = 0;       // G_SETCOMBINE (24 + 32 bits) of its first triangle's draw.
         std::vector<Vertex> vertices;
     };
 

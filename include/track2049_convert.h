@@ -155,6 +155,18 @@ namespace rush2::track2049 {
     // assets' ROM offsets from the asset table at 0x800C185C.
     bool rush2_shared_model_names(const std::vector<uint8_t>& rush2_rom, uint32_t asset12_rom, uint32_t asset14_rom,
                                   std::set<std::string>& out);
+
+    // Rush 2049's car lighting colours of track k (docs/rush2049_research/collision.md#car-lighting), from its main
+    // code: the 32 words of the track's table (0x8011AF90 + 4 (k - 1) points to it; 2049 reads past its 26) and the
+    // colour used in the air (table index s32 0x8011B468 + 4 (k - 1)), 0xRRGGBBAA.
+    bool car_light_table(const std::vector<uint8_t>& main_2049, int k, std::vector<uint32_t>& colours, uint32_t& air);
+    // Where track k's artists painted a lighting colour, for the car light probes (src/car_probes_bake.cpp): every
+    // collision polygon with a colour index (info bits 11-15) other than 0, not flagged 0x30 and not a moving one, as
+    // world triangles (9 floats each), and each triangle's colour (0xRRGGBBAA). base: also the track's general level,
+    // the area-weighted median colour of its floors (unpainted ones count as index 0): white on the day tracks, dark
+    // on Presidio's night.
+    bool car_light_paint(const rush2::rom2049::Source& rom, int k, std::vector<float>& tris, std::vector<uint32_t>& colours,
+                         uint32_t* base = nullptr);
 }
 
 #endif

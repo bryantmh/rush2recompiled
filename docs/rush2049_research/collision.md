@@ -314,7 +314,10 @@ a future runtime patch.
 **Port** (`src/rush2049/track2049_movers.cpp`, `src/rush2049/car2049.cpp` `light_model`):
 - The converted collision file keeps 2049's polygon numbering, and Rush 2 keeps each wheel's polygon at physics car
   +0x594, so the 2049 info word is looked up from the 2049 file; the converted info word is not used. The colour is
-  worked out per car and physics tick with wheel 2's Rush 2 height (+0x5E4). The tables are read from the 2049 ROM.
+  worked out per car and physics tick with wheel 2's Rush 2 height (+0x5E4). The tables are read from the 2049 ROM
+  (`rush2::track2049::car_light_table`).
+- Car Lighting = Light Probes bakes the painted polygons into the probes (`car_light_paint`,
+  docs/graphics_effects.md#car-light-probes).
 - 2049 car bodies keep their PRIM combiner; every draw of one (menus too) is wrapped to set PRIM: the car's colour on
   a 2049 track, white elsewhere. The Rocket ZX's flames (ROKTFLAMEG1-3) have the same combiner and are drawn in their
   own pass after the world (`rush2_car49_flames_draw`), which sets PRIM white: they glow, unlit.

@@ -6693,6 +6693,7 @@ name = "car_crash_damage_stage"
 sig = "void car_crash_damage_stage(Car *car)"
 desc = "Physics step crash stage. | Car physics helper that raises panel damage; also reads the car table's driver byte."
 status = "verified"
+rush2049 = [0x800E0B20]
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
 

@@ -29,6 +29,7 @@
 #include "wings.h"
 #include "ghost.h"
 #include "car2049.h"
+#include "car_probes.h"
 
 // Adds every option of the config that the page doesn't have yet, in the config's order (hidden ones stay hidden).
 static void add_remaining_options(rush2::ui::OptionsPage* page, recomp::config::Config& config, const std::vector<std::string>& added) {
@@ -380,6 +381,39 @@ static void add_ambient_occlusion_option(recomp::config::Config& config) {
         });
 }
 
+namespace car_lighting_option {
+    const std::string id = "car_lighting";
+}
+
+// Car lighting: the cars take the light of the track around them from light probes baked from the track's own
+// colors (src/car_probes.cpp, docs/graphics_effects.md#car-light-probes). Decided per draw, so it switches mid-race.
+static void add_car_lighting_option(recomp::config::Config& config) {
+    using rush2::probes::Mode;
+
+    config.add_enum_option(
+        car_lighting_option::id,
+        "Car Lighting",
+        "Sets how the track's light falls on the cars. <recomp-color primary>Original</recomp-color> matches the "
+        "original games. <recomp-color primary>Light Probes (Experimental)</recomp-color> lights each side of a car by what is around "
+        "it: cars darken under bridges and in tunnels, pick up the color of nearby walls and lights, and brighten "
+        "toward open sky. Each track is prepared once, the first time it is raced.",
+        {
+            { Mode::Original, "Original", "Original" },
+            { Mode::Probes, "LightProbes", "Light Probes (Experimental)" },
+        },
+        Mode::Original
+    );
+
+    config.add_option_change_callback(car_lighting_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::probes::set_mode(static_cast<Mode>(std::get<uint32_t>(cur_value)));
+        });
+
+    // Disabled for now: the option stays registered so a saved choice is kept, but it is hidden and the cars always
+    // use Original lighting (the saved value isn't applied at startup).
+    const_cast<recomp::config::ConfigOption&>(config.get_option(car_lighting_option::id)).hidden = true;
+}
+
 namespace car_reflections_option {
     const std::string id = "car_reflections";
 
@@ -606,6 +640,26 @@ static void add_stunt_gear_option(recomp::config::Config& config) {
         });
 }
 
+namespace hide_respawn_option {
+    const std::string id = "hide_respawning_cars";
+}
+
+// Hide respawning computer cars: hidden through their glide back after a wreck (src/game_fixes.cpp).
+static void add_hide_respawn_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        hide_respawn_option::id,
+        "Hide Respawning Cars",
+        "After a computer car's wreck burns out, the car vanishes until it reappears blinking on the road. Off, as in "
+        "Rush 2, it sits whole in its fire for a second and a half first.",
+        true
+    );
+
+    config.add_option_change_callback(hide_respawn_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::set_hide_respawning_cars(std::get<bool>(cur_value));
+        });
+}
+
 namespace catch_up_option {
     const std::string id = "drone_catch_up";
 }
@@ -636,26 +690,6 @@ namespace torque_option {
 static void add_torque_option(recomp::config::Config& config) {
     config.add_bool_option(
         torque_option::id,
-namespace hide_respawn_option {
-    const std::string id = "hide_respawning_cars";
-}
-
-// Hide respawning computer cars: hidden through their glide back after a wreck (src/game_fixes.cpp).
-static void add_hide_respawn_option(recomp::config::Config& config) {
-    config.add_bool_option(
-        hide_respawn_option::id,
-        "Hide Respawning Cars",
-        "After a computer car's wreck burns out, the car vanishes until it reappears blinking on the road. Off, as in "
-        "Rush 2, it sits whole in its fire for a second and a half first.",
-        true
-    );
-
-    config.add_option_change_callback(hide_respawn_option::id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::set_hide_respawning_cars(std::get<bool>(cur_value));
-        });
-}
-
         "Torque Rebalance",
         "Makes each TORQUE setting worth picking. In Rush 2, HIGH is slower than STANDARD both off the line and at top "
         "speed, and LOW has the best launch and the best top speed. "
@@ -850,7 +884,7 @@ void rush2::init_config() {
             { "Display", { graphics::options::wm_option, graphics::options::res_option, graphics::options::ds_option, graphics::options::ar_option,
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id } },
-            { "Effects", { ambient_occlusion_option::id, car_sheen_option::id, car_reflections_option::id, reflection_blur_option::id, reflection_rate_option::id } },
+            { "Effects", { ambient_occlusion_option::id, car_lighting_option::id, car_sheen_option::id, car_reflections_option::id, reflection_blur_option::id, reflection_rate_option::id } },
             { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::mode_option_id,
                             rush2::upscale::command_option_id, rush2::upscale::interface_option_id,
                             rush2::upscale::car_colors_option_id } },
@@ -868,6 +902,7 @@ void rush2::init_config() {
     add_car_stats_option(general_config);
     add_torque_option(general_config);
     add_stunt_gear_option(general_config);
+    add_hide_respawn_option(general_config);
     add_catch_up_option(general_config);
     add_pause_extras_option(general_config);
     add_circuit_review_option(general_config);
@@ -884,6 +919,7 @@ void rush2::init_config() {
     add_mipmap_option(graphics_config);
     add_anisotropy_option(graphics_config);
     add_ambient_occlusion_option(graphics_config);
+    add_car_lighting_option(graphics_config);
     add_car_sheen_option(graphics_config);
     add_car_reflections_option(graphics_config);
     add_split_option(graphics_config);
@@ -898,7 +934,6 @@ void rush2::init_config() {
     rush2::collectibles::create_tab();
     rush2::games::create_tab();
     rush2::cheats::create_tab();
-    add_hide_respawn_option(general_config);
     recompui::config::create_mods_tab();
 
     recompui::config::finalize();
@@ -920,6 +955,8 @@ void rush2::init_config() {
         std::get<uint32_t>(loaded_graphics_config.get_option_value(anisotropy_option::id)), 4u);
     RT64::AmbientOcclusionStrength = ambient_occlusion_option::strength(
         loaded_graphics_config.get_option_value(ambient_occlusion_option::id));
+    // Car Lighting is disabled for now (add_car_lighting_option): the cars keep Original lighting whatever is saved.
+    rush2::probes::set_mode(rush2::probes::Mode::Original);
     car_sheen_option::apply(loaded_graphics_config, loaded_graphics_config.get_option_value(car_sheen_option::id));
     car_reflections_option::apply(loaded_graphics_config.get_option_value(car_reflections_option::id));
     reflection_blur_option::apply(loaded_graphics_config.get_option_value(reflection_blur_option::id));
@@ -941,6 +978,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(torque_option::id)));
     rush2::set_stunt_first_gear(std::get<bool>(
         recompui::config::get_general_config().get_option_value(stunt_gear_option::id)));
+    rush2::set_hide_respawning_cars(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(hide_respawn_option::id)));
     rush2::npc_cars::set_catch_up(std::get<bool>(
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
     recompui::Modal::set_transparent_background(std::get<bool>(
@@ -961,5 +1000,3 @@ void rush2::init_config() {
     rush2::track1::load_config();
     rush2::music::load_config();
 }
-    rush2::set_hide_respawning_cars(std::get<bool>(
-        recompui::config::get_general_config().get_option_value(hide_respawn_option::id)));

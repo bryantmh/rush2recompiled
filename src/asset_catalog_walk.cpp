@@ -613,6 +613,7 @@ namespace {
                 meshes.push_back({});
                 meshes.back().texture = texture;
                 meshes.back().lit = (current_lod->flags & 0x10) != 0;
+                meshes.back().combine = combine;
             }
             Mesh& mesh = meshes.back();
             for (int i : { a, b, c }) {

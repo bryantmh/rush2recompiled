@@ -181,6 +181,11 @@ namespace rush2::track2049 {
     // Rush 2049's car lighting (2049 func_80093B20, docs/rush2049_research/collision.md#car-lighting): the colour
     // (RGBA, alpha 0xFF) race car `car` is lit with from the road under its wheels, false when no 2049 track is raced.
     bool car_light(int car, uint32_t& rgba);
+    // How much of car_light's colour the track's artists painted there (0-1: the wheels on polygons with a colour
+    // index other than 0, the plain one); 0 when no 2049 track is raced.
+    float car_light_painted(int car);
+    // The raced 2049 track's k (convert_track) when it has car lighting colours, else 0.
+    int car_light_track();
 
     // Props a car knocks over (src/rush2049/track2049_props.cpp): cones, gas pumps, rats, signs and cacti with Rush 2049's
     // reactions. set_prop_data hands over the raced track's prop records and its converted geometry (for model names
