@@ -24,3 +24,5 @@ RecompUI settings need to be hot-swappable or clearly labeled that they are not
 
 Never assume the saved car or track is the current car or track. They change all the time. Set the ones you want manually
 An ingame run takes a long time. Don't waste time doing one if the answer can easily be found outside the game, or wate time by doing runs piecemeal
+
+If I've already given you a screenshot of an issue, you don't need to open the game just to reproduce the screenshot

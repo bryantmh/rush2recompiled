@@ -146,7 +146,7 @@ namespace {
                 mod_drag[size_t(sf.material & 15)] = sf.drag;
                 mod_like[size_t(sf.material & 15)] = sf.like == "dirt" ? 1 : sf.like == "grass" ? 2 : 0;
             }
-            track_has_sky = false;
+            track_has_sky = rush2::track2049::model_names(track.geometry).contains("SKYO1");   // a SKY mesh
             rush2::track2049::set_mover_data(0, {}, {}, {}, {}, {});
             rush2::track2049::set_texanim_data({});
             rush2::track2049::set_prop_data({}, track.geometry);

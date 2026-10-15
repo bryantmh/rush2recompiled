@@ -6958,10 +6958,10 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 [[func]]
 vram = 0x80074068
 name = "drone_path_select"
-sig = "s32 drone_path_select(void *a0, s16 *pos, s16 *out)"
-desc = "Drone/AI helper choosing a path from 3 halfwords of a2 using path_node_count, path_lane_count and drone_path_select_param; called by drone_steer_along_path. (low confidence)"
-consts = "5 = lane/node limit"
-status = "inferred"
+sig = "s16 drone_path_select(s16 last_cp /*a1*/, Vec3s *pos /*a2*/, s16 to_lane /*t0*/, s16 from_lane /*t2*/, s16 from_point /*t5*/)"
+desc = "Lane-switch point mapper (leaf, non-standard argument registers: a1 last checkpoint = car +0x7FE, a2 car position as s16 x/y/z, t0 target lane, t2 current lane = drone state +0x28, t5 current point = state +0x24). Maps the drone's point on its lane to the nearest point (3D) on the target lane: shifts it by the two lanes' crossing offsets at the last checkpoint (s16 at 0x8010BCE8 + cp*0x50 + 0x30 + lane*2; past the last gate the lane point counts at 0x80110020 stand in), then searches at least 5 points either side, wrapping round the lap. Called by drone_steer_along_path_80074284 for each of the 4 lanes."
+consts = "5 = minimum search half-window (points)"
+status = "verified"
 rush2049 = [0x800E4300]
 area = "car"
 ref = "docs/functions/rush2_car.md#rush-2-car-functions"
@@ -6970,9 +6970,9 @@ ref = "docs/functions/rush2_car.md#rush-2-car-functions"
 vram = 0x80074284
 name = "drone_steer_along_path"
 sig = "void drone_steer_along_path(Car *car)"
-desc = "AI drone driving core called by drone_driver: selects the path via drone_path_select (drone_path_node_index, car stride 0x81C), normalizes the 2D direction and computes steering/throttle with drone_path_progress and timer_game_time."
-consts = "0x81C = car stride, 73.3333 = 50 mph in ft/s, 1.46667 = mph to ft/s"
-status = "inferred"
+desc = "Drone lane follower and lane chooser. Lane switching: every 0.5 s (game time vs 0x800D97E0) one drone, in turn (round-robin index 0x800D8FBC over race_drone_count), scores all 4 lanes at its spot and moves to the best: +up to 1 for a lane within 10 ft of the car sideways (point within 20 ft), +up to 0.5 for the lane's target speed (u8 mph at point +6) being close to the car's speed, +1 for its home lane (drone state +0x2A), + (heading dot + 1)/2 toward the lane's next point (+1 when stopped). On a change it sets state +0x28 = lane, +0x24 = the point drone_path_select_80074068 mapped to, +0x26 = -1. Then steers toward the next point of its lane in x/z only (state +0/+4/+8 offsets, +0xC heading)."
+consts = "0x81C = car stride, 0.5 = s between lane re-checks, 400 = (20 ft)^2, 10 = ft sideways, 73.3333 = 50 mph in ft/s, 1.46667 = mph to ft/s"
+status = "verified"
 area = "car"
 ref = "docs/functions/rush2_car.md#rush-2-car-functions"
 

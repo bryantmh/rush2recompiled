@@ -16,11 +16,12 @@ found and what is wrong (see [Checking your track](#checking-your-track)), so re
 - [Markers](#markers)
 - [The AI path](#the-ai-path)
 - [track.toml](#tracktoml)
+- [Sky](#sky)
 - [Track select art](#track-select-art)
 - [Textures](#textures)
 - [Checking your track](#checking-your-track)
-- [Size limits](#size-limits)
 - [Previewing your track](#previewing-your-track)
+- [Size limits](#size-limits)
 - [How custom tracks race](#how-custom-tracks-race)
 - [Not supported yet](#not-supported-yet)
 - [For developers](#for-developers)
@@ -101,7 +102,8 @@ textured as dirt but named `COL_ROAD_*` drives like road.
 
 Faces count on the side their normals point to: up for road, into the track for walls. A drivable face that points
 down is a ceiling (a tunnel roof, a bridge's underside), as in the stock tracks, so check normals with Mesh > Normals >
-Recalculate Outside if the car falls through a road. Flat neighbouring triangles of the same surface are joined into
+Recalculate Outside if the car falls through a road. Give a wall one face, toward the track: a wall with faces
+on both sides (or two back to back) pushes a car that gets into it out through the far side. Flat neighbouring triangles of the same surface are joined into
 the game's larger polygons, as the stock collision is built, so triangulating doesn't cost you anything.
 
 ### Custom surfaces
@@ -217,6 +219,25 @@ diorama = "diorama.glb"
 - `[surfaces.mud]` above is an example: delete it, or use `COL_MUD_*` meshes in Blender.
 - The lap count and mirror mode are the players' choice and aren't set here.
 
+## Sky
+
+Without a sky mesh the sky is plain `fog_color`. To give the track a sky:
+
+1. **Make a dome around the origin.** Add > Mesh > UV Sphere (a cube works too) with its center at the world origin.
+   Size doesn't matter: the game scales it to fit and draws it around the camera, so it never gets closer or
+   further away as the cars move. Cutting off the lower half is fine; the track hides the bottom of the sky.
+2. **Turn its faces inward:** in Edit Mode, select all and use Mesh > Normals > Flip, since the camera is inside it.
+3. **Color it** with a texture (a panorama mapped onto the sphere) or with vertex colors (Vertex Paint), for example
+   a gradient from the zenith down to the horizon. Without vertex colors it gets the track's fixed light from above,
+   which darkens its sides; paint it white to keep a texture's own colors.
+4. **Add stars, a sun or clouds** as separate faces just inside the dome, in a material with Alpha Clip (cutouts).
+   The sky is drawn without depth, in the order its materials first appear in the file, so keep the dome's material
+   first and the details' after it, or the dome paints over them.
+5. **Name the object `SKY`.** Several objects named `SKY`, `SKY.001`, ... are joined into one sky.
+
+The sky is drawn behind everything and isn't fogged, as Rush 2049's skies are. The report gives its triangle count
+(`SKY: ... triangles`).
+
 ## Track select art
 
 The track select shows a track's logo and a model of it, as it does for the stock tracks.
@@ -273,16 +294,6 @@ menu. The report covers, among other things:
 - unknown `COL_` names, a `*` typed literally in a name, track.toml mistakes
 - the track's size, its textures, and each custom surface's settings
 
-## Size limits
-
-| What | Limit | Why |
-|---|---|---|
-| Collision polygons | 8,191 after flat neighbours are joined, and at most 255 in one small area | The game's collision format. Stock tracks use 2,100 to 7,100. |
-| Track triangles | about 40,000 (rule of thumb) | The whole track is loaded into the game's memory, which it shares with the cars. |
-| Track size | about 10 km (32,000 ft) from the origin in any direction | Positions are stored as 16-bit numbers. |
-| Checkpoints | 9 | The game has 10 gates including the finish line. |
-| Custom surfaces | 12 | The collision format's surface slots. |
-| Custom tracks | 26 across all enabled mods | Track select slots. |
 ## Previewing your track
 
 Trackview shows your track in a web browser the way the game will load it. You don't have to start the game or drive
@@ -334,6 +345,16 @@ Reload. Close the command window to stop it.
 
 How it works inside is in [Track previewer](#track-previewer) and [Race replays](#race-replays).
 
+## Size limits
+
+| What | Limit | Why |
+|---|---|---|
+| Collision polygons | 8,191 after flat neighbours are joined, and at most 255 in one small area | The game's collision format. Stock tracks use 2,100 to 7,100. |
+| Track triangles | about 40,000 (rule of thumb) | The whole track is loaded into the game's memory, which it shares with the cars. |
+| Track size | about 10 km (32,000 ft) from the origin in any direction | Positions are stored as 16-bit numbers. |
+| Checkpoints | 9 | The game has 10 gates including the finish line. |
+| Custom surfaces | 12 | The collision format's surface slots. |
+| Custom tracks | 26 across all enabled mods | Track select slots. |
 
 Vertex counts per object, the number of objects or materials, and name lengths don't matter: the converter splits,
 merges and renames as needed.
@@ -349,7 +370,7 @@ merges and renames as needed.
 
 ## Not supported yet
 
-- A sky model (`SKY`) or a choice of stock sky; a mesh named `SKY` is drawn as part of the track
+- A choice of stock sky
 - Props that react when hit (`PROP_*` Empties are ignored)
 - Translucent (blended) materials
 - Moving parts such as lifts, trains and doors
@@ -401,6 +422,11 @@ merges and renames as needed.
   road steps down more than 15 ft at the run's ends or is where the path itself passes over 300 ft of lap away
   (within 30 ft across): those are in the air (`PathPoint::air`) and keep the curve's height, lanes included. The
   stock paths do the same over their jumps (2049 race 1's converted jump matches its stock heights).
+- **Sky:** `SKY` meshes become one model named `SKYO1` (not in the placement), whose list switches to 1-cycle,
+  TEXEL0 x SHADE, render modes 0x0F0A4000 / 0x0F0A3000 (opaque / alpha-tested, no fog) and clears G_ZBUFFER and G_FOG,
+  then puts the track's state back, as Rush 2049's SKYSKY lists do; its vertices are scaled to fit the s16 range
+  (32000 units). `track2049.cpp` sets `track_has_sky` from the converted model names, so the hooks on
+  `sky_setup_800A45A8` (0x800A4600, 0x800A4644) build it through Las Vegas's sky branch, as for the 2049 tracks.
 - **Hiding warnings:** `"hide_track_warnings": true` in a mod's mod.json (read in `scan`, `Entry::hide_warnings`) leaves
   warnings out of the Mods tab notes; the report file and console keep them.
 - **Problems in the Mods menu:** `rush2::track_mod::register_mod_notes` gives recompui's mod details panel

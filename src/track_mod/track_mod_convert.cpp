@@ -10,7 +10,7 @@
 //   FINISH, CHECKPOINT_n      gates: Empty, green (Blender Y = glTF -Z) arrow forward, X scale = half the width (m).
 //   START_n                   ignored: Rush 2 lines the grid up behind FINISH itself (said in the report).
 //   AISPEED_<mph>             caps the AI's target speed from the nearest path point on (0 lifts the cap).
-//   SKY                       sky dome (not supported yet).
+//   SKY                       the sky: its own model SKYO1, drawn around the camera without depth or fog.
 //   PROP_<CLASS>              props (not supported yet).
 //   anything else with a mesh the visible track.
 //
@@ -723,7 +723,8 @@ namespace {
     // load. Meshes without vertex colors get the shading Rush 2 bakes into its tracks: a fixed light from above.
     void emit_mesh(const std::vector<VisualTri>& vtris, const std::vector<int>& tris, const std::vector<int>& order,
                    const std::vector<DrawMaterial>& materials, const Vec3& origin, float unit,
-                   const std::function<void(MeshList&, size_t)>& load, MeshList& m) {
+                   const std::function<void(MeshList&, size_t)>& load, MeshList& m,
+                   uint32_t opaque = mode_opaque, uint32_t cutout = mode_cutout) {
         const float light[3] = { 0.30f, 0.80f, 0.52f };
         int current_mode = -1;
         for (size_t mi = 0; mi < order.size(); mi++) {
@@ -733,7 +734,7 @@ namespace {
             const DrawMaterial& dm = materials[mi];
             const rush2::track_mod::Texture& tex = *dm.texture;
             int mode = dm.cutout ? 1 : 0;
-            if (mode != current_mode) { m.cmd(0xE200001C, mode ? mode_cutout : mode_opaque); current_mode = mode; }
+            if (mode != current_mode) { m.cmd(0xE200001C, mode ? cutout : opaque); current_mode = mode; }
             load(m, mi);
             // Each triangle's texture coordinates are shifted by whole repeats to stay inside the s16 range.
             std::vector<uint8_t> batch;
@@ -1060,7 +1061,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     const rush2::gltf::Node* aipath = nullptr;
     std::map<int, const rush2::gltf::Node*> checkpoints, grid;
     std::vector<std::pair<float, const rush2::gltf::Node*>> aispeeds;
-    std::vector<const rush2::gltf::Node*> visual;
+    std::vector<const rush2::gltf::Node*> visual, sky;
     std::vector<std::pair<uint16_t, const rush2::gltf::Node*>> collision_nodes;
     std::set<std::string> seen;
     for (const rush2::gltf::Node& n : scene.nodes) {
@@ -1108,7 +1109,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         if (int k = number_after(name, "CHECKPOINT_"); k >= 0) { checkpoints[k] = &n; continue; }
         if (int k = number_after(name, "START_"); k >= 0) { grid[k] = &n; continue; }
         if (int k = number_after(name, "AISPEED_"); k >= 0) { aispeeds.push_back({ float(k), &n }); continue; }
-        if (name == "SKY") { report.warning("SKY: sky models aren't supported yet; it is drawn as part of the track."); visual.push_back(&n); continue; }
+        if (name == "SKY") { if (mesh) sky.push_back(&n); else report.warning(n.name + " has no mesh; ignored."); continue; }
         if (starts(name, "PROP_")) { report.warning(n.name + ": props aren't supported yet; ignored."); continue; }
         if (mesh) { visual.push_back(&n); continue; }
         if (n.loose_edges) { report.warning(n.name + " is only lines (loose edges); ignored."); continue; }
@@ -1816,8 +1817,24 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // Only a track with nothing to stand on or see, or a collision index the game can't hold, isn't loaded.
     if (spine.empty() || !collision_ok || vtris.empty()) return false;
 
+    // The sky (SKY meshes): one model, SKYO1, which Rush 2's sky code (sky_setup_800A45A8's Las Vegas branch, taken for
+    // custom tracks in src/rush2049/track2049.cpp) draws around the camera in every view, before the track, with depth
+    // and fog off as Rush 2049's skies are. It is authored around the origin at any size and scaled to fit the model's
+    // s16 vertices: drawn without depth, its size doesn't change how it looks.
+    std::vector<VisualTri> stris;
+    for (const auto* n : sky) append_tris(*n, stris);
+    float sky_extent = 0.0f;
+    for (const VisualTri& t : stris) for (const Vec3& p : t.p) sky_extent = std::max({ sky_extent, std::fabs(p[0]), std::fabs(p[1]), std::fabs(p[2]) });
+    if (!stris.empty()) {
+        char b[160];
+        snprintf(b, sizeof(b), "SKY: %zu triangles, %s from the origin at most; drawn around the camera, behind everything.",
+                 stris.size(), fmt_ft(sky_extent).c_str());
+        report.info(b);
+    }
+
     // Materials -> stand-in textures (one per material).
     std::vector<int> used_materials;
+    for (const VisualTri& t : stris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
     for (const VisualTri& t : vtris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
     std::map<int, int> texture_of;      // material -> out.textures
     std::map<int, bool> cutout_of;
@@ -1910,6 +1927,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // CHKPNT / FINISH textures; sorted for func_8005BCB4's binary search.
     std::vector<std::string> names;
     for (const Section& s : sections) names.push_back(s.name);
+    if (!stris.empty()) names.push_back("SKYO1");
     names.push_back(prefix + "FINISH");
     names.push_back(prefix + "FINISHB");
     std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return strncmp(a.c_str(), b.c_str(), 15) < 0; });
@@ -1947,10 +1965,43 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (size_t i : m.vtx_commands) m.list[i].second += base;
         for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
     }
+    Section sky_model;
+    if (!stris.empty()) {
+        // As Rush 2049's SKYSKY lists (docs/rush2049_research/dreamcast.md, Sky): 1-cycle, TEXEL0 x SHADE in both
+        // cycles, opaque or alpha-tested without fog, G_ZBUFFER and G_FOG off; then the track's state put back.
+        constexpr uint32_t sky_opaque = 0x0F0A4000;   // G_RM_OPA_SURF, G_RM_OPA_SURF2
+        constexpr uint32_t sky_cutout = 0x0F0A3000;   // G_RM_TEX_EDGE, G_RM_TEX_EDGE2
+        std::vector<int> all(stris.size());
+        for (size_t i = 0; i < all.size(); i++) all[i] = int(i);
+        float unit = std::min(16.0f, 32000.0f / std::max(sky_extent, 1.0f));
+        MeshList m;
+        m.cmd(0xE3001001, 0x00000000);
+        m.cmd(0xE3000F00, 0x00000000);
+        m.cmd(0xE3000A01, 0x00000000);          // 1-cycle
+        m.cmd(0xFC121824, 0xFF33FFFF);          // TEXEL0 x SHADE
+        m.cmd(0xD9FEFFFE, 0x00000000);          // G_ZBUFFER, G_FOG off
+        m.cmd(0xD7000002, 0xFFFFFFFF);
+        emit_mesh(stris, all, used_materials, draw_materials, Vec3{}, unit,
+                  [&](MeshList& ml, size_t mi) { ml.cmd(0xDE000000, load_lists[mi]); }, m, sky_opaque, sky_cutout);
+        m.cmd(0xD9FFFFFF, 0x00010001);          // G_ZBUFFER, G_FOG back on
+        m.cmd(0xE3000A01, 0x00100000);          // 2-cycle
+        m.cmd(combine[0], combine[1]);
+        m.cmd(0xE3001001, 0x00008000);
+        m.cmd(0xDF000000, 0);
+        align8(g);
+        uint32_t base = uint32_t(g.size());
+        g.insert(g.end(), m.vertices.begin(), m.vertices.end());
+        align8(g);
+        sky_model.name = "SKYO1";
+        sky_model.list = uint32_t(g.size());
+        sky_model.radius = m.radius * unit / 16.0f;
+        for (size_t i : m.vtx_commands) m.list[i].second += base;
+        for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
+    }
     align8(g);
     uint32_t name_table = uint32_t(g.size());
     for (size_t i = 0; i < names.size(); i++) {
-        const Section* sec = nullptr;
+        const Section* sec = names[i] == "SKYO1" && !stris.empty() ? &sky_model : nullptr;
         for (const Section& s : sections) if (s.name == names[i]) sec = &s;
         uint32_t r = model_table + uint32_t(i) * 0x34;
         put32(g, r, 1);                              // one LOD
