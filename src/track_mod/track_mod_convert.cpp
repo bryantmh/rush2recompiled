@@ -186,7 +186,7 @@ namespace {
         for (const auto& t : tris) {
             for (int k = 0; k < 3; k++) edges[{ std::min(t[k], t[(k + 1) % 3]), std::max(t[k], t[(k + 1) % 3]) }]++;
         }
-        std::map<uint32_t, std::vector<uint32_t>> rim;   // boundary neighbours
+        std::map<uint32_t, std::vector<uint32_t>> rim;   // boundary neighbors
         for (const auto& [e, n] : edges) {
             if (n > 2) {
                 r.problem = "an edge at " + fmt_pos(pos[e.first]) + " is shared by " + std::to_string(n) + " faces";
@@ -342,7 +342,7 @@ namespace {
         }
         if (degenerate) report.info(std::to_string(degenerate) + " collision triangles have no area and were skipped.");
 
-        // Flat neighbours of the same surface merge into convex polygons, as the stock collision is built (mostly
+        // Flat neighbors of the same surface merge into convex polygons, as the stock collision is built (mostly
         // quads): a modeller's triangles would otherwise take one of the game's 8191 polygons each.
         auto key = [](const Vec3& p) {
             return std::array<int32_t, 3>{ int32_t(std::lround(p[0] * 32.0f)), int32_t(std::lround(p[1] * 32.0f)),
@@ -446,7 +446,7 @@ namespace {
         }
         if (polys.empty()) { report.error("No collision: add COL_ROAD_* meshes (or a visible track mesh)."); return false; }
         if (polys.size() > 8191) {
-            report.error("Collision has " + std::to_string(polys.size()) + " polygons after merging flat neighbours; the "
+            report.error("Collision has " + std::to_string(polys.size()) + " polygons after merging flat neighbors; the "
                          "game's limit is 8191, so the last " + std::to_string(polys.size() - 8191) + " are left out "
                          "(holes). Simplify the COL_* meshes.");
             polys.resize(8191);
@@ -1863,7 +1863,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                                  "it needs about the road's width: set Extrude to about half of it (and check the "
                                  "point's Radius, Alt+S).");
                 }
-                report.warning("Until then the computer cars all drive AIPATH_main's centre line.");
+                report.warning("Until then the computer cars all drive AIPATH_main's center line.");
             }
             else if (median < 0.01f || worst > median * 20.0f + 50.0f) {
                 report.error("AIPATH_main's points aren't in order along the path (was it converted to a mesh and edited?). "
@@ -1971,12 +1971,12 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             constexpr float r = 150.0f;   // ft
             const Gate& f = gates[0];
             Vec3 left = { -f.dir[2], 0.0f, f.dir[0] };
-            Vec3 centre = add(f.pos, mul(left, r));
+            Vec3 center = add(f.pos, mul(left, r));
             for (int k = 0; k < 96; k++) {
                 float t = float(k) / 96.0f * 6.2831853f;
                 Vec3 out = add(mul(left, -std::cos(t)), mul(f.dir, std::sin(t)));
                 Vec3 tangent = add(mul(left, std::sin(t)), mul(f.dir, std::cos(t)));
-                rungs.push_back({ add(centre, mul(out, r)), normalize(Vec3{ -tangent[2], 0.0f, tangent[0] }), f.radius * 0.8f });
+                rungs.push_back({ add(center, mul(out, r)), normalize(Vec3{ -tangent[2], 0.0f, tangent[0] }), f.radius * 0.8f });
             }
         }
         report.warning("The track uses a stand-in AI path straight " +
@@ -2010,7 +2010,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                     found[g].push_back({ at[i] + (at[i + 1] - at[i]) * f, sb > sa, x });
                 }
                 // A path that steps back and forth over the line (the curve's ends overlapping at the gate, a kink)
-                // crosses it there an odd number of times, in turn each way: cancel each pair of neighbouring
+                // crosses it there an odd number of times, in turn each way: cancel each pair of neighboring
                 // crossings, the lap's ends included, that go opposite ways within jitter ft of each other.
                 constexpr float jitter = 50.0f;
                 auto& c = found[g];
@@ -2450,7 +2450,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
         else {
             // A grid over the floor: a point per cell and floor level, those reachable from START_1 by steps to a
-            // neighbouring cell that climb no more than a ramp would, each next one the nearest left.
+            // neighboring cell that climb no more than a ramp would, each next one the nearest left.
             float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
             for (const CollisionTri* c : floors) for (const Vec3& v : c->v) {
                 x0 = std::min(x0, v[0]); x1 = std::max(x1, v[0]);
@@ -2531,6 +2531,11 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         out.checkpoints = 0;
         out.lap_feet = 0.0f;
         // Battle pickups (src/rush2049/battle.cpp draws them with Rush 2049's models), at least 2.5 ft over the floor.
+        if (pickup_nodes.size() > size_t(rush2::track2049::max_custom_pickups)) {
+            report.warning("An arena can have " + std::to_string(rush2::track2049::max_custom_pickups) + " PICKUP_ markers; the other " +
+                           std::to_string(pickup_nodes.size() - size_t(rush2::track2049::max_custom_pickups)) + " are left out.");
+            pickup_nodes.resize(size_t(rush2::track2049::max_custom_pickups));
+        }
         for (const auto& [kind, node] : pickup_nodes) {
             rush2::track2049::PickupRecord r{ -1, kind, {} };
             Vec3 p = to_game(node->position());

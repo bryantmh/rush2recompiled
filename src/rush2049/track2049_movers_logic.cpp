@@ -721,6 +721,7 @@ namespace rush2::track2049::movers {
     }
 
     void World::hold_triggers() {
+        if (!options_.custom) return;   // stock 2049 tracks keep 2049's own per-test triggers
         for (const Object& o : objects_) {
             Path& p = paths_[o.path];
             if (o.slot == 5 && o.cars && (p.flags & path_one_shot) && (p.flags >> 24) != 0) {

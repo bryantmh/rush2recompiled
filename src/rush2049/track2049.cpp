@@ -146,10 +146,10 @@ namespace {
                 mod_drag[size_t(sf.material & 15)] = sf.drag;
                 mod_like[size_t(sf.material & 15)] = sf.like == "dirt" ? 1 : sf.like == "grass" ? 2 : 0;
             }
-            track_has_sky = rush2::track2049::model_names(track.geometry).contains("SKYO1");   // a SKY mesh
             {
-                // Moving objects (MOVE_*), in the 2049 layouts the movers code reads; k = 0 marks a custom track.
                 std::set<std::string> names = rush2::track2049::model_names(track.geometry);
+                track_has_sky = names.contains("SKYO1");   // a SKY mesh
+                // Moving objects (MOVE_*), in the 2049 layouts the movers code reads; k = 0 marks a custom track.
                 rush2::track2049::set_mover_data(0, track.mover_paths, track.mover_collision, track.path_records, {},
                                                  std::vector<std::string>(names.begin(), names.end()));
             }

@@ -172,7 +172,8 @@ extern "C" void rush2_race_record_tick(uint8_t* rdram, recomp_context* ctx) {
     row[1] = f32_at(rdram, physics_clock);
     // The race itself never ends while player 1's car (parked on the grid in a trackview run) hasn't finished, and a
     // stuck computer car never does with the Disable Auto-Abort cheat on: the recording ends once each computer car
-    // has finished or gone stuck_ticks without reaching a new checkpoint.
+    // has finished or gone stuck_ticks without reaching a new checkpoint, or after stuck_ticks when there are none
+    // (an arena or a race without drones: nothing would ever end it).
     int computers = 0, settled = 0, finished = 0;
     for (int c = 0; c < n_cars; c++) {
         for (size_t i = 0; i < field_count; i++) row[2 + size_t(c) * field_count + i] = read_field(rdram, c, fields[i]);
@@ -194,7 +195,11 @@ extern "C" void rush2_race_record_tick(uint8_t* rdram, recomp_context* ctx) {
     }
     std::fwrite(row.data(), sizeof(float), row.size(), out);
     if (++ticks % 120 == 0) std::fflush(out);
-    if (computers > 0 && settled == computers) {
+    if (computers == 0 && ticks >= stuck_ticks) {
+        finish(rdram, "no computer cars");
+        if (rush2::sim::active()) rush2::sim::finish();
+    }
+    else if (computers > 0 && settled == computers) {
         finish(rdram, finished == computers ? "computer cars finished" : "computer cars finished or stuck");
         if (rush2::sim::active()) rush2::sim::finish();
     }

@@ -462,9 +462,7 @@ namespace {
         mod_arts.clear();
         mod_types.clear();
         for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
-            const std::string& type = entries[i].settings.type;
-            mod_types.push_back(type == "stunt" ? rush2::track_mod::race_stunt
-                                : type == "battle" ? rush2::track_mod::race_battle : rush2::track_mod::race_race);
+            mod_types.push_back(rush2::track_mod::type_of(entries[i].settings));
         }
         if (entries.size() > size_t(mod_capacity)) {
             printf("[trackmod] The track select has room for %d custom tracks; %zu are left out\n", mod_capacity,
@@ -677,7 +675,6 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     rush2::track_mod::set_race_track(-1);
     restore_host(rdram);
     rush2::track1::restore_host(rdram);
-    refresh_mods();
     serve_menu_container(rdram);
     write_tables(rdram);
     int t = -1;

@@ -192,6 +192,7 @@ namespace rush2::track2049::movers {
         // Before update(): a one-shot path (PTHD 0x4000) with a car bit still set counts as driven on this frame.
         // 2049 tests every car every frame, re-setting 0x200 while one is on; Rush 2 steps its computer cars every
         // other physics tick, so a car's last test stands until its next one (else a ride turns back between them).
+        // Custom tracks only (Options::custom).
         void hold_triggers();
 
         // func_800C1A00: velocity of a ride-on platform group (first PTHD 0x20 object with this group, in spawn

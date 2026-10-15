@@ -43,6 +43,8 @@ namespace rush2::track2049 {
         int kind;
         float pos[3];   // world position
     };
+    // A custom arena's pickups (record -1) each take one of battle.cpp's renderer slots 60-159.
+    constexpr int max_custom_pickups = 100;
 
     // Rush 2049's animated track textures (docs/rush2049_research/texanim.md), as patch sites in the converted
     // geometry. Offsets and addresses are geometry-relative; Rush 2 loads the file at some base and rebases each

@@ -293,6 +293,7 @@ namespace {
     constexpr int hud_coin_slot_first = 56;      // 56-59: the HUD's coin, per view
     constexpr int race_pickup_slot_first = 60;   // 60-159: a race's pickups (the BATTLE row)
     constexpr int slot_count = 160;
+    static_assert(slot_count - race_pickup_slot_first == rush2::track2049::max_custom_pickups);
     struct Slot {
         bool used = false;
         uint32_t color = 0xFFFFFFFF;
@@ -1059,7 +1060,7 @@ namespace {
                 Pickup p;
                 p.rec = rec;
                 if (rec.record < 0) {
-                    // A custom arena's: in a renderer slot, upright.
+                    // A custom arena's: in a renderer slot, upright (the converter keeps at most max_custom_pickups).
                     if (next_slot >= slot_count) continue;
                     p.slot = next_slot++;
                     color_slot(p.slot, neutral_color);

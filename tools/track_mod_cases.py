@@ -8,7 +8,7 @@ ones the layout was built with (docs/custom_tracks.md, "Checkpoint crossings").
 
 OUT_DIR defaults to tmp/track_mod_cases. Each case prints PASS or FAIL with its reasons, and "game search" when Rush 2's
 own load-time search (func_80092D6C, which custom tracks skip) would have put a crossing elsewhere: that is what the
-case guards against. Layouts are built in game feet (y up) along a centre line in race order; the AI path ribbon, the
+case guards against. Layouts are built in game feet (y up) along a center line in race order; the AI path ribbon, the
 road (COL_ROAD, drawn too) and the markers are made from it, then a case's mistakes are applied.
 """
 import math, os, random, re, struct, subprocess, sys
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(HERE, 'rush2049'))
 from stock_track_glb import Glb, gate_matrix, to_gltf, FEET_PER_METER  # noqa: E402
 import paths  # noqa: E402
 
-STEP = 10.0          # ft between centre line samples (and ribbon rungs)
+STEP = 10.0          # ft between center line samples (and ribbon rungs)
 SPINE = 20.0         # the converter's spine spacing
 ROAD_HALF = 50.0     # road half width, ft
 RIBBON_HALF = 35.0   # AIPATH_main half width, ft
@@ -30,7 +30,7 @@ SOURCES = [os.path.join(REPO, p) for p in ('src/track_mod/track_mod_convert.cpp'
                                             'src/gltf_scene.cpp', 'include/track_mod.h')]
 
 
-# --- centre lines (closed, race order, game feet) -------------------------------------------------------------------
+# --- center lines (closed, race order, game feet) -------------------------------------------------------------------
 
 def chaikin(pts, n=4):
     for _ in range(n):
@@ -44,7 +44,7 @@ def chaikin(pts, n=4):
 
 
 class Line:
-    """A closed centre line resampled every STEP ft; position, tangent at a distance s along it."""
+    """A closed center line resampled every STEP ft; position, tangent at a distance s along it."""
 
     def __init__(self, pts):
         cum = [0.0]
@@ -472,7 +472,7 @@ def quat_to_matrix_2049(q):
 
 
 def box(h, lift=0.0):
-    """A box of half size h (m), bottom at lift - h... centred on (0, lift, 0): verts, normals, outward CCW tris."""
+    """A box of half size h (m), bottom at lift - h... centered on (0, lift, 0): verts, normals, outward CCW tris."""
     vs = [(sx * h, lift + sy * h, sz * h) for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
     faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
     verts, nrms, tris = [], [], []
@@ -483,8 +483,8 @@ def box(h, lift=0.0):
         n = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
         ln = math.sqrt(sum(v * v for v in n))
         n = tuple(v / ln for v in n)
-        centre = [sum(vs[i][k] for i in f) / 4 for k in range(3)]
-        out = sum(n[k] * (centre[k] - (lift if k == 1 else 0.0)) for k in range(3)) > 0
+        center = [sum(vs[i][k] for i in f) / 4 for k in range(3)]
+        out = sum(n[k] * (center[k] - (lift if k == 1 else 0.0)) for k in range(3)) > 0
         base = len(verts)
         verts += [vs[i] for i in f]
         nrms += [n if out else tuple(-v for v in n)] * 4
@@ -691,7 +691,7 @@ def cases():
         Case('one_checkpoint_both_arrows_tie', o,
              [Gate('FINISH', 0.05 * L), Gate('CHECKPOINT_1', 0.5 * L, arrow=-1)],
              warnings=[r"CHECKPOINT_1's green arrow points against"], note='1 vs 1: FINISH decides'),
-        Case('marker_off_centre', o,
+        Case('marker_off_center', o,
              [Gate('FINISH', 0.05 * L), Gate('CHECKPOINT_1', 0.3 * L, side=30), Gate('CHECKPOINT_2', 0.55 * L),
               Gate('CHECKPOINT_3', 0.8 * L)], note='still across the path'),
         Case('marker_beside_road', o,
@@ -719,9 +719,9 @@ def cases():
         Case('export_shuffled', o, std(), export='shuffled', note='vertices stored in any order'),
         Case('export_scaled_node', o, std(), export='scaled', note='object scale 4, vertices at a quarter'),
         Case('ribbon_on_edge', o, std(), export='on_edge', errors=[r'stands on edge'], nopath=True,
-             warnings=[r'centre line'],
+             warnings=[r'center line'],
              note='curve drawn flat, Tilt 0: the ribbon stands up'),
-        Case('ribbon_thin', o, std(), export='thin', errors=[r'ribbon is only 0\.\d m'], warnings=[r'centre line']),
+        Case('ribbon_thin', o, std(), export='thin', errors=[r'ribbon is only 0\.\d m'], warnings=[r'center line']),
         Case('ribbon_pinched', o, std(), export='pinch', note='one rung pinched to a point: let through'),
         Case('no_aipath', o, std(), ribbon=False, errors=[r'No AIPATH_main'], nopath=True,
              warnings=[r'stand-in AI path straight through the markers'], note='loads on a stand-in path'),

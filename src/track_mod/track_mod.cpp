@@ -41,12 +41,13 @@
 
 namespace {
     // Bump when the converter's output changes for the same input (the build stamp already covers new builds).
-    constexpr uint64_t converter_version = 11;
+    constexpr uint64_t converter_version = 12;
     constexpr int cache_k = 1000;   // track_cache keys of mod tracks: 1000 + a hash of the folder (2049 tracks use 1-37)
 
     std::mutex mutex;
     std::vector<rush2::track_mod::Entry> entries;
     std::string entries_signature;
+    std::atomic_int entries_generation = 0;     // bumped each time scan rebuilds entries (race_type's cache key)
     std::atomic_int raced = -1;
 
     // The converter's last report on each track (by mod id + "/" + folder), for the Mods tab (register_mod_notes).
@@ -114,6 +115,7 @@ namespace {
         }
         if (signature == entries_signature) return;
         entries_signature = signature;
+        entries_generation++;
         entries.clear();
         std::set<std::string> seen;
         for (const auto& [id, path] : mods) {
@@ -207,29 +209,29 @@ void rush2::track_mod::set_race_track(int index) {
 }
 
 int rush2::track_mod::race_type() {
-    // Looked up again only when the raced track changes (the game's hooks ask every frame).
-    static std::atomic_int looked_up = -2, type = race_race;
+    // Looked up again only when the raced track or the scanned tracks change (the game's hooks ask every frame): the
+    // same index is another track once the enabled mods change.
+    static std::atomic_int looked_up = -2, looked_up_generation = -1, type = race_race;
     int r = race_track();
-    if (r != looked_up) {
+    if (r != looked_up || entries_generation != looked_up_generation) {
         std::lock_guard lock{ mutex };
         scan();
-        int t = race_race;
-        if (r >= 0 && r < (int)entries.size()) {
-            const std::string& s = entries[r].settings.type;
-            t = s == "stunt" ? race_stunt : s == "battle" ? race_battle : race_race;
-        }
-        type = t;
+        type = r >= 0 && r < (int)entries.size() ? type_of(entries[r].settings) : race_race;
         looked_up = r;
+        looked_up_generation = entries_generation.load();
     }
     return type;
 }
 
+int rush2::track_mod::type_of(const Settings& settings) {
+    return settings.type == "stunt" ? race_stunt : settings.type == "battle" ? race_battle : race_race;
+}
+
 int rush2::track_mod::type_of(int index) {
+    // The tracks as last scanned, which is what the track select's ids index (it scans as it opens): no rescan, so
+    // the race hooks can ask every frame.
     std::lock_guard lock{ mutex };
-    scan();
-    if (index < 0 || index >= (int)entries.size()) return race_race;
-    const std::string& s = entries[index].settings.type;
-    return s == "stunt" ? race_stunt : s == "battle" ? race_battle : race_race;
+    return index >= 0 && index < (int)entries.size() ? type_of(entries[index].settings) : race_race;
 }
 
 std::string rush2::track_mod::host_prefix(const Settings& settings) {
@@ -261,13 +263,17 @@ namespace {
         std::vector<uint8_t> glb, toml;
         rush2::track_mod::Extras extras;
         uint64_t source = 0;        // hash of every file the conversion reads, and the converter's version
+        bool sky_pending = false;   // the stock sky's model can't be read yet: converted without it and not cached
         int cache_key = 0;          // the track's own entry in the track cache
     };
 
     // The model container of a stock sky that is a model (track.toml sky, Extras::sky_container): Rush 2's own track
     // geometry asset, or a Rush 2049 track's geometry file converted. Kept once read; false while it can't be (before
-    // the game has loaded an asset, or without a Rush 2049 ROM), and the track is then converted without it.
-    bool stock_sky_container(const std::string& name, std::vector<uint8_t>& out, std::string& model) {
+    // the game has loaded an asset, or without a Rush 2049 ROM), and the track is then converted without it. `pending`
+    // says it can't be read only for now (no asset loaded yet), so that conversion mustn't be cached: the same files
+    // would hash differently once it can.
+    bool stock_sky_container(const std::string& name, std::vector<uint8_t>& out, std::string& model, bool& pending) {
+        pending = false;
         const rush2::track_mod::StockSky* k = rush2::track_mod::stock_sky(name);
         if (k == nullptr || k->model[0] == 0) return false;
         static std::mutex sky_mutex;
@@ -278,6 +284,7 @@ namespace {
             std::vector<uint8_t> bytes;
             if (k->game == 2) {
                 uint8_t* rdram = rush2::assets::rdram();
+                pending = rdram == nullptr;
                 if (rdram == nullptr || !rush2::assets::read_original(rdram, k->asset_or_k, bytes)) return false;
             }
             else {
@@ -308,7 +315,7 @@ namespace {
         if (!e.settings.logo.empty()) read_file(e, e.settings.logo, f.extras.logo);
         if (!e.settings.diorama.empty()) read_file(e, e.settings.diorama, f.extras.diorama);
         if (!e.settings.preview.empty()) read_file(e, e.settings.preview, f.extras.preview);
-        stock_sky_container(e.settings.sky, f.extras.sky_container, f.extras.sky_model);
+        stock_sky_container(e.settings.sky, f.extras.sky_container, f.extras.sky_model, f.sky_pending);
         uint64_t h = rush2::track_cache::hash(f.glb.data(), f.glb.size(), converter_version);
         h = rush2::track_cache::hash(f.toml.data(), f.toml.size(), h);
         h = rush2::track_cache::hash(f.extras.logo.data(), f.extras.logo.size(), h);
@@ -401,6 +408,10 @@ namespace {
         write_report(f.entry.folder, report);
         remember_report(f.entry, report, ok);
         if (!ok) return false;
+        if (f.sky_pending) {
+            remember_textures(f.entry, out.textures);
+            return true;
+        }
         rush2::track_cache::save_blob(report_blob_name(f), f.source, serialize_report(report));
         rush2::track_cache::save_2049(f.cache_key, prefix, f.source, out.track);
         rush2::track_cache::save_blob(menu_blob_name(f), f.source, rush2::track_mod::serialize(out.menu));
@@ -527,6 +538,12 @@ void rush2::track_mod::prepare_in_background() {
     std::thread([]() {
         std::string prepared;
         while (true) {
+            // Not before the game has loaded an asset: a stock sky's model reads from one (stock_sky_container), and a
+            // track converted without it would be cached under a hash its race load never asks for.
+            if (rush2::assets::rdram() == nullptr) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                continue;
+            }
             std::string signature;
             size_t count = 0;
             {

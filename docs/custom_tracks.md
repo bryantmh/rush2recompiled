@@ -105,7 +105,7 @@ textured as dirt but named `COL_ROAD_*` drives like road.
 Faces count on the side their normals point to: up for road, into the track for walls. A drivable face that points
 down is a ceiling (a tunnel roof, a bridge's underside), as in the stock tracks, so check normals with Mesh > Normals >
 Recalculate Outside if the car falls through a road. Give a wall one face, toward the track: a wall with faces
-on both sides (or two back to back) pushes a car that gets into it out through the far side. Flat neighbouring triangles of the same surface are joined into
+on both sides (or two back to back) pushes a car that gets into it out through the far side. Flat neighboring triangles of the same surface are joined into
 the game's larger polygons, as the stock collision is built, so triangulating doesn't cost you anything.
 
 ### Custom surfaces
@@ -440,7 +440,7 @@ How it works inside is in [Track previewer](#track-previewer) and [Race replays]
 
 | What | Limit | Why |
 |---|---|---|
-| Collision polygons | 8,191 after flat neighbours are joined, and at most 255 in one small area | The game's collision format. Stock tracks use 2,100 to 7,100. |
+| Collision polygons | 8,191 after flat neighbors are joined, and at most 255 in one small area | The game's collision format. Stock tracks use 2,100 to 7,100. |
 | Track triangles | about 40,000 (rule of thumb) | The whole track is loaded into the game's memory, which it shares with the cars. |
 | Track size | about 10 km (32,000 ft) from the origin in any direction | Positions are stored as 16-bit numbers. |
 | Checkpoints | 9 | The game has 10 gates including the finish line. |
@@ -569,10 +569,10 @@ merges and renames as needed.
   stand-in (the "stand-ins" block before the race direction: a finish line, a path through the markers along their
   arrows, or a 150 ft circle from FINISH; the path's own height and off-road warnings are then left out) or is left
   out past a limit (far or excess collision polygons, oversized triangles, sections past 900). Thin or upright ribbons
-  are used as they are (the AI drives the centre line).
+  are used as they are (the AI drives the center line).
 - **Full-size textures:** the converter's RGBA16 stand-ins are keyed by `rush2::upscale::rgba16_key`, cached as
   `trackmod_textures_<key>`, and published through `rush2::derive::set_mod_textures("tracks", ...)`.
-- **Collision:** `build_collision` keeps each face's normal (no flipping), merges flat same-surface neighbours into
+- **Collision:** `build_collision` keeps each face's normal (no flipping), merges flat same-surface neighbors into
   convex polygons of up to 8 vertices, and builds the quadtree Rush 2's way; past 64 KB of leaves it builds the tagged
   form the 2049 port reads (splits toward zero, 17-bit leaf offsets, root byte +2 = 0x80 | size bits 16-22:
   `src/rush2049/track2049_collision.cpp`). A leaf holds at most 36 polygons (`max_leaf`): the game's queries copy a
@@ -605,12 +605,12 @@ merges and renames as needed.
   exporters write it (Blender's cyclic seam, a welded loop, flat shaded, shuffled, under a scaled node) and broken
   (on edge, too thin, a tube, one rung pinched), stand-ins (no AIPATH_main, no FINISH, neither, FINISH alone, no
   markers, no visible mesh), a compact layout's
-  wide gates reaching the leg before or after, same-way and other-way neighbours, bridges, a flat crossing, a spiral, a
+  wide gates reaching the leg before or after, same-way and other-way neighbors, bridges, a flat crossing, a spiral, a
   helix, a vertical loop), converts each and checks the report and the crossings in both path files against the ones
   it was built with; `--list` names them, `--only` runs some. Run it after any change to that logic.
 - **Watching the AI race:** `python tools/race_watch.py --launch "<input script>" --path <out>/path.bin` (or `--pid`
   for a game already running) reads the race from the game's memory 10 times a second and logs every car's laps,
-  finish, wrecks, respawns and stuck spells with their spine point, offset from the centre line and lane speeds.
+  finish, wrecks, respawns and stuck spells with their spine point, offset from the center line and lane speeds.
 - **Testing:** `tools/track_mod_test.bat <track folder> <out folder>` converts a track outside the game, and
   `tools/track_mod_check.py <out folder>` checks the result. In game, `RUSH2_TEST_TRACK=38` opens the track select on
   the first custom track, `RUSH2_TEST_MOD_TRACK=<n>` races custom track n in place of HAWAII, and

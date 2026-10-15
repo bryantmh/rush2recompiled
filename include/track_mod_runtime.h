@@ -29,8 +29,11 @@ namespace rush2::track_mod {
     // the stunt track's slot (src/rush2049/track2049.cpp).
     enum RaceType : int { race_race = 0, race_stunt = 1, race_battle = 2 };
     int race_type();
-    // Track `index`'s type (a RaceType), or race_race when there is no such track.
+    // Track `index`'s type (a RaceType) as of the last scan (the track select's), or race_race when there is no such
+    // track.
     int type_of(int index);
+    // The RaceType of a track with these settings (its track.toml type).
+    int type_of(const Settings& settings);
     // The track prefix a custom track of these settings is converted with: its host slot's (STUNT1 for an arena).
     std::string host_prefix(const Settings& settings);
     // The raced custom track's folder name (what its records and ghosts are kept under), or "" for none. Its

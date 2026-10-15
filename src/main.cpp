@@ -602,6 +602,11 @@ int main(int argc, char** argv) {
 
     recompui::register_primary_font("InterVariable.ttf", "Inter Variable");
 
+    if (rush2::sim::active() && rush2::sim::data_dir().empty()) {
+        // Never race a simulation on the player's own settings and save.
+        fprintf(stderr, "RUSH2_SIM needs RUSH2_DATA_DIR (the run's own data folder)\n");
+        return EXIT_FAILURE;
+    }
     if (!rush2::sim::data_dir().empty()) {
         // A simulation run keeps its own settings and save (src/sim_run.cpp), and never moves the player's data.
         std::error_code ec;
