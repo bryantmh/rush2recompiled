@@ -34,6 +34,7 @@
 #include "assets.h"
 #include "rush2.h"
 #include "car2049.h"
+#include "paint_colors.h"
 #include "engine2049.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
@@ -254,7 +255,6 @@ namespace {
     Paint bodies[rush2::car2049::rush2_types]; // Rush 2 types drawn as one body (car mods)
     constexpr uint32_t car_banks = 0x80221750;      // s16 texture bank per preview id (moved from 0x800D9D40)
     constexpr uint32_t bank_table = 0x80119220;     // [bank] = texture records, count
-    constexpr uint32_t colour_table = 0x800CE19C;   // RGBA per colour option
     constexpr int paint_ramps[3] = { 32, 64, 96 }; // COLOR 1-3 (main, accent, stripe colour)
     constexpr uint32_t car_palettes = 0x802217F4;   // per preview id, stride 0x18 (moved from 0x800D97FC)
     std::map<uint32_t, int> side_slot_of;            // record address -> side slot index
@@ -1389,6 +1389,22 @@ void rush2::car2049::forget_record(uint8_t* rdram, uint32_t record) {
 }
 
 // Car speeds (docs/rush2049_research/cars.md §10). Both games share the torque map (above 2300 rpm), final drive and
+uint32_t rush2::car2049::record_address(uint8_t* rdram, uint32_t addr) {
+    if (addr < side_slots || addr >= side_slots + max_side_slots * side_slot_size) {
+        return addr;
+    }
+    std::lock_guard lock{ side_mutex };
+    load_side_slots(rdram);
+    int slot = (int)((addr - side_slots) / side_slot_size);
+    uint32_t offset = addr - side_slots - slot * side_slot_size;
+    for (auto& [record, s] : side_slot_of) {
+        if (s == slot) {
+            return record + record_block + rush2_types * block_size + offset;
+        }
+    }
+    return addr;
+}
+
 // drag; they differ in the torque scale per gear and the gear ratios. build_physics maps Rush 2049's roster onto Rush
 // 2's: per gear, the torque scale x (Rush 2's mean / 2049's mean) and each gear ratio x (Rush 2's mean / 2049's mean),
 // over Rush 2's 21 cars (all but the secret ROCKET) and 2049's 13 in their stock setups. Each 2049 car keeps its place
@@ -1645,8 +1661,16 @@ void rush2::car2049::init_physics(uint8_t* rdram) {
     }
     auto rom = rush2::wings::get_rom();
     auto segment = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Main) : nullptr;
-    if (segment == nullptr) {
-        return;
+    // Rush 2049's paint colors (RGB table 0x801226C0, 32 RGBA words).
+    constexpr uint32_t colors49 = 0x801226C0;
+    if (segment == nullptr || segment->size() < colors49 - main49_vram + rush2::paint_colors::rush2_colors * 4) {
+        rush2::paint_colors::load_2049(rdram, nullptr);
+        if (segment == nullptr) {
+            return;
+        }
+    }
+    else {
+        rush2::paint_colors::load_2049(rdram, segment->data() + (colors49 - main49_vram));
     }
     Main49 m{ *segment };
     build_physics(rdram, m);
@@ -1666,10 +1690,10 @@ extern "C" void rush2_car49_logo(uint8_t* rdram, recomp_context* ctx) {
 // are generated from COLOR 1-3 (the colour, then 31 steps from it towards black, func_800B0EA0), and with COLOR 1
 // white the grey ramp 1-31 is brightened by 1.25. MAIN, ACCENT and STRIPE COLOR are COLOR 1-3; the colour indices
 // mean the same in both games (2049's 0x801226C0 table is Rush 2's 0x800CE19C, retuned), and Rush 2's is used so the
-// car matches the select screen's swatches.
+// car matches the select screen's swatches. Colors 32 and up are the 2049 shades (src/paint_colors.cpp).
 namespace {
     uint16_t rgba5551(uint8_t* rdram, int colour) {
-        uint32_t rgba = (uint32_t)MEM_W(0, (int32_t)(colour_table + colour * 4));
+        uint32_t rgba = rush2::paint_colors::rgba(colour);
         uint32_t r = rgba >> 24, g = (rgba >> 16) & 0xFF, b = (rgba >> 8) & 0xFF;
         return uint16_t(((r << 8) & 0xF800) | ((g << 3) & 0x7C0) | ((b >> 2) & 0x3E) | 1);
     }
@@ -1693,7 +1717,7 @@ extern "C" void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     for (int& c : colours) {
-        if (c >= 32) c = 0;
+        if (c >= rush2::paint_colors::max_colors) c = 0;
     }
     int bank = (int16_t)MEM_H(0, (int32_t)(car_banks + id * 2));
     if (bank < 0 || bank >= (int)MEM_BU(0, (int32_t)0x800D5788)) {

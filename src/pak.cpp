@@ -27,6 +27,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "car2049.h"
+#include "paint_colors.h"
 #include "collectibles.h"
 #include "track2049.h"
 #include "ultramodern/ultramodern.hpp"
@@ -742,6 +743,7 @@ namespace {
     void forget_player(uint8_t* rdram, int profile) {
         uint32_t record = pak_records + (profile / records_per_pak) * pak_stride + (profile % records_per_pak) * record_size;
         rush2::car2049::forget_record(rdram, record);
+        rush2::paint_colors::forget_record(rdram, record);
         rush2::track2049::clear_profile_records(rdram, profile);
         rush2::collectibles::clear_profile(rdram, profile);
     }

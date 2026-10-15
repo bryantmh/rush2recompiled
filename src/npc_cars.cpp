@@ -47,6 +47,7 @@
 #include "elements/ui_slider.h"
 
 #include "car2049.h"
+#include "paint_colors.h"
 #include "npc_cars.h"
 #include "options_page.h"
 #include "rush2_hooks.h"
@@ -65,7 +66,7 @@ namespace {
     constexpr int max_cars = 8;
 
     constexpr int rush2_types = 22;                 // 22 is Rush 2's "no car"
-    constexpr int colors = 32;                      // 0x800CE19C
+    constexpr int colors = rush2::paint_colors::max_colors; // with the 2049 shades (src/paint_colors.cpp)
     constexpr int stripes = 8;                      // 0 none, 1-7
 
     // The car select's STRIPE values (strings 0x800CC8D8.., through the value table 0x800C4960; "SNGL FADE" spelled
@@ -74,14 +75,6 @@ namespace {
         "None", "Single", "Single Fat", "Single Fade", "Double", "Double Fat", "Triple A", "Triple B",
     };
     constexpr int rims = 21;                        // RIM01-RIM21
-
-    // Rush 2's paint colors, 0x800CE19C (RGBA), as the car select's swatches show them.
-    constexpr uint32_t paint_rgba[colors] = {
-        0xF0F0F0FF, 0xC0C0C0FF, 0x303030FF, 0x000000FF, 0xF060F0FF, 0xF00000FF, 0x800000FF, 0x400000FF,
-        0x100000FF, 0x8080F0FF, 0x0000F0FF, 0x000080FF, 0x000040FF, 0x000010FF, 0x9ADC0FFF, 0x00C800FF,
-        0x008000FF, 0x003000FF, 0x00E0BCFF, 0x00986CFF, 0x004B39FF, 0xF000F0FF, 0xA088F0FF, 0x9000F0FF,
-        0x340073FF, 0x34005DFF, 0xF0F000FF, 0xE6B430FF, 0xF08000FF, 0x984010FF, 0xFFECCAFF, 0x5D3229FF,
-    };
 
     // Rush 2's car types 0-21 as the car select names them: its name logos (asset 0x11), looked up through the
     // overlay's type -> name table 0x803C7688 (PICKUP, COMPACT, MUSCLE, ...; DEW is the Mountain Dew car). The part
@@ -151,7 +144,7 @@ namespace {
     }
 
     int other_color(int not_this) {
-        int c = (int)(rng() % (colors - 1));
+        int c = (int)(rng() % (rush2::paint_colors::rush2_colors - 1));
         return c >= not_this ? c + 1 : c;
     }
 }
@@ -193,28 +186,33 @@ extern "C" void rush2_npc_cars_apply(uint8_t* rdram, recomp_context* ctx) {
         MEM_B(1, (int32_t)entry) = (int8_t)type;
     }
     bool had_stripe = MEM_BU(4, (int32_t)entry) != 0;
-    int main = choice(f_main);
+    // A color offered no more (the 2049 shades) paints as its stand-in.
+    auto color_choice = [&choice](Field f) {
+        int c = choice(f);
+        return c == random_value ? c : rush2::paint_colors::usable(c);
+    };
+    int main = color_choice(f_main);
     if (main != random_value) {
         // With a stripe the game paints the accent as the main color.
-        if (had_stripe && choice(f_accent) == random_value) {
+        if (had_stripe && color_choice(f_accent) == random_value) {
             MEM_B(3, (int32_t)entry) = (int8_t)main;
         }
         MEM_B(2, (int32_t)entry) = (int8_t)main;
     }
     main = MEM_BU(2, (int32_t)entry);
-    if (choice(f_accent) != random_value) {
-        MEM_B(3, (int32_t)entry) = (int8_t)choice(f_accent);
+    if (color_choice(f_accent) != random_value) {
+        MEM_B(3, (int32_t)entry) = (int8_t)color_choice(f_accent);
     }
     int stripe = choice(f_stripe);
     if (stripe != random_value) {
         MEM_B(4, (int32_t)entry) = (int8_t)stripe;
         // The game only draws a stripe color for a car it gave a stripe.
-        if (stripe != 0 && !had_stripe && choice(f_stripe_color) == random_value) {
+        if (stripe != 0 && !had_stripe && color_choice(f_stripe_color) == random_value) {
             MEM_B(5, (int32_t)entry) = (int8_t)other_color(main);
         }
     }
-    if (choice(f_stripe_color) != random_value) {
-        MEM_B(5, (int32_t)entry) = (int8_t)choice(f_stripe_color);
+    if (color_choice(f_stripe_color) != random_value) {
+        MEM_B(5, (int32_t)entry) = (int8_t)color_choice(f_stripe_color);
     }
     slot_rims[slot] = choice(f_rims);
     bool any = false;
@@ -306,7 +304,7 @@ namespace {
     bool expanded = false; // UI thread: whether the section is open.
 
     recompui::Color paint_color(int color) {
-        uint32_t c = paint_rgba[color];
+        uint32_t c = rush2::paint_colors::rgba(color);
         return { (uint8_t)(c >> 24), (uint8_t)(c >> 16), (uint8_t)(c >> 8), 255 };
     }
 
@@ -342,7 +340,8 @@ namespace {
         });
     }
 
-    // A paint color: a slider from Random (0) through colors 1-32, and a swatch of the color (or "Random").
+    // A paint color: a slider from Random (0) through the colors offered (src/paint_colors.cpp), and a swatch of the
+    // color (or "Random").
     void add_color(Element* parent, const std::string& name, int npc, Field f) {
         ContextId context = get_current_context();
         Element* line = add_line(parent, name);
@@ -359,7 +358,7 @@ namespace {
         Slider* slider = context.create_element<Slider>(line, SliderType::Integer);
         slider->set_flex_grow(1.0f);
         slider->set_min_value(0);
-        slider->set_max_value(colors);
+        slider->set_max_value(rush2::paint_colors::count());
         slider->set_step_value(1);
         auto show = [swatch, random_label](int color) {
             if (color == random_value) {

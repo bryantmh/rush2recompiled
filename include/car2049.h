@@ -115,6 +115,9 @@ namespace rush2::car2049 {
     // Forgets the 2049 car options and selected car kept for the player record at `record` (a deleted player), so a
     // player created in its place starts fresh.
     void forget_record(uint8_t* rdram, uint32_t record);
+    // The player record address a 2049 type's side-slot address stands for (record + 0x584 + type * 13 + the byte in
+    // the type's block); any other address is returned as it is.
+    uint32_t record_address(uint8_t* rdram, uint32_t addr);
     // Animates the loaded 2049 cars' effects (the Rocket ZX's exhaust flames). Called while models are drawn; it
     // runs at most once per 1/60 s.
     void animate(uint8_t* rdram);

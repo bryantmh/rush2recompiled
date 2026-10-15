@@ -35,6 +35,7 @@
 #include "recomp.h"
 #include "arrows.h"
 #include "battle.h"
+#include "paint_colors.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
 
@@ -49,7 +50,6 @@ namespace {
     constexpr uint32_t num_players = 0x8010C3E2;          // s16
     constexpr uint32_t cameras = 0x800E79D0;              // Per view, 0x40: rows +0 right, +0xC up, +0x18 forward; +0x24 position
     constexpr uint32_t game_state = 0x8010C0D0;           // 3 a race, 10 its countdown
-    constexpr uint32_t paint_colors = 0x800CE19C;         // RGBA per paint index
     constexpr uint32_t view_tilt = 0x800D0171;            // s8: the view is turned about its direction
     constexpr uint32_t view_tilt_angle = 0x800CF9DC;      // f32
     constexpr int max_cars = 8;
@@ -255,7 +255,7 @@ namespace {
             }
             else {
                 int paint = MEM_BU(0, (int32_t)(cars + (uint32_t)car * car_size + car_paint));
-                color = (uint32_t)MEM_W(0, (int32_t)(paint_colors + paint * 4));
+                color = rush2::paint_colors::rgba(paint);
             }
             // The corners (1, 1), (-1, 1), (-1, -1), (1, -1) across and up the view, turned with the image.
             static const float corner[4][2] = { { 1, 1 }, { -1, 1 }, { -1, -1 }, { 1, -1 } };

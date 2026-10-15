@@ -392,7 +392,8 @@ void rush2::wings::init_config() {
         cars_option_id,
         "Rush 2049 Cars",
         "Adds the thirteen cars of San Francisco Rush 2049 to the car select, after Rush 2's own cars, for players "
-        "and the computer cars. Takes effect the next time the car select opens. Requires a Rush 2049 (USA) ROM.",
+        "and the computer cars, and Rush 2049's extra paint colors for every car. Takes effect the next time the car "
+        "select opens. Requires a Rush 2049 (USA) ROM.",
         true
     );
     wings_config.add_option_change_callback(cars_option_id,

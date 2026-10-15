@@ -282,6 +282,54 @@ hardest below about 3500 and above 7000 rpm, HIGH only between about 5200 and 66
 without settling, so HIGH comes out slightly behind STANDARD on both. a 2049 car's mass entry stands in
 for its FRAME mass. CONTROL and DRIFTING already follow TIRES and SUSPENSION.
 
+### Paint colors [V]
+
+Rush 2's 32 paint colors are RGBA words at 0x800CE19C; Rush 2049's RGB table 0x801226C0 (32 RGBA words, from which it
+builds 0x8013F300) holds the same 32 colors index for index, retuned. While the 2049 cars are offered (Games tab), the
+2049 shades that no Rush 2 color is close to (CIE76 dE of 10 or more from every one) are colors 32-52, for every car
+and for the AI Opponents' paint (src/paint_colors.cpp). They are read from the 2049 ROM's Main segment; a source
+without the table (a Dreamcast disc: its Main segment is rebuilt from `tools/rush2049/dc_tables.py`'s list, which
+doesn't have it) offers none. Each has a Rush 2 stand-in, the closest Rush 2 color in hue:
+
+| Color | 2049 index | Shade | Stand-in | Color | 2049 index | Shade | Stand-in |
+|---|---|---|---|---|---|---|---|
+| 32 | 2 | 5A5A5A gray | 2 | 43 | 19 | 296855 sea green | 20 |
+| 33 | 4 | DD4156 rose red | 5 | 44 | 20 | 1B5653 dark teal | 20 |
+| 34 | 9 | C4D6DF ice blue | 1 | 45 | 21 | E525D0 orchid | 21 |
+| 35 | 10 | 6FA0E3 sky blue | 9 | 46 | 22 | B74CE5 violet | 22 |
+| 36 | 11 | 1B38E5 royal blue | 10 | 47 | 24 | 660FA9 purple | 24 |
+| 37 | 12 | 081B70 dark blue | 11 | 48 | 26 | F0D41D gold yellow | 26 |
+| 38 | 13 | 040E38 midnight blue | 12 | 49 | 28 | E08E1A amber | 28 |
+| 39 | 14 | 58BB5B leaf green | 16 | 50 | 29 | 8A6449 khaki | 29 |
+| 40 | 15 | 00A92F emerald | 16 | 51 | 30 | C8B4CA lilac gray | 1 |
+| 41 | 17 | 005A2A forest green | 17 | 52 | 31 | 504136 taupe | 31 |
+| 42 | 18 | 3EC1BF aqua | 18 | | | | |
+
+Readers of the color tables, all pointed at max-entry copies in the recomp heap by a hook after the address load:
+the RGBA table in race_load_car_assets 0x80087008 (the 2-player ARROW), menu_car_select_run 0x803AF64C / 0x803AF6A0
+(the preview car's paint, func_8008547C) and the swatch widget func_803BAA44 0x803BABEC; race_scene_load_assets
+0x8008A244 converts it (loop end 0x8008A24C) into RGBA5551 words at 0x8010C180, read by car_build_textures 0x80085C48
+($fp: MAIN sp+0xD3, ACCENT sp+0xD7, STRIPE COLOR sp+0xDF) and the HUD map dots (hud_race_setup_widgets 0x800A0810,
+0x800A0880, by the car's +0x7EB). src/arrows.cpp and the 2049 paint (rush2_car49_paint) take
+`rush2::paint_colors::rgba`.
+
+The player record keeps each color in 5 bits of the car type's block (record + 0x584 + type * 13): MAIN bits 5-7 of
++1 and 0-1 of +2, ACCENT bits 2-6 of +2, STRIPE COLOR bits 3-7 of +3. Setters (they take the record, type and value,
+add the block's +1 = record + 0x585 + type * 13 and call a packer): MAIN 0x80097A5C (packer 0x80097A04), ACCENT
+0x800979C0 (0x80097978), STRIPE COLOR 0x800978AC (0x80097868); each marks the bytes dirty through 0x8005F338. Getters,
+read only by carselect_build_list (0x803B8B6C..) into the car select rows: MAIN 0x800B2694 (via 0x800B266C, which
+takes the block's +1), ACCENT 0x800B2640, STRIPE COLOR 0x800B25D0. An extra color is stored as its stand-in, so the
+Controller Pak (and a build without the extras) sees the stand-in; the shade's 2049 index goes in the saves' "paint"
+section, keyed by the block's +1 address and the field. A 2049 type's block lives in its side slot (§8 Saves), keyed
+by the record address it stands for (`rush2::car2049::record_address`). The getters give the extra back while it is
+offered and the record still holds its stand-in. Deleting a player forgets its entries.
+
+The car select's left/right on a color row (func_803B9478 cases MAIN 0x803B9960, ACCENT 0x803B9A20, STRIPE COLOR
+0x803B9BA0) adds the step to the row byte (0x80201190 / 0x80201248 / 0x802013B8 + (slot + 1) * 36 + type), wraps it
+at 32 (31 below 0, 0 from 32) and calls the setter with it. Hooks keep the byte before the add (0x803B9998, 0x803B9A58,
+0x803B9BD8) and, at the setter call (0x803B9A0C, 0x803B9ACC, 0x803B9C4C: row byte $v0 + 0x24, value $v1, type $a3,
+step $a1), wrap it at the colors offered instead. A Dreamcast car's MAIN row is its STYLE and keeps its own wrap.
+
 ## 10. Car speeds [V]
 
 Rush 2049's cars are faster than Rush 2's, and its AI lanes are set for them. The "Car Speeds" option (Games tab,

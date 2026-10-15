@@ -4430,12 +4430,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800CE19C
-name = "race_scene_load_byte_19c"
-type = "u8"
-desc = "Byte read by race_scene_load_assets. (low confidence)"
-area = "track"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "paint_colors_rgba"
+type = "u32[32]"
+desc = "Car paint colors MAIN/ACCENT/STRIPE COLOR 0-31, RGBA words. Readers (arrow 0x80087008, car select preview 0x803AF64C/0x803AF6A0, swatch 0x803BABEC, race_scene_load_assets 0x8008A244) are pointed at a 53-entry copy with the Rush 2049 shades (src/paint_colors.cpp)."
+area = "car"
+status = "verified"
+ref = "docs/rush2049_research/cars.md#paint-colors-v"
 
 [[var]]
 vram = 0x800CE19D
@@ -10541,12 +10541,12 @@ ref = "docs/cheats.md#killer-rats"
 
 [[var]]
 vram = 0x8010C180
-name = "race_scene_assets_out_b"
-type = "u32"
-desc = "Word written by race_scene_load_assets, never read (low confidence)."
+name = "paint_colors_5551"
+type = "u32[32]"
+desc = "paint_colors_rgba as RGBA5551 words, built by race_scene_load_assets; read by car_build_textures (0x80085C48) and the HUD map dots (0x800A0810, 0x800A0880). Moved to a 53-entry copy (src/paint_colors.cpp)."
 area = "car"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/cars.md#paint-colors-v"
 
 [[var]]
 vram = 0x8010C200
@@ -14156,6 +14156,33 @@ desc = "Byte kept by title screen run (low confidence)."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x80201190
+name = "carselect_main_color_rows"
+type = "s8[5][36]"
+desc = "Car select MAIN COLOR per row and car type (row 0 defaults, row slot + 1 the players', moved from 0x800C0ED0 for 36 types). Filled from the record by carselect_build_list, stepped by menu_screen_car_select_frame."
+area = "menu"
+status = "verified"
+ref = "docs/rush2049_research/cars.md#paint-colors-v"
+
+[[var]]
+vram = 0x80201248
+name = "carselect_accent_color_rows"
+type = "s8[5][36]"
+desc = "Car select ACCENT COLOR per row and car type (moved from 0x800C0F14), as carselect_main_color_rows."
+area = "menu"
+status = "verified"
+ref = "docs/rush2049_research/cars.md#paint-colors-v"
+
+[[var]]
+vram = 0x802013B8
+name = "carselect_stripe_color_rows"
+type = "s8[5][36]"
+desc = "Car select STRIPE COLOR per row and car type (moved from 0x800C0F9C), as carselect_main_color_rows."
+area = "menu"
+status = "verified"
+ref = "docs/rush2049_research/cars.md#paint-colors-v"
 
 [[var]]
 vram = 0x802217E0

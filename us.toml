@@ -8288,6 +8288,111 @@ func = "menu_screen_car_select_frame_803B9478"
 before_vram = 0x803B9B8C
 text = "    rush2_car1_stripe_value(rdram, ctx);"
 
+# Paint colors with the Rush 2049 shades (src/paint_colors.cpp): the color tables move to larger copies.
+[[patches.hook]]
+func = "race_load_car_assets_80086CA4"
+before_vram = 0x8008700C
+text = "    rush2_paint_rgba_table(rdram, ctx, &ctx->r14);"
+
+[[patches.hook]]
+func = "race_scene_load_assets_8008A1FC"
+before_vram = 0x8008A250
+text = "    rush2_paint_convert(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_car_select_run_803AE55C"
+before_vram = 0x803AF650
+text = "    rush2_paint_rgba_table(rdram, ctx, &ctx->r24);"
+
+[[patches.hook]]
+func = "menu_car_select_run_803AE55C"
+before_vram = 0x803AF6A4
+text = "    rush2_paint_rgba_table(rdram, ctx, &ctx->r14);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_cartype_tables_803BAA44"
+before_vram = 0x803BABF0
+text = "    rush2_paint_rgba_table(rdram, ctx, &ctx->r15);"
+
+[[patches.hook]]
+func = "car_build_textures_8008582C"
+before_vram = 0x80085C4C
+text = "    rush2_paint_5551_table(rdram, ctx, &ctx->r30);"
+
+[[patches.hook]]
+func = "hud_race_setup_widgets_800A06F8"
+before_vram = 0x800A0814
+text = "    rush2_paint_5551_table(rdram, ctx, &ctx->r8);"
+
+[[patches.hook]]
+func = "hud_race_setup_widgets_800A06F8"
+before_vram = 0x800A0884
+text = "    rush2_paint_5551_table(rdram, ctx, &ctx->r8);"
+
+
+# Paint colors: the player record's getters and setters keep the 2049 shades beside the record.
+[[patches.hook]]
+func = "car_record_get_stripe_color_800B25D0"
+before_vram = 0x800B25F4
+text = "    ctx->r2 = ctx->r8 & 0x1F; rush2_paint_get(rdram, ctx, (uint32_t)ctx->r24 + 0x585, 2, &ctx->r2); return;"
+
+[[patches.hook]]
+func = "car_record_get_accent_color_800B2640"
+before_vram = 0x800B2664
+text = "    ctx->r2 = ctx->r8 & 0x1F; rush2_paint_get(rdram, ctx, (uint32_t)ctx->r24 + 0x585, 1, &ctx->r2); return;"
+
+[[patches.hook]]
+func = "car_record_get_main_color_800B2694"
+before_vram = 0x800B26C0
+text = "    rush2_paint_get(rdram, ctx, (uint32_t)ctx->r4, 0, &ctx->r2);"
+
+[[patches.hook]]
+func = "car_record_set_main_color_80097A5C"
+before_vram = 0x80097A88
+text = "    rush2_paint_set(rdram, ctx, 0);"
+
+[[patches.hook]]
+func = "car_record_set_accent_color_800979C0"
+before_vram = 0x800979EC
+text = "    rush2_paint_set(rdram, ctx, 1);"
+
+[[patches.hook]]
+func = "car_record_set_stripe_color_800978AC"
+before_vram = 0x800978D8
+text = "    rush2_paint_set(rdram, ctx, 2);"
+
+
+# Paint colors: the car select's MAIN, ACCENT and STRIPE COLOR rows wrap at the colors offered.
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9998
+text = "    rush2_paint_step_before(rdram, ctx, (int8_t)ctx->r15);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9A0C
+text = "    rush2_paint_step_value(rdram, ctx, 0);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9A58
+text = "    rush2_paint_step_before(rdram, ctx, (int8_t)ctx->r24);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9ACC
+text = "    rush2_paint_step_value(rdram, ctx, 1);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9BD8
+text = "    rush2_paint_step_before(rdram, ctx, (int8_t)ctx->r14);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9C4C
+text = "    rush2_paint_step_value(rdram, ctx, 2);"
+
 [[patches.hook]]
 func = "carselect_text_cb_car_title_803BC048"
 before_vram = 0x803BC3F4
@@ -8394,7 +8499,7 @@ before_vram = 0x8009781C
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]
-func = "save_set_car_logo_low3_800978AC"
+func = "car_record_set_stripe_color_800978AC"
 before_vram = 0x800978AC
 text = "    rush2_car49_record(rdram, ctx);"
 
@@ -8404,12 +8509,12 @@ before_vram = 0x80097934
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]
-func = "save_set_car_logo_byte1_800979C0"
+func = "car_record_set_accent_color_800979C0"
 before_vram = 0x800979C0
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]
-func = "save_set_car_logo_halfword_80097A5C"
+func = "car_record_set_main_color_80097A5C"
 before_vram = 0x80097A5C
 text = "    rush2_car49_record(rdram, ctx);"
 
@@ -8459,7 +8564,7 @@ before_vram = 0x800B259C
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]
-func = "car_options_get_color_hi_800B25D0"
+func = "car_record_get_stripe_color_800B25D0"
 before_vram = 0x800B25D0
 text = "    rush2_car49_record(rdram, ctx);"
 
@@ -8469,12 +8574,12 @@ before_vram = 0x800B2608
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]
-func = "car_options_get_byte1_field_800B2640"
+func = "car_record_get_accent_color_800B2640"
 before_vram = 0x800B2640
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]
-func = "carselect_get_logo_color_800B2694"
+func = "car_record_get_main_color_800B2694"
 before_vram = 0x800B2694
 text = "    rush2_car49_record(rdram, ctx);"
 

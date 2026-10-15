@@ -27,6 +27,7 @@
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "car2049.h"
+#include "paint_colors.h"
 #include "car_mods.h"
 #include "rush2.h"
 #include "track2049_convert.h"
@@ -285,5 +286,6 @@ extern "C" void rush2_heap_init(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::init_assets(rdram);
     rush2::fix_car_models(rdram);
     rush2::car_mods::init(rdram);
+    rush2::paint_colors::init(rdram);
     rush2::car2049::init_physics(rdram);
 }
