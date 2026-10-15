@@ -635,6 +635,33 @@ static void path_race_time(uint8_t* rdram) {
 }
 
 // func_80093048 at 0x80093298 (see path_race_time). A race with the track select's BATTLE row (rush2::battle::race_battle_applies)
+// Entry of func_80092BC4 (spine, $a0 = checkpoint) and func_80092884 (lane, $a0 = checkpoint, $a1 = lane 0-3), which
+// func_80092D6C calls at path load and stores into the header copy's checkpoint +0x22 slots. A custom track's path file
+// (0x800D575C) already holds its crossings there, worked out by the converter from its markers in 3D (src/track_mod/
+// track_mod_convert.cpp), so they are returned as they stand: the game's search (the first change of side within the
+// radius, seen from above) can land on another stretch of a compact track's road. Other tracks, and a slot the
+// converter left at -1, keep the search.
+extern "C" bool rush2_mod_checkpoint_crossing(uint8_t* rdram, recomp_context* ctx, bool lane) {
+    constexpr uint32_t path_pointer = 0x800D575C; // The loaded path file: checkpoints at +0xC, 0x50 bytes each.
+    constexpr uint32_t spine_count = 0x80111940; // u16
+    constexpr uint32_t lane_counts = 0x800D5780; // u16[4]
+    if (!hosting_mod(rdram)) return false;
+    int cp = (int16_t)ctx->r4;
+    int l = lane ? (int16_t)ctx->r5 : -1;
+    if (cp < 0 || cp >= 10 || l < -1 || l > 3) return false;
+    // The file's own slots: the header copy's are cleared before the search.
+    uint32_t file = (uint32_t)MEM_W(0, (int32_t)path_pointer);
+    if (file == 0) return false;
+    int v = (int16_t)MEM_H(0, (int32_t)(file + 0x2E + cp * 0x50 + (l + 1) * 2));
+    int count = lane ? MEM_HU(0, (int32_t)(lane_counts + l * 2)) : MEM_HU(0, (int32_t)spine_count);
+    if (v < 0 || v >= count) return false;
+    // Test aid: RUSH2_TEST_CROSSINGS=1 logs each crossing used.
+    static const bool log = getenv("RUSH2_TEST_CROSSINGS") != nullptr;
+    if (log) fprintf(stderr, "[trackmod] checkpoint %d %s%d: crossing %d\n", cp, lane ? "lane " : "spine", lane ? l : 0, v);
+    ctx->r2 = v;
+    return true;
+}
+
 // gets half as much time again: the start time and every checkpoint's extensions times 1.5 (fights cost time).
 extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     path_race_time(rdram);

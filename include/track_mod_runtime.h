@@ -15,6 +15,7 @@ namespace rush2::track_mod {
         std::string folder;              // the track's folder name (its id)
         std::string dir;                 // its path in the mod: "tracks/<folder>/" or the older "rush2/tracks/<folder>/"
         Settings settings;               // its track.toml (name falls back to the folder)
+        bool hide_warnings = false;      // the mod's mod.json has "hide_track_warnings": true (Mods tab shows errors only)
     };
 
     // The enabled mods' tracks, in mod order (rescanned when the enabled mods change).

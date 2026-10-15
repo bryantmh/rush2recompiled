@@ -1735,6 +1735,17 @@ func = "path_load_derive_80093048"
 before_vram = 0x80093290
 text = "    rush2_race_lane_speeds(rdram, ctx);"
 
+# Custom tracks: the path file's own checkpoint crossings in place of the load-time search (src/rush2049/track2049.cpp).
+[[patches.hook]]
+func = "checkpoint_crossing_spine_80092BC4"
+before_vram = 0x80092BC4
+text = "    if (rush2_mod_checkpoint_crossing(rdram, ctx, false)) return;"
+
+[[patches.hook]]
+func = "checkpoint_crossing_lanes_80092884"
+before_vram = 0x80092884
+text = "    if (rush2_mod_checkpoint_crossing(rdram, ctx, true)) return;"
+
 # Car Speeds: with Rush 2049 speeds the speedometer reads like Rush 2049's, true speed x 1.2 (src/rush2049/car2049.cpp).
 [[patches.hook]]
 func = "hud_speedometer_800BA2A8"

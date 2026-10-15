@@ -9618,12 +9618,12 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 [[func]]
 vram = 0x80092884
 name = "checkpoint_crossing_lanes"
-sig = "s32 checkpoint_crossing_lanes(void *cp, s32 lane)"
-desc = "Computes checkpoint crossing indices (lanes). | Checkpoint crossing: first path index where the path crosses the checkpoint plane inside the radius (with func_80092BC4)."
+sig = "s16 checkpoint_crossing_lanes(s16 cp, s16 lane)"
+desc = "Checkpoint crossing on AI lane 0-3 at path load, the same search as checkpoint_crossing_spine_80092BC4. Custom tracks return the path file's own crossing instead (rush2_mod_checkpoint_crossing)."
 status = "verified"
 rush2049 = [0x800BA2B8]
 area = "track"
-ref = "docs/rush2049_research/race.md#32-checkpoints-0x00c--i0x50-10-slots"
+ref = "docs/custom_tracks.md#for-developers"
 
 [[func]]
 vram = 0x80092A38
@@ -9638,13 +9638,13 @@ ref = "docs/rush2049_research/race.md#32-checkpoints-0x00c--i0x50-10-slots"
 [[func]]
 vram = 0x80092BC4
 name = "checkpoint_crossing_spine"
-sig = "s32 checkpoint_crossing_spine(void *cp)"
-desc = "Computes checkpoint crossing indices (spine). | Checkpoint crossing: first path index where the path crosses the checkpoint plane inside the radius (with func_80092884)."
+sig = "s16 checkpoint_crossing_spine(s16 cp)"
+desc = "Checkpoint crossing on the spine at path load: from point 0 (wrapping), the first point where the path changes side of gate cp's plane with it and the point before both within the radius, in x/z only; else the nearest point. Custom tracks return the path file's own crossing instead (rush2_mod_checkpoint_crossing)."
 consts = "6 = point stride"
 status = "verified"
 rush2049 = [0x800BA61C]
 area = "track"
-ref = "docs/rush2049_research/race.md#32-checkpoints-0x00c--i0x50-10-slots"
+ref = "docs/custom_tracks.md#for-developers"
 
 [[func]]
 vram = 0x80092D6C

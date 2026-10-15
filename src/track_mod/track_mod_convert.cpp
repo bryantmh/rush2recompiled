@@ -591,7 +591,8 @@ namespace {
     }
 
     // ---- AI path ---------------------------------------------------------------------------------------------------
-    struct PathPoint { Vec3 p; Vec3 lateral; float half_width; };
+    // air: over a gap (a jump), kept at the curve's height with its lanes, not dropped onto a road below.
+    struct PathPoint { Vec3 p; Vec3 lateral; float half_width; bool air = false; };
 
     // A node's triangles in game space.
     void append_tris(const rush2::gltf::Node& n, std::vector<VisualTri>& out) {
@@ -923,7 +924,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     if ((int)checkpoints.size() > max_checkpoints) {
         report.error("At most " + std::to_string(max_checkpoints) + " checkpoints (the game has 10 gates including the finish).");
     }
-    struct Gate { std::string name; Vec3 pos, dir; float radius; };
+    // at: the forward spine point where the AI path crosses it (the first past it), -1 for none.
+    struct Gate { std::string name; Vec3 pos, dir; float radius; int at = -1; };
     std::vector<Gate> gates;
     if (finish) gates.push_back({ "FINISH", to_game(finish->position()), forward(finish), half_width(finish) });
     for (const auto& [k, n] : checkpoints) {
@@ -935,7 +937,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         if (length(g.dir) < 0.5f) report.error(g.name + " points straight up or down; turn it so its green arrow points down the track.");
         if (g.radius < 3.0f) report.error(g.name + " is " + fmt_ft(g.radius * 2) + " wide; scale its X to half the road's width.");
         for (size_t j = 0; j < i; j++) {
-            if (dist_xz(gates[j].pos, g.pos) < 1.0f) {
+            if (length(sub(gates[j].pos, g.pos)) < 1.0f) {   // 3D: markers on stacked roads share x/z
                 report.error(g.name + " and " + gates[j].name + " are in the same place " + fmt_pos(g.pos) +
                              (dist_xz(g.pos, { 0, 0, 0 }) < 1.0f ? " (the origin: was it moved into place?)" : "") + ".");
             }
@@ -1017,55 +1019,221 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
     }
 
+    // ---- race direction, start and checkpoint crossings ----
+    // Each gate is a line across the road: through its marker, square to its arrow, its half-width to either side. The
+    // AI path crosses it where a step of the path goes from one side of that line to the other within that width and
+    // within gate_height of the marker, so a stretch running alongside, a bridge over it or a road under it isn't taken
+    // for it. One loop crosses each gate once. The race direction is the one most arrows agree with (FINISH breaks a
+    // tie), the lap starts at FINISH's crossing, and the crossings are written into the path files, which the game
+    // uses as they stand for a custom track (rush2_mod_checkpoint_crossing) in place of its own search at load (the
+    // first change of side within the radius seen from above, func_80092D6C), which a compact track's other stretches
+    // can fool.
     std::vector<PathPoint> spine;   // every spine_step ft, starting at the finish line
     if (rungs.size() >= 4 && finish) {
-        // Race direction: the path should run the way FINISH points.
-        const Gate& fg = gates[0];
-        size_t near = 0;
-        float best = 1e30f;
-        for (size_t i = 0; i < rungs.size(); i++) {
-            float d = dist_xz(rungs[i].p, fg.pos);
-            if (d < best) { best = d; near = i; }
-        }
-        Vec3 along = sub(rungs[(near + 1) % rungs.size()].p, rungs[near].p);
-        if (dot(along, fg.dir) < 0) {
+        constexpr float gate_height = 30.0f;   // ft above or below the marker a crossing may be
+        struct Crossing { float s; bool along; Vec3 at; };   // s: distance along rungs; along: the arrow's way
+        size_t nr = rungs.size();
+        std::vector<float> at(nr + 1, 0.0f);   // distance along the closed loop to rung i (at[nr]: the lap)
+        std::vector<std::vector<Crossing>> found(gates.size());
+        auto trace = [&]() {
+            for (size_t i = 0; i < nr; i++) at[i + 1] = at[i] + length(sub(rungs[(i + 1) % nr].p, rungs[i].p));
+            for (size_t g = 0; g < gates.size(); g++) {
+                const Gate& gate = gates[g];
+                Vec3 side_dir = { -gate.dir[2], 0.0f, gate.dir[0] };
+                found[g].clear();
+                for (size_t i = 0; i < nr; i++) {
+                    const Vec3& a = rungs[i].p;
+                    const Vec3& b = rungs[(i + 1) % nr].p;
+                    float sa = dot(sub(a, gate.pos), gate.dir), sb = dot(sub(b, gate.pos), gate.dir);
+                    if ((sa < 0) == (sb < 0)) continue;
+                    float f = sa / (sa - sb);
+                    Vec3 x = add(a, mul(sub(b, a), f));
+                    if (std::fabs(dot(sub(x, gate.pos), side_dir)) > gate.radius) continue;
+                    if (std::fabs(x[1] - gate.pos[1]) > gate_height) continue;
+                    found[g].push_back({ at[i] + (at[i + 1] - at[i]) * f, sb > sa, x });
+                }
+                // A path that steps back and forth over the line (the curve's ends overlapping at the gate, a kink)
+                // crosses it there an odd number of times, in turn each way: cancel each pair of neighbouring
+                // crossings, the lap's ends included, that go opposite ways within jitter ft of each other.
+                constexpr float jitter = 50.0f;
+                auto& c = found[g];
+                for (bool again = true; again && c.size() >= 2;) {
+                    again = false;
+                    for (size_t k = 0; k < c.size() && !again; k++) {
+                        size_t j = (k + 1) % c.size();
+                        if (j == k || c[k].along == c[j].along) continue;
+                        float apart = std::fmod(c[j].s - c[k].s + at[nr], at[nr]);
+                        if (apart > jitter) continue;
+                        c.erase(c.begin() + long(std::max(k, j)));
+                        c.erase(c.begin() + long(std::min(k, j)));
+                        again = true;
+                    }
+                }
+            }
+        };
+        trace();
+        // Gates the path passes once vote; a gate that reaches another stretch of road counts only when none does.
+        int along = 0, against = 0;
+        for (const auto& c : found) if (c.size() == 1) (c[0].along ? along : against)++;
+        if (along == 0 && against == 0) for (const auto& c : found) for (const Crossing& k : c) (k.along ? along : against)++;
+        if (against > along || (against == along && found[0].size() == 1 && !found[0][0].along)) {
             std::reverse(rungs.begin(), rungs.end());
             for (PathPoint& r : rungs) r.lateral = mul(r.lateral, -1.0f);
-            near = rungs.size() - 1 - near;
-            report.info("AIPATH_main runs against FINISH's direction; it was reversed.");
+            report.info("AIPATH_main runs against the gates' arrows; it was reversed.");
+            trace();
         }
-        if (best > fg.radius + 20.0f) {
-            report.error("AIPATH_main doesn't pass through FINISH (closest " + fmt_ft(best) + " away).");
+        float lap = at[nr];
+        out.lap_feet = lap;
+        // Each gate's crossing: the one going the way its arrow points. A gate wide enough to reach another stretch of
+        // road (a compact track's next leg) is told apart by its arrow when that stretch runs the other way; the game
+        // also checks a car against a gate's width during the race, so that's still worth a warning. Two passes the
+        // same way can't be told apart.
+        std::vector<float> gate_s(gates.size(), -1.0f);
+        for (size_t g = 0; g < gates.size(); g++) {
+            Gate& gate = gates[g];
+            const auto& c = found[g];
+            if (c.empty()) {
+                report.error(gate.name + " at " + fmt_pos(gate.pos) + " isn't crossed by the AI path: place it on the "
+                             "road across the path, within " + fmt_ft(gate_height) + " of its height, X scaled to half "
+                             "the road's width.");
+                continue;
+            }
+            size_t aligned = 0;
+            const Crossing* pick = &c[0];
+            for (const Crossing& k : c) {
+                if (k.along && aligned++ == 0) pick = &k;
+            }
+            if (c.size() > 1) {
+                std::string where;
+                for (const Crossing& k : c) where += (where.empty() ? "" : ", ") + fmt_pos(k.at);
+                if (aligned == 1) {
+                    std::string others;
+                    for (const Crossing& k : c) if (&k != pick) others += (others.empty() ? "" : ", ") + fmt_pos(k.at);
+                    report.warning(gate.name + " is wide enough to reach another stretch of road (at " + others + "), "
+                                   "running the other way; its arrow picks the stretch at " + fmt_pos(pick->at) +
+                                   ". In the race a car on the other stretch may still pass it there: narrow it "
+                                   "(X scale) to just this road.");
+                }
+                else {
+                    report.error(gate.name + " is crossed by the AI path " + std::to_string(c.size()) + " times (at " +
+                                 where + "): the road passes it more than once. Move it to where the road passes only "
+                                 "once, or narrow it (X scale).");
+                }
+            }
+            gate_s[g] = pick->s;
+            if (!pick->along) {
+                report.warning(gate.name + "'s green arrow points against the race direction the other gates agree on; "
+                               "it is used turned round.");
+                gate.dir = mul(gate.dir, -1.0f);
+            }
         }
-        // Start at the rung nearest the finish line, wrap around, and resample.
-        std::rotate(rungs.begin(), rungs.begin() + near, rungs.end());
-        rungs.push_back(rungs.front());   // closed
-        std::vector<float> at(rungs.size(), 0.0f);
-        for (size_t i = 1; i < rungs.size(); i++) at[i] = at[i - 1] + length(sub(rungs[i].p, rungs[i - 1].p));
-        out.lap_feet = at.back();
-        size_t seg = 0;
-        for (float s = 0.0f; s < at.back() - spine_step * 0.5f; s += spine_step) {
-            while (seg + 2 < rungs.size() && at[seg + 1] < s) seg++;
+        // The lap starts at FINISH's crossing (else, already reported, at the rung nearest FINISH).
+        float start = gate_s[0];
+        if (start < 0.0f) {
+            size_t near = 0;
+            float best = 1e30f;
+            for (size_t i = 0; i < nr; i++) {
+                float d = dist_xz(rungs[i].p, gates[0].pos);
+                if (d < best) { best = d; near = i; }
+            }
+            start = at[near];
+        }
+        for (float s = 0.0f; s < lap - spine_step * 0.5f; s += spine_step) {
+            float u = std::fmod(start + s, lap);
+            size_t seg = size_t(std::upper_bound(at.begin(), at.end(), u) - at.begin());
+            seg = std::clamp<size_t>(seg, 1, nr) - 1;
             float span = std::max(1e-6f, at[seg + 1] - at[seg]);
-            float f = std::clamp((s - at[seg]) / span, 0.0f, 1.0f);
+            float f = std::clamp((u - at[seg]) / span, 0.0f, 1.0f);
             const PathPoint& a = rungs[seg];
-            const PathPoint& b = rungs[seg + 1];
+            const PathPoint& b = rungs[(seg + 1) % nr];
             PathPoint p;
             p.p = add(a.p, mul(sub(b.p, a.p), f));
             p.lateral = normalize(add(mul(a.lateral, 1 - f), mul(b.lateral, f)));
             p.half_width = a.half_width + (b.half_width - a.half_width) * f;
             spine.push_back(p);
         }
+        // Each gate's crossing as the first spine point past it (the finish line: point 0, on it).
+        std::vector<std::pair<float, size_t>> order;
+        for (size_t g = 0; g < gates.size(); g++) {
+            if (gate_s[g] < 0.0f || spine.empty()) continue;
+            float q = std::fmod(gate_s[g] - start + lap, lap);
+            gates[g].at = g == 0 ? 0 : int((size_t(q / spine_step) + 1) % spine.size());
+            if (g > 0) order.push_back({ q, g });
+        }
+        std::sort(order.begin(), order.end());
+        bool in_order = true;
+        for (size_t k = 0; k < order.size(); k++) in_order = in_order && order[k].second == k + 1;
+        if (!in_order && order.size() + 1 == gates.size()) {
+            std::string seen;
+            for (const auto& [q, g] : order) seen += ", " + gates[g].name;
+            report.error("The checkpoints aren't numbered in race order: from FINISH the AI path meets them as " +
+                         seen.substr(2) + ". Number them 1, 2, 3, ... in that order.");
+        }
         if (spine.size() > 4000) { report.error("The AI path is too long for the game (over 80 km)."); spine.clear(); }
         // The path's height: the road under it (the game's nearest-point searches are 3D).
+        // Over a jump the road nearest the curve's height can be another one below it (a stretch the jump passes
+        // over): a run of points off the road whose road lies below the curve (or isn't there) and steps down by
+        // more than air_step from the road before or after the run is in the air and keeps the curve's height, as
+        // the stock paths do over their jumps. A curve drawn flat over a dip or a hill meets road that changes height smoothly, and is dropped
+        // onto it as before.
+        constexpr float off_road = 10.0f, air_step = 15.0f;
+        size_t n = spine.size();
+        std::vector<float> road(n, NAN);
+        for (size_t i = 0; i < n && !cpolys.empty(); i++) road[i] = ground_under(cpolys, spine[i].p, 400.0f);
+        auto off = [&](size_t i) { return std::isnan(road[i]) || std::fabs(road[i] - spine[i].p[1]) > off_road; };
+        size_t first_on = 0;
+        while (first_on < n && off(first_on)) first_on++;
+        size_t in_air = 0;
+        for (size_t k = 0; first_on < n && k < n;) {
+            size_t a = (first_on + k) % n;
+            if (!off(a)) { k++; continue; }
+            size_t len = 0;
+            while (k + len < n && off((first_on + k + len) % n)) len++;
+            size_t before = (a + n - 1) % n, after = (first_on + k + len) % n;
+            // Points with no road under them at all are part of the gap; the step is taken at the first and last
+            // points of the run that have road under them.
+            bool below = true;
+            long first = -1, last = -1;
+            for (size_t j = 0; j < len; j++) {
+                size_t i = (a + j) % n;
+                if (std::isnan(road[i])) continue;
+                below = below && road[i] < spine[i].p[1];
+                if (first < 0) first = long(i);
+                last = long(i);
+            }
+            bool step = first >= 0 && (road[before] - road[size_t(first)] > air_step ||
+                                       road[after] - road[size_t(last)] > air_step);
+            // Or the road under it is where the lap itself passes elsewhere (over 300 ft of path away, within 30 ft
+            // across and air_step of that point's height): another stretch of the race.
+            for (size_t j = 0; j < len && first >= 0 && !step; j++) {
+                size_t i = (a + j) % n;
+                if (std::isnan(road[i])) continue;
+                for (size_t o = 0; o < n && !step; o++) {
+                    size_t apart = std::min((o + n - i) % n, (i + n - o) % n);
+                    step = apart > 15 && dist_xz(spine[o].p, spine[i].p) < 30.0f &&
+                           std::fabs(spine[o].p[1] - road[i]) < air_step;
+                }
+            }
+            if (below && step) {
+                for (size_t j = 0; j < len; j++) spine[(a + j) % n].air = true;
+                in_air += len;
+            }
+            k += len;
+        }
+        if (in_air) {
+            report.info("AIPATH_main is over a gap for " + std::to_string(in_air) + " point(s) (a jump): kept at the "
+                        "curve's height.");
+        }
         size_t off_height = 0, no_road = 0;
         float worst = 0.0f;
         Vec3 worst_at{};
-        for (PathPoint& p : spine) {
-            float h = cpolys.empty() ? NAN : ground_under(cpolys, p.p, 400.0f);
+        for (size_t i = 0; i < n; i++) {
+            PathPoint& p = spine[i];
+            float h = road[i];
+            if (p.air) continue;
             if (std::isnan(h)) { no_road++; continue; }
             float dy = std::fabs(h - p.p[1]);
-            if (dy > 10.0f) {
+            if (dy > off_road) {
                 off_height++;
                 if (dy > worst) { worst = dy; worst_at = p.p; }
             }
@@ -1169,30 +1337,6 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         // at 37-51 mph, so it would warn about every stock track.
     }
 
-    // ---- checkpoints on the path ----
-    std::vector<int> crossing(gates.size(), -1);
-    for (size_t g = 0; g < gates.size() && !spine.empty(); g++) {
-        const Gate& gate = gates[g];
-        int prev_side = 0;
-        for (size_t i = 0; i <= spine.size(); i++) {
-            const Vec3& p = spine[i % spine.size()].p;
-            float d = dist_xz(p, gate.pos);
-            int side = (p[0] - gate.pos[0]) * gate.dir[0] + (p[2] - gate.pos[2]) * gate.dir[2] < 0 ? -1 : 1;
-            if (i > 0 && d <= gate.radius && side != prev_side) { crossing[g] = int(i % spine.size()); break; }
-            prev_side = side;
-        }
-        if (crossing[g] < 0) {
-            report.error(gate.name + " at " + fmt_pos(gate.pos) + " isn't crossed by the AI path: place it on the road "
-                         "across the path, green arrow along the race direction, X scaled to half the road's width.");
-        }
-    }
-    for (size_t g = 2; g < gates.size(); g++) {
-        if (crossing[g] >= 0 && crossing[g - 1] >= 0 && crossing[g] < crossing[g - 1]) {
-            report.error(gates[g].name + " comes before " + gates[g - 1].name + " along the AI path; number the checkpoints "
-                         "in race order.");
-        }
-    }
-
     // ---- lanes off the road (the modder's question: must the ribbon stay on the road?) ----
     static const float lane_offsets[4] = { -0.6f, -0.2f, 0.2f, 0.6f };
     if (!spine.empty() && !cpolys.empty()) {
@@ -1241,7 +1385,28 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 for (int i = 0; i < 7; i++) add32(d, 0);
                 add16(d, 0); add16(d, 0); add16(d, 0);
             }
-            for (int i = 0; i < 20; i++) add16(d, 0xFFFF);
+            // Crossing indices: the spine, then the 4 lanes, no branches. The game keeps a custom track's
+            // (rush2_mod_checkpoint_crossing); -1 leaves that gate to its own search. A lane runs point for point
+            // beside the spine, so it crosses a gate at a slant a few points from the spine's crossing: its own is
+            // the first lane point past the gate's line within 15 points of that.
+            for (int i = 0; i < 20; i++) {
+                int at = c < order.size() && i < 5 ? order[c].at : -1;
+                if (at > 0 && i > 0) {
+                    const Gate& g = order[c];
+                    long n = long(sp.size());
+                    auto side = [&](long k) {
+                        const PathPoint& q = sp[size_t((k % n + n) % n)];
+                        Vec3 p = add(q.p, mul(q.lateral, lane_offsets[i - 1] * q.half_width));
+                        return dot(sub(p, g.pos), g.dir) >= 0.0f;
+                    };
+                    long best = -1;
+                    for (long k = at - 15; k <= at + 15; k++) {
+                        if (side(k) && !side(k - 1) && (best < 0 || std::labs(k - at) < std::labs(best - at))) best = k;
+                    }
+                    if (best >= 0) at = int((best % n + n) % n);
+                }
+                add16(d, uint16_t(at));
+            }
             add16(d, 0);
             addf(d, 0.0f);
         }
@@ -1260,7 +1425,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             add32(d, 0);
             for (size_t i = 0; i < sp.size(); i++) {
                 Vec3 p = add(sp[i].p, mul(sp[i].lateral, f * sp[i].half_width));
-                float h = cpolys.empty() ? NAN : ground_under(cpolys, p, 40.0f);
+                float h = cpolys.empty() || sp[i].air ? NAN : ground_under(cpolys, p, 40.0f);
                 if (!std::isnan(h)) p[1] = h;
                 for (float c : p) add16(d, s16(c));
                 add8(d, uint8_t(std::lround(mph[i])));
@@ -1283,7 +1448,11 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
         std::vector<Gate> back_gates = { gates[0] };
         for (size_t g = gates.size() - 1; g >= 1; g--) back_gates.push_back(gates[g]);
-        for (Gate& g : back_gates) g.dir = mul(g.dir, -1.0f);
+        // A forward crossing between points k - 1 and k is first passed at backward point n - k + 1 (forward k - 1).
+        for (Gate& g : back_gates) {
+            g.dir = mul(g.dir, -1.0f);
+            if (g.at > 0) g.at = int((n - size_t(g.at) + 1) % n);
+        }
         write_path(back, target_speeds(back, false), back_gates, out.track.path_backward);
         for (size_t k = 0; k < 4; k++) out.track.demo_starts[0].push_back(int16_t(k * n / 4));
         for (size_t k = 0; k < 4; k++) out.track.demo_starts[1].push_back(int16_t(k * n / 4));

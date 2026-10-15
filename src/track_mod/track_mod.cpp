@@ -24,6 +24,7 @@
 #include <set>
 #include <thread>
 
+#include "json/json.hpp"
 #include "librecomp/game.hpp"
 #include "librecomp/mods.hpp"
 #include "recompui/recompui.h"
@@ -38,7 +39,7 @@
 
 namespace {
     // Bump when the converter's output changes for the same input (the build stamp already covers new builds).
-    constexpr uint64_t converter_version = 3;
+    constexpr uint64_t converter_version = 5;
     constexpr int cache_k = 1000;   // track_cache keys of mod tracks: 1000 + a hash of the folder (2049 tracks use 1-37)
 
     std::mutex mutex;
@@ -117,6 +118,18 @@ namespace {
             // (folder, its path in the mod): tracks/<folder>/ first, then the older rush2/tracks/<folder>/.
             std::vector<std::pair<std::string, std::string>> folders;
             rush2::upscale::ZipReader zip(path);
+            // mod.json "hide_track_warnings": true keeps the Mods tab to errors for a mod whose author is fine with
+            // its tracks' warnings (the report in track_reports/ still lists them).
+            bool hide_warnings = false;
+            {
+                std::vector<uint8_t> manifest;
+                if (zip.is_open()) zip.read("mod.json", manifest);
+                else manifest = rush2::upscale::read_file(path / "mod.json");
+                nlohmann::json j = nlohmann::json::parse(manifest.begin(), manifest.end(), nullptr, false);
+                if (j.is_object() && j.contains("hide_track_warnings") && j["hide_track_warnings"].is_boolean()) {
+                    hide_warnings = j["hide_track_warnings"].get<bool>();
+                }
+            }
             for (const std::string head : { "tracks/", "rush2/tracks/" }) {
                 std::vector<std::pair<std::string, std::string>> found;
                 if (zip.is_open()) {
@@ -148,6 +161,7 @@ namespace {
                 e.mod_path = path;
                 e.folder = f;
                 e.dir = dir;
+                e.hide_warnings = hide_warnings;
                 std::vector<uint8_t> toml;
                 read_file(e, "track.toml", toml);
                 rush2::track_mod::Report report;
@@ -503,7 +517,7 @@ void rush2::track_mod::register_mod_notes() {
             recompui::ModNoteSection section;
             size_t problems = 0;
             for (const Message& m : it->second.report.messages) {
-                if (m.level == Message::info) continue;
+                if (m.level == Message::info || (e.hide_warnings && m.level == Message::warning)) continue;
                 section.notes.push_back({ m.level == Message::error ? recompui::ModNote::Level::Error
                                                                     : recompui::ModNote::Level::Warning, m.text });
                 problems++;

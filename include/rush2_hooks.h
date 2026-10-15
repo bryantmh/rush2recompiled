@@ -190,6 +190,7 @@ void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx);
 void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx);
 void rush2_speedometer(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx);
+bool rush2_mod_checkpoint_crossing(uint8_t* rdram, recomp_context* ctx, bool lane);
 void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx);
 
 // Circuit length and courses (src/circuit.cpp).

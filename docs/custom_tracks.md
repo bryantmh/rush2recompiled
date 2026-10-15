@@ -150,10 +150,19 @@ flat ribbon.
 
 - **Height:** shape the curve to follow the road up and down. The game drops it onto the road below it, so over
   bridges and through tunnels a flat curve can pick the wrong level.
+- **Jumps:** over a jump, draw the curve along the arc the cars fly. Where the road under the curve drops away (a gap,
+  or another part of the track passing underneath), the game keeps the path at the curve's height instead of dropping
+  it, so the computer cars aim for the landing and a car put back on the road isn't put on the road below.
 - **Width:** the ribbon's width sets how far apart the computer cars' four racing lines spread. Keep the whole ribbon on
   the road and clear of walls, or the cars on the outer lines drive into them. The report warns when more than 2% of
   the racing-line points have no road near them (the stock tracks have up to 0.7%, over their jumps).
-- **Direction:** the path should run the way `FINISH` points; if it runs the other way, the game reverses it.
+- **Direction:** the race runs the way the markers' green arrows point. The curve can be drawn either way round; if most
+  arrows disagree with it, the game reverses it, and a single marker pointing against the rest is reported and used
+  turned round.
+- **Where it crosses the markers:** a marker counts where the path crosses the line across the road through it (as wide
+  as its X scale) within 9 m (30 ft) of its height. A stretch of road running alongside, a bridge over it or a tunnel
+  under it isn't mistaken for it. Put each marker where the road passes only once: one the path crosses twice (where
+  the road meets itself) is reported.
 - **Backward races** use the same path the other way round, made automatically. Signs and arrows you model point one
   way only, so they face the wrong way in backward races.
 - **Speeds:** the computer cars brake only where the path tells them to, so the game sets a target speed for every
@@ -238,6 +247,10 @@ wrong, problems in red and warnings in yellow (a controller can scroll the list)
 `track_reports/<folder>.txt` in the game's settings folder (`%LOCALAPPDATA%\Rush2Recompiled`, or the game's folder in
 portable mode). Each entry names the object and, where it helps, the place.
 
+Once you're happy with a track and its remaining warnings, you can keep them out of players' Mods menu: add
+`"hide_track_warnings": true` to the mod's `mod.json` (next to `"id"`). It applies to every track in the mod. Errors
+are still shown, and the report file still lists everything.
+
 Problems don't keep a track off the track select: it loads as it stands, so you can drive it and see what they do (a
 checkpoint left at the origin, say, can't be reached, so the clock runs out). A track is left out only when there is
 nothing to race: no AI path through `FINISH`, no collision, nothing to draw, or over one of the size limits below. The
@@ -312,6 +325,26 @@ merges and renames as needed.
   0x80070E6C (dirt) and 0x80070F14 (grass) blend it toward the gear torque by drag / stock drag (clamped to 0-1).
 - **Backward:** the converter writes `path_backward` (asset 0x63 + slot): the spine reversed from the finish, the gates
   in reverse order and turned round, target speeds recomputed. See [race.md section 5](rush2049_research/race.md).
+- **Checkpoint crossings:** Rush 2 works out where each path crosses each gate at load
+  (`path_compute_checkpoint_crossings_80092D6C` through `checkpoint_crossing_spine_80092BC4` and
+  `checkpoint_crossing_lanes_80092884`): for each gate on its own, the first point from the path's start that changes
+  side of the gate's plane with it and the point before inside the radius, seen from above, else the nearest point. On a
+  compact track another stretch of road (alongside, over or under the gate) often comes first, which puts a checkpoint,
+  the grid (lined up at gate 0's spine crossing) and the respawn search in the wrong place. So the converter traces the
+  AI path through each gate in 3D (`gate_height` 30 ft), takes the race direction from the gates' arrows (a majority,
+  FINISH breaking a tie), starts the spine at FINISH's crossing, and writes every crossing (spine and the 4 lanes, each
+  lane's own first point past the gate) into the path files' checkpoint +0x22 slots for both directions. Hooks at the
+  entry of 0x80092BC4 and 0x80092884 (`rush2_mod_checkpoint_crossing`, `src/rush2049/track2049.cpp`) return those for a
+  custom track instead of searching; a slot of -1 (a gate the path doesn't cross) keeps the game's search. Stock check:
+  on every stock gate the path crosses once, the converter's crossings equal the game's own search, except Crash's lane
+  0 at gate 3 forward, where the game's search lands 129 points early on another stretch.
+- **Path height:** each spine point is dropped onto the road nearest the curve's height (`ground_under`, 400 ft
+  reach), except a run of points off the road (over 10 ft) whose road lies below the curve or isn't there, when the
+  road steps down more than 15 ft at the run's ends or is where the path itself passes over 300 ft of lap away
+  (within 30 ft across): those are in the air (`PathPoint::air`) and keep the curve's height, lanes included. The
+  stock paths do the same over their jumps (2049 race 1's converted jump matches its stock heights).
+- **Hiding warnings:** `"hide_track_warnings": true` in a mod's mod.json (read in `scan`, `Entry::hide_warnings`) leaves
+  warnings out of the Mods tab notes; the report file and console keep them.
 - **Problems in the Mods menu:** `rush2::track_mod::register_mod_notes` gives recompui's mod details panel
   (`recompui::set_mod_notes_provider`, a `lib/patches/RecompFrontend.patch` addition) each track's errors and warnings.
   A track not checked yet is converted on a background thread (conversions are serialized by `convert_mutex`); the
@@ -327,6 +360,15 @@ merges and renames as needed.
   Rush 2049's six race tracks as custom tracks (collision, gates from the path files, a ribbon over the stock spine),
   converts them and counts each message across them. A message every stock track raises means the check is wrong. Stock
   path files point each gate's direction back against the race; the converter writes them the same way.
+- **Case suite:** `python tools/track_mod_cases.py` builds a synthetic track for every layout and authoring mistake the
+  direction, start and crossing logic must handle (curve reversed or starting mid-lap, ends overlapping at a marker,
+  open curve, arrows reversed, markers beside, above or exactly on a rung, kinks and repeated rungs, a compact layout's
+  wide gates reaching the leg before or after, same-way and other-way neighbours, bridges, a flat crossing, a spiral, a
+  helix, a vertical loop), converts each and checks the report and the crossings in both path files against the ones
+  it was built with; `--list` names them, `--only` runs some. Run it after any change to that logic.
+- **Watching the AI race:** `python tools/race_watch.py --launch "<input script>" --path <out>/path.bin` (or `--pid`
+  for a game already running) reads the race from the game's memory 10 times a second and logs every car's laps,
+  finish, wrecks, respawns and stuck spells with their spine point, offset from the centre line and lane speeds.
 - **Testing:** `tools/track_mod_test.bat <track folder> <out folder>` converts a track outside the game, and
   `tools/track_mod_check.py <out folder>` checks the result. In game, `RUSH2_TEST_TRACK=38` opens the track select on
   the first custom track, `RUSH2_TEST_MOD_TRACK=<n>` races custom track n in place of HAWAII, and
