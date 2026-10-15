@@ -6,7 +6,7 @@
 //
 // Objects are recognized by name (a Blender ".001" suffix is ignored):
 //   COL_<SURFACE>[_anything]  collision only, not drawn. ROAD, DIRT, GRASS, WALL, WATER, KILL or a [surfaces] name.
-//   AIPATH_main               the AI path: a curve with Extrude, exported as a ribbon of left/right vertex pairs.
+//   AIPATH_main               the AI path: a curve with Extrude, exported as a ribbon (read_ribbon).
 //   FINISH, CHECKPOINT_n      gates: Empty, green (Blender Y = glTF -Z) arrow forward, X scale = half the width (m).
 //   START_n                   ignored: Rush 2 lines the grid up behind FINISH itself (said in the report).
 //   AISPEED_<mph>             caps the AI's target speed from the nearest path point on (0 lifts the cap).
@@ -103,6 +103,188 @@ namespace {
         char b[96];
         snprintf(b, sizeof(b), "(%.1f, %.1f, %.1f)", -g[0] / feet_per_meter, -g[2] / feet_per_meter, g[1] / feet_per_meter);
         return b;
+    }
+
+    // ---- AI path ribbon ------------------------------------------------------------------------------------------
+    // AIPATH_main's ribbon as rungs across it (one per pair of facing edge vertices, game space), in order along the
+    // curve. Built from the mesh's shape, not the order its vertices are stored in: an exporter splits a vertex
+    // wherever its UV or normal changes (a cyclic curve's UVs wrap from 1 to 0 at its start, so Blender writes the
+    // first rung's vertices twice; a flat-shaded ribbon gets a copy per face) and orders them as it likes. Vertices in
+    // the same place are merged unless an edge joins them (a rung pinched to nothing, as one of Atari's is, stays two
+    // vertices rather than becoming a bow tie); the ribbon is then a strip whose boundary is one loop round both edges and its two
+    // ends (an open curve) or two loops, one per edge (a cyclic curve). The two edges are matched up where the rungs
+    // across them come out shortest in all. The first rung, the direction and which edge is a are the ones the stored
+    // order gives (lowest vertex index first), so a plain export reads as it always has.
+    struct Ribbon {
+        std::vector<std::pair<Vec3, Vec3>> rungs;
+        bool closed = false;
+        std::string problem;   // why it isn't a ribbon (rungs empty)
+    };
+
+    Ribbon read_ribbon(const rush2::gltf::Node& node) {
+        Ribbon r;
+        constexpr float weld = 0.01f;   // ft
+        std::vector<Vec3> pos;          // merged vertices
+        std::vector<uint32_t> first;    // each one's lowest stored index (across primitives in order)
+        std::vector<std::vector<uint32_t>> members;   // each one's stored indices
+        std::set<std::pair<uint32_t, uint32_t>> joined;   // stored index pairs an edge joins
+        std::map<std::array<int64_t, 3>, std::vector<uint32_t>> cells;
+        auto cell = [&](const Vec3& p) {
+            return std::array<int64_t, 3>{ int64_t(std::floor(p[0] / weld)), int64_t(std::floor(p[1] / weld)),
+                                           int64_t(std::floor(p[2] / weld)) };
+        };
+        auto merged = [&](const Vec3& p, uint32_t stored) -> uint32_t {
+            auto c = cell(p);
+            for (int64_t dx = -1; dx <= 1; dx++) for (int64_t dy = -1; dy <= 1; dy++) for (int64_t dz = -1; dz <= 1; dz++) {
+                auto it = cells.find({ c[0] + dx, c[1] + dy, c[2] + dz });
+                if (it == cells.end()) continue;
+                for (uint32_t v : it->second) {
+                    if (length(sub(pos[v], p)) > weld) continue;
+                    bool edge = false;
+                    for (uint32_t m : members[v]) edge = edge || joined.count({ std::min(m, stored), std::max(m, stored) });
+                    if (edge) continue;
+                    first[v] = std::min(first[v], stored);
+                    members[v].push_back(stored);
+                    return v;
+                }
+            }
+            pos.push_back(p);
+            first.push_back(stored);
+            members.push_back({ stored });
+            cells[c].push_back(uint32_t(pos.size() - 1));
+            return uint32_t(pos.size() - 1);
+        };
+        std::set<std::array<uint32_t, 3>> tris;
+        uint32_t base = 0;
+        for (const auto& prim : node.primitives) {
+            std::vector<uint32_t> id(prim.pos.size());
+            for (size_t t = 0; t + 2 < prim.tris.size(); t += 3) {
+                for (int k = 0; k < 3; k++) {
+                    uint32_t i = base + prim.tris[t + k], j = base + prim.tris[t + (k + 1) % 3];
+                    joined.insert({ std::min(i, j), std::max(i, j) });
+                }
+            }
+            for (size_t i = 0; i < prim.pos.size(); i++) id[i] = merged(to_game(prim.pos[i]), base + uint32_t(i));
+            for (size_t t = 0; t + 2 < prim.tris.size(); t += 3) {
+                std::array<uint32_t, 3> v = { id[prim.tris[t]], id[prim.tris[t + 1]], id[prim.tris[t + 2]] };
+                if (v[0] == v[1] || v[1] == v[2] || v[0] == v[2]) continue;   // collapsed by the merge
+                std::sort(v.begin(), v.end());
+                tris.insert(v);
+            }
+            base += uint32_t(prim.pos.size());
+        }
+        if (tris.empty()) {
+            r.problem = "it has no faces";
+            return r;
+        }
+        std::map<std::pair<uint32_t, uint32_t>, int> edges;
+        for (const auto& t : tris) {
+            for (int k = 0; k < 3; k++) edges[{ std::min(t[k], t[(k + 1) % 3]), std::max(t[k], t[(k + 1) % 3]) }]++;
+        }
+        std::map<uint32_t, std::vector<uint32_t>> rim;   // boundary neighbours
+        for (const auto& [e, n] : edges) {
+            if (n > 2) {
+                r.problem = "an edge at " + fmt_pos(pos[e.first]) + " is shared by " + std::to_string(n) + " faces";
+                return r;
+            }
+            if (n == 1) { rim[e.first].push_back(e.second); rim[e.second].push_back(e.first); }
+        }
+        for (const auto& [v, nb] : rim) {
+            if (nb.size() != 2) {
+                r.problem = "its edges meet at " + fmt_pos(pos[v]) + " (is it more than one strip, or does it touch itself?)";
+                return r;
+            }
+        }
+        if (rim.empty()) {
+            r.problem = "it is a closed tube with no edges (is Bevel Depth set?)";
+            return r;
+        }
+        std::vector<std::vector<uint32_t>> loops;
+        std::set<uint32_t> seen;
+        for (const auto& [v0, nb0] : rim) {
+            if (seen.count(v0)) continue;
+            std::vector<uint32_t> loop{ v0 };
+            seen.insert(v0);
+            uint32_t prev = v0, cur = nb0[0];
+            while (cur != v0) {
+                loop.push_back(cur);
+                seen.insert(cur);
+                const auto& nb = rim[cur];
+                uint32_t next = nb[0] == prev ? nb[1] : nb[0];
+                prev = cur;
+                cur = next;
+            }
+            loops.push_back(std::move(loop));
+        }
+        // Side a's vertex k and side b's facing it; the matching with the shortest rungs in all.
+        std::vector<uint32_t> a, b;
+        auto best_match = [&](size_t n, const std::function<uint32_t(size_t, size_t, int)>& pa,
+                              const std::function<uint32_t(size_t, size_t, int)>& pb, size_t shifts, bool both_ways) {
+            size_t stride = std::max<size_t>(1, n / 256);
+            double best = 1e300;
+            size_t best_s = 0;
+            int best_d = 1;
+            for (int d = 1; d >= (both_ways ? -1 : 1); d -= 2) {
+                for (size_t s = 0; s < shifts; s++) {
+                    double sum = 0.0;
+                    for (size_t k = 0; k < n && sum < best; k += stride) sum += length(sub(pos[pa(s, k, d)], pos[pb(s, k, d)]));
+                    if (sum < best) { best = sum; best_s = s; best_d = d; }
+                }
+            }
+            a.resize(n);
+            b.resize(n);
+            for (size_t k = 0; k < n; k++) { a[k] = pa(best_s, k, best_d); b[k] = pb(best_s, k, best_d); }
+        };
+        if (loops.size() == 1) {
+            // Open: a(0..n-1) then b(n-1..0) round the one loop.
+            const auto& L = loops[0];
+            size_t m = L.size();
+            if (m % 2 || m < 4) {
+                r.problem = "its two edges have different numbers of points (is it a curve with Extrude?)";
+                return r;
+            }
+            size_t n = m / 2;
+            best_match(n, [&](size_t s, size_t k, int) { return L[(s + k) % m]; },
+                       [&](size_t s, size_t k, int) { return L[(s + 2 * m - 1 - k) % m]; }, m, false);
+        }
+        else if (loops.size() == 2) {
+            // Cyclic: one loop per edge.
+            const auto& P = loops[0];
+            const auto& Q = loops[1];
+            if (P.size() != Q.size() || P.size() < 3) {
+                r.problem = "its two edges have different numbers of points (is it a curve with Extrude?)";
+                return r;
+            }
+            size_t n = P.size();
+            best_match(n, [&](size_t, size_t k, int) { return P[k]; },
+                       [&](size_t s, size_t k, int d) { return Q[d > 0 ? (s + k) % n : (s + n - k) % n]; }, n, true);
+            r.closed = true;
+        }
+        else {
+            r.problem = "it has " + std::to_string(loops.size()) + " separate edges (is it more than one strip, or has it holes?)";
+            return r;
+        }
+        // Stored order: start at the rung with the lowest vertex index (an open ribbon at the end nearer it), run
+        // toward lower indices, side a holding the start's lowest.
+        size_t n = a.size();
+        auto key = [&](size_t k) { return std::min(first[a[k]], first[b[k]]); };
+        size_t start = 0;
+        bool forward = true;
+        if (r.closed) {
+            for (size_t k = 1; k < n; k++) if (key(k) < key(start)) start = k;
+            forward = key((start + 1) % n) <= key((start + n - 1) % n);
+        }
+        else if (key(n - 1) < key(0)) {
+            start = n - 1;
+            forward = false;
+        }
+        bool swap = first[b[start]] < first[a[start]];
+        for (size_t i = 0; i < n; i++) {
+            size_t k = forward ? (start + i) % n : (start + n - i) % n;
+            Vec3 pa = pos[a[k]], pb = pos[b[k]];
+            r.rungs.push_back(swap ? std::make_pair(pb, pa) : std::make_pair(pa, pb));
+        }
+        return r;
     }
 
     // ---- collision -----------------------------------------------------------------------------------------------
@@ -229,19 +411,25 @@ namespace {
             polys.push_back(std::move(p));
         }
         if (polys.empty()) { report.error("No collision: add COL_ROAD_* meshes (or a visible track mesh)."); return false; }
+        // Past the game's limits the track still loads, with the polygons it can't hold left out (holes).
+        size_t far = 0;
+        Vec3 far_at{};
+        polys.erase(std::remove_if(polys.begin(), polys.end(), [&](const BuiltPoly& p) {
+            bool out = std::fabs(p.v0[1]) > 32000.0f;
+            for (float c : { p.x0, p.x1, p.z0, p.z1 }) out = out || std::fabs(c) > 32000.0f;
+            if (out && far++ == 0) far_at = p.v0;
+            return out;
+        }), polys.end());
+        if (far) {
+            report.error("Collision reaches " + fmt_pos(far_at) + ", farther than the game allows (about 9,750 m from "
+                         "the origin); " + std::to_string(far) + " polygon(s) out there are left out.");
+        }
+        if (polys.empty()) { report.error("No collision: add COL_ROAD_* meshes (or a visible track mesh)."); return false; }
         if (polys.size() > 8191) {
             report.error("Collision has " + std::to_string(polys.size()) + " polygons after merging flat neighbours; the "
-                         "game's limit is 8191. Simplify the COL_* meshes.");
-            return false;
-        }
-        for (const BuiltPoly& p : polys) {
-            for (const Vec3& v : { p.v0 }) {
-                for (float c : v) if (std::fabs(c) > 32000.0f) {
-                    report.error("Collision reaches " + fmt_pos(p.v0) + ", farther than the game allows "
-                                 "(about 9,750 m from the origin).");
-                    return false;
-                }
-            }
+                         "game's limit is 8191, so the last " + std::to_string(polys.size() - 8191) + " are left out "
+                         "(holes). Simplify the COL_* meshes.");
+            polys.resize(8191);
         }
 
         // Quadtree over x/z (func_8006CD60): q = (x >= mid) + 2 * (z < mid); the halves share the mid line. Built
@@ -982,36 +1170,65 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                      "exported.");
     }
     else {
-        const auto& prim = aipath->primitives[0];
-        if (aipath->primitives.size() > 1) report.warning("AIPATH_main has several parts; only the first is used.");
-        if (prim.pos.size() < 8 || prim.pos.size() % 2) {
-            report.error("AIPATH_main isn't a ribbon: use a curve with Extrude (no Bevel depth), not a mesh.");
+        Ribbon ribbon = read_ribbon(*aipath);
+        if (!ribbon.problem.empty() || ribbon.rungs.size() < 4) {
+            report.error("AIPATH_main isn't a ribbon: " + (ribbon.problem.empty() ? std::string("it is too short") : ribbon.problem) +
+                         ". Use a curve with Geometry > Extrude (no Bevel Depth), not a mesh.");
         }
         else {
-            for (size_t i = 0; i + 1 < prim.pos.size(); i += 2) {
-                Vec3 a = to_game(prim.pos[i]), b = to_game(prim.pos[i + 1]);
+            // Width: the rung seen from above (its height difference is the road's banking). A ribbon standing on
+            // edge (a curve drawn flat in Blender extrudes straight up until its Tilt is 90 degrees) has almost none.
+            // A point or two pinched to nothing is let through: Atari's stock path has one (1 of 827).
+            size_t thin = 0, thin_at = 0;
+            float min_w = 1e30f, max_w = 0.0f, thin_tall = 0.0f;
+            for (size_t i = 0; i < ribbon.rungs.size(); i++) {
+                const auto& [a, b] = ribbon.rungs[i];
                 Vec3 lat = sub(b, a);
+                float tall = std::fabs(lat[1]);
                 lat[1] = 0.0f;
                 rungs.push_back({ mul(add(a, b), 0.5f), normalize(lat), length(lat) * 0.5f });
+                float w = rungs.back().half_width * 2.0f;
+                min_w = std::min(min_w, w);
+                max_w = std::max(max_w, w);
+                if (rungs.back().half_width < 1.0f && thin++ == 0) { thin_at = i; thin_tall = tall; }
             }
+            auto fmt_w = [](float ft) {
+                char b[64];
+                snprintf(b, sizeof(b), "%.1f m (%.0f ft)", ft / feet_per_meter, ft);
+                return std::string(b);
+            };
             std::vector<float> gaps;
             for (size_t i = 1; i < rungs.size(); i++) gaps.push_back(length(sub(rungs[i].p, rungs[i - 1].p)));
             std::vector<float> sorted_gaps = gaps;
             std::sort(sorted_gaps.begin(), sorted_gaps.end());
             float median = sorted_gaps[sorted_gaps.size() / 2];
             float worst = sorted_gaps.back();
-            if (median < 0.01f || worst > median * 20.0f + 50.0f) {
+            if (thin * 50 > rungs.size()) {
+                std::string where = std::to_string(thin) + " of its " + std::to_string(rungs.size()) + " cross sections, "
+                                    "the first at " + fmt_pos(rungs[thin_at].p) + ", ";
+                if (thin_tall >= 2.0f) {
+                    report.error("AIPATH_main's ribbon stands on edge at " + where + "(" + fmt_w(thin_tall) + " tall, " +
+                                 fmt_w(rungs[thin_at].half_width * 2) + " across): set the curve's Tilt to 90 degrees "
+                                 "there (Ctrl+T) so the ribbon lies flat on the road.");
+                }
+                else {
+                    report.error("AIPATH_main's ribbon is only " + fmt_w(rungs[thin_at].half_width * 2) + " wide at " + where +
+                                 "it needs about the road's width: set Extrude to about half of it (and check the "
+                                 "point's Radius, Alt+S).");
+                }
+                report.warning("Until then the computer cars all drive AIPATH_main's centre line.");
+            }
+            else if (median < 0.01f || worst > median * 20.0f + 50.0f) {
                 report.error("AIPATH_main's points aren't in order along the path (was it converted to a mesh and edited?). "
                              "Use the curve itself, with Extrude.");
                 rungs.clear();
             }
-            else if (rungs.front().half_width < 1.0f) {
-                report.error("AIPATH_main's Extrude is too small; set it to about half the road's width.");
-                rungs.clear();
-            }
             else {
+                report.info("AIPATH_main: " + std::string(ribbon.closed ? "a closed" : "an open") + " ribbon, " +
+                            std::to_string(rungs.size()) + " cross sections, " + fmt_w(min_w) +
+                            (max_w - min_w > 0.5f ? " to " + fmt_w(max_w) : std::string()) + " wide.");
                 float closing = length(sub(rungs.front().p, rungs.back().p));
-                if (closing > median * 3.0f + 10.0f) {
+                if (!ribbon.closed && closing > median * 3.0f + 10.0f) {
                     report.warning("AIPATH_main isn't a closed loop (its ends are " + fmt_ft(closing) +
                                    " apart); it is closed with a straight line. In Blender: Curve > Toggle Cyclic.");
                 }
@@ -1028,8 +1245,101 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // uses as they stand for a custom track (rush2_mod_checkpoint_crossing) in place of its own search at load (the
     // first change of side within the radius seen from above, func_80092D6C), which a compact track's other stretches
     // can fool.
+    // ---- stand-ins: a track with an unusable AI path or no FINISH still loads (the errors above stay) ----
+    // No FINISH: one across the path near its start; with no path either, just before CHECKPOINT_1 along its arrow
+    // (markers sit on the road), or with no markers at all, on the road nearest the middle of the track. No usable AI
+    // path: one straight through the markers (along each one's arrow) in number order and back to FINISH, or with
+    // FINISH alone, a circle from it along its arrow, as wide as the markers. The race, the grid, respawns and the
+    // computer cars follow it as best they can; the path's own warnings are left out, the error already says what's
+    // wrong.
+    bool stand_in = false;
+    if (!finish) {
+        Gate f{ "FINISH", {}, { 0.0f, 0.0f, 1.0f }, 40.0f };
+        if (rungs.size() >= 2) {
+            f.pos = mul(add(rungs[0].p, rungs[1].p), 0.5f);
+            f.dir = sub(rungs[1].p, rungs[0].p);
+            f.dir[1] = 0.0f;
+            f.dir = normalize(f.dir);
+            f.radius = std::max(rungs[0].half_width * 1.5f, 40.0f);
+        }
+        else if (!gates.empty()) {
+            const Gate& c1 = gates.front();
+            float room = gates.size() >= 2 ? dist_xz(c1.pos, gates.back().pos) * 0.25f : 100.0f;
+            f.pos = sub(c1.pos, mul(c1.dir, std::min(100.0f, room)));
+            f.dir = c1.dir;
+            f.radius = c1.radius;
+        }
+        else {
+            Vec3 lo = { 1e30f, 1e30f, 1e30f }, hi = { -1e30f, -1e30f, -1e30f };
+            for (const CollisionTri& c : ctris) for (const Vec3& v : c.v) for (int k = 0; k < 3; k++) {
+                lo[k] = std::min(lo[k], v[k]);
+                hi[k] = std::max(hi[k], v[k]);
+            }
+            Vec3 mid = mul(add(lo, hi), 0.5f);
+            float best = 1e30f;
+            for (int pass = 0; pass < 2 && best == 1e30f; pass++) {   // road first, then any surface
+                for (const CollisionTri& c : ctris) {
+                    if (pass == 0 && (c.flags & 0xF) != 0) continue;
+                    Vec3 at = mul(add(add(c.v[0], c.v[1]), c.v[2]), 1.0f / 3.0f);
+                    float d = dist_xz(at, mid);
+                    if (d < best) { best = d; f.pos = at; }
+                }
+            }
+        }
+        if (f.dir == Vec3{ 0.0f, 0.0f, 0.0f }) f.dir = { 0.0f, 0.0f, 1.0f };
+        report.warning("With no FINISH, a stand-in finish line is used at " + fmt_pos(f.pos) + ".");
+        gates.insert(gates.begin(), f);
+    }
+    if (rungs.size() < 4) {
+        stand_in = true;
+        auto add_run = [&](const Vec3& a, const Vec3& b, float wa, float wb) {
+            Vec3 d = sub(b, a);
+            Vec3 flat = { d[0], 0.0f, d[2] };
+            Vec3 lat = normalize(Vec3{ -flat[2], 0.0f, flat[0] });
+            int steps = std::max(2, int(std::ceil(length(d) / 10.0f)));
+            for (int k = 0; k < steps; k++) {
+                float t = float(k) / float(steps);
+                rungs.push_back({ add(a, mul(d, t)), lat, (wa + (wb - wa) * t) * 0.8f });
+            }
+        };
+        if (gates.size() >= 2) {
+            // Straight through each marker along its arrow (a corner at the marker might not cross its line), then on
+            // to the next.
+            std::vector<std::pair<Vec3, float>> corners;
+            size_t ng = gates.size();
+            for (size_t g = 0; g < ng; g++) {
+                const Gate& m = gates[g];
+                float room = std::min(dist_xz(m.pos, gates[(g + 1) % ng].pos), dist_xz(m.pos, gates[(g + ng - 1) % ng].pos));
+                float d = std::max(1.0f, std::min(30.0f, room * 0.25f));
+                corners.push_back({ sub(m.pos, mul(m.dir, d)), m.radius });
+                corners.push_back({ add(m.pos, mul(m.dir, d)), m.radius });
+            }
+            for (size_t k = 0; k < corners.size(); k++) {
+                const auto& [a, wa] = corners[k];
+                const auto& [b, wb] = corners[(k + 1) % corners.size()];
+                add_run(a, b, wa, wb);
+            }
+        }
+        else {
+            constexpr float r = 150.0f;   // ft
+            const Gate& f = gates[0];
+            Vec3 left = { -f.dir[2], 0.0f, f.dir[0] };
+            Vec3 centre = add(f.pos, mul(left, r));
+            for (int k = 0; k < 96; k++) {
+                float t = float(k) / 96.0f * 6.2831853f;
+                Vec3 out = add(mul(left, -std::cos(t)), mul(f.dir, std::sin(t)));
+                Vec3 tangent = add(mul(left, std::sin(t)), mul(f.dir, std::cos(t)));
+                rungs.push_back({ add(centre, mul(out, r)), normalize(Vec3{ -tangent[2], 0.0f, tangent[0] }), f.radius * 0.8f });
+            }
+        }
+        report.warning("The track uses a stand-in AI path straight " +
+                       std::string(gates.size() >= 2 ? "through the markers in order" : "round a circle from FINISH") +
+                       ": the computer cars and respawns follow it, through walls and off the road where it goes there. "
+                       "Fix AIPATH_main for a real one.");
+    }
+
     std::vector<PathPoint> spine;   // every spine_step ft, starting at the finish line
-    if (rungs.size() >= 4 && finish) {
+    if (rungs.size() >= 4) {
         constexpr float gate_height = 30.0f;   // ft above or below the marker a crossing may be
         struct Crossing { float s; bool along; Vec3 at; };   // s: distance along rungs; along: the arrow's way
         size_t nr = rungs.size();
@@ -1239,7 +1549,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             }
             p.p[1] = h;
         }
-        if (off_height) {
+        if (off_height && !stand_in) {
             report.warning("AIPATH_main is up to " + fmt_ft(worst) + " above or below the road (near " + fmt_pos(worst_at) +
                            ", " + std::to_string(off_height) + " of " + std::to_string(spine.size()) + " points). It was "
                            "dropped onto the road; shape the curve to follow the road's height so bridges and tunnels "
@@ -1247,7 +1557,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
         // Stock paths pass over road everywhere but their jumps (0-3 points a track; Pipe's tube 32 of 738), so only
         // more than 2% is worth a warning.
-        if (no_road * 50 > spine.size()) {
+        if (no_road * 50 > spine.size() && !stand_in) {
             report.warning(std::to_string(no_road) + " of " + std::to_string(spine.size()) + " AI path points have no "
                            "road under them at all.");
         }
@@ -1353,7 +1663,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
         // Every stock track has a few such points over its jumps: at most 0.7% of them (Crash), Pipe's tube aside
         // (tools/stock_track_glb.py), so only more than that is worth a warning.
-        if (off_road * 50 > spine.size() * 4) {
+        if (off_road * 50 > spine.size() * 4 && !stand_in) {
             report.warning(std::to_string(off_road) + " of " + std::to_string(spine.size() * 4) + " AI racing-line points "
                            "have no road under them (first near " + fmt_pos(first) + "). Keep AIPATH_main's ribbon on the "
                            "road; narrow its Extrude or move the curve.");
@@ -1462,7 +1772,15 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // ---- visual geometry ----
     std::vector<VisualTri> vtris;
     for (const auto* n : visual) append_tris(*n, vtris);
-    if (vtris.empty()) report.error("Nothing to draw: the track has no visible meshes (only COL_* and markers).");
+    if (vtris.empty() && !collision_nodes.empty()) {
+        report.error("Nothing to draw: the track has no visible meshes (only COL_* and markers); its COL_* meshes are "
+                     "drawn instead.");
+        for (const auto& [flags, n] : collision_nodes) append_tris(*n, vtris);
+    }
+    else if (vtris.empty()) {
+        report.error("Nothing to draw: the track has no visible meshes (only markers).");
+    }
+    // Only a track with nothing to stand on or see, or a collision index the game can't hold, isn't loaded.
     if (spine.empty() || !collision_ok || vtris.empty()) return false;
 
     // Materials -> stand-in textures (one per material).
@@ -1481,6 +1799,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // Sections on a grid, by triangle center; a triangle too big for its cell gets a section of its own.
     std::map<std::pair<int, int>, int> cell_section;
     std::vector<Section> sections;
+    size_t too_big = 0;
+    Vec3 too_big_at{};
     for (size_t t = 0; t < vtris.size(); t++) {
         Vec3 c = mul(add(add(vtris[t].p[0], vtris[t].p[1]), vtris[t].p[2]), 1.0f / 3.0f);
         std::pair<int, int> cell = { int(std::floor(c[0] / section_size)), int(std::floor(c[2] / section_size)) };
@@ -1499,20 +1819,27 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             else s = it->second;
         }
         else {
+            bool own = true;
+            for (const Vec3& p : vtris[t].p) for (int k = 0; k < 3; k++) own = own && std::fabs(p[k] - c[k]) <= vertex_reach;
+            if (!own) {   // left out: the track loads without it
+                if (too_big++ == 0) too_big_at = c;
+                continue;
+            }
             s = int(sections.size());
             sections.push_back(Section{});
             sections[s].origin = c;
-            for (const Vec3& p : vtris[t].p) for (int k = 0; k < 3; k++) {
-                if (std::fabs(p[k] - c[k]) > vertex_reach) {
-                    report.error("A visible triangle is over " + fmt_ft(vertex_reach * 2) + " across (near " + fmt_pos(c) +
-                                 "); subdivide it.");
-                    return false;
-                }
-            }
         }
         sections[s].tris.push_back(int(t));
     }
-    if (sections.size() > 900) { report.error("The track is too big: over 900 sections of 312 m."); return false; }
+    if (too_big) {
+        report.error(std::to_string(too_big) + " visible triangle(s) are over " + fmt_ft(vertex_reach * 2) +
+                     " across (the first near " + fmt_pos(too_big_at) + "); they aren't drawn. Subdivide them.");
+    }
+    if (sections.size() > 900) {
+        report.error("The track is too big: " + std::to_string(sections.size()) + " sections of 312 m, the game holds "
+                     "900; the rest aren't drawn.");
+        sections.resize(900);
+    }
     for (size_t s = 0; s < sections.size(); s++) {
         char nm[32];
         snprintf(nm, sizeof(nm), "%sS%03zu", prefix.c_str(), s);

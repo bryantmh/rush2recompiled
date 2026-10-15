@@ -146,7 +146,9 @@ finish line. Empties named `START_*` are ignored.
 Draw the racing line with Add > Curve > Path, name it `AIPATH_main`, and shape it along a good line all the way round
 the lap (Curve > Toggle Cyclic closes it). In Object Data Properties > Geometry, set Extrude to about half the road's
 width. This matters: a curve with no thickness is left out of the .glb export, while one with Extrude is exported as a
-flat ribbon.
+flat ribbon. The ribbon has to lie flat on the road: a curve drawn flat extrudes straight up until its points' Tilt is
+90 degrees (select them, Ctrl+T). The report gives the ribbon's measured width (`AIPATH_main: a closed ribbon, ...
+wide`) and says which it is when it is standing up or too narrow.
 
 - **Height:** shape the curve to follow the road up and down. The game drops it onto the road below it, so over
   bridges and through tunnels a flat curve can pick the wrong level.
@@ -252,9 +254,13 @@ Once you're happy with a track and its remaining warnings, you can keep them out
 are still shown, and the report file still lists everything.
 
 Problems don't keep a track off the track select: it loads as it stands, so you can drive it and see what they do (a
-checkpoint left at the origin, say, can't be reached, so the clock runs out). A track is left out only when there is
-nothing to race: no AI path through `FINISH`, no collision, nothing to draw, or over one of the size limits below. The
-Mods menu then says it can't be raced and why.
+checkpoint left at the origin, say, can't be reached, so the clock runs out). Missing or broken pieces get stand-ins:
+with no usable `AIPATH_main` the computer cars and respawns follow a straight path through the markers in order (or a
+circle from `FINISH` when it is the only marker), with no `FINISH` a finish line is put across the path near its start
+(or just before `CHECKPOINT_1`), with no visible meshes the `COL_*` meshes are drawn, and what is past the size limits
+below is left out (holes in the collision, triangles not drawn). A track is left out only when its track.glb can't be
+read, it has no collision and nothing to draw, or its collision is too dense for the game's collision index. The Mods
+menu then says it can't be raced and why.
 
 The game converts a track once and reuses the result until its files change. It looks at the files when it starts and
 when mods are turned on or off, so after a new export restart the game, or turn the mod off and on again in the Mods
@@ -348,21 +354,38 @@ merges and renames as needed.
 - **Problems in the Mods menu:** `rush2::track_mod::register_mod_notes` gives recompui's mod details panel
   (`recompui::set_mod_notes_provider`, a `lib/patches/RecompFrontend.patch` addition) each track's errors and warnings.
   A track not checked yet is converted on a background thread (conversions are serialized by `convert_mutex`); the
-  report is cached beside the track as `trackmod_report_<key>`. `convert` returns false only when nothing can be raced;
-  errors otherwise leave the track loadable.
+  report is cached beside the track as `trackmod_report_<key>`. `convert` returns false only when track.glb can't be
+  read, there is no collision and nothing to draw, or `build_collision`'s index overflows; everything else gets a
+  stand-in (the "stand-ins" block before the race direction: a finish line, a path through the markers along their
+  arrows, or a 150 ft circle from FINISH; the path's own height and off-road warnings are then left out) or is left
+  out past a limit (far or excess collision polygons, oversized triangles, sections past 900). Thin or upright ribbons
+  are used as they are (the AI drives the centre line).
 - **Full-size textures:** the converter's RGBA16 stand-ins are keyed by `rush2::upscale::rgba16_key`, cached as
   `trackmod_textures_<key>`, and published through `rush2::derive::set_mod_textures("tracks", ...)`.
 - **Collision:** `build_collision` keeps each face's normal (no flipping), merges flat same-surface neighbours into
   convex polygons of up to 8 vertices, and builds the quadtree Rush 2's way; past 64 KB of leaves it builds the tagged
   form the 2049 port reads (splits toward zero, 17-bit leaf offsets, root byte +2 = 0x80 | size bits 16-22:
   `src/rush2049/track2049_collision.cpp`).
+- **Reading the ribbon:** `read_ribbon` builds the rungs from the mesh's shape, never the order its vertices are
+  stored in. Blender's glTF export of a cyclic curve stores the first rung's two vertices twice each (the UV seam: u
+  wraps 1 to 0), so pairing stored vertices two at a time read a 0 m first rung and failed every cyclic curve with
+  "Extrude is too small" (until 2026-10-15); flat shading splits a vertex per face, and exporters may order vertices as
+  they like. It merges vertices within 0.01 ft unless an edge joins them (Atari's stock ribbon has one rung pinched to a
+  point), takes the boundary loops (one: an open curve, both edges and the ends; two: a cyclic curve, one per edge),
+  pairs the two edges with the shift (and, for two loops, the direction) giving the shortest rungs in all, and keeps
+  the stored order's start, direction and side (lowest index first), so a plain export reads as before. Errors: no
+  faces, an edge shared by 3+ faces, edges meeting (a bow tie), no edges (Bevel Depth tube), unequal edges, 3+ loops;
+  more than 2% of rungs under 1 ft wide seen from above is "stands on edge" (2 ft or more tall) or "only ... wide".
 - **Checked against the stock tracks:** `tools/stock_track_glb.py OUT --check` exports Rush 2's ten circuit tracks and
   Rush 2049's six race tracks as custom tracks (collision, gates from the path files, a ribbon over the stock spine),
   converts them and counts each message across them. A message every stock track raises means the check is wrong. Stock
   path files point each gate's direction back against the race; the converter writes them the same way.
 - **Case suite:** `python tools/track_mod_cases.py` builds a synthetic track for every layout and authoring mistake the
   direction, start and crossing logic must handle (curve reversed or starting mid-lap, ends overlapping at a marker,
-  open curve, arrows reversed, markers beside, above or exactly on a rung, kinks and repeated rungs, a compact layout's
+  open curve, arrows reversed, markers beside, above or exactly on a rung, kinks and repeated rungs, the ribbon as
+  exporters write it (Blender's cyclic seam, a welded loop, flat shaded, shuffled, under a scaled node) and broken
+  (on edge, too thin, a tube, one rung pinched), stand-ins (no AIPATH_main, no FINISH, neither, FINISH alone, no
+  markers, no visible mesh), a compact layout's
   wide gates reaching the leg before or after, same-way and other-way neighbours, bridges, a flat crossing, a spiral, a
   helix, a vertical loop), converts each and checks the report and the crossings in both path files against the ones
   it was built with; `--list` names them, `--only` runs some. Run it after any change to that logic.

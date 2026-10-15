@@ -87,8 +87,9 @@ class Glb:
         self.js['accessors'].append(a)
         return len(self.js['accessors']) - 1
 
-    def mesh(self, name, verts, normals, tris):
-        """verts/normals: glTF xyz tuples; tris: index triples (counter-clockwise front)."""
+    def mesh(self, name, verts, normals, tris, matrix=None):
+        """verts/normals: glTF xyz tuples; tris: index triples (counter-clockwise front); matrix: the node's (column
+        major), else none."""
         pos = [c for v in verts for c in v]
         nrm = [c for v in normals for c in v]
         prim = {'attributes': {'POSITION': self._accessor(pos, 'VEC3', 3, 5126, 34962, True),
@@ -96,7 +97,10 @@ class Glb:
                                'TEXCOORD_0': self._accessor([0.0] * (2 * len(verts)), 'VEC2', 2, 5126, 34962)},
                 'indices': self._accessor([i for t in tris for i in t], 'SCALAR', 1, 5125, 34963), 'material': 0}
         self.js['meshes'].append({'name': name, 'primitives': [prim]})
-        self._node({'name': name, 'mesh': len(self.js['meshes']) - 1})
+        node = {'name': name, 'mesh': len(self.js['meshes']) - 1}
+        if matrix:
+            node['matrix'] = matrix
+        self._node(node)
 
     def empty(self, name, matrix):
         self._node({'name': name, 'matrix': matrix})

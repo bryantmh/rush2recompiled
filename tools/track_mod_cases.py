@@ -11,7 +11,7 @@ own load-time search (func_80092D6C, which custom tracks skip) would have put a 
 case guards against. Layouts are built in game feet (y up) along a centre line in race order; the AI path ribbon, the
 road (COL_ROAD, drawn too) and the markers are made from it, then a case's mistakes are applied.
 """
-import math, os, re, subprocess, sys
+import math, os, random, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -187,10 +187,14 @@ class Case:
     isn't checked (the case expects an error for them, or either outcome is right); gaps: (from, to) distances with
     no road built (a jump's gap); floors: (from, to, depth) road built that far below the line there (ground under a
     jump); lift: s -> ft the ribbon is drawn above the road (a curve not following the road's height); heights:
-    (s, 'curve' | 'road') the spine's height there must be the curve's (kept in the air) or the road's (dropped)."""
+    (s, 'curve' | 'road') the spine's height there must be the curve's (kept in the air) or the road's (dropped);
+    export: how AIPATH_main's mesh is written (ribbon_mesh); nopath: the path files' crossings aren't checked (a
+    broken or missing AIPATH_main or FINISH: the track still loads, on a stand-in path); ribbon: False leaves
+    AIPATH_main out; visual: False leaves the visible mesh out (only COL_ROAD)."""
 
     def __init__(self, name, line, gates, start=0.0, reverse=False, overshoot=0.0, kinks=(), dupes=(), errors=(),
-                 warnings=(), allow=(), wrong=(), gaps=(), floors=(), lift=None, heights=(), note=''):
+                 warnings=(), allow=(), wrong=(), gaps=(), floors=(), lift=None, heights=(), export='pairs',
+                 nopath=False, ribbon=True, visual=True, note=''):
         self.__dict__.update(locals())
         del self.__dict__['self']
 
@@ -226,6 +230,75 @@ def rungs_of(c):
     return out
 
 
+def ribbon_mesh(c):
+    """AIPATH_main's vertices (glTF), triangles and node matrix, written the way c.export says an exporter would:
+    pairs: one left/right vertex pair per rung in order, open (the suite's plain ribbon); blender_cyclic: Blender's
+    glTF export of a cyclic curve, a closed strip whose UV seam stores the first rung's two vertices twice each (the
+    copies first, then the rest in pairs, the last quad using the copies); welded: a closed strip sharing the first
+    rung's vertices, no seam; flat: every triangle with its own three vertices (flat shading); shuffled: pairs stored
+    in a random order; scaled: pairs under a node scaled 4x (vertices at a quarter); on_edge: the ribbon standing up
+    (a flat-drawn curve at Tilt 0); thin: 0.6 ft across; tube: a closed square tube (Bevel Depth); pinch: pairs with
+    one rung pinched to a point (as one of Atari's stock rungs is)."""
+    rungs = rungs_of(c)
+    half = 0.3 if c.export == 'thin' else RIBBON_HALF
+    side = []
+    for k, (_, p, lat) in enumerate(rungs):
+        if c.export == 'on_edge':
+            lat = (0.0, 1.0, 0.0)
+        if c.export == 'pinch' and k == len(rungs) // 3:
+            lat = (0.0, 0.0, 0.0)
+        side.append((tuple(p[i] - lat[i] * half for i in range(3)), tuple(p[i] + lat[i] * half for i in range(3))))
+    n = len(side)
+    quad = lambda a0, b0, a1, b1: [(a0, b0, a1), (b0, b1, a1)]
+    if c.export == 'tube':
+        verts, tris = [], []
+        for a, b in side:
+            verts += [a, b, (b[0], b[1] + 2 * half, b[2]), (a[0], a[1] + 2 * half, a[2])]
+        for k in range(n):
+            j = (k + 1) % n
+            for e in range(4):
+                tris += quad(4 * k + e, 4 * k + (e + 1) % 4, 4 * j + e, 4 * j + (e + 1) % 4)
+        return [to_gltf(v) for v in verts], tris, None
+    if c.export in ('blender_cyclic', 'welded'):
+        # Blender: v0, v1 = a0 (u 0 and 1), v2, v3 = b0, then a_k, b_k; the closing quad uses the u = 1 copies.
+        if c.export == 'blender_cyclic':
+            verts = [side[0][0], side[0][0], side[0][1], side[0][1]]
+            ia, ib, ia_end, ib_end = [0], [2], 1, 3
+        else:
+            verts = [side[0][0], side[0][1]]
+            ia, ib, ia_end, ib_end = [0], [1], 0, 1
+        for a, b in side[1:]:
+            ia.append(len(verts))
+            verts.append(a)
+            ib.append(len(verts))
+            verts.append(b)
+        tris = []
+        for k in range(n):
+            if k + 1 < n:
+                tris += quad(ia[k], ib[k], ia[k + 1], ib[k + 1])
+            else:
+                tris += quad(ia[k], ib[k], ia_end, ib_end)
+        return [to_gltf(v) for v in verts], tris, None
+    verts = [v for ab in side for v in ab]
+    tris = []
+    for k in range(n - 1):
+        tris += quad(2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 3)
+    matrix = None
+    if c.export == 'flat':
+        verts = [verts[i] for t in tris for i in t]
+        tris = [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(tris))]
+    elif c.export == 'shuffled':
+        order = list(range(len(verts)))
+        random.Random(7).shuffle(order)
+        where = {old: new for new, old in enumerate(order)}
+        verts = [verts[i] for i in order]
+        tris = [tuple(where[i] for i in t) for t in tris]
+    elif c.export == 'scaled':
+        verts = [tuple(x * 0.25 for x in v) for v in verts]
+        matrix = [4.0, 0, 0, 0, 0, 4.0, 0, 0, 0, 0, 4.0, 0, 0, 0, 0, 1.0]
+    return [to_gltf(v) for v in verts], tris, matrix
+
+
 def build(c, folder):
     g = Glb()
     L = c.line.length
@@ -255,15 +328,11 @@ def build(c, folder):
             nrms += [(-up[0], up[1], up[2])] * 3
             tris.append((base, base + 1, base + 2))
     g.mesh('COL_ROAD_case', verts, nrms, tris)
-    g.mesh('TRACK_visual', verts, nrms, tris)
-    rv, rn, rt = [], [], []
-    for _, p, lat in rungs_of(c):
-        rv += [to_gltf(tuple(p[i] - lat[i] * RIBBON_HALF for i in range(3))),
-               to_gltf(tuple(p[i] + lat[i] * RIBBON_HALF for i in range(3)))]
-        rn += [(0.0, 1.0, 0.0)] * 2
-    for i in range(len(rv) // 2 - 1):
-        rt += [(2 * i, 2 * i + 1, 2 * i + 2), (2 * i + 1, 2 * i + 3, 2 * i + 2)]
-    g.mesh('AIPATH_main', rv, rn, rt)
+    if c.visual:
+        g.mesh('TRACK_visual', verts, nrms, tris)
+    if c.ribbon:
+        rv, rt, matrix = ribbon_mesh(c)
+        g.mesh('AIPATH_main', rv, [(0.0, 1.0, 0.0)] * len(rv), rt, matrix)
     for gate in c.gates:
         p, t, lat = c.line.at(gate.s), c.line.tangent(gate.s), c.line.lateral(gate.s)
         pos = (p[0] + lat[0] * gate.side, p[1] + gate.up, p[2] + lat[2] * gate.side)
@@ -306,6 +375,8 @@ def check(c, folder):
     pf = os.path.join(out, 'path.bin')
     if not os.path.exists(pf):
         fails.append('no path.bin written')
+        return fails, notes
+    if c.nopath:
         return fails, notes
     L = c.line.length
     finish = c.gates[0].s
@@ -398,6 +469,35 @@ def cases():
              [Gate('FINISH', 0.05 * L, exact=True), Gate('CHECKPOINT_1', 0.3 * L, exact=True),
               Gate('CHECKPOINT_2', 0.55 * L), Gate('CHECKPOINT_3', 0.8 * L)]),
         Case('duplicate_rungs_at_markers', o, std(), dupes=[0.05 * L, 0.3 * L]),
+        Case('export_blender_cyclic', o, std(), export='blender_cyclic',
+             note="Blender's cyclic curve: the UV seam stores the first rung twice"),
+        Case('export_blender_cyclic_mid_lap', o, std(), start=0.62 * L, export='blender_cyclic'),
+        Case('export_blender_cyclic_reversed', o, std(), reverse=True, export='blender_cyclic'),
+        Case('export_welded_loop', o, std(), export='welded', note='closed strip, no seam copies'),
+        Case('export_flat_shaded', o, std(), export='flat', note='a vertex per face corner'),
+        Case('export_shuffled', o, std(), export='shuffled', note='vertices stored in any order'),
+        Case('export_scaled_node', o, std(), export='scaled', note='object scale 4, vertices at a quarter'),
+        Case('ribbon_on_edge', o, std(), export='on_edge', errors=[r'stands on edge'], nopath=True,
+             warnings=[r'centre line'],
+             note='curve drawn flat, Tilt 0: the ribbon stands up'),
+        Case('ribbon_thin', o, std(), export='thin', errors=[r'ribbon is only 0\.\d m'], warnings=[r'centre line']),
+        Case('ribbon_pinched', o, std(), export='pinch', note='one rung pinched to a point: let through'),
+        Case('no_aipath', o, std(), ribbon=False, errors=[r'No AIPATH_main'], nopath=True,
+             warnings=[r'stand-in AI path straight through the markers'], note='loads on a stand-in path'),
+        Case('no_aipath_finish_only', o, [Gate('FINISH', 0.05 * L)], ribbon=False, nopath=True,
+             errors=[r'No AIPATH_main', r'No checkpoints'], warnings=[r'stand-in AI path straight round a circle'],
+             allow=[r'FINISH is wide enough|crossed by the AI path']),
+        Case('no_finish', o, std()[1:], errors=[r'No FINISH'], warnings=[r'stand-in finish line'], nopath=True,
+             note='stand-in finish across the path near its start'),
+        Case('no_finish_no_aipath', o, std()[1:], ribbon=False, errors=[r'No FINISH', r'No AIPATH_main'], nopath=True,
+             warnings=[r'stand-in finish line', r'stand-in AI path'], note='nothing but road and checkpoints'),
+        Case('collision_only', o, std(), visual=False, errors=[r'COL_\* meshes are drawn instead'],
+             note='no visible mesh: the collision is drawn'),
+        Case('markers_only_road', o, [], ribbon=False, errors=[r'No FINISH', r'No AIPATH_main', r'No checkpoints'],
+             nopath=True, warnings=[r'stand-in finish line', r'round a circle'], allow=[r'crossed by the AI path'],
+             note='no markers or path at all'),
+        Case('ribbon_tube', o, std(), export='tube', errors=[r'closed tube'], nopath=True,
+             warnings=[r'stand-in AI path'], note='Bevel Depth set: loads on a stand-in path'),
         Case('kink_at_markers', o, std(), kinks=[0.05 * L, 0.3 * L - 3], note='ribbon steps back 4 ft at the line'),
         Case('checkpoint_just_after_finish', o,
              [Gate('FINISH', 0.05 * L), Gate('CHECKPOINT_1', 0.05 * L + 45), Gate('CHECKPOINT_2', 0.55 * L)]),

@@ -101,8 +101,10 @@ namespace rush2::track_mod {
         float lap_feet = 0.0f;                  // length of the AI path's loop
     };
 
-    // prefix: the host slot's track prefix ("HAWAII"). Messages go to report. Errors in it don't stop the track: false
-    // only when nothing can be raced (no AI path through FINISH, no collision, nothing to draw, a hard game limit).
+    // prefix: the host slot's track prefix ("HAWAII"). Messages go to report. Errors in it don't stop the track (a
+    // missing or broken AI path or FINISH gets a stand-in, what is past the game's limits is left out): false only
+    // when track.glb can't be read, there is no collision or nothing at all to draw, or the collision is too dense for
+    // the game's index.
     bool convert(const std::vector<uint8_t>& glb, const std::string& toml_text, const std::string& prefix,
                  Converted& out, Report& report, const Extras& extras = {});
 
