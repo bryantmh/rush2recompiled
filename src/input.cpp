@@ -23,6 +23,9 @@
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <chrono>
+#include <vector>
 
 #ifdef _WIN32
 #include "SDL.h"
@@ -349,6 +352,14 @@ namespace {
         return false;
     }
 
+    // With Background Input off a window without focus leaves the controllers alone: SDL drops their presses, and this
+    // game sends them nothing either (rumble, trigger rumble, DualSense and Steam haptics), claims no port and reads
+    // no input. Otherwise two games on one machine fought over the same controller: the unfocused one's race kept
+    // writing its rumble and haptics to the controller the focused one was driving with.
+    bool hands_off() {
+        return !recompui::config::general::get_background_input_mode_enabled() && SDL_GetKeyboardFocus() == nullptr;
+    }
+
     // Whether a port has a device: a controller or the keyboard.
     bool port_taken(int port) {
         return port_controllers[port].load() != no_controller || keyboard_port.load() == port;
@@ -413,8 +424,8 @@ namespace {
             }
         }
 
-        // Presses made to navigate the menus shouldn't claim a port.
-        if (recompinput::game_input_disabled()) {
+        // Presses made to navigate the menus shouldn't claim a port, nor those made in another window.
+        if (recompinput::game_input_disabled() || hands_off()) {
             return;
         }
 
@@ -587,7 +598,111 @@ void rush2::input::set_rdram(uint8_t* rdram) {
     rush2::control_profiles::update_ports(rdram);
 }
 
+// Test aid: RUSH2_TEST_VPAD="<seconds>:<input>[:<hold seconds>],..." attaches a virtual game controller (SDL's) and
+// presses its inputs at those times after launch: A B X Y BACK START LS RS LB RB UP DOWN LEFT RIGHT (buttons), RT LT
+// (the triggers, fully) and SL SR (the left stick fully left or right); a press holds 0.15 s unless given. Unlike
+// --input-script it goes through everything a real controller does: claiming a port, its bindings and control
+// profile, SDL's controller reads, and SDL's focus rule (with Background Input off an unfocused window sees none of
+// it). A thread of its own sets the pad's state, so it moves whatever the game's threads are doing.
+namespace {
+    void start_test_vpad() {
+        const char* spec = std::getenv("RUSH2_TEST_VPAD");
+        if (spec == nullptr) {
+            return;
+        }
+        struct Press {
+            double time;
+            double duration;
+            int button = -1;
+            int axis = -1;
+            int16_t value = 0;
+        };
+        static const std::pair<const char*, int> button_names[] = {
+            { "A", SDL_CONTROLLER_BUTTON_A }, { "B", SDL_CONTROLLER_BUTTON_B }, { "X", SDL_CONTROLLER_BUTTON_X },
+            { "Y", SDL_CONTROLLER_BUTTON_Y }, { "BACK", SDL_CONTROLLER_BUTTON_BACK },
+            { "START", SDL_CONTROLLER_BUTTON_START }, { "LS", SDL_CONTROLLER_BUTTON_LEFTSTICK },
+            { "RS", SDL_CONTROLLER_BUTTON_RIGHTSTICK }, { "LB", SDL_CONTROLLER_BUTTON_LEFTSHOULDER },
+            { "RB", SDL_CONTROLLER_BUTTON_RIGHTSHOULDER }, { "UP", SDL_CONTROLLER_BUTTON_DPAD_UP },
+            { "DOWN", SDL_CONTROLLER_BUTTON_DPAD_DOWN }, { "LEFT", SDL_CONTROLLER_BUTTON_DPAD_LEFT },
+            { "RIGHT", SDL_CONTROLLER_BUTTON_DPAD_RIGHT },
+        };
+        std::vector<Press> presses;
+        std::string text = spec;
+        size_t pos = 0;
+        while (pos < text.size()) {
+            size_t end = text.find(',', pos);
+            std::string entry = text.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+            pos = end == std::string::npos ? text.size() : end + 1;
+            size_t c1 = entry.find(':');
+            if (c1 == std::string::npos) {
+                continue;
+            }
+            Press p{ std::atof(entry.c_str()), 0.15 };
+            std::string name = entry.substr(c1 + 1);
+            size_t c2 = name.find(':');
+            if (c2 != std::string::npos) {
+                p.duration = std::atof(name.c_str() + c2 + 1);
+                name = name.substr(0, c2);
+            }
+            for (const auto& [n, b] : button_names) {
+                if (name == n) p.button = b;
+            }
+            if (name == "RT") { p.axis = SDL_CONTROLLER_AXIS_TRIGGERRIGHT; p.value = 32767; }
+            if (name == "LT") { p.axis = SDL_CONTROLLER_AXIS_TRIGGERLEFT; p.value = 32767; }
+            if (name == "SL") { p.axis = SDL_CONTROLLER_AXIS_LEFTX; p.value = -32768; }
+            if (name == "SR") { p.axis = SDL_CONTROLLER_AXIS_LEFTX; p.value = 32767; }
+            if (p.button >= 0 || p.axis >= 0) {
+                presses.push_back(p);
+            }
+        }
+        SDL_VirtualJoystickDesc desc;
+        SDL_zero(desc);
+        desc.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+        desc.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+        desc.naxes = SDL_CONTROLLER_AXIS_MAX;
+        desc.nbuttons = SDL_CONTROLLER_BUTTON_DPAD_RIGHT + 1;
+        desc.axis_mask = (1u << SDL_CONTROLLER_AXIS_MAX) - 1;
+        desc.button_mask = (1u << (SDL_CONTROLLER_BUTTON_DPAD_RIGHT + 1)) - 1;
+        desc.name = "Rush 2 Test Pad";
+        int index = SDL_JoystickAttachVirtualEx(&desc);
+        SDL_Joystick* pad = index < 0 ? nullptr : SDL_JoystickOpen(index);
+        if (pad == nullptr) {
+            printf("[Input] RUSH2_TEST_VPAD: no virtual controller (%s)\n", SDL_GetError());
+            return;
+        }
+        printf("[Input] RUSH2_TEST_VPAD: virtual controller attached\n");
+        auto launch = std::chrono::steady_clock::now();
+        std::thread([pad, presses, launch]() {
+            for (;;) {
+                double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - launch).count();
+                std::array<bool, SDL_CONTROLLER_BUTTON_DPAD_RIGHT + 1> down{};
+                std::array<int16_t, SDL_CONTROLLER_AXIS_MAX> axes{};
+                axes[SDL_CONTROLLER_AXIS_TRIGGERLEFT] = -32768;   // released, whether SDL reads the trigger as a
+                axes[SDL_CONTROLLER_AXIS_TRIGGERRIGHT] = -32768;  // full or a half range axis
+                for (const Press& p : presses) {
+                    if (now >= p.time && now < p.time + p.duration) {
+                        if (p.button >= 0) down[p.button] = true;
+                        if (p.axis >= 0) axes[p.axis] = p.value;
+                    }
+                }
+                for (int b = 0; b < (int)down.size(); b++) {
+                    SDL_JoystickSetVirtualButton(pad, b, down[b] ? SDL_PRESSED : SDL_RELEASED);
+                }
+                for (int a = 0; a < (int)axes.size(); a++) {
+                    SDL_JoystickSetVirtualAxis(pad, a, axes[a]);
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }).detach();
+    }
+}
+
 void rush2::input::poll() {
+    static bool vpad_started = false;
+    if (!vpad_started) {
+        vpad_started = true;
+        start_test_vpad();
+    }
     recompinput::poll_inputs();
     update_port_assignments();
 }
@@ -602,6 +717,12 @@ int rush2::input::port_player(int port) {
     uint8_t* rdram = game_rdram.load();
     if (rdram == nullptr || port < 0 || port >= num_ports || at_title_screen.load()) {
         return -1;
+    }
+    // An online race's records have no ports (src/online/online_game.cpp): port 1 is this machine's player's. Reading
+    // the records there flickered, as the race's presentation lends record 0 port 1 for each frame's drawing.
+    int online_player = rush2::online::game::local_race_player();
+    if (online_player >= 0) {
+        return port == 0 ? online_player : -1;
     }
     // The players' records (0x800C2140, 0x28 each, +1 the port or 5 for none; four of them, src/players4.cpp). Player 2
     // only counts while the game has 2 players: its record keeps its port after it leaves.
@@ -654,7 +775,7 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
         return false;
     }
 
-    if (recompinput::game_input_disabled()) {
+    if (recompinput::game_input_disabled() || hands_off()) {
         return true;
     }
 
@@ -856,6 +977,32 @@ void rush2::input::update_rumble() {
     }
 
     using rush2::control_profiles::RumbleMode;
+
+    // Losing focus with Background Input off stops everything this game plays on the controllers once, then sends
+    // nothing until focus comes back (hands_off).
+    static bool was_hands_off = false;
+    if (hands_off()) {
+        if (!was_hands_off) {
+            was_hands_off = true;
+            for (int slot = 0; slot < num_slots; slot++) {
+                SDL_GameController* controller = slot == test_slot ? get_connected_controller(test_slot_controller)
+                                                                   : get_connected_controller(port_controllers[slot].load());
+                if (controller != nullptr) {
+                    SDL_GameControllerRumble(controller, 0, 0, 0);
+                    if (rumble_triggers_on[slot]) {
+                        SDL_GameControllerRumbleTriggers(controller, 0, 0, 0);
+                    }
+                }
+                stop_slot_haptics(slot);
+                rumble_triggers_on[slot] = false;
+                cur_rumble[slot] = 0.0f;
+            }
+            rush2::haptics::set_controllers({});
+            rush2::steam_haptics::set_controllers({});
+        }
+        return;
+    }
+    was_hands_off = false;
 
     // A test from the Controls tab replaces its slot's settings and race state while it plays.
     bool testing;

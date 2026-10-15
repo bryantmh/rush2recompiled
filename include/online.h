@@ -45,6 +45,11 @@ namespace rush2::online {
         uint8_t battle_points = 10;  // A battle's points to win and time limit (0 none): rush2::battle's options.
         uint8_t battle_minutes = 0;
         uint8_t race_battle = 0;     // The race track select's BATTLE row (rush2::battle::race_battle): weapons.
+        // A custom track (src/track_mod/) is known by what it is, not its id: each machine numbers its custom tracks
+        // (ids 38-63) in its own mod order. mod_track is rush2::track2049::online_track_key ("" for the other
+        // tracks), mod_track_name its name for the lobby's messages.
+        std::string mod_track;
+        std::string mod_track_name;
 
         bool operator==(const RaceSettings&) const = default;
     };
@@ -52,6 +57,9 @@ namespace rush2::online {
     struct CarChoice {
         uint8_t type = 0;
         uint8_t colors[4] = { 0, 0, 0, 0 };  // Main, accent, stripe (0 none), stripe color.
+        // The car select's TRANSMISSION (player record +0x20: 1 automatic, 0 manual), which the race copies to the
+        // car's gearbox (race_setup_cars_8009E6DC at 0x8009EA84, physics car +0x3D8).
+        uint8_t automatic = 1;
 
         bool operator==(const CarChoice&) const = default;
     };
@@ -84,6 +92,11 @@ namespace rush2::online {
         uint16_t ping_ms = 0;
         CarChoice car;
         uint8_t games = 0;       // The other games' ROMs the player has (games_* bits): what tracks all can race.
+        // The custom track the player last checked for (track_check of the host's RaceSettings::mod_track, 0 none) and
+        // whether they lack it (set_track_check): the host's track select confirms a custom track only once everyone
+        // has checked that one and has it.
+        uint32_t track_checked = 0;
+        bool lacks_track = false;
         // The player's settings that change the race (src/online_tab.cpp, "config/option=value" lines). The others'
         // games take the host's (rush2::online_tab::follow_host_settings).
         std::string gameplay;
@@ -137,10 +150,21 @@ namespace rush2::online {
     std::vector<RosterEntry> roster();
     int max_players_setting();
     std::string lobby_name();
+    // The port of the lobby this machine hosts or joined.
+    uint16_t lobby_port();
     // Why the last host, join or session ended, for the UI; empty if nothing went wrong.
     std::string last_error();
-    // Status of the host's router port mapping (UPnP), for the UI.
+    // Status of the host's router port mapping (UPnP), for the UI: router_status() is the full explanation,
+    // router_port() what it came to.
     std::string router_status();
+    enum class RouterPort {
+        None,         // Not hosting, or not asked.
+        Checking,     // Asking the router.
+        Open,         // Forwarded: players on the internet can join.
+        Unreachable,  // Forwarded, but the router is behind another network (carrier-grade NAT).
+        Closed,       // No router answered or it refused: the host has to forward the port by hand.
+    };
+    RouterPort router_port();
     // This machine's addresses, for the host to share.
     std::vector<std::string> local_addresses();
     std::string public_address();
@@ -157,6 +181,11 @@ namespace rush2::online {
     void set_car(const CarChoice& car, const std::vector<uint8_t>& profile);
     // This machine's progress through the menus (RosterEntry::progress).
     void set_progress(Progress progress);
+    // The custom track this machine checked for (track_check of its key) and whether it lacks it
+    // (RosterEntry::track_checked, lacks_track).
+    void set_track_check(uint32_t checked, bool lacks);
+    // A custom track key's short hash for the roster (0 for "").
+    uint32_t track_check(const std::string& mod_track);
     // Host only: starts the race with these settings once every player has picked a car. Returns false (with
     // last_error) if it can't.
     bool start_race(const RaceSettings& settings);
@@ -210,6 +239,16 @@ namespace rush2::online {
         bool car_type(int car, int* type);
         // In an online race: this machine's player (car slot), whose record has their own profile; -1 otherwise.
         int local_race_player();
+        // The controller port a human car's rumble goes to, from its player record and the record's port: online this
+        // machine's player's is port 0 (its controller, read_local_controller) and the others' none (5).
+        int rumble_port(uint32_t record, int port);
+        // Around the race HUD's setup and its update and drawing (src/hud.cpp, rush2_online_present_begin): online the
+        // player count (0x8010C3E2) reads 1 there, so the HUD is the one player's of a one-player race. Calls nest.
+        void hud_players_begin(uint8_t* rdram);
+        void hud_players_end(uint8_t* rdram);
+        // The race HUD's setup has built its elements (src/hud.cpp): online the gear box's and the tachometer's are set
+        // to this machine's player (rush2_online_hud_views).
+        void hud_built(uint8_t* rdram);
         // In an online race: a player's battle weapon buttons for the frame. False otherwise.
         bool battle_buttons(int player, uint8_t* out);
         // The car select once this machine's players have picked their cars (src/players4.cpp's hook, func_803B9478 at

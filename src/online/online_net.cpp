@@ -70,6 +70,8 @@ namespace {
     std::string my_name = "Player";
     std::string my_profile_name;   // The save profile picked on Select Player: the lobby shows it if set.
     CarChoice my_car;
+    uint32_t my_track_checked = 0; // The custom track checked for and whether it's missing (set_track_check).
+    bool my_lacks_track = false;
     std::vector<uint8_t> my_profile;
     uint8_t my_games = 0;
     std::string my_gameplay;
@@ -118,6 +120,16 @@ namespace {
 
     void queue(int target, uint8_t channel, std::vector<uint8_t> data) {
         outbox.push_back({ target, channel, std::move(data) });
+    }
+
+    // Client: this machine's progress and the custom track it checked for, to the host.
+    void send_progress() {
+        Writer w;
+        w.u8(uint8_t(Msg::SetProgress));
+        w.u8(my_slot >= 0 ? slots[my_slot].progress : 0);
+        w.u32(my_track_checked);
+        w.u8(my_lacks_track ? 1 : 0);
+        queue(to_host, channel_lobby, w.data);
     }
 
     std::vector<uint8_t> roster_message() {
@@ -439,8 +451,13 @@ namespace {
             case Msg::SetProgress:
                 if (slot >= 0) {
                     uint8_t progress = r.u8();
-                    if (!r.bad && cur_state == State::Lobby && progress != slots[slot].progress) {
+                    uint32_t checked = r.u32();
+                    bool lacks = r.u8() != 0;
+                    if (!r.bad && cur_state == State::Lobby && (progress != slots[slot].progress ||
+                        checked != slots[slot].track_checked || lacks != slots[slot].lacks_track)) {
                         slots[slot].progress = progress;
+                        slots[slot].track_checked = checked;
+                        slots[slot].lacks_track = lacks;
                         queue(to_all, channel_lobby, roster_message());
                     }
                 }
@@ -508,6 +525,8 @@ namespace {
                 }
                 std::fprintf(stderr, "[online] joined lobby \"%s\" as player %d\n", name.c_str(), slot + 1);
                 my_slot = slot;
+                my_track_checked = 0;
+                my_lacks_track = false;
                 cur_lobby_name = name;
                 max_players_opt = max_count;
                 cur_state = State::Lobby;
@@ -722,7 +741,7 @@ namespace {
         enet_host_flush(enet_host);
         enet_host_destroy(enet_host);
         enet_host = nullptr;
-        stop_beacons();
+        stop_beacons(beacon_payload(cur_lobby_name, host_port, 0, 0, cur_settings, false));
     }
 
     void stop_net_thread() {
@@ -738,8 +757,11 @@ bool rush2::online::available() {
     std::call_once(once, []() {
         enet_ready = enet_initialize() == 0;
         if (enet_ready) {
+            // Registered after the threads' static std::thread objects, so it runs before their destructors: a
+            // still-joinable one would abort() the exit (Windows then writes a crash dump, a slow close).
             std::atexit([]() {
                 rush2::online::leave();
+                rush2::online::stop_lan_listener();
                 enet_deinitialize();
             });
         }
@@ -931,6 +953,11 @@ std::string rush2::online::lobby_name() {
     return cur_lobby_name;
 }
 
+uint16_t rush2::online::lobby_port() {
+    std::lock_guard lock{ state_mutex };
+    return host_port;
+}
+
 std::string rush2::online::last_error() {
     std::lock_guard lock{ state_mutex };
     return error_text;
@@ -1075,10 +1102,29 @@ void rush2::online::set_progress(Progress progress) {
         return;
     }
     slots[my_slot].progress = uint8_t(progress);  // Until the host's roster says so.
-    Writer w;
-    w.u8(uint8_t(Msg::SetProgress));
-    w.u8(uint8_t(progress));
-    queue(to_host, channel_lobby, w.data);
+    send_progress();
+}
+
+void rush2::online::set_track_check(uint32_t checked, bool lacks) {
+    std::lock_guard lock{ state_mutex };
+    if (cur_state != State::Lobby || hosting || my_slot < 0 ||
+        (my_track_checked == checked && my_lacks_track == lacks)) {
+        return;
+    }
+    my_track_checked = checked;
+    my_lacks_track = lacks;
+    send_progress();
+}
+
+uint32_t rush2::online::track_check(const std::string& mod_track) {
+    if (mod_track.empty()) {
+        return 0;
+    }
+    uint32_t h = 2166136261u;
+    for (char c : mod_track) {
+        h = (h ^ uint8_t(c)) * 16777619u;
+    }
+    return h == 0 ? 1 : h;
 }
 
 void rush2::online::publish_menu(const MenuState& m) {

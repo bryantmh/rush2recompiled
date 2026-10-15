@@ -27,6 +27,7 @@
 #include "online.h"
 #include "rush2.h"
 #include "battle.h"
+#include "track2049.h"
 
 // ultramodern's conversion of a controller's stick to the N64 stick's range and shape (ultramodern/src/input.cpp).
 void convert_to_n64_range(float x, float y, int8_t& stick_x, int8_t& stick_y);
@@ -37,6 +38,13 @@ extern "C" void menu_screen_dispatch_800AE0D4(uint8_t* rdram, recomp_context* ct
 extern "C" void music_queue_stop_80062FA4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void carselect_build_list_803B81F0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void overlay_load_800A62C0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void carselect_get_logo_color_800B2694(uint8_t* rdram, recomp_context* ctx);
+extern "C" void car_options_get_byte1_field_800B2640(uint8_t* rdram, recomp_context* ctx);
+extern "C" void car_options_get_color_lo_800B2608(uint8_t* rdram, recomp_context* ctx);
+extern "C" void car_options_get_color_hi_800B25D0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void carselect_lookup_value_f_800B259C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void carselect_get_stat_value_b_800B2468(uint8_t* rdram, recomp_context* ctx);
+extern "C" void carselect_get_stat_value_a_800B2424(uint8_t* rdram, recomp_context* ctx);
 
 namespace rush2::ram_watch {
     void frame(uint8_t* rdram, uint32_t frame_number);
@@ -140,6 +148,7 @@ namespace {
     constexpr int32_t record_port = 0x1;
     constexpr int32_t record_masks = 0xC;            // u16 per action: the N64 buttons bound to it
     constexpr int32_t record_masks_size = 0x12;
+    constexpr int32_t record_automatic = 0x20;       // u8: TRANSMISSION, 1 automatic (CarChoice::automatic)
     constexpr int32_t record_profile = 0x24;         // The player's save profile (a controller's buffer, 0x6C0 bytes)
     // Each player races with the profile their car select left (RosterEntry::profile): the race reads the car's type
     // from it (+0x31, func_8009E6DC at 0x8009E9B8) and the keys from it. This machine's player races with their own
@@ -148,6 +157,8 @@ namespace {
     constexpr uint32_t guest_profiles = 0x80FF0000;
     constexpr uint32_t profile_size = 0x6C0;
     constexpr int32_t profile_car = 0x31;            // Low 5 bits: the car type (Rush 2's; Rush 2049's are kept apart)
+    constexpr int32_t profile_section_end = 0x33;    // +0 is the byte sum of +1..+0x33, checked when the pak loads
+    constexpr int rush2_car_types = 22;
     constexpr uint8_t no_port = 5;
     constexpr uint32_t initial_seed = 123456789;     // The game's own first seed (0x800BD808 at boot).
 
@@ -177,6 +188,7 @@ namespace {
     int local_player = 0;   // This machine's player (car slot) in the race.
     int race_players = 1;
     std::vector<uint8_t> race_car_types;  // Each player's car type (rush2::online::game::car_type).
+    uint32_t hud_rewritten = 0;  // The HUD element list rush2::online::game::hud_built last set up.
 
     // The front end screen up (func_800AE0D4): 0x10 the title screen, 0 the main menu after it, up to 0xD the other
     // menu screens; 0xE is the boot logos, 0x11 and 0x12 the attract demo, -1 none.
@@ -190,6 +202,54 @@ namespace {
         int16_t screen = MEM_H(0, (int32_t)menu_screen);
         bool front_end = state == 0 && ((screen >= 0 && screen <= last_menu_screen) || screen == title_screen);
         return (front_end || state == 1 || state == 2) && MEM_BU(0, (int32_t)demo_flag) == 0;
+    }
+
+    // The per-player rows of the car type tables at 0x80200000 (row 0 the computer cars', row p + 1 player p's, 36
+    // types a row): the car's settings, colors, rims and wheel model scales (carselect_preview_update_8005A598 draws a
+    // human car's wheels at its row's scale, so an empty row draws none). The car select fills them for its own
+    // players from their profiles (carselect_build_list_803B81F0, 0x803B8B10-0x803B8F7C); online it only ever has one,
+    // as row 1, so the other players' rows were empty (a Rush 2 car's wheel scales 0) or another player's. The tables
+    // that only change how a car looks are filled the same way here for every race player from the profile the race
+    // uses, the same bytes on every machine. Only Rush 2's types: a Rush 2049 type's settings live in a side slot of
+    // the save profile (src/rush2049/car2049.cpp), which a profile sent from another machine hasn't, and its rows are
+    // all set at boot. The settings rows are left alone, as the race checks they match. Only 4 player rows exist.
+    void fill_player_rows(uint8_t* rdram, recomp_context* ctx) {
+        constexpr int types = 36;
+        constexpr int rush2_types = 22;
+        constexpr int player_rows = 4;
+        struct Table {
+            uint32_t address;
+            bool is_float;
+            void (*get)(uint8_t*, recomp_context*);
+        };
+        static const Table tables[] = {
+            { 0x80201190, false, carselect_get_logo_color_800B2694 },
+            { 0x80201248, false, car_options_get_byte1_field_800B2640 },
+            { 0x80201300, false, car_options_get_color_lo_800B2608 },
+            { 0x802013B8, false, car_options_get_color_hi_800B25D0 },
+            { 0x80201020, false, carselect_lookup_value_f_800B259C },  // Rims (the wheels' texture).
+            { 0x802006E8, true, carselect_get_stat_value_b_800B2468 },  // Front wheel scale.
+            { 0x802009B8, true, carselect_get_stat_value_a_800B2424 },  // Rear wheel scale.
+        };
+        recomp_context saved = *ctx;
+        for (int p = 0; p < race_players && p < player_rows; p++) {
+            uint32_t profile = (uint32_t)MEM_W(record_profile, (int32_t)(player_records + p * player_record_size));
+            int row = p + 1;
+            for (const Table& t : tables) {
+                for (int type = 0; type < rush2_types; type++) {
+                    ctx->r4 = (gpr)(int32_t)profile;
+                    ctx->r5 = (gpr)type;
+                    t.get(rdram, ctx);
+                    if (t.is_float) {
+                        MEM_W(0, (int32_t)(t.address + (row * types + type) * 4)) = (int32_t)ctx->f0.u32l;
+                    }
+                    else {
+                        MEM_B(0, (int32_t)(t.address + row * types + type)) = (int8_t)ctx->r2;
+                    }
+                }
+            }
+        }
+        *ctx = saved;
     }
 
     // Sets the race up as the menus would and starts it (game state 7). Players are the roster's used slots in slot
@@ -220,6 +280,7 @@ namespace {
             race_car_types.push_back(c.type);
         }
         race_players = std::clamp(race_players, 1, (int)max_players);
+        hud_rewritten = 0;
 
         // What the race changes that the menus own, put back when it ends (end_race).
         menu_snapshot.clear();
@@ -244,7 +305,16 @@ namespace {
         // stunt track, 11, and the Rush 2049 arenas hosted there, into stunt mode itself), track and the track
         // select's settings (laps, drones, options; func_80094698 copies them to the race).
         MEM_W(0, (int32_t)race_type) = settings.race_type;
-        MEM_B(0, (int32_t)track_id) = (int8_t)settings.track;
+        // A custom track is this machine's own id for it (the host's track select only starts one every player has).
+        int track = settings.track;
+        if (!settings.mod_track.empty()) {
+            track = rush2::track2049::track_for_online_key(settings.mod_track);
+            if (track < 0) {
+                std::fprintf(stderr, "[online] this machine hasn't the custom track %s\n", settings.mod_track.c_str());
+                track = settings.track;  // The race's load check (report_loaded) ends it.
+            }
+        }
+        MEM_B(0, (int32_t)track_id) = (int8_t)track;
         for (int i = 0; i < (int)settings.menu.size(); i++) {
             MEM_B(i, (int32_t)menu_settings) = (int8_t)settings.menu[i];
         }
@@ -279,6 +349,7 @@ namespace {
             }
             MEM_B(record_car, record) = (int8_t)p;
             MEM_B(record_port, record) = (int8_t)no_port;
+            MEM_B(record_automatic, record) = (int8_t)cars[p].automatic;
             MEM_B(record_range, record) = default_range;
             MEM_B(record_range + 1, record) = default_range;
             // The profile as the player's car select sent it (the same bytes on every machine; this machine's player's
@@ -286,13 +357,29 @@ namespace {
             // A player who sent none (the test aids' races) races with a blank one on every machine.
             const std::vector<uint8_t>& sent = *profiles[p];
             bool have = sent.size() == profile_size;
-            uint32_t profile = p == local_player && own_profile != 0 && have ? own_profile :
-                guest_profiles + p * profile_size;
-            for (uint32_t i = 0; i < profile_size; i++) {
-                MEM_B(0, (int32_t)(profile + i)) = have ? (int8_t)sent[i] : 0;
+            bool own = p == local_player && own_profile != 0 && have;
+            uint32_t profile = own ? own_profile : guest_profiles + p * profile_size;
+            // This machine's player's profile is their save itself: it's never copied over (that put back what the
+            // game had saved to it since the car select sent it).
+            if (!own) {
+                for (uint32_t i = 0; i < profile_size; i++) {
+                    MEM_B(0, (int32_t)(profile + i)) = have ? (int8_t)sent[i] : 0;
+                }
             }
+            // This machine's player's profile is their save (its Controller Pak note): the byte's section keeps its
+            // byte sum at +0, which the game checks when it reads the pak (func_80098190), so it's updated with the
+            // byte. A stale sum made the next boot find the note damaged and wipe it. A Rush 2049 type doesn't fit
+            // the 5 bits (its choice is kept apart, src/rush2049/car2049.cpp): the byte stays as the car select left it.
             uint8_t type_bits = (uint8_t)MEM_BU(profile_car, (int32_t)profile);
-            MEM_B(profile_car, (int32_t)profile) = (int8_t)((type_bits & 0xE0) | (cars[p].type & 0x1F));
+            uint8_t car_bits = (uint8_t)((type_bits & 0xE0) | (cars[p].type & 0x1F));
+            if (cars[p].type < rush2_car_types && car_bits != type_bits) {
+                MEM_B(profile_car, (int32_t)profile) = (int8_t)car_bits;
+                uint8_t sum = 0;
+                for (int32_t i = 1; i <= profile_section_end; i++) {
+                    sum += (uint8_t)MEM_BU(i, (int32_t)profile);
+                }
+                MEM_B(0, (int32_t)profile) = (int8_t)sum;
+            }
             MEM_W(record_profile, record) = (int32_t)profile;
             int32_t entry = (int32_t)(car_table + p * car_entry_size);
             MEM_B(1, entry) = (int8_t)cars[p].type;
@@ -300,6 +387,7 @@ namespace {
                 MEM_B(2 + i, entry) = (int8_t)cars[p].colors[i];
             }
         }
+        fill_player_rows(rdram, ctx);
         for (uint32_t seed_address : rng_seeds) {
             MEM_W(0, (int32_t)seed_address) = (int32_t)(seed_address == rng_seeds[0] ? (race_seed() | 1) : 0);
         }
@@ -422,6 +510,8 @@ namespace {
     // title screen once N players are in (skipping the menus); RUSH2_ONLINE_TEST=join:ADDRESS joins and says it has a
     // car. RUSH2_ONLINE_NAME sets the name; RUSH2_ONLINE_TRACK the track select id and RUSH2_ONLINE_RACE_TYPE the race
     // type. RUSH2_ONLINE_TEST=menus:host / menus:join:ADDRESS only hosts or joins, for going through the menus.
+    // RUSH2_ONLINE_MANUAL=1 gives this machine's player the manual gearbox in a quick race. RUSH2_ONLINE_PORT hosts on
+    // another port.
     void test_aid(uint8_t* rdram) {
         static const char* spec = std::getenv("RUSH2_ONLINE_TEST");
         static bool started = false;
@@ -441,6 +531,10 @@ namespace {
             if (text.rfind("host", 0) == 0) {
                 HostOptions options;
                 options.open_router_port = false;
+                // RUSH2_ONLINE_PORT: host on this port (join with ADDRESS:PORT), clear of a lobby already open here.
+                if (const char* port = std::getenv("RUSH2_ONLINE_PORT")) {
+                    options.port = (uint16_t)std::atoi(port);
+                }
                 host(options);
             }
             else if (text.rfind("join:", 0) == 0) {
@@ -450,6 +544,14 @@ namespace {
         }
         if (menus || state() != State::Lobby) {
             return;
+        }
+        // RUSH2_ONLINE_MANUAL=1: this machine's player races with the manual gearbox (CarChoice::automatic).
+        static bool manual_sent = false;
+        if (!manual_sent && std::getenv("RUSH2_ONLINE_MANUAL") != nullptr) {
+            manual_sent = true;
+            CarChoice car;
+            car.automatic = 0;
+            set_car(car, {});
         }
         if (text.rfind("host", 0) == 0) {
             int wanted = text.size() > 5 ? std::atoi(text.c_str() + 5) : 1;
@@ -497,6 +599,23 @@ namespace {
     constexpr int32_t state_car_select = 2;
     constexpr int32_t state_front_end = 0;           // The pause menu's QUIT (func_800AAC64) goes back to it.
 
+    // The menus take a port's presses (into the menu buttons 0x8011962A and 0x80125A68, player_join_init_all_80080788)
+    // only while its input_port_state byte (0x80125AC4 + port) is set. Opening the pause menu clears all four and sets
+    // the ports of records 0 and 1 back (input_set_port_state_80093DC0 at 0x800AFE60-0x800AFE98), but online the
+    // records have no port (5, which it ignores), so after a pause every port stayed off and the track select the race
+    // leaves for took no buttons. Once the menus' records are back, their players' ports take presses again.
+    void enable_menu_ports(uint8_t* rdram) {
+        constexpr uint32_t input_port_state = 0x80125AC4;
+        constexpr int num_ports = 4;
+        int players = MEM_H(0, (int32_t)num_players);
+        for (int p = 0; p < players && p < 2; p++) {
+            int port = MEM_BU(record_port, (int32_t)(player_records + p * player_record_size));
+            if (port < num_ports) {
+                MEM_B(0, (int32_t)(input_port_state + port)) = 1;
+            }
+        }
+    }
+
     // The race is over (game state 6, or the front end after the pause menu's QUIT): the machines part. The post-race
     // works on the game's players 1 and up, so this machine's player becomes the only one, with the record the menus
     // gave them (their profile and controller) and their car; it saves their stats and times and runs their name entry
@@ -522,6 +641,7 @@ namespace {
         MEM_B(record_car, (int32_t)player_records) = (int8_t)local_player;
         MEM_H(0, (int32_t)num_players) = 1;
         MEM_H(0, (int32_t)num_views) = 1;
+        enable_menu_ports(rdram);
         phase = Phase::Idle;
     }
 
@@ -549,6 +669,7 @@ namespace {
             }
             menu_snapshot.clear();
         }
+        enable_menu_ports(rdram);
         phase = Phase::Idle;
     }
 }
@@ -853,6 +974,19 @@ extern "C" int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int c
     return kind;
 }
 
+// The wheel placer (carselect_preview_update_8005A598, per car per frame) shows or hides a car's wheel nodes through
+// node_swap_visibility_8005A528: for a car with a view (+0x347) it hides them in that view's own close cameras, and for
+// a car without one it shows them in views 0 and 1 only when $s0 (car state +0x348 >= 2) is set and hides them
+// otherwise. Locally every human car has a view; online the other players' don't, and their wheels were hidden.
+// Online a human car without a view shows its wheels, as the computer cars' are.
+extern "C" int rush2_online_wheels_shown(uint8_t* rdram, uint32_t physics_car, int view, int shown) {
+    constexpr int human = 2;
+    if (phase == Phase::Idle || view >= 0 || MEM_B(0x7E8, (int32_t)physics_car) != human) {
+        return shown;
+    }
+    return 1;
+}
+
 // The camera update's loop over the views (func_8009D9F4 from 0x8009DA60, $s5 the view, $s4 its player's record,
 // stepped by 0x28) switches the view's camera when its player presses VIEW (record +0x1A, the button's mask, against
 // +2, the presses). Online view 0 is this machine's player's, whose record isn't record 0 on every machine.
@@ -932,6 +1066,22 @@ int rush2::online::game::local_race_player() {
     return phase == Phase::Idle ? -1 : local_player;
 }
 
+// The physics tick writes a human car's rumble level to its record's port (0x800D50E8 + port, physics_car_tick_80075880
+// at 0x80075AF8 and 0x80075C08), and src/rumble.cpp reads the port the same way. Online every record has no port, so
+// nothing rumbled: this machine's player's level goes to port 0, whose controller drives them (read_local_controller),
+// and the other players' stay on none, as each machine rumbles only for its own player.
+int rush2::online::game::rumble_port(uint32_t record, int port) {
+    if (phase == Phase::Idle) {
+        return port;
+    }
+    return record == player_records + (uint32_t)local_player * player_record_size ? 0 : no_port;
+}
+
+// Before physics_car_tick_80075880 adds the record's port ($v0, from $a3 = the record) to the rumble level's address.
+extern "C" void rush2_online_rumble_port(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r2 = (gpr)(int32_t)rush2::online::game::rumble_port((uint32_t)ctx->r7, (int)(int32_t)ctx->r2);
+}
+
 bool rush2::online::game::battle_buttons(int player, uint8_t* out) {
     if (!lockstep || player < 0 || player >= max_players) {
         return false;
@@ -944,12 +1094,91 @@ bool rush2::online::game::battle_buttons(int player, uint8_t* out) {
 // game's player 1's. Online player 1 is whoever has the first lobby slot, so around those calls player 1's record swaps cars
 // with this machine's player's and takes controller port 0 (every record has no port online, so no controller reaches the race). The
 // rest of the record, which the race also writes, stays player 1's, and no race code runs in between, so every
-// machine's race stays the same. The engine sounds and rumble (func_80067358, in the physics tick) can't be moved the
-// same way: they write the player cars' +0x660, which the physics reads (func_80071D78), so they stay player 1's.
+// machine's race stays the same. The engine sounds (func_80067358, in the physics tick) can't be moved the same way:
+// they write the player cars' +0x660, which the physics reads (func_80071D78), so they stay player 1's. The rumble is
+// each machine's own player's (rush2::online::game::rumble_port).
+// The player count reads 1 there too (hud_players_begin): the HUD's per-player elements show themselves by it (the
+// race time hud_widget_cb_icon_row_a_800B9754, the lap time 800B9978, the deaths 800B9C44, the lap banner 800BA868),
+// and with the race's count player 2's showed on the one view, a second race time under player 1's gear box. Nothing
+// else there reads it but the views' fog (view_fog_setup_8007C624, for one view either way).
 namespace {
     bool presenting = false;
     int8_t saved_car = 0;
     int8_t saved_port = 0;
+    int hud_depth = 0;
+    int16_t saved_players = 0;
+}
+
+void rush2::online::game::hud_players_begin(uint8_t* rdram) {
+    if (phase == Phase::Idle) {
+        return;
+    }
+    if (hud_depth++ == 0) {
+        saved_players = MEM_H(0, (int32_t)num_players);
+        MEM_H(0, (int32_t)num_players) = 1;
+    }
+}
+
+// Three HUD elements read their player's physics car and car state by number, where most go through the player's
+// record (which rush2_online_present_begin swaps): the gear box (hud_widget_cb_model_lookup_800B92F4, its player in
+// bits 8-11 of the element's parameter), the tachometer's lit part (hud_widget_cb_orbit_icons_800B7E88, shown in
+// manual) and its background, which also works out the race time (hud_widget_cb_race_time_display_800B7B1C; both with
+// the player in the low bits). Online their player-1 elements are set to this machine's player and their player-2 ones
+// to player 15, and each shows itself only while its player is below the count the hooks give them
+// (rush2_online_hud_views, in place of the view count): this machine's player + 1. The gear box and the tachometer
+// write only their own widget; the race time writes its player's digits (0x80240720 + player * 8), which player 1's
+// time widget reads at player 1's (rush2_online_hud_time_digits copies them there). The rewrite is once per element
+// list (a RESTART builds another).
+void rush2::online::game::hud_built(uint8_t* rdram) {
+    constexpr uint32_t hud_elements = 0x8010C030;  // Head of the element list (+0x3C next, +0x28 callback, +0x2C param)
+    constexpr uint32_t gear_box = 0x800B92F4;
+    constexpr uint32_t tach = 0x800B7E88;
+    constexpr uint32_t tach_back_time = 0x800B7B1C;
+    constexpr uint32_t hidden = 0xF;
+    uint32_t head = (uint32_t)MEM_W(0, (int32_t)hud_elements);
+    if (phase == Phase::Idle || head == 0 || head == hud_rewritten) {
+        return;
+    }
+    hud_rewritten = head;
+    for (uint32_t e = head; e != 0; e = (uint32_t)MEM_W(0x3C, (int32_t)e)) {
+        uint32_t callback = (uint32_t)MEM_W(0x28, (int32_t)e);
+        uint32_t param = (uint32_t)MEM_W(0x2C, (int32_t)e);
+        if (callback == gear_box) {
+            uint32_t player = (param >> 8) & 0xF;
+            param = (param & ~0xF00u) | ((player == 0 ? (uint32_t)local_player : hidden) << 8);
+        }
+        else if (callback == tach || callback == tach_back_time) {
+            uint32_t player = param & 0xF;
+            param = (param & ~0xFu) | (player == 0 ? (uint32_t)local_player : hidden);
+        }
+        else {
+            continue;
+        }
+        MEM_W(0x2C, (int32_t)e) = (int32_t)param;
+    }
+}
+
+extern "C" int rush2_online_hud_views(uint8_t* rdram, int views) {
+    return phase == Phase::Idle ? views : local_player + 1;
+}
+
+extern "C" void rush2_online_hud_time_digits(uint8_t* rdram) {
+    constexpr uint32_t time_digits = 0x80240720;  // 8 bytes per player (race_format_time_digits_8008ECC4's output)
+    if (phase == Phase::Idle || local_player == 0) {
+        return;
+    }
+    for (int32_t i = 0; i < 8; i++) {
+        MEM_B(i, (int32_t)time_digits) = MEM_B(i, (int32_t)(time_digits + local_player * 8));
+    }
+}
+
+void rush2::online::game::hud_players_end(uint8_t* rdram) {
+    if (hud_depth == 0) {
+        return;
+    }
+    if (--hud_depth == 0) {
+        MEM_H(0, (int32_t)num_players) = saved_players;
+    }
 }
 
 extern "C" void rush2_online_present_begin(uint8_t* rdram, recomp_context* ctx) {
@@ -964,6 +1193,7 @@ extern "C" void rush2_online_present_begin(uint8_t* rdram, recomp_context* ctx) 
     MEM_B(record_car, mine) = saved_car;
     MEM_B(record_port, first) = 0;
     presenting = true;
+    rush2::online::game::hud_players_begin(rdram);
 }
 
 extern "C" void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx) {
@@ -976,6 +1206,7 @@ extern "C" void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx) {
     MEM_B(record_car, first) = saved_car;
     MEM_B(record_port, first) = saved_port;
     presenting = false;
+    rush2::online::game::hud_players_end(rdram);
 }
 
 // The car select, every player having picked a car (rush2::online::game::car_select_done): true if the race starts

@@ -248,6 +248,13 @@ namespace rush2::track2049 {
     void set_all_tracks_open(bool on);
     // The track select's carousel entry showing track `t`, or -1 (the carousel is built as the screen opens).
     int carousel_index(uint8_t* rdram, int t);
+    // Online play's name for track select id `t`: a custom track's rush2::track_mod::identity, which machines with
+    // other mods enabled number differently, or "" for the other tracks (the same id on every machine).
+    std::string online_track_key(int t);
+    // The track select id of the custom track with that key on this machine, or -1 if it has none that loads.
+    int track_for_online_key(const std::string& key);
+    // A custom track's name (its track.toml's, else its folder), or "" for the other tracks.
+    std::string mod_track_name(int t);
 }
 
 #endif

@@ -21,6 +21,7 @@ void rush2_enable_pak_rumble(uint8_t* rdram, recomp_context* ctx);
 
 // Save menu without Controller Paks (src/pak.cpp).
 int rush2_pak_menu_state(uint8_t* rdram, recomp_context* ctx);
+void rush2_no_pak_manager(uint8_t* rdram, recomp_context* ctx);
 void rush2_pak_menu_default_player(uint8_t* rdram, recomp_context* ctx);
 void rush2_pak_menu_move_other(uint8_t* rdram, recomp_context* ctx);
 void rush2_player_deleted(uint8_t* rdram, recomp_context* ctx);
@@ -435,12 +436,16 @@ void rush2_online_player_input(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_pause_start_only(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_race_views(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_record_presses(uint8_t* rdram, recomp_context* ctx);
+void rush2_online_rumble_port(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_present_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_sim_view(uint8_t* rdram, uint32_t car_state, int view);
 int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int car, int kind);
+int rush2_online_wheels_shown(uint8_t* rdram, uint32_t physics_car, int view, int shown);
 uint32_t rush2_online_arrow_views(uint8_t* rdram, int car, uint32_t flags);
 int rush2_online_arrow_view(uint8_t* rdram, int view);
+int rush2_online_hud_views(uint8_t* rdram, int views);
+void rush2_online_hud_time_digits(uint8_t* rdram);
 uint32_t rush2_online_view_record(uint8_t* rdram, int view, uint32_t record);
 
 #ifdef __cplusplus

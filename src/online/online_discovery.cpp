@@ -77,7 +77,13 @@ namespace {
             lobby.address = ip;
             lobby.compatible = protocol == rush2::online::protocol_version && their_key == key;
             std::lock_guard lock{ listen_mutex };
-            heard[lobby.address + ":" + std::to_string(lobby.port)] = { lobby, clock_type::now() };
+            std::string id = lobby.address + ":" + std::to_string(lobby.port);
+            if (lobby.max_players == 0) {
+                heard.erase(id);  // Closed (stop_beacons).
+            }
+            else {
+                heard[id] = { lobby, clock_type::now() };
+            }
         }
         enet_socket_destroy(socket);
     }
@@ -119,10 +125,18 @@ void rush2::online::send_beacon(const std::vector<uint8_t>& payload) {
     enet_socket_send(send_socket, &to, &buf, 1);
 }
 
-void rush2::online::stop_beacons() {
+void rush2::online::stop_beacons(const std::vector<uint8_t>& closing) {
     if (send_socket != ENET_SOCKET_NULL) {
+        send_beacon(closing);
         enet_socket_destroy(send_socket);
         send_socket = ENET_SOCKET_NULL;
+    }
+}
+
+void rush2::online::stop_lan_listener() {
+    listening = false;
+    if (listen_thread.joinable()) {
+        listen_thread.join();
     }
 }
 

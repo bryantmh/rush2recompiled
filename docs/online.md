@@ -19,12 +19,14 @@ joiner's gameplay settings are the host's while in a lobby and come back on leav
 
 ## The Online tab
 
-Settings > Online is only for getting into a lobby. **Lobby** shows the players (name, ping, how far through the menus
-they are) and, for the host, the addresses to share and whether the router port opened. **Join** takes the
-host's address (`a.b.c.d` or `a.b.c.d:port`). **Lobbies on Your Network** lists LAN lobbies with a Join button each.
-**Host** has the port, the most players and Open Router Port. The display name is on the Controls tab too (Online
-heading). Everything takes effect at once; port, max players and router port apply the next time you host. The race
-itself is chosen in the game (the lobby).
+Settings > Online (src/online_tab.cpp) is only for getting into a lobby, and shows one of two views by the session's
+state. Not in a lobby: **Host a Lobby** (the Host Lobby button, Max Players, Port) and **Join a Lobby** (the LAN lobbies,
+each with a Join button and why it can't be joined, then Host Address and Join by Address), with the last error above
+them. Connecting or in a lobby: the lobby's name and what happens next, Cancel / Close Lobby / Leave Lobby, **Invite
+Players** for the host (the LAN address and the internet address with the router port's state, `router_port()`; when
+the port is closed, what to forward where) and **Players** (name, how far through the menus, Host / You / ping). On a
+switch the controller's focus goes to the new view's first button. The display name is on the Controls tab (Online
+heading). Port and max players apply the next time you host. The race itself is chosen in the game (the lobby).
 
 ## The lobby
 
@@ -54,8 +56,19 @@ who backs out or joins late is waited for, and nobody waits on a step that alrea
   select, every player has the game ROM the track needs, and it has been up 20 frames. The others' track selects show
   the host's every frame with their controllers off: the track (0x8010C3F0), the carousel entry showing it (s16
   0x803D05B4, found in the carousel at 0x80310400 by `carousel_index`), the settings (0x800D5760), the option cursor
-  (0x803D05BC) and top row (0x803D05C4), and the BATTLE row and battle rules (put back after). A joiner's track select
+  (0x803D05BC) and top row (0x803D05C4), and the BATTLE row and battle rules (put back after). The carousel moves
+  one place per change of the shown entry: each frame `trackselect_init_draw_803AB294` (0x803ABB1C-0x803ABCC4) shifts
+  an entry's target by 100 when its place relative to the shown one (+0x14) changed, whatever the change, so a jump of
+  several entries left the dioramas out of line with the track. The shown entry steps one entry a frame toward the
+  host's, the shorter way round (carousel length s16 0x803D05AE). A joiner's track select
   offers every track that machine has, whatever its profile unlocked (`set_all_tracks_open`), so the host's is on it.
+  A custom track's select id (38 and up) is the machine's own numbering, so the host sends it as its key
+  (`RaceSettings::mod_track`, `mod_id/folder#hash` from `rush2::track_mod::identity`, the hash of every file the
+  conversion reads) and each machine looks its own id up (`track_for_online_key`). Each machine reports whether it has
+  the track the host is on (`set_track_check`: the key's FNV hash and a "lacks" flag, sent with its progress); the host
+  can't confirm until everyone has answered for that track and has it, and it names who doesn't. A joiner without it
+  keeps its own track on screen and says so. A player who joins while the host is already on the car select stays on
+  their track select, and the race doesn't start until the host goes back and picks a track they have.
   When the host goes on to the car select, theirs are pressed A. One that is for another kind of race than the host's
   (the host went back and chose another) backs out and comes in again.
 - **Car select**: everyone picks their own car. A player who has stays on the screen (the car select's
@@ -75,14 +88,18 @@ the menus showed.
 
 A hosting machine broadcasts a beacon ("R2OL", lobby name, players, settings, compatibility key) to 255.255.255.255 and
 127.0.0.1 on port 47101 every second. `lan_lobbies()` lists those heard in the last few seconds; a lobby with another
-compatibility key (another build) is listed but can't be joined.
+compatibility key (another build) is listed but can't be joined. When the lobby closes the host sends one more beacon
+with max players 0 (`stop_beacons`), which takes it off every list at once. The listener thread is stopped by the
+online `atexit` handler (`stop_lan_listener`): a joinable `std::thread` left to its static destructor calls `abort()`,
+and Windows then spends seconds writing a crash dump on every close.
 
 ## Hosting over the internet
 
-Players join by the host's public address and port (UDP 47100 by default). Open Router Port asks the router to forward
+Players join by the host's public address and port (UDP 47100 by default). Hosting always asks the router to forward
 the port (UPnP IGD: `upnpDiscover`, `UPNP_GetValidIGD`, `UPNP_AddPortMapping` with a one-hour lease, renewed while
 hosting) and shows the router's external address. A router behind carrier-grade NAT (the IGD reports a private
-external address) can't be reached this way; the status says so. Without UPnP the host forwards the port by hand.
+external address) can't be reached this way; the status says so. Without UPnP the host forwards the port by hand. There is
+no setting for it; `HostOptions::open_router_port` is off only in the test aid's quick races.
 
 ## The race
 
@@ -92,7 +109,9 @@ Every machine sets the race up the same way and then runs it in lockstep:
   type (0x8010C3E8), track (0x8010C3F0, a track select id: the race setup turns the added games' ids into their host
   slot) and track select settings (0x800D5760: laps, drones, options), the car table (0x800D9C10), the seeds (0x800BD808 = race seed | 1, 0x800D4030 = 0),
   and the player records: blank but for the button masks (the game's default layout, A gas, B brake, stick steering, R
-  and Z shifts, C-down reverse, C-up abort, L view, C-right horn), car = player, no port (5) and a profile (+0x24).
+  and Z shifts, C-down reverse, C-up abort, L view, C-right horn), car = player, no port (5), a profile (+0x24) and
+  the gearbox each player picked (+0x20, 1 automatic; `CarChoice::automatic`, from the joiner's own record +0x20 at
+  its car select; the race copies it to the physics car's +0x3D8, 0 manual).
   The front end is left as its loop leaves it for a race (`menu_screen_dispatch_800AE0D4` with the screen up and
   $s0 = 0, then screen -1), then game state 7 starts the race.
 - **Profiles**: the race reads a human car's type from its profile (+0x31 low 5 bits, `race_setup_cars_8009E6DC` at
@@ -102,12 +121,20 @@ Every machine sets the race up the same way and then runs it in lockstep:
   own profile, so the keys they take and the post-race save to it; the others race with copies at 0x80FF0000 +
   player * 0x6C0, the same bytes on every machine. The hash leaves the records' profile pointer out. One shared blank
   profile made every human car type 0 in the physics while each machine loaded the picked car's model.
+- **The players' saves**: this machine's player's profile is their Controller Pak note itself. The race setup never
+  copies the sent bytes over it (that put back whatever the game had saved since the car select), and when it sets
+  the car byte (+0x31, Rush 2 types only: a Rush 2049 type doesn't fit the 5 bits) it updates the section's byte sum
+  at +0 (+1..+0x33), which the game checks when it reads the pak. A stale sum made the next boot call the note damaged
+  and wipe it. `tools/pak_check.py` checks a save's profiles.
 - **Cars**: the race setup marks the players' car table entries human (`race_assign_cars_to_players_800A580C`: +7 =
   0xB0, +8 = 8), `race_reset_car_results_8009ECD0` makes their physics cars +0x7E8 = 2, and
   `race_preload_car_assets_800A37F4` loads each human car's type (`car_slot_load_80087CE4`, its model container in
   `car_banks` 0x80221750) as for a local multiplayer race, whatever the machine's car select showed.
 - **Ports**: online every record's port is 5, so the pause menu's `input_set_port_state_80093DC0` calls with it write
-  one byte past the four at 0x80125AC4.
+  one byte past the four at 0x80125AC4. Which player a controller drives (`rush2::input::port_player`, used by the
+  Controls tab and the per-player bindings and control profiles) can't come from the records then: online, port 1 is
+  this machine's player and the other ports nobody. Reading the records flickered, because the presentation lends
+  record 0 port 1 for each frame's drawing, so the controller's bindings swapped between players frame to frame.
 - **Frame time**: every frame is two retraces from the setup on: the frame setup's retrace count (0x8002301C) and
   `frame_dt` (0x80023028) are overwritten after `game_thread_main_init_800B4EB0` measures them (hook at 0x800B5464).
 - **Physics**: the input thread's input step and physics tick (`input_thread_main_80076DE0` at 0x8007728C) are
@@ -168,12 +195,54 @@ car)) and sized from that view's camera (`car_arrow_update_80059B9C` at 0x80059B
 other players' arrows are drawn in view 0 and sized from it, and this machine's player's has none
 (`rush2_online_arrow_views`, `rush2_online_arrow_view`).
 
+The wheel placer (`carselect_preview_update_8005A598`, per car per frame) shows a car's wheel nodes through
+`node_swap_visibility_8005A528`: for a car with a view it hides them in that view's close cameras, and for a car
+without one (`node_reset_visibility_800590AC`, which also reads $s0) it shows them in every view only when $s0 (car
+state +0x348 >= 2) is set; the hook at 0x8005A770 sets it for a viewless human car (`rush2_online_wheels_shown`).
+It then draws each wheel at its car type's wheel model scale (0x802006E8 front, 0x802009B8 rear, f32, at 0x8005AB78-
+0x8005AC2C) from a per-player row of the car type tables at 0x80200000: row 0 for the computer cars, row +0x7E0 + 1
+for a human car (36 types a row). The car select fills a player's rows from their profile
+(`carselect_build_list_803B81F0`, 0x803B8B10-0x803B8F7C: 13 getters, 0x800B2424-0x800B2694, per car type); online it
+has one player, so it only ever fills row 1, and a Rush 2 car's wheel scales in the other rows are 0: the other
+players' wheels were drawn at size 0. The race setup fills the rows that only change how a car looks (the colors,
+rims at 0x80201020 and wheel scales) for every race player from the profile the race uses (`fill_player_rows`). Only
+Rush 2 types: a Rush 2049 type's settings are in a side slot of the save profile, which a profile sent from another
+machine hasn't (filling those made the machines set up different races), and its rows are all set at boot. The
+settings rows (0x80200418, 0x80200C88-0x80200F68, 0x802010D8) are left as they were. Only 4 player rows exist.
+
 The HUD and the frame's drawing are player 1's (record 0). Around them (`race_start_timer_800AE670` 0x800AF1D4 to
 0x800AF1F4) player 1's record swaps cars with this machine's player's and takes controller port 0
-(`rush2_online_present_begin/end`); nothing in the race runs in between. players4's HUD clones for players 3 and 4
-and its finish overlay count one shown player online (`shown_players`). The engine sounds and rumble can't be moved
-the same way: `car_sound_update_all_80067358` (in the physics tick) writes the player cars' +0x660, which
+(`rush2_online_present_begin/end`); nothing in the race runs in between.
+
+### The HUD online
+
+A networked race's HUD looks like a one-player race's. The HUD is built for the race's player count, so the joiner
+first got player 2's gear box (manual or not) and a second race time under player 1's. Two things fix it:
+
+- **Player count**: around the HUD build and update (`src/hud.cpp`, `hud_players_begin/end`) the player count
+  0x8010C3E2 reads 1. The per-player elements show themselves by it: the race time (`hud_widget_cb_icon_row_a_800B9754`),
+  the lap time (0x800B9978), the deaths (0x800B9C44) and the lap banner (0x800BA868). Nothing else there reads it but the
+  view fog (`view_fog_setup_8007C624`), which gives one view either way.
+- **Elements by player number**: three element callbacks read a player's physics car by number rather than through
+  record 0 (element list head 0x8010C030: +0x28 callback, +0x2C parameter, +0x3C next). They are the gear box
+  `hud_widget_cb_model_lookup_800B92F4` (player in bits 8-11), the tachometer's lit part `hud_widget_cb_orbit_icons_800B7E88`
+  (manual only) and its background `hud_widget_cb_race_time_display_800B7B1C`, which also formats the race time
+  (player in the low nibble). Once per element list (`hud_built`, again after a RESTART) player 1's elements are set to
+  this machine's player and player 2's to 15. Each element shows itself only while its player is below the view count,
+  which hooks replace with this machine's player + 1 (`rush2_online_hud_views` at 0x800B9358, 0x800B7B64 and 0x800B7E9C).
+  The race time's digits go to 0x80240720 + player * 8, where player 1's time widget reads only player 1's, so
+  `rush2_online_hud_time_digits` (0x800B7CA0) copies this machine's player's digits there.
+
+players4's HUD clones for players 3 and 4
+and its finish overlay count one shown player online (`shown_players`). The engine sounds can't be moved the same
+way: `car_sound_update_all_80067358` (in the physics tick) writes the player cars' +0x660, which
 `car_physics_step_80071D78` reads, so they stay player 1's.
+
+The rumble is each machine's own player's. `physics_car_tick_80075880` writes a human car's rumble level to its
+record's port (0x800D50E8 + port, at 0x80075AF8 and 0x80075C08), which `rumble_update_80063E4C` plays on that port's
+Rumble Pak, and Enhanced rumble (src/rumble.cpp) reads the port the same way. Online every record has no port (5), so
+nothing rumbled. `rush2_online_rumble_port` (hooks at 0x80075AEC and 0x80075C00) sends this machine's player's level
+to port 0, whose controller drives them, and leaves the other players' on none.
 
 ## Eight players
 
@@ -228,7 +297,16 @@ same frame, and the race goes on as a local one for this machine's player: the s
 The post-race then saves their stats and times to their profile and the track's tables and runs their name entry, as
 after a local race; the other players' results are theirs to save. After QUIT the car table goes back to the menus' too.
 When the front end comes back up, each machine sets 0x800FAE6C = 2 so it goes on to the track select with the same
-player, where the host leads the next race. Everyone's progress starts over then.
+player, where the host leads the next race. Everyone's progress starts over then. Only the host can QUIT; a joiner
+leaves a race by leaving the lobby.
+
+The menus take a controller port's presses only while its `input_port_state_80125AC4` byte is set:
+`player_join_init_all_80080788` ORs each enabled port's pressed buttons into 0x8011962A and its repeat buttons into
+0x80125A68, which the menus read (the track select: 0x9000 A or START, 0x4000 B, 0x2300 left/right). Opening the pause
+menu clears all four (`input_set_port_state_80093DC0(-1, 0)` at 0x800AFE60) and sets back the ports of records 0 and 1,
+which online are 5 (no port; the function ignores ports of 4 and up). After any pause every port stayed off, and the
+track select the race left for took no buttons (the softlock after QUIT). Leaving the race (`finish_race_locally`,
+`end_race`) sets the menus' records' ports back on (`enable_menu_ports`).
 
 A race that ends early (the host leaves, a desync) leaves as the pause menu's Quit does (`race_end_to_menu_800AAC64`
 with 0x800C1A9C = 0; 1 restarts the race), with 0x800BF31C = 1 so the front end starts over from the boot logos (screen
@@ -251,13 +329,35 @@ to the next screen (0x800E7BB4) when it differs from the one up (0x800E7BC4, -1 
 | `RUSH2_ONLINE_DUMP=DIR`, `RUSH2_ONLINE_DUMP_AT=F,...` | Write the hashed state every 30 frames / all of RDRAM before frames F; `tools/ram_diff.py` compares two. |
 | `RUSH2_ONLINE_VIEW_CAR=N` | Every machine's view follows car N (how the view dependence was found). |
 | `RUSH2_ONLINE_CAR=T` | The car select sends car type T whatever was picked (a remote car of another type). |
+| `RUSH2_ONLINE_MANUAL=1` | A quick race's player on this machine races with the manual gearbox. |
+| `RUSH2_ONLINE_PORT=P` | Host on port P (join with ADDRESS:P), clear of a lobby already open on this machine. |
+| `RUSH2_TEST_TRACK=ID` | The track select opens on that track (with `menus:host`, a custom track at 38 and up). |
+| `RUSH2_TEST_VPAD=S:INPUT[:HOLD],...` | A virtual SDL controller pressing INPUT S seconds after launch, through the real controller path: port claim, bindings, Background Input (src/input.cpp). |
 | `RUSH2_RAM_WATCH=ADDR:SIZE,...`, `RUSH2_RAM_DUMP=DIR` | Log changes of RAM values each frame / dump RDRAM on each change (`src/ram_watch.cpp`). |
 
-Several instances on one machine: copy the build to folders with `portable.txt`, run each with its own display
-(headless: Xvfb, `SDL_AUDIODRIVER=dummy`), the host first. `tools/gen_disasm.py` writes `analysis/out_disasm/r2.asm`
-for the players4 tools.
+Several instances on one machine: `tools/online_test.py OUT --times T,... --instance "name|ENV=...|input script"`
+starts them from the one build, a few seconds apart, the host first, screenshots each window at the given times
+without taking focus, and closes them after. `--hold name:START-END:KEY` holds a keyboard key on one window through the
+real keyboard path. `--key name:T:KEY,...` taps keys on a window (ESC, F15 and the arrows drive the recomp menu, as in
+tools/menu_shot.py) and `--close name:T` closes one and prints how long it takes to exit. `tools/gen_disasm.py` writes `analysis/out_disasm/r2.asm`
+for the players4 tools. docs/menus.md has the input scripts that go through every menu and the pause menu's QUIT.
+The instances play on build/saves, the real save: back it up before a run that reaches Select Player, check it with
+`tools/pak_check.py` after, and run one lobby at a time.
+
+## Two games on one machine
+
+With Background Input off, a game whose window isn't focused leaves the controllers alone (`hands_off`,
+src/input.cpp): SDL drops their presses, and the game reads no input, claims no port and sends them nothing (rumble,
+trigger rumble, DualSense and Steam haptics; what it was playing stops once). Before, the unfocused game's race kept
+writing rumble and haptics levels to the same controller the focused game was driving with (SDL skips a rumble value
+that didn't change, so the menus sent next to nothing and the race a stream). The game side was checked with both
+machines driving through the menus with `--input-script` (105 and 110 MPH), and the real controller path with a
+virtual pad in each game (`RUSH2_TEST_VPAD`, Background Input on: 119 and 113 MPH).
+
+Open: one physical controller shared by two games still loses race input when switching windows (a keyboard in one
+game and the controller in the other works). The cause isn't found yet.
 
 ## Known limitations
 
-- The engine sounds and rumble follow player 1's car on every machine (see one view per machine).
+- The engine sounds follow player 1's car on every machine (see one view per machine).
 - The battle's own state isn't in the desync hash (a difference shows once it moves a car).

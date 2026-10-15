@@ -208,3 +208,11 @@ a side display list.
   projection element by element in its interpolated frames, so w there lies between the two; clipping against
   only the current frame let sky vertices swing behind the camera in fast turns (the race start flyover turns about
   15 degrees a frame).
+
+## No Controller Pak manager
+
+The Controller Pak manager (front-end screen 0xD, `menu_screen_pak_manager_803B5C5C`) lists and deletes the notes on
+a real pak. The only pak is the emulated save file, so the screen could only lose saves, and it is never shown, in
+any game (`rush2_no_pak_manager`, src/pak.cpp). The front end loop (`menu_frontend_loop_800AE288`) switches screens
+at 0x800AE494 when the next screen (0x800E7BB4) differs from the one up (0x800E7BC4, -1 none): a switch to 0xD stays
+on the screen that asked for it, or goes to the title screen (0x10) from none or the boot logos (0xE).

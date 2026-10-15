@@ -10066,10 +10066,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C030
 name = "hud_highscore_screen_ptr"
 type = "u32"
-desc = "Word used by HUD highscore screen build/free, finish overlay and race end (likely a screen/widget pointer; low confidence)."
+desc = "Head of the HUD element list (each element: +0x28 callback, +0x2C parameter (player number etc.), +0x3C next); also used by the highscore screen build/free, finish overlay and race end."
 area = "ui"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#the-hud-online"
 
 [[var]]
 vram = 0x8010C034
@@ -13367,9 +13367,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8011962A
-name = "menu_player_slot"
-type = "s16"
-desc = "Current player/profile slot set by player join, read by most menu screens (low confidence)."
+name = "menu_pressed_buttons"
+type = "u16"
+desc = "The menus' pressed buttons this frame: player_join_init_all_80080788 ORs in each port's presses whose input_port_state_80125AC4 byte is set; the track select reads it (0x9000 confirm, 0x4000 back, 0x2300 left/right). Was menu_player_slot."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -13655,9 +13655,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80125A68
-name = "menu_profile_index"
-type = "s16"
-desc = "Selected player/profile index set by player join, read by option, circuit, records and track select screens (low confidence)."
+name = "menu_repeat_buttons"
+type = "u16"
+desc = "The menus' repeat (auto-repeat) buttons: as menu_pressed_buttons_8011962A, from each enabled port's repeat buttons. Was menu_profile_index."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -13819,7 +13819,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x80125AC4
 name = "input_port_state"
 type = "u8[4]"
-desc = "Per-port state bytes written by input_set_port_state (write-only here)."
+desc = "Per-port menu input enable: player_join_init_all_80080788 takes a port's presses into the menu buttons only while its byte is set. Set by input_set_port_state_80093DC0; the pause menu clears all four and sets records 0 and 1's ports back (port 5, none, is ignored)."
 area = "input"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -14210,6 +14210,15 @@ desc = "Per view projection set by cam_build_view_matrix (func_80054A50): +0xC h
 area = "render"
 status = "inferred"
 ref = "docs/rush2049_research/menus.md#75-in-the-port-the-track-select-preview"
+
+[[var]]
+vram = 0x80240720
+name = "race_time_digits"
+type = "u8[8][8]"
+desc = "Race time digits per player, 8 bytes each (race_format_time_digits_8008ECC4's output, written by hud_widget_cb_race_time_display_800B7B1C for its player). The race time widget reads player 1's (+0) only."
+area = "ui"
+status = "inferred"
+ref = "docs/online.md#the-hud-online"
 
 [[var]]
 vram = 0x803C67F0

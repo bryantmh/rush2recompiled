@@ -20,9 +20,12 @@
 #include "online_internal.h"
 
 namespace {
+    using rush2::online::RouterPort;
+
     std::mutex upnp_mutex;
     std::thread upnp_thread;
     std::string status_text;
+    RouterPort port_state = RouterPort::None;
     std::string public_ip;
 
     // The mapping made, to delete it again.
@@ -37,8 +40,9 @@ namespace {
     std::condition_variable stop_cv;
     constexpr auto renew_every = std::chrono::minutes(50);
 
-    void set_status(const std::string& text) {
+    void set_status(RouterPort state, const std::string& text) {
         std::lock_guard lock{ upnp_mutex };
+        port_state = state;
         status_text = text;
     }
 
@@ -50,11 +54,12 @@ namespace {
     }
 
     void open_port(uint16_t port) {
-        set_status("Looking for the router...");
+        set_status(RouterPort::Checking, "Looking for the router...");
         int error = 0;
         UPNPDev* devices = upnpDiscover(2000, nullptr, nullptr, 0, 0, 2, &error);
         if (devices == nullptr) {
-            set_status("No router answered (UPnP off or not supported): forward UDP port " + std::to_string(port) +
+            set_status(RouterPort::Closed,
+                "No router answered (UPnP off or not supported): forward UDP port " + std::to_string(port) +
                 " to this computer to host over the internet.");
             return;
         }
@@ -69,7 +74,8 @@ namespace {
             if (found != UPNP_NO_IGD) {
                 FreeUPNPUrls(&urls);
             }
-            set_status("The router doesn't allow opening ports (UPnP): forward UDP port " + std::to_string(port) +
+            set_status(RouterPort::Closed,
+                "The router doesn't allow opening ports (UPnP): forward UDP port " + std::to_string(port) +
                 " to this computer to host over the internet.");
             return;
         }
@@ -79,7 +85,8 @@ namespace {
             lan_address, "Rush 2 Recompiled", "UDP", nullptr, "3600");
         if (result != UPNPCOMMAND_SUCCESS) {
             FreeUPNPUrls(&urls);
-            set_status(std::string("The router refused to open the port (") + strupnperror(result) +
+            set_status(RouterPort::Closed,
+                std::string("The router refused to open the port (") + strupnperror(result) +
                 "): forward UDP port " + port_text + " to this computer to host over the internet.");
             return;
         }
@@ -100,12 +107,14 @@ namespace {
         if (found == UPNP_PRIVATEIP_IGD) {
             // The router's own internet address is private: another router or the internet provider sits in between
             // (carrier-grade NAT), so the opened port isn't reachable from the internet.
-            set_status("Port opened on the router, but the router is behind another network (its address " +
+            set_status(RouterPort::Unreachable,
+                "Port opened on the router, but the router is behind another network (its address " +
                 std::string(external) + " is private), so players outside the LAN can't reach this computer. "
                 "Another player can host instead.");
         }
         else {
-            set_status("Port " + port_text + " opened on the router. Players outside the LAN join with " +
+            set_status(RouterPort::Open,
+                "Port " + port_text + " opened on the router. Players outside the LAN join with " +
                 std::string(external) + (port == rush2::online::default_port ? "" : ":" + port_text) + ".");
         }
 
@@ -146,12 +155,18 @@ void rush2::online::upnp_close() {
     std::lock_guard lock{ upnp_mutex };
     delete_mapping();
     status_text.clear();
+    port_state = RouterPort::None;
     public_ip.clear();
 }
 
 std::string rush2::online::upnp_status() {
     std::lock_guard lock{ upnp_mutex };
     return status_text;
+}
+
+rush2::online::RouterPort rush2::online::router_port() {
+    std::lock_guard lock{ upnp_mutex };
+    return port_state;
 }
 
 std::string rush2::online::upnp_public_address() {

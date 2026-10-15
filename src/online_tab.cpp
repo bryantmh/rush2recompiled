@@ -40,7 +40,6 @@ namespace {
         const std::string address = "join_address";
         const std::string port = "host_port";
         const std::string max_players = "host_max_players";
-        const std::string upnp = "host_open_router_port";
     }
 
     std::string get_string(const std::string& id) {
@@ -51,9 +50,6 @@ namespace {
     }
     int get_number(const std::string& id) {
         return (int)std::get<double>(online_config.get_option_value(id));
-    }
-    bool get_bool(const std::string& id) {
-        return std::get<bool>(online_config.get_option_value(id));
     }
     uint16_t host_port() {
         int port = std::atoi(get_string(ids::port).c_str());
@@ -212,19 +208,16 @@ namespace {
         online_config.add_string_option(ids::name, "Online Name",
             "Your name in online lobbies (up to 16 letters). Takes effect at once.", "Player");
         online_config.add_string_option(ids::address, "Host Address",
-            "The address of the lobby to join: the host's IP address as they read it from their Online tab, with "
-            "\":port\" if they changed the port (for example 203.0.113.7 or 192.168.1.20:47100).", "");
+            "The host's address, as their Online tab shows it while they host: for example 192.168.1.20 on your "
+            "network or 203.0.113.7 over the internet, with \":port\" if they changed the port.", "");
         online_config.add_string_option(ids::port, "Port",
-            "The UDP port your lobby listens on (1024-65535). Players joining over the internet need it open on your "
-            "router (Open Router Port does that when the router allows it). Takes effect the next time you host.",
+            "The UDP port your lobby uses (1024-65535). Leave it at " + std::to_string(online::default_port) +
+            " unless something else on this computer uses it. Players joining over the internet need it open on "
+            "your router: the game asks the router to open it when you host. Takes effect the next time you host.",
             std::to_string(online::default_port));
         online_config.add_number_option(ids::max_players, "Max Players",
             "How many players your lobby takes, you included. Takes effect the next time you host.",
             2, online::max_players, 1, 0, false, online::max_players);
-        online_config.add_bool_option(ids::upnp, "Open Router Port",
-            "Asks your router (UPnP) to forward the port to this machine while you host, so players can join over "
-            "the internet. Not every router allows it; the lobby shows whether it worked. Takes effect the next time "
-            "you host.", true);
         for (const std::string& id : { ids::name }) {
             online_config.add_option_change_callback(id,
                 [](recomp::config::ConfigValueVariant, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
@@ -232,7 +225,7 @@ namespace {
                     online_config.save_config();
                 });
         }
-        for (const std::string& id : { ids::address, ids::port, ids::max_players, ids::upnp }) {
+        for (const std::string& id : { ids::address, ids::port, ids::max_players }) {
             online_config.add_option_change_callback(id,
                 [](recomp::config::ConfigValueVariant, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
                     online_config.save_config();
@@ -243,39 +236,32 @@ namespace {
     const std::string description =
         "Race up to 8 players on separate machines, on your local network or over the internet.<br/><br/>"
         "<recomp-color primary>Host</recomp-color> a lobby and share your address, or "
-        "<recomp-color primary>Join</recomp-color> one by its host's address or from the list of lobbies on your "
-        "network. Then everything happens in the game: the host goes to Start Game (One Race, Stunt or Battle) and "
+        "<recomp-color primary>Join</recomp-color> one from the list of lobbies on your network or by its host's "
+        "address. Then everything happens in the game: the host goes to Start Game (One Race, Stunt or Battle) and "
         "everyone's game follows it. Each player picks their own player and car; the track select is the host's."
         "<br/><br/>"
         "Everyone needs the same version of this app and the same game ROMs.";
 
     const char* progress_text(uint8_t p) {
         switch (online::Progress(p)) {
-            case online::Progress::Lobby: return "in the lobby";
-            case online::Progress::ChoosingPlayer: return "choosing a player";
-            case online::Progress::TrackSelect: return "at the track select";
-            case online::Progress::ChoosingCar: return "picking a car";
-            case online::Progress::CarChosen: return "ready";
+            case online::Progress::Lobby: return "In the lobby";
+            case online::Progress::ChoosingPlayer: return "Choosing a player";
+            case online::Progress::TrackSelect: return "At the track select";
+            case online::Progress::ChoosingCar: return "Picking a car";
+            case online::Progress::CarChosen: return "Ready";
         }
         return "";
     }
 
-    std::string state_text() {
+    // The page shows one of these, by the session's state.
+    enum class View { Offline, Connecting, Lobby };
+
+    View current_view() {
         switch (online::state()) {
-            case online::State::Offline: {
-                std::string error = online::last_error();
-                return error.empty() ? "Not in a lobby" : error;
-            }
-            case online::State::Connecting: return "Connecting...";
-            case online::State::Lobby: {
-                std::string error = online::last_error();
-                return (online::is_host() ? "Hosting \"" + online::lobby_name() + "\"" :
-                    "In \"" + online::lobby_name() + "\"") + (error.empty() ? "" : "  -  " + error);
-            }
-            case online::State::Loading: return "Starting the race...";
-            case online::State::Racing: return "Racing";
+            case online::State::Offline: return View::Offline;
+            case online::State::Connecting: return View::Connecting;
+            default: return View::Lobby;
         }
-        return {};
     }
 
     class OnlinePage : public rush2::ui::OptionsPage {
@@ -283,73 +269,122 @@ namespace {
         OnlinePage(ResourceId rid, Element* parent) : OptionsPage(rid, parent, description) {
             ContextId context = get_current_context();
 
-            lobby_heading = add_heading("Lobby", state_text(), description);
-            lobby_box = make_box(context);
-            render_lobby();
+            // Why the last host or join failed, or the session ended; shown while not in a lobby.
+            error_box = make_box(context);
+            error_label = context.create_element<Label>(error_box, "", theme::Typography::Body);
+            error_label->set_color(theme::color::DangerL);
+            error_box->set_padding_top(4.0f);
 
-            add_heading("Join", "", "Join a lobby by its host's address.");
-            add_option(online_config, ids::address);
-            Element* join_row = add_row("Joins the lobby at the address above.");
-            join_button = context.create_element<Button>(join_row, "Join", ButtonStyle::Primary);
-            join_button->add_pressed_callback([]() {
-                apply_choices();
-                online::join(get_string(ids::address));
-            });
+            // In a lobby (or connecting to one).
+            const std::string lobby_text = "Close Lobby ends your lobby for everyone in it.<br/><br/>"
+                "While you're in someone else's lobby the race uses the host's gameplay settings (the General tab's "
+                "Gameplay options, Games, Cheats and AI Opponents). Yours come back when you leave.";
+            lobby_heading = add_heading("Lobby", "", lobby_text);
+            lobby_heading.row->set_padding_top(4.0f);
+            leave_row = add_row(lobby_text);
+            leave_button = context.create_element<Button>(leave_row, "Leave Lobby", ButtonStyle::Secondary);
+            leave_button->add_pressed_callback([]() { online::leave(); });
+            invite_heading = add_heading("Invite Players", "",
+                "Give players the address for where they are. On your network they can also pick your lobby from "
+                "their Online tab's list.");
+            invite_box = make_box(context);
+            players_heading = add_heading("Players", "", "Everyone in the lobby and how far through the host's "
+                "menus they are.");
+            players_box = make_box(context);
+            lobby_items = { lobby_heading.row, leave_row, invite_heading.row, invite_box, players_heading.row,
+                players_box };
 
-            lan_heading = add_heading("Lobbies on Your Network", "Looking...",
-                "Lobbies hosted on your local network. They show up within a few seconds of being hosted.");
-            lan_box = make_box(context);
-            render_lan();
-
-            add_heading("Host", "", "Your lobby's settings. Everyone joining needs to reach this machine's port.");
-            add_option(online_config, ids::port);
-            add_option(online_config, ids::max_players);
-            add_option(online_config, ids::upnp);
-            Element* host_row = add_row("Opens a lobby others can join.");
+            // Not in a lobby: host one or join one.
+            host_heading = add_heading("Host a Lobby", "", "Open a lobby on this computer for others to join.");
+            host_heading.row->set_padding_top(4.0f);
+            Element* host_row = add_row("Opens your lobby. Players on your network see it in their list; players "
+                "over the internet join with the address shown once it's open.");
             host_button = context.create_element<Button>(host_row, "Host Lobby", ButtonStyle::Primary);
             host_button->add_pressed_callback([]() {
                 apply_choices();
                 online::HostOptions options;
                 options.port = host_port();
                 options.max_players = get_number(ids::max_players);
-                options.open_router_port = get_bool(ids::upnp);
                 online::host(options);
             });
-            update_buttons();
+            add_option(online_config, ids::max_players);
+            add_option(online_config, ids::port);
+            port_status = add_option_status(ids::port);
+
+            lan_heading = add_heading("Join a Lobby", "", "Lobbies hosted on your network show up here within a few "
+                "seconds of opening. For a lobby over the internet, enter its host's address below.");
+            lan_box = make_box(context);
+            add_option(online_config, ids::address);
+            Element* join_row = add_row("Joins the lobby at the address above.");
+            join_button = context.create_element<Button>(join_row, "Join by Address", ButtonStyle::Secondary);
+            join_button->add_pressed_callback([]() {
+                apply_choices();
+                online::join(get_string(ids::address));
+            });
+            offline_items = { error_box, host_heading.row, host_row, get_option_row(ids::max_players),
+                get_option_row(ids::port), lan_heading.row, lan_box, get_option_row(ids::address), join_row };
+
+            render_lan();
+            on_update();
         }
 
     protected:
         std::string_view get_type_name() override { return "OnlinePage"; }
 
         void on_update() override {
-            std::string text = state_text();
-            if (text != shown_state) {
-                shown_state = text;
-                lobby_heading.note->set_text(text);
+            View view = current_view();
+            if (view != shown_view) {
+                // The focused button may have just been hidden: the controller goes to the new view's first button,
+                // and the description pane back to the page's (not on the first frame: the tab bar keeps focus).
+                bool switched = shown_view != View(-1);
+                shown_view = view;
+                for (Element* e : offline_items) {
+                    if (e != nullptr) e->set_display(view == View::Offline ? Display::Flex : Display::None);
+                }
+                for (Element* e : lobby_items) {
+                    e->set_display(view == View::Offline ? Display::None : Display::Flex);
+                }
+                rendered_lobby.clear();
+                shown_text.clear();
+                if (switched) {
+                    (view == View::Offline ? host_button : leave_button)->focus();
+                    text_shower(description)();
+                }
             }
-            if (lobby_signature() != rendered_lobby) {
-                render_lobby();
+            if (view == View::Offline) {
+                update_offline();
+            }
+            else {
+                update_lobby(view);
             }
             if (++frames % 30 == 0) {
                 // Settings changed on other tabs reach the lobby while this one is open.
                 online::set_local_gameplay(gameplay_settings());
-                if (lan_signature() != rendered_lan) {
-                    render_lan();
-                }
             }
-            update_buttons();
         }
 
     private:
         Heading lobby_heading{};
+        Heading invite_heading{};
+        Heading players_heading{};
         Heading lan_heading{};
-        Element* lobby_box = nullptr;
+        Heading host_heading{};
+        Element* error_box = nullptr;
+        Label* error_label = nullptr;
+        Element* leave_row = nullptr;
+        Button* leave_button = nullptr;
+        Element* invite_box = nullptr;
+        Element* players_box = nullptr;
         Element* lan_box = nullptr;
         Button* join_button = nullptr;
         Button* host_button = nullptr;
-        std::string shown_state;
+        Label* port_status = nullptr;
+        std::vector<Element*> offline_items;
+        std::vector<Element*> lobby_items;
+        View shown_view = View(-1);
         std::string rendered_lobby;
         std::string rendered_lan;
+        std::string shown_text;
         int frames = 0;
 
         Element* make_box(ContextId context) {
@@ -364,86 +399,181 @@ namespace {
             return box;
         }
 
-        // A row of buttons in a box that scrolls into view as they take focus.
+        // A row in a box that scrolls into view as its buttons take focus; text shows on the right while it's hovered.
         Element* make_row(ContextId context, Element* box, const std::string& text) {
             Element* row = context.create_element<rush2::ui::FocusRow>(box, text_shower(text));
             row->set_display(Display::Flex);
             row->set_flex_direction(FlexDirection::Row);
             row->set_align_items(AlignItems::Center);
-            row->set_gap(12.0f);
+            row->set_gap(16.0f);
             row->set_as_navigation_container(NavigationType::Horizontal);
             return row;
         }
 
-        void update_buttons() {
-            bool offline = online::state() == online::State::Offline;
-            join_button->set_enabled(offline);
-            host_button->set_enabled(offline);
+        // A label in a row; width > 0 makes it a fixed column.
+        static Label* add_cell(ContextId context, Element* row, const std::string& text, float width = 0.0f,
+            theme::color color = theme::color::Text) {
+            Label* label = context.create_element<Label>(row, text, theme::Typography::Body);
+            if (width > 0.0f) {
+                label->set_width(width);
+                label->set_flex_shrink(0.0f);
+            }
+            label->set_color(color);
+            return label;
+        }
+
+        static void set_note(Label* note, const std::string& text) {
+            note->set_text(text);
+            note->set_display(text.empty() ? Display::None : Display::Block);
+        }
+
+        void update_offline() {
+            std::string error = online::last_error();
+            error_box->set_display(error.empty() ? Display::None : Display::Flex);
+            host_heading.row->set_padding_top(error.empty() ? 4.0f : 16.0f);
+            if (error != shown_text) {
+                shown_text = error;
+                error_label->set_text(error);
+            }
+            int port = std::atoi(get_string(ids::port).c_str());
+            port_status->set_text(port >= 1024 && port <= 65535 ? "" :
+                "Not a port: uses " + std::to_string(online::default_port));
+            if (frames % 30 == 0 && lan_signature() != rendered_lan) {
+                render_lan();
+            }
+        }
+
+        void update_lobby(View view) {
+            bool host = online::is_host();
+            std::string title = view == View::Connecting ? "Connecting..." :
+                (host ? "Hosting " : "In ") + online::lobby_name();
+            std::string note;
+            switch (online::state()) {
+                case online::State::Lobby:
+                    note = host ? "Go to Start Game in the game to pick a race." :
+                        "Waiting for the host to start a race.";
+                    break;
+                case online::State::Loading: note = "Starting the race..."; break;
+                case online::State::Racing: note = "Racing."; break;
+                default: break;
+            }
+            std::string error = online::last_error();
+            if (view == View::Lobby && !error.empty()) {
+                note += "  " + error;
+            }
+            std::string text = title + "|" + note;
+            if (text != shown_text) {
+                shown_text = text;
+                lobby_heading.title->set_text(title);
+                set_note(lobby_heading.note, note);
+                leave_button->set_text(view == View::Connecting ? "Cancel" : host ? "Close Lobby" : "Leave Lobby");
+            }
+            if (lobby_signature() != rendered_lobby) {
+                render_lobby(view);
+            }
         }
 
         static std::string lobby_signature() {
             std::string s = std::to_string((int)online::state()) + (online::is_host() ? "h" : "j") +
-                std::to_string(online::local_slot()) + online::router_status() + online::public_address();
+                std::to_string(online::local_slot()) + std::to_string((int)online::router_port()) +
+                online::router_status() + online::public_address();
             for (const online::RosterEntry& e : online::roster()) {
                 s += "|" + std::to_string(e.used) + std::to_string(e.connected) + std::to_string(e.progress) + e.name +
-                    std::to_string(e.car.type) + std::to_string(e.ping_ms / 20);
+                    std::to_string(e.ping_ms / 20);
             }
             return s;
         }
 
-        void render_lobby() {
+        void render_lobby(View view) {
             ContextId context = get_current_context();
             rendered_lobby = lobby_signature();
-            lobby_box->clear_children();
-            online::State st = online::state();
-            if (st == online::State::Offline || st == online::State::Connecting) {
+            bool host = online::is_host();
+            bool joined = view == View::Lobby;
+            invite_heading.row->set_display(host && joined ? Display::Flex : Display::None);
+            invite_box->set_display(host && joined ? Display::Flex : Display::None);
+            players_heading.row->set_display(joined ? Display::Flex : Display::None);
+            players_box->set_display(joined ? Display::Flex : Display::None);
+
+            invite_box->clear_children();
+            if (host && joined) {
+                std::string addresses;
+                for (const std::string& a : online::local_addresses()) {
+                    addresses += (addresses.empty() ? "" : ", ") + a;
+                }
+                uint16_t port = online::lobby_port();
+                std::string port_suffix = port == online::default_port ? "" : ":" + std::to_string(port);
+                Element* lan = make_row(context, invite_box, "Players on your network join with this address, or "
+                    "pick your lobby from their list.");
+                add_cell(context, lan, "Your network", 160.0f, theme::color::TextDim);
+                add_cell(context, lan, addresses.empty() ? "unknown" : addresses + port_suffix);
+
+                std::string router = online::router_status();
+                Element* net = make_row(context, invite_box, router.empty() ? "Players over the internet join with "
+                    "this address." : router);
+                add_cell(context, net, "Internet", 160.0f, theme::color::TextDim);
+                std::string internet = online::public_address();
+                add_cell(context, net, internet.empty() ? "unknown" : internet + port_suffix, 240.0f);
+                switch (online::router_port()) {
+                    case online::RouterPort::Checking:
+                        add_cell(context, net, "Opening the port...", 0.0f, theme::color::TextDim);
+                        break;
+                    case online::RouterPort::Open:
+                        add_cell(context, net, "Port open", 0.0f, theme::color::SuccessL);
+                        break;
+                    case online::RouterPort::Unreachable:
+                        add_cell(context, net, "Can't be reached", 0.0f, theme::color::WarningL);
+                        break;
+                    case online::RouterPort::Closed:
+                        add_cell(context, net, "Port closed", 0.0f, theme::color::WarningL);
+                        break;
+                    case online::RouterPort::None: break;
+                }
+                // What to do about it, where a controller player can read it too.
+                online::RouterPort rp = online::router_port();
+                if (rp == online::RouterPort::Closed || rp == online::RouterPort::Unreachable) {
+                    Element* fix = make_row(context, invite_box, router);
+                    add_cell(context, fix, "", 160.0f);
+                    add_cell(context, fix, rp == online::RouterPort::Closed ?
+                        "To host over the internet, forward UDP port " + std::to_string(port) + " to " +
+                        (addresses.empty() ? std::string("this computer") : addresses) + " on your router." :
+                        "Your router is behind another network: players on the internet can't join. Another player "
+                        "can host instead.", 0.0f, theme::color::TextDim);
+                }
+            }
+
+            players_box->clear_children();
+            if (!joined) {
                 return;
             }
             std::vector<online::RosterEntry> players = online::roster();
             int me = online::local_slot();
+            int count = 0;
+            bool racing = online::state() == online::State::Racing;
             for (size_t i = 0; i < players.size(); i++) {
                 const online::RosterEntry& e = players[i];
                 if (!e.used) {
                     continue;
                 }
-                std::string line = std::to_string(i + 1) + ". " + e.name;
-                if ((int)i == me) {
-                    line += "  (you)";
+                count++;
+                Element* row = make_row(context, players_box, "");
+                theme::color color = e.connected ? theme::color::Text : theme::color::TextDim;
+                add_cell(context, row, e.name, 220.0f, color);
+                add_cell(context, row, !e.connected ? "Left" : racing ? "Racing" : progress_text(e.progress), 200.0f,
+                    color);
+                std::string tag;
+                if (i == 0) {
+                    tag = (int)i == me ? "Host (you)" : "Host";
                 }
-                else if (!e.connected) {
-                    line += "  (left)";
+                else if ((int)i == me) {
+                    tag = "You";
                 }
-                else if (i != 0) {
-                    line += "  " + std::to_string(e.ping_ms) + " ms";
+                else if (e.connected) {
+                    tag = std::to_string(e.ping_ms) + " ms";
                 }
-                line += "  -  " + std::string(progress_text(e.progress));
-                context.create_element<Label>(lobby_box, line, theme::Typography::Body);
+                add_cell(context, row, tag, 0.0f, theme::color::TextDim);
             }
-            if (!online::is_host()) {
-                Label* note = context.create_element<Label>(lobby_box, "While you are in the lobby your gameplay "
-                    "settings (General tab's Gameplay, Games, Cheats, AI Opponents) are the host's. Yours come back "
-                    "when you leave.", theme::Typography::Body);
-                note->set_color(theme::color::TextDim);
-            }
-            if (online::is_host()) {
-                std::string addresses;
-                for (const std::string& a : online::local_addresses()) {
-                    addresses += (addresses.empty() ? "" : ", ") + a;
-                }
-                Label* lan = context.create_element<Label>(lobby_box, "On your network: " + addresses,
-                    theme::Typography::Body);
-                lan->set_color(theme::color::TextDim);
-                std::string internet = online::public_address();
-                Label* net = context.create_element<Label>(lobby_box, "Over the internet: " +
-                    (internet.empty() ? std::string("unknown") : internet) + "  -  " + online::router_status(),
-                    theme::Typography::Body);
-                net->set_color(theme::color::TextDim);
-            }
-
-            Element* row = make_row(context, lobby_box, online::is_host() ? "Leave closes the lobby." :
-                "Leave leaves the lobby.");
-            Button* leave = context.create_element<Button>(row, "Leave", ButtonStyle::Secondary);
-            leave->add_pressed_callback([]() { online::leave(); });
+            set_note(players_heading.note, std::to_string(count) + " of " +
+                std::to_string(online::max_players_setting()));
         }
 
         static std::string lan_signature() {
@@ -460,24 +590,16 @@ namespace {
             rendered_lan = lan_signature();
             lan_box->clear_children();
             std::vector<online::LanLobby> lobbies = online::lan_lobbies();
-            // Not this machine's own lobby.
-            if (online::is_host()) {
-                std::erase_if(lobbies, [](const online::LanLobby& l) { return l.name == online::lobby_name(); });
-            }
-            lan_heading.note->set_text(lobbies.empty() ? "None found yet" :
-                std::to_string(lobbies.size()) + (lobbies.size() == 1 ? " lobby" : " lobbies"));
+            set_note(lan_heading.note, lobbies.empty() ? "Searching your network..." :
+                std::to_string(lobbies.size()) + (lobbies.size() == 1 ? " lobby on your network" :
+                " lobbies on your network"));
             for (const online::LanLobby& l : lobbies) {
-                std::string text = l.name + "  (" + std::to_string(l.players) + "/" + std::to_string(l.max_players) +
-                    ")";
-                if (!l.compatible) {
-                    text += "  -  different version or games";
-                }
-                else if (l.racing) {
-                    text += "  -  racing";
-                }
-                Element* row = make_row(context, lan_box, "Joins " + l.name + " at " + l.address + ".");
+                std::string why = !l.compatible ? "Different app version or ROMs" : l.racing ? "Racing" :
+                    l.players >= l.max_players ? "Full" : "";
+                Element* row = make_row(context, lan_box, why.empty() ? "Joins " + l.name + " at " + l.address + "." :
+                    l.name + " can't be joined right now: " + why + ".");
                 Button* join = context.create_element<Button>(row, "Join", ButtonStyle::Secondary);
-                join->set_enabled(l.compatible && !l.racing);
+                join->set_enabled(why.empty());
                 std::string address = l.address + ":" + std::to_string(l.port);
                 join->add_pressed_callback([address]() {
                     if (online::state() == online::State::Offline) {
@@ -485,7 +607,9 @@ namespace {
                         online::join(address);
                     }
                 });
-                context.create_element<Label>(row, text, theme::Typography::Body);
+                add_cell(context, row, l.name, 220.0f);
+                add_cell(context, row, std::to_string(l.players) + "/" + std::to_string(l.max_players), 60.0f);
+                add_cell(context, row, why, 0.0f, theme::color::TextDim);
             }
         }
     };

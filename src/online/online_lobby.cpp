@@ -60,11 +60,13 @@ namespace {
     constexpr uint32_t menu_settings = 0x800D5760;   // the track select's settings (laps, drones, options)
     constexpr uint32_t car_table = 0x800D9C10;       // 9 bytes per car slot: +1 type, +2-+5 colors and stripe
     constexpr uint32_t player_records = 0x800C2140;  // 0x28 each: +0x24 the save profile
+    constexpr int32_t record_automatic = 0x20;       // u8: the car select's TRANSMISSION, 1 automatic
     constexpr int32_t record_profile = 0x24;
     constexpr uint32_t profile_size = 0x6C0;
     // The track select (func_803ABE0C; src/rush2049/track2049_menu.cpp): the carousel entry shown (s16), the option
     // row under the cursor (s32), the top option row on screen (s32) and the option list's length (s32).
     constexpr uint32_t carousel_shown = 0x803D05B4;
+    constexpr uint32_t carousel_count = 0x803D05AE;  // s16: entries in the carousel
     constexpr uint32_t option_cursor = 0x803D05BC;
     constexpr uint32_t option_top = 0x803D05C4;
     constexpr uint32_t option_count = 0x803D05CC;
@@ -146,7 +148,38 @@ namespace {
         s.battle_points = (uint8_t)rush2::battle::points_to_win();
         s.battle_minutes = (uint8_t)rush2::battle::time_limit_minutes();
         s.race_battle = rush2::battle::race_battle() ? 1 : 0;
+        s.mod_track = rush2::track2049::online_track_key(t);
+        s.mod_track_name = rush2::track2049::mod_track_name(t);
         return s;
+    }
+
+    // The track select id of the host's track on this machine: a custom track by its key (each machine numbers its
+    // own), -1 if this machine hasn't it; the other tracks by their id.
+    int local_track(const RaceSettings& s) {
+        return s.mod_track.empty() ? s.track : rush2::track2049::track_for_online_key(s.mod_track);
+    }
+
+    // The other connected players who lack the host's custom track, and those who haven't said yet whether they
+    // have it (they checked for another).
+    std::string lacking_track(const std::vector<RosterEntry>& r, int me, const RaceSettings& s, bool* unchecked) {
+        std::string names;
+        uint32_t check = track_check(s.mod_track);
+        *unchecked = false;
+        if (check == 0) {
+            return names;
+        }
+        for (int i = 0; i < (int)r.size(); i++) {
+            if (i == me || !r[i].used || !r[i].connected) {
+                continue;
+            }
+            if (r[i].track_checked != check) {
+                *unchecked = true;
+            }
+            else if (r[i].lacks_track) {
+                names += (names.empty() ? "" : ", ") + r[i].name;
+            }
+        }
+        return names;
     }
 
     // Keeps the front end on the title screen: from a menu it goes there, and the title doesn't go on to its attract
@@ -199,12 +232,25 @@ namespace {
 
     // Shows the host's track select on this one: the track (and the carousel entry showing it), the settings, the
     // option cursor and the battle rules.
+    // A custom track this machine hasn't leaves the track as it is (the host can't start it; host_frame).
     void follow_track_select(uint8_t* rdram, const MenuState& hm) {
         const RaceSettings& s = hm.settings;
-        MEM_B(0, (int32_t)track_id) = (int8_t)s.track;
-        int index = rush2::track2049::carousel_index(rdram, s.track);
-        if (index >= 0) {
-            MEM_H(0, (int32_t)carousel_shown) = (int16_t)index;
+        int t = local_track(s);
+        if (t >= 0) {
+            MEM_B(0, (int32_t)track_id) = (int8_t)t;
+            // The carousel moves one entry per change of the shown entry: each frame the track select
+            // (trackselect_init_draw_803AB294, 0x803ABB1C-0x803ABCC4) shifts an entry's target by one place when its
+            // place relative to the shown one (+0x14) changed, whatever the change. A jump of several entries left
+            // the dioramas out of line with the track, so the shown entry steps toward the host's one entry a
+            // frame, the shorter way round, as scrolling does.
+            int index = rush2::track2049::carousel_index(rdram, t);
+            int count = MEM_H(0, (int32_t)carousel_count);
+            int shown = MEM_H(0, (int32_t)carousel_shown);
+            if (index >= 0 && count > 0 && shown != index) {
+                int ahead = ((index - shown) % count + count) % count;
+                int step = ahead <= count - ahead ? 1 : -1;
+                MEM_H(0, (int32_t)carousel_shown) = (int16_t)(((shown + step) % count + count) % count);
+            }
         }
         for (int i = 0; i < (int)s.menu.size(); i++) {
             MEM_B(i, (int32_t)menu_settings) = (int8_t)s.menu[i];
@@ -248,7 +294,10 @@ namespace {
 
         bool all_on_track = all_at_least(r, me, Progress::TrackSelect);
         std::string lacking = missing_games(r, me, s.needs_games);
-        bool can_confirm = !unsupported && all_on_track && lacking.empty() && frames_in_state >= settle_frames;
+        bool unchecked = false;
+        std::string lacking_mod = lacking_track(r, me, s, &unchecked);
+        bool can_confirm = !unsupported && all_on_track && lacking.empty() && lacking_mod.empty() && !unchecked &&
+            frames_in_state >= settle_frames;
 
         if (gs == 1) {
             // The host browses its track select freely but confirms only once everyone is on theirs.
@@ -272,9 +321,15 @@ namespace {
         if (unsupported && others) {
             notice = "Online races are One Race, Stunt and Battle: back out to Start Game and pick one of those.";
         }
-        else if (phase == MenuPhase::Track && !lacking.empty()) {
+        // A player who joined while the host was on the car select may lack the track: they stay on their track
+        // select and the race doesn't start (below) until the host goes back and picks another.
+        else if ((phase == MenuPhase::Track || phase == MenuPhase::Car) && !lacking.empty()) {
             notice = lacking + (lacking.find(',') == std::string::npos ? " doesn't" : " don't") + " have the " +
                 (s.needs_games == games_rush1 ? "SF Rush" : "Rush 2049") + " ROM this track needs.";
+        }
+        else if ((phase == MenuPhase::Track || phase == MenuPhase::Car) && !lacking_mod.empty()) {
+            notice = lacking_mod + (lacking_mod.find(',') == std::string::npos ? " doesn't" : " don't") +
+                " have the custom track " + s.mod_track_name + " installed (or has another version of it).";
         }
         else if (phase == MenuPhase::Track && !all_on_track) {
             notice = "Waiting for " + list_names(r, me, Progress::TrackSelect) + " to get to the track select.";
@@ -290,7 +345,8 @@ namespace {
             notice.clear();
         }
 
-        if (phase == MenuPhase::Car && car_chosen && !start_sent && all_at_least(r, me, Progress::CarChosen)) {
+        if (phase == MenuPhase::Car && car_chosen && !start_sent && all_at_least(r, me, Progress::CarChosen) &&
+            lacking.empty() && lacking_mod.empty() && !unchecked) {
             start_sent = start_race(s);
             if (!start_sent) {
                 notice = last_error();
@@ -380,7 +436,15 @@ namespace {
                 return;
             }
             follow_track_select(rdram, hm);
-            if (hm.phase == MenuPhase::Car && frames_in_state >= settle_frames) {
+            bool lacks = local_track(hm.settings) < 0;
+            set_track_check(track_check(hm.settings.mod_track), lacks);
+            if (lacks) {
+                // The host can't start a custom track this machine hasn't (host_frame).
+                set_ports(Ports::Blocked);
+                notice = "You don't have the custom track " + hm.settings.mod_track_name + " installed (or have " +
+                    "another version of it): " + host + " can't start it.";
+            }
+            else if (hm.phase == MenuPhase::Car && frames_in_state >= settle_frames) {
                 // The host went on to the car select: so does this one.
                 set_ports(Ports::Fed, pulsed(button_a, 4));
                 notice.clear();
@@ -671,6 +735,7 @@ bool rush2::online::game::car_select_done(uint8_t* rdram, recomp_context* ctx, b
         for (int i = 0; i < 4; i++) {
             car.colors[i] = (uint8_t)MEM_BU(2 + i, (int32_t)car_table);
         }
+        car.automatic = (uint8_t)MEM_BU(record_automatic, (int32_t)player_records);
         // The profile the player races with, as the car select left it (online_game.cpp).
         std::vector<uint8_t> profile;
         uint32_t address = (uint32_t)MEM_W(record_profile, (int32_t)player_records);

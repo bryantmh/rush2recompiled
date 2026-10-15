@@ -1506,6 +1506,36 @@ void rush2::track2049::set_all_tracks_open(bool on) {
     all_tracks_open = on;
 }
 
+std::string rush2::track2049::online_track_key(int t) {
+    std::lock_guard lock{ menu_mutex };
+    if (!is_mod_track(t) || !entry_available(t)) {
+        return {};
+    }
+    return rush2::track_mod::identity(t - mod_menu_id);
+}
+
+int rush2::track2049::track_for_online_key(const std::string& key) {
+    if (key.empty()) {
+        return -1;
+    }
+    std::lock_guard lock{ menu_mutex };
+    for (size_t i = 0; i < mod_ok.size(); i++) {
+        if (mod_ok[i] && rush2::track_mod::identity(int(i)) == key) {
+            return mod_menu_id + int(i);
+        }
+    }
+    return -1;
+}
+
+std::string rush2::track2049::mod_track_name(int t) {
+    if (!is_mod_track(t)) {
+        return {};
+    }
+    std::vector<rush2::track_mod::Entry> entries = rush2::track_mod::tracks();
+    size_t i = size_t(t - mod_menu_id);
+    return i < entries.size() ? entries[i].settings.name : std::string();
+}
+
 // The carousel array (table_data + 0x400, 0x1C bytes per entry, +0 the track (u8); func_803AB294 builds it) and its
 // count (s16 0x803D05AE).
 int rush2::track2049::carousel_index(uint8_t* rdram, int t) {

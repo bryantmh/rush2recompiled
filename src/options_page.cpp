@@ -91,13 +91,13 @@ namespace rush2::ui {
         text->set_flex_direction(FlexDirection::Column);
         text->set_flex_grow(1.0f);
         text->set_gap(4.0f);
-        context.create_element<Label>(text, title, theme::Typography::LabelLG);
+        Label* title_label = context.create_element<Label>(text, title, theme::Typography::LabelLG);
         Label* note_label = context.create_element<Label>(text, note, theme::Typography::Body);
         note_label->set_color(theme::color::TextDim);
         if (note.empty()) {
             note_label->set_display(Display::None);
         }
-        return { row, note_label };
+        return { row, note_label, title_label };
     }
 
     Label* OptionsPage::add_option_status(const std::string& option_id) {
@@ -109,6 +109,13 @@ namespace rush2::ui {
             label->set_right(12.0f);
             label->set_color(theme::color::TextDim);
             return label;
+        }
+        return nullptr;
+    }
+
+    Element* OptionsPage::get_option_row(const std::string& option_id) {
+        for (const Row& r : rows) {
+            if (r.element->get_option_id() == option_id) return r.element;
         }
         return nullptr;
     }

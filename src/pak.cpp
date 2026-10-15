@@ -763,3 +763,20 @@ extern "C" void rush2_player_deleted_from_list(uint8_t* rdram, recomp_context* c
         forget_player(rdram, (offset / pak_stride) * records_per_pak + offset % pak_stride / record_size);
     }
 }
+
+// The Controller Pak manager (front-end screen 0xD, menu_screen_pak_manager_803B5C5C) lists and deletes the notes
+// on a real pak. The game's only pak is our emulated save file, so the screen can only lose saves: it is never shown.
+// The front end loop (menu_frontend_loop_800AE288) switches screens at 0x800AE494 when the next screen (0x800E7BB4)
+// differs from the one up (0x800E7BC4, $a0, -1 none); a switch to it stays on the screen that asked, or goes to the
+// title screen (0x10) from none or from the boot logos.
+extern "C" void rush2_no_pak_manager(uint8_t* rdram, recomp_context* ctx) {
+    constexpr gpr next_screen = (gpr)(int32_t)0x800E7BB4;
+    constexpr int32_t pak_manager = 0xD;
+    constexpr int32_t boot_logos = 0xE;
+    constexpr int32_t title = 0x10;
+    if (MEM_W(0, next_screen) != pak_manager) {
+        return;
+    }
+    int32_t up = (int32_t)(int16_t)ctx->r4;
+    MEM_W(0, next_screen) = up < 0 || up == pak_manager || up == boot_logos ? title : up;
+}

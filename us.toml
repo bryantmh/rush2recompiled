@@ -8543,6 +8543,12 @@ func = "menu_select_player_set_state_803B2BB4"
 before_vram = 0x803B2BB4
 text = "    if (rush2_pak_menu_state(rdram, ctx)) return;"
 
+# The Controller Pak manager screen (0xD) is never shown (rush2_no_pak_manager, src/pak.cpp).
+[[patches.hook]]
+func = "menu_frontend_loop_800AE288"
+before_vram = 0x800AE494
+text = "    rush2_no_pak_manager(rdram, ctx);"
+
 # The select player screen's list setup puts the cursor on the first saved player instead of JUST PLAY when there is
 # one ($t4 = the cursor, $v1 = the list length; src/pak.cpp). The scroll position is computed right after.
 [[patches.hook]]
@@ -11993,6 +11999,13 @@ func = "input_apply_default_controls_80076A00"
 before_vram = 0x80076CE0
 text = "    rush2_online_player_input(rdram, ctx);"
 
+# Online: the other players' cars have no view, and the wheel placer (carselect_preview_update_8005A598) hides a
+# viewless car's wheels unless $s0 (its +0x348 >= 2) is set; computer cars pass, human ones didn't (rush2_online_wheels_shown).
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005A770
+text = "    ctx->r16 = (gpr)(int32_t)rush2_online_wheels_shown(rdram, (uint32_t)ctx->r9, (int)(int8_t)ctx->r11, (int)(int32_t)ctx->r16);"
+
 # Online: every human car takes the viewed path in the simulation (rush2_online_sim_view, docs/online.md#the-race).
 [[patches.hook]]
 func = "car_wreck_steer_to_respawn_800754B4"
@@ -12033,6 +12046,29 @@ func = "car_arrow_update_80059B9C"
 before_vram = 0x80059BF8
 text = "    ctx->r5 = (gpr)(int32_t)rush2_online_arrow_view(rdram, (int)(int32_t)ctx->r5);"
 
+# Online: the gear box and the tachometer read their player's car by number, not through the player's record; online
+# they are this machine's player's (rush2_online_hud_views, with their elements' player set at the HUD's setup).
+[[patches.hook]]
+func = "hud_widget_cb_model_lookup_800B92F4"
+before_vram = 0x800B9358
+text = "    ctx->r11 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r11);"
+
+[[patches.hook]]
+func = "hud_widget_cb_race_time_display_800B7B1C"
+before_vram = 0x800B7B64
+text = "    ctx->r15 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r15);"
+
+# The race time's digits, just formatted for this machine's player, go where player 1's time widget reads them.
+[[patches.hook]]
+func = "hud_widget_cb_race_time_display_800B7B1C"
+before_vram = 0x800B7CA0
+text = "    rush2_online_hud_time_digits(rdram);"
+
+[[patches.hook]]
+func = "hud_widget_cb_orbit_icons_800B7E88"
+before_vram = 0x800B7E9C
+text = "    ctx->r14 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r14);"
+
 # Online: the HUD and the frame's drawing show this machine's player (rush2_online_present_begin).
 [[patches.hook]]
 func = "race_start_timer_800AE670"
@@ -12051,6 +12087,18 @@ text = "    rush2_online_present_end(rdram, ctx);"
 func = "car_race_start_pose_setup_8009A264"
 before_vram = 0x8009A41C
 text = "    if ((int32_t)ctx->r2 > 2) ctx->r2 = 1;"
+
+# Online: this machine's player's rumble level goes to port 0, the others' to none (rush2_online_rumble_port). $v0 = the
+# record's port, about to be added to the level's address (0x800D50E8).
+[[patches.hook]]
+func = "physics_car_tick_80075880"
+before_vram = 0x80075AEC
+text = "    rush2_online_rumble_port(rdram, ctx);"
+
+[[patches.hook]]
+func = "physics_car_tick_80075880"
+before_vram = 0x80075C00
+text = "    rush2_online_rumble_port(rdram, ctx);"
 
 # Online: the players' presses reach the frame start's gear shifts (rush2_online_record_presses).
 [[patches.hook]]

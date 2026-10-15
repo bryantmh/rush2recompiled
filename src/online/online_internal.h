@@ -13,7 +13,7 @@
 namespace rush2::online {
     // Bumped whenever the messages below change; machines with different versions can't play together (it is part of
     // the compatibility key too, but the hello checks it first to give a clearer reason).
-    constexpr uint32_t protocol_version = 2;
+    constexpr uint32_t protocol_version = 3;
 
     // Messages, each starting with its type byte. Host -> client unless marked client -> host.
     enum class Msg : uint8_t {
@@ -23,7 +23,7 @@ namespace rush2::online {
         Roster = 4,       // roster
         Settings = 5,     // settings
         SetCar = 6,       // client -> host: car, bytes profile
-        SetProgress = 7,  // client -> host: u8 progress
+        SetProgress = 7,  // client -> host: u8 progress, u32 custom track checked, u8 lacks it
         SetName = 8,      // client -> host: str
         Start = 9,        // u32 seed, u8 input delay, settings, roster, max_players x bytes profile
         Loaded = 10,      // client -> host: u32 hash
@@ -77,6 +77,7 @@ namespace rush2::online {
             for (uint8_t v : c.colors) {
                 u8(v);
             }
+            u8(c.automatic);
         }
         void settings(const RaceSettings& s) {
             u8(uint8_t(s.mode));
@@ -90,12 +91,15 @@ namespace rush2::online {
             u8(s.battle_points);
             u8(s.battle_minutes);
             u8(s.race_battle);
+            str(s.mod_track);
+            str(s.mod_track_name);
         }
         void roster(const RosterEntry* entries) {
             for (int i = 0; i < max_players; i++) {
                 const RosterEntry& e = entries[i];
-                u8(uint8_t((e.used ? 1 : 0) | (e.connected ? 2 : 0)));
+                u8(uint8_t((e.used ? 1 : 0) | (e.connected ? 2 : 0) | (e.lacks_track ? 4 : 0)));
                 u8(e.progress);
+                u32(e.track_checked);
                 str(e.name);
                 u16(e.ping_ms);
                 car(e.car);
@@ -165,6 +169,7 @@ namespace rush2::online {
             for (uint8_t& v : c.colors) {
                 v = u8();
             }
+            c.automatic = u8();
             return c;
         }
         RaceSettings settings() {
@@ -180,6 +185,8 @@ namespace rush2::online {
             s.battle_points = u8();
             s.battle_minutes = u8();
             s.race_battle = u8();
+            s.mod_track = str();
+            s.mod_track_name = str();
             return s;
         }
         void roster(RosterEntry* entries) {
@@ -188,7 +195,9 @@ namespace rush2::online {
                 uint8_t flags = u8();
                 e.used = (flags & 1) != 0;
                 e.connected = (flags & 2) != 0;
+                e.lacks_track = (flags & 4) != 0;
                 e.progress = u8();
+                e.track_checked = u32();
                 e.name = str();
                 e.ping_ms = u16();
                 e.car = car();
@@ -206,9 +215,13 @@ namespace rush2::online {
     // A display name cut to max_name_length printable characters (other characters become spaces); "Player" if empty.
     std::string clean_name(const std::string& name);
 
-    // LAN beacons (online_discovery.cpp). The host's net thread calls send_beacon about once a second.
+    // LAN beacons (online_discovery.cpp). The host's net thread calls send_beacon about once a second, and
+    // stop_beacons when the lobby closes: if beacons went out, it sends `closing` (a beacon with max_players 0), which
+    // takes the lobby off the lists at once instead of when its beacons stop being heard.
     void send_beacon(const std::vector<uint8_t>& payload);
-    void stop_beacons();
+    void stop_beacons(const std::vector<uint8_t>& closing);
+    // Ends the LAN lobby list's listener thread (started by lan_lobbies()); at exit, before its std::thread is destroyed.
+    void stop_lan_listener();
     // Builds the beacon payload for a hosted lobby.
     std::vector<uint8_t> beacon_payload(const std::string& name, uint16_t port, int players, int max_players,
         const RaceSettings& settings, bool racing);
