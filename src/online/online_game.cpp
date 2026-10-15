@@ -34,6 +34,9 @@ void convert_to_n64_range(float x, float y, int8_t& stick_x, int8_t& stick_y);
 extern "C" void physics_thread_step_once_80076D70(uint8_t* rdram, recomp_context* ctx);
 extern "C" void race_end_to_menu_800AAC64(uint8_t* rdram, recomp_context* ctx);
 extern "C" void menu_screen_dispatch_800AE0D4(uint8_t* rdram, recomp_context* ctx);
+extern "C" void music_queue_stop_80062FA4(uint8_t* rdram, recomp_context* ctx);
+extern "C" void carselect_build_list_803B81F0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void overlay_load_800A62C0(uint8_t* rdram, recomp_context* ctx);
 
 namespace rush2::ram_watch {
     void frame(uint8_t* rdram, uint32_t frame_number);
@@ -566,7 +569,7 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     // The test aids' quick races skip the menus (and the lobby that leads players through them).
     static const bool quick_test = std::getenv("RUSH2_ONLINE_TEST") != nullptr &&
         std::string(std::getenv("RUSH2_ONLINE_TEST")).rfind("menus:", 0) != 0;
-    if (phase == Phase::Idle && !quick_test) {
+    if (!quick_test) {
         rush2::online::game::lobby_frame(rdram);
     }
     if (phase != Phase::Idle && st != State::Loading && st != State::Racing) {
@@ -586,7 +589,22 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     if (phase == Phase::WaitMenus) {
         // From the car select, the race starts there (rush2::online::game::car_select_done); from anywhere else in
         // the menus (the test aids), here.
-        if (MEM_W(0, (int32_t)game_state) != state_car_select && in_menus(rdram)) {
+        if (MEM_W(0, (int32_t)game_state) == state_car_select) {
+            // Everyone has picked a car: the race starts as the car select starts it once all its players have
+            // (func_803B9478 at 0x803B96D4-0x803B96F4), with the race set up first.
+            setup_race(rdram, ctx, true);
+            phase = Phase::Loading;
+            recomp_context saved = *ctx;
+            music_queue_stop_80062FA4(rdram, ctx);
+            MEM_W(0, (int32_t)game_state) = 7;
+            ctx->r4 = 0;
+            carselect_build_list_803B81F0(rdram, ctx);
+            *ctx = saved;
+            ctx->r4 = 0;
+            overlay_load_800A62C0(rdram, ctx);
+            *ctx = saved;
+        }
+        else if (in_menus(rdram)) {
             setup_race(rdram, ctx, false);
             phase = Phase::Loading;
         }

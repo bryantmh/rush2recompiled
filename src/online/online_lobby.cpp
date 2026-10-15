@@ -45,6 +45,9 @@ namespace {
     constexpr int screen_title = 0x10;
     constexpr uint32_t attract_start = 0x8010C034;   // f32: when the title screen came up (its attract demo timer)
     constexpr uint32_t game_time = 0x80117488;       // f32
+    constexpr uint32_t start_game_row = 0x80023064;  // u16: the Start Game menu's row (func_803B12C8)
+    constexpr int screen_start_game = 0;
+    constexpr uint16_t button_start = 0x1000;
     constexpr uint32_t race_type = 0x8010C3E8;       // s32: 0 a race, 1 circuit, 2 practice (Start Game)
     constexpr uint32_t track_id = 0x8010C3F0;        // u8: the track select id
     constexpr uint32_t menu_settings = 0x800D5760;   // the track select's settings (laps, drones, options)
@@ -80,6 +83,7 @@ namespace {
     RaceSettings menu_settings_now(uint8_t* rdram) {
         RaceSettings s;
         s.race_type = (uint8_t)MEM_W(0, (int32_t)race_type);
+        s.start_row = (uint8_t)MEM_HU(0, (int32_t)start_game_row);
         s.track = (uint8_t)MEM_BU(0, (int32_t)track_id);
         for (int i = 0; i < (int)s.menu.size(); i++) {
             s.menu[i] = (uint8_t)MEM_BU(i, (int32_t)menu_settings);
@@ -220,6 +224,10 @@ namespace {
                 allow_back = true;
                 set_ports(Ports::Fed, pulse % 4 < 2 ? button_b : 0);
             }
+            else if (screen >= 0 && screen < menu_screens_end && screen != screen_start_game) {
+                // Back from Select Player and the like to Start Game, then to the title screen.
+                set_ports(Ports::Fed, pulse % 8 < 2 ? button_b : 0);
+            }
             else {
                 wait_on_title(rdram);
                 set_ports(Ports::Blocked);
@@ -230,17 +238,24 @@ namespace {
         }
 
         if (gs == 0) {
-            // Everyone picks their own player first, with the host's Start Game choice.
-            MEM_W(0, (int32_t)race_type) = hm.settings.race_type;
+            // Everyone picks their own player first, getting there as the host did: START on the title screen (which
+            // makes this machine's controller player 1, func_800A6B58), the host's Start Game row, then Select Player.
             if (screen == screen_select_player) {
                 set_ports(Ports::Own);
                 notice = "Choose a player.";
             }
+            else if (screen == screen_start_game) {
+                MEM_H(0, (int32_t)start_game_row) = hm.settings.start_row;
+                set_ports(Ports::Fed, pulse % 8 < 2 ? button_a : 0);
+                notice.clear();
+            }
+            else if (screen >= menu_screens_end) {
+                set_ports(Ports::Fed, pulse % 8 < 2 ? button_start : 0);
+                notice.clear();
+            }
             else {
-                if (screen == MEM_W(0, (int32_t)front_end_next_screen) && screen >= 0) {
-                    MEM_W(0, (int32_t)front_end_next_screen) = screen_select_player;
-                }
-                set_ports(Ports::Blocked);
+                // Another menu: back to Start Game.
+                set_ports(Ports::Fed, pulse % 8 < 2 ? button_b : 0);
                 notice.clear();
             }
             set_progress(Progress::ChoosingPlayer);
@@ -413,7 +428,8 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         return;
     }
     if (st != State::Lobby) {
-        // The race is starting: the car select keeps the controllers as they are until it goes.
+        // The race is starting or running (online_game.cpp).
+        set_ports(state_of(rdram) == 2 ? Ports::Blocked : Ports::Off);
         update_overlay(false);
         return;
     }

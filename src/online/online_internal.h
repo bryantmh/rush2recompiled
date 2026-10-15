@@ -81,6 +81,7 @@ namespace rush2::online {
         void settings(const RaceSettings& s) {
             u8(uint8_t(s.mode));
             u8(s.race_type);
+            u8(s.start_row);
             u8(s.track);
             for (uint8_t b : s.menu) {
                 u8(b);
@@ -169,6 +170,7 @@ namespace rush2::online {
             RaceSettings s;
             s.mode = GameMode(u8());
             s.race_type = u8();
+            s.start_row = u8();
             s.track = u8();
             for (uint8_t& b : s.menu) {
                 b = u8();

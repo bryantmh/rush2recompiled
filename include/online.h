@@ -38,6 +38,7 @@ namespace rush2::online {
     struct RaceSettings {
         GameMode mode = GameMode::Race;
         uint8_t race_type = 0;     // 0x8010C3E8 as the host's Start Game menu left it.
+        uint8_t start_row = 0;     // The host's Start Game row (0x80023064: One Race, Circuit, ..., Stunt, Battle).
         uint8_t track = 0;         // The track select id (0x8010C3F0).
         std::array<uint8_t, 0x20> menu{};  // The track select's settings (0x800D5760: laps, drones, options).
         uint8_t needs_games = 0;   // The games_* ROMs every player needs for the track.
