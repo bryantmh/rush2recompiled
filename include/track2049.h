@@ -129,8 +129,9 @@ namespace rush2::track2049 {
     // Rules that follow from it, as Rush 2049 applies them:
     // - no reset of a car that stays slow for 6 s (0x800CF830: types 4-6); falling below y -190 still resets it;
     bool stuck_reset_off(uint8_t* rdram);
-    // - a wrecked car is put back after 0.6 s instead of Rush 2's 3.5 s (0x800E5BF8: types 5 and 6);
-    bool quick_respawn(uint8_t* rdram);
+    // - a wrecked car is put back after 2.25 s in a battle (type 6) where Rush 2 and 2049's other types wait 3.5 s
+    //   (2049 func_800D138C at 0x800D1454); returns the wait in seconds;
+    float wreck_wait(uint8_t* rdram);
     // - no track map or radar (type 5: 0x80108AB0 leaves the radar off; type 6 builds its own HUD without them).
     bool no_map(uint8_t* rdram);
     // Track select names of track k's diorama model and logo texture (k as for convert_track).

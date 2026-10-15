@@ -7041,7 +7041,7 @@ ref = "docs/functions/rush2_util.md#rush-2-util-functions"
 vram = 0x800754B4
 name = "car_wreck_steer_to_respawn"
 sig = "void car_wreck_steer_to_respawn(Car *car)"
-desc = "Steers a wrecked car to its respawn target (per car 3 floats at 0x800D39D8 + car*12); counts car +0x6C8 up and ends the glide with +0x6C8 = -2 (0x80075650), which car_physics_tick_all_reset_8008E258 then finishes."
+desc = "Steers a wrecked car to its respawn target (per car 3 floats at 0x800D39D8 + car*12); counts car +0x6C8 up and ends the glide with +0x6C8 = -2 (0x80075650), which car_physics_tick_all_reset_8008E258 then finishes. Clears physics +0x80E (being put back, set by respawn_place_car_80090A40 at 0x80090F7C) when the glide ends, for player 1 or a computer car."
 status = "verified"
 area = "car"
 ref = "src/ghost.cpp"
@@ -7381,7 +7381,7 @@ ref = "us.toml"
 vram = 0x8007B518
 name = "scene_walk"
 sig = "void scene_walk(Node *node, void *a1, Matrix *mtx, s32 a3, s32 stack10, s32 stack14, s32 stack18)"
-desc = "Patched in us.toml. Function exit (reached by both paths after the deferred scene graph draw). / Loop head, once per sibling node. / Node G_MTX written at $v0, $s7 = node. / After a pushed node: G_POPMTX written (if $s2 != 0) or the node's G_MTX rolled back. / Draw distance: the scene walker's placed object cull distance (0x80110040) was just loaded into $f8. / Per-view matrices in the frame's graphics buffer, moved from a two-view layout to a four-view one: viewports +0x00, sky vertices +0x40 (was +0x20), projections +0x80 (+0x40), root modelviews +0x180 (+0xC0), shared modelview +0x280 (+0x140). / Scene list... | Scene walker; skips nodes with flag 0x400 (PVS hidden); does placement RSP box culls. | Scene graph walker: draws a level of the scene graph for a view ($a2). Skips placed objects (nodes with box cull flags) farther than the f32 at 0x80110040. Recursive; hooked at entry, exit, loop head, after each node's G_MTX, and at L_8007BD7C."
+desc = "Patched in us.toml. Function exit (reached by both paths after the deferred scene graph draw). / Loop head, once per sibling node. / Node G_MTX written at $v0, $s7 = node. / After a pushed node: G_POPMTX written (if $s2 != 0) or the node's G_MTX rolled back. / Draw distance: the scene walker's placed object cull distance (0x80110040) was just loaded into $f8. / Per-view matrices in the frame's graphics buffer, moved from a two-view layout to a four-view one: viewports +0x00, sky vertices +0x40 (was +0x20), projections +0x80 (+0x40), root modelviews +0x180 (+0xC0), shared modelview +0x280 (+0x140). / Scene list... | Scene walker; skips nodes with flag 0x400 (PVS hidden); does placement RSP box culls. | Scene graph walker: draws a level of the scene graph for a view ($a2). Skips placed objects (nodes with box cull flags) farther than the f32 at 0x80110040. Recursive; hooked at entry, exit, loop head, after each node's G_MTX, and at L_8007BD7C. | 0x8007B5AC also hides a computer car's body node through its respawn glide (src/game_fixes.cpp)."
 consts = "0x38 = node size"
 status = "verified"
 ported = true
@@ -9104,7 +9104,7 @@ ref = "docs/rush2049_research/race.md#33-routes-from-0x32c"
 vram = 0x8008CDA4
 name = "race_stuck_wrongway_update"
 sig = "void race_stuck_wrongway_update(void)"
-desc = "Patched in us.toml. Rush 2049 rules by game type (src/rush2049/track2049.cpp): no stuck reset, quick respawn after a wreck, and no track map or radar (their stunt track tests). / SF Rush wrong-way warning (src/rush1/track1.cpp): off while the car is next to a checkpoint SF Rush flags for it (flag 4, track 6's figure 8), after func_8008CDA4 stores the angle. / SF Rush fall floor (src/rush1/track1.cpp): y -290 instead of -190 on SF Rush tracks (hook at 0x8008CF20, $f16 = the floor). | Stuck timer (speed < 25 for 6 s or y < -190 triggers reset) and wrong-way angle (car vs path 5 points ahead) into car-state +0x34C for humans. | Wrong-way check. Stores a human's wrong-way angle (state +0x34C; +0x338 time it started looking). Hooked at 0x8008D3A4 (Rush 1 no-wrong-way flag) and at 0x8008D014 before the stuck timer (+0x7F8)."
+desc = "Patched in us.toml. Rush 2049 rules by game type (src/rush2049/track2049.cpp): no stuck reset, 2049's wreck wait (2.25 s in a battle, 3.5 s otherwise; 2049 func_800D138C), and no track map or radar (their stunt track tests). / SF Rush wrong-way warning (src/rush1/track1.cpp): off while the car is next to a checkpoint SF Rush flags for it (flag 4, track 6's figure 8), after func_8008CDA4 stores the angle. / SF Rush fall floor (src/rush1/track1.cpp): y -290 instead of -190 on SF Rush tracks (hook at 0x8008CF20, $f16 = the floor). | Stuck timer (speed < 25 for 6 s or y < -190 triggers reset) and wrong-way angle (car vs path 5 points ahead) into car-state +0x34C for humans. | Wrong-way check. Stores a human's wrong-way angle (state +0x34C; +0x338 time it started looking). Hooked at 0x8008D3A4 (Rush 1 no-wrong-way flag) and at 0x8008D014 before the stuck timer (+0x7F8)."
 consts = "25 = min speed; 6 s stuck time; -190 = y floor"
 status = "verified"
 ported = true
@@ -9274,10 +9274,11 @@ ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-reb
 vram = 0x8008E40C
 name = "race_wreck_respawn_wait"
 sig = "void race_wreck_respawn_wait(Car *car)"
-desc = "Patched in us.toml. Rush 2049 rules by game type (src/rush2049/track2049.cpp): no stuck reset, quick respawn after a wreck, and no track map or radar (their stunt track tests). / BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand) | Wreck delay of 3.5 s before respawn. | Wreck handling for a player waiting to be put back ($f16 = 3.5, seconds since the wreck). Hooked at 0x8008E678."
+desc = "Patched in us.toml. Rush 2049 rules by game type (src/rush2049/track2049.cpp): no stuck reset, 2049's wreck wait (2.25 s in a battle, 3.5 s otherwise; 2049 func_800D138C), and no track map or radar (their stunt track tests). / BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand) | Wreck delay of 3.5 s before respawn. | Wreck handling for a player waiting to be put back ($f16 = 3.5, seconds since the wreck). Hooked at 0x8008E678."
 consts = "3.5 s = wreck delay"
 status = "verified"
 ported = true
+rush2049 = [0x800D138C]
 area = "race"
 ref = "us.toml"
 
@@ -10923,7 +10924,7 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 vram = 0x8009D9F4
 name = "cam_update_all_players"
 sig = "void cam_update_all_players(void)"
-desc = "Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand) | Tracks 7 and 9 (HALFPIPE, PIPE): lane-only AI / stunt handling literal tests. | Places a car's body node at a computer car's position."
+desc = "Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand) | Tracks 7 and 9 (HALFPIPE, PIPE): lane-only AI / stunt handling literal tests. | Places each computer car's body node from its car state's pose (+0x0, matrix +0x48), skipping a car being put back (physics +0x80E, 0x8009E024), so a computer car sat whole at its wreck through its respawn glide; hooked at 0x8009E028 to place a gliding computer car and have the scene walk hide it (src/game_fixes.cpp, computer car sitting in its wreck)."
 status = "inferred"
 ported = true
 area = "race"

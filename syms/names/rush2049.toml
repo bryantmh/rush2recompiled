@@ -2785,6 +2785,18 @@ area = "car"
 ref = "docs/rush2049_research/car_physics.md#rush-2049s-own-bars-v-setup-overlay-func-at-0x8039d300"
 
 [[func]]
+vram = 0x800D138C
+name = "wreck_wait"
+sig = "void wreck_wait(s16 car)"
+desc = "A wrecked car's wait before it is put back: car +0x640 sets state +0x358 = 1 and stamps +0x10C with the car clock +0x714; at 0x800D1454 state +0x358 becomes 2 once the clock passes the stamp by 2.25 s in a battle (type 6) or 3.5 s otherwise. Rush 2 race_wreck_respawn_wait_8008E40C."
+consts = "2.25 = battle (game type 6) wait s; 3.5 = other types"
+status = "verified"
+ported = true
+rush2 = 0x8008E40C
+area = "race"
+ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
+
+[[func]]
 vram = 0x800D14F4
 name = "respawn_compute_pose_blend"
 sig = "void respawn_compute_pose_blend(f32 *in, f32 *out)"
@@ -3850,7 +3862,7 @@ name = "battle_score_kill"
 desc = "Scores a kill (killer, victim, amount): kill matrix 0x80149428[k*4+v] += amount; (car,car,-1) is a self-wreck, which only when D_80146130 is set queues a coin animation that takes a point (state +0x3A3, not below 0)."
 status = "inferred"
 area = "collision"
-ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 
 [[func]]
 vram = 0x80391650
@@ -3890,7 +3902,7 @@ vram = 0x803936A8
 name = "battle_coin_anim_update"
 desc = "Steps the queued point coin animations (0x80395E70, 0x18 bytes each); after 41 frames adds the entry's amount to state +0x3A3 (points)."
 status = "inferred"
-ref = "docs/rush2049_research/battle.md#74-respawn-protection-and-crash-wrecks"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 
 [[func]]
 vram = 0x8039D300

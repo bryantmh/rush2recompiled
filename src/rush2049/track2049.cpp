@@ -14,7 +14,7 @@
 //
 // Rush 2049's battle arenas (DM1-DM8) are hosted in the stunt slot the same way: a free-roaming arena with no
 // checkpoints, whose drones are the computer opponents (src/rush2049/battle_ai.cpp). Their game type is battle
-// (game_type), so the rules ported by type apply: no stuck reset, 0.6 s wreck respawn, no map or radar. The battle
+// (game_type), so the rules ported by type apply: no stuck reset, 2.25 s wreck wait, 0.6 s re-arm, no map or radar. The battle
 // itself is src/rush2049/battle.cpp.
 //
 // Rush 2049's obstacle course runs from a start to a finish line against a 5-minute clock, with no stunt scoring, so
@@ -381,9 +381,8 @@ bool rush2::track2049::stuck_reset_off(uint8_t* rdram) {
     return g == GameType::stunt || g == GameType::obstacle || g == GameType::battle;
 }
 
-bool rush2::track2049::quick_respawn(uint8_t* rdram) {
-    GameType g = game_type(rdram);
-    return g == GameType::obstacle || g == GameType::battle;
+float rush2::track2049::wreck_wait(uint8_t* rdram) {
+    return game_type(rdram) == GameType::battle ? 2.25f : 3.5f;
 }
 
 bool rush2::track2049::no_map(uint8_t* rdram) {
@@ -741,11 +740,12 @@ extern "C" void rush2_track49_stuck_timer(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_8008E40C at 0x8008E678, a wrecked player waiting to be put back: $f16 = 3.5, the seconds since the wreck
-// after which the car is put back. Rush 2049 waits 0.6 s for its obstacle and battle types (0x800E5BF8, constant
-// 0x80124480) and 5 s otherwise.
+// after which the car is put back. Rush 2049's wait (func_800D138C at 0x800D1454, its car state +0x358 going from 1
+// to 2 once its time passes the +0x10C stamp) is 2.25 s in a battle (game type 6) and 3.5 s otherwise. The car stays
+// burnt (flag 0x10) until it is put back, so a shorter wait shows it whole inside its own explosion.
 extern "C" void rush2_track49_respawn_delay(uint8_t* rdram, recomp_context* ctx) {
-    if (rush2::track2049::quick_respawn(rdram)) {
-        ctx->f16.fl = 0.6f;
+    if (rush2::track2049::game_type(rdram) != rush2::track2049::GameType::none) {
+        ctx->f16.fl = rush2::track2049::wreck_wait(rdram);
     }
 }
 

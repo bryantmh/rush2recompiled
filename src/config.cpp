@@ -636,6 +636,26 @@ namespace torque_option {
 static void add_torque_option(recomp::config::Config& config) {
     config.add_bool_option(
         torque_option::id,
+namespace hide_respawn_option {
+    const std::string id = "hide_respawning_cars";
+}
+
+// Hide respawning computer cars: hidden through their glide back after a wreck (src/game_fixes.cpp).
+static void add_hide_respawn_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        hide_respawn_option::id,
+        "Hide Respawning Cars",
+        "After a computer car's wreck burns out, the car vanishes until it reappears blinking on the road. Off, as in "
+        "Rush 2, it sits whole in its fire for a second and a half first.",
+        true
+    );
+
+    config.add_option_change_callback(hide_respawn_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::set_hide_respawning_cars(std::get<bool>(cur_value));
+        });
+}
+
         "Torque Rebalance",
         "Makes each TORQUE setting worth picking. In Rush 2, HIGH is slower than STANDARD both off the line and at top "
         "speed, and LOW has the best launch and the best top speed. "
@@ -816,7 +836,7 @@ void rush2::init_config() {
     {
         namespace general = recompui::config::general;
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
-            { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id,
+            { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id, hide_respawn_option::id,
                             catch_up_option::id, pause_extras_option::id, circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id, ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
         }, nullptr, {
@@ -878,6 +898,7 @@ void rush2::init_config() {
     rush2::collectibles::create_tab();
     rush2::games::create_tab();
     rush2::cheats::create_tab();
+    add_hide_respawn_option(general_config);
     recompui::config::create_mods_tab();
 
     recompui::config::finalize();
@@ -940,3 +961,5 @@ void rush2::init_config() {
     rush2::track1::load_config();
     rush2::music::load_config();
 }
+    rush2::set_hide_respawning_cars(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(hide_respawn_option::id)));

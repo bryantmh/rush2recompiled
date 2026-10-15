@@ -23,6 +23,20 @@
 // and race_car_finish ranks every car with +0x343 > 0 behind all the finishers. A car that had already finished
 // (+0xEA) and then wrecked lost its place to the last one left. A finished car's case 2 becomes a plain respawn.
 //
+// Hide Respawning Cars (option, on by default). A computer car sitting in its wreck (user report). After a wreck's wait (race_wreck_respawn_wait_8008E40C, 3.5 s),
+// respawn_place_car_80090A40 puts the burnt car back whole (flag 0x10 of +0x7F4 cleared), marks it as being put back
+// (+0x80E = 1, 0x80090F7C) and starts its glide to the respawn point (+0x6C8 = 0), which
+// car_wreck_steer_to_respawn_800754B4 flies over 1.5 s before clearing +0x80E (0x80075678). A human car's body node
+// follows it, placed by its view's camera (car_matrix_copy_and_apply_8009ABDC). A computer car's is placed only by
+// cam_update_all_players_8009D9F4 from its car state's pose (+0x0, matrix +0x48), which skips a car with +0x80E set
+// (0x8009E024): the node stayed where the wreck burned, so the car sat there whole, in its own fire, for the glide,
+// then jumped onto the road to blink. A gliding computer car (+0x7E8 == 1, +0x6C8 >= 0) is now hidden instead, so
+// the burnt wreck vanishes and the car reappears blinking where its glide lands. The scene walk (scene_walk_8007B518,
+// 0x8007B5AC) skips a node with flag 0x400 together with its children (the car's parts hang under its body node,
+// car state +0xF0) and their callbacks; the visibility pass rewrites that flag every frame, so the walk is given it
+// for the gliding car's body node there instead. The car is still placed along the glide from its pose, which
+// follows it, so it reappears in place.
+//
 // White accent under a white body (user report). func_8008582C copies the car's base palette (CARPALETTE) and, for a
 // white color (index 0), brightens its ramp first: MAIN COLOR's entries 1-31 when MAIN is white (0x80085898-),
 // otherwise ACCENT COLOR's entries 33-63 when ACCENT is white (0x80085960-, an else-if). Each entry becomes a gray of
@@ -57,6 +71,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -81,13 +96,42 @@ namespace {
     constexpr uint32_t car_states = 0x801124A0;     // 0x354 each: +0xEA finished, +0x343 out of deaths
     constexpr int respawn_out_of_deaths = 2;
 
+    constexpr uint32_t car_base = 0x800F5470;       // physics cars, 0x81C each
+    constexpr uint32_t car_size = 0x81C;
+    constexpr uint32_t node_table = 0x800D9E90;     // scene nodes, 0x38 each: +0 flags
+    constexpr uint32_t node_size = 0x38;
+    constexpr int32_t node_hidden = 0x400;          // the scene walk skips the node and its children
+    constexpr uint32_t game_time = 0x80117488;      // f32 seconds
+    constexpr uint32_t game_state = 0x8010C0D0;     // s32
+    constexpr int32_t state_race = 3;
+
+    // Each computer car's body node while it glides back from a wreck (-1 none), with the game time it was set at.
+    struct GlideHidden {
+        int32_t node = -1;
+        float time = 0.0f;
+        int walks = 0; // scene walks it was hidden from (logged when the glide ends)
+    };
+    GlideHidden glide_hidden[8];
+
+    float game_seconds(uint8_t* rdram) {
+        int32_t bits = MEM_W(0, (int32_t)game_time);
+        float f;
+        std::memcpy(&f, &bits, sizeof(f));
+        return f;
+    }
+
     constexpr uint32_t car_kind = 0x7E8;            // u8 in the physics car: 1 drone, 2 human
     constexpr int car_human = 2;
     std::atomic<bool> stunt_first_gear = false;
+    std::atomic<bool> hide_respawning_cars = true;
 }
 
 void rush2::set_stunt_first_gear(bool enabled) {
     stunt_first_gear.store(enabled, std::memory_order_relaxed);
+}
+
+void rush2::set_hide_respawning_cars(bool enabled) {
+    hide_respawning_cars.store(enabled, std::memory_order_relaxed);
 }
 
 // func_803B9478 at 0x803BA7E8, after slot $s7's row-changeable byte is set: MAIN and ACCENT COLOR for the Dew.
@@ -119,6 +163,41 @@ extern "C" void rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx) {
     }
     if (MEM_B(0, (int32_t)(car_states + car * 0x354 + 0xEA)) == 1) {
         ctx->r4 = 1;
+    }
+}
+
+// cam_update_all_players_8009D9F4 at 0x8009E028 (for each active computer car with a body node): $v0 = physics car,
+// $v1 = car state, $t3 = +0x80E (being put back), which skips placing the body node.
+extern "C" void rush2_fix_drone_glide_node(uint8_t* rdram, recomp_context* ctx) {
+    int32_t car = (int32_t)ctx->r2;
+    int i = (int)(((uint32_t)car - car_base) / car_size);
+    if (i < 0 || i >= 8) {
+        return;
+    }
+    if (hide_respawning_cars.load(std::memory_order_relaxed) && MEM_BU(0x7E8, car) == 1 &&
+        (int16_t)MEM_H(0x6C8, car) >= 0) {
+        glide_hidden[i].node = MEM_W(0xF0, (int32_t)ctx->r3);
+        glide_hidden[i].time = game_seconds(rdram);
+        ctx->r11 = 0;
+    } else if (glide_hidden[i].node >= 0) {
+        fprintf(stderr, "[Wreck] car %d hidden through its respawn glide (%d scene walks)\n", i, glide_hidden[i].walks);
+        glide_hidden[i] = {};
+    }
+}
+
+// scene_walk_8007B518 at 0x8007B5AC (each sibling node): $s7 = node, $t1 = its flags, skipped with 0x400 set.
+extern "C" void rush2_fix_drone_glide_hide(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_W(0, (int32_t)game_state) != state_race) {
+        return;
+    }
+    int32_t node = (int32_t)(((uint32_t)ctx->r23 - node_table) / node_size);
+    float now = game_seconds(rdram);
+    for (GlideHidden& g : glide_hidden) {
+        // Set within the last few frames (game time stands still while paused, which keeps it set).
+        if (g.node == node && now - g.time >= 0.0f && now - g.time < 0.1f) {
+            ctx->r9 |= node_hidden;
+            g.walks++;
+        }
     }
 }
 

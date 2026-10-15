@@ -478,6 +478,15 @@ when `D_80146130` (0x80146108 + 0x28) is set, takes a point (state +0x3A3, not b
 animation (`func_803936A8`). Nothing in main or the setup overlay writes `D_80146130` directly, so whether 2049 ever
 docks the point is not known **[I]**; the port leaves a car's points alone when it rolls over.
 
+**Wreck wait (2049 `func_800D138C`).** A wrecked car (+0x640) sets car state +0x358 = 1 and stamps +0x10C with its
+clock (+0x714); at 0x800D1454 it moves to +0x358 = 2 (put back) once the clock passes the stamp by 2.25 s in a battle
+(game type 6) or 3.5 s otherwise, the same as Rush 2's `race_wreck_respawn_wait_8008E40C` (+0x342, +0x104). The car
+stays burnt and hidden (car +0x7F4 flag 0x10, set while +0x648) until `respawn_place_car_80090A40` clears it, so the
+wait decides how long the explosion plays over the burnt car. The port once used 0.6 s for battles and the obstacle
+course, misreading the re-arm constant `D_80124480` at 0x800E5BF8 as this wait: the car then showed whole and solid
+in its own fireball before it glided back. `rush2_track49_respawn_delay` (hook 0x8008E678) now gives 2.25 s in a
+battle and 3.5 s elsewhere. `tools/race_watch.py --trace CAR` logs these fields frame by frame.
+
 Seen in game (course 8, `bots3 ai log kill`): car 0 wrecked at 8.0 s, placed about 10.15 s, hittable again at 10.72 s
 (before: 16.13 s); every wreck in 40 s of bots fighting came from a weapon. In a race (`bots5 log rekill15 give4`,
 race_battle on) every car starts with +0x804 = 1, no car took weapon damage while it blinked, a second kill at 15 s

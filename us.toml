@@ -326,7 +326,7 @@ text = "    rush2_interp_level_enter(rdram, ctx);"
 [[patches.hook]]
 func = "scene_walk_8007B518"
 before_vram = 0x8007B5AC
-text = "    rush2_interp_node_begin(rdram, ctx);"
+text = "    rush2_interp_node_begin(rdram, ctx); rush2_fix_drone_glide_hide(rdram, ctx);"
 
 # Node G_MTX written at $v0, $s7 = node.
 [[patches.hook]]
@@ -11629,6 +11629,13 @@ text = "    rush2_fix_formula_rear_wheels(rdram, ctx);"
 func = "race_car_finish_or_respawn_handle_8009E180"
 before_vram = 0x8009E180
 text = "    rush2_fix_finish_place(rdram, ctx);"
+
+# Hide Respawning Cars (option): a computer car is hidden through its respawn glide instead of sitting whole in its
+# fire (src/game_fixes.cpp).
+[[patches.hook]]
+func = "cam_update_all_players_8009D9F4"
+before_vram = 0x8009E028
+text = "    rush2_fix_drone_glide_node(rdram, ctx);"
 
 # Stunt mode respawns in 1st gear (option, src/game_fixes.cpp).
 [[patches.hook]]

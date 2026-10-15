@@ -14,7 +14,11 @@ summary. Stops early once every computer car has finished or the game exits.
 --trace CAR instead logs every change of that car's wreck and drawing fields (TRACE_FIELDS: wrecked +0x648, flags
 +0x7F4 with 0x8 blink-translucent and 0x10 hidden, armed +0x804, glide +0x6C8, state +0x300/+0x304/+0x308/+0x309
 blink, +0x342 wreck state, +0xE4 drawn flags), polled every ~2 ms, to DIR/trace.txt (wreck to respawn timing).
-
+--wreck-at S (with --trace) wrecks that car S wall-clock seconds after the race state begins, writing +0x648 = 1 as a
+crash does (the only write this tool makes).
+--pos (with --trace) adds the car's positions, rounded to a foot: physics +0x224, car state +0 (where a computer car's
+body node is put, cam_update_all_players_8009D9F4) and the body node's own (node +0xF0 of 0x800D9E90, 0x38 each, its
+matrix +4, position +0x24; nhid = its hidden flag 0x400), logging a line whenever one moves.
 RDRAM is found by matching the boot code at 0x80000450 from the Rush 2 ROM (tools/rush2049/roms.py; RUSH2_ROM).
 Fields: car state 0x801124A0 + car x 0x354 (position +0, place +0xE9, finished +0xEA, wreck state +0x342, out of
 deaths +0x343), physics car 0x800F5470 + car x 0x81C (laps +0x7FD, next checkpoint +0x7FE, brake +0x730, throttle
@@ -40,13 +44,16 @@ k32.VirtualQueryEx.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.POINTER(MBI), 
 k32.ReadProcessMemory.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
                                   ctypes.POINTER(ctypes.c_size_t)]
 k32.OpenProcess.restype = wt.HANDLE
+k32.WriteProcessMemory.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
+                                   ctypes.POINTER(ctypes.c_size_t)]
 
 
 class Rdram:
     """Read-only view of a running game's RDRAM (words native-endian, bytes at address ^ 3, halves at ^ 2)."""
 
-    def __init__(self, pid):
-        self.h = k32.OpenProcess(0x0410, False, pid)   # PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+    def __init__(self, pid, write=False):
+        # PROCESS_QUERY_INFORMATION | PROCESS_VM_READ (| PROCESS_VM_OPERATION | PROCESS_VM_WRITE for poke)
+        self.h = k32.OpenProcess(0x0438 if write else 0x0410, False, pid)
         r2 = roms.Rush2()
         want = list(struct.unpack('>4I', r2.read(0x80000450, 16)))
         self.base = None
@@ -68,6 +75,12 @@ class Rdram:
 
     def block(self, vaddr, n):
         return self._read(self.base + (vaddr - 0x80000000), n)
+
+    def poke_byte(self, vaddr, value):
+        """Writes one byte at a game address (test aid; needs Rdram(pid, write=True))."""
+        buf, done = ctypes.c_ubyte(value & 0xFF), ctypes.c_size_t()
+        return k32.WriteProcessMemory(self.h, ctypes.c_void_p(self.base + ((vaddr ^ 3) - 0x80000000)),
+                                      ctypes.byref(buf), 1, ctypes.byref(done))
 
 
 def word_view(blob, start):
@@ -130,16 +143,26 @@ TRACE_FIELDS = [('wrecked', 'car', 0x648, 'b'), ('flags', 'car', 0x7F4, 'x'), ('
                 ('drawn', 'st', 0xE4, 'x')]
 
 
-def trace(rd, car, seconds, out, proc):
-    """Logs each change of car's TRACE_FIELDS with the game time."""
-    lines, prev, t0 = [], None, time.time()
+def trace(rd, car, seconds, out, proc, wreck_at=None, pos=False):
+    """Logs each change of car's TRACE_FIELDS with the game time; wreck_at wrecks the car (+0x648 = 1, as a crash
+    does) that many seconds into the race."""
+    lines, prev, t0, race_start = [], None, time.time(), None
     while time.time() - t0 < seconds and not (proc and proc.poll() is not None):
         s = rd.block(STATES + car * STATE_SIZE, STATE_SIZE)
         c = rd.block(CARS + car * CAR_SIZE, CAR_SIZE)
         t = rd.block(0x80117488, 4)
-        if not (s and c and t):
+        g = rd.block(0x8010C0D0, 4)
+        if not (s and c and t and g):
             time.sleep(0.01)
             continue
+        now = struct.unpack('<f', t)[0]
+        if struct.unpack('<I', g)[0] == 3 and race_start is None:
+            race_start = time.time()
+        if wreck_at is not None and race_start is not None and time.time() - race_start >= wreck_at:
+            rd.poke_byte(CARS + car * CAR_SIZE + 0x648, 1)
+            lines.append('%8.3f  -- wrecked by race_watch' % now)
+            print(lines[-1], flush=True)
+            wreck_at = None
         views = {'st': word_view(s, STATES + car * STATE_SIZE), 'car': word_view(c, CARS + car * CAR_SIZE)}
         base = {'st': STATES + car * STATE_SIZE, 'car': CARS + car * CAR_SIZE}
         cur = {}
@@ -147,6 +170,17 @@ def trace(rd, car, seconds, out, proc):
             w, f, b, h = views[where]
             a = base[where] + off
             cur[name] = {'b': b, 'h': h, 'f': lambda x: round(f(x), 2), 'x': lambda x: '%X' % w(x)}[kind](a)
+        if pos:
+            def xyz(blob, start):
+                return '%d,%d,%d' % tuple(round(struct.unpack_from('<f', blob, start + i * 4)[0]) for i in range(3))
+            cur['ppos'] = xyz(c, 0x224)
+            cur['spos'] = xyz(s, 0)
+            node = struct.unpack_from('<i', s, 0xF0)[0]
+            m = rd.block(0x800D9E90 + node * 0x38 + 4, 4) if node >= 0 else None
+            mat = rd.block(struct.unpack('<I', m)[0] + 0x24, 12) if m and struct.unpack('<I', m)[0] >= 0x80000000 else None
+            cur['npos'] = xyz(mat, 0) if mat else '-'
+            nf = rd.block(0x800D9E90 + node * 0x38, 4) if node >= 0 else None
+            cur['nhid'] = (struct.unpack('<I', nf)[0] >> 10) & 1 if nf else '-'
         key = {k: v for k, v in cur.items() if k != 's304'}
         if prev is None or key != prev:
             line = '%8.3f  ' % struct.unpack('<f', t)[0] + '  '.join('%s=%s' % kv for kv in cur.items())
@@ -166,6 +200,8 @@ def main():
     ap.add_argument('--path')
     ap.add_argument('--out', default=os.path.join(REPO, 'tmp', 'race_watch'))
     ap.add_argument('--trace', type=int, help="log changes of this car's wreck and drawing fields instead")
+    ap.add_argument('--pos', action='store_true', help="with --trace: also log the car's positions")
+    ap.add_argument('--wreck-at', type=float, help='with --trace: wreck that car this many seconds into the race')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     proc = None
@@ -180,7 +216,7 @@ def main():
         pid = a.pid
     rd = None
     for _ in range(60):
-        rd = Rdram(pid)
+        rd = Rdram(pid, write=a.wreck_at is not None)
         if rd.base:
             break
         time.sleep(1)
@@ -188,7 +224,7 @@ def main():
         print('RDRAM not found')
         return 1
     if a.trace is not None:
-        trace(rd, a.trace, a.seconds, a.out, proc)
+        trace(rd, a.trace, a.seconds, a.out, proc, a.wreck_at, a.pos)
         if proc and proc.poll() is None:
             proc.terminate()
         return 0
