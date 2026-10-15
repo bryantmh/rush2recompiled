@@ -992,12 +992,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80023064
-name = "menu_state_u16_a"
+name = "start_game_row"
 type = "u16"
-desc = "Menu state halfword written by many menu screens; read by options, start game, name entry. (low confidence)"
+desc = "Menu state halfword written by many menu screens; read by options, start game, name entry. (low confidence) | The Start Game menu's row (func_803B12C8: One Race, Circuit, Practice, Ghost Race, Stunt, ...); online joiners take the host's."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x80023066
@@ -9157,10 +9157,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800FAE6C
 name = "race_game_mode"
 type = "u8"
-desc = "Byte set by menus, attract run and race reset; read by ~39 functions (cameras, collisions, sound, checkpoints); game/race mode selector (low confidence on meaning)."
+desc = "Byte set by menus, attract run and race reset; read by ~39 functions (cameras, collisions, sound, checkpoints); game/race mode selector (low confidence on meaning). | 2 leaves the front end for the track select: Select Player sets it, and func_800AE288 then leaves the screen and sets game state 1 (hold hook at 0x800AE2AC online)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x800FAE70
@@ -10048,10 +10048,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C034
 name = "race_time_accum"
 type = "f32"
-desc = "Float accumulator written/read by ~28 race, HUD and menu functions (float_accum; race clock/time accumulator)."
+desc = "Float accumulator written/read by ~28 race, HUD and menu functions (float_accum; race clock/time accumulator). | On the title screen, when it came up: func_800AE288 goes on to the attract demo once the game clock (0x80117488) is far enough past it."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x8010C038

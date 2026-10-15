@@ -1002,13 +1002,17 @@ void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     if (test_finish > 0.0) {
-        static std::chrono::steady_clock::time_point race_start;
+        // By the game's clock (0x80117488, s), which runs the same on every machine of an online race.
+        static float race_start = 0.0f;
         static int32_t last_state = 0;
+        uint32_t clock_bits = (uint32_t)MEM_W(0, (int32_t)0x80117488);
+        float clock;
+        memcpy(&clock, &clock_bits, sizeof(clock));
         if (last_state != 3 && state == 3) {
-            race_start = std::chrono::steady_clock::now();
+            race_start = clock;
         }
         last_state = state;
-        if (state == 3 && std::chrono::duration<double>(std::chrono::steady_clock::now() - race_start).count() > test_finish) {
+        if (state == 3 && clock - race_start > test_finish) {
             for (int player = 0; player < player_count(rdram); player++) {
                 int car = MEM_BU(record_car, rush2::players4::record(player));
                 if (MEM_B(car_finished, (int32_t)(car_states + car * car_state_size)) == 0) {

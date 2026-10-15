@@ -217,6 +217,8 @@ namespace rush2::online {
         bool controller_override(int port, uint16_t* buttons, float* x, float* y);
         // Each game frame outside an online race (online_game.cpp): leads this machine through the host's menus.
         void lobby_frame(uint8_t* rdram);
+        // The race is over on this machine (its post-race next): the lobby takes it back to the track select.
+        void race_over();
         // Creates the lobby overlay (on the UI thread, at startup).
         void init_overlay();
         // This machine's player's controller (port 1, as the game would read it). False without one.

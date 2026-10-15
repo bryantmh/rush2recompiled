@@ -45,6 +45,7 @@ namespace {
     constexpr int screen_title = 0x10;
     constexpr uint32_t attract_start = 0x8010C034;   // f32: when the title screen came up (its attract demo timer)
     constexpr uint32_t game_time = 0x80117488;       // f32
+    constexpr uint32_t front_end_exit = 0x800FAE6C;  // u8: 2 leaves the front end for the track select (Select Player)
     constexpr uint32_t start_game_row = 0x80023064;  // u16: the Start Game menu's row (func_803B12C8)
     constexpr int screen_start_game = 0;
     constexpr uint16_t button_start = 0x1000;
@@ -71,6 +72,7 @@ namespace {
     bool start_sent = false;       // Host: asked for the race to start.
     bool hold_front_end = false;   // Host: keep the front end on Select Player (rush2_online_hold_front_end).
     bool allow_back = false;       // Backing out of the car select is how this machine follows the host back.
+    bool after_race = false;       // Back to the track select once the post-race is done.
     int frames_in_state = 0;
     int last_state = -1;
     int pulse = 0;
@@ -443,6 +445,21 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         update_overlay(false);
         return;
     }
+    if (after_race) {
+        // After the post-race the front end comes up: everyone goes back to the track select with the player they
+        // picked, as Select Player sends them there.
+        if (gs == 0) {
+            int screen = screen_of(rdram);
+            if (screen >= 0) {
+                MEM_B(0, (int32_t)front_end_exit) = 2;
+            }
+            set_ports(Ports::Blocked);
+            notice = "Back to the track select...";
+            update_overlay(true);
+            return;
+        }
+        after_race = false;
+    }
     if (is_host()) {
         host_frame(rdram);
     }
@@ -461,6 +478,12 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         std::fprintf(stderr, "[lobby] %s\n", now.c_str());
     }
     update_overlay(true);
+}
+
+void rush2::online::game::race_over() {
+    after_race = true;
+    car_chosen = false;
+    start_sent = false;
 }
 
 bool rush2::online::game::controller_override(int port, uint16_t* buttons, float* x, float* y) {

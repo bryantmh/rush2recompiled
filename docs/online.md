@@ -18,15 +18,42 @@ Nothing changes unless a lobby is hosted or joined, so offline play is untouched
 
 ## The Online tab
 
-Settings > Online. **Lobby** shows the players (name, car, ping, ready) and, for the host, the addresses to share and
-whether the router port opened. **Join** takes the host's address (`a.b.c.d` or `a.b.c.d:port`). **Lobbies on Your
-Network** lists LAN lobbies with a Join button each. **Host** has the port, the most players and Open Router Port.
-**Race** has the host's track, laps and AI fill, and your car. The display name is on the Controls tab too (Online
-heading). Everything takes effect at once; port, max players and router port apply the next time you host.
+Settings > Online is only for getting into a lobby. **Lobby** shows the players (name, ping, how far through the menus
+they are) and, for the host, the addresses to share and whether the router port opened; a player whose gameplay
+settings differ from the host's is listed with them, with Match Host Settings for that player. **Join** takes the
+host's address (`a.b.c.d` or `a.b.c.d:port`). **Lobbies on Your Network** lists LAN lobbies with a Join button each.
+**Host** has the port, the most players and Open Router Port. The display name is on the Controls tab too (Online
+heading). Everything takes effect at once; port, max players and router port apply the next time you host. The race
+itself is chosen in the game (the lobby).
 
-The host starts the race with Start Race once everyone is Ready. The game must be on its title screen or in the menus
-(`in_menus` in `online_game.cpp`); the race is set up from there and every machine goes back to the title screen when
-it ends.
+## The lobby
+
+`src/online/online_lobby.cpp`. The host goes through the game's own menus as for a local race, and every other
+player's game follows it; an overlay (a RecompUI context that takes no input, made at startup in the launcher's init)
+lists the players and what the lobby waits for.
+
+- **Waiting**: while the host is anywhere else in its menus, the others wait on the title screen (screen 0x10, its
+  attract demo held off by keeping 0x8010C034 at the game clock 0x80117488) with their controllers off.
+- **Select Player**: when the host's front end is on it (screen 1), each other game gets there as the host did: START on
+  the title screen (which makes its controller player 1, `menu_title_start_pressed_800A6B58`), the host's Start Game
+  row (0x80023064), A. Each player picks their own player. Select Player leaves the front end for the track select by
+  setting 0x800FAE6C = 2 (`menu_frontend_loop_800AE288` then leaves the screen and sets game state 1); a hook at
+  0x800AE2AC holds the host's until every player is on the track select. Circuit and Practice (race types 1 and 2)
+  are for one player: the host can't go on with them.
+- **Track select**: the host's. The others' track selects are turned to the host's track (right presses until
+  0x8010C3F0 matches), then fed the host's controller (sent every frame), so they show the host's choices and go on
+  to the car select with it. The host's takes input once everyone is on it.
+- **Car select**: everyone picks their own car. A player who has stays on the screen (the car select's
+  everyone-picked check, `menu_screen_car_select_frame_803B9478` at 0x803B96D4, through src/players4.cpp's hook)
+  with their controller off. Once all have, the host starts the race; each machine sets it up and starts it as the
+  car select does (0x803B96D4-0x803B96F4: `music_queue_stop_80062FA4`, game state 7,
+  `carselect_build_list_803B81F0(0)`, `overlay_load_800A62C0(0)`). Backing out of it is only for following the host
+  back to the track select.
+
+The players' controllers are steered at the game's controller read (`get_game_input` in main.cpp): in a lobby ports
+2-4 read nothing (nobody else joins on the same machine), and port 1 is the player's, nothing, or the host's.
+Everything the race needs (race type, track, the track select's settings, each player's car) goes to every machine
+with the race start, so the race is the same whatever the menus showed.
 
 ## LAN lobbies
 
@@ -45,9 +72,9 @@ external address) can't be reached this way; the status says so. Without UPnP th
 
 Every machine sets the race up the same way and then runs it in lockstep:
 
-- **Setup** (`setup_race`, from the menus): player and view counts (0x8010C3E2, 0x8010C3EC), race type 0, track
-  (0x8010C3F0, a track select id: the race setup turns the added games' ids into their host slot), laps and drones
-  (menu settings 0x800D5760), the car table (0x800D9C10), the seeds (0x800BD808 = race seed | 1, 0x800D4030 = 0),
+- **Setup** (`setup_race`, from the car select): player and view counts (0x8010C3E2, 0x8010C3EC), the host's race
+  type (0x8010C3E8), track (0x8010C3F0, a track select id: the race setup turns the added games' ids into their host
+  slot) and track select settings (0x800D5760: laps, drones, options), the car table (0x800D9C10), the seeds (0x800BD808 = race seed | 1, 0x800D4030 = 0),
   and the player records: blank but for the button masks (the game's default layout, A gas, B brake, stick steering, R
   and Z shifts, C-down reverse, C-up abort, L view, C-right horn), car = player, no port (5) and a blank guest profile
   at 0x80FF0000. The front end is left as its loop leaves it for a race (`menu_screen_dispatch_800AE0D4` with the
@@ -142,21 +169,26 @@ the host can't start while any differ. Nothing is changed without the player ask
 
 ## Race end
 
-At game state 6 (the post-race records, for local races) every machine leaves the race on the same frame as the pause
-menu's Quit does (`race_end_to_menu_800AAC64` with 0x800C1A9C = 0; 1 restarts the race), with 0x800BF31C = 1 so the
-front end starts over from the boot logos (screen 0xE) and the title screen instead of the car select (0xF), which needs
-the profiles of players who came through the menus. The front end loop (`menu_frontend_loop_800AE288`) switches to the
-next screen (0x800E7BB4) when it differs from the one up (0x800E7BC4, -1 none, as the online setup leaves it, so the
-title screen it came from isn't left again with its data gone). The setup's snapshot of the records, car table, menu settings and
-view table is put back, and the session returns to the lobby. A race that ends early (the host leaves, a desync) leaves
-the same way.
+At game state 6 (the post-race) every machine leaves the lockstep on the same frame, and the race goes on as a local
+one for this machine's player: the setup's snapshot of the records, menu settings and view table is put back, record 0
+(the player's, with the profile and controller they picked) takes their car, and the player and view counts are 1.
+The post-race then saves their stats and times to their profile and the track's tables and runs their name entry, as
+after a local race; the other players' results are theirs to save. When the front end comes back up, each machine sets
+0x800FAE6C = 2 so it goes on to the track select with the same player, where the host leads the next race.
+
+A race that ends early (the host leaves, a desync) leaves as the pause menu's Quit does (`race_end_to_menu_800AAC64`
+with 0x800C1A9C = 0; 1 restarts the race), with 0x800BF31C = 1 so the front end starts over from the boot logos (screen
+0xE) and the title screen instead of the car select (0xF). The front end loop (`menu_frontend_loop_800AE288`) switches
+to the next screen (0x800E7BB4) when it differs from the one up (0x800E7BC4, -1 none).
 
 ## Test aids
 
 | Variable | What |
 |---|---|
-| `RUSH2_ONLINE_TEST=host:N` / `join:ADDRESS` | Host and start once N players are in and ready / join and ready up. |
-| `RUSH2_ONLINE_NAME`, `RUSH2_ONLINE_TRACK`, `RUSH2_ONLINE_MODE` | Name; the host's track select id and `race`, `stunt` or `battle`. |
+| `RUSH2_ONLINE_TEST=host:N` / `join:ADDRESS` | Quick races: host and start from the title screen once N players are in, skipping the menus / join. |
+| `RUSH2_ONLINE_TEST=menus:host` / `menus:join:ADDRESS` | Only host or join, for going through the menus (with `--input-script`). |
+| `RUSH2_ONLINE_NAME`, `RUSH2_ONLINE_TRACK`, `RUSH2_ONLINE_RACE_TYPE` | Name; a quick race's track select id and race type. |
+| `RUSH2_TEST_FINISH=S` | Finishes the players' cars S seconds of game clock into the race (src/players4.cpp), for the race end. |
 | `RUSH2_ONLINE_FAKE=K` | The host fills K more slots with players who aren't there (no input). |
 | `RUSH2_ONLINE_BOT=SEED`, `RUSH2_ONLINE_BOT_IDLE=F` | Drive from the frame number (repeatable runs), after F frames. |
 | `RUSH2_ONLINE_SEED` | A fixed race seed. |

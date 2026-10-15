@@ -584,6 +584,7 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         std::fprintf(stderr, "[online] race over at frame %u\n", race_frame);
         finish_race_locally(rdram);
         race_finished();
+        rush2::online::game::race_over();
         return;
     }
     if (phase == Phase::WaitMenus) {
