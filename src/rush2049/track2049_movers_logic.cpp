@@ -523,7 +523,7 @@ namespace rush2::track2049::movers {
         float v[3], d[3], e[3], g[3];
         decode_vert(rest_vert, v);
         for (int i = 0; i < 3; i++) {
-            d[i] = v[i] - op.pivot[i];
+            d[i] = v[i] - op.rest_pivot[i];
         }
         vec_mul(d, op.inv_rest, e);
         vec_mul(e, op.m, g);
@@ -720,6 +720,15 @@ namespace rush2::track2049::movers {
         }
     }
 
+    void World::hold_triggers() {
+        for (const Object& o : objects_) {
+            Path& p = paths_[o.path];
+            if (o.slot == 5 && o.cars && (p.flags & path_one_shot) && (p.flags >> 24) != 0) {
+                p.flags |= path_triggered;
+            }
+        }
+    }
+
     void World::fire(int16_t group) {
         for (const Object& o : objects_) {
             Path& p = paths_[o.path];
@@ -759,6 +768,15 @@ namespace rush2::track2049::movers {
         std::memcpy(f.inv_rest, inv, sizeof(inv));
         for (int k = 0; k < 9; k++) {
             o.m[k] = o.m[k] * node.scale[k / 3];
+        }
+        if (options_.custom && !f.rest_set) {
+            // (S R)^-1 = R^T S^-1: column j of the transpose divided by scale j.
+            f.rest_set = true;
+            std::memcpy(f.rest_pos, o.pos, sizeof(f.rest_pos));
+            for (int k = 0; k < 9; k++) {
+                float sc = node.scale[k % 3];
+                f.rest_inv[k] = sc != 0.0f ? inv[k] / sc : 0.0f;
+            }
         }
     }
 
@@ -891,7 +909,14 @@ namespace rush2::track2049::movers {
             op.kind = GroupOp::rotate;
             op.group = p.group;
             std::memcpy(op.pivot, o.pos, sizeof(op.pivot));
-            std::memcpy(op.inv_rest, f.inv_rest, sizeof(op.inv_rest));
+            if (options_.custom) {
+                std::memcpy(op.rest_pivot, f.rest_pos, sizeof(op.rest_pivot));
+                std::memcpy(op.inv_rest, f.rest_inv, sizeof(op.inv_rest));
+            }
+            else {
+                std::memcpy(op.rest_pivot, o.pos, sizeof(op.rest_pivot));
+                std::memcpy(op.inv_rest, f.inv_rest, sizeof(op.inv_rest));
+            }
             std::memcpy(op.m, o.m, sizeof(op.m));
             ops_.push_back(op);
         }

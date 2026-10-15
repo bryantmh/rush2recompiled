@@ -147,7 +147,12 @@ namespace {
                 mod_like[size_t(sf.material & 15)] = sf.like == "dirt" ? 1 : sf.like == "grass" ? 2 : 0;
             }
             track_has_sky = rush2::track2049::model_names(track.geometry).contains("SKYO1");   // a SKY mesh
-            rush2::track2049::set_mover_data(0, {}, {}, {}, {}, {});
+            {
+                // Moving objects (MOVE_*), in the 2049 layouts the movers code reads; k = 0 marks a custom track.
+                std::set<std::string> names = rush2::track2049::model_names(track.geometry);
+                rush2::track2049::set_mover_data(0, track.mover_paths, track.mover_collision, track.path_records, {},
+                                                 std::vector<std::string>(names.begin(), names.end()));
+            }
             rush2::track2049::set_texanim_data({});
             rush2::track2049::set_prop_data({}, track.geometry);
             rush2::battle::set_data({}, {}, track.geometry, {});
@@ -486,9 +491,16 @@ extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
     rush2::draw_distance_pvs(rdram, sp, table);
 }
 
-// func_800A45A8 at 0x800A4644: $v0 = track id; 0 builds Las Vegas's sky model.
+// A custom track with sky = "clouds" and no sky model of its own: Rush 2's cloud dome (the branch every track but
+// Las Vegas, Atari and the stunt arena takes), drawn as Rush 2 draws it, in one-player races only.
+static bool mod_cloud_dome(uint8_t* rdram) {
+    return hosting_mod(rdram) && !track_has_sky && mod_settings.sky == "clouds";
+}
+
+// func_800A45A8 at 0x800A4644: $v0 = track id; 0 builds Las Vegas's sky model, 11 the stunt arena's, others the
+// cloud dome (the host slot's id, HAWAII, takes that branch).
 extern "C" void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx) {
-    if (hosting(rdram)) {
+    if (hosting(rdram) && !mod_cloud_dome(rdram)) {
         ctx->r2 = 0;
     }
 }
@@ -497,7 +509,7 @@ extern "C" void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx) {
 // func_800A45A8 at 0x800A4600: $t8 = the player count; the sky is only built for one player. Rush 2049 draws its
 // sky in split screen too. A track without a sky model builds none, as in split screen.
 extern "C" void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx) {
-    if (hosting(rdram)) {
+    if (hosting(rdram) && !mod_cloud_dome(rdram)) {
         ctx->r24 = track_has_sky ? 1 : 2;
     }
 }

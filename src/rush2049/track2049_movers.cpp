@@ -335,7 +335,7 @@ namespace {
         placed.clear();
         trigger_groups.clear();
         if (collision_2049.empty()) {
-            return false;   // a track without 2049 data (a custom track)
+            return false;   // a track without moving objects (a custom track without MOVE_ objects)
         }
         if (!parse_collision(collision_2049)) {
             fprintf(stderr, "[2049] Moving objects: bad collision file\n");
@@ -346,21 +346,36 @@ namespace {
             fprintf(stderr, "[2049] Moving objects: bad paths\n");
             return false;
         }
-        auto rom = rush2::wings::get_rom();
-        auto main_2049 = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Main) : nullptr;
-        if (main_2049 == nullptr) {
-            fprintf(stderr, "[2049] Moving objects: can't read Rush 2049's main code\n");
-            return false;
-        }
-        setup_lights(*main_2049);
         std::vector<movers::TypeInfo> types;
-        if (!movers::parse_types(main_2049->data(), main_2049->size(), rush2::rom2049::main_vram, types)) {
-            fprintf(stderr, "[2049] Moving objects: bad type table\n");
-            return false;
+        if (light_track == 0) {
+            // A custom track (src/track_mod/track_mod_convert.cpp, MOVE_ objects): no 2049 type table. Each path is
+            // its own type, named and drawn as the path (the converter names both after the object's model); a ride
+            // (PTHD 0x40, started by a car on its floor) is a trigger-tested type (slot 5), the rest plain movers.
+            for (const movers::Path& p : paths) {
+                movers::TypeInfo t;
+                t.name = p.name;
+                t.model = p.name;
+                t.flags = ((p.flags & movers::path_wait_trigger) ? 5u << 16 : 0u) | 0x21;
+                types.push_back(t);
+            }
+        }
+        else {
+            auto rom = rush2::wings::get_rom();
+            auto main_2049 = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Main) : nullptr;
+            if (main_2049 == nullptr) {
+                fprintf(stderr, "[2049] Moving objects: can't read Rush 2049's main code\n");
+                return false;
+            }
+            setup_lights(*main_2049);
+            if (!movers::parse_types(main_2049->data(), main_2049->size(), rush2::rom2049::main_vram, types)) {
+                fprintf(stderr, "[2049] Moving objects: bad type table\n");
+                return false;
+            }
         }
         movers::Options options;
         options.backward = MEM_B(0, (int32_t)backward_flag) != 0;
         options.mode = std::max(0, (int)rush2::track2049::game_type(rdram));
+        options.custom = light_track == 0;
         world = movers::World();
         world.init(std::move(paths), types, options);
 
@@ -420,7 +435,8 @@ namespace {
                 write_pose(rdram, p, objects[p.object], slot_bits);
             }
         }
-        active = slot_bits != 0xFFFF;
+        // A custom track's object may have only collision (no record), which the movers move all the same.
+        active = slot_bits != 0xFFFF || (light_track == 0 && !objects.empty());
         size_t spin_nodes = 0;
         for (const auto& s : spin_records) {
             spin_nodes += node_of_matrix.contains(base + s.record * record_size + 0x10);
@@ -552,12 +568,15 @@ static void pad_or_platform(uint8_t* rdram, uint32_t car, int poly) {
     }
     float dt = read_f(rdram, car + car_step);
     if (n >= 3) {
-        // Carried: move the car's x/z position.
-        float dx, dz;
+        // Carried: move the car's x/z position. A custom track's moving floor (MOVE_*) also carries the car's height:
+        // Rush 2's suspension alone doesn't keep a car on a floor rising under it, which sinks through the car (2049
+        // lifts cars with moving bodies, ELEVATOR1, not with floors).
+        float dx, dz, dy = 0.0f;
         if (info & 0x20) {
             float v[3];
             world.platform_velocity((int16_t)id, v);
             dx = v[0] * dt; dz = v[2] * dt;
+            if (light_track == 0) dy = v[1] * dt;
         }
         else {
             float t = (spd * 1.4666667f) * dt;
@@ -566,6 +585,7 @@ static void pad_or_platform(uint8_t* rdram, uint32_t car, int poly) {
         }
         write_f(rdram, car + car_position, read_f(rdram, car + car_position) + dx);
         write_f(rdram, car + car_position + 8, read_f(rdram, car + car_position + 8) + dz);
+        if (dy != 0.0f) write_f(rdram, car + car_position + 4, read_f(rdram, car + car_position + 4) + dy);
         return;
     }
     float v[3] = { a[0], a[1], a[2] };
@@ -661,6 +681,7 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
         for (int i = 0; i < 3; i++) focus[i] = read_f(rdram, car + car_position + i * 4);
         world.set_focus(focus);
     }
+    world.hold_triggers();
     world.update(dt);
     // Objects that turn in place (func_8010E694), on their records' matrices.
     uint32_t base = (uint32_t)MEM_W(0, (int32_t)record_base);
@@ -671,7 +692,10 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
         movers::rotate_in_place(m, s.sub, dt);
         for (int i = 0; i < 9; i++) write_f(rdram, m_addr + i * 4, m[i]);
     }
-    apply_ops(rdram, world.take_group_ops());
+    {
+        auto ops = world.take_group_ops();
+        apply_ops(rdram, ops);
+    }
     uint16_t slot_bits = 0xFFFF;
     for (const Placed& p : placed) {
         if (p.node != 0) {

@@ -14026,9 +14026,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x80125B68
 name = "sky_setup_word"
 type = "s32"
-desc = "Write-only word set by sky setup and player slot find (low confidence)."
+desc = "Per-view sky model matrix pointer (index = view, 4 bytes each), from scene_matrix_create in sky_setup_800A45A8; render_sky_cloud_scroll_8008918C copies the view camera x and z into it each frame (0 = no sky model)."
 area = "render"
-status = "inferred"
+status = "verified"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]

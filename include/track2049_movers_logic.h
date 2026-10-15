@@ -106,6 +106,11 @@ namespace rush2::track2049::movers {
         float max_speed = 0.0f; // +0x14 largest node speed
         float prev[3] = {};     // +0x18 position before the last step
         float inv_rest[9] = {}; // +0x24 transpose of the restart node's rotation (unscaled)
+        // Custom tracks only (Options::custom): the spawn pose the collision rest copy was built at, and the full
+        // inverse of its matrix (scale included), so rotate ops place the group relative to that pose.
+        bool rest_set = false;
+        float rest_pos[3] = {};
+        float rest_inv[9] = {};
     };
 
     enum class Model : uint8_t {
@@ -144,6 +149,7 @@ namespace rush2::track2049::movers {
         int16_t group;
         float delta[3];     // translate: position change of the object this step
         float pivot[3];     // rotate: object position
+        float rest_pivot[3]; // rotate: where the rest copy is measured from (2049: = pivot; custom: spawn position)
         float inv_rest[9];  // rotate: follower inverse rest rotation
         float m[9];         // rotate: object matrix (rotation x scale)
     };
@@ -152,6 +158,9 @@ namespace rush2::track2049::movers {
         bool backward = false;      // 2049 0x80152570 (Rush 2 0x80119848)
         bool expansion = true;      // 2049 0x80156994 (osMemSize > 4 MB): spawn everything
         bool restricted = false;    // 2049 0x801174B4 & 8 [I: multiplayer]: without expansion nothing spawns
+        bool custom = false;        // custom track: rotate ops measure the rest copy from the spawn pose. 2049 uses
+                                    // the current position, which undoes any translation of a group that also
+                                    // rotates (its moving groups only rotate in place)
         int mode = 0;               // 2049 0x8014A110 (rush2::track2049::GameType): 5 = obstacle course; 2 = 2049's
                                     // GHOST RACE (paths with a collision group left out unless flagged; never set
                                     // here: the port's ghosts ignore moving objects instead, rush2_ghost_leaf_filter)
@@ -179,6 +188,11 @@ namespace rush2::track2049::movers {
         // Fires every trigger-tested path of a group as if a new car had driven onto its polygons (edge trigger
         // without a car bit).
         void fire(int16_t group);
+
+        // Before update(): a one-shot path (PTHD 0x4000) with a car bit still set counts as driven on this frame.
+        // 2049 tests every car every frame, re-setting 0x200 while one is on; Rush 2 steps its computer cars every
+        // other physics tick, so a car's last test stands until its next one (else a ride turns back between them).
+        void hold_triggers();
 
         // func_800C1A00: velocity of a ride-on platform group (first PTHD 0x20 object with this group, in spawn
         // order): its node direction x follower speed, negated going backward; zero if none.

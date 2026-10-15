@@ -26,3 +26,5 @@ Never assume the saved car or track is the current car or track. They change all
 An ingame run takes a long time. Don't waste time doing one if the answer can easily be found outside the game, or wate time by doing runs piecemeal
 
 If I've already given you a screenshot of an issue, you don't need to open the game just to reproduce the screenshot
+
+The game's menus (game states, front-end screen ids, Start Game rows, track/car select, pause menu rows and confirms) and the input scripts that drive them are mapped in docs/menus.md. Read it before scripting a run through the menus, and add to it what you learn instead of working it out again

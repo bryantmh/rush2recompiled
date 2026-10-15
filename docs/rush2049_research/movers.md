@@ -251,7 +251,9 @@ the other vertices are polygon-local. VERT decode: `((s16 << 5) + 5-bit fraction
 - **rotate (func_800BF838, from rotation(); overwrites translate for rotating objects):** from the rest copy:
   `R = Rest·inv_rest·obj.m` (func_800BF780 `out = B×A`, element `A[6+j]*B[i][2] + (B[i][0]*A[j] + B[i][1]*A[3+j])`),
   matrix = `(s16)trunc(R*16384.0f)`; vertex `v = pivot + ((rest - pivot)·inv_rest)·obj.m`, `q = trunc(v*32)` (no
-  rounding), packed as above. pivot = current object position.
+  rounding), packed as above. pivot = current object position, so an object that both moves and turns gets its
+  translation undone (2049's rotating groups turn in place). Custom tracks (`Options::custom`) measure the rest copy
+  from the spawn position with the full inverse of the spawn matrix instead (docs/custom_tracks.md, For developers).
 - **restore (func_800B2D20):** POLY+4 ← rest matrix (0x12 bytes), VERT ← rest vertex. Does **not** touch POLY flags.
 - **disable (func_800B2CB4):** POLY u16 flags = 0x000F (type 0xF, material cleared). Only used at spawn, for
   0x800 paths absent in this direction/mode — permanent.

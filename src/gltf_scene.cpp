@@ -138,7 +138,12 @@ bool rush2::gltf::read_glb(const std::vector<uint8_t>& bytes, Scene& scene, std:
         Node out;
         out.name = n.value("name", std::string());
         out.parent = parent_out;
-        out.world = multiply(parent, node_matrix(n));
+        out.local = node_matrix(n);
+        out.world = multiply(parent, out.local);
+        out.has_matrix = n.contains("matrix");
+        if (n.contains("translation")) for (int k = 0; k < 3; k++) out.translation[k] = n["translation"][k].get<float>();
+        if (n.contains("rotation")) for (int k = 0; k < 4; k++) out.rotation[k] = n["rotation"][k].get<float>();
+        if (n.contains("scale")) for (int k = 0; k < 3; k++) out.scale[k] = n["scale"][k].get<float>();
         if (n.contains("extras") && n["extras"].is_object()) out.extras = n["extras"];
         const float* a = out.world.data();
         float det = a[0] * (a[5] * a[10] - a[9] * a[6]) - a[4] * (a[1] * a[10] - a[9] * a[2]) + a[8] * (a[1] * a[6] - a[5] * a[2]);
@@ -220,6 +225,35 @@ bool rush2::gltf::read_glb(const std::vector<uint8_t>& bytes, Scene& scene, std:
     }
     else {
         for (size_t i = 0; i < js["nodes"].size(); i++) visit(int(i), identity, -1);
+    }
+
+    if (js.contains("animations") && js["animations"].is_array()) {
+        for (const auto& a : js["animations"]) {
+            Animation anim;
+            anim.name = a.value("name", std::string());
+            if (!a.contains("channels") || !a.contains("samplers")) continue;
+            for (const auto& c : a["channels"]) {
+                if (!c.contains("target") || !c["target"].contains("node")) continue;
+                int node = c["target"]["node"].get<int>();
+                std::string path = c["target"].value("path", std::string());
+                int sampler = c.value("sampler", -1);
+                if (node < 0 || node >= (int)index_of.size() || index_of[node] < 0 || sampler < 0 ||
+                    sampler >= (int)a["samplers"].size()) continue;
+                if (path != "translation" && path != "rotation" && path != "scale") continue;
+                const auto& smp = a["samplers"][sampler];
+                Channel ch;
+                ch.node = index_of[node];
+                ch.path = path;
+                ch.interpolation = smp.value("interpolation", std::string("LINEAR"));
+                int width = path == "rotation" ? 4 : 3;
+                if (!read_accessor(js, bin, smp.value("input", -1), 1, ch.times) ||
+                    !read_accessor(js, bin, smp.value("output", -1), width, ch.values)) continue;
+                size_t per_key = ch.interpolation == "CUBICSPLINE" ? 3 * width : width;
+                if (ch.times.empty() || ch.values.size() != ch.times.size() * per_key) continue;
+                anim.channels.push_back(std::move(ch));
+            }
+            if (!anim.channels.empty()) scene.animations.push_back(std::move(anim));
+        }
     }
     return true;
 }

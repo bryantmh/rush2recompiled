@@ -40,6 +40,38 @@ namespace rush2::track_mod {
         int material = 0;   // the polygon material slot it was given (3-15, not 8)
     };
 
+    // A [movers.<name>] entry: how MOVE_<name> plays its animation.
+    struct MoverSettings {
+        std::string mode = "loop";      // loop, pingpong or ride (plays forward while a car is on it, then returns)
+        std::string races = "both";     // both, forward or backward: the races it is there in
+    };
+
+    // The stock skies track.toml's sky can name (docs/custom_tracks.md#sky): `clouds` is Rush 2's cloud dome, the
+    // others a model copied from that track. game: 2 = Rush 2 (asset `asset`), 2049 = Rush 2049 (its track k).
+    struct StockSky {
+        const char* name;
+        int game;
+        int asset_or_k;
+        const char* model;
+        // Height (ft) of the start of the source track's AI path (spine point 0 of Rush 2 path asset 0x57 + 2 x track,
+        // 2049 file 157 + k). Rush 2 moves a sky model with the camera in x and z only (func_8008918C at
+        // 0x80089454), so its height is world space: a copy is raised by (the custom track's FINISH height - this)
+        // to sit round the road as it does on its own track.
+        float ground;
+    };
+    constexpr StockSky stock_skies[] = {
+        { "clouds", 2, -1, "", 0.0f },
+        { "las_vegas", 2, 0x33, "SKYO1", -35.0f },
+        { "stunt", 2, 0x33 + 11, "STUNTSKYO1", 0.0f },
+        { "marina", 2049, 1, "SKYSKY", 531.0f },
+        { "haight", 2049, 2, "SKYSKY", 150.0f },
+        { "civic", 2049, 3, "SKYSKY", 200.0f },
+        { "metro", 2049, 4, "SKYSKY", 0.0f },
+        { "mission", 2049, 5, "SKYSKY", 49.0f },
+        { "presidio", 2049, 6, "SKYSKY", 86.0f },
+    };
+    const StockSky* stock_sky(const std::string& name);
+
     // track.toml.
     struct Settings {
         std::string name, author, version, description;
@@ -47,11 +79,12 @@ namespace rush2::track_mod {
         std::vector<std::array<float, 3>> checkpoint_time;   // per checkpoint: first lap, later laps (third unused)
         std::vector<float> best_times;
         std::array<uint8_t, 3> fog = { 0xA0, 0xB8, 0xD0 };
-        std::string sky = "none";                             // not supported yet
+        std::string sky = "none";                             // none or a stock_skies name
         float cloud_scroll = 0.0f, sky_parallax = 0.0f;
         std::string music;
         std::string preview, logo, diorama;                   // [menu] files in the track's folder
         std::map<std::string, Surface> surfaces;              // by upper-case name
+        std::map<std::string, MoverSettings> movers;          // by the name after MOVE_
     };
 
     bool parse_settings(const std::string& toml_text, Settings& out, Report& report);
@@ -89,6 +122,10 @@ namespace rush2::track_mod {
         std::vector<uint8_t> logo;              // logo image (PNG)
         std::vector<uint8_t> diorama;           // diorama model (.glb)
         std::vector<uint8_t> preview;           // the picture behind the route preview when there is no diorama (PNG)
+        // The stock sky track.toml names (a model one): a Rush 2 model container holding it and its name there,
+        // copied in as SKYO1. Empty when the game couldn't provide it (no Rush 2049 ROM, the offline converter).
+        std::vector<uint8_t> sky_container;
+        std::string sky_model;
     };
 
     struct Converted {

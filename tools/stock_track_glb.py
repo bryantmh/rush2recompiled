@@ -61,7 +61,8 @@ def dot(a, b):
 
 
 class Glb:
-    """A minimal glTF 2.0 binary writer: meshes (positions, normals, uvs, one plain material) and Empties."""
+    """A minimal glTF 2.0 binary writer: meshes (positions, normals, uvs, one plain material), Empties, node
+    hierarchies and node animations."""
 
     def __init__(self):
         self.js = {'asset': {'version': '2.0', 'generator': 'rush2-recomp tools/stock_track_glb.py'}, 'scene': 0,
@@ -79,7 +80,10 @@ class Glb:
 
     def _accessor(self, values, kind, width, ctype, target, minmax=False):
         fmt = '<%d%s' % (len(values), 'f' if ctype == 5126 else 'I')
-        a = {'bufferView': self._view(struct.pack(fmt, *values), target), 'componentType': ctype,
+        view = self._view(struct.pack(fmt, *values), target)
+        if target is None:
+            del self.js['bufferViews'][view]['target']
+        a = {'bufferView': view, 'componentType': ctype,
              'count': len(values) // width, 'type': kind}
         if minmax:
             a['min'] = [min(values[k::width]) for k in range(width)]
@@ -87,27 +91,57 @@ class Glb:
         self.js['accessors'].append(a)
         return len(self.js['accessors']) - 1
 
-    def mesh(self, name, verts, normals, tris, matrix=None):
+    def mesh(self, name, verts, normals, tris, matrix=None, parent=None, trs=None, color=None):
         """verts/normals: glTF xyz tuples; tris: index triples (counter-clockwise front); matrix: the node's (column
-        major), else none."""
+        major), else none; parent: a node index to put it under; trs: (translation, rotation xyzw, scale). Returns
+        the node's index. color: (r, g, b) 0-1 for a plain material of its own."""
+        material = 0
+        if color:
+            self.js['materials'].append({'name': 'color%d' % len(self.js['materials']), 'pbrMetallicRoughness': {
+                'baseColorFactor': [color[0], color[1], color[2], 1.0], 'metallicFactor': 0.0}})
+            material = len(self.js['materials']) - 1
         pos = [c for v in verts for c in v]
         nrm = [c for v in normals for c in v]
         prim = {'attributes': {'POSITION': self._accessor(pos, 'VEC3', 3, 5126, 34962, True),
                                'NORMAL': self._accessor(nrm, 'VEC3', 3, 5126, 34962),
                                'TEXCOORD_0': self._accessor([0.0] * (2 * len(verts)), 'VEC2', 2, 5126, 34962)},
-                'indices': self._accessor([i for t in tris for i in t], 'SCALAR', 1, 5125, 34963), 'material': 0}
+                'indices': self._accessor([i for t in tris for i in t], 'SCALAR', 1, 5125, 34963), 'material': material}
         self.js['meshes'].append({'name': name, 'primitives': [prim]})
         node = {'name': name, 'mesh': len(self.js['meshes']) - 1}
         if matrix:
             node['matrix'] = matrix
-        self._node(node)
+        return self._node(node, parent, trs)
 
-    def empty(self, name, matrix):
-        self._node({'name': name, 'matrix': matrix})
+    def empty(self, name, matrix=None, parent=None, trs=None):
+        n = {'name': name}
+        if matrix:
+            n['matrix'] = matrix
+        return self._node(n, parent, trs)
 
-    def _node(self, n):
+    def _node(self, n, parent=None, trs=None):
+        if trs:
+            n['translation'], n['rotation'], n['scale'] = [list(map(float, v)) for v in trs]
         self.js['nodes'].append(n)
-        self.js['scenes'][0]['nodes'].append(len(self.js['nodes']) - 1)
+        i = len(self.js['nodes']) - 1
+        if parent is None:
+            self.js['scenes'][0]['nodes'].append(i)
+        else:
+            self.js['nodes'][parent].setdefault('children', []).append(i)
+        return i
+
+    def animate(self, name, node, times, translation=None, rotation=None, scale=None, interpolation='LINEAR'):
+        """A node animation: key times (s) and, per key, the values of whichever of translation, rotation (xyzw) and
+        scale are given."""
+        anim = {'name': name, 'channels': [], 'samplers': []}
+        t = self._accessor([float(x) for x in times], 'SCALAR', 1, 5126, None, True)
+        for path, values, kind, width in (('translation', translation, 'VEC3', 3), ('rotation', rotation, 'VEC4', 4),
+                                          ('scale', scale, 'VEC3', 3)):
+            if values is None:
+                continue
+            out = self._accessor([float(c) for v in values for c in v], kind, width, 5126, None)
+            anim['samplers'].append({'input': t, 'output': out, 'interpolation': interpolation})
+            anim['channels'].append({'sampler': len(anim['samplers']) - 1, 'target': {'node': node, 'path': path}})
+        self.js.setdefault('animations', []).append(anim)
 
     def bytes(self):
         while len(self.bin) % 4:

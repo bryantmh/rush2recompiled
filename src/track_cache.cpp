@@ -28,12 +28,12 @@
 
 namespace {
     constexpr char magic[4] = { 'R', '2', 'T', 'C' };
-    constexpr uint32_t format_version = 1;
+    constexpr uint32_t format_version = 2;
     enum class Kind : uint32_t { Rush1 = 1, Rush2049 = 2, Blob = 3 };
 
     // A field added to a converted track struct has to be added to write()/read() below; then update these sizes.
     static_assert(sizeof(rush2::track1::ConvertedTrack) == 392, "update track_cache.cpp for ConvertedTrack (track1)");
-    static_assert(sizeof(rush2::track2049::ConvertedTrack) == 392, "update track_cache.cpp for ConvertedTrack (2049)");
+    static_assert(sizeof(rush2::track2049::ConvertedTrack) == 440, "update track_cache.cpp for ConvertedTrack (2049)");
     static_assert(sizeof(rush2::track1::ConvertedTrack::Timing) == 64, "update track_cache.cpp for Timing");
     static_assert(sizeof(rush2::track2049::TexFlipbook) == 72, "update track_cache.cpp for TexFlipbook");
     static_assert(sizeof(rush2::track2049::TexScroll) == 72, "update track_cache.cpp for TexScroll");
@@ -261,6 +261,8 @@ namespace {
             w.pod(s.speed);
             w.pod(s.rate);
         }
+        w.pods(t.mover_paths);
+        w.pods(t.mover_collision);
     }
 
     void read(Reader& r, rush2::track2049::ConvertedTrack& t) {
@@ -298,6 +300,8 @@ namespace {
             r.pod(s.speed);
             r.pod(s.rate);
         }
+        r.pods(t.mover_paths);
+        r.pods(t.mover_collision);
     }
 
     std::mutex cache_mutex;

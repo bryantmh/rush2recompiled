@@ -11,7 +11,7 @@ own load-time search (func_80092D6C, which custom tracks skip) would have put a 
 case guards against. Layouts are built in game feet (y up) along a centre line in race order; the AI path ribbon, the
 road (COL_ROAD, drawn too) and the markers are made from it, then a case's mistakes are applied.
 """
-import math, os, random, re, subprocess, sys
+import math, os, random, re, struct, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -190,11 +190,12 @@ class Case:
     (s, 'curve' | 'road') the spine's height there must be the curve's (kept in the air) or the road's (dropped);
     export: how AIPATH_main's mesh is written (ribbon_mesh); nopath: the path files' crossings aren't checked (a
     broken or missing AIPATH_main or FINISH: the track still loads, on a stand-in path); ribbon: False leaves
-    AIPATH_main out; visual: False leaves the visible mesh out (only COL_ROAD)."""
+    AIPATH_main out; visual: False leaves the visible mesh out (only COL_ROAD); movers: adds the MOVE_ objects of
+    mover_defs and checks their conversion (check_movers)."""
 
     def __init__(self, name, line, gates, start=0.0, reverse=False, overshoot=0.0, kinks=(), dupes=(), errors=(),
                  warnings=(), allow=(), wrong=(), gaps=(), floors=(), lift=None, heights=(), export='pairs',
-                 nopath=False, ribbon=True, visual=True, note=''):
+                 nopath=False, ribbon=True, visual=True, movers=False, note=''):
         self.__dict__.update(locals())
         del self.__dict__['self']
 
@@ -338,11 +339,12 @@ def build(c, folder):
         pos = (p[0] + lat[0] * gate.side, p[1] + gate.up, p[2] + lat[2] * gate.side)
         d = (t[0] * gate.arrow, 0.0, t[2] * gate.arrow)
         g.empty(gate.name, gate_matrix(pos, d, gate.half))
+    toml = build_movers(g, c) if c.movers else ''
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, 'track.glb'), 'wb') as f:
         f.write(g.bytes())
     with open(os.path.join(folder, 'track.toml'), 'w', newline='\n') as f:
-        f.write('[track]\nname = "%s"\n' % c.name)
+        f.write('[track]\nname = "%s"\n' % c.name + toml)
 
 
 def convert(folder):
@@ -419,7 +421,245 @@ def check(c, folder):
         if abs(got - want) > 4:
             fails.append('spine height at %.0f ft along: %d, want the %s height %.0f' % (q, got, kind, want))
     del names
+    if c.movers:
+        check_movers(c, out, report, fails)
     return fails, notes
+
+
+# --- moving objects (MOVE_*) ------------------------------------------------------------------------------------------
+# A case with movers=True gets four animated objects beside the road (outside its 50 ft half width), each testing a
+# different part of the animation -> 2049 path conversion; check_movers() then replays every key with Rush 2049's own
+# pose arithmetic (movers::quat_to_matrix, rows scaled, a point times the matrix) and compares it with the glTF pose.
+
+def quat_axis(axis, deg):
+    n = math.sqrt(sum(a * a for a in axis))
+    h = math.radians(deg) / 2
+    return tuple(a / n * math.sin(h) for a in axis) + (math.cos(h),)
+
+
+def trs_matrix(t, q, s):
+    """glTF TRS -> column-major 4x4 (as src/gltf_scene.cpp node_matrix)."""
+    x, y, z, w = q
+    n = math.sqrt(x * x + y * y + z * z + w * w) or 1.0
+    x, y, z, w = x / n, y / n, z / n, w / n
+    r = [1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w),
+         2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w),
+         2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)]
+    m = [0.0] * 16
+    for c in range(3):
+        for k in range(3):
+            m[c * 4 + k] = r[c * 3 + k] * s[c]
+    m[12:15] = list(t)
+    m[15] = 1.0
+    return m
+
+
+def mat_mul(a, b):
+    return [sum(a[k * 4 + r] * b[c * 4 + k] for k in range(4)) for c in range(4) for r in range(4)]
+
+
+def mat_point(m, v):
+    return tuple(m[r] * v[0] + m[4 + r] * v[1] + m[8 + r] * v[2] + m[12 + r] for r in range(3))
+
+
+def quat_to_matrix_2049(q):
+    """movers::quat_to_matrix (func_800BFBE8): row-major, elements 1, 3, 5, 7 negated."""
+    x, y, z, w = q
+    xs, ys, zs = x * 2, y * 2, z * 2
+    xx, yy, zz = x * xs, y * ys, z * zs
+    xy, wz, yz, wx, xz, wy = x * ys, w * zs, y * zs, w * xs, x * zs, w * ys
+    return [1 - (yy + zz), -(xy + wz), xz - wy, -(xy - wz), 1 - (xx + zz), -(yz + wx), xz + wy, -(yz - wx), 1 - (xx + yy)]
+
+
+def box(h, lift=0.0):
+    """A box of half size h (m), bottom at lift - h... centred on (0, lift, 0): verts, normals, outward CCW tris."""
+    vs = [(sx * h, lift + sy * h, sz * h) for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+    verts, nrms, tris = [], [], []
+    for f in faces:
+        a, b, c = (vs[i] for i in f[:3])
+        e1 = [b[i] - a[i] for i in range(3)]
+        e2 = [c[i] - a[i] for i in range(3)]
+        n = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+        ln = math.sqrt(sum(v * v for v in n))
+        n = tuple(v / ln for v in n)
+        centre = [sum(vs[i][k] for i in f) / 4 for k in range(3)]
+        out = sum(n[k] * (centre[k] - (lift if k == 1 else 0.0)) for k in range(3)) > 0
+        base = len(verts)
+        verts += [vs[i] for i in f]
+        nrms += [n if out else tuple(-v for v in n)] * 4
+        tris += [(base, base + 1, base + 2), (base, base + 2, base + 3)] if out else \
+                [(base, base + 2, base + 1), (base, base + 3, base + 2)]
+    return verts, nrms, tris
+
+
+def floor(h):
+    """A flat square floor of half size h (m) at local y 0, facing up."""
+    verts = [(-h, 0.0, -h), (-h, 0.0, h), (h, 0.0, h), (h, 0.0, -h)]
+    return verts, [(0.0, 1.0, 0.0)] * 4, [(0, 1, 2), (0, 2, 3)]
+
+
+def mover_defs(c):
+    """The four test objects: name, mode, a game position beside the road, the node's exported pose (Blender writes
+    the current frame's, not the first key's), its keys, a parent pose (or None), and its parts."""
+    L = c.line.length
+
+    def beside(s, side=90.0):
+        p, lat = c.line.at(s), c.line.lateral(s)
+        return to_gltf((p[0] + lat[0] * side, p[1], p[2] + lat[2] * side))
+
+    a, b, d, e = beside(0.15 * L), beside(0.25 * L), beside(0.4 * L), beside(0.6 * L, -90.0)
+    yaw = [quat_axis((0, 1, 0), k * 90.0) for k in range(5)]
+    return [
+        # A closed loop turning about y (the last key is the first's pose: 4 nodes).
+        dict(name='spin', mode='loop', at=a, file_trs=(a, yaw[1], (1, 1, 1)), times=[0, 1, 2, 3, 4],
+             T=[a] * 5, R=yaw, S=None, parent=None, parts=[('vis', box(3.0, 3.0))]),
+        # Back and forth with a scale change and a wall that moves with it.
+        dict(name='slide', mode='pingpong', at=b, file_trs=(b, (0, 0, 0, 1), (1, 1, 1)), times=[0, 1.5, 3],
+             T=[b, (b[0] + 6, b[1], b[2]), (b[0] + 12, b[1] + 2, b[2])], R=None,
+             S=[(1, 1, 1), (1.5, 1, 1), (1, 2, 1)], parent=None,
+             parts=[('vis', box(2.0, 2.0)), ('COL_WALL_slide', box(2.0, 2.0))]),
+        # A ride: a floor that rises 9 m while a car is on it.
+        dict(name='lift', mode='ride', at=d, file_trs=(d, (0, 0, 0, 1), (1, 1, 1)), times=[0, 4],
+             T=[d, (d[0], d[1] + 9, d[2])], R=None, S=None, parent=None,
+             parts=[('vis', floor(6.0)), ('COL_ROAD_lift', floor(6.0))]),
+        # Under a turned, scaled parent; turns about a tilted axis and doesn't end where it began (a loop that jumps).
+        dict(name='tilt', mode='loop', at=e, file_trs=((0, 2, 0), (0, 0, 0, 1), (1, 1, 1)), times=[0, 2, 5],
+             T=[(0, 2, 0), (1, 3, 0), (0, 4, 1)], R=[quat_axis((1, 1, 0), 0), quat_axis((1, 1, 0), 60), quat_axis((1, 1, 0), 150)],
+             S=None, parent=(e, quat_axis((0, 1, 0), 30), (2, 2, 2)), parts=[('vis', box(1.5))]),
+    ]
+
+
+def build_movers(g, c):
+    toml = ''
+    for m in mover_defs(c):
+        parent = None
+        if m['parent']:
+            parent = g.empty('MOVEPARENT_' + m['name'], trs=m['parent'])
+        node = g.empty('MOVE_' + m['name'], parent=parent, trs=m['file_trs'])
+        for part, (verts, nrms, tris) in m['parts']:
+            g.mesh(part if part != 'vis' else 'MOVEVIS_' + m['name'], verts, nrms, tris, parent=node,
+                   color=m.get('color') if part == 'vis' else None)
+        g.animate('MOVE_%sAction' % m['name'], node, m['times'], m['T'], m['R'], m['S'])
+        toml += '\n[movers.%s]\nmode = "%s"\n' % (m['name'], m['mode'])
+    return toml
+
+
+def check_movers(c, out, report, fails):
+    import collision
+    pb = open(os.path.join(out, 'mover_paths.bin'), 'rb').read() if os.path.exists(os.path.join(out, 'mover_paths.bin')) else b''
+    if not pb:
+        fails.append('no mover_paths.bin')
+        return
+    be32 = lambda d, o: struct.unpack_from('>I', d, o)[0]
+    dir_at = be32(pb, 0)
+    assert pb[dir_at:dir_at + 4] == b'PTHD'
+    base, count = be32(pb, dir_at + 4), be32(pb, dir_at + 8)
+    paths = []
+    for k in range(count):
+        h = base + k * 36
+        name = pb[h:h + 16].split(b'\0')[0].decode()
+        flags, nodes, group = be32(pb, h + 16), struct.unpack_from('>h', pb, h + 20)[0], struct.unpack_from('>h', pb, h + 22)[0]
+        off = be32(pb, h + 28)
+        ns = []
+        for j in range(nodes):
+            f = struct.unpack_from('>16fI', pb, off + j * 0x44)
+            ns.append(dict(pos=f[0:3], dir=f[3:6], scale=f[6:9], quat=f[9:13], dist=f[13], time=f[14], speed=f[15], flags=f[16]))
+        paths.append(dict(name=name, flags=flags, group=group, nodes=ns))
+    defs = mover_defs(c)
+    if len(paths) != len(defs):
+        fails.append('%d mover paths, want %d' % (len(paths), len(defs)))
+        return
+    placement = open(os.path.join(out, 'placement.bin'), 'rb').read()
+    records = [tuple(map(int, l.split())) for l in open(os.path.join(out, 'mover_records.txt')).read().split('\n') if l.strip()]
+    want_flags = {'loop': 0x2, 'pingpong': 0x1, 'ride': 0x4040}
+    for j, (m, p) in enumerate(zip(defs, paths)):
+        if not re.search(r'^MOVE_%s: ' % m['name'], report, re.M):
+            fails.append('no report line for MOVE_%s' % m['name'])
+        if (p['flags'] & 0x4043) != want_flags[m['mode']]:
+            fails.append('MOVE_%s flags %#x, want mode bits %#x' % (m['name'], p['flags'], want_flags[m['mode']]))
+        has_col = any(part.startswith('COL_') for part, _ in m['parts'])
+        if bool(p['group']) != has_col or bool(p['flags'] & 0x20) != has_col:
+            fails.append('MOVE_%s group %d flags %#x, collision %s' % (m['name'], p['group'], p['flags'], has_col))
+        same_turn = not m['R'] or abs(sum(x * y for x, y in zip(m['R'][0], m['R'][-1]))) > 0.99999
+        closed = m['mode'] == 'loop' and m['T'][-1] == m['T'][0] and same_turn and (m['S'] or [0])[-1] == (m['S'] or [0])[0]
+        want_nodes = len(m['times']) - (1 if closed else 0)
+        if len(p['nodes']) != want_nodes:
+            fails.append('MOVE_%s %d nodes, want %d' % (m['name'], len(p['nodes']), want_nodes))
+        # Every node's pose against the glTF pose at its key, for each vertex of the object.
+        parent = trs_matrix(*m['parent']) if m['parent'] else trs_matrix((0, 0, 0), (0, 0, 0, 1), (1, 1, 1))
+        worst = 0.0
+        for k, node in enumerate(p['nodes']):
+            t = m['T'][k]
+            r = m['R'][k] if m['R'] else m['file_trs'][1]
+            s = m['S'][k] if m['S'] else m['file_trs'][2]
+            w = mat_mul(parent, trs_matrix(t, r, s))
+            mm = quat_to_matrix_2049(node['quat'])
+            mm = [mm[i] * node['scale'][i // 3] for i in range(9)]
+            for _, (verts, _, _) in m['parts']:
+                for v in verts:
+                    want = to_game_pt(mat_point(w, v))
+                    loc = to_game_pt(v)
+                    got = tuple(loc[0] * mm[i] + loc[1] * mm[3 + i] + loc[2] * mm[6 + i] + node['pos'][i] for i in range(3))
+                    worst = max(worst, math.dist(want, got))
+            if k == 0:
+                rec = [r for r in records if r[0] == j]
+                if not rec:
+                    fails.append('MOVE_%s has no placement record' % m['name'])
+                else:
+                    o = 0x18 + rec[0][2] * 0x64
+                    rm = struct.unpack_from('>12f', placement, o + 16)
+                    if max(abs(rm[i] - mm[i]) for i in range(9)) > 1e-3 or max(abs(rm[9 + i] - node['pos'][i]) for i in range(3)) > 0.01:
+                        fails.append('MOVE_%s placement record pose differs from its first node' % m['name'])
+        if worst > 0.05:
+            fails.append('MOVE_%s: a node pose is %.3f ft off the glTF pose' % (m['name'], worst))
+    # Moving collision: MOVER records per group, floors flagged 0x20, and listed in the cells along their travel.
+    mc = open(os.path.join(out, 'mover_collision.bin'), 'rb').read()
+    n_poly, n_mover = struct.unpack_from('>H', mc, 4)[0], struct.unpack_from('>H', mc, 8)[0]
+    info = [struct.unpack_from('>H', mc, 0x10 + i * 0x18 + 2)[0] for i in range(n_poly)]
+    movers = [struct.unpack_from('>hH', mc, 0x10 + n_poly * 0x18 + i * 0x20) for i in range(n_mover)]
+    coll = collision.Collision.parse(open(os.path.join(out, 'collision.bin'), 'rb').read(), collision.R2)
+    for j, (m, p) in enumerate(zip(defs, paths)):
+        if not p['group']:
+            continue
+        polys = [poly for g_, poly in movers if g_ == p['group']]
+        if not polys:
+            fails.append('MOVE_%s: no MOVER records' % m['name'])
+            continue
+        if m['name'] == 'lift' and not all(info[q] & 0x20 and info[q] >> 11 == p['group'] for q in polys):
+            fails.append('MOVE_lift: floor polygons not flagged as a platform of its group')
+        for k, node in enumerate(p['nodes']):
+            for q in polys:
+                pts = collision.world_polygon(coll, coll.polys[q])
+                # the polygon's rest pose moved to this node: the object's displacement and turn
+                mm0 = quat_to_matrix_2049(p['nodes'][0]['quat'])
+                mm0 = [mm0[i] * p['nodes'][0]['scale'][i // 3] for i in range(9)]
+                mmk = quat_to_matrix_2049(node['quat'])
+                mmk = [mmk[i] * node['scale'][i // 3] for i in range(9)]
+                inv = invert3(mm0)
+                cx = sum(pt[0] for pt in pts) / len(pts)
+                cy = sum(pt[1] for pt in pts) / len(pts)
+                cz = sum(pt[2] for pt in pts) / len(pts)
+                d = (cx - p['nodes'][0]['pos'][0], cy - p['nodes'][0]['pos'][1], cz - p['nodes'][0]['pos'][2])
+                loc = tuple(sum(d[r] * inv[r * 3 + i] for r in range(3)) for i in range(3))
+                wx = sum(loc[r] * mmk[r * 3 + 0] for r in range(3)) + node['pos'][0]
+                wz = sum(loc[r] * mmk[r * 3 + 2] for r in range(3)) + node['pos'][2]
+                leaf = collision.leaf_for_cell(coll, collision.cell(wx, collision.R2), collision.cell(wz, collision.R2), collision.R2)
+                if not leaf or q not in leaf:
+                    fails.append('MOVE_%s polygon %d not in the cell at node %d (%.0f, %.0f)' % (m['name'], q, k, wx, wz))
+                    break
+
+
+def to_game_pt(p):
+    return (-p[0] * FEET_PER_METER, p[1] * FEET_PER_METER, p[2] * FEET_PER_METER)
+
+
+def invert3(m):
+    a, b, c, d, e, f, g, h, i = m
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    return [(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det,
+            (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det,
+            (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det]
 
 
 # --- the cases ----------------------------------------------------------------------------------------------------
@@ -431,6 +671,7 @@ def cases():
                    Gate('CHECKPOINT_3', 0.8 * L)]
     out = [
         Case('oval', o, std(), note='control'),
+        Case('movers', o, std(), movers=True, note='MOVE_ objects: loop, ping-pong, ride, parented; poses, moving collision'),
         Case('ribbon_reversed', o, std(), reverse=True, note='curve drawn against the race'),
         Case('ribbon_starts_elsewhere', o, std(), start=0.62 * L, note='curve starts mid-lap'),
         Case('seam_overlap_finish', o, std(), start=0.05 * L - 3, overshoot=4.5,

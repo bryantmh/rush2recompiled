@@ -298,6 +298,7 @@ namespace {
         Vec3 front;         // the author's front-face normal, game space
         uint16_t flags;     // type | material << 4
         std::string object;
+        int group = 0;      // moving object (MOVE_*) it belongs to, 1-31; 0 for the fixed track
     };
 
     constexpr int max_poly_verts = 8;       // stock polygons: 3 and 4 almost always, at most 9
@@ -309,6 +310,9 @@ namespace {
         std::vector<Vec3> l;                // the other vertices, local (y = 0)
         float x0, x1, z0, z1;
         std::vector<std::array<float, 2>> xz;   // world x/z outline (convex), for the quadtree's cell test
+        int group = 0;                      // CollisionTri::group
+        // A moving polygon's x/z boxes (x0, x1, z0, z1) along its whole travel: the cells it is listed in.
+        std::vector<std::array<float, 4>> sweep;
     };
 
     void encode_vert(std::vector<uint8_t>& d, const Vec3& v) {
@@ -318,20 +322,21 @@ namespace {
         add16(d, uint16_t(((q[0] & 31) << 10) | ((q[1] & 31) << 5) | (q[2] & 31)));
     }
 
+    // sweep(p): fills a moving polygon's (group > 0) BuiltPoly::sweep, before the index is built.
     bool build_collision(const std::vector<CollisionTri>& tris, std::vector<uint8_t>& out, Report& report,
-                         std::vector<BuiltPoly>* polys_out) {
+                         std::vector<BuiltPoly>* polys_out, const std::function<void(BuiltPoly&)>& sweep = {}) {
         // Each face keeps the side its normal gives it, down-facing drivable ones included: the stock tracks have up to
         // 294 per track, nearly all tunnel roofs and bridge undersides above other road (tools/stock_track_glb.py).
         // The vertices wind so that, with x along the first edge and y the normal, every later vertex has local z > 0
         // (z = x cross y; every stock polygon does: func_8006C670's edge tests).
-        struct Face { uint16_t flags; Vec3 n; std::vector<Vec3> v; bool dead = false; };
+        struct Face { uint16_t flags; Vec3 n; std::vector<Vec3> v; bool dead = false; int group = 0; };
         std::vector<Face> faces;
         size_t degenerate = 0;
         for (const CollisionTri& t : tris) {
             Vec3 n = normalize(cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0])));
             if (length(n) < 0.5f) { degenerate++; continue; }
             if (dot(n, t.front) < 0) n = mul(n, -1.0f);       // the face's own front
-            Face f{ t.flags, n, { t.v[0], t.v[1], t.v[2] } };
+            Face f{ t.flags, n, { t.v[0], t.v[1], t.v[2] }, false, t.group };
             if (dot(cross(sub(f.v[1], f.v[0]), sub(f.v[2], f.v[0])), n) > 0) std::swap(f.v[1], f.v[2]);
             faces.push_back(std::move(f));
         }
@@ -366,7 +371,7 @@ namespace {
                     auto it = edge_of.find({ key(q), key(p) });
                     if (it == edge_of.end() || it->second == i) continue;
                     Face& b = faces[it->second];
-                    if (b.dead || b.flags != a.flags || dot(a.n, b.n) < 0.9995f) continue;
+                    if (b.dead || b.flags != a.flags || b.group != a.group || dot(a.n, b.n) < 0.9995f) continue;
                     if (a.v.size() + b.v.size() - 2 > size_t(max_poly_verts)) continue;
                     bool flat = true;
                     for (const Vec3& w : b.v) flat = flat && std::fabs(dot(sub(w, a.v[0]), a.n)) < 0.05f;
@@ -399,6 +404,7 @@ namespace {
             Vec3 y = normalize(cross(z, x));
             BuiltPoly p{};
             p.flags = f.flags;
+            p.group = f.group;
             const Vec3* rows[3] = { &x, &y, &z };
             float mq[9];
             for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) {
@@ -414,6 +420,13 @@ namespace {
                 p.l.push_back(Vec3{ mq[0] * d[0] + mq[1] * d[1] + mq[2] * d[2], 0.0f, mq[6] * d[0] + mq[7] * d[1] + mq[8] * d[2] });
                 p.x0 = std::min(p.x0, v[k][0]); p.x1 = std::max(p.x1, v[k][0]);
                 p.z0 = std::min(p.z0, v[k][2]); p.z1 = std::max(p.z1, v[k][2]);
+            }
+            if (p.group > 0 && sweep) {
+                sweep(p);
+                for (const auto& b : p.sweep) {
+                    p.x0 = std::min(p.x0, b[0]); p.x1 = std::max(p.x1, b[1]);
+                    p.z0 = std::min(p.z0, b[2]); p.z1 = std::max(p.z1, b[3]);
+                }
             }
             polys.push_back(std::move(p));
         }
@@ -473,6 +486,10 @@ namespace {
             float m = wide && ((p.flags & 0xF) == 5 || (p.flags & 0xF) == 6) ? 6.0f : 1.0f;
             float rx0 = float(x0) - m, rx1 = float(x1) + m, rz0 = float(z0) - m, rz1 = float(z1) + m;
             if (p.x1 < rx0 || p.x0 > rx1 || p.z1 < rz0 || p.z0 > rz1) return false;
+            if (!p.sweep.empty()) {
+                for (const auto& b : p.sweep) if (!(b[1] < rx0 || b[0] > rx1 || b[3] < rz0 || b[2] > rz1)) return true;
+                return false;
+            }
             // The polygon itself, not just its box (separating axes of its x/z outline): a long diagonal strip's box
             // covers far more cells than the strip, and the stacked boxes of a pipe or a terraced slope would
             // otherwise crowd one cell past max_leaf where the stock files, which list polygons this way, stay under.
@@ -681,6 +698,130 @@ namespace {
         return t;
     }
 
+    // ---- moving objects ------------------------------------------------------------------------------------------
+    // MOVE_<name> objects play their animation through Rush 2049's path followers (src/rush2049/track2049_movers*.cpp):
+    // each becomes a 2049 path (PTHD) whose nodes are the animation's keys, a placement record of its own model, and
+    // a collision group of its COL_* parts, written in the 2049 layouts the movers code reads.
+    using Mat4 = std::array<float, 16>;     // column-major, as glTF
+    using Mat3 = std::array<float, 9>;      // row-major [r * 3 + c]
+
+    Mat4 mat4_mul(const Mat4& a, const Mat4& b) {
+        Mat4 o{};
+        for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++)
+            for (int k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+        return o;
+    }
+    Mat4 mat4_trs(const float t[3], const float q[4], const float s[3]) {
+        float x = q[0], y = q[1], z = q[2], w = q[3];
+        float n = std::sqrt(x * x + y * y + z * z + w * w);
+        if (n > 1e-12f) { x /= n; y /= n; z /= n; w /= n; }
+        float r[9] = { 1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w),
+                       2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w),
+                       2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y) };   // columns
+        Mat4 m{};
+        for (int c = 0; c < 3; c++) for (int k = 0; k < 3; k++) m[c * 4 + k] = r[c * 3 + k] * s[c];
+        for (int k = 0; k < 3; k++) m[12 + k] = t[k];
+        m[15] = 1.0f;
+        return m;
+    }
+    Mat3 mat3_inverse(const Mat3& m) {
+        Mat3 o{};
+        float det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+        if (std::fabs(det) < 1e-20f) return o;
+        float k = 1.0f / det;
+        o[0] = (m[4] * m[8] - m[5] * m[7]) * k; o[1] = (m[2] * m[7] - m[1] * m[8]) * k; o[2] = (m[1] * m[5] - m[2] * m[4]) * k;
+        o[3] = (m[5] * m[6] - m[3] * m[8]) * k; o[4] = (m[0] * m[8] - m[2] * m[6]) * k; o[5] = (m[2] * m[3] - m[0] * m[5]) * k;
+        o[6] = (m[3] * m[7] - m[4] * m[6]) * k; o[7] = (m[1] * m[6] - m[0] * m[7]) * k; o[8] = (m[0] * m[4] - m[1] * m[3]) * k;
+        return o;
+    }
+    Vec3 mat3_apply(const Mat3& m, const Vec3& v) {
+        return { m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
+                 m[6] * v[0] + m[7] * v[1] + m[8] * v[2] };
+    }
+    // An affine glTF matrix's inverse (rotation, scale and translation).
+    Mat4 mat4_affine_inverse(const Mat4& m) {
+        Mat3 a = { m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10] };
+        Mat3 i = mat3_inverse(a);
+        Vec3 t = mat3_apply(i, { m[12], m[13], m[14] });
+        Mat4 o{};
+        for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) o[c * 4 + r] = i[r * 3 + c];
+        for (int r = 0; r < 3; r++) o[12 + r] = -t[r];
+        o[15] = 1.0f;
+        return o;
+    }
+    Vec3 mat4_point(const Mat4& m, const std::array<float, 3>& v) {
+        return { m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12], m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13],
+                 m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] };
+    }
+
+    // A glTF animation channel's value at time t (clamped to its keys).
+    void sample_channel(const rush2::gltf::Channel& c, float t, float* out) {
+        int width = c.path == "rotation" ? 4 : 3;
+        bool cubic = c.interpolation == "CUBICSPLINE";
+        size_t stride = cubic ? width * 3 : width, at = cubic ? width : 0;
+        const auto& k = c.times;
+        auto value = [&](size_t i, int j) { return c.values[i * stride + at + j]; };
+        if (t <= k.front() || k.size() == 1) { for (int j = 0; j < width; j++) out[j] = value(0, j); return; }
+        if (t >= k.back()) { for (int j = 0; j < width; j++) out[j] = value(k.size() - 1, j); return; }
+        size_t i = size_t(std::upper_bound(k.begin(), k.end(), t) - k.begin()) - 1;
+        float dt = k[i + 1] - k[i], u = dt > 0 ? (t - k[i]) / dt : 0.0f;
+        if (c.interpolation == "STEP") { for (int j = 0; j < width; j++) out[j] = value(i, j); return; }
+        if (cubic) {
+            float u2 = u * u, u3 = u2 * u;
+            for (int j = 0; j < width; j++) {
+                float out_tan = c.values[i * stride + 2 * width + j], in_tan = c.values[(i + 1) * stride + j];
+                out[j] = (2 * u3 - 3 * u2 + 1) * value(i, j) + (u3 - 2 * u2 + u) * dt * out_tan +
+                         (-2 * u3 + 3 * u2) * value(i + 1, j) + (u3 - u2) * dt * in_tan;
+            }
+        }
+        else if (width == 4) {
+            float a[4], b[4], d = 0;
+            for (int j = 0; j < 4; j++) { a[j] = value(i, j); b[j] = value(i + 1, j); d += a[j] * b[j]; }
+            if (d < 0) { for (float& f : b) f = -f; d = -d; }
+            float wa = 1 - u, wb = u;
+            if (d < 0.9995f) {
+                float th = std::acos(std::min(d, 1.0f)), s = std::sin(th);
+                wa = std::sin((1 - u) * th) / s;
+                wb = std::sin(u * th) / s;
+            }
+            for (int j = 0; j < 4; j++) out[j] = a[j] * wa + b[j] * wb;
+        }
+        else {
+            for (int j = 0; j < width; j++) out[j] = value(i, j) + (value(i + 1, j) - value(i, j)) * u;
+        }
+        if (width == 4) {
+            float n = std::sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2] + out[3] * out[3]);
+            if (n > 1e-12f) for (int j = 0; j < 4; j++) out[j] /= n;
+        }
+    }
+
+    // The quaternion 2049's func_800BFBE8 (movers::quat_to_matrix) turns into row-major matrix rt = R^T, R a rotation
+    // in the column convention. That function builds D R(q)^T D (D = diag(1, -1, 1): its elements 1, 3, 5 and 7 are
+    // negated), so q is the standard quaternion of D R D.
+    std::array<float, 4> quat_2049(const Mat3& r) {
+        Mat3 q = r;
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) if ((i == 1) != (j == 1)) q[i * 3 + j] = -q[i * 3 + j];
+        float tr = q[0] + q[4] + q[8];
+        std::array<float, 4> o;
+        if (tr > 0) {
+            float s = std::sqrt(tr + 1.0f) * 2;
+            o = { (q[7] - q[5]) / s, (q[2] - q[6]) / s, (q[3] - q[1]) / s, 0.25f * s };
+        }
+        else if (q[0] > q[4] && q[0] > q[8]) {
+            float s = std::sqrt(1.0f + q[0] - q[4] - q[8]) * 2;
+            o = { 0.25f * s, (q[1] + q[3]) / s, (q[2] + q[6]) / s, (q[7] - q[5]) / s };
+        }
+        else if (q[4] > q[8]) {
+            float s = std::sqrt(1.0f + q[4] - q[0] - q[8]) * 2;
+            o = { (q[1] + q[3]) / s, 0.25f * s, (q[5] + q[7]) / s, (q[2] - q[6]) / s };
+        }
+        else {
+            float s = std::sqrt(1.0f + q[8] - q[0] - q[4]) * 2;
+            o = { (q[2] + q[6]) / s, (q[5] + q[7]) / s, 0.25f * s, (q[3] - q[1]) / s };
+        }
+        return o;
+    }
+
     // ---- visual geometry -----------------------------------------------------------------------------------------
     struct VisualTri {
         Vec3 p[3];          // game space, ft
@@ -717,6 +858,134 @@ namespace {
         float radius = 0.0f;
         void cmd(uint32_t w0, uint32_t w1) { list.emplace_back(w0, w1); }
     };
+
+    // ---- stock sky: a model copied from another container ----------------------------------------------------------
+    // A model of another Rush 2 container (a stock sky: Las Vegas's SKYO1, the stunt arena's STUNTSKYO1, a Rush 2049
+    // track's SKYSKY as convert_file makes it), copied into the container being built. A model list may point at
+    // vertices (G_VTX), texel and palette data (SETTIMG), texture-load lists (G_DL into the header's [7]..[8] range,
+    // which hold only SETTIMGs) and other lists without pointers (geometry.md section 2.5); each piece is copied where
+    // that kind goes in the new container and the pointers moved with it.
+    struct ModelCopy {
+        const std::vector<uint8_t>* src = nullptr;
+        uint32_t list = 0, list_bytes = 0;                      // the model's list (with its G_ENDDL)
+        float radius = 0.0f;
+        std::map<uint32_t, uint32_t> blocks;                    // texel / palette data: offset -> bytes
+        std::vector<std::pair<uint32_t, uint32_t>> loads, subs; // texture-load lists and other lists: offset, bytes
+        uint32_t vtx0 = 0xFFFFFFFF, vtx1 = 0;                   // the vertices' span
+        std::map<uint32_t, uint32_t> moved;                     // a copied piece's offset -> its new offset
+    };
+
+    uint32_t be32_at(const std::vector<uint8_t>& d, size_t o) {
+        return o + 4 <= d.size() ? (uint32_t(d[o]) << 24) | (uint32_t(d[o + 1]) << 16) | (uint32_t(d[o + 2]) << 8) | d[o + 3] : 0;
+    }
+
+    // Bytes of the list at o up to and including its G_ENDDL, or 0 if it runs off the data.
+    uint32_t list_size(const std::vector<uint8_t>& d, uint32_t o) {
+        for (uint32_t at = o; at + 8 <= d.size() && at - o < 0x40000; at += 8) {
+            if ((be32_at(d, at) >> 24) == 0xDF) return at + 8 - o;
+        }
+        return 0;
+    }
+
+    // The data each SETTIMG of the list [o, o + bytes) loads, from the load command after it.
+    bool texel_blocks(const std::vector<uint8_t>& d, uint32_t o, uint32_t bytes, ModelCopy& c, std::string& why) {
+        for (uint32_t at = o; at < o + bytes; at += 8) {
+            uint32_t w0 = be32_at(d, at), w1 = be32_at(d, at + 4);
+            uint8_t op = uint8_t(w0 >> 24);
+            if (op != 0xFD && op != 0xFE && op != 0xFF) continue;
+            if (op != 0xFD) { why = "it sets a color or depth image"; return false; }
+            uint32_t siz = (w0 >> 19) & 3, width = (w0 & 0xFFF) + 1, size = 0;
+            for (uint32_t n = at + 8; n < o + bytes && !size; n += 8) {
+                uint32_t v0 = be32_at(d, n), v1 = be32_at(d, n + 4);
+                uint8_t k = uint8_t(v0 >> 24);
+                if (k == 0xFD || k == 0xDF) break;
+                if (k == 0xF3) size = ((((v1 >> 12) & 0xFFF) + 1) << siz) >> 1;                  // LOADBLOCK
+                else if (k == 0xF0) size = (((v1 >> 14) & 0x3FF) + 1) * 2;                     // LOADTLUT
+                else if (k == 0xF4) size = ((((v1 & 0xFFF) >> 2) + 1) * width << siz) >> 1;   // LOADTILE
+            }
+            uint32_t addr = w1 & 0xFFFFFF;
+            if (!size || addr + size > d.size()) { why = "a texture load couldn't be read"; return false; }
+            c.blocks[addr] = std::max(c.blocks[addr], size);
+        }
+        return true;
+    }
+
+    bool plan_copy(const std::vector<uint8_t>& d, const std::string& name, ModelCopy& c, std::string& why) {
+        c = ModelCopy{};
+        c.src = &d;
+        uint32_t models = be32_at(d, 0), names = be32_at(d, 4), count = be32_at(d, 16);
+        uint32_t txld0 = be32_at(d, 28), txld1 = be32_at(d, 32);
+        if (d.size() < 0x28 || names + count * 0x18 > d.size() || models + count * 0x34 > d.size()) {
+            why = "it isn't a model container";
+            return false;
+        }
+        int index = -1;
+        for (uint32_t i = 0; i < count && index < 0; i++) {
+            if (strncmp(reinterpret_cast<const char*>(&d[names + i * 0x18]), name.c_str(), 15) == 0) index = int(i);
+        }
+        if (index < 0) { why = "it has no model " + name; return false; }
+        uint32_t r = be32_at(d, names + index * 0x18 + 0x10);
+        memcpy(&c.radius, &r, 4);
+        c.list = be32_at(d, models + index * 0x34 + 4 + 8);
+        c.list_bytes = list_size(d, c.list);
+        if (!c.list_bytes) { why = "its list couldn't be read"; return false; }
+        for (uint32_t at = c.list; at < c.list + c.list_bytes; at += 8) {
+            uint32_t w0 = be32_at(d, at), w1 = be32_at(d, at + 4);
+            uint8_t op = uint8_t(w0 >> 24);
+            uint32_t addr = w1 & 0xFFFFFF;
+            if (op == 0x01) {
+                uint32_t n = (w0 >> 12) & 0xFF;
+                if (addr + n * 16 > d.size()) { why = "its vertices couldn't be read"; return false; }
+                c.vtx0 = std::min(c.vtx0, addr);
+                c.vtx1 = std::max(c.vtx1, addr + n * 16);
+            }
+            else if (op == 0xDE) {
+                if (((w0 >> 16) & 0xFF) == 1) { why = "it branches"; return false; }
+                uint32_t bytes = list_size(d, addr);
+                if (!bytes) { why = "a list it calls couldn't be read"; return false; }
+                bool load = addr >= txld0 && addr < txld1;
+                auto& to = load ? c.loads : c.subs;
+                if (std::none_of(to.begin(), to.end(), [&](const auto& p) { return p.first == addr; })) to.push_back({ addr, bytes });
+                for (uint32_t s = addr; s < addr + bytes && !load; s += 8) {
+                    uint8_t k = uint8_t(be32_at(d, s) >> 24);
+                    if (k == 0x01 || k == 0xDE || k == 0xDA || k == 0xDC || k == 0xFD || k == 0xFE || k == 0xFF || k == 0xE1) {
+                        why = "a list it calls holds pointers";
+                        return false;
+                    }
+                }
+                if (load && !texel_blocks(d, addr, bytes, c, why)) return false;
+            }
+            else if (op == 0xDA || op == 0xDC || op == 0xDD || op == 0xE1) {
+                why = "it uses a matrix, a move or a branch";
+                return false;
+            }
+            else if (op == 0xE0 && ((w0 >> 16) & 0xFF) == 1 && (addr < c.list || addr > c.list + c.list_bytes)) {
+                why = "a condition jumps out of its list";
+                return false;
+            }
+        }
+        return texel_blocks(d, c.list, c.list_bytes, c, why);
+    }
+
+    // The copied piece holding src offset addr (exactly a piece's start).
+    uint32_t moved_to(const ModelCopy& c, uint32_t w1) {
+        auto it = c.moved.find(w1 & 0xFFFFFF);
+        return it == c.moved.end() ? w1 : (w1 & 0x0F000000) | it->second;
+    }
+
+    // A list copied with its pointers moved (load lists: their SETTIMGs).
+    void copy_list(ModelCopy& c, uint32_t at, uint32_t bytes, std::vector<uint8_t>& g, uint32_t vtx_base, uint32_t list_base) {
+        const std::vector<uint8_t>& d = *c.src;
+        for (uint32_t o = at; o < at + bytes; o += 8) {
+            uint32_t w0 = be32_at(d, o), w1 = be32_at(d, o + 4);
+            uint8_t op = uint8_t(w0 >> 24);
+            if (op == 0x01) w1 = (w1 & 0x0F000000) | (vtx_base + ((w1 & 0xFFFFFF) - c.vtx0));
+            else if (op == 0xDE || op == 0xFD) w1 = moved_to(c, w1);
+            else if (op == 0xE0 && ((w0 >> 16) & 0xFF) == 1) w1 = (w1 & 0x0F000000) | (list_base + ((w1 & 0xFFFFFF) - at));
+            add32(g, w0);
+            add32(g, w1);
+        }
+    }
 
     // Appends triangles `tris` of vtris, grouped by scene material in `order` (drawn as materials[i]), as batches of
     // G_VTX (at most 32 vertices) and G_TRI2. Vertices are (p - origin) * unit; load(m, i) emits material i's texture
@@ -1013,7 +1282,12 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     }
     if (t["look"]["fog_colour"]) report.warning("track.toml: the key is fog_color (\"fog_colour\" is ignored).");
     str("look", "sky", s.sky);
-    if (s.sky != "none") report.warning("track.toml: sky isn't supported yet; ignored.");
+    if (s.sky != "none" && !stock_sky(s.sky)) {
+        std::string names;
+        for (const StockSky& k : stock_skies) names += std::string(names.empty() ? "" : ", ") + k.name;
+        report.error("track.toml: sky = \"" + s.sky + "\" isn't a stock sky; use none or one of " + names + ".");
+        s.sky = "none";
+    }
     if (auto v = t["look"]["cloud_scroll"].value<double>()) s.cloud_scroll = float(*v);
     if (auto v = t["look"]["sky_parallax"].value<double>()) s.sky_parallax = float(*v);
     str("audio", "music", s.music);
@@ -1043,7 +1317,31 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
             s.surfaces[name] = sf;
         }
     }
+    if (auto* movers = t["movers"].as_table()) {
+        for (auto& [key, node] : *movers) {
+            std::string name(key.str());
+            MoverSettings m;
+            auto* tbl = node.as_table();
+            if (!tbl) { report.error("track.toml: [movers." + name + "] must be a table."); continue; }
+            m.mode = (*tbl)["mode"].value_or(m.mode);
+            m.races = (*tbl)["races"].value_or(m.races);
+            if (m.mode != "loop" && m.mode != "pingpong" && m.mode != "ride") {
+                report.error("track.toml: movers." + name + ".mode must be \"loop\", \"pingpong\" or \"ride\".");
+                m.mode = "loop";
+            }
+            if (m.races != "both" && m.races != "forward" && m.races != "backward") {
+                report.error("track.toml: movers." + name + ".races must be \"both\", \"forward\" or \"backward\".");
+                m.races = "both";
+            }
+            s.movers[name] = m;
+        }
+    }
     return report.ok();
+}
+
+const rush2::track_mod::StockSky* rush2::track_mod::stock_sky(const std::string& name) {
+    for (const StockSky& k : stock_skies) if (name == k.name) return &k;
+    return nullptr;
 }
 
 bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::string& toml_text, const std::string& prefix,
@@ -1064,9 +1362,35 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     std::vector<const rush2::gltf::Node*> visual, sky;
     std::vector<std::pair<uint16_t, const rush2::gltf::Node*>> collision_nodes;
     std::set<std::string> seen;
+    // Moving objects: every node under an animated MOVE_<name> (the outermost) moves with it.
+    std::vector<int> mover_of(scene.nodes.size(), -1);
+    std::map<int, std::vector<const rush2::gltf::Node*>> mover_visual;     // MOVE_ node -> its visible meshes
+    {
+        std::set<int> animated;
+        for (const auto& a : scene.animations) for (const auto& c : a.channels) animated.insert(c.node);
+        for (size_t i = 0; i < scene.nodes.size(); i++) {
+            for (int a = int(i); a >= 0; a = scene.nodes[a].parent) {
+                if (starts(base_name(scene.nodes[a].name), "MOVE_")) mover_of[i] = a;
+            }
+        }
+        for (size_t i = 0; i < scene.nodes.size(); i++) {
+            int root = mover_of[i];
+            if (root < 0) continue;
+            if (root == int(i) && !animated.contains(root)) {
+                report.warning(scene.nodes[i].name + " has no animation, so it doesn't move: keyframe its Location, "
+                               "Rotation or Scale and export with Animation on. It is used as ordinary track.");
+            }
+            if (root != int(i) && starts(base_name(scene.nodes[i].name), "MOVE_")) {
+                report.warning(scene.nodes[i].name + " is inside " + scene.nodes[root].name + ": it moves with it, "
+                               "and its own animation is ignored.");
+            }
+        }
+        for (size_t i = 0; i < scene.nodes.size(); i++) if (mover_of[i] >= 0 && !animated.contains(mover_of[i])) mover_of[i] = -1;
+    }
     for (const rush2::gltf::Node& n : scene.nodes) {
         std::string name = base_name(n.name);
         bool mesh = !n.primitives.empty();
+        int mover = mover_of[size_t(&n - scene.nodes.data())];
         if (!seen.insert(name).second && (name == "FINISH" || name == "AIPATH_main" || starts(name, "CHECKPOINT_"))) {
             report.error("There are two objects named " + name + ".");
             continue;
@@ -1101,6 +1425,14 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             if (!starts(rest, best->name)) report.warning(n.name + ": surface names are upper case (COL_" + best->name + "_...).");
             if (!mesh) { report.warning(n.name + " has no mesh; ignored."); continue; }
             collision_nodes.push_back({ best->flags, &n });
+            continue;
+        }
+        if (mover >= 0) {
+            if (mesh) mover_visual[mover].push_back(&n);
+            else if (&n != &scene.nodes[mover] && !n.name.empty()) {
+                report.warning(n.name + " is inside " + scene.nodes[mover].name + ": only meshes and COL_* parts move; "
+                               "ignored.");
+            }
             continue;
         }
         if (name == "AIPATH_main") { aipath = &n; continue; }
@@ -1170,17 +1502,168 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                      " entries but there are " + std::to_string(checkpoints.size()) + " checkpoints (one entry each).");
     }
 
+    // ---- moving objects ----
+    // Each animated MOVE_<name> plays its own animation (the first one that animates it): its keys become the nodes
+    // of a 2049 path, sampled from every channel at the union of their key times. Poses are in game space: a point p
+    // of the object (its own frame, game axes, ft) is at pos + lin p, and lin = rotation x scale per column.
+    struct Mover {
+        int node = -1;                          // the MOVE_ node
+        std::string name;                       // after MOVE_
+        rush2::track_mod::MoverSettings set;
+        std::vector<float> times;
+        std::vector<Vec3> pos;
+        std::vector<Mat3> lin, rot;             // column convention, row-major
+        std::vector<Vec3> scale;
+        std::vector<std::array<float, 4>> quat; // for movers::quat_to_matrix (quat_2049)
+        Mat4 to_local{};                        // glTF world, as exported -> the MOVE_ node's own frame
+        Mat3 rest_inv{};                        // lin[0] inverted
+        bool closed = false;                    // the last key is the first one's pose (a loop's end)
+        int group = 0;                          // collision group, 0 = no collision
+        std::string model;                      // its model and path name, empty if nothing to draw
+        std::vector<VisualTri> tris;            // its own frame
+        Section section;                        // its model's list
+    };
+    std::vector<Mover> movers;
+    std::map<int, int> mover_at;                // MOVE_ node -> movers
+    auto from_game = [](const Vec3& g) { return std::array<float, 3>{ -g[0] / feet_per_meter, g[1] / feet_per_meter, g[2] / feet_per_meter }; };
+    {
+        std::set<int> roots(mover_of.begin(), mover_of.end());
+        roots.erase(-1);
+        for (int r : roots) {
+            const rush2::gltf::Node& nd = scene.nodes[r];
+            Mover m;
+            m.node = r;
+            m.name = base_name(nd.name).substr(5);
+            if (auto it = settings.movers.find(m.name); it != settings.movers.end()) m.set = it->second;
+            std::vector<const rush2::gltf::Channel*> channels;
+            std::string anim;
+            int anims = 0;
+            bool child_anim = false;
+            for (const auto& a : scene.animations) {
+                bool mine = false;
+                for (const auto& c : a.channels) {
+                    mine = mine || c.node == r;
+                    child_anim = child_anim || (c.node != r && mover_of[c.node] == r);
+                }
+                if (!mine) continue;
+                if (anims++ == 0) {
+                    anim = a.name;
+                    for (const auto& c : a.channels) if (c.node == r) channels.push_back(&c);
+                }
+            }
+            if (anims > 1) {
+                report.warning(nd.name + " has " + std::to_string(anims) + " animations; only the first (" + anim +
+                               ") plays. Keep one action per moving object.");
+            }
+            if (child_anim) {
+                report.warning("Parts of " + nd.name + " have animations of their own; only " + nd.name +
+                               "'s own animation moves them.");
+            }
+            if (nd.has_matrix) {
+                report.error(nd.name + " is exported as a matrix, not location / rotation / scale; it doesn't move.");
+                continue;
+            }
+            std::set<float> keys;
+            for (const auto* c : channels) keys.insert(c->times.begin(), c->times.end());
+            for (float t : keys) if (m.times.empty() || t - m.times.back() > 0.0005f) m.times.push_back(t);
+            constexpr size_t max_keys = 2000;
+            if (m.times.size() > max_keys) {
+                report.warning(nd.name + "'s animation has " + std::to_string(m.times.size()) + " keys; it is sampled at " +
+                               std::to_string(max_keys) + " evenly spaced times.");
+                float t0 = m.times.front(), t1 = m.times.back();
+                m.times.resize(max_keys);
+                for (size_t i = 0; i < max_keys; i++) m.times[i] = t0 + (t1 - t0) * float(i) / float(max_keys - 1);
+            }
+            Mat4 parent = nd.parent >= 0 ? scene.nodes[nd.parent].world : Mat4{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+            m.to_local = mat4_affine_inverse(nd.world);
+            bool mirrored = false;
+            for (float t : m.times) {
+                float tr[3], rq[4], sc[3];
+                for (int k = 0; k < 3; k++) { tr[k] = nd.translation[k]; sc[k] = nd.scale[k]; }
+                for (int k = 0; k < 4; k++) rq[k] = nd.rotation[k];
+                for (const auto* c : channels) sample_channel(*c, t, c->path == "translation" ? tr : c->path == "rotation" ? rq : sc);
+                Mat4 w = mat4_mul(parent, mat4_trs(tr, rq, sc));
+                Mat3 l, rt;
+                for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) {
+                    float sign = ((a == 0) != (b == 0)) ? -1.0f : 1.0f;     // diag(-1, 1, 1) on both sides
+                    l[a * 3 + b] = sign * w[b * 4 + a];
+                }
+                Vec3 s3;
+                for (int b = 0; b < 3; b++) {
+                    s3[b] = std::sqrt(l[b] * l[b] + l[3 + b] * l[3 + b] + l[6 + b] * l[6 + b]);
+                    for (int a = 0; a < 3; a++) rt[a * 3 + b] = s3[b] > 1e-9f ? l[a * 3 + b] / s3[b] : (a == b ? 1.0f : 0.0f);
+                }
+                float det = rt[0] * (rt[4] * rt[8] - rt[5] * rt[7]) - rt[1] * (rt[3] * rt[8] - rt[5] * rt[6]) +
+                            rt[2] * (rt[3] * rt[7] - rt[4] * rt[6]);
+                mirrored = mirrored || det < 0;
+                auto q = quat_2049(rt);
+                if (!m.quat.empty()) {
+                    const auto& p = m.quat.back();
+                    if (p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3] < 0) for (float& f : q) f = -f;
+                }
+                m.pos.push_back(to_game({ w[12], w[13], w[14] }));
+                m.lin.push_back(l);
+                m.rot.push_back(rt);
+                m.scale.push_back(s3);
+                m.quat.push_back(q);
+            }
+            if (m.times.empty()) continue;
+            if (mirrored) report.warning(nd.name + " is mirrored (a negative scale) in its animation; it is drawn turned instead.");
+            m.rest_inv = mat3_inverse(m.lin[0]);
+            if (m.times.size() >= 2) {
+                const auto &q0 = m.quat.front(), &q1 = m.quat.back();
+                float d = std::fabs(q0[0] * q1[0] + q0[1] * q1[1] + q0[2] * q1[2] + q0[3] * q1[3]);
+                m.closed = length(sub(m.pos.back(), m.pos.front())) < 0.05f && d > 0.99999f &&
+                           length(sub(m.scale.back(), m.scale.front())) < 0.001f;
+            }
+            mover_at[r] = int(movers.size());
+            movers.push_back(std::move(m));
+        }
+        for (const auto& [name, ms] : settings.movers) {
+            bool found = std::any_of(movers.begin(), movers.end(), [&](const Mover& m) { return m.name == name; });
+            if (!found) report.warning("track.toml: [movers." + name + "] has no animated object named MOVE_" + name + ".");
+        }
+        // Collision groups (the 5 bits of 2049's polygon info), for movers with COL_* parts.
+        int next = 1;
+        for (Mover& m : movers) {
+            bool has = std::any_of(collision_nodes.begin(), collision_nodes.end(),
+                                   [&](const auto& c) { return mover_of[size_t(c.second - scene.nodes.data())] == m.node; });
+            if (!has) {
+                if (m.set.mode == "ride") {
+                    report.warning("MOVE_" + m.name + " is a ride (track.toml) but has no COL_* floor for a car to start it from.");
+                }
+                continue;
+            }
+            if (next > 31) {
+                report.error("At most 31 moving objects can have collision; MOVE_" + m.name + "'s COL_* parts are left out.");
+                continue;
+            }
+            m.group = next++;
+        }
+    }
+    // A point of mover m's object as exported (glTF world) in its own frame, game axes, and that point at a key.
+    auto mover_local = [&](const Mover& m, const std::array<float, 3>& p) { return to_game(mat4_point(m.to_local, p)); };
+    auto mover_pose = [&](const Mover& m, size_t key, const Vec3& local) { return add(m.pos[key], mat3_apply(m.lin[key], local)); };
+
     // ---- collision ----
     std::vector<CollisionTri> ctris;
     auto add_collision = [&](const rush2::gltf::Node* n, uint16_t flags) {
+        int root = mover_of[size_t(n - scene.nodes.data())];
+        const Mover* m = root >= 0 && mover_at.contains(root) ? &movers[mover_at[root]] : nullptr;
+        if (root >= 0 && (!m || m->group == 0)) return;
         for (const auto& prim : n->primitives) {
             for (size_t t = 0; t + 2 < prim.tris.size(); t += 3) {
                 CollisionTri c;
-                for (int k = 0; k < 3; k++) c.v[k] = to_game(prim.pos[prim.tris[t + k]]);
+                // A moving part is placed as its animation's first key has it (the pose its path starts from).
+                for (int k = 0; k < 3; k++) {
+                    const auto& p = prim.pos[prim.tris[t + k]];
+                    c.v[k] = m ? mover_pose(*m, 0, mover_local(*m, p)) : to_game(p);
+                }
                 // glTF front = counter-clockwise; x negated mirrors it, so the front normal is the game cross's negation.
                 c.front = mul(cross(sub(c.v[1], c.v[0]), sub(c.v[2], c.v[0])), -1.0f);
                 c.flags = flags;
                 c.object = n->name;
+                c.group = m ? m->group : 0;
                 ctris.push_back(c);
             }
         }
@@ -1190,8 +1673,80 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         report.warning("No COL_* meshes: the visible track is used as road collision (walls included).");
         for (const auto* n : visual) add_collision(n, 0x00);
     }
+    // A moving polygon is listed in every cell it passes over: boxes of its pose between each key and the next.
+    auto sweep = [&](BuiltPoly& p) {
+        const Mover* m = nullptr;
+        for (const Mover& mv : movers) if (mv.group == p.group) m = &mv;
+        if (!m) return;
+        float mq[9];
+        for (int k = 0; k < 9; k++) mq[k] = p.m[k] / 16384.0f;
+        std::vector<Vec3> local{ mat3_apply(m->rest_inv, sub(p.v0, m->pos[0])) };
+        for (const Vec3& l : p.l) {
+            Vec3 w = add(p.v0, { mq[0] * l[0] + mq[6] * l[2], mq[1] * l[0] + mq[7] * l[2], mq[2] * l[0] + mq[8] * l[2] });
+            local.push_back(mat3_apply(m->rest_inv, sub(w, m->pos[0])));
+        }
+        auto box_at = [&](size_t key) {
+            std::array<float, 4> b{ 1e30f, -1e30f, 1e30f, -1e30f };
+            for (const Vec3& l : local) {
+                Vec3 w = mover_pose(*m, key, l);
+                b[0] = std::min(b[0], w[0] - 1); b[1] = std::max(b[1], w[0] + 1);
+                b[2] = std::min(b[2], w[2] - 1); b[3] = std::max(b[3], w[2] + 1);
+            }
+            return b;
+        };
+        auto unite = [](const std::array<float, 4>& a, const std::array<float, 4>& b) {
+            return std::array<float, 4>{ std::min(a[0], b[0]), std::max(a[1], b[1]), std::min(a[2], b[2]), std::max(a[3], b[3]) };
+        };
+        auto area = [](const std::array<float, 4>& b) { return (b[1] - b[0]) * (b[3] - b[2]); };
+        size_t n = m->times.size();
+        std::vector<std::array<float, 4>> boxes;
+        for (size_t k = 0; k < n; k++) boxes.push_back(n == 1 ? box_at(0) : unite(box_at(k), box_at(k + 1 < n ? k + 1 : 0)));
+        if (m->set.mode != "loop" || (!m->closed && n > 1)) {
+            if (boxes.size() > 1) boxes.pop_back();     // no travel from the last key back to the first
+        }
+        std::array<float, 4> cur = boxes[0];
+        for (size_t k = 1; k < boxes.size(); k++) {
+            auto u = unite(cur, boxes[k]);
+            if (area(u) <= 1.25f * std::max(area(cur), area(boxes[k])) + 400.0f) cur = u;
+            else { p.sweep.push_back(cur); cur = boxes[k]; }
+        }
+        p.sweep.push_back(cur);
+    };
     std::vector<BuiltPoly> cpolys;
-    bool collision_ok = build_collision(ctris, out.track.collision, report, &cpolys);
+    bool collision_ok = build_collision(ctris, out.track.collision, report, &cpolys, sweep);
+    // The moving objects' polygon info (2049's layout: group << 11, and 0x20 on the floors cars ride and start rides
+    // from) and MOVER records (a polygon's rest matrix and origin vertex, which the movers code moves), in a 2049
+    // collision file holding only those (src/rush2049/track2049_movers.cpp parse_collision).
+    {
+        std::vector<uint8_t> records, polys;
+        size_t vert = 0, count = 0;
+        for (size_t i = 0; i < cpolys.size(); i++) {
+            const BuiltPoly& p = cpolys[i];
+            uint16_t word = 0;
+            if (p.group > 0) {
+                word = uint16_t((p.group << 11) | (p.m[4] > 8192 ? 0x20 : 0));
+                add16(records, uint16_t(p.group));
+                add16(records, uint16_t(i));
+                for (int16_t v : p.m) add16(records, uint16_t(v));
+                add16(records, uint16_t(vert));
+                encode_vert(records, p.v0);
+                count++;
+            }
+            add16(polys, 0);
+            add16(polys, word);
+            polys.resize(polys.size() + 0x18 - 4, 0);
+            vert += 1 + p.l.size();
+        }
+        if (count) {
+            std::vector<uint8_t>& c = out.track.mover_collision;
+            for (uint16_t v : { uint16_t(0), uint16_t(0), uint16_t(cpolys.size()), uint16_t(0), uint16_t(count) }) add16(c, v);
+            c.resize(0x10, 0);
+            c.insert(c.end(), polys.begin(), polys.end());
+            c.insert(c.end(), records.begin(), records.end());
+        }
+        // The AI path follows the fixed track only.
+        cpolys.erase(std::remove_if(cpolys.begin(), cpolys.end(), [](const BuiltPoly& p) { return p.group > 0; }), cpolys.end());
+    }
 
     // ---- AI path ----
     std::vector<PathPoint> rungs;
@@ -1806,6 +2361,47 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // ---- visual geometry ----
     std::vector<VisualTri> vtris;
     for (const auto* n : visual) append_tris(*n, vtris);
+    // Moving objects' meshes, in their own frames: each is its own model, drawn by a placement record the movers code
+    // moves.
+    for (size_t i = 0; i < movers.size(); i++) {
+        Mover& m = movers[i];
+        auto it = mover_visual.find(m.node);
+        size_t far = 0;
+        if (it != mover_visual.end()) {
+            for (const auto* n : it->second) {
+                std::vector<VisualTri> world;
+                append_tris(*n, world);
+                for (VisualTri t : world) {
+                    bool fits = true;
+                    for (int k = 0; k < 3; k++) {
+                        t.p[k] = mover_local(m, from_game(t.p[k]));
+                        Vec3 d = dir_to_game(t.n[k]);
+                        const Mat4& a = m.to_local;
+                        t.n[k] = normalize(dir_to_game({ a[0] * d[0] + a[4] * d[1] + a[8] * d[2], a[1] * d[0] + a[5] * d[1] + a[9] * d[2],
+                                                         a[2] * d[0] + a[6] * d[1] + a[10] * d[2] }));
+                        for (int c = 0; c < 3; c++) fits = fits && std::fabs(t.p[k][c]) <= vertex_reach;
+                    }
+                    if (!fits) { far++; continue; }
+                    m.tris.push_back(t);
+                }
+            }
+        }
+        if (far) {
+            report.error("MOVE_" + m.name + " reaches more than " + fmt_ft(vertex_reach) + " from its origin; " +
+                         std::to_string(far) + " of its triangles aren't drawn. Keep a moving object's mesh near its origin.");
+        }
+        if (!m.tris.empty()) {
+            char nm[32];
+            snprintf(nm, sizeof(nm), "%sM%03zu", prefix.c_str(), i);
+            m.model = nm;
+        }
+        if (m.model.empty() && m.group == 0) report.warning("MOVE_" + m.name + " has nothing to draw or collide with; ignored.");
+        char b[200];
+        snprintf(b, sizeof(b), "MOVE_%s: %zu keys over %.2f s, %s%s, %zu triangles, %s.", m.name.c_str(), m.times.size(),
+                 m.times.back() - m.times.front(), m.set.mode.c_str(), m.set.mode == "loop" && !m.closed && m.times.size() > 1 ?
+                 " (jumps back to its first key)" : "", m.tris.size(), m.group ? "collision moves with it" : "no collision");
+        report.info(b);
+    }
     if (vtris.empty() && !collision_nodes.empty()) {
         report.error("Nothing to draw: the track has no visible meshes (only COL_* and markers); its COL_* meshes are "
                      "drawn instead.");
@@ -1836,6 +2432,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     std::vector<int> used_materials;
     for (const VisualTri& t : stris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
     for (const VisualTri& t : vtris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
+    for (const Mover& m : movers) {
+        for (const VisualTri& t : m.tris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
+    }
     std::map<int, int> texture_of;      // material -> out.textures
     std::map<int, bool> cutout_of;
     for (int m : used_materials) {
@@ -1896,6 +2495,35 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         sections[s].name = nm;
     }
 
+    // A stock sky (track.toml sky): Rush 2's cloud dome is drawn by Rush 2's own sky code (src/rush2049/track2049.cpp
+    // mod_cloud_dome); the others are a model copied in from the game as SKYO1, as a SKY mesh would be.
+    ModelCopy sky_copy;
+    bool stock_sky_model = false;
+    if (settings.sky != "none") {
+        const auto* k = stock_sky(settings.sky);
+        if (!stris.empty()) {
+            report.warning("track.toml sets sky = \"" + settings.sky + "\" and the track has a SKY mesh: the SKY mesh is used.");
+        }
+        else if (k && k->model[0]) {
+            std::string why;
+            if (extras.sky_container.empty()) {
+                report.warning("The stock sky " + settings.sky + " couldn't be read" +
+                               (k->game == 2049 ? " (it comes from the Rush 2049 ROM: set one in the Games tab)" : "") +
+                               "; the sky is plain fog_color.");
+            }
+            else if (!plan_copy(extras.sky_container, extras.sky_model, sky_copy, why)) {
+                report.error("The stock sky " + settings.sky + " couldn't be copied: " + why + ".");
+            }
+            else {
+                stock_sky_model = true;
+                report.info("Sky: the stock sky " + settings.sky + ".");
+            }
+        }
+        else if (k) {
+            report.info("Sky: Rush 2's cloud dome, in one-player races (cloud_scroll and sky_parallax move it).");
+        }
+    }
+
     // ---- geometry container (docs/rush2049_research/geometry.md section 2) ----
     std::vector<uint8_t>& g = out.track.geometry;
     g.assign(0x28, 0);
@@ -1903,6 +2531,13 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         align8(g);
         t.offset = uint32_t(g.size());
         g.insert(g.end(), t.texels.begin(), t.texels.end());
+    }
+    if (stock_sky_model) {
+        for (const auto& [at, bytes] : sky_copy.blocks) {
+            align8(g);
+            sky_copy.moved[at] = uint32_t(g.size());
+            g.insert(g.end(), sky_copy.src->begin() + at, sky_copy.src->begin() + at + bytes);
+        }
     }
     align8(g);
     uint32_t txld_start = uint32_t(g.size());
@@ -1918,6 +2553,12 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         add32(g, 0xDF000000);
         add32(g, 0);
     }
+    if (stock_sky_model) {
+        for (const auto& [at, bytes] : sky_copy.loads) {
+            sky_copy.moved[at] = uint32_t(g.size());
+            copy_list(sky_copy, at, bytes, g, 0, uint32_t(g.size()));
+        }
+    }
     uint32_t empty_list = uint32_t(g.size());
     add32(g, 0xDF000000);
     add32(g, 0);
@@ -1927,7 +2568,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // CHKPNT / FINISH textures; sorted for func_8005BCB4's binary search.
     std::vector<std::string> names;
     for (const Section& s : sections) names.push_back(s.name);
-    if (!stris.empty()) names.push_back("SKYO1");
+    if (!stris.empty() || stock_sky_model) names.push_back("SKYO1");
+    for (const Mover& m : movers) if (!m.model.empty()) names.push_back(m.model);
     names.push_back(prefix + "FINISH");
     names.push_back(prefix + "FINISHB");
     std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return strncmp(a.c_str(), b.c_str(), 15) < 0; });
@@ -1998,11 +2640,71 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (size_t i : m.vtx_commands) m.list[i].second += base;
         for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
     }
+    if (stock_sky_model) {
+        const std::vector<uint8_t>& d = *sky_copy.src;
+        align8(g);
+        uint32_t vtx_base = uint32_t(g.size());
+        if (sky_copy.vtx1 > sky_copy.vtx0) {
+            g.insert(g.end(), d.begin() + sky_copy.vtx0, d.begin() + sky_copy.vtx1);
+            // The relocator's mirror pass follows the vertices from the list's first G_VTX while bit 15 of their +6
+            // halfword says another follows (geometry.md 4.2): end the chain at the copy's last vertex.
+            g[g.size() - 16 + 6] &= 0x7F;
+            // Sky models keep their world height (StockSky::ground): raised as far as this track's start is above
+            // the source track's, in 1/16 ft.
+            float rise = ((gates.empty() ? 0.0f : gates[0].pos[1]) - stock_sky(settings.sky)->ground) * 16.0f;
+            bool clipped = false;
+            for (size_t at = vtx_base; at + 16 <= g.size(); at += 16) {
+                long y = std::lround(int16_t(uint16_t(g[at + 2] << 8 | g[at + 3])) + rise);
+                clipped |= y < -32768 || y > 32767;
+                y = std::clamp(y, -32768l, 32767l);
+                g[at + 2] = uint8_t(uint16_t(y) >> 8);
+                g[at + 3] = uint8_t(y);
+            }
+            if (clipped) {
+                report.warning("The stock sky " + settings.sky + " is squashed at the game's height limit: FINISH (at " +
+                               fmt_ft(gates[0].pos[1]) + " high) is too far above or below the sky's own track.");
+            }
+        }
+        for (const auto& [at, bytes] : sky_copy.subs) {
+            align8(g);
+            sky_copy.moved[at] = uint32_t(g.size());
+            g.insert(g.end(), d.begin() + at, d.begin() + at + bytes);
+        }
+        align8(g);
+        sky_model.name = "SKYO1";
+        sky_model.list = uint32_t(g.size());
+        sky_model.radius = sky_copy.radius;
+        copy_list(sky_copy, sky_copy.list, sky_copy.list_bytes, g, vtx_base, sky_model.list);
+    }
+    for (Mover& mv : movers) {
+        if (mv.model.empty()) continue;
+        std::vector<int> all(mv.tris.size());
+        for (size_t i = 0; i < all.size(); i++) all[i] = int(i);
+        MeshList m;
+        m.cmd(0xE3001001, 0x00000000);
+        m.cmd(0xE3000F00, 0x00000000);
+        m.cmd(combine[0], combine[1]);
+        m.cmd(0xD7000002, 0xFFFFFFFF);
+        emit_mesh(mv.tris, all, used_materials, draw_materials, Vec3{}, 16.0f,
+                  [&](MeshList& ml, size_t mi) { ml.cmd(0xDE000000, load_lists[mi]); }, m);
+        m.cmd(0xE3001001, 0x00008000);
+        m.cmd(0xDF000000, 0);
+        align8(g);
+        uint32_t base = uint32_t(g.size());
+        g.insert(g.end(), m.vertices.begin(), m.vertices.end());
+        align8(g);
+        mv.section.name = mv.model;
+        mv.section.list = uint32_t(g.size());
+        mv.section.radius = m.radius;
+        for (size_t i : m.vtx_commands) m.list[i].second += base;
+        for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
+    }
     align8(g);
     uint32_t name_table = uint32_t(g.size());
     for (size_t i = 0; i < names.size(); i++) {
-        const Section* sec = names[i] == "SKYO1" && !stris.empty() ? &sky_model : nullptr;
+        const Section* sec = names[i] == "SKYO1" && (!stris.empty() || stock_sky_model) ? &sky_model : nullptr;
         for (const Section& s : sections) if (s.name == names[i]) sec = &s;
+        for (const Mover& mv : movers) if (mv.model == names[i]) sec = &mv.section;
         uint32_t r = model_table + uint32_t(i) * 0x34;
         put32(g, r, 1);                              // one LOD
         put32(g, r + 4 + 8, sec ? sec->list : empty_list);
@@ -2015,23 +2717,82 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                                   txld_start, txld_end, 0 };
     for (int i = 0; i < 10; i++) put32(g, i * 4, header[i]);
 
-    // ---- placement (docs/rush2049_research/placement.md): the sections, then the finish model ----
+    // ---- placement (docs/rush2049_research/placement.md): the sections, the finish model, then the moving objects
+    // (world space at their first key, no culling box; the movers code rewrites their matrices) ----
     std::vector<uint8_t>& pl = out.track.placement;
     add32(pl, 1);
     add32(pl, 0x18);
     add_name(pl, prefix);
-    size_t records = sections.size() + 1;
+    std::vector<int> mover_records;     // movers with a model, in record order
+    for (size_t j = 0; j < movers.size(); j++) if (!movers[j].model.empty()) mover_records.push_back(int(j));
+    size_t records = sections.size() + 1 + mover_records.size();
     for (size_t i = 0; i < records; i++) {
         bool is_finish = i == sections.size();
-        add_name(pl, is_finish ? prefix + "FINISH" : sections[i].name);
-        for (int k = 0; k < 9; k++) addf(pl, (k % 4) == 0 ? 1.0f : 0.0f);
-        Vec3 pos = is_finish ? (gates.empty() ? Vec3{} : gates[0].pos) : sections[i].origin;
+        const Mover* mv = i > sections.size() ? &movers[mover_records[i - sections.size() - 1]] : nullptr;
+        add_name(pl, mv ? mv->model : is_finish ? prefix + "FINISH" : sections[i].name);
+        // Row-major, a point times the matrix (movers.md): lin transposed.
+        for (int k = 0; k < 9; k++) addf(pl, mv ? mv->lin[0][(k % 3) * 3 + k / 3] : (k % 4) == 0 ? 1.0f : 0.0f);
+        Vec3 pos = mv ? mv->pos[0] : is_finish ? (gates.empty() ? Vec3{} : gates[0].pos) : sections[i].origin;
         for (float f : pos) addf(pl, f);
         add32(pl, 0x40);
         add16(pl, uint16_t(i + 1 < records ? int16_t(i + 1) : int16_t(-1)));
         add16(pl, 0xFFFF);
         add32(pl, 0);
-        for (int k = 0; k < 6; k++) addf(pl, is_finish ? 0.0f : (k < 3 ? sections[i].lo[k] : sections[i].hi[k - 3]));
+        for (int k = 0; k < 6; k++) addf(pl, is_finish || mv ? 0.0f : (k < 3 ? sections[i].lo[k] : sections[i].hi[k - 3]));
+        if (mv) out.track.path_records.push_back({ int(mv - movers.data()), 0, int(i) });
+    }
+
+    // ---- moving objects' paths: a 2049 file with one PTHD chunk (movers.md; movers::parse_paths reads it) ----
+    if (!movers.empty()) {
+        std::vector<uint8_t>& pb = out.track.mover_paths;
+        uint32_t headers = 4 + 24;      // directory at 4: PTHD's entry and an empty one ending it
+        add32(pb, 4);
+        for (char c : std::string("PTHD")) add8(pb, uint8_t(c));
+        add32(pb, headers);
+        add32(pb, uint32_t(movers.size()));
+        pb.resize(headers, 0);
+        uint32_t nodes_at = headers + uint32_t(movers.size()) * 36;
+        std::vector<uint8_t> node_bytes;
+        for (size_t j = 0; j < movers.size(); j++) {
+            const Mover& m = movers[j];
+            // Path name = type name = model name (the movers code makes a type for each custom path).
+            char nm[32];
+            snprintf(nm, sizeof(nm), "%sM%03zu", prefix.c_str(), j);
+            bool loop = m.set.mode == "loop";
+            size_t keys = m.times.size(), count = loop && m.closed ? keys - 1 : keys;
+            uint32_t flags = 0x8000;    // no TRIGGERON/OFF models or sounds
+            flags |= loop ? 0x2 : m.set.mode == "pingpong" ? 0x1 : 0x40 | 0x4000;
+            flags |= m.set.races == "forward" ? 0x4 : m.set.races == "backward" ? 0x8 : 0xC;
+            if (m.group) flags |= 0x20 | (m.set.races != "both" ? 0x800 : 0);
+            add_name(pb, nm);
+            add32(pb, flags);
+            add16(pb, uint16_t(count));
+            add16(pb, uint16_t(m.group));
+            add32(pb, 0);
+            add32(pb, nodes_at + uint32_t(node_bytes.size()));
+            add32(pb, 0xFFFFFFFFu);
+            for (size_t i = 0; i < count; i++) {
+                // Each node runs at a steady speed to the next key (the last: back to the first for a loop, in a
+                // moment if the animation doesn't end where it began).
+                size_t next = i + 1 < keys ? i + 1 : 0;
+                bool last = i + 1 == count;
+                float time = last && loop ? (m.closed ? m.times[keys - 1] - m.times[i] : 0.001f)
+                           : last ? 1.0f : m.times[next] - m.times[i];
+                Vec3 d = last && !loop ? Vec3{} : sub(last && loop ? m.pos[0] : m.pos[next], m.pos[i]);
+                float dist = length(d);
+                if (keys == 1) time = 1.0f;
+                time = std::max(time, 0.0001f);
+                for (float f : m.pos[i]) addf(node_bytes, f);
+                for (float f : normalize(d)) addf(node_bytes, f);
+                for (float f : m.scale[i]) addf(node_bytes, f);
+                for (float f : m.quat[i]) addf(node_bytes, f);
+                addf(node_bytes, dist);
+                addf(node_bytes, time);
+                addf(node_bytes, dist / time);
+                add32(node_bytes, 0x8 | (i == 0 ? 0x1 : 0));    // steady speed; the first node spawns the object
+            }
+        }
+        pb.insert(pb.end(), node_bytes.begin(), node_bytes.end());
     }
 
     // ---- tables ----

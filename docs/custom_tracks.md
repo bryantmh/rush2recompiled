@@ -17,6 +17,7 @@ found and what is wrong (see [Checking your track](#checking-your-track)), so re
 - [The AI path](#the-ai-path)
 - [track.toml](#tracktoml)
 - [Sky](#sky)
+- [Moving objects](#moving-objects)
 - [Track select art](#track-select-art)
 - [Textures](#textures)
 - [Checking your track](#checking-your-track)
@@ -197,8 +198,13 @@ best_times      = [95, 100, 105]      # the records table's starting entries are
 
 [look]
 fog_color    = "#a0b8d0"   # also the color seen past the draw distance
-cloud_scroll = 0.0         # sky texture scroll speed
-sky_parallax = 0.0         # how much the sky shifts as the camera moves
+sky          = "none"      # a stock sky: see Sky
+cloud_scroll = 0.0         # sky texture scroll speed (the clouds sky)
+sky_parallax = 0.0         # how much the sky shifts as the camera moves (the clouds sky)
+
+[movers.lift]              # a moving object's settings: see Moving objects
+mode  = "ride"
+races = "both"
 
 [surfaces.mud]             # custom surfaces: see Collision surfaces
 like = "dirt"
@@ -216,12 +222,33 @@ diorama = "diorama.glb"
 - `checkpoint_time` has one entry per checkpoint. Rush 2 keeps one time for the first lap and one for every lap
   after it; a third number (an older form of this file) is ignored.
 - The timer settings apply to forward races. Backward races work out their own times from the AI path.
-- `[surfaces.mud]` above is an example: delete it, or use `COL_MUD_*` meshes in Blender.
+- `[surfaces.mud]` and `[movers.lift]` above are examples: delete them, or use `COL_MUD_*` meshes and a `MOVE_lift`
+  object in Blender.
 - The lap count and mirror mode are the players' choice and aren't set here.
 
 ## Sky
 
-Without a sky mesh the sky is plain `fog_color`. To give the track a sky:
+Without a sky the sky is plain `fog_color`. Use one of the games' own skies, or model your own.
+
+### Stock skies
+
+Set `sky` in track.toml's `[look]` to one of these:
+
+| `sky` | What |
+|---|---|
+| `"none"` | Plain `fog_color` (the default) |
+| `"clouds"` | Rush 2's cloud dome, as on most Rush 2 tracks. One-player races only, as in Rush 2. `cloud_scroll` and `sky_parallax` move it. |
+| `"las_vegas"` | Las Vegas's sunset over the mountains |
+| `"stunt"` | The stunt arena's night sky |
+| `"marina"`, `"haight"`, `"civic"`, `"metro"`, `"mission"`, `"presidio"` | Rush 2049's race track skies. These need the Rush 2049 ROM (set in the Games tab); without it the sky is plain `fog_color` and the report says so. |
+
+The stock skies other than `clouds` are drawn in split screen too. They sit round your road as they do on their own
+track: each is raised or lowered by how far your `FINISH` is above or below the start of its own track. A `SKY` mesh
+takes the place of a stock sky (the report warns when you have both).
+
+### Your own sky
+
+To model the sky yourself:
 
 1. **Make a dome around the origin.** Add > Mesh > UV Sphere (a cube works too) with its center at the world origin.
    Size doesn't matter: the game scales it to fit and draws it around the camera, so it never gets closer or
@@ -237,6 +264,44 @@ Without a sky mesh the sky is plain `fog_color`. To give the track a sky:
 
 The sky is drawn behind everything and isn't fogged, as Rush 2049's skies are. The report gives its triangle count
 (`SKY: ... triangles`).
+
+## Moving objects
+
+Lifts, spinning signs, swinging gates and the like are animated in Blender and play in the game.
+
+1. **Make an Empty (or a mesh) named `MOVE_<name>`**, such as `MOVE_lift`, and put the moving parts under it as its
+   children: meshes to draw, and `COL_*` meshes for the parts cars hit or drive on. Everything under it moves with it.
+2. **Animate `MOVE_<name>` itself:** keyframe its Location, Rotation and Scale on the timeline. Parts under it with
+   animations of their own just follow `MOVE_<name>` (the report says so).
+3. **Export with Animation ticked** in the glTF export settings.
+4. **Pick how it plays** in track.toml (optional):
+
+```toml
+[movers.lift]          # for MOVE_lift
+mode  = "ride"         # "loop" (default), "pingpong" or "ride"
+races = "both"         # "both" (default), "forward" or "backward": the races it is there in
+```
+
+| `mode` | Plays |
+|---|---|
+| `"loop"` | The animation over and over. For a smooth loop make the last key the same pose as the first; otherwise it jumps back to the first pose at the end. |
+| `"pingpong"` | Forward to the end, back to the start, and again. |
+| `"ride"` | Waits at its first pose until a car is on one of its `COL_*` floors, then plays forward to the end and back. For a lift, give it a `COL_ROAD_*` floor. |
+
+Moving floors carry the cars on them (up, down, sideways and turning) and moving walls push them. The animation keeps
+its timing in seconds whatever the frame rate.
+
+Limits:
+
+- 31 moving objects with collision (any number without).
+- 2,000 keys per animation. A longer one is sampled at 2,000 evenly spaced times (the report says so).
+- Every part within about 610 m (2,000 ft) of `MOVE_<name>`'s origin.
+- One animation per object: the first one that moves it. Keep one action per moving object.
+- Location, rotation and scale only. A negative (mirrored) scale is drawn turned instead.
+
+The report has a line per moving object (`MOVE_lift: 2 keys over 4.00 s, ride, 2 triangles, collision moves with
+it.`) and warns about a `MOVE_` object without an animation (it stays put, as ordinary track) and a `[movers.<name>]`
+with no object of that name.
 
 ## Track select art
 
@@ -370,10 +435,10 @@ merges and renames as needed.
 
 ## Not supported yet
 
-- A choice of stock sky
 - Props that react when hit (`PROP_*` Empties are ignored)
 - Translucent (blended) materials
-- Moving parts such as lifts, trains and doors
+- Moving objects that react to the race, such as traffic or a train that waits for the cars: they play on their own
+  clock (a ride only waits for a car on its floor)
 - Stunt and battle arenas
 - A run-up before the lap: the AI path must be a closed loop through `FINISH` (NY One and Rush 2049's race 6 start
   outside their loop)
@@ -422,6 +487,43 @@ merges and renames as needed.
   road steps down more than 15 ft at the run's ends or is where the path itself passes over 300 ft of lap away
   (within 30 ft across): those are in the air (`PathPoint::air`) and keep the curve's height, lanes included. The
   stock paths do the same over their jumps (2049 race 1's converted jump matches its stock heights).
+- **Stock skies:** `clouds` keeps Rush 2's dome: `mod_cloud_dome` (`track2049.cpp`) leaves the hooks on
+  `sky_setup_800A45A8` (0x800A4644 track id, 0x800A4600 players) to Rush 2's own branch. The others are copied into the
+  converted geometry as `SKYO1`: `stock_sky_container` (`track_mod.cpp`) reads the source (Rush 2 asset 0x33 or
+  0x33 + 11 through `assets::read_original`, Rush 2049 track k through `track2049::convert_file(100 + k)`) and hashes
+  it into the cache key; `plan_copy` collects the model's vertices, sub lists, load lists ([7]..[8]) and the texel
+  blocks they load (LOADBLOCK / LOADTLUT / LOADTILE sizes), and `copy_list` moves every pointer. Rush 2 moves a sky
+  model with the camera in x and z only (`render_sky_cloud_scroll_8008918C` at 0x80089454 writes the view camera's
+  +0x24 / +0x2C into the sky matrix, never y), so its height is world space: the copy's vertices are raised by
+  (FINISH height - `StockSky::ground`) x 16, where `ground` is the start of the source track's AI path (spine point 0
+  of Rush 2 path asset 0x57 + 2 x track, 2049 file 157 + k). Marina's sky starts 6,400 units up, over Marina's 531 ft
+  start. The stunt sky's band is black by its own vertex colors (a night sky), not a bad copy.
+- **Moving objects:** each animated `MOVE_` node becomes a Rush 2049 path, drawn and run by the 2049 movers port
+  (`src/rush2049/track2049_movers.cpp`, `track2049_movers_logic.cpp`, docs/rush2049_research/movers.md), handed over
+  with `set_mover_data(0, mover_paths, mover_collision, path_records, ...)` (`light_track` 0 = a custom track). The
+  converter samples every channel (LINEAR with slerp, STEP, CUBICSPLINE) at the union of the key times (at most 2000)
+  and writes a chunk directory at +4 with one PTHD per object. Path flags: 0x8000 no model | loop 0x2 or pingpong 0x1
+  or ride (wait_trigger 0x40 | one_shot 0x4000) | race direction 0x4 / 0x8, plus moves_group 0x20 for an object with
+  collision and switch_group 0x800 when that object is in one direction only. Nodes (0x44 bytes) hold pos, dir, scale
+  and `quat_2049`, the standard quaternion of D R D with D = diag(1, -1, 1), since `movers::quat_to_matrix` builds
+  D R(q)^T D; node flags 0x8 (constant speed) and 0x1 (spawn) on node 0. A closed loop drops its last key, an open
+  loop's last node takes 0.001 s back to key 0, and pingpong and ride end on a node of time 1 and distance 0. Each
+  object has its own model (`<prefix>M%03u`, in its own frame) and a placement record after FINISH (its key-0 matrix
+  transposed, a zero box) named by `path_records`. Collision: `COL_*` parts under a mover are built into the track's
+  polygons at their key-0 pose with polygon info group << 11 (| 0x20 on floors, which carry cars and start rides),
+  never merged across groups, and listed in the quadtree over the box they sweep through every key; `mover_collision`
+  holds the 2049 MOVER records (0x20 bytes: group, polygon, rest matrix s16[9], vertex +0x16, rest vertex +0x18).
+  Changes to the port, for custom tracks only: `setup()` makes a type per path (flags 0x21, or slot 5 << 16 for
+  rides). `World::hold_triggers` keeps a ride's one-shot trigger set while a car's bits are set: Rush 2 steps the
+  drones every other physics tick, so the trigger test saw them leave and come back and turned the ride round.
+  `Options::custom` measures the rotate op's rest copy from the spawn pose with the full inverse of its scaled matrix
+  (`Follower::rest_pos`, `rest_inv`): 2049's rotate (`func_800BF838`) measures it from the object's current position,
+  which undoes the translate op of an object that also moves (2049's rotating groups turn in place), and every custom
+  mover runs `rotation()`; before this a lift's floor stayed on the ground while its model rose. `pad_or_platform`
+  carries a car on a rising or falling floor by the floor's vertical speed (2049 carries only sideways). The cache
+  format is version 2 (`track_cache.cpp`: `mover_paths`, `mover_collision`). `tools/track_mod_cases.py`'s `movers`
+  case checks the flags, node counts, every key's vertex pose against the glTF (a parented, scaled and turned object
+  included), the records and the quadtree coverage.
 - **Sky:** `SKY` meshes become one model named `SKYO1` (not in the placement), whose list switches to 1-cycle,
   TEXEL0 x SHADE, render modes 0x0F0A4000 / 0x0F0A3000 (opaque / alpha-tested, no fog) and clears G_ZBUFFER and G_FOG,
   then puts the track's state back, as Rush 2049's SKYSKY lists do; its vertices are scaled to fit the s16 range

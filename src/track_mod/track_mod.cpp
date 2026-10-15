@@ -29,6 +29,7 @@
 #include "librecomp/mods.hpp"
 #include "recompui/recompui.h"
 
+#include "assets.h"
 #include "gltf_scene.h"
 #include "texture_derive.h"
 #include "texture_upscale.h"
@@ -36,10 +37,11 @@
 #include "track_cache.h"
 #include "track_mod.h"
 #include "track_mod_runtime.h"
+#include "wings.h"
 
 namespace {
     // Bump when the converter's output changes for the same input (the build stamp already covers new builds).
-    constexpr uint64_t converter_version = 8;
+    constexpr uint64_t converter_version = 10;
     constexpr int cache_k = 1000;   // track_cache keys of mod tracks: 1000 + a hash of the folder (2049 tracks use 1-37)
 
     std::mutex mutex;
@@ -234,6 +236,34 @@ namespace {
         int cache_key = 0;          // the track's own entry in the track cache
     };
 
+    // The model container of a stock sky that is a model (track.toml sky, Extras::sky_container): Rush 2's own track
+    // geometry asset, or a Rush 2049 track's geometry file converted. Kept once read; false while it can't be (before
+    // the game has loaded an asset, or without a Rush 2049 ROM), and the track is then converted without it.
+    bool stock_sky_container(const std::string& name, std::vector<uint8_t>& out, std::string& model) {
+        const rush2::track_mod::StockSky* k = rush2::track_mod::stock_sky(name);
+        if (k == nullptr || k->model[0] == 0) return false;
+        static std::mutex sky_mutex;
+        static std::map<std::string, std::vector<uint8_t>> read;
+        std::lock_guard lock{ sky_mutex };
+        auto it = read.find(name);
+        if (it == read.end()) {
+            std::vector<uint8_t> bytes;
+            if (k->game == 2) {
+                uint8_t* rdram = rush2::assets::rdram();
+                if (rdram == nullptr || !rush2::assets::read_original(rdram, k->asset_or_k, bytes)) return false;
+            }
+            else {
+                auto rom = rush2::wings::get_rom();
+                std::string error;
+                if (rom == nullptr || !rush2::track2049::convert_file(*rom, 100 + k->asset_or_k, bytes, error)) return false;
+            }
+            it = read.emplace(name, std::move(bytes)).first;
+        }
+        out = it->second;
+        model = k->model;
+        return true;
+    }
+
     bool read_files(int index, Files& f) {
         {
             std::lock_guard lock{ mutex };
@@ -250,10 +280,12 @@ namespace {
         if (!e.settings.logo.empty()) read_file(e, e.settings.logo, f.extras.logo);
         if (!e.settings.diorama.empty()) read_file(e, e.settings.diorama, f.extras.diorama);
         if (!e.settings.preview.empty()) read_file(e, e.settings.preview, f.extras.preview);
+        stock_sky_container(e.settings.sky, f.extras.sky_container, f.extras.sky_model);
         uint64_t h = rush2::track_cache::hash(f.glb.data(), f.glb.size(), converter_version);
         h = rush2::track_cache::hash(f.toml.data(), f.toml.size(), h);
         h = rush2::track_cache::hash(f.extras.logo.data(), f.extras.logo.size(), h);
         h = rush2::track_cache::hash(f.extras.preview.data(), f.extras.preview.size(), h);
+        h = rush2::track_cache::hash(f.extras.sky_container.data(), f.extras.sky_container.size(), h);
         f.source = rush2::track_cache::hash(f.extras.diorama.data(), f.extras.diorama.size(), h);
         uint64_t name = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(e.folder.data()), e.folder.size());
         f.cache_key = cache_k + int(name % 1000000);

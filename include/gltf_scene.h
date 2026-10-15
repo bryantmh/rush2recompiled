@@ -25,6 +25,10 @@ namespace rush2::gltf {
         std::string name;
         int parent = -1;
         std::array<float, 16> world{};                 // column-major
+        std::array<float, 16> local{};                 // relative to the parent, column-major
+        std::array<float, 3> translation{ 0, 0, 0 }, scale{ 1, 1, 1 };   // local TRS (a node given as a matrix:
+        std::array<float, 4> rotation{ 0, 0, 0, 1 };                      // identity, see `local`), x y z w
+        bool has_matrix = false;                       // the node is given as a matrix, not TRS
         std::vector<Primitive> primitives;             // mesh nodes only
         size_t loose_edges = 0;                        // line primitives (mode 1-3) skipped
         nlohmann::json extras;                         // the node's custom properties, then its mesh's
@@ -48,11 +52,26 @@ namespace rush2::gltf {
         std::vector<uint8_t> data;                     // encoded (PNG, JPEG)
     };
 
+    // An animation channel: one TRS property of one node over time (glTF's sampler, read as stored).
+    struct Channel {
+        int node = -1;                                 // index into Scene::nodes
+        std::string path;                              // translation, rotation, scale (weights are skipped)
+        std::string interpolation = "LINEAR";          // LINEAR, STEP or CUBICSPLINE
+        std::vector<float> times;                      // seconds, ascending
+        std::vector<float> values;                     // 3 or 4 per key (CUBICSPLINE: in-tangent, value, out-tangent)
+    };
+
+    struct Animation {
+        std::string name;
+        std::vector<Channel> channels;
+    };
+
     struct Scene {
         std::string generator;
         std::vector<Node> nodes;                       // in glTF node order (nodes outside the scene are left out)
         std::vector<Material> materials;
         std::vector<Image> images;
+        std::vector<Animation> animations;
     };
 
     // False with a message in error when bytes isn't a usable .glb.

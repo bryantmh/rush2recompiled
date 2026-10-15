@@ -2,7 +2,11 @@
 // the converter's report, for checking with tools/track_mod_check.py. Built by tools/track_mod_test.bat. The track select
 // art (logo, route preview) is made in the game only (src/track_mod/track_mod_menu.cpp).
 //
-//     track_mod_test.exe <track folder> <output folder> [prefix]      (prefix: the host slot's, default HAWAII)
+//     track_mod_test.exe <track folder> <output folder> [prefix] [sky container]
+//
+// prefix: the host slot's, default HAWAII. sky container: a model container file holding the stock sky track.toml's
+// sky names (the game reads it from the ROMs; e.g. tools/rush2049/assets.py's Las Vegas geometry, asset 0x33).
+// Moving objects (MOVE_*) are written as mover_paths.bin, mover_collision.bin and mover_records.txt.
 
 #include <cstdio>
 #include <filesystem>
@@ -42,6 +46,13 @@ int main(int argc, char** argv) {
     rush2::track_mod::Extras extras;
     if (!settings.logo.empty()) extras.logo = read_all(in / settings.logo);
     if (!settings.diorama.empty()) extras.diorama = read_all(in / settings.diorama);
+    if (argc > 4) {
+        const rush2::track_mod::StockSky* sky = rush2::track_mod::stock_sky(settings.sky);
+        if (sky && sky->model[0]) {
+            extras.sky_container = read_all(argv[4]);
+            extras.sky_model = sky->model;
+        }
+    }
     rush2::track_mod::Converted out;
     rush2::track_mod::Report report;
     bool ok = rush2::track_mod::convert(glb, std::string(toml.begin(), toml.end()), prefix, out, report, extras);
@@ -57,6 +68,15 @@ int main(int argc, char** argv) {
     write_all(outdir / "collision.bin", out.track.collision);
     write_all(outdir / "path.bin", out.track.path);
     write_all(outdir / "path_backward.bin", out.track.path_backward);
+    if (!out.track.mover_paths.empty()) {
+        write_all(outdir / "mover_paths.bin", out.track.mover_paths);
+        write_all(outdir / "mover_collision.bin", out.track.mover_collision);
+        std::string records;
+        for (const auto& r : out.track.path_records) {
+            records += std::to_string(r.path) + " " + std::to_string(r.node) + " " + std::to_string(r.record) + "\n";
+        }
+        write_all(outdir / "mover_records.txt", std::vector<uint8_t>(records.begin(), records.end()));
+    }
     printf("OK: wrote %s\n", outdir.string().c_str());
     return 0;
 }

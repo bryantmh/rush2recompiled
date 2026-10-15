@@ -172,7 +172,8 @@ namespace rush2::track2049 {
 
     // Moving objects (src/rush2049/track2049_movers.cpp). set_mover_data hands over the raced track's 2049 geometry and
     // collision files, its path object and turning object placement records and the converted geometry's sorted model
-    // names (k = convert_track's k, 0 for a custom track); reset_movers sets the objects up again on the race's next
+    // names (k = convert_track's k; 0 for a custom track, whose files are the converter's mover_paths and
+    // mover_collision, with a type made for each path); reset_movers sets the objects up again on the race's next
     // physics tick.
     void set_mover_data(int k, const std::vector<uint8_t>& geometry_2049, const std::vector<uint8_t>& collision_2049,
                         const std::vector<PathRecord>& records, const std::vector<SpinRecord>& spin_records,

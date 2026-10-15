@@ -99,6 +99,11 @@ namespace rush2::track2049 {
         std::vector<float> solid_triangles;         // Battle arenas: the collision's solid polygons, 9 floats a triangle.
         std::vector<int16_t> demo_starts[2]; // Attract-mode start spine indices, forward and backward.
         TexAnims tex_anims;                  // Animated textures, as patch sites in `geometry`.
+        // Custom tracks' moving objects (src/track_mod/), in the layouts src/rush2049/track2049_movers.cpp reads from
+        // a 2049 track: the paths as a 2049 file with a PTHD chunk, and a 2049 collision file holding only each
+        // polygon's info word and the MOVER records. Empty for the 2049 tracks, whose own files are used.
+        std::vector<uint8_t> mover_paths;
+        std::vector<uint8_t> mover_collision;
     };
 
     // The battle arenas' k for convert_track: DM n (1-8) is k = battle_first + n - 1 (2049 track id 6 + n - 1).
