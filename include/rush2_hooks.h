@@ -3,6 +3,7 @@
 
 // Declarations for runtime functions called from hooks inserted into recompiled code (see us.toml).
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "recomp.h"
@@ -122,6 +123,10 @@ void rush2_heap_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_load(uint8_t* rdram, recomp_context* ctx);
 void rush2_trackmod_drag_dirt(uint8_t* rdram, recomp_context* ctx);
 void rush2_trackmod_drag_grass(uint8_t* rdram, recomp_context* ctx);
+void rush2_trackmod_torque_dirt(uint8_t* rdram, recomp_context* ctx);
+void rush2_trackmod_torque_grass(uint8_t* rdram, recomp_context* ctx);
+void rush2_trackmod_wheel_material(uint8_t* rdram, recomp_context* ctx);
+void rush2_trackmod_wheel_fallback(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx);

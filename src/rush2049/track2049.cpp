@@ -45,6 +45,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <unordered_map>
 
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
@@ -120,6 +121,10 @@ namespace {
     constexpr int mod_k = 1000;
     rush2::track_mod::Settings mod_settings;   // The raced custom track's track.toml.
     std::array<std::optional<float>, 16> mod_drag;  // Its [surfaces] drag by polygon material slot.
+    std::array<uint8_t, 16> mod_like{};             // The stock material each slot passes for: road 0, dirt 1, grass 2.
+    // The custom material slot under each wheel, by car + 2 x wheel (the wheel's +0x60C holds the `like` material
+    // instead, see rush2_trackmod_wheel_material).
+    std::unordered_map<uint32_t, uint8_t> wheel_custom;
 
     // Converts 2049 track k (convert_track's k) from the user's ROM for the slot in `slot`.
     // The converted track comes from the disk cache (src/track_cache.cpp) when this build converted it from the same
@@ -134,7 +139,12 @@ namespace {
             track = std::move(mod.track);
             mod_settings = mod.settings;
             mod_drag = {};
-            for (const auto& [name, sf] : mod_settings.surfaces) mod_drag[size_t(sf.material & 15)] = sf.drag;
+            mod_like = {};
+            wheel_custom.clear();
+            for (const auto& [name, sf] : mod_settings.surfaces) {
+                mod_drag[size_t(sf.material & 15)] = sf.drag;
+                mod_like[size_t(sf.material & 15)] = sf.like == "dirt" ? 1 : sf.like == "grass" ? 2 : 0;
+            }
             track_has_sky = false;
             rush2::track2049::set_mover_data(0, {}, {}, {}, {}, {});
             rush2::track2049::set_texanim_data({});
@@ -1002,18 +1012,39 @@ extern "C" void rush2_track49_map_t2(uint8_t* rdram, recomp_context* ctx) {
     if (rush2::track2049::no_map(rdram)) ctx->r10 = stunt_host_slot;
 }
 
-// func_8006AFD8 at 0x8006B63C ($f10) and 0x8006B6A4 ($f8): the drag coefficient of the dirt or grass both rear wheels
-// are on (0x800C1A30 / 0x800C1A34: -10 / -15), about to be multiplied by 1 - the off-road factor and the forward speed
-// and added to the longitudinal force (+0x54). On a custom track, rear wheels on a [surfaces] material (car +0x610 /
-// +0x612: the materials the wheel probe func_8006F704 stores at +0x60C + 2 x wheel) take that surface's -drag, the
-// average when the two wheels are on different ones.
+// Custom surfaces ([surfaces] in track.toml) use polygon material slots 3-15. The wheel probe func_8006F704 stores the
+// type (flags & 15: road 0, dirt 1, grass 2) at car +0x5FC + 4 x wheel and the material ((flags & 0xF0) >> 4) at
+// +0x60C + 2 x wheel. The type drives the physics; the material drives the dust and skid effects
+// (func_800663CC: dust when a wheel's material is 1), the surface sounds (func_80067358), the particles
+// (func_8008270C) and the stunt scoring (func_80065588), which know only materials 0-2 and 8 (airborne). So at
+// 0x8006FA90 a custom material is stored as its `like` material, and the custom slot is kept here for the drag and
+// torque below. 0x8006FBE4 (no polygon under the wheel: dirt, material 1) and 0x80070620 (airborne: 8, the caller
+// func_800706D0) overwrite +0x60C without the hook; custom_slot checks +0x60C still holds the slot's `like` material.
+extern "C" void rush2_trackmod_wheel_material(uint8_t* rdram, recomp_context* ctx) {
+    if (!hosting_mod(rdram)) return;
+    uint32_t key = (uint32_t)ctx->r4;   // car + 2 x wheel
+    int slot = (int)ctx->r14 & 15;
+    if (mod_drag[size_t(slot)]) {
+        wheel_custom[key] = uint8_t(slot);
+        ctx->r14 = mod_like[size_t(slot)];
+    }
+    else {
+        wheel_custom.erase(key);
+    }
+}
+
+extern "C" void rush2_trackmod_wheel_fallback(uint8_t* rdram, recomp_context* ctx) {
+    if (!wheel_custom.empty()) wheel_custom.erase((uint32_t)ctx->r3);
+}
+
+extern "C" void car_engine_torque_lookup_80070A78(uint8_t* rdram, recomp_context* ctx);
+
 namespace {
     float surface_coefficient(uint8_t* rdram, uint32_t car, float stock) {
-        if (!hosting_mod(rdram)) return stock;
         float sum = 0.0f;
-        for (int32_t wheel = 2; wheel < 4; wheel++) {
-            int material = MEM_H(0x60C + wheel * 2, (int32_t)car) & 15;   // signed offset (an unsigned one misaddresses)
-            sum += mod_drag[size_t(material)] ? -*mod_drag[size_t(material)] : stock;
+        for (int wheel = 2; wheel < 4; wheel++) {
+            int slot = custom_slot(rdram, car, wheel);
+            sum += slot >= 0 ? -*mod_drag[size_t(slot)] : stock;
         }
         return sum * 0.5f;
     }
@@ -1025,4 +1056,74 @@ extern "C" void rush2_trackmod_drag_dirt(uint8_t* rdram, recomp_context* ctx) {
 
 extern "C" void rush2_trackmod_drag_grass(uint8_t* rdram, recomp_context* ctx) {
     ctx->f8.fl = surface_coefficient(rdram, (uint32_t)ctx->r16, ctx->f8.fl);
+}
+    float f32_at(uint8_t* rdram, uint32_t addr) {
+        int32_t bits = MEM_W(0, (int32_t)addr);
+        float value;
+        std::memcpy(&value, &bits, sizeof(value));
+        return value;
+    }
+
+    // The custom material slot under wheel `wheel` of `car`, or -1.
+    int custom_slot(uint8_t* rdram, uint32_t car, int wheel) {
+        if (!hosting_mod(rdram)) return -1;
+        auto it = wheel_custom.find(car + uint32_t(wheel) * 2);
+        if (it == wheel_custom.end()) return -1;
+        // signed offset (an unsigned one misaddresses)
+        if ((MEM_H(0x60C + wheel * 2, (int32_t)car) & 15) != mod_like[it->second]) return -1;
+        return it->second;
+    }
+
+    // func_8006AFD8 at 0x8006B63C ($f10) and 0x8006B6A4 ($f8): the drag coefficient of the dirt or grass both rear
+    // wheels are on (0x800C1A30 / 0x800C1A34: -10 / -15), about to be multiplied by 1 - the off-road factor and the
+    // forward speed and added to the longitudinal force (+0x54). Rear wheels on a custom surface take its -drag, the
+    // average when the two wheels are on different ones.
+
+    // func_80070DB8 (engine torque) with both rear wheels on dirt or grass (types at +0x604 / +0x608) above 40 rad/s
+    // of wheel speed (+0x3D4) uses the off-road torque: the common torque map (+0x400) x descriptor +0xC4, in place of
+    // the gear's map (+0x3FC) x the gear's scale (+0xB8 gear 1, +0xBC gear 2, +0xC0 gear 3+), hooked at 0x80070E6C (dirt,
+    // $f6) and 0x80070F14 (grass, $f10). That is part of the off-road slowdown, so a custom surface scales it with its
+    // drag: drag 0 drives on the road torque, the stock dirt (10) or grass (15) drag or more on the off-road torque,
+    // in between a blend; the two rear wheels averaged.
+    float surface_torque(uint8_t* rdram, recomp_context* ctx, float offroad) {
+        uint32_t car = (uint32_t)ctx->r16;
+        float weight = 0.0f;
+        bool custom = false;
+        for (int wheel = 2; wheel < 4; wheel++) {
+            int slot = custom_slot(rdram, car, wheel);
+            if (slot < 0) { weight += 1.0f; continue; }
+            custom = true;
+            float stock = mod_like[size_t(slot)] == 2 ? 15.0f : 10.0f;
+            weight += std::clamp(*mod_drag[size_t(slot)] / stock, 0.0f, 1.0f);
+        }
+        weight *= 0.5f;
+        if (!custom || weight >= 1.0f) return offroad;
+
+        // The gear's torque as func_80070DB8 computes it at 0x80070F20-0x8007108C.
+        int32_t gear = MEM_H(0x3DE, (int32_t)car);
+        int index = gear == 1 ? 0 : gear == 2 ? 1 : 2;
+        uint32_t sp = (uint32_t)ctx->r29;
+        int32_t outgoing[2] = { MEM_W(0x10, (int32_t)sp), MEM_W(0x14, (int32_t)sp) };
+        recomp_context saved = *ctx;
+        float rpm = f32_at(rdram, car + 0x3F8) * f32_at(rdram, 0x800CF848 + index * 4);   // rad/s x 60 / 2 pi
+        ctx->r4 = (uint64_t)(int64_t)(int32_t)car;
+        ctx->r5 = (uint64_t)(int64_t)(int16_t)(int32_t)rpm;
+        ctx->r6 = (uint64_t)(int64_t)(int16_t)(int32_t)(f32_at(rdram, car + 0x3B4) * 128.0f);
+        ctx->r7 = (uint64_t)(int64_t)MEM_H(0x3DA, (int32_t)car);
+        MEM_W(0x10, (int32_t)sp) = MEM_H(0x3DC, (int32_t)car);
+        MEM_W(0x14, (int32_t)sp) = MEM_W(0x3FC, (int32_t)car);
+        car_engine_torque_lookup_80070A78(rdram, ctx);
+        float road = float((int32_t)ctx->r2) * f32_at(rdram, (uint32_t)MEM_W(0, (int32_t)car) + 0xB8 + index * 4);
+        *ctx = saved;
+        MEM_W(0x10, (int32_t)sp) = outgoing[0];
+        MEM_W(0x14, (int32_t)sp) = outgoing[1];
+        return offroad * weight + road * (1.0f - weight);
+    }
+
+extern "C" void rush2_trackmod_torque_dirt(uint8_t* rdram, recomp_context* ctx) {
+    ctx->f6.fl = surface_torque(rdram, ctx, ctx->f6.fl);
+}
+
+extern "C" void rush2_trackmod_torque_grass(uint8_t* rdram, recomp_context* ctx) {
+    ctx->f10.fl = surface_torque(rdram, ctx, ctx->f10.fl);
 }

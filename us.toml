@@ -535,6 +535,28 @@ func = "car_wheel_forces_drag_8006AFD8"
 before_vram = 0x8006B6A4
 text = "    rush2_trackmod_drag_grass(rdram, ctx);"
 
+# ... and blend the off-road engine torque toward the road torque by that drag.
+[[patches.hook]]
+func = "car_engine_torque_80070DB8"
+before_vram = 0x80070E6C
+text = "    rush2_trackmod_torque_dirt(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_engine_torque_80070DB8"
+before_vram = 0x80070F14
+text = "    rush2_trackmod_torque_grass(rdram, ctx);"
+
+# A custom surface's material is stored as its `like` material, so dust, skid marks and sounds follow `like`.
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006FA90
+text = "    rush2_trackmod_wheel_material(rdram, ctx);"
+
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006FBE4
+text = "    rush2_trackmod_wheel_fallback(rdram, ctx);"
+
 [[patches.hook]]
 func = "car_init_setup_8008DBA0"
 before_vram = 0x8008DF84

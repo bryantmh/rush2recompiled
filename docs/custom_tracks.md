@@ -120,8 +120,9 @@ drag = 14         # slowdown: stock road 0, dirt 10, grass 15
 | `"dirt"` | Dirt dust | Dirt | 10 |
 | `"grass"` | Grass dust | Grass | 15 |
 
-`drag` only changes the slowdown. Everything else comes with `like`, so `like = "dirt", drag = 0` is dirt that doesn't
-slow you down, not road. Off-road tires reduce the slowdown, as they do on stock dirt. Keep `drag` at 0 or above: a
+`drag` sets the slowdown: the drag, and how far the engine loses power as it does off-road (none at 0, all of it
+at the stock dirt or grass drag or above). Everything else comes with `like`, so `like = "dirt", drag = 0` is dirt that
+doesn't slow you down, not road. Off-road tires reduce the slowdown, as they do on stock dirt. Keep `drag` at 0 or above: a
 negative value pushes the car forward harder the faster it goes, and it runs away to several hundred mph.
 
 ## Markers
@@ -299,8 +300,16 @@ merges and renames as needed.
   tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started
   with). Records: `src/rush2049/track2049_records.cpp` (`{"mod": folder}` courses). Ghosts:
   `src/ghost.cpp` (`mod-<folder>` keys).
-- **Custom surface drag:** hooks at 0x8006B63C (dirt) and 0x8006B6A4 (grass) in `car_wheel_forces_drag_8006AFD8`;
-  collision flags are `type | material << 4`, custom surfaces use material slots 3-15 except 8.
+- **Custom surfaces:** collision flags are `type | material << 4`, custom surfaces use material slots 3-15 except 8.
+  The wheel probe `collision_poly_extract_8006F704` stores the type (physics) at car +0x5FC + 4 x wheel and the
+  material at +0x60C + 2 x wheel. The effects, sounds, particles and stunt scoring only know materials 0-2 and 8
+  (`car_material_effects_update_800663CC` raises dust when a wheel's material is 1), so a hook at 0x8006FA90
+  stores a custom material as its `like` material and keeps the custom slot per wheel on the side
+  (`rush2_trackmod_wheel_material`; 0x8006FBE4, the no-polygon fallback, drops it). Drag: hooks at 0x8006B63C (dirt)
+  and 0x8006B6A4 (grass) in `car_wheel_forces_drag_8006AFD8` replace the -10 / -15 coefficient. Engine torque:
+  `car_engine_torque_80070DB8` with both rear wheels on dirt or grass above 40 rad/s uses the common torque map
+  (+0x400) x descriptor +0xC4 instead of the gear's map (+0x3FC) x the gear's scale (+0xB8/+0xBC/+0xC0); hooks at
+  0x80070E6C (dirt) and 0x80070F14 (grass) blend it toward the gear torque by drag / stock drag (clamped to 0-1).
 - **Backward:** the converter writes `path_backward` (asset 0x63 + slot): the spine reversed from the finish, the gates
   in reverse order and turned round, target speeds recomputed. See [race.md section 5](rush2049_research/race.md).
 - **Problems in the Mods menu:** `rush2::track_mod::register_mod_notes` gives recompui's mod details panel

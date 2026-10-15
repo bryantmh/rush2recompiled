@@ -892,6 +892,14 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         if (n.loose_edges) { report.warning(n.name + " is only lines (loose edges); ignored."); continue; }
         if (!n.name.empty()) report.info(n.name + " isn't a recognized marker; ignored.");
     }
+    // A [surfaces] entry no COL_<NAME>_* object uses changes nothing: say so, or its drag silently never applies.
+    for (const auto& [sname, sf] : settings.surfaces) {
+        bool used = std::any_of(collision_nodes.begin(), collision_nodes.end(), [&](const auto& c) { return (c.first >> 4) == sf.material; });
+        if (!used) {
+            report.warning("track.toml: the surface " + sname + " isn't used: no object is named COL_" + sname + "_*, so "
+                           "its drag applies nowhere (COL_DIRT and COL_GRASS keep the stock drag).");
+        }
+    }
     if (!grid.empty()) {
         report.info("START_1-" + std::to_string(grid.rbegin()->first) + " are ignored: Rush 2 lines the 8 cars up "
                     "itself, two per row, rows 20 ft (6 m) apart, from the finish line back.");
