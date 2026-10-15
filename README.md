@@ -83,6 +83,16 @@ Most options live in the settings menu (press Escape, or select).
 
 To change your button layout, use the game's own **Controls** screen, under Setup or from the pause menu. Pick a row, press A, then press the button you want for it.
 
+## Online multiplayer (experimental)
+
+Up to 8 players can race on separate computers, on the same network or over the internet. There's no server: one player hosts a lobby and the others connect straight to them. Race, stunt and Rush 2049 battle arenas all work, and so do custom tracks as long as everyone has the mod.
+
+- **Host:** open Settings > Online and press Host Lobby. Pick the number of players and the port (UDP 47100 by default) first if you want something else. The game asks your router to open the port by itself (UPnP) and shows the address to give your friends. If your router doesn't support that, forward the port by hand.
+- **Join:** lobbies on your own network are listed in the Online tab with a Join button. For anyone else, type the host's address into Join by Address.
+- **Play:** the host goes through the game's normal menus and everyone else follows along. Each player picks their own profile and car. The race starts once everyone is ready and has the track. While you're in a lobby, the gameplay settings are the host's, and yours come back when you leave.
+
+Everyone needs the same version of the game, and a copy of any ROM the chosen track needs (for example Rush 2049 for its tracks). Every computer runs the whole race itself and only controller inputs are sent, so a steady connection matters more than a fast one. This is still new: expect lots of rough edges
+
 ## Where your stuff is saved
 
 Settings and saves live in `%LOCALAPPDATA%\Rush2Recompiled`. Paste that into the File Explorer address bar to get there.

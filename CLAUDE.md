@@ -25,6 +25,13 @@ RecompUI settings need to be hot-swappable or clearly labeled that they are not
 Never assume the saved car or track is the current car or track. They change all the time. Set the ones you want manually
 An ingame run takes a long time. Don't waste time doing one if the answer can easily be found outside the game, or wate time by doing runs piecemeal
 
+Code reviews follow this standard so every review covers the same ground the same way. Reviews are independent on purpose: don't look for or use earlier reviews' findings
+- Review the merged result: merge the branch with the current master in a scratch tree (tmp/ or the scratchpad, never the user's trees) and review that, so clashes with code master added since the branch started (RDRAM regions, hooks at the same address, renamed functions) show up
+- Read every changed file in full, including us.toml hook entries, CMake and tools. Sampling isn't a review. End with a coverage list of every changed file marked read; a review with a file not read isn't done
+- One bar: report only what a player would plausibly hit in normal use, with the trigger and what they'd see. Check each finding against the code before reporting it, and don't overstate likelihood or effect: a wrong or overstated finding is worse than none. Rare timing or hostile-input cases go in a short separate "unlikely" list, or are left out. "Nothing found" is a valid result. Line endings, formatting, merge conflicts and style are never findings
+- Project rule breaks (base Rush 2 behavior changed without a toggle, unmigrated config or save changes, blocking the game thread) count as findings
+- Fixing review findings: before handing back, review the fix diff to the same standard, since fixes are new code
+
 If I've already given you a screenshot of an issue, you don't need to open the game just to reproduce the screenshot
 
 The game's menus (game states, front-end screen ids, Start Game rows, track/car select, pause menu rows and confirms) and the input scripts that drive them are mapped in docs/menus.md. Read it before scripting a run through the menus, and add to it what you learn instead of working it out again
