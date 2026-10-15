@@ -207,6 +207,32 @@ uint32_t rush2::paint_colors::rgba(int color) {
     return colors[std::clamp(color, 0, max_colors - 1)].load();
 }
 
+int rush2::paint_colors::from_2049(int index49) {
+    int e = shades_loaded.load() ? extra_of(index49) : -1;
+    return e >= 0 ? rush2_colors + e : index49;
+}
+
+int rush2::paint_colors::record_value(uint32_t at, int field, int color) {
+    std::lock_guard lock{ store_mutex };
+    load_store();
+    bool changed;
+    int value = color;
+    if (color >= rush2_colors && color < max_colors) {
+        const Extra& extra = extras[color - rush2_colors];
+        auto it = chosen.find({ at, field });
+        changed = it == chosen.end() || it->second != extra.index49;
+        chosen[{ at, field }] = extra.index49;
+        value = extra.stand_in;
+    }
+    else {
+        changed = chosen.erase({ at, field }) != 0;
+    }
+    if (changed) {
+        save_store();
+    }
+    return value;
+}
+
 void rush2::paint_colors::forget_record(uint8_t* rdram, uint32_t record) {
     std::lock_guard lock{ store_mutex };
     load_store();
@@ -264,25 +290,8 @@ extern "C" void rush2_paint_get(uint8_t* rdram, recomp_context* ctx, uint32_t at
 // A record setter at its inner call: $a0 = the block's +1, $a2 = the value of field `field`. A 2049 shade is kept
 // beside the record, which gets its stand-in.
 extern "C" void rush2_paint_set(uint8_t* rdram, recomp_context* ctx, int field) {
-    uint32_t at = (uint32_t)ctx->r4;
-    int value = (int)(ctx->r6 & 0xFF);
-    uint32_t key = rush2::car2049::record_address(rdram, at);
-    std::lock_guard lock{ store_mutex };
-    load_store();
-    bool changed;
-    if (value >= rush2_colors && value < max_colors) {
-        const Extra& extra = extras[value - rush2_colors];
-        auto it = chosen.find({ key, field });
-        changed = it == chosen.end() || it->second != extra.index49;
-        chosen[{ key, field }] = extra.index49;
-        ctx->r6 = (uint64_t)extra.stand_in;
-    }
-    else {
-        changed = chosen.erase({ key, field }) != 0;
-    }
-    if (changed) {
-        save_store();
-    }
+    uint32_t key = rush2::car2049::record_address(rdram, (uint32_t)ctx->r4);
+    ctx->r6 = (uint64_t)record_value(key, field, (int)(ctx->r6 & 0xFF));
 }
 
 // Car select, before the game adds the step to a color row's byte: `value` is the byte.

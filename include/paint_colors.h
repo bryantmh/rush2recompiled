@@ -22,6 +22,13 @@ namespace rush2::paint_colors {
     int usable(int color);
     // RGBA (0xRRGGBBAA) of a color, any index below max_colors (the extras' own shade even while not offered).
     uint32_t rgba(int color);
+    // The color of Rush 2049's color index `index49`: its shade (32-52) when it is one of the extras and the shades are
+    // loaded, else the same index (Rush 2's version of it).
+    int from_2049(int index49);
+    // The value a player record's 5-bit field stores for `color`: an extra's stand-in, with the shade kept beside the
+    // record for the block whose +1 is at `at` (a record address, record + 0x585 + type * 13); field 0 MAIN, 1 ACCENT,
+    // 2 STRIPE COLOR.
+    int record_value(uint32_t at, int field, int color);
     // Forgets the 2049 shades kept for the player record at `record` (a deleted player).
     void forget_record(uint8_t* rdram, uint32_t record);
 }

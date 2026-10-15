@@ -324,6 +324,11 @@ section, keyed by the block's +1 address and the field. A 2049 type's block live
 by the record address it stands for (`rush2::car2049::record_address`). The getters give the extra back while it is
 offered and the record still holds its stand-in. Deleting a player forgets its entries.
 
+The 2049 cars start in their 2049 shades: the default rows (0x80201190.. row 0, build_physics) and a new side slot
+(rush2_car49_record -> set_defaults) take `paint_colors::from_2049` of each COLOR 1-3, so a COLOR that is one of the
+shades starts as color 32-52 (the slot's record field gets the stand-in, the shade goes in "paint"). Side slots saved
+before 2026-10-14 keep the colors they hold.
+
 The car select's left/right on a color row (func_803B9478 cases MAIN 0x803B9960, ACCENT 0x803B9A20, STRIPE COLOR
 0x803B9BA0) adds the step to the row byte (0x80201190 / 0x80201248 / 0x802013B8 + (slot + 1) * 36 + type), wraps it
 at 32 (31 below 0, 0 from 32) and calls the setter with it. Hooks keep the byte before the add (0x803B9998, 0x803B9A58,

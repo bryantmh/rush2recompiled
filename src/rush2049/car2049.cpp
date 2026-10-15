@@ -1219,9 +1219,18 @@ namespace {
     // A 2049 car's own colours and rims in its record block (func_800B266C / func_800B2640 / func_800B25D0 /
     // func_800B259C): MAIN is bits 5-7 of +1 and 0-1 of +2, ACCENT bits 2-6 of +2, STRIPE COLOR bits 3-7 of +3 (STRIPE
     // is bits 0-2), TIRE RIMS byte +4.
-    void set_defaults(uint8_t* rdram, uint32_t block, int k) {
+    // paint_at: for a new slot, the record address of the block's +1 (record + 0x585 + type * 13), so a COLOR that is
+    // one of the 2049 shades (src/paint_colors.cpp) starts as that shade; 0 keeps the plain indices (a save from
+    // before version 5, migrated as it was).
+    void set_defaults(uint8_t* rdram, uint32_t block, int k, uint32_t paint_at = 0) {
         MEM_B(0, (int32_t)(block + 4)) = (int8_t)setup49.rims[k];
-        const int* c = setup49.colours[k];
+        int c[3];
+        for (int i = 0; i < 3; i++) {
+            c[i] = setup49.colours[k][i];
+            if (paint_at != 0) {
+                c[i] = rush2::paint_colors::record_value(paint_at, i, rush2::paint_colors::from_2049(c[i]));
+            }
+        }
         uint8_t b1 = MEM_BU(0, (int32_t)(block + 1)), b2 = MEM_BU(0, (int32_t)(block + 2)),
                 b3 = MEM_BU(0, (int32_t)(block + 3));
         b1 = uint8_t((b1 & 0x1F) | ((c[0] & 7) << 5));
@@ -1351,7 +1360,7 @@ extern "C" void rush2_car49_record(uint8_t* rdram, recomp_context* ctx) {
                 MEM_B(0, (int32_t)(block + durability_byte)) =
                     (int8_t)std::lround(setup49.frame_weight[setup49.frame[k]] * 100.0f);
                 MEM_B(0, (int32_t)(block + engine_byte)) = 0;
-                set_defaults(rdram, block, k);
+                set_defaults(rdram, block, k, record + record_block + t * block_size + 1);
                 set_tire_size_defaults(rdram, block, k);
             }
         }
@@ -1388,7 +1397,6 @@ void rush2::car2049::forget_record(uint8_t* rdram, uint32_t record) {
     }
 }
 
-// Car speeds (docs/rush2049_research/cars.md §10). Both games share the torque map (above 2300 rpm), final drive and
 uint32_t rush2::car2049::record_address(uint8_t* rdram, uint32_t addr) {
     if (addr < side_slots || addr >= side_slots + max_side_slots * side_slot_size) {
         return addr;
@@ -1405,6 +1413,7 @@ uint32_t rush2::car2049::record_address(uint8_t* rdram, uint32_t addr) {
     return addr;
 }
 
+// Car speeds (docs/rush2049_research/cars.md §10). Both games share the torque map (above 2300 rpm), final drive and
 // drag; they differ in the torque scale per gear and the gear ratios. build_physics maps Rush 2049's roster onto Rush
 // 2's: per gear, the torque scale x (Rush 2's mean / 2049's mean) and each gear ratio x (Rush 2's mean / 2049's mean),
 // over Rush 2's 21 cars (all but the secret ROCKET) and 2049's 13 in their stock setups. Each 2049 car keeps its place
@@ -1607,11 +1616,15 @@ namespace {
             for (int i = 0; i < 4; i++) {
                 MEM_W(0, (int32_t)(boxes + type * 16 + i * 4)) = m.w(box_t + 16 * k + 4 * i);
             }
-            // MAIN, ACCENT, STRIPE COLOR and TIRE RIMS start as the car's 2049 COLOR 1-3 and rims (2049's rims are
-            // Rush 2's RIM01-RIM21, its palettes only darkened for its lighting).
+            // MAIN, ACCENT, STRIPE COLOR and TIRE RIMS start as the car's 2049 COLOR 1-3 (in 2049's own shades,
+            // src/paint_colors.cpp) and rims (2049's rims are Rush 2's RIM01-RIM21, its palettes only darkened for its
+            // lighting).
             constexpr uint32_t t_colours[3] = { 0x80201190, 0x80201248, 0x802013B8 }, t_rims = 0x80201020;
             for (int row = 0; row < 5; row++) {
-                for (int i = 0; i < 3; i++) MEM_B(0, (int32_t)(t_colours[i] + row * types + type)) = (int8_t)s.colours[k][i];
+                for (int i = 0; i < 3; i++) {
+                    MEM_B(0, (int32_t)(t_colours[i] + row * types + type)) =
+                        (int8_t)rush2::paint_colors::from_2049(s.colours[k][i]);
+                }
                 MEM_B(0, (int32_t)(t_rims + row * types + type)) = (int8_t)s.rims[k];
             }
             // Wheel model scale (func_8005A598): 2049's own (1.0, the Venom's rear 1.1, the Crusher 1.4), not the
