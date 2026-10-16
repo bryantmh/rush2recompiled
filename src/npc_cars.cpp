@@ -46,6 +46,7 @@
 #include "elements/ui_select.h"
 #include "elements/ui_slider.h"
 
+#include "car1_stripes.h"
 #include "car2049.h"
 #include "paint_colors.h"
 #include "npc_cars.h"
@@ -67,7 +68,7 @@ namespace {
 
     constexpr int rush2_types = 22;                 // 22 is Rush 2's "no car"
     constexpr int colors = rush2::paint_colors::max_colors; // with the 2049 shades (src/paint_colors.cpp)
-    constexpr int stripes = 8;                      // 0 none, 1-7
+    constexpr int stripes = 8;                      // 0 none, 1-7 (8: SF Rush, src/rush1/car1_stripes.cpp)
 
     // The car select's STRIPE values (strings 0x800CC8D8.., through the value table 0x800C4960; "SNGL FADE" spelled
     // out). Its TIRE RIMS values are "RIM 1".."RIM 21" (0x800C4980..).
@@ -87,8 +88,8 @@ namespace {
 
     enum Field { f_car, f_stripe, f_rims, f_main, f_accent, f_stripe_color, field_count };
     const char* const field_ids[field_count] = { "car", "stripe", "rims", "main_color", "accent_color", "stripe_color" };
-    constexpr int field_max[field_count] = { rush2::car2049::types - 1, stripes - 1, rims - 1, colors - 1, colors - 1,
-                                             colors - 1 };
+    constexpr int field_max[field_count] = { rush2::car2049::types - 1, rush2::car1stripes::value, rims - 1, colors - 1,
+                                             colors - 1, colors - 1 };
     constexpr int random_value = -1; // Random (the rims: the car's own)
 
     const std::string config_id = "npc_cars";
@@ -191,19 +192,29 @@ extern "C" void rush2_npc_cars_apply(uint8_t* rdram, recomp_context* ctx) {
         int c = choice(f);
         return c == random_value ? c : rush2::paint_colors::usable(c);
     };
+    int stripe = choice(f_stripe);
+    // The SF Rush stripe only on a car that has one (with a Random car, the game's pick is kept on the others).
+    if (stripe == rush2::car1stripes::value && !rush2::car1stripes::available(rdram, MEM_BU(1, (int32_t)entry))) {
+        stripe = random_value;
+    }
+    int final_stripe = stripe != random_value ? stripe : MEM_BU(4, (int32_t)entry);
     int main = color_choice(f_main);
     if (main != random_value) {
-        // With a stripe the game paints the accent as the main color.
-        if (had_stripe && color_choice(f_accent) == random_value) {
-            MEM_B(3, (int32_t)entry) = (int8_t)main;
-        }
         MEM_B(2, (int32_t)entry) = (int8_t)main;
     }
     main = MEM_BU(2, (int32_t)entry);
     if (color_choice(f_accent) != random_value) {
         MEM_B(3, (int32_t)entry) = (int8_t)color_choice(f_accent);
     }
-    int stripe = choice(f_stripe);
+    else if (final_stripe != 0 && final_stripe != rush2::car1stripes::value) {
+        // With a stripe the game paints the accent as the main color.
+        MEM_B(3, (int32_t)entry) = (int8_t)main;
+    }
+    else if (MEM_BU(3, (int32_t)entry) == main) {
+        // Without one it is another color, as it is for the SF Rush stripe: part of a decal is in the ACCENT color
+        // (the Camaro's flames).
+        MEM_B(3, (int32_t)entry) = (int8_t)other_color(main);
+    }
     if (stripe != random_value) {
         MEM_B(4, (int32_t)entry) = (int8_t)stripe;
         // The game only draws a stripe color for a car it gave a stripe.
@@ -328,8 +339,8 @@ namespace {
         return line;
     }
 
-    void add_select(Element* parent, const std::string& name, int npc, Field f,
-                    const std::vector<std::pair<int, std::string>>& values) {
+    Select* add_select(Element* parent, const std::string& name, int npc, Field f,
+                    const std::vector<std::pair<int, std::string>>& values, std::function<void()> changed = nullptr) {
         ContextId context = get_current_context();
         Element* line = add_line(parent, name);
         std::vector<SelectOption> options;
@@ -339,9 +350,11 @@ namespace {
         Select* select = context.create_element<Select>(line, options, std::to_string(choices[npc][f].load()));
         // Select is focusable but not in the tab order, which the d-pad's navigation (RmlUi's nav: auto) needs.
         select->set_tab_index_auto();
-        select->add_change_callback([npc, f](SelectOption& option, int) {
+        select->add_change_callback([npc, f, changed](SelectOption& option, int) {
             set_choice(npc, f, std::stoi(option.value));
+            if (changed) changed();
         });
+        return select;
     }
 
     // A paint color: a slider from Random (0) through the colors offered (src/paint_colors.cpp), and a swatch of the
@@ -384,7 +397,20 @@ namespace {
         });
     }
 
-    void build_opponent(Element* parent, int npc) {
+    // The rows follow the chosen car as the car select's do (src/rush2049/wings_menu.cpp): a Rush 2 car (or Random) has
+    // STRIPE (with SF Rush on a car that has it) and the three colors; a 2049 car from the N64 ROM has no STRIPE and
+    // its third color is TERTIARY; a Dreamcast disc's 2049 car has one STYLE row, its paint job (MAIN COLOR modulo the
+    // car's jobs, src/rush2049/car2049.cpp), in place of the colors and STRIPE.
+    int row_layout(int type) {
+        if (type >= rush2::car2049::first_type && type < rush2::car2049::types) {
+            int jobs = rush2::car2049::paint_jobs(type);
+            return jobs > 0 ? 2 + jobs : 2;
+        }
+        return type == random_value || rush2::car1stripes::offered(type) ? 1 : 0;
+    }
+
+    // Opponent npc's rows; car_changed rebuilds them when a new car has other rows. Returns the Car row's control.
+    Element* build_opponent(Element* parent, int npc, std::function<void()> car_changed) {
         ContextId context = get_current_context();
         Element* block = context.create_element<Element>(parent, 0, "div", false);
         block->set_display(Display::Flex);
@@ -405,13 +431,31 @@ namespace {
                 car_values.emplace_back(type, std::string(rush2::car2049::display_name(k)) + " (2049)");
             }
         }
-        add_select(block, "Car", npc, f_car, car_values);
+        Select* car_select = add_select(block, "Car", npc, f_car, car_values, [npc, chosen, car_changed]() {
+            // A paint job past the new car's jobs reads as Random.
+            int type = choices[npc][f_car].load();
+            int jobs = rush2::car2049::paint_jobs(type);
+            if (jobs > 0 && choices[npc][f_main].load() >= jobs) {
+                set_choice(npc, f_main, random_value);
+            }
+            if (row_layout(type) != row_layout(chosen)) {
+                car_changed();
+            }
+        });
 
-        std::vector<std::pair<int, std::string>> stripe_values = { { random_value, "Random" } };
-        for (int s = 0; s < stripes; s++) {
-            stripe_values.emplace_back(s, stripe_names[s]);
+        bool is_2049 = chosen >= rush2::car2049::first_type && chosen < rush2::car2049::types;
+        int jobs = rush2::car2049::paint_jobs(chosen);
+        if (!is_2049) {
+            std::vector<std::pair<int, std::string>> stripe_values = { { random_value, "Random" } };
+            for (int s = 0; s < stripes; s++) {
+                stripe_values.emplace_back(s, stripe_names[s]);
+            }
+            if (chosen == random_value || rush2::car1stripes::offered(chosen) ||
+                choices[npc][f_stripe].load() == rush2::car1stripes::value) {
+                stripe_values.emplace_back(rush2::car1stripes::value, "SF Rush");
+            }
+            add_select(block, "Stripe", npc, f_stripe, stripe_values);
         }
-        add_select(block, "Stripe", npc, f_stripe, stripe_values);
 
         std::vector<std::pair<int, std::string>> rim_values = { { random_value, "Car's Own" } };
         for (int r = 0; r < rims; r++) {
@@ -419,9 +463,18 @@ namespace {
         }
         add_select(block, "Rims", npc, f_rims, rim_values);
 
+        if (jobs > 0) {
+            std::vector<std::pair<int, std::string>> style_values = { { random_value, "Random" } };
+            for (int j = 0; j < jobs; j++) {
+                style_values.emplace_back(j, "Style " + std::to_string(j + 1));
+            }
+            add_select(block, "Style", npc, f_main, style_values);
+            return car_select;
+        }
         add_color(block, "Main Color", npc, f_main);
         add_color(block, "Accent Color", npc, f_accent);
-        add_color(block, "Stripe Color", npc, f_stripe_color);
+        add_color(block, is_2049 ? "Tertiary Color" : "Stripe Color", npc, f_stripe_color);
+        return car_select;
     }
 
     // The section: a heading with a button that opens and closes the opponents' choices below it.
@@ -482,15 +535,26 @@ namespace {
         Button* button = nullptr;
         Element* body = nullptr;
         bool built = false;
-        bool stale = false; // The choices changed under the shown controls (Reset).
+        bool stale = false; // The choices changed under the shown controls (Reset), or a car with other rows was picked.
+        int refocus = -1;   // The opponent whose Car row is focused again after the rebuild.
 
         void build() {
             body->clear_children();
             stale = false;
+            int focus_npc = refocus;
+            refocus = -1;
             built = expanded;
             if (expanded) {
                 for (int npc = 0; npc < count; npc++) {
-                    build_opponent(body, npc);
+                    Element* car = build_opponent(body, npc, [this, npc]() {
+                        stale = true;
+                        refocus = npc;
+                        queue_update();
+                    });
+                    // The Car row keeps the focus when its opponent's rows are rebuilt.
+                    if (npc == focus_npc) {
+                        car->focus();
+                    }
                 }
             }
         }
@@ -499,7 +563,9 @@ namespace {
 
 const char* const rush2::npc_cars::description =
     "Picks each computer car's car, stripe, rims and colors (Opponent 1 is the first computer car on the grid). "
-    "Random keeps the game's own pick. Reset sets them all back to Random. Takes effect at the next race.";
+    "The SF Rush stripe is offered on the cars that have one. A Rush 2049 car from the Dreamcast disc has a Style "
+    "(its paint job) in place of colors. Random keeps the game's own pick. Reset sets them all back to Random. "
+    "Takes effect at the next race.";
 
 void rush2::npc_cars::add_section(recompui::Element* parent, std::function<void()> on_show) {
     recompui::get_current_context().create_element<Section>(parent, std::move(on_show));

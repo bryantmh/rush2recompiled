@@ -49,33 +49,36 @@
 using namespace rush2::paint_colors;
 
 namespace {
-    // The extras in order (colors 32-52): Rush 2049's index of the shade and its Rush 2 stand-in.
+    // The extras in order (colors 32-52): Rush 2049's index of the shade, its Rush 2 stand-in and the shade (0xRRGGBB,
+    // Rush 2049's N64 table), used when the source has no table: a Dreamcast disc paints cars with liveries and keeps no
+    // RGB table (its executable has none of these shades).
     struct Extra {
         int index49;
         int stand_in;
+        uint32_t rgb;
     };
     constexpr Extra extras[extra_colors] = {
-        { 2, 2 },   // gray 5A5A5A (dark gray)
-        { 4, 5 },   // rose red DD4156 (red)
-        { 9, 1 },   // ice blue C4D6DF (silver)
-        { 10, 9 },  // sky blue 6FA0E3 (light blue)
-        { 11, 10 }, // royal blue 1B38E5 (blue)
-        { 12, 11 }, // dark blue 081B70 (navy)
-        { 13, 12 }, // midnight blue 040E38 (dark navy)
-        { 14, 16 }, // leaf green 58BB5B (green)
-        { 15, 16 }, // emerald 00A92F (green)
-        { 17, 17 }, // forest green 005A2A (dark green)
-        { 18, 18 }, // aqua 3EC1BF (aqua)
-        { 19, 20 }, // sea green 296855 (dark teal)
-        { 20, 20 }, // dark teal 1B5653 (dark teal)
-        { 21, 21 }, // orchid E525D0 (magenta)
-        { 22, 22 }, // violet B74CE5 (lavender)
-        { 24, 24 }, // purple 660FA9 (deep purple)
-        { 26, 26 }, // gold yellow F0D41D (yellow)
-        { 28, 28 }, // amber E08E1A (orange)
-        { 29, 29 }, // khaki 8A6449 (brown)
-        { 30, 1 },  // lilac gray C8B4CA (silver)
-        { 31, 31 }, // taupe 504136 (dark brown)
+        {  2,  2, 0x5A5A5A }, // gray (dark gray)
+        {  4,  5, 0xDD4156 }, // rose red (red)
+        {  9,  1, 0xC4D6DF }, // ice blue (silver)
+        { 10,  9, 0x6FA0E3 }, // sky blue (light blue)
+        { 11, 10, 0x1B38E5 }, // royal blue (blue)
+        { 12, 11, 0x081B70 }, // dark blue (navy)
+        { 13, 12, 0x040E38 }, // midnight blue (dark navy)
+        { 14, 16, 0x58BB5B }, // leaf green (green)
+        { 15, 16, 0x00A92F }, // emerald (green)
+        { 17, 17, 0x005A2A }, // forest green (dark green)
+        { 18, 18, 0x3EC1BF }, // aqua (aqua)
+        { 19, 20, 0x296855 }, // sea green (dark teal)
+        { 20, 20, 0x1B5653 }, // dark teal (dark teal)
+        { 21, 21, 0xE525D0 }, // orchid (magenta)
+        { 22, 22, 0xB74CE5 }, // violet (lavender)
+        { 24, 24, 0x660FA9 }, // purple (deep purple)
+        { 26, 26, 0xF0D41D }, // gold yellow (yellow)
+        { 28, 28, 0xE08E1A }, // amber (orange)
+        { 29, 29, 0x8A6449 }, // khaki (brown)
+        { 30,  1, 0xC8B4CA }, // lilac gray (silver)
+        { 31, 31, 0x504136 }, // taupe (dark brown)
     };
 
     constexpr uint32_t rush2_table = 0x800CE19C;     // Rush 2's RGBA table
@@ -171,21 +174,21 @@ void rush2::paint_colors::init(uint8_t* rdram) {
 }
 
 void rush2::paint_colors::load_2049(uint8_t* rdram, const uint8_t* table) {
-    // A source without the table (a Dreamcast disc's Main segment is rebuilt from a list of tables) reads as zeros:
-    // every one of 2049's colors is opaque.
+    // A source without the table (a Dreamcast disc's Main segment is rebuilt from a list of tables, and the disc has
+    // none) reads as zeros, where every one of 2049's colors is opaque: the shades are then the N64 table's values.
     bool valid = table != nullptr;
     for (int i = 0; valid && i < rush2_colors; i++) {
         valid = table[i * 4 + 3] == 0xFF;
     }
     for (int e = 0; e < extra_colors; e++) {
-        uint32_t c = colors[extras[e].stand_in].load();
+        uint32_t c = extras[e].rgb << 8 | 0xFF;
         if (valid) {
             const uint8_t* p = table + extras[e].index49 * 4;
             c = (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | 0xFF;
         }
         colors[rush2_colors + e] = c;
     }
-    shades_loaded = valid;
+    shades_loaded = true;
     write_tables(rdram);
 }
 

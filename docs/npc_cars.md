@@ -43,6 +43,29 @@ Rush 2 drew without one gets a random STRIPE COLOR unless one is chosen.
 The ghost hook used to sit at `0x800A3E7C`, which the stripe path skips, so a ghost whose drone slot drew a stripe
 kept the random colors; moving it to `0x800A3E80` fixed that too.
 
+## Stripe and paint per car
+
+The section's rows follow the chosen car, as the car select's do (src/rush2049/wings_menu.cpp):
+
+- A Rush 2 car (or Random) has STRIPE with the SF Rush stripe (value 8, src/rush1/car1_stripes.cpp) listed while the
+  SF Rush Car Stripes option is on, the Rush 1 ROM is there and the car has a Rush 1 decal (Random lists it too: it is
+  then applied only when the drawn car has one, else Rush 2's pick stays). A drone needs no record flag for it: the
+  entry's +4 byte is copied whole to the physics car's `+0x7ED` (`0x8009E948`), which car_build_scene_nodes passes to
+  car_build_textures (`0x800866CC`) as it does a human's STRIPE from the record getter, so the painter hooks at
+  `0x80085D84` / `0x80085D8C` draw it.
+
+A Random ACCENT follows the stripe the car ends up with: Rush 2's stripe path sets a striped drone's ACCENT to its
+MAIN and its no-stripe path another color, so a chosen stripe (or a chosen MAIN on a striped car) makes ACCENT the
+MAIN, and a chosen None or SF Rush gives it another random color when it equals MAIN (part of the Camaro's decal is in
+the ACCENT ramp, palette 33-49, and would vanish into the body).
+- A Rush 2049 car from the N64 ROM has no STRIPE; its third color (the entry's +5, STRIPE COLOR) is TERTIARY COLOR.
+- A Rush 2049 car from the Dreamcast disc has one Style row: the paint job, stored as MAIN COLOR (+2), which
+  rush2_car49_paint takes modulo the car's jobs (`rush2::car2049::paint_jobs`). Picking a car whose jobs are fewer than
+  the chosen style sets Style back to Random.
+
+The colors are 0-52 with the Rush 2049 shades (src/paint_colors.cpp); the drone's entry and the physics car keep whole
+bytes, so a shade reaches the painter with no stand-in.
+
 ## Rims
 
 TIRE RIMS are not in the car table. A car's rim is the per-type table `0x80201020` (Rush 2's `0x800C0E48`, moved to 36

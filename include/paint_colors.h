@@ -13,8 +13,9 @@ namespace rush2::paint_colors {
     // Allocates the game's color tables (RGBA and RGBA5551, max_colors entries). Call once at boot, before the race
     // scene loads.
     void init(uint8_t* rdram);
-    // Fills the 2049 shades from Rush 2049's RGB table (0x801226C0: 32 RGBA words, big-endian), or nullptr when the
-    // 2049 Main segment isn't there (the extras then show their stand-in Rush 2 colors and aren't offered).
+    // Fills the 2049 shades from Rush 2049's RGB table (0x801226C0: 32 RGBA words, big-endian), or from the N64
+    // table's values when it is nullptr or not there (a Dreamcast disc has none). They are offered while the 2049 cars
+    // are (count()).
     void load_2049(uint8_t* rdram, const uint8_t* table);
     // The colors offered now: max_colors while the 2049 cars are offered and their shades are loaded, else 32.
     int count();

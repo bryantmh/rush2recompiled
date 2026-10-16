@@ -13,6 +13,14 @@ namespace rush2::car1stripes {
     // The SF Rush Car Stripes option (Games tab, with the SF Rush Tracks option).
     void set_option(bool enabled);
 
+    // The STRIPE value of the SF Rush stripe (Rush 2's are 0-7).
+    constexpr int value = 8;
+    // Whether car type `type` offers the SF Rush stripe: the option is on, the car has a Rush 1 decal and the Rush 1
+    // ROM is there (the decal itself is built on first use).
+    bool offered(int type);
+    // Whether car type `type` can be painted with it now, building (or loading) its decal: game thread.
+    bool available(uint8_t* rdram, int type);
+
     // The SF Rush decal of a Rush 2 car panel, as the game writes it (docs/texture_upscaling.md "SF Rush decals"):
     // Dump Textures writes the decal alone to upscale, as the stripe tiles are, and the derived replacements lay its
     // upscale over the plain panel's.

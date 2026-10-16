@@ -288,8 +288,10 @@ Rush 2's 32 paint colors are RGBA words at 0x800CE19C; Rush 2049's RGB table 0x8
 builds 0x8013F300) holds the same 32 colors index for index, retuned. While the 2049 cars are offered (Games tab), the
 2049 shades that no Rush 2 color is close to (CIE76 dE of 10 or more from every one) are colors 32-52, for every car
 and for the AI Opponents' paint (src/paint_colors.cpp). They are read from the 2049 ROM's Main segment; a source
-without the table (a Dreamcast disc: its Main segment is rebuilt from `tools/rush2049/dc_tables.py`'s list, which
-doesn't have it) offers none. Each has a Rush 2 stand-in, the closest Rush 2 color in hue:
+without the table (a Dreamcast disc: its Main segment is rebuilt from `tools/rush2049/dc_tables.py`'s list, and the
+disc paints its cars with liveries, so 1ST_READ.BIN holds none of these shades in any byte order) uses the N64 table's
+values kept in paint_colors.cpp's `extras` (the Shade column below), so the colors are offered with either source.
+Each has a Rush 2 stand-in, the closest Rush 2 color in hue:
 
 | Color | 2049 index | Shade | Stand-in | Color | 2049 index | Shade | Stand-in |
 |---|---|---|---|---|---|---|---|

@@ -49,7 +49,7 @@
 extern "C" void pak_mark_dirty_8005F338(uint8_t* rdram, recomp_context* ctx);   // Marks player-record bytes dirty for the pak save.
 
 namespace {
-    constexpr int sf_rush_value = 8;                  // the STRIPE value (Rush 2's are 0-7)
+    constexpr int sf_rush_value = rush2::car1stripes::value;
     constexpr uint32_t bank_table = 0x80119220;       // [bank] = texture records, count (record: name[16], u16 w, h, ..., +0x18 texels)
     constexpr int stripe_asset = 0x1C;                // Rush 2 asset with the stripe tiles and CARPALETTE
     constexpr int first_car_asset = 0x1D;
@@ -288,6 +288,14 @@ namespace {
 
 void rush2::car1stripes::set_option(bool enabled) {
     option_enabled = enabled;
+}
+
+bool rush2::car1stripes::offered(int type) {
+    return car_of(type) >= 0 && option_enabled.load(std::memory_order_relaxed) && rush2::track1::rom_available();
+}
+
+bool rush2::car1stripes::available(uint8_t* rdram, int type) {
+    return eligible(rdram, type);
 }
 
 // Player record getter func_800B2608 at 0x800B2624 ($t8 = the car's block, $a1 = type): the STRIPE value, 8 when the
