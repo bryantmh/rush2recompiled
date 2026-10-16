@@ -10,7 +10,7 @@
 // effects on Valve's haptic actuators as tones, like a DualSense's voices (include/dualsense_haptics.h), instead of
 // SDL's rumble, which drives them like old motors with one speed per side, so every effect felt the same. The Steam
 // Controller wired (28DE:1302), over Bluetooth (1303) and through the puck (1304/1305), and the Steam Deck (1205).
-// Every connected one plays its own. Windows only (the releases are).
+// Every connected one plays its own. Windows and Linux (hidraw).
 namespace rush2::steam_haptics {
     struct Controller {
         std::string path;     // SDL device path (SDL_GameControllerPath).

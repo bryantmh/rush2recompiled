@@ -7,7 +7,7 @@
 // for Rumble Mode > Enhanced. SDL's rumble call puts a DualSense in its PS4-compatible mode, where the firmware makes
 // the left actuator feel like a heavy motor and the right like a light one; the real actuators are a matched pair fed
 // as channels 3 and 4 of the controller's own 4-channel sound device. Only over USB (Bluetooth has no sound device).
-// Every DualSense plays on its own sound device. Windows only (the releases are).
+// Every DualSense plays on its own sound device. Windows (WASAPI) and Linux (PulseAudio or PipeWire).
 namespace rush2::haptics {
     // Strength, 0 to 1, of each actuator's voices, [0] left and [1] right: a low thump (hits), a rough higher buzz
     // (tire screech) and a grinding rasp (scraping along a wall).

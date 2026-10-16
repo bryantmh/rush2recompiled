@@ -30,6 +30,13 @@
 // Each controller is opened on its own (Windows shares HID devices), not through SDL, whose effect call only sends
 // feature reports to the Steam Controller and none to the Deck. A thread per controller does the opening and the
 // writes, which can block.
+//
+// On Linux the reports go to the controller's hidraw node (write() for output reports, HIDIOCSFEATURE for feature
+// reports; opening it needs the udev rules Steam installs). SDL's path is that node when its HIDAPI driver has the
+// controller. Otherwise it's an evdev node, whose USB device holds the node, or Steam Input's virtual device, which
+// takes a node with the controller's IDs (SDL reports the real ones) that no other player has. Of a controller's
+// nodes, the Deck's is interface 2 (as SDL_hidapi_steamdeck.c picks) and the Steam Controller's the one with tone
+// reports (src/linux_devices.cpp).
 
 #include <algorithm>
 #include <atomic>
@@ -47,11 +54,19 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <hidsdi.h>
+#elif defined(__linux__)
+#include <cerrno>
+#include <set>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/hidraw.h>
+#include "linux_devices.h"
 #endif
 
 #include "steam_haptics.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
 namespace {
     constexpr unsigned vendor_valve = 0x28DE;
     constexpr unsigned product_triton_wired = 0x1302;
@@ -142,6 +157,16 @@ namespace {
         return tone;
     }
 
+#ifdef _WIN32
+    unsigned long last_error() { return GetLastError(); }
+#else
+    unsigned long last_error() { return (unsigned long)errno; }
+
+    // hidraw nodes a player has open, so a controller behind Steam Input doesn't take another player's.
+    std::mutex nodes_mutex;
+    std::set<std::string> nodes_in_use;
+#endif
+
     // One controller: its levels and the thread sending them.
     struct Player {
         std::string path;
@@ -155,7 +180,12 @@ namespace {
         rush2::haptics::Levels levels;                   // Under levels_mutex.
         float tone_hz[3] = { 55.0f, 170.0f, 95.0f };     // Thump, buzz, grind; under levels_mutex.
 
+#ifdef _WIN32
         HANDLE handle = INVALID_HANDLE_VALUE;
+#else
+        int fd = -1;
+        std::string node; // The hidraw node open, in nodes_in_use.
+#endif
         size_t report_size = 0; // The output report length writes are padded to (as hidapi does).
 
         bool is_deck() const { return product == product_steam_deck; }
@@ -171,6 +201,7 @@ namespace {
             return { { 3, 0, all_voices }, { 4, 1, all_voices } };
         }
 
+#ifdef _WIN32
         bool open_device() {
             handle = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                 nullptr, OPEN_EXISTING, 0, nullptr);
@@ -199,6 +230,87 @@ namespace {
             handle = INVALID_HANDLE_VALUE;
         }
 
+        bool set_feature(std::vector<uint8_t>& report) {
+            return HidD_SetFeature(handle, report.data(), (ULONG)report.size()) != 0;
+        }
+
+        bool write_output(std::vector<uint8_t>& report) {
+            DWORD written = 0;
+            return WriteFile(handle, report.data(), (DWORD)report.size(), &written, nullptr) != 0;
+        }
+
+#else
+        // Takes the hidraw node SDL's path stands for into nodes_in_use, or empty.
+        std::string claim_node() {
+            bool hidraw = path.rfind("/dev/hidraw", 0) == 0;
+            std::string usb = hidraw ? std::string{} : rush2::linux_devices::usb_device_of(path);
+            std::lock_guard lock{ nodes_mutex };
+            if (hidraw) {
+                nodes_in_use.insert(path);
+                return path;
+            }
+            for (const auto& h : rush2::linux_devices::hidraw_devices()) {
+                if (h.vendor != vendor_valve || h.product != product ||
+                    (usb.empty() ? nodes_in_use.count(h.node) != 0 : h.usb_device != usb)) {
+                    continue;
+                }
+                bool reports = is_deck() ? h.interface == 2
+                    : rush2::linux_devices::report_bytes(h.node, rush2::linux_devices::ReportKind::Output,
+                                                         report_lfo_tone) >= 10;
+                if (reports) {
+                    nodes_in_use.insert(h.node);
+                    return h.node;
+                }
+            }
+            return {};
+        }
+
+        bool open_device() {
+            node = claim_node();
+            if (node.empty()) {
+                errno = ENODEV;
+                return false;
+            }
+            fd = ::open(node.c_str(), O_RDWR | O_CLOEXEC);
+            if (fd < 0) {
+                int error = errno;
+                close_device();
+                errno = error;
+                return false;
+            }
+            using rush2::linux_devices::ReportKind;
+            report_size = is_deck()
+                ? std::max(rush2::linux_devices::report_bytes(node, ReportKind::Feature, 0), deck_feature_bytes)
+                : rush2::linux_devices::report_bytes(node, ReportKind::Output, report_lfo_tone);
+            if (!is_deck() && report_size < 10) {
+                close_device();
+                errno = ENOTSUP;
+                return false;
+            }
+            return true;
+        }
+
+        void close_device() {
+            if (fd >= 0) {
+                ::close(fd);
+            }
+            fd = -1;
+            if (!node.empty()) {
+                std::lock_guard lock{ nodes_mutex };
+                nodes_in_use.erase(node);
+                node.clear();
+            }
+        }
+
+        bool set_feature(std::vector<uint8_t>& report) {
+            return ioctl(fd, HIDIOCSFEATURE(report.size()), report.data()) >= 0;
+        }
+
+        bool write_output(std::vector<uint8_t>& report) {
+            return ::write(fd, report.data(), report.size()) == (ssize_t)report.size();
+        }
+#endif
+
         bool send(const Actuator& actuator, const Tone& tone) {
             std::vector<uint8_t> report(report_size, 0);
             bool silent = tone.voice == Voice::None;
@@ -217,7 +329,7 @@ namespace {
                 msg[10] = (uint8_t)(tone.lfo_hz & 0xFF);
                 msg[11] = (uint8_t)(tone.lfo_hz >> 8);
                 msg[12] = tone.lfo_depth;
-                return HidD_SetFeature(handle, report.data(), (ULONG)report.size()) != 0;
+                return set_feature(report);
             }
             uint16_t duration = silent ? 0x8000 : 0x7FFF;
             report[0] = report_lfo_tone;
@@ -230,8 +342,7 @@ namespace {
             report[7] = (uint8_t)(tone.lfo_hz & 0xFF);
             report[8] = (uint8_t)(tone.lfo_hz >> 8);
             report[9] = tone.lfo_depth;
-            DWORD written = 0;
-            return WriteFile(handle, report.data(), (DWORD)report.size(), &written, nullptr) != 0;
+            return write_output(report);
         }
 
         // Silences every actuator; false if a report didn't go through.
@@ -260,7 +371,7 @@ namespace {
                     }
                     else {
                         fprintf(stderr, "[Haptics] Couldn't play tones on %s (error %lu)\n", path.c_str(),
-                            GetLastError());
+                            last_error());
                         close_device();
                         for (int i = 0; i < retry_s * 10 && !stop; i++) {
                             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -286,7 +397,7 @@ namespace {
                     if ((changed && since >= min_send_ms) || stale) {
                         if (!send(list[i], tone)) {
                             fprintf(stderr, "[Haptics] Tone write to %s failed (error %lu)\n", path.c_str(),
-                                GetLastError());
+                                last_error());
                             open = false;
                             close_device();
                             break;
@@ -383,7 +494,7 @@ void rush2::steam_haptics::set_levels(const std::string& path, const rush2::hapt
     player.tone_hz[1] = buzz_hz;
     player.tone_hz[2] = grind_hz;
 }
-#else
+#else // Other systems: none.
 bool rush2::steam_haptics::is_supported(unsigned, unsigned) { return false; }
 void rush2::steam_haptics::set_controllers(const std::vector<Controller>&) {}
 bool rush2::steam_haptics::active(const std::string&) { return false; }

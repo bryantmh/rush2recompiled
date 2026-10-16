@@ -186,6 +186,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/control_profiles.cpp
     ${CMAKE_SOURCE_DIR}/src/steam_haptics.cpp
     ${CMAKE_SOURCE_DIR}/src/steam_input_filter.cpp
+    ${CMAKE_SOURCE_DIR}/src/linux_devices.cpp
     ${CMAKE_SOURCE_DIR}/src/circuit.cpp
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/paint_colors.cpp
@@ -335,6 +336,13 @@ else()
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
     find_package(Threads REQUIRED)
     target_link_libraries(Rush2Recompiled PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # DualSense haptics play on the controller's sound card through PulseAudio (or PipeWire's pulse server), or
+        # ALSA when the card is split by alsa-ucm-conf (src/dualsense_haptics.cpp).
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse libpulse-simple alsa)
+        target_link_libraries(Rush2Recompiled PRIVATE PkgConfig::PULSE)
+    endif()
 endif()
 
 # Copy the UI assets and controller database next to the executable.

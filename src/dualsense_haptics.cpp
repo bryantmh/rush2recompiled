@@ -15,6 +15,17 @@
 // Opening is done on those threads (device enumeration can take tens of milliseconds, too long for the VI thread that
 // sets the levels), retrying every couple of seconds, so plugging a controller in mid-game picks it up. A manager
 // thread stops a controller's thread once it hasn't been wanted for a while.
+//
+// On Linux the controller's sound card is the ALSA card on the same USB device as its SDL path (a hidraw or evdev
+// node; src/linux_devices.cpp). When Steam Input stands in for the controller its path is a virtual device on no USB
+// device, so it takes a DualSense card no other player has. How the card is reached depends on the sound server's
+// profile for it:
+// - A 4-channel sink (PulseAudio's or PipeWire's surround 4.0 profile, before alsa-ucm-conf knew the DualSense, or
+//   UCM's Direct profile): played through Pulse (or PipeWire's pulse server) on the sink whose alsa.card is the card.
+// - alsa-ucm-conf's DualSense profile (USB-Audio/Sony/DualSense-PS5-HiFi.conf, the default where it ships) splits
+//   the card into a mono speaker and stereo headphone sink, each an ALSA dshare of the 4 channels (common/pcm/
+//   split.conf), and channels 3 and 4 belong to no sink. A dshare opened with the same ipc_key and slave settings
+//   joins that one, so the actuators play next to the sound server's speaker and headphones, as on Windows.
 
 #include <algorithm>
 #include <atomic>
@@ -35,11 +46,18 @@
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <cfgmgr32.h>
+#elif defined(__linux__)
+#include <cstdlib>
+#include <set>
+#include <pulse/pulseaudio.h>
+#include <pulse/simple.h>
+#include <alsa/asoundlib.h>
+#include "linux_devices.h"
 #endif
 
 #include "dualsense_haptics.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
 namespace {
     // ---- Tuning ----
 
@@ -76,15 +94,16 @@ namespace {
     // it).
     constexpr int idle_close_s = 10;
 
-    // WASAPI's buffer, 100 ns units: 20 ms, a little over one VI.
-    constexpr REFERENCE_TIME buffer_duration = 200000;
-
     constexpr int channels = 4;
     constexpr int left_channel = 2;  // Channel 3.
     constexpr int right_channel = 3; // Channel 4.
 
     // Targets set by set_levels: thump left, thump right, buzz left, buzz right, grind left, grind right.
     constexpr int num_levels = 6;
+
+#ifdef _WIN32
+    // WASAPI's buffer, 100 ns units: 20 ms, a little over one VI.
+    constexpr REFERENCE_TIME buffer_duration = 200000;
 
     // DEVPKEY_Device_InstanceId and DEVPKEY_Device_ContainerId (devpkey.h). An endpoint's PKEY_Device_ContainerId is
     // the same key.
@@ -94,6 +113,24 @@ namespace {
     // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT and KSDATAFORMAT_SUBTYPE_PCM.
     const GUID subtype_float = { 0x00000003, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
     const GUID subtype_pcm = { 0x00000001, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
+#else
+    // Pulse's target buffer and the chunk each write fills: 20 ms and 5 ms, about WASAPI's latency.
+    constexpr int pulse_rate = 48000;
+    constexpr int buffer_frames = pulse_rate / 50;
+    constexpr int chunk_frames = pulse_rate / 200;
+
+    // alsa-ucm-conf's split dshare (common/pcm/split.conf): its ipc_key, sample format and period and buffer times, which
+    // a dshare joining it has to match.
+    constexpr int ucm_split_ipc_key = 6678293;
+    constexpr int ucm_split_period_us = 20000;
+    constexpr int ucm_split_buffer_us = 500000;
+    // Frames kept queued in the shared buffer (whose 500 ms would be far too late): about WASAPI's 20 ms.
+    constexpr snd_pcm_sframes_t shared_queue_frames = buffer_frames;
+
+    constexpr unsigned vendor_sony = 0x054C;
+    constexpr unsigned product_dualsense = 0x0CE6;
+    constexpr unsigned product_dualsense_edge = 0x0DF2;
+#endif
 
     // One controller's voices: the levels and pitches set_levels asks for, and the synthesis state (its thread only).
     struct Voices {
@@ -182,6 +219,7 @@ namespace {
         }
     };
 
+#ifdef _WIN32
     // The device container of a controller's HID interface (its SDL path), or false.
     bool container_of(const std::string& path, GUID* container) {
         std::wstring wide(path.begin(), path.end());
@@ -238,6 +276,88 @@ namespace {
         enumerator->Release();
         return found;
     }
+#else
+    // Cards a player has open, so a controller behind Steam Input doesn't take one another player's controller plays on.
+    std::mutex cards_mutex;
+    std::set<int> cards_in_use;
+
+    bool is_dualsense_card(const rush2::linux_devices::SoundCard& card) {
+        return card.vendor == vendor_sony && (card.product == product_dualsense || card.product == product_dualsense_edge);
+    }
+
+    // Takes the ALSA card of the DualSense at a controller's SDL path into cards_in_use, or -1.
+    int claim_card(const std::string& path) {
+        std::vector<rush2::linux_devices::SoundCard> cards = rush2::linux_devices::sound_cards();
+        std::string usb = rush2::linux_devices::usb_device_of(path);
+        if (usb.empty() && !rush2::linux_devices::is_virtual(path)) {
+            return -1; // Over Bluetooth: no sound card.
+        }
+        std::lock_guard lock{ cards_mutex };
+        for (const auto& card : cards) {
+            bool mine = usb.empty() ? is_dualsense_card(card) && cards_in_use.count(card.index) == 0
+                                    : card.usb_device == usb;
+            if (mine) {
+                cards_in_use.insert(card.index);
+                return card.index;
+            }
+        }
+        return -1;
+    }
+
+    struct Sink {
+        std::string name;
+        pa_channel_map map{};
+        int channels = 0;
+    };
+
+    // The Pulse sink playing on an ALSA card, or false (no server, or the card's profile is off).
+    bool sink_for(int card, Sink* sink) {
+        pa_mainloop* loop = pa_mainloop_new();
+        pa_context* context = pa_context_new(pa_mainloop_get_api(loop), "Rush 2 Recompiled haptics");
+        struct Search {
+            int card;
+            Sink* sink;
+            bool found = false;
+            bool done = false;
+        } search{ card, sink };
+        if (pa_context_connect(context, nullptr, PA_CONTEXT_NOAUTOSPAWN, nullptr) >= 0) {
+            pa_context_state_t state;
+            while ((state = pa_context_get_state(context)) != PA_CONTEXT_READY && PA_CONTEXT_IS_GOOD(state)) {
+                pa_mainloop_iterate(loop, 1, nullptr);
+            }
+            if (state == PA_CONTEXT_READY) {
+                pa_operation* op = pa_context_get_sink_info_list(context,
+                    [](pa_context*, const pa_sink_info* info, int eol, void* user) {
+                        Search& s = *(Search*)user;
+                        if (eol != 0) {
+                            s.done = true;
+                            return;
+                        }
+                        // PulseAudio's ALSA sinks have alsa.card; PipeWire's have it and api.alsa.card.
+                        for (const char* key : { "alsa.card", "api.alsa.card", "api.alsa.pcm.card" }) {
+                            const char* value = pa_proplist_gets(info->proplist, key);
+                            if (!s.found && value != nullptr && atoi(value) == s.card) {
+                                s.found = true;
+                                s.sink->name = info->name;
+                                s.sink->map = info->channel_map;
+                                s.sink->channels = info->sample_spec.channels;
+                            }
+                        }
+                    }, &search);
+                while (op != nullptr && !search.done && pa_operation_get_state(op) == PA_OPERATION_RUNNING) {
+                    pa_mainloop_iterate(loop, 1, nullptr);
+                }
+                if (op != nullptr) {
+                    pa_operation_unref(op);
+                }
+            }
+            pa_context_disconnect(context);
+        }
+        pa_context_unref(context);
+        pa_mainloop_free(loop);
+        return search.found;
+    }
+#endif
 
     // One DualSense: its voices and the thread playing them.
     struct Player {
@@ -248,6 +368,7 @@ namespace {
         std::chrono::steady_clock::time_point last_wanted; // Under players_mutex.
         std::thread thread;
 
+#ifdef _WIN32
         // Plays on the endpoint until told to stop or the device goes away.
         void play(IMMDevice* device) {
             IAudioClient* client = nullptr;
@@ -336,6 +457,125 @@ namespace {
             }
             CoUninitialize();
         }
+#else
+        // Plays on the card's 4-channel sink until told to stop or the device goes away.
+        void play(const Sink& sink) {
+            pa_sample_spec spec{ PA_SAMPLE_FLOAT32LE, pulse_rate, channels };
+            const uint32_t frame_bytes = sizeof(float) * channels;
+            pa_buffer_attr attr{ (uint32_t)-1, buffer_frames * frame_bytes, (uint32_t)-1, chunk_frames * frame_bytes,
+                                 (uint32_t)-1 };
+            int error = 0;
+            // The sink's own channel map, so the actuators' channels 3 and 4 reach them unmixed.
+            pa_simple* stream = pa_simple_new(nullptr, "Rush 2 Recompiled", PA_STREAM_PLAYBACK, sink.name.c_str(),
+                "DualSense haptics", &spec, &sink.map, &attr, &error);
+            if (stream == nullptr) {
+                fprintf(stderr, "[Haptics] Couldn't start the sound device for %s: %s\n", path.c_str(),
+                    pa_strerror(error));
+                return;
+            }
+            open = true;
+            printf("[Haptics] Playing DualSense haptics on %s (%s)\n", path.c_str(), sink.name.c_str());
+            float buffer[chunk_frames * channels];
+            while (!stop) {
+                voices.fill(buffer, chunk_frames, pulse_rate);
+                if (pa_simple_write(stream, buffer, sizeof(buffer), &error) < 0) {
+                    break; // Unplugged.
+                }
+            }
+            open = false;
+            pa_simple_free(stream);
+            printf("[Haptics] Stopped DualSense haptics on %s\n", path.c_str());
+        }
+
+        // Plays on the actuator channels through a dshare joining alsa-ucm-conf's split of the card, until told to stop
+        // or the device goes away. Fails (busy) when the sound server has the card open whole.
+        void play_shared(int card) {
+            char conf[512];
+            snprintf(conf, sizeof(conf),
+                "pcm.rush2_haptics { type dshare ipc_key %d slave { pcm { type hw card %d device 0 } format S16_LE "
+                "channels %d rate %d period_time %d buffer_time %d } bindings { 0 %d 1 %d } }",
+                ucm_split_ipc_key, card, channels, pulse_rate, ucm_split_period_us, ucm_split_buffer_us, left_channel,
+                right_channel);
+            snd_config_t* config = nullptr;
+            snd_input_t* input = nullptr;
+            snd_pcm_t* pcm = nullptr;
+            int error = snd_config_top(&config);
+            if (error >= 0 && (error = snd_input_buffer_open(&input, conf, -1)) >= 0) {
+                error = snd_config_load(config, input);
+                snd_input_close(input);
+            }
+            if (error >= 0) {
+                error = snd_pcm_open_lconf(&pcm, "rush2_haptics", SND_PCM_STREAM_PLAYBACK, 0, config);
+            }
+            if (error >= 0) {
+                error = snd_pcm_set_params(pcm, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 2, pulse_rate, 0,
+                    ucm_split_buffer_us);
+            }
+            snd_pcm_sw_params_t* sw = nullptr;
+            if (error >= 0 && snd_pcm_sw_params_malloc(&sw) >= 0) {
+                // Start on the first write: the default waits for the whole half second.
+                snd_pcm_sw_params_current(pcm, sw);
+                snd_pcm_sw_params_set_start_threshold(pcm, sw, 1);
+                error = snd_pcm_sw_params(pcm, sw);
+                snd_pcm_sw_params_free(sw);
+            }
+            if (config != nullptr) {
+                snd_config_delete(config);
+            }
+            if (error < 0) {
+                fprintf(stderr, "[Haptics] Couldn't open the sound device for %s (card %d): %s\n", path.c_str(), card,
+                    snd_strerror(error));
+                if (pcm != nullptr) {
+                    snd_pcm_close(pcm);
+                }
+                return;
+            }
+            open = true;
+            printf("[Haptics] Playing DualSense haptics on %s (card %d, shared)\n", path.c_str(), card);
+            int16_t frames4[chunk_frames * channels];
+            int16_t frames2[chunk_frames * 2];
+            while (!stop) {
+                snd_pcm_sframes_t queued = 0;
+                if (snd_pcm_delay(pcm, &queued) >= 0 && queued > shared_queue_frames) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                    continue;
+                }
+                voices.fill(frames4, chunk_frames, pulse_rate);
+                for (int i = 0; i < chunk_frames; i++) {
+                    frames2[i * 2] = frames4[i * channels + left_channel];
+                    frames2[i * 2 + 1] = frames4[i * channels + right_channel];
+                }
+                snd_pcm_sframes_t written = snd_pcm_writei(pcm, frames2, chunk_frames);
+                if (written < 0 && snd_pcm_recover(pcm, (int)written, 1) < 0) {
+                    break; // Unplugged.
+                }
+            }
+            open = false;
+            snd_pcm_drop(pcm);
+            snd_pcm_close(pcm);
+            printf("[Haptics] Stopped DualSense haptics on %s\n", path.c_str());
+        }
+
+        void run() {
+            while (!stop) {
+                int card = claim_card(path);
+                if (card >= 0) {
+                    Sink sink;
+                    if (sink_for(card, &sink) && sink.channels == channels) {
+                        play(sink);
+                    }
+                    else {
+                        play_shared(card);
+                    }
+                    std::lock_guard lock{ cards_mutex };
+                    cards_in_use.erase(card);
+                }
+                for (int i = 0; i < scan_interval_s * 10 && !stop; i++) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+            }
+        }
+#endif
     };
 
     std::mutex players_mutex;
@@ -402,7 +642,7 @@ void rush2::haptics::set_levels(const std::string& path, const Levels& levels, f
         it->second->voices.set(levels, thump_hz, buzz_hz, grind_hz);
     }
 }
-#else
+#else // Other systems: none.
 void rush2::haptics::set_controllers(const std::vector<std::string>&) {}
 bool rush2::haptics::active(const std::string&) { return false; }
 void rush2::haptics::set_levels(const std::string&, const Levels&, float, float, float) {}

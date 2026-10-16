@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Rush 2 Recompiled
+Comment=Rush 2: Extreme Racing USA, recompiled
+Exec=Rush2Recompiled
+Icon=Rush2Recompiled
+Categories=Game;
+Terminal=false

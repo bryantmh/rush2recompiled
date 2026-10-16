@@ -394,7 +394,12 @@ static void auto_import_rom(int argc, char** argv) {
     }
     std::error_code ec;
     std::filesystem::path cwd = std::filesystem::current_path(ec);
-    for (const auto& dir : { cwd, cwd.parent_path() }) {
+    std::vector<std::filesystem::path> dirs = { cwd, cwd.parent_path() };
+    // An AppImage runs from a mount of itself, so "next to the executable" means next to the .AppImage file.
+    if (const char* appimage = getenv("APPIMAGE"); appimage != nullptr && appimage[0] != '\0') {
+        dirs.push_back(std::filesystem::path{ appimage }.parent_path());
+    }
+    for (const auto& dir : dirs) {
         for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
             auto ext = entry.path().extension().string();
             if (ext == ".z64" || ext == ".n64" || ext == ".v64") {
@@ -596,6 +601,15 @@ int main(int argc, char** argv) {
 
     // Force wasapi on Windows, as there seems to be some issue with sample queueing with directsound currently.
     SDL_setenv("SDL_AUDIODRIVER", "wasapi", true);
+#elif defined(__linux__)
+    // As on Windows, run from the executable's folder (inside an AppImage, its read-only usr/bin).
+    {
+        std::error_code ec;
+        std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (!ec) {
+            std::filesystem::current_path(exe.parent_path(), ec);
+        }
+    }
 #endif
 
     NFD_Init();
