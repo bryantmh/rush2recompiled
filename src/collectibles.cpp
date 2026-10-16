@@ -310,9 +310,9 @@ namespace {
         uint32_t slot = player_slots + (uint32_t)player * player_slot_size;
         int online_player = rush2::online::game::local_race_player();
         if (online_player >= 0) {
-            // An online race (src/online/online_game.cpp): the records have no profile slot; this machine's player's
-            // points at their own profile, the others' at copies, which collect for nobody here.
-            if (player != online_player) {
+            // An online race (src/online/online_game.cpp): the records have no profile slot; this machine's players'
+            // point at their own profiles, the others' at copies, which collect for nobody here.
+            if (player < online_player || player >= online_player + rush2::online::game::local_race_players()) {
                 return "";
             }
             uint32_t record = (uint32_t)MEM_W(0, (int32_t)(slot + 0x24));

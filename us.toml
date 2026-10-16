@@ -1551,7 +1551,22 @@ before_vram = 0x803B6CB8
 text = "    rush2_circuit_complete_v0(rdram, ctx);"
 
 [[patches.hook]]
-func = "menu_screen_setup_options_803B7018"
+func = "circuit_generate_800A7DCC"
+before_vram = 0x800A7E40
+text = "    rush2_online_circuit_generate(rdram, ctx);"
+
+[[patches.hook]]
+func = "save_write_settings_to_pak_800A8D1C"
+before_vram = 0x800A8D8C
+text = "    rush2_online_circuit_results(rdram);"
+
+[[patches.hook]]
+func = "menu_screen_circuit_menu_803B7018"
+before_vram = 0x803B7110
+text = "    rush2_online_circuit_block(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_circuit_menu_803B7018"
 before_vram = 0x803B7158
 text = "    rush2_circuit_complete_t9(rdram, ctx);"
 
@@ -1804,7 +1819,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_preview_update_8005A598"
 vram = 0x8005AAF4
-value = 0x80421020 # lb $v0, 0xE48($v0) -> 80201020
+value = 0x804219B0 # lb $v0, 0xE48($v0) -> 802019B0
 
 [[patches.instruction]]
 func = "carselect_preview_update_8005A598"
@@ -1839,7 +1854,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_preview_update_8005A598"
 vram = 0x8005ABA4
-value = 0xC42009B8 # lwc1 $f0, 0xB74($at) -> 802009B8
+value = 0xC4200E38 # lwc1 $f0, 0xB74($at) -> 80200E38
 
 [[patches.instruction]]
 func = "carselect_preview_update_8005A598"
@@ -1874,7 +1889,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_preview_update_8005A598"
 vram = 0x8005AC04
-value = 0xC42006E8 # lwc1 $f0, 0xA6C($at) -> 802006E8
+value = 0xC4200928 # lwc1 $f0, 0xA6C($at) -> 80200928
 
 [[patches.instruction]]
 func = "car_preview_nodes_init_8005B978"
@@ -1919,7 +1934,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "car_sound_update_all_80067358"
 vram = 0x8006754C
-value = 0x81EF10FC # lb $t7, 0xEA2($t7) -> 802010FC
+value = 0x81EF1B1C # lb $t7, 0xEA2($t7) -> 80201B1C
 
 [[patches.instruction]]
 func = "car_build_scene_nodes_80085FD0"
@@ -1954,7 +1969,7 @@ value = 0x0018C000 # row stride 22 -> 36 ($t8 = $s5 * 36 * 1)
 [[patches.instruction]]
 func = "car_build_scene_nodes_80085FD0"
 vram = 0x800865C8
-value = 0x83391020 # lb $t9, 0xE48($t9) -> 80201020
+value = 0x833919B0 # lb $t9, 0xE48($t9) -> 802019B0
 
 [[patches.instruction]]
 func = "car_parts_build_80086700"
@@ -1999,7 +2014,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "car_preview_apply_state_80087290"
 vram = 0x800875F4
-value = 0x83391020 # lb $t9, 0xE48($t9) -> 80201020
+value = 0x833919B0 # lb $t9, 0xE48($t9) -> 802019B0
 
 [[patches.instruction]]
 func = "car_preview_copy_matrices_800878C8"
@@ -2069,7 +2084,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "car_preview_copy_matrices_800878C8"
 vram = 0x800879F4
-value = 0xC4200A48 # lwc1 $f0, 0xBCC($at) -> 80200A48
+value = 0xC4200EC8 # lwc1 $f0, 0xBCC($at) -> 80200EC8
 
 [[patches.instruction]]
 func = "car_preview_copy_matrices_800878C8"
@@ -2079,7 +2094,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "car_preview_copy_matrices_800878C8"
 vram = 0x80087A34
-value = 0xC4200778 # lwc1 $f0, 0xAC4($at) -> 80200778
+value = 0xC42009B8 # lwc1 $f0, 0xAC4($at) -> 802009B8
 
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
@@ -2114,7 +2129,7 @@ value = 0x0019C800 # row stride 22 -> 36 ($t9 = $t8 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
 vram = 0x800888A0
-value = 0x80421044 # lb $v0, 0xE5E($v0) -> 80201044
+value = 0x804219D4 # lb $v0, 0xE5E($v0) -> 802019D4
 
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
@@ -2149,7 +2164,7 @@ value = 0x000F7800 # row stride 22 -> 36 ($t7 = $t6 * 36 * 4)
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
 vram = 0x8008890C
-value = 0xC4200778 # lwc1 $f0, 0xAC4($at) -> 80200778
+value = 0xC42009B8 # lwc1 $f0, 0xAC4($at) -> 802009B8
 
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
@@ -2159,7 +2174,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
 vram = 0x80088938
-value = 0xC4240A48 # lwc1 $f4, 0xBCC($at) -> 80200A48
+value = 0xC4240EC8 # lwc1 $f4, 0xBCC($at) -> 80200EC8
 
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
@@ -2194,7 +2209,7 @@ value = 0x0018C000 # row stride 22 -> 36 ($t8 = $t6 * 36 * 4)
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
 vram = 0x80088974
-value = 0xC4260A48 # lwc1 $f6, 0xBCC($at) -> 80200A48
+value = 0xC4260EC8 # lwc1 $f6, 0xBCC($at) -> 80200EC8
 
 [[patches.instruction]]
 func = "car_type_load_table_a_8008D984"
@@ -2229,7 +2244,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "car_type_load_table_a_8008D984"
 vram = 0x8008D9A4
-value = 0x83390F68 # lb $t9, 0xDAC($t9) -> 80200F68
+value = 0x83391868 # lb $t9, 0xDAC($t9) -> 80201868
 
 [[patches.instruction]]
 func = "car_type_load_table_a_8008D984"
@@ -2269,7 +2284,7 @@ value = 0x000F7800 # row stride 22 -> 36 ($t7 = $a0 * 36 * 1)
 [[patches.instruction]]
 func = "car_type_load_table_b_8008D9EC"
 vram = 0x8008DA00
-value = 0x24420EB0 # addiu $v0, $v0, 0xD68 -> 80200EB0
+value = 0x24421720 # addiu $v0, $v0, 0xD68 -> 80201720
 
 [[patches.instruction]]
 func = "car_type_load_table_b_8008D9EC"
@@ -2314,7 +2329,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "car_type_load_table_b_8008D9EC"
 vram = 0x8008DA60
-value = 0x81EF0F68 # lb $t7, 0xDAC($t7) -> 80200F68
+value = 0x81EF1868 # lb $t7, 0xDAC($t7) -> 80201868
 
 [[patches.instruction]]
 func = "car_type_load_table_b_8008D9EC"
@@ -2354,7 +2369,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "car_type_calc_value_c_8008DAA0"
 vram = 0x8008DAC0
-value = 0x80420F68 # lb $v0, 0xDAC($v0) -> 80200F68
+value = 0x80421868 # lb $v0, 0xDAC($v0) -> 80201868
 
 [[patches.instruction]]
 func = "car_type_get_mass_8008DB04"
@@ -2494,7 +2509,7 @@ value = 0x3C0D8020 # lui -> 8020
 [[patches.instruction]]
 func = "car_init_setup_8008DBA0"
 vram = 0x8008DC98
-value = 0x25AD0DF8 # addiu $t5, $t5, 0xD14 -> 80200DF8
+value = 0x25AD15D8 # addiu $t5, $t5, 0xD14 -> 802015D8
 
 [[patches.instruction]]
 func = "car_init_setup_8008DBA0"
@@ -2544,7 +2559,7 @@ value = 0x01D17021 # row stride 22 -> 36 ($t6 = $s1 * 36 * 1)
 [[patches.instruction]]
 func = "car_init_setup_8008DBA0"
 vram = 0x8008DD20
-value = 0x814A0D40 # lb $t2, 0xCD0($t2) -> 80200D40
+value = 0x814A1490 # lb $t2, 0xCD0($t2) -> 80201490
 
 [[patches.instruction]]
 func = "car_init_setup_8008DBA0"
@@ -2569,7 +2584,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "car_init_setup_8008DBA0"
 vram = 0x8008DD50
-value = 0x83181020 # lb $t8, 0xE48($t8) -> 80201020
+value = 0x831819B0 # lb $t8, 0xE48($t8) -> 802019B0
 
 [[patches.instruction]]
 func = "car_init_setup_8008DBA0"
@@ -2589,7 +2604,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097AA8
-value = 0x25CE0C88 # addiu $t6, $t6, 0xC7C -> 80200C88
+value = 0x25CE1348 # addiu $t6, $t6, 0xC7C -> 80201348
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
@@ -2604,12 +2619,12 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097ABC
-value = 0x27180EB0 # addiu $t8, $t8, 0xD68 -> 80200EB0
+value = 0x27181720 # addiu $t8, $t8, 0xD68 -> 80201720
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097AC0
-value = 0x25EF0D40 # addiu $t7, $t7, 0xCD0 -> 80200D40
+value = 0x25EF1490 # addiu $t7, $t7, 0xCD0 -> 80201490
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
@@ -2624,7 +2639,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097AD4
-value = 0x27390F68 # addiu $t9, $t9, 0xDAC -> 80200F68
+value = 0x27391868 # addiu $t9, $t9, 0xDAC -> 80201868
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
@@ -2644,12 +2659,12 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097B20
-value = 0x25EF06E8 # addiu $t7, $t7, 0xA6C -> 802006E8
+value = 0x25EF0928 # addiu $t7, $t7, 0xA6C -> 80200928
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097B24
-value = 0x271809B8 # addiu $t8, $t8, 0xB74 -> 802009B8
+value = 0x27180E38 # addiu $t8, $t8, 0xB74 -> 80200E38
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
@@ -2684,32 +2699,32 @@ value = 0x3C1E8020 # lui -> 8020
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097B50
-value = 0x27DE10D8 # addiu $fp, $fp, 0xE8C -> 802010D8
+value = 0x27DE1AF8 # addiu $fp, $fp, 0xE8C -> 80201AF8
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097B54
-value = 0x26F71020 # addiu $s7, $s7, 0xE48 -> 80201020
+value = 0x26F719B0 # addiu $s7, $s7, 0xE48 -> 802019B0
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097B58
-value = 0x26D613B8 # addiu $s6, $s6, 0xF9C -> 802013B8
+value = 0x26D62018 # addiu $s6, $s6, 0xF9C -> 80202018
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097B5C
-value = 0x26B51300 # addiu $s5, $s5, 0xF58 -> 80201300
+value = 0x26B51ED0 # addiu $s5, $s5, 0xF58 -> 80201ED0
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097B60
-value = 0x26941248 # addiu $s4, $s4, 0xF14 -> 80201248
+value = 0x26941D88 # addiu $s4, $s4, 0xF14 -> 80201D88
 
 [[patches.instruction]]
 func = "save_set_default_car_record_80097AA0"
 vram = 0x80097B64
-value = 0x26731190 # addiu $s3, $s3, 0xED0 -> 80201190
+value = 0x26731C40 # addiu $s3, $s3, 0xED0 -> 80201C40
 
 [[patches.instruction]]
 func = "car_race_start_pose_setup_8009A264"
@@ -2744,7 +2759,7 @@ value = 0x000B5800 # row stride 22 -> 36 ($t3 = $v0 * 36 * 1)
 [[patches.instruction]]
 func = "car_race_start_pose_setup_8009A264"
 vram = 0x8009A43C
-value = 0x81AD0EB0 # lb $t5, 0xD68($t5) -> 80200EB0
+value = 0x81AD1720 # lb $t5, 0xD68($t5) -> 80201720
 
 [[patches.instruction]]
 func = "race_setup_cars_8009E6DC"
@@ -2779,7 +2794,7 @@ value = 0x0019C800 # row stride 22 -> 36 ($t9 = $v0 * 36 * 1)
 [[patches.instruction]]
 func = "race_setup_cars_8009E6DC"
 vram = 0x8009E988
-value = 0x814A0C88 # lb $t2, 0xC7C($t2) -> 80200C88
+value = 0x814A1348 # lb $t2, 0xC7C($t2) -> 80201348
 
 [[patches.instruction]]
 func = "race_setup_cars_8009E6DC"
@@ -2814,7 +2829,7 @@ value = 0x000B5800 # row stride 22 -> 36 ($t3 = $v0 * 36 * 1)
 [[patches.instruction]]
 func = "race_setup_cars_8009E6DC"
 vram = 0x8009EA2C
-value = 0x81CE0CAC # lb $t6, 0xC92($t6) -> 80200CAC
+value = 0x81CE136C # lb $t6, 0xC92($t6) -> 8020136C
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
@@ -2889,22 +2904,22 @@ value = 0x3C038020 # lui -> 8020
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB570
-value = 0x246309B8 # addiu $v1, $v1, 0xB74 -> 802009B8
+value = 0x24630E38 # addiu $v1, $v1, 0xB74 -> 80200E38
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB574
-value = 0x261006E8 # addiu $s0, $s0, 0xA6C -> 802006E8
+value = 0x26100928 # addiu $s0, $s0, 0xA6C -> 80200928
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB578
-value = 0x27FF10D8 # addiu $ra, $ra, 0xE8C -> 802010D8
+value = 0x27FF1AF8 # addiu $ra, $ra, 0xE8C -> 80201AF8
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB57C
-value = 0x25AD1020 # addiu $t5, $t5, 0xE48 -> 80201020
+value = 0x25AD19B0 # addiu $t5, $t5, 0xE48 -> 802019B0
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
@@ -2914,47 +2929,47 @@ value = 0x258C0418 # addiu $t4, $t4, 0x964 -> 80200418
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB584
-value = 0x256B0F68 # addiu $t3, $t3, 0xDAC -> 80200F68
+value = 0x256B1868 # addiu $t3, $t3, 0xDAC -> 80201868
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB588
-value = 0x254A0EB0 # addiu $t2, $t2, 0xD68 -> 80200EB0
+value = 0x254A1720 # addiu $t2, $t2, 0xD68 -> 80201720
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB58C
-value = 0x25290D40 # addiu $t1, $t1, 0xCD0 -> 80200D40
+value = 0x25291490 # addiu $t1, $t1, 0xCD0 -> 80201490
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB590
-value = 0x25080C88 # addiu $t0, $t0, 0xC7C -> 80200C88
+value = 0x25081348 # addiu $t0, $t0, 0xC7C -> 80201348
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB594
-value = 0x24E713B8 # addiu $a3, $a3, 0xF9C -> 802013B8
+value = 0x24E72018 # addiu $a3, $a3, 0xF9C -> 80202018
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB598
-value = 0x24C61300 # addiu $a2, $a2, 0xF58 -> 80201300
+value = 0x24C61ED0 # addiu $a2, $a2, 0xF58 -> 80201ED0
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB59C
-value = 0x24A51248 # addiu $a1, $a1, 0xF14 -> 80201248
+value = 0x24A51D88 # addiu $a1, $a1, 0xF14 -> 80201D88
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB5A0
-value = 0x24841190 # addiu $a0, $a0, 0xED0 -> 80201190
+value = 0x24841C40 # addiu $a0, $a0, 0xED0 -> 80201C40
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
 vram = 0x800AB5A4
-value = 0x26D60A48 # addiu $s6, $s6, 0xBCC -> 80200A48
+value = 0x26D60EC8 # addiu $s6, $s6, 0xBCC -> 80200EC8
 
 [[patches.instruction]]
 func = "car_type_tables_select_setup_800AB360"
@@ -3439,22 +3454,22 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8A58
-value = 0x27391300 # addiu $t9, $t9, 0xF58 -> 80201300
+value = 0x27391ED0 # addiu $t9, $t9, 0xF58 -> 80201ED0
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8A5C
-value = 0x25CE1248 # addiu $t6, $t6, 0xF14 -> 80201248
+value = 0x25CE1D88 # addiu $t6, $t6, 0xF14 -> 80201D88
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8A60
-value = 0x27181190 # addiu $t8, $t8, 0xED0 -> 80201190
+value = 0x27181C40 # addiu $t8, $t8, 0xED0 -> 80201C40
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8A64
-value = 0x25EF13B8 # addiu $t7, $t7, 0xF9C -> 802013B8
+value = 0x25EF2018 # addiu $t7, $t7, 0xF9C -> 80202018
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
@@ -3479,7 +3494,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8A88
-value = 0x25EF06E8 # addiu $t7, $t7, 0xA6C -> 802006E8
+value = 0x25EF0928 # addiu $t7, $t7, 0xA6C -> 80200928
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
@@ -3489,12 +3504,12 @@ value = 0x27180418 # addiu $t8, $t8, 0x964 -> 80200418
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8A90
-value = 0x25CE1020 # addiu $t6, $t6, 0xE48 -> 80201020
+value = 0x25CE19B0 # addiu $t6, $t6, 0xE48 -> 802019B0
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8A94
-value = 0x273910D8 # addiu $t9, $t9, 0xE8C -> 802010D8
+value = 0x27391AF8 # addiu $t9, $t9, 0xE8C -> 80201AF8
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
@@ -3524,27 +3539,27 @@ value = 0x3C058020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8AC8
-value = 0x24A50F68 # addiu $a1, $a1, 0xDAC -> 80200F68
+value = 0x24A51868 # addiu $a1, $a1, 0xDAC -> 80201868
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8ACC
-value = 0x24840EB0 # addiu $a0, $a0, 0xD68 -> 80200EB0
+value = 0x24841720 # addiu $a0, $a0, 0xD68 -> 80201720
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8AD0
-value = 0x24630D40 # addiu $v1, $v1, 0xCD0 -> 80200D40
+value = 0x24631490 # addiu $v1, $v1, 0xCD0 -> 80201490
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8AD4
-value = 0x24420C88 # addiu $v0, $v0, 0xC7C -> 80200C88
+value = 0x24421348 # addiu $v0, $v0, 0xC7C -> 80201348
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B8AE0
-value = 0x271809B8 # addiu $t8, $t8, 0xB74 -> 802009B8
+value = 0x27180E38 # addiu $t8, $t8, 0xB74 -> 80200E38
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
@@ -3709,7 +3724,7 @@ value = 0x0018C000 # row stride 22 -> 36 ($t8 = $a2 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B911C
-value = 0x25CE1190 # addiu $t6, $t6, 0xED0 -> 80201190
+value = 0x25CE1C40 # addiu $t6, $t6, 0xED0 -> 80201C40
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
@@ -3719,7 +3734,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B9140
-value = 0x27181248 # addiu $t8, $t8, 0xF14 -> 80201248
+value = 0x27181D88 # addiu $t8, $t8, 0xF14 -> 80201D88
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
@@ -3774,7 +3789,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B917C
-value = 0x25EF1300 # addiu $t7, $t7, 0xF58 -> 80201300
+value = 0x25EF1ED0 # addiu $t7, $t7, 0xF58 -> 80201ED0
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
@@ -3809,7 +3824,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
 vram = 0x803B919C
-value = 0x273913B8 # addiu $t9, $t9, 0xF9C -> 802013B8
+value = 0x27392018 # addiu $t9, $t9, 0xF9C -> 80202018
 
 [[patches.instruction]]
 func = "carselect_build_list_803B81F0"
@@ -3879,7 +3894,7 @@ value = 0x0337C821 # row stride 22 -> 36 ($t9 = $s7 * 36 * 1)
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9634
-value = 0x831811B4 # lb $t8, 0xEE6($t8) -> 802011B4
+value = 0x83181C64 # lb $t8, 0xEE6($t8) -> 80201C64
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -3904,7 +3919,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9654
-value = 0x81EF126C # lb $t7, 0xF2A($t7) -> 8020126C
+value = 0x81EF1DAC # lb $t7, 0xF2A($t7) -> 80201DAC
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -3954,7 +3969,7 @@ value = 0x000F7880 # row stride 22 -> 36 ($t7 = $s7 * 36 * 1)
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9688
-value = 0x81CE1324 # lb $t6, 0xF6E($t6) -> 80201324
+value = 0x81CE1EF4 # lb $t6, 0xF6E($t6) -> 80201EF4
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -3974,7 +3989,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B96A4
-value = 0x833913DC # lb $t9, 0xFB2($t9) -> 802013DC
+value = 0x8339203C # lb $t9, 0xFB2($t9) -> 8020203C
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4009,7 +4024,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9988
-value = 0x25CE1190 # addiu $t6, $t6, 0xED0 -> 80201190
+value = 0x25CE1C40 # addiu $t6, $t6, 0xED0 -> 80201C40
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4074,7 +4089,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B99E8
-value = 0x27391190 # addiu $t9, $t9, 0xED0 -> 80201190
+value = 0x27391C40 # addiu $t9, $t9, 0xED0 -> 80201C40
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4124,7 +4139,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9A48
-value = 0x25EF1248 # addiu $t7, $t7, 0xF14 -> 80201248
+value = 0x25EF1D88 # addiu $t7, $t7, 0xF14 -> 80201D88
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4189,7 +4204,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9AA8
-value = 0x25CE1248 # addiu $t6, $t6, 0xF14 -> 80201248
+value = 0x25CE1D88 # addiu $t6, $t6, 0xF14 -> 80201D88
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4239,7 +4254,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9B08
-value = 0x27181300 # addiu $t8, $t8, 0xF58 -> 80201300
+value = 0x27181ED0 # addiu $t8, $t8, 0xF58 -> 80201ED0
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4304,7 +4319,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9B68
-value = 0x25EF1300 # addiu $t7, $t7, 0xF58 -> 80201300
+value = 0x25EF1ED0 # addiu $t7, $t7, 0xF58 -> 80201ED0
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4354,7 +4369,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9BC8
-value = 0x273913B8 # addiu $t9, $t9, 0xF9C -> 802013B8
+value = 0x27392018 # addiu $t9, $t9, 0xF9C -> 80202018
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4419,7 +4434,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9C28
-value = 0x271813B8 # addiu $t8, $t8, 0xF9C -> 802013B8
+value = 0x27182018 # addiu $t8, $t8, 0xF9C -> 80202018
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4469,7 +4484,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9C88
-value = 0x25CE1020 # addiu $t6, $t6, 0xE48 -> 80201020
+value = 0x25CE19B0 # addiu $t6, $t6, 0xE48 -> 802019B0
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4534,7 +4549,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9CE8
-value = 0x27391020 # addiu $t9, $t9, 0xE48 -> 80201020
+value = 0x273919B0 # addiu $t9, $t9, 0xE48 -> 802019B0
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4579,7 +4594,7 @@ value = 0x3C198020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9D44
-value = 0x273910D8 # addiu $t9, $t9, 0xE8C -> 802010D8
+value = 0x27391AF8 # addiu $t9, $t9, 0xE8C -> 80201AF8
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4639,7 +4654,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9DA4
-value = 0x25EF10D8 # addiu $t7, $t7, 0xE8C -> 802010D8
+value = 0x25EF1AF8 # addiu $t7, $t7, 0xE8C -> 80201AF8
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4704,7 +4719,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9E30
-value = 0x25CE0C88 # addiu $t6, $t6, 0xC7C -> 80200C88
+value = 0x25CE1348 # addiu $t6, $t6, 0xC7C -> 80201348
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4799,7 +4814,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9EF8
-value = 0x27180D40 # addiu $t8, $t8, 0xCD0 -> 80200D40
+value = 0x27181490 # addiu $t8, $t8, 0xCD0 -> 80201490
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4894,7 +4909,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803B9FC0
-value = 0x25CE0EB0 # addiu $t6, $t6, 0xD68 -> 80200EB0
+value = 0x25CE1720 # addiu $t6, $t6, 0xD68 -> 80201720
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -4959,7 +4974,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803BA050
-value = 0x25CE0EB0 # addiu $t6, $t6, 0xD68 -> 80200EB0
+value = 0x25CE1720 # addiu $t6, $t6, 0xD68 -> 80201720
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -5009,7 +5024,7 @@ value = 0x3C188020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803BA0B0
-value = 0x27180F68 # addiu $t8, $t8, 0xDAC -> 80200F68
+value = 0x27181868 # addiu $t8, $t8, 0xDAC -> 80201868
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -5074,7 +5089,7 @@ value = 0x3C0F8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803BA110
-value = 0x25EF0F68 # addiu $t7, $t7, 0xDAC -> 80200F68
+value = 0x25EF1868 # addiu $t7, $t7, 0xDAC -> 80201868
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -5239,7 +5254,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803BA32C
-value = 0x25CE06E8 # addiu $t6, $t6, 0xA6C -> 802006E8
+value = 0x25CE0928 # addiu $t6, $t6, 0xA6C -> 80200928
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -5294,7 +5309,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803BA3B4
-value = 0x25CE06E8 # addiu $t6, $t6, 0xA6C -> 802006E8
+value = 0x25CE0928 # addiu $t6, $t6, 0xA6C -> 80200928
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -5354,7 +5369,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803BA4DC
-value = 0x25CE09B8 # addiu $t6, $t6, 0xB74 -> 802009B8
+value = 0x25CE0E38 # addiu $t6, $t6, 0xB74 -> 80200E38
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -5409,7 +5424,7 @@ value = 0x3C0E8020 # lui -> 8020
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
 vram = 0x803BA564
-value = 0x25CE09B8 # addiu $t6, $t6, 0xB74 -> 802009B8
+value = 0x25CE0E38 # addiu $t6, $t6, 0xB74 -> 80200E38
 
 [[patches.instruction]]
 func = "menu_screen_car_select_frame_803B9478"
@@ -5469,7 +5484,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_widget_cb_cartype_tables_803BAA44"
 vram = 0x803BAB50
-value = 0x804211B4 # lb $v0, 0xEE6($v0) -> 802011B4
+value = 0x80421C64 # lb $v0, 0xEE6($v0) -> 80201C64
 
 [[patches.instruction]]
 func = "carselect_widget_cb_cartype_tables_803BAA44"
@@ -5504,7 +5519,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_widget_cb_cartype_tables_803BAA44"
 vram = 0x803BAB90
-value = 0x8042126C # lb $v0, 0xF2A($v0) -> 8020126C
+value = 0x80421DAC # lb $v0, 0xF2A($v0) -> 80201DAC
 
 [[patches.instruction]]
 func = "carselect_widget_cb_cartype_tables_803BAA44"
@@ -5539,7 +5554,7 @@ value = 0x3C028020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_widget_cb_cartype_tables_803BAA44"
 vram = 0x803BABD0
-value = 0x804213DC # lb $v0, 0xFB2($v0) -> 802013DC
+value = 0x8042203C # lb $v0, 0xFB2($v0) -> 8020203C
 
 [[patches.instruction]]
 func = "carselect_widget_cb_rotate_car_803BACF8"
@@ -5584,7 +5599,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_widget_cb_rotate_car_803BACF8"
 vram = 0x803BAED0
-value = 0xC4320778 # lwc1 $f18, 0xAC4($at) -> 80200778
+value = 0xC43209B8 # lwc1 $f18, 0xAC4($at) -> 802009B8
 
 [[patches.instruction]]
 func = "carselect_widget_cb_rotate_car_803BACF8"
@@ -5594,7 +5609,7 @@ value = 0x3C018020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_widget_cb_rotate_car_803BACF8"
 vram = 0x803BAF5C
-value = 0xC4240A48 # lwc1 $f4, 0xBCC($at) -> 80200A48
+value = 0xC4240EC8 # lwc1 $f4, 0xBCC($at) -> 80200EC8
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5624,7 +5639,7 @@ value = 0x0018C000 # row stride 22 -> 36 ($t8 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBB14
-value = 0x24C61190 # addiu $a2, $a2, 0xED0 -> 80201190
+value = 0x24C61C40 # addiu $a2, $a2, 0xED0 -> 80201C40
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5664,7 +5679,7 @@ value = 0x000C6000 # row stride 22 -> 36 ($t4 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBB68
-value = 0x24C61248 # addiu $a2, $a2, 0xF14 -> 80201248
+value = 0x24C61D88 # addiu $a2, $a2, 0xF14 -> 80201D88
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5704,7 +5719,7 @@ value = 0x00084000 # row stride 22 -> 36 ($t0 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBBBC
-value = 0x24C61300 # addiu $a2, $a2, 0xF58 -> 80201300
+value = 0x24C61ED0 # addiu $a2, $a2, 0xF58 -> 80201ED0
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5744,7 +5759,7 @@ value = 0x000E7000 # row stride 22 -> 36 ($t6 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBC10
-value = 0x24C613B8 # addiu $a2, $a2, 0xF9C -> 802013B8
+value = 0x24C62018 # addiu $a2, $a2, 0xF9C -> 80202018
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5784,7 +5799,7 @@ value = 0x00094800 # row stride 22 -> 36 ($t1 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBC64
-value = 0x24C61020 # addiu $a2, $a2, 0xE48 -> 80201020
+value = 0x24C619B0 # addiu $a2, $a2, 0xE48 -> 802019B0
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5824,7 +5839,7 @@ value = 0x000F7800 # row stride 22 -> 36 ($t7 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBCB8
-value = 0x24C610D8 # addiu $a2, $a2, 0xE8C -> 802010D8
+value = 0x24C61AF8 # addiu $a2, $a2, 0xE8C -> 80201AF8
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5864,7 +5879,7 @@ value = 0x000B5800 # row stride 22 -> 36 ($t3 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBD0C
-value = 0x24C60C88 # addiu $a2, $a2, 0xC7C -> 80200C88
+value = 0x24C61348 # addiu $a2, $a2, 0xC7C -> 80201348
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5904,7 +5919,7 @@ value = 0x0019C800 # row stride 22 -> 36 ($t9 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBD60
-value = 0x24C60D40 # addiu $a2, $a2, 0xCD0 -> 80200D40
+value = 0x24C61490 # addiu $a2, $a2, 0xCD0 -> 80201490
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5944,7 +5959,7 @@ value = 0x000D6800 # row stride 22 -> 36 ($t5 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBDB4
-value = 0x24C60EB0 # addiu $a2, $a2, 0xD68 -> 80200EB0
+value = 0x24C61720 # addiu $a2, $a2, 0xD68 -> 80201720
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -5984,7 +5999,7 @@ value = 0x000A5000 # row stride 22 -> 36 ($t2 = $v1 * 36 * 1)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBE08
-value = 0x24C60F68 # addiu $a2, $a2, 0xDAC -> 80200F68
+value = 0x24C61868 # addiu $a2, $a2, 0xDAC -> 80201868
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -6064,7 +6079,7 @@ value = 0x000C6000 # row stride 22 -> 36 ($t4 = $v1 * 36 * 4)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBEC8
-value = 0x24C606E8 # addiu $a2, $a2, 0xA6C -> 802006E8
+value = 0x24C60928 # addiu $a2, $a2, 0xA6C -> 80200928
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -6104,7 +6119,7 @@ value = 0x0019C800 # row stride 22 -> 36 ($t9 = $v1 * 36 * 4)
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
 vram = 0x803BBF34
-value = 0x24C609B8 # addiu $a2, $a2, 0xB74 -> 802009B8
+value = 0x24C60E38 # addiu $a2, $a2, 0xB74 -> 80200E38
 
 [[patches.instruction]]
 func = "carselect_widget_cb_stat_bars_803BB9F8"
@@ -6149,7 +6164,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
 vram = 0x803BC41C
-value = 0x816B1324 # lb $t3, 0xF6E($t3) -> 80201324
+value = 0x816B1EF4 # lb $t3, 0xF6E($t3) -> 80201EF4
 
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
@@ -6184,7 +6199,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
 vram = 0x803BC470
-value = 0x816B1044 # lb $t3, 0xE5E($t3) -> 80201044
+value = 0x816B19D4 # lb $t3, 0xE5E($t3) -> 802019D4
 
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
@@ -6219,7 +6234,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
 vram = 0x803BC4C8
-value = 0x816B10FC # lb $t3, 0xEA2($t3) -> 802010FC
+value = 0x816B1B1C # lb $t3, 0xEA2($t3) -> 80201B1C
 
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
@@ -6254,7 +6269,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
 vram = 0x803BC51C
-value = 0x816B0CAC # lb $t3, 0xC92($t3) -> 80200CAC
+value = 0x816B136C # lb $t3, 0xC92($t3) -> 8020136C
 
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
@@ -6289,7 +6304,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
 vram = 0x803BC56C
-value = 0x816B0D64 # lb $t3, 0xCE6($t3) -> 80200D64
+value = 0x816B14B4 # lb $t3, 0xCE6($t3) -> 802014B4
 
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
@@ -6324,7 +6339,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
 vram = 0x803BC5B8
-value = 0x816B0ED4 # lb $t3, 0xD7E($t3) -> 80200ED4
+value = 0x816B1744 # lb $t3, 0xD7E($t3) -> 80201744
 
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
@@ -6359,7 +6374,7 @@ value = 0x3C0B8020 # lui -> 8020
 [[patches.instruction]]
 func = "carselect_text_cb_car_title_803BC048"
 vram = 0x803BC60C
-value = 0x816B0F8C # lb $t3, 0xDC2($t3) -> 80200F8C
+value = 0x816B188C # lb $t3, 0xDC2($t3) -> 8020188C
 
 # Car preview ids (car select: id = player * 36 + type, was * 22) index the race per-car arrays, which move to 72-entry
 # copies at 0x80218000-0x80221EE8 (tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic
@@ -8756,7 +8771,7 @@ text = "    MEM_H(0, (int32_t)0x80022FEC) = 0; MEM_H(0, (int32_t)0x80022FEE) = 0
 [[patches.hook]]
 func = "save_boot_load_settings_800B3528"
 before_vram = 0x800B39A4
-text = "    MEM_H(0, (int32_t)0x80022FEC) = 0; MEM_H(0, (int32_t)0x80022FEE) = 0;"
+text = "    MEM_H(0, (int32_t)0x80022FEC) = 0; MEM_H(0, (int32_t)0x80022FEE) = 0; rush2_boot_settings_ports(rdram, ctx);"
 
 # Three and four player races (src/players4.cpp). At startup (func_800B4EB0, once the frame tasks are set up), copy
 # the arrays moved by the "4 player relocations" block below and point the frame tasks at bigger graphics buffers.
@@ -8811,11 +8826,24 @@ text = "    if (rush2_players4_cars_back(rdram, ctx)) goto L_803BA884;"
 
 # Rush 2's engine voices (func_8009E664 -> func_8008C61C) exist for two local players' slots: the car setup
 # (func_8009E6DC, car index in $s4) starts slot 0 for player 1 and slot 1 for every other player, so players 3 and 4
-# get none (src/car_engines.cpp plays their cars like the other cars) instead of restarting player 2's.
+# get none (src/car_engines.cpp plays their cars like the other cars) instead of restarting player 2's. Online the slots
+# are this machine's players' cars (rush2_online_engine_start).
 [[patches.hook]]
 func = "race_start_player_engine_8009E664"
 before_vram = 0x8009E664
-text = "    if ((int16_t)ctx->r4 >= 2 || (int32_t)ctx->r20 >= 2) return;"
+text = "    if (rush2_online_engine_start(rdram, ctx)) return;"
+
+# Online: the engine slots' rpm and load come from this machine's players' cars (rush2_online_engine_car). Slot 0's car
+# is $a0; slot 1's is $s0 + $t9, added in the call's delay slot.
+[[patches.hook]]
+func = "physics_stage_post_snapshot_8006890C"
+before_vram = 0x80068AD4
+text = "    ctx->r4 = (gpr)(int32_t)rush2_online_engine_car(rdram, 0, (uint32_t)ctx->r4);"
+
+[[patches.hook]]
+func = "physics_stage_post_snapshot_8006890C"
+before_vram = 0x80068B3C
+text = "    ctx->r25 = (gpr)(int32_t)(rush2_online_engine_car(rdram, 1, (uint32_t)(ctx->r16 + ctx->r25)) - (uint32_t)ctx->r16);"
 
 # Car select (func_803BC048), after a panel's "PLAYER %d" label is formatted at $sp + 0x6C: in the second round it
 # names players 3 and 4.
@@ -9392,6 +9420,16 @@ value = 0xA0260830 # sb $a2, -0x3F4C($at) -> 80240830
 
 [[patches.instruction]]
 func = "car_helper_80065270"
+vram = 0x800652A8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_helper_80065270"
+vram = 0x800652B4
+value = 0xA0270990 # sb $a3, -0x3F40($at) -> 80240990
+
+[[patches.instruction]]
+func = "car_helper_80065270"
 vram = 0x800652B8
 value = 0x3C018024 # lui -> 8024
 
@@ -9411,6 +9449,386 @@ vram = 0x80065314
 value = 0xA0220840 # sb $v0, -0x3F2C($at) -> 80240840
 
 [[patches.instruction]]
+func = "car_helper_80065270"
+vram = 0x8006531C
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_helper_80065270"
+vram = 0x80065320
+value = 0x3C0A8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_helper_80065270"
+vram = 0x80065324
+value = 0x27390980 # addiu $t9, $t9, -0x3F8C -> 80240980
+
+[[patches.instruction]]
+func = "car_helper_80065270"
+vram = 0x8006532C
+value = 0x254A0970 # addiu $t2, $t2, -0x3F98 -> 80240970
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800655FC
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065600
+value = 0x25080910 # addiu $t0, $t0, 0x7DF8 -> 80240910
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065614
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065620
+value = 0x256B0870 # addiu $t3, $t3, 0x7D08 -> 80240870
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065624
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065628
+value = 0x27390950 # addiu $t9, $t9, 0x7E18 -> 80240950
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065684
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065690
+value = 0xAC200890 # sw $zero, 0x7D28($at) -> 80240890
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065694
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x8006569C
+value = 0xAC2008B0 # sw $zero, 0x7D40($at) -> 802408B0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800656A0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800656A8
+value = 0xAC200850 # sw $zero, 0x7CB8($at) -> 80240850
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800656B0
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800656B8
+value = 0xE42A08D0 # swc1 $f10, 0x7D58($at) -> 802408D0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800656C4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800656CC
+value = 0xE43008F0 # swc1 $f16, 0x7DE8($at) -> 802408F0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800656F0
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800656F8
+value = 0x258C0850 # addiu $t4, $t4, 0x7CB8 -> 80240850
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065794
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065798
+value = 0x27180890 # addiu $t8, $t8, 0x7D28 -> 80240890
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800657A4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800657B8
+value = 0xC42808F0 # lwc1 $f8, 0x7DE8($at) -> 802408F0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800657BC
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800657C0
+value = 0x258C08B0 # addiu $t4, $t4, 0x7D40 -> 802408B0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065868
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x8006586C
+value = 0x25080910 # addiu $t0, $t0, 0x7DF8 -> 80240910
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x8006587C
+value = 0x3C0D8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065880
+value = 0x25AD0950 # addiu $t5, $t5, 0x7E18 -> 80240950
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800658C4
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800658D8
+value = 0x25080910 # addiu $t0, $t0, 0x7DF8 -> 80240910
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065918
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065920
+value = 0xC4200950 # lwc1 $f0, 0x7E18($at) -> 80240950
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065924
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065940
+value = 0xC4280930 # lwc1 $f8, 0x7E08($at) -> 80240930
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x8006596C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065978
+value = 0xE4240930 # swc1 $f4, 0x7E08($at) -> 80240930
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065984
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x8006598C
+value = 0xE4260950 # swc1 $f6, 0x7E18($at) -> 80240950
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x8006599C
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800659A0
+value = 0x273908F0 # addiu $t9, $t9, 0x7DE8 -> 802408F0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800659E4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800659F4
+value = 0xC4320950 # lwc1 $f18, 0x7E18($at) -> 80240950
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x800659F8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065A00
+value = 0xC4240930 # lwc1 $f4, 0x7E08($at) -> 80240930
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065A98
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065A9C
+value = 0x25EF0870 # addiu $t7, $t7, 0x7D08 -> 80240870
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065AA8
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065AB4
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065AB8
+value = 0xC42808F0 # lwc1 $f8, 0x7DE8($at) -> 802408F0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065ABC
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065AC4
+value = 0xC42A08D0 # lwc1 $f10, 0x7D58($at) -> 802408D0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065ADC
+value = 0x3C038024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065B2C
+value = 0x8C420890 # lw $v0, 0x7D28($v0) -> 80240890
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065B38
+value = 0x8C6308B0 # lw $v1, 0x7D40($v1) -> 802408B0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065BDC
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065BE8
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065BEC
+value = 0x256B0930 # addiu $t3, $t3, 0x7E08 -> 80240930
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065BF0
+value = 0x258C0950 # addiu $t4, $t4, 0x7E18 -> 80240950
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065C10
+value = 0x3C0D8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065C14
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065C18
+value = 0x25EF08B0 # addiu $t7, $t7, 0x7D40 -> 802408B0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065C20
+value = 0x25AD0890 # addiu $t5, $t5, 0x7D28 -> 80240890
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065C24
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065C28
+value = 0x25CE08D0 # addiu $t6, $t6, 0x7D58 -> 802408D0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065C34
+value = 0x3C0C8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065C40
+value = 0x258C08F0 # addiu $t4, $t4, 0x7DE8 -> 802408F0
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065DDC
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065DE0
+value = 0x8D6B0870 # lw $t3, 0x7D08($t3) -> 80240870
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065DE4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065DF0
+value = 0xAC200850 # sw $zero, 0x7CB8($at) -> 80240850
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065DF4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "car_stunt_scoring_update_80065588"
+vram = 0x80065DF8
+value = 0xAC200890 # sw $zero, 0x7D28($at) -> 80240890
+
+[[patches.instruction]]
 func = "car_material_effects_update_800663CC"
 vram = 0x80066494
 value = 0x3C0E8025 # lui -> 8025
@@ -9419,6 +9837,46 @@ value = 0x3C0E8025 # lui -> 8025
 func = "car_material_effects_update_800663CC"
 vram = 0x800664A8
 value = 0x85CEF000 # lh $t6, -0x3C1E($t6) -> 8024F000
+
+[[patches.instruction]]
+func = "stunt_param_store_800671E8"
+vram = 0x800671F4
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "stunt_param_store_800671E8"
+vram = 0x800671F8
+value = 0xAC200910 # sw $zero, 0x7DF8($at) -> 80240910
+
+[[patches.instruction]]
+func = "stunt_param_store_800671E8"
+vram = 0x800671FC
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "stunt_param_store_800671E8"
+vram = 0x80067200
+value = 0xAC200870 # sw $zero, 0x7D08($at) -> 80240870
+
+[[patches.instruction]]
+func = "stunt_param_store_800671E8"
+vram = 0x80067214
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "stunt_param_store_800671E8"
+vram = 0x80067218
+value = 0xAC200914 # sw $zero, 0x7DFC($at) -> 80240914
+
+[[patches.instruction]]
+func = "stunt_param_store_800671E8"
+vram = 0x8006721C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "stunt_param_store_800671E8"
+vram = 0x80067220
+value = 0xAC200874 # sw $zero, 0x7D0C($at) -> 80240874
 
 [[patches.instruction]]
 func = "car_sound_slots_init_8006722C"
@@ -11386,6 +11844,26 @@ vram = 0x800A7B2C
 value = 0x90C607F0 # lbu $a2, 0x2274($a2) -> 802407F0
 
 [[patches.instruction]]
+func = "record_stats_race_end_800A9250"
+vram = 0x800A92B0
+value = 0x3C118024 # lui -> 8024
+
+[[patches.instruction]]
+func = "record_stats_race_end_800A9250"
+vram = 0x800A92B4
+value = 0x26310980 # addiu $s1, $s1, -0x3F8C -> 80240980
+
+[[patches.instruction]]
+func = "record_stats_race_end_800A9250"
+vram = 0x800A9310
+value = 0x3C118024 # lui -> 8024
+
+[[patches.instruction]]
+func = "record_stats_race_end_800A9250"
+vram = 0x800A932C
+value = 0x26310980 # addiu $s1, $s1, -0x3F8C -> 80240980
+
+[[patches.instruction]]
 func = "postrace_records_update_800A952C"
 vram = 0x800A95B4
 value = 0x3C018024 # lui -> 8024
@@ -11667,6 +12145,26 @@ value = 0x24420820 # addiu $v0, $v0, -0x3F90 -> 80240820
 
 [[patches.instruction]]
 func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B7708
+value = 0x3C038024 # lui -> 8024
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B770C
+value = 0x3C048024 # lui -> 8024
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B7710
+value = 0x24840970 # addiu $a0, $a0, -0x3F98 -> 80240970
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B7714
+value = 0x24630980 # addiu $v1, $v1, -0x3F8C -> 80240980
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
 vram = 0x800B7784
 value = 0x3C1E8024 # lui -> 8024
 
@@ -11674,6 +12172,26 @@ value = 0x3C1E8024 # lui -> 8024
 func = "hud_widget_text_cb_player_stats_800B7654"
 vram = 0x800B7788
 value = 0x27DE0820 # addiu $fp, $fp, -0x3F90 -> 80240820
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B7794
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B7798
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B77A0
+value = 0x25EF0980 # addiu $t7, $t7, -0x3F8C -> 80240980
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B77A4
+value = 0x25CE0970 # addiu $t6, $t6, -0x3F98 -> 80240970
 
 [[patches.instruction]]
 func = "hud_widget_text_cb_player_stats_800B7654"
@@ -11704,6 +12222,16 @@ value = 0x25EF0830 # addiu $t7, $t7, -0x3F4C -> 80240830
 func = "hud_widget_text_cb_player_stats_800B7654"
 vram = 0x800B7810
 value = 0x25290840 # addiu $t1, $t1, -0x3F2C -> 80240840
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B7814
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B781C
+value = 0x27180990 # addiu $t8, $t8, -0x3F40 -> 80240990
 
 [[patches.instruction]]
 func = "hud_widget_cb_race_time_display_800B7B1C"
@@ -12380,16 +12908,70 @@ func = "hud_widget_cb_race_time_display_800B7B1C"
 before_vram = 0x800B7B64
 text = "    ctx->r15 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r15);"
 
-# The race time's digits, just formatted for this machine's player, go where player 1's time widget reads them.
+# The race time's digits, just formatted for the element's player ([$sp + 0x28]), go where its view's time widget reads
+# them when it is one of this machine's players.
 [[patches.hook]]
 func = "hud_widget_cb_race_time_display_800B7B1C"
 before_vram = 0x800B7CA0
-text = "    rush2_online_hud_time_digits(rdram);"
+text = "    rush2_online_hud_time_digits(rdram, (int)MEM_W(0x28, ctx->r29));"
 
 [[patches.hook]]
 func = "hud_widget_cb_orbit_icons_800B7E88"
 before_vram = 0x800B7E9C
 text = "    ctx->r14 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r14);"
+
+# Online: the per-player sound effects count the same players on every machine (rush2_online_sim_players_begin).
+[[patches.hook]]
+func = "car_sound_update_all_80067358"
+before_vram = 0x8006735C
+text = "    rush2_online_sim_players_begin(rdram);"
+
+[[patches.hook]]
+func = "car_sound_update_all_80067358"
+before_vram = 0x80067A88
+text = "    rush2_online_extra_player_effects(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_sound_update_all_80067358"
+before_vram = 0x80067ABC
+text = "    rush2_online_sim_players_end(rdram);"
+
+[[patches.hook]]
+func = "car_sound_update_events_80067D9C"
+before_vram = 0x80067DA0
+text = "    rush2_online_sim_players_begin(rdram);"
+
+[[patches.hook]]
+func = "car_sound_update_events_80067D9C"
+before_vram = 0x8006867C
+text = "    rush2_online_sim_players_end(rdram);"
+
+[[patches.hook]]
+func = "car_material_effects_update_800663CC"
+before_vram = 0x800663D0
+text = "    rush2_online_sim_players_begin(rdram);"
+
+[[patches.hook]]
+func = "car_material_effects_update_800663CC"
+before_vram = 0x80066EE0
+text = "    rush2_online_sim_players_end(rdram);"
+
+[[patches.hook]]
+func = "car_sound_slots_init_8006722C"
+before_vram = 0x80067230
+text = "    rush2_online_sim_players_begin(rdram);\n    rush2_online_stunt_reset(rdram, (int)(int16_t)ctx->r4);"
+
+[[patches.hook]]
+func = "car_sound_slots_init_8006722C"
+before_vram = 0x80067350
+text = "    rush2_online_sim_players_end(rdram);"
+
+# Online: the cars' part animations run at full detail on every machine, whatever the last frame's GPU time
+# (rush2_online_draw_detail).
+[[patches.hook]]
+func = "car_state_draw_objects_80082D14"
+before_vram = 0x80082E64
+text = "    rush2_online_draw_detail(rdram);"
 
 # Online: the HUD and the frame's drawing show this machine's player (rush2_online_present_begin).
 [[patches.hook]]

@@ -118,6 +118,14 @@ namespace rush2::car2049 {
     // The player record address a 2049 type's side-slot address stands for (record + 0x584 + type * 13 + the byte in
     // the type's block); any other address is returned as it is.
     uint32_t record_address(uint8_t* rdram, uint32_t addr);
+    // Online races (src/online/online_game.cpp): a player's 2049 car options travel with their profile. side_block is
+    // the side slot of the player record at `record` (one in the save area, made if missing; empty otherwise), and
+    // set_guest_side_block gives the profile copy at `record` (outside the save area: race player `guest`'s, 0-7) those
+    // options for the race, or a new record's for an empty block, without saving them. clear_guest_side_blocks forgets
+    // them all.
+    std::vector<uint8_t> side_block(uint8_t* rdram, uint32_t record);
+    void set_guest_side_block(uint8_t* rdram, int guest, uint32_t record, const std::vector<uint8_t>& block);
+    void clear_guest_side_blocks();
     // Animates the loaded 2049 cars' effects (the Rocket ZX's exhaust flames). Called while models are drawn; it
     // runs at most once per 1/60 s.
     void animate(uint8_t* rdram);

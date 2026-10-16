@@ -21,8 +21,8 @@
 // stand-in. A 2049 type's block is in its side slot (src/rush2049/car2049.cpp); the key is the record address it
 // stands for, so the key doesn't depend on the slot.
 //
-// The car select (menu_screen_car_select_frame 0x803B9478) adds left/right to the row's byte (0x80201190 MAIN,
-// 0x80201248 ACCENT, 0x802013B8 STRIPE COLOR; + (slot + 1) * 36 + type) and wraps it at 32. A hook before the add
+// The car select (menu_screen_car_select_frame 0x803B9478) adds left/right to the row's byte (0x80201C40 MAIN,
+// 0x80201D88 ACCENT, 0x80202018 STRIPE COLOR; + (slot + 1) * 36 + type) and wraps it at 32. A hook before the add
 // keeps the value, and one at the setter call (the row byte at $v0 + 0x24, value $v1) wraps it at count() instead. A
 // Dreamcast 2049 car's MAIN row is its STYLE (src/rush2049/wings_menu.cpp) and is left alone.
 

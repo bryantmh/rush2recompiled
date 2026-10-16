@@ -719,11 +719,10 @@ int rush2::input::port_player(int port) {
     if (rdram == nullptr || port < 0 || port >= num_ports || at_title_screen.load()) {
         return -1;
     }
-    // An online race's records have no ports (src/online/online_game.cpp): port 1 is this machine's player's. Reading
-    // the records there flickered, as the race's presentation lends record 0 port 1 for each frame's drawing.
-    int online_player = rush2::online::game::local_race_player();
-    if (online_player >= 0) {
-        return port == 0 ? online_player : -1;
+    // An online race's records have no ports (src/online/online_game.cpp): port i + 1 is this machine's player i's.
+    // Reading the records there flickered, as the race's presentation lends records ports for each frame's drawing.
+    if (rush2::online::game::local_race_player() >= 0) {
+        return rush2::online::game::local_car(port);
     }
     // The players' records (0x800C2140, 0x28 each, +1 the port or 5 for none; four of them, src/players4.cpp). Player 2
     // only counts while the game has 2 players: its record keeps its port after it leaves.

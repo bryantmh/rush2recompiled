@@ -49,6 +49,7 @@
 #include "circuit.h"
 #include "data_files.h"
 #include "npc_cars.h"
+#include "online.h"
 #include "options_page.h"
 #include "rush2_hooks.h"
 #include "track1.h"
@@ -238,6 +239,9 @@ namespace {
 }
 
 int rush2::circuit::length(uint8_t* rdram) {
+    // An online circuit another machine hosts is as long as the host's (src/online/online_game.cpp).
+    int online = rush2::online::game::circuit_length();
+    if (online > 0) return online;
     return current_setup(rdram).length;
 }
 
@@ -465,7 +469,7 @@ namespace {
     constexpr uint32_t circuit_races = 0x800D3A60; // 4 bytes a race: track, direction bits, fog, wind
     constexpr int32_t block_places = 0x8;          // 3 bits a race (low bit first), 11 bytes a car, player 1 first
     constexpr uint32_t car_table = 0x800D9C10;     // 9 bytes a car slot: +1 type, +2..+5 paint, +8 driver (8 = player 1)
-    constexpr uint32_t rim_table = 0x80201020;     // u8 [row][36 types]: TIRE RIMS, row 0 drones, row player + 1
+    constexpr uint32_t rim_table = 0x802019B0;     // u8 [row][36 types]: TIRE RIMS, row 0 drones, row player + 1
     constexpr int car_types = 36;
     constexpr uint32_t attract_mode = 0x800E7BB0;  // u8
 
@@ -500,6 +504,8 @@ void rush2::circuit::set_accurate_review(bool enabled) {
 extern "C" void rush2_circuit_race_car(uint8_t* rdram, recomp_context* ctx) {
     uint32_t block = (uint32_t)MEM_W(0, (int32_t)circuit_block);
     if (block == 0) return;
+    // The host's circuit followed online is the host's to record (src/online/online_game.cpp).
+    if (rush2::online::game::circuit_length() > 0) return;
     int race = finished(rdram);
     if (race < 0 || race >= stock_length) return;
     int slot = 0;

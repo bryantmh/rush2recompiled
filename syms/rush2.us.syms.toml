@@ -1527,7 +1527,7 @@ functions = [
     { name = "menu_get_option_by_index_803B6C18", vram = 0x803B6C18, size = 0x90 },
     { name = "menu_reset_options_from_pak_flags_803B6CA8", vram = 0x803B6CA8, size = 0x54 },
     { name = "menu_options_reset_defaults_803B6CFC", vram = 0x803B6CFC, size = 0x31C },
-    { name = "menu_screen_setup_options_803B7018", vram = 0x803B7018, size = 0x5E8 },
+    { name = "menu_screen_circuit_menu_803B7018", vram = 0x803B7018, size = 0x5E8 },
     { name = "menu_draw_player_count_text_803B7600", vram = 0x803B7600, size = 0x110 },
     { name = "menu_screen_cheats_803B7710", vram = 0x803B7710, size = 0x86C },
     { name = "carselect_stat_bars_803B7F7C", vram = 0x803B7F7C, size = 0x26C },

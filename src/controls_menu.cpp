@@ -143,7 +143,8 @@ namespace {
     // src/rush2049/odometer.cpp 0x80C9A000-0x80C9AB00, src/pause_menu.cpp 0x80C9C000-0x80C9EF00,
     // src/hud.cpp 0x80C9F000-0x80C9F320, src/rush2049/car2049.cpp 0x80CA0000-0x80CB0000, src/widescreen.cpp
     // 0x80CF0000-0x80D00000, src/rush2049/wings_render.cpp 0x80D00000-0x80E10000, src/online/online_game.cpp
-    // 0x80E10000-0x80E14040, src/rush2049/battle_render.cpp 0x80E20000-0x80F18000, src/rush2049/car2049.cpp (car
+    // 0x80E10000-0x80E14040 and 0x80E15600-0x80E15660, src/rush2049/car2049.cpp (online guests' side slots)
+    // 0x80E15000-0x80E15600, src/rush2049/battle_render.cpp 0x80E20000-0x80F18000, src/rush2049/car2049.cpp (car
     // lighting) 0x80F20000-0x80F80000.
     constexpr uint32_t glyph_images = 0x80C00000;
     constexpr uint32_t glyph_size = rush2::controls::glyph_width * rush2::controls::glyph_height;

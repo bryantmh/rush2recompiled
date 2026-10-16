@@ -11,7 +11,7 @@
 // cars, and the asset fit check after it still applies. Nothing is applied in attract
 // mode (0x800E7BB0) or when the New York Cabs cheat (0x800D9E89) makes every drone a taxi on its tracks, which wins.
 //
-// TIRE RIMS aren't in the entry: a car's rim is the per-type table 0x80201020 (Rush 2's 0x800C0E48, src/rush2049/car2049.cpp)
+// TIRE RIMS aren't in the entry: a car's rim is the per-type table 0x802019B0 (Rush 2's 0x800C0E48, src/rush2049/car2049.cpp)
 // at row 0 for a drone (row player + 1 for a human), RIM01 + value. It is read in four places, each hooked to give an
 // opponent its chosen rim: func_80085FD0 building a race car's wheel nodes (0x800865CC, for the car
 // func_80086CA4 is building, 0x80086E0C), func_8005A598's per-frame wheel texture (sharp at 0x8005AB08, blurred

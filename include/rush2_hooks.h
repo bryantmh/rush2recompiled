@@ -20,6 +20,9 @@ void yield_self_1ms(uint8_t* rdram);
 // Called by the game's pak thread when a Controller Pak initializes, so the port also rumbles (src/pak.cpp).
 void rush2_enable_pak_rumble(uint8_t* rdram, recomp_context* ctx);
 
+// End of the boot settings load: puts back the ports' present bytes and the no-controllers flag (src/pak.cpp).
+void rush2_boot_settings_ports(uint8_t* rdram, recomp_context* ctx);
+
 // Save menu without Controller Paks (src/pak.cpp).
 int rush2_pak_menu_state(uint8_t* rdram, recomp_context* ctx);
 void rush2_no_pak_manager(uint8_t* rdram, recomp_context* ctx);
@@ -465,8 +468,28 @@ int rush2_online_wheels_shown(uint8_t* rdram, uint32_t physics_car, int view, in
 uint32_t rush2_online_arrow_views(uint8_t* rdram, int car, uint32_t flags);
 int rush2_online_arrow_view(uint8_t* rdram, int view);
 int rush2_online_hud_views(uint8_t* rdram, int views);
-void rush2_online_hud_time_digits(uint8_t* rdram);
+void rush2_online_hud_time_digits(uint8_t* rdram, int player);
 uint32_t rush2_online_view_record(uint8_t* rdram, int view, uint32_t record);
+int rush2_online_engine_start(uint8_t* rdram, recomp_context* ctx);
+uint32_t rush2_online_engine_car(uint8_t* rdram, int slot, uint32_t physics_car);
+// func_803B7018 at 0x803B7110: the circuit menu set 0x800D3E40 to the profile's circuit block ($t8); a machine
+// following an online host's circuit keeps its copy (src/online/online_game.cpp).
+void rush2_online_circuit_block(uint8_t* rdram, recomp_context* ctx);
+// func_800A8D1C at 0x800A8D8C (a circuit race's results): the same, after it pointed 0x800D3E40 at the profile again.
+void rush2_online_circuit_results(uint8_t* rdram);
+// circuit_generate_800A7DCC at 0x800A7E40: the same ($s7 the block).
+void rush2_online_circuit_generate(uint8_t* rdram, recomp_context* ctx);
+// Entry and return of the per-player sound effects (car_sound_update_all_80067358 and the functions it calls): online
+// their player count is the same on every machine (src/online/online_game.cpp).
+void rush2_online_sim_players_begin(uint8_t* rdram);
+void rush2_online_sim_players_end(uint8_t* rdram);
+// car_state_draw_objects_80082D14 at 0x80082E64, after it set the part animation switch 0x8011748C from the last
+// frame's GPU time: online it is the same on every machine (src/online/online_game.cpp).
+void rush2_online_draw_detail(uint8_t* rdram);
+// car_sound_update_all_80067358 after its loop (0x80067A88): online the race's other human cars' stunt scoring and
+// wheel dust; car_sound_slots_init_8006722C's entry: their stunt state cleared (src/online/online_game.cpp).
+void rush2_online_extra_player_effects(uint8_t* rdram, recomp_context* ctx);
+void rush2_online_stunt_reset(uint8_t* rdram, int car);
 
 #ifdef __cplusplus
 }

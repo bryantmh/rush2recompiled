@@ -47,7 +47,7 @@ TABLES = [
 ]
 
 
-NEW_PLAYER_ROWS = 5
+NEW_PLAYER_ROWS = 9
 
 
 def new_rows(rows):

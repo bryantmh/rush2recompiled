@@ -13,7 +13,7 @@
 namespace rush2::online {
     // Bumped whenever the messages below change; machines with different versions can't play together (it is part of
     // the compatibility key too, but the hello checks it first to give a clearer reason).
-    constexpr uint32_t protocol_version = 3;
+    constexpr uint32_t protocol_version = 4;
 
     // Messages, each starting with its type byte. Host -> client unless marked client -> host.
     enum class Msg : uint8_t {
@@ -22,20 +22,20 @@ namespace rush2::online {
         Reject = 3,       // str reason
         Roster = 4,       // roster
         Settings = 5,     // settings
-        SetCar = 6,       // client -> host: car, bytes profile
+        SetCars = 6,      // client -> host: u8 count, count x (str name, car, bytes profile, bytes side)
         SetProgress = 7,  // client -> host: u8 progress, u32 custom track checked, u8 lacks it
         SetName = 8,      // client -> host: str
-        Start = 9,        // u32 seed, u8 input delay, settings, roster, max_players x bytes profile
+        Start = 9,        // u32 seed, u8 input delay, settings, roster, max_players x (bytes profile, bytes side)
         Loaded = 10,      // client -> host: u32 hash
         Go = 11,          // every machine has loaded: the race begins
-        Input = 12,       // client -> host: u32 frame, input
+        Input = 12,       // client -> host: u32 frame, u8 count, count x input (the machine's players in local order)
         FrameInputs = 13, // u32 frame, max_players inputs
         Hash = 14,        // client -> host: u32 frame, u32 hash
         Desync = 15,      // u32 frame: the machines' races differ; the race ends
         LoadMismatch = 16,// a machine set up a different race; the race ends
         Finished = 17,    // client -> host: the race is over on this machine
         SetGameplay = 18, // client -> host: long str
-        MenuState = 19,   // u8 phase, settings, s8 option cursor, s8 option top
+        MenuState = 19,   // u8 phase (MenuPhase), settings, s8 option cursor, s8 option top
     };
 
     // ENet channels.
@@ -93,11 +93,14 @@ namespace rush2::online {
             u8(s.race_battle);
             str(s.mod_track);
             str(s.mod_track_name);
+            bytes(s.circuit);
         }
         void roster(const RosterEntry* entries) {
             for (int i = 0; i < max_players; i++) {
                 const RosterEntry& e = entries[i];
                 u8(uint8_t((e.used ? 1 : 0) | (e.connected ? 2 : 0) | (e.lacks_track ? 4 : 0)));
+                u8(e.machine);
+                u8(e.local_index);
                 u8(e.progress);
                 u32(e.track_checked);
                 str(e.name);
@@ -187,6 +190,7 @@ namespace rush2::online {
             s.race_battle = u8();
             s.mod_track = str();
             s.mod_track_name = str();
+            s.circuit = bytes();
             return s;
         }
         void roster(RosterEntry* entries) {
@@ -196,6 +200,11 @@ namespace rush2::online {
                 e.used = (flags & 1) != 0;
                 e.connected = (flags & 2) != 0;
                 e.lacks_track = (flags & 4) != 0;
+                e.machine = u8();
+                e.local_index = u8();
+                if (e.machine >= max_players || e.local_index >= max_local_players) {
+                    bad = true;
+                }
                 e.progress = u8();
                 e.track_checked = u32();
                 e.name = str();

@@ -635,6 +635,23 @@ extern "C" void rush2_enable_pak_rumble(uint8_t* rdram, recomp_context* ctx) {
     MEM_B(0, rumble_mask) = (int8_t)((uint8_t)MEM_B(0, rumble_mask) | (1 << port));
 }
 
+// End of save_boot_load_settings_800B3528 (at 0x800B39A4). It was written to run once, at power-on: it clears every
+// port's present byte (0x800D393C[4]), runs one pak scan, and sets the no-controllers flag (0x800D3E93, the scrolling
+// "THERE ARE NO CONTROLLERS CONNECTED" message) unless a present byte came back. The scan only marks a port present when
+// its bit in the port mask (0x800BD428) is new, so when screen 0xE runs it again (leaving an online race restarts the
+// front end from the logos) no byte came back and the message stayed up until a restart. Both are put back from the
+// mask, which holds the ports the scans have found. At boot they already match it. docs/menus.md#no-controllers-marquee
+extern "C" void rush2_boot_settings_ports(uint8_t* rdram, recomp_context* ctx) {
+    constexpr gpr port_mask = (gpr)(int32_t)0x800BD428;      // u8: bit per port the pak scan has found
+    constexpr gpr port_present = (gpr)(int32_t)0x800D393C;   // u8[4]
+    constexpr gpr no_controllers = (gpr)(int32_t)0x800D3E93; // u8
+    uint8_t mask = (uint8_t)MEM_BU(0, port_mask);
+    for (int port = 0; port < 4; port++) {
+        MEM_B(port, port_present) = (int8_t)((mask >> port) & 1);
+    }
+    MEM_B(0, no_controllers) = mask == 0 ? 1 : 0;
+}
+
 // Save menu without Controller Paks. There is only one pak (port 1), so the select player screen (input
 // func_803B4D88, drawing func_803C1F44) skips everything that is about choosing or managing one:
 // - CREATE PLAYER normally opens a controller list (state 2) where A on a controller decides, from its pak status,

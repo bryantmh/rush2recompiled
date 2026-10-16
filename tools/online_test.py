@@ -131,6 +131,7 @@ try:
             print('%.1f s: focus on %s' % (time.time() - start, owner))
             last_focus = owner
 
+    exited = set()
     for t in times:
         while time.time() - start < t:
             post_holds()
@@ -139,6 +140,9 @@ try:
             time.sleep(0.05)
         for name, p in procs:
             if p.poll() is not None:
+                if name not in exited:
+                    exited.add(name)
+                    print('%s exited before %.1f s (code %d)' % (name, t, p.returncode))
                 continue
             hwnd = shots.find_window(p.pid)
             if hwnd:

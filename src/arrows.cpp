@@ -35,6 +35,7 @@
 #include "recomp.h"
 #include "arrows.h"
 #include "battle.h"
+#include "online.h"
 #include "paint_colors.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
@@ -198,11 +199,16 @@ namespace {
         // 2049's views are a quarter turn wide; a view's 4:3 part here is as wide as its height makes it.
         float tan_x43 = tan_y * (float)(v.x1 - v.x0) / (float)(v.y1 - v.y0);
         float vfov = 2.0f * std::atan(tan_y);
+        // Online (src/online/online_game.cpp) the other machines' players are humans too: race player p drives car p.
+        int online_players = rush2::online::game::race_players();
         for (int car = 0; car < max_cars; car++) {
             uint32_t& poly = arrow_polygons[p][car];
             int player = -1;
             for (int q = 0; q < players; q++) {
                 if (player_car(rdram, q) == car) player = q;
+            }
+            if (online_players > 0) {
+                player = car < online_players ? car : -1;
             }
             bool faded = false;
             // A battle: every live car. A race: the other players' cars, as Rush 2.
@@ -350,9 +356,11 @@ bool rush2::arrows::single_view(uint32_t polygon) {
 extern "C" void rush2_arrows_view(uint8_t* rdram, recomp_context* ctx) {
     int state = MEM_W(0, (int32_t)game_state);
     int players = rush2::views::local_players(rdram);
-    // In a race or its countdown (state 10), as Rush 2 shows its own arrows.
+    // In a race or its countdown (state 10), as Rush 2 shows its own arrows. Online every race has these: the other
+    // players' cars are on other machines, and Rush 2's arrows assume two players with a view each.
     bool racing = state == 3 || state == 10;
-    Mode want = !racing ? Mode::off : rush2::battle::active(rdram) ? Mode::battle : players >= 3 ? Mode::race : Mode::off;
+    bool many = players >= 3 || rush2::online::game::race_players() > 1;
+    Mode want = !racing ? Mode::off : rush2::battle::active(rdram) ? Mode::battle : many ? Mode::race : Mode::off;
     if (want != mode) {
         release(rdram);
         mode = want;

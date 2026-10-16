@@ -506,18 +506,26 @@ namespace {
     using rush2::views::local_players;
     using rush2::views::player_car;
 
+    // The human players of the race, for the simulation (outside the race's presentation): this machine's 1-4, or online
+    // every machine's, up to 8 (src/online/online_game.cpp: race player p drives car p and has record p). The views
+    // drawn are still this machine's (local_players, inside the presentation).
+    int humans(uint8_t* rdram) {
+        int online = rush2::online::game::race_players();
+        return online > 0 ? online : local_players(rdram);
+    }
+
     // The player who drives car i, or -1.
     int player_of(uint8_t* rdram, int car) {
-        int players = local_players(rdram);
+        int players = humans(rdram);
         for (int p = 0; p < players; p++) {
             if (player_car(rdram, p) == car) return p;
         }
         return -1;
     }
 
+    // Every player is a team of their own (Rush 2049's four, and online up to eight).
     int team_of_car(uint8_t* rdram, int car) {
-        int player = player_of(rdram, car);
-        return player < 0 ? -1 : std::clamp(player, 0, 3);
+        return player_of(rdram, car);
     }
 
     // Where car i carries `weapon` (0-7), in its own frame. Rush 2049's cars (types 23-35) use 2049's table; Rush 2's
@@ -1947,7 +1955,7 @@ namespace {
 
     void update_cars(uint8_t* rdram, float dt) {
         float steps = dt * tick_rate;
-        int players = local_players(rdram);
+        int players = humans(rdram);
         for (int i = 0; i < max_cars; i++) {
             Fighter& f = fighters[i];
             bool active = MEM_H(0, (int32_t)(car_at(i) + car_active)) != 0 && !rush2::ghost::is_ghost_car(i);
@@ -2069,7 +2077,7 @@ void rush2::battle::set_weapons_cheat(int option) {
 }
 
 int rush2::battle::team_of(int player) {
-    return player >= 0 && player < 4 ? player : 0;
+    return player >= 0 ? player % 4 : 0;
 }
 
 void rush2::battle::set_data(const std::vector<PickupRecord>& pickup_list, const std::vector<int>& pool_list,
@@ -2116,7 +2124,7 @@ namespace {
 
     void update_cheat(uint8_t* rdram, float dt) {
         int option = cheat_option;
-        int players = local_players(rdram);
+        int players = humans(rdram);
         for (int p = 0; p < players; p++) {
             int car = player_car(rdram, p);
             if (car < 0 || car >= max_cars || !alive(rdram, car)) continue;
@@ -2202,6 +2210,7 @@ namespace {
     struct Results {
         int winner = -1, tied = 0;
         int kills[4] = {};
+        int numbers[4] = {};        // each view's PLAYER n (online the race's numbering, this machine's players from n)
         int players = 0;
         int entrants = 0;           // the players and the computer opponents
         std::string winner_name;    // PLAYER n, or CPU n for a computer opponent [I]
@@ -2217,10 +2226,13 @@ namespace {
             if (shot.live) end_shot(rdram, shot);
         }
         shots.clear();
-        results.players = local_players(rdram);
+        // Each view's player's points (online this machine's players', cars local_race_player and up).
+        bool online = rush2::online::game::local_race_player() >= 0;
+        results.players = online ? rush2::online::game::local_race_players() : local_players(rdram);
         for (int p = 0; p < results.players; p++) {
-            int car = player_car(rdram, p);
+            int car = online ? rush2::online::game::local_car(p) : player_car(rdram, p);
             results.kills[p] = car >= 0 && car < max_cars ? fighters[car].kills : 0;
+            results.numbers[p] = online ? rush2::online::game::local_race_player() + p + 1 : p + 1;
         }
         // Every car of the round, the computer opponents too.
         int best = -1;
@@ -2294,6 +2306,11 @@ void rush2::battle::tick(uint8_t* rdram, float dt, recomp_context* ctx) {
                     }
                 }
                 if (fighters[i].kills >= round_points) {
+                    // The clock runs out too, so the race ends as at the time limit (below). The game's clock test
+                    // (func_800AE670 at 0x800AEDC4) clears the out of time flag in every frame with time left: offline
+                    // the physics thread's tick happened to set it again in time; online the ticks run before the
+                    // test, and the race stayed on the results.
+                    write_f(rdram, time_allowed, read_f(rdram, game_timer) - read_f(rdram, race_clock_start));
                     MEM_B(0, (int32_t)out_of_time) = 1;
                     end_round(rdram);
                     break;
@@ -2554,12 +2571,11 @@ namespace {
         return slot >= 0 && slot < 400 && MEM_W(0, (int32_t)(widget_at(slot) + 4)) != 0;
     }
 
-    // The car view p's HUD shows. Online the one view is this machine's player's, who drives car slot local_race_player
-    // (src/online/online_game.cpp's setup_race); record 0 is theirs only inside the race's presentation
+    // The car view p's HUD shows. Online view p is this machine's player p's, who drives car slot local_race_player + p
+    // (src/online/online_game.cpp's setup_race); record p is theirs only inside the race's presentation
     // (rush2_online_present_begin), and the battle's update runs outside it. play_sound listens from the same car.
     int hud_car(uint8_t* rdram, int p) {
-        int local = rush2::online::game::local_race_player();
-        if (local >= 0) return p == 0 ? local : -1;
+        if (rush2::online::game::local_race_player() >= 0) return rush2::online::game::local_car(p);
         return player_car(rdram, p);
     }
 
@@ -2679,7 +2695,7 @@ namespace {
             // The game's text is anchored by the third of the screen it is printed in (src/hud.cpp): the box too.
             float anchor = cx < 107 ? 0.0f : cx < 214 ? 0.5f : 1.0f;
             rush2::hud::draw_rect(rdram, (float)cx - 45.0f, (float)cy - 13.0f, (float)cx + 45.0f, (float)cy + 13.0f, box_color, anchor);
-            print_centered(rdram, ctx, style_white, cx, cy - 10, "PLAYER " + std::to_string(p + 1));
+            print_centered(rdram, ctx, style_white, cx, cy - 10, "PLAYER " + std::to_string(results.numbers[p]));
             print_centered(rdram, ctx, style_white, cx, cy + 1, std::to_string(results.kills[p]) + " POINTS");
         }
         if (results.entrants >= 2) {
@@ -2819,7 +2835,8 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
     // Not over the pause menu's screens (0x8002305C is set while one is open).
     if (MEM_B(0, (int32_t)0x8002305C) != 0) return;
     int players = mode == Mode::arena ? hud_players : local_players(rdram);
-    if (rush2::online::game::local_race_player() >= 0) players = std::min(players, 1);  // Online: one view (hud_car).
+    // Online: this machine's views (hud_car).
+    if (rush2::online::game::local_race_player() >= 0) players = std::min(players, rush2::online::game::local_race_players());
     for (int p = 0; p < players; p++) {
         int car = hud_car(rdram, p);
         if (car < 0 || car >= max_cars) continue;
@@ -2925,7 +2942,8 @@ extern "C" void rush2_battle_view(uint8_t* rdram, recomp_context* ctx) {
         pitch(m, -1.5707964f);
         scale_matrix(m, coin_scale * gain);
         color_slot(coin_slot, plain_color);
-        place_slot(rdram, coin_slot, coin_models[rush2::battle::team_of(p)], m, pos);
+        int coin_player = rush2::online::game::local_race_player() >= 0 ? rush2::online::game::local_car(p) : p;
+        place_slot(rdram, coin_slot, coin_models[rush2::battle::team_of(coin_player)], m, pos);
     }
     else {
         hide_slot(rdram, coin_slot);

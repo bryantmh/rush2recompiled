@@ -580,11 +580,12 @@ namespace {
                 add_cell(context, row, e.name, 220.0f, color);
                 add_cell(context, row, !e.connected ? "Left" : racing ? "Racing" : progress_text(e.progress), 200.0f,
                     color);
+                // A machine's players (split screen) share its tag: the host's, yours, or its ping.
                 std::string tag;
-                if (i == 0) {
-                    tag = (int)i == me ? "Host (you)" : "Host";
+                if (e.machine == 0) {
+                    tag = (int)e.machine == me ? "Host (you)" : "Host";
                 }
-                else if ((int)i == me) {
+                else if ((int)e.machine == me) {
                     tag = "You";
                 }
                 else if (e.connected) {

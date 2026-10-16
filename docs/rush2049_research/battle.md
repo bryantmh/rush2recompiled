@@ -273,9 +273,11 @@ Main code. **[V]** unless marked.
 - The clock: the stunt clock `0x8010C204` (Rush 2) is 3.5 during the start countdown and 300 afterwards; only the 300
   is replaced by the limit (1200 s without a time limit, section 7.1). Rush 2's clock test (func_800AE670 state 3) doesn't end a race without checkpoints, so
   the port sets the out of time flag `0x800FAE98` itself (every tick from the limit on).
+  A car that reaches the points also runs the clock out (`0x8010C204` = the time raced): the clock test clears the flag
+  in every frame with time left (0x800AEDC4), which online ended the race only at the limit (docs/online.md#stunt-and-battle).
 - **Results** (section 6.2): from the limit on, `draw_results` (hud_draw) shows 2049's boxes with the game's own text
   (`text_print_string_800734E0`, boxes by `rush2::hud::draw_rect`): `PLAYER n WINS` or `n-WAY TIE` in the middle, and
-  in each view `PLAYER n` over `k POINTS`. 2049 prints profile names; the port prints PLAYER 1-4 **[I]**. Nothing is
+  in each view `PLAYER n` over `k POINTS`. 2049 prints profile names; the port prints PLAYER 1-4 (online the race's numbers, docs/online.md#stunt-and-battle) **[I]**. Nothing is
   fired or scored after the limit.
 - **Explosion** (section 6.2): the 30 `NEXPLOSION` frames at half size, 2049's sound 0x45 (which holds until its
   key-off, sent after 1.5 s **[I]**). Wall and car hits of bullets keep a small scaled muzzle flash **[I]**; there are

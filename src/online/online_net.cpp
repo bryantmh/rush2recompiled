@@ -71,16 +71,20 @@ namespace {
     std::string error_text;
     std::string my_name = "Player";
     std::string my_profile_name;   // The save profile picked on Select Player: the lobby shows it if set.
-    CarChoice my_car;
+    std::vector<LocalPlayer> my_players = std::vector<LocalPlayer>(1);  // This machine's players (set_cars).
     uint32_t my_track_checked = 0; // The custom track checked for and whether it's missing (set_track_check).
     bool my_lacks_track = false;
-    std::vector<uint8_t> my_profile;
     uint8_t my_games = 0;
+    // Host: how many players each machine (by its first slot) asked for (set_cars), which may be more than fit.
+    int wanted_players[max_players] = {};
     std::string my_gameplay;
     uint16_t host_port = default_port;
     // Client: the host's menus (publish_menu).
     MenuState host_menu_state;
     bool have_host_menu = false;
+    // Host: the last menu state sent (publish_menu) and how many times since it was the same.
+    std::vector<uint8_t> menu_sent;
+    int menu_unchanged = 0;
 
     // Messages for the net thread to send. Target: a slot (host), to_host (client) or to_all (host).
     constexpr int to_host = -1;
@@ -165,6 +169,97 @@ namespace {
         return n;
     }
 
+    // Several players on one machine (split screen): the machine's first slot is its connection's, and the players who
+    // joined on its other controllers hold more slots (RosterEntry::machine, local_index), which follow the first one's
+    // connection, progress and settings.
+
+    // The slot of machine `machine`'s local player `local`, or -1.
+    int slot_of_local(int machine, int local) {
+        for (int i = 0; i < max_players; i++) {
+            if (slots[i].used && slots[i].machine == machine && slots[i].local_index == local) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // Host: copies what belongs to the machine rather than the player (connection, progress, the custom track check,
+    // ROMs, settings and ping) from its first slot to its others.
+    void sync_machine(int machine) {
+        const RosterEntry& first = slots[machine];
+        for (int i = 0; i < max_players; i++) {
+            RosterEntry& e = slots[i];
+            if (i == machine || !e.used || e.machine != machine) {
+                continue;
+            }
+            e.connected = first.connected;
+            e.progress = first.progress;
+            e.track_checked = first.track_checked;
+            e.lacks_track = first.lacks_track;
+            e.games = first.games;
+            e.gameplay = first.gameplay;
+            e.ping_ms = first.ping_ms;
+        }
+    }
+
+    // Host: machine `machine` has these players (its car select's): its first slot takes player 1's car, and players 2-4
+    // get slots of their own while the lobby has room (start_race refuses a race that left one out).
+    void host_set_players(int machine, const std::vector<LocalPlayer>& players) {
+        int count = std::clamp<int>((int)players.size(), 1, max_local_players);
+        wanted_players[machine] = count;
+        RosterEntry& first = slots[machine];
+        if (!players.empty()) {
+            first.car = players[0].car;
+            first.profile = players[0].profile;
+            first.side = players[0].side;
+        }
+        for (int local = 1; local < max_local_players; local++) {
+            int slot = slot_of_local(machine, local);
+            if (local >= count) {
+                if (slot >= 0) {
+                    slots[slot] = RosterEntry{};
+                }
+                continue;
+            }
+            if (slot < 0) {
+                for (int i = 0; i < max_players && used_count() < max_players_opt; i++) {
+                    if (!slots[i].used) {
+                        slot = i;
+                        break;
+                    }
+                }
+                if (slot < 0) {
+                    continue;
+                }
+                slots[slot] = RosterEntry{};
+                slots[slot].used = true;
+                slots[slot].machine = uint8_t(machine);
+                slots[slot].local_index = uint8_t(local);
+            }
+            RosterEntry& e = slots[slot];
+            const LocalPlayer& p = players[local];
+            e.name = p.name.empty() ? clean_name(first.name.substr(0, max_name_length - 2) + " " + std::to_string(local + 1))
+                                    : clean_name(p.name);
+            e.car = p.car;
+            e.profile = p.profile;
+            e.side = p.side;
+        }
+        sync_machine(machine);
+    }
+
+    // The players' names of the connected machines other than `me` whose slots match `pick`, one per machine.
+    template <typename Pick>
+    std::string machine_names(int me, Pick pick) {
+        std::string names;
+        for (int i = 0; i < max_players; i++) {
+            const RosterEntry& e = slots[i];
+            if (e.used && e.connected && e.machine != me && e.local_index == 0 && pick(i)) {
+                names += (names.empty() ? "" : ", ") + e.name;
+            }
+        }
+        return names;
+    }
+
     void clear_race() {
         go = false;
         race_over = false;
@@ -190,6 +285,7 @@ namespace {
 
     void reset_session() {
         have_host_menu = false;
+        menu_sent.clear();
         cur_state = State::Offline;
         hosting = false;
         my_slot = -1;
@@ -243,6 +339,19 @@ namespace {
         return race_slots[slot].used && slots[slot].connected;
     }
 
+    // Host, in a race: disconnects machine `machine` (by its first slot); its players' cars coast from the next frame.
+    void drop_machine(int machine) {
+        if (slot_peers[machine] != nullptr) {
+            enet_peer_disconnect_now(slot_peers[machine], 0);
+            slot_peers[machine] = nullptr;
+        }
+        for (RosterEntry& e : slots) {
+            if (e.used && e.machine == machine) {
+                e.connected = false;
+            }
+        }
+    }
+
     // Host: broadcasts every frame whose inputs are all in.
     void host_relay() {
         if (!go || race_over || cur_state != State::Racing) {
@@ -287,11 +396,11 @@ namespace {
 
         // A player whose input hasn't come for a long time is dropped (their car coasts from the next frame).
         if (clock_type::now() - last_progress > slow_player_drop) {
-            for (int i = 1; i < max_players; i++) {
-                if (needs_input(i) && pending[i].find(next_broadcast) == pending[i].end() && slot_peers[i] != nullptr) {
-                    enet_peer_disconnect_now(slot_peers[i], 0);
-                    slot_peers[i] = nullptr;
-                    slots[i].connected = false;
+            for (int i = 0; i < max_players; i++) {
+                int machine = slots[i].machine;
+                if (machine != my_slot && needs_input(i) && pending[i].find(next_broadcast) == pending[i].end() &&
+                    slot_peers[machine] != nullptr) {
+                    drop_machine(machine);
                     std::fprintf(stderr, "[online] dropped player %d (no input for frame %u)\n", i + 1, next_broadcast);
                 }
             }
@@ -308,10 +417,9 @@ namespace {
         // car coasts); this machine's own load is never given up on.
         if (clock_type::now() - load_started > load_timeout) {
             for (int i = 0; i < max_players; i++) {
-                if (i != my_slot && needs_input(i) && !loaded[i] && slot_peers[i] != nullptr) {
-                    enet_peer_disconnect_now(slot_peers[i], 0);
-                    slot_peers[i] = nullptr;
-                    slots[i].connected = false;
+                int machine = slots[i].machine;
+                if (machine != my_slot && needs_input(i) && !loaded[i] && slot_peers[machine] != nullptr) {
+                    drop_machine(machine);
                     std::fprintf(stderr, "[online] dropped player %d (didn't load the race)\n", i + 1);
                     queue(to_all, channel_lobby, roster_message());
                 }
@@ -446,10 +554,12 @@ namespace {
                 e = RosterEntry{};
                 e.used = true;
                 e.connected = true;
+                e.machine = uint8_t(free);
                 e.name = name;
                 e.car = car;
                 e.games = games;
                 e.gameplay = gameplay;
+                wanted_players[free] = 1;
                 Writer w;
                 w.u8(uint8_t(Msg::Welcome));
                 w.u8(uint8_t(free));
@@ -460,13 +570,20 @@ namespace {
                 queue(to_all, channel_lobby, roster_message());
                 break;
             }
-            case Msg::SetCar:
+            case Msg::SetCars:
                 if (slot >= 0) {
-                    CarChoice car = r.car();
-                    std::vector<uint8_t> profile = r.bytes();
-                    if (!r.bad && cur_state == State::Lobby) {
-                        slots[slot].car = car;
-                        slots[slot].profile = profile;
+                    int count = r.u8();
+                    std::vector<LocalPlayer> players;
+                    for (int i = 0; i < count && i < max_local_players && !r.bad; i++) {
+                        LocalPlayer p;
+                        p.name = r.str();
+                        p.car = r.car();
+                        p.profile = r.bytes();
+                        p.side = r.bytes();
+                        players.push_back(std::move(p));
+                    }
+                    if (!r.bad && !players.empty() && cur_state == State::Lobby) {
+                        host_set_players(slot, players);
                         queue(to_all, channel_lobby, roster_message());
                     }
                 }
@@ -481,6 +598,7 @@ namespace {
                         slots[slot].progress = progress;
                         slots[slot].track_checked = checked;
                         slots[slot].lacks_track = lacks;
+                        sync_machine(slot);
                         queue(to_all, channel_lobby, roster_message());
                     }
                 }
@@ -490,6 +608,7 @@ namespace {
                     std::string gameplay = r.long_str();
                     if (!r.bad && cur_state == State::Lobby) {
                         slots[slot].gameplay = gameplay;
+                        sync_machine(slot);
                         queue(to_all, channel_lobby, roster_message());
                     }
                 }
@@ -507,8 +626,12 @@ namespace {
                 if (slot >= 0 && cur_state == State::Loading) {
                     uint32_t hash = r.u32();
                     if (!r.bad) {
-                        loaded[slot] = true;
-                        loaded_hash[slot] = hash;
+                        for (int i = 0; i < max_players; i++) {
+                            if (race_slots[i].used && race_slots[i].machine == slot) {
+                                loaded[i] = true;
+                                loaded_hash[i] = hash;
+                            }
+                        }
                         host_check_loaded();
                     }
                 }
@@ -517,9 +640,18 @@ namespace {
                 // A machine sends its first inputs while the others may still be loading.
                 if (slot >= 0 && (cur_state == State::Racing || cur_state == State::Loading)) {
                     uint32_t frame = r.u32();
-                    PlayerInput in = r.input();
+                    int count = r.u8();
+                    PlayerInput inputs[max_local_players];
+                    for (int i = 0; i < count && i < max_local_players; i++) {
+                        inputs[i] = r.input();
+                    }
                     if (!r.bad && frame >= next_broadcast) {
-                        pending[slot][frame] = in;
+                        for (int i = 0; i < max_players; i++) {
+                            const RosterEntry& e = race_slots[i];
+                            if (e.used && e.machine == slot && e.local_index < count) {
+                                pending[i][frame] = inputs[e.local_index];
+                            }
+                        }
                     }
                 }
                 break;
@@ -528,7 +660,11 @@ namespace {
                     uint32_t frame = r.u32();
                     uint32_t hash = r.u32();
                     if (!r.bad) {
-                        hashes[frame][slot] = hash;
+                        for (int i = 0; i < max_players; i++) {
+                            if (race_slots[i].used && race_slots[i].machine == slot) {
+                                hashes[frame][i] = hash;
+                            }
+                        }
                     }
                 }
                 break;
@@ -578,6 +714,7 @@ namespace {
                 r.roster(roster);
                 for (RosterEntry& e : roster) {
                     e.profile = r.bytes();
+                    e.side = r.bytes();
                 }
                 if (r.bad || cur_state != State::Lobby) {
                     return;
@@ -648,7 +785,7 @@ namespace {
                     w.u32(protocol_version);
                     w.str(compatibility_key());
                     w.str(shown_name());
-                    w.car(my_car);
+                    w.car(my_players[0].car);
                     w.u8(my_games);
                     w.long_str(my_gameplay);
                     send_packet(ev.peer, channel_lobby, w.data);
@@ -671,12 +808,21 @@ namespace {
                     int slot = slot_of(ev.peer);
                     if (slot >= 0) {
                         slot_peers[slot] = nullptr;
-                        if (cur_state == State::Lobby) {
-                            slots[slot] = RosterEntry{};
+                        // The machine's every player goes with its connection.
+                        for (RosterEntry& e : slots) {
+                            if (!e.used || e.machine != slot) {
+                                continue;
+                            }
+                            if (cur_state == State::Lobby) {
+                                e = RosterEntry{};
+                            }
+                            else {
+                                // Mid-race the slot keeps its car, which coasts from the next frame not yet broadcast.
+                                e.connected = false;
+                            }
                         }
-                        else {
-                            // Mid-race the slot keeps its car, which coasts from the next frame not yet broadcast.
-                            slots[slot].connected = false;
+                        wanted_players[slot] = 0;
+                        if (cur_state != State::Lobby) {
                             std::fprintf(stderr, "[online] player %d left the race\n", slot + 1);
                         }
                         queue(to_all, channel_lobby, roster_message());
@@ -717,6 +863,7 @@ namespace {
                     uint16_t ping = uint16_t(std::min<uint32_t>(slot_peers[i]->roundTripTime, 9999));
                     changed |= slots[i].ping_ms != ping;
                     slots[i].ping_ms = ping;
+                    sync_machine(i);
                 }
             }
             if (changed) {
@@ -842,15 +989,21 @@ bool rush2::online::host(const HostOptions& options) {
     slots[0].used = true;
     slots[0].connected = true;
     slots[0].name = shown_name();
-    slots[0].car = my_car;
-    slots[0].profile = my_profile;
     slots[0].games = my_games;
     slots[0].gameplay = my_gameplay;
+    for (int& w : wanted_players) {
+        w = 0;
+    }
+    host_set_players(0, my_players);
     // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_FAKE=K fills K more slots with players who aren't there (their
     // cars get no input, as a dropped player's), to try big races on one machine.
     if (const char* fake = std::getenv("RUSH2_ONLINE_FAKE")) {
         for (int i = 1; i <= std::atoi(fake) && i < max_players; i++) {
+            if (slots[i].used) {
+                continue;
+            }
             slots[i].used = true;
+            slots[i].machine = uint8_t(i);
             slots[i].progress = uint8_t(Progress::CarChosen);
             slots[i].name = "Fake " + std::to_string(i + 1);
             slots[i].car.type = (uint8_t)i;
@@ -1095,23 +1248,29 @@ std::string rush2::online::display_name() {
     return my_name;
 }
 
-void rush2::online::set_car(const CarChoice& car, const std::vector<uint8_t>& profile) {
+void rush2::online::set_cars(const std::vector<LocalPlayer>& players) {
     std::lock_guard lock{ state_mutex };
-    my_car = car;
-    my_profile = profile;
+    if (players.empty()) {
+        return;
+    }
+    my_players.assign(players.begin(), players.begin() + std::min<size_t>(players.size(), max_local_players));
     if (cur_state != State::Lobby) {
         return;
     }
     if (hosting) {
-        slots[0].car = car;
-        slots[0].profile = profile;
+        host_set_players(0, my_players);
         queue(to_all, channel_lobby, roster_message());
     }
     else {
         Writer w;
-        w.u8(uint8_t(Msg::SetCar));
-        w.car(car);
-        w.bytes(profile);
+        w.u8(uint8_t(Msg::SetCars));
+        w.u8(uint8_t(my_players.size()));
+        for (const LocalPlayer& p : my_players) {
+            w.str(p.name);
+            w.car(p.car);
+            w.bytes(p.profile);
+            w.bytes(p.side);
+        }
         queue(to_host, channel_lobby, w.data);
     }
 }
@@ -1124,6 +1283,7 @@ void rush2::online::set_progress(Progress progress) {
     if (hosting) {
         if (slots[0].progress != uint8_t(progress)) {
             slots[0].progress = uint8_t(progress);
+            sync_machine(0);
             queue(to_all, channel_lobby, roster_message());
         }
         return;
@@ -1169,6 +1329,12 @@ void rush2::online::publish_menu(const MenuState& m) {
     w.settings(m.settings);
     w.u8(uint8_t(m.option_cursor));
     w.u8(uint8_t(m.option_top));
+    // Sent reliably: a change at once, the same state again twice a second (for players who just joined).
+    if (w.data == menu_sent && ++menu_unchanged < 30) {
+        return;
+    }
+    menu_unchanged = 0;
+    menu_sent = w.data;
     queue(to_all, channel_lobby, w.data);
 }
 
@@ -1205,6 +1371,22 @@ bool rush2::online::start_race(const RaceSettings& settings) {
         }
         if (slots[i].used) {
             max_ping = std::max<uint32_t>(max_ping, slots[i].ping_ms);
+        }
+    }
+    // Every machine's players have a slot: one that brought more players than the lobby had room for waits.
+    for (int m = 0; m < max_players; m++) {
+        if (!slots[m].used || !slots[m].connected || slots[m].machine != m) {
+            continue;
+        }
+        int have = 0;
+        for (const RosterEntry& e : slots) {
+            have += e.used && e.machine == m ? 1 : 0;
+        }
+        if (have < wanted_players[m]) {
+            error_text = "The lobby is full: " + std::to_string(have) + " of " + slots[m].name + "'s " +
+                std::to_string(wanted_players[m]) + " players fit (Max Players is " + std::to_string(max_players_opt) +
+                "). A player there has to leave Select Player for the race to start.";
+            return false;
         }
     }
     // Every car is picked by now. A Rush 2049 car (types 23-35, src/rush2049/car2049.cpp) loads from the Rush 2049 ROM
@@ -1244,6 +1426,7 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     w.roster(race_slots);
     for (const RosterEntry& e : race_slots) {
         w.bytes(e.profile);
+        w.bytes(e.side);
     }
     queue(to_all, channel_lobby, w.data);
     queue(to_all, channel_lobby, roster_message());
@@ -1258,21 +1441,30 @@ bool rush2::online::racing() {
     return (cur_state == State::Loading || cur_state == State::Racing) && !race_over;
 }
 
-void rush2::online::submit_local_input(uint32_t frame, const PlayerInput& input) {
+void rush2::online::submit_local_input(uint32_t frame, const std::vector<PlayerInput>& inputs) {
     std::lock_guard lock{ state_mutex };
-    if ((cur_state != State::Racing && cur_state != State::Loading) || my_slot < 0) {
+    if ((cur_state != State::Racing && cur_state != State::Loading) || my_slot < 0 || inputs.empty()) {
         return;
     }
+    int count = std::min<int>((int)inputs.size(), max_local_players);
     if (hosting) {
         if (frame >= next_broadcast) {
-            pending[my_slot][frame] = input;
+            for (int i = 0; i < max_players; i++) {
+                const RosterEntry& e = race_slots[i];
+                if (e.used && e.machine == my_slot && e.local_index < count) {
+                    pending[i][frame] = inputs[e.local_index];
+                }
+            }
         }
     }
     else {
         Writer w;
         w.u8(uint8_t(Msg::Input));
         w.u32(frame);
-        w.input(input);
+        w.u8(uint8_t(count));
+        for (int i = 0; i < count; i++) {
+            w.input(inputs[i]);
+        }
         queue(to_host, channel_inputs, w.data);
     }
 }
@@ -1329,7 +1521,11 @@ void rush2::online::report_state_hash(uint32_t frame, uint32_t hash) {
         return;
     }
     if (hosting) {
-        hashes[frame][my_slot] = hash;
+        for (int i = 0; i < max_players; i++) {
+            if (race_slots[i].used && race_slots[i].machine == my_slot) {
+                hashes[frame][i] = hash;
+            }
+        }
     }
     else {
         Writer w;
@@ -1346,8 +1542,12 @@ void rush2::online::report_loaded(uint32_t hash) {
         return;
     }
     if (hosting) {
-        loaded[my_slot] = true;
-        loaded_hash[my_slot] = hash;
+        for (int i = 0; i < max_players; i++) {
+            if (race_slots[i].used && race_slots[i].machine == my_slot) {
+                loaded[i] = true;
+                loaded_hash[i] = hash;
+            }
+        }
     }
     else {
         Writer w;
@@ -1388,12 +1588,10 @@ std::string rush2::online::race_status() {
         return {};
     }
     if (hosting) {
-        std::string names;
-        for (int i = 0; i < max_players; i++) {
-            if (needs_input(i) && i != my_slot && pending[i].find(next_broadcast) == pending[i].end()) {
-                names += (names.empty() ? "" : ", ") + slots[i].name;
-            }
-        }
+        std::string names = machine_names(my_slot, [](int i) {
+            // A machine's input comes in one message: its first player stands for it.
+            return needs_input(i) && pending[i].find(next_broadcast) == pending[i].end();
+        });
         if (!names.empty()) {
             return "Waiting for " + names + "...";
         }

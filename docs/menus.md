@@ -37,6 +37,24 @@ runs a screen through its jump table.
 
 `front_end_from_logos` 0x800BF31C: set, the front end after a race starts over from screen 0xE; clear, from 0xF.
 `front_end_exit` 0x800FAE6C (u8): 2 leaves the front end for the track select, as Select Player does.
+The game itself only reads and clears `front_end_from_logos` (func_8009FD68): its initial value sends the first front
+end through screen 0xE, and nothing in the original game sends it there again. Only our online race exit sets it.
+
+### No-controllers marquee
+
+Screen 0xE (`menu_screen_text_entry_overlay_803B5E90`, case 14 of the dispatch) calls `save_boot_load_settings_800B3528`
+on its third frame. That function was written to run once, at power-on: it clears every port's present byte
+(0x800D393C[4]), runs one pak scan (`save_pak_check_all_ports_80098D14`), then sets the no-controllers flag 0x800D3E93
+unless some port's present byte is set again. The scan only marks a port present when its bit in the port mask
+0x800BD428 is new, and it only scans on every 5th call (counter 0x800BD420). At boot the mask is empty and the counter
+starts at 4, so port 1 is found. On any later run the ports are already in the mask, so no present byte comes back and
+the flag is set. `race_start_timer_800AE670` then scrolls "THERE ARE NO CONTROLLERS CONNECTED. PLEASE TURN OFF THE
+N64..." (message pointer 0x800C4D08) along the bottom of every menu at 0x800AF1F4. The flag is cleared only when a
+controller turns up on a port that wasn't in the mask yet, so the message stays until the game restarts. Port 1 always
+reports a controller (src/main.cpp `get_connected_device_info`), so the flag never comes from a missing controller: it
+comes from the second pass through screen 0xE that online `end_race` causes when it sets `front_end_from_logos`
+(src/online/online_game.cpp). Fixed by `rush2_boot_settings_ports` (src/pak.cpp, hooked at 0x800B39A4): it rebuilds
+the present bytes and the flag from the port mask, which at boot already match them.
 
 ## Start Game rows
 

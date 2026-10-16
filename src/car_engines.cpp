@@ -38,6 +38,7 @@
 #include "car2049.h"
 #include "car_engines.h"
 #include "engine2049.h"
+#include "online.h"
 #include "track2049.h"
 
 namespace audio = rush2::audio2049;
@@ -70,7 +71,7 @@ namespace {
     constexpr uint32_t engine_bases = 0x800BD15C;  // f32 [10][2]
     constexpr uint32_t rpm_table = 0x800BD338;     // f32 [2][11]
     constexpr uint32_t load_table = 0x800BD29C;    // f32 [2][13]
-    constexpr uint32_t default_engines = 0x80200C88; // s8 [36]: each type's engine sound (src/rush2049/car2049.cpp)
+    constexpr uint32_t default_engines = 0x80201348; // s8 [36]: each type's engine sound (src/rush2049/car2049.cpp)
     constexpr int turbo_sound = 0xC;
     constexpr float range = 400.0f;
     // Rush 2049 uses 0.75 (func_800E0050), but with up to seven cars around that drowned out the player's own.
@@ -310,11 +311,17 @@ bool rush2::car_engines::enabled() {
 }
 
 void rush2::car_engines::update(uint8_t* rdram) {
-    int local = std::clamp<int>((int16_t)MEM_H(0, (int32_t)num_players), 1, max_players);
+    // This machine's players (views) and their cars: the player records', or online cars local_race_player and up
+    // (src/online/online_game.cpp; this runs in the physics tick, where every race player has a record).
+    int online = rush2::online::game::local_race_players();
+    int local = online > 0 ? online : std::clamp<int>((int16_t)MEM_H(0, (int32_t)num_players), 1, max_players);
+    auto local_car = [&](int s) {
+        return online > 0 ? rush2::online::game::local_car(s) : (int)MEM_BU(0, (int32_t)(players + s * player_size));
+    };
     std::vector<Listener> listeners;
     for (int s = 0; s < local; s++) {
         Listener l;
-        uint32_t c = physics_cars + MEM_BU(0, (int32_t)(players + s * player_size)) * physics_car_size;
+        uint32_t c = physics_cars + local_car(s) * physics_car_size;
         for (int i = 0; i < 3; i++) {
             l.pos[i] = f32_at(rdram, c + car_position + i * 4);
             l.up[i] = f32_at(rdram, cameras + s * camera_size + 0xC + i * 4);
@@ -324,15 +331,18 @@ void rush2::car_engines::update(uint8_t* rdram) {
     }
     bool muted = MEM_BU(0, (int32_t)engines_muted) != 0;
     bool extra_player[max_cars] = {};
-    for (int s = 2; s < local; s++) {
-        int car = MEM_BU(0, (int32_t)(players + s * player_size));
-        if (car < max_cars) extra_player[car] = true;
+    bool slot_player[max_cars] = {};
+    for (int s = 0; s < local; s++) {
+        int car = local_car(s);
+        if (car >= 0 && car < max_cars) (s < 2 ? slot_player : extra_player)[car] = true;
     }
     std::lock_guard lock{ mutex };
     for (int car = 0; car < max_cars; car++) {
         uint32_t c = physics_cars + car * physics_car_size;
-        // Players 1 and 2's cars have the game's own engines; the other cars' only play with the option on.
-        bool skipped = extra_player[car] ? false : !option || (int8_t)MEM_B(0, (int32_t)(c + car_driver)) == 2;
+        // Local players 1 and 2's cars have the game's own engines; the other cars' only play with the option on, the
+        // other human cars' (a ghost's) not at all, but for the other machines' players' online.
+        bool other_human = online <= 0 && (int8_t)MEM_B(0, (int32_t)(c + car_driver)) == 2;
+        bool skipped = extra_player[car] ? false : slot_player[car] || other_human || !option;
         bool off = (int16_t)MEM_H(0, (int32_t)(c + car_active)) == 0 || skipped || muted || (int8_t)MEM_B(0, (int32_t)(c + car_engine_off)) != 0 ||
                    (int8_t)MEM_B(0, (int32_t)(car_states + car * car_state_size + 0x343)) > 0;
         if (off) {

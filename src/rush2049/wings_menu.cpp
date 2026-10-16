@@ -44,7 +44,7 @@ namespace {
     constexpr uint32_t slot_top = 0x803CB3A0;       // s32 [2]: each panel's first shown row (4 are shown)
     constexpr uint32_t slot_type = 0x803CB362;      // s8 [2]: each panel's car type
     constexpr uint32_t first_slot = 0x803CB3F8;     // s32: the widget id of slot 0's panel
-    constexpr uint32_t main_colour = 0x80201190 + rush2::car2049::types; // s8 [slot][36], src/rush2049/car2049.cpp
+    constexpr uint32_t main_colour = 0x80201C40 + rush2::car2049::types; // s8 [slot][36], src/rush2049/car2049.cpp
     constexpr int option_main = 2;
     constexpr int option_accent = 3;
     constexpr int option_stripe = 4;

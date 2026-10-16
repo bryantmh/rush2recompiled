@@ -28,6 +28,7 @@
 #include "car2049.h"
 #include "car_engines.h"
 #include "engine2049.h"
+#include "online.h"
 #include "track2049.h"
 
 namespace audio = rush2::audio2049;
@@ -90,12 +91,21 @@ namespace {
 
     // 2049's volume for the local player's own car.
     float player_scale(uint8_t* rdram) {
-        int n = std::clamp<int>((int16_t)MEM_H(0, (int32_t)num_players), 1, 4);
+        int online = rush2::online::game::local_race_players();
+        int n = online > 0 ? online : std::clamp<int>((int16_t)MEM_H(0, (int32_t)num_players), 1, 4);
         return 0.8f - 0.05f * float(n);
     }
 
+    // The car of engine slot `slot`: its player record's, or online this machine's player's (src/online/online_game.cpp;
+    // index 8 for none).
     uint32_t slot_car(uint8_t* rdram, int slot, int& index) {
-        index = MEM_BU(0, (int32_t)(players + slot * player_size));
+        int online = -1;
+        if (rush2::online::game::engine_slot_car(slot, &online)) {
+            index = online >= 0 ? online : 8;
+        }
+        else {
+            index = MEM_BU(0, (int32_t)(players + slot * player_size));
+        }
         return physics_cars + uint32_t(index) * physics_car_size;
     }
 }

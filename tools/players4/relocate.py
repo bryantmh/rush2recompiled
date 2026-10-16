@@ -74,6 +74,21 @@ MOVES = [
     (0x8010C070, 0x8010C074, 0x8, 'HUD byte per player (func_80060E34)'),
     (0x8010C0B4, 0x8010C0B8, 0x8, 'HUD byte per player (func_800B7654)'),
     (0x8010C0D4, 0x8010C0D8, 0x8, 'HUD byte per player (func_800B7654)'),
+    # Stunt scoring per player, two players' worth (car_stunt_scoring_update_80065588, car_helper_80065270,
+    # stunt_param_store_800671E8, the stunt HUD func_800B7654 and the race-end stats func_800A9250 are their only
+    # users): online every human car scores its stunts (docs/online.md#players-per-machine).
+    (0x800E7CB8, 0x800E7CC0, 0x20, 'stunt scoring s32 per player (roll phase)'),
+    (0x800E7D08, 0x800E7D10, 0x20, 'stunt scoring s32 per player (scoring on)'),
+    (0x800E7D28, 0x800E7D30, 0x20, 'stunt scoring s32 per player (rolls)'),
+    (0x800E7D40, 0x800E7D48, 0x20, 'stunt scoring s32 per player'),
+    (0x800E7D58, 0x800E7D60, 0x20, 'stunt scoring f32 per player (start time)'),
+    (0x800E7DE8, 0x800E7DF0, 0x20, 'stunt scoring f32 per player'),
+    (0x800E7DF8, 0x800E7E00, 0x20, 'stunt scoring s32 per player (airborne)'),
+    (0x800E7E08, 0x800E7E10, 0x20, 'stunt scoring f32 per player'),
+    (0x800E7E18, 0x800E7E20, 0x20, 'stunt scoring f32 per player (landing time)'),
+    (0x8010C068, 0x8010C06A, 0x8, 'stunt best u8 per player (func_80065270)'),
+    (0x8010C074, 0x8010C078, 0x10, 'stunt points u16 per player (func_80065270, func_800A9250)'),
+    (0x8010C0C0, 0x8010C0C2, 0x8, 'stunt multiplier byte per player (func_80065270)'),
     # Sky, per view (sky_setup_800A45A8 builds it, render_sky_cloud_scroll_8008918C moves it each frame, func_800A12A4
     # clears it): Rush 2 built the sky for one player only, the recomp builds it in split screen too (rush2_track49_sky_players).
     (0x80125B68, 0x80125B70, 0x10, 'sky model matrix node per view'),

@@ -89,6 +89,18 @@ namespace {
         { 0x8010C070, 0x8010C074, 0x80240820 }, // HUD byte per player (func_80060E34)
         { 0x8010C0B4, 0x8010C0B8, 0x80240830 }, // HUD byte per player (func_800B7654)
         { 0x8010C0D4, 0x8010C0D8, 0x80240840 }, // HUD byte per player (func_800B7654)
+        { 0x800E7CB8, 0x800E7CC0, 0x80240850 }, // stunt scoring s32 per player (roll phase)
+        { 0x800E7D08, 0x800E7D10, 0x80240870 }, // stunt scoring s32 per player (scoring on)
+        { 0x800E7D28, 0x800E7D30, 0x80240890 }, // stunt scoring s32 per player (rolls)
+        { 0x800E7D40, 0x800E7D48, 0x802408B0 }, // stunt scoring s32 per player
+        { 0x800E7D58, 0x800E7D60, 0x802408D0 }, // stunt scoring f32 per player (start time)
+        { 0x800E7DE8, 0x800E7DF0, 0x802408F0 }, // stunt scoring f32 per player
+        { 0x800E7DF8, 0x800E7E00, 0x80240910 }, // stunt scoring s32 per player (airborne)
+        { 0x800E7E08, 0x800E7E10, 0x80240930 }, // stunt scoring f32 per player
+        { 0x800E7E18, 0x800E7E20, 0x80240950 }, // stunt scoring f32 per player (landing time)
+        { 0x8010C068, 0x8010C06A, 0x80240970 }, // stunt best u8 per player (func_80065270)
+        { 0x8010C074, 0x8010C078, 0x80240980 }, // stunt points u16 per player (func_80065270, func_800A9250)
+        { 0x8010C0C0, 0x8010C0C2, 0x80240990 }, // stunt multiplier byte per player (func_80065270)
         { 0x80125B68, 0x80125B70, 0x802409A0 }, // sky model matrix node per view
         { 0x80125B90, 0x80125C50, 0x802409B0 }, // sky dome polygons, 24 pointers per view
         { 0x80125C58, 0x80125C60, 0x80240B30 }, // sky f32 per view
@@ -165,9 +177,9 @@ namespace {
     }
 
     // The players this machine shows a HUD, places and engine sounds for: an online race has up to eight players but
-    // shows only this machine's, as player 1 (src/online/online_game.cpp, docs/online.md#eight-players).
+    // shows only this machine's, as players 1 and up (src/online/online_game.cpp, docs/online.md#eight-players).
     int shown_players(uint8_t* rdram) {
-        return rush2::online::game::in_race() ? 1 : player_count(rdram);
+        return rush2::online::game::in_race() ? rush2::online::game::local_race_players() : player_count(rdram);
     }
 
     // Sets up a view's fog for its camera's position, as the game does for views 0 and 1.
@@ -664,6 +676,8 @@ namespace {
     // swapped) and the screen starts over for them; once they have chosen, everything is swapped back and the race
     // starts. Backing out of the second round returns to the first.
     int car_round = 0; // 1 while players 3 and 4 choose.
+    // Online: every round is done and the car select waits for the other machines (rush2_players4_cars_chosen).
+    bool car_select_finished = false;
 
     int pause_player = 0; // Who opened the pause menu (rush2_players4_paused).
 
@@ -767,6 +781,15 @@ namespace rush2::players4 {
     }
 }
 
+uint32_t rush2::players4::moved(uint32_t address) {
+    for (const Move& m : moves) {
+        if (address >= m.old_start && address < m.old_end) {
+            return m.new_start + (address - m.old_start);
+        }
+    }
+    return address;
+}
+
 bool rush2::players4::car_select_second_round() {
     return car_round != 0;
 }
@@ -774,28 +797,35 @@ bool rush2::players4::car_select_second_round() {
 extern "C" {
 
 // func_803B9478 (car select) once every player has chosen, before the race is started: true to stay on the screen.
+// Online (src/online/online_lobby.cpp) the machine's players are sent once both rounds are done, and the screen stays
+// up (each frame, this is called again) until every machine's players have chosen.
 int rush2_players4_cars_chosen(uint8_t* rdram, recomp_context* ctx) {
+    bool online_waiting = rush2::online::game::in_lobby() && car_round == 0 && car_select_finished;
+    int total = rush2::players4::joined_players(rdram);
+    if (!online_waiting && total > 2) {
+        swap_rounds(rdram, total);
+        if (car_round == 0) {
+            MEM_H(0, (int32_t)rush2::players4::num_players) = (int16_t)(total - 2);
+            save_car_entries(rdram);
+            car_round = 1;
+            call(rdram, ctx, menu_play_sound_80064908, sound_join);
+            call(rdram, ctx, carselect_build_list_803B81F0, 0); // Ends the screen; it sets itself up again next frame.
+            return true;
+        }
+        MEM_H(0, (int32_t)rush2::players4::num_players) = 2;
+        restore_car_entries(rdram);
+        car_round = 0;
+    }
+    car_round = 0;
+    car_select_finished = true;
     bool stay = false;
     if (rush2::online::game::car_select_done(rdram, ctx, &stay)) {
+        if (!stay) {
+            car_select_finished = false;
+        }
         return stay;
     }
-    int total = rush2::players4::joined_players(rdram);
-    if (total <= 2) {
-        car_round = 0;
-        return false;
-    }
-    swap_rounds(rdram, total);
-    if (car_round == 0) {
-        MEM_H(0, (int32_t)rush2::players4::num_players) = (int16_t)(total - 2);
-        save_car_entries(rdram);
-        car_round = 1;
-        call(rdram, ctx, menu_play_sound_80064908, sound_join);
-        call(rdram, ctx, carselect_build_list_803B81F0, 0); // Ends the screen; it sets itself up again next frame.
-        return true;
-    }
-    MEM_H(0, (int32_t)rush2::players4::num_players) = 2;
-    restore_car_entries(rdram);
-    car_round = 0;
+    car_select_finished = false;
     return false;
 }
 
@@ -819,6 +849,7 @@ int rush2_players4_cars_back(uint8_t* rdram, recomp_context* ctx) {
     if (rush2::online::game::car_select_back(rdram)) {
         return true;
     }
+    car_select_finished = false;
     if (car_round == 0) {
         return false;
     }
@@ -875,6 +906,9 @@ void rush2_players4_init(uint8_t* rdram, recomp_context* ctx) {
 
 // func_803AA92C (each menu screen's per-frame step), on the game's main thread.
 void rush2_players4_menu(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_W(0, (int32_t)game_state) != 2) {
+        car_select_finished = false;
+    }
     // Back in the menus, which are built for two players, after a race with more.
     if (joining_allowed(MEM_W(0, (int32_t)game_state)) && player_count(rdram) > 2) {
         MEM_H(0, (int32_t)rush2::players4::num_players) = 2;
@@ -1019,12 +1053,17 @@ void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx) {
         }
         last_state = state;
         if (state == 3 && clock - race_start > test_finish) {
-            for (int player = 0; player < player_count(rdram); player++) {
-                int car = MEM_BU(record_car, rush2::players4::record(player));
+            // Online the records are turned to put this machine's players first (src/online/online_game.cpp), so the
+            // cars go by race order there (car N is race player N), the same on every machine.
+            bool online = rush2::online::game::in_race();
+            int count = online ? rush2::online::game::race_players() : player_count(rdram);
+            for (int player = 0; player < count; player++) {
+                int car = online ? player : MEM_BU(record_car, rush2::players4::record(player));
                 if (MEM_B(car_finished, (int32_t)(car_states + car * car_state_size)) == 0) {
                     float time = 60.0f + player;
                     uint32_t bits;
                     memcpy(&bits, &time, sizeof(bits));
+                    std::fprintf(stderr, "[players4] test finish: car %d at clock %.2f\n", car, clock - race_start);
                     call(rdram, ctx, race_car_finish_8008E8EC, car, (int32_t)bits);
                     break;
                 }

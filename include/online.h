@@ -15,6 +15,8 @@
 
 namespace rush2::online {
     constexpr int max_players = 8;
+    // Players on one machine (split screen): a machine holds a slot per local player (RosterEntry::machine).
+    constexpr int max_local_players = 4;
     constexpr uint16_t default_port = 47100;  // The host's port (UDP).
     constexpr uint16_t discovery_port = 47101; // LAN lobby beacons (UDP broadcast).
     constexpr int max_name_length = 16;
@@ -50,6 +52,9 @@ namespace rush2::online {
         // tracks), mod_track_name its name for the lobby's messages.
         std::string mod_track;
         std::string mod_track_name;
+        // A circuit (race_type 1): the host's circuit as game::read_circuit gives it, which every other machine races
+        // in place of its own profile's (docs/online.md#circuits). Empty for the other races.
+        std::vector<uint8_t> circuit;
 
         bool operator==(const RaceSettings&) const = default;
     };
@@ -74,7 +79,8 @@ namespace rush2::online {
     };
 
     // Where the host is in its menus, published every frame for the others to follow.
-    enum class MenuPhase : uint8_t { Lobby, SelectPlayer, Track, Car };
+    // Circuit: the host is on the circuit menu (CONTINUE, NEW CIRCUIT; front-end screens 0xA and 0xB) after Select Player.
+    enum class MenuPhase : uint8_t { Lobby, SelectPlayer, Track, Car, Circuit };
     struct MenuState {
         MenuPhase phase = MenuPhase::Lobby;
         RaceSettings settings;     // As the host's menus have them now.
@@ -87,6 +93,11 @@ namespace rush2::online {
     struct RosterEntry {
         bool used = false;       // A player holds the slot.
         bool connected = false;  // Still connected (a dropped player's car coasts for the rest of the race).
+        // The machine the player plays on, as the slot of its first player, and which of its local players this is
+        // (0 the machine's own slot, 1-3 the players who joined on its other controllers: set_cars). A race orders its
+        // players by machine, so each machine's players drive neighboring cars (online_game.cpp's setup_race).
+        uint8_t machine = 0;
+        uint8_t local_index = 0;
         uint8_t progress = 0;    // Progress: how far through the host's menus the player is.
         std::string name;
         uint16_t ping_ms = 0;
@@ -101,8 +112,19 @@ namespace rush2::online {
         // games take the host's (rush2::online_tab::follow_host_settings).
         std::string gameplay;
         // The save profile the player races with (0x6C0 bytes, the record the car select left: car type, keys and
-        // the like), sent with the car (set_car) and in the race start only, not in every roster.
+        // the like), sent with the car (set_cars) and in the race start only, not in every roster.
         std::vector<uint8_t> profile;
+        // The profile's Rush 2049 car options (rush2::car2049::side_block), sent the same way: every machine's race
+        // reads the player's 2049 car setup from them.
+        std::vector<uint8_t> side;
+    };
+
+    // One of this machine's players as the car select left them (set_cars).
+    struct LocalPlayer {
+        std::string name;  // The profile's name, or "" (the lobby then numbers the machine's name).
+        CarChoice car;
+        std::vector<uint8_t> profile;
+        std::vector<uint8_t> side;
     };
 
     constexpr uint8_t games_rush2049 = 1;  // San Francisco Rush 2049 (src/rush2049/rush2049_rom.cpp).
@@ -178,7 +200,9 @@ namespace rush2::online {
     // The name of the save profile this machine's player picked on Select Player, which the lobby shows in place of
     // the display name; empty for none.
     void set_profile_name(const std::string& name);
-    void set_car(const CarChoice& car, const std::vector<uint8_t>& profile);
+    // This machine's players (1-4) and their cars, once its car select has them all: the host gives the machine a slot
+    // per player (or as many as the lobby has room for: start_race says so).
+    void set_cars(const std::vector<LocalPlayer>& players);
     // This machine's progress through the menus (RosterEntry::progress).
     void set_progress(Progress progress);
     // The custom track this machine checked for (track_check of its key) and whether it lacks it
@@ -202,10 +226,10 @@ namespace rush2::online {
     // Lockstep, for the game thread (online_game.cpp).
     // Whether an online race is running on this machine.
     bool racing();
-    // The machine's own input for the frame `frame + input delay`. Called once per game frame.
-    void submit_local_input(uint32_t frame, const PlayerInput& input);
+    // The machine's own players' inputs (in local order) for the frame `frame + input delay`. Called once per game frame.
+    void submit_local_input(uint32_t frame, const std::vector<PlayerInput>& inputs);
     // Waits up to timeout_ms (negative: for good) for every player's input for `frame` and copies them to `out`
-    // (max_players entries).
+    // (max_players entries, by slot).
     enum class Wait { Ready, Timeout, Ended };  // Ended: the race ended (a disconnect from the host, or leave()).
     Wait wait_frame_inputs(uint32_t frame, PlayerInput* out, int timeout_ms = -1);
     // The number of game frames between sampling an input and applying it.
@@ -237,8 +261,18 @@ namespace rush2::online {
         // In an online race: the car type player (car slot) `car` picked, which the race gives their car whatever its
         // profile says (src/rush2049/car2049.cpp, rush2_car49_select_get). False otherwise.
         bool car_type(int car, int* type);
-        // In an online race: this machine's player (car slot), whose record has their own profile; -1 otherwise.
+        // In an online race: this machine's first player (car slot), whose record has their own profile; -1 otherwise.
+        // A machine's players drive neighboring cars: local_race_player() + i for its player i (local_car).
         int local_race_player();
+        // In an online race: how many players this machine has (1-4, its views); 0 otherwise.
+        int local_race_players();
+        // In an online race: the car slot of this machine's player i (view i), or -1.
+        int local_car(int i);
+        // In an online race: the number of human players (cars 0 to race_players() - 1); 0 otherwise.
+        int race_players();
+        // In an online race: the car whose engine Rush 2's engine sound slot `slot` (0-1, the local players 1 and 2's)
+        // plays, this machine's player `slot`'s, or -1 for none. False outside one (each slot is its record's car).
+        bool engine_slot_car(int slot, int* car);
         // The controller port a human car's rumble goes to, from its player record and the record's port: online this
         // machine's player's is port 0 (its controller, read_local_controller) and the others' none (5).
         int rumble_port(uint32_t record, int port);
@@ -271,6 +305,17 @@ namespace rush2::online {
         void init_overlay();
         // This machine's player's controller (port 1, as the game would read it). False without one.
         bool read_local_controller(uint16_t* buttons, float* x, float* y);
+        // Whether this machine is in a lobby or an online race (online_lobby.cpp steers its menus).
+        bool in_lobby();
+
+        // Online circuits (src/online/online_game.cpp, docs/online.md#circuits). The host races its profile's circuit;
+        // every other machine races a copy of it in spare RDRAM in place of its own profile's, so its saved circuit is
+        // left alone. read_circuit gives this machine's circuit for RaceSettings::circuit (empty outside a circuit);
+        // follow_circuit puts the host's in place (the circuit block, races, standings and race index).
+        std::vector<uint8_t> read_circuit(uint8_t* rdram);
+        void follow_circuit(uint8_t* rdram, const std::vector<uint8_t>& circuit);
+        // The followed circuit's length in races, or -1 when this machine races its own circuit (src/circuit.cpp).
+        int circuit_length();
     }
 }
 

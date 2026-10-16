@@ -7,7 +7,7 @@
 // STRIPE COLOR. A tile is a 64x32 / 32x64 texture whose bytes are 0xF0 | alpha (0xFF stripe, 0xF0 none).
 //
 // The value 8 is stored the way Rush 2 stores the others, as the row's byte in the car select's per-type tables
-// (0x80201300 + ..., 36 wide), but the player record only has 3 bits for it: the record block's byte 0x585 (MAIN's
+// (0x80201ED0 + ..., 36 wide), but the player record only has 3 bits for it: the record block's byte 0x585 (MAIN's
 // low bits are above 0x1F, so bits 0-4 are free and every setter keeps them) holds an "SF Rush" flag, and the STRIPE
 // field is 0 while it is set. The getter and setter are hooked to convert between the two.
 //

@@ -25,6 +25,10 @@ namespace rush2::players4 {
     // The address of a player's record (0x28 bytes: +0 car, +1 controller port or 5).
     int32_t record(int player);
 
+    // Where an array tools/players4/relocate.py moved now is: the address in the copy for one in a moved array (the
+    // per-player arrays hold up to eight players), else the address itself.
+    uint32_t moved(uint32_t address);
+
     // Called every frame (from the frame setup): keeps clamped_players current.
     void frame(uint8_t* rdram);
 

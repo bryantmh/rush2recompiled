@@ -58,16 +58,19 @@ namespace {
         uint32_t old_base;
         uint32_t new_base;
         int size; // bytes per entry
-        int rows; // in Rush 2's table; the copies of the per-player tables (3 rows) have 5, for players 3 and 4
+        int rows; // in Rush 2's table; the copies of the per-player tables (3 rows) have 9, for players 3 to 8
     };
 
-    // Rows in a table's copy: the per-player tables get rows for players 3 and 4 (src/players4.cpp), which start as
-    // copies of players 1 and 2's.
+    // Rows in a table's copy: the per-player tables get rows for players 3 and 4 (src/players4.cpp) and 5 to 8 (an
+    // online race, docs/online.md#eight-players), which start as copies of players 1 and 2's. The race reads a human
+    // car's row by its player number + 1 (car +0x7E0): with 5 rows, players 5 to 8 read the next table's rows, and the
+    // race setup's fill of their rows wrote over the next table's computer car row.
+    constexpr int player_table_rows = 9;
     constexpr int new_rows(const Table& t) {
-        return t.rows == 3 ? 5 : t.rows;
+        return t.rows == 3 ? player_table_rows : t.rows;
     }
     constexpr int old_row(int row) {
-        return row < 3 ? row : row - 2;
+        return row < 3 ? row : 1 + (row - 1) % 2;
     }
 
     // tools/rush2049/cartypes.py layout.
@@ -81,19 +84,19 @@ namespace {
         { 0x800C08B0, 0x802002F8, 4, 1 }, // pitch/roll inertia
         { 0x800C090C, 0x80200388, 4, 1 }, // yaw inertia
         { 0x800C0964, 0x80200418, 4, 3 }, // setup weight value
-        { 0x800C0A6C, 0x802006E8, 4, 3 }, // front wheel scale
-        { 0x800C0B74, 0x802009B8, 4, 3 }, // rear wheel scale
-        { 0x800C0C7C, 0x80200C88, 1, 3 }, // u8 setting
-        { 0x800C0CD0, 0x80200D40, 1, 3 }, // engine torque map index
-        { 0x800C0D14, 0x80200DF8, 1, 3 }, // drive flags
-        { 0x800C0D68, 0x80200EB0, 1, 3 }, // setting (yaw damping)
-        { 0x800C0DAC, 0x80200F68, 1, 3 }, // handling 0..10
-        { 0x800C0E48, 0x80201020, 1, 3 }, // car+0x59E
-        { 0x800C0E8C, 0x802010D8, 1, 3 }, // u8 setting
-        { 0x800C0ED0, 0x80201190, 1, 3 }, // u8 setting
-        { 0x800C0F14, 0x80201248, 1, 3 }, // u8 setting
-        { 0x800C0F58, 0x80201300, 1, 3 }, // u8 setting
-        { 0x800C0F9C, 0x802013B8, 1, 3 }, // u8 setting
+        { 0x800C0A6C, 0x80200928, 4, 3 }, // front wheel scale
+        { 0x800C0B74, 0x80200E38, 4, 3 }, // rear wheel scale
+        { 0x800C0C7C, 0x80201348, 1, 3 }, // u8 setting
+        { 0x800C0CD0, 0x80201490, 1, 3 }, // engine torque map index
+        { 0x800C0D14, 0x802015D8, 1, 3 }, // drive flags
+        { 0x800C0D68, 0x80201720, 1, 3 }, // setting (yaw damping)
+        { 0x800C0DAC, 0x80201868, 1, 3 }, // handling 0..10
+        { 0x800C0E48, 0x802019B0, 1, 3 }, // car+0x59E
+        { 0x800C0E8C, 0x80201AF8, 1, 3 }, // u8 setting
+        { 0x800C0ED0, 0x80201C40, 1, 3 }, // u8 setting
+        { 0x800C0F14, 0x80201D88, 1, 3 }, // u8 setting
+        { 0x800C0F58, 0x80201ED0, 1, 3 }, // u8 setting
+        { 0x800C0F9C, 0x80202018, 1, 3 }, // u8 setting
     };
 
     // Race per-car arrays the car select also indexes by preview id (player * 36 + type): 44 entries moved to 72
@@ -166,8 +169,8 @@ namespace {
     constexpr uint32_t desc_size = 0xEC;
     // Relocated per-type tables (tools/rush2049/cartypes.py layout).
     constexpr uint32_t t_desc_index = 0x802001B0, t_preload = 0x802001D8, t_mass = 0x80200268, t_inertia = 0x802002F8,
-                       t_yaw_inertia = 0x80200388, t_drive = 0x80200DF8, t_weight = 0x80200418,
-                       t_engine = 0x80200C88, t_torque = 0x80200D40, t_susp = 0x80200EB0, t_tires = 0x80200F68;
+                       t_yaw_inertia = 0x80200388, t_drive = 0x802015D8, t_weight = 0x80200418,
+                       t_engine = 0x80201348, t_torque = 0x80201490, t_susp = 0x80201720, t_tires = 0x80201868;
     // TIRES row values: Rush 2's 0-10 (S0 D0 .. S2 D2, 9 HALF OFFRD, 10 FULL OFFRD), then the two tires of Rush 2049
     // that Rush 2 has no match for, SLICKS and PRO SLICKS (2049's RADIALS, ALL TERRAIN and OFF ROAD are Rush 2's street
     // sets, HALF OFFRD and FULL OFFRD: the same off-road factor and rear grip). Every car offers all of them.
@@ -261,6 +264,12 @@ namespace {
     constexpr uint32_t car_palettes = 0x802217F4;   // per preview id, stride 0x18 (moved from 0x800D97FC)
     std::map<uint32_t, int> side_slot_of;            // record address -> side slot index
     std::map<uint32_t, int> selected_type_of;        // address of a record's selected-type byte -> full type
+    // An online race's other players' 2049 car options (set_guest_side_block): their profiles are copies outside the
+    // save area (src/online/online_game.cpp), whose getters read these blocks, never saved. In spare RDRAM after the
+    // online race's profile copies (src/controls_menu.cpp's map).
+    constexpr uint32_t guest_side_slots = 0x80E15000;  // 8 x side_slot_size, to 0x80E15600
+    constexpr int max_guests = 8;
+    std::map<uint32_t, int> guest_slot_of;            // guest profile address -> guest slot index
 
     std::atomic_bool cars_option = true;
 
@@ -1330,30 +1339,12 @@ namespace {
     }
 }
 
-extern "C" void rush2_car49_record(uint8_t* rdram, recomp_context* ctx) {
-    int type = (int)(ctx->r5 & 0xFF);
-    if (type < rush2_types) {
-        return;
-    }
-    uint32_t record = (uint32_t)ctx->r4;
-    std::lock_guard lock{ side_mutex };
-    load_side_slots(rdram);
-    auto it = side_slot_of.find(record);
-    int slot;
-    if (it == side_slot_of.end()) {
-        // The lowest slot no record holds (a deleted player's slot is freed).
-        slot = (int)side_slot_of.size() % max_side_slots;
-        for (int s = 0; s < max_side_slots; s++) {
-            if (std::none_of(side_slot_of.begin(), side_slot_of.end(), [s](const auto& e) { return e.second == s; })) {
-                slot = s;
-                break;
-            }
-        }
-        side_slot_of[record] = slot;
-        // New slot: every extra type starts with the record's Pickup options, the car's own durability (2049 frame
-        // weight, record byte +10 = weight x 100) and ENGINE 1.
+namespace {
+    // A new side slot at `base` for player record `record`: every extra type starts with the record's Pickup options,
+    // the car's own durability (2049 frame weight, record byte +10 = weight x 100) and ENGINE 1.
+    void init_side_slot(uint8_t* rdram, uint32_t base, uint32_t record) {
         for (int t = rush2_types; t < types; t++) {
-            uint32_t block = side_slots + slot * side_slot_size + (t - rush2_types) * block_size;
+            uint32_t block = base + (t - rush2_types) * block_size;
             for (int i = 0; i < block_size; i++) {
                 MEM_B(0, (int32_t)(block + i)) = MEM_B(0, (int32_t)(record + record_block + i));
             }
@@ -1367,12 +1358,80 @@ extern "C" void rush2_car49_record(uint8_t* rdram, recomp_context* ctx) {
             }
         }
     }
-    else {
-        slot = it->second;
+
+    // The side slot of player record `record`, made if it has none (side_mutex held).
+    int side_slot(uint8_t* rdram, uint32_t record) {
+        load_side_slots(rdram);
+        auto it = side_slot_of.find(record);
+        if (it != side_slot_of.end()) {
+            return it->second;
+        }
+        // The lowest slot no record holds (a deleted player's slot is freed).
+        int slot = (int)side_slot_of.size() % max_side_slots;
+        for (int s = 0; s < max_side_slots; s++) {
+            if (std::none_of(side_slot_of.begin(), side_slot_of.end(), [s](const auto& e) { return e.second == s; })) {
+                slot = s;
+                break;
+            }
+        }
+        side_slot_of[record] = slot;
+        init_side_slot(rdram, side_slots + slot * side_slot_size, record);
+        return slot;
     }
+}
+
+extern "C" void rush2_car49_record(uint8_t* rdram, recomp_context* ctx) {
+    int type = (int)(ctx->r5 & 0xFF);
+    if (type < rush2_types) {
+        return;
+    }
+    uint32_t record = (uint32_t)ctx->r4;
+    std::lock_guard lock{ side_mutex };
+    auto guest = guest_slot_of.find(record);
+    uint32_t base = guest != guest_slot_of.end() ? guest_side_slots + guest->second * side_slot_size
+                                                 : side_slots + side_slot(rdram, record) * side_slot_size;
     // record' + 0x584 + type * 13 = side slot + (type - 22) * 13
-    uint32_t fake = side_slots + slot * side_slot_size - record_block - rush2_types * block_size;
+    uint32_t fake = base - record_block - rush2_types * block_size;
     ctx->r4 = (uint64_t)(int64_t)(int32_t)fake;
+}
+
+std::vector<uint8_t> rush2::car2049::side_block(uint8_t* rdram, uint32_t record) {
+    std::vector<uint8_t> out;
+    if (!in_save_area(record)) {
+        return out;
+    }
+    std::lock_guard lock{ side_mutex };
+    uint32_t base = side_slots + side_slot(rdram, record) * side_slot_size;
+    out.resize(side_slot_size);
+    for (int i = 0; i < side_slot_size; i++) {
+        out[i] = (uint8_t)MEM_BU(0, (int32_t)(base + i));
+    }
+    return out;
+}
+
+void rush2::car2049::set_guest_side_block(uint8_t* rdram, int guest, uint32_t record,
+                                          const std::vector<uint8_t>& block) {
+    if (guest < 0 || guest >= max_guests) {
+        return;
+    }
+    std::lock_guard lock{ side_mutex };
+    std::erase_if(guest_slot_of, [guest](const auto& e) { return e.second == guest; });
+    guest_slot_of[record] = guest;
+    uint32_t base = guest_side_slots + guest * side_slot_size;
+    if (block.size() == (size_t)side_slot_size) {
+        for (int i = 0; i < side_slot_size; i++) {
+            MEM_B(0, (int32_t)(base + i)) = (int8_t)block[i];
+        }
+    }
+    else {
+        // A player who sent none starts as a new record does, the same on every machine.
+        init_side_slot(rdram, base, record);
+    }
+}
+
+void rush2::car2049::clear_guest_side_blocks() {
+    std::lock_guard lock{ side_mutex };
+    guest_slot_of.clear();
 }
 
 // Start of func_8005F338 ($a0 = address, $a1 = length): marks player-record bytes for the Controller Pak save. Returns
@@ -1612,7 +1671,7 @@ namespace {
             MEM_W(0, (int32_t)(t_inertia + type * 4)) = fbits(inertia);
             MEM_W(0, (int32_t)(t_yaw_inertia + type * 4)) = fbits(yaw_inertia);
             uint8_t drive = (uint8_t)m.b(drive_t + k);
-            for (int row = 0; row < 5; row++) {
+            for (int row = 0; row < player_table_rows; row++) {
                 MEM_B(0, (int32_t)(t_drive + row * types + type)) = drive;
             }
             for (int i = 0; i < 4; i++) {
@@ -1621,8 +1680,8 @@ namespace {
             // MAIN, ACCENT, STRIPE COLOR and TIRE RIMS start as the car's 2049 COLOR 1-3 (in 2049's own shades,
             // src/paint_colors.cpp) and rims (2049's rims are Rush 2's RIM01-RIM21, its palettes only darkened for its
             // lighting).
-            constexpr uint32_t t_colours[3] = { 0x80201190, 0x80201248, 0x802013B8 }, t_rims = 0x80201020;
-            for (int row = 0; row < 5; row++) {
+            constexpr uint32_t t_colours[3] = { 0x80201C40, 0x80201D88, 0x80202018 }, t_rims = 0x802019B0;
+            for (int row = 0; row < player_table_rows; row++) {
                 for (int i = 0; i < 3; i++) {
                     MEM_B(0, (int32_t)(t_colours[i] + row * types + type)) =
                         (int8_t)rush2::paint_colors::from_2049(s.colours[k][i]);
@@ -1631,14 +1690,14 @@ namespace {
             }
             // Wheel model scale (func_8005A598): 2049's own (1.0, the Venom's rear 1.1, the Crusher 1.4), not the
             // Pickup's 1.25 that init_tables starts every 2049 type with.
-            constexpr uint32_t t_wheel_scale[2] = { 0x802006E8, 0x802009B8 };
-            for (int row = 0; row < 5; row++) {
+            constexpr uint32_t t_wheel_scale[2] = { 0x80200928, 0x80200E38 };
+            for (int row = 0; row < player_table_rows; row++) {
                 for (int i = 0; i < 2; i++) {
                     MEM_W(0, (int32_t)(t_wheel_scale[i] + (row * types + type) * 4)) = fbits(s.wheel_scale[i][k]);
                 }
             }
             // DURABILITY is 2049's FRAME (rush2_car49_setup_mass): its default is the car's own frame weight.
-            for (int row = 0; row < 5; row++) {
+            for (int row = 0; row < player_table_rows; row++) {
                 MEM_W(0, (int32_t)(t_weight + (row * types + type) * 4)) = fbits(eng);
             }
             // Steering, yaw damping, suspension setting and handling setting (0x800C06B4, 0x800C070C, 0x800C0D68,

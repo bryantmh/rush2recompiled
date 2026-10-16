@@ -2311,6 +2311,7 @@ name = "sky_setup"
 desc = "2049 sky setup: looks up SKYSKY and creates the per-view matrix and node pair (func_800A7D6C, func_8008E26C); same scheme as Rush 2 VEGAS sky. Verified: string SKYSKY at 0x8012120C, model lookup func_80092E2C, node creation func_800A7D6C/func_8008E26C. Rush 2's func_800A45A8 uses the same model-lookup + scene-node scheme for its sky models (strings SKYO1/SKY01/SKYFOUR near 0x800CB590) but is a larger function."
 status = "verified"
 rush2 = 0x800A45A8
+rush1 = [0x800A7494]
 link = "role"
 area = "render"
 ref = "docs/rush2049_research/geometry.md#55-sky"
