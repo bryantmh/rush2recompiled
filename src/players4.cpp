@@ -89,6 +89,12 @@ namespace {
         { 0x8010C070, 0x8010C074, 0x80240820 }, // HUD byte per player (func_80060E34)
         { 0x8010C0B4, 0x8010C0B8, 0x80240830 }, // HUD byte per player (func_800B7654)
         { 0x8010C0D4, 0x8010C0D8, 0x80240840 }, // HUD byte per player (func_800B7654)
+        { 0x80125B68, 0x80125B70, 0x802409A0 }, // sky model matrix node per view
+        { 0x80125B90, 0x80125C50, 0x802409B0 }, // sky dome polygons, 24 pointers per view
+        { 0x80125C58, 0x80125C60, 0x80240B30 }, // sky f32 per view
+        { 0x80125C68, 0x80125C70, 0x80240B40 }, // sky f32 per view
+        { 0x80125C78, 0x80125C80, 0x80240B50 }, // sky camera x per view
+        { 0x800D0168, 0x800D0170, 0x80240B60 }, // sky camera z per view
         { 0x80119888, 0x8011CA88, 0x802F0000 }, // HUD elements, 0x40 each (func_80081008)
         { 0x8011CA90, 0x8011CDB0, 0x802F6400 }, // free HUD element pointers (func_80060418)
         { 0x800F9558, 0x800FAE58, 0x802F6C00 }, // 2D widgets, 0x20 each (func_800541F8)
@@ -1062,13 +1068,60 @@ void rush2_players4_list_offset(uint8_t* rdram, recomp_context* ctx) {
 
 // func_8007C624, after the view's bit is made to test a world polygon's view mask ($t7 = 1 << view, the view at
 // $sp+0x180): views 2 and 3 also draw the polygons of views 0 and 1. $fp = the polygon. The arrows over the other
-// players' cars (src/arrows.cpp) each belong to one view of the four.
+// players' cars (src/arrows.cpp) each belong to one view of the four, and so do the sky dome's pieces (flag 0x2000
+// at a far primitive depth, as rush2_interp_poly_end tells them apart): each view builds its own dome around its camera.
 void rush2_players4_poly_mask(uint8_t* rdram, recomp_context* ctx) {
-    if (rush2::arrows::single_view((uint32_t)ctx->r30)) {
+    uint32_t poly = (uint32_t)ctx->r30;
+    if (rush2::arrows::single_view(poly) ||
+        ((MEM_H(2, (int32_t)poly) & 0x2000) != 0 && MEM_H(6, (int32_t)poly) >= 0x4000)) {
         return;
     }
     int32_t view = MEM_W(0x180, ctx->r29);
     ctx->r15 = (uint32_t)ctx->r15 | (1u << (view & 1));
+}
+
+// func_8007C27C entry ($a1 = the camera position of the view about to be drawn). A sky model (Las Vegas, the stunt
+// arena, Rush 2049 tracks) is a scene node per view whose matrix render_sky_cloud_scroll_8008918C moves to that view's
+// camera x and z each frame, but scene nodes link into two views' lists only (node_link_search_8007F570), so views 2
+// and 3 draw the nodes of views 0 and 1. Before view 2 or 3 is drawn, the node it draws is moved to its own camera;
+// the walker builds the node's fixed-point matrix as it draws (scene_walk_8007B518), so views 0 and 1 already have
+// theirs, and the next frame's update puts them back.
+extern "C" void rush2_players4_sky_view(uint8_t* rdram, recomp_context* ctx) {
+    int view = rush2::views::view_of_camera(rdram, (uint32_t)ctx->r5);
+    if (view < 2 || view >= rush2::players4::max_players) {
+        return;
+    }
+    constexpr uint32_t sky_nodes = 0x80125B68;   // per-view sky matrix node (moved, src/players4.cpp moves)
+    constexpr uint32_t cameras = 0x800E79D0;     // 0x40 per view: +0x24 x, +0x2C z
+    uint32_t node = (uint32_t)MEM_W((view & 1) * 4, (int32_t)rush2::players4::moved(sky_nodes));
+    if (node == 0) {
+        return;
+    }
+    int32_t camera = (int32_t)(cameras + view * 0x40);
+    MEM_W(0x24, (int32_t)node) = MEM_W(0x24, camera);
+    MEM_W(0x2C, (int32_t)node) = MEM_W(0x2C, camera);
+}
+
+// render_sky_cloud_scroll_8008918C at 0x80089274: $a0 = how far the cloud dome fades this frame, taken off its
+// vertices' alpha (with the FOG option below 2): (2000 - far) x 0.512 - fog start x 2 + 1992, from the view's far
+// plane (+0x38) and fog start (+0x4C), which race_fog_zone_setup_80081074 sets from tables by player count and FOG
+// option. One player with FOG 1 gives 0; split screen's nearer far plane (1100) gives 460, a dome faded out entirely,
+// which Rush 2 never showed since it built no sky in split screen. The fade is moved down by the difference between
+// the split screen and one-player table values, so the dome fades as it does for one player, fog zones included.
+extern "C" void rush2_players4_sky_fade(uint8_t* rdram, recomp_context* ctx) {
+    int players = MEM_H(0, (int32_t)0x8010C3E2);
+    int fog = MEM_B(0, (int32_t)0x800D1FA8);
+    if (players < 2 || fog < 0 || fog > 4) {
+        return;
+    }
+    constexpr uint32_t far_table = 0x800CA244;        // s16 [players][5 FOG options], rows 1 and 2 used
+    constexpr uint32_t fog_start_table = 0x800CA258;  // s16 [players][5 FOG options]
+    auto fade = [&](int row) {
+        float far_plane = (float)MEM_H(row * 10 + fog * 2, (int32_t)far_table);
+        int fog_start = (uint16_t)MEM_H(row * 10 + fog * 2, (int32_t)fog_start_table);
+        return (int32_t)((2000.0f - far_plane) * 0.512f) - fog_start * 2 + 0x7C8;
+    };
+    ctx->r4 = (int32_t)ctx->r4 - (fade(2) - fade(1));
 }
 
 }

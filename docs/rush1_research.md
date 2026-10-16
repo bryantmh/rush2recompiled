@@ -329,7 +329,7 @@ camera position from the start of `func_8007C27C`).
 | Item | Value |
 |---|---|
 | Fog | 0x9696BE. Rush 1's fog colour is a game option (0x800C7FFC by option), not per track. |
-| Sky | Rush 2's procedural dome. Rush 1 uses the same with the same texture names, SKY01 and SKYFOUR. |
+| Sky | Rush 2's procedural dome. Rush 1 uses the same with the same texture names, SKY01 and SKYFOUR. Rush 1's builder `func_800A7494` (called unconditionally from 0x800AB4C8 after the cars are set up) picks SKY01 or SKYFOUR at random (seed 0x800C5384), then builds 24 dome pieces (polygon_create_8005C108, flags 0x2200 \| view bit, depth 0x7FFF) for both views, so SF Rush shows the sky in two-player split screen. Rush 2's `sky_setup_800A45A8` builds it for one player only (player count test at 0x800A4600); the recomp builds it for any count (docs/players4.md#sky-in-split-screen). The textures match Rush 2's (Rush 1 asset 12 vs Rush 2 asset 0x12): both are 64x64 CI4 with byte-identical pixels, and the 16-color palettes differ only in entry 0's alpha bit (transparent in Rush 1, opaque in Rush 2), which neither texture uses. |
 | Songs | Rush 1's own (§9). Rush 2 songs 1, 0, 4, 2, 3, 5, 6 if its music isn't available. |
 | Demo starts | spine quarters |
 | Record seeds | Rush 1's own: f32 0x800D157C[track] = 71, 100, 155, 85, 110, 160, 76 s for tracks 1-7, one per track for both directions (its high-score screen `func_8006DB7C` loads it at 0x8006DCDC and adds a random 0-15 s once). Lane 1's lap time only if the ROM can't be read. |

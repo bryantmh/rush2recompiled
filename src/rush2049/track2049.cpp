@@ -28,8 +28,9 @@
 //   game at it.
 // - Sky: Rush 2049 draws its tracks' sky as a model, which Rush 2 only does for Las Vegas (func_800A45A8); the
 //   converted geometry names it SKYO1, and the hook at 0x800A4644 sends the host slot down Las Vegas's branch.
-//   Rush 2 also builds no sky in split screen, while Rush 2049 does (hook at 0x800A4600). The obstacle course has
-//   no sky model (Rush 2049 shows its black fog colour around it), so it takes the split-screen path: no sky.
+//   Rush 2 also builds no sky in split screen, while Rush 2049 and SF Rush do, so the hook at 0x800A4600 builds it
+//   for any player count, on every track. The obstacle course has no sky model (Rush 2049 shows its black fog color
+//   around it), so it builds none.
 
 #include <cstdio>
 #include <algorithm>
@@ -516,7 +517,7 @@ extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // A custom track with sky = "clouds" and no sky model of its own: Rush 2's cloud dome (the branch every track but
-// Las Vegas, Atari and the stunt arena takes), drawn as Rush 2 draws it, in one-player races only.
+// Las Vegas, Atari and the stunt arena takes), drawn as Rush 2 draws it.
 static bool mod_cloud_dome(uint8_t* rdram) {
     return hosting_mod(rdram) && !track_has_sky && mod_settings.sky == "clouds";
 }
@@ -530,12 +531,12 @@ extern "C" void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx) {
 }
 
 
-// func_800A45A8 at 0x800A4600: $t8 = the player count; the sky is only built for one player. Rush 2049 draws its
-// sky in split screen too. A track without a sky model builds none, as in split screen.
+// func_800A45A8 at 0x800A4600: $t8 = the player count; Rush 2 only builds the sky for one player, to save drawing
+// time. SF Rush (sky_setup_800A7494 in Rush 1) and Rush 2049 draw it in split screen too, so it is built for any
+// count; the per-view sky arrays hold four views (tools/players4/relocate.py). A Rush 2049 track without a sky model
+// builds none.
 extern "C" void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx) {
-    if (hosting(rdram) && !mod_cloud_dome(rdram)) {
-        ctx->r24 = track_has_sky ? 1 : 2;
-    }
+    ctx->r24 = hosting(rdram) && !mod_cloud_dome(rdram) && !track_has_sky ? 2 : 1;
 }
 
 // func_80093048 at 0x80093290, after it found the path's 4 AI lanes (pointers 0x800D57A0, counts 0x800D5780) and

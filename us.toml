@@ -650,6 +650,12 @@ func = "sky_setup_800A45A8"
 before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
+# The cloud dome's fade in split screen matches one player's (src/players4.cpp).
+[[patches.hook]]
+func = "render_sky_cloud_scroll_8008918C"
+before_vram = 0x80089274
+text = "    rush2_players4_sky_fade(rdram, ctx);"
+
 # Rush 2049 track select entries (src/rush2049/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
 # func_803ABE0C (per frame); its tables and carousel array are repointed to 38-entry copies at 0x80300000 (Rush 2's 12
 # tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29, Rush 2049 battle arenas at 30-37).
@@ -1425,10 +1431,11 @@ before_vram = 0x8008194C
 text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rdram, ctx);"
 
 # SF Rush visibility (src/rush1/track1.cpp): the camera position, for SF Rush's own region choice in rush2_track49_pvs.
+# Views 2 and 3 move the sky model node they draw to their own camera (rush2_players4_sky_view, src/players4.cpp).
 [[patches.hook]]
 func = "pvs_apply_8007C27C"
 before_vram = 0x8007C27C
-text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx);"
+text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx); rush2_players4_sky_view(rdram, ctx);"
 
 [[patches.hook]]
 func = "model_find_by_name_8005BE3C"
@@ -9945,6 +9952,36 @@ value = 0x25EF00F0 # addiu $t7, $t7, 0x7A58 -> 802400F0
 
 [[patches.instruction]]
 func = "render_sky_cloud_scroll_8008918C"
+vram = 0x8008918C
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x80089194
+value = 0x271809A0 # addiu $t8, $t8, 0x5B68 -> 802409A0
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x800891A4
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x800891A8
+value = 0x3C0F8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x800891AC
+value = 0x25CE0B30 # addiu $t6, $t6, 0x5C58 -> 80240B30
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x800891B0
+value = 0x25EF0B40 # addiu $t7, $t7, 0x5C68 -> 80240B40
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
 vram = 0x80089214
 value = 0x3C198024 # lui -> 8024
 
@@ -9952,6 +9989,56 @@ value = 0x3C198024 # lui -> 8024
 func = "render_sky_cloud_scroll_8008918C"
 vram = 0x80089218
 value = 0x273901F0 # addiu $t9, $t9, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x80089240
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x8008925C
+value = 0x8C4209B0 # lw $v0, 0x5B90($v0) -> 802409B0
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x8008931C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x8008932C
+value = 0xC4260B50 # lwc1 $f6, 0x5C78($at) -> 80240B50
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x80089334
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x80089344
+value = 0xC4260B60 # lwc1 $f6, 0x168($at) -> 80240B60
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x8008936C
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x80089378
+value = 0xE4260B50 # swc1 $f6, 0x5C78($at) -> 80240B50
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x80089380
+value = 0x3C018024 # lui -> 8024
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x8008938C
+value = 0xE4280B60 # swc1 $f8, 0x168($at) -> 80240B60
 
 [[patches.instruction]]
 func = "scene_sky_reset_and_draw_80089564"
@@ -11159,6 +11246,26 @@ vram = 0x800A1220
 value = 0x916B0811 # lbu $t3, -0xCE7($t3) -> 80240811
 
 [[patches.instruction]]
+func = "race_find_player_slot_800A12A4"
+vram = 0x800A12AC
+value = 0x3C028024 # lui -> 8024
+
+[[patches.instruction]]
+func = "race_find_player_slot_800A12A4"
+vram = 0x800A12B0
+value = 0x244209A0 # addiu $v0, $v0, 0x5B68 -> 802409A0
+
+[[patches.instruction]]
+func = "race_find_player_slot_800A12A4"
+vram = 0x800A12B8
+value = 0x3C0E8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "race_find_player_slot_800A12A4"
+vram = 0x800A12C8
+value = 0x25C409B0 # addiu $a0, $t6, 0x5B90 -> 802409B0
+
+[[patches.instruction]]
 func = "race_stunt_setup_cars_800A3690"
 vram = 0x800A36C8
 value = 0x3C128024 # lui -> 8024
@@ -11167,6 +11274,76 @@ value = 0x3C128024 # lui -> 8024
 func = "race_stunt_setup_cars_800A3690"
 vram = 0x800A36D4
 value = 0x26520380 # addiu $s2, $s2, 0x7B9C -> 80240380
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A4650
+value = 0x3C118024 # lui -> 8024
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A4654
+value = 0x263109A0 # addiu $s1, $s1, 0x5B68 -> 802409A0
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A4708
+value = 0x3C118024 # lui -> 8024
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A470C
+value = 0x263109A0 # addiu $s1, $s1, 0x5B68 -> 802409A0
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A4894
+value = 0x3C188024 # lui -> 8024
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A4898
+value = 0x27180B40 # addiu $t8, $t8, 0x5C68 -> 80240B40
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A48A4
+value = 0x3C198024 # lui -> 8024
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A48A8
+value = 0x3C088024 # lui -> 8024
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A48B0
+value = 0x3C0A8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A48B4
+value = 0x3C0B8024 # lui -> 8024
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A48B8
+value = 0x256B09B0 # addiu $t3, $t3, 0x5B90 -> 802409B0
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A48BC
+value = 0x254A0B60 # addiu $t2, $t2, 0x168 -> 80240B60
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A48C4
+value = 0x25080B50 # addiu $t0, $t0, 0x5C78 -> 80240B50
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A48C8
+value = 0x27390B30 # addiu $t9, $t9, 0x5C58 -> 80240B30
 
 [[patches.instruction]]
 func = "menu_guest_name_entry_screen_800A6E60"

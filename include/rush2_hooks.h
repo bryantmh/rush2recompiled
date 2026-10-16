@@ -92,6 +92,8 @@ void rush2_players4_race_views(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_list_offset(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_poly_mask(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_sky_view(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_sky_fade(uint8_t* rdram, recomp_context* ctx);
 
 // Split screen layout (src/splitscreen.cpp).
 void rush2_split_views_begin(uint8_t* rdram, recomp_context* ctx);

@@ -3951,6 +3951,18 @@ area = "race"
 ref = "docs/functions/rush1_race.md#sf-rush-race-functions"
 
 [[func]]
+vram = 0x800A7494
+name = "sky_setup"
+sig = "void sky_setup(void)"
+desc = "Builds the race's procedural sky dome: picks SKY01 or SKYFOUR at random (seed 0x800C5384), then 24 pieces (polygon_create_8005C108, flags 0x2200 | view bit) for both views. Called unconditionally from 0x800AB4C8, so SF Rush has a sky in 2-player split screen, unlike Rush 2's sky_setup_800A45A8 (one player only)."
+consts = "0x18 = 24 dome pieces, 0x7FFF = dome prim depth, 2 = views built"
+status = "verified"
+rush2 = 0x800A45A8
+rush2049 = [0x800BB69C]
+area = "render"
+ref = "docs/rush1_research.md#7-per-track-values-used"
+
+[[func]]
 vram = 0x800A804C
 desc = "AI lane file loader (assets 58+t / 65+t): 4 lanes of {s16 count, loop, end, x} + count x {s16 x,y,z; u8 speed (ft/s); u8 behavior; s16 index}."
 status = "verified"

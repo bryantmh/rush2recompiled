@@ -11485,13 +11485,14 @@ ref = "docs/rush2049_research/placement.md#15-hard-coded-names-and-failure-safet
 vram = 0x800A45A8
 name = "sky_setup"
 sig = "void sky_setup(void)"
-desc = "Patched in us.toml. Rush 2049 tracks (src/rush2049/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the visible sections for the camera's region, func_800A45A8 builds the sky. | Sky setup: VEGAS looks up SKYO1 with a per-view matrix node (func_8007F91C); STUNT uses STUNTSKYO1; ATARI none; others build a procedural 24-piece dome (func_80054010) textured SKY01/SKYFOUR; only when byte 0x800D1FA8 < 3 and half 0x8010C3E2 < 2. Track id test at 0x800A4644. Dome pieces get flags 0x2200 | view bit and prim depth +6 = 0x7FFF ($s7, set at 0x800A48F4), which RT64 makes equal to the Z clear; hook rush2_sky_depth at 0x800A48F8 sets 0x7FFE (docs/game_fixes.md Sky flicker). | Builds the sky model for a race (hooks at 0x800A4600 for player count and 0x800A4644 for track id); only Las Vegas (track 0) gets a sky model."
+desc = "Patched in us.toml. Rush 2049 tracks (src/rush2049/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the visible sections for the camera's region, func_800A45A8 builds the sky. | Sky setup: VEGAS looks up SKYO1 with a per-view matrix node (func_8007F91C); STUNT uses STUNTSKYO1; ATARI none; others build a procedural 24-piece dome (func_80054010) textured SKY01/SKYFOUR; only when byte 0x800D1FA8 < 3 and half 0x8010C3E2 (player count) < 2; the recomp builds it for any count (rush2_track49_sky_players at 0x800A4600, per-view arrays moved to four views, docs/players4.md#sky-in-split-screen). Track id test at 0x800A4644. Dome pieces get flags 0x2200 | view bit and prim depth +6 = 0x7FFF ($s7, set at 0x800A48F4), which RT64 makes equal to the Z clear; hook rush2_sky_depth at 0x800A48F8 sets 0x7FFE (docs/game_fixes.md Sky flicker). | Builds the sky model for a race (hooks at 0x800A4600 for player count and 0x800A4644 for track id); only Las Vegas (track 0) gets a sky model."
 consts = "0x18 = 24 dome pieces, 0x7FFF = dome prim depth"
 status = "verified"
 ported = true
+rush1 = [0x800A7494]
 rush2049 = [0x800BB69C]
 area = "render"
-ref = "us.toml"
+ref = "docs/players4.md#sky-in-split-screen"
 
 [[func]]
 vram = 0x800A4B04

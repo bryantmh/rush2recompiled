@@ -78,3 +78,29 @@ menu. The Controller Setup screen (func_800AD7E4, text func_800B6134) has two pa
 player 3 or 4 they show players 3 and 4: its text loop's first record pointer ($sp + 0x54, stepped by 0x28 per
 panel) and the "PLAYER %d" titles ($a3 before the sprintf at 0x800B6424) move on by two players, and
 src/controls_menu.cpp edits ports 3 and 4's bindings.
+
+## Sky in split screen
+
+Rush 2 builds the sky only for one player: `sky_setup_800A45A8` returns at 0x800A4600 when the player count
+(0x8010C3E2) is 2 or more, to save drawing time. SF Rush (`sky_setup_800A7494`) and Rush 2049 draw it in split screen,
+so `rush2_track49_sky_players` (src/rush2049/track2049.cpp) builds it for any count, on every track but the Rush 2049
+obstacle course (no sky model).
+
+- **Per-view arrays.** The sky's per-view arrays had room for two views, with other globals right after them:
+  0x80125B68 (sky model matrix node), 0x80125B90 (24 dome polygon pointers per view, stride 0x60), 0x80125C58,
+  0x80125C68, 0x80125C78 (camera x) and 0x800D0168 (camera z). tools/players4/relocate.py moves them to four-view
+  copies; `func_800A12A4` (clears them) and `render_sky_cloud_scroll_8008918C` (moves them each frame) follow.
+- **Dome.** Each view gets its own 24 world polygons (flags 0x2200 | view bit), 96 of the pool's 200 with four views.
+  `rush2_players4_poly_mask` lets views 2 and 3 draw views 0 and 1's world polygons, but not the dome's pieces (flag
+  0x2000 at a far primitive depth), which are centered on their own view's camera.
+- **Dome fade.** With the FOG option below 2, `render_sky_cloud_scroll_8008918C` takes (2000 - far) x 0.512 - fog
+  start x 2 + 1992 off the dome's vertex alpha (at 0x80089274, from the view's +0x38 and +0x4C, which
+  `race_fog_zone_setup_80081074` sets from the tables at 0x800CA244 (far) and 0x800CA258 (fog start), s16
+  [players][5 FOG options]). One player with FOG 1 (far 2000, fog start 996) gives 0; split screen (far 1100) gives
+  460, a dome faded out entirely. `rush2_players4_sky_fade` takes off the difference between the two-player and
+  one-player table values for the FOG option, so the dome fades as it does for one player, fog zones included.
+- **Sky model** (Las Vegas, the stunt arena, Rush 2049 tracks). Scene nodes link into two views' lists only
+  (`node_link_search_8007F570` tests mask bits 1 and 2), so the nodes made for views 2 and 3 are never drawn and those
+  views draw views 0 and 1's. `rush2_players4_sky_view` (hooked at `pvs_apply_8007C27C`, before each view is drawn)
+  moves the node to the view's own camera x and z; the scene walker builds the node's matrix as it draws, so views 0
+  and 1 are already done, and the next frame's update puts them back.

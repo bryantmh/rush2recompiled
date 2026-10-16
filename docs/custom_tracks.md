@@ -240,7 +240,7 @@ Set `sky` in track.toml's `[look]` to one of these:
 | `sky` | What |
 |---|---|
 | `"none"` | Plain `fog_color` (the default) |
-| `"clouds"` | Rush 2's cloud dome, as on most Rush 2 tracks. One-player races only, as in Rush 2. `cloud_scroll` and `sky_parallax` move it. |
+| `"clouds"` | Rush 2's cloud dome, as on most Rush 2 tracks. `cloud_scroll` and `sky_parallax` move it. |
 | `"las_vegas"` | Las Vegas's sunset over the mountains |
 | `"stunt"` | The stunt arena's night sky |
 | `"marina"`, `"haight"`, `"civic"`, `"metro"`, `"mission"`, `"presidio"` | Rush 2049's race track skies. These need the Rush 2049 ROM (set in the Games tab); without it the sky is plain `fog_color` and the report says so. |

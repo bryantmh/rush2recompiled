@@ -74,6 +74,14 @@ MOVES = [
     (0x8010C070, 0x8010C074, 0x8, 'HUD byte per player (func_80060E34)'),
     (0x8010C0B4, 0x8010C0B8, 0x8, 'HUD byte per player (func_800B7654)'),
     (0x8010C0D4, 0x8010C0D8, 0x8, 'HUD byte per player (func_800B7654)'),
+    # Sky, per view (sky_setup_800A45A8 builds it, render_sky_cloud_scroll_8008918C moves it each frame, func_800A12A4
+    # clears it): Rush 2 built the sky for one player only, the recomp builds it in split screen too (rush2_track49_sky_players).
+    (0x80125B68, 0x80125B70, 0x10, 'sky model matrix node per view'),
+    (0x80125B90, 0x80125C50, 0x180, 'sky dome polygons, 24 pointers per view'),
+    (0x80125C58, 0x80125C60, 0x10, 'sky f32 per view'),
+    (0x80125C68, 0x80125C70, 0x10, 'sky f32 per view'),
+    (0x80125C78, 0x80125C80, 0x10, 'sky camera x per view'),
+    (0x800D0168, 0x800D0170, 0x10, 'sky camera z per view'),
 ]
 
 # Arrays that move to a given place outside the window (old start, old end, new start, new size, meaning): the race
