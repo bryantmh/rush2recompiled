@@ -89,6 +89,31 @@ level. `CARnHOOD` is not a damaged hood: 2049 shows it only in its hood camera (
 0x3B8, +0x35D view mode 1 of 0-3, cycled by the view button in func_800EB90C; drawn by func_80093B20 when one player
 races; func_800B200C sets the node up hidden), and hides it otherwise.
 
+### Hood camera [V]
+
+Both games draw a hood model of its own in the hood camera, over the body. Rush 2: camera mode 1 (car state +0x348,
+cycled 0-3 by the view button in cam_update_all_players_8009D9F4, which zeroes the view's offset 0x800E7C38 + view *
+0xC on entering 1). The hood halves `H0_L` / `H0_R` (car record +0x4 / +0x8, parts 31 / 33) are textured copies of
+the hood lying flush with the front panels (`PICKUPH0_L` y 22-36, z 8-98, render mode `C8112078`), so they only show
+from the hood camera. Each frame car_hood_update_8005BFD8 (a race car's node callback) hides them and their sheen
+layers +0xC / +0x10 in every view unless the mode is 1 with one player (0x8010C3E2 < 2), or while the car is hidden
+(+0xE4 bit 0x10); in mode 1 it swaps each half by damage (+0x4 = part 31 + panel 1's level, +0x8 = part 33 + panel 0's:
+`H0_L` / `H2_L`, `H0_R` / `H2_R`), shows them in the car's own view (`1 << +0x347`) and blinks them with the car
+(0x400 toggled while 0x8010C170 or +0xE4 bit 8 is set). car_preview_apply_state_80087290 does the same hiding at the
+race's start (race_setup_800A5ADC) and once per wreck (car_apply_damage_state_to_preview_8008D3F8, called each frame by
+cam_update_all_players_8009D9F4, guarded by car state +0x309 bit 0). car_update_draw_nodes_8005CFB0 also shows the
+hood sheen layers in mode 1 in the car's view; modes 0 and 1 hide the panels' sheen layers, and the shadow (func_80059D24)
+is left out of the car's view in modes 0 and 1. Node visibility: flags word bit `0x100 << view` hides a node in that
+view, 0x400 in all (node_hide_80058D1C / node_show_80058ED4, mode 1 the node alone, 3 / 2 its subtree).
+
+2049's is the same rule: func_800B200C (the twin of 80087290) hides the HOOD node (+0x10 of the car node table) unless
+mode 1, and func_80093B20 (the twin of 8005BFD8) shows it each frame in mode 1 with one player. So a 2049 car only needs
+the model: `convert_car` serves `CARnHOOD` as its `H0_L` and `H2_L` (`H0_R` / `H2_R` stay empty), and `collect_hood`
+lights it like the body (its lists get the body's PRIM in `light_model`, the same `TEXEL0 * SHADE * PRIM` combiner and
+render mode `C8104A70` as FRAME1). Rush 2's own visibility code then shows and hides it. `add_sheen_layers` also makes
+the hood's SHEEN layer from it, parts `H0D_L` / `H2D_L` (record +0xC; `H0D_R` / `H2D_R` stay empty), so Car Sheen All
+On scrolls a sheen over it and Cube Map wraps it in the car's reflection, as the body's (§11, `sheen_model`'s +0xC slot).
+
 ## 6. Car options (part select) plan
 
 Rush 2's list (text after "CAR" in main data): Transmission, Main Color, Accent Color, Stripe, Stripe Color, Tire Rims,
@@ -123,8 +148,8 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   func_8008A01C). Those sites keep the old base (cartypes.py `ID_EXCLUDE`); relocating them drew the sky model at
   every smoke puff.
 - **Assets.** Each car is converted at boot (`convert_car`, track2049_convert.cpp) into a Rush 2 car container served
-  as asset 0x71 + n: CARnFRAME1 as FRAME1, every other part an empty list. CARnHOOD is not drawn: it is the hood
-  2049's hood camera shows (Damaged hood, above); drawn as the top panel it stuck out of the body. CARnSHEEN (a reflection pass) is left out too (§11). 2049's
+  as asset 0x71 + n: CARnFRAME1 as FRAME1, CARnHOOD as the hood halves H0_L / H2_L (drawn only in the hood camera,
+  Hood camera above; drawn as the top panel it stuck out of the body), every other part an empty list. CARnSHEEN (a reflection pass) is left out (§11). 2049's
   vertex colours are a flat grey that 2049 relights at runtime, so they are set to white; the `TEX0 * SHADE * PRIM`
   combiner loses its PRIM stage (Rush 2 leaves PRIM unset).
 - **Paint.** The game loads each car's own palette (built by func_8008582C from CARPALETTE) as the TLUT of all the
@@ -459,7 +484,8 @@ continuous, is rebuilt as triangles over (body vertex, s) pairs: each triangle t
 so the ones across the tail's seam get vertices of their own with s a turn (4096) up. (Until 2026-10-13 the angle
 was folded so both sides matched and taken over a square body: two suns, mirrored about the center line on the tail
 and nose, and 1.4 times too big there.) They are parts `D0_DFR1` / `D2_DFR1` and `D0_D2FR2` / `D2_D2FR2` (each its own list copy, shared vertices),
-so Rush 2 textures and scrolls them like a Rush 2 car's front right panel layers. Denting moves their vertices with
+so Rush 2 textures and scrolls them like a Rush 2 car's front right panel layers. The hood camera's hood (CARnHOOD as
+`H0_L`) gets a SHEEN layer the same way, `H0D_L` / `H2D_L` (Hood camera, §5). Denting moves their vertices with
 the body vertex at the same position (Paint::mirrors). `sheen_model` finds the layer nodes from the car records
 (validated against the part handles at 0x80218000 + id × 0x4E) and drops the 2049 ones unless All On, the Rush 2 ones
 at All Off.

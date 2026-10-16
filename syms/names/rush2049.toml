@@ -1018,7 +1018,7 @@ ref = "docs/rush2049_research/battle.md#5-pickups-and-power-ups"
 vram = 0x8008B32C
 name = "math_mat3_scale"
 sig = "void math_mat3_scale(const f32 *src, f32 *dst, f32 scale)"
-desc = "Same code as Rush 2 math_mat3_scale_8005A340 (address-masked match): multiplies the nine floats of a 3x3 matrix by scale, dst[i] = src[i] * scale. Not a memcpy."
+desc = "Same code as Rush 2 math_mat3_scale_8005A340 (29 instructions, address-masked match, float constants equal). Multiplies the nine floats of a 3x3 matrix by scale: dst[i] = src[i] * scale (src and dst may be the same; scale is passed in $a2). The rat spawner scales a rat's pose by 4.0 with the Killer Rats cheat on. Not a memcpy."
 status = "inferred"
 rush2 = 0x8005A340
 rush1 = [0x80068AA0]
@@ -1580,7 +1580,7 @@ ref = "docs/rush2049_research/audio.md#6-track-object-sounds-movers-and-props"
 vram = 0x80099B30
 name = "gfx_load_palette_tlut"
 sig = "void gfx_load_palette_tlut(Gfx **dl, Palette *pal)"
-desc = "Same code as Rush 2 gfx_load_palette_tlut_80078190 (51 instructions, address-masked match, float constants equal). Emits the post list for LOD flag 0x2 (caller argument)."
+desc = "Same code as Rush 2 gfx_load_palette_tlut_80078190 (51 instructions, address-masked match, float constants equal). Loads a palette record (0x18 bytes: name[16], u8 first +0x10, u8 last +0x11, data +0x14) into TMEM 0x800 + first * 8: G_SETTIMG RGBA16 of the data, G_SETTILE tile 7 at TMEM 0x100 + first, G_LOADTLUT lrs (last - first) << 2. Skips the load when the data pointer equals the last one loaded (0x80111954) unless 0x80022FDC is set. Also called for LOD flag 0x2 (the caller's palette)."
 status = "inferred"
 rush2 = 0x80078190
 rush1 = [0x80060BDC]
@@ -2106,7 +2106,7 @@ ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
 [[func]]
 vram = 0x800B200C
 name = "car_nodes_setup"
-desc = "Sets up a car's draw nodes (car node table 0x80139320 + car*0x40): body model from the per-car handle table 0x801427C0 + car*6 (FRAME1, HOOD, SHEEN, built by func_800B2828), HOOD node at +0x10 hidden unless view mode +0x35D == 1, wheel nodes +0x1C.."
+desc = "Sets up a car's draw nodes (car node table 0x80139320 + car*0x40): body model from the per-car handle table 0x801427C0 + car*6 (FRAME1, HOOD, SHEEN, built by func_800B2828), HOOD node at +0x10 hidden unless view mode +0x35D == 1, wheel nodes +0x1C.. | Twin of Rush 2 car_preview_apply_state_80087290 (docs/rush2049_research/cars.md#hood-camera-v): the HOOD node +0x10 stands where Rush 2's hood halves +0x4/+0x8 do."
 status = "inferred"
 area = "car"
 ref = "docs/rush2049_research/cars.md#damaged-hood-v"
@@ -2248,7 +2248,7 @@ ref = "docs/functions/rush2049_track.md#rush-2049-track-functions"
 vram = 0x800BA2B8
 name = "checkpoint_crossing_lanes"
 sig = "s32 checkpoint_crossing_lanes(void *cp, s32 lane)"
-desc = "Same code as Rush 2 checkpoint_crossing_lanes_80092884 (109 instructions, address-masked match, float constants equal). Computes checkpoint crossing indices (lanes)."
+desc = "Same code as Rush 2 checkpoint_crossing_lanes_80092884 (109 instructions, address-masked match, float constants equal). Checkpoint crossing on AI lane 0-3 at path load, the same search as checkpoint_crossing_spine_80092BC4. Custom tracks return the path file's own crossing instead (rush2_mod_checkpoint_crossing)."
 status = "inferred"
 rush2 = 0x80092884
 link = "same-code"
@@ -3201,7 +3201,7 @@ ref = "docs/rush2049_research/movers.md#62-moving-body-vs-car-0x8010c02cobj-idx-
 vram = 0x800E4300
 name = "drone_path_select"
 sig = "s32 drone_path_select(s32 a0, Vec3s *a1, u16 *a2)"
-desc = "Same code as Rush 2 drone_path_select_80074068 (135 instructions, address-masked match, float constants equal). Drone/AI helper choosing a path from 3 halfwords of a2 using path_node_count, path_lane_count and drone_path_select_param; called by drone_steer_along_path. (low confidence)"
+desc = "Same code as Rush 2 drone_path_select_80074068 (135 instructions, address-masked match, float constants equal). Lane-switch point mapper (leaf, non-standard argument registers: a1 last checkpoint = car +0x7FE, a2 car position as s16 x/y/z, t0 target lane, t2 current lane = drone state +0x28, t5 current point = state +0x24). Maps the drone's point on its lane to the nearest point (3D) on the target lane: shifts it by the two lanes' crossing offsets at the last checkpoint (s16 at 0x8010BCE8 + cp*0x50 + 0x30 + lane*2; past the last gate the lane point counts at 0x80110020 stand in), then searches at least 5 points either side, wrapping round the lap. Called by drone_steer_along_path_80074284 for each of the 4 lanes."
 status = "inferred"
 rush2 = 0x80074068
 link = "same-code"
@@ -3492,7 +3492,7 @@ ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 vram = 0x800FE5B0
 name = "hud_widget_setup_icon"
 sig = "void hud_widget_setup_icon(Widget *w, s32 a1, s32 a2, s32 a3)"
-desc = "Same code as Rush 2 hud_widget_setup_icon_80080DBC (99 instructions, address-masked match, float constants equal). Sets a widget texture (hud_widget_set_texture_by_name with w->0), resets the widget, and fills icon fields +0x19..0x22 (size/position halfwords); used by 17 HUD callbacks (speedometer, lap counter, minimap)."
+desc = "Same code as Rush 2 hud_widget_setup_icon_80080DBC (99 instructions, address-masked match, float constants equal). Picks frame `frame` of a widget's texture laid out in frame_w x frame_h cells (texture width / frame_w per row), setting the widget's source rectangle (+0x1C..+0x22; +0x19 counts frames from the right). Looks the texture up by the widget's name (+0) first if it has none. Records screen icons: (w, found, 0x10, 0x20)."
 status = "inferred"
 rush2 = 0x80080DBC
 rush1 = [0x80081F38]

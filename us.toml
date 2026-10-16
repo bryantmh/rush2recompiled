@@ -6528,82 +6528,82 @@ vram = 0x8005BC78
 value = 0x25CE17E0 # addiu $t6, $t6, -0x6818 -> 802217E0
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C130
 value = 0x3C0F8022 # lui -> 8022
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C134
 value = 0x25EF9DD0 # addiu $t7, $t7, 0x3F90 -> 80219DD0
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C2E0
 value = 0x3C198022 # lui -> 8022
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C2E4
 value = 0x27399DD0 # addiu $t9, $t9, 0x3F90 -> 80219DD0
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C4E4
 value = 0x3C198022 # lui -> 8022
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C4E8
 value = 0x27399DD0 # addiu $t9, $t9, 0x3F90 -> 80219DD0
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C554
 value = 0x3C0E8022 # lui -> 8022
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C558
 value = 0x25CE9DD0 # addiu $t6, $t6, 0x3F90 -> 80219DD0
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C59C
 value = 0x3C068022 # lui -> 8022
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C5F0
 value = 0x94C68000 # lhu $a2, -0x3B80($a2) -> 80218000
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C614
 value = 0x3C048022 # lui -> 8022
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C638
 value = 0x94848000 # lhu $a0, -0x3B80($a0) -> 80218000
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C70C
 value = 0x3C068022 # lui -> 8022
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C784
 value = 0x94C68000 # lhu $a2, -0x3B80($a2) -> 80218000
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C7A4
 value = 0x3C048022 # lui -> 8022
 
 [[patches.instruction]]
-func = "carselect_preview_main_8005BFD8"
+func = "car_hood_update_8005BFD8"
 vram = 0x8005C7C8
 value = 0x94848000 # lhu $a0, -0x3B80($a0) -> 80218000
 

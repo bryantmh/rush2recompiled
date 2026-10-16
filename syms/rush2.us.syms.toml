@@ -478,7 +478,7 @@ functions = [
     { name = "model_name_bsearch_8005BCB4", vram = 0x8005BCB4, size = 0x128 },
     { name = "model_name_linear_find_8005BDDC", vram = 0x8005BDDC, size = 0x60 },
     { name = "model_find_by_name_8005BE3C", vram = 0x8005BE3C, size = 0x19C },
-    { name = "carselect_preview_main_8005BFD8", vram = 0x8005BFD8, size = 0x8E4 },
+    { name = "car_hood_update_8005BFD8", vram = 0x8005BFD8, size = 0x8E4 },
     { name = "menu_stub_8005C8BC", vram = 0x8005C8BC, size = 0x2C },
     { name = "math_atan2_8005C8E8", vram = 0x8005C8E8, size = 0x10C },
     { name = "stub_empty_8005C9F4", vram = 0x8005C9F4, size = 0x8 },

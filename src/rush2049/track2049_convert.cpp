@@ -2792,22 +2792,46 @@ namespace {
             flush();
         }
 
-        // SHEEN layer: copies of the body's vertex loads (file offset of the copy per load command), under its commands.
-        std::vector<uint32_t> copies;
-        for (const Command& c : commands) {
-            if ((c.w0 >> 24) != 0x01) continue;
-            uint32_t n = (c.w0 >> 12) & 0xFF, at = c.w1 & 0xFFFFFF;
-            while (out.size() % 16) out.push_back(0);
-            copies.push_back((uint32_t)out.size());
-            for (uint32_t v = 0; v < n; v++) {
-                uint32_t src = at + v * 16;
-                add_vertex(src, 1008.0 - 11.37 * std::atan2(position(src, 2), position(src, 1) + 8.0) * degrees,
-                           1008.0 + 11.2 * position(src, 0));
+        // SHEEN layer: copies of a model's vertex loads (file offset of the copy per load command), under its commands.
+        auto sheen_copies = [&](const std::vector<Command>& source) {
+            std::vector<uint32_t> copies;
+            for (const Command& c : source) {
+                if ((c.w0 >> 24) != 0x01) continue;
+                uint32_t n = (c.w0 >> 12) & 0xFF, at = c.w1 & 0xFFFFFF;
+                while (out.size() % 16) out.push_back(0);
+                copies.push_back((uint32_t)out.size());
+                for (uint32_t v = 0; v < n; v++) {
+                    uint32_t src = at + v * 16;
+                    add_vertex(src, 1008.0 - 11.37 * std::atan2(position(src, 2), position(src, 1) + 8.0) * degrees,
+                               1008.0 + 11.2 * position(src, 0));
+                }
             }
+            return copies;
+        };
+        std::vector<uint32_t> copies = sheen_copies(commands);
+        // The hood camera's hood (CARnHOOD, served as H0_L / H2_L) gets the hood's SHEEN layer, parts H0D_L / H2D_L
+        // (car record +0xC, which Rush 2 textures, scrolls and shows in the hood camera as its own hood's): the same
+        // layer over the hood's triangles, so Car Sheen and Cube Map treat it as the body's.
+        std::vector<Command> hood_commands;
+        std::vector<uint32_t> hood_copies;
+        int hood = model_of(name + "H0_L");
+        if (hood >= 0 && u32(out, models + uint32_t(hood) * 0x34) >= 1) {
+            for (uint32_t pc = u32(out, models + uint32_t(hood) * 0x34 + 4 + 8); pc + 8 <= out.size(); pc += 8) {
+                uint32_t w0 = u32(out, pc), w1 = u32(out, pc + 4);
+                uint8_t op = uint8_t(w0 >> 24);
+                if (op == 0xDF) break;
+                if (op == 0x01 || op == 0x05 || op == 0x06 || op == 0x07) hood_commands.push_back({ w0, w1 });
+            }
+            hood_copies = sheen_copies(hood_commands);
         }
-        for (int part = 0; part < 4; part++) {
-            int m = model_of(name + rush2::track2049::sheen_parts[part]);
+        const char* const hood_parts[] = { "H0D_L", "H2D_L" };
+        for (int part = 0; part < 6; part++) {
+            bool on_hood = part >= 4;
+            if (on_hood && hood_commands.empty()) continue;
+            int m = model_of(name + (on_hood ? hood_parts[part - 4] : rush2::track2049::sheen_parts[part]));
             if (m < 0) continue;
+            const std::vector<Command>& source = on_hood ? hood_commands : commands;
+            const std::vector<uint32_t>& source_copies = on_hood ? hood_copies : copies;
             uint32_t list = (uint32_t)out.size();
             add32(out, 0xE7000000); add32(out, 0);
             add32(out, 0xE200001C); add32(out, 0xC8104E50);   // translucent, decal depth
@@ -2834,9 +2858,9 @@ namespace {
             }
             else {
                 size_t load = 0;
-                for (const Command& c : commands) {
+                for (const Command& c : source) {
                     add32(out, c.w0);
-                    add32(out, (c.w0 >> 24) == 0x01 ? (c.w1 & 0xFF000000) | copies[load++] : c.w1);
+                    add32(out, (c.w0 >> 24) == 0x01 ? (c.w1 & 0xFF000000) | source_copies[load++] : c.w1);
                 }
             }
             add32(out, 0xE7000000); add32(out, 0);
@@ -2856,8 +2880,9 @@ namespace {
 // 0x800C0764). Rush 2 builds 39 part names from the car name and the suffixes at 0x800C6180 and uses their handles
 // unchecked (func_80086700): the frame, five body panels (four corners and the roof) in damage stages, and the hood
 // halves, and over them the sheen layers (D and D2 parts). A 2049 car is one body (car2049.cpp dents its vertices; 2049
-// itself shows no damage): the body becomes the frame and the panels and hood parts are empty, so the car draws once
-// whatever damage stage Rush 2 picks. Its sheen layers are made from the body (add_sheen_layers).
+// itself shows no damage): the body becomes the frame and the panels are empty, so the car draws once whatever damage
+// stage Rush 2 picks; the hood halves are 2049's hood-camera hood (below). Its sheen layers are made from the body
+// (add_sheen_layers).
 bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, const std::string& name,
                                    std::vector<uint8_t>& out, std::string& error) {
     static const char* const parts[] = {
@@ -2878,14 +2903,18 @@ bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, c
     try {
         std::string prefix = "CAR" + std::to_string(car);
         MergeOptions opt{};
-        opt.rename = { { prefix + "FRAME1", name + "FRAME1" } };
+        // HOOD is the hood 2049 draws only in its hood camera (view mode 1, car view +0x35D: func_800B200C hides
+        // node +0x10 otherwise), not damage. Rush 2's hood camera is the same: its hood halves H0_L / H0_R (car
+        // record +0x4 / +0x8) are drawn only in camera mode 1 with one player, in the car's own view (car state +0x348;
+        // func_8005BFD8 each frame), so HOOD becomes H0_L, and H2_L too, which 8005BFD8 swaps in by panel 1's damage;
+        // H0_R stays empty. SHEEN is a reflection pass Rush 2 can't draw, left out. The damaged hood is a fold of the
+        // body's own hood (car2049.cpp body_hood).
+        opt.rename = { { prefix + "FRAME1", name + "FRAME1" }, { prefix + "HOOD", name + "H0_L" } };
+        opt.aliases = { { prefix + "HOOD", name + "H2_L" } };
         for (const char* part : parts) {
             opt.dummies.push_back(name + part);
         }
-        // HOOD is the hood 2049 draws only in its hood camera (view mode 1, car view +0x35D, one player:
-        // func_80093B20), not damage; Rush 2 has no such view. SHEEN is a reflection pass Rush 2 can't draw. Neither
-        // is drawn. The damaged hood is a fold of the body's own hood (car2049.cpp body_hood).
-        std::set<std::string> exclude = { prefix + "HOOD", prefix + "SHEEN" };
+        std::set<std::string> exclude = { prefix + "SHEEN" };
         std::vector<const Bytes*> files = { &file };
         // The Rocket ZX's exhaust flames: three effect models (file 62) 2049 attaches behind it (func_800AF690) and
         // rescales every frame (func_800930A4). They stay models of their own: src/rush2049/car2049.cpp places and animates

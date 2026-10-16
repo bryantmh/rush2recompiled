@@ -248,6 +248,7 @@ namespace {
         std::vector<std::pair<uint32_t, uint32_t>> flame_tiles; // G_SETTILESIZE offset, its w1
         std::vector<uint32_t> flame_lists;  // file offsets of the flames' display lists
         std::vector<uint32_t> body_lists;   // file offsets of the body's (FRAME1) display lists, every LOD
+        std::vector<uint32_t> hood_lists;   // the same for the hood camera's hood (H0_L, H2_L: 2049's CARnHOOD)
         // A Rush 2 type drawn as one body (set_body_car): Rush 2 paints it, so it has no colours of its own, and its
         // textures' scuffed copies are given (pristine texel offset -> copy).
         bool body = false;
@@ -572,6 +573,20 @@ namespace {
         for (uint32_t list : loads) {
             for (uint32_t o = list; o + 8 <= txld_end && car[o] != 0xDF; o += 8) {
                 if (car[o] == 0xF2) p.flame_tiles.push_back({ o, be32(car, o + 4) });
+            }
+        }
+    }
+
+    // The hood camera's hood (convert_car: 2049's CARnHOOD as H0_L and H2_L), drawn with the body's combiner, so it
+    // takes the body's PRIM (light_model).
+    void collect_hood(const std::vector<uint8_t>& car, const std::string& prefix, Paint& p) {
+        uint32_t models = be32(car, 0), names = be32(car, 4), count = be32(car, 16);
+        for (const std::string& name : { prefix + "H0_L", prefix + "H2_L" }) {
+            for (uint32_t m = 0; m < count; m++) {
+                if (strncmp(reinterpret_cast<const char*>(&car[names + m * 0x18]), name.c_str(), 16) != 0) continue;
+                for (uint32_t l = 0; l < be32(car, models + m * 0x34) && l < 4; l++) {
+                    p.hood_lists.push_back(be32(car, models + m * 0x34 + 4 + l * 12 + 8));
+                }
             }
         }
     }
@@ -1045,6 +1060,7 @@ static void load_cars(uint8_t* rdram) {
             collect_body_vertices(car, "CAR" + std::to_string(k + 1), p);
             add_damage_textures(car, "CAR" + std::to_string(k + 1) + "FRAME1", k, p);
             collect_flames(car, "CAR" + std::to_string(k + 1) + "FRAME1", p);
+            collect_hood(car, "CAR" + std::to_string(k + 1), p);
             // func_800A37F4 preallocates every car slot at this size (+ 0x400): the largest car asset.
             if (car.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
                 MEM_W(0, (int32_t)car_slot_size) = (int32_t)((car.size() + 15) & ~15u);
@@ -2272,6 +2288,9 @@ namespace {
                 continue;
             }
             for (uint32_t list : p->body_lists) {
+                body_list_addresses.insert((base + list) & 0x1FFFFFFF);
+            }
+            for (uint32_t list : p->hood_lists) {
                 body_list_addresses.insert((base + list) & 0x1FFFFFFF);
             }
         }
