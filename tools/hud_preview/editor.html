@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HUD Editor</title>
+<!-- The HUD editor's page (tools/hud_preview/editor.py serves it; docs/hud_layout.md#hud-editor). -->
+<style>
+  :root { --bg: #1e2228; --panel: #2a2f37; --line: #3c434e; --text: #e4e7eb; --dim: #9aa3ad; --accent: #f5c542; --err: #ff6b6b; --hand: #4fd1e8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #left { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #bar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  #bar label { display: inline-flex; align-items: center; gap: 4px; color: var(--dim); }
+  #stage { flex: 1; overflow: auto; padding: 12px; }
+  canvas { display: block; image-rendering: pixelated; cursor: default; }
+  #side { width: 340px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; }
+  #side section { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  #side h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
+  #elements { overflow: auto; flex: 1; padding: 0; }
+  .el { display: flex; align-items: center; gap: 6px; padding: 3px 10px; cursor: pointer; }
+  .el:hover { background: #343a44; }
+  .el.sel { background: #48402a; }
+  .el .hand { color: var(--hand); font-size: 11px; margin-left: auto; }
+  .el.off { color: var(--dim); text-decoration: line-through; }
+  select, input, button { background: #1b1f24; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font: inherit; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: #1b1f24; border-color: var(--accent); font-weight: 600; }
+  input[type=number] { width: 64px; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; flex-wrap: wrap; }
+  #issues { max-height: 160px; overflow: auto; font-size: 12px; }
+  #issues .e { color: var(--err); }
+  #issues .n { color: var(--dim); }
+  #warn { color: var(--accent); font-size: 12px; }
+  #status { font-size: 12px; color: var(--dim); }
+  .hint { font-size: 11px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div id="left">
+  <div id="bar">
+    <label>Layout <select id="layout">
+      <option value="p1">1 player</option><option value="p2_stacked">2 stacked</option><option value="p2_side">2 side by side</option>
+      <option value="p4">3 or 4 players</option></select></label>
+    <label>Aspect <select id="aspect"><option>4:3</option><option selected>16:9</option><option>21:9</option></select></label>
+    <label title="A race, circuit or practice: one HUD">Mode <select id="mode"><option>race</option><option value="stunt">stunt track</option>
+      <option>battle</option></select></label>
+    <label><input type="checkbox" id="odometer" checked>Odometer</label>
+    <label><input type="checkbox" id="manual" checked>Manual</label>
+    <label data-modes="race stunt"><input type="checkbox" id="deaths" checked>Deaths</label>
+    <label data-modes="race" title="The Stunts on All Tracks cheat: the stunt boxes in a race"><input type="checkbox" id="stunts">Stunts all tracks</label>
+    <label data-modes="race" title="A race with the BATTLE row or the Weapons cheat (one HUD: health bar, weapon held and power-up)"><input type="checkbox" id="race_battle">Race battle</label>
+    <label data-modes="stunt" title="The stunt mode's IT badge, on the player who is it (with that stunt option on)"><input type="checkbox" id="it">IT</label>
+    <label data-modes="battle" title="A battle with a time limit: Rush 2's time left shows"><input type="checkbox" id="battle_time" checked>Battle time</label>
+    <label>Language <select id="language"><option value="0">English</option><option value="1">French</option><option value="2">German</option></select></label>
+    <label><input type="checkbox" id="messages">Messages</label>
+    <label title="S toggles; hold Ctrl or Alt while dragging to place freely"><input type="checkbox" id="snap" checked>Snap</label>
+    <label>Zoom <select id="zoom"><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select></label>
+    <label><input type="checkbox" id="play">Play slides</label>
+    <input type="range" id="time" min="0" max="4500" value="0" step="10" style="width:110px" title="time since WRONG WAY showed">
+    <span id="timeText" class="hint">0.0 s</span>
+  </div>
+  <div id="stage"><canvas id="cv"></canvas></div>
+</div>
+<div id="side">
+  <section>
+    <h3>Selected</h3>
+    <div id="selName">Click an element</div>
+    <div id="selRule" class="hint"></div>
+
+    <div class="row">Anchor <select id="anchor">
+      <option value="auto">auto (by where it is)</option><option value="0">left edge</option><option value="256">middle of left half</option>
+      <option value="512">center</option><option value="768">middle of right half</option><option value="1024">right edge</option>
+      <option value="2048">4:3 screen</option></select></div>
+    <div class="row">x <input type="number" id="ex"> y <input type="number" id="ey"> <span class="hint" id="exHint">4:3, from the anchor</span></div>
+    <div class="row">Scale <input type="range" id="escale" min="25" max="200" step="5" style="width:120px"> <input type="number" id="escaleN" min="10" max="400" step="1">% <span class="hint" id="escaleDefault"></span></div>
+    <div class="row"><label><input type="checkbox" id="ehide">Hidden</label> <button id="ereset">Reset element</button></div>
+    <div class="row" title="Keeps it at its offset from another element wherever that one goes (and takes its anchor); x and y are then the offset">Attach to <select id="eattach"></select> <select id="eaxis" title="Which way it follows"><option value="0">both ways</option><option value="16">up and down</option><option value="32">sideways</option></select></div>
+    <div class="row"><label title="Its placement here is used at 4:3 only (the Original aspect ratio); the others use the one for any aspect"><input type="checkbox" id="e43">Only in 4:3</label></div>
+    <div class="row"><label title="Its placement here is kept for this mode only; other modes use the one for every mode"><input type="checkbox" id="emode">Only in <span id="emodeName"></span></label></div>
+    <div class="row"><label title="New placements are made for the shown mode only (else for every mode)"><input type="checkbox" id="modeOnly">New placements for this mode only</label></div>
+    <div class="hint">Drag to move (snaps within 2 px; S or the Snap box turns it off, Ctrl/Alt while dragging skips it). Ctrl/Shift-click or drag a box on empty space to select several; Ctrl+A all, Esc none. Arrows nudge exactly 1 px (Shift 5), never snapping. Click a selected element again to pick the one under it. H hides, R resets.</div>
+  </section>
+  <section>
+    <h3>Layout</h3>
+    <div class="row">Scale every element <input type="number" id="lscale" value="100" min="10" max="400" step="5">% of its default <button id="lapply">Apply</button></div>
+    <div class="row"><button id="lreset">Reset layout</button> <button class="primary" id="save">Save</button></div>
+    <div id="warn"></div>
+    <div id="status"></div>
+  </section>
+  <section><h3>Issues</h3><div id="issues"></div></section>
+  <section style="flex:1;display:flex;flex-direction:column;min-height:0;padding:0"><h3 style="padding:8px 10px 0">Elements</h3><div id="elements"></div></section>
+</div>
+<script>
+let Z = 3;
+const $ = id => document.getElementById(id);
+const cv = $('cv'), g = cv.getContext('2d');
+let overrides = [];
+let data = null;       // {layout, base}: the engine's result with the hand placements and without
+let sel = -1;          // the element the panel shows (the last one clicked)
+let selected = new Set();  // every selected element
+let band = null;       // a selection rectangle being dragged: {x0, y0, x1, y1, add}
+let drag = null;       // {indices, sx, sy, dx, dy}
+let guides = [];
+let dirty = false;
+let animStart = 0;
+const images = {};
+const tinted = {};
+
+const roleColors = { Time: '#4fc3f7', LapTime: '#4fc3f7', Speed: '#ffb74d', Tach: '#ff5252', Position: '#81c784', Radar: '#ce93d8',
+  Map: '#bcaaa4', LapsLeft: '#bcaaa4', TimeLeft: '#ff8a80', Gear: '#b39ddb', Deaths: '#ff8a80', It: '#ffd54f', StuntScore: '#aed581',
+  StuntTrick: '#aed581', Odometer: '#ff8a65', Banner: '#fff176', Message: '#ffffff', BattleBar: '#66bb6a', BattleWeapon: '#ffa726',
+  BattleCoin: '#ffee58', BattlePowerup: '#42a5f5' };
+
+// An option only counts (and shows) in the modes it's for (data-modes).
+function applies(id) {
+  const m = $(id).closest('label').dataset.modes;
+  return !m || m.split(' ').includes($('mode').value);
+}
+function showOptions() {
+  for (const l of document.querySelectorAll('label[data-modes]')) l.style.display = l.dataset.modes.split(' ').includes($('mode').value) ? '' : 'none';
+}
+function options() {
+  const on = id => +($(id).checked && applies(id));
+  const o = { aspect: $('aspect').value, mode: $('mode').value, odometer: on('odometer'), manual: $('manual').checked ? '1111' : '0000',
+    deaths: on('deaths'), stunts: on('stunts'), it: on('it'), battle_time: on('battle_time'), language: $('language').value };
+  // The BATTLE row and the Weapons cheat lay out the same (the cheat shows no ammo): one option.
+  if (on('race_battle')) o.race_battle = 1;
+  return o;
+}
+const layout = () => $('layout').value;
+// The layout hand placements are kept for: 3 players are 4's layout (the same quadrants, the last one empty).
+const placementLayout = () => layout();
+const cfg = () => data.layout.config;
+const spread = () => cfg().hud_width - 320;
+const winX0 = () => -spread() / 2;
+function offset(origin) { return origin >= 0x800 ? 0 : Math.round((origin / 0x400 - 0.5) * spread()); }
+const keyOf = e => e.role + '/' + e.player + '/' + e.group;
+
+// Hand placements are for every mode ('any') or one (the Mode box's value); one for the shown mode is taken over
+// the 'any' one, as the game does (Override::mode).
+const curMode = () => $('mode').value;
+const sameKey = (o, e) => o.layout === placementLayout() && o.role === e.role && o.player === e.player && o.group === e.group;
+// Placements for 4:3 only (flag 64) are used when the aspect is 4:3, over one for any aspect (Override::only_43).
+const ONLY43 = 64;
+const is43 = () => $('aspect').value === '4:3';
+function findOverride(e) {
+  const rank = o => (o.mode === curMode() ? 2 : 0) + (o.flags & ONLY43 ? 1 : 0);
+  const c = overrides.filter(o => sameKey(o, e) && (o.mode === curMode() || o.mode === 'any') && (!(o.flags & ONLY43) || is43()));
+  return c.sort((a, b) => rank(b) - rank(a))[0];
+}
+// Makes the elements' placements 4:3's own (a copy of the one in use), or drops 4:3's.
+function setOnly43(list, on) {
+  for (const e of list) {
+    const cur = findOverride(e);
+    if (on && !(cur && (cur.flags & ONLY43))) {
+      overrides.push(cur ? { ...cur, flags: cur.flags | ONLY43 }
+        : { layout: placementLayout(), role: e.role, player: e.player, group: e.group, flags: ONLY43 | 1, x: e.x, y: e.y, origin: e.origin, scale: 1, mode: 'any' });
+    } else if (!on && cur && (cur.flags & ONLY43)) overrides = overrides.filter(o => o !== cur);
+  }
+  dirty = true; solveSoon();
+}
+function overrideFor(e) {
+  let o = findOverride(e);
+  if (!o) {
+    o = { layout: placementLayout(), role: e.role, player: e.player, group: e.group, flags: 0, x: e.x, y: e.y, origin: e.origin, scale: 1,
+          mode: $('modeOnly').checked ? curMode() : 'any' };
+    overrides.push(o);
+  }
+  return o;
+}
+// Attachments (Override::attached, flag 8): kept at (x, y) from another element's top left corner.
+const ATTACHED = 8, AXES = 16 | 32;  // 16: up and down only (keeps its x), 32: sideways only (keeps its y)
+const elementByKey = (role, player, group) => data.layout.elements.find(x => x.role === role && x.player === player && x.group === group);
+function attachedTo(e) {
+  const o = findOverride(e);
+  return o && (o.flags & ATTACHED) ? elementByKey(o.to_role, o.to_player, o.to_group) : null;
+}
+function setAttach(list, key) {
+  for (const e of list) {
+    if (!key) {
+      // Detached: it stays where it is, placed by hand there.
+      const o = findOverride(e);
+      if (!o || !(o.flags & ATTACHED)) continue;
+      o.flags = (o.flags & ~ATTACHED & ~AXES) | 1; o.origin = e.origin; o.x = e.x; o.y = e.y;
+      continue;
+    }
+    const [role, player, group] = key.split('/');
+    const t = elementByKey(role, +player, +group);
+    if (!t || t === e) continue;
+    const o = overrideFor(e), b = boxOf(e), tb = boxOf(t);
+    o.flags = (o.flags & ~1 & ~AXES) | ATTACHED | +$('eaxis').value;
+    o.to_role = t.role; o.to_player = t.player; o.to_group = t.group;
+    o.x = b[0] - tb[0]; o.y = b[1] - tb[1];
+  }
+  dirty = true; solveSoon();
+}
+// Makes the elements' placements this mode's own (a copy of the 'any' one), or drops this mode's (back to 'any').
+function setModeOnly(list, on) {
+  for (const e of list) {
+    const mine = overrides.find(o => sameKey(o, e) && o.mode === curMode());
+    if (on && !mine) {
+      const any = overrides.find(o => sameKey(o, e) && o.mode === 'any');
+      overrides.push(any ? { ...any, mode: curMode() }
+        : { layout: placementLayout(), role: e.role, player: e.player, group: e.group, flags: 0, x: e.x, y: e.y, origin: e.origin, scale: 1, mode: curMode() });
+    } else if (!on && mine) overrides = overrides.filter(o => o !== mine);
+  }
+  dirty = true; solveSoon();
+}
+function baseOf(e) { return data.base.elements.find(b => keyOf(b) === keyOf(e)); }
+// Its drawn bounds (one hidden by hand isn't placed: where it goes without hand placements).
+function boxOf(e) { return e.box || (baseOf(e) || {}).box || [0, 0, 0, 0]; }
+
+async function solve() {
+  const r = await fetch('/solve', { method: 'POST', body: JSON.stringify({ layout: layout(), options: options(), overrides }) });
+  const j = await r.json();
+  if (j.error) { $('status').textContent = j.error; return; }
+  data = j;
+  cv.width = Math.round(cfg().hud_width * Z);
+  cv.height = 240 * Z;
+  panel();
+  draw();
+}
+let solveTimer = 0;
+function solveSoon() { clearTimeout(solveTimer); solveTimer = setTimeout(solve, 120); }
+
+function image(name, tint) {
+  const lang = cfg().language;
+  const key = name + '|' + lang;
+  if (!images[key]) {
+    const im = new Image();
+    im.onload = draw;
+    im.onerror = () => { if (lang > 0 && !im.fellBack) { im.fellBack = true; im.src = '/images/' + name + '.png'; } };
+    im.src = '/images/' + name + (lang > 0 ? '.' + lang : '') + '.png';
+    images[key] = im;
+  }
+  const im = images[key];
+  if (!tint || !im.complete || !im.naturalWidth) return im;
+  if (!tinted[key]) {
+    const c = document.createElement('canvas');
+    c.width = im.naturalWidth; c.height = im.naturalHeight;
+    const x = c.getContext('2d');
+    x.drawImage(im, 0, 0);
+    x.globalCompositeOperation = 'multiply'; x.fillStyle = '#ffd820'; x.fillRect(0, 0, c.width, c.height);
+    x.globalCompositeOperation = 'destination-in'; x.drawImage(im, 0, 0);
+    tinted[key] = c;
+  }
+  return tinted[key];
+}
+
+// Canvas pixels for a drawn rectangle.
+function px(r) { return [(r[0] - winX0()) * Z, r[1] * Z, (r[2] - r[0] + 1) * Z, (r[3] - r[1] + 1) * Z]; }
+const lerp = (a, b, f) => a + (b - a) * f;
+function slideF() {
+  const t = +$('time').value / 1000;
+  return Math.min(1, Math.max(0, (t - 3) / 0.5));
+}
+// The trick name in the stunt scores' place (stunt_swap: the game shows one at a time) is one box with them: only the
+// scores are drawn and picked, and the trick name goes with them.
+const inScoresPlace = e => e.role === 'StuntTrick' && !!(data.layout.stunt_swap || [])[e.player];
+function visible(e) {
+  if (!e.possible && !e.hidden) return false;
+  if (inScoresPlace(e)) return false;
+  if (!$('messages').checked && (e.role === 'Message' || e.role === 'Banner')) return false;
+  return true;
+}
+function moved(e) { return drag && drag.indices.includes(e.index) ? [drag.dx, drag.dy] : [0, 0]; }
+
+function shift(r, d) { return [r[0] + d[0], r[1] + d[1], r[2] + d[0], r[3] + d[1]]; }
+
+function drawViews() {
+  const c = cfg();
+  g.fillStyle = '#3a404a'; g.fillRect(0, 0, cv.width, cv.height);
+  g.strokeStyle = '#000'; g.lineWidth = 2;
+  const vline = x => { g.beginPath(); g.moveTo((x - winX0()) * Z, 0); g.lineTo((x - winX0()) * Z, cv.height); g.stroke(); };
+  const hline = y => { g.beginPath(); g.moveTo(0, y * Z); g.lineTo(cv.width, y * Z); g.stroke(); };
+  if (c.arrangement >= 1) vline(160);
+  if (c.arrangement === 2 || (c.arrangement === 0 && c.players === 2)) hline(120);
+  if (spread() > 0) {
+    g.setLineDash([4, 4]); g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 1;
+    vline(0); vline(320); g.setLineDash([]);
+  }
+}
+
+function draw() {
+  if (!data) return;
+  const L = data.layout, f = slideF();
+  drawViews();
+  for (const p of L.parts) {
+    const e = L.elements[p.e];
+    if (!visible(e)) continue;
+    const d = moved(e);
+    let r = p.r;
+    if (p.end && e.slides) r = [0, 1, 2, 3].map(k => lerp(p.r[k], p.end[k], f));
+    r = shift(r, d);
+    const [x, y, w, h] = px(r);
+    g.globalAlpha = e.hidden ? 0.22 : 1;
+    if (p.kind === 0 && p.tex) {
+      const im = image(p.tex, p.tint);
+      if (im && (im.width || im.naturalWidth)) g.drawImage(im, p.cell[0], p.cell[1], p.cell[2], p.cell[3], x, y, w, h);
+    } else if (p.kind === 1) {
+      const c = p.color >>> 0;
+      g.fillStyle = `rgba(${c >>> 24},${(c >> 16) & 255},${(c >> 8) & 255},${(c & 255) / 255})`;
+      g.fillRect(x, y, w, h);
+    } else if (p.kind === 2) {
+      g.fillStyle = '#fff'; g.font = `${4 * Z}px monospace`; g.textBaseline = 'top'; g.fillText(p.text, x, y);
+    }
+    if (p.end && e.slides && !$('play').checked && f === 0) {
+      // Where the slide ends, faded.
+      const [x1, y1, w1, h1] = px(shift(p.end, d));
+      g.globalAlpha = 0.3;
+      if (p.kind === 0 && p.tex) { const im = image(p.tex, p.tint); if (im && (im.width || im.naturalWidth)) g.drawImage(im, p.cell[0], p.cell[1], p.cell[2], p.cell[3], x1, y1, w1, h1); }
+      g.setLineDash([2, 4]); g.strokeStyle = '#fff'; g.beginPath(); g.moveTo(x + w / 2, y + h / 2); g.lineTo(x1 + w1 / 2, y1 + h1 / 2); g.stroke(); g.setLineDash([]);
+    }
+    g.globalAlpha = 1;
+  }
+  // Elements the recomp draws itself (no parts): Rush 2049's odometer digits and battle bar frame from its ROM, the
+  // battle HUD's models as shapes.
+  for (const s of L.sprites || []) {
+    const e = L.elements[s.e];
+    if (!visible(e)) continue;
+    const im = image(s.tex, false);
+    if (!im || !(im.width || im.naturalWidth)) continue;
+    const [x, y, w, h] = px(shift(s.r, moved(e)));
+    g.globalAlpha = e.hidden ? 0.22 : 1;
+    g.imageSmoothingEnabled = false;
+    g.drawImage(im, s.cell[0], s.cell[1], s.cell[2], s.cell[3], x, y, w, h);
+    // The bar's green fill in its 56 x 4 window, over the frame (as the game builds it).
+    if (s.tex === '2049_HEALTHBG') { g.fillStyle = '#008000'; g.fillRect(x + w * 4 / 64, y + h * 2 / 8, w * 42 / 64, h * 4 / 8); }
+    g.globalAlpha = 1;
+  }
+  for (const e of L.elements) {
+    if (!visible(e) || L.parts.some(p => p.e === e.index) || (L.sprites || []).some(s => s.e === e.index)) continue;
+    const [x, y, w, h] = px(shift(boxOf(e), moved(e)));
+    g.globalAlpha = e.hidden ? 0.22 : 0.8;
+    g.fillStyle = roleColors[e.role] || '#888'; g.fillRect(x, y, w, h);
+    g.globalAlpha = 1;
+  }
+  // Outlines and labels.
+  g.font = `${3 * Z}px monospace`; g.textBaseline = 'bottom';
+  for (const e of L.elements) {
+    if (!visible(e)) continue;
+    const [x, y, w, h] = px(shift(boxOf(e), moved(e)));
+    const isSel = selected.has(e.index);
+    g.strokeStyle = isSel ? '#f5c542' : e.cramped ? '#ff6b6b' : e.by_hand ? '#4fd1e8' : (roleColors[e.role] || '#888');
+    g.lineWidth = isSel ? 2 : 1;
+    g.setLineDash(e.hidden ? [3, 3] : isSel || e.by_hand ? [] : [5, 3]);
+    g.strokeRect(x + .5, y + .5, w - 1, h - 1);
+    g.setLineDash([]);
+    if (isSel || e.by_hand) { g.fillStyle = g.strokeStyle; g.fillText(e.name, x + 2, y); }
+  }
+  // Attachments: a line from each attached element to what it's attached to.
+  g.strokeStyle = '#4fd1e8'; g.lineWidth = 1; g.setLineDash([3, 2]);
+  for (const e of L.elements) {
+    if (!visible(e)) continue;
+    const t = attachedTo(e);
+    if (!t || !t.possible || !t.box) continue;  // not shown: the attachment does nothing
+    const [x, y] = px(shift(boxOf(e), moved(e))), [tx, ty] = px(shift(boxOf(t), moved(t)));
+    g.beginPath(); g.moveTo(x + 1, y + 1); g.lineTo(tx + 1, ty + 1); g.stroke();
+    g.fillStyle = '#4fd1e8'; g.fillRect(x - 1, y - 1, 4, 4); g.fillRect(tx - 1, ty - 1, 4, 4);
+  }
+  g.setLineDash([]);
+  // The selection rectangle.
+  if (band) {
+    const [x, y, w, h] = px([Math.min(band.x0, band.x1), Math.min(band.y0, band.y1), Math.max(band.x0, band.x1), Math.max(band.y0, band.y1)]);
+    g.fillStyle = 'rgba(245,197,66,.12)'; g.fillRect(x, y, w, h);
+    g.strokeStyle = '#f5c542'; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w - 1, h - 1);
+  }
+  // Snapping guides.
+  g.strokeStyle = '#ff40ff'; g.lineWidth = 1;
+  for (const gd of guides) {
+    g.beginPath();
+    if (gd.x !== undefined) { g.moveTo((gd.x - winX0()) * Z + .5, 0); g.lineTo((gd.x - winX0()) * Z + .5, cv.height); }
+    else { g.moveTo(0, gd.y * Z + .5); g.lineTo(cv.width, gd.y * Z + .5); }
+    g.stroke();
+  }
+}
+
+// ---- Picking and dragging ----
+function at(ev) {
+  const b = cv.getBoundingClientRect();
+  return [(ev.clientX - b.left) / Z + winX0(), (ev.clientY - b.top) / Z];
+}
+// Every element under (x, y), smallest first.
+function hits(x, y) {
+  const v = [];
+  for (const e of data.layout.elements) {
+    if (!visible(e)) continue;
+    const r = boxOf(e);
+    if (x >= r[0] && x <= r[2] + 1 && y >= r[1] && y <= r[3] + 1) v.push([(r[2] - r[0] + 1) * (r[3] - r[1] + 1), e.index]);
+  }
+  return v.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(h => h[1]);
+}
+function pick(x, y) {
+  const v = hits(x, y);
+  return v.length ? v[0] : -1;
+}
+// The selected elements.
+function chosen() { return [...selected].map(i => data.layout.elements[i]).filter(e => e && visible(e)); }
+function select(index, add) {
+  if (!add) selected.clear();
+  if (index >= 0) {
+    if (add && selected.has(index)) selected.delete(index);
+    else selected.add(index);
+  }
+  sel = index >= 0 && selected.has(index) ? index : selected.size ? [...selected][selected.size - 1] : -1;
+}
+function unionOf(list) {
+  let u = null;
+  for (const e of list) {
+    const r = boxOf(e);
+    u = u ? [Math.min(u[0], r[0]), Math.min(u[1], r[1]), Math.max(u[2], r[2]), Math.max(u[3], r[3])] : r.slice();
+  }
+  return u;
+}
+// The view a drawn point is in (4:3 x 160 / y 120 split it), as drawn edges.
+function viewOf(cx, cy) {
+  const c = cfg(), x0 = winX0(), x1 = 320 - winX0();
+  let v = [x0, 0, x1, 240];
+  if (c.arrangement >= 1) v = cx < 160 ? [x0, v[1], 160, v[3]] : [160, v[1], x1, v[3]];
+  if (c.arrangement === 2 || (c.arrangement === 0 && c.players === 2)) v = cy < 120 ? [v[0], 0, v[2], 120] : [v[0], 120, v[2], 240];
+  return v;
+}
+// Snaps the dragged elements (as one: their union) to the others' edges and centers and to the view's.
+function snap(list, dx, dy) {
+  guides = [];
+  const r = shift(unionOf(list), [dx, dy]);
+  const moving = new Set(list.map(e => e.index));
+  const xs = [r[0], r[2] + 1, (r[0] + r[2] + 1) / 2], ys = [r[1], r[3] + 1, (r[1] + r[3] + 1) / 2];
+  const cxs = [], cys = [];
+  for (const o of data.layout.elements) {
+    if (moving.has(o.index) || !visible(o) || o.hidden || !o.box) continue;
+    cxs.push(o.box[0], o.box[2] + 1, (o.box[0] + o.box[2] + 1) / 2);
+    cys.push(o.box[1], o.box[3] + 1, (o.box[1] + o.box[3] + 1) / 2);
+  }
+  const v = viewOf((r[0] + r[2]) / 2, (r[1] + r[3]) / 2);
+  const inset = cfg().arrangement === 0 ? [12, 10] : [5, 5];
+  cxs.push(v[0], v[2], v[0] + inset[0], v[2] - inset[0], (v[0] + v[2]) / 2);
+  cys.push(v[1], v[3], v[1] + inset[1], v[3] - inset[1], (v[1] + v[3]) / 2);
+  const best = (vals, cands) => {
+    let b = null;
+    for (const a of vals) for (const c of cands) { const d = c - a; if (Math.abs(d) <= 2 && (!b || Math.abs(d) < Math.abs(b.d))) b = { d, at: c }; }
+    return b;
+  };
+  const bx = best(xs, cxs), by = best(ys, cys);
+  if (bx) { dx += bx.d; guides.push({ x: bx.at }); }
+  if (by) { dy += by.d; guides.push({ y: by.at }); }
+  return [Math.round(dx), Math.round(dy)];
+}
+function autoOrigin(box) {
+  const c = cfg(), f = ((box[0] + box[2]) / 2 - winX0()) / c.hud_width;
+  if (c.arrangement === 0) return f < 1 / 3 ? 0 : f > 2 / 3 ? 0x400 : 0x800;
+  const left = f < 0.5, t = left ? f / 0.5 : (f - 0.5) / 0.5;
+  const k = t < 1 / 3 ? 0 : t > 2 / 3 ? 2 : 1;
+  return left ? [0, 0x100, 0x800][k] : [0x800, 0x300, 0x400][k];
+}
+// Puts element e with its drawn box at `box`, anchored by `origin` ('auto': by where it is).
+function placeAt(e, box, origin) {
+  const o = overrideFor(e);
+  if (origin === 'auto') origin = autoOrigin(box);
+  o.origin = +origin;
+  o.x = Math.round(box[0] - offset(o.origin));
+  o.y = Math.round(box[1]);
+  o.flags = (o.flags | 1) & ~ATTACHED & ~AXES;
+  dirty = true;
+}
+// Moves the elements by (dx, dy), each keeping its hand placed anchor, else anchored by where it lands. Moved together,
+// they all take the anchor the group's union lands on, so they stay together at every aspect ratio.
+function moveBy(list, dx, dy) {
+  const together = list.length > 1 ? autoOrigin(shift(unionOf(list), [dx, dy])) : null;
+  for (const e of list) {
+    const o = findOverride(e);
+    if (o && (o.flags & ATTACHED)) {
+      // Attached: its offset moves (unless what it's attached to moves with it).
+      const t = attachedTo(e);
+      if (!t || !list.includes(t)) { o.x += dx; o.y += dy; dirty = true; }
+      continue;
+    }
+    placeAt(e, shift(boxOf(e), [dx, dy]), o && (o.flags & 1) ? o.origin : together ?? 'auto');
+  }
+  solveSoon();
+}
+
+cv.addEventListener('mousedown', ev => {
+  if (!data) return;
+  const [x, y] = at(ev);
+  const hit = pick(x, y);
+  const add = ev.ctrlKey || ev.shiftKey || ev.metaKey;
+  if (hit < 0) {
+    // A rectangle selects every element it touches (Ctrl/Shift: adds to the selection).
+    if (!add) select(-1, false);
+    band = { x0: x, y0: y, x1: x, y1: y, add };
+  } else if (add) {
+    select(hit, true);
+  } else {
+    // Clicking again (without dragging) on a selected element picks the next one under it: elements in the same place
+    // (the stunt scores and trick name in quadrants) can each be chosen.
+    const under = hits(x, y);
+    const cur = under.find(i => selected.has(i));
+    const target = cur !== undefined ? cur : hit;
+    if (!selected.has(target)) select(target, false);
+    else sel = target;
+    drag = { indices: [...selected], sx: x, sy: y, dx: 0, dy: 0, under, cycle: cur !== undefined && under.length > 1 && selected.size === 1 };
+  }
+  panel(); draw();
+});
+window.addEventListener('mousemove', ev => {
+  if (band) {
+    [band.x1, band.y1] = at(ev);
+    draw();
+    return;
+  }
+  if (!drag) return;
+  const [x, y] = at(ev);
+  const list = drag.indices.map(i => data.layout.elements[i]);
+  let dx = Math.round(x - drag.sx), dy = Math.round(y - drag.sy);
+  if ($('snap').checked && !ev.altKey && !ev.ctrlKey) [dx, dy] = snap(list, dx, dy); else guides = [];
+  drag.dx = dx; drag.dy = dy;
+  draw();
+});
+window.addEventListener('mouseup', () => {
+  if (band) {
+    const r = [Math.min(band.x0, band.x1), Math.min(band.y0, band.y1), Math.max(band.x0, band.x1), Math.max(band.y0, band.y1)];
+    if (r[2] - r[0] > 1 || r[3] - r[1] > 1) {
+      for (const e of data.layout.elements) {
+        const b = boxOf(e);
+        if (visible(e) && b[0] <= r[2] && r[0] <= b[2] && b[1] <= r[3] && r[1] <= b[3]) select(e.index, true);
+      }
+    }
+    band = null;
+    panel(); draw();
+    return;
+  }
+  if (!drag) return;
+  if (drag.dx || drag.dy) moveBy(drag.indices.map(i => data.layout.elements[i]), drag.dx, drag.dy);
+  else if (drag.cycle) {
+    const v = drag.under;
+    select(v[(v.indexOf(sel) + 1) % v.length], false);
+    panel();
+  }
+  drag = null; guides = [];
+  draw();
+});
+window.addEventListener('keydown', ev => {
+  if (!data || ev.target.tagName === 'INPUT' || ev.target.tagName === 'SELECT') return;
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'a' || ev.key === 'A')) {
+    selected = new Set(data.layout.elements.filter(visible).map(e => e.index));
+    sel = selected.size ? [...selected][0] : -1;
+    panel(); draw(); ev.preventDefault();
+    return;
+  }
+  if (ev.key === 'Escape') { select(-1, false); panel(); draw(); return; }
+  if (ev.key === 's' || ev.key === 'S') {
+    $('snap').checked = !$('snap').checked;
+    try { localStorage.setItem('hud_editor_snap', $('snap').checked ? '1' : '0'); } catch { }
+    return;
+  }
+  const list = chosen();
+  if (!list.length) return;
+  const step = ev.shiftKey ? 5 : 1;
+  const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
+  if (d) { moveBy(list, d[0], d[1]); ev.preventDefault(); }
+  else if (ev.key === 'h' || ev.key === 'H') { setHidden(list, !list.every(e => e.hidden)); }
+  else if (ev.key === 'r' || ev.key === 'R') { resetElements(list); }
+});
+
+function setHidden(list, on) {
+  for (const e of list) {
+    const o = overrideFor(e);
+    o.flags = on ? o.flags | 2 : o.flags & ~2;
+  }
+  dirty = true; solveSoon();
+}
+function resetElements(list) {
+  // This mode's own placements if they have them, else the ones for every mode.
+  const drop = new Set(list.map(e => findOverride(e)).filter(Boolean));
+  overrides = overrides.filter(o => !drop.has(o));
+  dirty = true; solveSoon();
+}
+// The size it's drawn at, as a percentage of the image's (the skull's default in 4 players is 50, the rest the lap
+// timer's, about 75: fitting_scale). It's saved as a multiple of its default, which the engine applies to the rule's
+// scale, so it keeps up with the resolution in the game (the previewer's default is 80).
+function setScale(list, pct) {
+  for (const e of list) {
+    const b = baseOf(e);
+    const base = b && b.scale ? b.scale : 1;
+    const o = overrideFor(e);
+    o.scale = Math.max(0.05, pct / 100 / base);
+    o.flags = Math.abs(o.scale - 1) < 0.001 ? o.flags & ~4 : o.flags | 4;
+  }
+  dirty = true; solveSoon();
+}
+
+// ---- Side panel ----
+function panel() {
+  if (!data) return;
+  const L = data.layout;
+  for (const i of [...selected]) if (!L.elements[i] || !visible(L.elements[i])) selected.delete(i);
+  if (!selected.has(sel)) sel = selected.size ? [...selected][selected.size - 1] : -1;
+  const list = chosen();
+  const e = sel >= 0 ? L.elements[sel] : null;
+  $('selName').textContent = list.length > 1 ? `${list.length} elements (anchor, scale, hide and reset apply to all)`
+    : e ? e.name : 'Click an element (Ctrl/Shift-click or drag a box to select several)';
+  $('selRule').textContent = list.length === 1 && e ? e.rule + (e.cramped ? ' (no clear place)' : '') : '';
+  {
+    // Attach to: the other elements shown here (not the battle HUD).
+    const targets = new Set(list.map(x => { const t = attachedTo(x); return t ? keyOf(t) : ''; }));
+    const cur = targets.size === 1 ? [...targets][0] : '';
+    $('eattach').innerHTML = '<option value="">(none)</option>' + L.elements
+      .filter(x => visible(x) && !x.hidden && !list.includes(x))
+      .map(x => `<option value="${keyOf(x)}"${keyOf(x) === cur ? ' selected' : ''}>${x.name}</option>`).join('');
+    $('eattach').disabled = !list.length;
+    const axes = new Set(list.map(x => { const o = findOverride(x); return o && (o.flags & ATTACHED) ? String(o.flags & AXES) : null; }).filter(v => v !== null));
+    if (axes.size === 1) $('eaxis').value = [...axes][0];
+    const t = e && list.length === 1 ? attachedTo(e) : null;
+    $('exHint').textContent = t ? `from ${t.name}'s top left` : '4:3, from the anchor';
+    if (t) { const o = findOverride(e); $('ex').value = o.x; $('ey').value = o.y; }
+  }
+  $('e43').disabled = !list.length || !is43();
+  $('e43').checked = list.length > 0 && list.every(x => { const o = findOverride(x); return o && (o.flags & ONLY43); });
+  $('emode').disabled = !list.length;
+  $('emode').checked = list.length > 0 && list.every(x => overrides.some(o => sameKey(o, x) && o.mode === curMode()));
+  $('emodeName').textContent = $('mode').selectedOptions[0].textContent;
+  for (const id of ['anchor', 'escale', 'escaleN', 'ehide', 'ereset']) $(id).disabled = !list.length;
+  for (const id of ['ex', 'ey']) $(id).disabled = list.length !== 1;
+  if (e) {
+    const o = findOverride(e);
+    const anchors = new Set(list.map(x => { const p = findOverride(x); return p && (p.flags & 1) ? String(p.origin) : 'auto'; }));
+    $('anchor').value = anchors.size === 1 ? [...anchors][0] : (o && (o.flags & 1) ? String(o.origin) : 'auto');
+    $('ex').value = list.length === 1 ? e.x : ''; $('ey').value = list.length === 1 ? e.y : '';
+    const b = baseOf(e);
+    const pct = Math.round(e.scale * 100);
+    $('escale').value = pct; $('escaleN').value = pct;
+    $('escaleDefault').textContent = b ? `default ${Math.round(b.scale * 100)}%` : '';
+    $('ehide').checked = list.every(x => x.hidden);
+  }
+  const lay = layout();
+  $('warn').textContent = (lay === 'p1' || lay === 'p2_stacked') && overrides.some(o => o.layout === lay && o.flags)
+    ? 'Changes here alter base Rush 2\'s HUD (one view / two stacked): they need a toggle in the game\'s options.' : '';
+  $('status').textContent = dirty ? 'Unsaved changes' : '';
+  const issues = L.issues.map(i => `<div class="${i.error ? 'e' : 'n'}">${i.error ? 'ERROR' : 'note'} ${i.text.replace(/</g, '&lt;')}</div>`);
+  $('issues').innerHTML = issues.join('') || '<div class="n">none</div>';
+  const rows = L.elements.filter(x => x.possible || x.hidden).map(x =>
+    `<div class="el${selected.has(x.index) ? ' sel' : ''}${x.hidden ? ' off' : ''}" data-i="${x.index}">` +
+    `<input type="checkbox" ${x.hidden ? '' : 'checked'} data-h="${x.index}" title="shown">${x.name}` +
+    `<span class="hint">${Math.round(x.scale * 100)}%</span>` +
+    `${inScoresPlace(x) ? '<span class="hand">in the scores&rsquo; place</span>' : attachedTo(x) ? `<span class="hand">&rarr; ${attachedTo(x).name}</span>` : x.by_hand || x.hidden ? '<span class="hand">by hand</span>' : ''}</div>`);
+  $('elements').innerHTML = rows.join('');
+}
+$('elements').addEventListener('click', ev => {
+  const h = ev.target.dataset.h;
+  if (h !== undefined) { setHidden([data.layout.elements[+h]], !ev.target.checked); return; }
+  const row = ev.target.closest('.el');
+  if (row) { select(+row.dataset.i, ev.ctrlKey || ev.shiftKey || ev.metaKey); panel(); draw(); }
+});
+$('anchor').addEventListener('change', () => {
+  const list = chosen();
+  if ($('anchor').value === 'auto') {
+    for (const e of list) { const o = findOverride(e); if (o) o.flags &= ~1; }
+    dirty = true; solveSoon(); return;
+  }
+  for (const e of list) placeAt(e, boxOf(e), $('anchor').value);
+  solveSoon();
+});
+for (const id of ['ex', 'ey']) $(id).addEventListener('change', () => {
+  const e = data.layout.elements[sel];
+  const o = overrideFor(e);
+  if (o.flags & ATTACHED) { o.x = +$('ex').value; o.y = +$('ey').value; dirty = true; solveSoon(); return; }
+  if (!(o.flags & 1)) { o.origin = e.origin; }
+  o.x = +$('ex').value; o.y = +$('ey').value; o.flags |= 1;
+  dirty = true; solveSoon();
+});
+$('escale').addEventListener('input', () => { $('escaleN').value = $('escale').value; setScale(chosen(), +$('escale').value); });
+$('escaleN').addEventListener('change', () => { $('escale').value = $('escaleN').value; setScale(chosen(), +$('escaleN').value); });
+$('ehide').addEventListener('change', () => setHidden(chosen(), $('ehide').checked));
+$('ereset').addEventListener('click', () => resetElements(chosen()));
+$('emode').addEventListener('change', () => setModeOnly(chosen(), $('emode').checked));
+$('e43').addEventListener('change', () => setOnly43(chosen(), $('e43').checked));
+$('eattach').addEventListener('change', () => setAttach(chosen(), $('eattach').value));
+$('eaxis').addEventListener('change', () => {
+  // The attached ones among the selected follow the chosen way.
+  for (const e of chosen()) {
+    const o = findOverride(e);
+    if (o && (o.flags & ATTACHED)) o.flags = (o.flags & ~AXES) | +$('eaxis').value;
+  }
+  dirty = true; solveSoon();
+});
+$('lapply').addEventListener('click', () => {
+  const pct = +$('lscale').value;
+  for (const e of data.layout.elements) if (e.possible) {
+    const o = overrideFor(e);
+    o.scale = Math.max(0.1, pct / 100);
+    o.flags = pct === 100 ? o.flags & ~4 : o.flags | 4;
+  }
+  dirty = true; solveSoon();
+});
+$('lreset').addEventListener('click', () => {
+  if (!confirm('Remove every hand placement in this layout?')) return;
+  overrides = overrides.filter(o => o.layout !== placementLayout());
+  dirty = true; solveSoon();
+});
+$('save').addEventListener('click', async () => {
+  const r = await fetch('/save', { method: 'POST', body: JSON.stringify({ overrides }) });
+  const j = await r.json();
+  if (j.error) { $('status').textContent = j.error; return; }
+  dirty = false;
+  $('status').textContent = 'Saved ' + j.saved + '. Rebuild the game and the previewer to use it.';
+});
+window.addEventListener('beforeunload', ev => { if (dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+
+for (const id of ['layout', 'aspect', 'mode', 'odometer', 'manual', 'deaths', 'stunts', 'race_battle', 'it', 'battle_time', 'language'])
+  $(id).addEventListener('change', () => { if (id === 'layout') select(-1, false); if (id === 'mode') showOptions(); solve(); });
+showOptions();
+$('messages').addEventListener('change', draw);
+$('snap').addEventListener('change', () => { try { localStorage.setItem('hud_editor_snap', $('snap').checked ? '1' : '0'); } catch { } });
+$('zoom').addEventListener('change', () => {
+  Z = +$('zoom').value;
+  try { localStorage.setItem('hud_editor_zoom', String(Z)); } catch { }
+  if (data) { cv.width = Math.round(cfg().hud_width * Z); cv.height = 240 * Z; draw(); }
+});
+try {
+  if (localStorage.getItem('hud_editor_snap') === '0') $('snap').checked = false;
+  const z = localStorage.getItem('hud_editor_zoom');
+  if (z) { $('zoom').value = z; Z = +z || 3; }
+} catch { }
+$('time').addEventListener('input', () => { $('timeText').textContent = (+$('time').value / 1000).toFixed(1) + ' s'; draw(); });
+$('play').addEventListener('change', () => { animStart = performance.now() - +$('time').value; if ($('play').checked) requestAnimationFrame(tick); });
+function tick(now) {
+  if (!$('play').checked) return;
+  const t = (now - animStart) % 4500;
+  $('time').value = t; $('timeText').textContent = (t / 1000).toFixed(1) + ' s';
+  draw();
+  requestAnimationFrame(tick);
+}
+
+fetch('/overrides').then(r => r.json()).then(list => { overrides = list; solve(); });
+</script>
+</body>
+</html>

@@ -61,6 +61,8 @@ namespace rush2::players4 {
     HudRole hud_widget_role(int slot);
     // Whether a race HUD widget is part of a player's lap (checkpoint) time box, under their race time (HudRole::Time).
     bool hud_widget_lap_time(int slot);
+    // The callback of the element a race HUD widget was built for (what kind of element it is), or 0.
+    uint32_t hud_widget_element(int slot);
     // For each of `count` widget slots, the index of the game's box (func_80093B38) it is part of, or -1.
     void hud_widget_boxes(uint8_t* rdram, int8_t* box_of, int count);
 }

@@ -2683,7 +2683,7 @@ ref = "docs/rush2049_research/audio.md#4-volume-calibration"
 [[func]]
 vram = 0x800CE358
 name = "car_car_collision_response"
-desc = "Car against car collision response (Rush 2 car_car_collision_response_8006E2A8, offsets shifted). In a battle it holds the ram: a car with weapon 5 and its cooldown done hits the other car (not respawning) ahead of its middle by > 2.25 ft: damage 160 + 7 x its speed +0x3F0, ammo -1, cooldown 1/3 s (0x80124108)."
+desc = "Car against car collision response (Rush 2 car_car_collision_response_8006E2A8, offsets shifted). In a battle it holds the ram: a car with weapon 5 and its cooldown done hits the other car (not respawning) ahead of its middle by > 2.25 ft: damage 160 + 7 x its speed +0x3F0, ammo -1, cooldown 1/3 s (0x80124108). The second car's ram is tested only when the first car's isn't ready; a ready ram whose target isn't ahead ends the test (0x800CE638 -> 0x800CE798)."
 status = "verified"
 rush2 = 0x8006E2A8
 area = "collision"

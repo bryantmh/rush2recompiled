@@ -42,7 +42,6 @@ namespace {
     constexpr uint32_t metric_flag = 0x800D4160;    // u8: the speedometer reads km/h (func_800BA2A8)
     constexpr uint32_t game_state = 0x8010C0D0;     // 0-2 the menus, 3 and up a race
 
-    constexpr int hud_file = 64;
     constexpr int cell = 8;                         // a digit's cell, texels and screen pixels
     constexpr int column_h = 11 * cell;             // 0-9 and 0
     constexpr uint32_t whole_image = 0x80C9A000;    // 8 x 88 RGBA16 each
@@ -60,58 +59,12 @@ namespace {
     float last_pos[4][3];
     bool has_last[4];
 
-    uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
-        return (uint32_t)d[o] << 24 | (uint32_t)d[o + 1] << 16 | (uint32_t)d[o + 2] << 8 | d[o + 3];
-    }
-    uint16_t be16(const std::vector<uint8_t>& d, size_t o) {
-        return (uint16_t)(d[o] << 8 | d[o + 1]);
-    }
-
-    // ODOMETER from the HUD file as RGBA, upright. A Dreamcast source's image is RGBA texels behind a load list
-    // (bottom up as well).
+    // ODOMETER from the HUD file as RGBA, upright.
     bool read_image(const rush2::rom2049::Source& rom, std::vector<std::array<uint8_t, 4>>& rgba, int& w, int& h) {
         std::vector<uint8_t> file;
-        if (!rom.read_file(hud_file, file) || file.size() < 4) return false;
-        uint32_t imag = 0, txhd = 0, txhd_n = 0, plhd = 0, plhd_n = 0;
-        for (size_t o = be32(file, 0); o + 12 <= file.size(); o += 12) {
-            if (memcmp(&file[o], "IMAG", 4) == 0) imag = be32(file, o + 4);
-            else if (memcmp(&file[o], "TXHD", 4) == 0) { txhd = be32(file, o + 4); txhd_n = be32(file, o + 8); }
-            else if (memcmp(&file[o], "PLHD", 4) == 0) { plhd = be32(file, o + 4); plhd_n = be32(file, o + 8); }
-        }
-        for (uint32_t i = 0; i < txhd_n; i++) {
-            size_t rec = txhd + (size_t)i * 0x24;
-            if (rec + 0x24 > file.size() || strncmp((const char*)&file[rec], "ODOMETER", 16) != 0) continue;
-            w = be16(file, rec + 16);
-            h = be16(file, rec + 18);
-            int palette = (int16_t)be16(file, rec + 22);
-            std::vector<std::array<uint8_t, 4>> rows;
-            if (palette < 0) {
-                if (!rush2::rom2049::list_image(file, imag, (uint32_t)rec, rows, w, h)) return false;
-            }
-            else {
-                size_t texels = imag + be32(file, rec + 24);
-                size_t pal_rec = plhd + (size_t)palette * 0x18;
-                if ((uint32_t)palette >= plhd_n || pal_rec + 0x18 > file.size() || w <= 0 || h <= 0) return false;
-                size_t colors = imag + be32(file, pal_rec + 20);
-                if (texels + (size_t)(w * h + 1) / 2 > file.size() || colors + 32 > file.size()) return false;
-                rows.resize((size_t)(w * h));
-                for (int t = 0; t < w * h; t++) {
-                    int index = (file[texels + t / 2] >> ((t & 1) ? 0 : 4)) & 0xF;
-                    uint16_t c = be16(file, colors + index * 2);
-                    rows[t] = { uint8_t((c >> 11) << 3), uint8_t(((c >> 6) & 31) << 3), uint8_t(((c >> 1) & 31) << 3),
-                                uint8_t((c & 1) ? 255 : 0) };
-                }
-            }
-            rgba.resize((size_t)(w * h));
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) rgba[(size_t)(y * w + x)] = rows[(size_t)((h - 1 - y) * w + x)];
-            }
-            return w > 0 && h > 0;
-        }
-        return false;
+        return rom.read_file(rush2::rom2049::hud_file, file) && rush2::rom2049::file_image(file, "ODOMETER", rgba, w, h);
     }
 
-    // Splits the image into its two columns at the N64's size (a larger Dreamcast image is averaged down).
     void load_image() {
         auto rom = rush2::wings::get_rom();
         if (rom == loaded_rom) return;

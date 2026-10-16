@@ -143,6 +143,11 @@ namespace rush2::ui {
 
         set_option_value_t set_value = [this, cfg](const std::string& id, recomp::config::ConfigValueVariant value) {
             cfg->set_option_value(id, value);
+            // Without an Apply button the change is final, so save it now: quitting with the menu open never runs
+            // the tab's close callback, and settings read at launch (Graphics API) would come back unchanged.
+            if (!cfg->requires_confirmation) {
+                cfg->save_config();
+            }
             if (apply_button != nullptr) {
                 apply_button->set_enabled(any_dirty());
             }

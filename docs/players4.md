@@ -77,14 +77,12 @@ With 3 or 4 players, src/players4.cpp's `stunt_boxes` adds players 3 and 4's box
 0x800A0A84, before the HUD's widgets are created, so the text callback's widget comes after them and its text is
 drawn over their translucent fill, as players 1 and 2's) and
 `tag_stunt_boxes` tags every stunt box's widgets with their player and role (StuntScore, StuntTrick).
-In quadrants src/hud.cpp draws each box at half size about its top left corner, the scores'
-box in the bottom outer corner of the quadrant (left column: left, right column: right, the split margin from both
-edges) and the trick name's box on it. With Stunts on All Tracks in a race that corner is taken: the boxes stay on the
-bottom and slide toward the middle past the radar and odometer (top row), and in the bottom row, where the race time
-and position leave no room between them, go up to just above them (sliding past the radar there). In the stunt arena
-only elements that have shown count (players 2-4 never show a time or position there, but their hidden layout sits in
-the bottom row's corners); in a race the time and position count while hidden too (the position shows after the
-countdown). The stunt arena is told by the race's track id 0x8010C3F0 = 11.
+In quadrants each box is drawn at half size about its top left corner, placed by the HUD layout's rules
+(docs/hud_layout.md#rules): in the stunt arena the scores' box in the bottom outer corner of the quadrant and the
+trick name's on it; with Stunts on All Tracks in a race, under the corner panel (else beside the outer column), the
+trick name's box in the scores' place while it shows. The boxes keep room only where the stunt panel can show (the
+stunt arena, the cheat byte 0x8010C200), and in the stunt arena players 2-4's time and position, which never show,
+take none. The stunt arena is told by the race's track id 0x8010C3F0 = 11.
 While the text callback runs (hooks at its entry and its return, 0x800B7AE8), `rush2_hud_print` moves each string with the box of the player in $s6 that it is printed over
 and scales its rectangles about the same corner. Side by side, the boxes keep the game's layout moved to the half.
 

@@ -10757,12 +10757,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C3E2
-name = "race_selected_track_index"
-type = "u16"
-desc = "Halfword set by menus, car select, title, race end and save; read by ~94 functions (audio, camera, car, sound); selected track/circuit index (low confidence on exact meaning)."
+name = "race_player_count"
+type = "s16"
+desc = "Players in the race (1-4). Set by menus, car select, title, race end and save; read by ~94 functions (audio, camera, car, sound, HUD). The WRONG WAY callback (0x800BAB00) slides it with 1 player and hides it at 3 s with 2+; the skull callback hides a player's skull at or past it. The recomp reads it as the player count throughout (src/arrows.cpp, cheats.cpp, collectibles.cpp, ghost.cpp, pause_menu.cpp, players4.cpp...)."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/hud_layout.md#sliding-elements"
 
 [[var]]
 vram = 0x8010C3E4
@@ -11216,12 +11216,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C44A
-name = "settings_unused_option"
+name = "hud_show_gear"
 type = "u8"
-desc = "Setting byte written by race-globals copy and defaults, never read (low confidence)."
+desc = "HUD setting: the gear box shows (0 hides it; read by hud_widget_cb_gear_800B92F4 at 0x800B938C). Written by the race-globals copy and the defaults."
 area = "save"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/hud_layout.md#catalog"
 
 [[var]]
 vram = 0x8010C44C

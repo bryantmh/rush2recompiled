@@ -124,14 +124,6 @@ namespace rush2 {
         // Draws a number (up to 6 digits) centered on (center_x, center_y) of the 4:3 screen, `height` pixels tall,
         // white with a shadow, anchored at `anchor` (as set_widget_scale). After the widget loop.
         void draw_number(uint8_t* rdram, const char* digits, float center_x, float center_y, float height, float anchor);
-        // Split screen: where player's time and position panels were drawn this frame (the time with its lap time box,
-        // shown or not), as drawn: 4:3 screen pixels moved by their anchors, the space of an anchored x. time_* and
-        // place_* = the time's and position's left, right and top edges, y0-y1 = the top and bottom of the row of
-        // both. False if unknown.
-        struct PanelBounds {
-            float time_x0, time_x1, time_y0, place_x0, place_x1, place_y0, y0, y1;
-        };
-        bool panel_row(int player, PanelBounds& out);
     }
 
     // Cheats tab: the in-game cheat menu and forced cheats (src/cheats.cpp).

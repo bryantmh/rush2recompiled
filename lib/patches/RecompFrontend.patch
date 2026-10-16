@@ -386,7 +386,7 @@ index 294c371..5e5e2b0 100644
      Button *mods_folder_button = nullptr;
      int32_t active_mod_index = -1;
 diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
-index 4fdf81f..d5ba2a2 100644
+index 4fdf81f..87f4c1f 100644
 --- a/recompui/src/config/ui_config_tab_graphics.cpp
 +++ b/recompui/src/config/ui_config_tab_graphics.cpp
 @@ -81,6 +81,7 @@ namespace recompui {
@@ -492,7 +492,24 @@ index 4fdf81f..d5ba2a2 100644
                  );
              }
  
-@@ -359,6 +384,13 @@ namespace recompui {
+@@ -344,10 +369,13 @@ namespace recompui {
+             config.add_enum_option(
+                 graphics::options::api_option,
+                 "Graphics API",
+-                "Selects the graphics API to use.",
++                "Selects the graphics API to use. <recomp-color primary>Auto</recomp-color> picks the best one for your system. "
++                "Try <recomp-color primary>Vulkan</recomp-color> if the game crashes or freezes on your graphics card."
++                "<br />"
++                "<br />"
++                "<b>Takes effect after restarting the game.</b>",
+                 graphics_api_options,
+-                ultramodern::renderer::GraphicsApi::Auto,
+-                true
++                ultramodern::renderer::GraphicsApi::Auto
+             );
+ 
+             config.add_enum_option(
+@@ -359,6 +387,13 @@ namespace recompui {
                  true
              );
  

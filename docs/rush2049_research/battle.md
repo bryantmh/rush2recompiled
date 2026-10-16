@@ -117,7 +117,10 @@ weapon: 0x5C, 0x57, 0x5A, 0x58, 0x5B, 0x5D, 0x5E, 0x5F, 0x59 (`func_800B61A8(sou
   in a battle (type 6) between cars of different teams, a car holding the ram (+0x384 == 5) whose cooldown (+0x3AC)
   is done hits the other car if that car (not being put back, +0x6C4 == -1) is ahead of its middle by more than 2.25
   ft in its frame (snapshot position +0x794 through matrix +0x7A0): `func_8038D3A4(rammer, hit, 160 + 7 x the rammer's
-  speed +0x3F0)` (ft/s), ammo -1, cooldown 1/3 s (`0x80124108`); else the other car's ram the same way. Taking the
+  speed +0x3F0)` (ft/s), ammo -1, cooldown 1/3 s (`0x80124108`). The other car's ram gets the same test only when the
+  first car's isn't ready (no ram, the other car being put back, cooldown running, or the other car's state +0x358
+  set); a ready ram whose target isn't ahead ends the test (0x800CE638 branches to 0x800CE798), so the other car's ram
+  can't hit it in that call. The port once fell through to the other car's ram there too. Taking the
   ram makes the car 3 ft longer in front (`func_8010D3C0`: box corners +0xFC and +0x108 = the car table
   `0x8011F844`'s length ahead + 3, radius +0x654 = sqrt(max(ahead, behind)^2 + half width^2 + height^2)); when its
   ammo runs out `func_8038FCE0` puts the car's own size back (DROP doesn't). Table `0x8011F844`, 16 bytes per 2049
@@ -250,7 +253,7 @@ Main code. **[V]** unless marked.
   are not changed.
 - HUD: Rush 2's elements are removed except the speedometer and the clock (callbacks `0x800B7B1C`, `0x800B94C0`: the
   stunt clock counts the round down; elements are in a pool at 0x802F6400, `func_80060418`); the stunt score panels
-  are hidden (`func_800B9CC0`, `func_800B7654`). The layout (`rush2::views::view_of`, `layout_of`) gives every element
+  are hidden (`func_800B9CC0`, `func_800B7654`). The layout (the race HUD's engine, `place_battle` in src/hud_layout.cpp, read with `rush2::hud::battle_place`; docs/hud_layout.md#battle-hud) gives every element
   a position on the 4:3 screen and an anchor (its view's left edge, middle or right edge), so HUD Placement moves it
   like Rush 2's HUD: one view, two stacked (2049's look: bar 4/3 wider, coins at the line between the views), two side
   by side, quadrants (the coins either side of the clock, which Rush 2 puts in the screen's middle). The bar is a Rush
@@ -411,9 +414,12 @@ src/rush2049/battle.cpp; not in stunt mode, `0x8010C3E8 == 2`, or a ghost race).
   road came out 68-120 ft wide (the material is not a test: a gate's middle can be on a patch of another one).
   Test aids: `R2_BATTLE_TEST=road` logs where each side stopped, `startrow` puts a row on the start line too (in
   view on the grid; the race starts about 23 s into the recipe below).
-- **HUD**: the Weapons cheat's health bar, with the weapon held centered just over it and its ammo to its right, and
-  the power-up in effect over the bar's right end (beside the bar they ran into Rush 2's time, place and radar in
-  quadrants). These models turn about their own middle: `rush2::battle_render::model_center` takes the middle of the
+- **HUD**: the Weapons cheat's health bar with the weapon held and its ammo and the power-up in effect, placed by the
+  HUD layout engine (`battle_race_place`, docs/hud_layout.md: beside the bar in widescreen, stacked over it at 4:3).
+  The bar and the digits are drawn straight into the 2D list (`draw_views`), in the widget draw loop just before the
+  first banner or message (`hud_draw_views` from `rush2_hud_draw_widget`), so BONUS TIME, GAME OVER and the place
+  banners go over them; with none up, after the loop (`hud_draw`). The arena results stay last. These models turn
+  about their own middle: `rush2::battle_render::model_center` takes the middle of the
   bounding box of the vertices a model's display list loads (G_VTX, 1/16 ft), and `center_model` moves the model's
   origin so that middle is at the HUD point (their origins are off to one side, so they swung around it). The arenas'
   HUD is as before.

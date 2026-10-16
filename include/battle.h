@@ -68,10 +68,15 @@ namespace rush2::battle {
     // whether it is invisible.
     bool arrow_target(uint8_t* rdram, int car, bool& faded);
 
+    // Which battle HUD the race shows (the race HUD's layout, src/hud_layout.cpp): 0 none, 1 a battle arena's, 2 a
+    // race with the BATTLE row, 3 the Weapons cheat's bar in another race.
+    int hud_mode();
     // After the race HUD is built (func_800A06F8): adds the battle HUD's widgets. After the widget draw loop
     // (func_8007D9DC): draws the battle HUD's text.
     void hud_built(uint8_t* rdram, recomp_context* ctx);
     void hud_draw(uint8_t* rdram, recomp_context* ctx);
+    // In the widget draw loop before the first banner or message: the views' part of hud_draw, so they go over it.
+    void hud_draw_views(uint8_t* rdram);
 }
 
 #endif

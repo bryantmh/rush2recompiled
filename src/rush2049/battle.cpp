@@ -60,6 +60,7 @@
 #include "online.h"
 #include "battle_ai.h"
 #include "battle_render.h"
+#include "hud_layout.h"
 #include "car2049.h"
 #include "ghost.h"
 #include "rush2.h"
@@ -2422,7 +2423,9 @@ void rush2::battle::tick(uint8_t* rdram, float dt, recomp_context* ctx) {
 // players 2049 draws all of it a third wider than with one, three or four; the layout here follows that. Every element
 // keeps its distance from an anchor of its view (an edge or the middle), so HUD Placement (Original, 16:9, the window's
 // edges) moves the battle HUD as it moves Rush 2's; the digits are drawn by rush2::hud::draw_number, as the game's own
-// text is queued and can't be anchored.
+// text is queued and can't be anchored. Where everything goes is the race HUD's layout engine's (src/hud_layout.cpp,
+// place_battle: Rush 2049's places, and in a race clear of Rush 2's time and position), read with
+// rush2::hud::battle_place, so tools/hud_preview shows the battle HUD with the rest.
 //
 // The bar is an element of Rush 2's HUD layout system (func_800604FC builds an element, and its 2D widget, from a
 // 0x28 byte layout entry whose +0 is the image's name; the converter merges 2049's HUD files 63 and 76 into the arena's
@@ -2448,7 +2451,6 @@ namespace {
     constexpr uint32_t hud_entries = 0x8024F600;      // Layout entries, 0x28 bytes each (free RDRAM)
     constexpr uint32_t hud_names = 0x8024F900;        // The images' names, 16 bytes each
     constexpr uint32_t hud_colors = 0x8024F400;       // RGBA of the health bars' fills, 4 bytes per player
-    constexpr int health_width = 64, health_height = 8;   // HEALTHBG
     constexpr int entry_size = 0x28;
 
     // 2049 puts the models 2 units ahead of the camera, scaled 0.069 (weapons; the sonic 0.175 at 5.75), 0.025 (the
@@ -2464,15 +2466,8 @@ namespace {
     // widescreen runs out to the window's edges.
     const char* const coin_models[4] = { "BCOIN_BLUEG1", "BCOIN_REDG1", "BCOIN_YELLOWG1", "BCOIN_GREENG1" };
 
-    // Positions on the 4:3 screen. Each element keeps its distance from an anchor, a fraction of the screen's width
-    // (the view's left edge, middle or right edge), which HUD Placement moves (rush2::hud::set_widget_scale).
-    struct Layout {
-        float bar_x, bar_y, bar_sx, bar_sy, bar_anchor;
-        float weapon_x, weapon_y, weapon_anchor;
-        float coin_x, coin_y, coin_anchor;
-        float powerup_x, powerup_y;
-        bool small;     // a quadrant: smaller digits
-    };
+    // Where each view's battle HUD goes: the layout engine's (rush2::hud_layout::BattlePlace).
+    using Layout = rush2::hud_layout::BattlePlace;
 
     // Where a point of the 4:3 screen anchored at `anchor` shows, in 4:3 screen pixels from the 4:3 area's left edge.
     float anchored_x(float x, float anchor) {
@@ -2486,40 +2481,6 @@ namespace {
     };
     HudWidgets hud_widgets[4];
     int hud_players = 0;
-
-    // Where a view's elements go: the bar centered at the bottom; the weapon at the bottom on the view's outer side;
-    // the coin at the corner toward the screen's middle (2049's tables 0x80394150, 0x803941D0, 0x803940D0, 0x80394210).
-    Layout layout_of(const View& v) {
-        Layout l{};
-        float w = (float)(v.x1 - v.x0), h = (float)(v.y1 - v.y0);
-        bool tall = h > 120.0f;
-        l.bar_sx = v.wide ? 4.0f / 3.0f : 1.0f;
-        l.bar_sy = v.wide ? 8.0f / 7.0f : 1.0f;
-        float bar_center_y = (float)v.y1 - (tall ? 32.0f : 13.0f);
-        l.bar_x = (float)v.x0 + w * 0.5f - health_width * l.bar_sx * 0.5f;
-        l.bar_y = bar_center_y - health_height * l.bar_sy * 0.5f;
-        float side = v.wide ? 43.0f : w > 160.0f ? 32.0f : 40.0f;
-        l.weapon_x = v.right ? (float)v.x1 - side : (float)v.x0 + side;
-        l.weapon_y = bar_center_y;
-        if (w <= 160.0f && h <= 120.0f) {
-            // Quadrants: the coins meet at the middle of the screen, either side of Rush 2's clock there.
-            l.coin_x = v.right ? (float)v.x0 + 34.0f : (float)v.x1 - 34.0f;
-            l.coin_y = v.bottom ? (float)v.y0 + 12.0f : (float)v.y1 - 14.0f;
-        }
-        else {
-            // Stacked views: toward the line between them, as 2049. Otherwise at the bottom right, on the bar's line.
-            l.coin_x = (float)v.x1 - 23.0f;
-            l.coin_y = v.wide ? (v.bottom ? (float)v.y0 + 14.0f : (float)v.y1 - 14.0f) : bar_center_y;
-        }
-        l.small = w <= 160.0f && h <= 120.0f;
-        l.powerup_x = l.bar_x + health_width * l.bar_sx + 14.0f;
-        l.powerup_y = bar_center_y;
-        if (v.right && w <= 160.0f) l.powerup_x = l.bar_x - 14.0f;
-        l.bar_anchor = (float)(v.x0 + v.x1) / 640.0f;
-        l.weapon_anchor = (float)(v.right ? v.x1 : v.x0) / 320.0f;
-        l.coin_anchor = (float)(l.coin_x > (float)(v.x0 + v.x1) * 0.5f ? v.x1 : v.x0) / 320.0f;
-        return l;
-    }
 
     void write_h(uint8_t* rdram, uint32_t at, int16_t v) { MEM_H(0, (int32_t)at) = v; }
 
@@ -2585,12 +2546,13 @@ namespace {
             int car = hud_car(rdram, p);
             if (car < 0 || car >= max_cars || !widget_valid(rdram, w.frame)) continue;
             const Fighter& f = fighters[car];
-            Layout l = layout_of(view_of(rdram, p, hud_players));
+            Layout l;
+            if (!rush2::hud::battle_place(p, l)) continue;
             int x = (int)std::lround(l.bar_x), y = (int)std::lround(l.bar_y);
             uint32_t frame = widget_at(w.frame);
             MEM_H(0xA, (int32_t)frame) = (int16_t)x;
             MEM_H(0xC, (int32_t)frame) = (int16_t)y;
-            MEM_B(0x16, (int32_t)frame) = 0;
+            MEM_B(0x16, (int32_t)frame) = l.show_bar ? 0 : 1;
             rush2::hud::set_widget_scale(w.frame, l.bar_sx, l.bar_sy, l.bar_anchor);
             // The fill: green, as 2049's bar, inside the frame's 56 x 4 window.
             if (w.fill >= 0 && w.fill < 400) {
@@ -2607,7 +2569,7 @@ namespace {
                     MEM_H(0xC, (int32_t)fill) = (int16_t)(y + (int)std::lround(2.0f * l.bar_sy));
                     MEM_H(0x10, (int32_t)fill) = (int16_t)width;
                     MEM_H(0x12, (int32_t)fill) = (int16_t)std::lround(4.0f * l.bar_sy);
-                    MEM_B(0x16, (int32_t)fill) = width > 0 ? 0 : 1;
+                    MEM_B(0x16, (int32_t)fill) = width > 0 && l.show_bar ? 0 : 1;
                     rush2::hud::set_widget_scale(w.fill, 1.0f, 1.0f, l.bar_anchor);
                 }
             }
@@ -2710,6 +2672,7 @@ namespace {
 
     // The Weapons cheat's bar, the battle's (update_hud): HEALTHBG with the green fill in its 56 x 4 window.
     void draw_cheat_bar(uint8_t* rdram, const Layout& l, float fraction) {
+        if (!l.show_bar) return;
         uint32_t image = 0;
         int w = 0, h = 0;
         if (!rush2::battle_render::image(rdram, "HEALTHBG", &image, &w, &h)) return;
@@ -2720,40 +2683,6 @@ namespace {
         rush2::hud::draw_rect(rdram, x0, y0, x0 + width, y0 + std::round(4.0f * l.bar_sy), 0x008000FF, l.bar_anchor);
     }
 
-    // The Weapons cheat shows only the bar (its weapons are endless, so neither the weapon held nor its ammo is shown),
-    // centered at the bottom of the view. In split screen, where that runs into player p's time or position (the
-    // bottom row of quadrants in 4:3), it goes above them.
-    Layout cheat_layout(const View& v, int p) {
-        Layout l = layout_of(v);
-        rush2::hud::PanelBounds row;
-        if (!rush2::hud::panel_row(p, row)) return l;
-        constexpr float gap = 2.0f;
-        float bar_y1 = l.bar_y + health_height * l.bar_sy;
-        if (bar_y1 < row.y0 || l.bar_y > row.y1) return l;
-        float bar_x0 = anchored_x(l.bar_x, l.bar_anchor), bar_x1 = anchored_x(l.bar_x + health_width * l.bar_sx, l.bar_anchor);
-        if (bar_x0 < row.time_x1 + gap || bar_x1 > row.place_x0 - gap) {
-            float dy = row.y0 - gap - bar_y1;
-            l.bar_y += dy;
-            l.powerup_y += dy;
-        }
-        return l;
-    }
-
-    // A race with the BATTLE row: the Weapons cheat's bar, with the weapon held centered just over it (turning about
-    // its own middle, rush2_battle_view), its ammo to its right, and the power-up in effect over the bar's right end.
-    // Beside the bar they would run into Rush 2's time, place and radar in split screen.
-    constexpr float race_ammo_gap = 16.0f;   // from the weapon's middle to its ammo's
-    Layout race_layout(const View& v, int p) {
-        Layout l = cheat_layout(v, p);
-        float lift = 8.0f * l.bar_sy;
-        l.weapon_x = l.bar_x + health_width * l.bar_sx * 0.5f;
-        l.weapon_y = l.bar_y - lift;
-        l.weapon_anchor = l.bar_anchor;
-        l.powerup_x = l.bar_x + health_width * l.bar_sx;
-        l.powerup_y = l.bar_y - lift;
-        return l;
-    }
-
     // Moves pos so that model's middle, not its origin, is there (with axes m, scale included): a HUD model then
     // turns in place.
     void center_model(uint8_t* rdram, const char* model, const float m[9], float pos[3]) {
@@ -2762,9 +2691,11 @@ namespace {
         for (int i = 0; i < 3; i++) pos[i] -= c[0] * m[i] + c[1] * m[3 + i] + c[2] * m[6 + i];
     }
 
-    Layout view_layout(const View& v, int p) {
-        return mode == Mode::arena ? layout_of(v) : mode == Mode::race ? race_layout(v, p) : cheat_layout(v, p);
-    }
+}
+
+int rush2::battle::hud_mode() {
+    std::lock_guard lock{ battle_mutex };
+    return ready ? (int)mode : 0;
 }
 
 void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
@@ -2817,10 +2748,61 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-// After the widget draw loop: the ammo on each view's weapon and the kills on its coin; the results once the time is
-// up; the Weapons cheat's bar.
+namespace {
+    // Whether this frame's views (bars, ammo, kills) were drawn already, ahead of a banner (hud_draw_views).
+    bool views_drawn = false;
+
+    // Each view's battle HUD drawn straight into the 2D list: its bar (a race's, the Weapons cheat's, a custom arena's),
+    // the ammo on its weapon and the kills on its coin.
+    void draw_views(uint8_t* rdram) {
+        if (MEM_W(0, (int32_t)game_state) < 3 || !ready || mode == Mode::none) return;
+        // Not over the pause menu's screens (0x8002305C is set while one is open).
+        if (MEM_B(0, (int32_t)0x8002305C) != 0) return;
+        int players = mode == Mode::arena ? hud_players : local_players(rdram);
+        // Online: this machine's views (hud_car).
+        if (rush2::online::game::local_race_player() >= 0) players = std::min(players, rush2::online::game::local_race_players());
+        for (int p = 0; p < players; p++) {
+            int car = hud_car(rdram, p);
+            if (car < 0 || car >= max_cars) continue;
+            const Fighter& f = fighters[car];
+            Layout l;
+            if (!rush2::hud::battle_place(p, l)) continue;
+            char text[16];
+            float digits = l.digits;
+            if (mode == Mode::arena && !over) {
+                snprintf(text, sizeof(text), "%d", std::min(f.kills, 999));
+                if (l.show_coin) rush2::hud::draw_number(rdram, text, l.coin_x, l.coin_y, digits, l.coin_anchor);
+                if (p < hud_players && hud_widgets[p].frame < 0 && !is_wrecked(rdram, car)) {
+                    draw_cheat_bar(rdram, l, f.health / max_health);    // a custom arena's (hud_built)
+                }
+            }
+            else if (!is_wrecked(rdram, car)) {
+                draw_cheat_bar(rdram, l, f.health / max_health);
+            }
+            if ((mode == Mode::arena || mode == Mode::race) && f.weapon < 8 && f.ammo > 0 && !is_wrecked(rdram, car) &&
+                l.show_weapon) {
+                snprintf(text, sizeof(text), "%d", f.ammo);
+                rush2::hud::draw_number(rdram, text, l.ammo_x, l.weapon_y, digits, l.weapon_anchor);
+            }
+        }
+    }
+}
+
+// In the widget draw loop, before the first banner or message (BONUS TIME, GAME OVER, the place banners): the views'
+// battle HUD, so those are drawn over it.
+void rush2::battle::hud_draw_views(uint8_t* rdram) {
+    std::lock_guard lock{ battle_mutex };
+    if (views_drawn) return;
+    views_drawn = true;
+    draw_views(rdram);
+}
+
+// After the widget draw loop: the views' battle HUD if no banner came first (hud_draw_views); the results once the
+// time is up, over everything.
 void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ battle_mutex };
+    bool drawn = views_drawn;
+    views_drawn = false;
     if (MEM_W(0, (int32_t)game_state) < 3) {
         // Back in the menus (the track stays loaded): the race's widget slots are theirs again.
         if (hud_players != 0 || built_head != 0) {
@@ -2831,37 +2813,8 @@ void rush2::battle::hud_draw(uint8_t* rdram, recomp_context* ctx) {
         }
         return;
     }
-    if (!ready || mode == Mode::none) return;
-    // Not over the pause menu's screens (0x8002305C is set while one is open).
-    if (MEM_B(0, (int32_t)0x8002305C) != 0) return;
-    int players = mode == Mode::arena ? hud_players : local_players(rdram);
-    // Online: this machine's views (hud_car).
-    if (rush2::online::game::local_race_player() >= 0) players = std::min(players, rush2::online::game::local_race_players());
-    for (int p = 0; p < players; p++) {
-        int car = hud_car(rdram, p);
-        if (car < 0 || car >= max_cars) continue;
-        const Fighter& f = fighters[car];
-        View v = view_of(rdram, p, players);
-        Layout l = view_layout(v, p);
-        char text[16];
-        // Whole texels in a quadrant (the digits are 10 tall): a smaller size loses their top row.
-        float digits = l.small ? 10.0f : 12.0f;
-        if (mode == Mode::arena && !over) {
-            snprintf(text, sizeof(text), "%d", std::min(f.kills, 999));
-            rush2::hud::draw_number(rdram, text, l.coin_x, l.coin_y, digits, l.coin_anchor);
-            if (p < hud_players && hud_widgets[p].frame < 0 && !is_wrecked(rdram, car)) {
-                draw_cheat_bar(rdram, l, f.health / max_health);    // a custom arena's (hud_built)
-            }
-        }
-        else if (!is_wrecked(rdram, car)) {
-            draw_cheat_bar(rdram, l, f.health / max_health);
-        }
-        if ((mode == Mode::arena || mode == Mode::race) && f.weapon < 8 && f.ammo > 0 && !is_wrecked(rdram, car)) {
-            snprintf(text, sizeof(text), "%d", f.ammo);
-            float ammo_x = mode == Mode::race ? l.weapon_x + race_ammo_gap * l.bar_sx : l.weapon_x;
-            rush2::hud::draw_number(rdram, text, ammo_x, l.weapon_y, digits, l.weapon_anchor);
-        }
-    }
+    if (!drawn) draw_views(rdram);
+    if (!ready || mode == Mode::none || MEM_B(0, (int32_t)0x8002305C) != 0) return;
     if (mode == Mode::arena && over) draw_results(rdram, ctx);
 }
 
@@ -2905,42 +2858,48 @@ extern "C" void rush2_battle_view(uint8_t* rdram, recomp_context* ctx) {
     }
     const Fighter& f = fighters[car];
     View v = view_of(rdram, p, players);
-    Layout l = view_layout(v, p);
+    Layout l;
+    if (!rush2::hud::battle_place(p, l)) {
+        hide_slot(rdram, weapon_slot);
+        hide_slot(rdram, powerup_slot);
+        hide_slot(rdram, coin_slot);
+        return;
+    }
     float pos[3], axes[9], m[9];
     float gain = model_gain(rdram, p, v) * hud_distance;
-    // The weapon held, turning about the camera's up axis.
-    if ((mode == Mode::arena || mode == Mode::race) && f.weapon < 8 && !is_wrecked(rdram, car)) {
+    // The weapon held, turning about the camera's up axis (the Weapons cheat's too, in the race's place).
+    if (mode != Mode::none && f.weapon < 8 && !is_wrecked(rdram, car) && l.show_weapon) {
         view_point(rdram, p, v, anchored_x(l.weapon_x, l.weapon_anchor), l.weapon_y, hud_distance, pos, axes);
         memcpy(m, axes, sizeof(m));
         yaw(m, hud_spin);
-        scale_matrix(m, (f.weapon == sonic ? sonic_scale : weapon_scale) * gain);
+        scale_matrix(m, (f.weapon == sonic ? sonic_scale : weapon_scale) * gain * l.weapon_scale);
         color_slot(weapon_slot, plain_color);
-        if (mode == Mode::race) center_model(rdram, mount_models[f.weapon], m, pos);
+        if (mode != Mode::arena) center_model(rdram, mount_models[f.weapon], m, pos);
         place_slot(rdram, weapon_slot, mount_models[f.weapon], m, pos);
     }
     else {
         hide_slot(rdram, weapon_slot);
     }
     // The power-up in effect (invisibility before the shield), turning.
-    if ((f.invisible > 0.0f || f.shield > 0.0f) && !is_wrecked(rdram, car)) {
-        view_point(rdram, p, v, anchored_x(l.powerup_x, l.bar_anchor), l.powerup_y, hud_distance, pos, axes);
+    if ((f.invisible > 0.0f || f.shield > 0.0f) && !is_wrecked(rdram, car) && l.show_powerup) {
+        view_point(rdram, p, v, anchored_x(l.powerup_x, l.powerup_anchor), l.powerup_y, hud_distance, pos, axes);
         memcpy(m, axes, sizeof(m));
         yaw(m, hud_spin);
-        scale_matrix(m, powerup_scale * gain);
+        scale_matrix(m, powerup_scale * gain * l.powerup_scale);
         color_slot(powerup_slot, plain_color);
         const char* model = f.invisible > 0.0f ? "WEPICON_INVSG1" : "WEPICON_SHLDG1";
-        if (mode == Mode::race) center_model(rdram, model, m, pos);
+        if (mode != Mode::arena) center_model(rdram, model, m, pos);
         place_slot(rdram, powerup_slot, model, m, pos);
     }
     else {
         hide_slot(rdram, powerup_slot);
     }
     // The player's coin, face on (2049 tips its model a quarter turn back), in its team's color.
-    if (mode == Mode::arena && !over) {
+    if (mode == Mode::arena && !over && l.show_coin) {
         view_point(rdram, p, v, anchored_x(l.coin_x, l.coin_anchor), l.coin_y, hud_distance, pos, axes);
         memcpy(m, axes, sizeof(m));
         pitch(m, -1.5707964f);
-        scale_matrix(m, coin_scale * gain);
+        scale_matrix(m, coin_scale * gain * l.coin_scale);
         color_slot(coin_slot, plain_color);
         int coin_player = rush2::online::game::local_race_player() >= 0 ? rush2::online::game::local_car(p) : p;
         place_slot(rdram, coin_slot, coin_models[rush2::battle::team_of(coin_player)], m, pos);
@@ -2965,8 +2924,9 @@ extern "C" void rush2_battle_time_left_cheat(uint8_t* rdram, recomp_context* ctx
 // Start of Rush 2's car_car_collision_response_8006E2A8 ($a1, $a2 the two cars), 2049's func_800CE358, where 2049's
 // ram is: in a battle (and with the Weapons cheat), a car holding the ram (ammo left, its cooldown done) that collides
 // with a car of another team ahead of its middle by more than 2.25 ft (in its own frame) deals it 160 + 7 x its speed
-// (ft/s), uses an ammo and waits a third of a second; failing that, the other car's ram the same way. The ram doesn't
-// fire.
+// (ft/s), uses an ammo and waits a third of a second. Only when the first car's ram isn't ready (none, or its cooldown
+// running) does the other car's ram get the same test: a ready ram whose target isn't ahead ends it (2049 branches to
+// 0x800CE798 from 0x800CE638), so it can't be met by the other car's ram in the same contact. The ram doesn't fire.
 extern "C" void rush2_battle_ram(uint8_t* rdram, recomp_context* ctx) {
     if (mode == Mode::none) return;
     uint32_t a = (uint32_t)ctx->r5, b = (uint32_t)ctx->r6;
@@ -2979,14 +2939,14 @@ extern "C" void rush2_battle_ram(uint8_t* rdram, recomp_context* ctx) {
     for (int k = 0; k < 2; k++) {
         int rammer = k == 0 ? i : j, hit = k == 0 ? j : i;
         Fighter& f = fighters[rammer];
-        if (f.weapon != ram || f.ammo == 0 || f.cooldown > 0.0f) continue;
+        if (f.weapon != ram || f.ammo == 0 || f.cooldown > 0.0f || respawning(rdram, hit)) continue;
         float c[3], o[3], m[9], local[3];
         car_pos(rdram, rammer, c);
         car_pos(rdram, hit, o);
         car_axes(rdram, rammer, m);
         float d[3] = { o[0] - c[0], o[1] - c[1], o[2] - c[2] };
         to_local(m, d, local);
-        if (local[2] <= ram_ahead || respawning(rdram, hit)) continue;
+        if (local[2] <= ram_ahead) return;
         damage(rdram, hit, rammer, ram_damage_base + ram_damage_speed * read_f(rdram, car_at(rammer) + car_speed));
         play_sound(rdram, weapons[ram].sound, c);
         f.cooldown = ram_cooldown;

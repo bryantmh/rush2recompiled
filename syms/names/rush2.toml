@@ -13032,12 +13032,12 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 
 [[func]]
 vram = 0x800B5A90
-name = "hud_widget_cb_lap_counter"
-sig = "s32 hud_widget_cb_lap_counter(Widget *w)"
-desc = "HUD lap counter widget callback using race_query_by_index and 0x18 icon blits at position (0x90, 0x40, 0xA0); state in game_state / race_type."
-status = "inferred"
+name = "hud_widget_cb_finish_place"
+sig = "s32 hud_widget_cb_finish_place(Widget *w)"
+desc = "Finish overlay callback (hud_race_finish_overlay_build_800A0FB4's table 0x800BF328): the player's place once finished: 1STPLACE (sub 2), or ENDPLACE's 48 x 24 cell for the place (sub 0) at x 96 then ENDPLAC1 'PLACE' (sub 1) at x 155; y 144 with one view, else the table's (34, player 2 176)."
+status = "verified"
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B5CA4
@@ -13196,23 +13196,23 @@ ref = "docs/players4.md#stunt-panel"
 
 [[func]]
 vram = 0x800B7B1C
-name = "hud_widget_cb_race_time_display"
-sig = "s32 hud_widget_cb_race_time_display(HudWidget *w)"
-desc = "HUD element callback: the tachometer background (manual gearbox) and the race time. Its player is the low nibble of the element parameter (+0x2C); it shows only while that player is below the view count (read at 0x800B7B64), and formats the player's race time into 0x80240720 + player*8 (race_format_time_digits, 0x800B7CA0 just after)."
+name = "hud_widget_cb_tach_frame"
+sig = "s32 hud_widget_cb_tach_frame(Widget *w)"
+desc = "HUD element callback on the tachometer's frame (TACH, manual gearbox; table position (112,29), player 2 (112,139); the player in the parameter's low nibble; hidden while the tachometer setting 0x8010C425 is 0). As the HUD's first entry it also advances the race clock (race_time_accum_8010C034) and formats each player's race time digits (race_format_time_digits_8008ECC4 into 0x80240720, 8 bytes each) and hud_race_time_display_s16_800D3620."
 consts = "0x80240720: per-player race time digits, 8 bytes each"
 status = "verified"
 ported = true
 area = "ui"
-ref = "docs/online.md#the-hud-online"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B7E88
-name = "hud_widget_cb_orbit_icons"
-sig = "s32 hud_widget_cb_orbit_icons(Widget *w)"
-desc = "HUD element callback: the tachometer's lit part, shown with the manual gearbox. Its player is the low nibble of the element parameter (+0x2C); it shows only while that player is below the view count (read at 0x800B7E9C) and reads that player's physics car by number."
+name = "hud_widget_cb_tach_needle"
+sig = "s32 hud_widget_cb_tach_needle(Widget *w)"
+desc = "HUD element callback: the tachometer's lit part (TACHINSIDE, parameter >> 4 = 1) and needle (TACHNEEDLE), manual gearbox. The needle: x = 157 + 63 cos a clamped to 112-204, y = 1 - 41 sin a (at least 30), +110 for any car but the first, a 215-315 degrees by revs. Its player is the low nibble of the parameter; it shows only while that player is below the view count (read at 0x800B7E9C) and reads that player's physics car by number."
 status = "verified"
 area = "ui"
-ref = "docs/online.md#the-hud-online"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B8188
@@ -13227,23 +13227,23 @@ ref = "us.toml"
 
 [[func]]
 vram = 0x800B8900
-name = "hud_widget_cb_respawn_prompt"
-sig = "s32 hud_widget_cb_respawn_prompt(HudWidget *w)"
-desc = "Patched in us.toml. Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. / Ghost races (src/ghost.cpp): race settings (a computer car per chosen ghost), race setup, the ghosts' cars and colors, each car's physics tick (recording player 1, skipping the ghosts' scheduled steps), the drones' driver (skipped for ghosts), the end of a physics tick (the ghosts' steps), car against car (not ghosts), standings, track map and radar dots (not ghosts), the view's fog color (the ghosts' translucency), and the end of the car select's text (the ghost choice). | HUD track map car dots. Hooked at 0x800B8958/0x800B8950 ($a1 = whether car $t2's dot is hidden)."
+name = "hud_widget_cb_map_dots"
+sig = "s32 hud_widget_cb_map_dots(Widget *w)"
+desc = "HUD element callback: a car's dot on the shared track map (TMAPDOT 4 x 4 cells, the car in the parameter), inside TRACKMAPBG4 at (207,72)."
 status = "verified"
 ported = true
 area = "ui"
-ref = "us.toml"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B8CC8
-name = "hud_widget_cb_mini_map"
-sig = "s32 hud_widget_cb_mini_map(HudWidget *w)"
-desc = "Patched in us.toml. Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. / Ghost races (src/ghost.cpp): race settings (a computer car per chosen ghost), race setup, the ghosts' cars and colors, each car's physics tick (recording player 1, skipping the ghosts' scheduled steps), the drones' driver (skipped for ghosts), the end of a physics tick (the ghosts' steps), car against car (not ghosts), standings, track map and radar dots (not ghosts), the view's fog color (the ghosts' translucency), and the end of the car select's text (the ghost choice). | HUD radar dots (dot $s0: +0x2C bits 8-11 view, bits 0-3 car). Hooked at 0x800B8D28 / 0x800B8D24."
+name = "hud_widget_cb_radar_dots"
+sig = "s32 hud_widget_cb_radar_dots(Widget *w)"
+desc = "HUD element callback: a car's dot on the radar (TRAFFIC 2 x 4 cells, the car in the parameter's low byte, the player in bits 8-11), inside the radar frame; parked at (-1,-1) while hidden."
 status = "verified"
 ported = true
 area = "ui"
-ref = "us.toml"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B920C
@@ -13257,22 +13257,22 @@ ref = "us.toml"
 
 [[func]]
 vram = 0x800B92F4
-name = "hud_widget_cb_model_lookup"
-sig = "s32 hud_widget_cb_model_lookup(Widget *w)"
-desc = "HUD element callback: the gear box (GEARDARK model). Its player is bits 8-11 of the element parameter (+0x2C); it shows only while that player is below the view count (read at 0x800B9358) and reads that player's physics car by number, not through record 0."
+name = "hud_widget_cb_gear"
+sig = "s32 hud_widget_cb_gear(Widget *w)"
+desc = "HUD element callback: the gear box (GEAR dim at (212,14), player 2 (212,195); parameter bit 12: the lit gear, a 32 x 6 row at y + 6 * gear; GEARDARK model). Its player is bits 8-11 of the parameter; it shows only while that player is below the view count (read at 0x800B9358), clears itself for good when that physics car's +0x3D8 is set (automatic), and is hidden while hud_show_gear_8010C44A is 0 (read at 0x800B938C)."
 status = "verified"
 area = "ui"
-ref = "docs/online.md#the-hud-online"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B94C0
-name = "hud_widget_cb_countdown_time"
-sig = "s32 hud_widget_cb_countdown_time(Widget *w)"
-desc = "HUD countdown time widget callback formatting a time with race_format_time_digits (0x63 = 99 max) and playing menu sound 0x4B; sets icon 0x10x0x11."
+name = "hud_widget_cb_time_left"
+sig = "s32 hud_widget_cb_time_left(Widget *w)"
+desc = "HUD element callback: the shared time left (COUNTDOWNBG at (250,14), DIGIT0 16 x 17 cells). Hidden while 0x8010C3F2 is 0 and by the No Race Timer cheat (0x800D9E88)."
 consts = "0x63 = 99 max, 0x4B = sound id"
-status = "inferred"
+status = "verified"
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B970C
@@ -13287,32 +13287,32 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 
 [[func]]
 vram = 0x800B9754
-name = "hud_widget_cb_icon_row_a"
-sig = "s32 hud_widget_cb_icon_row_a(HudWidget *w)"
-desc = "HUD element callback: a player's race time widget; shows itself only while its player is below the player count 0x8010C3E2 (a second time under player 1's gear box in a 2-player single-view race). Reads player 1's digits at 0x80240720."
-status = "inferred"
+name = "hud_widget_cb_race_time"
+sig = "s32 hud_widget_cb_race_time(Widget *w)"
+desc = "HUD element callback: the race time box (TIMETOP frame, sub 9; TIMEFONT 7 x 11 cells: 0-9, ':' 10, '.' 11). At (17,15), player 2 (17,125); hidden while the time setting 0x8010C3F1 is 0."
+status = "verified"
 ported = true
 area = "ui"
-ref = "docs/online.md#the-hud-online"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B9978
-name = "hud_widget_cb_icon_row_b"
-sig = "s32 hud_widget_cb_icon_row_b(HudWidget *w)"
-desc = "Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
-status = "inferred"
+name = "hud_widget_cb_lap_time"
+sig = "s32 hud_widget_cb_lap_time(Widget *w)"
+desc = "HUD element callback: the lap (checkpoint) time box under the race time, shown for a few seconds after a checkpoint (TIMETOP, TIMEFONT cells). At (17,33), player 2 (17,143); hidden while the time setting 0x8010C3F1 is 0."
+status = "verified"
 ported = true
 area = "ui"
-ref = "us.toml"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B9C44
-name = "hud_widget_cb_simple_reset"
-sig = "s32 hud_widget_cb_simple_reset(Widget *w)"
-desc = "Small HUD widget callback: advances with hud_widget_init_type then resets via hud_widget_reset; reads settings_game_option and race_selected_track_index. (low confidence)"
-status = "inferred"
+name = "hud_widget_cb_deaths_skull"
+sig = "s32 hud_widget_cb_deaths_skull(Widget *w)"
+desc = "HUD element callback: the DEATHS option's skull (CROSSBONES). Shown while race_deaths_8010BC98 is set and its player (the parameter) is below the player count; x 80 with the race time shown, else 12; y 10, player 2 120."
+status = "verified"
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B9C4C
@@ -13323,12 +13323,13 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 
 [[func]]
 vram = 0x800B9CC0
-name = "hud_widget_cb_check_flags"
-sig = "s32 hud_widget_cb_check_flags(Widget *w)"
-desc = "Small HUD widget callback checking race_game_mode, race_mode_option and race_type via hud_widget_init_type. (low confidence)"
-status = "inferred"
+name = "hud_widget_cb_it_badge"
+sig = "s32 hud_widget_cb_it_badge(Widget *w)"
+desc = "HUD element callback: the stunt mode's IT badge (ITBG at (82,11), IT at (86,15), +110 for player 2; the player in the parameter). Shown when race_type_8010C3E8 is 2, race_game_mode_800FAE6C is 0, race_mode_option_8010C169 is set and the player's record +0x21 (0x800C2161 + player * 40) is set; a battle hides it (rush2_battle_hide_stunt_panel at 0x800B9D2C). Not the DEATHS skull (that is 0x800B9C44)."
+consts = "2 = race_type stunt; 0x28 = player record size"
+status = "verified"
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/hud_layout.md#catalog"
 
 [[func]]
 vram = 0x800B9D48
@@ -13366,11 +13367,11 @@ ref = "us.toml"
 vram = 0x800BA868
 name = "hud_widget_cb_lap_banner"
 sig = "s32 hud_widget_cb_lap_banner(HudWidget *w)"
-desc = "Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
-status = "inferred"
+desc = "Race HUD callback for WRONG WAY (WRONGWAY at (88,50), player 2+ at (88,160)) and its three HUDARROW arrows (x 160-16k, 16 lower, blinking alpha 0x60/0xFF by (t mod 350)/50 vs the arrow index). Shown while settings_lap_banner_option 0x8010C452 is set and the car is going the wrong way. With one player, 3.0-3.5 s after it shows it slides linearly (f=(t-3000)/500) to (22,192), arrows to x 60-16k, 142 lower; with 2+ players it hides at 3 s. Start time (game clock ms) in w+0x30."
+status = "verified"
 ported = true
 area = "ui"
-ref = "us.toml"
+ref = "docs/hud_layout.md#sliding-elements"
 
 [[func]]
 vram = 0x800BAD44

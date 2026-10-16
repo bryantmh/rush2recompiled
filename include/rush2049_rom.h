@@ -89,6 +89,13 @@ namespace rush2::rom2049 {
     // list's first G_SETTIMG, its render tile's format and its G_SETTILESIZE. Rows as stored. False otherwise.
     bool list_image(const std::vector<uint8_t>& file, uint32_t imag, uint32_t record, std::vector<std::array<uint8_t, 4>>& rgba,
                     int& w, int& h);
+
+    // The HUD's images (ODOMETER, HEALTHBG...) are in this file.
+    constexpr int hud_file = 64;
+    // A named image (TXHD record) of a file as RGBA, top row first: the N64's 4-bit paletted texels, or a Dreamcast
+    // source's texture-load list (list_image). False if the file has no image by that name (or it can't be read).
+    bool file_image(const std::vector<uint8_t>& file, const char* name, std::vector<std::array<uint8_t, 4>>& rgba, int& w,
+                    int& h);
 }
 
 #endif

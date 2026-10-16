@@ -262,6 +262,7 @@ namespace {
     int8_t widget_players[max_widgets];
     rush2::players4::HudRole widget_roles[max_widgets];
     bool widget_lap_time[max_widgets];
+    uint32_t widget_elements[max_widgets]; // each widget's element callback, 0 if none
 
     rush2::players4::HudRole element_role(uint32_t callback) {
         using rush2::players4::HudRole;
@@ -306,6 +307,7 @@ namespace {
                 widget_players[slot] = (int8_t)element_player(callback, (uint32_t)MEM_W(element_param, (int32_t)e));
                 widget_roles[slot] = element_role(callback);
                 widget_lap_time[slot] = callback == 0x800B9978;
+                widget_elements[slot] = callback;
             }
         }
     }
@@ -490,7 +492,9 @@ namespace rush2::players4 {
             int32_t sp = (int32_t)ctx->r29;
             MEM_W(0x10, sp) = finish_box_alpha;
             MEM_W(0x14, sp) = 0;
-            MEM_W(0x18, sp) = 0;
+            // No callback, so the parameter is unused by the game: players 3 and 4's carry their player, as their boxes
+            // are player 2's (src/hud_catalog.cpp tells them apart by it).
+            MEM_W(0x18, sp) = player >= 2 ? player : 0;
             MEM_W(0x1C, sp) = 0;
             ctx->r4 = r[0];
             ctx->r5 = r[1];
@@ -534,6 +538,7 @@ namespace rush2::players4 {
             widget_players[slot] = -1;
             widget_roles[slot] = rush2::players4::HudRole::Other;
             widget_lap_time[slot] = false;
+            widget_elements[slot] = 0;
         }
         tag_widgets(rdram, head);
         tag_stunt_boxes(rdram);
@@ -542,6 +547,10 @@ namespace rush2::players4 {
 
     int hud_widget_player(int slot) {
         return slot >= 0 && slot < max_widgets ? widget_players[slot] : -1;
+    }
+
+    uint32_t hud_widget_element(int slot) {
+        return slot >= 0 && slot < max_widgets ? widget_elements[slot] : 0;
     }
 
     bool hud_widget_lap_time(int slot) {
@@ -570,6 +579,19 @@ namespace rush2::players4 {
     }
 
     void frame(uint8_t* rdram) {
+        // AI-agent test aid, not in the menu: RUSH2_TEST_MANUAL=<one 0/1 per player, 1 manual> sets each player's
+        // car select TRANSMISSION (record +0x20: 1 automatic, 0 manual), which the race copies to the car, so a test
+        // shows the tachometer and gear (docs/hud_layout.md#captures).
+        static const char* test_manual = std::getenv("RUSH2_TEST_MANUAL");
+        for (int p = 0; test_manual != nullptr && p < max_players && test_manual[p] != 0; p++) {
+            MEM_B(0x20, record(p)) = test_manual[p] == '1' ? 0 : 1;
+        }
+        // AI-agent test aid: RUSH2_TEST_DEATHS=1 turns on the track select's DEATHS option (0x800D5760 + 0x11), which
+        // the race copies to race_deaths_8010BC98, so a test shows the skull (docs/hud_layout.md#captures).
+        static const bool test_deaths = std::getenv("RUSH2_TEST_DEATHS") != nullptr;
+        if (test_deaths) {
+            MEM_B(0, (int32_t)0x800D5771) = 1;
+        }
         MEM_H(0, (int32_t)clamped_players) = (int16_t)std::min<int>(shown_players(rdram), 2);
         // Views 2 and 3 draw the scene lists of views 0 and 1.
         for (int view = 2; view < max_players; view++) {

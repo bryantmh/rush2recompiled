@@ -250,6 +250,24 @@ func = "hud_widget_alloc_800541F8"
 before_vram = 0x800542D0
 text = "    rush2_hud_widget_created(rdram, ctx);"
 
+# The HUD catalog's identity of each widget (src/hud.cpp, docs/hud_layout.md#catalog): the layout entry an element was
+# built from, just after widgets_create built it ($s0 the entry, $v0 the element) and before its callback first runs,
+# and the box (func_80093B38's arguments) a box's five widgets are built for.
+[[patches.hook]]
+func = "widgets_create_800604FC"
+before_vram = 0x80060594
+text = "    rush2_hud_entry_created(rdram, ctx);"
+
+[[patches.hook]]
+func = "hud_multi_widget_menu_setup_80093B38"
+before_vram = 0x80093B38
+text = "    rush2_hud_box_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "hud_multi_widget_menu_setup_80093B38"
+before_vram = 0x80093C20
+text = "    rush2_hud_box_part(rdram, ctx);"
+
 # Before the widget draw loop.
 [[patches.hook]]
 func = "gfx_draw_frame_views_8007D9DC"
@@ -759,7 +777,7 @@ text = "    rush2_track49_obstacle_clock(rdram, ctx);"
 # Rush 2049's battle arenas (src/rush2049/battle.cpp) are played in stunt mode but have no stunt score: its panel's visibility
 # callbacks func_800B9CC0 (the trick score panel) and func_800B7654 (the BEST / TOTAL scores) hide them.
 [[patches.hook]]
-func = "hud_widget_cb_check_flags_800B9CC0"
+func = "hud_widget_cb_it_badge_800B9CC0"
 before_vram = 0x800B9D2C
 text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
 
@@ -770,7 +788,7 @@ text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
 
 # Battle: the No Race Timer cheat doesn't hide a battle's time left.
 [[patches.hook]]
-func = "hud_widget_cb_countdown_time_800B94C0"
+func = "hud_widget_cb_time_left_800B94C0"
 before_vram = 0x800B951C
 text = "    rush2_battle_time_left_cheat(rdram, ctx);"
 
@@ -870,7 +888,7 @@ before_vram = 0x800B81D8
 text = "    rush2_track49_map_s4(rdram, ctx);"
 
 [[patches.hook]]
-func = "hud_widget_cb_respawn_prompt_800B8900"
+func = "hud_widget_cb_map_dots_800B8900"
 before_vram = 0x800B8950
 text = "    rush2_track49_map_a1(rdram, ctx);"
 
@@ -880,7 +898,7 @@ before_vram = 0x800B9260
 text = "    rush2_track49_map_t0(rdram, ctx);"
 
 [[patches.hook]]
-func = "hud_widget_cb_mini_map_800B8CC8"
+func = "hud_widget_cb_radar_dots_800B8CC8"
 before_vram = 0x800B8D24
 text = "    rush2_track49_map_t2(rdram, ctx);"
 
@@ -12102,12 +12120,12 @@ vram = 0x800AC388
 value = 0x250801F0 # addiu $t0, $t0, 0x1888 -> 802401F0
 
 [[patches.instruction]]
-func = "hud_widget_cb_lap_counter_800B5A90"
+func = "hud_widget_cb_finish_place_800B5A90"
 vram = 0x800B5A9C
 value = 0x3C0F8024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_lap_counter_800B5A90"
+func = "hud_widget_cb_finish_place_800B5A90"
 vram = 0x800B5AA0
 value = 0x25EF0810 # addiu $t7, $t7, -0xCE8 -> 80240810
 
@@ -12312,102 +12330,102 @@ vram = 0x800B781C
 value = 0x27180990 # addiu $t8, $t8, -0x3F40 -> 80240990
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C34
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C3C
 value = 0x3C0F8024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C54
 value = 0xC4300700 # lwc1 $f16, 0x3AF0($at) -> 80240700
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C58
 value = 0x25EF06E0 # addiu $t7, $t7, 0x3A38 -> 802406E0
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C74
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C7C
 value = 0xE42C0700 # swc1 $f12, 0x3AF0($at) -> 80240700
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C80
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C88
 value = 0xC42C06E0 # lwc1 $f12, 0x3A38($at) -> 802406E0
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C8C
 value = 0x3C198024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 vram = 0x800B7C90
 value = 0x27390720 # addiu $t9, $t9, 0x3968 -> 80240720
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_a_800B9754"
+func = "hud_widget_cb_race_time_800B9754"
 vram = 0x800B987C
 value = 0x3C198024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_a_800B9754"
+func = "hud_widget_cb_race_time_800B9754"
 vram = 0x800B9884
 value = 0x93390720 # lbu $t9, 0x3968($t9) -> 80240720
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_a_800B9754"
+func = "hud_widget_cb_race_time_800B9754"
 vram = 0x800B993C
 value = 0x3C028024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_a_800B9754"
+func = "hud_widget_cb_race_time_800B9754"
 vram = 0x800B9944
 value = 0x90420720 # lbu $v0, 0x3968($v0) -> 80240720
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_b_800B9978"
+func = "hud_widget_cb_lap_time_800B9978"
 vram = 0x800B9984
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_b_800B9978"
+func = "hud_widget_cb_lap_time_800B9978"
 vram = 0x800B99B4
 value = 0xC42406C0 # lwc1 $f4, 0x35E8($at) -> 802406C0
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_b_800B9978"
+func = "hud_widget_cb_lap_time_800B9978"
 vram = 0x800B9A8C
 value = 0x3C0E8024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_b_800B9978"
+func = "hud_widget_cb_lap_time_800B9978"
 vram = 0x800B9A94
 value = 0x91CE0760 # lbu $t6, 0x39B8($t6) -> 80240760
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_b_800B9978"
+func = "hud_widget_cb_lap_time_800B9978"
 vram = 0x800B9B34
 value = 0x3C028024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_widget_cb_icon_row_b_800B9978"
+func = "hud_widget_cb_lap_time_800B9978"
 vram = 0x800B9B3C
 value = 0x90420760 # lbu $v0, 0x39B8($v0) -> 80240760
 
@@ -12715,12 +12733,12 @@ before_vram = 0x800A2238
 text = "    rush2_ghost_rubber_band(rdram, ctx);"
 
 [[patches.hook]]
-func = "hud_widget_cb_respawn_prompt_800B8900"
+func = "hud_widget_cb_map_dots_800B8900"
 before_vram = 0x800B8958
 text = "    rush2_ghost_map_dot(rdram, ctx);"
 
 [[patches.hook]]
-func = "hud_widget_cb_mini_map_800B8CC8"
+func = "hud_widget_cb_radar_dots_800B8CC8"
 before_vram = 0x800B8D28
 text = "    rush2_ghost_radar_dot(rdram, ctx);"
 
@@ -12977,24 +12995,24 @@ text = "    ctx->r5 = (gpr)(int32_t)rush2_online_arrow_view(rdram, (int)(int32_t
 # Online: the gear box and the tachometer read their player's car by number, not through the player's record; online
 # they are this machine's player's (rush2_online_hud_views, with their elements' player set at the HUD's setup).
 [[patches.hook]]
-func = "hud_widget_cb_model_lookup_800B92F4"
+func = "hud_widget_cb_gear_800B92F4"
 before_vram = 0x800B9358
 text = "    ctx->r11 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r11);"
 
 [[patches.hook]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 before_vram = 0x800B7B64
 text = "    ctx->r15 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r15);"
 
 # The race time's digits, just formatted for the element's player ([$sp + 0x28]), go where its view's time widget reads
 # them when it is one of this machine's players.
 [[patches.hook]]
-func = "hud_widget_cb_race_time_display_800B7B1C"
+func = "hud_widget_cb_tach_frame_800B7B1C"
 before_vram = 0x800B7CA0
 text = "    rush2_online_hud_time_digits(rdram, (int)MEM_W(0x28, ctx->r29));"
 
 [[patches.hook]]
-func = "hud_widget_cb_orbit_icons_800B7E88"
+func = "hud_widget_cb_tach_needle_800B7E88"
 before_vram = 0x800B7E9C
 text = "    ctx->r14 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r14);"
 

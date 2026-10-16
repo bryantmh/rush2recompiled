@@ -150,6 +150,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/hitch_profiler.cpp
     ${CMAKE_SOURCE_DIR}/src/pak.cpp
     ${CMAKE_SOURCE_DIR}/src/hud.cpp
+    ${CMAKE_SOURCE_DIR}/src/hud_catalog.cpp
+    ${CMAKE_SOURCE_DIR}/src/hud_layout.cpp
     ${CMAKE_SOURCE_DIR}/src/interpolation.cpp
     ${CMAKE_SOURCE_DIR}/src/lod.cpp
     ${CMAKE_SOURCE_DIR}/src/draw_distance.cpp
