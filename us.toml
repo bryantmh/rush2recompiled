@@ -197,6 +197,12 @@ func = "hud_race_setup_widgets_800A06F8"
 before_vram = 0x800A0DF4
 text = "    rush2_hud_build_end(rdram, ctx);"
 
+# Players 3 and 4's stunt panel boxes, built after players 1 and 2's and before the HUD's widgets (src/players4.cpp).
+[[patches.hook]]
+func = "hud_race_setup_widgets_800A06F8"
+before_vram = 0x800A0A84
+text = "    rush2_players4_stunt_boxes(rdram, ctx);"
+
 # The race's finish overlay (func_800A0FB4 builds each player's place from 0x800BF328): laid out like the HUD, with
 # players 3 and 4's added (src/players4.cpp).
 # The overlay is rebuilt when player 1's or 2's place shows or hides (D_800BF318[0-1] against D_800BF444); players 3 and
@@ -381,6 +387,30 @@ text = "    if (rush2_draw_distance_matrix_cols(rdram, ctx)) return;"
 func = "text_print_string_800734E0"
 before_vram = 0x800734E0
 text = "    rush2_hud_print(rdram, ctx);"
+
+# The 2D display list's two buffers move to 0x80AE0000 and grow to 0x10000 bytes each (src/hud.cpp): func_800B3A20
+# starts the frame's list, func_800B39AC ends it and returns its start.
+[[patches.hook]]
+func = "gfx_2d_list_begin_800B3A20"
+before_vram = 0x800B3AF4
+text = "    rush2_hud_2d_list_start(rdram, ctx);"
+
+[[patches.hook]]
+func = "gfx_2d_list_end_800B39AC"
+before_vram = 0x800B3A18
+text = "    rush2_hud_2d_list_end(rdram, ctx);"
+
+# The stunt panel's text callback (every player's, in a loop with the player in $s6): its prints follow each player's
+# box with 3 or 4 players (src/hud.cpp). Entry, and its one return (0x800B7AE8).
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B7654
+text = "    rush2_hud_stunt_text(rdram, ctx, 1);"
+
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B7AE8
+text = "    rush2_hud_stunt_text(rdram, ctx, 0);"
 
 # Laps-left number, printed by the sprite callback func_800B9D48 through a printf wrapper. $a0/$a1 = x/y.
 [[patches.hook]]
@@ -576,7 +606,7 @@ func = "asset_lz_decompress_80077F84"
 before_vram = 0x80077F84
 text = "    if (rush2_asset_decompress(rdram, ctx)) return;"
 
-# Game heap moved to 0x80400000-0x80B00000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
+# Game heap moved to 0x80400000-0x80AE0000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
 # resets the heap and func_800A62C0 loads the menu overlay, both of which set the heap top.
 [[patches.hook]]
 func = "mem_boot_layout_heap_800AF3B0"
@@ -586,7 +616,7 @@ text = "    rush2_heap_init(rdram, ctx);"
 [[patches.instruction]]
 func = "mem_boot_layout_heap_800AF3B0"
 vram = 0x800AF41C
-value = 0x3C0C80B0 # lui $t4, 0x80B0
+value = 0x3C0C80AE # lui $t4, 0x80AE
 
 [[patches.instruction]]
 func = "mem_boot_layout_heap_800AF3B0"
@@ -596,7 +626,7 @@ value = 0x358C0000 # ori $t4, $t4, 0
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBC0
-value = 0x3C1880B0 # lui $t8, 0x80B0
+value = 0x3C1880AE # lui $t8, 0x80AE
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
@@ -606,7 +636,7 @@ value = 0x37180000 # ori $t8, $t8, 0
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBDC
-value = 0x3C0E80B0 # lui $t6, 0x80B0
+value = 0x3C0E80AE # lui $t6, 0x80AE
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
@@ -616,7 +646,7 @@ value = 0x35CE0000 # ori $t6, $t6, 0
 [[patches.instruction]]
 func = "overlay_load_800A62C0"
 vram = 0x800A62E8
-value = 0x3C1880B0 # lui $t8, 0x80B0
+value = 0x3C1880AE # lui $t8, 0x80AE
 
 [[patches.instruction]]
 func = "overlay_load_800A62C0"
@@ -8894,6 +8924,24 @@ func = "hud_widget_alloc_800541F8"
 vram = 0x80054238
 value = 0x28610190 # slti $at, $v1, 400 (widgets)
 
+# The HUD's boxes (hud_multi_widget_menu_setup_80093B38) grow from 10 to 20 (moved by the relocation block below):
+# with four players, the bonus time banner's box, two stunt panel boxes per player (src/players4.cpp, stunt_boxes)
+# and at race over its box and every finished player's place box need 14.
+[[patches.instruction]]
+func = "hud_multi_widget_menu_setup_80093B38"
+vram = 0x80093B80
+value = 0x2A410014 # slti $at, $s2, 20 (delay slot of the free box search)
+
+[[patches.instruction]]
+func = "hud_multi_widget_menu_setup_80093B38"
+vram = 0x80093B88
+value = 0x2A410014 # slti $at, $s2, 20
+
+[[patches.instruction]]
+func = "hud_multi_widget_menu_setup_80093B38"
+vram = 0x80093B94
+value = 0x2A410014 # slti $at, $s2, 20
+
 [[patches.instruction]]
 func = "hud_element_alloc_80081008"
 vram = 0x8008101C
@@ -9379,12 +9427,12 @@ vram = 0x80060970
 value = 0x8F390004 # lw $t9, 0x2194($t9) -> 80240004
 
 [[patches.instruction]]
-func = "hud_menu_widgets_init_a_80060E34"
+func = "hud_stunt_box_visible_80060E34"
 vram = 0x80060EE4
 value = 0x3C058024 # lui -> 8024
 
 [[patches.instruction]]
-func = "hud_menu_widgets_init_a_80060E34"
+func = "hud_stunt_box_visible_80060E34"
 vram = 0x80060EEC
 value = 0x80A50820 # lb $a1, -0x3F90($a1) -> 80240820
 
@@ -10617,6 +10665,36 @@ value = 0x3C188024 # lui -> 8024
 func = "race_checkpoint_time_display_8008EFF4"
 vram = 0x8008F038
 value = 0x27180760 # addiu $t8, $t8, 0x39B8 -> 80240760
+
+[[patches.instruction]]
+func = "hud_widgets_free_slot_range_80093A84"
+vram = 0x80093A98
+value = 0x3C138030 # lui -> 8030
+
+[[patches.instruction]]
+func = "hud_widgets_free_slot_range_80093A84"
+vram = 0x80093A9C
+value = 0x3C158030 # lui -> 8030
+
+[[patches.instruction]]
+func = "hud_widgets_free_slot_range_80093A84"
+vram = 0x80093AB4
+value = 0x26B5A280 # addiu $s5, $s5, 0x4394 -> 802FA280
+
+[[patches.instruction]]
+func = "hud_widgets_free_slot_range_80093A84"
+vram = 0x80093AB8
+value = 0x2673A000 # addiu $s3, $s3, 0x4254 -> 802FA000
+
+[[patches.instruction]]
+func = "hud_multi_widget_menu_setup_80093B38"
+vram = 0x80093B4C
+value = 0x3C138030 # lui -> 8030
+
+[[patches.instruction]]
+func = "hud_multi_widget_menu_setup_80093B38"
+vram = 0x80093B70
+value = 0x2673A000 # addiu $s3, $s3, 0x4254 -> 802FA000
 
 [[patches.instruction]]
 func = "car_matrix_copy_and_apply_8009ABDC"

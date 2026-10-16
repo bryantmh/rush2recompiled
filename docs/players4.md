@@ -36,8 +36,13 @@ The rebuild also makes the dark box behind each shown place with func_80093B38 (
 at $sp + 0x10): player 1's at 0x63, 0x1D - 0xDD, 0x3F and player 2's at 0x63, 0xAB - 0xDD, 0xCD (with 2 views). Those
 are for views stacked top and bottom, so in a split screen they are skipped and src/players4.cpp's `finish_boxes`
 makes one per finished player at the same places, tagged as part of that player's place: src/hud.cpp moves each
-place and its box together to the middle of the player's half or quadrant. func_80093B38 keeps 10 boxes at
-0x800C4254 (0x20 each: +0 in use, +0xC five HUD elements, the fill and four edges).
+place and its box together to the middle of the player's half or quadrant. func_80093B38 keeps its boxes at
+0x800C4254 (0x20 each: +0 in use, +1 kept (its last argument, $sp + 0x1C: func_80093A84(0) frees only the boxes
+without it), +2 fill color, +6 edge color, +0xC five HUD elements, the fill and four edges, each with the box's callback
+at +0x28 and parameter at +0x2C from $sp + 0x14 and + 0x18). It had room for 10; tools/players4/relocate.py moves it to
+0x802FA000 with room for 20 (us.toml raises the count in func_80093B38's three tests, 0x80093B80, 0x80093B88,
+0x80093B94), as four players' stunt panel boxes (below)
+and their place boxes at race over need 14.
 
 The table's entries (x, y at +4, +6; callback +0x20, parameter +0x24): entry 0 is func_800B5CAC at 0x58, 0x48; entries
 1-3 are player 1's place (func_800B5A90, parameters 2, 0, 1) at 0x60, 0x22 twice and 0x9B, 0x22 ("PLACE"); entries 4-6
@@ -54,6 +59,45 @@ its end time 0x8010C3C4, set by func_8008F220, is over a second ahead of the clo
 180, and its bottom row is the top row of the stunt score panel's box (193, 180 - 297, 219, shown on every track with
 Stunts on All Tracks). Grouped, the panel took the center anchor in the widescreen HUD while the banner was up.
 RUSH2_TEST_BONUS_TIME=<seconds> keeps the banner up from that game clock time, to test without reaching a checkpoint.
+
+## Stunt panel
+
+The stunt panel shows in the stunt arena and on every track with Stunts on All Tracks. The race HUD setup
+(func_800A06F8, 0x800A0944-0x800A0A80) builds two boxes per player with func_80093B38 (alpha 0xC0, kept): the
+BEST / TOTAL scores' at x 193-298 and the trick name's at x 22-127, at y 180-220 with one player, else player 1's at
+y 70-110 and player 2's at y 180-220. Their callback `hud_stunt_box_visible_80060E34` takes (player << 4) | box (0
+scores, 1 trick name) and hides a box unless the panel shows (track 11, STUNT1, or the 0x8010C200 cheat byte), the
+player is in the race, and for the trick name's, while the player's flag 0x8010C070 is clear.
+`hud_widget_text_cb_player_stats_800B7654` (HUD layout entry 111, one callback widget) prints every player's text in
+a loop ($s6 = the player): the trick name centered on x 74, "BEST" and "TOTAL" right-aligned at x 258 and their
+values from x 268, on rows 44 and 28 pixels above y 120 (one player, or player 1 of two) or y 230 (every other
+player). It sets the text scale 0x800BEF48 to 0 while it prints, so the text is drawn at once, not queued.
+
+With 3 or 4 players, src/players4.cpp's `stunt_boxes` adds players 3 and 4's boxes (copies of player 2's; hooked at
+0x800A0A84, before the HUD's widgets are created, so the text callback's widget comes after them and its text is
+drawn over their translucent fill, as players 1 and 2's) and
+`tag_stunt_boxes` tags every stunt box's widgets with their player and role (StuntScore, StuntTrick).
+In quadrants src/hud.cpp draws each box at half size about its top left corner, the scores'
+box in the bottom outer corner of the quadrant (left column: left, right column: right, the split margin from both
+edges) and the trick name's box on it. With Stunts on All Tracks in a race that corner is taken: the boxes stay on the
+bottom and slide toward the middle past the radar and odometer (top row), and in the bottom row, where the race time
+and position leave no room between them, go up to just above them (sliding past the radar there). In the stunt arena
+only elements that have shown count (players 2-4 never show a time or position there, but their hidden layout sits in
+the bottom row's corners); in a race the time and position count while hidden too (the position shows after the
+countdown). The stunt arena is told by the race's track id 0x8010C3F0 = 11.
+While the text callback runs (hooks at its entry and its return, 0x800B7AE8), `rush2_hud_print` moves each string with the box of the player in $s6 that it is printed over
+and scales its rectangles about the same corner. Side by side, the boxes keep the game's layout moved to the half.
+
+## 2D display list
+
+The HUD, menus and text after the 3D views go in the 2D display list, one of two buffers alternating by frame:
+`gfx_2d_list_begin_800B3A20` flips 0x80119850 and points the cursor 0x80125ABC at 0x8011CDB8 + frame * 0x4650, and
+`gfx_2d_list_end_800B39AC` writes the end and returns the list's start. A buffer holds 2250 commands and the second
+ends where the HUD element pool's counts begin (0x80125A58). Four players' HUDs in a race with a battle, DEATHS, the
+odometer and the stunt panels outgrew it: the overflow corrupted the element free list, and the game crashed in
+`hud_widget_free_8005FED8` when the pause menu was set up at the start (or the HUD stopped drawing). src/hud.cpp
+moves the buffers to 0x80AE0000, 0x10000 bytes (8192 commands) each, hooked at 0x800B3AF4 and 0x800B3A18; the game
+heap's top is lowered from 0x80B00000 to 0x80AE0000 for them (src/assets.cpp, us.toml).
 
 ## Race over and post-race
 

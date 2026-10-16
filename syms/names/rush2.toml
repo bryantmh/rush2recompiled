@@ -5161,12 +5161,13 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 
 [[func]]
 vram = 0x80060E34
-name = "hud_menu_widgets_init_a"
-sig = "s32 hud_menu_widgets_init_a(HudWidget *w)"
-desc = "Callback (pointer taken by hud_race_setup_widgets) creating three typed widgets via hud_widget_init_type, depending on game_state, cheat_option_l, race_selected_track_index and race_num_humans. (low confidence)"
-status = "inferred"
+name = "hud_stunt_box_visible"
+sig = "s32 hud_stunt_box_visible(HudElement *e)"
+desc = "Visibility callback of the stunt panel's boxes (func_80093B38 elements): hides the box unless the panel shows (track 11 or the 0x8010C200 cheat byte), the player (param >> 4) is under the player count, and for the trick name's box (param & 0xF == 1) while the player's 0x8010C070 flag is clear."
+consts = "e+0x2C = (player << 4) | box (0 BEST/TOTAL scores, 1 trick name); 0xB = STUNT1 track id"
+status = "verified"
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/players4.md#stunt-panel"
 
 [[func]]
 vram = 0x80060F24
@@ -9764,21 +9765,21 @@ ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
 [[func]]
 vram = 0x80093A84
 name = "hud_widgets_free_slot_range"
-sig = "void hud_widgets_free_slot_range(s32 first)"
-desc = "Frees HUD widgets (hud_widget_free) in loops over per-slot byte tables hud_multi_menu_byte/hud_multi_flags/hud_free_slot_byte (0x14 entries); called from 9 menu/post-race places."
-consts = "0x14 = 20 slots"
-status = "inferred"
+sig = "void hud_boxes_free(u8 all)"
+desc = "Frees the boxes of func_80093B38 (their five elements, hud_widget_free): every box with all set, else only those not kept (+1 clear)."
+consts = "pool 0x802FA000-0x802FA280 (moved from 0x800C4254-0x800C4394)"
+status = "verified"
 rush1 = [0x80089454]
 area = "ui"
-ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
+ref = "docs/players4.md#finish-overlay"
 
 [[func]]
 vram = 0x80093B38
 name = "hud_multi_widget_menu_setup"
-sig = "void hud_box_create(s32 x0, s32 y0, s32 x1, s32 y1, s32 alpha, s32 a5, s32 a6, u8 a7)"
-desc = "Creates up to 5 HUD widgets (hud_multi_word_0..4) with textures and positions for a menu/post-race display, filling slot byte tables hud_multi_flags..; used by HUD setup functions. | Makes a translucent box (fill and four edges, five HUD elements) in the first free entry of D_800C4254."
-consts = "10 = boxes in D_800C4254; 5 = elements per box"
-status = "inferred"
+sig = "void hud_box_create(s32 x0, s32 y0, s32 x1, s32 y1, s32 alpha, void *callback, s32 param, u8 keep)"
+desc = "Makes a translucent box (fill and four edges, five HUD elements, each given callback and param) in the first free entry of the box pool; keep set = only func_80093A84(nonzero) frees it."
+consts = "20 = boxes (pool moved to 0x802FA000, was 10 at 0x800C4254); 5 = elements per box; 0x8C = edge grey"
+status = "verified"
 area = "ui"
 ref = "docs/players4.md#finish-overlay"
 
@@ -12878,23 +12879,23 @@ ref = "us.toml"
 
 [[func]]
 vram = 0x800B39AC
-name = "gfx_get_player_count"
-sig = "s32 gfx_get_player_count(void)"
-desc = "Reads gfx_player_count_cache and gfx_dl_ptr (limit 8) and returns a value; called from gfx_frame_main_update and game_thread_main_init. (low confidence)"
-consts = "8 = limit"
-status = "inferred"
+name = "gfx_2d_list_end"
+sig = "Gfx *gfx_2d_list_end(void)"
+desc = "Ends the frame's 2D display list (G_ENDDL at the cursor 0x80125ABC, cursor cleared) and returns its start; 0 if none was started. The recomp moves the buffers to 0x80AE0000, 0x10000 each (hook at 0x800B3A18)."
+consts = "0x4650 = original buffer size; 0x80119850 = frame buffer index"
+status = "verified"
 area = "render"
-ref = "docs/functions/rush2_render.md#rush-2-render-functions"
+ref = "docs/players4.md#2d-display-list"
 
 [[func]]
 vram = 0x800B3A20
-name = "gfx_init_framebuffer_state"
-sig = "void gfx_init_framebuffer_state(void)"
-desc = "Initializes graphics state for a 320x240 screen (0x13F, 0xEF): clears gfx_clip_inset_*, gfx_image_2d_state_*, gfx_othermode_state and text_color_state, calls gfx_set_texture_load_dl and gfx_set_render_mode_dl."
-consts = "0x13F/0xEF = 319/239 screen max"
-status = "inferred"
+name = "gfx_2d_list_begin"
+sig = "void gfx_2d_list_begin(void)"
+desc = "Starts the frame's 2D display list if none is open: resets the 2D draw state, flips 0x80119850 and points the cursor 0x80125ABC at that buffer (0x8011CDB8 + i * 0x4650; the recomp uses 0x80AE0000 + i * 0x10000, hook at 0x800B3AF4), then writes pipe sync, other mode and geometry mode commands."
+consts = "0x13F, 0xEF = 320x240 clip; 0x4650 = original buffer size"
+status = "verified"
 area = "render"
-ref = "docs/functions/rush2_render.md#rush-2-render-functions"
+ref = "docs/players4.md#2d-display-list"
 
 [[func]]
 vram = 0x800B3B78
@@ -13185,12 +13186,13 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 [[func]]
 vram = 0x800B7654
 name = "hud_widget_text_cb_player_stats"
-sig = "void hud_widget_text_cb_player_stats(HudWidget *w)"
-desc = "Patched in us.toml. BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand)"
-status = "inferred"
+sig = "s32 hud_widget_text_cb_player_stats(HudWidget *w)"
+desc = "Stunt panel text callback (HUD layout entry 111): for every player ($s6) prints the trick name and multiplier while 0x8010C070[player] is set, and BEST (0x8010C068) / TOTAL (0x8010C074) with their values; sets the text scale 0x800BEF48 to 0 so the text draws at once."
+consts = "0x78/0xE6 = panel y (player 1 of 2 / others); 0x4A = trick name center x; 0x102 = labels' right edge; 0x10C = values' x"
+status = "verified"
 ported = true
 area = "ui"
-ref = "us.toml"
+ref = "docs/players4.md#stunt-panel"
 
 [[func]]
 vram = 0x800B7B1C

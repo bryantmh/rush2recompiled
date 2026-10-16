@@ -361,12 +361,78 @@ namespace {
     constexpr int32_t finish_box_top[4] = { 0x63, 0x1D, 0xDD, 0x3F };    // x0, y0, x1, y1
     constexpr int32_t finish_box_bottom[4] = { 0x63, 0xAB, 0xDD, 0xCD };
     constexpr int32_t finish_box_alpha = 0xC0;
-    // The boxes func_80093B38 builds (10 of 0x20 bytes: +0 in use, +0xC five elements: the fill and four edges).
-    constexpr uint32_t boxes = 0x800C4254;
-    constexpr int box_count = 10;
+    // The boxes func_80093B38 builds (0x20 bytes: +0 in use, +0xC five elements: the fill and four edges), moved from
+    // 0x800C4254 and grown from 10 to 20 (tools/players4/relocate.py, us.toml).
+    constexpr uint32_t boxes = 0x802FA000;
+    constexpr int box_count = 20;
     constexpr uint32_t box_size = 0x20;
     constexpr int32_t box_elements = 0xC;
     constexpr int box_parts = 5;  // u8 for players 1 and 2: finish_shown when the overlay was built.
+}
+
+namespace {
+    // The stunt panel's boxes. The race HUD setup (func_800A06F8, 0x800A0944-0x800A0A80) builds two per player with
+    // func_80093B38 (alpha 0xC0, kept until the HUD goes): the BEST / TOTAL scores' at x 193-298 and the trick name's
+    // at x 22-127, at y 180-220 with one player, else player 1's at y 70-110 and player 2's at y 180-220. Their
+    // elements' callback func_80060E34 takes (player << 4) | box (0 scores, 1 trick name): it hides the box unless the
+    // stunt panel shows (the stunt arena, Stunts on All Tracks), the player is in the race, and for the trick name's,
+    // while the player's trick name flag (0x8010C070, per player) is clear. The text is printed by func_800B7654.
+    constexpr uint32_t stunt_box_callback = 0x80060E34;
+    constexpr int32_t stunt_box_alpha = 0xC0;
+    constexpr int32_t stunt_score_box[4] = { 0xC1, 0xB4, 0x12A, 0xDC }; // player 2's: x0, y0, x1, y1
+    constexpr int32_t stunt_trick_box[4] = { 0x16, 0xB4, 0x7F, 0xDC };
+
+    // Players 3 and 4's stunt boxes, copies of player 2's (their text is printed at player 2's place too).
+    void stunt_boxes(uint8_t* rdram, recomp_context* ctx, int players) {
+        for (int player = 2; player < std::min(players, rush2::players4::max_players); player++) {
+            for (int kind = 0; kind < 2; kind++) {
+                const int32_t* r = kind == 0 ? stunt_score_box : stunt_trick_box;
+                recomp_context saved = *ctx;
+                ctx->r29 = (int32_t)ctx->r29 - 0x20;
+                int32_t sp = (int32_t)ctx->r29;
+                MEM_W(0x10, sp) = stunt_box_alpha;
+                MEM_W(0x14, sp) = (int32_t)stunt_box_callback;
+                MEM_W(0x18, sp) = (player << 4) | kind;
+                MEM_W(0x1C, sp) = 1; // kept until the HUD goes
+                ctx->r4 = r[0];
+                ctx->r5 = r[1];
+                ctx->r6 = r[2];
+                ctx->r7 = r[3];
+                hud_multi_widget_menu_setup_80093B38(rdram, ctx);
+                *ctx = saved;
+            }
+        }
+    }
+
+    // Notes the player and role of every stunt box's widgets.
+    void tag_stunt_boxes(uint8_t* rdram) {
+        for (int i = 0; i < box_count; i++) {
+            int32_t box = (int32_t)(boxes + i * box_size);
+            if (MEM_BU(0, box) == 0) {
+                continue;
+            }
+            for (int part = 0; part < box_parts; part++) {
+                int32_t element = MEM_W(box_elements + part * 4, box);
+                if (element == 0 || (uint32_t)MEM_W(element_callback, element) != stunt_box_callback) {
+                    continue;
+                }
+                uint32_t param = (uint32_t)MEM_W(element_param, element);
+                int slot = MEM_H(element_widget, element);
+                if (slot >= 0 && slot < max_widgets) {
+                    widget_players[slot] = (int8_t)((param >> 4) & 0xF);
+                    widget_roles[slot] = (param & 0xF) == 0 ? rush2::players4::HudRole::StuntScore
+                                                            : rush2::players4::HudRole::StuntTrick;
+                }
+            }
+        }
+    }
+}
+
+// func_800A06F8 (the race HUD setup) at 0x800A0A84, after it builds players 1 and 2's stunt boxes and before it
+// creates the HUD's widgets: players 3 and 4's boxes are built here so their widgets come before the stunt text's
+// (func_800B7654) and are drawn under it, as players 1 and 2's are.
+extern "C" void rush2_players4_stunt_boxes(uint8_t* rdram, recomp_context* ctx) {
+    stunt_boxes(rdram, ctx, shown_players(rdram));
 }
 
 namespace rush2::players4 {
@@ -404,6 +470,7 @@ namespace rush2::players4 {
                 }
             }
         }
+        tag_stunt_boxes(rdram); // still the stunt panel's
         for (int player = 0; player < std::min<int>(shown_players(rdram), max_players); player++) {
             if (MEM_BU(player, (int32_t)finish_shown) == 0) {
                 continue;
@@ -469,6 +536,7 @@ namespace rush2::players4 {
             widget_lap_time[slot] = false;
         }
         tag_widgets(rdram, head);
+        tag_stunt_boxes(rdram);
         built_list = head;
     }
 

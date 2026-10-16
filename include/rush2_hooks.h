@@ -49,6 +49,9 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_print(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_2d_list_start(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_2d_list_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_stunt_text(uint8_t* rdram, recomp_context* ctx, int inside);
 void rush2_hud_laps_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_laps_end(uint8_t* rdram, recomp_context* ctx);
 
@@ -81,6 +84,7 @@ void rush2_model_draw(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_frame_buffers(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_race_start(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_stunt_boxes(uint8_t* rdram, recomp_context* ctx);
 int rush2_players4_cars_chosen(uint8_t* rdram, recomp_context* ctx);
 int rush2_players4_cars_back(uint8_t* rdram, recomp_context* ctx);
 int rush2_players4_all_finished(uint8_t* rdram, recomp_context* ctx);

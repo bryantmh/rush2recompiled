@@ -105,6 +105,9 @@ PLACED = [
     (0x80119888, 0x8011CA88, 0x802F0000, 0x6400, 'HUD elements, 0x40 each (func_80081008)'),
     (0x8011CA90, 0x8011CDB0, 0x802F6400, 0x640, 'free HUD element pointers (func_80060418)'),
     (0x800F9558, 0x800FAE58, 0x802F6C00, 0x3200, '2D widgets, 0x20 each (func_800541F8)'),
+    # The boxes hud_multi_widget_menu_setup_80093B38 builds (0x20 each), 10 of which the stunt panels' boxes and the
+    # finished places' boxes outgrow with four players (us.toml raises the count to 20).
+    (0x800C4254, 0x800C4394, 0x802FA000, 0x280, 'HUD boxes, 0x20 each (func_80093B38, func_80093A84)'),
 ]
 
 # Functions that read the number of players (D_8010C3E2) clamped to 2 instead (rush2::players4::clamped_players):
@@ -131,6 +134,7 @@ LOOP_ENDS = {
     '8007FAF8': 0x800FAE9C,  # func_8007FAB4 sets every view's scene list head to -1
     '8008A584': 0x800E7AF0,  # func_8008A1FC clears a camera f32 per view
     '800A073C': 0x800D3AF0,  # func_800A06F8 clears three HUD f32s per player, up to the third's end
+    '80093AB4': 0x800C4254,  # func_80093A84 frees the HUD boxes, up to the pool's end
 }
 
 

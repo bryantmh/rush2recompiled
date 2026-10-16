@@ -16,6 +16,12 @@ Code:
     converted Rush 2049 cars outside the game; prints every texture's name, size, format, hash and key, and writes its
     PNGs and the .glb.
   - `tools/glb_view.py`: renders a dumped .glb to PNG (software, textured), to check model dumps without a 3D app.
+  - `tools/cross_quads.py`: finds the cross-quad scenery (trees and other "X" billboards: vertical alpha-cutout
+    cards crossing at one axis) in dumped .glb files and writes their textures upright, split into `trees/` and
+    `other/`, with contact sheets and a CSV of every cross. On the Rush 2 tracks (assets 0x14, 0x33-0x3E) it finds
+    1283 crosses, 1179 of them foliage, using 25 distinct tree pictures. The cards are stored upside down (v=0 at the
+    card's base), and some (NY_TREE1/2, LADTOWN01.8) are half pictures mirrored across the card (mirrored-repeat
+    wrap, u 0..2).
 
 ## Sources
 

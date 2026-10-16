@@ -38,7 +38,7 @@
 // Rush 2049's odometer (src/rush2049/odometer.cpp, the Games tab's Odometer option) is drawn after the widget loop,
 // stacked on each player's radar and lined up with its outer edge, moved and anchored with it: over the radar, or in
 // the bottom row of quadrants (radar at the top) under it. It is placed before the groups so the skull can be laid out
-// around it: split, a skull that would sit on it moves to its inner side. With 3 or 4 players the odometer, and each
+// around it: split, a skull that would sit on it moves below it in the bottom row of quadrants, else to its inner side. With 3 or 4 players the odometer, and each
 // player's time and position with it, are drawn at 75% to fit a quadrant. Without a radar it goes under the race time and its
 // lap time box (counted while hidden, so it doesn't jump when the box shows), or over them in the bottom row.
 
@@ -240,6 +240,42 @@ namespace {
     // Split, where each player's Rush 2049 odometer goes this frame (placed before the groups), for the skull to clear.
     bool odometer_known[4];
     Rect odometer_rect[4];
+
+    // The stunt panel (src/players4.cpp, stunt_boxes): with 3 or 4 players each player's boxes and their text are drawn
+    // at stunt_scale, the scores' box in the bottom outer corner of their quadrant and the trick name's on it.
+    // stunt_box = each player's boxes (0 scores, 1 trick name) where the game lays them out; stunt_text = where their
+    // text goes this frame (the boxes' top left corners as drawn, their move and origin), for rush2_hud_print.
+    constexpr float stunt_scale = 0.5f;
+    // The race's track id (s8), 11 (STUNT1) in the stunt arenas (Rush 2049's are hosted in that slot).
+    constexpr uint32_t stunt_track_id = 0x8010C3F0;
+    constexpr int8_t stunt_track = 0xB;
+    bool stunt_arena_race = false; // as of this frame (rush2_hud_draw_begin)
+    // In a race, how far inside the outer edge's margin the stunt boxes go (rush2_hud_draw_begin, stunt_inset).
+    int32_t stunt_race_inset = 0;
+    // In a race, how far the scores' box is from the quadrant's outer edge, top or bottom (rush2_hud_draw_begin).
+    // In a race in quadrants, the trick name's box shows in the scores' box's place: while it shows, the scores' box
+    // is hidden for the draw loop (stunt_hidden: widget slots whose hidden byte was set, restored after) and its text
+    // isn't drawn (stunt_swap, per player).
+    bool stunt_swap[4];
+    bool stunt_hidden[max_widgets];
+    int32_t stunt_race_edge = 0;
+    Rect stunt_box[4][2];
+    // Each player's roles that have shown since the race HUD was built: the stunt boxes clear only those (in the stunt
+    // arena players 2-4 never show a race time or position, whose hidden layout sits in the bottom row's corners).
+    bool role_seen[4][(int)rush2::players4::HudRole::Count];
+    struct StuntText {
+        bool valid;
+        int32_t dx, dy, pivot_x, pivot_y;
+        uint16_t origin;
+    };
+    StuntText stunt_text[4][2];
+    // The stunt box a widget is part of (0 scores, 1 trick name), or -1.
+    int stunt_kind(int slot) {
+        auto role = rush2::players4::hud_widget_role(slot);
+        return role == rush2::players4::HudRole::StuntScore ? 0 : role == rush2::players4::HudRole::StuntTrick ? 1 : -1;
+    }
+    // Whether the stunt panel's text callback (func_800B7654) is running (rush2_hud_stunt_text).
+    bool in_stunt_text = false;
 
     // Bounds of the anchored HUD widgets as of the last widget loop.
     Rect widget_rect[max_widgets];
@@ -499,10 +535,11 @@ namespace {
         int32_t first_rect = 0; // valid once anchored
         // Shrunk by less than half: point sampled (below).
         bool point = sx > 0.5f && sx < 1.0f;
-        for (int32_t c = half_start; c + 24 <= end; c += 8) {
+        // A texture rectangle is three commands, a fill rectangle one (the stunt boxes' are their widget's last).
+        for (int32_t c = half_start; c + 8 <= end; c += 8) {
             uint32_t w0 = (uint32_t)MEM_W(0, c);
             uint32_t op = w0 >> 24;
-            if (op != 0xE4 && op != 0xE5 && op != 0xF6) {
+            if ((op != 0xE4 && op != 0xE5 && op != 0xF6) || (op != 0xF6 && c + 24 > end)) {
                 continue;
             }
             uint32_t w1 = (uint32_t)MEM_W(4, c);
@@ -750,15 +787,31 @@ namespace {
                 y = outer_y(d.y1 - d.y0) + lap_top[player] - above.y0 + deaths_gap;
             }
         };
-        // A skull that would sit on the Rush 2049 odometer moves to its inner side. Not for the radar's overlap test,
-        // which also runs before the odometer is placed and has to give the same answer both times.
+        // A skull that would sit on the Rush 2049 odometer moves past it: in the bottom row of quadrants (skull and
+        // odometer both under the radar) below it, toward the time or position in the bottom corner, keeping the outer
+        // column; elsewhere to its inner side. Not for the radar's overlap test, which also runs before the odometer is
+        // placed and has to give the same answer both times.
         auto deaths_at = [&](int32_t& x, int32_t& y, bool clear_odometer) {
             deaths_slot(x, y);
             const Rect& d = roles[(int)HudRole::Deaths];
             const Rect& o = odometer_rect[player];
             if (clear_odometer && odometer_known[player] && x <= o.x1 + 1 && o.x0 <= x + (d.x1 - d.x0) + 1 &&
                 y <= o.y1 + 1 && o.y0 <= y + (d.y1 - d.y0) + 1) {
-                x = right_column ? o.x0 - deaths_gap - (d.x1 - d.x0) - 1 : o.x1 + 1 + deaths_gap;
+                // Top row: the skull hangs under the time or position (the position's panel is taller, so the right
+                // column's skull reaches the odometer first): centered in the space between that panel and the
+                // odometer if it fits there, else beside the odometer on its inner side.
+                int32_t lo = y - deaths_gap;  // the first row under the panel above
+                int32_t space = o.y0 - lo;    // rows from there to the odometer
+                int32_t dh = d.y1 - d.y0 + 1;
+                if (bottom_row) {
+                    y = o.y1 + 1 + deaths_gap;
+                }
+                else if (space >= dh + 2) {
+                    y = lo + (space - dh) / 2;
+                }
+                else {
+                    x = right_column ? o.x0 - deaths_gap - (d.x1 - d.x0) - 1 : o.x1 + 1 + deaths_gap;
+                }
             }
         };
         int32_t x0 = g.x0;
@@ -813,6 +866,38 @@ namespace {
                 }
                 break;
             }
+            case HudRole::StuntScore:
+            case HudRole::StuntTrick: {
+                // In quadrants (side by side, they keep the game's place moved to the half), the scores' box and the
+                // trick name's box stacked, against the outer side, the same in every quadrant (mirrored left to right
+                // and top to bottom). In the stunt arena (nothing else in the corners): the scores' box in the bottom
+                // outer corner and the trick name's on it. In a race (Stunts on All Tracks), where the corners hold the
+                // time, position, radar, odometer and skull: nestled in the outer corner beside the skull
+                // (stunt_race_inset and stunt_race_edge, rush2_hud_draw_begin), the trick name's box in the scores'
+                // place.
+                if (!quad_views) {
+                    return false;
+                }
+                const Rect& score = roles[(int)HudRole::StuntScore];
+                const Rect& trick = roles[(int)HudRole::StuntTrick];
+                int32_t score_h = valid(score) ? score.y1 - score.y0 + 1 : 0;
+                int32_t trick_h = valid(trick) ? trick.y1 - trick.y0 + 1 : 0;
+                int32_t stack_w = std::max(valid(score) ? score.x1 - score.x0 : 0, valid(trick) ? trick.x1 - trick.x0 : 0);
+                int32_t stack_h = score_h + (trick_h > 0 ? stack_gap + trick_h : 0);
+                int32_t inset = stunt_arena_race ? 0 : stunt_race_inset;
+                int32_t sx = right_column ? a.x1 - split_margin - inset - stack_w : a.x0 + split_margin + inset;
+                x0 = right_column ? sx + stack_w - w : sx;
+                if (stunt_arena_race) {
+                    // The trick name's box on the scores' in the bottom corner.
+                    int32_t top = a.y1 - split_margin - stack_h + 1;
+                    y0 = role == HudRole::StuntScore ? top + (trick_h > 0 ? trick_h + stack_gap : 0) : top;
+                    break;
+                }
+                // Both boxes in one place, stunt_race_edge from the outer edge (the trick name's takes the scores'
+                // place while it shows, stunt_swap).
+                y0 = bottom_row ? a.y1 - stunt_race_edge - h : a.y0 + stunt_race_edge;
+                break;
+            }
             case HudRole::Banner:
                 // The place once finished and the box behind it (src/players4.cpp, finish_boxes) move together,
                 // centered in the player's half or quadrant: the game places player 1's and 2's at different heights
@@ -842,6 +927,12 @@ namespace {
         };
         int player = x < screen_width / 2 ? 0 : 1;
         return origins[player][third_of(x, side_area[player].x0, side_area[player].x1)];
+    }
+
+    // The stunt boxes in quadrants are anchored to the window's outer edge, like the radar and odometer they sit
+    // beside (by their center they would take the middle of the half and drift from them in widescreen).
+    uint16_t stunt_origin_for_x(int32_t x) {
+        return x < screen_width / 2 ? G_EX_ORIGIN_LEFT : G_EX_ORIGIN_RIGHT;
     }
 
     // Restores the default alignment and the game's scissor after anchored draws.
@@ -1230,6 +1321,7 @@ extern "C" {
 // func_800A06F8 entry and exit: the race HUD setup, which creates all of its widgets.
 void rush2_hud_build_begin(uint8_t* rdram, recomp_context* ctx) {
     building_hud = true;
+    std::memset(role_seen, 0, sizeof(role_seen));
     rush2::online::game::hud_players_begin(rdram);
 }
 
@@ -1370,6 +1462,7 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         row.valid = false;
     }
     quad_views = rush2::splitscreen::quadrant_views(rdram);
+    stunt_arena_race = MEM_B(0, (int32_t)stunt_track_id) == stunt_track;
     bool split = side_by_side || quad_views;
     Rect* rects = widget_rect;
     bool* anchored = widget_anchored;
@@ -1421,6 +1514,37 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             slot_pivot_x[i] = pivot_x[p][k];
             slot_pivot_y[i] = pivot_y[p][k];
         }
+
+        // Each player's stunt panel boxes where the game lays them out (shown or hidden), and with 3 or 4 players
+        // their fills drawn at stunt_scale about the box's top left corner.
+        for (int p = 0; p < 4; p++) {
+            for (Rect& r : stunt_box[p]) {
+                r = Rect{ INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN, false, false };
+            }
+        }
+        for (uint32_t i = 0; i < count; i++) {
+            int k = stunt_kind((int)i);
+            int p = rush2::players4::hud_widget_player((int)i);
+            int32_t widget = (int32_t)(widget_array + i * widget_size);
+            if (k < 0 || p < 0 || p > 3 || !hud_slot[i] || MEM_H(widget_w, widget) == 0 || MEM_H(widget_h, widget) == 0) {
+                continue;
+            }
+            Rect& r = stunt_box[p][k];
+            r.x0 = std::min<int32_t>(r.x0, MEM_H(widget_x, widget));
+            r.y0 = std::min<int32_t>(r.y0, MEM_H(widget_y, widget));
+            r.x1 = std::max<int32_t>(r.x1, MEM_H(widget_x, widget) + MEM_H(widget_w, widget) - 1);
+            r.y1 = std::max<int32_t>(r.y1, MEM_H(widget_y, widget) + MEM_H(widget_h, widget) - 1);
+        }
+        for (uint32_t i = 0; i < count && quad_views; i++) {
+            int k = stunt_kind((int)i);
+            int p = rush2::players4::hud_widget_player((int)i);
+            if (k < 0 || p < 0 || p > 3 || !valid(stunt_box[p][k])) {
+                continue;
+            }
+            slot_scale[i] = stunt_scale;
+            slot_pivot_x[i] = stunt_box[p][k].x0;
+            slot_pivot_y[i] = stunt_box[p][k].y0;
+        }
     }
     int parent[max_widgets];
     int8_t box_of[max_widgets];
@@ -1451,6 +1575,9 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         if (r.fill) {
             r.x1 = r.x0 + w - 1;
             r.y1 = r.y0 + h - 1;
+            if (stunt_kind((int)i) >= 0) {
+                scale_rect(i, r.x0, r.y0, r.x1, r.y1);
+            }
         }
         else {
             r.x1 = r.x0 + MEM_H(widget_src_x1, widget) - MEM_H(widget_src_x0, widget);
@@ -1525,6 +1652,9 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             }
             int player = rush2::players4::hud_widget_player((int)i);
             int role = (int)rush2::players4::hud_widget_role((int)i);
+            if (player >= 0 && player < 4) {
+                role_seen[player][role] = true;
+            }
             if (split && player < 4 && role != 0) {
                 Rect& r = role_rect[player < 0 ? shared : player][role];
                 if (player >= 0 && rush2::players4::hud_widget_lap_time((int)i)) {
@@ -1573,6 +1703,19 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             r.y0 = std::min(r.y0, b.y0);
             r.x1 = std::max(r.x1, b.x1);
             r.y1 = std::max(r.y1, b.y1);
+        }
+    }
+    // The stunt boxes as drawn (scaled), shown or hidden: the trick name's box comes and goes and stacks on the scores'.
+    if (quad_views) {
+        for (int p = 0; p < 4; p++) {
+            for (int k = 0; k < 2; k++) {
+                Rect r = stunt_box[p][k];
+                if (valid(r)) {
+                    r.x1 = scaled_about(r.x1 + 1, r.x0, stunt_scale) - 1;
+                    r.y1 = scaled_about(r.y1 + 1, r.y0, stunt_scale) - 1;
+                    role_rect[p][(int)(k == 0 ? HudRole::StuntScore : HudRole::StuntTrick)] = r;
+                }
+            }
         }
     }
     // A role the game hides for a while (the position while a player's car is wrecked) keeps its last bounds, so the
@@ -1681,6 +1824,129 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
+    // In a race with the stunt panel in quadrants, where the stunt boxes go (place_role): nestled in the outer corner
+    // beside the skull, at its height (without one, just past the corner's race time or position), clear of that
+    // panel, just inside whatever the outer column holds there (skull, odometer, radar). Where that runs into the
+    // speedometer as drawn (anchored: in widescreen it moves toward the half's middle and they clear), the box moves
+    // further from the edge past it. The trick name's box takes the scores' place while it shows (no room to stack
+    // them). Mirrored in every quadrant: the most any player needs, as a distance from the outer side
+    // (stunt_race_inset) and from the outer edge, top or bottom (stunt_race_edge). The race time's checkpoint (lap)
+    // time box, shown for a while after a checkpoint, isn't avoided: it covers them as it covers the skull.
+    stunt_race_inset = 0;
+    stunt_race_edge = 0;
+    if (quad_views && !stunt_arena_race) {
+        float spread = rush2::splitscreen::hud_width() - screen_width;
+        for (int p = 0; p < 4; p++) {
+            const Rect* r = role_rect[p];
+            const Rect& score = r[(int)HudRole::StuntScore];
+            const Rect& trick = r[(int)HudRole::StuntTrick];
+            if (!valid(score)) {
+                continue;
+            }
+            int32_t box_w = std::max(score.x1 - score.x0, valid(trick) ? trick.x1 - trick.x0 : 0);
+            int32_t box_h = std::max(score.y1 - score.y0, valid(trick) ? trick.y1 - trick.y0 : 0) + 1;
+            Area a = split_edges(p);
+            bool right = (p & 1) != 0;
+            bool bottom = p >= 2;
+            uint16_t box_origin = stunt_origin_for_x(right ? a.x1 : a.x0);
+            // Everything else of the player's HUD as drawn relative to the box's anchor: the speedometer, its
+            // tachometer and the gear block the way inward; the rest (the outer column, the corners) is slid past.
+            Rect column[8];
+            Rect block[3];
+            int nc = 0;
+            int nb = 0;
+            Rect skull{ INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN, false, false };
+            Rect corner{ INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN, false, false };
+            for (HudRole other : { HudRole::Radar, HudRole::Time, HudRole::Position, HudRole::Deaths, HudRole::Speed,
+                                   HudRole::Tach, HudRole::Gear }) {
+                bool counts = other == HudRole::Time || other == HudRole::Position || other == HudRole::Speed ||
+                    role_seen[p][(int)other];
+                const Rect& o = r[(int)other];
+                int32_t odx, ody;
+                if (!counts || !valid(o) || !place_role(other, p, r, odx, ody)) {
+                    continue;
+                }
+                int32_t shift = screen_offset(side_origin_for_x((o.x0 + o.x1) / 2 + odx), spread) -
+                    screen_offset(box_origin, spread);
+                Rect placed{ o.x0 + odx + shift, o.y0 + ody, o.x1 + odx + shift, o.y1 + ody, false, false };
+                if (other == HudRole::Time && lap_top[p] != INT32_MAX && race_bottom[p] != INT32_MIN &&
+                    race_bottom[p] < lap_top[p]) {
+                    // The race time's own panel, without the checkpoint time box (under it; bottom row: above it).
+                    int32_t race_h = race_bottom[p] - o.y0;
+                    if (bottom) {
+                        placed.y0 = placed.y1 - race_h;
+                    }
+                    else {
+                        placed.y1 = placed.y0 + race_h;
+                    }
+                }
+                if (other == HudRole::Speed || other == HudRole::Tach || other == HudRole::Gear) {
+                    block[nb++] = placed;
+                    continue;
+                }
+                column[nc++] = placed;
+                if (other == HudRole::Deaths) {
+                    skull = placed;
+                }
+                if (other == (right ? HudRole::Position : HudRole::Time)) {
+                    corner = placed;
+                }
+            }
+            if (odometer_known[p]) {
+                column[nc++] = odometer_rect[p];
+            }
+            // The box's top: centered on the skull, or just past the corner panel; never on that panel.
+            int32_t ys;
+            if (valid(skull)) {
+                ys = (skull.y0 + skull.y1 + 1) / 2 - box_h / 2;
+            }
+            else if (valid(corner)) {
+                ys = bottom ? corner.y0 - deaths_gap - box_h : corner.y1 + 1 + deaths_gap;
+            }
+            else {
+                ys = bottom ? a.y1 - split_margin - box_h + 1 : a.y0 + split_margin;
+            }
+            if (valid(corner)) {
+                ys = bottom ? std::min(ys, corner.y0 - 1 - box_h) : std::max(ys, corner.y1 + 2);
+            }
+            int32_t inset = 0;
+            for (int pass = 0; pass < 4; pass++) {
+                int32_t y0 = ys;
+                int32_t y1 = ys + box_h - 1;
+                inset = 0;
+                for (bool moved = true; moved;) {
+                    moved = false;
+                    int32_t x0 = right ? a.x1 - split_margin - inset - box_w : a.x0 + split_margin + inset;
+                    for (int j = 0; j < nc; j++) {
+                        const Rect& o = column[j];
+                        if (o.x0 <= x0 + box_w && x0 <= o.x1 && o.y0 <= y1 && y0 <= o.y1) {
+                            inset = right ? a.x1 - split_margin - (o.x0 - deaths_gap - 1) : o.x1 + 1 + deaths_gap - a.x0 - split_margin;
+                            moved = true;
+                            break;
+                        }
+                    }
+                }
+                int32_t x0 = right ? a.x1 - split_margin - inset - box_w : a.x0 + split_margin + inset;
+                bool blocked = false;
+                for (int j = 0; j < nb; j++) {
+                    const Rect& o = block[j];
+                    if (o.x0 <= x0 + box_w && x0 <= o.x1 && o.y0 <= y1 && y0 <= o.y1) {
+                        // Past it, away from the outer edge.
+                        ys = bottom ? o.y0 - deaths_gap - box_h : o.y1 + 1 + deaths_gap;
+                        blocked = true;
+                        break;
+                    }
+                }
+                if (!blocked) {
+                    break;
+                }
+            }
+            int32_t edge = bottom ? a.y1 - (ys + box_h - 1) : ys - a.y0;
+            stunt_race_inset = std::max(stunt_race_inset, inset);
+            stunt_race_edge = std::max(stunt_race_edge, edge);
+        }
+    }
+
     // Anchor each group by the screen third its center falls in, or side by side, move it to its player's half and
     // anchor it by the third of the half. Stored at the group's root.
     int32_t group_dx[max_widgets];
@@ -1717,6 +1983,9 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
                 move_to_side(g, group_dx[i], group_dy[i], group_player[i]);
             }
             group_origin[i] = side_origin_for_x((block->x0 + block->x1) / 2 + group_dx[i]);
+            if (quad_views && (group_role[i] == HudRole::StuntScore || group_role[i] == HudRole::StuntTrick)) {
+                group_origin[i] = stunt_origin_for_x((block->x0 + block->x1) / 2 + group_dx[i]);
+            }
             if (group_role[i] == HudRole::Gear && block != &g) {
                 // The gear is lined up with the panel above it, so it takes that panel's anchor.
                 HudRole panel = (player & 1) ? HudRole::Time : HudRole::Position;
@@ -1929,6 +2198,22 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
+    // Where each player's stunt panel text goes: moved with its box and scaled about the box's corner as drawn.
+    for (int p = 0; p < 4; p++) {
+        for (int k = 0; k < 2; k++) {
+            StuntText& t = stunt_text[p][k];
+            t.valid = false;
+            HudRole role = k == 0 ? HudRole::StuntScore : HudRole::StuntTrick;
+            const Rect& b = role_rect[p][(int)role];
+            if (quad_views && valid(b) && place_role(role, p, role_rect[p], t.dx, t.dy)) {
+                t.valid = true;
+                t.pivot_x = b.x0 + t.dx;
+                t.pivot_y = b.y0 + t.dy;
+                t.origin = stunt_origin_for_x((b.x0 + b.x1) / 2 + t.dx);
+            }
+        }
+    }
+
     if (split && !inset_lifted) {
         saved_inset_x = MEM_H(0, (int32_t)clip_inset_x);
         saved_inset_y = MEM_H(0, (int32_t)clip_inset_y);
@@ -1936,6 +2221,29 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
         MEM_H(0, (int32_t)clip_inset_x) = -lifted_inset;
         MEM_H(0, (int32_t)clip_inset_y) = -lifted_inset;
         inset_lifted = true;
+    }
+
+    // The trick name's box in the scores' place (race, quadrants): while a player's shows, their scores' box is
+    // hidden for the draw loop.
+    for (int p = 0; p < 4; p++) {
+        stunt_swap[p] = false;
+    }
+    if (quad_views && !stunt_arena_race) {
+        for (uint32_t i = 0; i < count; i++) {
+            int p = rush2::players4::hud_widget_player((int)i);
+            if (stunt_kind((int)i) == 1 && p >= 0 && p < 4 &&
+                MEM_B(widget_hidden, (int32_t)(widget_array + i * widget_size)) == 0) {
+                stunt_swap[p] = true;
+            }
+        }
+        for (uint32_t i = 0; i < count; i++) {
+            int p = rush2::players4::hud_widget_player((int)i);
+            int32_t widget = (int32_t)(widget_array + i * widget_size);
+            if (stunt_kind((int)i) == 0 && p >= 0 && p < 4 && stunt_swap[p] && MEM_B(widget_hidden, widget) == 0) {
+                MEM_B(widget_hidden, widget) = 1;
+                stunt_hidden[i] = true;
+            }
+        }
     }
 
     // Move the widgets for the draw loop.
@@ -2007,6 +2315,46 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
 // func_800734E0 entry (prints a string at ($a0, $a1), justified around $a0). Anchors text printed by HUD callback
 // widgets, and moves it side by side.
 void rush2_hud_print(uint8_t* rdram, recomp_context* ctx) {
+    // The stunt panel's text (func_800B7654, which prints every player's in a loop with the player in $s6; players 3 and
+    // 4's at player 2's place): moved with the player's own box (the one the text is over: the trick name's on the
+    // left, the scores' on the right) and drawn at its scale. The text is drawn at once (the callback sets the text
+    // scale 0x800BEF48 to 0), so its rectangles are scaled when the next string or widget starts (finish_half).
+    if (in_hud_callback && quad_views && in_stunt_text) {
+        int player = (int)ctx->r22;
+        int32_t x = (int16_t)ctx->r4;
+        int32_t y = (int16_t)ctx->r5;
+        if (player >= 0 && player < 4) {
+            int k = x < screen_width / 2 ? 1 : 0;
+            for (int i = 0; i < 2; i++) {
+                const Rect& b = stunt_box[player][i];
+                if (valid(b) && x >= b.x0 - text_margin && x <= b.x1 + text_margin && y >= b.y0 - text_margin &&
+                    y <= b.y1 + text_margin) {
+                    k = i;
+                }
+            }
+            const StuntText& t = stunt_text[player][k];
+            if (t.valid && k == 0 && stunt_swap[player]) {
+                // The scores' box is hidden while the trick name's shows in its place: its text goes off the screen.
+                finish_half(rdram);
+                ctx->r4 = -2000;
+                ctx->r5 = -2000;
+                return;
+            }
+            if (t.valid) {
+                finish_half(rdram);
+                set_rect_origin(rdram, t.origin);
+                ctx->r4 = x + t.dx;
+                ctx->r5 = y + t.dy;
+                half_pending = true;
+                half_start = MEM_W(0, (int32_t)dl_2d_cursor);
+                half_scale_x = half_scale_y = stunt_scale;
+                half_pivot = true;
+                half_pivot_x = t.pivot_x;
+                half_pivot_y = t.pivot_y;
+                return;
+            }
+        }
+    }
     if (in_hud_callback) {
         int32_t x = (int16_t)ctx->r4;
         int32_t y = (int16_t)ctx->r5;
@@ -2014,6 +2362,33 @@ void rush2_hud_print(uint8_t* rdram, recomp_context* ctx) {
         ctx->r4 = x;
         ctx->r5 = y;
     }
+}
+
+// The 2D display list (the HUD, menus and text after the 3D views) is built in one of two buffers, alternating by
+// frame: func_800B3A20 starts it (cursor 0x80125ABC = 0x8011CDB8 + frame * 0x4650) and func_800B39AC ends it and
+// returns its start. 0x4650 bytes hold 2250 commands, and the second buffer ends where the HUD element pool's counts
+// begin (0x80125A58): four players' HUDs with a battle, DEATHS, the odometer and the stunt panels outgrew it, and the
+// overflow corrupted the element free list (a crash in hud_widget_free_8005FED8 when the pause menu was set up). The
+// buffers move to 0x80AE0000, 0x10000 bytes each (the game heap's top is lowered to make room, src/assets.cpp).
+namespace {
+    constexpr uint32_t dl_2d_buffers = 0x80AE0000;
+    constexpr uint32_t dl_2d_buffer_size = 0x10000;
+    constexpr uint32_t dl_2d_frame = 0x80119850; // s32: which buffer (0 or 1)
+}
+
+// func_800B3A20 at 0x800B3AF4, after it sets the cursor to the frame's buffer ($t0 = the frame).
+void rush2_hud_2d_list_start(uint8_t* rdram, recomp_context* ctx) {
+    MEM_W(0, (int32_t)dl_2d_cursor) = (int32_t)(dl_2d_buffers + (uint32_t)ctx->r8 * dl_2d_buffer_size);
+}
+
+// func_800B39AC at its return (0x800B3A18): $v0 = the start of the frame's list.
+void rush2_hud_2d_list_end(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r2 = (int32_t)(dl_2d_buffers + (uint32_t)MEM_W(0, (int32_t)dl_2d_frame) * dl_2d_buffer_size);
+}
+
+// func_800B7654 (the stunt panel's text callback) entry and return, around its prints (rush2_hud_print).
+void rush2_hud_stunt_text(uint8_t* rdram, recomp_context* ctx, int inside) {
+    in_stunt_text = inside != 0;
 }
 
 // func_8007D9DC, after the widget draw loop. Puts moved widgets back, and draws the menus' join hint for players 3 and 4.
@@ -2044,6 +2419,10 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
             MEM_H(widget_x, widget) = saved_x[i];
             MEM_H(widget_y, widget) = saved_y[i];
             slot_moved[i] = false;
+        }
+        if (stunt_hidden[i]) {
+            MEM_B(widget_hidden, (int32_t)(widget_array + i * widget_size)) = 0;
+            stunt_hidden[i] = false;
         }
     }
     rush2::players4::draw_join_hint(rdram, ctx);

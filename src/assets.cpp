@@ -10,9 +10,9 @@
 // from a top. The game puts it between its framebuffers (base about 0x80170CC0) and 0x803DA800, about 2.3 MB, and
 // lowers the top to 0x803AA800 while the menu overlay is resident there. Rush 2049's tracks are up to 0.6 MB bigger
 // than Rush 2's, and the track select's dioramas of them are real miniatures of their geometry (about 3.75 MB), so the
-// heap is moved to 0x80400000-0x80B00000: past the 4 MB of the original memory map, below the interpolation buffers
-// at 0x80B00000, and within the RSP's 24-bit addresses. us.toml patches func_8009FB40 and func_800A62C0 to reset the
-// top to 0x80B00000 instead of 0x803AA800/0x803DA800; the overlay no longer overlaps the
+// heap is moved to 0x80400000-0x80AE0000: past the 4 MB of the original memory map, below the 2D display lists at
+// 0x80AE0000 (src/hud.cpp) and the interpolation buffers at 0x80B00000, and within the RSP's 24-bit addresses. us.toml patches func_8009FB40 and func_800A62C0 to reset the
+// top to 0x80AE0000 instead of 0x803AA800/0x803DA800; the overlay no longer overlaps the
 // heap, so loading it doesn't need to lower the top.
 
 #include <atomic>
@@ -47,7 +47,7 @@ namespace {
     constexpr uint32_t heap_mark = 0x8010C444;
     constexpr uint32_t heap_top = 0x8010C470;
     constexpr uint32_t new_heap_base = 0x80400000;
-    constexpr uint32_t new_heap_top = 0x80B00000;
+    constexpr uint32_t new_heap_top = 0x80AE0000; // 0x80AE0000-0x80B00000: the 2D display lists (src/hud.cpp)
 
     struct Replacement {
         uint32_t rom;
