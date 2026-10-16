@@ -251,6 +251,11 @@ std::string rush2::track_mod::race_folder() {
     return r < (int)entries.size() ? entries[r].folder : "";
 }
 
+std::string rush2::track_mod::folder(int index) {
+    std::lock_guard lock{ mutex };
+    return index >= 0 && index < (int)entries.size() ? entries[index].folder : "";
+}
+
 bool rush2::track_mod::race_settings(Settings& out) {
     std::lock_guard lock{ mutex };
     int r = race_track();
