@@ -2246,7 +2246,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             }
             v[i] = s * 1.4667f;
         }
-        // AISPEED caps: from the nearest point on, until the next marker (0 lifts the cap).
+        // AISPEED caps: from the nearest point on, until the next marker (0 lifts the cap), in the forward race's order
+        // in both directions, so a cap covers the same stretch of road backward (backward point i is forward point
+        // n - i): in backward order "until the next marker" would cap the stretches between the zones instead.
         std::vector<std::pair<size_t, float>> caps;
         for (const auto& [cap, node] : aispeeds) {
             Vec3 p = to_game(node->position());
@@ -2256,7 +2258,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             if (forward && best > 200.0f) {
                 report.warning(base_name(node->name) + " is " + fmt_ft(best) + " from the AI path; it applies at the nearest point.");
             }
-            caps.push_back({ best_i, cap });
+            caps.push_back({ forward ? best_i : (n - best_i) % n, cap });
         }
         std::sort(caps.begin(), caps.end());
         for (size_t c = 0; c < caps.size(); c++) {
@@ -2265,7 +2267,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             size_t from = caps[c].first, to = caps[(c + 1) % caps.size()].first;
             size_t count = caps.size() == 1 ? n : (to + n - from) % n;
             for (size_t k = 0; k < count; k++) {
-                size_t i = (from + k) % n;
+                size_t f = (from + k) % n;
+                size_t i = forward ? f : (n - f) % n;
                 v[i] = std::min(v[i], caps[c].second * 1.4667f);
             }
         }

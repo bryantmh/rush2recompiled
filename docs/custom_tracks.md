@@ -177,7 +177,8 @@ wide`) and says which it is when it is standing up or too narrow.
   point from the tightest bend in the next 500 ft, the way the stock tracks' speeds run (83 to 158 mph, fitted to all
   of Rush 2's circuit tracks and Rush 2049's race tracks). To slow them down where that gets it wrong (jumps, blind crests), place
   an Empty named `AISPEED_<mph>` beside the path, such as `AISPEED_45`: it caps their speed from the nearest path point
-  on, in the race direction, until the next `AISPEED_` marker. `AISPEED_0` lifts the cap.
+  on, in the forward race's direction, until the next `AISPEED_` marker. `AISPEED_0` lifts the cap. Backward races
+  cap the same stretch of road.
 - **Tight corners:** on level or rising road the computer cars never aim below 61 mph (92 and 123 mph with the Heavy
   and Jovian gravity cheats). Stock Rush 2 lanes never ask for less than 72 mph, so this only matters on unusually tight custom corners.
 
