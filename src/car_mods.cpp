@@ -917,27 +917,9 @@ namespace {
     bool initialized = false;
     int frames = 0;
 
-    // The enabled mods, in load order, that have a car file: (mod id, path, is zip).
-    struct ModFile {
-        std::string mod_id;
-        std::filesystem::path path;
-    };
-    std::vector<ModFile> enabled_mods(std::string& signature) {
-        std::vector<ModFile> out;
-        for (const recomp::mods::ModDetails& mod : recomp::mods::get_all_mod_details("rush2")) {
-            bool on = recomp::mods::is_mod_enabled(mod.mod_id);
-            signature += mod.mod_id + (on ? "+" : "-") + ";";
-            if (on) out.push_back({ mod.mod_id, recomp::mods::get_mod_filename(mod.mod_id) });
-        }
-        return out;
-    }
-
-    bool read_mod_file(const ModFile& mod, const std::string& name, std::vector<uint8_t>& out) {
-        rush2::upscale::ZipReader zip(mod.path);
-        if (zip.is_open()) return zip.read(name, out);
-        out = rush2::upscale::read_file(mod.path / std::filesystem::u8path(name));
-        return !out.empty();
-    }
+    using rush2::mod_files::ModFile;
+    using rush2::mod_files::enabled_mods;
+    using rush2::mod_files::read_mod_file;
 
     // The car of `type` from glb: its container (cached) and stand-ins. False on a bad file.
     bool convert(int type, const std::vector<uint8_t>& glb, std::shared_ptr<Model>& model, std::vector<uint8_t>& car,
@@ -1169,6 +1151,23 @@ namespace {
         if (changed) publish_textures();
         fflush(stdout);
     }
+}
+
+std::vector<rush2::mod_files::ModFile> rush2::mod_files::enabled_mods(std::string& signature) {
+    std::vector<ModFile> out;
+    for (const recomp::mods::ModDetails& mod : recomp::mods::get_all_mod_details("rush2")) {
+        bool on = recomp::mods::is_mod_enabled(mod.mod_id);
+        signature += mod.mod_id + (on ? "+" : "-") + ";";
+        if (on) out.push_back({ mod.mod_id, recomp::mods::get_mod_filename(mod.mod_id) });
+    }
+    return out;
+}
+
+bool rush2::mod_files::read_mod_file(const ModFile& mod, const std::string& name, std::vector<uint8_t>& out) {
+    rush2::upscale::ZipReader zip(mod.path);
+    if (zip.is_open()) return zip.read(name, out);
+    out = rush2::upscale::read_file(mod.path / std::filesystem::u8path(name));
+    return !out.empty();
 }
 
 void rush2::car_mods::init(uint8_t* rdram) {

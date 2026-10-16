@@ -20,8 +20,12 @@
 #include "hud_layout.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <sstream>
+#include <string>
 
 namespace rush2::hud_layout {
     int32_t origin_offset(uint16_t origin, float hud_width) {
@@ -36,6 +40,113 @@ namespace rush2::hud_layout {
 #include "hud_overrides.inc"
         };
         return list;
+    }
+
+    bool parse_overrides(const std::string& text, const std::string& source, std::vector<Override>& list,
+                         std::string& error) {
+        static const char* const ids[] = { "LayoutId::P1", "LayoutId::P2Stacked", "LayoutId::P2Side", "LayoutId::P3", "LayoutId::P4" };
+        std::stringstream in(text);
+        std::string line;
+        int n = 0;
+        while (std::getline(in, line)) {
+            n++;
+            size_t open = line.find('{');
+            size_t comment = line.find("//");
+            if (open == std::string::npos || comment < open) continue;
+            std::string body = line.substr(open + 1, line.find('}') - open - 1);
+            std::vector<std::string> v;
+            std::stringstream ss(body);
+            std::string item;
+            while (std::getline(ss, item, ',')) {
+                item.erase(0, item.find_first_not_of(" \t"));
+                item.erase(item.find_last_not_of(" \tf") + 1);
+                v.push_back(item);
+            }
+            if (v.size() != 9 && v.size() != 10 && v.size() != 13) {
+                error = source + ":" + std::to_string(n) + ": expected 9, 10 or 13 fields";
+                return false;
+            }
+            Override o;
+            bool layout_ok = false, role_ok = false;
+            for (int k = 0; k < (int)LayoutId::Count; k++) {
+                if (v[0] == ids[k]) {
+                    o.layout = (LayoutId)k;
+                    layout_ok = true;
+                }
+            }
+            for (int k = 0; k < (int)Role::Count; k++) {
+                if (v[1] == std::string("Role::") + role_name((Role)k)) {
+                    o.role = (Role)k;
+                    role_ok = true;
+                }
+            }
+            if (!layout_ok || !role_ok) {
+                error = source + ":" + std::to_string(n) + ": unknown layout or role";
+                return false;
+            }
+            o.player = (int8_t)std::strtol(v[2].c_str(), nullptr, 0);
+            o.group = (uint8_t)std::strtol(v[3].c_str(), nullptr, 0);
+            o.flags = (uint8_t)std::strtol(v[4].c_str(), nullptr, 0);
+            o.x = (int32_t)std::strtol(v[5].c_str(), nullptr, 0);
+            o.y = (int32_t)std::strtol(v[6].c_str(), nullptr, 0);
+            o.origin = (uint16_t)std::strtol(v[7].c_str(), nullptr, 0);
+            o.scale = std::strtof(v[8].c_str(), nullptr);
+            if (v.size() == 13) {
+                // attached: the element it's attached to (role, player, group).
+                bool to_ok = false;
+                for (int k = 0; k < (int)Role::Count; k++) {
+                    if (v[10] == std::string("Role::") + role_name((Role)k)) {
+                        o.to_role = (Role)k;
+                        to_ok = true;
+                    }
+                }
+                if (!to_ok) {
+                    error = source + ":" + std::to_string(n) + ": unknown role it's attached to";
+                    return false;
+                }
+                o.to_player = (int8_t)std::strtol(v[11].c_str(), nullptr, 0);
+                o.to_group = (uint8_t)std::strtol(v[12].c_str(), nullptr, 0);
+            }
+            if (v.size() >= 10) {
+                bool mode_ok = false;
+                for (int k = 0; k < (int)HudMode::Count; k++) {
+                    std::string name = mode_name((HudMode)k);
+                    // HudMode::Race, ::RaceBattle, ...: the enumerator's name from its snake_case one.
+                    std::string e = "HudMode::";
+                    bool up = true;
+                    for (char ch : name) {
+                        if (ch == '_') { up = true; continue; }
+                        e += up ? (char)std::toupper((unsigned char)ch) : ch;
+                        up = false;
+                    }
+                    if (v[9] == e) {
+                        o.mode = (HudMode)k;
+                        mode_ok = true;
+                    }
+                }
+                if (!mode_ok) {
+                    error = source + ":" + std::to_string(n) + ": unknown mode";
+                    return false;
+                }
+            }
+            list.push_back(o);
+        }
+        return true;
+    }
+
+    std::vector<Override> merge_overrides(const std::vector<Override>& base, const std::vector<Override>& mod) {
+        // The same element in the same layout and mode (and 4:3 or not).
+        auto same = [](const Override& a, const Override& b) {
+            return a.layout == b.layout && a.role == b.role && a.player == b.player && a.group == b.group &&
+                   a.mode == b.mode && (a.flags & Override::only_43) == (b.flags & Override::only_43);
+        };
+        std::vector<Override> out;
+        for (const Override& o : base) {
+            bool replaced = std::any_of(mod.begin(), mod.end(), [&](const Override& m) { return same(o, m); });
+            if (!replaced) out.push_back(o);
+        }
+        out.insert(out.end(), mod.begin(), mod.end());
+        return out;
     }
 
     LayoutId layout_id(const Config& c) {

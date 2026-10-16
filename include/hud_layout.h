@@ -76,6 +76,14 @@ namespace rush2::hud_layout {
     };
     // The built-in ones (src/hud_overrides.inc).
     const std::vector<Override>& builtin_overrides();
+    // Hand placements in src/hud_overrides.inc's format (the HUD editor's: one "{ LayoutId::P4, Role::Deaths, 3, 0, 1,
+    // 120, 200, 0x400, 1.000f }," per line, "//" comments) added to `list`; false with `error` (`source`:line) on a
+    // bad line.
+    bool parse_overrides(const std::string& text, const std::string& source, std::vector<Override>& list,
+                         std::string& error);
+    // `base` with `mod`'s placements over it: one of mod's replaces base's for the same element, layout and mode (and
+    // 4:3 or not); the rest of base's stay (a HUD mod, rush2::hud's mod_overrides).
+    std::vector<Override> merge_overrides(const std::vector<Override>& base, const std::vector<Override>& mod);
 
     struct Config {
         int players = 1;                // players racing, 1-4

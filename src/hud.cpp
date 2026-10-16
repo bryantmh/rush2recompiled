@@ -49,6 +49,7 @@
 #include "hud_catalog.h"
 #include "hud_layout.h"
 #include "battle.h"
+#include "car_mods.h"
 #include "online.h"
 #include "odometer2049.h"
 #include "pause_menu.h"
@@ -1031,6 +1032,52 @@ namespace {
     constexpr uint32_t race_deaths = 0x8010BC98;            // s8: the DEATHS option (the skull)
     constexpr uint32_t race_mode_option = 0x8010C169;       // u8: the stunt mode's option (the IT badge)
 
+    // HUD mods: the first enabled mod (in load order) holding rush2/hud_placements.inc (the HUD editor's placements,
+    // src/hud_overrides.inc's format) puts its placements over the built-in ones (merge_overrides). Checked every 60
+    // frames: mods turned on or off, and the file's time (a folder mod's file, else the .rtz), so a placement saved
+    // from the editor shows in a running game.
+    constexpr const char* hud_mod_file = "rush2/hud_placements.inc";
+    std::vector<layout::Override> mod_overrides;
+    bool mod_overrides_on = false;
+    std::string mod_signature;
+    int mod_check_frames = 0;
+
+    // Whether the mods' placements changed (the layout is solved again then).
+    bool refresh_mod_overrides() {
+        if (mod_check_frames-- > 0) return false;
+        mod_check_frames = 60;
+        std::string signature;
+        std::vector<rush2::mod_files::ModFile> mods = rush2::mod_files::enabled_mods(signature);
+        for (const rush2::mod_files::ModFile& m : mods) {
+            std::error_code ec;
+            std::filesystem::path file = std::filesystem::is_directory(m.path, ec)
+                ? m.path / std::filesystem::u8path(hud_mod_file) : m.path;
+            auto time = std::filesystem::last_write_time(file, ec);
+            signature += ec ? std::string("-") : std::to_string(time.time_since_epoch().count());
+            signature += ";";
+        }
+        if (signature == mod_signature) return false;
+        mod_signature = signature;
+        bool was_on = mod_overrides_on;
+        mod_overrides_on = false;
+        for (const rush2::mod_files::ModFile& m : mods) {
+            std::vector<uint8_t> data;
+            if (!rush2::mod_files::read_mod_file(m, hud_mod_file, data)) continue;
+            std::vector<layout::Override> list;
+            std::string error;
+            if (!layout::parse_overrides(std::string(data.begin(), data.end()), m.mod_id + "/" + hud_mod_file, list, error)) {
+                fprintf(stderr, "[hud] mod placements not used: %s\n", error.c_str());
+                break;
+            }
+            mod_overrides = layout::merge_overrides(layout::builtin_overrides(), list);
+            mod_overrides_on = true;
+            printf("[hud] %zu placements from mod %s\n", list.size(), m.mod_id.c_str());
+            fflush(stdout);
+            break;
+        }
+        return mod_overrides_on || was_on;
+    }
+
     layout::Config collect_config(uint8_t* rdram) {
         layout::Config c;
         int quads = rush2::splitscreen::quadrant_views(rdram);
@@ -1423,7 +1470,9 @@ void rush2_hud_draw_begin(uint8_t* rdram, recomp_context* ctx) {
             MEM_W(0, (int32_t)bonus_time_end) = std::bit_cast<int32_t>(clock + 3.0f);
         }
     }
+    if (refresh_mod_overrides()) layout_solved = false;
     layout::Config config = collect_config(rdram);
+    config.overrides = mod_overrides_on ? &mod_overrides : nullptr;
     if (!layout_solved || !(config == frame_output.config)) {
         frame_output = layout::solve(config);
         layout_solved = true;

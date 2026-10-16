@@ -22,6 +22,8 @@
 //                                          slide end) and the issues (what tools/hud_preview/editor.py draws)
 //     --overrides FILE                     hand placements to use instead of the built-in ones (src/hud_overrides.inc's
 //                                          format; the HUD editor's work in progress)
+//     --mod FILE                           a HUD mod's placements (rush2/hud_placements.inc) over the built-in ones,
+//                                          merged as the game does
 //     --no-picture                         no picture (with --json)
 //     --parts                              lists every part: where the game draws it, its reach and its element
 //   hud_preview --dump-images DIR          the HUD's ROM images as DIR/NAME.png (French and German: NAME.1.png,
@@ -651,101 +653,16 @@ std::string elements_json(const Output& out, const std::vector<Issue>& issues, c
     return s + "]}\n";
 }
 
-// Hand placements in src/hud_overrides.inc's format: one "{ LayoutId::P4, Role::Deaths, 3, 0, 1, 120, 200, 0x400,
-// 1.0f }," per line ("//" comments).
+// Hand placements in src/hud_overrides.inc's format, from a file (rush2::hud_layout::parse_overrides).
 bool read_overrides(const std::string& path, std::vector<Override>& list, std::string& error) {
     std::ifstream f(path, std::ios::binary);
     if (!f) {
         error = "can't read " + path;
         return false;
     }
-    static const char* const ids[] = { "LayoutId::P1", "LayoutId::P2Stacked", "LayoutId::P2Side", "LayoutId::P3", "LayoutId::P4" };
-    std::string line;
-    int n = 0;
-    while (std::getline(f, line)) {
-        n++;
-        size_t open = line.find('{');
-        size_t comment = line.find("//");
-        if (open == std::string::npos || comment < open) continue;
-        std::string body = line.substr(open + 1, line.find('}') - open - 1);
-        std::vector<std::string> v;
-        std::stringstream ss(body);
-        std::string item;
-        while (std::getline(ss, item, ',')) {
-            item.erase(0, item.find_first_not_of(" \t"));
-            item.erase(item.find_last_not_of(" \tf") + 1);
-            v.push_back(item);
-        }
-        if (v.size() != 9 && v.size() != 10 && v.size() != 13) {
-            error = path + ":" + std::to_string(n) + ": expected 9, 10 or 13 fields";
-            return false;
-        }
-        Override o;
-        bool layout_ok = false, role_ok = false;
-        for (int k = 0; k < (int)LayoutId::Count; k++) {
-            if (v[0] == ids[k]) {
-                o.layout = (LayoutId)k;
-                layout_ok = true;
-            }
-        }
-        for (int k = 0; k < (int)Role::Count; k++) {
-            if (v[1] == std::string("Role::") + role_name((Role)k)) {
-                o.role = (Role)k;
-                role_ok = true;
-            }
-        }
-        if (!layout_ok || !role_ok) {
-            error = path + ":" + std::to_string(n) + ": unknown layout or role";
-            return false;
-        }
-        o.player = (int8_t)std::strtol(v[2].c_str(), nullptr, 0);
-        o.group = (uint8_t)std::strtol(v[3].c_str(), nullptr, 0);
-        o.flags = (uint8_t)std::strtol(v[4].c_str(), nullptr, 0);
-        o.x = (int32_t)std::strtol(v[5].c_str(), nullptr, 0);
-        o.y = (int32_t)std::strtol(v[6].c_str(), nullptr, 0);
-        o.origin = (uint16_t)std::strtol(v[7].c_str(), nullptr, 0);
-        o.scale = std::strtof(v[8].c_str(), nullptr);
-        if (v.size() == 13) {
-            // attached: the element it's attached to (role, player, group).
-            bool to_ok = false;
-            for (int k = 0; k < (int)Role::Count; k++) {
-                if (v[10] == std::string("Role::") + role_name((Role)k)) {
-                    o.to_role = (Role)k;
-                    to_ok = true;
-                }
-            }
-            if (!to_ok) {
-                error = path + ":" + std::to_string(n) + ": unknown role it's attached to";
-                return false;
-            }
-            o.to_player = (int8_t)std::strtol(v[11].c_str(), nullptr, 0);
-            o.to_group = (uint8_t)std::strtol(v[12].c_str(), nullptr, 0);
-        }
-        if (v.size() >= 10) {
-            bool mode_ok = false;
-            for (int k = 0; k < (int)HudMode::Count; k++) {
-                std::string name = mode_name((HudMode)k);
-                // HudMode::Race, ::RaceBattle, ...: the enumerator's name from its snake_case one.
-                std::string e = "HudMode::";
-                bool up = true;
-                for (char ch : name) {
-                    if (ch == '_') { up = true; continue; }
-                    e += up ? (char)std::toupper((unsigned char)ch) : ch;
-                    up = false;
-                }
-                if (v[9] == e) {
-                    o.mode = (HudMode)k;
-                    mode_ok = true;
-                }
-            }
-            if (!mode_ok) {
-                error = path + ":" + std::to_string(n) + ": unknown mode";
-                return false;
-            }
-        }
-        list.push_back(o);
-    }
-    return true;
+    std::stringstream text;
+    text << f.rdbuf();
+    return parse_overrides(text.str(), path, list, error);
 }
 
 // The ROM's HUD images as PNGs (the editor draws with them).
@@ -1029,7 +946,7 @@ int run_truth(const std::string& dir) {
 
 int main(int argc, char** argv) {
     std::string rom_path = "rush2.us.recomp.z64", out_path = "tmp/hud_preview/preview.png", json_path, show = "all", matrix, truth;
-    std::string overrides_path, images_dir, rom2049_path;
+    std::string overrides_path, mod_path, images_dir, rom2049_path;
     int zoom = 3;
     bool parts = false, picture = true;
     std::vector<std::pair<std::string, std::string>> sets;
@@ -1059,6 +976,7 @@ int main(int argc, char** argv) {
         else if (arg == "--truth") truth = next();
         else if (arg == "--parts") parts = true;
         else if (arg == "--overrides") overrides_path = next();
+        else if (arg == "--mod") mod_path = next();
         else if (arg == "--no-picture") picture = false;
         else if (arg == "--dump-images") images_dir = next();
         else if (arg == "--rom2049") rom2049_path = next();
@@ -1088,6 +1006,16 @@ int main(int argc, char** argv) {
     if (!overrides_path.empty() && !read_overrides(overrides_path, overrides, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 2;
+    }
+    if (!mod_path.empty()) {
+        // A HUD mod's placements over the built-in ones (or --overrides'), as the game merges them.
+        std::vector<Override> mod;
+        if (!read_overrides(mod_path, mod, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 2;
+        }
+        overrides = merge_overrides(overrides_path.empty() ? builtin_overrides() : overrides, mod);
+        overrides_path = mod_path;
     }
     Config c = default_config();
     std::string layout = "stacked";

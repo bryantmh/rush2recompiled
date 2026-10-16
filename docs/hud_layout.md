@@ -385,6 +385,19 @@ issues.
 - Play slides (or the time slider) plays WRONG WAY's slide with its anchor blending.
 - Reset element (R) or the whole layout; Save writes `src/hud_overrides.inc`. Rebuild the game and the previewer
   to use it.
+- Save as Mod (with a mod name) writes a HUD mod instead, no rebuild: `<mods>/<id>/mod.json` (only if it isn't
+  there) and `rush2/hud_placements.inc`, in the same format, holding only the placements that differ from the
+  built-in ones (one the editor reset to its rule: flags 0). `--mods DIR` is the game's mods folder (default
+  build/mods), `--mod ID` starts the editor from that mod's placements.
+
+### HUD mods
+
+The first enabled mod, in load order, holding `rush2/hud_placements.inc` puts its placements over the built-in ones
+(`rush2::hud_layout::merge_overrides`): one of the mod's replaces the built-in one for the same element, layout and
+mode (and 4:3 or not), and flags 0 takes it back to its rule; the rest stay. src/hud.cpp (`refresh_mod_overrides`)
+checks every 60 frames for mods turned on or off and for the file's time (a folder mod's file, else the `.rtz`), so a
+running game picks up a placement saved from the editor; a bad line is logged (`[hud] mod placements not used`) and
+the built-in placements are kept. `hud_preview --mod FILE` previews a mod's file merged the same way.
 
 Each change is solved again by the engine (the previewer, `--overrides`), so elements placed against a moved one
 follow it and the issues update.

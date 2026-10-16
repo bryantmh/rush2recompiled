@@ -84,6 +84,7 @@
     <h3>Layout</h3>
     <div class="row">Scale every element <input type="number" id="lscale" value="100" min="10" max="400" step="5">% of its default <button id="lapply">Apply</button></div>
     <div class="row"><button id="lreset">Reset layout</button> <button class="primary" id="save">Save</button></div>
+    <div class="row" title="Saves the placements as a mod in the game's mods folder: turn it on in Settings &gt; Mods. A running game picks up changes saved to a mod that's on, no rebuild."><input type="text" id="modname" placeholder="Mod name" size="16"> <button id="savemod">Save as Mod</button></div>
     <div id="warn"></div>
     <div id="status"></div>
   </section>
@@ -705,6 +706,16 @@ $('save').addEventListener('click', async () => {
   dirty = false;
   $('status').textContent = 'Saved ' + j.saved + '. Rebuild the game and the previewer to use it.';
 });
+$('savemod').addEventListener('click', async () => {
+  const name = $('modname').value.trim();
+  if (!name) { $('status').textContent = 'Name the mod first.'; return; }
+  const r = await fetch('/save_mod', { method: 'POST', body: JSON.stringify({ name, overrides }) });
+  const j = await r.json();
+  if (j.error) { $('status').textContent = j.error; return; }
+  dirty = false;
+  $('status').textContent = 'Saved the mod in ' + j.saved + '. Turn it on in Settings > Mods; the game picks up later saves as it runs.';
+});
+fetch('/mod').then(r => r.json()).then(j => { if (j.name) $('modname').value = j.name; });
 window.addEventListener('beforeunload', ev => { if (dirty) { ev.preventDefault(); ev.returnValue = ''; } });
 
 for (const id of ['layout', 'aspect', 'mode', 'odometer', 'manual', 'deaths', 'stunts', 'race_battle', 'it', 'battle_time', 'language'])

@@ -3,10 +3,14 @@
 Serves tools/hud_preview/editor.html on http://127.0.0.1:PORT. The page draws the layout engine's result for a layout
 and options (tmp/hud_preview/hud_preview.exe --json, with the ROM's images) and lets elements be dragged (snapping to
 other elements and the view's edges), anchored, scaled (one element, or every element of the layout by a percentage),
-hidden, and sliding ones (WRONG WAY) played. Saving writes src/hud_overrides.inc, which the game and the previewer
-build in (rebuild both after saving).
+hidden, and sliding ones (WRONG WAY) played. Save writes src/hud_overrides.inc, which the game and the previewer
+build in (rebuild both after saving). Save as Mod writes a HUD mod instead: MODS/<id>/mod.json and
+rush2/hud_placements.inc with the placements that differ from the built-in ones (one back to its rule: flags 0),
+which the game puts over its own (rush2::hud_layout::merge_overrides) and picks up while it runs, no rebuild.
 
-    python tools/hud_preview/editor.py [--port 8765]
+    python tools/hud_preview/editor.py [--port 8765] [--mods DIR] [--mod ID]
+
+--mods is the game's mods folder (default build/mods); --mod starts from that HUD mod's placements.
 
 Needs the previewer built first: cmd //c "tools\\hud_preview\\build.bat".
 """
@@ -49,11 +53,16 @@ HEADER = ('// Hand placements of HUD elements, written by the HUD editor (tools/
           '//   x, y from its top left corner]] }\n')
 
 
-def read_inc():
+MOD_FILE = 'rush2/hud_placements.inc'  # a HUD mod's placements (src/hud.cpp, hud_mod_file)
+MODS = os.path.join(ROOT, 'build', 'mods')
+MOD = ''  # --mod
+
+
+def read_inc(path=INC):
     out = []
-    if not os.path.exists(INC):
+    if not os.path.exists(path):
         return out
-    with open(INC, encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         for line in f:
             if line.lstrip().startswith('//'):
                 continue
@@ -68,13 +77,13 @@ def read_inc():
     return out
 
 
-def inc_text(overrides):
+def inc_text(overrides, keep_empty=False):
     lines = [HEADER]
     order = list(LAYOUTS.values())
     modes = list(MODES.values())
     for o in sorted(overrides, key=lambda o: (order.index(o['layout']), o['role'], o['player'], o['group'],
                                              modes.index(o.get('mode', 'any')))):
-        if not o.get('flags'):
+        if not o.get('flags') and not keep_empty:
             continue
         mode = o.get('mode', 'any')
         tail = '' if mode == 'any' else ', HudMode::' + MODE_IDS[mode]
@@ -84,6 +93,60 @@ def inc_text(overrides):
             LAYOUT_IDS[o['layout']], o['role'], o['player'], o['group'], o['flags'], round(o['x']), round(o['y']),
             o['origin'], o['scale'], tail))
     return ''.join(lines)
+
+
+ONLY_43 = 64
+
+
+def same_place(a, b):
+    """The same element, layout and mode (and 4:3 or not): rush2::hud_layout::merge_overrides's key."""
+    return (a['layout'], a['role'], a['player'], a['group'], a.get('mode', 'any'), a.get('flags', 0) & ONLY_43) == \
+           (b['layout'], b['role'], b['player'], b['group'], b.get('mode', 'any'), b.get('flags', 0) & ONLY_43)
+
+
+def merged(base, mod):
+    """base with mod's placements over it, as the game merges a HUD mod (flags 0: back to the rule)."""
+    out = [o for o in base if not any(same_place(o, m) for m in mod)]
+    return out + [m for m in mod if m.get('flags')]
+
+
+def mod_diff(base, current):
+    """A HUD mod's placements: current's that differ from base, and base's that current dropped (flags 0)."""
+    keys = ('flags', 'x', 'y', 'origin', 'scale', 'to_role', 'to_player', 'to_group')
+    out = [o for o in current if o.get('flags') and
+           not any(same_place(o, b) and all(o.get(k) == b.get(k) for k in keys) for b in base)]
+    for b in base:
+        if not any(same_place(b, o) and o.get('flags') for o in current):
+            out.append(dict(b, flags=0, x=0, y=0, origin=0x800, scale=1.0))
+    return out
+
+
+def mod_id(name):
+    return re.sub(r'[^a-z0-9_]+', '_', name.strip().lower()).strip('_') or 'hud_layout'
+
+
+def save_mod(name, overrides):
+    """Writes MODS/<id>/mod.json (if it isn't there) and its placements; returns the folder."""
+    ident = mod_id(name)
+    folder = os.path.join(MODS, ident)
+    os.makedirs(os.path.join(folder, 'rush2'), exist_ok=True)
+    meta = os.path.join(folder, 'mod.json')
+    if not os.path.exists(meta):
+        with open(meta, 'w', encoding='utf-8', newline='\n') as f:
+            json.dump({'game_id': 'rush2', 'id': ident, 'display_name': name.strip() or ident,
+                       'short_description': 'Race HUD layout', 'version': '1.0.0', 'authors': ['HUD editor'],
+                       'minimum_recomp_version': '0.0.0'}, f, indent=4)
+    with open(os.path.join(folder, *MOD_FILE.split('/')), 'w', encoding='utf-8', newline='\n') as f:
+        f.write(inc_text(mod_diff(read_inc(), overrides), keep_empty=True))
+    return folder
+
+
+def start_overrides():
+    """The built-in placements, with --mod's over them."""
+    base = read_inc()
+    if not MOD:
+        return base
+    return merged(base, read_inc(os.path.join(MODS, mod_id(MOD), *MOD_FILE.split('/'))))
 
 
 def solve(sets, overrides, name):
@@ -128,7 +191,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, f.read(), 'image/png')
             return self.send(404, b'', 'text/plain')
         if path == '/overrides':
-            return self.send(200, json.dumps(read_inc()))
+            return self.send(200, json.dumps(start_overrides()))
+        if path == '/mod':
+            return self.send(200, json.dumps({'name': MOD}))
         self.send(404, b'', 'text/plain')
 
     def do_POST(self):
@@ -146,15 +211,22 @@ class Handler(BaseHTTPRequestHandler):
                 with open(INC, 'w', encoding='utf-8', newline='\n') as f:
                     f.write(inc_text(body['overrides']))
                 return self.send(200, json.dumps({'saved': os.path.relpath(INC, ROOT)}))
+            if self.path == '/save_mod':
+                folder = save_mod(body.get('name', ''), body['overrides'])
+                return self.send(200, json.dumps({'saved': folder}))
         except Exception as e:  # shown in the page
             return self.send(500, json.dumps({'error': str(e)}))
         self.send(404, b'', 'text/plain')
 
 
 def main():
+    global MODS, MOD
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--port', type=int, default=8765)
+    ap.add_argument('--mods', default=MODS, help="the game's mods folder (Settings > Mods > Open Mods Folder)")
+    ap.add_argument('--mod', default='', help='start from this HUD mod (its id or name)')
     a = ap.parse_args()
+    MODS, MOD = os.path.abspath(a.mods), a.mod
     if not os.path.exists(PREVIEW):
         sys.exit('build the previewer first: cmd //c "tools\\hud_preview\\build.bat"')
     # The ROM images (Rush 2049's too), refreshed every start so a new previewer's are there.
