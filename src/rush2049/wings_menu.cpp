@@ -33,6 +33,7 @@
 #include "rush2_hooks.h"
 #include "car2049.h"
 #include "data_files.h"
+#include "light_bar.h"
 #include "players4.h"
 #include "wings_internal.h"
 
@@ -143,6 +144,21 @@ namespace {
         return slot + (rush2::players4::car_select_second_round() ? 2 : 0);
     }
 
+    // The light bar of the controller choosing in a slot shows the MAIN COLOR row of the car in the slot
+    // (src/light_bar.cpp). The slot's record is the chooser's, also in the second round (players 3 and 4).
+    void light_bar_slot(uint8_t* rdram, int slot) {
+        if (slot < 0 || slot > 1) {
+            return;
+        }
+        int type = slot_car(rdram, slot);
+        if (type < 0 || type >= rush2::car2049::types) {
+            return;
+        }
+        int port = MEM_BU(1, rush2::players4::record(slot));
+        int color = (int8_t)MEM_B(0, (int32_t)(main_colour + slot * rush2::car2049::types + type));
+        rush2::light_bar::set_car(port, type, color);
+    }
+
     // The offset that, added to 0x800C0000 and read at +0x4924, reads the label pointer at ptr.
     uint64_t label_offset(uint32_t ptr) {
         return (uint64_t)(int64_t)(int32_t)(ptr - label_table);
@@ -159,6 +175,7 @@ extern "C" void rush2_car_rows_built(uint8_t* rdram, recomp_context* ctx) {
 // func_803B9478's per-slot loop at 0x803B951C (slot $s7) and func_803BC048's at 0x803BC0C8 (slot $s2).
 extern "C" void rush2_car_rows_frame(uint8_t* rdram, recomp_context* ctx) {
     use_slot(rdram, (int32_t)ctx->r23);
+    light_bar_slot(rdram, (int32_t)ctx->r23);
 }
 
 extern "C" void rush2_car_rows_text(uint8_t* rdram, recomp_context* ctx) {

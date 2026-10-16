@@ -37,6 +37,7 @@
 #include "rush2_hooks.h"
 #include "rush2.h"
 #include "online.h"
+#include "light_bar.h"
 
 namespace {
     // Offsets in the car struct.
@@ -156,6 +157,8 @@ extern "C" void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx) {
     if (port >= num_ports) {
         return;
     }
+    // The light bar shows the car's MAIN COLOR (type +0x7EA, MAIN +0x7EB; docs/npc_cars.md, src/light_bar.cpp).
+    rush2::light_bar::set_car(port, MEM_BU(0x7EA, ctx->r6), MEM_BU(0x7EB, ctx->r6));
     if (rush2::input::take_rumble_impact_reset(port)) {
         have_previous[port] = false;
     }

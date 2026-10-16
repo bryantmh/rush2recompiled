@@ -48,6 +48,7 @@
 #include "librecomp/rsp.hpp"
 
 #include "rush2.h"
+#include "light_bar.h"
 #include "online.h"
 #include "data_files.h"
 #include "wings.h"
@@ -691,7 +692,10 @@ int main(int argc, char** argv) {
     };
 
     ultramodern::events::callbacks_t thread_callbacks{
-        .vi_callback = rush2::input::update_rumble,
+        .vi_callback = [] {
+            rush2::input::update_rumble();
+            rush2::light_bar::update();
+        },
         .gfx_init_callback = nullptr,
     };
 

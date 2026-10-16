@@ -178,6 +178,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/widescreen.cpp
     ${CMAKE_SOURCE_DIR}/src/input.cpp
     ${CMAKE_SOURCE_DIR}/src/rumble.cpp
+    ${CMAKE_SOURCE_DIR}/src/light_bar.cpp
     ${CMAKE_SOURCE_DIR}/src/dualsense_haptics.cpp
     ${CMAKE_SOURCE_DIR}/src/controls.cpp
     ${CMAKE_SOURCE_DIR}/src/controls_menu.cpp
