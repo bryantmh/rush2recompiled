@@ -1,0 +1,321 @@
+# Per-course data for mk64_track.py: what the MK64 game code sets up for a course and the ROM doesn't hold as data
+# next to it, transcribed from the mk64 decomp (github.com/n64decomp/mk64, US version). Everything else (geometry,
+# textures, collision lists, the AI path) is read from the course's own ROM data and found by its shape (mk64.py).
+#
+# [rom]                      addresses in the US ROM
+# [course.<name>]            <name> as mk64.COURSE_NAMES (the decomp's courses/ folder names)
+#   name                     shown in Rush 2
+#   vertex_colors            init_course() find_vtx_and_set_colours(dl, alpha, r, g, b) calls (src/racing/
+#                            render_courses.c): every vertex the DL loads gets the alpha, and the color when r != 0
+#   render_mode              the render mode render_<course>() sets before the section lists: opa (default), texedge
+#   stars                    a StarData table (vram, src/data/some_data.c) drawn on the sky: init_stars()
+#   kill_below               a COL_KILL sheet under the course (courses where falling off means Lakitu)
+#   wall_height              meters of collision added above the walls' top edges (Rush 2 cars jump higher)
+#   checkpoints              CHECKPOINT_n count, spaced evenly along the lap
+#   ai_speed                 [[path point, mph], ...] AISPEED_<mph> markers (0 lifts the cap): Rush 2 tuning, not MK64
+#   dl_list, sections, path  segment 6 addresses, only where the shape search in mk64.py picks the wrong table
+#
+# Battle courses (type = "battle"; render_<course>() and course_generate_collision_mesh() in render_courses.c,
+# spawn_players_4p_battle() in spawn_players.c):
+#   draw                     the DLs drawn; double_sided: those of them drawn with culling off
+#   collision                [[DL, surface type], ...]
+#   kill_y                   the fall height D_8015F8E4: a number, or "min" (the lowest collision vertex - 10)
+#   spawn_y, spawns          the 4 player starts: [[x, z, yaw], ...], on the ground under spawn_y
+#   item_boxes               the item box ActorSpawnData table: the Rush 2049 pickups
+#
+# Actors (spawn_course_actors() and init_actors() in src/racing/actors.c, the render code in src/actors/):
+#   seg3                     init_actors()'s course textures after the common 0x9000 bytes, as ROM offsets of their
+#                            MIO0 (assets/*.json rom_offset), or [offset, alloc] when alloc isn't 0x800
+#   [[course.<name>.actors]]
+#     name                   the mesh's name (ACTOR_<name>; MOVE_<name><n> for moving ones)
+#     dl, variants           the model's DL (or DLs), or one DL (list) per spawn id (palm trees, cows)
+#     spawns, at, ids        an ActorSpawnData table, or [[x, y, z, yaw degrees], ...]; ids keeps those spawn ids
+#     billboard              MK64 turns it to face the camera: two crossed copies with both faces
+#     tlut, texture          what the render code loads before the DL: the palette, the texture (segment 3)
+#     lit                    drawn with G_LIGHTING: the vertex colors are normals, so white
+#     both                   drawn with culling off
+#     ground                 false: not dropped onto the ground (default true)
+#     trunk                  [radius, height]: a COL_WALL octagon (boundingBoxSize, unk_08 in actor_init)
+#     spin                   seconds per turn: a MOVE_ object (the signs: rot[1] += DEGREES(1) per tick, 60 a second)
+#     circle                 [center x, center z, radius, seconds per lap, turns per lap]: a MOVE_ object (Yoshi egg)
+#   decomp_addrs.py finds the decomp's names in segment 6.
+
+[rom]
+main_vram_to_rom = 0x7FFFF400   # main code segment: rom = vram - this (the US build: 0x80000400 at ROM 0x1000)
+common_data = 0x132B50          # segment 0x0D (yamls/us/common_data.yml), MIO0
+star_texture = 0x0D0293D8       # D_0D0293D8, I4 16 x 16: the star sprite init_star_object() gives every star
+sky_top = 0x801214E0            # sTopSkyBoxColors[course]: { s16 top r, g, b, horizon r, g, b }
+sky_bottom = 0x801215DC         # sBottomSkyBoxColors[course]: { s16 horizon r, g, b, bottom r, g, b }
+
+[stars]
+toads_turnpike_rainbow_road = 0x800E6C80   # gToadsTurnpikeRainbowRoadStars
+wario_stadium = 0x800E6DE0                 # gWarioStadiumStars
+
+[course.rainbow_road]
+name = "Rainbow Road"
+vertex_colors = [[0x07002068, 150, 255, 255, 255], [0x07001E18, 150, 255, 255, 255], [0x07001318, 255, 255, 255, 0],
+                 [0x07001FB8, 150, 255, 255, 255]]
+stars = "toads_turnpike_rainbow_road"
+kill_below = true
+wall_height = 4.0
+checkpoints = 6
+# Sim runs (2026-10-15): the two long drops (path 4-129 and 555-827, the stretches MK64's CPU table D_0D0092C8 marks
+# with behaviours 9/10) carry Rush 2 cars past 200 mph into the dips at their feet, and the hairpin at 720 and the
+# spiral at 930 throw them into the rails at the converter's speeds. 7 wrecks a race without these, 1 with.
+ai_speed = [[30, 120], [135, 0], [450, 120], [580, 0], [705, 110], [785, 0], [915, 115], [1005, 0]]
+
+[course.wario_stadium]
+name = "Wario Stadium"
+vertex_colors = [[0x07000C50, 100, 255, 255, 255], [0x07000BD8, 100, 255, 255, 255], [0x07000B60, 100, 255, 255, 255],
+                 [0x07000AE8, 100, 255, 255, 255], [0x07000CC8, 100, 255, 255, 255], [0x07000D50, 100, 255, 255, 255],
+                 [0x07000DD0, 100, 255, 255, 255], [0x07000E48, 100, 255, 255, 255]]
+stars = "wario_stadium"
+
+[[course.wario_stadium.actors]]
+name = "sign"
+dl = 0x0600CA60                 # d_course_wario_stadium_dl_sign
+at = [[-131, 83, 286], [-2353, 72, -1608], [-2622, 79, 739]]
+ground = false
+spin = 6.0
+
+[course.toads_turnpike]
+name = "Toad's Turnpike"
+stars = "toads_turnpike_rainbow_road"
+
+[course.koopa_troopa_beach]
+name = "Koopa Troopa Beach"
+vertex_colors = [[0x0700ADE0, 150, 255, 255, 255], [0x0700A540, 150, 255, 255, 255], [0x07009E70, 150, 255, 255, 255],
+                 [0x07000358, 150, 255, 255, 255]]
+
+[[course.koopa_troopa_beach.actors]]
+name = "palm"
+variants = [[0x060186B8, 0x060185F8], [0x06018A08, 0x06018948], [0x06018D58, 0x06018C98]]   # trunk, top by id
+spawns = 0x06018F70
+lit = true
+both = true
+trunk = [3, 13]
+
+[course.sherbet_land]
+name = "Sherbet Land"
+vertex_colors = [[0x07001EB8, 180, 255, 255, 255], [0x07002308, 150, 255, 255, 255]]
+
+[course.bowsers_castle]
+name = "Bowser's Castle"
+vertex_colors = [[0x07001350, 0x32, 0, 0, 0]]
+seg3 = [0x692F3C]               # gTextureShrub (RGBA16, after gTextureTrees7)
+
+[[course.bowsers_castle.actors]]
+name = "bush"
+dl = 0x060090C8                 # d_course_bowsers_castle_dl_bush
+spawns = 0x06009290
+billboard = true
+tlut = 0x0D004C68               # common_tlut_trees_import
+trunk = [3, 17]
+
+[course.banshee_boardwalk]
+name = "Banshee Boardwalk"
+vertex_colors = [[0x07000878, 128, 0, 0, 0]]
+
+[course.dks_jungle_parkway]
+name = "DK's Jungle Parkway"
+render_mode = "texedge"     # render_dks_jungle_parkway: G_RM_AA_ZB_TEX_EDGE, G_CC_MODULATEIDECALA
+vertex_colors = [[0x07003FA8, 120, 255, 255, 255]]
+
+[course.frappe_snowland]
+name = "Frappe Snowland"
+seg3 = [0x69333C, 0x693790]     # gTextureFrappeSnowlandTreeLeft, Right
+
+[[course.frappe_snowland.actors]]
+name = "tree"
+dl = 0x060075A0
+spawns = 0x06007718
+billboard = true
+trunk = [3, 17]
+
+[course.kalimari_desert]
+name = "Kalimari Desert"
+seg3 = [0x695BA4, 0x695EE4, 0x6961E0, 0x696488, 0x6967FC]   # gTextureCactus1Left/Right, 2Left/Right, 3
+
+[[course.kalimari_desert.actors]]
+name = "cactus1"
+dl = 0x06008528
+spawns = 0x06022F08
+ids = [5]
+billboard = true
+trunk = [3, 7]
+
+[[course.kalimari_desert.actors]]
+name = "cactus2"
+dl = 0x06008628
+spawns = 0x06022F08
+ids = [6]
+billboard = true
+trunk = [3, 7]
+
+[[course.kalimari_desert.actors]]
+name = "cactus3"
+dl = 0x06008728
+spawns = 0x06022F08
+ids = [7]
+billboard = true
+trunk = [3, 7]
+
+[[course.kalimari_desert.actors]]
+name = "crossing"
+dl = 0x06010D38                 # d_course_kalimari_desert_dl_crossing_both_inactive
+at = [[-1680, 2, 35, 0], [-1600, 2, 35, 0], [-2459, 2, 2263, -45], [-2467, 2, 2375, 0]]
+ground = false
+lit = true
+
+[course.moo_moo_farm]
+name = "Moo Moo Farm"
+seg3 = [0x691D98, 0x692088, 0x693BC4, 0x693F48, 0x69429C, 0x694628, 0x694990, 0x694CAC, 0x694F7C, 0x695268,
+        0x6955AC, 0x6958C0]     # gTextureTrees4Left/Right, gTextureCow01-05Left/Right
+
+[[course.moo_moo_farm.actors]]
+name = "tree"
+dl = 0x06013F20
+spawns = 0x06014330
+billboard = true
+tlut = 0x0D004C68
+trunk = [3, 17]
+
+[[course.moo_moo_farm.actors]]
+name = "cow"
+variants = [0x06013C00, 0x06013CA0, 0x06013D20, 0x06013DA0, 0x06013E20]    # by spawn id (render_cows)
+spawns = 0x06014200
+billboard = true
+ground = false
+
+[course.royal_raceway]
+name = "Royal Raceway"
+seg3 = [0x691AAC, 0x692CC0, 0x698378]   # gTextureTrees3, gTextureTrees7, gTexturePiranhaPlant1
+
+[[course.royal_raceway.actors]]
+name = "tree"
+dl = 0x0600D4A0
+spawns = 0x0600DA78
+ids = [7]
+billboard = true
+tlut = 0x0D004C68
+trunk = [3, 17]
+
+[[course.royal_raceway.actors]]
+name = "castletree"
+dl = 0x0600D578
+spawns = 0x0600DA78
+ids = [6]
+billboard = true
+tlut = 0x0D004C68
+trunk = [3, 17]
+
+[[course.royal_raceway.actors]]
+name = "piranha"
+dl = 0x0600D850
+spawns = 0x0600D9F0
+billboard = true
+texture = 0x0300A000            # D_802BA058: its first frame
+
+[course.mario_raceway]
+name = "Mario Raceway"
+seg3 = [0x6913CC, 0x698378]     # gTextureTrees1, gTexturePiranhaPlant1 (frames 2-9 follow in the game)
+
+[[course.mario_raceway.actors]]
+name = "tree"
+dl = 0x06006A68                 # d_course_mario_raceway_dl_tree
+spawns = 0x06009570             # d_course_mario_raceway_tree_spawns
+billboard = true
+tlut = 0x0D004C68
+trunk = [3, 20]
+
+[[course.mario_raceway.actors]]
+name = "piranha"
+dl = 0x06006990                 # d_course_mario_raceway_dl_piranha_plant
+spawns = 0x06009518
+billboard = true
+texture = 0x03009800            # D_802BA058: its first frame
+
+[[course.mario_raceway.actors]]
+name = "sign"
+dl = 0x06009330                 # d_course_mario_raceway_dl_sign
+at = [[150, 40, -1300], [2520, 0, 1240]]
+ground = false
+spin = 6.0
+
+[course.yoshi_valley]
+name = "Yoshi Valley"
+seg3 = [0x691714]               # gTextureTrees2
+
+[[course.yoshi_valley.actors]]
+name = "tree"
+dl = 0x06015B48
+spawns = 0x060180A0
+billboard = true
+tlut = 0x0D004C68
+trunk = [3, 23]
+
+[[course.yoshi_valley.actors]]
+name = "egg"
+dl = 0x06016D70                 # d_course_yoshi_valley_dl_16D70, the near model
+at = [[-2300, 0, 634]]
+ground = false
+lit = true
+trunk = [20, 60]
+circle = [-2300, 704, 70, 12.0, 6]   # pathRot += 0x5B and eggRot -= DEGREES(3) a tick
+
+[course.luigi_raceway]
+name = "Luigi Raceway"
+seg3 = [0x6923D8, 0x6925E8]     # gTextureTrees5Left, Right
+
+[[course.luigi_raceway.actors]]
+name = "tree"
+dl = 0x0600FC70                 # func_80299864 calls d_course_moo_moo_farm_mole_tlut: offset 0xFC70, Luigi's tree DL
+spawns = 0x0600FE80
+billboard = true
+tlut = 0x0D004C68
+trunk = [3, 17]
+
+[course.choco_mountain]
+name = "Choco Mountain"
+
+[course.block_fort]
+name = "Block Fort"
+type = "battle"
+draw = [0x070015C0]
+collision = [[0x070015C0, 1]]
+kill_y = "min"
+spawn_y = 5
+spawns = [[0, 200, 32768], [0, -200, 0], [-200, 0, -16384], [200, 0, 16384]]
+item_boxes = 0x06000038
+
+[course.skyscraper]
+name = "Skyscraper"
+type = "battle"
+draw = [0x07000FE8, 0x07000C60, 0x07000B70, 0x070006B8, 0x07000570, 0x070010C8, 0x07000258]
+double_sided = [0x070010C8]
+collision = [[0x07001110, 1], [0x07000258, 1]]
+kill_y = -480
+spawn_y = 480
+spawns = [[0, 400, 32768], [0, -400, 0], [-400, 0, -16384], [400, 0, 16384]]
+item_boxes = 0x06000080
+
+[course.double_deck]
+name = "Double Deck"
+type = "battle"
+draw = [0x07000738]
+double_sided = [0x07000738]
+collision = [[0x07000738, 1]]
+kill_y = "min"
+spawn_y = 55
+spawns = [[0, 160, 32768], [0, -160, 0], [-160, 0, -16384], [160, 0, 16384]]
+item_boxes = 0x06000028
+
+[course.big_donut]
+name = "Big Donut"
+type = "battle"
+draw = [0x07000450, 0x07000AC0, 0x07000D20, 0x07000230]     # (and 0x07000DE8 when the camera is off the ground)
+collision = [[0x07001018, 6], [0x07000450, 6], [0x07000AC0, 6], [0x07000B58, 6], [0x07000230, 6]]
+kill_y = 100
+spawn_y = 200
+spawns = [[0, 575, -16384], [0, -575, 16384], [-575, 0, 0], [575, 0, 32768]]
+item_boxes = 0x06000058
