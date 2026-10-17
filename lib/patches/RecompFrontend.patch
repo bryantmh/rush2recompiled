@@ -571,10 +571,21 @@ index 4fdf81f..87f4c1f 100644
          }
      }
 diff --git a/recompui/src/elements/ui_element.cpp b/recompui/src/elements/ui_element.cpp
-index 4517152..5f9721d 100644
+index 4517152..61736bd 100644
 --- a/recompui/src/elements/ui_element.cpp
 +++ b/recompui/src/elements/ui_element.cpp
-@@ -577,6 +577,10 @@ bool Element::focus() {
+@@ -520,6 +520,10 @@ float Element::get_scroll_top() {
+     return base->GetScrollTop();
+ }
+ 
++void Element::set_scroll_left(float left, bool smooth) {
++    base->ScrollTo(Rml::Vector2f(left, base->GetScrollTop()), smooth ? Rml::ScrollBehavior::Smooth : Rml::ScrollBehavior::Instant);
++}
++
+ float Element::get_client_left() {
+     return base->GetClientLeft();
+ }
+@@ -577,6 +581,10 @@ bool Element::focus() {
      return base->Focus();
  }
  
@@ -586,10 +597,19 @@ index 4517152..5f9721d 100644
      base->Blur();
  }
 diff --git a/recompui/src/elements/ui_element.h b/recompui/src/elements/ui_element.h
-index 34eec3f..5c43fc3 100644
+index 34eec3f..274c29e 100644
 --- a/recompui/src/elements/ui_element.h
 +++ b/recompui/src/elements/ui_element.h
-@@ -148,6 +148,8 @@ public:
+@@ -141,6 +141,8 @@ public:
+     float get_offset_top();
+     float get_scroll_left();
+     float get_scroll_top();
++    // Rush 2 recomp: scrolls the element sideways to `left`, keeping its vertical scroll.
++    void set_scroll_left(float left, bool smooth = false);
+     float get_client_left();
+     float get_client_top();
+     float get_client_width();
+@@ -148,6 +150,8 @@ public:
      float get_dp_to_pixel_ratio();
      void enable_focus();
      bool focus();

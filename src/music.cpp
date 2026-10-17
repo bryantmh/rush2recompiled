@@ -14,12 +14,18 @@
 // Only that setting is taken over; the fixed-song settings and Off stay the game's. Each game's Race Music option
 // chooses for that game's tracks: Original (the game's own choice, swapped for another song of that game, then of any
 // game, when it is switched off), Shuffle (a random song of the game) or Shuffle All (a random song of any
-// game). SF Rush and California Speed offer only Original and Shuffle All: their own choice already is a random song
-// of the game.
+// game in Shuffle All). SF Rush and California Speed offer only Original and Shuffle All: their own choice already is
+// a random song of the game. A game's In Shuffle All switch keeps its songs out of every Shuffle All (its own tracks'
+// Original and Shuffle still play them).
 // Shuffles skip the song played last. A song of a game whose ROM or audio isn't available is skipped; with nothing
 // left the game picks as it would by itself. A Rush 2 or SF Rush song replaces the sequence Rush 2 chose (at
 // 0x8008C46C); a Rush 2049 song is queued on the 2049 player and the call turned into the "music off" case, whose
 // stop command starts it (src/rush2049/track2049_audio.cpp).
+//
+// Menu: each game's main menu song has a switch; each time the front end's song starts (command 0x0009FFFF) a random
+// one of those switched on plays (not the last one, when there's another), Rush 2's when none is on or can play.
+// Older versions' single Main Menu Music choice (sound.json "menu_music") becomes the switches at startup
+// (src/data_files.cpp).
 //
 // Preview: the Sound tab's play buttons. The game keeps running while the menu is open, so the preview runs on its
 // audio thread (func_800631A4, before it takes queued music commands): Rush 2 and SF Rush songs start with
@@ -85,10 +91,9 @@ namespace {
     std::atomic<bool> pause_hold = false;
     // During a pause: 1 if the race's song plays on, 0 if it was stopped; -1 outside a pause.
     std::atomic<int> pause_music = -1;
-    constexpr const char* menu_music_description =
-        "Plays this game's main menu song in the menus, switching at once when changed. Rush 2 is the game's own; "
-        "Shuffle picks a game each time the menu music starts. SF Rush and Rush 2049 need their ROMs (Games tab) and "
-        "fall back to Rush 2's without them.";
+    constexpr const char* menu_song_description =
+        "Plays this game's main menu song in the menus. With several switched on, each time the menu music starts "
+        "it picks one of them. With none on, Rush 2's plays.";
     constexpr const char* pause_music_description =
         "Keeps the race's song playing in the pause menu. Off, as in Rush 2, pausing stops it and continuing starts "
         "it over.";
@@ -188,8 +193,6 @@ namespace {
 
     constexpr Game games[4] = { Game::Rush2, Game::Rush1, Game::Rush2049, Game::CalSpeed };
     constexpr int game_count = 4;
-    // The games with a menu song (California Speed's isn't identified).
-    constexpr Game menu_games[3] = { Game::Rush2, Game::Rush1, Game::Rush2049 };
 
     std::string mode_option_id(Game g) {
         return g == Game::Rush2 ? "race_music_r2" : g == Game::Rush1 ? "race_music_r1"
@@ -216,6 +219,11 @@ namespace {
         return g == Game::Rush2 ? "games_r2" : g == Game::Rush1 ? "games_r1" : g == Game::Rush2049 ? "games_r49" : "games_cs";
     }
 
+    std::string shuffle_all_option_id(Game g) {
+        return g == Game::Rush2 ? "shuffle_all_r2" : g == Game::Rush1 ? "shuffle_all_r1"
+             : g == Game::Rush2049 ? "shuffle_all_r49" : "shuffle_all_cs";
+    }
+
     const char* game_name(Game g) {
         switch (g) {
             case Game::Rush2: return "Rush 2";
@@ -229,21 +237,43 @@ namespace {
     std::array<std::atomic<uint32_t>, game_count> modes{};      // By Game value: Race Music for the game's tracks.
     std::array<std::atomic_bool, song_count> enabled{};
     std::array<std::atomic_bool, game_count> game_enabled{};   // By Game value: the game's switch above its songs.
+    std::array<std::atomic_bool, game_count> in_shuffle_all{}; // By Game value: its songs can play in a Shuffle All.
     std::mutex choice_mutex;
     std::mt19937 rng{ std::random_device{}() };
     int last_song = -1;   // Catalog index of the last race song.
 
-    // Main menu music: the game whose front-end song plays (by Game value; Rush 2 leaves the game's own).
-    constexpr const char* menu_music_id = "menu_music";
     // Rush 2's front-end song: sequence 9, started by command 0x0009FFFF (func_800ABE7C and func_800AD07C's state 0)
     // [V]. SF Rush's front end (screen 0, func_800B9508) plays its sequence 11 and Rush 2049's menu loop
     // (func_800D71D0) its song 6 [inferred from the callers in docs/rush1_research.md section 9 and
-    // docs/rush2049_research/audio.md section 3: neither is a race song].
+    // docs/rush2049_research/audio.md section 3: neither is a race song]; a Dreamcast disc plays song 6 as its
+    // Select.rom. California Speed's menu song isn't identified, so it has none.
     constexpr uint32_t menu_command = 0x0009FFFF;
     constexpr int rush1_menu_song = 11;
     constexpr int rush2049_menu_song = 6;
-    constexpr uint32_t menu_shuffle = 3;    // Option value after the three Game values: a random game each time.
-    std::atomic<uint32_t> menu_music{ (uint32_t)Game::Rush2 };
+
+    // The main menu songs, each with its switch (sound.json "menu_song_<key>"). Rush 2's is on by default.
+    struct MenuSong {
+        Game game;
+        const char* key;
+    };
+    constexpr std::array<MenuSong, 3> menu_songs = {{
+        { Game::Rush2, "r2" },
+        { Game::Rush1, "r1" },
+        { Game::Rush2049, "r49" },
+    }};
+    constexpr int menu_count = (int)menu_songs.size();
+    std::array<std::atomic_bool, menu_count> menu_enabled{};
+    int last_menu = -1;                     // The menu song played last (under choice_mutex).
+    std::atomic<int> menu_current = -1;     // The menu song the menu plays now, -1 for Rush 2's with none on.
+
+    std::string menu_option_id(int m) {
+        return std::string("menu_song_") + menu_songs[m].key;
+    }
+
+    // Preview ids: race songs by catalog index, then the menu songs.
+    constexpr int menu_preview(int m) {
+        return song_count + m;
+    }
     // Whether the music the game last asked for is the front end's, and a changed option waiting for the audio thread
     // to start the new menu song.
     std::atomic_bool menu_active = false;
@@ -257,18 +287,18 @@ namespace {
     std::atomic<int> forced_song = -1;
     constexpr uint32_t music_setting = 0x800D5775;  // u8: the game's MUSIC setting (0 off, 1 per track, 2-9 a song).
 
-    // Preview requests from the UI: a catalog index, stop_request, or none.
+    // Preview requests from the UI.
     constexpr int no_request = -2;
     constexpr int stop_request = -1;
-    std::atomic<int> preview_request = no_request;
-    std::atomic<int> previewing = -1;   // Catalog index the UI shows as playing.
+    std::atomic<int> preview_request = no_request;  // A preview id, stop_request, or none.
+    std::atomic<int> previewing = -1;   // Preview id the UI shows as playing.
 
     // Preview state (audio thread) and the music the game's commands last asked for (any thread that queues one);
     // both under preview_mutex.
     std::mutex preview_mutex;
     struct PreviewState {
         bool active = false;
-        int song = -1;              // Catalog index playing.
+        int song = -1;              // Preview id playing.
         int sequence = -1;          // Its Rush 2 sequence, or -1 for a 2049 song.
     } preview;
     struct GameMusic {
@@ -322,11 +352,13 @@ namespace {
         return -1;
     }
 
-    // A random playable song (of game g, or any game when all is set), skipping the last one when there's another.
+    // A random playable song (of game g, or of any game in Shuffle All when all is set), skipping the last one when
+    // there's another.
     int pick(bool all, Game g) {
         std::vector<int> pool;
         for (int i = 0; i < song_count; i++) {
-            if ((all || songs[i].game == g) && playable(i)) {
+            bool in = all ? in_shuffle_all[(int)songs[i].game].load(std::memory_order_relaxed) : songs[i].game == g;
+            if (in && playable(i)) {
                 pool.push_back(i);
             }
         }
@@ -446,34 +478,57 @@ namespace {
         int song_2049 = -1;
     };
 
-    MenuChoice menu_choice(uint8_t* rdram, recomp_context* ctx) {
-        Game g = Game::Rush2;
-        uint32_t option = menu_music.load();
-        if (option == menu_shuffle) {
-            std::vector<Game> pool = { Game::Rush2 };
-            for (Game other : { Game::Rush1, Game::Rush2049 }) {
-                if (game_available(other) && (other != Game::Rush2049 || rush2::track2049::music_ready())) {
-                    pool.push_back(other);
-                }
-            }
-            std::lock_guard lock{ choice_mutex };
-            g = pool[std::uniform_int_distribution<size_t>(0, pool.size() - 1)(rng)];
+    // Whether menu song m can play now (the 2049 sound banks load in the background).
+    bool menu_playable(int m) {
+        Game g = menu_songs[m].game;
+        return game_available(g) && (g != Game::Rush2049 || rush2::track2049::music_ready());
+    }
+
+    // Menu song m as a MenuChoice; false if it can't play (no ROM, or SF Rush's sequence not found).
+    bool menu_song(uint8_t* rdram, recomp_context* ctx, int m, MenuChoice& c) {
+        c = MenuChoice{};
+        if (!menu_playable(m)) {
+            return false;
         }
-        else if (option < 3) {
-            g = (Game)option;
+        switch (menu_songs[m].game) {
+            case Game::Rush1:
+                c.sequence = rush2::track1::song_sequence(rdram, ctx, rush1_menu_song);
+                return c.sequence >= 0;
+            case Game::Rush2049:
+                c.sequence = -1;
+                c.song_2049 = rush2049_menu_song;
+                return true;
+            default:
+                return true;
+        }
+    }
+
+    // A random one of the menu songs switched on that can play, skipping the last one when there's another; Rush 2's
+    // with none.
+    MenuChoice menu_choice(uint8_t* rdram, recomp_context* ctx) {
+        std::vector<int> pool;
+        for (int m = 0; m < menu_count; m++) {
+            if (menu_enabled[m].load() && menu_playable(m)) {
+                pool.push_back(m);
+            }
         }
         MenuChoice c;
-        if (g == Game::Rush1 && game_available(g)) {
-            int sequence = rush2::track1::song_sequence(rdram, ctx, rush1_menu_song);
-            if (sequence >= 0) {
-                c.sequence = sequence;
+        std::lock_guard lock{ choice_mutex };
+        if (pool.size() > 1) {
+            std::erase(pool, last_menu);
+        }
+        while (!pool.empty()) {
+            size_t k = std::uniform_int_distribution<size_t>(0, pool.size() - 1)(rng);
+            int m = pool[k];
+            if (menu_song(rdram, ctx, m, c)) {
+                last_menu = m;
+                menu_current = m;
+                return c;
             }
+            pool.erase(pool.begin() + k);
         }
-        else if (g == Game::Rush2049 && game_available(g) && rush2::track2049::music_ready()) {
-            c.sequence = -1;
-            c.song_2049 = rush2049_menu_song;
-        }
-        return c;
+        menu_current = -1;
+        return MenuChoice{};
     }
 
     // The option changed while the menu music plays: starts the new menu song (or, while a preview plays, makes it
@@ -500,8 +555,31 @@ namespace {
         return play_rush2_song(rdram, ctx, c.sequence);
     }
 
-    // Starts catalog song i as the preview. False to try again later (loader busy, 2049 banks still loading).
+    // Starts preview id i as the preview. False to try again later (loader busy, 2049 banks still loading).
     bool start_preview(uint8_t* rdram, recomp_context* ctx, int i) {
+        if (i >= song_count) {
+            int m = i - song_count;
+            MenuChoice c;
+            if (!menu_song(rdram, ctx, m, c)) {
+                // The 2049 banks may still be loading; anything else isn't available: give up.
+                return !(menu_songs[m].game == Game::Rush2049 && game_available(Game::Rush2049));
+            }
+            if (c.song_2049 >= 0) {
+                stop_rush2_song(rdram, ctx);
+                rush2::track2049::play_song_now(rdram, c.song_2049);
+                preview.sequence = -1;
+            }
+            else {
+                rush2::track2049::stop_song_now();
+                if (!play_rush2_song(rdram, ctx, c.sequence)) {
+                    return false;
+                }
+                preview.sequence = c.sequence;
+            }
+            preview.song = i;
+            previewing = i;
+            return true;
+        }
         if (songs[i].game == Game::Rush2049) {
             if (!rush2::track2049::music_ready()) {
                 return false;
@@ -573,19 +651,17 @@ namespace {
 
     // Sound tab texts, shown below the columns for the hovered or focused row.
     const std::string page_description =
-        "Point at a setting to see what it does. Songs switched off aren't played in races.";
+        "Point at a setting to see what it does. Songs switched off aren't played in races. A game shows here once "
+        "its ROM is set up (Games tab).";
+    const std::string shuffle_all_description =
+        "Lets this game's songs play when any game's Race Music is on Shuffle All. Switched off, they still play on "
+        "this game's own tracks.";
     const std::string race_music_description =
         "How races on this game's tracks pick their song. "
         "<recomp-color primary>Original</recomp-color> plays the track's own song. "
         "<recomp-color primary>Shuffle</recomp-color> plays a random song from this game. "
-        "<recomp-color primary>Shuffle All</recomp-color> plays a random song from any game. "
+        "<recomp-color primary>Shuffle All</recomp-color> plays a random song from any game in Shuffle All. "
         "Only used while the game's own MUSIC setting is on its default.";
-
-    std::string rom_note(Game g) {
-        return g == Game::Rush1      ? " Needs a San Francisco Rush (USA) ROM (Games tab)."
-             : g == Game::CalSpeed ? " Needs a California Speed (USA) ROM (Games tab)."
-                                   : " Needs a Rush 2049 (USA) ROM or Dreamcast disc (Games tab).";
-    }
 
     // A row of the page: shows its description when hovered or focused, and scrolls itself into view when something
     // in it takes focus, so the columns follow the d-pad.
@@ -613,8 +689,9 @@ namespace {
         }
     };
 
-    // Laid out like the Cheats tab: the general settings and each game's songs in columns, with the hovered or focused
-    // row's description below them.
+    // Laid out like the Cheats tab: the general settings and each installed game's songs in columns, with the hovered
+    // or focused row's description below them. Columns have fixed widths (add_column); more than fit scroll sideways,
+    // by the arrows beside them (a column at a time) or by the d-pad (each row scrolls itself into view).
     class SoundPage : public ConfigPage {
     public:
         SoundPage(ResourceId rid, Element* parent) : ConfigPage(rid, parent, Events(EventType::Update)) {
@@ -629,17 +706,28 @@ namespace {
             left->set_padding(16.0f);
             left->set_gap(8.0f);
 
-            grid = context.create_element<Element>(left, 0, "div", false);
+            // The columns with an arrow on each side.
+            Element* strip = context.create_element<Element>(left, 0, "div", false);
+            strip->set_display(Display::Flex);
+            strip->set_flex_direction(FlexDirection::Row);
+            strip->set_width(100.0f, Unit::Percent);
+            strip->set_flex_grow(1.0f);
+            strip->set_flex_shrink(1.0f);
+            strip->set_min_height(0.0f);
+            strip->set_gap(8.0f);
+
+            arrows[0] = add_arrow(strip, "icons/CaretLeft.svg", -1);
+            grid = context.create_element<Element>(strip, 0, "div", false);
             grid->set_display(Display::Flex);
             grid->set_flex_direction(FlexDirection::Row);
             grid->set_align_items(AlignItems::FlexStart);
-            grid->set_gap(32.0f);
-            grid->set_width(100.0f, Unit::Percent);
+            grid->set_gap(column_gap);
             grid->set_flex_grow(1.0f);
-            grid->set_flex_shrink(1.0f);
-            grid->set_min_height(0.0f);
+            grid->set_flex_basis(0.0f);
+            grid->set_overflow_x(Overflow::Auto);    // Auto, not Hidden: rows can only scroll themselves into view in a scrolling box.
             grid->set_overflow_y(Overflow::Auto);
             grid->set_as_navigation_container(NavigationType::Horizontal);
+            arrows[1] = add_arrow(strip, "icons/CaretRight.svg", 1);
 
             description = context.create_element<Element>(left, 0, "p", true);
             description->set_typography(theme::Typography::Body);
@@ -672,23 +760,33 @@ namespace {
                         refresh_game(g);
                     }
                 }
+                update_arrows();
                 queue_update();
             }
         }
 
     private:
+        static constexpr float column_gap = 24.0f;
+
         struct Row {
             Element* row;
             PreviewButton* button;
             Toggle* toggle;
             Label* name;
+            int id;     // Preview id: a race song's catalog index, or menu_preview(m).
         };
         struct Header {
+            Element* column = nullptr;
             Toggle* toggle = nullptr;
             Select* modes = nullptr;
+            Toggle* shuffle_all = nullptr;
+            bool shown = false;
         };
         Element* grid = nullptr;
         Element* description = nullptr;
+        IconButton* arrows[2] = {};     // Left, right.
+        int shown_arrows[2] = { 0, 0 };
+        Element* general = nullptr;
         std::vector<Row> rows;
         Header headers[game_count];
         int shown_preview = -1;
@@ -699,72 +797,182 @@ namespace {
                    (g == Game::Rush2049 && disc_source() ? 4 : 0);
         }
 
+        static Game game_of(int id) {
+            return id >= song_count ? menu_songs[id - song_count].game : songs[id].game;
+        }
+
         void show(const std::string& text) {
             description->set_text_unsafe(text);
         }
 
         void show_preview(int now) {
-            for (int i = 0; i < (int)rows.size(); i++) {
-                if (i == now || i == shown_preview) {
-                    rows[i].button->show_playing(i == now);
+            for (Row& r : rows) {
+                if (r.id == now || r.id == shown_preview) {
+                    r.button->show_playing(r.id == now);
                 }
             }
             shown_preview = now;
         }
 
-        // A game's rows: previews need its ROM; its song switches also need the game's switch on.
+        // A game's column shows while its ROM is there. Its race songs' switches also need the game's switch on.
         void refresh_game(Game g) {
             int state = game_state(g);
             bool available = (state & 1) != 0;
             bool on = (state & 2) != 0;
             bool disc_now = (state & 4) != 0;
-            for (int i = 0; i < (int)rows.size(); i++) {
-                if (songs[i].game == g) {
-                    // Rush 2049's songs are the N64's or the disc's, whichever is its source.
-                    rows[i].row->set_display(song_listed(songs[i], disc_now) ? Display::Flex : Display::None);
-                    rows[i].button->set_enabled(available);
-                    rows[i].toggle->set_enabled(available && on);
-                    rows[i].name->set_color(available && on ? theme::color::Text : theme::color::TextInactive);
-                }
-            }
             Header& h = headers[(int)g];
+            h.column->set_display(available ? Display::Flex : Display::None);
+            h.shown = available;
+            for (Row& r : rows) {
+                if (game_of(r.id) != g) {
+                    continue;
+                }
+                bool menu = r.id >= song_count;
+                // Rush 2049's race songs are the N64's or the disc's, whichever is its source.
+                bool listed = menu || song_listed(songs[r.id], disc_now);
+                bool active = available && (menu || on);
+                r.row->set_display(listed ? Display::Flex : Display::None);
+                r.button->set_enabled(available);
+                r.toggle->set_enabled(active);
+                r.name->set_color(active ? theme::color::Text : theme::color::TextInactive);
+            }
             h.toggle->set_enabled(available);
             h.modes->set_enabled(available);
+            h.shuffle_all->set_enabled(available);
             shown_state[(int)g] = state;
         }
 
-        Element* add_column() {
+        // An arrow beside the columns: scrolls them a column toward `direction` (-1 left, 1 right). Mouse only: the
+        // d-pad scrolls the columns by moving through them.
+        IconButton* add_arrow(Element* strip, const char* icon, int direction) {
+            ContextId context = get_current_context();
+            Element* holder = context.create_element<Element>(strip, 0, "div", false);
+            holder->set_display(Display::Flex);
+            holder->set_flex_direction(FlexDirection::Column);
+            holder->set_justify_content(JustifyContent::Center);
+            holder->set_flex_shrink(0.0f);
+            IconButton* arrow = context.create_element<IconButton>(holder, icon, ButtonStyle::Secondary, IconButtonSize::Small);
+            arrow->set_focusable(false);
+            arrow->set_visibility(Visibility::Hidden);    // Until update_arrows finds a column cut off on its side.
+            arrow->add_pressed_callback([this, direction]() { scroll_columns(direction); });
+            return arrow;
+        }
+
+        // The columns shown, with their left and right edges on screen.
+        struct Span {
+            float left, right;
+        };
+        std::vector<Span> shown_columns() {
+            std::vector<Span> spans;
+            auto add = [&spans](Element* c) {
+                float left = c->get_absolute_left();
+                spans.push_back({ left, left + c->get_client_width() });
+            };
+            add(general);
+            for (Game g : games) {
+                if (headers[(int)g].shown) {
+                    add(headers[(int)g].column);
+                }
+            }
+            return spans;
+        }
+
+        // Scrolls so the next column cut off toward `direction` lines up with that edge of the grid.
+        void scroll_columns(int direction) {
+            float view_left = grid->get_absolute_left();
+            float view_right = view_left + grid->get_client_width();
+            float scroll = grid->get_scroll_left();
+            std::vector<Span> spans = shown_columns();
+            if (direction > 0) {
+                for (const Span& s : spans) {
+                    if (s.right > view_right + 1.0f) {
+                        grid->set_scroll_left(scroll + s.right - view_right, true);
+                        return;
+                    }
+                }
+            }
+            else {
+                for (auto s = spans.rbegin(); s != spans.rend(); ++s) {
+                    if (s->left < view_left - 1.0f) {
+                        grid->set_scroll_left(std::max(0.0f, scroll - (view_left - s->left)), true);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Each arrow shows while there's a column cut off on its side. Both always keep their room, so the columns
+        // never move when one shows.
+        void update_arrows() {
+            float view_left = grid->get_absolute_left();
+            float view_right = view_left + grid->get_client_width();
+            bool more[2] = { false, false };
+            for (const Span& s : shown_columns()) {
+                more[0] |= s.left < view_left - 1.0f;
+                more[1] |= s.right > view_right + 1.0f;
+            }
+            for (int k = 0; k < 2; k++) {
+                if ((int)more[k] != shown_arrows[k]) {
+                    shown_arrows[k] = more[k];
+                    arrows[k]->set_visibility(more[k] ? Visibility::Visible : Visibility::Hidden);
+                }
+            }
+        }
+
+        // Column widths (dp): each fits its widest row with at least 16dp between a name and its control (General:
+        // "Music While Paused" and its switch; a game: "Race Music" and its select; California Speed: its title and
+        // switch). General through Rush 2049 fit a 16:9 page beside the arrows; columns share what's left over.
+        static constexpr float general_width = 396.0f;
+        static constexpr float game_width = 390.0f;
+        static constexpr float calspeed_width = 430.0f;
+
+        Element* add_column(float width) {
             ContextId context = get_current_context();
             Element* column = context.create_element<Element>(grid, 0, "div", false);
             column->set_display(Display::Flex);
             column->set_flex_direction(FlexDirection::Column);
             column->set_flex_grow(1.0f);
-            column->set_flex_basis(0.0f);
+            column->set_flex_shrink(0.0f);
+            column->set_flex_basis(width, Unit::Dp);
             column->set_as_navigation_container(NavigationType::GridCol);
             return column;
         }
 
+        // A row's name: it takes up the row's slack, so the control ends the row.
+        Label* add_name(Element* row, const std::string& text, theme::Typography typography) {
+            Label* label = get_current_context().create_element<Label>(row, text, typography);
+            label->set_flex_grow(1.0f);
+            label->set_white_space(WhiteSpace::Nowrap);
+            return label;
+        }
+
         // A column's title row, underlined like the Cheats tab's group titles.
         Element* add_title(Element* column, const std::string& title, std::function<void()> on_show) {
-            ContextId context = get_current_context();
             Element* row = add_row(column, std::move(on_show));
             row->set_padding_bottom(6.0f);
             row->set_margin_bottom(4.0f);
             row->set_border_bottom_width(1.0f);
             row->set_border_bottom_color(theme::color::Border);
-            Label* label = context.create_element<Label>(row, title, theme::Typography::LabelLG);
-            label->set_flex_grow(1.0f);
+            add_name(row, title, theme::Typography::LabelLG);
             return row;
         }
 
         // A setting's row: its name, then the control added to it.
         Element* add_setting(Element* column, const std::string& name, const std::string& text) {
-            ContextId context = get_current_context();
             Element* row = add_row(column, [this, text]() { show(text); });
-            Label* label = context.create_element<Label>(row, name, theme::Typography::LabelMD);
-            label->set_flex_grow(1.0f);
-            label->set_white_space(WhiteSpace::Nowrap);
+            add_name(row, name, theme::Typography::LabelMD);
             return row;
+        }
+
+        // A switch in a row, kept in the sound config under `id`.
+        Toggle* add_switch(Element* row, const std::string& id) {
+            Toggle* toggle = get_current_context().create_element<Toggle>(row, ToggleSize::Medium);
+            toggle->set_flex_shrink(0.0f);
+            toggle->set_checked(std::get<bool>(recompui::config::get_sound_config().get_option_value(id)));
+            toggle->add_checked_callback([id](bool checked) {
+                recompui::config::get_sound_config().set_option_value(id, checked);
+            });
+            return toggle;
         }
 
         // A select in a row: it fills its parent's width, so it gets a parent of its own.
@@ -778,11 +986,26 @@ namespace {
             return select;
         }
 
+        // A song's row: its play button, its name and its switch (option `option_id`).
+        void add_song_row(Element* column, int id, const std::string& name, const std::string& option_id,
+                          std::function<void()> on_show) {
+            ContextId context = get_current_context();
+            Element* row = add_row(column, std::move(on_show));
+            PreviewButton* button = context.create_element<PreviewButton>(row, "icons/Play.svg", ButtonStyle::Secondary, IconButtonSize::Medium);
+            button->set_flex_shrink(0.0f);
+            button->add_pressed_callback([id]() {
+                preview_request = previewing.load() == id ? stop_request : id;
+            });
+            Label* label = add_name(row, name, theme::Typography::LabelMD);
+            Toggle* toggle = add_switch(row, option_id);
+            rows.push_back({ row, button, toggle, label, id });
+        }
+
         void build() {
             ContextId context = get_current_context();
             recomp::config::Config& config = recompui::config::get_sound_config();
 
-            Element* general = add_column();
+            general = add_column(general_width);
             add_title(general, "General", [this]() { show(page_description); });
 
             const auto& volume_config = config.get_option(recompui::config::sound::options::main_volume);
@@ -805,82 +1028,53 @@ namespace {
                 recompui::config::get_sound_config().set_option_value(recompui::config::sound::options::main_volume, value);
             });
 
-            Element* engines_row = add_setting(general, "Other Cars' Engines", other_engines_description);
-            Toggle* engines = context.create_element<Toggle>(engines_row, ToggleSize::Medium);
-            engines->set_checked(std::get<bool>(config.get_option_value(other_engines_id)));
-            engines->add_checked_callback([](bool checked) {
-                recompui::config::get_sound_config().set_option_value(other_engines_id, checked);
-            });
+            add_switch(add_setting(general, "Other Cars' Engines", other_engines_description), other_engines_id);
+            add_switch(add_setting(general, "Music While Paused", pause_music_description), pause_music_id);
 
-            Element* pause_row = add_setting(general, "Music While Paused", pause_music_description);
-            Toggle* pause_toggle = context.create_element<Toggle>(pause_row, ToggleSize::Medium);
-            pause_toggle->set_checked(std::get<bool>(config.get_option_value(pause_music_id)));
-            pause_toggle->add_checked_callback([](bool checked) {
-                recompui::config::get_sound_config().set_option_value(pause_music_id, checked);
-            });
+            for (Game g : games) {
+                // The game's column: its title with the game's switch, its Race Music, In Shuffle All and menu song,
+                // then its race songs.
+                Element* column = add_column(g == Game::CalSpeed ? calspeed_width : game_width);
+                Header& h = headers[(int)g];
+                h.column = column;
+                Element* title = add_title(column, game_name(g), [this, g]() {
+                    show(std::string("Lets races play ") + game_name(g) + "'s songs. Switched off, each song keeps its "
+                         "own switch for when it's back on.");
+                });
+                h.toggle = add_switch(title, game_option_id(g));
 
-            Element* menu_row = add_setting(general, "Menu Music", menu_music_description);
-            std::vector<SelectOption> menu_options;
-            for (uint32_t k = 0; k <= menu_shuffle; k++) {
-                menu_options.emplace_back(k == menu_shuffle ? "Shuffle" : game_name((Game)k), std::to_string(k));
-            }
-            Select* menu_select = add_select(menu_row, menu_options,
-                std::to_string(std::get<uint32_t>(config.get_option_value(menu_music_id))));
-            menu_select->add_change_callback([](SelectOption& choice, int) {
-                recompui::config::get_sound_config().set_option_value(menu_music_id, (uint32_t)std::stoul(choice.value));
-            });
+                Element* mode_row = add_setting(column, "Race Music", race_music_description);
+                std::vector<SelectOption> mode_options;
+                for (Mode m : game_modes(g)) {
+                    mode_options.emplace_back(mode_name(m), std::to_string((uint32_t)m));
+                }
+                h.modes = add_select(mode_row, mode_options,
+                    std::to_string(std::get<uint32_t>(config.get_option_value(mode_option_id(g)))));
+                h.modes->add_change_callback([g](SelectOption& choice, int) {
+                    recompui::config::get_sound_config().set_option_value(mode_option_id(g),
+                        (uint32_t)std::stoul(choice.value));
+                });
 
-            Element* column = nullptr;
-            for (int i = 0; i < song_count; i++) {
-                const Song& s = songs[i];
-                Game g = s.game;
-                if (i == 0 || songs[i - 1].game != g) {
-                    // The game's column: its title with the game's switch, then its Race Music.
-                    column = add_column();
-                    Element* title = add_title(column, game_name(g), [this, g]() {
-                        std::string text = std::string("Lets races play ") + game_name(g) + "'s songs. Switched off, "
-                            "each song keeps its own switch for when it's back on.";
-                        show(game_available(g) ? text : text + rom_note(g));
-                    });
-                    Header& h = headers[(int)g];
-                    h.toggle = context.create_element<Toggle>(title, ToggleSize::Medium);
-                    h.toggle->set_checked(std::get<bool>(config.get_option_value(game_option_id(g))));
-                    h.toggle->add_checked_callback([g](bool checked) {
-                        recompui::config::get_sound_config().set_option_value(game_option_id(g), checked);
-                    });
+                h.shuffle_all = add_switch(add_setting(column, "In Shuffle All", shuffle_all_description),
+                                           shuffle_all_option_id(g));
 
-                    Element* mode_row = add_setting(column, "Race Music", race_music_description);
-                    std::vector<SelectOption> mode_options;
-                    for (Mode m : game_modes(g)) {
-                        mode_options.emplace_back(mode_name(m), std::to_string((uint32_t)m));
+                for (int m = 0; m < menu_count; m++) {
+                    if (menu_songs[m].game == g) {
+                        add_song_row(column, menu_preview(m), "Main Menu", menu_option_id(m),
+                            [this]() { show(menu_song_description); });
                     }
-                    h.modes = add_select(mode_row, mode_options,
-                        std::to_string(std::get<uint32_t>(config.get_option_value(mode_option_id(g)))));
-                    h.modes->add_change_callback([g](SelectOption& choice, int) {
-                        recompui::config::get_sound_config().set_option_value(mode_option_id(g),
-                            (uint32_t)std::stoul(choice.value));
-                    });
                 }
 
-                Element* row = add_row(column, [this, i]() {
-                    const Song& song = songs[i];
-                    std::string text = std::string("<recomp-color primary>") + song.name + "</recomp-color>. Plays on: " +
-                        song.plays_on + ". Press play to hear it, or switch it off to keep it out of races.";
-                    show(game_available(song.game) ? text : text + rom_note(song.game));
-                });
-                PreviewButton* button = context.create_element<PreviewButton>(row, "icons/Play.svg", ButtonStyle::Secondary, IconButtonSize::Medium);
-                button->add_pressed_callback([i]() {
-                    preview_request = previewing.load() == i ? stop_request : i;
-                });
-                Label* name = context.create_element<Label>(row, s.name, theme::Typography::LabelMD);
-                name->set_flex_grow(1.0f);
-                name->set_white_space(WhiteSpace::Nowrap);
-                Toggle* toggle = context.create_element<Toggle>(row, ToggleSize::Medium);
-                toggle->set_checked(std::get<bool>(config.get_option_value(song_option_id(s))));
-                toggle->add_checked_callback([i](bool checked) {
-                    recompui::config::get_sound_config().set_option_value(song_option_id(songs[i]), checked);
-                });
-                rows.push_back({ row, button, toggle, name });
+                for (int i = 0; i < song_count; i++) {
+                    if (songs[i].game != g) {
+                        continue;
+                    }
+                    add_song_row(column, i, songs[i].name, song_option_id(songs[i]), [this, i]() {
+                        const Song& song = songs[i];
+                        show(std::string("<recomp-color primary>") + song.name + "</recomp-color>. Plays on: " +
+                             song.plays_on + ". Press play to hear it, or switch it off to keep it out of races.");
+                    });
+                }
             }
             for (Game g : games) {
                 refresh_game(g);
@@ -902,19 +1096,30 @@ void rush2::music::create_sound_tab() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             pause_keeps_music = std::get<bool>(cur_value);
         });
-    {
-        std::vector<recomp::config::ConfigOptionEnumOption> choices;
-        for (Game g : menu_games) {
-            const char* key = g == Game::Rush2 ? "Rush2" : g == Game::Rush1 ? "Rush1" : "Rush2049";
-            choices.push_back({ g, key, game_name(g) });
-        }
-        choices.push_back({ menu_shuffle, "Shuffle", "Shuffle" });
-        config.add_enum_option(menu_music_id, "Main Menu Music", menu_music_description, choices, Game::Rush2, true);
-        config.add_option_change_callback(menu_music_id,
-            [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-                menu_music = std::get<uint32_t>(cur_value);
-                menu_reroll = true;
-                menu_apply = true;
+    for (int m = 0; m < menu_count; m++) {
+        Game g = menu_songs[m].game;
+        menu_enabled[m] = g == Game::Rush2;
+        config.add_bool_option(menu_option_id(m), std::string(game_name(g)) + " Menu Song", menu_song_description,
+            g == Game::Rush2, true);
+        config.add_option_change_callback(menu_option_id(m),
+            [m](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+                menu_enabled[m] = std::get<bool>(cur_value);
+                // The menu's song changes at once only when it was switched off, or when it was Rush 2's for want of
+                // any switched on.
+                int current = menu_current.load();
+                if (current < 0 || !menu_enabled[current].load()) {
+                    menu_reroll = true;
+                    menu_apply = true;
+                }
+            });
+    }
+    for (Game g : games) {
+        in_shuffle_all[(int)g] = true;
+        config.add_bool_option(shuffle_all_option_id(g), std::string(game_name(g)) + " In Shuffle All",
+            shuffle_all_description, true, true);
+        config.add_option_change_callback(shuffle_all_option_id(g),
+            [g](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+                in_shuffle_all[(int)g] = std::get<bool>(cur_value);
             });
     }
     for (Game g : games) {
@@ -968,9 +1173,12 @@ void rush2::music::load_config() {
     recomp::config::Config& config = recompui::config::get_sound_config();
     rush2::car_engines::set_enabled(std::get<bool>(config.get_option_value(other_engines_id)));
     pause_keeps_music = std::get<bool>(config.get_option_value(pause_music_id));
-    menu_music = std::get<uint32_t>(config.get_option_value(menu_music_id));
+    for (int m = 0; m < menu_count; m++) {
+        menu_enabled[m] = std::get<bool>(config.get_option_value(menu_option_id(m)));
+    }
     for (Game g : games) {
         modes[(int)g] = std::get<uint32_t>(config.get_option_value(mode_option_id(g)));
+        in_shuffle_all[(int)g] = std::get<bool>(config.get_option_value(shuffle_all_option_id(g)));
     }
     for (int i = 0; i < song_count; i++) {
         enabled[i] = std::get<bool>(config.get_option_value(song_option_id(songs[i])));
@@ -1040,7 +1248,7 @@ extern "C" void rush2_music_race_sequence(uint8_t* rdram, recomp_context* ctx) {
 
 bool rush2::music::game_command(uint8_t* rdram, recomp_context* ctx) {
     uint32_t cmd = (uint32_t)ctx->r4;
-    // The front end's song, swapped for the chosen game's: SF Rush's as a sequence on Rush 2's player, Rush 2049's
+    // The front end's song, swapped for a menu song switched on (menu_choice): SF Rush's as a sequence on Rush 2's player, Rush 2049's
     // as a queued song started by Rush 2's stop command.
     uint32_t kind = cmd >> 30;
     if (kind == 3) {
@@ -1102,7 +1310,7 @@ extern "C" void rush2_music_preview(uint8_t* rdram, recomp_context* ctx) {
         }
         return;
     }
-    if (request < 0 || request >= song_count) {
+    if (request < 0 || request >= menu_preview(menu_count)) {
         preview_request.compare_exchange_strong(request, no_request);
         return;
     }

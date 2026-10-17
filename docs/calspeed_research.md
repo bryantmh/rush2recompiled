@@ -210,5 +210,5 @@ flip at small steering inputs and jump several times higher. Gravity is the same
 ## 8. Open items
 
 - California Speed's own engine sounds (its cars play Rush 2's).
-- The menu song (for the Sound tab's Main Menu Music).
+- The menu song (for a California Speed menu song switch in the Sound tab).
 - What the finer route line in the paths is for.

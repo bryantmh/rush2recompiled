@@ -90,7 +90,7 @@ Most options live in the settings menu (press Escape, or select).
 
 - **General:** gameplay options, AI opponents' cars, background input and data location
 - **Graphics:** window mode, resolution, aspect ratio, framerate, anti-aliasing, level of detail, fonts and texture upscaling
-- **Sound:** race music per game, plus whether other cars' engines are heard
+- **Sound:** race and menu music per game, plus whether other cars' engines are heard
 - **Controls:** choose which controllers (and the keyboard) can play, the split screen layout, and each save profile's steering, stick deadzone and rumble settings, with buttons to test each rumble effect
 - **Progress:** see the keys and coins you've collected
 - **Games:** pick your Rush 2049 and San Francisco Rush ROMs, then turn on their tracks, cars and Wings

@@ -266,6 +266,32 @@ namespace {
             write_state(rush2::data_files::File::Saves, s);
         }
     }
+
+    // The Sound tab's Main Menu Music choice (sound.json "menu_music": "Rush2", "Rush1", "Rush2049" or "Shuffle") as
+    // a switch per menu song (menu_song_r2/r1/r49, src/music.cpp): the game chosen on, or all of them for Shuffle.
+    void migrate_menu_music() {
+        fs::path path = app_folder() / "sound.json";
+        json sound;
+        if (!read_json(path, sound)) {
+            return;
+        }
+        auto it = sound.find("menu_music");
+        if (it == sound.end()) {
+            return;
+        }
+        std::string choice = it->is_string() ? it->get<std::string>() : "Rush2";
+        constexpr std::pair<const char*, const char*> games[] = { { "Rush2", "menu_song_r2" },
+                                                                  { "Rush1", "menu_song_r1" },
+                                                                  { "Rush2049", "menu_song_r49" } };
+        for (const auto& [game, id] : games) {
+            if (!sound.contains(id)) {
+                sound[id] = choice == "Shuffle" || choice == game;
+            }
+        }
+        sound.erase("menu_music");
+        // As librecomp writes its configs.
+        write_json(path, sound, 4);
+    }
 }
 
 fs::path rush2::data_files::save_folder() {
@@ -297,4 +323,5 @@ void rush2::data_files::migrate() {
     migrate_players();
     migrate_games_config();
     migrate_wing_styles();
+    migrate_menu_music();
 }
