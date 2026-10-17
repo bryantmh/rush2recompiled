@@ -191,11 +191,13 @@ class Case:
     export: how AIPATH_main's mesh is written (ribbon_mesh); nopath: the path files' crossings aren't checked (a
     broken or missing AIPATH_main or FINISH: the track still loads, on a stand-in path); ribbon: False leaves
     AIPATH_main out; visual: False leaves the visible mesh out (only COL_ROAD); movers: adds the MOVE_ objects of
-    mover_defs and checks their conversion (check_movers)."""
+    mover_defs and checks their conversion (check_movers); lanes: {k: (offset(s), reverse, used)} paints
+    AIPATH_lane<k> at offset(s) ft left of the line (reverse: drawn against the race), and the path files' four lanes
+    must be those (used: False, the converter has to leave that lane offset from AIPATH_main) and the offset ones."""
 
     def __init__(self, name, line, gates, start=0.0, reverse=False, overshoot=0.0, kinks=(), dupes=(), errors=(),
                  warnings=(), allow=(), wrong=(), gaps=(), floors=(), lift=None, heights=(), export='pairs',
-                 nopath=False, ribbon=True, visual=True, movers=False, note=''):
+                 nopath=False, ribbon=True, visual=True, movers=False, lanes=None, note=''):
         self.__dict__.update(locals())
         del self.__dict__['self']
 
@@ -300,6 +302,58 @@ def ribbon_mesh(c):
     return [to_gltf(v) for v in verts], tris, matrix
 
 
+def lane_mesh(c, offset, reverse):
+    """A painted lane's ribbon (2 ft wide, pairs, open with its ends a step apart): its center offset(s) ft left of
+    the line."""
+    L = c.line.length
+    count = int(round(L / STEP))
+    side = []
+    for k in range(count):
+        s = k * L / count
+        p, lat = c.line.at(s), c.line.lateral(s)
+        m = tuple(p[i] + lat[i] * offset(s) for i in range(3))
+        side.append((tuple(m[i] - lat[i] for i in range(3)), tuple(m[i] + lat[i] for i in range(3))))
+    if reverse:
+        side.reverse()
+    verts = [to_gltf(v) for ab in side for v in ab]
+    tris = []
+    for k in range(len(side) - 1):
+        tris += [(2 * k, 2 * k + 1, 2 * k + 2), (2 * k + 1, 2 * k + 3, 2 * k + 2)]
+    return verts, tris
+
+
+def check_lanes(c, fwd, back, fails):
+    """Every lane point's offset across the line, in slot order, is the painted or offset lanes left to right (lane 1
+    first) or right to left, in both path files (the backward one is the same road: point i is forward n - i)."""
+    L = c.line.length
+    finish = c.gates[0].s
+    for label, data in (('forward', fwd), ('backward', back)):
+        n = len(data['spine'])
+        bad, order = 0, None
+        for i in range(n):
+            f = i if label == 'forward' else (n - i) % n
+            p = data['spine'][i]
+            # The spine point's own distance along the line (the spine's steps drift from SPINE along the chords).
+            s = min((finish + f * SPINE + d * 0.5 for d in range(-160, 161)),
+                    key=lambda t: (c.line.at(t)[0] - p[0]) ** 2 + (c.line.at(t)[2] - p[2]) ** 2)
+            want = []
+            for k, frac in enumerate((0.6, 0.2, -0.2, -0.6)):
+                lane = (c.lanes or {}).get(k + 1)
+                want.append(lane[0](s) if lane and lane[2] else frac * RIBBON_HALF)
+            lat = c.line.lateral(s)
+            got = [(q[0] - p[0]) * lat[0] + (q[2] - p[2]) * lat[2] for q in (ln['points'][i] for ln in data['lanes'])]
+            ok = [o for o in ('ltr', 'rtl') if all(abs(a - b) < 2.5 for a, b in zip(got, want if o == 'ltr' else want[::-1]))]
+            if not ok or (order and order not in ok):
+                if not bad:
+                    fails.append('%s lanes at point %d: %s, want %s' % (label, i, ['%.1f' % v for v in got],
+                                                                         ['%.1f' % v for v in want]))
+                bad += 1
+            elif not order and len(ok) == 1:
+                order = ok[0]
+        if bad > 1:
+            fails.append('%s lanes wrong at %d of %d points' % (label, bad, n))
+
+
 def build(c, folder):
     g = Glb()
     L = c.line.length
@@ -334,6 +388,9 @@ def build(c, folder):
     if c.ribbon:
         rv, rt, matrix = ribbon_mesh(c)
         g.mesh('AIPATH_main', rv, [(0.0, 1.0, 0.0)] * len(rv), rt, matrix)
+    for k, (offset, reverse, _) in (c.lanes or {}).items():
+        lv, lt = lane_mesh(c, offset, reverse)
+        g.mesh('AIPATH_lane%d' % k, lv, [(0.0, 1.0, 0.0)] * len(lv), lt)
     for gate in c.gates:
         p, t, lat = c.line.at(gate.s), c.line.tangent(gate.s), c.line.lateral(gate.s)
         pos = (p[0] + lat[0] * gate.side, p[1] + gate.up, p[2] + lat[2] * gate.side)
@@ -421,6 +478,8 @@ def check(c, folder):
         if abs(got - want) > 4:
             fails.append('spine height at %.0f ft along: %d, want the %s height %.0f' % (q, got, kind, want))
     del names
+    if c.lanes:
+        check_lanes(c, fwd, back, fails)
     if c.movers:
         check_movers(c, out, report, fails)
     return fails, notes
@@ -673,6 +732,14 @@ def cases():
         Case('oval', o, std(), note='control'),
         Case('movers', o, std(), movers=True, note='MOVE_ objects: loop, ping-pong, ride, parented; poses, moving collision'),
         Case('ribbon_reversed', o, std(), reverse=True, note='curve drawn against the race'),
+        Case('painted_lanes', o, std(),
+             lanes={1: (lambda s: 28.0, False, True), 3: (lambda s: -2.0 + 5.0 * math.sin(s / L * 28 * math.pi), True, True)},
+             note='AIPATH_lane1 and a wavy AIPATH_lane3 drawn backward; lanes 2 and 4 offset'),
+        Case('painted_lanes_reversed_main', o, std(), reverse=True,
+             lanes={k: ((lambda o: lambda s: o)(o), False, True) for k, o in ((1, 30.0), (2, 10.0), (3, -10.0), (4, -30.0))},
+             note='all four lanes painted, AIPATH_main drawn against the race'),
+        Case('painted_lane_far', o, std(), lanes={2: (lambda s: 300.0, False, False)},
+             warnings=[r"AIPATH_lane2 doesn't run beside AIPATH_main anywhere"], note='a lane off on another road: unused'),
         Case('ribbon_starts_elsewhere', o, std(), start=0.62 * L, note='curve starts mid-lap'),
         Case('seam_overlap_finish', o, std(), start=0.05 * L - 3, overshoot=4.5,
              note="curve's ends overlap across FINISH"),

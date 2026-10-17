@@ -164,6 +164,14 @@ wide`) and says which it is when it is standing up or too narrow.
 - **Width:** the ribbon's width sets how far apart the computer cars' four racing lines spread. Keep the whole ribbon on
   the road and clear of walls, or the cars on the outer lines drive into them. The report warns when more than 2% of
   the racing-line points have no road near them (the stock tracks have up to 0.7%, over their jumps).
+- **Painting the lanes yourself (optional):** to place a racing line exactly, draw it as its own curve named
+  `AIPATH_lane1` to `AIPATH_lane4`, numbered left to right as you drive the race (forward), each with a little Extrude
+  (any width: its center line is the lane) and following the road's height. Paint any of them: a lane you leave out
+  is spread across `AIPATH_main`'s ribbon as above. `AIPATH_main` is still needed: it is the race's progress line and
+  sets the speeds, and the lanes are matched to it point for point, so keep each lane beside it, within about
+  2.5 times its ribbon's half width (at least 18 m) and 9 m (30 ft) of its height. Where a lane wanders further (or
+  leaves a gap), that stretch uses the spread lane instead and the report says where. Backward races drive the same
+  lanes the other way. Arenas ignore these curves (their lanes are their route).
 - **Direction:** the race runs the way the markers' green arrows point. The curve can be drawn either way round; if most
   arrows disagree with it, the game reverses it, and a single marker pointing against the rest is reported and used
   turned round.
@@ -518,6 +526,16 @@ merges and renames as needed.
   road steps down more than 15 ft at the run's ends or is where the path itself passes over 300 ft of lap away
   (within 30 ft across): those are in the air (`PathPoint::air`) and keep the curve's height, lanes included. The
   stock paths do the same over their jumps (2049 race 1's converted jump matches its stock heights).
+- **Lanes:** the path files' four lanes run point for point beside the spine (same count, the spine's speeds, steering
+  flag 2). `offset_lanes` puts lane slot k at `lane_offsets[k]` (-0.6, -0.2, 0.2, 0.6) of the ribbon's half width along
+  the rung's lateral; `paint_lane` replaces a slot with an `AIPATH_lane<k>` curve: for each spine point, the crossing
+  of the curve's center line with the flat line across the spine there, nearest the offset lane's place, within
+  max(2.5 half widths, 60 ft) across and 30 ft in height, on a segment within 60 degrees of the spine's direction (so
+  either drawing direction works); points with no such crossing keep the offset place. Both are dropped onto the road
+  (`ground_under`, 40 ft) unless the spine point is in the air. The lateral's side depends on the ribbon's vertex order,
+  so lane 1 (leftmost in the forward race) is slot 3 when the lateral leans left over the lap, else slot 0. The
+  backward file's slot k at point i is the forward slot 3 - k at point n - i, exactly what offsetting the turned
+  lateral gave before painted lanes existed. Each lane's gate crossings are searched on its own points.
 - **Stock skies:** `clouds` keeps Rush 2's dome: `mod_cloud_dome` (`track2049.cpp`) leaves the hooks on
   `sky_setup_800A45A8` (0x800A4644 track id, 0x800A4600 players) to Rush 2's own branch. The others are copied into the
   converted geometry as `SKYO1`: `stock_sky_container` (`track_mod.cpp`) reads the source (Rush 2 asset 0x33 or
@@ -605,7 +623,8 @@ merges and renames as needed.
   open curve, arrows reversed, markers beside, above or exactly on a rung, kinks and repeated rungs, the ribbon as
   exporters write it (Blender's cyclic seam, a welded loop, flat shaded, shuffled, under a scaled node) and broken
   (on edge, too thin, a tube, one rung pinched), stand-ins (no AIPATH_main, no FINISH, neither, FINISH alone, no
-  markers, no visible mesh), a compact layout's
+  markers, no visible mesh), painted lanes (`AIPATH_lane1..4`: some or all, drawn either way, one too far away to
+  use, each lane point checked across both path files), a compact layout's
   wide gates reaching the leg before or after, same-way and other-way neighbors, bridges, a flat crossing, a spiral, a
   helix, a vertical loop), converts each and checks the report and the crossings in both path files against the ones
   it was built with; `--list` names them, `--only` runs some. Run it after any change to that logic.

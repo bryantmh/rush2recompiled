@@ -7,6 +7,8 @@
 // Objects are recognized by name (a Blender ".001" suffix is ignored):
 //   COL_<SURFACE>[_anything]  collision only, not drawn. ROAD, DIRT, GRASS, WALL, WATER, KILL or a [surfaces] name.
 //   AIPATH_main               the AI path: a curve with Extrude, exported as a ribbon (read_ribbon).
+//   AIPATH_lane1..4           optional: one of the four racing lines, its ribbon's center line (paint_lane); 1 is
+//                             the leftmost in the race's direction. A lane left out is offset from AIPATH_main.
 //   FINISH, CHECKPOINT_n      gates: Empty, green (Blender Y = glTF -Z) arrow forward, X scale = half the width (m).
 //   START_n                   ignored: Rush 2 lines the grid up behind FINISH itself (said in the report).
 //   AISPEED_<mph>             caps the AI's target speed from the nearest path point on (0 lifts the cap).
@@ -1362,6 +1364,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // ---- sort the objects ----
     const rush2::gltf::Node* finish = nullptr;
     const rush2::gltf::Node* aipath = nullptr;
+    std::array<const rush2::gltf::Node*, 4> lane_nodes{};   // AIPATH_lane1..4
     std::map<int, const rush2::gltf::Node*> checkpoints, grid;
     std::vector<std::pair<float, const rush2::gltf::Node*>> aispeeds;
     std::vector<std::pair<int, const rush2::gltf::Node*>> pickup_nodes;   // PICKUP_<kind>: kind as PickupRecord::kind
@@ -1398,7 +1401,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         std::string name = base_name(n.name);
         bool mesh = !n.primitives.empty();
         int mover = mover_of[size_t(&n - scene.nodes.data())];
-        if (!seen.insert(name).second && (name == "FINISH" || name == "AIPATH_main" || starts(name, "CHECKPOINT_"))) {
+        if (!seen.insert(name).second && (name == "FINISH" || starts(name, "AIPATH_") || starts(name, "CHECKPOINT_"))) {
             report.error("There are two objects named " + name + ".");
             continue;
         }
@@ -1443,7 +1446,12 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             continue;
         }
         if (name == "AIPATH_main") { aipath = &n; continue; }
-        if (starts(name, "AIPATH")) { report.warning(n.name + ": only one AI path, named AIPATH_main, is supported."); continue; }
+        if (int k = number_after(name, "AIPATH_lane"); k >= 1 && k <= 4) { lane_nodes[size_t(k - 1)] = &n; continue; }
+        if (starts(name, "AIPATH")) {
+            report.warning(n.name + ": the AI path is AIPATH_main, with optional lanes AIPATH_lane1 to AIPATH_lane4; "
+                           "ignored.");
+            continue;
+        }
         if (name == "FINISH") { finish = &n; continue; }
         if (int k = number_after(name, "CHECKPOINT_"); k >= 0) { checkpoints[k] = &n; continue; }
         if (int k = number_after(name, "START_"); k >= 0) { grid[k] = &n; continue; }
@@ -2297,16 +2305,118 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         // at 37-51 mph, so it would warn about every stock track.
     }
 
-    // ---- lanes off the road (the modder's question: must the ribbon stay on the road?) ----
+    // ---- lanes ----
+    // The game's four racing lines run point for point beside the spine (lanes[k][i] beside spine point i), each
+    // dropped onto the road under it unless the spine point is in the air. A lane is offset across AIPATH_main's
+    // ribbon (lane_offsets of its half width) unless the author painted it as AIPATH_lane1..4 (paint_lane).
     static const float lane_offsets[4] = { -0.6f, -0.2f, 0.2f, 0.6f };
+    using Lanes = std::array<std::vector<Vec3>, 4>;
+    auto on_road = [&](Vec3 p, bool air) {
+        float h = cpolys.empty() || air ? NAN : ground_under(cpolys, p, 40.0f);
+        if (!std::isnan(h)) p[1] = h;
+        return p;
+    };
+    auto offset_lanes = [&](const std::vector<PathPoint>& sp) {
+        Lanes l;
+        for (size_t k = 0; k < 4; k++) {
+            for (const PathPoint& q : sp) l[k].push_back(on_road(add(q.p, mul(q.lateral, lane_offsets[k] * q.half_width)), q.air));
+        }
+        return l;
+    };
+    // A painted lane: for each spine point, where the lane's center line crosses the line across the road through it
+    // (square to the spine, seen from above), nearest the offset lane's place there, within reach of the spine and
+    // gate_height of its height, on a stretch of the lane running along the road (drawn either way round). Points it
+    // doesn't pass keep the offset lane's place. The curve's ends are joined when they are close (a loop left open).
+    auto paint_lane = [&](const rush2::gltf::Node& node, const std::string& name, size_t slot, std::vector<Vec3>& lane) {
+        if (node.primitives.empty()) {
+            report.warning(name + " has no surface: give the curve Geometry > Extrude as for AIPATH_main (any width; "
+                           "its center line is the lane) so it is exported. The lane is offset from AIPATH_main.");
+            return;
+        }
+        Ribbon ribbon = read_ribbon(node);
+        if (!ribbon.problem.empty() || ribbon.rungs.size() < 2) {
+            report.warning(name + " isn't a ribbon: " + (ribbon.problem.empty() ? std::string("it is too short") : ribbon.problem) +
+                           ". Use a curve with Geometry > Extrude, not a mesh. The lane is offset from AIPATH_main.");
+            return;
+        }
+        std::vector<Vec3> line;
+        for (const auto& [a, b] : ribbon.rungs) line.push_back(mul(add(a, b), 0.5f));
+        size_t segments = line.size() - 1;
+        if (ribbon.closed || length(sub(line.front(), line.back())) < 60.0f) segments = line.size();
+        constexpr float gate_height = 30.0f;
+        size_t n = spine.size(), missed = 0;
+        Vec3 first_missed{};
+        for (size_t i = 0; i < n; i++) {
+            const PathPoint& q = spine[i];
+            Vec3 fwd = sub(spine[(i + 1) % n].p, spine[(i + n - 1) % n].p);
+            fwd[1] = 0.0f;
+            fwd = normalize(fwd);
+            Vec3 lat = { q.lateral[0], 0.0f, q.lateral[2] };
+            float want = lane_offsets[slot] * q.half_width;
+            float reach = std::max(q.half_width * 2.5f, 60.0f);
+            float best = 1e30f;
+            Vec3 pick{};
+            for (size_t j = 0; j < segments; j++) {
+                const Vec3& a = line[j];
+                const Vec3& b = line[(j + 1) % line.size()];
+                float sa = dot(sub(a, q.p), fwd), sb = dot(sub(b, q.p), fwd);
+                if ((sa < 0) == (sb < 0)) continue;
+                Vec3 ab = sub(b, a);
+                if (std::fabs(dot(normalize(Vec3{ ab[0], 0.0f, ab[2] }), fwd)) < 0.5f) continue;
+                Vec3 x = add(a, mul(ab, sa / (sa - sb)));
+                float off = dot(sub(x, q.p), lat);
+                if (std::fabs(off) > reach || std::fabs(x[1] - q.p[1]) > gate_height) continue;
+                if (std::fabs(off - want) < best) { best = std::fabs(off - want); pick = x; }
+            }
+            if (best == 1e30f) {
+                if (!missed++) first_missed = add(q.p, mul(lat, want));
+                continue;
+            }
+            lane[i] = on_road(pick, q.air);
+        }
+        if (missed == n) {
+            report.warning(name + " doesn't run beside AIPATH_main anywhere (within " + fmt_ft(gate_height) + " of its "
+                           "height and the road's width of it); the lane is offset from AIPATH_main.");
+        }
+        else if (missed * 50 > n) {
+            report.warning(name + " doesn't run beside AIPATH_main at " + std::to_string(missed) + " of " +
+                           std::to_string(n) + " points (first near " + fmt_pos(first_missed) + "); there the lane is "
+                           "offset from AIPATH_main.");
+        }
+        else {
+            report.info(name + ": painted lane, " + std::to_string(n - missed) + " of " + std::to_string(n) + " points.");
+        }
+    };
+    Lanes lanes;
+    if (!spine.empty()) {
+        lanes = offset_lanes(spine);
+        // AIPATH_lane1 is the leftmost in the race's direction: slot 3 (+0.6) when the lateral points left.
+        float lean = 0.0f;
+        size_t n = spine.size();
+        for (size_t i = 0; i < n; i++) {
+            Vec3 fwd = sub(spine[(i + 1) % n].p, spine[i].p);
+            lean += dot(spine[i].lateral, normalize(Vec3{ -fwd[2], 0.0f, fwd[0] }));
+        }
+        for (size_t k = 0; k < 4; k++) {
+            if (!lane_nodes[k]) continue;
+            size_t slot = lean > 0.0f ? 3 - k : k;
+            paint_lane(*lane_nodes[k], "AIPATH_lane" + std::to_string(k + 1), slot, lanes[slot]);
+        }
+    }
+    else if (arena) {
+        for (const auto* node : lane_nodes) {
+            if (node) report.info(base_name(node->name) + ": an arena's lanes are its route; ignored.");
+        }
+    }
+
+    // Lanes off the road (the modder's question: must the ribbon stay on the road?)
     if (!spine.empty() && !cpolys.empty()) {
         size_t off_road = 0;
         Vec3 first{};
         for (size_t i = 0; i < spine.size(); i++) {
-            for (float f : lane_offsets) {
-                Vec3 p = add(spine[i].p, mul(spine[i].lateral, f * spine[i].half_width));
-                if (!surface_near(cpolys, p, 40.0f)) {
-                    if (!off_road) first = p;
+            for (const auto& lane : lanes) {
+                if (!surface_near(cpolys, lane[i], 40.0f)) {
+                    if (!off_road) first = lane[i];
                     off_road++;
                 }
             }
@@ -2315,16 +2425,16 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         // (tools/stock_track_glb.py), so only more than that is worth a warning.
         if (off_road * 50 > spine.size() * 4 && !stand_in) {
             report.warning(std::to_string(off_road) + " of " + std::to_string(spine.size() * 4) + " AI racing-line points "
-                           "have no road under them (first near " + fmt_pos(first) + "). Keep AIPATH_main's ribbon on the "
-                           "road; narrow its Extrude or move the curve.");
+                           "have no road under them (first near " + fmt_pos(first) + "). Keep AIPATH_main's ribbon (and "
+                           "any AIPATH_lane curves) on the road; narrow its Extrude or move the curve.");
         }
     }
 
     // ---- path file (docs/rush2049_research/race.md section 3) ----
     // Written for each direction: Rush 2 races BACKWARD on its own path file (asset 0x63 + slot, docs/rush2049_research/
     // race.md section 5): the same road the other way round, the finish line first and the checkpoints in reverse.
-    auto write_path = [&](const std::vector<PathPoint>& sp, const std::vector<float>& mph, const std::vector<Gate>& order,
-                          std::vector<uint8_t>& d) {
+    auto write_path = [&](const std::vector<PathPoint>& sp, const Lanes& lanes, const std::vector<float>& mph,
+                          const std::vector<Gate>& order, std::vector<uint8_t>& d) {
         add16(d, 0);                               // base time (the game uses 90)
         for (int i = 0; i < 3; i++) add16(d, 0xFFFF); // loop / finish / arm checkpoints: recomputed at load
         add16(d, uint16_t(order.size()));
@@ -2355,9 +2465,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                     const Gate& g = order[c];
                     long n = long(sp.size());
                     auto side = [&](long k) {
-                        const PathPoint& q = sp[size_t((k % n + n) % n)];
-                        Vec3 p = add(q.p, mul(q.lateral, lane_offsets[i - 1] * q.half_width));
-                        return dot(sub(p, g.pos), g.dir) >= 0.0f;
+                        return dot(sub(lanes[size_t(i - 1)][size_t((k % n + n) % n)], g.pos), g.dir) >= 0.0f;
                     };
                     long best = -1;
                     for (long k = at - 15; k <= at + 15; k++) {
@@ -2379,15 +2487,12 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         add16(d, uint16_t(sp.size()));
         auto s16 = [](float f) { return uint16_t(int16_t(std::clamp(std::lround(f), -32767l, 32767l))); };
         for (const PathPoint& p : sp) for (float f : p.p) add16(d, s16(f));
-        for (float f : lane_offsets) {
+        for (const auto& lane : lanes) {
             add16(d, uint16_t(sp.size()));
             add8(d, 0); add8(d, 0);
             add32(d, 0);
             for (size_t i = 0; i < sp.size(); i++) {
-                Vec3 p = add(sp[i].p, mul(sp[i].lateral, f * sp[i].half_width));
-                float h = cpolys.empty() || sp[i].air ? NAN : ground_under(cpolys, p, 40.0f);
-                if (!std::isnan(h)) p[1] = h;
-                for (float c : p) add16(d, s16(c));
+                for (float c : lane[i]) add16(d, s16(c));
                 add8(d, uint8_t(std::lround(mph[i])));
                 add8(d, 2);                         // steering: follow the line (stock lanes use 2 and 5)
             }
@@ -2529,7 +2634,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             }
         }
         std::vector<float> mph(route.size(), 100.0f);     // the Rush 2049 arenas' lanes: 100 mph, flags 2
-        write_path(route, mph, gates, out.track.path);
+        write_path(route, offset_lanes(route), mph, gates, out.track.path);
         out.track.path_backward = out.track.path;
         out.checkpoints = 0;
         out.lap_feet = 0.0f;
@@ -2560,14 +2665,18 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
     }
     else if (!spine.empty()) {
-        write_path(spine, speed_mph, gates, out.track.path);
+        write_path(spine, lanes, speed_mph, gates, out.track.path);
         // Backward: from the finish line the other way round (point i is forward point n - i), lanes mirrored with
         // the direction, gates turned round, the finish first and then CHECKPOINT_n down to CHECKPOINT_1.
         size_t n = spine.size();
         std::vector<PathPoint> back(n);
+        Lanes back_lanes;
         for (size_t i = 0; i < n; i++) {
             back[i] = spine[(n - i) % n];
             back[i].lateral = mul(back[i].lateral, -1.0f);
+            // The turned lateral puts each offset lane in the opposite slot (+f across -lateral is -f across the
+            // forward one); painted lanes go along with theirs.
+            for (size_t k = 0; k < 4; k++) back_lanes[k].push_back(lanes[3 - k][(n - i) % n]);
         }
         std::vector<Gate> back_gates = { gates[0] };
         for (size_t g = gates.size() - 1; g >= 1; g--) back_gates.push_back(gates[g]);
@@ -2576,7 +2685,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             g.dir = mul(g.dir, -1.0f);
             if (g.at > 0) g.at = int((n - size_t(g.at) + 1) % n);
         }
-        write_path(back, target_speeds(back, false), back_gates, out.track.path_backward);
+        write_path(back, back_lanes, target_speeds(back, false), back_gates, out.track.path_backward);
         for (size_t k = 0; k < 4; k++) out.track.demo_starts[0].push_back(int16_t(k * n / 4));
         for (size_t k = 0; k < 4; k++) out.track.demo_starts[1].push_back(int16_t(k * n / 4));
         out.checkpoints = int(gates.size()) - 1;
