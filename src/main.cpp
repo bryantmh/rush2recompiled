@@ -624,6 +624,9 @@ int main(int argc, char** argv) {
     rush2::linux_window::prepare_gtk(); // Before NFD_Init starts GTK.
 #endif
     NFD_Init();
+#ifdef __linux__
+    recompui::set_folder_opener(rush2::linux_window::open_folder);
+#endif
 
     recompui::programconfig::set_program_name(rush2::program_name);
     recompui::programconfig::set_program_id(rush2::program_id);

@@ -1,17 +1,18 @@
 diff --git a/recompui/include/recompui/recompui.h b/recompui/include/recompui/recompui.h
-index 30c463b..d7c973e 100644
+index 30c463b..6761f4d 100644
 --- a/recompui/include/recompui/recompui.h
 +++ b/recompui/include/recompui/recompui.h
-@@ -3,6 +3,8 @@
+@@ -3,6 +3,9 @@
  #include <string>
  #include <string_view>
  #include <list>
 +#include <functional>
 +#include <vector>
++#include <filesystem>
  
  #include "SDL.h"
  #include "RmlUi/Core.h"
-@@ -90,6 +92,23 @@ namespace recompui {
+@@ -90,6 +93,23 @@ namespace recompui {
      void close_prompt();
      bool is_prompt_open();
      void update_mod_list(bool scan_mods = true);
@@ -35,6 +36,17 @@ index 30c463b..d7c973e 100644
      void process_game_started();
  
      void apply_color_hack();
+@@ -104,6 +124,10 @@ namespace recompui {
+     void activate_mouse();
+ 
+     void message_box(const char* msg);
++    // Shows a folder in the system's file manager. The game can take over with set_folder_opener: its opener returns
++    // true when it has opened the folder, false to leave it to the default (Explorer, xdg-open, open).
++    void open_folder(const std::filesystem::path& folder);
++    void set_folder_opener(std::function<bool(const std::filesystem::path&)> opener);
+ 
+     void set_render_hooks();
+ 
 diff --git a/recompui/include/recompui/renderer.h b/recompui/include/recompui/renderer.h
 index 33f79ab..3e6423c 100644
 --- a/recompui/include/recompui/renderer.h
@@ -273,10 +285,18 @@ index 1f98b3c..7031967 100644
                          installation.mod_file = target_path;
                      }
 diff --git a/recompui/src/composites/ui_mod_menu.cpp b/recompui/src/composites/ui_mod_menu.cpp
-index 02455fd..09768c5 100644
+index 02455fd..937f2e8 100644
 --- a/recompui/src/composites/ui_mod_menu.cpp
 +++ b/recompui/src/composites/ui_mod_menu.cpp
-@@ -279,9 +279,15 @@ void ModMenu::refresh_mods(bool scan_mods) {
+@@ -10,6 +10,7 @@
+ 
+ #include "librecomp/mods.hpp"
+ 
++#include <cstdlib>
+ #include <string>
+ 
+ #ifdef WIN32
+@@ -279,42 +280,46 @@ void ModMenu::refresh_mods(bool scan_mods) {
          recompui::release_image(thumbnail);
      }
  
@@ -295,7 +315,34 @@ index 02455fd..09768c5 100644
      }
      mod_details = recomp::mods::get_all_mod_details(game_mod_id);
      create_mod_list();
-@@ -303,20 +309,6 @@ void ModMenu::open_mods_folder() {
+ }
+ 
+-void ModMenu::open_mods_folder() {
+-    std::filesystem::path mods_directory = recomp::mods::get_mods_directory();
++static std::function<bool(const std::filesystem::path&)> folder_opener;
++
++void recompui::set_folder_opener(std::function<bool(const std::filesystem::path&)> opener) {
++    folder_opener = std::move(opener);
++}
++
++void recompui::open_folder(const std::filesystem::path& folder) {
++    if (folder_opener && folder_opener(folder)) {
++        return;
++    }
+ #if defined(WIN32)
+-    std::wstring path_wstr = mods_directory.wstring();
++    std::wstring path_wstr = folder.wstring();
+     ShellExecuteW(NULL, L"open", path_wstr.c_str(), NULL, NULL, SW_SHOWDEFAULT);
+ #elif defined(__linux__)
+-    std::string command = "xdg-open \"" + mods_directory.string() + "\" &";
++    std::string command = "xdg-open \"" + folder.string() + "\" &";
+     std::system(command.c_str());
+ #elif defined(__APPLE__)
+-    std::string command = "open \"" + mods_directory.string() + "\"";
++    std::string command = "open \"" + folder.string() + "\"";
+     std::system(command.c_str());
+ #else
+     static_assert(false, "Not implemented for this platform.");
  #endif
  }
  
@@ -311,12 +358,12 @@ index 02455fd..09768c5 100644
 -            }
 -        }
 -    });
--}
--
++void ModMenu::open_mods_folder() {
++    open_folder(recomp::mods::get_mods_directory());
+ }
+ 
  void ModMenu::mod_toggled(bool enabled) {
-     if (active_mod_index >= 0) {
-         recomp::mods::enable_mod(mod_details[active_mod_index].mod_id, enabled);
-@@ -344,7 +336,10 @@ void ModMenu::mod_selected(uint32_t mod_index) {
+@@ -344,7 +349,10 @@ void ModMenu::mod_selected(uint32_t mod_index) {
          bool deprecated = recomp::mods::is_mod_deprecated(mod_details[mod_index].mod_id, mod_details[mod_index].version);
          bool toggle_enabled = !auto_enabled && !deprecated && (mod_details[mod_index].runtime_toggleable || !ultramodern::is_game_started());
          bool configure_enabled = !config_schema.options.empty();
@@ -328,7 +375,7 @@ index 02455fd..09768c5 100644
          mod_entry_buttons[active_mod_index]->set_selected(true);
      }
  }
-@@ -639,10 +634,6 @@ void ModMenu::process_event(const Event &e) {
+@@ -639,10 +647,6 @@ void ModMenu::process_event(const Event &e) {
              mods_dirty = false;
              mod_scan_queued = false;
          }
@@ -339,7 +386,7 @@ index 02455fd..09768c5 100644
          if (active_mod_index != -1) {        
              bool auto_enabled = recomp::mods::is_mod_auto_enabled(mod_details[active_mod_index].mod_id);
              bool deprecated = recomp::mods::is_mod_deprecated(mod_details[active_mod_index].mod_id, mod_details[active_mod_index].version);
-@@ -672,7 +663,9 @@ ModMenu::ModMenu(ResourceId rid, Element *parent) : Element(rid, parent) {
+@@ -672,7 +676,9 @@ ModMenu::ModMenu(ResourceId rid, Element *parent) : Element(rid, parent) {
      set_justify_content(JustifyContent::FlexStart);
      set_width(100.0f, Unit::Percent);
      set_height(100.0f, Unit::Percent);
@@ -350,7 +397,7 @@ index 02455fd..09768c5 100644
      {
          body_container = context.create_element<Container>(this, FlexDirection::Row, JustifyContent::FlexStart);
          body_container->set_as_navigation_container(NavigationType::Horizontal);
-@@ -720,12 +713,11 @@ ModMenu::ModMenu(ResourceId rid, Element *parent) : Element(rid, parent) {
+@@ -720,12 +726,11 @@ ModMenu::ModMenu(ResourceId rid, Element *parent) : Element(rid, parent) {
          footer_container->set_border_bottom_right_radius(16.0f);
          {
              Button* configure_button = mod_details_panel->get_configure_button();

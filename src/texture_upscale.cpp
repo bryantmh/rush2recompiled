@@ -149,13 +149,7 @@ namespace {
     void open_folder(const std::filesystem::path& folder) {
         std::error_code ec;
         std::filesystem::create_directories(folder, ec);
-#ifdef _WIN32
-        ShellExecuteW(nullptr, L"open", folder.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-#elif defined(__APPLE__)
-        std::thread([folder]() { run_command("open " + quoted(folder)); }).detach();
-#else
-        std::thread([folder]() { run_command("xdg-open " + quoted(folder)); }).detach();
-#endif
+        recompui::open_folder(folder);
     }
 
     // A texture kept for upscaling: its decoded pixels and the RT64 hashes it's drawn under.

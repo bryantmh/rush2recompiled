@@ -32,6 +32,14 @@ junction to the checkout's, which rsync copies as a folder (`--copy-unsafe-links
   that is the read-only `usr/bin` of its mount.
 - Settings, saves, mods and caches go to `~/.config/Rush2Recompiled` (librecomp's app folder). Portable mode can't
   work from an AppImage: the Data Location option reports that the folder isn't writable.
+- Open Mods Folder and Open Dump Folder go through `recompui::open_folder` (RecompFrontend patch): `xdg-open` on a
+  desktop. A gamescope session (`XDG_CURRENT_DESKTOP` names gamescope, as in SteamOS's Game Mode) shows only the
+  running game's windows, found through each window's process tree, and its `xdg-open` doesn't know the desktop, so it
+  opens the first app listing folders (VS Code's flatpak on the test Deck) outside the game. There
+  `rush2::linux_window::open_folder` (src/linux_window.cpp) picks a `FileManager`-category app that opens
+  `inode/directory` and starts its Exec line as the game's child, so it comes up in front of the game.
+- The ROM pickers (nfd's GTK dialog) work in Game Mode as they are: the dialog belongs to the game's process, gamescope
+  focuses it scaled to the screen, and touch maps onto it.
 - The ROM is looked for next to the `.AppImage` file too (`$APPIMAGE`), as it's looked for next to the exe on Windows.
 - The version and the online build ID come from git (CMakeLists.txt). The WSL copy has no `.git`, so the script points
   `RUSH2_GIT_SOURCE` at the Windows checkout; without it the launcher showed v0.1.0 and online play refused every
