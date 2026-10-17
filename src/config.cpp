@@ -22,6 +22,7 @@
 #include "music.h"
 #include "pause_menu.h"
 #include "track1.h"
+#include "calspeed.h"
 #include "track2049.h"
 #include "collectibles.h"
 #include "elements/ui_modal.h"
@@ -1001,6 +1002,7 @@ void rush2::init_config() {
     rush2::npc_cars::load_config();
     rush2::circuit::load_config();
     rush2::track1::load_config();
+    rush2::calspeed::load_config();
     rush2::music::load_config();
     // Last: the lobby compares the settings of the configs loaded above.
     rush2::online_tab::load_config();

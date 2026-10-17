@@ -47,6 +47,7 @@
 #include "online.h"
 #include "pause_menu.h"
 #include "track1.h"
+#include "calspeed.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
 
@@ -501,6 +502,9 @@ namespace {
         }
         else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::battle_arena() > 0) {
             // Battle arenas have none.
+        }
+        else if (host && rush2::calspeed::race_track() > 0) {
+            // A California Speed track (src/calspeed/): no collectibles.
         }
         else if (host && rush2::track1::race_track() > 0) {
             // Rush 1's key model, renamed if its name is one of Rush 2's classes (src/rush1/track1_convert.cpp).

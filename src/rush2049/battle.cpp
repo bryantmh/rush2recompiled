@@ -51,6 +51,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "car_types.h"
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 #include "assets.h"
@@ -104,7 +105,7 @@ namespace {
     constexpr uint32_t node_size = 0x38;
     constexpr uint32_t node_count = 0x800FAE58;
     constexpr uint32_t node_hidden = 0x400;
-    constexpr uint32_t body_nodes = 0x80219DD0;      // + car * 0x134: the car's body scene node index (src/ghost.cpp)
+    constexpr uint32_t body_nodes = rush2::car_types::car_states;      // + car * 0x134: the car's body scene node index (src/ghost.cpp)
     constexpr uint32_t body_node_stride = 0x134;
     constexpr uint32_t time_allowed = 0x8010C204;    // f32: the race's clock in seconds.
     constexpr uint32_t race_clock_start = 0x8010C034; // f32: the game timer when the race's clock started

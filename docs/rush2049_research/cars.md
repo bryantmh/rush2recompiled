@@ -139,9 +139,12 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
 ## 8. Implementation [V]
 
 - **Types.** The 2049 cars are Rush 2 types 23-35 (type 22 stays Rush 2's "no car" marker). The 22-entry per-type
-  tables (�2) and the per-type box tables move to 36-entry copies at 0x80200000.. (`tools/rush2049/cartypes.py`
-  generates the us.toml patches); preview ids become player * 36 + type, so the race/preview per-car arrays move to
-  72-entry copies (0x80218000-0x80221EE8).
+  tables (§2) and the per-type box tables move to copies for every type at 0x80200000.. (57 types with California
+  Speed's 36-56, docs/calspeed_research.md#7-cars; the layout is `include/car_types.h`, and
+  `tools/rush2049/cartypes.py` generates the matching us.toml patches); preview ids become player * 57 + type, so the
+  race/preview per-car arrays move to 114-entry copies (0x80208000-0x80217BC2). A fill loop that steps a pointer to an
+  end (bne) needs that end a whole step from its start: cartypes.py rounds it up (func_8008A1FC's part-handle clear
+  steps 8 bytes).
 - **The part-handle table 0x8010C480 is not just 44 cars x 39 parts.** Indices 1716 and up hold track-object,
   debris and smoke model handles (the 0x800C5400 table: CONE1 = 1814, ...; func_80059450 uses 0x6C5), indexed from
   the same base by the object and particle code (func_80059450, func_8005AEA4, func_8005E918/F718/F900/FC08,
@@ -208,10 +211,12 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   damaged. This makes the cars up to about 0xF000 bytes, so the car slot size word 0x8001CF28 (0xD1F0, the largest
   Rush 2 car; func_800A37F4 allocates each slot at it + 0x400) is raised to the largest car at boot.
 - **Options.** See §9.
-- **Saves.** The extra types' per-car options live in side slots (16 x 0xC0 at 0x80222E00, one per player record),
+- **Saves.** The extra types' per-car options live in side slots (16 x 0x1D0 at 0x8021C000, one per player record),
   kept in the `cars` section of `saves/rush2.n64.us.json` and keyed by record address: the active players' records (0x8010D740 + k * 0x6C0) and the
   Controller Pak image's (0x8004B220, 4 x 0x2200); the Controller Pak record keeps its layout. A new slot starts each
-  2049 car with the record's Pickup options, ENGINE 1 and the car's own frame weight as its durability.
+  2049 car with the record's Pickup options, ENGINE 1 and the car's own frame weight as its durability, and each
+  California Speed car with its own colors, rims and durability 0.5. Version 7 of the section added California
+  Speed's blocks; a slot saved before it gets them fresh when loaded.
 - **Unlock All Cars** (src/cheats.cpp) rebuilds the list in the moved copy and appends the 2049 cars again.
 - **Option.** "Rush 2049 Cars" on the Rush 2049 tab (default on).
 
@@ -446,7 +451,7 @@ too, **All Off** on no car. Hot-swappable: the layers' nodes are drawn or droppe
 **Rush 2's layers.** The car parts named `D0_D*` / `D2_D*` and `H0D_*` / `H2D_*` (§5) are not dents: they are
 translucent copies of the panels' and hood halves' triangles drawn over them, white vertices, untextured in the
 container, render mode `C8104E50` (translucent, decal depth), combiner `FC41FFFF FFFFF238` (SHADE × PRIM, alpha
-TEXEL0), `E3001001 0` (TLUT off) and LOD flag 0x1 (the node's texture swap). Car record (0x80219DD0 + id × 0x134)
+TEXEL0), `E3001001 0` (TLUT off) and LOD flag 0x1 (the node's texture swap). Car record (0x8020AF40 + id × 0x134)
 slots, as `func_80085FD0` builds them: +0x3C/+0x40/+0x44/+0x48/+0x4C = parts 11/13/15/17/19 (`D0_DFR1`.. `D0_DTOP1`,
 the DECAL layer), +0x50/+0x54/+0x58/+0x5C/+0x60 = parts 21/23/25/27/29 (`D0_D2FR2`.. `D0_D2TOP2`, the SHEEN layer),
 +0xC/+0x10 = parts 35/37 (`H0D_L`, `H0D_R`, the hood's SHEEN layer; the hood halves themselves are +0x4/+0x8, parts

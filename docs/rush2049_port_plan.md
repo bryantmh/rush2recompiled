@@ -538,7 +538,7 @@ Kept here because cars and tracks build on the same pieces:
 
 Rush 2 car textures are CI8 and share one TLUT per car: the palette record at `0x802217E0 + car * 0x18` (name[16],
 u8 first and last index at +0x10/+0x11, data at +0x14), built by `func_8008582C`. That function stores the record in
-node +0x2C of only three of the car's nodes (the node indices at car record `0x80219DD0 + car * 0x134` +0x2, +0x6 and
+node +0x2C of only three of the car's nodes (the node indices at car record `0x8020AF40 + car * 0x134` +0x2, +0x6 and
 +0x32). Every other part, the FRAME1 body and the D0_FL1/FR1 front panels among them, has no palette and draws with
 the TLUT already in TMEM. `func_80078190` loads a node's palette only when its data pointer differs from the last one
 loaded (`0x80111954`). The wing and flame lists load their own CI4 TLUTs, so the parts drawn after the body took the

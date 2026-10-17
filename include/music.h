@@ -34,4 +34,10 @@ namespace rush2::track1 {
     int song_sequence(uint8_t* rdram, recomp_context* ctx, int song);
 }
 
+namespace rush2::calspeed {
+    // Rush 2's sequence number for California Speed song `song` (0-8), installing its songs and bank first (src/rush1/
+    // track1_audio.cpp), or -1 if they aren't available. Call from a game thread.
+    int song_sequence(uint8_t* rdram, recomp_context* ctx, int song);
+}
+
 #endif

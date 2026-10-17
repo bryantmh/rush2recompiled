@@ -16,6 +16,7 @@
 #include "battle.h"
 #include "options_page.h"
 #include "track1.h"
+#include "calspeed.h"
 #include "track2049.h"
 #include "wings.h"
 #include "wings_internal.h"
@@ -76,8 +77,8 @@ namespace {
     }
 
     const std::string description =
-        "Adds the tracks, cars and wings of San Francisco Rush 2049 and the tracks of San Francisco Rush, from their "
-        "USA N64 ROMs.\n\n"
+        "Adds the tracks, cars and wings of San Francisco Rush 2049 and the tracks of San Francisco Rush and California "
+        "Speed, from their USA N64 ROMs.\n\n"
         "Select each game's ROM or disc once; it is copied into the app folder.";
 
     class GamesPage : public rush2::ui::OptionsPage {
@@ -86,6 +87,7 @@ namespace {
             rush2::wings::add_games_section(this, refresh[0]);
             add_option(rush2::wings::games_config(), fire_backward_option_id);
             rush2::track1::add_games_section(this, refresh[1]);
+            rush2::calspeed::add_games_section(this, refresh[2]);
             update_battle_options(battles);
         }
 
@@ -105,7 +107,7 @@ namespace {
         }
 
     private:
-        std::function<void()> refresh[2];
+        std::function<void()> refresh[3];
         bool battles = rush2::track2049::available();
 
         static std::string html(const std::string& text) {
@@ -121,6 +123,7 @@ namespace {
 void rush2::games::create_tab() {
     rush2::wings::init_config();
     rush2::track1::init_config();
+    rush2::calspeed::init_config();
     add_battle_options();
     recompui::config::create_tab(tab_name, tab_id,
         [](ContextId context, Element* parent) {

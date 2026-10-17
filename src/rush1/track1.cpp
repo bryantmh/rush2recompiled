@@ -92,6 +92,9 @@ namespace {
         uint16_t model;
     };
     std::map<uint32_t, BreakableModel> breakable_models;
+    // The redirects are an SF Rush track's (its hit test applies, rush2_track1_breakable_hit), not another game's
+    // (rush2::track1::set_redirects).
+    bool rush1_rules = false;
     float lap_seconds[rush2::track1::track_count][2] = {};
 
     struct Saved {
@@ -155,6 +158,28 @@ namespace {
         MEM_W(0, (int32_t)(fog_zones + host_slot * 4)) = (int32_t)list;
     }
 
+    // Puts the model names the redirects resolve to in RDRAM (the lookups take a name's address). Under track_mutex.
+    void fill_redirects(uint8_t* rdram, const std::map<std::string, std::string>& records,
+                        const std::map<std::string, std::string>& pieces) {
+        if (name_pool == 0) {
+            name_pool = (uint32_t)((uint8_t*)recomp::alloc(rdram, name_pool_size) - rdram) + 0x80000000;
+        }
+        record_redirects.clear();
+        piece_redirects.clear();
+        breakable_models.clear();
+        uint32_t at = name_pool;
+        auto add = [&](std::map<std::string, uint32_t>& to, const std::string& from, const std::string& name) {
+            if (at + 16 > name_pool + name_pool_size) return;
+            for (size_t i = 0; i < 16; i++) {
+                MEM_B(0, (int32_t)(at + i)) = i < name.size() ? name[i] : 0;
+            }
+            to[from] = at;
+            at += 16;
+        };
+        for (const auto& [from, name] : records) add(record_redirects, from, name);
+        for (const auto& [from, name] : pieces) add(piece_redirects, from, name);
+    }
+
     void apply(uint8_t* rdram, int backward) {
         if (!applied) {
             save_tables(rdram);
@@ -196,23 +221,8 @@ namespace {
         for (size_t i = 0; i < track.pvs.size() && i < 128 * 16; i++) {
             MEM_B(0, (int32_t)(pvs_table + i)) = track.pvs[i];
         }
-        if (name_pool == 0) {
-            name_pool = (uint32_t)((uint8_t*)recomp::alloc(rdram, name_pool_size) - rdram) + 0x80000000;
-        }
-        record_redirects.clear();
-        piece_redirects.clear();
-        breakable_models.clear();
-        uint32_t at = name_pool;
-        auto add = [&](std::map<std::string, uint32_t>& to, const std::string& from, const std::string& name) {
-            if (at + 16 > name_pool + name_pool_size) return;
-            for (size_t i = 0; i < 16; i++) {
-                MEM_B(0, (int32_t)(at + i)) = i < name.size() ? name[i] : 0;
-            }
-            to[from] = at;
-            at += 16;
-        };
-        for (const auto& [from, name] : track.record_models) add(record_redirects, from, name);
-        for (const auto& [from, name] : track.piece_models) add(piece_redirects, from, name);
+        fill_redirects(rdram, track.record_models, track.piece_models);
+        rush1_rules = true;
         applied = true;
         applied_backward = backward;
     }
@@ -241,6 +251,7 @@ namespace {
         }
         record_redirects.clear();
         piece_redirects.clear();
+        rush1_rules = false;
         applied = false;
         applied_backward = -1;
     }
@@ -292,6 +303,21 @@ namespace {
         lap_seconds[k - 1][1] = track.lap_seconds[1];
         return true;
     }
+}
+
+void rush2::track1::set_redirects(uint8_t* rdram, const std::map<std::string, std::string>& records,
+                                  const std::map<std::string, std::string>& pieces) {
+    std::lock_guard lock{ track_mutex };
+    fill_redirects(rdram, records, pieces);
+    rush1_rules = false;
+}
+
+void rush2::track1::clear_redirects() {
+    std::lock_guard lock{ track_mutex };
+    if (applied) return;    // an SF Rush track's own
+    record_redirects.clear();
+    piece_redirects.clear();
+    breakable_models.clear();
 }
 
 int rush2::track1::race_track() {
@@ -584,7 +610,7 @@ extern "C" void rush2_track1_gate(uint8_t* rdram, recomp_context* ctx) {
 extern "C" int rush2_track1_breakable_hit(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ track_mutex };
     uint32_t breakable = (uint32_t)ctx->r5;
-    if (record_redirects.empty() || MEM_H(0, (int32_t)(breakable + 0x52)) == 0x722) {
+    if (record_redirects.empty() || !rush1_rules || MEM_H(0, (int32_t)(breakable + 0x52)) == 0x722) {
         return 0;
     }
     auto f = [&](uint32_t addr) {

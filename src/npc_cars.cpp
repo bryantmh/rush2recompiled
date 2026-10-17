@@ -11,7 +11,7 @@
 // cars, and the asset fit check after it still applies. Nothing is applied in attract
 // mode (0x800E7BB0) or when the New York Cabs cheat (0x800D9E89) makes every drone a taxi on its tracks, which wins.
 //
-// TIRE RIMS aren't in the entry: a car's rim is the per-type table 0x802019B0 (Rush 2's 0x800C0E48, src/rush2049/car2049.cpp)
+// TIRE RIMS aren't in the entry: a car's rim is the per-type table copy of Rush 2's 0x800C0E48 (include/car_types.h)
 // at row 0 for a drone (row player + 1 for a human), RIM01 + value. It is read in four places, each hooked to give an
 // opponent its chosen rim: func_80085FD0 building a race car's wheel nodes (0x800865CC, for the car
 // func_80086CA4 is building, 0x80086E0C), func_8005A598's per-frame wheel texture (sharp at 0x8005AB08, blurred
@@ -47,6 +47,7 @@
 #include "elements/ui_slider.h"
 
 #include "car1_stripes.h"
+#include "calspeed.h"
 #include "car2049.h"
 #include "paint_colors.h"
 #include "npc_cars.h"
@@ -140,8 +141,7 @@ namespace {
     }
 
     bool type_allowed(int type) {
-        return (type >= 0 && type < rush2_types) ||
-            (type >= rush2::car2049::first_type && type < rush2::car2049::types && rush2::car2049::available());
+        return rush2::car2049::type_available(type);
     }
 
     int other_color(int not_this) {
@@ -400,8 +400,12 @@ namespace {
     // The rows follow the chosen car as the car select's do (src/rush2049/wings_menu.cpp): a Rush 2 car (or Random) has
     // STRIPE (with SF Rush on a car that has it) and the three colors; a 2049 car from the N64 ROM has no STRIPE and
     // its third color is TERTIARY; a Dreamcast disc's 2049 car has one STYLE row, its paint job (MAIN COLOR modulo the
-    // car's jobs, src/rush2049/car2049.cpp), in place of the colors and STRIPE.
+    // car's jobs, src/rush2049/car2049.cpp), in place of the colors and STRIPE; a California Speed car has its two
+    // colors only (src/calspeed/calspeed_cars.cpp).
     int row_layout(int type) {
+        if (rush2::car_types::is_calspeed(type)) {
+            return -1;
+        }
         if (type >= rush2::car2049::first_type && type < rush2::car2049::types) {
             int jobs = rush2::car2049::paint_jobs(type);
             return jobs > 0 ? 2 + jobs : 2;
@@ -429,6 +433,12 @@ namespace {
             int type = rush2::car2049::first_type + k;
             if (rush2::car2049::available() || chosen == type) {
                 car_values.emplace_back(type, std::string(rush2::car2049::display_name(k)) + " (2049)");
+            }
+        }
+        for (int n = 0; n < rush2::calspeed::car_count; n++) {
+            int type = rush2::car_types::first_calspeed + n;
+            if (rush2::calspeed::cars_available() || chosen == type) {
+                car_values.emplace_back(type, std::string(rush2::calspeed::car_names[n]) + " (Cal Speed)");
             }
         }
         Select* car_select = add_select(block, "Car", npc, f_car, car_values, [npc, chosen, car_changed]() {
@@ -473,7 +483,9 @@ namespace {
         }
         add_color(block, "Main Color", npc, f_main);
         add_color(block, "Accent Color", npc, f_accent);
-        add_color(block, is_2049 ? "Tertiary Color" : "Stripe Color", npc, f_stripe_color);
+        if (!rush2::car_types::is_calspeed(chosen)) {
+            add_color(block, is_2049 ? "Tertiary Color" : "Stripe Color", npc, f_stripe_color);
+        }
         return car_select;
     }
 

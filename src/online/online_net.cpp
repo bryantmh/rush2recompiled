@@ -1390,19 +1390,24 @@ bool rush2::online::start_race(const RaceSettings& settings) {
         }
     }
     // Every car is picked by now. A Rush 2049 car (types 23-35, src/rush2049/car2049.cpp) loads from the Rush 2049 ROM
-    // on every machine (the Rush 2049 Cars option already matches, with the rest of the gameplay settings).
-    std::string car_2049_driver;
-    for (const RosterEntry& e : slots) {
-        if (e.used && e.connected && e.car.type >= rush2::car2049::first_type) {
-            car_2049_driver = e.name;
-            break;
+    // on every machine, a California Speed car (36-56, src/calspeed/calspeed_cars.cpp) from its ROM (the cars options
+    // already match, with the rest of the gameplay settings).
+    for (bool calspeed : { false, true }) {
+        std::string driver;
+        for (const RosterEntry& e : slots) {
+            if (e.used && e.connected && e.car.type >= rush2::car2049::first_type &&
+                rush2::car_types::is_calspeed(e.car.type) == calspeed) {
+                driver = e.name;
+                break;
+            }
         }
-    }
-    for (int i = 0; i < max_players && !car_2049_driver.empty(); i++) {
-        if (slots[i].used && slots[i].connected && (slots[i].games & games_rush2049) == 0) {
-            error_text = slots[i].name + " doesn't have the Rush 2049 ROM that " + car_2049_driver +
-                "'s car needs (the Games tab).";
-            return false;
+        uint8_t game = calspeed ? games_calspeed : games_rush2049;
+        for (int i = 0; i < max_players && !driver.empty(); i++) {
+            if (slots[i].used && slots[i].connected && (slots[i].games & game) == 0) {
+                error_text = slots[i].name + " doesn't have the " + (calspeed ? "California Speed" : "Rush 2049") +
+                    " ROM that " + driver + "'s car needs (the Games tab).";
+                return false;
+            }
         }
     }
     clear_race();

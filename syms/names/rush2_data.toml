@@ -14185,46 +14185,46 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
-vram = 0x80201190
+vram = 0x80202CE8
 name = "carselect_main_color_rows"
-type = "s8[5][36]"
-desc = "Car select MAIN COLOR per row and car type (row 0 defaults, row slot + 1 the players', moved from 0x800C0ED0 for 36 types). Filled from the record by carselect_build_list, stepped by menu_screen_car_select_frame."
+type = "s8[9][57]"
+desc = "Car select MAIN COLOR per row and car type (row 0 defaults, row slot + 1 the players', moved from 0x800C0ED0 for 57 types: include/car_types.h). Filled from the record by carselect_build_list, stepped by menu_screen_car_select_frame."
 area = "menu"
 status = "verified"
 ref = "docs/rush2049_research/cars.md#paint-colors-v"
 
 [[var]]
-vram = 0x80201248
+vram = 0x80202EF0
 name = "carselect_accent_color_rows"
-type = "s8[5][36]"
+type = "s8[9][57]"
 desc = "Car select ACCENT COLOR per row and car type (moved from 0x800C0F14), as carselect_main_color_rows."
 area = "menu"
 status = "verified"
 ref = "docs/rush2049_research/cars.md#paint-colors-v"
 
 [[var]]
-vram = 0x802013B8
+vram = 0x80203300
 name = "carselect_stripe_color_rows"
-type = "s8[5][36]"
+type = "s8[9][57]"
 desc = "Car select STRIPE COLOR per row and car type (moved from 0x800C0F9C), as carselect_main_color_rows."
 area = "menu"
 status = "verified"
 ref = "docs/rush2049_research/cars.md#paint-colors-v"
 
 [[var]]
-vram = 0x80221750
+vram = 0x80216FB0
 name = "car_banks"
-type = "s16[72]"
+type = "s16[114]"
 desc = "Texture bank per car preview id (moved from 0x800D9D40); race_preload_car_assets_800A37F4 sets one per car slot to the model container its asset loads into."
 area = "car"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
-vram = 0x802217E0
+vram = 0x802170A0
 name = "car_palette_records"
-type = "Palette[72]"
-desc = "Per car id (0x18 stride) palette record built by car_build_textures (func_8008582C): name[16], u8 first/last TLUT index at +0x10/+0x11, data at +0x14. Stored in node +0x2C of the car's nodes at car record (0x80219DD0 + id * 0x134) +0x2, +0x6, +0x32 only; the other parts draw with the TLUT in TMEM."
+type = "Palette[114]"
+desc = "Per car id (0x18 stride) palette record built by car_build_textures (func_8008582C): name[16], u8 first/last TLUT index at +0x10/+0x11, data at +0x14. Stored in node +0x2C of the car's nodes at car record (0x8020AF40 + id * 0x134) +0x2, +0x6, +0x32 only; the other parts draw with the TLUT in TMEM."
 area = "car"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"

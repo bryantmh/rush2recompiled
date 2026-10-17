@@ -21,6 +21,7 @@
 
 #include "asset_catalog.h"
 #include "assets.h"
+#include "calspeed.h"
 #include "car2049.h"
 #include "rush2049_rom.h"
 #include "track1.h"
@@ -73,6 +74,11 @@ namespace {
         }
         if (index >= first_2049_car && index < first_2049_car + rush2::car2049::car_count) {
             return std::string("cars/") + file_name(rush2::car2049::display_name(index - first_2049_car));
+        }
+        if (index >= rush2::car2049::first_calspeed_asset &&
+            index < rush2::car2049::first_calspeed_asset + rush2::calspeed::car_count) {
+            return std::string("cars/calspeed/") +
+                   file_name(rush2::calspeed::car_names[index - rush2::car2049::first_calspeed_asset]);
         }
         char name[16];
         snprintf(name, sizeof(name), "assets/%02X", index);

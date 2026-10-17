@@ -1,18 +1,21 @@
-// Race music across Rush 2, SF Rush and Rush 2049: the Sound tab's song list, how a race picks its song, and song
-// previews.
+// Race music across Rush 2, SF Rush, Rush 2049 and California Speed: the Sound tab's song list, how a race picks its
+// song, and song previews.
 //
-// Songs: the ones the three games play on their race tracks. Rush 2's eight (its MUSIC setting's 2-9, sequences
+// Songs: the ones the games play on their race tracks. Rush 2's eight (its MUSIC setting's 2-9, sequences
 // 0x800CC394 = [3, 4, 0, 1, 7, 10, 2, 8]; per-track choice 0x800CC37C), SF Rush's nine race songs (its random table
 // 0x800D2910, played through Rush 2's player as sequences 13-28, src/rush1/track1_audio.cpp) and the six songs of Rush
 // 2049's race tracks (0x8010FFD4, played on the host, src/rush2049/track2049_audio.cpp). A Rush 2049 Dreamcast disc has its own
 // 20 songs (rush2::audio2049::disc_songs, a song per track at 0x8C0BA76C), listed instead of the N64's while it's the
-// 2049 source.
+// 2049 source. California Speed's nine songs (its song file, ROM 0xD69FC0) play through Rush 2's player as sequences
+// 29-37 (src/rush1/track1_audio.cpp). California Speed has no per-track songs (the player picks one: its options'
+// Audio Track), so like SF Rush its tracks play a random one of its songs by default.
 //
 // Choice: Rush 2 picks a race's song in func_8008C370(2, setting), setting 1 being "per track" (byte 0x800D5775).
 // Only that setting is taken over; the fixed-song settings and Off stay the game's. Each game's Race Music option
 // chooses for that game's tracks: Original (the game's own choice, swapped for another song of that game, then of any
 // game, when it is switched off), Shuffle (a random song of the game) or Shuffle All (a random song of any
-// game). SF Rush offers only Original and Shuffle All: its own choice already is a random SF Rush song.
+// game). SF Rush and California Speed offer only Original and Shuffle All: their own choice already is a random song
+// of the game.
 // Shuffles skip the song played last. A song of a game whose ROM or audio isn't available is skipped; with nothing
 // left the game picks as it would by itself. A Rush 2 or SF Rush song replaces the sequence Rush 2 chose (at
 // 0x8008C46C); a Rush 2049 song is queued on the 2049 player and the call turned into the "music off" case, whose
@@ -62,6 +65,7 @@
 #include "car_engines.h"
 #include "audio2049.h"
 #include "wings.h"
+#include "calspeed.h"
 
 extern "C" void music_stop_song_80061E10(uint8_t* rdram, recomp_context* ctx);   // Stops the song.
 extern "C" void music_play_sequence_80061E68(uint8_t* rdram, recomp_context* ctx);   // Plays sequence $a0; 0 if busy.
@@ -96,7 +100,8 @@ namespace {
     constexpr uint32_t sequence_player = 0x800FAEB4; // ALSeqPlayer*
     constexpr int al_playing = 1;
 
-    enum class Game { Rush2, Rush1, Rush2049 };
+    // Values are kept in the configs (Main Menu Music stores Rush2-Rush2049 as 0-2, then 3 for Shuffle).
+    enum class Game { Rush2, Rush1, Rush2049, CalSpeed };
     // Which Rush 2049 source a song comes from.
     enum class Only { Any, N64, Disc };
 
@@ -115,7 +120,7 @@ namespace {
     // the disc's by its track table 0x8C0BA76C: races, battles, stunts, obstacle course, then the songs no track plays).
     // N64 songs carry the name of the disc song they arrange, matched by tempo and time-aligned chroma (docs
     // rush2049_research/audio.md "Songs"); songs 4, 7 and 8 have no clear disc counterpart and keep a number.
-    constexpr std::array<Song, 45> songs = {{
+    constexpr std::array<Song, 54> songs = {{
         { Game::Rush2, 0, "r2_0", "Head Thumpin'", "Lower Manhattan" },
         { Game::Rush2, 1, "r2_1", "Tinkle Toon", "Las Vegas" },
         { Game::Rush2, 2, "r2_2", "Drums N Hula", "Honolulu" },
@@ -161,6 +166,15 @@ namespace {
         { Game::Rush2049, disc + 9, "r49dc_9", "Speed", "No Rush 2049 track", Only::Disc },
         { Game::Rush2049, disc + 19, "r49dc_19", "Select", "Rush 2049 menus", Only::Disc },
         { Game::Rush2049, disc + 18, "r49dc_18", "High Score", "Rush 2049 high score entry", Only::Disc },
+        { Game::CalSpeed, 0, "cs_0", "Song 1", "Any California Speed track" },
+        { Game::CalSpeed, 1, "cs_1", "Song 2", "Any California Speed track" },
+        { Game::CalSpeed, 2, "cs_2", "Song 3", "Any California Speed track" },
+        { Game::CalSpeed, 3, "cs_3", "Song 4", "Any California Speed track" },
+        { Game::CalSpeed, 4, "cs_4", "Song 5", "Any California Speed track" },
+        { Game::CalSpeed, 5, "cs_5", "Song 6", "Any California Speed track" },
+        { Game::CalSpeed, 6, "cs_6", "Song 7", "Any California Speed track" },
+        { Game::CalSpeed, 7, "cs_7", "Song 8", "Any California Speed track" },
+        { Game::CalSpeed, 8, "cs_8", "Song 9", "Any California Speed track" },
     }};
     constexpr int song_count = (int)songs.size();
     constexpr int first_rush1 = 8;      // Catalog index of SF Rush's first song.
@@ -172,15 +186,19 @@ namespace {
         return std::string("song_") + s.key;
     }
 
-    constexpr Game games[3] = { Game::Rush2, Game::Rush1, Game::Rush2049 };
+    constexpr Game games[4] = { Game::Rush2, Game::Rush1, Game::Rush2049, Game::CalSpeed };
+    constexpr int game_count = 4;
+    // The games with a menu song (California Speed's isn't identified).
+    constexpr Game menu_games[3] = { Game::Rush2, Game::Rush1, Game::Rush2049 };
 
     std::string mode_option_id(Game g) {
-        return g == Game::Rush2 ? "race_music_r2" : g == Game::Rush1 ? "race_music_r1" : "race_music_r49";
+        return g == Game::Rush2 ? "race_music_r2" : g == Game::Rush1 ? "race_music_r1"
+             : g == Game::Rush2049 ? "race_music_r49" : "race_music_cs";
     }
 
     // The Race Music choices a game offers, in the order shown.
     std::vector<Mode> game_modes(Game g) {
-        if (g == Game::Rush1) {
+        if (g == Game::Rush1 || g == Game::CalSpeed) {
             return { Mode::Original, Mode::ShuffleAll };
         }
         return { Mode::Original, Mode::ShuffleByGame, Mode::ShuffleAll };
@@ -195,21 +213,22 @@ namespace {
     }
 
     std::string game_option_id(Game g) {
-        return g == Game::Rush2 ? "games_r2" : g == Game::Rush1 ? "games_r1" : "games_r49";
+        return g == Game::Rush2 ? "games_r2" : g == Game::Rush1 ? "games_r1" : g == Game::Rush2049 ? "games_r49" : "games_cs";
     }
 
     const char* game_name(Game g) {
         switch (g) {
             case Game::Rush2: return "Rush 2";
             case Game::Rush1: return "SF Rush";
-            default: return "Rush 2049";
+            case Game::Rush2049: return "Rush 2049";
+            default: return "California Speed";
         }
     }
 
     // Settings as the game threads read them.
-    std::array<std::atomic<uint32_t>, 3> modes{};      // By Game value: Race Music for the game's tracks.
+    std::array<std::atomic<uint32_t>, game_count> modes{};      // By Game value: Race Music for the game's tracks.
     std::array<std::atomic_bool, song_count> enabled{};
-    std::array<std::atomic_bool, 3> game_enabled{};   // By Game value: the game's switch above its songs.
+    std::array<std::atomic_bool, game_count> game_enabled{};   // By Game value: the game's switch above its songs.
     std::mutex choice_mutex;
     std::mt19937 rng{ std::random_device{}() };
     int last_song = -1;   // Catalog index of the last race song.
@@ -268,6 +287,7 @@ namespace {
         switch (g) {
             case Game::Rush2: return true;
             case Game::Rush1: return rush2::track1::rom_available();
+            case Game::CalSpeed: return rush2::calspeed::rom_available();
             default: return rush2::wings::rom_available();
         }
     }
@@ -348,6 +368,10 @@ namespace {
             g = Game::Rush1;
             original = pick(false, Game::Rush1);
         }
+        else if (host && rush2::calspeed::race_track() > 0) {
+            g = Game::CalSpeed;
+            original = pick(false, Game::CalSpeed);
+        }
         else if (t >= 0 && t < 12) {
             original = find_song(Game::Rush2, (int16_t)MEM_H(0, (int32_t)(track_songs + t * 2)));
         }
@@ -387,6 +411,9 @@ namespace {
         }
         if (s.game == Game::Rush1) {
             return rush2::track1::song_sequence(rdram, ctx, s.id);
+        }
+        if (s.game == Game::CalSpeed) {
+            return rush2::calspeed::song_sequence(rdram, ctx, s.id);
         }
         return -1;
     }
@@ -551,12 +578,13 @@ namespace {
         "How races on this game's tracks pick their song. "
         "<recomp-color primary>Original</recomp-color> plays the track's own song. "
         "<recomp-color primary>Shuffle</recomp-color> plays a random song from this game. "
-        "<recomp-color primary>Shuffle All</recomp-color> plays a random song from all three games. "
+        "<recomp-color primary>Shuffle All</recomp-color> plays a random song from any game. "
         "Only used while the game's own MUSIC setting is on its default.";
 
     std::string rom_note(Game g) {
-        return g == Game::Rush1 ? " Needs a San Francisco Rush (USA) ROM (Games tab)."
-                                : " Needs a Rush 2049 (USA) ROM or Dreamcast disc (Games tab).";
+        return g == Game::Rush1      ? " Needs a San Francisco Rush (USA) ROM (Games tab)."
+             : g == Game::CalSpeed ? " Needs a California Speed (USA) ROM (Games tab)."
+                                   : " Needs a Rush 2049 (USA) ROM or Dreamcast disc (Games tab).";
     }
 
     // A row of the page: shows its description when hovered or focused, and scrolls itself into view when something
@@ -662,9 +690,9 @@ namespace {
         Element* grid = nullptr;
         Element* description = nullptr;
         std::vector<Row> rows;
-        Header headers[3];
+        Header headers[game_count];
         int shown_preview = -1;
-        int shown_state[3] = { -1, -1, -1 };
+        int shown_state[game_count] = { -1, -1, -1, -1 };
 
         static int game_state(Game g) {
             return (game_available(g) ? 1 : 0) | (game_enabled[(int)g].load() ? 2 : 0) |
@@ -876,7 +904,7 @@ void rush2::music::create_sound_tab() {
         });
     {
         std::vector<recomp::config::ConfigOptionEnumOption> choices;
-        for (Game g : games) {
+        for (Game g : menu_games) {
             const char* key = g == Game::Rush2 ? "Rush2" : g == Game::Rush1 ? "Rush1" : "Rush2049";
             choices.push_back({ g, key, game_name(g) });
         }
@@ -1187,7 +1215,7 @@ bool rush2::music::now_playing(NowPlaying& out) {
     out.game = game_name(s.game);
     // Where the song plays: Rush 2's track, Rush 2049's courses (without the game's name); SF Rush plays its songs
     // on any of its tracks.
-    std::string where = s.game == Game::Rush1 ? "" : s.plays_on;
+    std::string where = s.game == Game::Rush1 || s.game == Game::CalSpeed ? "" : s.plays_on;
     if (where.rfind("Rush 2049 ", 0) == 0) {
         where = where.substr(10);
     }

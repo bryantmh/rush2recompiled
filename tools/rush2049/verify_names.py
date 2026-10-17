@@ -1,6 +1,6 @@
 """Verify the function registries (syms/names/*.toml) against the actual ROMs (research aid).
 
-Checks, for every rush2, rush2049 and rush1 entry (games are r2 / 49 / r1; set RUSH1_ROM for Rush 1):
+Checks, for every rush2, rush2049 and rush1 entry (games are r2 / 49 / r1, and cs = California Speed for `show`/`refs` (built by another compiler, so `best` finds nothing); set RUSH1_ROM for Rush 1, CALSPEED_ROM for California Speed):
   - the address is word aligned, inside the game's code, and looks like a function start (reached by a jal, or begins
     with a stack frame setup `addiu sp,sp,-N`, or is a leaf that ends in jr ra);
   - for entries with a `rush2 =` link: how similar the two functions are (mnemonic sequence ratio and size ratio),
@@ -35,11 +35,22 @@ def segments(game):
         import r1
         r = r1.Rush1()
         segs = [(0x80000400, r.rom[0x1000:0x1000 + (0x8001E2E0 - 0x80000400)]), (r1.MAIN_VRAM, r.main)]
+    elif game == 'cs':
+        cs = _calspeed()
+        r = cs.CalSpeed()
+        segs = [(cs.BOOT_VRAM, r.rom[0x1000:cs.MAIN_ROM]),
+                (cs.MAIN_VRAM, r.rom[cs.MAIN_ROM:cs.MAIN_ROM + cs.MAIN_END - cs.MAIN_VRAM])]
     else:
         r = roms.Rush2049()
         segs = [(0x80000400, r.rom[0x1000:0x1000 + (r.MAIN_VRAM - 0x80000400)]), (r.MAIN_VRAM, r.main)]
     _cache[game] = segs
     return segs
+
+
+def _calspeed():
+    sys.path.insert(0, os.path.join(REPO, 'tools', 'calspeed'))
+    import cs
+    return cs
 
 
 def word(game, a):
@@ -242,6 +253,9 @@ def reader(game):
             if a >= r.MAIN_VRAM:
                 return struct.unpack('>I', r.main[a - r.MAIN_VRAM:a - r.MAIN_VRAM + 4])[0]
             return struct.unpack('>I', r.rom[0x1000 + a - 0x80000400:0x1000 + a - 0x80000400 + 4])[0]
+    elif game == 'cs':
+        r = _calspeed().CalSpeed()
+        rd = lambda a: struct.unpack('>I', r.read(a, 4))[0]
     else:
         sys.path.insert(0, os.path.join(REPO, 'tools', 'rush1'))
         import r1

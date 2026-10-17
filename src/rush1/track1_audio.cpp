@@ -17,6 +17,12 @@
 // - Sound effects: SF Rush's track emitters play samples Rush 2 has too, except FIRECRK's fireworks. Rush 2's sound
 //   effect instrument gets a copy with SF Rush's fireworks as sound 116 (func_80062264's bound is raised in us.toml),
 //   and on an SF Rush track the FIRECRCK emitter plays it as SF Rush does.
+//
+// California Speed's music (src/calspeed/, docs/calspeed_research.md) is installed the same way: its music bank
+// (ROM 0xB82BC0), samples (0xB8A390) and song file (0xD69FC0, nine LZ-compressed MIDI songs, as SF Rush's) form a
+// second block reserved past SF Rush's, its .ctl copy lives at 0x80E16000-0x80E1E000 (below 16 MB), and its songs are
+// songs 29-37. The song header keeps a slot for every song of both games from the first install on, so either game can
+// be installed first; a song of a game not installed yet is a copy of Rush 2's song 0 (nothing asks for it).
 
 #include <cstdio>
 #include <cstring>
@@ -31,6 +37,7 @@
 #include "music.h"
 #include "track1.h"
 #include "track2049.h"
+#include "calspeed.h"
 
 extern "C" void alBnkfNew(uint8_t* rdram, recomp_context* ctx);       // (ctl, tbl), 0x80009AA4
 extern "C" void alSeqpSetBank(uint8_t* rdram, recomp_context* ctx);   // (player, bank), 0x8000B750
@@ -53,6 +60,19 @@ namespace {
     constexpr uint32_t r1_songs = 0x6F80A0;
     constexpr int r1_song_count = 16;
 
+    // California Speed ROM (its audio setup at 0x80056AD4: bank, samples, songs; the sound effect bank follows).
+    constexpr uint32_t cs_block = 0xB82BC0;             // Music bank (.ctl), then its samples, then the songs.
+    constexpr uint32_t cs_tbl = 0xB8A390;
+    constexpr uint32_t cs_songs = 0xD69FC0;
+    constexpr uint32_t cs_block_end = 0xD73AE0;         // The sound effect bank.
+    constexpr uint32_t cs_ctl_size = cs_tbl - cs_block;
+    constexpr int cs_song_count = 9;
+    constexpr int cs_first_song = rush2_song_count + r1_song_count;
+    constexpr int song_count = cs_first_song + cs_song_count;
+    constexpr uint32_t cs_empty_instrument = (cs_ctl_size + 15) & ~15u;
+    constexpr uint32_t cs_ctl_buffer = 0x80E16000;      // To 0x80E1E000 (spare RDRAM below 16 MB).
+    static_assert(cs_empty_instrument + 0x20 <= 0x8000);
+
     std::mutex mutex;
     uint32_t block_rom = 0;          // Where the block is in the ROM image, or 0.
     bool block_filled = false;
@@ -60,13 +80,18 @@ namespace {
     uint32_t rush1_bank = 0;         // ALBank* of SF Rush's, once installed.
     uint32_t current_bank = 0;
     bool installed = false;
+    uint32_t cs_block_rom = 0;       // California Speed's block in the ROM image, or 0.
+    bool cs_block_filled = false;
+    uint32_t cs_bank = 0;            // ALBank* of California Speed's music bank, once installed.
+    bool cs_installed = false;
+    uint32_t header = 0;             // The combined song header, once made.
     // SF Rush's bank (.ctl) copy plus an empty instrument (see install). It must be in the first 16 MB of RDRAM, as
     // the audio microcode reads the ADPCM codebooks in it with 24-bit addresses, so it uses spare RDRAM there (other
     // users: src/interpolation.cpp 0x80B00000-0x80C00000, src/controls_menu.cpp 0x80C00000-0x80C90000,
     // src/widescreen.cpp 0x80CF0000-0x80D00000, src/rush2049/wings_render.cpp 0x80D00000-0x80E10000).
     constexpr uint32_t empty_instrument = (r1_ctl_size + 15) & ~15u;
-    constexpr uint32_t ctl_buffer_size = empty_instrument + 0x20;
     constexpr uint32_t ctl_buffer = 0x80C90000;
+    static_assert(ctl_buffer + empty_instrument + 0x20 <= 0x80C96100);   // sfx_ctl_buffer
     // SF Rush's sound effect bank copy, and Rush 2's sound effect instrument extended by SF Rush's fireworks.
     constexpr uint32_t sfx_ctl_buffer = 0x80C96100;
     constexpr uint32_t sfx_instrument_buffer = 0x80C99C00;
@@ -101,59 +126,119 @@ namespace {
         return true;
     }
 
-    // Loads SF Rush's bank and installs the combined song header (game thread).
+    // Copies California Speed's block from its ROM into the reserved space.
+    bool fill_cs_block() {
+        if (cs_block_filled) {
+            return true;
+        }
+        auto rom = rush2::calspeed::get_rom();
+        if (cs_block_rom == 0 || rom == nullptr || rom->size() < cs_block_end) {
+            return false;
+        }
+        std::span<const uint8_t> image = recomp::get_rom();
+        if (image.size() < cs_block_rom + (cs_block_end - cs_block)) {
+            return false;
+        }
+        memcpy(const_cast<uint8_t*>(image.data()) + cs_block_rom, rom->data() + cs_block, cs_block_end - cs_block);
+        cs_block_filled = true;
+        return true;
+    }
+
+    // Makes the combined song header (Rush 2's songs, then a slot for every SF Rush and California Speed song, each a
+    // copy of Rush 2's song 0 until its game is installed) and points the game at it.
+    bool make_header(uint8_t* rdram) {
+        if (header != 0) {
+            return true;
+        }
+        uint32_t old_header = (uint32_t)MEM_W(0, (int32_t)song_header_pointer);
+        if (old_header == 0 || (int16_t)MEM_H(0, (int32_t)(old_header + 2)) != rush2_song_count) {
+            return false;
+        }
+        header = alloc(rdram, 4 + song_count * 8);
+        MEM_H(0, (int32_t)header) = MEM_H(0, (int32_t)old_header);
+        MEM_H(0, (int32_t)(header + 2)) = (int16_t)song_count;
+        for (int k = 0; k < song_count; k++) {
+            int from = k < rush2_song_count ? k : 0;
+            MEM_W(0, (int32_t)(header + 4 + k * 8)) = MEM_W(0, (int32_t)(old_header + 4 + from * 8));
+            MEM_W(0, (int32_t)(header + 8 + k * 8)) = MEM_W(0, (int32_t)(old_header + 8 + from * 8));
+        }
+        MEM_W(0, (int32_t)song_header_pointer) = (int32_t)header;
+        return true;
+    }
+
+    // Loads a game's .ctl copy (ctl_size bytes at buffer, with an empty instrument after it) with alBnkfNew for its
+    // samples at tbl_rom; returns its ALBank*. Empty instrument slots (offset 0) would be rebased too, and alBnkfNew then
+    // patches the bank header as an instrument (harmless on the console, out of bounds here), so they point at an
+    // instrument with no sounds appended to the copy: ALInstrument {u8 x12, s16 bend range, s16 sound count 0}.
+    uint32_t load_bank(uint8_t* rdram, recomp_context* ctx, const std::vector<uint8_t>& rom, uint32_t ctl_rom, uint32_t ctl_size,
+                       uint32_t buffer, uint32_t empty, uint32_t tbl_rom) {
+        for (uint32_t i = 0; i < empty + 0x20; i++) {
+            MEM_B(0, (int32_t)(buffer + i)) = i < ctl_size ? rom[ctl_rom + i] : 0;
+        }
+        uint32_t bank = buffer + be32(rom, ctl_rom + 4);
+        int instruments = (int16_t)MEM_H(0, (int32_t)bank);
+        for (int i = 0; i < instruments; i++) {
+            if (MEM_W(0, (int32_t)(bank + 12 + i * 4)) == 0) {
+                MEM_W(0, (int32_t)(bank + 12 + i * 4)) = (int32_t)empty;
+            }
+        }
+        recomp_context call = *ctx;
+        call.r4 = (int32_t)buffer;
+        call.r5 = (int32_t)tbl_rom;
+        alBnkfNew(rdram, &call);
+        return (uint32_t)MEM_W(0, (int32_t)(buffer + 4));
+    }
+
+    // Loads California Speed's bank and puts its songs in the header (game thread).
+    bool install_cs(uint8_t* rdram, recomp_context* ctx) {
+        if (cs_installed) {
+            return true;
+        }
+        if (rush2_bank == 0 || !fill_cs_block() || !make_header(rdram)) {
+            return false;
+        }
+        auto rom = rush2::calspeed::get_rom();
+        const std::vector<uint8_t>& cs = *rom;
+        if (cs[cs_block] != 'B' || cs[cs_block + 1] != '1' ||
+            (int16_t)((cs[cs_songs + 2] << 8) | cs[cs_songs + 3]) != cs_song_count) {
+            return false;
+        }
+        cs_bank = load_bank(rdram, ctx, cs, cs_block, cs_ctl_size, cs_ctl_buffer, cs_empty_instrument, cs_block_rom + cs_ctl_size);
+        uint32_t songs_rom = cs_block_rom + (cs_songs - cs_block);
+        for (int k = 0; k < cs_song_count; k++) {
+            uint32_t e = header + 4 + (cs_first_song + k) * 8;
+            MEM_W(0, (int32_t)e) = (int32_t)(songs_rom + be32(cs, cs_songs + 4 + k * 8));
+            MEM_W(0, (int32_t)(e + 4)) = (int32_t)be32(cs, cs_songs + 8 + k * 8);
+        }
+        cs_installed = true;
+        fprintf(stderr, "[CalSpeed] California Speed music ready (bank 0x%08X, songs %d-%d)\n", cs_bank, cs_first_song,
+                song_count - 1);
+        return true;
+    }
+
+    // Loads SF Rush's bank and puts its songs in the header (game thread).
     bool install(uint8_t* rdram, recomp_context* ctx) {
         if (installed) {
             return true;
         }
-        if (rush2_bank == 0 || !fill_block()) {
+        if (rush2_bank == 0 || !fill_block() || !make_header(rdram)) {
             return false;
         }
         auto rom = rush2::track1::get_rom();
         const std::vector<uint8_t>& r1 = *rom;
-        uint32_t old_header = (uint32_t)MEM_W(0, (int32_t)song_header_pointer);
-        if (old_header == 0 || (int16_t)MEM_H(0, (int32_t)(old_header + 2)) != rush2_song_count ||
-            (int16_t)((r1[r1_songs + 2] << 8) | r1[r1_songs + 3]) != r1_song_count) {
+        if ((int16_t)((r1[r1_songs + 2] << 8) | r1[r1_songs + 3]) != r1_song_count) {
             return false;
         }
-
-        // SF Rush's bank has empty instrument slots (offset 0). alBnkfNew rebases those too and then patches the bank
-        // header as an instrument (harmless on the console, out of bounds here), so they point at an instrument with no
-        // sounds appended to the copy: ALInstrument {u8 x12, s16 bend range, s16 sound count 0}.
-        uint32_t ctl = ctl_buffer;
-        for (uint32_t i = 0; i < ctl_buffer_size; i++) {
-            MEM_B(0, (int32_t)(ctl + i)) = i < r1_ctl_size ? r1[r1_block + i] : 0;
-        }
-        uint32_t bank = ctl + be32(r1, r1_block + 4);
-        int instruments = (int16_t)MEM_H(0, (int32_t)bank);
-        for (int i = 0; i < instruments; i++) {
-            if (MEM_W(0, (int32_t)(bank + 12 + i * 4)) == 0) {
-                MEM_W(0, (int32_t)(bank + 12 + i * 4)) = (int32_t)empty_instrument;
-            }
-        }
-        recomp_context call = *ctx;
-        call.r4 = (int32_t)ctl;
-        call.r5 = (int32_t)(block_rom + r1_ctl_size);
-        alBnkfNew(rdram, &call);
-        rush1_bank = (uint32_t)MEM_W(0, (int32_t)(ctl + 4));
-
-        int count = rush2_song_count + r1_song_count;
-        uint32_t header = alloc(rdram, 4 + count * 8);
-        MEM_H(0, (int32_t)header) = MEM_H(0, (int32_t)old_header);
-        MEM_H(0, (int32_t)(header + 2)) = (int16_t)count;
-        for (int i = 0; i < rush2_song_count * 2; i++) {
-            MEM_W(0, (int32_t)(header + 4 + i * 4)) = MEM_W(0, (int32_t)(old_header + 4 + i * 4));
-        }
+        rush1_bank = load_bank(rdram, ctx, r1, r1_block, r1_ctl_size, ctl_buffer, empty_instrument, block_rom + r1_ctl_size);
         uint32_t songs_rom = block_rom + (r1_songs - r1_block);
         for (int k = 0; k < r1_song_count; k++) {
             uint32_t e = header + 4 + (rush2_song_count + k) * 8;
             MEM_W(0, (int32_t)e) = (int32_t)(songs_rom + be32(r1, r1_songs + 4 + k * 8));
             MEM_W(0, (int32_t)(e + 4)) = (int32_t)be32(r1, r1_songs + 8 + k * 8);
         }
-        MEM_W(0, (int32_t)song_header_pointer) = (int32_t)header;
         installed = true;
         fprintf(stderr, "[Rush1] SF Rush music ready (bank 0x%08X, songs %d-%d)\n", rush1_bank, rush2_song_count,
-                count - 1);
+                cs_first_song - 1);
         return true;
     }
 
@@ -197,8 +282,9 @@ namespace {
     }
 }
 
-// func_800B3B78 at 0x800B4000, after alSeqpSetBank: Rush 2's music bank is in place. Reserves the SF Rush block in
-// the ROM image (before any other thread reads the ROM) and fills it if the SF Rush ROM is already there.
+// func_800B3B78 at 0x800B4000, after alSeqpSetBank: Rush 2's music bank is in place. Reserves the SF Rush and
+// California Speed blocks in the ROM image (before any other thread reads the ROM) and fills each whose ROM is
+// already there.
 extern "C" void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ mutex };
     uint32_t ctl = (uint32_t)MEM_W(0, (int32_t)(ctx->r29 + 0x144));
@@ -208,10 +294,12 @@ extern "C" void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx) {
         std::span<const uint8_t> image = recomp::get_rom();
         std::vector<uint8_t> grown(image.begin(), image.end());
         block_rom = (uint32_t)((grown.size() + 0xFFFF) & ~size_t(0xFFFF));
-        grown.resize(block_rom + (r1_block_end - r1_block), 0);
+        cs_block_rom = (block_rom + (r1_block_end - r1_block) + 0xFFFF) & ~0xFFFFu;
+        grown.resize(cs_block_rom + (cs_block_end - cs_block), 0);
         recomp::set_rom_contents(std::move(grown));
     }
     fill_block();
+    fill_cs_block();
 }
 
 int rush2::track1::song_sequence(uint8_t* rdram, recomp_context* ctx, int song) {
@@ -225,6 +313,17 @@ int rush2::track1::song_sequence(uint8_t* rdram, recomp_context* ctx, int song) 
     return rush2_song_count + song;
 }
 
+int rush2::calspeed::song_sequence(uint8_t* rdram, recomp_context* ctx, int song) {
+    if (song < 0 || song >= cs_song_count) {
+        return -1;
+    }
+    std::lock_guard lock{ mutex };
+    if (!install_cs(rdram, ctx)) {
+        return -1;
+    }
+    return cs_first_song + song;
+}
+
 // func_8007733C at 0x80077424, before alSeqpSetSeq: gives the player the bank of the song being attached.
 extern "C" void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ mutex };
@@ -232,7 +331,9 @@ extern "C" void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     int song = (int32_t)MEM_W(0, (int32_t)requested_song);
-    uint32_t bank = (song >= rush2_song_count && rush1_bank != 0) ? rush1_bank : rush2_bank;
+    uint32_t bank = song >= cs_first_song && cs_bank != 0       ? cs_bank
+                  : song >= rush2_song_count && song < cs_first_song && rush1_bank != 0 ? rush1_bank
+                                                                        : rush2_bank;
     if (bank == current_bank) {
         return;
     }

@@ -28,6 +28,7 @@
 #include <mutex>
 #include <string>
 
+#include "car_types.h"
 #include "recomp.h"
 
 #include "rush2_hooks.h"
@@ -45,7 +46,7 @@ namespace {
     constexpr uint32_t slot_top = 0x803CB3A0;       // s32 [2]: each panel's first shown row (4 are shown)
     constexpr uint32_t slot_type = 0x803CB362;      // s8 [2]: each panel's car type
     constexpr uint32_t first_slot = 0x803CB3F8;     // s32: the widget id of slot 0's panel
-    constexpr uint32_t main_colour = 0x80201C40 + rush2::car2049::types; // s8 [slot][36], src/rush2049/car2049.cpp
+    constexpr uint32_t main_colour = rush2::car_types::entry(rush2::car_types::main_color, 1, 0); // s8 [slot][types]
     constexpr int option_main = 2;
     constexpr int option_accent = 3;
     constexpr int option_stripe = 4;
@@ -94,15 +95,17 @@ namespace {
     int base_count = 0;
     int current_slot = 0;
 
-    enum class Rows { Rush2, Ramps, Jobs };
+    enum class Rows { Rush2, Ramps, Jobs, TwoColors };
 
     int slot_car(uint8_t* rdram, int slot) {
         return (int8_t)MEM_B(0, (int32_t)(slot_type + slot));
     }
 
-    // Which rows a slot's car has: Rush 2's, a 2049 car's three ramps, or a Dreamcast car's paint jobs.
+    // Which rows a slot's car has: Rush 2's, a 2049 car's three ramps, a Dreamcast car's paint jobs, or a California
+    // Speed car's two colors (MAIN and ACCENT: src/calspeed/calspeed_cars.cpp).
     Rows slot_rows(uint8_t* rdram, int slot) {
         int type = slot_car(rdram, slot);
+        if (rush2::car_types::is_calspeed(type)) return Rows::TwoColors;
         if (type < rush2::car2049::first_type || type >= rush2::car2049::types) return Rows::Rush2;
         return rush2::car2049::paint_jobs(type) > 0 ? Rows::Jobs : Rows::Ramps;
     }
@@ -119,6 +122,7 @@ namespace {
             int id = base_ids[i];
             if (rows == Rows::Jobs && (id == option_accent || id == option_stripe || id == option_stripe_colour)) continue;
             if (rows == Rows::Ramps && id == option_stripe) continue;
+            if (rows == Rows::TwoColors && (id == option_stripe || id == option_stripe_colour)) continue;
             if (rows == Rows::Jobs && swatch && id == option_main) id = option_style;
             MEM_W(0, (int32_t)(option_ids + count * 4)) = id;
             count++;

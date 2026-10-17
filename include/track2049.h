@@ -50,6 +50,12 @@ namespace rush2::track2049 {
         uint32_t list = 0;
         std::vector<uint32_t> pointers;
         float radius = 0.0f;
+        // Optional texture-load lists the blob's list calls (California Speed's dioramas), placed with the
+        // container's own so the loader's linear SETTIMG scan rebases them: their bytes, the offsets of their words
+        // pointing into the blob, and the offsets of the blob's words pointing into them.
+        std::vector<uint8_t> loads;
+        std::vector<uint32_t> load_pointers;
+        std::vector<uint32_t> load_calls;
     };
     // A logo for it: 128 x 32 CI8 texels (rows bottom-up, as Rush 2 stores its logos) and 256 RGBA5551 colors.
     struct MenuLogo {

@@ -1,7 +1,7 @@
-"""Widening Rush 2's per-car-type tables from 22 to 36 types (Rush 2049 cars as types 23-35; 22 keeps its meaning as
-Rush 2's "no car" marker).
+"""Widening Rush 2's per-car-type tables from 22 to 57 types (Rush 2049 cars as types 23-35, California Speed's as
+36-56; 22 keeps its meaning as Rush 2's "no car" marker).
 
-Each table moves to a 35-wide copy in free RDRAM (NEW_BASE, one 64 KB page so every relocated `lui` gets the same
+Each table moves to a 57-wide copy in free RDRAM (NEW_BASE, one 64 KB page so every relocated `lui` gets the same
 high half). This script finds the instructions that address the old tables (lui + addiu/load/store pairs, through
 indexed `addu`), and the row-stride idioms (r * 22 as shift/subtract sequences) next to them, and prints us.toml
 `[[patches.instruction]]` entries plus a review list of everything it couldn't decide.
@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 import names  # emitted func = "..." keys use the registry symbol names
 SYM = names.symbol_map()
 
-N_OLD, N_NEW = 22, 36
+N_OLD, N_NEW = 22, 57
 NEW_BASE = 0x80200000
 
 # (old address, element size, rows, meaning). Rows are: 0 = defaults/drones, 1 = player 1, 2 = player 2. The copies
@@ -150,11 +150,13 @@ REG = {n: i for i, n in enumerate(['zero', 'at', 'v0', 'v1', 'a0', 'a1', 'a2', '
                                     'gp', 'sp', 'fp', 'ra'])}
 
 
-def stride35(t, r, size):
-    """r*36*size in the idiom's 5 slots: sll t,r,3; addu t,t,r; sll t,t,(2|4); then two no-op shifts."""
+def stride_new(t, r, size):
+    """r*57*size in the idiom's 5 slots: sll t,r,3 (8r); subu t,t,r (7r); sll t,t,3 (56r); addu t,t,r (57r);
+    sll t,t,(0|2)."""
+    assert N_NEW == 57
     T, R = REG[t.strip('$')], REG[r.strip('$')]
-    return [enc_r(0x00, 0, R, T, 3), enc_r(0x21, T, R, T, 0), enc_r(0x00, 0, T, T, 4 if size == 4 else 2),
-            enc_r(0x00, 0, T, T, 0), enc_r(0x00, 0, T, T, 0)]
+    return [enc_r(0x00, 0, R, T, 3), enc_r(0x23, T, R, T, 0), enc_r(0x00, 0, T, T, 3), enc_r(0x21, T, R, T, 0),
+            enc_r(0x00, 0, T, T, 2 if size == 4 else 0)]
 
 
 def main():
@@ -187,8 +189,8 @@ def main():
                 lw = word(int(lui, 16))
                 patches[lui] = ((lw & 0xFFFF0000) | (new >> 16), 'lui -> %04X' % (new >> 16))
         for t, r, slots, size in find_idioms(funcs[f]):
-            for slot, v in zip(slots, stride35(t, r, size)):
-                patches[slot] = (v, 'row stride 22 -> 36 (%s = %s * 36 * %d)' % (t, r, size))
+            for slot, v in zip(slots, stride_new(t, r, size)):
+                patches[slot] = (v, 'row stride 22 -> %d (%s = %s * %d * %d)' % (N_NEW, t, r, N_NEW, size))
     tp, notes = taint_patches(funcs, sorted(by_func))
     for addr, v in tp.items():
         if addr not in EXCLUDE:
@@ -224,7 +226,7 @@ def candidates():
 
 def row_imm(o, size):
     """Re-strides an immediate o that reaches across rows of a table with element size `size`: o = row * 22 * size + d
-    with |d| small becomes row * 35 * size + d. Returns None when o doesn't cross a row."""
+    with |d| small becomes row * N_NEW * size + d. Returns None when o doesn't cross a row."""
     old_row, new_row = N_OLD * size, N_NEW * size
     row = round(o / old_row)
     d = o - row * old_row
@@ -321,10 +323,11 @@ if __name__ == '__main__':
 
 # ---------------------------------------------------------------------------------------------------------------
 # Car preview ids: the car select shows car type t for player p with preview "car" id = p * 22 + t (44 ids), which
-# indexes the race per-car arrays below. With 36 types the ids run to 72, so these arrays move to 72-entry copies in
-# one 64 KB window (one lui value, 0x8022) and every instruction addressing them is relocated (strides unchanged).
-ID_OLD, ID_NEW = 44, 72
-ID_WINDOW = 0x80218000
+# indexes the race per-car arrays below. With 57 types the ids run to 114, so these arrays move to 114-entry copies in
+# one 64 KB window (one lui value, 0x8021: 0x80208000-0x80218000) and every instruction addressing them is relocated
+# (strides unchanged).
+ID_OLD, ID_NEW = 44, 2 * N_NEW
+ID_WINDOW = 0x80208000
 ID_ARRAYS = [
     (0x8010C480, 0x4E, 'part handles (func_80086700)'),
     (0x8010F330, 0x1C, 'per-car callbacks'),
@@ -379,20 +382,20 @@ def id_patches():
     return patches, review, funcs
 
 
-# Preview-id arithmetic: id = player * 22 + type, type = id % 22 -> 36 (the neighbour-prefetch wrap in
+# Preview-id arithmetic: id = player * 22 + type, type = id % 22 -> 57 (the neighbour-prefetch wrap in
 # func_8008813C at 0x800882C4 / 0x80088350 stays 22 so prefetching only walks Rush 2's cars), and the two reset
 # loops that stop at an id array's end.
 ID_IMM = {
-    '803B8E74': 0x24,  # func_803B81F0: carousel entry id offset for player 1
-    '803B93A4': 0x24,  # func_803B81F0: id -> type
-    '80088148': 0x24,  # func_8008813C: id -> player
-    '80088264': 0x24, '800882B0': 0x24, '800884D0': 0x24, '80088548': 0x24, '800885CC': 0x24,  # id -> type
-    '800882D8': 0x24, '8008835C': 0x24,  # neighbour type -> id
-    '8005B9E0': 0x24, '8005BC0C': 0x24,  # func_8005B978: id -> type
-    '80084488': 0x24,  # func_800843EC: id -> type
-    '800878D8': 0x24,  # func_800878C8: id -> type
-    '8008656C': 0x24,  # func_80085FD0: id -> type
-    '80086E54': 0x24,  # func_80086CA4: type -> id
+    '803B8E74': N_NEW,  # func_803B81F0: carousel entry id offset for player 1
+    '803B93A4': N_NEW,  # func_803B81F0: id -> type
+    '80088148': N_NEW,  # func_8008813C: id -> player
+    '80088264': N_NEW, '800882B0': N_NEW, '800884D0': N_NEW, '80088548': N_NEW, '800885CC': N_NEW,  # id -> type
+    '800882D8': N_NEW, '8008835C': N_NEW,  # neighbour type -> id
+    '8005B9E0': N_NEW, '8005BC0C': N_NEW,  # func_8005B978: id -> type
+    '80084488': N_NEW,  # func_800843EC: id -> type
+    '800878D8': N_NEW,  # func_800878C8: id -> type
+    '8008656C': N_NEW,  # func_80085FD0: id -> type
+    '80086E54': N_NEW,  # func_80086CA4: type -> id
 }
 
 
@@ -416,12 +419,17 @@ def id_toml():
     for addr, imm in ID_IMM.items():
         w = word(int(addr, 16))
         assert (w & 0xFFFF) == 0x16, addr
-        patches[addr] = ((w & 0xFFFF0000) | imm, 'preview id: 22 -> 36')
-    for lui_addr, lo_addr, old, stride, end_index in (('8008A408', '8008A40C', 0x8010C480, 0x4E, None),
-                                                      ('8008A3D8', '8008A3E4', 0x80119858, 1, None),
-                                                      ('800A388C', '800A3890', 0x800D9D40, 2, 22)):
+        patches[addr] = ((w & 0xFFFF0000) | imm, 'preview id: 22 -> %d' % N_NEW)
+    for lui_addr, lo_addr, old, stride, end_index, step in (('8008A408', '8008A40C', 0x8010C480, 0x4E, None, 8),
+                                                            ('8008A3D8', '8008A3E4', 0x80119858, 1, None, 1),
+                                                            ('800A388C', '800A3890', 0x800D9D40, 2, 22, 2)):
         # end_index: a fill loop that stops at a fixed entry (func_800A37F4 writes entries 2-21) rather than the end.
-        end = id_end(old, stride) if end_index is None else id_translate(old) + end_index * stride
+        # step: the loop's pointer step; it stops when the pointer equals the end (bne), so the end is rounded up to a
+        # whole step from the start (func_8008A1FC clears the part handles 8 bytes at a time: 114 x 0x4E isn't a
+        # multiple of 8, and a loop that never met its end ran on through RDRAM). id_layout leaves 16-byte padding.
+        start = id_translate(old)
+        end = id_end(old, stride) if end_index is None else start + end_index * stride
+        end = start + (end - start + step - 1) // step * step
         hi, lo = (end + 0x8000) >> 16, (end - (((end + 0x8000) >> 16) << 16)) & 0xFFFF
         patches[lui_addr] = ((word(int(lui_addr, 16)) & 0xFFFF0000) | hi, 'loop end lui -> %04X' % hi)
         patches[lo_addr] = ((word(int(lo_addr, 16)) & 0xFFFF0000) | lo, 'loop end -> %08X' % end)

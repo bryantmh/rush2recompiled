@@ -5,6 +5,7 @@
 #include <functional>
 #include <vector>
 
+#include "car_types.h"
 #include "texture_origin.h"
 
 // Replacement asset files (src/assets.cpp). An asset index is Rush 2's index into its asset table (0x800C185C);
@@ -30,7 +31,7 @@ namespace rush2::assets {
     // The asset as the game loads it now: a replacement's bytes and spans, else Rush 2's own. Callable from any thread
     // once the game has loaded an asset (it reads the asset table from that load's RDRAM). False if there is none.
     bool read_current(int index, std::vector<uint8_t>& out, std::vector<Span>& spans);
-    constexpr int slot_count = 0x80; // Asset indices the moved tables have room for.
+    constexpr int slot_count = rush2::car_types::asset_slots; // Asset indices the moved tables have room for.
     // Counts changes to the replacements (a replace with new bytes, a restore): read_current's results are the same
     // while it is.
     uint64_t generation();

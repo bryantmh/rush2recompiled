@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "car_types.h"
 #include "recomp.h"
 #include "online.h"
 #include "rush2.h"
@@ -241,18 +242,19 @@ namespace {
         return (front_end || state == 1 || state == 2) && MEM_BU(0, (int32_t)demo_flag) == 0;
     }
 
-    // The per-player rows of the car type tables at 0x80200000 (row 0 the computer cars', row p + 1 player p's, 36
-    // types a row; tools/rush2049/cartypes.py layout): the car's settings (the race's car setup, car_init_setup_8008DBA0,
+    // The per-player rows of the car type tables at 0x80200000 (row 0 the computer cars', row p + 1 player p's, every
+    // type a row; include/car_types.h): the car's settings (the race's car setup, car_init_setup_8008DBA0,
     // reads a human car's mass, ENGINE, torque map, suspension and handling from its row), colors, rims and wheel model
     // scales (carselect_preview_update_8005A598 draws a human car's wheels at its row's scale, so an empty row draws
     // none). The car select fills them for its own players from their profiles (carselect_build_list_803B81F0,
     // 0x803B8B10-0x803B8F7C, these 13 getters); online it has only this machine's players, as rows 1 and up, so the
     // other players' rows were empty (a Rush 2 car's wheel scales 0) or another player's (on each machine its own
     // player's settings drove player 1's car). Every row is filled here for every race player from the profile the race
-    // uses, the same bytes on every machine, and a Rush 2049 type's options from the profile's side block
+    // uses, the same bytes on every machine, and an extra type's options from the profile's side block
     // (rush2::car2049::set_guest_side_block, sent with the profile). The tables have 8 player rows.
     void fill_player_rows(uint8_t* rdram, recomp_context* ctx) {
-        constexpr int types = 36;
+        namespace ct = rush2::car_types;
+        constexpr int types = ct::types;
         constexpr int player_rows = 8;
         struct Table {
             uint32_t address;
@@ -260,19 +262,19 @@ namespace {
             void (*get)(uint8_t*, recomp_context*);
         };
         static const Table tables[] = {
-            { 0x80201C40, false, car_record_get_main_color_800B2694 },
-            { 0x80201D88, false, car_record_get_accent_color_800B2640 },
-            { 0x80201ED0, false, car_options_get_color_lo_800B2608 },
-            { 0x80202018, false, car_record_get_stripe_color_800B25D0 },
-            { 0x80201348, false, carselect_lookup_value_d_800B2554 },     // ENGINE
-            { 0x80201490, false, carselect_lookup_value_c_800B2530 },     // Engine torque map
-            { 0x80201720, false, carselect_lookup_value_b_800B250C },     // Suspension
-            { 0x80201868, false, carselect_lookup_value_a_800B24E8 },     // Handling
-            { 0x80200418, true, carselect_get_stat_value_c_800B24AC },  // Weight (DURABILITY)
-            { 0x802019B0, false, carselect_lookup_value_f_800B259C },     // Rims (the wheels' texture).
-            { 0x80201AF8, false, carselect_lookup_value_e_800B2578 },
-            { 0x80200928, true, carselect_get_stat_value_b_800B2468 },    // Front wheel scale.
-            { 0x80200E38, true, carselect_get_stat_value_a_800B2424 },    // Rear wheel scale.
+            { ct::table(ct::main_color), false, car_record_get_main_color_800B2694 },
+            { ct::table(ct::accent_color), false, car_record_get_accent_color_800B2640 },
+            { ct::table(ct::stripe), false, car_options_get_color_lo_800B2608 },
+            { ct::table(ct::stripe_color), false, car_record_get_stripe_color_800B25D0 },
+            { ct::table(ct::engine), false, carselect_lookup_value_d_800B2554 },     // ENGINE
+            { ct::table(ct::torque), false, carselect_lookup_value_c_800B2530 },     // Engine torque map
+            { ct::table(ct::suspension), false, carselect_lookup_value_b_800B250C },     // Suspension
+            { ct::table(ct::tires), false, carselect_lookup_value_a_800B24E8 },     // Handling
+            { ct::table(ct::weight), true, carselect_get_stat_value_c_800B24AC },  // Weight (DURABILITY)
+            { ct::table(ct::rims), false, carselect_lookup_value_f_800B259C },     // Rims (the wheels' texture).
+            { ct::table(ct::horn), false, carselect_lookup_value_e_800B2578 },
+            { ct::table(ct::front_wheel_scale), true, carselect_get_stat_value_b_800B2468 },    // Front wheel scale.
+            { ct::table(ct::rear_wheel_scale), true, carselect_get_stat_value_a_800B2424 },    // Rear wheel scale.
         };
         recomp_context saved = *ctx;
         for (int p = 0; p < race_players && p < player_rows; p++) {

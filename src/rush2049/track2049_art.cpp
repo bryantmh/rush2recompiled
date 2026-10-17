@@ -2695,6 +2695,9 @@ bool rush2::track2049::extend_menu_container(const std::vector<uint8_t>& asset3,
         TrackModel& m = named[i].model;
         m.parts[list_part] = models[i].blob;
         for (uint32_t p : models[i].pointers) m.fixups.push_back({ list_part, p, list_part });
+        m.parts[loads_part] = models[i].loads;
+        for (uint32_t p : models[i].load_pointers) m.fixups.push_back({ loads_part, p, list_part });
+        for (uint32_t p : models[i].load_calls) m.fixups.push_back({ list_part, p, loads_part });
         m.radius = models[i].radius * 16.0f;
         named[i].list = models[i].list;
     }

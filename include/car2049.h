@@ -8,19 +8,25 @@
 #include <vector>
 
 #include "recomp.h"
+#include "car_types.h"
 
-// Rush 2049 cars as Rush 2 car types 23-35 (src/rush2049/car2049.cpp); type 22 is Rush 2's "no car" marker.
+// Rush 2049 cars as Rush 2 car types 23-35 (src/rush2049/car2049.cpp); type 22 is Rush 2's "no car" marker. This file
+// also keeps what every extra type (2049's and California Speed's 36-56, include/car_types.h) shares: the widened
+// per-type tables, assets, side slots for the player records' options, denting and the car select's list.
 namespace rush2::car2049 {
-    constexpr int rush2_types = 22;
-    constexpr int car_count = 13;
-    constexpr int first_type = 23;
-    constexpr int types = first_type + car_count; // 36
+    constexpr int rush2_types = rush2::car_types::rush2_types;
+    constexpr int car_count = rush2::car_types::count_2049;
+    constexpr int first_type = rush2::car_types::first_2049;
+    constexpr int end_type = first_type + car_count; // 36: past the 2049 types
+    constexpr int types = rush2::car_types::types;   // 57: every type (the tables' width)
 
-    // The car select's per-player car list, moved from 0x803CB368 to hold 36 entries: car i of player p at
+    // The car select's per-player car list, moved from 0x803CB368 to hold every type: car i of player p at
     // + 2 * i + p (count: s16 [2] at 0x803CB398).
-    constexpr uint32_t car_list = 0x80222000;
-    // Appends the 2049 cars (when available) to player p's car list.
+    constexpr uint32_t car_list = rush2::car_types::car_list;
+    // Appends the 2049 cars and California Speed's (when available) to player p's car list.
     void append_to_car_list(uint8_t* rdram, int player);
+    // Whether car type `type` can be raced now: a Rush 2 car, or an extra one whose ROM is in and option on.
+    bool type_available(int type);
     // Lowers player p's ENGINE choices on the 2049 cars to levels the unlock system offers them.
     void limit_engines(uint8_t* rdram, int player);
     // Puts player p's TIRES choices the unlock system doesn't offer them back to the car's default.
@@ -28,7 +34,7 @@ namespace rush2::car2049 {
     // Swaps two players' rows (0-3) of the per-player car tables (src/players4.cpp's second car select round).
     void swap_player_rows(uint8_t* rdram, int a, int b);
 
-    // Builds the 36-entry per-type tables (us.toml points the game at them). Call once at boot.
+    // Builds the per-type tables of every type (us.toml points the game at them). Call once at boot.
     void init_tables(uint8_t* rdram);
     // Builds the extended asset tables and serves the converted 2049 cars (assets 0x71 + n) and engine models (asset
     // parts_asset: models part_model_name(i), Rush 2049's ENGINE0<first_part_model + i>G1, then its TIRE01G1..TIRE04G1
@@ -61,9 +67,25 @@ namespace rush2::car2049 {
     // by the car's panel damage like a 2049 car's body. scuffed: the body's textures' damaged copies (file offset of
     // the pristine texels -> the copy), which a damaged panel's triangles draw with. Rush 2's stripes aren't stamped
     // on it. clear_body_car puts the type's own car back (`own`: the asset as it was before, empty = the ROM's).
+    // A California Speed type (36-56) is drawn the same way, served as asset first_calspeed_asset + n.
     void set_body_car(uint8_t* rdram, int type, std::vector<uint8_t> car, const std::string& prefix,
                       const std::map<uint32_t, std::vector<uint8_t>>& scuffed);
     void clear_body_car(uint8_t* rdram, int type, const std::vector<uint8_t>& own);
+    // California Speed car n (type car_types::first_calspeed + n, src/calspeed/calspeed_cars.cpp): `car` is its body
+    // (convert_body_car, parts named `prefix`, at most 7 characters), drawn and dented as set_body_car's, its damaged
+    // panels scuffed along California Speed's paint ramps, and painted as California Speed paints it (func_800BAE2C):
+    // `palette` (its CARPALETTE, 256 RGBA5551 big-endian) with MAIN and ACCENT as its two colors.
+    void set_calspeed_car(uint8_t* rdram, int n, std::vector<uint8_t> car, const std::string& prefix,
+                          const std::vector<uint8_t>& palette);
+    // California Speed's cars' car select logos (texts, in order), drawn as the 2049 cars' are.
+    void set_calspeed_logos(uint8_t* rdram, const std::vector<std::string>& names);
+    constexpr int first_calspeed_asset = 0x80;
+    // A car type's asset index (func_80087E88's type + 0x1D, moved for the extra types).
+    constexpr int car_asset(int type) {
+        return type < first_type ? 0x1D + type : type < end_type ? 0x71 + type - first_type
+                                                                 : first_calspeed_asset + type - end_type;
+    }
+    static_assert(car_asset(types - 1) < rush2::car_types::asset_slots);
     // 2049 car k's scuffed panel copies (asset file offsets: pristine texels -> their scuffed copy), which its damage
     // points the body's loads at (rush2::catalog catalogs them as the panels' _D1 textures).
     std::map<uint32_t, uint32_t> scuffed_texels(int k);

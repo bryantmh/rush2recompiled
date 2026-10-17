@@ -268,7 +268,7 @@ Main code. **[V]** unless marked.
   the held mine's parts `00FF00FF` (`0x80394884`). Pickups are created without the flag. The port draws mounted and
   HUD weapons white. (An earlier version tinted them with the car's paint, misreading +0x34C.)
 - **Mounts follow the drawn body**: the mounted weapon and the shield are placed before each view is drawn from the
-  car's body scene node (index at `0x80219DD0 + car * 0x134`; its transform at node +4: rotation rows, position at
+  car's body scene node (index at `0x8020AF40 + car * 0x134`; its transform at node +4: rotation rows, position at
   +0x24). The draw state's pose is the physics tick's and is a frame behind what is drawn, which made them slide.
 - **Weapons cheat health bar**: the same `HEALTHBG` frame and fill as a battle's, at the same place and size. A
   normal track has no `HEALTHBG` image, so it is decoded from 2049's file 63 (4 bit texels, 16 color palette) and

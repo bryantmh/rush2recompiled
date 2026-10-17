@@ -43,7 +43,7 @@ original rules the port follows with the unlock system off.
 - **Gotcha**: the car select loads the car the player record selects (record + 0x31), so the shop writes it and puts
   it back. The record's first section (+1..+0x33) has a byte sum at +0 (func_80096E68, checked by func_80098190 when
   the Controller Pak is read); writing the byte without it damages the note.
-- **Gotcha**: a carousel car's node handle (0x80219DD0 + id x 0x134, id = player x 36 + type, shared with the race's
+- **Gotcha**: a carousel car's node handle (0x8020AF40 + id x 0x134, id = player x 57 + type, shared with the race's
   cars) is only good once its nodes are made: preview state 0x8021F470 + id x 0x7C, byte +0 (func_8008813C streams a
   car in over several calls: +4 queued, +3, +2 asset loaded, +0 nodes made by func_80087A8C, +1 hidden). Before that
   the handle is 0 (never loaded: the menus' background node) or whatever the id last had, from an earlier car select,

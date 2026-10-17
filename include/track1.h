@@ -96,6 +96,13 @@ namespace rush2::track1 {
     bool build_race_logo(const std::vector<uint8_t>& rush2_logo, const std::vector<uint8_t>& rom, int t,
                          std::vector<uint8_t>& out);
 
+    // Breakable redirects as an SF Rush track's (record -> model it draws, Rush 2 piece -> model) for another game's
+    // track in the host slot (California Speed, src/rush2049/track2049.cpp), with Rush 2's own hit test; cleared again
+    // with clear_redirects, which leaves an applied SF Rush track's alone.
+    void set_redirects(uint8_t* rdram, const std::map<std::string, std::string>& records,
+                       const std::map<std::string, std::string>& pieces);
+    void clear_redirects();
+
     // The Rush 1 track (1-7) being raced, or 0 (src/rush1/track1.cpp).
     int race_track();
     void set_race_track(int k);

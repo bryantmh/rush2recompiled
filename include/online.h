@@ -129,6 +129,7 @@ namespace rush2::online {
 
     constexpr uint8_t games_rush2049 = 1;  // San Francisco Rush 2049 (src/rush2049/rush2049_rom.cpp).
     constexpr uint8_t games_rush1 = 2;     // San Francisco Rush (src/rush1/rush1_rom.cpp).
+    constexpr uint8_t games_calspeed = 4;  // California Speed (src/calspeed/calspeed_rom.cpp).
 
     // A lobby heard on the LAN (online_discovery.cpp).
     struct LanLobby {

@@ -30,6 +30,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "car_types.h"
 #include "recomp.h"
 
 #include "asset_catalog.h"
@@ -53,7 +54,7 @@ namespace {
     constexpr uint32_t geometry_record = 0x8010C400;  // s32: the track geometry's slot record (func_800A4C98)
     constexpr int first_geometry = 0x33, first_placement = 0x3F, track_slots = 12;
     constexpr uint32_t mirrored = 0x80119848;         // u8: the race is mirrored (the lists' winding is swapped)
-    constexpr uint32_t car_body_nodes = 0x80219DD0;   // + car * 0x134: the car's body scene node index
+    constexpr uint32_t car_body_nodes = rush2::car_types::car_states;   // + car * 0x134: the car's body scene node index
     constexpr uint32_t car_body_node_stride = 0x134;
     constexpr uint32_t scene_nodes = 0x800D9E90;
     constexpr uint32_t scene_node_size = 0x38;

@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "car_types.h"
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 
@@ -177,7 +178,7 @@ namespace {
     Shop shop;
 
     // Where the selected car stands, and so the previews: the origin. func_803B81F0 places each carousel car at its
-    // carousel entry (0x80222100 + player x 0x410 + slot x 0x18: x, y, z, target x, angle; passed to func_8008813C,
+    // carousel entry (include/car_types.h carousel + player x 0x810 + slot x 0x18: x, y, z, target x, angle; passed to func_8008813C,
     // which hands it to func_8005A2D8 as the node's position). Its build (0x803B8DEC-0x803B8E94) sets y = z = 0 and
     // x = 20 x the slot's offset from the selected car, and each frame slides x so the selected car rests at 0.
     // The race's car state (0x801124A0) is not used by the car select: it holds whatever the last race or attract
@@ -874,13 +875,13 @@ extern "C" int rush2_unlocks_text(uint8_t* rdram, recomp_context* ctx) {
     return 1;
 }
 
-// Start of func_8008813C ($a0 = car preview id: player x 36 + type in the car select, and a race's cars use the same
+// Start of func_8008813C ($a0 = car preview id: player x types + type in the car select, and a race's cars use the same
 // ids), which places a car of the car select's carousel each frame: while the shop shows a track or part it runs from
 // here, and then the car is shrunk out of sight. Returns true to skip the call.
 //
-// func_8008813C streams a car in over several calls (preview state 0x8021F470 + id x 0x7C: +4 queued, +3, +2 asset
+// func_8008813C streams a car in over several calls (preview state car_types::car_previews + id x 0x7C: +4 queued, +3, +2 asset
 // loaded, +0 nodes made by func_80087A8C, +1 hidden), and returns early from the ones before its nodes are made. Until
-// then the car's node handle (0x80219DD0 + id x 0x134) is the one its id last had: a node of an earlier car select, or
+// then the car's node handle (car_types::car_states + id x 0x134) is the one its id last had: a node of an earlier car select, or
 // of the last race or attract demo, which in this scene is some other node (the menus' own, 0-8, whose transforms
 // nothing sets again) or a stale record. So only a car whose nodes are made is shrunk.
 extern "C" void carselect_build_preview_car_8008813C(uint8_t* rdram, recomp_context* ctx);
@@ -893,9 +894,9 @@ extern "C" int rush2_unlocks_carousel_car(uint8_t* rdram, recomp_context* ctx) {
     inside = true;
     call(rdram, ctx, carselect_build_preview_car_8008813C, (int32_t)ctx->r4, (int32_t)ctx->r5, (int32_t)ctx->r6, (int32_t)ctx->r7);
     inside = false;
-    constexpr uint32_t car_nodes = 0x80219DD0;
+    constexpr uint32_t car_nodes = rush2::car_types::car_states;
     constexpr uint32_t car_node_stride = 0x134;
-    constexpr uint32_t car_previews = 0x8021F470;
+    constexpr uint32_t car_previews = rush2::car_types::car_previews;
     constexpr uint32_t car_preview_stride = 0x7C;
     constexpr int instances = 2 * rush2::car2049::types;
     int instance = (int16_t)ctx->r4;

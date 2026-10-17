@@ -340,7 +340,7 @@ a future runtime patch.
   a flat film of the colour over the car; leaving the overlay's combiner as a blend at full ENV alpha drew it as
   bright streaks rolling over the car. A list that can't be copied (a ghost car draws its own copy) falls back to the
   blend: ENV = black at 1 − (smallest channel) plus the rest of the colour at half strength.
-- A race car's nodes are its body node's subtree (car record 0x80219DD0 + car·0x134, +0) and its four wheel nodes'
+- A race car's nodes are its body node's subtree (car record 0x8020AF40 + car·0x134, +0) and its four wheel nodes'
   subtrees (+0x18 + 4w, set up by `func_800837E0`; the wheels are not under the body).
 - Not ported: the SHEEN pass and its covered fade (the port doesn't draw SHEEN), and the mode 2 / cloak alphas.
 

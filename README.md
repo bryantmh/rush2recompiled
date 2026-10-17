@@ -2,7 +2,7 @@
   <img src="icons/logo.png" alt="Rush 2 Recompiled" width="320">
 </p>
 
-Rush 2: Extreme Racing USA, the 1998 N64 racer, running natively on your PC with widescreen and ultrawide support, high framerates, sharp text, and improved controller support
+Rush 2: Extreme Racing USA, the 1998 N64 racer, running natively on your PC with widescreen and ultrawide support, high framerates, sharp text, and improved controller support. Add your San Francisco Rush 2049 and San Francisco Rush ROMs and their tracks, cars and modes play right alongside Rush 2's.
 
 You need to bring your own copy of the game. Nothing from the original cartridge is included here.
 
@@ -26,9 +26,13 @@ Join the [Discord](https://discord.gg/nYfFAKMnyx) or watch the [YouTube video](h
 - **Ghost races.** Previously a 2049 exclusive feature. Record your runs and race against your own ghost car.
 - **Unlocks.** Earn cars, tracks and engines through an UNLOCKS shop. You can disable and revert to original Rush 2 behavior if you wish
 
-### Rush 2049 extras
+## Three games in one
 
-If you also own **San Francisco Rush 2049** for the N64 (US version), you can point the game at that ROM and unlock a couple of additional features:
+Rush 2 Recompiled is also a home for the rest of the series. Add your ROMs of **San Francisco Rush 2049** and **San Francisco Rush: Extreme Racing** (both N64, US versions) on the Games tab and their tracks, cars, music and mechanics join Rush 2's, all playable through the same menus, with the same widescreen, online play, split screen, ghosts and unlocks. Either ROM is optional and independent of the other; with neither, you get Rush 2 on its own.
+
+### San Francisco Rush 2049
+
+Add the Rush 2049 ROM to get:
 
 - **Wings.** Hold the Wings button when you're airborne to pop out wings and glide. They handle just like they did in 2049.
 - **The 2049 tracks.** All six race tracks from Rush 2049 show up in the track select
@@ -38,18 +42,20 @@ If you also own **San Francisco Rush 2049** for the N64 (US version), you can po
 - **Battle arenas.** Eight deathmatch arenas in the BATTLE row, with weapons, pickups, and arrows pointing to the other cars. Computer-controlled drones can fill the arenas, and weapons can also be turned on in regular arena races with a cheat. The track select's BATTLE row turns any race into a battle race: a row of weapon and power-up pickups on every checkpoint line past the start, and drones that grab them and shoot.
 - **Coins.** Collect 2049's coins, which are counted per player in the Progress tab and count toward unlocks.
 
-#### Dreamcast disc (experimental)
 
-Rush 2049 can also be loaded from a Dreamcast disc image instead of the N64 ROM, and a Dreamcast Textures option uses the disc's textures with the N64 version. This is the more experimental option.
 
-### San Francisco Rush extras
+### San Francisco Rush
 
-If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version), you can point the game at that ROM on the Games tab and unlock:
+Add the San Francisco Rush ROM on the Games tab to get:
 
-- **The Rush 1 tracks.** All seven race tracks from the original San Francisco Rush
+- **The Rush 1 tracks.** All seven race tracks from the original San Francisco Rush.
 - **The Rush 1 music.** The nine Rush 1 race songs play on its tracks, picked at random.
 - **Rush 1 car decals.** Some of Rush 1's own unique paint jobs are available as a stripe option.
 - **Keys.** Collect the keys hidden on the Rush 1 tracks, which are counted per player in the Progress tab and count toward unlocks.
+
+#### Dreamcast disc (experimental)
+
+Rush 2049 can also be loaded from a Dreamcast disc image instead of the N64 ROM, and a Dreamcast Textures option uses the disc's textures with the N64 version. This is the more experimental option.
 
 
 ## What you need
@@ -57,8 +63,8 @@ If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version),
 - A Windows 10 or 11 PC
 - A graphics card that supports DirectX 12 or Vulkan (anything from the last several years should be fine)
 - Your own ROM of **Rush 2: Extreme Racing USA**
-- Optional: a ROM of **San Francisco Rush 2049** for the Rush 2049 extras
-- Optional: a ROM of **San Francisco Rush: Extreme Racing** for the Rush 1 tracks
+- Optional: a ROM of **San Francisco Rush 2049** to play its tracks, cars, arenas and more
+- Optional: a ROM of **San Francisco Rush: Extreme Racing** to play its tracks, music and more
 
 Each game takes one exact ROM, the North American (USA) release, and other regions or versions are turned away. Check yours against these SHA-1 hashes (of the `.z64` file; `.n64` and `.v64` files of the same ROM work too):
 

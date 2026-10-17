@@ -32,6 +32,7 @@
 #include <span>
 #include <vector>
 
+#include "car_types.h"
 #include "recomp.h"
 #include "librecomp/game.hpp"
 #include "audio2049.h"
@@ -71,7 +72,7 @@ namespace {
     constexpr uint32_t engine_bases = 0x800BD15C;  // f32 [10][2]
     constexpr uint32_t rpm_table = 0x800BD338;     // f32 [2][11]
     constexpr uint32_t load_table = 0x800BD29C;    // f32 [2][13]
-    constexpr uint32_t default_engines = 0x80201348; // s8 [36]: each type's engine sound (src/rush2049/car2049.cpp)
+    constexpr uint32_t default_engines = rush2::car_types::table(rush2::car_types::engine); // s8 [types]: each type's engine sound (src/rush2049/car2049.cpp)
     constexpr int turbo_sound = 0xC;
     constexpr float range = 400.0f;
     // Rush 2049 uses 0.75 (func_800E0050), but with up to seven cars around that drowned out the player's own.

@@ -168,7 +168,7 @@ const std::vector<Item>& rush2::unlocks::items() {
 
 bool rush2::unlocks::item_available(const Item& item) {
     if (item.kind == Kind::Car) {
-        return item.value < rush2::car2049::rush2_types || rush2::car2049::available();
+        return rush2::car2049::type_available(item.value);
     }
     if (item.kind == Kind::Part) {
         return rush2::car2049::available();
@@ -224,7 +224,8 @@ void rush2::unlocks::filter_car_list(uint8_t* rdram, int player) {
         std::set<std::string> bought = collect::purchases(collect::player_name(rdram, player));
         std::vector<int> types;
         for (int t = 0; t < rush2::car2049::types; t++) {
-            if (t == rush2::car2049::rush2_types || (t >= car2049_type && !rush2::car2049::available())) {
+            // California Speed's cars have no shop items: they're offered from the start, as the ROM's tracks are.
+            if (!rush2::car2049::type_available(t)) {
                 continue;
             }
             const Item* item = find(Kind::Car, t);
@@ -236,11 +237,11 @@ void rush2::unlocks::filter_car_list(uint8_t* rdram, int player) {
         return;
     }
     // The game listed Rush 2's cars by its rules (and the added tracks' finds, added_track_keys); the 2049 cars
-    // follow Rush 2049's.
+    // follow Rush 2049's, and California Speed's are all offered.
     collect::Progress p = collect::player_progress(rdram, player);
     std::vector<int> types;
     for (int t : get_list(rdram, player)) {
-        if (t < car2049_type || earned_2049_car(p, t - car2049_type)) {
+        if (t < car2049_type || t >= rush2::car2049::end_type || earned_2049_car(p, t - car2049_type)) {
             types.push_back(t);
         }
     }

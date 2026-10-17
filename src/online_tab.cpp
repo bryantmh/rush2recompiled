@@ -24,6 +24,7 @@
 #include "options_page.h"
 #include "wings_internal.h"
 #include "track1.h"
+#include "calspeed.h"
 #include "track2049.h"
 
 namespace {
@@ -221,7 +222,8 @@ namespace {
     // with the rest of the gameplay settings, which the start of a race compares on their own (RosterEntry::gameplay).
     uint8_t local_games() {
         return (rush2::wings::rom_available() ? online::games_rush2049 : 0) |
-            (rush2::track1::rom_available() ? online::games_rush1 : 0);
+            (rush2::track1::rom_available() ? online::games_rush1 : 0) |
+            (rush2::calspeed::rom_available() ? online::games_calspeed : 0);
     }
 
     // Pushes this machine's choices to the session (and, hosting, the race settings to everyone).

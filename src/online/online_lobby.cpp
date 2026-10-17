@@ -39,6 +39,7 @@
 
 #include "online.h"
 #include "battle.h"
+#include "calspeed.h"
 #include "collectibles.h"
 #include "track2049.h"
 #include "car2049.h"
@@ -163,10 +164,12 @@ namespace {
             s.menu[i] = (uint8_t)MEM_BU(i, (int32_t)menu_settings);
         }
         // Track select ids (src/rush2049/track2049.h, src/rush1/track1.h): 11 Rush 2's stunt arena, 12-17 Rush 2049's
-        // tracks, 18-24 SF Rush's, 25-28 Rush 2049's stunt arenas, 29 its obstacle course, 30-37 its battle arenas.
+        // tracks, 18-24 SF Rush's, 25-28 Rush 2049's stunt arenas, 29 its obstacle course, 30-37 its battle arenas,
+        // 64-79 California Speed's tracks.
         int t = s.track;
         s.mode = t == 11 || (t >= 25 && t <= 28) ? GameMode::Stunt : t >= 30 && t <= 37 ? GameMode::Battle : GameMode::Race;
-        s.needs_games = (t >= 12 && t <= 17) || (t >= 25 && t <= 37) ? games_rush2049 : (t >= 18 && t <= 24) ? games_rush1 : 0;
+        s.needs_games = (t >= 12 && t <= 17) || (t >= 25 && t <= 37) ? games_rush2049 : (t >= 18 && t <= 24) ? games_rush1
+                      : rush2::calspeed::is_menu_track(t) ? games_calspeed : 0;
         s.battle_points = (uint8_t)rush2::battle::points_to_win();
         s.battle_minutes = (uint8_t)rush2::battle::time_limit_minutes();
         s.race_battle = rush2::battle::race_battle() ? 1 : 0;
@@ -372,7 +375,8 @@ namespace {
         // select and the race doesn't start (below) until the host goes back and picks another.
         else if ((phase == MenuPhase::Track || phase == MenuPhase::Car) && !lacking.empty()) {
             notice = lacking + (lacking.find(',') == std::string::npos ? " doesn't" : " don't") + " have the " +
-                (s.needs_games == games_rush1 ? "SF Rush" : "Rush 2049") + " ROM this track needs.";
+                (s.needs_games == games_rush1 ? "SF Rush" : s.needs_games == games_calspeed ? "California Speed" : "Rush 2049") +
+                " ROM this track needs.";
         }
         else if ((phase == MenuPhase::Track || phase == MenuPhase::Car) && !lacking_mod.empty()) {
             notice = lacking_mod + (lacking_mod.find(',') == std::string::npos ? " doesn't" : " don't") +

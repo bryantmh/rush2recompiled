@@ -487,7 +487,7 @@ merges and renames as needed.
   `include/track_mod_runtime.h` hold the interfaces.
 - **Hosting:** a custom track is raced in the HAWAII slot like a Rush 2049 track (`src/rush2049/track2049.cpp`,
   track cache key 1000 + a hash of the folder), with track select ids 38-63 (`src/rush2049/track2049_menu.cpp`, the
-  tables moved to 0x80310000; the circuit review screen's diorama instances at 0x80310B00). Circuits choose custom
+  tables moved to 0x80310000; the circuit review screen's diorama instances at 0x80311600). Circuits choose custom
   tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started
   with). Records: `src/rush2049/track2049_records.cpp` (`{"mod": folder}` courses). Ghosts:
   `src/ghost.cpp` (`mod-<folder>` keys).

@@ -624,14 +624,22 @@ namespace {
         // Model (output name) -> 2049 object whose first list each of the model's lists also calls at its end.
         std::multimap<std::string, std::string> appends;
         std::map<std::string, uint16_t> kinds;    // Model (output name) -> behaviour id (default: the 2049 object's).
+        bool rush2_lod_flags = false;             // Keep every LOD flag (Rush 2 sources), not only lod_flags_kept.
     };
 
+    Bytes merge_models(const std::vector<Model49>& srcs, const MergeOptions& opt, std::set<std::string>& names);
+
     Bytes merge_models(const std::vector<const Bytes*>& files, const MergeOptions& opt, std::set<std::string>& names) {
-        constexpr size_t header_size = 0x28;
         std::vector<Model49> srcs;
         for (const Bytes* f : files) {
             srcs.push_back(parse_model49(*f));
         }
+        return merge_models(srcs, opt, names);
+    }
+
+    // Parsed sources (2049 files, or Rush 2 containers through parse_rush2_model).
+    Bytes merge_models(const std::vector<Model49>& srcs, const MergeOptions& opt, std::set<std::string>& names) {
+        constexpr size_t header_size = 0x28;
         Bytes out(header_size, 0);
 
         // Old [start, end) of each moved chunk of each file and its new start.
@@ -641,7 +649,7 @@ namespace {
         std::vector<std::vector<Move>> moved(srcs.size());
         auto place = [&](const char* kind) {
             for (size_t i = 0; i < srcs.size(); i++) {
-                auto [o, n] = srcs[i].c[kind];
+                auto [o, n] = srcs[i].c.at(kind);
                 align8(out);
                 need(*srcs[i].d, o, n);
                 moved[i].push_back({ o, (size_t)o + n, out.size() });
@@ -655,9 +663,16 @@ namespace {
         size_t txld_end = out.size();
         place("OBJS");
 
+        // A chunk's end address belongs to it only when no chunk starts there: in a Rush 2 container IMAG ends where
+        // TXLD starts, and a G_DL to the first load list must land on TXLD.
         auto new_addr = [&](size_t i, size_t a) -> size_t {
             for (const Move& m : moved[i]) {
-                if ((m.start <= a && a < m.end) || (a == m.end && m.start < m.end)) {
+                if (m.start <= a && a < m.end) {
+                    return a - m.start + m.to;
+                }
+            }
+            for (const Move& m : moved[i]) {
+                if (a == m.end && m.start < m.end) {
                     return a - m.start + m.to;
                 }
             }
@@ -919,7 +934,7 @@ namespace {
                         }
                     }
                     add16(rec, l.texture);
-                    add16(rec, l.flags & lod_flags_kept);
+                    add16(rec, opt.rush2_lod_flags ? l.flags : l.flags & lod_flags_kept);
                     add32(rec, l.distance);
                     add32(rec, (uint32_t)ndl);
                 }
@@ -1009,6 +1024,53 @@ namespace {
             put32(out, i * 4, (uint32_t)header[i]);
         }
         return out;
+    }
+
+    // A Rush 2 model container (docs/rush2049_research/geometry.md: 10-word header, 0x34-byte models, 0x18-byte names,
+    // 0x20-byte textures, 0x18-byte palettes, all pointers file relative) as merge_models' input. Its data is split into
+    // three "chunks" that together cover the file after the header: before the texture-load lists ([7]), the lists
+    // ([7]..[8], which merge_models keeps together for the loader's linear SETTIMG scan) and the rest. imag = 0, so the
+    // lists' SETTIMG addresses, already file relative, stay as they are. kind >= 0 replaces every model's behaviour id.
+    Model49 parse_rush2_model(const Bytes& d, int kind) {
+        need(d, 0, 0x28);
+        uint32_t h[10];
+        for (int i = 0; i < 10; i++) h[i] = u32(d, i * 4);
+        if (h[9] != 0 || h[7] > h[8] || h[8] > d.size() || h[0] + (size_t)h[4] * 0x34 > d.size() ||
+            h[1] + (size_t)h[4] * 0x18 > d.size() || h[2] + (size_t)h[5] * 0x20 > d.size() ||
+            h[3] + (size_t)h[6] * 0x18 > d.size()) {
+            fail("not a Rush 2 model container");
+        }
+        uint32_t lists = std::max<uint32_t>(h[7], 0x28);
+        uint32_t lists_end = std::max(h[8], lists);
+        Model49 m;
+        m.d = &d;
+        m.imag = 0;
+        m.c["IMAG"] = { 0x28, lists - 0x28 };
+        m.c["TXLD"] = { lists, lists_end - lists };
+        m.c["OBJS"] = { lists_end, (uint32_t)d.size() - lists_end };
+        for (uint32_t i = 0; i < h[4]; i++) {
+            size_t r = h[0] + (size_t)i * 0x34, n = h[1] + (size_t)i * 0x18;
+            Object49 ob;
+            ob.name = cstr(d, n, 16);
+            ob.radius = u32(d, n + 16);
+            ob.kind = kind >= 0 ? (uint16_t)kind : u16(d, n + 20);
+            ob.lod_count = (int16_t)std::clamp<uint32_t>(u32(d, r), 1, 4);
+            for (int j = 0; j < 4; j++) {
+                size_t l = r + 4 + j * 12;
+                ob.lods[j] = { u16(d, l), u16(d, l + 2), u32(d, l + 4), j < ob.lod_count ? u32(d, l + 8) : 0, 0 };
+            }
+            m.objects.push_back(ob);
+        }
+        for (uint32_t i = 0; i < h[5]; i++) {
+            size_t r = h[2] + (size_t)i * 0x20;
+            m.textures.push_back({ cstr(d, r, 16), u16(d, r + 16), u16(d, r + 18), u32(d, r + 20), u32(d, r + 24),
+                                   u32(d, r + 28) });
+        }
+        for (uint32_t i = 0; i < h[6]; i++) {
+            size_t r = h[3] + (size_t)i * 0x18;
+            m.palettes.push_back({ cstr(d, r, 16), u32(d, r + 16), u32(d, r + 20) });
+        }
+        return m;
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -2535,6 +2597,30 @@ bool rush2::track2049::rush2_shared_model_names(const std::vector<uint8_t>& rom,
     return true;
 }
 
+bool rush2::track2049::merge_rush2_containers(const std::vector<const std::vector<uint8_t>*>& containers,
+                                              const Rush2Merge& spec, std::vector<uint8_t>& out,
+                                              std::set<std::string>& names, std::string& error) {
+    try {
+        std::vector<Model49> srcs;
+        for (const Bytes* c : containers) {
+            srcs.push_back(parse_rush2_model(*c, spec.default_kind));
+        }
+        MergeOptions opt{};
+        opt.rename = spec.rename;
+        opt.dummies = spec.dummies;
+        opt.dummy_textures = spec.dummy_textures;
+        opt.exclude = &spec.exclude;
+        opt.kinds = spec.kinds;
+        opt.rush2_lod_flags = true;
+        out = merge_models(srcs, opt, names);
+    }
+    catch (const ConvertError& e) {
+        error = e.message;
+        return false;
+    }
+    return true;
+}
+
 bool rush2::track2049::convert_track(const rush2::rom2049::Source& rom, int k, const std::string& prefix,
                                      const std::set<std::string>& shared_models, bool static_paths,
                                      ConvertedTrack& out, std::string& error) {
@@ -2976,6 +3062,54 @@ bool rush2::track2049::convert_car(const rush2::rom2049::Source& rom, int car, c
         error = e.message;
         return false;
     }
+    return true;
+}
+
+// A car that is one body in a Rush 2 container (California Speed's: <frame> in two LODs and its textures) as a Rush 2
+// car asset, as convert_car makes a 2049 car's: the body becomes `name`FRAME1, every other part Rush 2 looks up an
+// empty list, and the body also makes the sheen layers. Its textures are renamed `texture_prefix` + their name (cut to
+// 15 characters), so cars that share texture names (WINDOW, UNDRSDE2) stay apart (car2049.cpp tells bodies apart by
+// their first texture's name).
+bool rush2::track2049::convert_body_car(const std::vector<uint8_t>& container, const std::string& frame,
+                                        const std::string& name, const std::string& texture_prefix,
+                                        std::vector<uint8_t>& out, std::string& error) {
+    static const char* const parts[] = {
+        "D0_FR1", "D2_FR1", "D0_FL1", "D2_FL1", "D0_RR1", "D2_RR1", "D0_RL1", "D2_RL1", "D0_TOP1",
+        "D1_TOP1", "D0_DFR1", "D2_DFR1", "D0_DFL1", "D2_DFL1", "D0_DRR1", "D2_DRR1", "D0_DRL1", "D2_DRL1", "D0_DTOP1",
+        "D0_D2FR2", "D2_D2FR2", "D0_D2FL2", "D2_D2FL2", "D0_D2RR2", "D2_D2RR2", "D0_D2RL2", "D2_D2RL2", "D0_D2TOP2",
+        "H0_L", "H2_L", "H0_R", "H2_R", "H0D_L", "H2D_L", "H0D_R", "H2D_R",
+    };
+    Rush2Merge spec;
+    spec.rename = { { frame, name + "FRAME1" } };
+    for (const char* part : parts) {
+        spec.dummies.push_back(name + part);
+    }
+    std::set<std::string> names;
+    if (!merge_rush2_containers({ &container }, spec, out, names, error)) {
+        return false;
+    }
+    try {
+        add_sheen_layers(out, name);
+    }
+    catch (const ConvertError& e) {
+        error = e.message;
+        return false;
+    }
+    // Texture records (0x20 bytes: name[16], ...) are kept sorted by name (func_8005BCB4's binary search).
+    uint32_t textures = u32(out, 8), count = u32(out, 20);
+    std::vector<std::array<uint8_t, 0x20>> records(count);
+    std::set<std::string> taken;
+    for (uint32_t i = 0; i < count; i++) {
+        memcpy(records[i].data(), &out[textures + i * 0x20], 0x20);
+        std::string n = first15(texture_prefix + cstr(out, textures + i * 0x20, 16));
+        for (int k = 0; !taken.insert(n).second; k++) n = first15(n.substr(0, 13) + std::to_string(k));
+        memset(records[i].data(), 0, 16);
+        memcpy(records[i].data(), n.data(), n.size());
+    }
+    std::sort(records.begin(), records.end(), [](const auto& a, const auto& b) {
+        return strncmp(reinterpret_cast<const char*>(a.data()), reinterpret_cast<const char*>(b.data()), 16) < 0;
+    });
+    for (uint32_t i = 0; i < count; i++) memcpy(&out[textures + i * 0x20], records[i].data(), 0x20);
     return true;
 }
 

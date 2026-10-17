@@ -57,6 +57,7 @@
 #include "rush2.h"
 #include "assets.h"
 #include "track1.h"
+#include "calspeed.h"
 #include "track2049.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
@@ -119,8 +120,19 @@ namespace {
     };
     Saved saved;
 
-    // Custom tracks from mods (src/track_mod/) are hosted here too, as k = mod_k + their index.
+    // Custom tracks from mods (src/track_mod/) are hosted here too, as k = mod_k + their index, and California Speed's
+    // tracks (src/calspeed/) as k = rush2::calspeed::calspeed_k + their index.
     constexpr int mod_k = 1000;
+    constexpr int cs_k = rush2::calspeed::calspeed_k;
+    static_assert(cs_k > mod_k + rush2::track2049::mod_capacity);
+    bool is_mod_k(int k) {
+        return k >= mod_k && k < cs_k;
+    }
+    bool is_cs_k(int k) {
+        return k >= cs_k && k < cs_k + rush2::calspeed::track_count;
+    }
+    rush2::calspeed::Converted cs_track;       // The raced Cal Speed track's extras (its files are moved to `track`).
+    const std::vector<uint8_t>* cs_rom = nullptr;  // The Cal Speed ROM it was converted from.
     rush2::track_mod::Settings mod_settings;   // The raced custom track's track.toml.
     std::array<std::optional<float>, 16> mod_drag;  // Its [surfaces] drag by polygon material slot.
     std::array<uint8_t, 16> mod_like{};             // The stock material each slot passes for: road 0, dirt 1, grass 2.
@@ -133,7 +145,33 @@ namespace {
     // source before; converting runs inside the race setup, on the race's first frame. The source key is the N64 ROM's
     // hash, or for a Dreamcast disc the track's own geometry and collision files.
     bool convert(uint8_t* rdram, int k) {
-        if (k >= mod_k) {
+        if (is_cs_k(k)) {
+            auto rom = rush2::calspeed::get_rom();
+            if (rom == nullptr) {
+                return false;
+            }
+            if (shared_models.empty()) {
+                auto rush2_rom = recomp::get_rom();
+                std::vector<uint8_t> copy(rush2_rom.begin(), rush2_rom.end());
+                rush2::track2049::rush2_shared_model_names(copy, (uint32_t)MEM_W(0, (int32_t)(asset_offsets + 0x12 * 4)),
+                    (uint32_t)MEM_W(0, (int32_t)(asset_offsets + 0x14 * 4)), shared_models);
+            }
+            std::string error;
+            if (!rush2::calspeed::load_track(*rom, k - cs_k, prefix_of(slot), shared_models, cs_track, error)) {
+                printf("[CalSpeed] Couldn't convert track %d: %s\n", k - cs_k, error.c_str());
+                return false;
+            }
+            cs_rom = rom.get();
+            track = std::move(cs_track.track);
+            rush2::calspeed::set_race_path(track.path);
+            track_has_sky = rush2::track2049::model_names(track.geometry).contains("SKYO1");
+            rush2::track2049::set_mover_data(0, {}, {}, {}, {}, {});
+            rush2::track2049::set_texanim_data({});
+            rush2::track2049::set_prop_data({}, track.geometry);
+            rush2::battle::set_data({}, {}, track.geometry, {});
+            return true;
+        }
+        if (is_mod_k(k)) {
             rush2::track_mod::Converted mod;
             if (!rush2::track_mod::load(k - mod_k, prefix_of(slot), mod)) {
                 return false;
@@ -253,7 +291,14 @@ namespace {
         if (loaded_track <= rush2::track2049::track_count) {
             MEM_H(0, (int32_t)(songs + slot * 2)) = track_songs[loaded_track - 1];
         }
-        else if (loaded_track >= mod_k) {
+        else if (is_cs_k(loaded_track)) {
+            // src/music.cpp plays California Speed's songs on its tracks; Rush 2's eight in turn are the slot's song
+            // for when none of them can play.
+            MEM_H(0, (int32_t)(songs + slot * 2)) = int16_t((loaded_track - cs_k) % 8);
+            MEM_W(0, (int32_t)(cloud_scroll + slot * 4)) = (int32_t)cs_track.cloud_scroll;
+            MEM_W(0, (int32_t)(sky_parallax + slot * 4)) = (int32_t)cs_track.sky_parallax;
+        }
+        else if (is_mod_k(loaded_track)) {
             // music = "track1".."track8": Rush 2's songs by their track select order; anything else keeps the host's.
             const std::string& m = mod_settings.music;
             if (m.size() == 6 && m.compare(0, 5, "track") == 0 && m[5] >= '1' && m[5] <= '8') {
@@ -289,6 +334,13 @@ namespace {
         for (size_t i = 0; i < track.pvs.size() && i < 128 * 16; i++) {
             MEM_B(0, (int32_t)(pvs_table + i)) = track.pvs[i];
         }
+        // Cal Speed's hit objects as Rush 2 breakables drawn with its own models (src/calspeed/calspeed_convert.cpp).
+        if (is_cs_k(loaded_track)) {
+            rush2::track1::set_redirects(rdram, cs_track.record_models, cs_track.piece_models);
+        }
+        else {
+            rush2::track1::clear_redirects();   // another track replaced a Cal Speed one in the slot
+        }
         applied = true;
         applied_slot = slot;
     }
@@ -314,6 +366,9 @@ namespace {
             MEM_W(0, (int32_t)(demo_lists + (slot + 12 * b) * 4)) = saved.demo_list[b];
             MEM_H(0, (int32_t)(demo_counts + (slot + 12 * b) * 2)) = saved.demo_count[b];
         }
+        if (is_cs_k(loaded_track)) {
+            rush2::track1::clear_redirects();
+        }
         applied = false;
         applied_slot = -1;
     }
@@ -323,7 +378,7 @@ namespace {
     }
 
     bool hosting_mod(uint8_t* rdram) {
-        return hosting(rdram) && loaded_track >= mod_k;
+        return hosting(rdram) && is_mod_k(loaded_track);
     }
 }
 
@@ -446,6 +501,10 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         k = mod_k + rush2::track_mod::race_track();
         want_slot = stunt_host_slot;
     }
+    else if (rush2::calspeed::race_track() > 0 && t == host_slot) {
+        k = cs_k + rush2::calspeed::race_track() - 1;
+        want_slot = host_slot;
+    }
     if (k == 0 || (applied && slot != want_slot)) {
         restore(rdram);
     }
@@ -458,6 +517,10 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
     }
     // The Games tab can switch the Rush 2049 source between races: a track converted from the other one is redone.
     if (k < mod_k && loaded_source != rush2::wings::get_rom()) {
+        loaded_track = 0;
+    }
+    // A Cal Speed ROM selected again in the Games tab is another copy: its tracks are converted (or read) again.
+    if (is_cs_k(k) && cs_rom != rush2::calspeed::get_rom().get()) {
         loaded_track = 0;
     }
     if (loaded_track != k) {
@@ -475,7 +538,14 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         race_logo.clear();
         std::vector<uint8_t> logo;
         auto rom = rush2::wings::get_rom();
-        if (k >= mod_k || rom == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
+        if (is_cs_k(k)) {
+            auto cs = rush2::calspeed::get_rom();
+            if (cs == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
+                !rush2::calspeed::build_race_logo(logo, *cs, k - cs_k, race_logo)) {
+                race_logo.clear();
+            }
+        }
+        else if (k >= mod_k || rom == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
             !rush2::track2049::build_race_logo(logo, *rom, k, race_logo)) {
             race_logo.clear();
         }
@@ -516,10 +586,12 @@ extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
     rush2::draw_distance_pvs(rdram, sp, table);
 }
 
-// A custom track with sky = "clouds" and no sky model of its own: Rush 2's cloud dome (the branch every track but
-// Las Vegas, Atari and the stunt arena takes), drawn as Rush 2 draws it.
+// A custom track with sky = "clouds", or a Cal Speed track (whose game draws Rush 2's dome), and no sky model of its
+// own: Rush 2's cloud dome (the branch every track but Las Vegas, Atari and the stunt arena takes), drawn as Rush 2
+// draws it.
 static bool mod_cloud_dome(uint8_t* rdram) {
-    return hosting_mod(rdram) && !track_has_sky && mod_settings.sky == "clouds";
+    return !track_has_sky && ((hosting_mod(rdram) && mod_settings.sky == "clouds") ||
+                              (hosting(rdram) && is_cs_k(loaded_track)));
 }
 
 // func_800A45A8 at 0x800A4644: $v0 = track id; 0 builds Las Vegas's sky model, 11 the stunt arena's, others the
@@ -554,7 +626,10 @@ namespace {
 
 extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t lane_points = 0x800D57A0, lane_counts = 0x800D5780;
-    bool rush2049_path = rush2::track2049::race_track() != 0 && MEM_B(0, (int32_t)track_id) == host_slot;
+    // California Speed's lanes are in the same displayed mph as Rush 2049's (true mph x 1.2: its lane 0 averages
+    // 162-172 over its race tracks, distance-weighted, where Rush 2's average 139.3), so they map the same way.
+    bool rush2049_path = (rush2::track2049::race_track() != 0 || rush2::calspeed::race_track() > 0) &&
+                         MEM_B(0, (int32_t)track_id) == host_slot;
     for (int lane = 0; lane < 4; lane++) {
         uint32_t points = (uint32_t)MEM_W(0, (int32_t)(lane_points + lane * 4));
         uint32_t count = MEM_HU(0, (int32_t)(lane_counts + lane * 2));
@@ -715,8 +790,18 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     if (getenv("R2_BATTLE_TEST") != nullptr) fprintf(stderr, "[Battle] race time: start %d -> %d s, %d checkpoints x 1.5\n", before, MEM_HU(0, (int32_t)header), count);
 }
 
+// The Cal Speed track (0-15) of the race being set up (its track select id) or run (the host slot), or -1.
+static int calspeed_race(uint8_t* rdram) {
+    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    if (rush2::calspeed::is_menu_track(t)) return t - rush2::calspeed::first_menu_id;
+    if (t == host_slot && rush2::calspeed::race_track() > 0) return rush2::calspeed::race_track() - 1;
+    return -1;
+}
+
 // End of func_80094698, which copied the race options into the race's settings: the obstacle course is raced alone
-// over one lap, forwards and unmirrored, with checkpoints on (Rush 2049 has no such options for it).
+// over one lap, forwards and unmirrored, with checkpoints on (Rush 2049 has no such options for it). A Cal Speed
+// track is raced forwards (California Speed has no backward races, and its tracks one path), a point-to-point one over
+// one lap (its finish line isn't its start).
 extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t laps = 0x8010C0E2;          // s16
     constexpr uint32_t drones = 0x800D3E90;        // s16
@@ -743,6 +828,11 @@ extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* 
         !rush2::track2049::obstacle_race(rdram)) {
         constexpr uint32_t players = 0x8010C3E2;   // s16
         MEM_H(0, (int32_t)drones) = (int16_t)rush2::battle_ai::race_opponents(0, std::max<int>(1, (int16_t)MEM_H(0, (int32_t)players)));
+    }
+    if (int cs = calspeed_race(rdram); cs >= 0) {
+        if (rush2::calspeed::point_to_point(cs)) MEM_H(0, (int32_t)laps) = 1;
+        MEM_B(0, (int32_t)backward) = 0;
+        return;
     }
     if (!rush2::track2049::obstacle_race(rdram)) {
         return;

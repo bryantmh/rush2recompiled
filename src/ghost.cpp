@@ -53,6 +53,7 @@
 #include <thread>
 #include <vector>
 
+#include "car_types.h"
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 #include "util/file.h"
@@ -70,6 +71,7 @@
 #include "ghost_logic.h"
 #include "rush2_hooks.h"
 #include "track1.h"
+#include "calspeed.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
 #include "track2049_convert.h"
@@ -129,7 +131,7 @@ namespace {
     constexpr uint32_t physics_clock = 0x8010C0E4;   // f32, + the tick each physics tick (func_80076578)
     constexpr uint32_t game_clock = 0x80117488;      // f32
     constexpr uint32_t drone_extra = 0x800D042C;     // u8: func_80075C3C calls func_800663CC after each drone's tick
-    constexpr uint32_t body_nodes = 0x80219DD0;      // + car * 0x134: the car's body scene node index
+    constexpr uint32_t body_nodes = rush2::car_types::car_states;      // + car * 0x134: the car's body scene node index
     constexpr uint32_t body_node_stride = 0x134;
     constexpr uint32_t node_pool = 0x800D9E90;
     constexpr uint32_t node_size = 0x38;
@@ -367,7 +369,7 @@ namespace {
         }
     }
 
-    // The race's track select id (0-29): the host slots stand for the added track they hold.
+    // The race's track select id (0-79): the host slots stand for the added track they hold.
     int menu_track(uint8_t* rdram) {
         int t = (int8_t)MEM_B(0, (int32_t)track_id);
         if (t == rush2::track2049::host_slot) {
@@ -376,6 +378,8 @@ namespace {
             if (k == rush2::track2049::obstacle) return rush2::track2049::obstacle_menu_id;
             int k1 = rush2::track1::race_track();
             if (k1 >= 1) return rush2::track1::first_menu_id + k1 - 1;
+            int kc = rush2::calspeed::race_track();
+            if (kc >= 1) return rush2::calspeed::first_menu_id + kc - 1;
         }
         else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::stunt_arena() > 0) {
             return rush2::track2049::stunt_menu_id + rush2::track2049::stunt_arena() - 1;
@@ -404,8 +408,7 @@ namespace {
     }
 
     bool car_available(int type) {
-        if (type < rush2::car2049::rush2_types) return true;
-        return type >= rush2::car2049::first_type && type < rush2::car2049::types && rush2::car2049::available();
+        return rush2::car2049::type_available(type);
     }
 
     bool demo(uint8_t* rdram) {

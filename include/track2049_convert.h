@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -135,6 +136,11 @@ namespace rush2::track2049 {
     constexpr const char* sheen_parts[] = { "D0_DFR1", "D2_DFR1", "D0_D2FR2", "D2_D2FR2" };
     bool convert_car(const rush2::rom2049::Source& rom2049, int car, const std::string& name, std::vector<uint8_t>& out,
                      std::string& error);
+    // A car that is one body in a Rush 2 container (California Speed's cars: model `frame` and its textures) as a Rush
+    // 2 car asset for the car type named `name`, the same way: `name`FRAME1 is the body, the other parts empty, and the
+    // sheen layers made from it. Its textures are renamed `texture_prefix` + their name.
+    bool convert_body_car(const std::vector<uint8_t>& container, const std::string& frame, const std::string& name,
+                          const std::string& texture_prefix, std::vector<uint8_t>& out, std::string& error);
 
     // Rush 2049's part models `sources` (ENGINE01G1.., TIRE01G1..; setup screen file 56) as a Rush 2 model container,
     // named `names`, and each one's center (the middle of its vertices, in model units).
@@ -162,6 +168,21 @@ namespace rush2::track2049 {
     // assets' ROM offsets from the asset table at 0x800C185C.
     bool rush2_shared_model_names(const std::vector<uint8_t>& rush2_rom, uint32_t asset12_rom, uint32_t asset14_rom,
                                   std::set<std::string>& out);
+
+    // Rush 2 model containers merged into one, as convert_track merges a 2049 track's files (California Speed's track
+    // and shared object files, src/calspeed/calspeed_convert.cpp): every model under its own name (the first of a
+    // name wins) or rename's, plus dummies (models drawing nothing) and dummy_textures (textures loading nothing),
+    // names sorted for Rush 2's binary searches. Models in exclude are left out. A model's behaviour id is kinds'
+    // entry for its output name, else default_kind (if >= 0), else its own. names gets the merged models' names.
+    struct Rush2Merge {
+        std::map<std::string, std::string> rename;
+        std::vector<std::string> dummies, dummy_textures;
+        std::set<std::string> exclude;
+        std::map<std::string, uint16_t> kinds;
+        int default_kind = -1;
+    };
+    bool merge_rush2_containers(const std::vector<const std::vector<uint8_t>*>& containers, const Rush2Merge& spec,
+                                std::vector<uint8_t>& out, std::set<std::string>& names, std::string& error);
 
     // Rush 2049's car lighting colours of track k (docs/rush2049_research/collision.md#car-lighting), from its main
     // code: the 32 words of the track's table (0x8011AF90 + 4 (k - 1) points to it; 2049 reads past its 26) and the

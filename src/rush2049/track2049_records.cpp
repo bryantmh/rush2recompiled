@@ -47,6 +47,10 @@
 // the stunt stats writers' addresses move to the arena's side-block stats during a session in one, and the records
 // screen lists the arenas on its stats page after the other added courses, on STUNT1's index. The save file keeps
 // them as { "track": "stunt1".."stunt4" }.
+//
+// California Speed's tracks (src/calspeed/) race in the host slot like the SF Rush ones and are courses 20-35 below,
+// forward only (California Speed has no backward races); the save file keeps them as { "game": "calspeed",
+// "track": 1-16 }. Their seed is the track's AI lane 0 time over a lap (rush2::calspeed::record_seed).
 
 #include <algorithm>
 #include <array>
@@ -71,6 +75,7 @@
 #include "rush2_hooks.h"
 #include "collectibles.h"
 #include "track1.h"
+#include "calspeed.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
 #include "unlocks.h"
@@ -125,7 +130,9 @@ namespace {
     constexpr int mod_track = obstacle_track + 1;                  // The raced custom track.
     constexpr int stunt_count = rush2::track2049::stunt_count;
     constexpr int stunt_track = mod_track + 1;                     // Stunt arena 1 (stats only, forward only).
-    constexpr int extra_tracks = stunt_track + stunt_count - 1;
+    constexpr int cs_count = rush2::calspeed::track_count;
+    constexpr int cs_track = stunt_track + stunt_count;            // Cal Speed track 0 (forward only).
+    constexpr int extra_tracks = cs_track + cs_count - 1;
     constexpr int courses = extra_tracks * 2;
 
     // A side block in RDRAM per player-record position: the stats of each course, then its two pages of times.
@@ -188,13 +195,18 @@ namespace {
         return k >= stunt_track && k < stunt_track + stunt_count;
     }
 
+    bool is_cs(int k) {
+        return k >= cs_track && k < cs_track + cs_count;
+    }
+
     // The stunt arena hosted by the current session in STUNT1, as an added track number, or 0.
     int hosted_stunt(uint8_t* rdram) {
         int n = rush2::track2049::stunt_arena();
         return MEM_B(0, (int32_t)track_id) == stunt_host && n >= 1 && n <= stunt_count ? stunt_track + n - 1 : 0;
     }
 
-    // The added track hosted by the current race (1-6 Rush 2049, 7-13 SF Rush, 14 the obstacle course), or 0.
+    // The added track hosted by the current race (1-6 Rush 2049, 7-13 SF Rush, 14 the obstacle course, 15 the custom
+    // track, 20-35 Cal Speed), or 0.
     int hosted(uint8_t* rdram) {
         if (MEM_B(0, (int32_t)track_id) != host_slot) {
             return 0;
@@ -212,6 +224,10 @@ namespace {
         }
         if (rush2::track_mod::race_track() >= 0) {
             return mod_track;
+        }
+        int c = rush2::calspeed::race_track();
+        if (c >= 1 && c <= cs_count) {
+            return cs_track + c - 1;
         }
         return 0;
     }
@@ -395,12 +411,16 @@ namespace {
                 }
                 else if (cj["track"].is_number_integer()) {
                     k = cj["track"].get<int>();
-                    bool sfrush = cj.contains("game") && cj["game"].is_string() && cj["game"].get<std::string>() == "sfrush";
-                    if (k < 1 || k > (sfrush ? r1_count : track_count)) {
+                    std::string game = cj.contains("game") && cj["game"].is_string() ? cj["game"].get<std::string>() : "";
+                    bool sfrush = game == "sfrush", calspeed = game == "calspeed";
+                    if (k < 1 || k > (sfrush ? r1_count : calspeed ? cs_count : track_count)) {
                         continue;
                     }
                     if (sfrush) {
                         k += track_count;
+                    }
+                    else if (calspeed) {
+                        k += cs_track - 1;
                     }
                 }
                 else {
@@ -435,6 +455,10 @@ namespace {
                 }
                 else if (is_stunt(k)) {
                     entry["track"] = "stunt" + std::to_string(k - stunt_track + 1);
+                }
+                else if (is_cs(k)) {
+                    entry["track"] = k - cs_track + 1;
+                    entry["game"] = "calspeed";
                 }
                 else if (k > track_count) {
                     entry["game"] = "sfrush";
@@ -836,6 +860,10 @@ namespace {
             }
             return best > 1.0f ? std::min(best, 479.0f) : 90.0f;
         }
+        if (is_cs(k)) {
+            float s = rush2::calspeed::record_seed(k - cs_track);
+            return s > 1.0f ? std::min(s, 479.0f) : 90.0f;
+        }
         // The table is indexed by Rush 2049's track id: 0-5 race tracks, 18 the obstacle course.
         int id = k == obstacle_track ? rush2::track2049::obstacle - 1 : k - 1;
         if (k > track_count && k != obstacle_track) {
@@ -895,6 +923,7 @@ namespace {
     int menu_id_of(int k) {
         if (is_stunt(k)) return rush2::track2049::stunt_menu_id + (k - stunt_track);
         if (k == obstacle_track) return rush2::track2049::obstacle_menu_id;
+        if (is_cs(k)) return rush2::calspeed::first_menu_id + (k - cs_track);
         if (k > track_count) return rush2::track1::first_menu_id + (k - track_count - 1);
         return rush2::track2049::first_menu_id + (k - 1);
     }
@@ -945,6 +974,9 @@ namespace {
         if (rush2::track2049::available() && screen_open(rdram, menu_id_of(obstacle_track))) {
             ks.push_back(obstacle_track);
         }
+        for (int k = cs_track; k < cs_track + cs_count; k++) {
+            if (rush2::calspeed::available() && screen_open(rdram, menu_id_of(k))) ks.push_back(k);
+        }
         return ks;
     }
 
@@ -972,7 +1004,7 @@ namespace {
             }
             // The stunt arenas, like STUNT1, are forward and on the stats page only.
             for (int k : ks) {
-                if (is_stunt(k) ? page == 2 && !backward : !backward || k != obstacle_track) {
+                if (is_stunt(k) ? page == 2 && !backward : !backward || (k != obstacle_track && !is_cs(k))) {
                     e.push_back({ screen_index_of(k, backward), k });
                 }
             }
@@ -1032,7 +1064,7 @@ namespace {
     // Course k's keys or coins found by the screen's profile, or on TOTALS by every profile on the paks and the
     // players without one (as func_803B1B78 ORs Rush 2's key masks).
     uint16_t screen_found(uint8_t* rdram, int k) {
-        if (k < 1 || k == obstacle_track || k == mod_track) return 0;
+        if (k < 1 || k == obstacle_track || k == mod_track || is_cs(k)) return 0;
         std::set<std::string> names;
         bool totals = (int16_t)MEM_H(0, (int32_t)screen_profile) < 0;
         if (!totals) {
