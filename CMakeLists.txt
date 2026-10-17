@@ -117,27 +117,31 @@ target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES} ${FUNC_CXX_SOURCES})
 # Main executable
 add_executable(Rush2Recompiled)
 
+# Where the version and build ID are read from: the source tree, or the checkout a copy was made from (tools/build_linux.sh
+# builds a copy without .git). safe.directory lets WSL's git read a checkout owned by the Windows user.
+set(RUSH2_GIT_SOURCE "${CMAKE_SOURCE_DIR}" CACHE PATH "Git checkout the version and build ID are read from")
+
 # The version shown in the launcher is the latest git tag (v1.0.8 -> 1.0.8), read when CMake configures; 0.1.0 without one.
 set(RUSH2_VERSION "0.1.0")
-execute_process(COMMAND git describe --tags --abbrev=0 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+execute_process(COMMAND git -c safe.directory=* describe --tags --abbrev=0 WORKING_DIRECTORY ${RUSH2_GIT_SOURCE}
                 OUTPUT_VARIABLE RUSH2_GIT_TAG OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE RUSH2_GIT_RESULT)
 if (RUSH2_GIT_RESULT EQUAL 0 AND RUSH2_GIT_TAG MATCHES "^v?([0-9]+[.][0-9]+[.][0-9]+)")
     set(RUSH2_VERSION ${CMAKE_MATCH_1})
 endif()
 target_compile_definitions(Rush2Recompiled PRIVATE RUSH2_VERSION="${RUSH2_VERSION}")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/.git/packed-refs)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${RUSH2_GIT_SOURCE}/.git/packed-refs)
 
 # The commit, for online play's compatibility key (src/online/online_net.cpp): only identical builds race together.
 # Read again whenever HEAD moves.
 set(RUSH2_BUILD_ID "unknown")
-execute_process(COMMAND git rev-parse --short=10 HEAD WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+execute_process(COMMAND git -c safe.directory=* rev-parse --short=10 HEAD WORKING_DIRECTORY ${RUSH2_GIT_SOURCE}
                 OUTPUT_VARIABLE RUSH2_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE RUSH2_GIT_COMMIT_RESULT)
 if (RUSH2_GIT_COMMIT_RESULT EQUAL 0)
     set(RUSH2_BUILD_ID ${RUSH2_GIT_COMMIT})
 endif()
 target_compile_definitions(Rush2Recompiled PRIVATE RUSH2_BUILD_ID="${RUSH2_BUILD_ID}")
-if (EXISTS ${CMAKE_SOURCE_DIR}/.git/logs/HEAD)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/.git/logs/HEAD)
+if (EXISTS ${RUSH2_GIT_SOURCE}/.git/logs/HEAD)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${RUSH2_GIT_SOURCE}/.git/logs/HEAD)
 endif()
 
 target_sources(Rush2Recompiled PRIVATE
@@ -187,6 +191,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/steam_haptics.cpp
     ${CMAKE_SOURCE_DIR}/src/steam_input_filter.cpp
     ${CMAKE_SOURCE_DIR}/src/linux_devices.cpp
+    ${CMAKE_SOURCE_DIR}/src/linux_window.cpp
     ${CMAKE_SOURCE_DIR}/src/circuit.cpp
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/paint_colors.cpp
@@ -338,9 +343,10 @@ else()
     target_link_libraries(Rush2Recompiled PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # DualSense haptics play on the controller's sound card through PulseAudio (or PipeWire's pulse server), or
-        # ALSA when the card is split by alsa-ucm-conf (src/dualsense_haptics.cpp).
+        # ALSA when the card is split by alsa-ucm-conf (src/dualsense_haptics.cpp). GTK (nfd's file pickers) to keep
+        # its dialogs in front of the game (src/linux_window.cpp).
         find_package(PkgConfig REQUIRED)
-        pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse libpulse-simple alsa)
+        pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse libpulse-simple alsa gtk+-3.0)
         target_link_libraries(Rush2Recompiled PRIVATE PkgConfig::PULSE)
     endif()
 endif()

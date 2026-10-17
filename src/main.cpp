@@ -56,6 +56,7 @@
 #include "track_mod_runtime.h"
 #include "car_engines.h"
 #include "steam_input_filter.h"
+#include "linux_window.h"
 #include "sim_run.h"
 
 #ifdef _WIN32
@@ -162,6 +163,10 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
     rush2::steam_input_filter::install(wmInfo.info.win.window);
     return ultramodern::renderer::WindowHandle{ wmInfo.info.win.window, GetCurrentThreadId() };
 #elif defined(__linux__) || defined(__ANDROID__)
+#if defined(__linux__)
+    // The file pickers stay in front of the game (src/linux_window.cpp).
+    rush2::linux_window::set_dialog_parent(wmInfo.subsystem == SDL_SYSWM_X11 ? (unsigned long)wmInfo.info.x11.window : 0);
+#endif
     return ultramodern::renderer::WindowHandle{ window };
 #elif defined(__APPLE__)
     SDL_MetalView view = SDL_Metal_CreateView(window);
@@ -539,9 +544,12 @@ static void launcher_init(recompui::LauncherMenu* menu) {
     std::ifstream logo_file{ recompui::file::get_program_path() / "assets" / "logo.png", std::ios::binary };
     std::vector<char> logo_bytes{ std::istreambuf_iterator<char>(logo_file), std::istreambuf_iterator<char>() };
     if (!logo_bytes.empty()) {
-        recompui::queue_image_from_bytes_file("rush2_launcher_logo", logo_bytes);
+        // "?/" keeps RmlUi from resolving the name against the document's folder, which on Linux (a relative
+        // assets/ path) turned it into assets/rush2_launcher_logo and missed the image; the frontend's thumbnails do
+        // the same.
+        recompui::queue_image_from_bytes_file("?/rush2/launcher_logo", logo_bytes);
         auto* logo = recompui::get_current_context().create_element<recompui::Image>(game_options_menu,
-                                                                                    "rush2_launcher_logo");
+                                                                                    "?/rush2/launcher_logo");
         logo->set_width(640.0f);
         logo->set_height(640.0f);
         logo->set_margin_bottom(16.0f);
@@ -612,6 +620,9 @@ int main(int argc, char** argv) {
     }
 #endif
 
+#ifdef __linux__
+    rush2::linux_window::prepare_gtk(); // Before NFD_Init starts GTK.
+#endif
     NFD_Init();
 
     recompui::programconfig::set_program_name(rush2::program_name);

@@ -56,9 +56,17 @@ If you also own **San Francisco Rush: Extreme Racing** for the N64 (US version),
 
 - A Windows 10 or 11 PC
 - A graphics card that supports DirectX 12 or Vulkan (anything from the last several years should be fine)
-- Your own ROM of **Rush 2: Extreme Racing USA** (North American version). `.z64`, `.n64` and `.v64` files all work.
-- Optional: a ROM of **San Francisco Rush 2049** (North American version) for the Rush 2049 extras
-- Optional: a ROM of **San Francisco Rush: Extreme Racing** (North American version) for the Rush 1 tracks
+- Your own ROM of **Rush 2: Extreme Racing USA**
+- Optional: a ROM of **San Francisco Rush 2049** for the Rush 2049 extras
+- Optional: a ROM of **San Francisco Rush: Extreme Racing** for the Rush 1 tracks
+
+Each game takes one exact ROM, the North American (USA) release, and other regions or versions are turned away. Check yours against these SHA-1 hashes (of the `.z64` file; `.n64` and `.v64` files of the same ROM work too):
+
+| Game | ROM | Size | SHA-1 (`.z64`) |
+|---|---|---|---|
+| Rush 2: Extreme Racing USA | Rush 2 - Extreme Racing USA (USA) | 12 MB | `01b0a31b1accc18061e8c85f6c5edf0dbd79f097` |
+| San Francisco Rush 2049 (optional) | San Francisco Rush 2049 (USA) | 12 MB | `3f99351d7bb61656614bdb2aa1a90cfe55d1922c` |
+| San Francisco Rush: Extreme Racing (optional) | San Francisco Rush - Extreme Racing (USA) | 8 MB | `cc62539cb30b180c3c7e0aa927786ed061d8d9ab` |
 
 ## Getting started
 

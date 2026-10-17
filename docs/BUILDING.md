@@ -155,6 +155,8 @@ Pushing master builds the pushed commit and publishes it as a GitHub release (`t
 `tools/release.py`). The commit is exported to `.release/src` and built in `.release/build`, so uncommitted work never
 ships; a failed build stops the push. Enable the hook once per clone with `git config core.hooksPath tools/hooks`, and
 skip it for a push with `git push --no-verify`. Needs `gh` logged in and the ROM images from `tools/extract.py`.
+The release also carries the Linux AppImage, built from the same export by `tools/build_linux.sh` in WSL (the
+`Ubuntu` distro with the packages listed in that script, `docs/linux.md`); a failed Linux build stops the push too.
 
 Once the release is up, its change list is posted to Discord by `tools/discord_release_notify.py`. The webhook URL is
 read from `DISCORD_WEBHOOK_URL` or the gitignored `.discord_webhook` file in the repo root, and never committed; with

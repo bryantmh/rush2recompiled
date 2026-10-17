@@ -180,6 +180,10 @@ namespace {
     //   motor at full grinding), the light motor at motor_grind_light_gain of the heavy one's.
     constexpr float motor_grind_gain = 1.25f;
     constexpr float motor_grind_light_gain = 0.7f;
+    // A matched pair (a Steam Deck's) has no triggers to carry the hit's kick, and each side's motor is all of that
+    // side's effects, so full grinding left a hit nothing to rise to: hits along a wall (most of them) weren't felt.
+    // There the steady effects (screech and grind) stop at pair_steady_max and the thump plays on top of them.
+    constexpr float pair_steady_max = 0.6f;
     // Xbox 360 pads (and wheels and adapters that pose as one, which often only react to the heavy motor): the
     // screech plays on the heavy motor too, at this much of the light one's level.
     constexpr float xbox360_screech_heavy_gain = 1.0f;
@@ -894,12 +898,11 @@ namespace {
     // Where a slot's Enhanced rumble plays.
     enum class RumbleOutput {
         Haptics,   // A DualSense's two actuators over USB (dualsense_haptics.h): matched, and each plays every voice.
-        SteamTones, // A Steam Controller's (2026) or Steam Deck's actuators as tones (steam_haptics.h), like the
-                    // DualSense's.
+        SteamTones, // A Steam Controller's (2026) actuators as tones (steam_haptics.h), like the DualSense's.
         Triggers,  // An Xbox One/Series pad's trigger motors (matched) carry the sides; its unmatched grip motors play the
                    // thump on the heavy one and the screech on the light one.
-        Pair,      // The two SDL motors as left and right: a Steam Controller's or Steam Deck's matched haptics, until
-                   // (or if) its tones open.
+        Pair,      // The two SDL motors as left and right: a Steam Deck's matched rumble, or a Steam Controller's
+                   // until (or if) its tones open.
         Grips,     // Unmatched grip motors (an Xbox pad without trigger rumble, a DualSense over Bluetooth, most other
                    // pads): no sides, since a big left and small right motor make hits on one side feel unlike the
                    // other. The heavy motor plays the hit and the grind, the light one the screech under them.
@@ -1092,7 +1095,7 @@ void rush2::input::update_rumble() {
         if (!enhanced[slot] || path == nullptr || path[0] == '\0') {
             continue;
         }
-        // Every DualSense and Steam Controller or Deck plays on its own haptics once they're open.
+        // Every DualSense and Steam Controller plays on its own haptics once they're open.
         uint16_t vendor = SDL_GameControllerGetVendor(controller);
         uint16_t product = SDL_GameControllerGetProduct(controller);
         if (SDL_GameControllerGetType(controller) == SDL_CONTROLLER_TYPE_PS5) {
@@ -1325,11 +1328,11 @@ void rush2::input::update_rumble() {
         float heavy_grind = grind * motor_grind_gain;
         float low, high;
         if (output == RumbleOutput::Pair) {
-            // The low-frequency motor as the left side and the high-frequency one as the right (a Steam Controller's
-            // or Steam Deck's matched pair, without its tones).
+            // The low-frequency motor as the left side and the high-frequency one as the right (a Steam Deck's
+            // matched pair, or a Steam Controller's without its tones).
             side_gains(screech_side[slot], far_cut, &gain_left, &gain_right);
-            low = thump_left + light_screech * gain_left + grind_left * motor_grind_gain;
-            high = thump_right + light_screech * gain_right + grind_right * motor_grind_gain;
+            low = thump_left + std::min(light_screech * gain_left + grind_left * motor_grind_gain, pair_steady_max);
+            high = thump_right + std::min(light_screech * gain_right + grind_right * motor_grind_gain, pair_steady_max);
         }
         else {
             // The grips aren't matched: the heavy low-frequency motor carries the hit and the grind, the light

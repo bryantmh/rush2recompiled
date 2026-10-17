@@ -6,11 +6,11 @@
 
 #include "dualsense_haptics.h"
 
-// Steam Controller (2026, "Triton") and Steam Deck haptics (src/steam_haptics.cpp): plays Rumble Mode > Enhanced's
+// Steam Controller (2026, "Triton") haptics (src/steam_haptics.cpp): plays Rumble Mode > Enhanced's
 // effects on Valve's haptic actuators as tones, like a DualSense's voices (include/dualsense_haptics.h), instead of
 // SDL's rumble, which drives them like old motors with one speed per side, so every effect felt the same. The Steam
-// Controller wired (28DE:1302), over Bluetooth (1303) and through the puck (1304/1305), and the Steam Deck (1205).
-// Every connected one plays its own. Windows and Linux (hidraw).
+// Controller wired (28DE:1302), over Bluetooth (1303) and through the puck (1304/1305); the Steam Deck keeps SDL's
+// rumble (its tones play on the trackpads). Every connected one plays its own. Windows and Linux (hidraw).
 namespace rush2::steam_haptics {
     struct Controller {
         std::string path;     // SDL device path (SDL_GameControllerPath).

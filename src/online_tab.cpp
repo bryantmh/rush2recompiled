@@ -200,11 +200,18 @@ namespace {
         rush2::data_files::write(rush2::data_files::File::Players, backup_section, j.dump());
     }
 
-    // Puts this machine's own settings back (and writes them), if they were set aside.
-    void restore_own_settings() {
+    // Puts this machine's own settings back (and writes them), if they were set aside. At startup (`ui_ready` false)
+    // the config menu doesn't exist yet, so there's no UI context to hold (asking recompui for it threw, and as the
+    // backup was still there the game aborted at every start) and nothing else reads the configs: they're set directly.
+    void restore_own_settings(bool ui_ready) {
         std::string own = read_backup();
         if (!own.empty()) {
-            apply_settings(own, true);
+            if (ui_ready) {
+                apply_settings(own, true);
+            }
+            else {
+                apply_settings_locked(own, true);
+            }
             write_backup({});
         }
         following_host = false;
@@ -643,7 +650,7 @@ recomp::config::Config& rush2::online_tab::config() {
 void rush2::online_tab::load_config() {
     online_config.load_config();
     // The game closed in a lobby last time: this machine's own gameplay settings come back.
-    restore_own_settings();
+    restore_own_settings(false);
     apply_choices();
 }
 
@@ -656,7 +663,7 @@ void rush2::online_tab::follow_host_settings() {
     bool joined = !online::is_host() && st != online::State::Offline && st != online::State::Connecting;
     if (!joined) {
         if (following_host) {
-            restore_own_settings();
+            restore_own_settings(true);
             online::set_local_gameplay(gameplay_settings());
         }
         return;

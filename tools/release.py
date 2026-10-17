@@ -6,8 +6,11 @@ The commit is exported to .release/src (only changed files are rewritten, so reb
 in .release/build, so uncommitted changes in the working tree never end up in a release. Submodules aren't exported;
 lib is linked to the working tree's lib, which must be checked out at the commits the release commit records.
 
+The Linux AppImage is built from the same export, after the Windows build has made its RecompiledFuncs: in WSL
+(distro LINUX_DISTRO) by tools/build_linux.sh, in its own work folder (~/rush2-linux-release, docs/linux.md).
+
 After a successful build the commit is pushed (the push that triggered the hook then has nothing left to do), and
-the zipped game folder is uploaded as a release. VERSION holds the major.minor version and is only changed by hand: the
+the zipped game folder and the AppImage are uploaded as a release. VERSION holds the major.minor version and is only changed by hand: the
 first release of a version is tagged v<major>.<minor>, and each later one gets the next patch number, up to .999.
 The change list is then announced on Discord (tools/discord_release_notify.py) when a webhook is configured.
 """
@@ -29,6 +32,8 @@ SRC = WORK / "src"
 BUILD = WORK / "build"
 PACKAGE_FILES = ["Rush2Recompiled.exe", "SDL2.dll", "SDL3.dll", "dxil.dll", "dxcompiler.dll", "recompcontrollerdb.txt"]
 ROM_FILES = ["rush2.us.z64", "rush2.us.recomp.z64"]
+LINUX_DISTRO = "Ubuntu"
+LINUX_WORK = "rush2-linux-release"  # Under the WSL user's home.
 NULL_SHA = "0" * 40
 MAX_PATCH = 999
 
@@ -108,6 +113,19 @@ def build():
     run(["cmd", "/c", vsenv, "cmake", "--build", str(BUILD), "--target", "Rush2Recompiled"], ROOT)
 
 
+def build_linux(name):
+    """Builds the AppImage from SRC into WORK/<name> with tools/build_linux.sh in WSL."""
+    appimage = WORK / name
+    appimage.unlink(missing_ok=True)
+    print(f"> wsl build_linux.sh ({name})", flush=True)
+    # --cd takes the Windows path; the script finds the tree from its own location, and --out is relative to SRC.
+    subprocess.run(["wsl", "-d", LINUX_DISTRO, "--cd", str(SRC), "--", "bash", "tools/build_linux.sh",
+                    "--work", LINUX_WORK, "--out", "..", "--name", name], check=True)
+    if not appimage.is_file():
+        raise SystemExit(f"The Linux build didn't produce {appimage}")
+    return appimage
+
+
 def package(name):
     zip_path = WORK / f"{name}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
@@ -157,17 +175,20 @@ def main():
     export(sha)
     build()
     zip_path = package(f"Rush2Recompiled-{tag[1:]}")
+    appimage_path = build_linux(f"Rush2Recompiled-{tag[1:]}-x86_64.AppImage")
 
     log_range = [f"{previous}..{sha}"] if previous else ["-1", sha]
     changes = git("log", "--format=- %s", *log_range)
-    notes = (f"Unzip anywhere and run `Rush2Recompiled.exe`. You'll need your own Rush 2: Extreme Racing USA ROM.\n\n"
+    notes = (f"Windows: unzip anywhere and run `Rush2Recompiled.exe`. Linux: make the `.AppImage` executable and run "
+             f"it. You'll need your own Rush 2: Extreme Racing USA ROM.\n\n"
              f"## Changes\n\n{changes}\n")
 
     # Push the commit now so the release tag can point at it; the outer push then finds master up to date.
     run(["git", "push", "--no-verify", remote, f"{sha}:refs/heads/master"], ROOT)
-    run(["gh", "release", "create", tag, str(zip_path), "--repo", repo, "--target", sha,
+    run(["gh", "release", "create", tag, str(zip_path), str(appimage_path), "--repo", repo, "--target", sha,
          "--title", f"Build {tag[1:]} ({short})", "--notes", notes, "--latest"], ROOT)
     zip_path.unlink()
+    appimage_path.unlink()
     discord_release_notify.announce(changes, tag, repo)
 
 

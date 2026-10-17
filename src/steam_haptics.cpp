@@ -1,8 +1,8 @@
-// Steam Controller (2026) and Steam Deck haptics as tones (include/steam_haptics.h).
+// Steam Controller (2026) haptics as tones (include/steam_haptics.h).
 //
-// SDL drives the Steam Controller's actuators with output report 0x80 (ID_OUT_REPORT_HAPTIC_RUMBLE) and the Deck's with
-// feature report 0xEB (ID_TRIGGER_RUMBLE_CMD): a "speed" per side, as for rumble motors, so a crash, a slide and a
-// wall scrape on one side all became the same buzz at different strengths. Both also play tones.
+// SDL drives the Steam Controller's actuators with output report 0x80 (ID_OUT_REPORT_HAPTIC_RUMBLE): a "speed" per
+// side, as for rumble motors, so a crash, a slide and a wall scrape on one side all became the same buzz at different
+// strengths. The controller also plays tones.
 //
 // Steam Controller: output report 0x83 (ID_OUT_REPORT_HAPTIC_LFO_TONE, SDL's steam/controller_structs.h, packed):
 //   [0] 0x83  [1] actuator  [2] gain_db (s8, 0 = full, -128 = silent)  [3-4] frequency Hz  [5-6] duration_ms
@@ -14,13 +14,9 @@
 // (src/input.cpp). So wired and through the puck each grip plays the strongest of its side's three voices, and over
 // Bluetooth the trackpads take the screech's buzz while the grips play the thump or the grind.
 //
-// Steam Deck: feature report 0xEA (ID_TRIGGER_HAPTIC_CMD, MsgTriggerHaptic in SDL's steam/controller_structs.h,
-// packed), sent the way SDL_hidapi_steamdeck.c sends its rumble: 64 bytes after the report ID 0, starting with a
-// {type, length} header:
-//   [0] side (1 left, 2 right)  [1] command (0 off, 3 tone)  [2] ui_intensity (0 default)  [3] dB gain (s8)
-//   [4-5] frequency Hz  [6-7] duration ms (s16, negative holds it)  [8-9] noise intensity  [10-11] LFO frequency Hz
-//   [12] LFO depth %  [13] random tone gain  [14] script ID  [15-16] sweep start Hz  [17-18] sweep end Hz
-// Each side's pad plays the strongest of its three voices.
+// The Steam Deck isn't played this way: its feature report 0xEA (MsgTriggerHaptic) plays tones on the trackpads'
+// small actuators, which barely move at the thump's and grind's pitches and are nowhere near the grips, so the Deck keeps
+// SDL's rumble as a matched left and right pair (src/input.cpp), as Steam plays every game's rumble on it.
 //
 // The voices are the DualSense's pitches (the profile's): the thump plain, the buzz with an LFO at the beat of the
 // DualSense's two buzz tones (233 Hz against 170 Hz), the grind with a faster, shallower LFO standing in for its random
@@ -28,15 +24,14 @@
 // often than min_send_ms an actuator (the puck relays one report per radio poll).
 //
 // Each controller is opened on its own (Windows shares HID devices), not through SDL, whose effect call only sends
-// feature reports to the Steam Controller and none to the Deck. A thread per controller does the opening and the
+// feature reports. A thread per controller does the opening and the
 // writes, which can block.
 //
 // On Linux the reports go to the controller's hidraw node (write() for output reports, HIDIOCSFEATURE for feature
 // reports; opening it needs the udev rules Steam installs). SDL's path is that node when its HIDAPI driver has the
 // controller. Otherwise it's an evdev node, whose USB device holds the node, or Steam Input's virtual device, which
 // takes a node with the controller's IDs (SDL reports the real ones) that no other player has. Of a controller's
-// nodes, the Deck's is interface 2 (as SDL_hidapi_steamdeck.c picks) and the Steam Controller's the one with tone
-// reports (src/linux_devices.cpp).
+// nodes, the one taking the tones is the one whose report descriptor has output report 0x83 (src/linux_devices.cpp).
 
 #include <algorithm>
 #include <atomic>
@@ -59,8 +54,6 @@
 #include <set>
 #include <fcntl.h>
 #include <unistd.h>
-#include <sys/ioctl.h>
-#include <linux/hidraw.h>
 #include "linux_devices.h"
 #endif
 
@@ -73,14 +66,8 @@ namespace {
     constexpr unsigned product_triton_bluetooth = 0x1303;
     constexpr unsigned product_triton_puck = 0x1304;
     constexpr unsigned product_triton_puck_2 = 0x1305;
-    constexpr unsigned product_steam_deck = 0x1205;
 
     constexpr uint8_t report_lfo_tone = 0x83;
-    constexpr uint8_t deck_haptic_command = 0xEA;
-    constexpr uint8_t deck_command_off = 0;
-    constexpr uint8_t deck_command_tone = 3;
-    constexpr size_t deck_feature_bytes = 65; // Report ID 0, then 64 bytes.
-    constexpr size_t deck_haptic_bytes = 19;  // sizeof(MsgTriggerHaptic).
 
     constexpr int8_t gain_silent = -128;
     constexpr float min_gain_db = -40.0f;      // Quieter than this is silent.
@@ -111,7 +98,7 @@ namespace {
         uint8_t lfo_depth = 0;
     };
 
-    // One actuator: its index in the reports (a Steam Controller actuator, or a Deck side 1 or 2), the side whose
+    // One actuator: its index in the reports, the side whose
     // levels it plays and which voices.
     struct Actuator {
         uint8_t index;
@@ -188,12 +175,7 @@ namespace {
 #endif
         size_t report_size = 0; // The output report length writes are padded to (as hidapi does).
 
-        bool is_deck() const { return product == product_steam_deck; }
-
         std::vector<Actuator> actuators() const {
-            if (is_deck()) {
-                return { { 1, 0, all_voices }, { 2, 1, all_voices } };
-            }
             if (product == product_triton_bluetooth) {
                 return { { 3, 0, voice_thump | voice_grind }, { 4, 1, voice_thump | voice_grind },
                          { 0, 0, voice_buzz }, { 1, 1, voice_buzz } };
@@ -214,9 +196,8 @@ namespace {
                 HidP_GetCaps(data, &caps);
                 HidD_FreePreparsedData(data);
             }
-            report_size = is_deck() ? std::max<size_t>(caps.FeatureReportByteLength, deck_feature_bytes)
-                                    : caps.OutputReportByteLength;
-            if (!is_deck() && report_size < 10) {
+            report_size = caps.OutputReportByteLength;
+            if (report_size < 10) {
                 close_device();
                 return false;
             }
@@ -228,10 +209,6 @@ namespace {
                 CloseHandle(handle);
             }
             handle = INVALID_HANDLE_VALUE;
-        }
-
-        bool set_feature(std::vector<uint8_t>& report) {
-            return HidD_SetFeature(handle, report.data(), (ULONG)report.size()) != 0;
         }
 
         bool write_output(std::vector<uint8_t>& report) {
@@ -254,10 +231,8 @@ namespace {
                     (usb.empty() ? nodes_in_use.count(h.node) != 0 : h.usb_device != usb)) {
                     continue;
                 }
-                bool reports = is_deck() ? h.interface == 2
-                    : rush2::linux_devices::report_bytes(h.node, rush2::linux_devices::ReportKind::Output,
-                                                         report_lfo_tone) >= 10;
-                if (reports) {
+                if (rush2::linux_devices::report_bytes(h.node, rush2::linux_devices::ReportKind::Output,
+                                                       report_lfo_tone) >= 10) {
                     nodes_in_use.insert(h.node);
                     return h.node;
                 }
@@ -278,11 +253,9 @@ namespace {
                 errno = error;
                 return false;
             }
-            using rush2::linux_devices::ReportKind;
-            report_size = is_deck()
-                ? std::max(rush2::linux_devices::report_bytes(node, ReportKind::Feature, 0), deck_feature_bytes)
-                : rush2::linux_devices::report_bytes(node, ReportKind::Output, report_lfo_tone);
-            if (!is_deck() && report_size < 10) {
+            report_size = rush2::linux_devices::report_bytes(node, rush2::linux_devices::ReportKind::Output,
+                                                             report_lfo_tone);
+            if (report_size < 10) {
                 close_device();
                 errno = ENOTSUP;
                 return false;
@@ -302,10 +275,6 @@ namespace {
             }
         }
 
-        bool set_feature(std::vector<uint8_t>& report) {
-            return ioctl(fd, HIDIOCSFEATURE(report.size()), report.data()) >= 0;
-        }
-
         bool write_output(std::vector<uint8_t>& report) {
             return ::write(fd, report.data(), report.size()) == (ssize_t)report.size();
         }
@@ -314,23 +283,6 @@ namespace {
         bool send(const Actuator& actuator, const Tone& tone) {
             std::vector<uint8_t> report(report_size, 0);
             bool silent = tone.voice == Voice::None;
-            if (is_deck()) {
-                report[1] = deck_haptic_command;
-                report[2] = (uint8_t)deck_haptic_bytes;
-                uint8_t* msg = report.data() + 3;
-                int16_t duration = -1; // Held until the next report.
-                msg[0] = actuator.index;
-                msg[1] = silent ? deck_command_off : deck_command_tone;
-                msg[3] = (uint8_t)tone.gain_db;
-                msg[4] = (uint8_t)(tone.frequency & 0xFF);
-                msg[5] = (uint8_t)(tone.frequency >> 8);
-                msg[6] = (uint8_t)(duration & 0xFF);
-                msg[7] = (uint8_t)((uint16_t)duration >> 8);
-                msg[10] = (uint8_t)(tone.lfo_hz & 0xFF);
-                msg[11] = (uint8_t)(tone.lfo_hz >> 8);
-                msg[12] = tone.lfo_depth;
-                return set_feature(report);
-            }
             uint16_t duration = silent ? 0x8000 : 0x7FFF;
             report[0] = report_lfo_tone;
             report[1] = actuator.index;
@@ -366,8 +318,7 @@ namespace {
                     if (open_device() && silence(list)) {
                         open = true;
                         std::fill(sent.begin(), sent.end(), Tone{});
-                        printf("[Haptics] Playing Steam %s tones on %s\n", is_deck() ? "Deck" : "Controller",
-                            path.c_str());
+                        printf("[Haptics] Playing Steam Controller tones on %s\n", path.c_str());
                     }
                     else {
                         fprintf(stderr, "[Haptics] Couldn't play tones on %s (error %lu)\n", path.c_str(),
@@ -452,7 +403,7 @@ namespace {
 bool rush2::steam_haptics::is_supported(unsigned vendor, unsigned product) {
     return vendor == vendor_valve &&
         (product == product_triton_wired || product == product_triton_bluetooth || product == product_triton_puck ||
-         product == product_triton_puck_2 || product == product_steam_deck);
+         product == product_triton_puck_2);
 }
 
 void rush2::steam_haptics::set_controllers(const std::vector<Controller>& controllers) {
