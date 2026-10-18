@@ -299,8 +299,9 @@ takes the place of a stock sky (the report warns when you have both).
 To model the sky yourself:
 
 1. **Make a dome around the origin.** Add > Mesh > UV Sphere (a cube works too) with its center at the world origin.
-   Size doesn't matter: the game scales it to fit and draws it around the camera (height too), so it never gets
-   closer or further away as the cars move. Cutting off the lower half is fine; the track hides the bottom of the sky.
+   Model it at its real size, big (miles across): the game scales it down to fit and draws it around the camera,
+   placed so it looks as it would at full size (it never gets closer as the cars move, and distant land or water in
+   it stays at its true angle below the horizon). A small sky (under about 2,000 ft) stays at the height you put it. Cutting off the lower half is fine; the track hides the bottom of the sky.
 2. **Turn its faces inward:** in Edit Mode, select all and use Mesh > Normals > Flip, since the camera is inside it.
 3. **Color it** with a texture (a panorama mapped onto the sphere) or with vertex colors (Vertex Paint), for example
    a gradient from the zenith down to the horizon. Without vertex colors it gets the track's fixed light from above,
@@ -683,8 +684,14 @@ merges and renames as needed.
   (32000 units). `track2049.cpp` sets `track_has_sky` from the converted model names, so the hooks on
   `sky_setup_800A45A8` (0x800A4600, 0x800A4644) build it through Las Vegas's sky branch, as for the 2049 tracks.
   Rush 2 moves a model sky with the camera in x and z only (render_sky_cloud_scroll_8008918C, 0x800891EC-0x80089200);
-  with its vertices scaled down a big dome then ended below a tall track, so `rush2_track49_sky_height` (hooked at
-  0x800891F8) also copies the camera's height for a SKY mesh. A stock sky model keeps its world height.
+  with its vertices scaled down a big dome then ended below a tall track. The converter records the scale
+  (`ConvertedTrack::sky_scale`, drawn / modeled size, cached) and `rush2_track49_sky_height` (hooked at 0x800891F8)
+  sets the sky's height to (1 - sky_scale) x the camera's: shrunk about the camera rather than the origin, the sky
+  looks as it would at full size. A stock sky model keeps its world height.
+- **Flip-book frames:** a custom track's moving object whose scale is under 0.01 has its node hidden (flag 0x400,
+  `write_pose` in `track2049_movers.cpp`) instead of drawn shrunk. Shown again at the same matrix, it interpolates with
+  the camera like the scenery; a scale step needs a snap (src/interpolation.cpp snaps a node whose scale changes more
+  than 4x in a frame), and snapped frames shook against the walls next to them.
 - **Hiding warnings:** `"hide_track_warnings": true` in a mod's mod.json (read in `scan`, `Entry::hide_warnings`) leaves
   warnings out of the Mods tab notes; the report file and console keep them.
 - **Problems in the Mods menu:** `rush2::track_mod::register_mod_notes` gives recompui's mod details panel

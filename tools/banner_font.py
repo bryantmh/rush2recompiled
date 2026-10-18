@@ -963,6 +963,10 @@ DIGITS_2049 = {
     "7": ([_F] * 6 + [_R5] * 11, "tr3"),
     "8": ([_F] * 6 + [_LR] * 2 + [_F] * 3 + [_LR] * 3 + [_F] * 3, "tl3 tr3 bl2 br2"),
     "9": ([_F] * 6 + [_LR] * 2 + [_F] * 3 + [_R5] * 3 + [_F] * 3, "tl3 tr3 br2"),
+    # Z (letters too where the block grid can't draw them): an 8 px stroke stepping down from the top bar's right end
+    # to the bottom bar's left (the block Z, a bar, a notch each side and a bar, read as a 2).
+    "Z": ([_F] * 6 + ["." * o + "#" * 8 + "." * (10 - o) for o in (10, 9, 7, 6, 4, 3, 1, 0)] + [_F] * 3,
+          "tl3 br2"),
 }
 
 # PRESIDIO's E at its size: the full block with a slit from the right.

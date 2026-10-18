@@ -75,9 +75,12 @@ commands and what the converter makes of them:
 
 Alcatraz has 100 coin pickups in trails along its shortcuts and jumps (every arcade race track has 100; left out),
 16 cones, 30 construction horses, 68 billboards, 8 spinning objects (lighthouse beams, police lights, three circling planes) and
-6 flipbooks (runway chaser lights, sirens, blinkers). A frame is hidden by scaling it to 0.001 about the mover's pivot; src/interpolation.cpp snaps (doesn't
-blend) a node whose scale changes more than 4x in a frame, or the runway lights drew shrunken copies between the loop
-center and the loop.
+6 flipbooks (runway chaser lights, sirens, blinkers). A frame is hidden by scaling it to 0.001; the movers code hides such a node instead of drawing it
+(blended between scales, the runway lights drew shrunken copies between the loop center and the loop; snapped, the
+frames shook). Each frame's pivot is its own geometry's center on a whole foot, so its vertices round to the
+scenery's 1/16 ft grid (BLINK3's placement is the world origin, 1,000 ft away: hairline cracks along its walls). All
+frames of a flipbook loop in exactly the same time: the first frame's keys end on its shown pose (an open loop adds
+0.001 s, and it drifted until no frame or two showed; the blinker frames carry their walls).
 
 ## roaddat.rom (collision)
 
@@ -130,10 +133,12 @@ ft/s x 60 / 88 / 1.2 (Rush 2049's lane speeds over Rush 2's, docs/rush2049_resea
   are halved (UVs and colors interpolated).
 - `SKY`: objects using the sky textures (GS_SKY, GS_APANS, AL_MOON), the cloud layer, or reaching past 9,000 ft,
   except the bay's WATER2 sheets (G6688-G6693, out to 10,700 ft): the sky is drawn without depth around the camera,
-  so in it they painted a dark plane across the dome. They stay scenery. The dome (27,600 ft) is scaled to fit the
-  sky model's s16 vertices (about 2,048 ft); Rush 2 moves a model sky with the camera in x and z only, so its top sat
-  near 520 ft, under the island's top. A custom track's SKY mesh now follows the camera's height too
-  (`rush2_track49_sky_height`, render_sky_cloud_scroll_8008918C at 0x800891F8).
+  so in it they painted a dark plane across the dome while the sky kept its world height. They are scenery (the near
+  part, depth tested) and sky too: the game draws 2,000 ft, and the sky's water meets the distant land (GS_APANS) as in
+  the arcade. Sky materials go in draw order: dome, water, land, clouds. The dome (27,600 ft) is scaled to fit the sky
+  model's s16 vertices (about 2,048 ft); Rush 2 moves a model sky with the camera in x and z only, so its top sat near
+  520 ft, under the island's top. The sky is now placed at (1 - scale) x the camera's height
+  (`rush2_track49_sky_height`, render_sky_cloud_scroll_8008918C at 0x800891F8), as it would look at full size.
 - `COL_*`: `roaddat` polygons by surface, the spline road as footprints on its segments (above). `roaddat` has no water: under the bay is sea floor (road) and walls, and
   the arcade drowns cars some other way (not found). The WATER2 sheets (the bay, at sea level) become `COL_WATER`,
   which wrecks and resets the car as Rush 2's own Alcatraz water does; no road polygon or lap point is under them.
