@@ -35,6 +35,7 @@
 
 #include "rush2_hooks.h"
 #include "car2049.h"
+#include "car_mods.h"
 #include "data_files.h"
 #include "light_bar.h"
 #include "players4.h"
@@ -57,6 +58,7 @@ namespace {
     constexpr int option_durability = 12;
     constexpr int option_wings = 15;
     constexpr int option_style = 16; // STYLE (MAIN COLOR) as the swatch widget sees it, so it draws no swatch
+    constexpr int option_livery = 17; // STYLE of a car with liveries (rush2::car_mods::livery_count), under CAR
     constexpr int max_options = 16;
     constexpr int styles = 3;
 
@@ -119,6 +121,16 @@ namespace {
         return rush2::car2049::paint_jobs(type) > 0 ? Rows::Jobs : Rows::Ramps;
     }
 
+    // The player a car select slot (0 or 1) is choosing for.
+    int slot_player(int slot) {
+        return slot + (rush2::players4::car_select_second_round() ? 2 : 0);
+    }
+
+    // The profile (record in the save area) choosing in a slot, which keeps its STYLE per car.
+    uint32_t slot_profile(uint8_t* rdram, int slot) {
+        return (uint32_t)MEM_W(0x24, rush2::players4::record(slot_player(slot)));
+    }
+
     // Puts slot's list in place. swatch: for the color swatch widget, which sees STYLE as option_style.
     void use_slot(uint8_t* rdram, int slot, bool swatch = false) {
         if (base_count == 0 || slot < 0 || slot > 1) {
@@ -127,9 +139,16 @@ namespace {
         current_slot = slot;
         Rows rows = slot_rows(rdram, slot);
         int paints = rows == Rows::Mod ? rush2::car2049::mod_car_paints(slot_car(rdram, slot)) : 3;
+        // A car with liveries: STYLE under CAR, and a livery (drawn as authored) has no color rows.
+        int type = slot_car(rdram, slot);
+        bool liveries = rush2::car_mods::livery_count(type) > 0;
+        bool livery = liveries && rush2::car_mods::livery_style(rdram, slot_profile(rdram, slot), type) > 0;
         int count = 0;
-        for (int i = 0; i < base_count; i++) {
+        for (int i = 0; i < base_count && count < max_options; i++) {
             int id = base_ids[i];
+            if (livery && (id == option_main || id == option_accent || id == option_stripe || id == option_stripe_colour)) {
+                continue;
+            }
             if (rows == Rows::Jobs && (id == option_accent || id == option_stripe || id == option_stripe_colour)) continue;
             if (rows == Rows::Ramps && id == option_stripe) continue;
             if (rows == Rows::TwoColors && (id == option_stripe || id == option_stripe_colour || id == option_engine)) continue;
@@ -140,6 +159,10 @@ namespace {
             if (rows == Rows::Jobs && swatch && id == option_main) id = option_style;
             MEM_W(0, (int32_t)(option_ids + count * 4)) = id;
             count++;
+            if (id == 0 && liveries && count < max_options) {
+                MEM_W(0, (int32_t)(option_ids + count * 4)) = option_livery;
+                count++;
+            }
         }
         MEM_W(0, (int32_t)option_count) = count;
         int cursor = std::clamp((int32_t)MEM_W(0, (int32_t)(slot_cursor + slot * 4)), 0, count - 1);
@@ -151,15 +174,11 @@ namespace {
     // The label pointer that stands in for row id's label on the current slot (0: its own).
     uint32_t row_label(uint8_t* rdram, int id) {
         if (id == option_wings) return wings_label_ptr;
+        if (id == option_livery) return style_label_ptr;
         Rows rows = slot_rows(rdram, current_slot);
         if (rows == Rows::Jobs && (id == option_main || id == option_style)) return style_label_ptr;
         if (rows == Rows::Ramps && id == option_stripe_colour) return tertiary_label_ptr;
         return 0;
-    }
-
-    // The player a car select slot (0 or 1) is choosing for.
-    int slot_player(int slot) {
-        return slot + (rush2::players4::car_select_second_round() ? 2 : 0);
     }
 
     // The light bar of the controller choosing in a slot shows the MAIN COLOR row of the car in the slot
@@ -236,6 +255,19 @@ extern "C" void rush2_wings_car_rows(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_wings_car_step(uint8_t* rdram, recomp_context* ctx) {
     int step = (int32_t)ctx->r5;
     int slot = (int32_t)ctx->r23;
+    if ((int32_t)ctx->r15 == option_livery && step != 0) {
+        // STYLE of a car with liveries: the car itself, then each livery; the preview shows it at once.
+        int type = slot_car(rdram, slot);
+        int styles_n = rush2::car_mods::livery_count(type) + 1;
+        uint32_t profile = slot_profile(rdram, slot);
+        int style = (rush2::car_mods::livery_style(rdram, profile, type) + step + styles_n) % styles_n;
+        rush2::car_mods::set_livery_style(rdram, profile, type, style);
+        // Both panels' previews of the car (one player's shows in panel 1); each shows its own player's STYLE.
+        for (int panel = 0; panel < 2; panel++) {
+            rush2::car_mods::paint_livery(rdram, panel * rush2::car2049::types + type);
+        }
+        return;
+    }
     if ((int32_t)ctx->r15 == option_main && step != 0 && slot_rows(rdram, slot) == Rows::Jobs) {
         // STYLE: the game adds the step to the MAIN COLOR byte and wraps it at 32; set it so the sum wraps at the jobs.
         int type = slot_car(rdram, slot);
@@ -282,6 +314,13 @@ extern "C" void rush2_wings_car_value(uint8_t* rdram, recomp_context* ctx) {
     }
     int id = (int32_t)MEM_W(0, (int32_t)(option_ids + row * 4));
     int slot = (int32_t)ctx->r18;
+    if (id == option_livery) {
+        write_strings(rdram);
+        int type = slot_car(rdram, slot);
+        int style = std::clamp(rush2::car_mods::livery_style(rdram, slot_profile(rdram, slot), type), 0, max_jobs - 1);
+        ctx->r16 = (uint64_t)(int64_t)(int32_t)(job_names + style * 16);
+        return;
+    }
     if (id == option_main && slot_rows(rdram, slot) == Rows::Jobs) {
         write_strings(rdram);
         int type = slot_car(rdram, slot);

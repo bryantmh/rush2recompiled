@@ -160,6 +160,8 @@ void rush2_car49_logo(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx);
+void rush2_livery_mirror_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_livery_mirror_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_setup_mass(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_engine_before(uint8_t* rdram, recomp_context* ctx);

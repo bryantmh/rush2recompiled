@@ -37,6 +37,7 @@
 #include "rush2.h"
 #include "calspeed.h"
 #include "car2049.h"
+#include "car_mods.h"
 #include "paint_colors.h"
 #include "car_probes.h"
 #include "engine2049.h"
@@ -917,10 +918,12 @@ namespace {
     // range) before each run of triangles; they are rewritten (appended to the file) with every load of a painted
     // texture inlined before the triangles of each panel it textures, so each load can be pointed at the pristine
     // texels or at their scuffed copy (appended too) on its own. The relocator rebases the inlined G_SETTIMGs with
-    // the list (they start pristine); rush2_car49_dent switches them.
-    void add_damage_textures(std::vector<uint8_t>& car, const std::string& model, int car_index, Paint& p) {
+    // the list (they start pristine); rush2_car49_dent switches them. loads_start / loads_end: where the texture-load
+    // lists are, when not the [7]..[8] range (a car mod livery's, appended to the car's asset).
+    void add_damage_textures(std::vector<uint8_t>& car, const std::string& model, int car_index, Paint& p,
+                             uint32_t loads_start = 0, uint32_t loads_end = 0) {
         uint32_t models = be32(car, 0), names = be32(car, 4), count = be32(car, 16);
-        uint32_t txld_start = be32(car, 28), txld_end = be32(car, 32);
+        uint32_t txld_start = loads_end != 0 ? loads_start : be32(car, 28), txld_end = loads_end != 0 ? loads_end : be32(car, 32);
         uint32_t record = 0;
         for (uint32_t m = 0; m < count; m++) {
             if (strncmp(reinterpret_cast<const char*>(&car[names + m * 0x18]), model.c_str(), 16) == 0) {
@@ -1591,6 +1594,36 @@ void rush2::car2049::clear_body_car(uint8_t* rdram, int type, const std::vector<
     dented.clear();
     if (own.empty()) rush2::assets::restore(rdram, 0x1D + type);
     else rush2::assets::replace(rdram, 0x1D + type, own, rush2::origin::Game::Rush2);
+}
+
+namespace {
+    // Car mod liveries' bodies (add_livery_body), by id.
+    std::mutex livery_mutex;
+    std::vector<Paint> livery_bodies;
+}
+
+int rush2::car2049::add_livery_body(int id, std::vector<uint8_t>& car, const std::string& prefix,
+                                    const std::map<uint32_t, std::vector<uint8_t>>& scuffed, uint32_t loads_start,
+                                    uint32_t loads_end) {
+    // As set_body makes a one-body car's: its vertices, then its texture loads per panel with their scuffed copies.
+    Paint p;
+    p.body = true;
+    p.given_scuffs = scuffed;
+    collect_body_vertices(car, prefix, p);
+    if (p.vertices.empty()) return -1;
+    add_damage_textures(car, prefix + "FRAME1", 0, p, loads_start, loads_end);
+    std::lock_guard lock{ livery_mutex };
+    if (id >= 0 && id < (int)livery_bodies.size()) {
+        livery_bodies[id] = std::move(p);
+        return id;
+    }
+    livery_bodies.push_back(std::move(p));
+    return int(livery_bodies.size()) - 1;
+}
+
+void rush2::car2049::clear_livery_bodies() {
+    std::lock_guard lock{ livery_mutex };
+    livery_bodies.clear();
 }
 
 void rush2::car2049::init_assets(uint8_t* rdram) {
@@ -2372,6 +2405,7 @@ extern "C" void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx) {
     if (id < 0 || id >= rush2::car_types::preview_ids) {
         return;
     }
+    rush2::car_mods::paint_livery(rdram, id); // a livery's lists (STYLE), whatever paints the car below
     for (int& c : colours) {
         if (c >= rush2::paint_colors::max_colors) c = 0;
     }
@@ -2545,21 +2579,76 @@ extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
 // a panel to 1, func_8006B730 / func_8009A264 / func_800715E8), and restored when it is repaired. A damaged panel's
 // textures also turn to their scuffed copies, as Rush 2's damaged panels use its D1 textures, and panel 0's damage
 // folds the hood up, as Rush 2 swaps in its buckled hood parts (body_hood).
+namespace {
+    // Moves body p's vertices (in the asset copy at base) by the five panels' damage levels.
+    void dent_body(uint8_t* rdram, uint32_t base, const Paint* p, const float level[5]) {
+        // Panels: 0 front right, 1 front left, 2 rear right, 3 rear left, 4 top. +z is the front, +x the right side.
+        constexpr float corner_x[4] = { 1.0f, -1.0f, 1.0f, -1.0f }, corner_z[4] = { 1.0f, 1.0f, -1.0f, -1.0f };
+        for (size_t i = 0; i < p->vertices.size(); i++) {
+            const auto& r = p->rest[i];
+            float x = r[0] / p->extent[0], y = r[1] / p->extent[1], z = r[2] / p->extent[2];
+            // Jitter from the position, so vertices that share a position (seams, both LODs) move together.
+            uint32_t h = (uint32_t(uint16_t(r[0])) * 73856093u) ^ (uint32_t(uint16_t(r[1])) * 19349663u) ^
+                         (uint32_t(uint16_t(r[2])) * 83492791u);
+            h ^= h >> 13;
+            h *= 0x5BD1E995u;
+            float jitter = float((h >> 8) & 0xFF) / 255.0f; // 0-1
+            float dx = 0.0f, dy = 0.0f, dz = 0.0f;
+            for (int k = 0; k < 4; k++) {
+                if (level[k] == 0.0f) continue;
+                float d = std::hypot((x - corner_x[k]) * 0.9f, (z - corner_z[k]) * 1.1f);
+                float w = std::max(0.0f, 1.0f - d / 1.15f);
+                w = w * w * (3.0f - 2.0f * w) * level[k] * (0.75f + 0.5f * jitter);
+                dx -= corner_x[k] * w * 0.22f;  // towards the middle
+                dz -= corner_z[k] * w * 0.20f;  // shorter
+                dy -= std::max(0.0f, y) * w * 0.18f; // crumpled down
+            }
+            if (level[4] > 0.0f && y > 0.45f) {
+                dy -= (y - 0.45f) / 0.55f * level[4] * (0.3f + 0.15f * jitter);
+            }
+            // The hood buckles up by panel 0's damage, as Rush 2 swaps in its buckled hood (body_hood).
+            if (level[0] > 0.0f && i < p->hood.size()) {
+                dy += p->hood[i] * level[0] * 0.2f * (0.85f + 0.3f * jitter);
+            }
+            int16_t out[3] = {
+                int16_t(std::lround(r[0] + dx * p->extent[0])),
+                int16_t(std::lround(r[1] + dy * p->extent[1])),
+                int16_t(std::lround(r[2] + dz * p->extent[2])),
+            };
+            for (int c = 0; c < 3; c++) {
+                MEM_H(0, (int32_t)(base + p->vertices[i] + c * 2)) = (uint16_t)out[c];
+                if (i < p->mirrors.size()) {
+                    for (uint32_t m : p->mirrors[i]) MEM_H(0, (int32_t)(base + m + c * 2)) = (uint16_t)out[c];
+                }
+            }
+        }
+    }
+}
+
 extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
     int car = (int16_t)MEM_H(0, (int32_t)((uint32_t)ctx->r4 + 0xE));
     if (car < 0 || car >= 8) {
         return;
     }
-    uint32_t base;
+    uint32_t base = 0;
     const Paint* p = car_instance(rdram, car, base);
-    if (p == nullptr || p->vertices.empty()) {
+    if (p != nullptr && p->vertices.empty()) p = nullptr;
+    // A car mod livery on the car (any car, Rush 2's too): its body dents as a one-body car's.
+    uint32_t livery_base = 0;
+    int livery = rush2::car_mods::livery_body(rdram, car, livery_base);
+    if (p == nullptr && livery < 0) {
         return;
     }
+    if (p == nullptr) base = livery_base;
     uint32_t bits = (uint32_t)MEM_W(0, (int32_t)(0x801124A0 + car * 0x354 + 0xE4));
     // In the menus, track and car select (game state 0x8010C0D0 0-2) the car state still holds the last race's damage:
     // the car select's preview would be drawn crushed (Rush 2 draws its intact panels there).
     int32_t state = MEM_W(0, (int32_t)0x8010C0D0);
     if (state >= 0 && state <= 2) bits = 0;
+    // Test aid: RUSH2_TEST_DAMAGE=1 draws race car 0 with every panel at its worst (the dents only; the game's damage
+    // is left alone).
+    static const bool test_damage = std::getenv("RUSH2_TEST_DAMAGE") != nullptr;
+    if (test_damage && car == 0 && state > 2) bits = 0xFFFFFFFFu;
     float level[5];
     uint32_t key = 0;
     for (int k = 0; k < 5; k++) {
@@ -2568,50 +2657,21 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
         key |= uint32_t(v) << (k * 2);
         level[k] = v == 0 ? 0.0f : v == 1 ? 0.8f : 1.0f;
     }
+    key |= uint32_t(livery + 1) << 16; // a livery shown since: its body takes the damage too
     auto it = dented.find(base);
     if (it != dented.end() && it->second == key) {
         return;
     }
     dented[base] = key;
-    set_damage_textures(rdram, base, *p, level);
-    // Panels: 0 front right, 1 front left, 2 rear right, 3 rear left, 4 top. +z is the front, +x the right side.
-    constexpr float corner_x[4] = { 1.0f, -1.0f, 1.0f, -1.0f }, corner_z[4] = { 1.0f, 1.0f, -1.0f, -1.0f };
-    for (size_t i = 0; i < p->vertices.size(); i++) {
-        const auto& r = p->rest[i];
-        float x = r[0] / p->extent[0], y = r[1] / p->extent[1], z = r[2] / p->extent[2];
-        // Jitter from the position, so vertices that share a position (seams, both LODs) move together.
-        uint32_t h = (uint32_t(uint16_t(r[0])) * 73856093u) ^ (uint32_t(uint16_t(r[1])) * 19349663u) ^
-                     (uint32_t(uint16_t(r[2])) * 83492791u);
-        h ^= h >> 13;
-        h *= 0x5BD1E995u;
-        float jitter = float((h >> 8) & 0xFF) / 255.0f; // 0-1
-        float dx = 0.0f, dy = 0.0f, dz = 0.0f;
-        for (int k = 0; k < 4; k++) {
-            if (level[k] == 0.0f) continue;
-            float d = std::hypot((x - corner_x[k]) * 0.9f, (z - corner_z[k]) * 1.1f);
-            float w = std::max(0.0f, 1.0f - d / 1.15f);
-            w = w * w * (3.0f - 2.0f * w) * level[k] * (0.75f + 0.5f * jitter);
-            dx -= corner_x[k] * w * 0.22f;  // towards the middle
-            dz -= corner_z[k] * w * 0.20f;  // shorter
-            dy -= std::max(0.0f, y) * w * 0.18f; // crumpled down
-        }
-        if (level[4] > 0.0f && y > 0.45f) {
-            dy -= (y - 0.45f) / 0.55f * level[4] * (0.3f + 0.15f * jitter);
-        }
-        // The hood buckles up by panel 0's damage, as Rush 2 swaps in its buckled hood (body_hood).
-        if (level[0] > 0.0f && i < p->hood.size()) {
-            dy += p->hood[i] * level[0] * 0.2f * (0.85f + 0.3f * jitter);
-        }
-        int16_t out[3] = {
-            int16_t(std::lround(r[0] + dx * p->extent[0])),
-            int16_t(std::lround(r[1] + dy * p->extent[1])),
-            int16_t(std::lround(r[2] + dz * p->extent[2])),
-        };
-        for (int c = 0; c < 3; c++) {
-            MEM_H(0, (int32_t)(base + p->vertices[i] + c * 2)) = (uint16_t)out[c];
-            if (i < p->mirrors.size()) {
-                for (uint32_t m : p->mirrors[i]) MEM_H(0, (int32_t)(base + m + c * 2)) = (uint16_t)out[c];
-            }
+    if (p != nullptr) {
+        set_damage_textures(rdram, base, *p, level);
+        dent_body(rdram, base, p, level);
+    }
+    if (livery >= 0 && livery_base == base) {
+        std::lock_guard lock{ livery_mutex };
+        if (livery < (int)livery_bodies.size()) {
+            set_damage_textures(rdram, base, livery_bodies[livery], level);
+            dent_body(rdram, base, &livery_bodies[livery], level);
         }
     }
 }
@@ -3236,7 +3296,9 @@ namespace {
         for (int id = 0; id < ids; id++) {
             uint32_t base;
             const Paint* p = car_instance(rdram, id, base);
-            bool rush2049 = p != nullptr && !p->body;
+            // A car mod livery's layers (its own body's) show as a one-body mod car's do.
+            uint32_t livery_base;
+            bool rush2049 = p != nullptr && !p->body && rush2::car_mods::livery_body(rdram, id, livery_base) < 0;
             uint32_t record = car_body_nodes + uint32_t(id) * car_body_node_stride;
             uint32_t parts = car_part_handles + uint32_t(id) * 0x4E;
             for (const SheenSlot& s : sheen_slots) {

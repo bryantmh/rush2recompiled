@@ -71,6 +71,15 @@ namespace rush2::car2049 {
     void set_body_car(uint8_t* rdram, int type, std::vector<uint8_t> car, const std::string& prefix,
                       const std::map<uint32_t, std::vector<uint8_t>>& scuffed);
     void clear_body_car(uint8_t* rdram, int type, const std::vector<uint8_t>& own);
+    // A car mod livery's body (src/car_mods.cpp, docs/car_mods.md#liveries): model `prefix`FRAME1 of car container
+    // `car` and its sheen layers, damaged as a one-body car's (set_body_car) by the panels of a car showing it (the copy
+    // rush2::car_mods::livery_body names): dented, and each texture load of the body (lists at loads_start..loads_end,
+    // which its lists call) inlined per panel and switched to its scuffed copy (`scuffed`: pristine texels -> copy);
+    // the lists are rewritten in `car`. Returns its id (`id` again when given), -1 without vertices.
+    // clear_livery_bodies drops them all.
+    int add_livery_body(int id, std::vector<uint8_t>& car, const std::string& prefix,
+                        const std::map<uint32_t, std::vector<uint8_t>>& scuffed, uint32_t loads_start, uint32_t loads_end);
+    void clear_livery_bodies();
     // California Speed car n (type car_types::first_calspeed + n, src/calspeed/calspeed_cars.cpp): `car` is its body
     // (convert_body_car, parts named `prefix`, at most 7 characters), drawn and dented as set_body_car's, its damaged
     // panels scuffed along California Speed's paint ramps, and painted as California Speed paints it (func_800BAE2C):

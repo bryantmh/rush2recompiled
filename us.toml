@@ -8188,6 +8188,19 @@ text = "    rush2_car49_select_get(rdram, ctx);"
 [[patches.hook]]
 func = "menu_screen_car_select_frame_803B9478"
 before_vram = 0x803BA844
+# Car mod liveries (src/car_mods.cpp): a car showing one has words of its lists rewritten (a branch to the livery, ends
+# on its panels). The mirror walk follows branches, so they are put back while it turns an asset's triangles over, and
+# every list is walked once as loaded. Both of its exits pass 0x800777E8.
+[[patches.hook]]
+func = "mirror_state_update_800776DC"
+before_vram = 0x800776DC
+text = "    rush2_livery_mirror_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "mirror_state_update_800776DC"
+before_vram = 0x800777E8
+text = "    rush2_livery_mirror_end(rdram, ctx);"
+
 text = "    rush2_car49_select_first_frame(rdram, ctx);"
 
 # The car select's starting cursor (func_803B81F0 reads the record's 5-bit type with func_8009E6D0, $a0 = the byte):

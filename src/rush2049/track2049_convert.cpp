@@ -2925,7 +2925,7 @@ namespace {
                 uint32_t w0 = u32(out, pc), w1 = u32(out, pc + 4);
                 uint8_t op = uint8_t(w0 >> 24);
                 if (op == 0xDF) break;
-                if (op == 0x01 || op == 0x05 || op == 0x06 || op == 0x07) hood_commands.push_back({ w0, w1 });
+                if (op == 0x01 || op == 0x05 || op == 0x06 || op == 0x07 || is_marker(w0, w1)) hood_commands.push_back({ w0, w1 });
             }
             hood_copies = sheen_copies(hood_commands);
         }

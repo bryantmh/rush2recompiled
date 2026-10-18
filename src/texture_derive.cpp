@@ -859,7 +859,7 @@ namespace {
         // The mod's image with its painted texels in the drawn paint: a body texel's brightness over the stand-in
         // ramp's lightest grey (Rush 2's CARPALETTE entry 1, 230) times the paint, so shading in the image stays.
         // Damaged: the paint mottled lighter and darker in blotches, with a few bright scrapes, as Rush 2's D1 panel
-        // textures are.
+        // textures are; an image without a paint mask (a livery's, drawn as authored) all of it.
         static Image paint_mod(const Image& image, const Image& mask, const uint8_t paint[2][3], bool damaged,
                                uint32_t seed) {
             Image out = image;
@@ -891,7 +891,13 @@ namespace {
                         wa = mask.rgba[mi + 1] / 255.0f;
                     }
                     float total = wm + wa;
-                    if (total <= 0.0f) continue;
+                    if (total <= 0.0f) {
+                        if (damaged && !has_mask) {
+                            float n = (noise(x / cell, y / cell) - 0.5f) * 0.45f + (noise(x / cell * 2.7f + 17.0f, y / cell * 2.7f) - 0.5f) * 0.2f;
+                            for (int c = 0; c < 3; c++) out.rgba[i + c] = uint8_t(std::clamp(out.rgba[i + c] * (1.0f + n), 0.0f, 255.0f));
+                        }
+                        continue;
+                    }
                     if (total > 1.0f) {
                         wm /= total;
                         wa /= total;
@@ -920,7 +926,7 @@ namespace {
                         int px = int(x + std::cos(angle) * t), py = int(y + std::sin(angle) * t);
                         if (px < 0 || py < 0 || px >= int(image.width) || py >= int(image.height)) break;
                         size_t i = (size_t(py) * image.width + px) * 4;
-                        float w = has_mask ? mask.rgba[(size_t(py * mask.height / image.height) * mask.width + px * mask.width / image.width) * 4] / 255.0f : 0.0f;
+                        float w = has_mask ? mask.rgba[(size_t(py * mask.height / image.height) * mask.width + px * mask.width / image.width) * 4] / 255.0f : 1.0f;
                         for (int c = 0; c < 3; c++) out.rgba[i + c] = uint8_t(out.rgba[i + c] + (220 - out.rgba[i + c]) * w * 0.7f);
                     }
                 }

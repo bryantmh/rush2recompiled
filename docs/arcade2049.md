@@ -180,26 +180,27 @@ These are the N64 2049 default descriptor's points (Rush 2's descriptor: y -0.8 
 A `COL` folder is a whole livery, not a paint color. Its texture names differ (the 'Cuda's `COL2` is a `B_` set,
 `COL8` a police car with `COP_` textures and a light bar), and some add parts (a blower, a hood scoop).
 
-`tools/arcade2049/car_mod.py` converts every arcade car into a new car for a mod (docs/car_mods.md#new-cars). Most
-are the arcade forms of N64 cars: matched by side and top silhouette against the N64 cars' bodies (the asset dump's
-FRAME1) and by shared texture names (the Truck's `C11_` set is the Crusher's, the Cuda's blower the Bruiser's). Those
-take the N64 car's physics. The wheels sit
-at the arcade's points with a scale of 1.08, which is 1.01 ft at Rush 2's wheel model size. Each `COL` folder becomes
-a color scheme (STYLE), with the arcade's textures as authored and no paint mask.
+`tools/arcade2049/car_mod.py` builds the `rush2049_arcade_cars` mod (docs/car_mods.md#rush-2049-arcade-cars). Most
+arcade cars are the arcade forms of N64 cars: matched by side and top silhouette against the N64 cars' bodies (the
+asset dump's FRAME1) and by shared texture names (the Truck's `C11_` set is the Crusher's, the Cuda's blower the
+Bruiser's). Only their `COL` folders that differ from the N64 car's look go in the mod, as liveries of the N64 car
+(docs/car_mods.md#liveries); the Cuda's go to the Bruiser. The Truck, Deuce and Caddy are new cars: their wheels sit
+at the arcade's points with a scale of 1.08, which is 1.01 ft at Rush 2's wheel model size, and each `COL` folder is a
+color scheme (STYLE), with the arcade's textures as authored and no paint mask.
 
-| Car | N64 counterpart (physics) | Base |
+| Car | N64 counterpart | In the mod |
 |---|---|---|
-| CAR1 FORMULA 1 SE | FORMULA 1 | FORM1 |
-| CAR2 GX-2 SE | GX-2 | GT90 |
-| CAR3 ROCKET ZX SE | ROCKET ZX | CONCPT |
-| CAR4 MAGNUM SE | MAGNUM | VIPER |
-| CAR5 SUPER GT SE | SUPER GT | BUGAT |
-| CAR6 8-BALL SE | 8-BALL | SUPRA |
-| CAR7 CUDA | BRUISER | CAMARO |
-| CAR8 TRUCK | CRUSHER (the lifted monster-truck form of this body) | PICKUP |
-| CAR9 SUPERCAR | PANTHER | GT90 |
-| CAR10 DEUCE | none: the arcade's physics | HOTROD |
-| CAR11 CADDY | none: the arcade's physics | CADDY |
+| CAR1 FORMULA 1 SE | FORMULA 1 | nothing |
+| CAR2 GX-2 SE | GX-2 | GX-2 livery: COL6 |
+| CAR3 ROCKET ZX SE | ROCKET ZX | nothing |
+| CAR4 MAGNUM SE | MAGNUM | Magnum liveries: COL4, 6, 7 |
+| CAR5 SUPER GT SE | SUPER GT | Super GT liveries: COL5, 7 |
+| CAR6 8-BALL SE | 8-BALL | 8-Ball liveries: COL1, 3 |
+| CAR7 CUDA | BRUISER | Bruiser liveries: COL1, 2, 3, 5, 6, 7, 8 (moved 0.5 ft forward to the Bruiser's wheels) |
+| CAR8 TRUCK | CRUSHER (the lifted monster-truck form of this body) | new car TRUCK, drives as Rush 2's PICKUP |
+| CAR9 SUPERCAR | PANTHER | nothing |
+| CAR10 DEUCE | none | new car DEUCE, drives as Rush 2's HOTROD |
+| CAR11 CADDY | none | new car CADDY, drives as Rush 2's CADDY |
 
 ### Car physics
 

@@ -10,10 +10,10 @@ rush2049_arcade_cars, apart from tools/arcade2049/track_mod.py's tracks).
 
 Per car: every color scheme (CARS/CARn/COLn: whole liveries with their own texture sets and parts) as its own glb,
 <ID>_COLn.glb, listed in the .json's "schemes" (the car select's STYLE picks one); of each, the body's full-detail LOD (CARBODY LOD 0) in the model dump's space (1/16 ft, x negated), one material per
-arcade texture, drawn as authored (no paint mask: each scheme keeps the arcade's colors). The .json takes the car's
+arcade texture, drawn as authored (no paint mask: each scheme keeps the arcade's colors), and its hood camera hood
+(HOOD, as Rush 2049's N64 cars draw theirs) as <ID>_COLn_HOOD.glb, listed in "hoods". The .json takes the car's
 name, the Rush 2 car it starts from (engine sound, options), the wheel centers (the arcade's, the same for every car:
---sides draws them over the side views) and the arcade's physics and box mapped onto Rush 2 (physics(): reads the
-Rush 2 and Rush 2049 ROMs, RUSH2_ROM and RUSH2049_ROM). The hood-camera model (HOOD), brake lights (BRAKE) and wheels
+--sides draws them over the side views) and the arcade's collision box; it drives as its base car. The brake lights (BRAKE) and wheels
 (Rush 2's are drawn) are left out.
 """
 import argparse, importlib.util, json, os, sys
@@ -32,25 +32,28 @@ _car_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_car_mod)
 Mesh, write_glb = _car_mod.Mesh, _car_mod.write_glb
 
-# Every arcade car. `n64`: its Rush 2049 (N64) counterpart, the same body in the arcade's form (matched by side and
-# top silhouette and textures, docs/arcade2049.md#cars): the mod car takes that car's physics ("physics_from"); the
-# others get the arcade's own (physics()). The arcade gives every car the same wheels (docs/arcade2049.md#cars: its
-# one car descriptor's wheel block, copied into each race car, and its WBLUR wheels placed there): the right wheels at
-# x 2.75, front z 3.925 / rear z -3.925, 0.8 / 0.75 ft below the body's origin (Rush 2's descriptor: y -0.8 / -0.75,
-# the drawn center 1 ft higher). Every arcade wheel is 1.01 ft round (WHEEL), so the wheel model (15/16 ft at scale 1)
-# is drawn at 1.08.
+# The arcade cars added as new cars, each driving as the Rush 2 car of its kind (`base`: its physics, engine sound and
+# options). The arcade can't tell them apart: it gives every car one physics descriptor (docs/arcade2049.md#car-physics),
+# so its values made the Deuce and the Caddy drive alike, and harder than any stock car. The arcade gives every car
+# the same wheels (docs/arcade2049.md#cars: its one car descriptor's wheel block, copied into each race car, and its
+# WBLUR wheels placed there): the right wheels at x 2.75, front z 3.925 / rear z -3.925, 0.8 / 0.75 ft below the
+# body's origin (Rush 2's descriptor: y -0.8 / -0.75, the drawn center 1 ft higher). Every arcade wheel is 1.01 ft
+# round (WHEEL), so the wheel model (15/16 ft at scale 1) is drawn at 1.08.
 CARS = {
-    'CAR1': dict(id='FORMULA', name='FORMULA 1 SE', base='FORM1', n64='FORMULA 1'),
-    'CAR2': dict(id='GXTWO', name='GX-2 SE', base='GT90', n64='GX-2'),
-    'CAR3': dict(id='ROCKETZX', name='ROCKET ZX SE', base='CONCPT', n64='ROCKET ZX'),
-    'CAR4': dict(id='MAGNUM', name='MAGNUM SE', base='VIPER', n64='MAGNUM'),
-    'CAR5': dict(id='SUPERGT', name='SUPER GT SE', base='BUGAT', n64='SUPER GT'),
-    'CAR6': dict(id='EIGHTBALL', name='8-BALL SE', base='SUPRA', n64='8-BALL'),
-    'CAR7': dict(id='CUDA', name='CUDA', base='CAMARO', n64='BRUISER'),
-    'CAR8': dict(id='TRUCK', name='TRUCK', base='PICKUP', n64='CRUSHER'),
-    'CAR9': dict(id='SUPERCAR', name='SUPERCAR', base='GT90', n64='PANTHER'),
+    'CAR8': dict(id='TRUCK', name='TRUCK', base='PICKUP'),
     'CAR10': dict(id='DEUCE', name='DEUCE', base='HOTROD'),
     'CAR11': dict(id='CADDY', name='CADDY', base='CADDY'),
+}
+# Arcade color schemes added to Rush 2049 (N64) cars as liveries (docs/car_mods.md#liveries): the N64 car, its arcade
+# folder, the COL folders, and how far forward (ft) the N64 car's wheels sit from the arcade's (the center of its
+# descriptor's wheel points: the Bruiser's 0x80110984, 4.425 / -3.425; the others' 0x801108D0, the arcade's own). The
+# arcade body moves by that, so it sits on the N64 car's wheels (a side and top silhouette fit agrees).
+LIVERIES = {
+    'GX-2': dict(folder='CAR2', cols=[6], dz=0.0),
+    'MAGNUM': dict(folder='CAR4', cols=[4, 6, 7], dz=0.0),
+    'SUPER GT': dict(folder='CAR5', cols=[5, 7], dz=0.0),
+    '8-BALL': dict(folder='CAR6', cols=[1, 3], dz=0.0),
+    'BRUISER': dict(folder='CAR7', cols=[1, 2, 3, 5, 6, 7, 8], dz=0.5),
 }
 FRONT, REAR = (2.75, 3.925), (2.75, -3.925)
 WHEEL_Y = (0.2, 0.25)       # drawn centers above the origin: Rush 2's descriptor y + 1 (-0.8, -0.75)
@@ -58,62 +61,31 @@ SCALE = (1.08, 1.08)
 UNITS = 16.0                # vertex units per foot (the model dump's space)
 
 
-# The arcade's car physics (project-r.exe, docs/arcade2049.md#car-physics). Every player car loads one descriptor
-# (built at VA 0x140264340 into 0x140A59F10, read by the setup at VA 0x140226150); the only per-car tables are the
-# collision box (VA 0x140664130, 12 x {front, rear, half width, height}, by car index = CARn - 1), the engine sound and
-# a visual one. Its values that mean what the N64 port's do:
-ARCADE = dict(mass=109.472,                       # slugs (3525 lb); N64 2049: 102.484 + frame
-              inertia_constants=[1527.0, 1636.0, 1000.0], rolling_resistance=75.0, final_drive=3.3, clutch=1000.0,
-              suspension=[-3600, -3600, -4200, -4200, -1000, -1000, -880, -880, -1100, -1100, -480, -480, -550, -550],
-              suspension_constants=[16.0, 4.0], preload=0.3)
+# The arcade's collision boxes (project-r.exe VA 0x140664130, 12 x {front, rear, half width, height}, by car index =
+# CARn - 1; docs/arcade2049.md#car-physics). Height: the N64 port of this code gives every car 3.5 ft; the arcade's
+# table has 2 for all (and its drone box, VA 0x1406EF824), which isn't checked against Rush 2's box use, so the N64's
+# is kept.
 ARCADE_BOX = [(5.75, 6.5, 3, 2), (6.29, 6.58, 2.9, 2), (6.05, 6.65, 2.9, 2), (6.25, 5.75, 3, 2), (6.44, 6.64, 3, 2),
               (6.25, 6.75, 3, 2), (5.75, 6, 3, 2), (6.7, 6.97, 2.8, 2), (6.25, 6, 3, 2), (6.75, 7, 3, 2),
               (6.5, 6.5, 3, 2), (6.25, 5.5, 3, 2)]
 
 
-def physics(folder):
-    """The car's "physics" and "box", normalized onto Rush 2 as src/rush2049/car2049.cpp build_physics does the N64
-    2049 cars: the arcade's own mass, suspension, inertia constants, final drive, clutch, preload and box as they are;
-    the drivetrain (torque, gears, drag, shift points), which the arcade gives every car alike, as Rush 2's roster
-    mean (all but the secret ROCKET: the arcade roster's place, the average car); pitch/roll and yaw inertia from the
-    mass by the N64 port's frame formula; the rest as build_physics sets a 2049 car (2049's tire curves, rear grip and
-    drive, Rush 2's mean steering and settings). Reads the Rush 2 and Rush 2049 ROMs (RUSH2_ROM, RUSH2049_ROM)."""
-    import struct
-    import cars  # tools/rush2049/cars.py
-    r2, c49 = cars.R2Cars(), cars.R49Cars()
-    types = [t for t in range(r2.N) if t != 20]
-    F = lambda b, o: struct.unpack('>f', b[o:o + 4])[0]
-    descs = [r2.desc(t) for t in types]
-    mean_desc = lambda o: sum(F(d, o) for d in descs) / len(descs)
-    mean_table = lambda a, k: sum(r2.table(a, k, t) for t in types) / len(types)
-    dv = c49.derived(0)                                      # a stock N64 2049 car (frame 2, the default descriptor)
-    d = (ARCADE['mass'] / dv['trans'][1] - c49.f(c49.MASS)) / c49.f(c49.K_MASS)  # its frame step over car 0's
-    p = dict(ARCADE)
-    p.update(pitch_roll_inertia=dv['inertia'] + d * 1000.0, yaw_inertia=dv['yaw_inertia'] + d * c49.f(c49.K_YAWI),
-             drag=mean_desc(0x60), torque=[mean_desc(0xB8 + 4 * i) for i in range(4)],
-             gears=[mean_desc(0xC8 + 4 * i) for i in range(6)], top_gear=4, shift_up=mean_desc(0xE4),
-             shift_down=mean_desc(0xE8), drivetrain_inertia=F(c49.desc(0), 0xA0), rear_grip=dv['rear_lat'],
-             tire_curves='2049', drive=dv['drive'], steering=mean_table(0x800C06B4, 'f'),
-             yaw_damping=mean_table(0x800C070C, 'f'), suspension_setting=round(mean_table(0x800C0D68, 'b')),
-             tires_setting=round(mean_table(0x800C0DAC, 'b')))
-    p = {k: ([round(float(x), 6) for x in v] if isinstance(v, list) else round(float(v), 6) if isinstance(v, float)
-             else v) for k, v in p.items()}
-    # Height: the N64 port of this code gives every car 3.5 ft; the arcade's table has 2 for all (and its drone box,
-    # VA 0x1406EF824), which isn't checked against Rush 2's box use, so the N64's is kept.
+def box(folder):
     front, rear, half, _ = ARCADE_BOX[int(folder[3:]) - 1]
-    return p, [front, rear, half, 3.5]
+    return [front, rear, half, 3.5]
 
 
 def mod_manifest(mod_id):
     return {'game_id': 'rush2', 'id': mod_id, 'display_name': 'Rush 2049 Arcade Cars',
-            'description': 'Every car of San Francisco Rush 2049 Special Edition (arcade), with all its color '
-                           'schemes, converted with tools/arcade2049/car_mod.py.',
+            'description': 'San Francisco Rush 2049 Special Edition (arcade): the Truck, Deuce and Caddy as new cars, '
+                           'and arcade liveries for the GX-2, Magnum, Super GT, 8-Ball and Bruiser (STYLE row), '
+                           'converted with tools/arcade2049/car_mod.py.',
             'short_description': 'Rush 2049 arcade cars', 'version': '1.0.0',
             'authors': ['rush2-recomp'], 'minimum_recomp_version': '0.0.0'}
 
 
-def body_textures(t):
-    lod = t.by_name['CARBODY'].lods[0]
+def body_textures(t, obj='CARBODY'):
+    lod = t.by_name[obj].lods[0]
     used = sorted({ti for *_, ti in lod.tris if ti < len(t.textures)})
     return lod, {ti: t.textures[ti].rgba(t.texels) for ti in used}
 
@@ -145,10 +117,13 @@ def color_schemes(folder):
     return sorted((c for c in os.listdir(d) if c.upper().startswith('COL')), key=lambda c: int(c[3:]))
 
 
-def convert(folder, col):
-    """Color scheme `col` of the car as a glb, and its triangle count."""
+def convert(folder, col, dz=0.0, obj='CARBODY'):
+    """Color scheme `col` of the car (object `obj`: the body, or HOOD, the hood camera's hood) as a glb, and its
+    triangle count (None without that object); dz moves it forward (ft)."""
     t = arcade.Track(os.path.join(arcade.DATA, 'CARS', folder, col))
-    lod, images = body_textures(t)
+    if obj not in t.by_name:
+        return None, 0
+    lod, images = body_textures(t, obj)
     parts = []
     tri_count = 0
     for ti, rgba in images.items():
@@ -159,14 +134,25 @@ def convert(folder, col):
             continue
         # Mirroring x (into glTF's space) flips the winding: b and c swap to keep each face's front.
         P = np.array([[lod.verts[k][0] for k in (a, c, b)] for a, b, c, _ in tris], float)
-        G = P * np.array([-UNITS, UNITS, UNITS])
+        G = (P + np.array([0.0, 0.0, dz])) * np.array([-UNITS, UNITS, UNITS])
         UV = np.array([[(lod.verts[k][1][0] / su, lod.verts[k][1][1] / sv) for k in (a, c, b)] for a, b, c, _ in tris])
         N = smooth_normals(G)
         mesh = Mesh(tex.name, tex.name, None, G.reshape(-1, 3), N.reshape(-1, 3), UV.reshape(-1, 2),
                     np.arange(len(tris) * 3).reshape(-1, 3))
         parts.append((mesh, Image.fromarray(rgba, 'RGBA'), None))
         tri_count += len(tris)
-    return write_glb(parts, '%s_%s' % (folder, col)), tri_count
+    return write_glb(parts, '%s_%s_%s' % (folder, col, obj)), tri_count
+
+
+def write_hood(out, folder, col, name, dz=0.0):
+    """The scheme's hood camera hood as glb `name` in `out`; its name, or "" without one."""
+    glb, tris = convert(folder, col, dz, 'HOOD')
+    if glb is None:
+        return ''
+    with open(os.path.join(out, name), 'wb') as fp:
+        fp.write(glb)
+    print('%s/%s HOOD -> %s: %d triangles' % (folder, col, name, tris))
+    return name
 
 
 def render_side(folder, car, S=48):
@@ -236,7 +222,7 @@ def main():
         for old in os.listdir(out):  # schemes of an earlier run
             if old.upper().startswith(car['id'] + '_') or old.upper() == car['id'] + '.GLB':
                 os.remove(os.path.join(out, old))
-        files = []
+        files, hoods = [], []
         for col in color_schemes(f):
             glb, tris = convert(f, col)
             name = '%s_%s.glb' % (car['id'], col)
@@ -244,19 +230,34 @@ def main():
                 fp.write(glb)
             files.append(name)
             print('%s/%s -> %s: %d triangles' % (f, col, name, tris))
-        phys, box = physics(f)
-        spec = {'name': car['name'], 'base': car['base'], 'schemes': files}
-        if car.get('n64'):
-            spec['physics_from'] = car['n64']
-        else:
-            spec['physics'] = phys
-        spec.update({'box': box,
+            hoods.append(write_hood(out, f, col, '%s_%s_HOOD.glb' % (car['id'], col)))
+        spec = {'name': car['name'], 'base': car['base'], 'schemes': files, 'hoods': hoods, 'box': box(f),
                 'wheels': {'front': [FRONT[0] * UNITS, WHEEL_Y[0] * UNITS, FRONT[1] * UNITS],
                            'rear': [REAR[0] * UNITS, WHEEL_Y[1] * UNITS, REAR[1] * UNITS]},
                 'wheel_scale': list(SCALE),
-                'source': 'San Francisco Rush 2049 SE (arcade) %s, tools/arcade2049/car_mod.py' % f})
+                'source': 'San Francisco Rush 2049 SE (arcade) %s, tools/arcade2049/car_mod.py' % f}
         with open(os.path.join(out, car['id'] + '.json'), 'w', newline='\n') as fp:
             json.dump(spec, fp, indent=4)
+    # Liveries: rush2/liveries/<ID>.json + <ID>_COLn.glb per N64 car.
+    lout = os.path.join(a.out_dir, 'rush2', 'liveries')
+    os.makedirs(lout, exist_ok=True)
+    for old in os.listdir(lout):
+        os.remove(os.path.join(lout, old))
+    for car, l in LIVERIES.items():
+        lid = car.replace(' ', '').replace('-', '')
+        files, hoods = [], []
+        for c in l['cols']:
+            glb, tris = convert(l['folder'], 'COL%d' % c, l['dz'])
+            name = '%s_COL%d.glb' % (lid, c)
+            with open(os.path.join(lout, name), 'wb') as fp:
+                fp.write(glb)
+            files.append(name)
+            print('%s/COL%d -> livery %s: %d triangles' % (l['folder'], c, name, tris))
+            hoods.append(write_hood(lout, l['folder'], 'COL%d' % c, '%s_COL%d_HOOD.glb' % (lid, c), l['dz']))
+        with open(os.path.join(lout, lid + '.json'), 'w', newline='\n') as fp:
+            json.dump({'car': car, 'styles': files, 'hoods': hoods,
+                       'source': 'San Francisco Rush 2049 SE (arcade) %s, tools/arcade2049/car_mod.py' % l['folder']},
+                      fp, indent=4)
     mod_json = os.path.join(a.out_dir, 'mod.json')
     if not os.path.exists(mod_json):
         with open(mod_json, 'w', newline='\n') as fp:

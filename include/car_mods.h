@@ -17,6 +17,20 @@ namespace rush2::car_mods {
     void init(uint8_t* rdram);
     // Once per frame: applies mods turned on or off since, while the game is in the menus.
     void check(uint8_t* rdram);
+
+    // Liveries (docs/car_mods.md#liveries): a mod's rush2/liveries/<ID>.json gives an existing car (a Rush 2 or Rush
+    // 2049 car) more looks, each a whole mesh drawn as authored, picked with the car select's STYLE row. STYLE 1 is the
+    // car as it is.
+    // How many liveries car `type` has (0: no STYLE row).
+    int livery_count(int type);
+    // The STYLE a profile (its record address in the save area) picked for car `type`: 0 the car itself, n livery n.
+    int livery_style(uint8_t* rdram, uint32_t profile, int type);
+    void set_livery_style(uint8_t* rdram, uint32_t profile, int type, int style);
+    // Shows the picked livery on car `id`'s loaded copy (a car select preview id, or a race car 0-7), or the car's own
+    // body for STYLE 1: from the end of func_8008582C (rush2_car49_paint), and when STYLE changes.
+    void paint_livery(uint8_t* rdram, int id);
+    // The livery body (rush2::car2049::add_livery_body id) car `id`'s copy shows, and the copy's base; -1 for none.
+    int livery_body(uint8_t* rdram, int id, uint32_t& base);
 }
 
 // Files in the enabled mods (car models, HUD placements).

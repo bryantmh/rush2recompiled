@@ -29,7 +29,7 @@ runs a screen through its jump table.
 | Screen | What |
 | --- | --- |
 | 0 | Start Game (the race-type menu, below) |
-| 1 | Select Player (the profile list; A picks one, then the track select) |
+| 1 | Select Player (the profile list; A picks one, then the track select). The list is JUST PLAY, CREATE PLAYER, then the saved players, with the cursor on the first saved player, so test runs press up twice: `8:START,11:A,12.5:DU,13.2:DU,14:A` reaches the track select as JUST PLAY. |
 | 0xD | Controller Pak manager: never shown, any switch to it is redirected (docs/game_fixes.md#no-controller-pak-manager) |
 | 0xE | Boot logos (then the title) |
 | 0x10 | Title screen (START goes on to Start Game) |
