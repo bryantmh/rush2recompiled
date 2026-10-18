@@ -660,9 +660,9 @@ namespace {
     // polygons on the verges), and 4-9 are walls (every polygon of 4, 7, 8 and 9 is vertical; its wall query at
     // 0x800AECC4 takes 5-9). In Rush 2 the type drives the physics (0 road, 1 dirt, 2 grass), 3 and 7 wreck a wheel
     // that touches them, 4 sinks the car, and only 5 and 6 are walls to the body probe: its cars wrecked on the verges
-    // and drove through the 4, 7, 8 and 9 walls. The verges become grass (type and material 2) and those walls 5.
-    // Materials drive only the dust, sounds, particles and stunt scoring, which know 0-2 and 8 (airborne: California
-    // Speed puts 8 on road), so the ground's materials past 2 become road (0).
+    // and drove through the 4, 7, 8 and 9 walls. The verges become grass (type 2) and those walls 5. The wheel
+    // materials (bits 4-7) stay California Speed's: src/surface_fx.cpp gives each its California Speed effects and
+    // shows Rush 2's code the Rush 2 material it acts like (docs/calspeed_research.md#4-surface-types).
     constexpr size_t col_seg = 0x84, col_node = 0x14, col_poly = 0x18;
 
     void remap_surfaces(Bytes& col) {
@@ -674,14 +674,24 @@ namespace {
             int type = low & 0xF, material = low >> 4;
             if (type == 3) {
                 type = 2;
-                material = 2;
             }
             else if (type == 4 || type >= 7) {
                 type = 5;
             }
-            if (type <= 2 && material > 2) material = 0;
             low = uint8_t(material << 4 | type);
         }
+    }
+
+    // California Speed's wheel effect models and textures, from its effects file (asset 10, which also holds the dust
+    // and smoke Rush 2 has as well): the water spray SPLASHLEFT_ / SPLASHRIGHT_ (src/surface_fx.cpp) with its four
+    // frames SPLASH01-04, and its tire mark texture SKID04, renamed so Rush 2's own SKID04 keeps its name.
+    constexpr int effects_asset = 10;
+    rush2::track2049::Rush2Pick effects_pick() {
+        rush2::track2049::Rush2Pick pick;
+        pick.models = { "SPLASHLEFT_", "SPLASHRIGHT_" };
+        pick.textures = { { "SPLASH01", "CSSPLASH01" }, { "SPLASH02", "CSSPLASH02" }, { "SPLASH03", "CSSPLASH03" },
+                          { "SPLASH04", "CSSPLASH04" }, { "SKID04", "CSSKID04" } };
+        return pick;
     }
 
     bool convert(const Bytes& rom, int t, const std::string& prefix, const std::set<std::string>& shared_models,
@@ -704,9 +714,11 @@ namespace {
                           std::any_of(renamed.begin(), renamed.end(), [&](const auto& r) { return names.contains(r.first); });
             if (needed) files.push_back(std::move(objects));
         }
+        files.push_back(asset(rom, effects_asset));
         std::vector<const Bytes*> sources;
         for (const Bytes& f : files) sources.push_back(&f);
         rush2::track2049::Rush2Merge spec;
+        spec.picks[files.size() - 1] = effects_pick();
         spec.rename = renamed;
         spec.dummies = { prefix + "FINISH", prefix + "FINISHB", "CSNONE" };
         spec.dummy_textures = { "CHKPNT", "FINISH" };

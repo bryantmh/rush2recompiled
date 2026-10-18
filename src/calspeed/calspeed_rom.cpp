@@ -1429,3 +1429,7 @@ extern "C" void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx) {
     for (const auto& p : race_points) lowest = std::min(lowest, p[1]);
     ctx->f16.fl = std::min(ctx->f16.fl, lowest - floor_depth);
 }
+
+bool rush2::calspeed::racing(uint8_t* rdram) {
+    return on_calspeed_track(rdram);
+}

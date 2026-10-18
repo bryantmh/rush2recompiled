@@ -626,6 +626,7 @@ namespace {
         std::multimap<std::string, std::string> appends;
         std::map<std::string, uint16_t> kinds;    // Model (output name) -> behaviour id (default: the 2049 object's).
         bool rush2_lod_flags = false;             // Keep every LOD flag (Rush 2 sources), not only lod_flags_kept.
+        const std::map<size_t, rush2::track2049::Rush2Pick>* picks = nullptr; // Source -> the models and textures taken.
     };
 
     Bytes merge_models(const std::vector<Model49>& srcs, const MergeOptions& opt, std::set<std::string>& names);
@@ -776,8 +777,17 @@ namespace {
         };
         std::vector<Entry> entries;
         std::set<std::string> have;
+        auto pick_of = [&](size_t i) -> const rush2::track2049::Rush2Pick* {
+            if (opt.picks == nullptr) return nullptr;
+            auto it = opt.picks->find(i);
+            return it != opt.picks->end() ? &it->second : nullptr;
+        };
         for (size_t i = 0; i < srcs.size(); i++) {
+            const rush2::track2049::Rush2Pick* pick = pick_of(i);
             for (const Object49& ob : srcs[i].objects) {
+                if (pick && !pick->models.contains(ob.name)) {
+                    continue;
+                }
                 auto r = opt.rename.find(ob.name);
                 std::string n = first15(r != opt.rename.end() ? r->second : ob.name);
                 if (have.contains(n) || (opt.exclude && opt.exclude->contains(n))) {
@@ -968,8 +978,16 @@ namespace {
         std::vector<Texture> textures;
         std::set<std::string> tex_names;
         for (size_t i = 0; i < srcs.size(); i++) {
+            const rush2::track2049::Rush2Pick* pick = pick_of(i);
             for (const Texture49& t : srcs[i].textures) {
                 std::string n = first15(t.name);
+                if (pick) {
+                    auto r = pick->textures.find(t.name);
+                    if (r == pick->textures.end()) {
+                        continue;
+                    }
+                    n = first15(r->second);
+                }
                 if (!tex_names.insert(n).second) {
                     continue;
                 }
@@ -2613,6 +2631,7 @@ bool rush2::track2049::merge_rush2_containers(const std::vector<const std::vecto
         opt.exclude = &spec.exclude;
         opt.kinds = spec.kinds;
         opt.rush2_lod_flags = true;
+        opt.picks = &spec.picks;
         out = merge_models(srcs, opt, names);
     }
     catch (const ConvertError& e) {

@@ -111,6 +111,18 @@ area = "audio"
 ref = "docs/calspeed_research.md#engine-sounds"
 
 [[func]]
+vram = 0x8007ED84
+name = "cs_car_material_effects"
+sig = "void cs_car_material_effects(Car *car)"
+desc = "Rush 2's car_material_effects_update: wheel materials (+0x670 / +0x674, wheels 0 and 2) in five classes {5,8}, {3,9}, 1, 10, 2; dust bits 0xF0000 of +0x848 when on {5,8}, {3,9}, 1 or 2 and +0x7C6 >= 41; skid sounds off (0x8007F5D0) on any of the five."
+consts = "0x29 = dust speed threshold; 0xFFF0F9F9 = dust bits clear mask"
+status = "verified"
+rush2 = 0x800663CC
+link = "role"
+area = "car"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
 vram = 0x800ADE48
 name = "race_start_engine_sounds"
 sig = "void race_start_engine_sounds(s32 a0, u16 rpm, u16 load, u16 slot)"
@@ -131,3 +143,128 @@ rush2 = 0x80064F70
 link = "role"
 area = "audio"
 ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x800BA7CC
+name = "cs_scene_node_new_with_matrix_ex"
+sig = "s32 cs_scene_node_new_with_matrix_ex(u16 model, s16 mode, s32 parent, u32 flags, s32 car, s32 part, u8 preview)"
+desc = "Rush 2's scene_node_new_with_matrix_ex: a node with its own matrix (a car part's, or the identity with flag 0x80 for part -1)."
+status = "inferred"
+rush2 = 0x80085ED8
+link = "role"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800BA8C4
+name = "cs_car_build_scene_nodes"
+sig = "void cs_car_build_scene_nodes(s16 car, s16 mode, u8 preview)"
+desc = "Rush 2's car_build_scene_nodes: the car's body (0x6018) and child nodes into 0x800E8780 + car x 0xE8; in races also four water spray nodes (+0xD8: SPLASHRIGHT_ for wheels 0 and 2, SPLASHLEFT_ for 1 and 3, flags 0x103 | 0x2000, color 0xFFFFFFC8, 0xA0A0A0C8 on tracks 14 and 15)."
+status = "verified"
+rush2 = 0x80085FD0
+link = "role"
+area = "car"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800BC914
+name = "cs_car_state_draw_objects"
+sig = "void cs_car_state_draw_objects(s16 car)"
+desc = "Rush 2's car_state_draw_objects: per car per frame; the dust bits of state +0xFC run cs_wheel_particle_spawn per wheel unless that wheel's material is 2; runs the car's 11 effect callbacks (state +0x14C, 0x1C each: the water spray per wheel) and cs_tire_mark_update for wheels 0-3."
+status = "verified"
+rush2 = 0x80082D14
+link = "role"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800BCF9C
+name = "cs_wheel_particle_spawn"
+sig = "void cs_wheel_particle_spawn(s16 car, s16 emitter, s32 a2)"
+desc = "Rush 2's particle_emitter_spawn: emitter 0-3 a wheel, 4 and 5 the car's own; wheel material 1 -> DUST (0x5D, model 0x8008868A), else SMOKE (0x2D, 0x8008862A) / SMOKE_FAST (0x3D, 0x8008864A) by speed (+0xF8 >> 2 < 60), emitters 4/5 0x4D (0x8008866A). Skips material 10 and slow wheels."
+consts = "0x3C = smoke/fast speed split; 0xA = no emission under it"
+status = "verified"
+rush2 = 0x8008270C
+link = "role"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800BD4E4
+name = "cs_tire_mark_update"
+sig = "void cs_tire_mark_update(s16 car, s16 wheel, u8 skidding)"
+desc = "Rush 2's tire_mark_update: class {5,8} -> 1, {3,9} -> 2, else 0; a skidding wheel lays a mark on material 0 or class > 0: starts (0x800BD84C with the class), extends (0x800BD92C) or ends (0x800BDB94)."
+status = "verified"
+rush2 = 0x800823B0
+link = "role"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800BD84C
+name = "cs_tire_mark_start"
+sig = "void cs_tire_mark_start(Mark *mark, s16 car, s16 wheel, s32 cls)"
+desc = "Rush 2's tire_mark_start: takes a mark object with its polygon in the class's color (0x800BDF60) and extends it."
+status = "verified"
+rush2 = 0x800821A4
+link = "role"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800BDF60
+name = "cs_tire_mark_alloc"
+sig = "Mark *cs_tire_mark_alloc(s32 cls)"
+desc = "A mark object off the free list (else the used mark farthest from the camera), its polygon made (0x800D1A98, flags 0x603, SKID04) in the class's color: 0 black, 1 0x80764C dirt, 2 0x3A6332 grass, alpha 0xC0."
+consts = "0x80, 0x76, 0x4C = dirt mark RGB; 0x3A, 0x63, 0x32 = grass mark RGB; 0xC0 = alpha"
+status = "verified"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800BEE4C
+name = "cs_water_spray_setup"
+sig = "void cs_water_spray_setup(s16 car)"
+desc = "Sets the car's four spray callbacks (0x800BF15C.. at effect +0x34, +0x50, ..) and their nodes from the car's node table (0x800E8780 + car x 0xE8, +0xD8..+0xE4)."
+status = "verified"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800BEF14
+name = "cs_water_spray_update"
+sig = "void cs_water_spray_update(Effect *fx, s32 on, s16 wheel)"
+desc = "A wheel's water spray (callbacks 0x800BF15C/80/A4/C8 for wheels 0-3): on material 2 with +0x438 > 0 shows the spray node (fx +8), scale min(+0x438 / 40 + 0.5, 2.5) at the wheel point (state +0xC0) + (0, r - 0.835 scale, 0.9 - r), r the car type's wheel scale (0x8007D1DC front, 0x8007D230 rear), and sets SPLASHLEFT_ / SPLASHRIGHT_'s texture to SPLASH01-04 by frame & 3; else hides it."
+consts = "40.0 = speed divisor; 0.5 = base scale; 2.5 = max scale; 0.835, 0.9 = offsets (ft)"
+status = "verified"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800C9C10
+name = "cs_node_show"
+sig = "void cs_node_show(s32 node, s32 mode, s32 views)"
+desc = "Rush 2's node_show: clears the hide bits (views x 5) << 8 of the node (mode 1) or its subtree."
+status = "inferred"
+rush2 = 0x80058ED4
+link = "role"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800CBA38
+name = "cs_node_set_prim_color"
+sig = "void cs_node_set_prim_color(s16 node, u32 *rgba)"
+desc = "Node +0x30 = *rgba (the primitive color drawn with node flag 0x2000; Rush 2 has the same field)."
+status = "verified"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800D1DE0
+name = "cs_model_set_lod_texture"
+sig = "s32 cs_model_set_lod_texture(u16 model, s16 lod, u16 texture)"
+desc = "Sets a model's LOD texture handle (record +4 + lod x 12; lod < 0 all) and its flag 0x8000 (handle valid), read by the draw's texture swap (LOD flag 0x1)."
+status = "verified"
+area = "render"
+ref = "docs/calspeed_research.md#wheel-effects"

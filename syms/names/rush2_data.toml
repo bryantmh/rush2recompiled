@@ -4267,6 +4267,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800C5634
+name = "tire_mark_color"
+type = "u32"
+desc = "RGBA word the tire marks are drawn with (black; tire_mark_start sets alpha 0xC0, effects_and_marks_update the fade alpha), passed by pointer to polygon_set, which copies it into each vertex. Converted tracks write their mark colors into it around each set (src/surface_fx.cpp)."
+area = "render"
+status = "verified"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[var]]
 vram = 0x800C5637
 name = "scene_light_byte"
 type = "u8"
@@ -4277,21 +4286,21 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C5668
-name = "list_pool_free_head"
-type = "void *"
-desc = "List pool free-list head; set by list_pool_reset and list_unlink_head. (low confidence)"
-area = "util"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "tire_mark_free_list"
+type = "Mark *"
+desc = "Free tire mark objects (linked by +4)."
+area = "render"
+status = "verified"
+ref = "docs/calspeed_research.md#wheel-effects"
 
 [[var]]
 vram = 0x800C566C
-name = "list_pool_used_head"
-type = "void *"
-desc = "List pool head set by alloc_node, pool_reset, unlink_head. (low confidence)"
-area = "util"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "tire_mark_used_list"
+type = "Mark *"
+desc = "Tire marks on the ground (linked by +4; +8 start time, +0xC polygon, +0x1C alpha), faded and freed by effects_and_marks_update."
+area = "render"
+status = "verified"
+ref = "docs/calspeed_research.md#wheel-effects"
 
 [[var]]
 vram = 0x800C5670

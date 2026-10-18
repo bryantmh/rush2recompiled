@@ -631,12 +631,74 @@ text = "    rush2_trackmod_torque_grass(rdram, ctx);"
 [[patches.hook]]
 func = "collision_poly_extract_8006F704"
 before_vram = 0x8006FA90
-text = "    rush2_trackmod_wheel_material(rdram, ctx);"
+text = "    rush2_trackmod_wheel_material(rdram, ctx);\n    rush2_surface_wheel_material(rdram, ctx);"
 
 [[patches.hook]]
 func = "collision_poly_extract_8006F704"
 before_vram = 0x8006FBE4
-text = "    rush2_trackmod_wheel_fallback(rdram, ctx);"
+text = "    rush2_trackmod_wheel_fallback(rdram, ctx);\n    rush2_surface_wheel_fallback(rdram, ctx);"
+
+# Another game's wheel surface effects on its converted tracks (src/surface_fx.cpp, include/surface_fx.h): the particle
+# a wheel throws, the tire marks' rule, color and texture, and the water spray nodes (California Speed).
+[[patches.hook]]
+func = "particle_emitter_spawn_8008270C"
+before_vram = 0x8008277C
+text = "    rush2_surface_particle(rdram, ctx);"
+
+[[patches.hook]]
+func = "tire_mark_update_800823B0"
+before_vram = 0x80082408
+text = "    rush2_surface_mark_rule(rdram, ctx);"
+
+[[patches.hook]]
+func = "tire_mark_start_800821A4"
+before_vram = 0x80082300
+text = "    rush2_surface_mark_start(rdram, ctx);"
+
+[[patches.hook]]
+func = "tire_mark_start_800821A4"
+before_vram = 0x80082308
+text = "    rush2_surface_mark_done(rdram, ctx);"
+
+[[patches.hook]]
+func = "tire_mark_start_800821A4"
+before_vram = 0x80082390
+text = "    rush2_surface_mark_restart(rdram, ctx);"
+
+[[patches.hook]]
+func = "tire_mark_start_800821A4"
+before_vram = 0x80082398
+text = "    rush2_surface_mark_done(rdram, ctx);"
+
+[[patches.hook]]
+func = "tire_mark_extend_80081FD4"
+before_vram = 0x80082184
+text = "    rush2_surface_mark_extend(rdram, ctx);"
+
+[[patches.hook]]
+func = "tire_mark_extend_80081FD4"
+before_vram = 0x8008218C
+text = "    rush2_surface_mark_done(rdram, ctx);"
+
+[[patches.hook]]
+func = "effects_and_marks_update_80083228"
+before_vram = 0x80083404
+text = "    rush2_surface_mark_fade(rdram, ctx);"
+
+[[patches.hook]]
+func = "effects_and_marks_update_80083228"
+before_vram = 0x8008340C
+text = "    rush2_surface_mark_done(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_load_car_assets_80086CA4"
+before_vram = 0x80087154
+text = "    rush2_surface_race_cars(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_state_draw_objects_80082D14"
+before_vram = 0x80082D94
+text = "    rush2_surface_car_draw(rdram, ctx);"
 
 [[patches.hook]]
 func = "car_init_setup_8008DBA0"

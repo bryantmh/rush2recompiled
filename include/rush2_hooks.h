@@ -140,6 +140,18 @@ void rush2_trackmod_torque_dirt(uint8_t* rdram, recomp_context* ctx);
 void rush2_trackmod_torque_grass(uint8_t* rdram, recomp_context* ctx);
 void rush2_trackmod_wheel_material(uint8_t* rdram, recomp_context* ctx);
 void rush2_trackmod_wheel_fallback(uint8_t* rdram, recomp_context* ctx);
+// Another game's wheel surface effects on its converted tracks (src/surface_fx.cpp).
+void rush2_surface_wheel_material(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_wheel_fallback(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_particle(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_mark_rule(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_mark_start(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_mark_extend(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_mark_restart(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_mark_fade(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_mark_done(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_race_cars(uint8_t* rdram, recomp_context* ctx);
+void rush2_surface_car_draw(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx);

@@ -185,12 +185,19 @@ namespace rush2::track2049 {
     // name wins) or rename's, plus dummies (models drawing nothing) and dummy_textures (textures loading nothing),
     // names sorted for Rush 2's binary searches. Models in exclude are left out. A model's behaviour id is kinds'
     // entry for its output name, else default_kind (if >= 0), else its own. names gets the merged models' names.
+    // picks: for a container (by its index in `containers`), only these models and these textures (source name ->
+    // output name) are taken from it, e.g. a few effect models out of a game's shared effects file.
+    struct Rush2Pick {
+        std::set<std::string> models;
+        std::map<std::string, std::string> textures;
+    };
     struct Rush2Merge {
         std::map<std::string, std::string> rename;
         std::vector<std::string> dummies, dummy_textures;
         std::set<std::string> exclude;
         std::map<std::string, uint16_t> kinds;
         int default_kind = -1;
+        std::map<size_t, Rush2Pick> picks;
     };
     bool merge_rush2_containers(const std::vector<const std::vector<uint8_t>*>& containers, const Rush2Merge& spec,
                                 std::vector<uint8_t>& out, std::set<std::string>& names, std::string& error);

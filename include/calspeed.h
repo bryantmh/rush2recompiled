@@ -99,6 +99,8 @@ namespace rush2::calspeed {
 
     // The Cal Speed track (1-16) raced in the host slot, or 0.
     int race_track();
+    // A California Speed track is being raced now (not the attract demo): its physics hooks run.
+    bool racing(uint8_t* rdram);
     void set_race_track(int k);
     // The raced track's converted path file, whose racing line tells when a car has fallen under the course, and its
     // collision, whose ground tells where a reset has road under it.

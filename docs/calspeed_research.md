@@ -106,10 +106,69 @@ of polygons):
 California Speed's wall query at 0x800AECC4 takes types 5-9 together. In Rush 2 the type drives the physics (0
 road, 1 dirt, 2 grass: off-road drag and torque), only 5 and 6 are walls to the body probe, so its cars drove
 through the 4, 7, 8 and 9 walls at the road's edge (Monterey's right-hand verge near (4000, -40, -450) is type 8,
-385 ft tall) and wrecked on the type 3 verges. Wheel materials (bits 4-7) drive only the dust, surface sounds,
-particles and stunt scoring, which know materials 0-2 and 8 (airborne); California Speed's ground also uses 3-9
-(8 on road). The converter (`remap_surfaces`) makes the type 3 verges grass (type and material 2), the 4, 7, 8 and
-9 walls type 5, and ground materials past 2 road (0). [V data; the drones' wrecks there, in game]
+385 ft tall) and wrecked on the type 3 verges. The converter (`remap_surfaces`) makes the type 3 verges grass (type
+2) and the 4, 7, 8 and 9 walls type 5, and keeps the wheel materials (bits 4-7) as they are: their effects are
+California Speed's (below). [V data; the drones' wrecks there, in game]
+
+Material counts on ground types, all 16 tracks, (type, material): (0,0) 27313, (0,1) 1676, (0,3) 2180, (0,4) 115,
+(0,5) 2315, (0,6) 998, (0,8) 172, (0,9) 64, (1,1) 6612, (2,2) 1611, (3,3) 5745. Rush 2's own tracks: (0,0) 19530,
+(0,1) 372, (0,2) 81, (1,1) 3028, (2,2) 15, (3,2) 124 (no 3-15 on the ground). [V data]
+
+### Wheel effects
+
+In both games the wheel material only drives effects (the physics read the type). Rush 2's material 2 is water, not
+grass: 124 of its 220 material-2 polygons are type 3 (water), and Rush 2 has no grass particle. The first port mapped
+California Speed's verges to material 2 and its materials 3-9 to 0, so its grass threw Rush 2's water splash and its
+dirt threw road smoke. [V data, in game]
+
+Rush 2 (car +0x60C + 2 x wheel, stored by `collision_poly_extract_8006F704` at 0x8006FA90):
+- `car_material_effects_update_800663CC`: dust bits (+0x7F4 0xF0000) when wheel 0 or 2 is on 1 or 2 above +0x76C 41;
+  on 1, 2 and 8 (airborne) it returns before the skid section (0x80066544): no skid sounds, and the skid bits 0x606
+  (copied to car state +0xE4, one per wheel) keep their last value above speed 41 and are cleared below it. So no new
+  skid starts there; a slide carried onto them keeps its skid bits.
+- `particle_emitter_spawn_8008270C` (per emitter $s0: wheels 0-3, 4 and 5 the car's own): 0x800828EC material 1 ->
+  emitter 3 (0x8010D26C, DUST), 0x8008292C material 2 -> emitter 4 (0x8010D28C, SPLASH), else SMOKE / SMOKE_FAST by speed;
+  a wheel under speed/4 10 throws nothing (0x8008279C).
+- Tire marks: `tire_mark_update_800823B0` (car $s6, wheel $s7, $a0 skidding) lays one only on material 0 with car
+  +0x6C8 = -1 (0x80082404); `tire_mark_start_800821A4` makes its polygon (0x80082300, SKID04 0x80113F50, color
+  0x800C5634: black, alpha 0xC0) and `tire_mark_extend_80081FD4` stretches it (0x80082184). Marks come off the free
+  list 0x800C5668 onto the used list 0x800C566C. `polygon_set_80053D28` copies the color word into each vertex, and the
+  polygons draw TEXEL0 x SHADE (0x8007D574), so the vertex color tints the mark texture.
+- `effects_and_marks_update_80083228` fades the used marks every frame: it writes each mark's alpha into the same color
+  word and sets the mark's polygon again with it (0x80083404), so whatever RGB the word holds recolors every mark.
+
+California Speed (car +0x670 + 2 x wheel, stored by its wheel probe at 0x800AF510):
+- 0x8007ED84 (Rush 2's 800663CC): dust bits (+0x848) when wheel 0 or 2 is on {5, 8}, {3, 9}, 1 or 2 above +0x7C6 41;
+  skid sounds off on those and 10. 8 is ground here, not an airborne marker.
+- 0x800BCF9C (Rush 2's 8008270C, from the per-car draw 0x800BC914, which skips a wheel on material 2): material 1
+  -> DUST (0x5D, model 0x8008868A), anything else SMOKE / SMOKE_FAST by speed. Its DUST and SMOKE models and textures
+  are Rush 2's (asset 10; the textures differ only by re-encoding, values off by 1).
+- 0x800BD4E4 (Rush 2's 800823B0): a skidding wheel lays a mark on material 0 or on {5, 8} (class 1) or {3, 9} (class
+  2); 0x800BD84C (Rush 2's 800821A4) starts it, 0x800BDF60 colors it by class: 0 black, 1 0x80764C (dirt),
+  2 0x3A6332 (grass), alpha 0xC0, with its own SKID04.
+  So {5, 8} are dirt and {3, 9} grass. As in Rush 2 its 0x8007ED84 makes no new skids with wheel 0 or 2 on those, so
+  a colored mark comes from a wheel 1 or 3 on the verge while wheels 0 and 2 skid on the road, or a slide carried
+  onto it.
+- 0x800BEF14 (one per wheel, callbacks 0x800BF15C-0x800BF1C8 set by 0x800BEE4C): the water spray. Material 2 with the
+  driven wheels turning forward (+0x438, Rush 2's +0x3D4) shows the wheel's node (SPLASHRIGHT_ for wheels 0 and 2,
+  SPLASHLEFT_ for 1 and 3, made under the body by 0x800BA8C4 (through 0x800BA7CC) with flags 0x103 | 0x2000 and
+  primitive color 0xFFFFFFC8, 0xA0A0A0C8 on tracks 14 and 15), scaled by min(speed / 40 + 0.5, 2.5) at the wheel point (state +0xC0, Rush 2's +0xA8)
+  + (0, r - 0.835 x scale, 0.9 - r), r the car type's front / rear wheel model scale (0x8007D1DC / 0x8007D230, Rush 2's
+  0x800C0A6C / 0x800C0B74), and sets both models' texture (0x800D1DE0: LOD handle + flag 0x8000) to SPLASH01-04 by game
+  frame & 3; 0x800C9C10 shows a node and 0x800CBA38 sets its primitive color. So California Speed's material 2 is
+  water as in Rush 2.
+- Not ported: 0x8009F67C adds 2 to the rumble level for a front wheel on {5, 8, 1} (part of its own speed-based rumble,
+  which Rush 2 does not have), and 0x8007D640 acts on both wheels on 10 (no polygon uses 10).
+
+The port (src/surface_fx.cpp, include/surface_fx.h): the probe hook keeps California Speed's material per wheel and
+stores the Rush 2 material it acts like (1, 3, 5, 8, 9 -> 1 for the dust bits and skid sounds; 2 -> 2; others 0). The
+particle hook (0x8008277C) gives 1 DUST, 2 nothing and the rest smoke; the mark hooks lay and color marks by
+California Speed's rule with its SKID04 (CSSKID04), writing each mark's color into the shared word around every set
+(start, extend, and the fade at 0x80083404); the race-load hook (0x80087154) makes four spray nodes per car
+and the per-car draw hook (0x80082D94) shows and places them. The converter adds SPLASHLEFT_, SPLASHRIGHT_ and the
+textures SPLASH01-04 (as CSSPLASH01-04) and SKID04 (as CSSKID04) from asset 10 (`Rush2Pick`). Other converted games
+keep Rush 2's effects until they get rules of their own. [V in game: dust, smoke, spray, tan dirt marks beside black
+road marks; grass marks logged with 0x3A6332, same path]
 
 ### Stacked roads: the subway tunnel
 
