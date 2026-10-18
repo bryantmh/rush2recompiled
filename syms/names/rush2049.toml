@@ -1179,7 +1179,7 @@ consts = "0xB8 = wheel index x 0x5C threshold for rear wheels; 64.0 = spin speed
 status = "verified"
 rush2 = 0x8005A598
 area = "car"
-ref = "docs/rush2049_research/cars.md#9-car-options-on-the-2049-cars-v"
+ref = "docs/rush2049_research/cars.md#3-car-select-overlay-func_803b81f0-v-partly"
 
 [[func]]
 vram = 0x8008E06C
@@ -2169,6 +2169,20 @@ area = "menu"
 ref = "tools/rush2049/ui49.py"
 
 [[func]]
+vram = 0x800B3FA4
+name = "text_width"
+desc = "Width in pixels of string a0 in the current font (a1 = -1: whole string)"
+status = "inferred"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
+
+[[func]]
+vram = 0x800B4200
+name = "font_select"
+desc = "Selects the current text font n (0-15) from $s2: loads atlas file 22+n and glyph table file 38+n, stores the index at 0x80149780"
+status = "inferred"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
+
+[[func]]
 vram = 0x800B4360
 name = "util_call_1940_wrapper"
 sig = "void util_call_1940_wrapper(s32 a0, s32 a1, s32 a2, s32 a3)"
@@ -2200,6 +2214,13 @@ rush2 = 0x800734AC
 link = "same-code"
 area = "ui"
 ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
+
+[[func]]
+vram = 0x800B71D4
+name = "text_draw"
+desc = "Draws string a2 at (a0, a1) in the current font, with the current horizontal (0x80118E20) and vertical (0x80118E24) alignment"
+status = "inferred"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
 vram = 0x800B9284
@@ -3506,6 +3527,13 @@ desc = "Plays a sound at a position: func_800FEA00(id, car, pos, 2)."
 status = "inferred"
 area = "audio"
 ref = "docs/rush2049_research/placement.md#7-knock-over-props-v"
+
+[[func]]
+vram = 0x80103D28
+name = "unlocked_cars_list_draw"
+desc = "Draws the list of newly unlocked cars and tracks in font 11 (AERO-PLAIN10); car names from 0x80110D70"
+status = "inferred"
+ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
 vram = 0x80105EA8

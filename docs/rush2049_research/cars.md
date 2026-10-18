@@ -50,6 +50,18 @@ plan below borrows slots instead.
   textures** (`1F_64X32_L2`, `1ST_…`, `2F_…`: per-stripe, per-side tiles), not preview models [V], so the select
   screen previews the real car assets (0x1D + type, loaded through `func_800A37F4`'s car slots) [I].
 - Per-car stat setup calls at 0x803B8B64–0x803B8CC0 (`func_800B2694` .. `func_800B2424`, 22 iterations).
+- **The selected car.** `carselect_build_list_803B81F0` opens each player's carousel on the record's selected type
+  (`profile_get_selected_car_type_8009E6D0`, record + 0x31, hooked so a full type comes back) and writes the record
+  (0x803B8D80) only when that type isn't in the list. Each frame `menu_screen_car_select_frame_803B9478` compares the
+  car on show (from the list 0x80222000) with the player's last car (halfword 0x803CB394 + player x 2) and writes the
+  record (`profile_set_selected_car_type_80097F8C`, 0x803BA830) when it changed, but not on the first frame (last car
+  -1). The race draws the car on show, while `race_setup_cars_8009E6DC` takes the physics car's type (+0x7EA) and
+  descriptor from the record, and the wheel draw (`carselect_preview_update_8005A598`) places and sizes the wheels
+  from those. So a carousel that opened on another car than the record's (RUSH2_TEST_CAR, the UNLOCKS shop's car, a
+  full type the record's 5 bits don't hold) raced, if confirmed unmoved, as one car drawn with another's wheels and
+  handling: tires spread wide on the Golf Cart (the previous car's 2.75 ft track), or a BMW on the Golf Cart's 0.83 ft
+  one. `rush2_car49_select_first_frame` (hook at 0x803BA844) writes the car on show into the record on the first
+  frame when they differ. [V]
 
 ## 4. Plan: borrowed host types (like the tracks)
 
@@ -183,7 +195,9 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   extra texture record crashed Rush 2's car texture code) and appends calls to them to the body's lists; car2049.cpp
   places, flickers (gas pedal in place of rpm) and scrolls them.
 - **Car select.** The per-player list and carousel move to larger copies; the name logos (asset 0x11, looked up by
-  name through the overlay table 0x803C7688) get 128x32 "R49CARn" images drawn in Rush 2's logo style.
+  name through the overlay table 0x803C7688) get 128x32 "R49CARn" images lettered in 2049's menu font AERO-PLAIN16
+  in Rush 2's logo style ([menus.md section 10](menus.md#10-fonts-v)); California Speed's get "RCSCARn" images in its
+  own lettering ([calspeed_research.md](../calspeed_research.md#car-name-art)).
 - **Physics.** Rush 2 0xEC-byte descriptors are built from 2049's 0xB4-byte ones with each car's drone setup
   (cars.py `to_r2`), plus mass, inertia, preload, drive flags and box. 2049's cars differ little among themselves
   (mass, inertia, wheel positions; 2049 tells them apart by setup). The torque scale and gear ratios are 2049's for

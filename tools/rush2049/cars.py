@@ -5,10 +5,12 @@ Usage (from tools/rush2049):
     python cars.py 49          Rush 2049: 13 cars, descriptors, per-car tables, setup tables, transmissions
     python cars.py convert     each 2049 car (stock setup) expressed as a Rush 2 descriptor + Rush 2 table row
     python cars.py desc-map    field-by-field layout of the two descriptor formats
+    python cars.py calspeed    Rush 2, 2049 and California Speed rosters side by side: each descriptor field's mean,
+                               the tire curves and the per-car tables (src/calspeed/calspeed_cars.cpp maps on these)
 
 Addresses are N64 virtual addresses (Rush 2 main/overlay through roms.Rush2, 2049 main through roms.Rush2049).
 """
-import struct, sys
+import os, struct, sys
 import roms
 
 F = lambda w: struct.unpack('>f', struct.pack('>I', w))[0]
@@ -229,6 +231,41 @@ def main():
     if cmd == 'desc-map':
         for o2, o49, kind, m in DESC_MAP:
             print('R2 +%02X  49 %s  %s  %s' % (o2, '+%02X' % o49 if o49 is not None else ' --', kind, m))
+        return
+    if cmd == 'calspeed':
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'calspeed'))
+        import cs
+        r2, c49, csr = R2Cars(), R49Cars(), cs.CalSpeed()
+        csf = lambda a: struct.unpack('>f', csr.read(a, 4))[0]
+        r2types = [t for t in range(r2.N) if t != 20]  # not the secret ROCKET
+        r2d = [r2.desc_addr(t) for t in r2types]
+        csd = [csr.read(0x800D6418 + 4 * csr.read(0x8007D01C + n, 1)[0], 4) for n in range(21)]
+        csd = [struct.unpack('>I', a)[0] for a in csd]
+        mean = lambda xs: sum(xs) / len(xs)
+        print('desc   Rush 2 mean        2049 mean          Cal Speed mean     (min..max)')
+        for o in range(0, 0x58, 4):
+            a = [r2.r.f(d + o) for d in r2d]
+            b = [F(struct.unpack('>I', c49.desc(t)[o:o + 4])[0]) for t in range(c49.N)]
+            c = [csf(d + o) for d in csd] if o < 0x54 else [float('nan')]
+            print('+%02X  %10.4g (%g..%g)  %10.4g  %10.4g (%g..%g)' % (o, mean(a), min(a), max(a), mean(b), mean(c),
+                                                                  min(c), max(c)))
+        for o, name in ((0x6C, 'grip factor A'), (0x70, 'grip factor B')):
+            print('CS +%02X %s: %s' % (o, name, ' '.join('%g' % csf(d + o) for d in csd)))
+        curve = lambda f, a: ' '.join('%g' % f(a + 4 * i) for i in range(6))
+        print('tire curves (radius, spring, damper, cornering stiffness, grip, inverse wheel inertia):')
+        for t in sorted(set(r2.r.w(d + 0x68 + 4 * i) for d in r2d for i in range(4))):
+            print('  Rush 2 %08X  %s' % (t, curve(r2.r.f, t)))
+        print('  2049 front     %s' % curve(c49.f, 0x8011F814))
+        print('  2049 rear      %s' % curve(c49.f, 0x8011F82C))
+        print('  CS front       %s' % curve(csf, 0x800D50F0))
+        print('  CS rear        %s' % curve(csf, 0x800D5108))
+        print('per-car tables: Rush 2 mean (min..max) / Cal Speed mean (min..max)')
+        for name, a2, acs in (('steer', 0x800C06B4, 0x8007CF20), ('yaw damping', 0x800C070C, 0x8007CF74),
+                              ('preload', 0x800C0800, 0x8007D034), ('mass', 0x800C0858, 0x8007D088),
+                              ('inertia', 0x800C08B0, 0x8007D0DC)):
+            a = [r2.table(a2, 'f', t) for t in r2types]
+            c = [csf(acs + 4 * n) for n in range(21)]
+            print('  %-12s %10.4g (%g..%g)  %10.4g (%g..%g)' % (name, mean(a), min(a), max(a), mean(c), min(c), max(c)))
         return
     if cmd == 'r2':
         c = R2Cars()

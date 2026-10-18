@@ -68,6 +68,18 @@
 // (car_wreck_steer_to_respawn, func_800754B4, ends it with car +0x6C8 = -2), and func_8008E258 finishes the respawn
 // of every such car with 2nd gear again (+0x738, +0x3E0 and +0x3DE = 2, 0x8008E330). On, every mode puts the human
 // cars in 1st at both.
+//
+// Breakable groups (crash on California Speed's Silicon Valley). breakable_alloc_800BB27C puts each new breakable
+// (up to 0x82) in a group: one of the groups at 0x800D8FC0 (0x34 bytes: +0 class, +2 members, +4 half size, +8/+0x14/
+// +0x20 center and bounds, +0x2C first, +0x30 last member) under 15 members that it fits within 200 ft of, else a new
+// group at index count (0x800D97E4, u16), with no limit. The table holds 40: group 40 is the count itself, and past
+// it a group's "last member" is whatever lies there, which the next member is linked through. Stock tracks stay
+// under 40; Silicon Valley's 71 cones and 41+ trees spread over its streets need more, and the 41st tree's link wrote
+// a breakable's address over model slot 0's name table (0x80119018), so a model lookup failed and the placement walk
+// crashed in object_behavior_run_8007FFA0. The table moves to a 0x82-group copy on the recomp heap (one group per
+// breakable at most): breakable_alloc (0x800BB420, 0x800BB6D0), breakable_update_all_8008BA68 (0x8008BAB8),
+// callback_8005FA48 (0x8005FA68) and race_track_load_step_8008BC64's clear loop (0x8008BD34, its bound 0x28 -> 0x82
+// at 0x8008BDAC) are given its address. Nothing changes on a track with 40 groups or fewer.
 
 #include <algorithm>
 #include <atomic>
@@ -77,6 +89,7 @@
 #include <vector>
 
 #include "recomp.h"
+#include "librecomp/addresses.hpp"
 #include "assets.h"
 #include "rush2.h"
 
@@ -383,4 +396,32 @@ extern "C" void rush2_fix_formula_rear_wheels(uint8_t* rdram, recomp_context* ct
     if ((wheel == 2 || wheel == 3) && MEM_BU(0x7EA, (int32_t)ctx->r9) == type_formula) {
         ctx->f4.fl = rear_hub_z;
     }
+}
+
+// Breakable groups: the 0x82-group copy of the table at 0x800D8FC0 (see the top of the file). Each hook runs right
+// after its function loads the table's address into a register and puts the copy's there.
+namespace {
+    constexpr uint32_t breakable_group_size = 0x34, breakable_groups = 0x82;
+    uint32_t breakable_group_table(uint8_t* rdram) {
+        static uint32_t table = 0;
+        if (table == 0) {
+            void* p = recomp::alloc(rdram, breakable_group_size * breakable_groups);
+            memset(p, 0, breakable_group_size * breakable_groups);
+            table = (uint32_t)((uint8_t*)p - rdram) + 0x80000000;
+        }
+        return table;
+    }
+}
+
+extern "C" void rush2_breakable_groups_s3(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r19 = (int32_t)breakable_group_table(rdram);
+}
+extern "C" void rush2_breakable_groups_s6(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r22 = (int32_t)breakable_group_table(rdram);
+}
+extern "C" void rush2_breakable_groups_t8(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r24 = (int32_t)breakable_group_table(rdram);
+}
+extern "C" void rush2_breakable_groups_a2(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r6 = (int32_t)breakable_group_table(rdram);
 }

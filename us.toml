@@ -551,6 +551,36 @@ func = "menu_controller_setup_rows_text_800B6134"
 before_vram = 0x800B65E8
 text = "    rush2_controls_menu_draw(rdram, ctx);"
 
+# California Speed's road hold on its tracks (src/calspeed/calspeed_rom.cpp): after car_force_sum, before the
+# steering terms and torque.
+[[patches.hook]]
+func = "car_physics_forces_800706D0"
+before_vram = 0x800706F4
+text = "    rush2_calspeed_road_hold(rdram, ctx);"
+
+# The road hold's push held up by the springs (src/calspeed/calspeed_rom.cpp, Hold::Copy): in car_wheel_force_loop once
+# car_tire_model has had the wheel's load (capped at the car's weight, 0x8006AD18-0x8006AD48) and before 0x34($sp) goes
+# into the body force (0x8006AE10), so the tires' load stays the game's ($a0 = the car, reloaded at 0x8006AD68).
+[[patches.hook]]
+func = "car_wheel_force_loop_8006ABB0"
+before_vram = 0x8006ADFC
+text = "    rush2_calspeed_wheel_support(rdram, ctx);"
+
+# California Speed's heavier world, the tire's load (src/calspeed/calspeed_rom.cpp, rush2_calspeed_tire_load): in
+# car_wheel_force_loop as the capped load is handed to car_tire_model ($a2), before the call's arguments are stored.
+[[patches.hook]]
+func = "car_wheel_force_loop_8006ABB0"
+before_vram = 0x8006AD4C
+text = "    rush2_calspeed_tire_load(rdram, ctx);"
+
+# California Speed's damper jump limit and the heavier world's springs (src/calspeed/calspeed_rom.cpp,
+# rush2_calspeed_wheel_damper): in car_wheel_force_loop
+# after the wheel's load is multiplied out ($f2), before it is compared with 0 and stored at 0x34($sp).
+[[patches.hook]]
+func = "car_wheel_force_loop_8006ABB0"
+before_vram = 0x8006AD10
+text = "    rush2_calspeed_wheel_damper(rdram, ctx);"
+
 # Rush 2049 wings physics (src/rush2049/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is
 # part of rush2_model_draw.
 [[patches.hook]]
@@ -698,6 +728,12 @@ func = "sky_setup_800A45A8"
 before_vram = 0x800A4600
 text = "    rush2_track49_sky_players(rdram, ctx);"
 
+# A custom track's own SKY mesh follows the camera's height too (src/rush2049/track2049.cpp).
+[[patches.hook]]
+func = "render_sky_cloud_scroll_8008918C"
+before_vram = 0x800891F8
+text = "    rush2_track49_sky_height(rdram, ctx);"
+
 # The cloud dome's fade in split screen matches one player's (src/players4.cpp).
 [[patches.hook]]
 func = "render_sky_cloud_scroll_8008918C"
@@ -728,12 +764,6 @@ text = "    rush2_track49_select_model(rdram, ctx);"
 
 [[patches.hook]]
 func = "trackselect_init_draw_803AB294"
-# A custom track's own SKY mesh follows the camera's height too (src/rush2049/track2049.cpp).
-[[patches.hook]]
-func = "render_sky_cloud_scroll_8008918C"
-before_vram = 0x800891F8
-text = "    rush2_track49_sky_height(rdram, ctx);"
-
 before_vram = 0x803ABCA0
 text = "    rush2_track49_select_pose(rdram, ctx);"
 
@@ -1518,11 +1548,12 @@ before_vram = 0x8008D3A4
 text = "    rush2_track1_wrong_way(rdram, ctx);"
 
 # SF Rush fall floor (src/rush1/track1.cpp): a car is put back below y -290 as in SF Rush, not Rush 2's -190 (track 6's
-# underwater tunnel goes down to -246).
+# underwater tunnel goes down to -246). California Speed's (src/calspeed/calspeed_rom.cpp): 300 ft below its racing
+# line's lowest point (Silicon Valley's roads go down to -306).
 [[patches.hook]]
 func = "race_stuck_wrongway_update_8008CDA4"
 before_vram = 0x8008CF20
-text = "    rush2_track1_fall_floor(rdram, ctx);"
+text = "    rush2_track1_fall_floor(rdram, ctx); rush2_calspeed_fall_floor(rdram, ctx);"
 
 # SF Rush fireworks (src/rush1/track1_audio.cpp): on an SF Rush track the FIRECRCK emitter is SF Rush's looped fireworks
 # sound, added to Rush 2's sound effect instrument as sound 116, so func_80062264 accepts sound ids up to 116.
@@ -8141,6 +8172,13 @@ func = "race_setup_cars_8009E6DC"
 before_vram = 0x8009E9C8
 text = "    rush2_car49_select_get(rdram, ctx);"
 
+# The car select's frame, where the "last car" halfword is stored: on the first frame the record also takes the car on
+# show when it opened on another one (src/rush2049/car2049.cpp, rush2_car49_select_first_frame).
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803BA844
+text = "    rush2_car49_select_first_frame(rdram, ctx);"
+
 # The car select's starting cursor (func_803B81F0 reads the record's 5-bit type with func_8009E6D0, $a0 = the byte):
 # the full type, so a remembered 2049 car (types 32-35 wrap to 0-3) is the one selected.
 [[patches.hook]]
@@ -12852,6 +12890,38 @@ text = "    rush2_fix_white_accent(rdram, ctx);"
 func = "carselect_preview_update_8005A598"
 before_vram = 0x8005A8F8
 text = "    rush2_fix_formula_rear_wheels(rdram, ctx);"
+
+# Breakable groups (src/game_fixes.cpp): the 40-group table at 0x800D8FC0 moves to a 0x82-group copy. Each hook puts
+# the copy's address in the register its function just loaded the table's into.
+[[patches.hook]]
+func = "breakable_alloc_800BB27C"
+before_vram = 0x800BB420
+text = "    rush2_breakable_groups_s3(rdram, ctx);"
+
+[[patches.hook]]
+func = "breakable_alloc_800BB27C"
+before_vram = 0x800BB6D0
+text = "    rush2_breakable_groups_s3(rdram, ctx);"
+
+[[patches.hook]]
+func = "breakable_update_all_8008BA68"
+before_vram = 0x8008BAB8
+text = "    rush2_breakable_groups_s6(rdram, ctx);"
+
+[[patches.hook]]
+func = "callback_8005FA48"
+before_vram = 0x8005FA68
+text = "    rush2_breakable_groups_t8(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_track_load_step_8008BC64"
+before_vram = 0x8008BD34
+text = "    rush2_breakable_groups_a2(rdram, ctx);"
+
+[[patches.instruction]]
+func = "race_track_load_step_8008BC64"
+vram = 0x8008BDAC
+value = 0x28410082 # slti at, v0, 0x28 -> 0x82: clear every group of the copy
 
 # Finish place kept when a finished car runs out of deaths (src/game_fixes.cpp).
 [[patches.hook]]

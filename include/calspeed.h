@@ -111,14 +111,19 @@ namespace rush2::calspeed {
     // The California Speed Cars option (Games tab): whether the car select offers them. They are offered while it is
     // on and the ROM's cars are loaded.
     void set_cars_option(bool enabled);
+    // Its cars' car select name logos in its own lettering, cut from its car select bank (src/calspeed/calspeed_logos.cpp);
+    // text-only entries if the bank can't be read.
+    std::vector<rush2::car2049::NameLogo> name_logos(const std::vector<uint8_t>& rom);
     bool cars_available();
     // The California Speed Computer Cars option: where the computer cars may drive them (Rush2049Tracks means
     // California Speed's tracks here).
     void set_drone_cars(rush2::car2049::DroneCars mode);
     rush2::car2049::DroneCars drone_cars();
-    // Car n's default colors (as Rush 2's paint colors 0-31) and TIRE RIMS: California Speed's own.
+    // Car n's default colors (as Rush 2's paint colors 0-31), TIRE RIMS and front and rear wheel model scale (Rush 2's
+    // TIRE SIZE F / R): California Speed's own.
     struct CarDefaults {
         int main = 0, accent = 0, rims = 0;
+        float wheel_scale[2] = { 1.0f, 1.0f };
     };
     CarDefaults car_defaults(int n);
     // Converts and serves the cars (assets, physics, logos) from the ROM, if it is in: at boot after the type tables are

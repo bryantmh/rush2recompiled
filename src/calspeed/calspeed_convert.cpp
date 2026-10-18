@@ -461,14 +461,88 @@ namespace {
     // Speed's own grid isn't traced; checkpoint 0 is moved forward to the first spine stretch at least
     // `grid_depth` ft along, which puts every slot on the road on every track (checked against each track's collision).
     // Its crossings are worked out at load from its position and direction (func_80092BC4), so nothing else changes.
-    constexpr double grid_depth = 75.0;
+    // The slots (8 cars in rows of two, from the anchor along the spine and across it, + to its left: `grid_slots`)
+    // reach 8.5 ft to one side of the spine and 17 to the other, and on Highway 1 the spine runs near the right wall:
+    // two slots stood 2 ft from it, and those cars tipped onto it before the start and fell through the course. So the
+    // stretch must also leave every slot `grid_clearance` ft from the walls (collision types 5 and 6, as remapped).
+    constexpr double grid_depth = 75.0, grid_clearance = 5.0;
+    constexpr double grid_slots[8][2] = { { 0, 0 }, { 0, 17 }, { -20, -8.5 }, { -20, 8.5 },
+                                          { -40, 0 }, { -40, 17 }, { -60, -8.5 }, { -60, 8.5 } };
 
     constexpr size_t route = 0x32C, checkpoints = 0xC;
 
-    void move_start(Bytes& path) {
+    // The walls' edges in the world (x, z and the edge's height range), from Rush 2's collision file
+    // (docs/rush2049_research/collision.md: header 0xC, segments 0x84, nodes 0x14, polygons 0x18, vertices 8; a
+    // polygon's first vertex is its world origin and the others are in its frame, the matrix rows mapping world to it).
+    struct WallEdge {
+        double ax, az, bx, bz, ylo, yhi;
+    };
+    std::vector<WallEdge> wall_edges(const Bytes& col) {
+        uint32_t segs = u16(col, 0), nodes = u16(col, 2), polys = u16(col, 4), verts = u16(col, 6), leaf = u16(col, 8);
+        size_t poly0 = 12 + segs * 0x84 + nodes * 0x14, vert0 = poly0 + polys * 0x18;
+        size_t vlist0 = vert0 + verts * 8 + leaf;
+        auto vert = [&](uint32_t k, double v[3]) {
+            size_t o = vert0 + k * 8;
+            uint16_t frac = u16(col, o + 6);
+            int shift[3] = { 10, 5, 0 };
+            for (int a = 0; a < 3; a++) v[a] = (int16_t(u16(col, o + a * 2)) * 32 + ((frac >> shift[a]) & 31)) / 32.0;
+        };
+        std::vector<WallEdge> out;
+        for (uint32_t i = 0; i < polys; i++) {
+            size_t p = poly0 + i * 0x18;
+            int type = col.at(p + 1) & 0xF;
+            if (type != 5 && type != 6) continue;
+            int count = u16(col, p + 2) & 0xF;
+            double m[9];
+            for (int k = 0; k < 9; k++) m[k] = int16_t(u16(col, p + 4 + k * 2)) / 16384.0;
+            std::vector<std::array<double, 3>> w;
+            size_t at = vlist0 + u16(col, p + 0x16);
+            while (count > 0 && at + 2 <= col.size()) {
+                uint32_t v = u16(col, at);
+                at += 2;
+                int run = 0;
+                if (count >= 2 && at < col.size() && col[at] >= 0xC0) run = col[at++] & 0x3F;
+                count -= run + 1;
+                for (int k = 0; k <= run && v + k < verts; k++) {
+                    double l[3];
+                    vert(v + k, l);
+                    if (w.empty()) {
+                        w.push_back({ l[0], l[1], l[2] });
+                    }
+                    else {
+                        std::array<double, 3> g;
+                        for (int j = 0; j < 3; j++) g[j] = w[0][j] + m[j] * l[0] + m[3 + j] * l[1] + m[6 + j] * l[2];
+                        w.push_back(g);
+                    }
+                }
+            }
+            for (size_t k = 0; k < w.size(); k++) {
+                const auto& a = w[k];
+                const auto& b = w[(k + 1) % w.size()];
+                if (std::fabs(a[0] - b[0]) + std::fabs(a[2] - b[2]) < 0.5) continue;
+                out.push_back({ a[0], a[2], b[0], b[2], std::min(a[1], b[1]), std::max(a[1], b[1]) });
+            }
+        }
+        return out;
+    }
+
+    // The nearest wall edge to (x, z) among those within 15 ft of height y, in ft.
+    double wall_distance(const std::vector<WallEdge>& walls, double x, double y, double z) {
+        double best = 1e30;
+        for (const WallEdge& e : walls) {
+            if (e.ylo - 15.0 > y || e.yhi + 15.0 < y) continue;
+            double dx = e.bx - e.ax, dz = e.bz - e.az, len = dx * dx + dz * dz;
+            double u = std::clamp(((x - e.ax) * dx + (z - e.az) * dz) / len, 0.0, 1.0);
+            best = std::min(best, std::hypot(x - e.ax - u * dx, z - e.az - u * dz));
+        }
+        return best;
+    }
+
+    void move_start(Bytes& path, const Bytes& collision) {
         uint32_t spine = u16(path, route), branches = path.at(route + 8);
         size_t points = route + 16 + branches * 16 + 2;
         if (spine < 3 || u16(path, 8) == 0) return;
+        std::vector<WallEdge> walls = wall_edges(collision);
         auto at = [&](uint32_t i, int k) { return double(int16_t(u16(path, points + i * 6 + size_t(k) * 2))); };
         auto f32 = [&](size_t o) { uint32_t b = u32(path, o); float v; memcpy(&v, &b, 4); return double(v); };
         auto put_f32 = [&](size_t o, double v) { float x = float(v); uint32_t b; memcpy(&b, &x, 4); put32(path, o, b); };
@@ -483,12 +557,75 @@ namespace {
             if (i <= cross) return;
             double ex = at(i - 1, 0) - at(i, 0), ez = at(i - 1, 2) - at(i, 2), len = std::hypot(ex, ez);
             if (len < 1.0) return;
+            // Every slot clear of the walls (forward = -e; left = (forward z, -forward x)).
+            double fx = -ex / len, fz = -ez / len, mx = (at(i - 1, 0) + at(i, 0)) / 2, mz = (at(i - 1, 2) + at(i, 2)) / 2;
+            double my = (at(i - 1, 1) + at(i, 1)) / 2;
+            bool clear = true;
+            for (const auto& s : grid_slots) {
+                double x = mx + s[0] * fx + s[1] * fz, z = mz + s[0] * fz - s[1] * fx;
+                if (wall_distance(walls, x, my, z) < grid_clearance) clear = false;
+            }
+            if (!clear) continue;
             for (int k = 0; k < 3; k++) put_f32(checkpoints + size_t(k) * 4, (at(i - 1, k) + at(i, k)) / 2);
             put_f32(checkpoints + 0xC, ex / len);
             put_f32(checkpoints + 0x10, 0.0);
             put_f32(checkpoints + 0x14, ez / len);
             return;
         }
+    }
+
+    // Rush 2's drone driver puts a drone back on the road (drone_driver_80074990 sets car +0x810 at 0x80075238, which
+    // race_stuck_wrongway_update_8008CDA4 turns into a wreck, state 2) once it is more than 100 ft past its lane point
+    // along the lane or beside it (drone_steer_along_path_80074284's state +0 / +4, x/z). California Speed's lanes
+    // have no points in the air over a jump: Monterey's gap is one 120-128 ft step on every lane, so every drone that
+    // flew it was wrecked over the landing, whatever its height (docs/calspeed_research.md#5-paths). Steps over
+    // `lane_step_max` are split into even pieces (positions, mph and behavior interpolated or copied from the step's
+    // start). The game works out the lanes' checkpoint crossings at load (func_80092BC4), so only the lanes change.
+    // Steps longer than `lane_step_skip` aren't road (Yosemite's lane 1 jumps 5581 ft back at its end).
+    constexpr double lane_step_max = 90.0, lane_piece = 45.0, lane_step_skip = 1000.0;
+
+    void split_lane_steps(Bytes& path) {
+        size_t o = route + 16 + size_t(path.at(route + 8)) * 16;
+        o += 2 + size_t(u16(path, o)) * 6;
+        Bytes out(path.begin(), path.begin() + std::ptrdiff_t(o));
+        for (int lane = 0; lane < 4; lane++) {
+            uint32_t count = u16(path, o);
+            if (o + 8 + size_t(count) * 8 > path.size()) fail("lane points past the end of the path");
+            size_t head = out.size();
+            out.insert(out.end(), path.begin() + std::ptrdiff_t(o), path.begin() + std::ptrdiff_t(o + 8));
+            const uint8_t* p = path.data() + o + 8;
+            auto at = [&](uint32_t i, int k) { return double(int16_t((p[i * 8 + k * 2] << 8) | p[i * 8 + k * 2 + 1])); };
+            auto add = [&](double x, double y, double z, const uint8_t* rest) {
+                for (double v : { x, y, z }) {
+                    uint16_t s = uint16_t(int16_t(std::lround(v)));
+                    out.push_back(uint8_t(s >> 8));
+                    out.push_back(uint8_t(s));
+                }
+                out.push_back(rest[0]);
+                out.push_back(rest[1]);
+            };
+            uint32_t written = 0;
+            for (uint32_t i = 0; i < count; i++) {
+                if (i > 0) {
+                    double len = std::hypot(at(i, 0) - at(i - 1, 0), at(i, 2) - at(i - 1, 2));
+                    int pieces = len > lane_step_max && len < lane_step_skip ? int(std::ceil(len / lane_piece)) : 1;
+                    for (int k = 1; k < pieces; k++) {
+                        double f = double(k) / pieces;
+                        add(at(i - 1, 0) + (at(i, 0) - at(i - 1, 0)) * f, at(i - 1, 1) + (at(i, 1) - at(i - 1, 1)) * f,
+                            at(i - 1, 2) + (at(i, 2) - at(i - 1, 2)) * f, p + (i - 1) * 8 + 6);
+                        written++;
+                    }
+                }
+                add(at(i, 0), at(i, 1), at(i, 2), p + i * 8 + 6);
+                written++;
+            }
+            if (written > 0xFFFF) fail("too many lane points");
+            out[head] = uint8_t(written >> 8);
+            out[head + 1] = uint8_t(written);
+            o += 8 + size_t(count) * 8;
+        }
+        out.insert(out.end(), path.begin() + std::ptrdiff_t(o), path.end());
+        path = std::move(out);
     }
 
     // California Speed numbers its surface types (POLY flags & 0xF, docs/rush2049_research/collision.md section 5) its
@@ -571,7 +708,8 @@ namespace {
         track.collision = asset(rom, collision_asset + t);
         remap_surfaces(track.collision);
         track.path = asset(rom, path_asset + t);
-        if (rush2::calspeed::point_to_point(t)) move_start(track.path);
+        if (rush2::calspeed::point_to_point(t)) move_start(track.path, track.collision);
+        split_lane_steps(track.path);
         track.path_backward = track.path;
 
         int regions = 0;

@@ -8,7 +8,10 @@
 // - Paint: every car's textures use CARPALETTE (asset 25), which California Speed repaints with the car's two colors
 //   (func_800BAE2C); car2049.cpp paints it the same way with MAIN and ACCENT.
 // - Physics: its 0xE0-byte descriptors are Rush 2's 0xEC-byte layout with a few fields missing (build_descriptor), and
-//   its per-type tables have Rush 2's layout and meaning (steering, inertia, TIRES 4 = S1 D1 for every car).
+//   its per-type tables have Rush 2's layout and meaning (steering, inertia, TIRES 4 = S1 D1 for every car). Its values
+//   are tuned against a road hold Rush 2's physics lacks (far stiffer springs and tires), so they are mapped onto Rush
+//   2's roster as the 2049 cars' are (Rebalance): the California Speed roster's mean lands on Rush 2's and each car
+//   keeps its place among California Speed's. The road hold itself belongs to the tracks (calspeed_rom.cpp).
 // The converted containers are kept on disk (track_cache blobs keyed on the ROM and the build). The per-player table
 // rows (put_word / put_byte) are the car select's starting values; the record's own options replace them there.
 
@@ -20,6 +23,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "recomp.h"
@@ -52,7 +56,6 @@ namespace {
     constexpr uint32_t cs_mass = 0x8007D088;         // f32, x cs_mass_scale (func_8009A8E0)
     constexpr uint32_t cs_inertia = 0x8007D0DC;      // f32 pitch/roll inertia (Rush 2 0x800C08B0)
     constexpr uint32_t cs_drive = 0x8007D2C4;        // u8 drive flags (Rush 2 0x800C0D14)
-    constexpr uint32_t cs_tires = 0x8007D304;        // u8 handling = Rush 2's TIRES: the steer and yaw adds' index
     constexpr uint32_t cs_mass_scale = 0x8007D47C;   // f32 (1.0)
     constexpr uint32_t cs_desc_ptrs = 0x800D6418;    // descriptor pointers (18)
     constexpr uint32_t cs_boxes = 0x800D60E0;        // 16 bytes per type: {front, rear, half width, height}
@@ -75,6 +78,15 @@ namespace {
         { 0xC8C800, 0x000000 },
     };
     constexpr uint8_t default_rims[car_count] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 2, 1, 0, 8, 9, 6, 1, 3, 4, 5, 6, 2 };
+    // Each car's front and rear wheel model scale (0x8007D1DC / 0x8007D230, one row: its car preview func_800BB3E8 and
+    // race drawing scale the wheel nodes by them, as Rush 2's 0x800C0A6C / 0x800C0B74): the Golf Cart's small wheels
+    // 0.65, the Semi's and Dozer's big ones up to 1.5.
+    constexpr float default_wheel_scale[2][car_count] = {
+        { 0.9f, 0.9f, 0.95f, 0.95f, 0.95f, 0.95f, 1.15f, 0.95f, 0.95f, 1.0f, 0.95f, 0.65f, 0.87f, 0.95f, 0.95f, 0.95f,
+          1.35f, 1.0f, 0.85f, 1.4f, 1.2f },
+        { 0.95f, 1.05f, 1.05f, 1.05f, 1.05f, 1.0f, 1.15f, 1.05f, 1.05f, 1.0f, 0.95f, 0.65f, 0.87f, 0.9f, 0.96f, 1.1f,
+          1.35f, 1.0f, 1.0f, 1.4f, 1.5f },
+    };
     // Rush 2's ENGINE (its engine sound, 0-9) for each car, from the Rush 2 car most like it (California Speed has its
     // own engine sounds, not ported): sports cars the BMW's or the Vette's, the trucks the SUV's, the small cars the
     // VW's.
@@ -196,12 +208,113 @@ namespace {
         copy(0xE4, 0xD8, 2);                                          // shift thresholds
     }
 
-    // Car n's physics: its descriptor, per-type table entries (every row) and box.
-    void build_physics(uint8_t* rdram, const std::vector<uint8_t>& rom, int n) {
+    uint32_t descriptor_of(int n) {
+        return ct::descs + (ct::count_2049 + n) * ct::desc_size;
+    }
+
+    // The mapping onto Rush 2's roster (docs/calspeed_research.md#rebalance): each value is scaled by Rush 2's mean over
+    // California Speed's (Rush 2's 21 cars, all but the secret ROCKET, as the 2049 cars' mapping counts them). Where
+    // California Speed gives every car the same value (steering, yaw damping, preload, tire curves, torque scales, gears)
+    // that becomes Rush 2's mean; where its cars differ (springs and dampers, mass, inertia) its mean car lands on Rush
+    // 2's. The per-car grip factors stay as they are, on Rush 2's curves. The handling row is Rush 2's mean, as for the 2049 cars. The fields both rosters share
+    // (inertia constants, drag, final drive, clutch, shift points) are the same in both games and left alone.
+    struct Rebalance {
+        float desc[ct::desc_size / 4];
+        float curve[2][6];
+        float roll[2] = {}; // Rush 2's grip / half track (front, rear): the most a car's grip may be per foot of track
+        float steer = 1.0f, yaw = 1.0f, preload = 1.0f, mass = 1.0f, inertia = 1.0f;
+        int handling = 5;
+    };
+    // The Rush 2 descriptor ranges that are scaled: springs and dampers, torque scales (gears 1, 2, 3+, common map) and
+    // gears 1-4.
+    constexpr std::pair<uint32_t, uint32_t> scaled_fields[] = { { 0x18, 0x50 }, { 0xB8, 0xC8 }, { 0xD0, 0xE0 } };
+
+    // Call once build_descriptor has made every car's descriptor (unscaled).
+    Rebalance rebalance(uint8_t* rdram, const std::vector<uint8_t>& rom) {
+        constexpr int secret_rocket = 20;
+        constexpr uint32_t r2_desc_ptrs = 0x800C07BC, r2_desc_index = 0x800C07E8; // the ROM's tables, kept as they were
+        constexpr uint32_t r2_steer = 0x800C06B4, r2_yaw_damping = 0x800C070C, r2_preload = 0x800C0800,
+                           r2_mass = 0x800C0858, r2_inertia = 0x800C08B0, r2_handling = 0x800C0DAC;
+        auto at = [&](uint32_t a) { return f32_of((uint32_t)MEM_W(0, (int32_t)a)); };
+        auto w = [&](uint32_t vram) { return f32_of(rush2::calspeed::main_word(rom, vram)); };
+        Rebalance r;
+        std::fill(std::begin(r.desc), std::end(r.desc), 1.0f);
+        std::vector<int> r2_types;
+        for (int t = 0; t < ct::rush2_types; t++) {
+            if (t != secret_rocket) r2_types.push_back(t);
+        }
+        double r2_n = (double)r2_types.size();
+        auto r2_desc = [&](int t) {
+            return (uint32_t)MEM_W(0, (int32_t)(r2_desc_ptrs + MEM_BU(0, (int32_t)(r2_desc_index + t)) * 4));
+        };
+        auto ratio = [](double r2_mean, double cs_mean) { return cs_mean != 0.0 ? float(r2_mean / cs_mean) : 1.0f; };
+        for (auto [from, to] : scaled_fields) {
+            for (uint32_t o = from; o < to; o += 4) {
+                double a = 0.0, b = 0.0;
+                for (int t : r2_types) a += at(r2_desc(t) + o);
+                for (int n = 0; n < car_count; n++) b += at(descriptor_of(n) + o);
+                r.desc[o / 4] = ratio(a / r2_n, b / car_count);
+            }
+        }
+        // Tire curves: California Speed's two become Rush 2's (the Pickup's +0x68 front, +0x70 rear; every Rush 2 car
+        // has the same two), and each car's grip factor stays on top (1.0 on 11 cars, the Dozer 3.0: a mean would leave
+        // the ordinary cars below Rush 2's grip).
+        uint32_t pickup = r2_desc(0);
+        for (int c = 0; c < 2; c++) {
+            uint32_t r2_curve = (uint32_t)MEM_W(0, (int32_t)(pickup + (c == 0 ? 0x68 : 0x70)));
+            for (int i = 0; i < 6; i++) {
+                r.curve[c][i] = ratio(at(r2_curve + i * 4), w((c == 0 ? cs_front_curve : cs_rear_curve) + i * 4));
+            }
+            // Rollover: a car whose grip is high for how wide its wheels are rolls over before it slides. Every
+            // Rush 2 car (but the ROCKET and the DEW) keeps grip / half track at the Pickup's (2.6 / 2.75 front,
+            // 3.2 x its rear lateral grip / 2.75 rear); California Speed's narrower cars (the Golf Cart's wheels
+            // 0.83 ft from the middle) and its grip factors (the Dozer 3.0) went to 1.06-3.86 on Rush 2's curves
+            // and flipped at the slightest turn.
+            float grip = at(r2_curve + 16) * (c == 1 ? at(pickup + 0x78) : 1.0f);
+            float half_track = std::fabs(at(pickup + (c == 0 ? 0x7C : 0x94)));
+            r.roll[c] = half_track > 0.0f ? grip / half_track : 0.0f;
+        }
+        auto table = [&](uint32_t r2_table, uint32_t cs_table, float cs_scale) {
+            double a = 0.0, b = 0.0;
+            for (int t : r2_types) a += at(r2_table + t * 4);
+            for (int n = 0; n < car_count; n++) b += w(cs_table + n * 4) * cs_scale;
+            return ratio(a / r2_n, b / car_count);
+        };
+        r.steer = table(r2_steer, cs_steer, 1.0f);
+        r.yaw = table(r2_yaw_damping, cs_yaw_damping, 1.0f);
+        r.preload = table(r2_preload, cs_preload, 1.0f);
+        r.mass = table(r2_mass, cs_mass, w(cs_mass_scale));
+        r.inertia = table(r2_inertia, cs_inertia, 1.0f);
+        double handling = 0.0;
+        for (int t : r2_types) handling += MEM_BU(0, (int32_t)(r2_handling + t));
+        r.handling = (int)std::lround(handling / r2_n);
+        return r;
+    }
+
+    // Car n's physics: its descriptor (from build_descriptor) mapped by `r`, per-type table entries (every row) and
+    // box.
+    void build_physics(uint8_t* rdram, const std::vector<uint8_t>& rom, int n, const Rebalance& r) {
         int type = ct::first_calspeed + n;
         int desc = 11 + ct::count_2049 + n; // after Rush 2's 11 and the 2049 cars' descriptors
-        uint32_t out = ct::descs + (ct::count_2049 + n) * ct::desc_size;
-        build_descriptor(rdram, rom, n, out);
+        uint32_t out = descriptor_of(n);
+        auto scale = [&](uint32_t a, float k) {
+            MEM_W(0, (int32_t)a) = (int32_t)fbits(f32_of((uint32_t)MEM_W(0, (int32_t)a)) * k);
+        };
+        for (auto [from, to] : scaled_fields) {
+            for (uint32_t o = from; o < to; o += 4) scale(out + o, r.desc[o / 4]);
+        }
+        for (int c = 0; c < 2; c++) {
+            uint32_t curve = ct::calspeed_tire_curves + n * 0x30 + c * 0x18;
+            for (int i = 0; i < 6; i++) scale(curve + i * 4, r.curve[c][i]);
+            // At most Rush 2's grip per foot of half track (Rebalance::roll), with the car's own rear lateral grip
+            // (descriptor +0x78) counted on the rear.
+            float half_track = std::fabs(f32_of((uint32_t)MEM_W(0, (int32_t)(out + (c == 0 ? 0x7C : 0x94)))));
+            float lateral = c == 1 ? f32_of((uint32_t)MEM_W(0, (int32_t)(out + 0x78))) : 1.0f;
+            float grip = f32_of((uint32_t)MEM_W(0, (int32_t)(curve + 16)));
+            if (r.roll[c] > 0.0f && lateral > 0.0f) {
+                MEM_W(0, (int32_t)(curve + 16)) = (int32_t)fbits(std::min(grip, r.roll[c] * half_track / lateral));
+            }
+        }
         MEM_W(0, (int32_t)(ct::desc_ptrs + desc * 4)) = (int32_t)out;
         auto w = [&](uint32_t vram) { return rush2::calspeed::main_word(rom, vram); };
         auto put_word = [&](uint32_t table, uint32_t v) {
@@ -212,21 +325,22 @@ namespace {
         };
         auto put_one = [&](uint32_t table, uint32_t v) { MEM_W(0, (int32_t)ct::entry(table, 0, type)) = (int32_t)v; };
         MEM_B(0, (int32_t)ct::entry(ct::desc_index, 0, type)) = (int8_t)desc;
-        put_one(ct::steer_base, w(cs_steer + 4 * n));
-        put_one(ct::yaw_damping, w(cs_yaw_damping + 4 * n));
-        put_one(ct::preload, w(cs_preload + 4 * n));
-        put_one(ct::mass, fbits(f32_of(w(cs_mass + 4 * n)) * f32_of(w(cs_mass_scale))));
-        put_one(ct::inertia, w(cs_inertia + 4 * n));
+        auto scaled = [&](uint32_t table, float k) { return fbits(f32_of(w(table + 4 * n)) * k); };
+        put_one(ct::steer_base, scaled(cs_steer, r.steer));
+        put_one(ct::yaw_damping, scaled(cs_yaw_damping, r.yaw));
+        put_one(ct::preload, scaled(cs_preload, r.preload));
+        put_one(ct::mass, scaled(cs_mass, f32_of(w(cs_mass_scale)) * r.mass));
+        put_one(ct::inertia, scaled(cs_inertia, r.inertia));
         put_one(ct::yaw_inertia, fbits(crash_threshold));
+        rush2::calspeed::CarDefaults def = rush2::calspeed::car_defaults(n);
         put_word(ct::weight, fbits(0.5f));
-        put_word(ct::front_wheel_scale, fbits(1.0f));
-        put_word(ct::rear_wheel_scale, fbits(1.0f));
+        put_word(ct::front_wheel_scale, fbits(def.wheel_scale[0]));
+        put_word(ct::rear_wheel_scale, fbits(def.wheel_scale[1]));
         put_byte(ct::engine, engines[n]);
         put_byte(ct::torque, 2);                                       // HIGH, as California Speed's map index
         put_byte(ct::drive, main_byte(rom, cs_drive + n));
         put_byte(ct::suspension, suspension);
-        put_byte(ct::tires, main_byte(rom, cs_tires + n));
-        rush2::calspeed::CarDefaults def = rush2::calspeed::car_defaults(n);
+        put_byte(ct::tires, r.handling); // California Speed's is 4 for every car
         put_byte(ct::rims, def.rims);
         put_byte(ct::main_color, def.main);
         put_byte(ct::accent_color, def.accent);
@@ -249,6 +363,8 @@ namespace {
             fprintf(stderr, "[CalSpeed] Couldn't read CARPALETTE: no California Speed cars\n");
             return;
         }
+        for (int n = 0; n < car_count; n++) build_descriptor(rdram, *rom, n, descriptor_of(n));
+        Rebalance r = rebalance(rdram, *rom);
         int served = 0;
         for (int n = 0; n < car_count; n++) {
             std::vector<uint8_t> car;
@@ -257,12 +373,11 @@ namespace {
                 fprintf(stderr, "[CalSpeed] Couldn't convert car %d (%s): %s\n", n + 1, source_prefixes[n], error.c_str());
                 continue;
             }
-            build_physics(rdram, *rom, n);
+            build_physics(rdram, *rom, n, r);
             rush2::car2049::set_calspeed_car(rdram, n, std::move(car), part_prefix(n), palette);
             served++;
         }
-        std::vector<std::string> logos(rush2::calspeed::car_names, rush2::calspeed::car_names + car_count);
-        rush2::car2049::set_calspeed_logos(rdram, logos);
+        rush2::car2049::set_calspeed_logos(rdram, rush2::calspeed::name_logos(*rom));
         cars_loaded = served == car_count;
         printf("[CalSpeed] %d cars\n", served);
     }
@@ -274,6 +389,8 @@ rush2::calspeed::CarDefaults rush2::calspeed::car_defaults(int n) {
     d.main = nearest_color(default_rgb[n][0]);
     d.accent = nearest_color(default_rgb[n][1]);
     d.rims = default_rims[n];
+    d.wheel_scale[0] = default_wheel_scale[0][n];
+    d.wheel_scale[1] = default_wheel_scale[1][n];
     return d;
 }
 

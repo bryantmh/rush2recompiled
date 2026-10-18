@@ -77,8 +77,14 @@ namespace rush2::car2049 {
     // `palette` (its CARPALETTE, 256 RGBA5551 big-endian) with MAIN and ACCENT as its two colors.
     void set_calspeed_car(uint8_t* rdram, int n, std::vector<uint8_t> car, const std::string& prefix,
                           const std::vector<uint8_t>& palette);
-    // California Speed's cars' car select logos (texts, in order), drawn as the 2049 cars' are.
-    void set_calspeed_logos(uint8_t* rdram, const std::vector<std::string>& names);
+    // A car select name logo: a finished 128x32 CI8 image (texels rows bottom-up, 256-color RGBA16 big-endian palette)
+    // or, when texels is empty, text lettered in the port's 5x7 logo font.
+    struct NameLogo {
+        std::string text;
+        std::vector<uint8_t> texels, palette;
+    };
+    // California Speed's cars' car select logos, in order (src/calspeed/calspeed_logos.cpp).
+    void set_calspeed_logos(uint8_t* rdram, const std::vector<NameLogo>& logos);
     constexpr int first_calspeed_asset = 0x80;
     // A car type's asset index (func_80087E88's type + 0x1D, moved for the extra types).
     constexpr int car_asset(int type) {

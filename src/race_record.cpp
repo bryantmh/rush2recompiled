@@ -3,8 +3,9 @@
 //
 // Called from the end of each physics tick (func_80076578 at 0x8007660C, after the players' and drones' steps; the
 // same hook as src/ghost.cpp's ghost steps). Recording starts on the first tick of a race (game state 3 and up) and
-// ends when every computer car has finished or gone a minute without reaching a new checkpoint (stuck), or the race
-// ends; then <file>.done is written (JSON: ticks, why it ended, each car's finish time), so a tool can close the game.
+// ends when every computer car has finished or gone a minute without reaching a new checkpoint or moving 500 ft
+// (stuck), or the race ends; then <file>.done is written (JSON: ticks, why it ended, each car's finish time), so a
+// tool can close the game.
 // Only the first race of a launch is recorded.
 //
 // File (little-endian): "R2RC", u32 version (1), u32 header length, the header (JSON: fields, cars, kinds, types,
@@ -30,6 +31,7 @@
 //                                  steps and a replay interpolates between the ticks where this changes
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -77,9 +79,13 @@ namespace {
     int n_cars = 0;
     uint32_t ticks = 0;
     std::vector<float> row;
-    constexpr uint32_t stuck_ticks = 60 * 60;       // a minute of physics ticks without a new checkpoint
+    constexpr uint32_t stuck_ticks = 60 * 60;       // a minute of physics ticks without progress
+    constexpr float progress_distance = 500.0f;      // ft from where it last made progress, which counts as progress
     int last_progress[8];                            // laps * 16 + next checkpoint, per car
     uint32_t progress_tick[8];                       // the tick it last changed
+    float progress_at[8][2];                         // x, z there
+    constexpr uint32_t lost_ticks = 3 * 60 * 60;     // three minutes without a new checkpoint, however far it drove
+    uint32_t checkpoint_tick[8];                     // the tick it last reached a new checkpoint
 
     float f32_at(uint8_t* rdram, uint32_t addr) {
         uint32_t w = (uint32_t)MEM_W(0, (int32_t)addr);
@@ -123,7 +129,7 @@ namespace {
         std::fwrite(&len, 4, 1, out);
         std::fwrite(h.data(), 1, h.size(), out);
         row.assign(2 + size_t(n_cars) * field_count, 0.0f);
-        for (int c = 0; c < 8; c++) { last_progress[c] = -1; progress_tick[c] = 0; }
+        for (int c = 0; c < 8; c++) { last_progress[c] = -1; progress_tick[c] = 0; checkpoint_tick[c] = 0; }
         std::printf("[race_record] recording %d cars to %s\n", n_cars, path.c_str());
         std::fflush(stdout);
     }
@@ -172,7 +178,9 @@ extern "C" void rush2_race_record_tick(uint8_t* rdram, recomp_context* ctx) {
     row[1] = f32_at(rdram, physics_clock);
     // The race itself never ends while player 1's car (parked on the grid in a trackview run) hasn't finished, and a
     // stuck computer car never does with the Disable Auto-Abort cheat on: the recording ends once each computer car
-    // has finished or gone stuck_ticks without reaching a new checkpoint, or after stuck_ticks when there are none
+    // has finished or gone stuck_ticks without reaching a new checkpoint or moving progress_distance (lost_ticks
+    // without a checkpoint at all: a car put back again and again drives off each time), or after stuck_ticks when
+    // there are none
     // (an arena or a race without drones: nothing would ever end it).
     int computers = 0, settled = 0, finished = 0;
     for (int c = 0; c < n_cars; c++) {
@@ -181,15 +189,22 @@ extern "C" void rush2_race_record_tick(uint8_t* rdram, recomp_context* ctx) {
         computers++;
         uint32_t ph = cars + uint32_t(c) * car_size;
         int progress = (int8_t)MEM_B(0, (int32_t)(ph + 0x7FD)) * 16 + (int16_t)MEM_H(0, (int32_t)(ph + 0x7FE));
-        if (progress != last_progress[c]) {
+        // A car still covering ground isn't stuck: California Speed's checkpoints can be more than a minute apart.
+        float x = f32_at(rdram, car_states + uint32_t(c) * car_state_size);
+        float z = f32_at(rdram, car_states + uint32_t(c) * car_state_size + 8);
+        if (progress != last_progress[c] || ticks == 0) checkpoint_tick[c] = ticks;
+        if (progress != last_progress[c] || ticks == 0 ||
+            std::hypot(x - progress_at[c][0], z - progress_at[c][1]) > progress_distance) {
             last_progress[c] = progress;
             progress_tick[c] = ticks;
+            progress_at[c][0] = x;
+            progress_at[c][1] = z;
         }
         if (MEM_B(0, (int32_t)(car_states + c * car_state_size + 0xEA)) != 0) {
             finished++;
             settled++;
         }
-        else if (ticks - progress_tick[c] >= stuck_ticks) {
+        else if (ticks - progress_tick[c] >= stuck_ticks || ticks - checkpoint_tick[c] >= lost_ticks) {
             settled++;
         }
     }

@@ -23,6 +23,9 @@ Names and signatures marked inferred are educated guesses from the code.
 | 8009EA68 | `math_mat_rot_xy_from_angle_8009EA68` | `void math_mat_rot_xy_from_angle(s32 a0, f32 *m)` | Rotates matrix rows about z. \| Rotation about z. |  | verified |
 | 800A61B0 | `matrix_world_to_local_800A61B0` |  | MUL: world to local transform o[i] = M[i][2]*v2 + (v0*M[i][0] + v1*M[i][1]). |  | verified |
 | 800AD650 | `func_800AD650` |  | Decodes an s16 x 2^-14. |  | verified |
+| 800B3FA4 | `text_width_800B3FA4` |  | Width in pixels of string a0 in the current font (a1 = -1: whole string) |  | inferred |
+| 800B4200 | `font_select_800B4200` |  | Selects the current text font n (0-15) from $s2: loads atlas file 22+n and glyph table file 38+n, stores the index at 0x80149780 |  | inferred |
+| 800B71D4 | `text_draw_800B71D4` |  | Draws string a2 at (a0, a1) in the current font, with the current horizontal (0x80118E20) and vertical (0x80118E24) alignment |  | inferred |
 | 800BF780 | `func_800BF780` |  | Matrix product out = B x A (element A[6+j]*B[i][2] + (B[i][0]*A[j] + B[i][1]*A[3+j])). \| Matrix multiply out = b x a (row-major, summed in 2049's order). |  | verified |
 | 800BFBE8 | `quat_to_matrix_800BFBE8` |  | quat_to_matrix(m, q, a2): s = 2 without normalization (a2 = 0 uses s = 2/\|q\|^2). \| Quaternion to matrix (a2 = 1: unit quaternion, scale 2). |  | verified |
 | 800BFD8C | `quat_interp_800BFD8C` |  | quat_interp(t, q0, q1, out): t<0.001 -> q0; t>0.999 -> q1; slerp when dot < 0.98 else componentwise lerp. \| Quaternion slerp with acos/sin below a 0.98 cosine, a wrapping per-component lerp above it. |  | verified |
@@ -30,4 +33,5 @@ Names and signatures marked inferred are educated guesses from the code.
 | 800D03DC | `matrix_rotate_angles_800D03DC` |  | Rotates a matrix by angles a[1] about y (func_80090E9C), then a[0] about x (func_80090F44), then a[2] about z (func_8009EA68); each skipped when \|angle\| <= 0.0001. \| Rotation function using three helpers (func_80090E9C about y, func_80090F44 about x, func_8009EA68 about z); angles within +-0.0001 are skipped. |  | verified |
 | 800E0B20 | `car_crash_wreck_tests_800E0B20` |  | Crash wreck tests: wrecks a car (+0x640) on a force over +0x63C, speed over 400 or +0x50 outside -10..10 (all skipped in battle, game type 6) and on its roof (in types 6/4 also func_803914B4(car,car,-1)). Rush 2 car_crash_damage_stage_800715E8. |  | verified |
 | 800E571C | `car_rearm_after_respawn_800E571C` |  | Sets car +0x7EA/+0x7EB and state +0x308/+0x309 back to 1 (weapons can hit it again) once now - state+0x30C passes 0.6 s (D_80124480) in battle or game type 5, else 5 s. | D_80124480=0.6 s battle re-arm delay | verified |
+| 80103D28 | `unlocked_cars_list_draw_80103D28` |  | Draws the list of newly unlocked cars and tracks in font 11 (AERO-PLAIN10); car names from 0x80110D70 |  | inferred |
 | 803936A8 | `battle_coin_anim_update_803936A8` |  | Steps the queued point coin animations (0x80395E70, 0x18 bytes each); after 41 frames adds the entry's amount to state +0x3A3 (points). |  | inferred |

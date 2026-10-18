@@ -178,6 +178,7 @@ void rush2_car49_bars_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_select_set(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_select_get(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_select_cursor(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_select_first_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_asset(uint8_t* rdram, recomp_context* ctx, uint64_t* reg);
 
 // The car select's engine rev (src/engine_preview.cpp).
@@ -376,6 +377,14 @@ void rush2_players4_paused(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_labels(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx);
 
+// California Speed tracks: cars under the course and the road hold (src/calspeed/calspeed_rom.cpp).
+void rush2_calspeed_car_frame(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_road_hold(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_tire_load(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
+
 // Rush 2049 wings physics and drawing (src/rush2049/wings_state.cpp, src/rush2049/wings_render.cpp).
 void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_save_position(uint8_t* rdram, recomp_context* ctx);
@@ -420,6 +429,10 @@ void rush2_fix_dew_paint_rows(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_engines_after_timeout(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_white_accent(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_formula_rear_wheels(uint8_t* rdram, recomp_context* ctx);
+void rush2_breakable_groups_s3(uint8_t* rdram, recomp_context* ctx);
+void rush2_breakable_groups_s6(uint8_t* rdram, recomp_context* ctx);
+void rush2_breakable_groups_t8(uint8_t* rdram, recomp_context* ctx);
+void rush2_breakable_groups_a2(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_drone_glide_node(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_drone_glide_hide(uint8_t* rdram, recomp_context* ctx);

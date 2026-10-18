@@ -78,6 +78,17 @@ CHAIRHIT 40, DESKHIT 41, NYLGATEO1 42. The callbacks (0x800BB7B8...) allocate a 
 (0x6C bytes, max 0x82, func_800BB27C; +0x58/+0x5C hit/update callbacks, +0x62 sound, +0x64 class); func_8008A01C
 updates them each frame. Track sections have id 0.
 
+**Breakable groups.** func_800BB27C also puts each new breakable in a group (table 0x800D8FC0, 0x34 bytes: +0 class,
++2 members, +4 half size, +8/+0x14/+0x20 center and bounds per axis, +0x2C first and +0x30 last member, linked
+through the breakable's +0); an existing one under 15 members it fits within 200 ft of, else a new one at index
+count (0x800D97E4, u16), with no limit. func_8008BA68 (breakable_update_all) walks the groups;
+race_track_load_step_8008BC64 clears 40 (0x28) at load; func_8005FA48 reads a breakable's group (+0x66). The table
+holds 40: group 40 is the count itself. Stock tracks stay under 40; California Speed's Silicon Valley (71 cones and
+41+ trees) needs more, and the 41st tree linked itself through a stray "last member" pointer, writing over model
+slot 0's name table (0x80119018), so the placement walk crashed. src/game_fixes.cpp moves the table to a 0x82-group
+copy on the recomp heap (hooks at 0x800BB420, 0x800BB6D0, 0x8008BAB8, 0x8005FA68, 0x8008BD34; clear bound 0x8008BDAC).
+**[V: watchpoint on 0x80119018, Silicon Valley loads and races]**
+
 ### 1.4 Which models are loaded **[V]**
 func_800A4C98 queues track geometry 0x33+t, placement 0x3F+t, collision 0x4B+t, AI path 0x57+t(+12), plus
 assets **0x12** (effects, KEYO1, DOTHEDEWO1, MINE1, SMOKE*...) and **0x14** (CONE1O1, FLAG2O1, SHATPANEO1-7,

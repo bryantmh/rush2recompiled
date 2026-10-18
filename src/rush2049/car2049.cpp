@@ -394,23 +394,139 @@ namespace {
     }
     uint16_t rgba5551(int r, int g, int b) { return uint16_t(((r >> 3) << 11) | ((g >> 3) << 6) | ((b >> 3) << 1) | 1); }
 
-    // Italic capitals, blue shaded top to bottom, with a light outline and a dark drop shadow, as Rush 2's logos.
-    void draw_select_logo(const std::string& text, std::vector<uint8_t>& texels, std::vector<uint8_t>& palette) {
+    // Rush 2049's menu font AERO-PLAIN16 (font 13: atlas file 35, glyph table file 51; docs/rush2049_research/menus.md
+    // section 10), which the 2049 cars' name logos are lettered in. Atlas: I4 pages, rows top down; glyph records (12
+    // bytes from offset 20): char, page, x0, y0, x1, y1 (inclusive cell, cells top-aligned).
+    struct LogoFont {
+        struct Page { int w = 0, h = 0; std::vector<uint8_t> coverage; };
+        struct Glyph { int page, x0, y0, x1, y1; };
+        std::vector<Page> pages;
+        std::map<char, Glyph> glyphs;
+    };
+    std::optional<LogoFont> aero_font;
+
+    std::optional<LogoFont> load_aero_font(const rush2::rom2049::Source& rom) {
+        constexpr int atlas_file = 35, glyph_file = 51;
+        std::vector<uint8_t> atlas, table;
+        if (rom.is_dreamcast() || !rom.read_file(atlas_file, atlas) || !rom.read_file(glyph_file, table) || atlas.size() < 4) {
+            return std::nullopt;
+        }
+        LogoFont font;
+        uint32_t imag = 0, txhd = 0, txhd_n = 0;
+        for (size_t o = be32(atlas, 0); o + 12 <= atlas.size(); o += 12) {
+            if (memcmp(&atlas[o], "IMAG", 4) == 0) imag = be32(atlas, o + 4);
+            else if (memcmp(&atlas[o], "TXHD", 4) == 0) { txhd = be32(atlas, o + 4); txhd_n = be32(atlas, o + 8); }
+        }
+        for (uint32_t i = 0; i < txhd_n; i++) {
+            size_t rec = txhd + size_t(i) * 0x24;
+            if (rec + 0x24 > atlas.size()) return std::nullopt;
+            LogoFont::Page p;
+            p.w = (atlas[rec + 16] << 8) | atlas[rec + 17];
+            p.h = (atlas[rec + 18] << 8) | atlas[rec + 19];
+            size_t texels = imag + be32(atlas, rec + 24);
+            if (p.w <= 0 || p.h <= 0 || texels + size_t(p.w * p.h + 1) / 2 > atlas.size()) return std::nullopt;
+            p.coverage.resize(size_t(p.w * p.h));
+            for (int t = 0; t < p.w * p.h; t++) p.coverage[t] = uint8_t(((atlas[texels + t / 2] >> ((t & 1) ? 0 : 4)) & 15) * 17);
+            font.pages.push_back(std::move(p));
+        }
+        for (size_t o = 20; o + 12 <= table.size(); o += 12) {
+            LogoFont::Glyph g{ table[o + 1], table[o + 2], table[o + 3], table[o + 4], table[o + 5] };
+            if (table[o] == 0 || g.page >= int(font.pages.size()) || g.x1 < g.x0 || g.y1 < g.y0 ||
+                g.x1 >= font.pages[g.page].w || g.y1 >= font.pages[g.page].h) continue;
+            font.glyphs[char(table[o])] = g;
+        }
+        if (font.glyphs.count('A') == 0) return std::nullopt;
+        return font;
+    }
+
+    // Text in `font`, centered in a w x h mask: set at its own size, a glyph's width plus one texel apart, then
+    // scaled up by 1.25 (less if the name would be wider than the slot) to about the size of Rush 2's lettering.
+    void set_font_text(const LogoFont& font, const std::string& text, int w, int h, std::vector<uint8_t>& ink) {
+        auto n = font.glyphs.find('N');
+        int space = n != font.glyphs.end() ? std::max(2, (n->second.x1 - n->second.x0 + 1) / 2) : 3;
+        int lw = 0, lh = 0;
+        for (char c : text) {
+            auto g = font.glyphs.find(c);
+            lw += g == font.glyphs.end() ? space : g->second.x1 - g->second.x0 + 2;
+        }
+        for (const auto& [c, g] : font.glyphs) lh = std::max(lh, g.y1 - g.y0 + 1);
+        if (lw <= 0) return;
+        std::vector<float> line(size_t(lw * lh), 0.0f);
+        int x = 0;
+        for (char c : text) {
+            auto g = font.glyphs.find(c);
+            if (g == font.glyphs.end()) { x += space; continue; }
+            const LogoFont::Glyph& gl = g->second;
+            const LogoFont::Page& p = font.pages[gl.page];
+            for (int y = gl.y0; y <= gl.y1; y++) {
+                for (int u = gl.x0; u <= gl.x1; u++) {
+                    int lx = x + u - gl.x0, ly = y - gl.y0;
+                    if (lx < lw && ly < lh) line[ly * lw + lx] = p.coverage[y * p.w + u] / 255.0f;
+                }
+            }
+            x += gl.x1 - gl.x0 + 2;
+        }
+        float scale = std::min(1.25f, float(w - 6) / float(lw));
+        int sw = int(std::lround(lw * scale)), sh = int(std::lround(lh * scale));
+        int ox = (w - sw) / 2 - 1, oy = (h - sh) / 2 - 1;
+        auto sample = [&](float fx, float fy) {
+            int ix = int(std::floor(fx)), iy = int(std::floor(fy));
+            float ax = fx - ix, ay = fy - iy, v = 0.0f;
+            for (int dy = 0; dy < 2; dy++) {
+                for (int dx = 0; dx < 2; dx++) {
+                    int sx = ix + dx, sy = iy + dy;
+                    if (sx < 0 || sy < 0 || sx >= lw || sy >= lh) continue;
+                    v += line[sy * lw + sx] * (dx ? ax : 1 - ax) * (dy ? ay : 1 - ay);
+                }
+            }
+            return v;
+        };
+        for (int y = 0; y < sh; y++) {
+            for (int u = 0; u < sw; u++) {
+                int px = ox + u, py = oy + y;
+                if (px < 0 || px >= w || py < 0 || py >= h) continue;
+                if (sample((u + 0.5f) / scale - 0.5f, (y + 0.5f) / scale - 0.5f) >= 0.5f) ink[py * w + px] = 1;
+            }
+        }
+    }
+
+    // Blue shaded top to bottom, with a light outline and a dark drop shadow, as Rush 2's logos: the 2049 font's
+    // capitals when font is given, otherwise italic capitals from the 5x7 font.
+    void draw_select_logo(const std::string& text, const LogoFont* font, std::vector<uint8_t>& texels,
+                          std::vector<uint8_t>& palette) {
         constexpr int w = 128, h = 32, sx = 2, sy = 3, advance = 6 * sx, top = 5;
         constexpr int shade_base = 1, shades = 7 * sy, outline = 30, shadow = 31;
         std::vector<uint8_t> ink(w * h, 0);
-        int width = int(text.size()) * advance - sx;
-        int x0 = (w - width) / 2 - 2;
-        for (size_t c = 0; c < text.size(); c++) {
-            auto g = logo_font.find(text[c]);
-            if (g == logo_font.end()) continue;
-            for (int y = 0; y < 7 * sy; y++) {
-                int slant = (7 * sy - 1 - y) / 4;
-                for (int x = 0; x < 5 * sx; x++) {
-                    if (!(g->second[y / sy] & (0x10 >> (x / sx)))) continue;
-                    int px = x0 + int(c) * advance + x + slant, py = top + y;
-                    if (px >= 0 && px < w && py >= 0 && py < h) ink[py * w + px] = uint8_t(shade_base + y);
+        if (font != nullptr) {
+            set_font_text(*font, text, w, h, ink);
+        }
+        else {
+            int width = int(text.size()) * advance - sx;
+            int x0 = (w - width) / 2 - 2;
+            for (size_t c = 0; c < text.size(); c++) {
+                auto g = logo_font.find(text[c]);
+                if (g == logo_font.end()) continue;
+                for (int y = 0; y < 7 * sy; y++) {
+                    int slant = (7 * sy - 1 - y) / 4;
+                    for (int x = 0; x < 5 * sx; x++) {
+                        if (!(g->second[y / sy] & (0x10 >> (x / sx)))) continue;
+                        int px = x0 + int(c) * advance + x + slant, py = top + y;
+                        if (px >= 0 && px < w && py >= 0 && py < h) ink[py * w + px] = 1;
+                    }
                 }
+            }
+        }
+        // Shade by row across the lettering's height.
+        int ink_top = h, ink_bottom = -1;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (ink[y * w + x]) { ink_top = std::min(ink_top, y); ink_bottom = std::max(ink_bottom, y); }
+            }
+        }
+        for (int y = ink_top; y <= ink_bottom; y++) {
+            int shade = ink_bottom > ink_top ? (y - ink_top) * (shades - 1) / (ink_bottom - ink_top) : 0;
+            for (int x = 0; x < w; x++) {
+                if (ink[y * w + x]) ink[y * w + x] = uint8_t(shade_base + shade);
             }
         }
         std::vector<uint8_t> img(w * h, 0);
@@ -443,7 +559,10 @@ namespace {
 
     // Asset 0x11 with the extra cars' name logos added (texture name, text). The bank holds textures only: texels and
     // palettes, then the sorted texture (0x20-byte) and palette (0x18-byte) records.
-    bool build_select_bank(const std::vector<uint8_t>& bank, const std::vector<std::pair<std::string, std::string>>& logos,
+    // A 128x32 CI8 name logo: texels (rows bottom-up) and its 256-color RGBA16 palette.
+    struct Logo { std::string name; std::vector<uint8_t> texels, palette; };
+
+    bool build_select_bank(const std::vector<uint8_t>& bank, const std::vector<Logo>& logos,
                            std::vector<uint8_t>& out) {
         if (bank.size() < 0x28) return false;
         uint32_t tex = be32(bank, 8), pals = be32(bank, 12), ntex = be32(bank, 20), npal = be32(bank, 24);
@@ -462,9 +581,7 @@ namespace {
                                  p < npal ? palettes[p].name : std::string() });
         }
         out.assign(bank.begin(), bank.begin() + std::min(tex, pals));
-        for (const auto& [name, text] : logos) {
-            std::vector<uint8_t> texels, palette;
-            draw_select_logo(text, texels, palette);
+        for (const auto& [name, texels, palette] : logos) {
             while (out.size() % 8) out.push_back(0);
             uint32_t texel_off = uint32_t(out.size());
             out.insert(out.end(), texels.begin(), texels.end());
@@ -509,14 +626,25 @@ namespace {
 
     // The logos the select bank holds now: the 2049 cars' while they're loaded, California Speed's while its cars are.
     bool logos49 = false;
-    std::vector<std::string> logos_calspeed;
+    std::vector<rush2::car2049::NameLogo> logos_calspeed;
     void rebuild_select_bank(uint8_t* rdram) {
-        std::vector<std::pair<std::string, std::string>> logos;
+        std::vector<Logo> logos;
         for (int k = 0; k < car_count && logos49; k++) {
-            logos.push_back({ "R49CAR" + std::to_string(k + 1), display_names[k] });
+            Logo& l = logos.emplace_back();
+            l.name = "R49CAR" + std::to_string(k + 1);
+            draw_select_logo(display_names[k], aero_font ? &*aero_font : nullptr, l.texels, l.palette);
         }
         for (size_t n = 0; n < logos_calspeed.size(); n++) {
-            logos.push_back({ "RCSCAR" + std::to_string(n + 1), logos_calspeed[n] });
+            const rush2::car2049::NameLogo& from = logos_calspeed[n];
+            Logo& l = logos.emplace_back();
+            l.name = "RCSCAR" + std::to_string(n + 1);
+            if (from.texels.size() == 128 * 32 && from.palette.size() == 512) {
+                l.texels = from.texels;
+                l.palette = from.palette;
+            }
+            else {
+                draw_select_logo(from.text, nullptr, l.texels, l.palette);
+            }
         }
         std::vector<uint8_t> bank, select;
         if (logos.empty()) {
@@ -528,9 +656,9 @@ namespace {
     }
 }
 
-void rush2::car2049::set_calspeed_logos(uint8_t* rdram, const std::vector<std::string>& names) {
-    logos_calspeed = names;
-    for (size_t n = 0; n < names.size() && n < (size_t)rush2::car_types::count_calspeed; n++) {
+void rush2::car2049::set_calspeed_logos(uint8_t* rdram, const std::vector<NameLogo>& logos) {
+    logos_calspeed = logos;
+    for (size_t n = 0; n < logos.size() && n < (size_t)rush2::car_types::count_calspeed; n++) {
         std::string name = "RCSCAR" + std::to_string(n + 1);
         uint32_t at = logo_names + (rush2::car_types::first_calspeed - first_type + n) * 16;
         for (size_t i = 0; i < 16; i++) {
@@ -1084,6 +1212,7 @@ static void load_cars(uint8_t* rdram) {
         }
     }
     logos49 = true;
+    aero_font = load_aero_font(*rom);
     rebuild_select_bank(rdram);
     for (int k = 0; k < car_count; k++) {
         std::vector<uint8_t> car;
@@ -1364,15 +1493,23 @@ namespace {
         }
     }
 
+    // A California Speed car's TIRE SIZE F and R (bytes +11 / +12, scale x 100 - 75): its own wheel scales (the Golf
+    // Cart's 0.65 is byte -10, below the car select's hidden TIRE SIZE rows' 0.75; only the drawing reads it).
+    void set_calspeed_tire_sizes(uint8_t* rdram, uint32_t block, int n) {
+        rush2::calspeed::CarDefaults d = rush2::calspeed::car_defaults(n);
+        for (int i = 0; i < 2; i++) {
+            MEM_B(0, (int32_t)(block + 11 + i)) = (int8_t)std::lround(d.wheel_scale[i] * 100.0f - 75.0f);
+        }
+    }
+
     // A California Speed car's record block (car n): its own MAIN and ACCENT (California Speed's colors, as the
-    // nearest of Rush 2's: rush2::calspeed::car_defaults), STRIPE COLOR 0, its rims, TIRE SIZE 1.0 (byte 25) and its
-    // durability 0.5 (California Speed's weight, byte 50). The rest stays the Pickup's (init_side_slot).
+    // nearest of Rush 2's: rush2::calspeed::car_defaults), STRIPE COLOR 0, its rims, its TIRE SIZE and its durability
+    // 0.5 (California Speed's weight, byte 50). The rest stays the Pickup's (init_side_slot).
     void set_calspeed_defaults(uint8_t* rdram, uint32_t block, int n) {
         rush2::calspeed::CarDefaults d = rush2::calspeed::car_defaults(n);
         int c[3] = { d.main, d.accent, 0 };
         put_colours(rdram, block, c, d.rims);
-        MEM_B(0, (int32_t)(block + 11)) = 25;
-        MEM_B(0, (int32_t)(block + 12)) = 25;
+        set_calspeed_tire_sizes(rdram, block, n);
         MEM_B(0, (int32_t)(block + durability_byte)) = 50;
     }
 
@@ -1408,6 +1545,9 @@ namespace {
         // Before version 6 they also took the Pickup's TIRE SIZE (1.25: oversized wheels).
         bool old_tire_sizes = version < 6;
         // Before version 7 they ended at the 2049 types: California Speed's blocks start fresh (init_side_slot).
+        // Version 7 gave every California Speed car TIRE SIZE 1.0 (byte 25), not its own wheel scale: a block still on
+        // it takes the car's own.
+        bool old_calspeed_tires = version < 8;
         for (auto& [key, value] : j["records"].items()) {
             uint32_t record = (uint32_t)std::strtoul(key.c_str(), nullptr, 16);
             if (!in_save_area(record) || !value.is_string() ||
@@ -1426,6 +1566,10 @@ namespace {
                 uint32_t block = base + (t - rush2_types) * block_size;
                 if (bytes < (t - rush2_types + 1) * block_size) {
                     init_block(rdram, block, record, t);
+                }
+                else if (old_calspeed_tires && MEM_B(0, (int32_t)(block + 11)) == 25 &&
+                         MEM_B(0, (int32_t)(block + 12)) == 25) {
+                    set_calspeed_tire_sizes(rdram, block, t - rush2::car_types::first_calspeed);
                 }
             }
             for (int t = first_type; t < end_type && setup49.loaded; t++) {
@@ -1461,7 +1605,7 @@ namespace {
             selected[key] = type;
         }
         rush2::data_files::write(rush2::data_files::File::Saves, side_section,
-            nlohmann::json{ { "version", 7 }, { "records", records }, { "selected", selected } }.dump());
+            nlohmann::json{ { "version", 8 }, { "records", records }, { "selected", selected } }.dump());
     }
 }
 
@@ -2195,6 +2339,45 @@ extern "C" void rush2_car49_select_cursor(uint8_t* rdram, recomp_context* ctx) {
     if (it != selected_type_of.end() && (it->second & 0x1F) == type && it->second < types) {
         ctx->r2 = (uint64_t)it->second;
     }
+}
+
+extern "C" void profile_set_selected_car_type_80097F8C(uint8_t* rdram, recomp_context* ctx);
+
+// The car select's frame (func_803B9478 at 0x803BA844, $a3 = the car on show for this player, $v0 = its "last car"
+// halfword, $s0 = the player's screen, +0x24 its record): each frame Rush 2 writes the record's selected type when the
+// car on show changes, but not on the first frame (last car -1), when the car on show is the one the list opened on.
+// Rush 2 opens it on the record's type, so the two agree; ours can open elsewhere (RUSH2_TEST_CAR, a full type the
+// record's 5 bits don't hold), and confirming that car unmoved raced it drawn as the car on show
+// but with the record's car's physics and wheels (func_8009E6DC: descriptor and +0x7EA, which places and sizes the
+// wheels): its tires sat where another car's go. So on the first frame the record takes the car on show too.
+extern "C" void rush2_car49_select_first_frame(uint8_t* rdram, recomp_context* ctx) {
+    // The UNLOCKS shop's preview isn't a choice: the record keeps the player's own car.
+    if ((int16_t)MEM_H(0, (int32_t)(uint32_t)ctx->r2) >= 0 || rush2::unlocks::shop_car() >= 0) {
+        return;
+    }
+    int shown = (int8_t)(ctx->r7 & 0xFF);
+    uint32_t record = (uint32_t)MEM_W(0, (int32_t)((uint32_t)ctx->r16 + 0x24));
+    uint32_t at = record + 0x31;
+    if (shown < 0 || shown >= types || shown == 22 || !in_save_area(at)) {
+        return;
+    }
+    int stored = MEM_BU(0, (int32_t)at) & 0x1F;
+    {
+        std::lock_guard lock{ side_mutex };
+        load_side_slots(rdram);
+        auto it = selected_type_of.find(at);
+        if (it != selected_type_of.end() && (it->second & 0x1F) == stored) {
+            stored = it->second;
+        }
+    }
+    if (stored == shown) {
+        return;
+    }
+    recomp_context saved = *ctx;
+    ctx->r4 = (uint64_t)(int64_t)(int32_t)at;
+    ctx->r5 = (uint64_t)shown;
+    profile_set_selected_car_type_80097F8C(rdram, ctx);
+    *ctx = saved;
 }
 
 // func_8009E6DC, after it copied the record's selected type (5 bits, at $v1) to the player ($s0 + 0x7EA): the full

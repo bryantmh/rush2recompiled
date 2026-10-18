@@ -637,3 +637,22 @@ lead of 20+ -> 5, 6-19 -> 4, under 6 or 2nd -> 3, 3rd-4th -> 2, 5th-6th -> 1, 7t
 
 The General tab's Fixed Circuit Difficulty (default Off; src/circuit.cpp) skips it: a hook at 0x800A8FF8 goes to the
 function's end (0x800A914C).
+
+## 10. Fonts [V]
+
+2049 has 16 bitmap fonts. Font n is atlas file 22 + n (one intensity texture, I4, or IA8 with the coverage in the
+low nibble) and glyph table file 38 + n (12-byte records: char, page, x0, y0, x1, y1 inclusive). `func_800B4200`
+selects one (font number in `$s2`, an unusual argument register; current font index 0x80149780, header pointer
+0x801497F0); `func_800B71D4(x, y, text)` draws a string in it and `func_800B3FA4` measures one.
+`tools/rush2049/font49.py` lists them and renders text in any of them.
+
+- 0 MONACO9K, 14 GENEVA10B: full sets with lower case; never selected in main.
+- 1-4 QUIVER 16/12/7/20, 5-9 HUD_A-P 16/12/7/20/24: digits and a few signs (HUD numbers).
+- 10 4BAERO-PLAIN12, 11 AERO-PLAIN10, 12 and 15 AERO-PLAIN7, 13 AERO-PLAIN16 (two pages): capitals only. These are
+  the menu fonts: in main `func_800B4200` is called with 11 62 times and 10 and 13 28 times each.
+
+2049 has no car name logos: car names are strings (0x80110D70), and the unlocked-cars list (`func_80103D28`) draws
+them in font 11. The port's car select logos (car2049.cpp `draw_select_logo`) letter the 2049 names in AERO-PLAIN16
+(`load_aero_font`: the coverage of each glyph set at its own size, a texel apart, scaled up 1.25 or to fit the
+128 x 32 slot), shaded and outlined like Rush 2's logos; the old 5x7 font is the fallback when the font can't be read
+(a Dreamcast source). [V in game]

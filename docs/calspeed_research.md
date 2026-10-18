@@ -66,9 +66,16 @@ All in the main data, Rush 2's layouts (`src/calspeed/calspeed_convert.cpp`):
   (Monterey's to y -252). A drone glancing off Monterey's ramp at (0, -10, 5630) flew over the left wall and drove on
   200 ft under the course. `rush2_calspeed_car_frame` (calspeed_rom.cpp, hooked with the car frame callback at
   0x8005CFB0, `car_update_draw_nodes_8005CFB0`) wrecks a car (`car_wreck_trigger_8006E1A8`) that has stayed more than
-  60 ft below the nearest racing-line point (the path's spine and AI lanes, height weighted 0.5) for 2 s of race
+  60 ft below the nearest racing-line point (the path's spine, its branches (the alternate routes, which on Monterey run up to 127 ft below the main road) and AI lanes, height weighted 0.5) for 2 s of race
   time, as surface 7 would. A road under another one is nearer its own points, so a car on it isn't counted. [V:
   Monterey, every drone finished]
+
+- **Breakables:** Silicon Valley's 71 cones and 41+ trees need more than the 40 breakable groups Rush 2's table
+  holds, and loading it crashed (docs/rush2049_research/placement.md, Breakable groups); `src/game_fixes.cpp` gives
+  the table 0x82 groups. [V: sim]
+- **Fall floor:** Rush 2 puts a car back below y -190 (`race_stuck_wrongway_update_8008CDA4`); Silicon Valley's roads
+  go down to -306, and its cars were put back every 7.5 s onto road still under the floor. On California Speed's tracks
+  the floor is 300 ft below the racing line's lowest point (`rush2_calspeed_fall_floor`). [V: sim]
 
 ### Track select landmarks
 
@@ -117,8 +124,22 @@ particles and stunt scoring, which know materials 0-2 and 8 (airborne); Californ
   its first spine point, and on six tracks checkpoint 0 crosses within 50 ft of it, so the back rows (the player's)
   started off the road and fell. `move_start` moves checkpoint 0 to the first spine stretch at least 75 ft along;
   every grid slot then has ground under it on every track (checked offline: each slot against the track's
-  collision). California Speed's own grid isn't traced. [V]
+  collision). The stretch must also leave every slot 5 ft from the walls (types 5 and 6 after the remap, within 15 ft
+  of the road's height): the slots reach 8.5 ft to one side of the spine and 17 to the other, and on Highway 1, where
+  the spine runs near the right wall, two cars stood 2 ft from it, tipped onto it before the start and fell through
+  the course. California Speed's own grid isn't traced. [V]
 - **Laps:** a point-to-point track is raced over one lap; every drone finishes Monterey's lap (about 200-225 s). [V]
+- **Lane gaps:** Rush 2's drone driver puts a drone back on the road once it is more than 100 ft from its lane point
+  along the lane or beside it: `drone_steer_along_path_80074284` keeps the car's offset from the point in the lane's
+  direction (state +0) and across it (state +4, both x/z); `drone_driver_80074990` sets car +0x810 at 0x80075238 when
+  either is past 100 (or the drone has been stuck: state +0x24 >= 11 for over 1 s), and
+  `race_stuck_wrongway_update_8008CDA4` (0x8008CF00, 0x8008D0B8) places it by case 2 and sets its wreck state +0x342 to
+  2. California Speed's lanes have no points in the air: Monterey's jump is one 120-128 ft step on every lane, so every
+  drone that flew it was wrecked over the landing edge (-118..-75, -11, 5729..5755), at any height, with the road hold
+  on or off. Central Valley, San Diego and San Andreas also have 100-131 ft steps. The converter
+  (`split_lane_steps`, calspeed_convert.cpp) splits steps over 90 ft into even pieces of at most 45 ft; steps over
+  1000 ft (Yosemite's lane 1 jumping back 5581 ft at its end) aren't road and stay. The lanes' checkpoint
+  crossings are worked out at load (`func_80092BC4`). [V: Monterey's jump wrecks gone in the sim]
 
 ## 6. Music
 
@@ -170,7 +191,7 @@ Rush 2's with the fields from +0x5B0 on moved 0x64 later (Rush 2's mass +0x5B0 i
   (player x 42 + i, + 21), not colors. [V]
 - **Descriptors** (0x800D6418: 18 pointers to 0xE0-byte descriptors) are Rush 2's 0xEC-byte layout less a few fields
   (`build_descriptor`): 0x00-0x53 the same; Rush 2's +0x54/+0x58/+0x5C missing (California Speed reads
-  only +0x50, the steering lock: 720 / 16 = 45 degrees where Rush 2 has 540 / 16 = 33.75), taken from the Pickup; 0x54/0x58 = Rush 2 +0x60/+0x64 (drag, rolling
+  only +0x50, 16 in both games), taken from the Pickup; 0x54/0x58 = Rush 2 +0x60/+0x64 (drag, rolling
   resistance); 0x5C-0x68 = +0x68-+0x74 (tire curve pointers: 0x800D50F0 front, 0x800D5108 rear, much grippier than
   Rush 2's); 0x6C and 0x70 two grip factors (`func_800B8CE8` scales a tire's two force components by them; 1.0 on most
   cars, the Dozer 1.5 / 3.0), with no counterpart in Rush 2, whose +0x78 (rear lateral grip) California Speed lacks:
@@ -183,29 +204,135 @@ Rush 2's with the fields from +0x5B0 on moved 0x64 later (Rush 2's mass +0x5B0 i
 - **Options** (Games tab): California Speed Cars (offered in the car select, after the other cars) and California
   Speed Computer Cars (All Tracks, California Speed Tracks, Off: `rush2_car49_drone`). They have no unlock shop items.
   Online, a California Speed car needs every machine to have the ROM (`online_net.cpp`). [V]
+- **California Speed Road Hold** (Games tab, `calspeed_road_hold`, default On, takes effect at once): off, its tracks
+  have Rush 2's own gravity only (see Road hold). `tools/calspeed/sim_wrecks.py` races the tracks headless with it on
+  and off and counts the computer cars' wrecks and rollovers.
 
 ### Road hold
 
-California Speed keeps its cars on the road with a force Rush 2 lacks, so its cars' values (grip 7.8, springs
--8840 / -7020, steer force 10000, yaw damping 1.0) are tuned against it; copied into Rush 2's physics without it they
-flip at small steering inputs and jump several times higher. Gravity is the same in both (32.2 ft/s/s x the
-0x800D7380 table, Rush 2's 0x800CB580). [V]
+California Speed keeps its cars on the road with a force Rush 2 lacks, and its cars' values (grip 7.8, springs
+-6800 to -18360, steer force 10000, yaw damping 1.0) are tuned against it: copied into Rush 2's physics they flip at
+small steering inputs, and its tracks' hills throw every car several times higher than California Speed does. Gravity
+is the same in both (32.2 ft/s/s x the 0x800D7380 table, Rush 2's 0x800CB580). [V]
 
 - **Ground contact** `func_800A58A4` (Rush 2 `car_ground_contact_800703EC`; car fields +0x64 past Rush 2's here:
   compression +0x620 = Rush 2 +0x5BC) clamps each wheel's compression to +-3 and its rate to +-40 as Rush 2 does, then
   sets a per-wheel road-hold factor +0x314: in the air (compression < 0) 0.9 below -0.75, 1.5 below -0.5, else 0.5; on
-  the ground 0.32 (double at 0x800D8740), or past 0.5 compression 0.82 - compression, raising the wheel two places on
-  ((i + 2) % 4) to at least 0.2. A wheel that found no road while fewer than 3 did is put 1000 below it. It also
-  normalizes +0x3D8, respawns (`func_800A4020`) with no wheel down and the summed +0x258 below -3000, and ends in
-  `func_80080FCC` (Rush 2 calls `car_collide_with_cars_8006F3C0` there). [V code, I field roles]
-- **Wheel forces** `func_8008F23C` (Rush 2 `func_8006AFD8`) adds per wheel a force of -(weight +0x610) x factor along
-  y into its force vector +0x2E4 + 12i, rotated by the car matrix +0x324 (`func_800C9008`) when any wheel is more than
-  1.0 out of the road, and sums it with the wheel's other forces. The factor is x4 when the byte at 0x8014FE0B or the
-  player's byte at 0x80151C02 + index x 0x2A8 is set [I which mode]. So a car on the ground carries 4 x 0.32 = 1.28
-  times its weight extra, and one well off the ground 4 x 0.9 = 3.6 extra (4.6 g in all), which is why its jumps are
-  low. [V]
+  the ground 0.32 (double at 0x800D8740), or past 0.5 compression 0.82 - compression, first raising wheel (i + 2) % 4's
+  factor by 0.2 when it is below 0.2 (only wheels 0 and 1 keep that: the later wheels replace theirs). A wheel that
+  found no road while fewer than 3 did is put 1000 below it (clamped to -3). It also normalizes +0x3D8, respawns
+  (`func_800A4020`) with no wheel down and the summed +0x258 below -3000, and ends in `func_80080FCC` (Rush 2 calls
+  `car_collide_with_cars_8006F3C0` there). [V code, I field roles]
+- **Wheel forces** `func_8008F23C` (Rush 2 `func_8006AFD8` + `car_force_sum_8006A02C`) adds, per wheel, the vector
+  (0, -(weight +0x610) x factor, 0) to the car's force sum (+0x4, the car's frame): as it is (along the car's own down
+  axis), or rotated from the world by the car matrix +0x324 (`func_800C9008`, as gravity is) when any wheel is more
+  than 1.0 out of the road. It is a push on the whole car, not at the wheels (no torque). The factor is x4 once the
+  byte at 0x8014FE0B is set (when the race is over, `func_80080850`; it also takes over the throttle,
+  `func_80082894`) or the player's byte at 0x80151C02 + index x 0x2A8. So a car on the ground carries 4 x 0.32 = 1.28
+  times its weight extra, and one well off the ground 3.6 extra (4.6 g in all), which is why its jumps are low. [V]
+- **The port** (`rush2_calspeed_road_hold`, hooked in `car_physics_forces_800706D0` after `car_force_sum_8006A02C`,
+  for every car on a California Speed track, not in the attract demo (0x800FAE6C, which starts without the track
+  select that clears the California Speed track and could land on HAWAII, the host slot); `hold` picks the version,
+  `Hold::Gravity`). California Speed's world as a heavier one, with the car built to match so it drives as on any
+  other track. California Speed is built this way: its road hold is 1.28 g more on the road (2.28 g in all) and up to
+  3.6 more with the wheels well up (4.6 g), and its cars' springs per unit of mass are 2.27 times Rush 2's (-10620
+  against -3600 at 1.3 times the mass) and their dampers 1.56 times (sqrt 2.28 = 1.51), so they sit at Rush 2's height
+  under it. With `gravity_scale` = 1 + 4 x 0.32 = 2.28:
+  - gravity: the road hold's factors (`road_hold_push` / weight: 1.28 on the road, up to 3.6 in the air) x the car's
+    gravity (+0x200, the world gravity +0x2C0 turned into the car's frame by `car_force_sum_8006A02C`; Rush 2 sets
+    +0x2C0 once at car init) is added to the summed force at +0x4 (`gravity_push`), leaving +0x2C0 to the wings'
+    gravity scaling;
+  - springs and anti-roll x 2.28, dampers x sqrt(2.28) (`rush2_calspeed_wheel_damper` rebuilds the load,
+    `car_wheel_force_loop_8006ABB0` 0x8006AC8C-0x8006AD0C, for 0 < compression <= 10): the car sits at Rush 2's
+    height and the suspension's damping ratio is Rush 2's;
+  - the tires' load / 2.28 (`rush2_calspeed_tire_load`, hooked at 0x8006AD4C as $a2 goes to `car_tire_model_8006A2FC`:
+    min(0x34($sp) / 2.28, weight +0x5AC), the game's cap): grip is Rush 2's;
+  - hills: on the road the extra gravity's part along the road (the touching wheels' mean polygon normal, as
+    `push_car`) is taken out, a quarter per touching wheel, so it fades as the car leaves the road and the whole
+    extra pulls it down in the air. `extra_downhill` / `extra_uphill` keep a fraction of it where it pulls along /
+    against the car's travel (+0x34, the car's velocity in its frame): 0 = Rush 2's hills, 1 = the whole heavier
+    world; both 0. Its part across the road (banking) is always taken out.
+  Mass is unchanged: a lighter car under more gravity keeps the same weight on the springs but the same tire, engine
+  and brake forces move it that much harder. Springs x 4.6 (the air's gravity: twice as stiff as California Speed's)
+  kicked cars over at ramp feet: Monterey's jump, a 17 degree crease at 185 ft/s, threw 6 of 7 computer cars into
+  backflips (stock 3 of 5, x 2.28 2 of 5).
+- **Damper** (`rush2_calspeed_wheel_damper`, hooked at 0x8006AD10, the same toggle). The load is (anti-roll +
+  compression x spring - v x damper) x a time-step scale, v being the wheel's velocity along the normal of the polygon
+  under it. On large flat polygons v jumps at once by speed x the change of slope as a wheel crosses an edge (3
+  degrees at 190 ft/s: 10 ft/s), and the damper throws the car or drops the wheel for that frame: the slight lifts
+  over polygon edges that let cars spin out. Monterey's 1.6 ft curb at (-2870, -55, 8765), which its lanes cross at
+  170 mph, has a 29 degree face 2.9 ft deep: a rear wheel that landed on it for a frame read v = -85 ft/s while its
+  spring was extending, took 12.5 x the car's weight and flipped the car over backward; most computer cars flipped
+  there. v may move only 200 ft/s per second (6.7 ft/s in a 1/30 s frame) past the larger of last frame's v and the
+  spring's own rate in one frame; on smooth road it changes far less, so nothing changes, and a wheel that was off the
+  road (a landing) keeps v. Tried: the spring's rate as the damper's input (a frame behind: the stiffer dampers, type
+  39's, oscillated and the car hopped along at walking pace) and holding v to that slew over several frames (every
+  car bouncier: 28 rollovers on Monterey against 13).
+- **Tried and set aside** (kept in the file): `Hold::Copy` (California Speed's road hold as it is: weight x the
+  per-wheel factors, square to the road or straight down once a wheel is more than 1.0 out, with the springs holding
+  its ground part up: `rush2_calspeed_wheel_support`, hooked at 0x8006ADFC, records each wheel's support at
+  0x34($sp) and the car is lifted by push x their sum / weight at its center, or each support is multiplied by
+  (weight + push) / weight while a wheel is off the road. Per wheel all the time it made the springs 2.3 times as
+  stiff in roll and pitch, and hooked at 0x8006AD18 it fed the tire load's cap, so a loaded wheel's tire jumped to the
+  full weight and cars let go swerving downhill; lifted only at the center, cars landing on two wheels stayed tipped:
+  California 90 wrecks and 140 rollovers against 62 and 47 per wheel). `Hold::Shape` (a push from the road's shape: weight x v^2 k / g from the
+  pitch between the road under the front and rear wheels, averaged over 0.12 s; cars still lifted a little at
+  polygon edges and spun), a push from the tires' unloading (the loads jump every step with the damper, so it
+  snapped between 0 and 2 x weight on ordinary bumps), the whole road hold with the tires' load scaled back
+  (`Hold::Full`: cars still handled differently and parked cars rolled 6-26 ft in the race intro), its air part alone
+  over its ground part (`Hold::AirPull`) and air gravity (`Hold::AirGravity`, 3.6 x weight as the lowest wheel goes
+  from 0.25 to 1.25 ft up): both start only once the car has begun to fly, so it lifted and was then yanked down.
 - California Speed also stops cars from turning around on the track (they can only face along it); not located yet,
-  and not wanted in the port.
+  and not ported.
+
+### Rebalance
+
+The California Speed cars' values are mapped onto Rush 2's roster as the 2049 cars' are (`Rebalance` in
+src/calspeed/calspeed_cars.cpp; `tools/rush2049/cars.py calspeed` prints the three rosters side by side): each value
+x Rush 2's mean (its 21 cars, all but the secret ROCKET) / California Speed's mean. Values every California Speed car
+shares become Rush 2's mean: steering 10000 -> 543, yaw damping 1 -> 30.7, preload 0.05 -> 0.185, torque scales
+1.9 / 1.95 / 2.05 -> 1.82 / 1.84 / 1.89, gears 3.05 / 1.68 / 1.17 / 0.88 -> Rush 2's, the tire curves (cornering
+stiffness 64000 / 78000, grip 7.8) -> Rush 2's (16000 / 32000, 2.6 / 3.2). Values that differ by car keep their order
+with the mean car on Rush 2's: springs and dampers (descriptor +0x18-+0x4C; mean -10620 / -8511 -> -3600 / -4200), mass
+(140.4 -> 108.4 slugs), inertia (2614 -> 2729). The grip factors (+0x70, the Dozer 3.0) stay on top of Rush 2's
+curves, and the handling row (California Speed's 4 for every car) is Rush 2's mean, 5. Inertia constants, +0x50 (16),
+drag, rolling resistance, final drive, clutch and shift points are the same in both games. [V]
+
+Rollover cap: a car rolls over rather than slides when its grip is high for how far its wheels sit from the middle
+(every car's wheels are 0.8 ft below its center). Every Rush 2 car but the ROCKET and the DEW keeps grip / half track
+at the Pickup's, 0.95 front (2.6 / 2.75) and 1.16 rear (3.2 / 2.75); 2049's cars are 2.5-3.75 ft wide on similar
+curves. California Speed's cars are narrower (0.83 ft for the Golf Cart, 1.8 / 1.96 the Sportster, 2.16-2.45 most) and
+its grip factors reach 3.0 (the Dozer), so on Rush 2's curves they sat at 1.06-3.86 and flipped at small steering
+inputs. Each car's front and rear grip is held to at most the Pickup's ratio x its own half track (the rear with its
++0x78), so they slide where Rush 2's cars do (the Golf Cart 0.78 / 0.97, the Sportster 1.70 / 2.28, the 2.45 ft cars
+2.32 / 2.85, the Dozer 2.34 / 3.10). The car select's bars count grip but not rollover, so before this a car could rate
+well and still flip. [V]
+
+### Car name art
+
+California Speed has no name logos for its own cars. Its car select bank, asset 9, is Rush 2's (asset 0x11): the same
+26 textures, among them Rush 2's 22 car logos (4X4, BANDIT, COMPACT, CONCEPT, COUPE, CRUISER, DEW "Mtn Dew", EXOTIC,
+FORMULA, HATCHBACK, HOTROD, MOBSTER, MUSCLE "Muscle Car", PICKUP, PROTOTYPE, ROCKET, SEDAN, SPORTSTER, STALLION,
+SUBCOMPACT, TAXI, VAN; Rush 2's type -> logo table is 0x803C7688), every one redrawn in California Speed's lettering:
+a bold pixel sans, mixed case, in a blue gradient (palette 1-11, light at the top) with a dark edge (12-15), all but
+HOTROD on one shared palette, rows stored bottom-up. Capitals and l span rows 5-23, the x-height starts at row 10,
+descenders reach row 27. Only Sportster, Muscle and Mt Dew among its cars have a word. [V]
+
+The port (`src/calspeed/calspeed_logos.cpp`, cached as the blob `calspeed_name_logos`) uses those three words as they
+are and spells the other 18 names (486SE, Predator, Mano, Five Oh, Hopper, Fairchild, Insect, Mercado, Golf Cart,
+Squirrel, Forklift, Conv, Sled, Baja, Ol Truck, Camper, Semi, Dozer) from letters cut out of the words: a letter is the
+pixels in a column window of a word whose 4-connected piece inside the window holds fill, so a touching neighbor's
+edge stays behind (the T and V also drop a neighbor's corner piece). Sources: P PICKUP 25-39, M MOBSTER 18-35,
+F FORMULA 17-29, H HATCHBACK 4-18, C MUSCLE 87-103, S SEDAN 27-41, E EXOTIC 29-41, D DEW 66-80, B BANDIT 27-42,
+T TAXI 41-54, 4 4X4 44-57, V VAN 42-59, a SEDAN 71-83, c MUSCLE 48-59, d SEDAN 57-69, e MUSCLE 67-79, h HATCHBACK
+56-67, i CRUISER 65-68, k HATCHBACK 112-123, l MUSCLE 62-65, m COMPACT 46-64, n SEDAN 86-97, o COMPACT 31-44,
+p PICKUP 89-102, r CRUISER 41-48, s MUSCLE 34-46, t BANDIT 93-100, u MUSCLE 20-32. The letters no word uses are put
+together from real ones: I = l; O = C united with its mirror image, 8 = S with its mirror; 6 = the S's top (its right
+side cut after row 8) on the 8's bottom loop; G = C closed by the mirrored C's lower right and a bar; q = p mirrored;
+f = r's arm raised to cap height on an l stem with t's crossbar; j = i continued by p's descender with a hook; v = V
+resampled to the x-height at 0.78 width; z is drawn, colored with the lowercase letters' median fill per row. Letters
+keep their rows and are set one texel apart (a space is 6). If the bank isn't as expected the names fall back to the
+port's 5x7 lettering. [V in game]
 
 ## 8. Open items
 

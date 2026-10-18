@@ -6878,12 +6878,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D8FC0
-name = "breakable_update_param_half"
-type = "u16"
-desc = "Halfword read by breakable_update_all (low confidence)."
+name = "breakable_groups"
+type = "struct { s16 kind; s16 members; f32 half; f32 center[3]; f32 lo[3]; f32 hi[3]; Breakable *first; Breakable *last; }[40]"
+desc = "Breakable groups (0x34 each, 40): breakable_alloc_800BB27C adds each breakable to one under 15 members within 200 ft or starts a new one with no limit; group 40 is breakable_groups_count. Moved to a 0x82-group copy on the recomp heap by src/game_fixes.cpp (Silicon Valley needs more than 40)."
 area = "track"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/placement.md#13-behaviour-ids-v"
 
 [[var]]
 vram = 0x800D8FC4
@@ -6914,12 +6914,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D97E4
-name = "breakable_count"
+name = "breakable_groups_count"
 type = "u16"
-desc = "Halfword breakable object count, reset at track load, used by alloc and update_all."
+desc = "Number of breakable groups (breakable_groups 0x800D8FC0), cleared at track load (race_track_load_step_8008BC64), grown by breakable_alloc_800BB27C."
 area = "track"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/placement.md#13-behaviour-ids-v"
 
 [[var]]
 vram = 0x800D97FC
