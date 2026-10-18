@@ -111,6 +111,39 @@ particles and stunt scoring, which know materials 0-2 and 8 (airborne); Californ
 (8 on road). The converter (`remap_surfaces`) makes the type 3 verges grass (type and material 2), the 4, 7, 8 and
 9 walls type 5, and ground materials past 2 road (0). [V data; the drones' wrecks there, in game]
 
+### Stacked roads: the subway tunnel
+
+San Francisco's subway tunnel is a second road 50 ft under the street, from about (-1330, 9100) to (-370, 6090),
+reached by ramps cut through the street's deck (down at z 8350-8230, 7480-7440 and 7120-7090, up at 8944-8816,
+8045-7924 and 6735-6586). No AI lane or spine point runs in it. Under the Rush 2 engine a car driving it is kicked and
+launched; three things in its collision were found (in game, tools in tmp/cs_tunnel: run.py drops the player's car
+into the tunnel in a silent sim-mode run and logs the wheels, analyze.py summarizes):
+- The exit ramps' side faces (1796 and 4020 at the first, x -1266..-1252, y 78-131) are type 0 standing on edge. A
+  wheel within a foot of one, or under the ramp within 5 ft of it, took it as its road and the springs shoved the car
+  sideways (0 to 84 ft/s in half a second).
+- A ramp down is a slab over the tunnel road. Where it closes down onto the road the slab, 1-5 ft over the wheels,
+  beats the road a foot under them (the probe keeps the nearest polygon the wheel is from 5 ft under to 250 over;
+  the probe point is the tire's contact, compression = rest height +0x5CC, about 0.4, - h, clamped to 3) and the car
+  is slammed up: at the slab's foot a wheel read 4.6 ft inside it (2332 at (-1156, 7436); 2320 at (-1036, 7092)).
+- The cuts are closed off by walls facing down: sloped faces between a ramp's edge and the deck's underside (2392 at
+  the second ramp down, normal (-0.62, -0.72, 0.32), its plane through the tunnel road at (-1155, 97, 7442); 178 at
+  the first; 807 in the other tunnel) and flat ceiling pieces 2-4 ft under the street's surface (210, 211, 1084, 1085
+  at z 8728-8944). The body probe takes a wall when a body point projects inside it along its normal and lies from
+  5 ft behind its plane to 3.75 ft in front, so a car on either road got the wall response: 37 ft/s upward in one
+  step with the rear wheels off the road (at (-1155, 96, 7447)).
+
+Rules fitted to these (vertical faces to walls, a road under the wheel preferred over a slab just above it, walls
+facing down dropped from the body probe) made cars fall through roads elsewhere and were removed. California Speed's
+own probes are Rush 2's: its polygon test `func_800AE884` (ground types: the same -5 to 250 window, nearest wins;
+walls: the point behind the plane within the window), its wheel probe `func_800AF1EC` and its body probe
+`func_800AFAFC` (the same -5, 0.25, 5, 3.75 and -3.5) and its ground contact `func_800A58A4`, which is Rush 2's
+`car_ground_contact_800703EC` with the road hold built in (0.32, 0.5, 0.9 and 1.5 factors, 3 and -3 clamps, 40 and
+-40). Its quadtree walk is 2049's (every floor and wall listed for its cells under 2049's rules, 9 floors missed
+under Rush 2's; no wall gaps either way). So what keeps its cars down where ours are kicked is not the probes; the
+remaining differences are the car's springs and dampers (California Speed's cars are rebalanced onto Rush 2's
+roster, section 7) and the road hold (ours is a heavier world, Hold::Heavy, not California Speed's push inside its
+ground contact). Open. [V: probes and constants from the disassembly; kicks in game]
+
 ## 5. Paths
 
 - **Format:** Rush 2's path file (`tools/rush2049/paths.py`), one per track (no backward races). After the four AI

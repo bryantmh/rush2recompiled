@@ -6548,7 +6548,7 @@ vram = 0x8006F704
 name = "collision_poly_extract"
 sig = "void collision_poly_extract(Car *car, f32 *pos, s32 a2, void *a3, s32 stack10, s32 stack14)"
 desc = "Patched in us.toml. Rush 2049 moving track objects (src/rush2049/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes). | Polygon extraction from POLY (flags, matrix, vertices, vlist); leaf query that copies a leaf into an unchecked u16[36] stack buffer (next local 0xA4 -> 0xEC). | Wheel probe (ground query for a wheel). Hooked at 0x8006F99C when a polygon is found ($t9 = its POLY record). Expands a leaf into a u16[36] buffer unchecked. Hooked at 0x8006FADC ($v1 = surface type, sp+0x138 = the car; types 3, 4, 7 have effects) for the No Out-of-Bounds Wreck cheat (src/cheats.cpp). | Cell = x - 0.99 truncated for negative x (0.99 at 0x800CF7xx/0x800CF8xx). On a converted 2049 course it takes 2049's exact floor and 17-bit leaf offsets (mask bit 4 + q): cell hook at 0x8006F7D0 ($t0 = the point), leaf-offset hook at 0x8006F820 (src/rush2049/track2049_collision.cpp). | Stores the hit polygon type (flags & 15) to *arg (car +0x5FC + 4 x wheel) and material ((flags & 0xF0) >> 4) to car +0x60C + 2 x wheel at 0x8006FA90; no polygon: type 1, material 1 at 0x8006FBE4. Custom surface material hook at 0x8006FA90 (docs/custom_tracks.md)."
-consts = "250/-200 = surface thresholds, 0x6F = sound id"
+consts = "250/-5 = the wheel's height window over a polygon (upper limit = the best so far, nearest wins; loop acceptance at 0x8006F8F8 with $f4 = the height, $f24 = the best), -200 = surface threshold, 0x6F = sound id"
 status = "verified"
 ported = true
 rush2049 = [0x800C6AA0]

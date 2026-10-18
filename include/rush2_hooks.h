@@ -483,10 +483,10 @@ void rush2_paint_step_before(uint8_t* rdram, recomp_context* ctx, int value);
 void rush2_paint_step_value(uint8_t* rdram, recomp_context* ctx, int field);
 // Online play (src/online/online_game.cpp).
 void rush2_online_frame(uint8_t* rdram, recomp_context* ctx);
-void rush2_online_frame_time(uint8_t* rdram, recomp_context* ctx);
-int rush2_online_skip_physics(uint8_t* rdram, recomp_context* ctx);
 // RUSH2_TEST_RACE: a race straight from the title screen (src/test_race.cpp).
 void rush2_test_race_frame(uint8_t* rdram, recomp_context* ctx);
+void rush2_online_frame_time(uint8_t* rdram, recomp_context* ctx);
+int rush2_online_skip_physics(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_player_input(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_pause_start_only(uint8_t* rdram, recomp_context* ctx);
 void rush2_online_race_views(uint8_t* rdram, recomp_context* ctx);
