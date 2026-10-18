@@ -49,6 +49,7 @@
 #include <unordered_set>
 
 #include "assets.h"
+#include "car2049.h"
 #include "rush2049_rom.h"
 #include "track2049_convert.h"
 
@@ -2750,16 +2751,20 @@ namespace {
         uint32_t body_distance = u32(out, body_record + 4 + 4);
         uint32_t body_radius = u32(out, model_names + uint32_t(body) * 0x18 + 16);
 
-        // The body's vertex loads and triangles, in order.
+        // The body's vertex loads and triangles, in order, and a mod car's color scheme markers
+        // (rush2::car2049::scheme_marker), which the layers keep around each scheme's triangles.
         struct Command {
             uint32_t w0, w1;
+        };
+        auto is_marker = [](uint32_t w0, uint32_t w1) {
+            return w0 == 0 && (w1 & 0xFFFF0000u) == (rush2::car2049::scheme_marker(0, false) & 0xFFFF0000u);
         };
         std::vector<Command> commands;
         for (uint32_t pc = body_list; pc + 8 <= out.size(); pc += 8) {
             uint32_t w0 = u32(out, pc), w1 = u32(out, pc + 4);
             uint8_t op = uint8_t(w0 >> 24);
             if (op == 0xDF) break;
-            if (op == 0x01 || op == 0x05 || op == 0x06 || op == 0x07) commands.push_back({ w0, w1 });
+            if (op == 0x01 || op == 0x05 || op == 0x06 || op == 0x07 || is_marker(w0, w1)) commands.push_back({ w0, w1 });
         }
         float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
         for (const Command& c : commands) {
@@ -2802,6 +2807,7 @@ namespace {
         struct Batch {
             uint32_t vertices = 0, count = 0;       // file offset and number of its vertices
             std::vector<std::array<uint8_t, 3>> triangles;
+            uint32_t marker = 0;                    // instead a scheme marker's word (count 0)
         };
         std::vector<Batch> batches;
         {
@@ -2828,9 +2834,15 @@ namespace {
                 }
                 triangles.push_back(t);
             };
+            constexpr uint32_t marker_vertex = 0xFFFFFFFFu; // a triangle entry standing for a scheme marker
             for (const Command& c : commands) {
                 uint8_t op = uint8_t(c.w0 >> 24);
-                if (op == 0x01) {
+                if (is_marker(c.w0, c.w1)) {
+                    std::array<std::pair<uint32_t, int>, 3> m;
+                    m.fill({ marker_vertex, int(c.w1) });
+                    triangles.push_back(m);
+                }
+                else if (op == 0x01) {
                     uint32_t n = (c.w0 >> 12) & 0xFF, end = (c.w0 & 0xFF) / 2, at = c.w1 & 0xFFFFFF;
                     buffer = std::max(buffer, std::min(end, 64u));
                     for (uint32_t v = 0; v < n && end - n + v < 64; v++) slots[end - n + v] = at + v * 16;
@@ -2857,6 +2869,13 @@ namespace {
                 order.clear();
             };
             for (const auto& t : triangles) {
+                if (t[0].first == marker_vertex) {
+                    flush();
+                    Batch m;
+                    m.marker = uint32_t(t[0].second);
+                    batches.push_back(std::move(m));
+                    continue;
+                }
                 size_t fresh = 0;
                 for (int i = 0; i < 3; i++) {
                     bool repeat = false;
@@ -2931,6 +2950,10 @@ namespace {
                     return uint32_t(t[0] * 2) << 16 | uint32_t(t[1] * 2) << 8 | uint32_t(t[2] * 2);
                 };
                 for (const Batch& b : batches) {
+                    if (b.marker != 0) {
+                        add32(out, 0); add32(out, b.marker);
+                        continue;
+                    }
                     add32(out, 0x01000000 | b.count << 12 | b.count * 2); add32(out, b.vertices);
                     for (size_t t = 0; t < b.triangles.size(); t += 2) {
                         if (t + 1 < b.triangles.size()) {
@@ -3110,6 +3133,17 @@ bool rush2::track2049::convert_body_car(const std::vector<uint8_t>& container, c
         return strncmp(reinterpret_cast<const char*>(a.data()), reinterpret_cast<const char*>(b.data()), 16) < 0;
     });
     for (uint32_t i = 0; i < count; i++) memcpy(&out[textures + i * 0x20], records[i].data(), 0x20);
+    return true;
+}
+
+bool rush2::track2049::add_body_sheen(std::vector<uint8_t>& container, const std::string& name, std::string& error) {
+    try {
+        add_sheen_layers(container, name);
+    }
+    catch (const ConvertError& e) {
+        error = e.message;
+        return false;
+    }
     return true;
 }
 

@@ -1,4 +1,4 @@
-# San Francisco Rush 2049 arcade (SE) tracks
+# San Francisco Rush 2049 arcade (SE) tracks and cars
 
 The arcade game (Rush 2049 Special Edition) has a track the N64 never got: Alcatraz. `tools/arcade2049/track_mod.py`
 converts an arcade track into a custom-track mod (docs/custom_tracks.md) at the arcade's full model detail and texture
@@ -153,3 +153,87 @@ ft/s x 60 / 88 / 1.2 (Rush 2049's lane speeds over Rush 2's, docs/rush2049_resea
 - `logo.png`: the name in Rush 2049's banner lettering (`banner_font.render_fit`; "Alcatraz" fits the smallest
   canvas, 128 x 32, so its letters are as large as the stock tracks').
 - `--finish-at FEET` (test aid) moves the finish along the lap to start a race next to something far into it.
+
+## Cars
+
+`CARS/CAR1`..`CAR11`, each with `COL1`..`COLn` (2 to 8) holding an `objects.rom` and `textures.rom` in the track
+format. CAR1-CAR6 are Rush 2049's futuristic cars (CAR3 is the Rocket ZX, with its rocket flame objects); the N64 game
+has 13, so 7 of its cars aren't in the arcade. CAR7-CAR11 are the arcade's own: a Plymouth 'Cuda (select icons
+`CUDA_*`), a pickup truck (`TRK_*`), a McLaren F1 (`MC*`), a '30s hot rod (`HROD_*`) and a '50s Cadillac custom
+(`CAD_*`).
+
+Objects per car: `CARBODY` (3-4 LODs, about 160-300 triangles at LOD 0), `HOOD` (the hood camera's model, wider than
+the body), `BRAKE` (the lit brake lights), `WHEEL` and `WBLUR` (one wheel, 1.01 ft round, and its spinning version;
+CAR1's 0.96), and on some `G2` (a 20 ft cube). The body is in the car's frame: feet, +z the front, y up, and the same
+origin as Rush 2's cars, with the wheel centers about 0.2 ft above it (the wheel wells drawn on the side textures sit on
+the body's bottom edge at y 0.0-0.3, and the hot rod's rear axle object is at y 0.12).
+
+### Wheel positions
+
+The data holds none. The game (ProjectR's `project-r.exe`, a port of the arcade code) has one car descriptor, at file
+offset 0x6210F0. A static initializer (VA 0x140264340) copies it to a global, with the wheel block from 0x621150 going
+to 0x140A59F80. Each race car's setup (VA 0x1401FE9B2) copies that block unchanged, and the race start (VA 0x1402585F0,
+called once per car from 0x14029AAD2) clones `WBLUR` four times and places the copies there. So every arcade car,
+CAR1-CAR11, has the same wheels. Per wheel (z, x, y), y down: front (3.925, ±2.75, 0.8), rear (-3.925, ±2.75, 0.75).
+These are the N64 2049 default descriptor's points (Rush 2's descriptor: y -0.8 / -0.75).
+
+A `COL` folder is a whole livery, not a paint color. Its texture names differ (the 'Cuda's `COL2` is a `B_` set,
+`COL8` a police car with `COP_` textures and a light bar), and some add parts (a blower, a hood scoop).
+
+`tools/arcade2049/car_mod.py` converts every arcade car into a new car for a mod (docs/car_mods.md#new-cars). Most
+are the arcade forms of N64 cars: matched by side and top silhouette against the N64 cars' bodies (the asset dump's
+FRAME1) and by shared texture names (the Truck's `C11_` set is the Crusher's, the Cuda's blower the Bruiser's). Those
+take the N64 car's physics. The wheels sit
+at the arcade's points with a scale of 1.08, which is 1.01 ft at Rush 2's wheel model size. Each `COL` folder becomes
+a color scheme (STYLE), with the arcade's textures as authored and no paint mask.
+
+| Car | N64 counterpart (physics) | Base |
+|---|---|---|
+| CAR1 FORMULA 1 SE | FORMULA 1 | FORM1 |
+| CAR2 GX-2 SE | GX-2 | GT90 |
+| CAR3 ROCKET ZX SE | ROCKET ZX | CONCPT |
+| CAR4 MAGNUM SE | MAGNUM | VIPER |
+| CAR5 SUPER GT SE | SUPER GT | BUGAT |
+| CAR6 8-BALL SE | 8-BALL | SUPRA |
+| CAR7 CUDA | BRUISER | CAMARO |
+| CAR8 TRUCK | CRUSHER (the lifted monster-truck form of this body) | PICKUP |
+| CAR9 SUPERCAR | PANTHER | GT90 |
+| CAR10 DEUCE | none: the arcade's physics | HOTROD |
+| CAR11 CADDY | none: the arcade's physics | CADDY |
+
+### Car physics
+
+The arcade gives every player car the same physics. A static initializer (VA 0x140264340) builds one descriptor at
+0x140A59F10; the setup at VA 0x140226150 copies it into each car (called with that address from VA 0x1402E1646 and
+VA 0x14029561A). Its layout is Rush 2's 0xEC-byte one with the mass in front:
+
+| Offset | Value | Meaning (N64 2049's counterpart) |
+|---|---|---|
+| +0x00 | 109.472 | mass in slugs, 3525 lb (N64: a per-car table, 102.484 plus the frame) |
+| +0x04-0x0C | 1000, 1527, 1636 | chassis constants (the N64 descriptor's +0x00-0x08, the same three) |
+| +0x10-0x44 | -3600 ... -550 | 14 spring and damper values (the N64's, value for value) |
+| +0x48, +0x4C | 16, 4 | suspension constants (same) |
+| +0x50-0x54 | 0x0010, 0x0020, 0x0100 | s16 values, as Rush 2's +0x58 words |
+| +0x58, +0x5C | 0.0087, 75 | drag (N64 0.0135), rolling resistance (same) |
+| +0x60, +0x68 | | tire curve pointers |
+| +0x70-0x9C | | wheel points (the N64 default descriptor's) |
+| +0xA0 | 0.3 | preload (the N64's per-car 0.3) |
+| +0xA4, +0xA8, +0xAC | 0.4, 3.3, 1000 | 0.4 (the N64 frame step K_ENG0), final drive, clutch |
+| +0xB8-0xC4 | 0 | torque scales: zero for the player car; the arcade's engine isn't Rush 2's per-gear scale |
+| +0xC8-0xDC | -3.1, 0, 3.1, 1.75, 1.25, 1 | gear ratios (N64 gear set 0: 1.78, 1.29 in 2nd, 3rd) |
+| +0xE4, +0xE8 | 1047.2, 628.3 | shift points, 10000 and 6000 rpm (N64 662.35, 429.35) |
+
+The only per-car tables, indexed by the car's type (car + 0x99E, CARn - 1), are the collision box (VA 0x140664130,
+12 x {front, rear, half width, height}; the drones' at VA 0x1406EF824), the engine sound (bytes at VA 0x140663856 for
+the player, 0x140663861 for drones) and three floats at VA 0x1406EF600 a draw routine reads. The four 0x44-byte records
+at VA 0x14066390C (car + 0xB00, picked per car at VA 0x1402954E0) scale mass by game mode, not by car. VA 0x14026C390
+builds four more descriptors (drone levels, torque scales 1.80-1.90 and 1.3) that the player car doesn't use.
+
+`tools/arcade2049/car_mod.py` `physics()` maps this onto Rush 2 the way `build_physics` (src/rush2049/car2049.cpp) maps
+the N64 cars. The arcade's mass, chassis constants, springs, suspension constants, rolling resistance, final drive,
+clutch and preload go in as they are, and so does each car's box. The N64 port gives every car a 3.5 ft box height,
+so the tool uses that in place of the table's 2. The drivetrain (torque, gears, drag, shift points) is the same for
+every arcade car, so it lands on Rush 2's roster mean, as the N64 roster's average car does. The pitch/roll and yaw
+inertia follow the mass by the N64's frame formula (2425 and 412500). Tire curves, rear grip, drive flags and
+drivetrain inertia are the N64 2049 car's. Steering, yaw damping and the SUSPENSION and TIRES settings are Rush 2's
+mean, as for the N64 cars.

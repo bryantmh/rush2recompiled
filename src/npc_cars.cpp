@@ -406,9 +406,13 @@ namespace {
         if (rush2::car_types::is_calspeed(type)) {
             return -1;
         }
-        if (type >= rush2::car2049::first_type && type < rush2::car2049::types) {
+        if (type >= rush2::car2049::first_type && type < rush2::car2049::types && !rush2::car_types::is_mod(type)) {
             int jobs = rush2::car2049::paint_jobs(type);
             return jobs > 0 ? 2 + jobs : 2;
+        }
+        // A mod car with color schemes has STYLE as a Dreamcast car; else Rush 2's rows, as Rush 2 paints it.
+        if (rush2::car_types::is_mod(type) && rush2::car2049::paint_jobs(type) > 0) {
+            return 2 + rush2::car2049::paint_jobs(type);
         }
         return type == random_value || rush2::car1stripes::offered(type) ? 1 : 0;
     }
@@ -441,6 +445,13 @@ namespace {
                 car_values.emplace_back(type, std::string(rush2::calspeed::car_names[n]) + " (Cal Speed)");
             }
         }
+        for (int n = 0; n < rush2::car_types::count_mod; n++) {
+            int type = rush2::car_types::first_mod + n;
+            std::string name = rush2::car2049::mod_car_name(n);
+            if (!name.empty() || chosen == type) {
+                car_values.emplace_back(type, (name.empty() ? "Mod Car " + std::to_string(n + 1) : name) + " (Mod)");
+            }
+        }
         Select* car_select = add_select(block, "Car", npc, f_car, car_values, [npc, chosen, car_changed]() {
             // A paint job past the new car's jobs reads as Random.
             int type = choices[npc][f_car].load();
@@ -453,9 +464,10 @@ namespace {
             }
         });
 
-        bool is_2049 = chosen >= rush2::car2049::first_type && chosen < rush2::car2049::types;
+        bool is_2049 = chosen >= rush2::car2049::first_type && chosen < rush2::car2049::types &&
+                       !rush2::car_types::is_mod(chosen);
         int jobs = rush2::car2049::paint_jobs(chosen);
-        if (!is_2049) {
+        if (!is_2049 && jobs == 0) { // a mod car with color schemes has no stripes
             std::vector<std::pair<int, std::string>> stripe_values = { { random_value, "Random" } };
             for (int s = 0; s < stripes; s++) {
                 stripe_values.emplace_back(s, stripe_names[s]);

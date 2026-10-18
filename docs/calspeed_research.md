@@ -320,8 +320,56 @@ is the same in both (32.2 ft/s/s x the 0x800D7380 table, Rush 2's 0x800CB580). [
 - **The port** (`rush2_calspeed_road_hold`, hooked in `car_physics_forces_800706D0` after `car_force_sum_8006A02C`,
   for every car on a California Speed track, not in the attract demo (0x800FAE6C, which starts without the track
   select that clears the California Speed track and could land on HAWAII, the host slot); `hold` picks the version,
-  `Hold::Gravity`). California Speed's world as a heavier one, with the car built to match so it drives as on any
-  other track. California Speed is built this way: its road hold is 1.28 g more on the road (2.28 g in all) and up to
+  `Hold::Heavy`, `heavy_push`). California Speed's world as a heavier one, with the car built to match so it drives
+  as on any other track, and a hold at the road. California Speed is built this way: its road hold is 1.28 g more on
+  the road (2.28 g in all) and up to 3.6 more with the wheels well up (4.6 g), and its cars' springs per unit of mass
+  are 2.27 times Rush 2's (-10620 against -3600 at 1.3 times the mass), their dampers 1.56 times (sqrt 2.28 = 1.51),
+  so they sit at Rush 2's height under it. With `gravity_scale` = 1 + 4 x 0.32 = 2.28:
+  - gravity x the road hold's factors (`heavy_factor`: a constant 0.32 per wheel on the road, off it California
+    Speed's 0.5, 1.5 from 0.5 to 0.75 ft out, 0.9 further), the car's gravity +0x200 (the world gravity +0x2C0, a
+    force of the car's weight, turned into the car's frame by `car_force_sum_8006A02C`) added to the summed force at
+    +0x4; California Speed's easing of the ground factor past 0.5 ft of compression (its landing softener) is not
+    kept: under a fixed spring scale it dropped the car's gravity below what the springs were set for in a dip, on a
+    loaded corner or at a ramp foot, lifting the car and costing the tires up to a tenth of their grip (Gravity's
+    slope trouble);
+  - springs and anti-roll x 2.28, dampers x sqrt(2.28) (`rush2_calspeed_wheel_damper` rebuilds the load,
+    `car_wheel_force_loop_8006ABB0` 0x8006AC8C-0x8006AD0C, for 0 < compression <= 10): the car sits at Rush 2's
+    height and the suspension's damping ratio is Rush 2's;
+  - the tires' load / 2.28 (`rush2_calspeed_tire_load`, hooked at 0x8006AD4C as $a2 goes to `car_tire_model_8006A2FC`:
+    min(0x34($sp) / 2.28, weight +0x5AC), the game's cap): grip is Rush 2's;
+  - direction: while every wheel is within 1.0 ft of the road, only the part of the extra square to the road (the
+    mean normal of the polygons under the touching wheels, or under all four when none touch, turned into the car's
+    frame by the car matrix +0x2CC as `push_car`), so hills, banks and grades pull as on any other track and the
+    springs see exactly 2.28 x their Rush 2 load; once any wheel is more than 1.0 ft out (a jump, or over nothing:
+    compression clamps at -3) the whole extra pulls straight down, California Speed's rule;
+  - stick: no amount of gravity keeps a car on the road over a kink (California Speed's roads are large flat
+    polygons, a hill is a run of them): the car's velocity has to turn at once while gravity bends it over time, and
+    at 2.28 g a 5 degree kink at 180 ft/s still lifts the car 1.7 ft for 0.4 s. So while a wheel has lifted
+    (compression below 0) and none is more than 1.0 ft out, the car's velocity away from the road (+0x34 along the
+    normal above) is taken out that step: a force of mass +0x5B0 x that velocity / the step +0x634, at most
+    `stick_cap` = 6 x the weight (California Speed's 1.5 band is 6 g over its ground pull). A ramp lip gives far more
+    separation than the cap takes back within the foot, so jumps still fly, a little shorter; a wheel lifted in a
+    corner has next to no velocity away from the road, so nothing is added there; with four wheels down it never
+    runs.
+  Mass is unchanged: a lighter car under more gravity keeps the same weight on the springs but the same tire, engine
+  and brake forces move it that much harder; steady-state weight transfer, grip, engine and brakes are Rush 2's, the
+  suspension runs 1.5 times faster with a 2.28th of the body roll, and a car has to lift against 2.28 g to roll over
+  or leave a crest: California Speed's own trade, and what keeps its narrow cars down on its banks. Springs x 4.6
+  (the air's gravity: twice as stiff as California Speed's) kicked cars over at ramp feet: Monterey's jump, a 17
+  degree crease at 185 ft/s, threw 6 of 7 computer cars into backflips (stock 3 of 5, x 2.28 2 of 5).
+  `RUSH2_ROAD_HOLD_LOG` prints the player's car's compressions, factor sum and stick (x weight) every step a wheel
+  is off the road.
+- **Net** (`Hold::Net`, `net_push`, tried 2026-10-17; kept in the file). California Speed's push less what its
+  springs hold up: a wheel on the road adds nothing, one off it California Speed's whole factor x weight / 4 (ramped
+  over the first 0.25 ft, `net_ramp`), so with four wheels down the car is exactly Rush 2's. Cars stopped flying far
+  (over a crest needing 1.5 g they hovered 0.05 ft up), but they still rolled over on the road: Santa Cruz's
+  computer cars wrecked 91 times (137 rollovers) against stock's 103 (225) and Gravity's 11 (31); San Francisco 11
+  against 5. The 1.28 g on the road is what keeps California Speed's narrow cars down, not the pull once they have
+  left it. Earlier `Hold::AirPull` had taken the 0.32 off the air factors as well (0.18 for the first half foot), so
+  it lifted and was then yanked: once a wheel is off the road its spring carries nothing, so the whole 0.5 is the
+  net.
+- **Gravity** (`Hold::Gravity`, ran until 2026-10-17; kept in the file). Heavy's heavier world as first built, with
+  the car built to match so it drives as on any other track. California Speed is built this way: its road hold is 1.28 g more on the road (2.28 g in all) and up to
   3.6 more with the wheels well up (4.6 g), and its cars' springs per unit of mass are 2.27 times Rush 2's (-10620
   against -3600 at 1.3 times the mass) and their dampers 1.56 times (sqrt 2.28 = 1.51), so they sit at Rush 2's height
   under it. With `gravity_scale` = 1 + 4 x 0.32 = 2.28:
@@ -342,8 +390,14 @@ is the same in both (32.2 ft/s/s x the 0x800D7380 table, Rush 2's 0x800CB580). [
   Mass is unchanged: a lighter car under more gravity keeps the same weight on the springs but the same tire, engine
   and brake forces move it that much harder. Springs x 4.6 (the air's gravity: twice as stiff as California Speed's)
   kicked cars over at ramp feet: Monterey's jump, a 17 degree crease at 185 ft/s, threw 6 of 7 computer cars into
-  backflips (stock 3 of 5, x 2.28 2 of 5).
-- **Damper** (`rush2_calspeed_wheel_damper`, hooked at 0x8006AD10, the same toggle). The load is (anti-roll +
+  backflips (stock 3 of 5, x 2.28 2 of 5). Set aside for Net: the ground factor isn't constant (0.82 - compression
+  past 0.5 ft, California Speed's landing softener), while the spring scale is, so in a dip, on a loaded corner or
+  at a ramp foot the car's gravity fell below what its stiffened springs were set for: it was lifted and the tires
+  (load / 2.28) lost up to a tenth of their grip; the along-road removal was weighted by the touching wheels, so a
+  wheel lifting on a bank stepped a quarter of the extra's sideways part back in; and the suspension ran
+  sqrt(2.28) = 1.5 times faster with a 2.28th of the roll everywhere, the price of the heavier world.
+- **Damper** (`rush2_calspeed_wheel_damper`, hooked at 0x8006AD10, the same toggle; under Net only the jump limit
+  below runs, the spring and damper scaling is Gravity's). The load is (anti-roll +
   compression x spring - v x damper) x a time-step scale, v being the wheel's velocity along the normal of the polygon
   under it. On large flat polygons v jumps at once by speed x the change of slope as a wheel crosses an edge (3
   degrees at 190 ft/s: 10 ft/s), and the damper throws the car or drops the wheel for that frame: the slight lifts

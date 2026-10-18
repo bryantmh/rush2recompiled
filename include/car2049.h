@@ -11,14 +11,14 @@
 #include "car_types.h"
 
 // Rush 2049 cars as Rush 2 car types 23-35 (src/rush2049/car2049.cpp); type 22 is Rush 2's "no car" marker. This file
-// also keeps what every extra type (2049's and California Speed's 36-56, include/car_types.h) shares: the widened
-// per-type tables, assets, side slots for the player records' options, denting and the car select's list.
+// also keeps what every extra type (2049's, California Speed's 36-56 and mod cars 57-72, include/car_types.h) shares:
+// the widened per-type tables, assets, side slots for the player records' options, denting and the car select's list.
 namespace rush2::car2049 {
     constexpr int rush2_types = rush2::car_types::rush2_types;
     constexpr int car_count = rush2::car_types::count_2049;
     constexpr int first_type = rush2::car_types::first_2049;
     constexpr int end_type = first_type + car_count; // 36: past the 2049 types
-    constexpr int types = rush2::car_types::types;   // 57: every type (the tables' width)
+    constexpr int types = rush2::car_types::types;   // 73: every type (the tables' width)
 
     // The car select's per-player car list, moved from 0x803CB368 to hold every type: car i of player p at
     // + 2 * i + p (count: s16 [2] at 0x803CB398).
@@ -85,12 +85,58 @@ namespace rush2::car2049 {
     };
     // California Speed's cars' car select logos, in order (src/calspeed/calspeed_logos.cpp).
     void set_calspeed_logos(uint8_t* rdram, const std::vector<NameLogo>& logos);
+    // A car a mod adds (src/car_mods.cpp, docs/car_mods.md#new-cars): mod car n is type car_types::first_mod + n, drawn
+    // and dented as set_body_car's and painted by Rush 2 (its textures are stand-ins in Rush 2's car palette). It
+    // starts as a copy of Rush 2 car `base`: its physics descriptor (with the mod's wheel points), per-type table
+    // entries (engine sound, tires, rims...), box and a player's options on it.
+    // A mod car's color schemes: each a block of its body's lists between two G_NOOPs with these words (start, end);
+    // the car's copy shows its STYLE's block and branches past the others (rush2_car49_paint).
+    constexpr int max_schemes = 16;
+    constexpr uint32_t scheme_marker(int scheme, bool end) {
+        return 0x5C4E0000u | (uint32_t(scheme) << 1) | (end ? 1u : 0u);
+    }
+    struct ModCar {
+        std::string name;              // the car select logo's text
+        int base = 0;                  // Rush 2 type 0-21
+        bool has_wheels = false;
+        float wheels[4][3] = {};       // descriptor wheel points (feet): front right, front left, rear right, rear left
+        float wheel_scale[2] = { 0.0f, 0.0f }; // front, rear wheel model scale (0: the base car's)
+        bool has_box = false;
+        float box[4] = {};             // front, rear, half width, height (feet)
+        int main = -1, accent = -1;    // default MAIN and ACCENT COLOR (-1: the base car's)
+        bool paint_main = true, paint_accent = true; // its textures take MAIN / ACCENT COLOR (car_mods sets)
+        int schemes = 1;               // color schemes (whole liveries): more than 1 shows STYLE (paint_jobs)
+        // A Rush 2049 car (0-12) whose physics it takes, as build_physics makes them (descriptor and per-type physics
+        // values), in place of the base car's; -1: the base car's. Without Rush 2049 loaded, the base car's.
+        int physics_from = -1;
+        // Physics the .json's "physics" sets (car_mods.cpp read_new_car), over the base or physics_from car's.
+        std::vector<std::pair<uint32_t, float>> desc_floats;   // descriptor offset (Rush 2's 0xEC layout), value
+        std::vector<std::pair<uint32_t, float>> table_floats;  // per-type table (Rush 2 address), value in every row
+        std::vector<std::pair<uint32_t, int>> table_bytes;     // per-type byte table (Rush 2 address), every row
+        int top_gear = -1;             // descriptor +0xE0
+        bool tires_2049 = false;       // Rush 2049's tire curves (front, rear) in place of the base car's
+    };
+    // Mod car n from the car container `car` (as set_body_car's), parts named `prefix` (at most 7 characters).
+    void set_mod_car(uint8_t* rdram, int n, std::vector<uint8_t> car, const std::string& prefix,
+                     const std::map<uint32_t, std::vector<uint8_t>>& scuffed, const ModCar& spec);
+    // The Rush 2049 car (0-12) with this name ("BRUISER", "8-BALL", ...; case and spaces ignored), -1 if none.
+    int car_index(const std::string& name);
+    // Takes mod car n off the car select (its mod was turned off).
+    void clear_mod_car(uint8_t* rdram, int n);
+    // Mod car n's name, empty when no mod fills the slot.
+    std::string mod_car_name(int n);
+    // Whether car `type` has a MAIN COLOR (bit 0) and ACCENT COLOR (bit 1) its textures take: a mod car's own, 3 for
+    // any other type. Mod cars have no stripes (their texture prefix matches none).
+    int mod_car_paints(int type);
     constexpr int first_calspeed_asset = 0x80;
+    constexpr int first_mod_asset = 0xA0;
     // A car type's asset index (func_80087E88's type + 0x1D, moved for the extra types).
     constexpr int car_asset(int type) {
         return type < first_type ? 0x1D + type : type < end_type ? 0x71 + type - first_type
-                                                                 : first_calspeed_asset + type - end_type;
+             : type < rush2::car_types::first_mod ? first_calspeed_asset + type - end_type
+                                                  : first_mod_asset + type - rush2::car_types::first_mod;
     }
+    static_assert(first_calspeed_asset + rush2::car_types::count_calspeed <= first_mod_asset);
     static_assert(car_asset(types - 1) < rush2::car_types::asset_slots);
     // 2049 car k's scuffed panel copies (asset file offsets: pristine texels -> their scuffed copy), which its damage
     // points the body's loads at (rush2::catalog catalogs them as the panels' _D1 textures).

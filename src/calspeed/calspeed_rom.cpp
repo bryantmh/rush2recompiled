@@ -387,8 +387,24 @@ namespace {
     //   California Speed's) from about 0.42 to 0.7 ft and loads the tires: every car corners differently.
     // - AirGravity: 3.6 x weight more once the lowest wheel is 0.25-1.25 ft up: at takeoff it went from nothing to
     //   4.6 g, which felt like being slammed down.
-    enum class Hold { Gravity, Copy, Shape, AirPull, Full, AirGravity };
-    constexpr Hold hold = Hold::Gravity;
+    // - Gravity: California Speed's world as a heavier one (gravity x 2.28 with springs x 2.28, dampers x sqrt and the
+    //   tires' load / 2.28). Its ground factor isn't constant (0.82 - compression past 0.5 ft), so in a dip, on a
+    //   loaded corner or at a ramp foot the car's gravity fell below what its stiffened springs were set for and it
+    //   was lifted and lost grip; and the suspension ran 1.5 times faster everywhere.
+    // - Net: California Speed's push less what its springs hold up: nothing while a wheel is on the road, its whole
+    //   factor once off it, so with four wheels down the car is exactly Rush 2's (net_push). Cars stopped flying far
+    //   but still rolled over on the road: Santa Cruz's computer cars wrecked 91 times (137 rollovers) against
+    //   stock's 103 (225) and Gravity's 11 (31). What keeps California Speed's cars down on its banks and crests is
+    //   the 1.28 g on the road (a car has to lift against 2.28 g to roll), not the pull once they have left it.
+    // - Heavy (runs): Gravity with its two faults out, and a hold at the road. The ground factor is a constant 0.32
+    //   per wheel (no easing past 0.5 ft of compression), so the extra gravity is always what the stiffened springs
+    //   were set for; the extra is the normal part of the scaled gravity whenever the car is at the road (no
+    //   along-road part at all, whatever the number of touching wheels), the whole of it straight down once a wheel is
+    //   more than 1.0 ft out; and while a wheel has lifted but none is a foot out, the car's velocity away from the
+    //   road is taken out (stick_push), so it follows a road kink instead of lifting over it. See heavy_push.
+    enum class Hold { Heavy, Net, Gravity, Copy, Shape, AirPull, Full, AirGravity };
+    constexpr Hold hold = Hold::Heavy;
+    constexpr bool heavy_world = hold == Hold::Heavy || hold == Hold::Gravity; // springs, dampers and tires scaled
 
     // Gravity: California Speed's world as a heavier one, with the car built to match, so on the road it drives as on
     // any other track (gravity_push, rush2_calspeed_wheel_damper, rush2_calspeed_tire_load). California Speed is
@@ -710,12 +726,188 @@ namespace {
     }
 }
 
+namespace {
+    // Net: California Speed's road hold less the part its springs hold up (docs/calspeed_research.md#road-hold).
+    // California Speed pushes each wheel's share of weight x factor into the road (road_hold_push): 0.32 while the
+    // wheel is on it, 0.5 once it is off, 1.5 from 0.5 to 0.75 ft out, 0.9 further. Its springs, 2.27 times Rush 2's
+    // per unit of mass, sit at Rush 2's height under the extra 1.28 g, so on the road the push is carried by the
+    // springs and the car drives as if it weren't there; it shows only as a wheel leaves the road, when its spring
+    // gives nothing and its whole 0.5 pulls. So here a wheel on the road adds nothing at all, and a wheel off it adds
+    // California Speed's whole factor x weight / 4 (the share its spring would have carried); Rush 2's springs,
+    // dampers, tires and gravity are untouched, and with four wheels down the car is exactly Rush 2's. Earlier
+    // versions took the 0.32 off the air factors too (AirPull: 0.18 for the first half foot, so the car lifted and
+    // was then yanked) or lifted the car by its springs' changing support (Copy: stiffer in roll, tipped landings).
+    // The step from 0 to 0.5 at the road is ramped over the first net_ramp ft out, as a one-sided spring about twice
+    // the wheel's own, so a wheel lifting an inch in a corner adds a little and nothing snaps on and off at a crest;
+    // past that the factors are California Speed's. Over a crest Rush 2's tires unload as they do on any Rush 2 hill,
+    // but the car hovers within inches of the road instead of flying, and a car in the air falls at California
+    // Speed's 4.6 g, so its jumps are California Speed's.
+    // Direction (California Speed's rule): straight down (the car's gravity +0x200) once any wheel is more than 1.0 ft
+    // out of the road (a jump, or over nothing: compression clamps at -3); else into the road: the mean normal of the
+    // polygons under the wheels touching it, or under all four when none touch (the car hovers within a foot of them),
+    // turned into the car's frame by the car matrix +0x2CC. California Speed pushes along the car's own axis there;
+    // Rush 2's softer springs let the body lean, and a push along a leaning body crept a parked car sideways.
+    constexpr float net_ramp = 0.25f; // ft out of the road over which a wheel's pull reaches 0.5 x its share
+    float net_factor(float c) {
+        if (c >= 0.0f) return 0.0f;
+        if (c < -0.75f) return 0.9f;
+        if (c < -0.5f) return 1.5f;
+        return 0.5f * std::min(1.0f, -c / net_ramp);
+    }
+
+    void net_push(uint8_t* rdram, uint32_t car) {
+        float weight = f32(rdram, car + car_weight);
+        if (weight <= 0.0f) return;
+        float c[4], sum = 0.0f;
+        bool lifted = false;
+        int touching = 0;
+        for (int i = 0; i < 4; i++) {
+            c[i] = f32(rdram, car + car_compression + 4 * i);
+            sum += net_factor(c[i]);
+            lifted |= c[i] < -1.0f;
+            touching += c[i] >= 0.0f;
+        }
+        if (sum <= 0.0f) return;
+        float push = weight * sum * 0.25f;
+        float dir[3] = {};
+        float len = 0.0f;
+        if (!lifted) {
+            float wn[3] = {};
+            for (int i = 0; i < 4; i++) {
+                if (touching > 0 && c[i] < 0.0f) continue;
+                uint32_t m = car + car_wheel_polygon + 0x24 * i;
+                float w[3] = { f32(rdram, m + 12), f32(rdram, m + 16), f32(rdram, m + 20) };
+                float s = w[1] < 0.0f ? -1.0f : 1.0f; // facing up
+                for (int k = 0; k < 3; k++) wn[k] += w[k] * s;
+            }
+            for (int k = 0; k < 3; k++) {
+                uint32_t row = car + car_matrix + 12 * k;
+                dir[k] = -(f32(rdram, row) * wn[0] + f32(rdram, row + 4) * wn[1] + f32(rdram, row + 8) * wn[2]);
+            }
+            len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        }
+        if (len < 0.5f) { // lifted, or no usable polygon under the wheels
+            for (int k = 0; k < 3; k++) dir[k] = f32(rdram, car + car_gravity + 4 * k);
+            len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+            if (len <= 0.0f) return;
+        }
+        for (int k = 0; k < 3; k++) {
+            put_f32(rdram, car + car_force + 4 * k, f32(rdram, car + car_force + 4 * k) + dir[k] / len * push);
+        }
+        // RUSH2_ROAD_HOLD_LOG: the player's car (physics car 0) every step it is pulled: time, compressions, pull.
+        static const bool log = getenv("RUSH2_ROAD_HOLD_LOG") != nullptr;
+        if (log && car == 0x800F5470u) {
+            printf("[roadhold] t %.2f c %.2f %.2f %.2f %.2f pull %.2f%s\n", f32(rdram, game_time), c[0], c[1], c[2],
+                   c[3], sum * 0.25f, lifted ? " down" : "");
+        }
+    }
+}
+
+namespace {
+    // Heavy: California Speed's world as a heavier one (docs/calspeed_research.md#road-hold). Its road hold adds
+    // 4 x 0.32 = 1.28 g on the road (2.28 g in all) and up to 3.6 more with the wheels well up (4.6 g), and its cars'
+    // springs per unit of mass are 2.27 times Rush 2's, their dampers 1.5 times, so they sit at Rush 2's height under
+    // it. The same is done here to every car on its tracks: gravity x the road hold's factors, with the springs and
+    // anti-roll x gravity_scale (2.28), dampers x sqrt(gravity_scale) (rush2_calspeed_wheel_damper: the car sits at
+    // Rush 2's height with Rush 2's damping ratio) and the tires' load / gravity_scale (rush2_calspeed_tire_load:
+    // grip is Rush 2's). Steady-state weight transfer, grip, engine and brakes are Rush 2's; the suspension runs
+    // sqrt(2.28) = 1.5 times faster with a 2.28th of the body roll, and a car has to lift against 2.28 g to roll over
+    // or leave a crest: California Speed's own trade.
+    // Per wheel the factor is a constant 0.32 on the road (California Speed eases it off past 0.5 ft of compression
+    // to soften its landings; under a fixed spring scale that easing dropped the car's gravity below what the springs
+    // were set for in a dip, on a loaded corner or at a ramp foot, lifting it and costing grip: Gravity's slope
+    // trouble), and off it California Speed's 0.5, 1.5 from 0.5 to 0.75 ft out, 0.9 further.
+    // Direction: while every wheel is within 1.0 ft of the road the extra is the part of the scaled gravity square to
+    // the road (the mean normal of the polygons under the touching wheels, or under all four when none touch, as
+    // push_car), so hills, banks and grades pull as on any other track and the springs see exactly gravity_scale x
+    // their Rush 2 load; once any wheel is more than 1.0 ft out (a jump, or over nothing: compression clamps at -3)
+    // the whole extra pulls straight down, California Speed's rule. Gravity weighted the along-road removal by the
+    // touching wheels, which stepped a sideways pull in whenever a wheel lifted on a bank.
+    // Stick: no amount of gravity keeps a car on the road over a kink (California Speed's roads are large flat
+    // polygons: a hill is a run of them), since the car's velocity has to turn at once while gravity bends it over
+    // time; at 2.28 g a 5 degree kink at 180 ft/s still lifts the car 1.7 ft for 0.4 s. So while a wheel has lifted
+    // (compression below 0) and none is more than 1.0 ft out, the car's velocity away from the road (its velocity
+    // +0x34 along the road's normal) is taken out this step: a force of mass x that velocity / the step, at most
+    // stick_cap x weight. A ramp lip gives far more separation than the cap takes back within the foot, so jumps
+    // still fly (a little shorter); a wheel lifted in a corner has next to no velocity away from the road, so nothing
+    // is added there; and on the road with four wheels down it never runs.
+    constexpr float stick_cap = 6.0f;      // x weight: California Speed's 1.5 band, 6 g over its ground pull
+    constexpr uint32_t car_mass = 0x5B0;   // f32 slugs
+    float heavy_factor(float c) {
+        if (c >= 0.0f) return ground_factor;
+        if (c < -0.75f) return 0.9f;
+        if (c < -0.5f) return 1.5f;
+        return 0.5f;
+    }
+
+    void heavy_push(uint8_t* rdram, uint32_t car) {
+        float g[3] = { f32(rdram, car + car_gravity), f32(rdram, car + car_gravity + 4),
+                       f32(rdram, car + car_gravity + 8) };
+        float c[4], sum = 0.0f;
+        bool lifted = false;
+        int touching = 0;
+        for (int i = 0; i < 4; i++) {
+            c[i] = f32(rdram, car + car_compression + 4 * i);
+            sum += heavy_factor(c[i]);
+            lifted |= c[i] < -1.0f;
+            touching += c[i] >= 0.0f;
+        }
+        float extra[3] = { g[0] * sum, g[1] * sum, g[2] * sum };
+        float stick = 0.0f;
+        if (!lifted) {
+            float wn[3] = {};
+            for (int i = 0; i < 4; i++) {
+                if (touching > 0 && c[i] < 0.0f) continue;
+                uint32_t m = car + car_wheel_polygon + 0x24 * i;
+                float w[3] = { f32(rdram, m + 12), f32(rdram, m + 16), f32(rdram, m + 20) };
+                float sgn = w[1] < 0.0f ? -1.0f : 1.0f; // facing up
+                for (int k = 0; k < 3; k++) wn[k] += w[k] * sgn;
+            }
+            float n[3];
+            for (int k = 0; k < 3; k++) {
+                uint32_t row = car + car_matrix + 12 * k;
+                n[k] = f32(rdram, row) * wn[0] + f32(rdram, row + 4) * wn[1] + f32(rdram, row + 8) * wn[2];
+            }
+            float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (len >= 0.5f) {
+                for (int k = 0; k < 3; k++) n[k] /= len;
+                float into = extra[0] * n[0] + extra[1] * n[1] + extra[2] * n[2];
+                for (int k = 0; k < 3; k++) extra[k] = into * n[k];
+                if (touching < 4) {
+                    float away = f32(rdram, car + car_velocity) * n[0] + f32(rdram, car + car_velocity + 4) * n[1] +
+                                 f32(rdram, car + car_velocity + 8) * n[2];
+                    float dt = f32(rdram, car + car_dt), weight = f32(rdram, car + car_weight);
+                    if (away > 0.0f && dt > 0.0f && weight > 0.0f) {
+                        stick = std::min(f32(rdram, car + car_mass) * away / dt, stick_cap * weight);
+                        for (int k = 0; k < 3; k++) extra[k] -= stick * n[k];
+                    }
+                }
+            }
+        }
+        for (int k = 0; k < 3; k++) {
+            put_f32(rdram, car + car_force + 4 * k, f32(rdram, car + car_force + 4 * k) + extra[k]);
+        }
+        // RUSH2_ROAD_HOLD_LOG: the player's car (physics car 0) every step a wheel is off the road.
+        static const bool log = getenv("RUSH2_ROAD_HOLD_LOG") != nullptr;
+        if (log && car == 0x800F5470u && touching < 4) {
+            printf("[roadhold] t %.2f c %.2f %.2f %.2f %.2f factor %.2f stick %.2f%s\n", f32(rdram, game_time), c[0],
+                   c[1], c[2], c[3], sum, stick / std::max(1.0f, f32(rdram, car + car_weight)), lifted ? " down" : "");
+        }
+    }
+}
+
 extern "C" void rush2_calspeed_road_hold(uint8_t* rdram, recomp_context* ctx) {
     if (!road_hold_on || !on_calspeed_track(rdram)) {
         return;
     }
     uint32_t car = (uint32_t)ctx->r16;
-    if (hold == Hold::Gravity) {
+    if (hold == Hold::Heavy) {
+        heavy_push(rdram, car);
+    }
+    else if (hold == Hold::Net) {
+        net_push(rdram, car);
+    }
+    else if (hold == Hold::Gravity) {
         gravity_push(rdram, car);
     }
     else if (hold == Hold::Copy) {
@@ -931,12 +1123,12 @@ extern "C" void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx)
         clamped = std::fabs(v) > limit;
         v = std::clamp(v, -limit, limit);
     }
-    if (!clamped && hold != Hold::Gravity) {
+    if (!clamped && !heavy_world) {
         return;
     }
-    // Hold::Gravity: springs and anti-roll x gravity_scale, dampers x its square root (the load at 0x8006AC8C-0x8006AD0C
-    // for 0 < c <= 10; anti-roll only while both compressions are above 0).
-    float stiff = hold == Hold::Gravity ? gravity_scale : 1.0f, damp = std::sqrt(stiff);
+    // The heavier world (Hold::Heavy, Gravity): springs and anti-roll x gravity_scale, dampers x its square root (the
+    // load at 0x8006AC8C-0x8006AD0C for 0 < c <= 10; anti-roll only while both compressions are above 0).
+    float stiff = heavy_world ? gravity_scale : 1.0f, damp = std::sqrt(stiff);
     float c0 = f32(rdram, sp + 0x7C), spring = f32(rdram, sp + 0x80), anti_roll = f32(rdram, sp + 0x84);
     float damper = f32(rdram, sp + (v < 0.0f ? 0x88 : 0x8C));
     float inv_dt = f32(rdram, car + car_inv_dt);
@@ -945,11 +1137,11 @@ extern "C" void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx)
     ctx->f2.fl = ((roll + c * spring) * stiff - v * damper * damp) * scale;
 }
 
-// Hold::Gravity: the tire's load as on any other track. In car_wheel_force_loop at 0x8006AD4C, as the load goes to
+// The heavier world (Hold::Heavy, Gravity): the tire's load as on any other track. In car_wheel_force_loop at 0x8006AD4C, as the load goes to
 // car_tire_model ($a2; $a0 = the car): the springs' load (0x34($sp), x gravity_scale with the springs) /
 // gravity_scale, capped at the car's weight (+0x5AC) as the game caps it (0x8006AD30-0x8006AD44).
 extern "C" void rush2_calspeed_tire_load(uint8_t* rdram, recomp_context* ctx) {
-    if (hold != Hold::Gravity || !road_hold_on || !on_calspeed_track(rdram)) {
+    if (!heavy_world || !road_hold_on || !on_calspeed_track(rdram)) {
         return;
     }
     uint32_t car = (uint32_t)ctx->r4;

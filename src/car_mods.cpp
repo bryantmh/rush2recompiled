@@ -15,6 +15,10 @@
 //
 // The containers are kept on disk (track_cache blobs keyed on the glb, the palette and the build): converting
 // decodes the mod's images.
+//
+// A mod's rush2/new_cars/<ID>.glb and <ID>.json add a car instead: the same container, as one of the mod car types
+// 57-72 (rush2::car2049::set_mod_car), with the physics, sounds and options of the Rush 2 car the .json names as its
+// base and the wheels where it puts them.
 
 #include <algorithm>
 #include <array>
@@ -39,6 +43,7 @@
 #include "assets.h"
 #include "car2049.h"
 #include "car_mods.h"
+#include "paint_colors.h"
 #include "texture_derive.h"
 #include "texture_upscale.h"
 #include "track_cache.h"
@@ -61,7 +66,7 @@ namespace {
         "D0_D2FR2", "D2_D2FR2", "D0_D2FL2", "D2_D2FL2", "D0_D2RR2", "D2_D2RR2", "D0_D2RL2", "D2_D2RL2", "D0_D2TOP2",
         "H0_L", "H2_L", "H0_R", "H2_R", "H0D_L", "H2D_L", "H0D_R", "H2D_R",
     };
-    constexpr uint32_t cache_version = 4;
+    constexpr uint32_t cache_version = 5;
 
     // Rush 2's car palette classes (0x800C5670, docs/game_fixes.md Rocket windshield): 1-31 MAIN, 33-63 ACCENT,
     // 64-95 / 112-143 / 208-255 stripe stamped, the rest fixed.
@@ -96,6 +101,7 @@ namespace {
         std::vector<std::array<float, 4>> col; // COLOR_0 (0-1), when the mesh has it: a dumped model's baked lighting
         std::vector<uint32_t> tris;  // 3 per triangle, wound as glTF (counter-clockwise from outside)
         int image = -1, mask = -1;   // into Model::images
+        int scheme = 0;              // a new car's color scheme (its .json's "schemes", each a glb) the part is of
     };
     struct Model {
         std::vector<Part> parts;
@@ -393,7 +399,9 @@ namespace {
 
     // ---- the car container ---------------------------------------------------------------------------------------
     // One LOD's FRAME1 list and its vertices (appended to d): per stand-in its texture load, then the triangles, 32
-    // vertices per G_VTX. Returns the list's offset.
+    // vertices per G_VTX. With several color schemes, each scheme's triangles are a block between two scheme markers
+    // (rush2::car2049::scheme_marker), which a car's copy turns into a branch past the block for the schemes it doesn't
+    // show. Returns the list's offset.
     uint32_t emit_body(std::vector<uint8_t>& d, const Model& model, const std::vector<StandIn>& stand_ins,
                        const std::vector<uint32_t>& load_lists, float& radius) {
         std::vector<uint8_t> vertices;
@@ -401,91 +409,93 @@ namespace {
         std::vector<size_t> vtx_commands;
         auto cmd = [&](uint32_t w0, uint32_t w1) { list.emplace_back(w0, w1); };
         // Render mode and combiner as Rush 2's car panels set them (PICKUPD0_TOP1).
-        bool first = true;
+        cmd(0xE200001C, 0xC8112230);
+        cmd(0xFC1216AC, 0xF0FFFE38);
         const float light[3] = { 0.30f, 0.80f, 0.52f };
-        for (size_t si = 0; si < stand_ins.size(); si++) {
-            const StandIn& s = stand_ins[si];
-            bool loaded = false;
-            for (const Part& part : model.parts) {
-                if (part.image != s.image || part.mask != s.mask) continue;
-                if (!loaded) {
-                    cmd(0xDE000000, load_lists[si]);
-                    if (first) {
-                        cmd(0xE200001C, 0xC8112230);
-                        cmd(0xFC1216AC, 0xF0FFFE38);
-                        first = false;
+        int schemes = 1;
+        for (const Part& part : model.parts) schemes = std::max(schemes, part.scheme + 1);
+        for (int scheme = 0; scheme < schemes; scheme++) {
+            if (schemes > 1) cmd(0, rush2::car2049::scheme_marker(scheme, false));
+            for (size_t si = 0; si < stand_ins.size(); si++) {
+                const StandIn& s = stand_ins[si];
+                bool loaded = false;
+                for (const Part& part : model.parts) {
+                    if (part.image != s.image || part.mask != s.mask || part.scheme != scheme) continue;
+                    if (!loaded) {
+                        cmd(0xDE000000, load_lists[si]);
+                        loaded = true;
                     }
-                    loaded = true;
+                    std::vector<int> slot_of(part.pos.size(), -1);
+                    std::vector<uint32_t> slots;
+                    std::vector<std::array<int, 3>> tris;
+                    auto flush = [&]() {
+                        if (slots.empty()) return;
+                        uint32_t at = uint32_t(vertices.size());
+                        for (uint32_t v : slots) {
+                            const auto& p = part.pos[v];
+                            const auto& nn = part.nrm[v];
+                            const auto& uv = part.uv[v];
+                            // The game's x is glTF's negated (the model dump's convention).
+                            int16_t xyz[3] = { int16_t(std::clamp(std::lround(-p[0]), -32767l, 32767l)),
+                                               int16_t(std::clamp(std::lround(p[1]), -32767l, 32767l)),
+                                               int16_t(std::clamp(std::lround(p[2]), -32767l, 32767l)) };
+                            radius = std::max(radius, std::sqrt(float(xyz[0]) * xyz[0] + float(xyz[1]) * xyz[1] + float(xyz[2]) * xyz[2]));
+                            float shade = 0.72f + 0.28f * std::max(0.0f, -nn[0] * light[0] + nn[1] * light[1] + nn[2] * light[2]);
+                            uint8_t c = uint8_t(std::clamp(shade * 255.0f, 0.0f, 255.0f));
+                            // The N64 puts texel i's center at coordinate i (Rush 2's panels run 0 to width - 1), glTF at
+                            // i + 0.5: without the half texel, every sample lands half a stand-in texel (16 texels of a
+                            // 1024-wide image) off, into the gaps between the image's islands.
+                            int32_t st[2] = { int32_t(std::lround((uv[0] * s.width - 0.5f) * 32.0f)),
+                                              int32_t(std::lround((uv[1] * s.height - 0.5f) * 32.0f)) };
+                            for (int k = 0; k < 3; k++) { vertices.push_back(uint8_t(uint16_t(xyz[k]) >> 8)); vertices.push_back(uint8_t(xyz[k])); }
+                            vertices.push_back(0x80); // flags: another vertex follows (the mirror walk; width 0)
+                            vertices.push_back(0x00);
+                            for (int k = 0; k < 2; k++) {
+                                int16_t t = int16_t(std::clamp(st[k], -32767, 32767));
+                                vertices.push_back(uint8_t(uint16_t(t) >> 8));
+                                vertices.push_back(uint8_t(t));
+                            }
+                            vertices.push_back(c);
+                            vertices.push_back(c);
+                            vertices.push_back(c);
+                            vertices.push_back(0xFF);
+                        }
+                        uint32_t count = uint32_t(slots.size());
+                        vtx_commands.push_back(list.size());
+                        cmd(0x01000000 | (count << 12) | (count << 1), at);
+                        for (size_t t = 0; t < tris.size(); t += 2) {
+                            uint32_t a = (tris[t][0] * 2 << 16) | (tris[t][1] * 2 << 8) | (tris[t][2] * 2);
+                            if (t + 1 < tris.size()) {
+                                uint32_t b = (tris[t + 1][0] * 2 << 16) | (tris[t + 1][1] * 2 << 8) | (tris[t + 1][2] * 2);
+                                cmd(0x06000000 | a, b);
+                            }
+                            else {
+                                cmd(0x05000000 | a, 0);
+                            }
+                        }
+                        for (uint32_t v : slots) slot_of[v] = -1;
+                        slots.clear();
+                        tris.clear();
+                    };
+                    for (size_t t = 0; t + 2 < part.tris.size(); t += 3) {
+                        uint32_t v[3] = { part.tris[t], part.tris[t + 1], part.tris[t + 2] };
+                        int fresh = 0;
+                        for (int k = 0; k < 3; k++) fresh += slot_of[v[k]] < 0 && (k == 0 || v[k] != v[0]) && (k < 2 || v[2] != v[1]);
+                        if (slots.size() + fresh > 32) flush();
+                        std::array<int, 3> tri;
+                        for (int k = 0; k < 3; k++) {
+                            if (slot_of[v[k]] < 0) {
+                                slot_of[v[k]] = int(slots.size());
+                                slots.push_back(v[k]);
+                            }
+                            tri[k] = slot_of[v[k]];
+                        }
+                        tris.push_back(tri);
+                    }
+                    flush();
                 }
-                std::vector<int> slot_of(part.pos.size(), -1);
-                std::vector<uint32_t> slots;
-                std::vector<std::array<int, 3>> tris;
-                auto flush = [&]() {
-                    if (slots.empty()) return;
-                    uint32_t at = uint32_t(vertices.size());
-                    for (uint32_t v : slots) {
-                        const auto& p = part.pos[v];
-                        const auto& nn = part.nrm[v];
-                        const auto& uv = part.uv[v];
-                        // The game's x is glTF's negated (the model dump's convention).
-                        int16_t xyz[3] = { int16_t(std::clamp(std::lround(-p[0]), -32767l, 32767l)),
-                                           int16_t(std::clamp(std::lround(p[1]), -32767l, 32767l)),
-                                           int16_t(std::clamp(std::lround(p[2]), -32767l, 32767l)) };
-                        radius = std::max(radius, std::sqrt(float(xyz[0]) * xyz[0] + float(xyz[1]) * xyz[1] + float(xyz[2]) * xyz[2]));
-                        float shade = 0.72f + 0.28f * std::max(0.0f, -nn[0] * light[0] + nn[1] * light[1] + nn[2] * light[2]);
-                        uint8_t c = uint8_t(std::clamp(shade * 255.0f, 0.0f, 255.0f));
-                        // The N64 puts texel i's center at coordinate i (Rush 2's panels run 0 to width - 1), glTF at
-                        // i + 0.5: without the half texel, every sample lands half a stand-in texel (16 texels of a
-                        // 1024-wide image) off, into the gaps between the image's islands.
-                        int32_t st[2] = { int32_t(std::lround((uv[0] * s.width - 0.5f) * 32.0f)),
-                                          int32_t(std::lround((uv[1] * s.height - 0.5f) * 32.0f)) };
-                        for (int k = 0; k < 3; k++) { vertices.push_back(uint8_t(uint16_t(xyz[k]) >> 8)); vertices.push_back(uint8_t(xyz[k])); }
-                        vertices.push_back(0x80); // flags: another vertex follows (the mirror walk; width 0)
-                        vertices.push_back(0x00);
-                        for (int k = 0; k < 2; k++) {
-                            int16_t t = int16_t(std::clamp(st[k], -32767, 32767));
-                            vertices.push_back(uint8_t(uint16_t(t) >> 8));
-                            vertices.push_back(uint8_t(t));
-                        }
-                        vertices.push_back(c);
-                        vertices.push_back(c);
-                        vertices.push_back(c);
-                        vertices.push_back(0xFF);
-                    }
-                    uint32_t count = uint32_t(slots.size());
-                    vtx_commands.push_back(list.size());
-                    cmd(0x01000000 | (count << 12) | (count << 1), at);
-                    for (size_t t = 0; t < tris.size(); t += 2) {
-                        uint32_t a = (tris[t][0] * 2 << 16) | (tris[t][1] * 2 << 8) | (tris[t][2] * 2);
-                        if (t + 1 < tris.size()) {
-                            uint32_t b = (tris[t + 1][0] * 2 << 16) | (tris[t + 1][1] * 2 << 8) | (tris[t + 1][2] * 2);
-                            cmd(0x06000000 | a, b);
-                        }
-                        else {
-                            cmd(0x05000000 | a, 0);
-                        }
-                    }
-                    for (uint32_t v : slots) slot_of[v] = -1;
-                    slots.clear();
-                    tris.clear();
-                };
-                for (size_t t = 0; t + 2 < part.tris.size(); t += 3) {
-                    uint32_t v[3] = { part.tris[t], part.tris[t + 1], part.tris[t + 2] };
-                    int fresh = 0;
-                    for (int k = 0; k < 3; k++) fresh += slot_of[v[k]] < 0 && (k == 0 || v[k] != v[0]) && (k < 2 || v[2] != v[1]);
-                    if (slots.size() + fresh > 32) flush();
-                    std::array<int, 3> tri;
-                    for (int k = 0; k < 3; k++) {
-                        if (slot_of[v[k]] < 0) {
-                            slot_of[v[k]] = int(slots.size());
-                            slots.push_back(v[k]);
-                        }
-                        tri[k] = slot_of[v[k]];
-                    }
-                    tris.push_back(tri);
-                }
-                flush();
             }
+            if (schemes > 1) cmd(0, rush2::car2049::scheme_marker(scheme, true));
         }
         cmd(0xDF000000, 0);
         // The last vertex ends the chain.
@@ -911,6 +921,9 @@ namespace {
         std::shared_ptr<const Model> model; // its images, for rush2::derive
     };
     Applied applied[types];
+    constexpr int new_car_slots = rush2::car_types::count_mod;
+    Applied applied_new[new_car_slots]; // the new cars (rush2/new_cars), by slot
+    std::string applied_new_key[new_car_slots]; // mod id, car id and the hash of its files
     bool has_own[types] = {};
     std::vector<uint8_t> own[types];     // each type's asset before its mod (a recomp fix, or empty: the ROM's)
     std::string last_signature;
@@ -921,16 +934,26 @@ namespace {
     using rush2::mod_files::enabled_mods;
     using rush2::mod_files::read_mod_file;
 
-    // The car of `type` from glb: its container (cached) and stand-ins. False on a bad file.
-    bool convert(int type, const std::vector<uint8_t>& glb, std::shared_ptr<Model>& model, std::vector<uint8_t>& car,
-                 std::vector<StandIn>& stand_ins, std::string& error) {
+    // The car from glbs (a new car's color schemes, in order; one for a replaced car), its parts named `prefix`: its
+    // container (cached as `cache_name`) and stand-ins (scuffed by `seed`). sheen: also Rush 2's sheen layers made from
+    // the body (a new car: rush2::track2049::add_body_sheen, as California Speed's cars get them). False on a bad file.
+    bool convert(const std::string& prefix, const std::string& cache_name, uint32_t seed,
+                 const std::vector<std::vector<uint8_t>>& glbs, std::shared_ptr<Model>& model, std::vector<uint8_t>& car,
+                 std::vector<StandIn>& stand_ins, std::string& error, bool sheen = false) {
         model = std::make_shared<Model>();
-        if (!parse_glb(glb, *model, error)) return false;
         std::vector<uint8_t> pal;
         for (const Rgba& c : car_palette) pal.insert(pal.end(), { c.r, c.g, c.b, c.a });
-        uint64_t source = rush2::track_cache::hash(glb.data(), glb.size(),
-                                                   rush2::track_cache::hash(pal.data(), pal.size(), cache_version));
-        std::string cache_name = std::string("carmod_") + prefixes[type];
+        uint64_t source = rush2::track_cache::hash(pal.data(), pal.size(), cache_version) ^ (sheen ? 0x5EE7ull : 0);
+        for (size_t k = 0; k < glbs.size(); k++) {
+            size_t before = model->parts.size();
+            if (!parse_glb(glbs[k], *model, error)) return false;
+            if (model->parts.size() == before) {
+                error = "scheme " + std::to_string(k + 1) + " has no triangles";
+                return false;
+            }
+            for (size_t i = before; i < model->parts.size(); i++) model->parts[i].scheme = int(k);
+            source = rush2::track_cache::hash(glbs[k].data(), glbs[k].size(), source);
+        }
         std::vector<uint8_t> blob;
         if (rush2::track_cache::load_blob(cache_name, source, blob) && blob.size() >= 8) {
             // car size, car, stand-in count, per stand-in: offset, width, height, image, mask, keys, scuffed texels
@@ -972,11 +995,12 @@ namespace {
                 StandIn s;
                 s.image = p.image;
                 s.mask = p.mask;
-                make_stand_in(*model, s, uint32_t(type * 977 + stand_ins.size()));
+                make_stand_in(*model, s, uint32_t(seed * 977 + stand_ins.size()));
                 stand_ins.push_back(std::move(s));
             }
         }
-        car = build_container(prefixes[type], *model, stand_ins);
+        car = build_container(prefix, *model, stand_ins);
+        if (sheen && !rush2::track2049::add_body_sheen(car, prefix, error)) return false;
         blob.clear();
         add32(blob, uint32_t(car.size()));
         blob.insert(blob.end(), car.begin(), car.end());
@@ -1066,14 +1090,16 @@ namespace {
                 textures[s.key] = mt;
             }
         }
-        for (int t = 0; t < types; t++) {
-            const Applied& a = applied[t];
+        // Rush 2's cars as t, the new cars as 64 + their slot.
+        for (int t = 0; t < types + new_car_slots; t++) {
+            const Applied& a = t < types ? applied[t] : applied_new[t - types];
+            uint32_t id = t < types ? uint32_t(t) : uint32_t(64 + t - types);
             if (!a.model) continue;
             for (const StandIn& s : a.stand_ins) {
                 std::shared_ptr<const Model> model = a.model;
                 int image = s.image, mask = s.mask;
                 rush2::derive::ModTexture mt;
-                mt.id = (uint64_t(t) << 32) | (uint64_t(uint16_t(image)) << 16) | uint16_t(mask);
+                mt.id = (uint64_t(id) << 32) | (uint64_t(uint16_t(image)) << 16) | uint16_t(mask);
                 mt.load = [model, image, mask](Image& out, Image& out_mask) {
                     if (image < 0 || !rush2::upscale::decode_image(model->images[image], out)) return false;
                     if (mask >= 0) decode_mask(model->images[mask], out_mask);
@@ -1081,7 +1107,7 @@ namespace {
                 };
                 mt.main_entry = main_first;
                 mt.accent_entry = accent_first;
-                mt.seed = uint32_t(t * 977 + image);
+                mt.seed = uint32_t(id * 977 + image);
                 textures[s.key] = mt;
                 if (s.scuffed_key != s.key) { // no paint, nothing to scuff (a glass color)
                     mt.damaged = true;
@@ -1092,6 +1118,339 @@ namespace {
         rush2::derive::set_mod_textures("cars", std::move(textures));
     }
 
+    // ---- new cars -------------------------------------------------------------------------------------------------
+    // A mod's rush2/new_cars/<ID>.json and <ID>.glb add a car (docs/car_mods.md#new-cars): the enabled mods' cars, in
+    // mod order and then by ID, fill the 16 mod car types (include/car_types.h) in turn.
+    struct NewCarFile {
+        std::string id;  // <ID>, as the mod spells it
+        size_t mod;
+    };
+
+    std::vector<NewCarFile> new_car_files(const std::vector<ModFile>& mods) {
+        std::vector<NewCarFile> out;
+        std::set<std::string> seen;
+        const std::string prefix = "rush2/new_cars/";
+        for (size_t i = 0; i < mods.size(); i++) {
+            std::vector<std::string> ids;
+            auto add = [&](const std::string& path) {
+                if (path.rfind(prefix, 0) != 0 || path.size() <= prefix.size() + 5) return;
+                std::string file = path.substr(prefix.size());
+                if (file.find('/') != std::string::npos || upper(file.substr(file.size() - 5)) != ".JSON") return;
+                ids.push_back(file.substr(0, file.size() - 5));
+            };
+            rush2::upscale::ZipReader zip(mods[i].path);
+            if (zip.is_open()) {
+                for (const std::string& n : zip.names()) add(n);
+            }
+            else {
+                std::error_code ec;
+                std::filesystem::path dir = mods[i].path / "rush2" / "new_cars";
+                for (auto it = std::filesystem::directory_iterator(dir, ec); !ec && it != std::filesystem::directory_iterator();
+                     it.increment(ec)) {
+                    std::u8string name = it->path().filename().u8string();
+                    add(prefix + std::string(name.begin(), name.end()));
+                }
+            }
+            std::sort(ids.begin(), ids.end());
+            for (const std::string& id : ids) {
+                if (seen.insert(mods[i].mod_id + "/" + upper(id)).second) out.push_back({ id, i });
+            }
+        }
+        return out;
+    }
+
+    // The car's settings from its .json; false (with the reason) when they can't be used.
+    // A new car's .json. schemes: its glbs (file names in rush2/new_cars/), the "schemes" list, empty without one.
+    bool read_new_car(const std::vector<uint8_t>& text, rush2::car2049::ModCar& spec, std::vector<std::string>& schemes,
+                      std::string& error) {
+        nlohmann::json j = nlohmann::json::parse(text.begin(), text.end(), nullptr, false);
+        if (!j.is_object()) {
+            error = "the .json isn't a JSON object";
+            return false;
+        }
+        // The name, in the car select logo's letters (A-Z, 0-9, space and '-'), at most 12 of them.
+        std::string name;
+        for (char c : j.value("name", std::string())) {
+            char u = char(std::toupper((unsigned char)c));
+            if ((u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == ' ' || u == '-') name += u;
+        }
+        if (name.size() > 12) name.resize(12);
+        if (name.empty()) {
+            error = "\"name\" is missing";
+            return false;
+        }
+        spec.name = name;
+        std::string base = upper(j.value("base", std::string("PICKUP")));
+        spec.base = -1;
+        for (int t = 0; t < types; t++) {
+            if (base == prefixes[t]) spec.base = t;
+        }
+        if (spec.base < 0) {
+            error = "\"base\" " + base + " isn't a Rush 2 car (PICKUP, VETTE, HOTROD, ...)";
+            return false;
+        }
+        auto vec = [&](const nlohmann::json& v, float* out, size_t n) {
+            if (!v.is_array() || v.size() != n) return false;
+            for (size_t i = 0; i < n; i++) {
+                if (!v[i].is_number()) return false;
+                out[i] = v[i].get<float>();
+            }
+            return true;
+        };
+        // Wheel centers in the glb's space (vertex units of 1/16 ft, the model dump's x), the right side's: the left
+        // wheels mirror them. The descriptor's point is a foot below the center (the tire's radius,
+        // carselect_preview_update_8005A598), and its x is the game's (the right side positive).
+        if (j.contains("wheels")) {
+            float front[3], rear[3];
+            if (!j["wheels"].is_object() || !vec(j["wheels"].value("front", nlohmann::json()), front, 3) ||
+                !vec(j["wheels"].value("rear", nlohmann::json()), rear, 3)) {
+                error = "\"wheels\" needs \"front\" and \"rear\", each [x, y, z]";
+                return false;
+            }
+            for (int w = 0; w < 4; w++) {
+                const float* c = w < 2 ? front : rear;
+                spec.wheels[w][0] = (w % 2 == 0 ? 1.0f : -1.0f) * std::fabs(c[0]) / 16.0f;
+                spec.wheels[w][1] = c[1] / 16.0f - 1.0f;
+                spec.wheels[w][2] = c[2] / 16.0f;
+            }
+            spec.has_wheels = true;
+        }
+        if (j.contains("wheel_scale") && !vec(j["wheel_scale"], spec.wheel_scale, 2)) {
+            error = "\"wheel_scale\" needs [front, rear]";
+            return false;
+        }
+        for (float& s : spec.wheel_scale) s = std::clamp(s, 0.0f, 3.0f);
+        if (j.contains("box")) {
+            if (!vec(j["box"], spec.box, 4)) {
+                error = "\"box\" needs [front, rear, half width, height] in feet";
+                return false;
+            }
+            spec.has_box = true;
+        }
+        auto color = [&](const char* key) {
+            int c = j.value(key, -1);
+            return c >= 0 && c < rush2::paint_colors::rush2_colors ? c : -1;
+        };
+        spec.main = color("main_color");
+        spec.accent = color("accent_color");
+        // A Rush 2049 car whose physics the car takes in place of the base car's (docs/car_mods.md#physics).
+        if (j.contains("physics_from")) {
+            std::string from = j["physics_from"].is_string() ? j["physics_from"].get<std::string>() : std::string();
+            spec.physics_from = rush2::car2049::car_index(from);
+            if (spec.physics_from < 0) {
+                error = "\"physics_from\" " + from + " isn't a Rush 2049 car (BRUISER, 8-BALL, ...)";
+                return false;
+            }
+        }
+        // Physics (docs/car_mods.md#physics), in Rush 2's units: each key optional, the base car's value without it.
+        if (j.contains("physics")) {
+            const auto& p = j["physics"];
+            if (!p.is_object()) {
+                error = "\"physics\" needs to be an object";
+                return false;
+            }
+            namespace ct = rush2::car_types;
+            // Descriptor fields: key, offset, count.
+            struct DescKey { const char* key; uint32_t offset; size_t count; };
+            static constexpr DescKey desc_keys[] = {
+                { "inertia_constants", 0x00, 3 }, { "suspension", 0x18, 14 }, { "suspension_constants", 0x50, 2 },
+                { "drag", 0x60, 1 }, { "rolling_resistance", 0x64, 1 }, { "rear_grip", 0x78, 1 },
+                { "drivetrain_inertia", 0xAC, 1 }, { "final_drive", 0xB0, 1 }, { "clutch", 0xB4, 1 },
+                { "torque", 0xB8, 4 }, { "gears", 0xC8, 6 }, { "shift_up", 0xE4, 1 }, { "shift_down", 0xE8, 1 },
+            };
+            struct TableKey { const char* key; uint32_t table; bool byte; };
+            static constexpr TableKey table_keys[] = {
+                { "mass", ct::mass, false }, { "pitch_roll_inertia", ct::inertia, false },
+                { "yaw_inertia", ct::yaw_inertia, false }, { "preload", ct::preload, false },
+                { "steering", ct::steer_base, false }, { "yaw_damping", ct::yaw_damping, false },
+                { "durability", ct::weight, false }, { "drive", ct::drive, true },
+                { "suspension_setting", ct::suspension, true }, { "tires_setting", ct::tires, true },
+            };
+            for (auto it = p.begin(); it != p.end(); ++it) {
+                const std::string& key = it.key();
+                const auto& v = it.value();
+                bool known = false;
+                for (const DescKey& d : desc_keys) {
+                    if (key != d.key) continue;
+                    known = true;
+                    float vals[14];
+                    if (d.count == 1 ? !v.is_number() : !vec(v, vals, d.count)) {
+                        error = "\"physics\" \"" + key + "\" needs " +
+                                (d.count == 1 ? std::string("a number") : std::to_string(d.count) + " numbers");
+                        return false;
+                    }
+                    if (d.count == 1) vals[0] = v.get<float>();
+                    for (size_t i = 0; i < d.count; i++) spec.desc_floats.emplace_back(d.offset + 4 * uint32_t(i), vals[i]);
+                    if (d.offset == 0x00) { // and their inverses, which the game reads too
+                        for (size_t i = 0; i < 3; i++) {
+                            spec.desc_floats.emplace_back(0x0C + 4 * uint32_t(i), vals[i] != 0.0f ? 1.0f / vals[i] : 0.0f);
+                        }
+                    }
+                }
+                for (const TableKey& t : table_keys) {
+                    if (key != t.key) continue;
+                    known = true;
+                    if (!v.is_number()) {
+                        error = "\"physics\" \"" + key + "\" needs a number";
+                        return false;
+                    }
+                    if (t.byte) spec.table_bytes.emplace_back(t.table, std::clamp(v.get<int>(), 0, 255));
+                    else spec.table_floats.emplace_back(t.table, v.get<float>());
+                }
+                if (key == "top_gear") {
+                    known = true;
+                    if (!v.is_number_integer() || v.get<int>() < 1 || v.get<int>() > 4) {
+                        error = "\"physics\" \"top_gear\" needs 1 to 4";
+                        return false;
+                    }
+                    spec.top_gear = v.get<int>();
+                }
+                else if (key == "tire_curves") {
+                    known = true;
+                    std::string s = v.is_string() ? upper(v.get<std::string>()) : std::string();
+                    if (s != "2049" && s != "BASE") {
+                        error = "\"physics\" \"tire_curves\" is \"base\" or \"2049\"";
+                        return false;
+                    }
+                    spec.tires_2049 = s == "2049";
+                }
+                if (!known) {
+                    error = "\"physics\" has an unknown key \"" + key + "\"";
+                    return false;
+                }
+            }
+        }
+        // Color schemes: whole liveries, each its own glb, picked by the car select's STYLE row (as a Dreamcast Rush
+        // 2049 car's paint jobs) in place of MAIN and ACCENT COLOR.
+        schemes.clear();
+        if (j.contains("schemes")) {
+            const auto& list = j["schemes"];
+            if (!list.is_array() || list.empty() || list.size() > size_t(rush2::car2049::max_schemes)) {
+                error = "\"schemes\" needs a list of 1 to " + std::to_string(rush2::car2049::max_schemes) + " .glb files";
+                return false;
+            }
+            for (const auto& f : list) {
+                std::string file = f.is_string() ? f.get<std::string>() : std::string();
+                if (file.empty() || file.find_first_of("/\\") != std::string::npos) {
+                    error = "\"schemes\" entries are .glb file names in rush2/new_cars/";
+                    return false;
+                }
+                schemes.push_back(file);
+            }
+        }
+        return true;
+    }
+
+    // The box Rush 2 gives a car for hitting other cars (front, rear, half width, height in feet), from the mesh as
+    // Rush 2's own relate to theirs: about a quarter foot inside the body at either end, at least 3 ft to a side,
+    // 3 ft high.
+    void box_from_model(const Model& model, float box[4]) {
+        float lo_z = 0.0f, hi_z = 0.0f, half = 0.0f;
+        for (const Part& p : model.parts) {
+            for (const auto& v : p.pos) {
+                lo_z = std::min(lo_z, v[2] / 16.0f);
+                hi_z = std::max(hi_z, v[2] / 16.0f);
+                half = std::max(half, std::fabs(v[0]) / 16.0f);
+            }
+        }
+        box[0] = std::max(1.0f, hi_z - 0.3f);
+        box[1] = std::max(1.0f, -lo_z - 0.25f);
+        box[2] = std::max(3.0f, half);
+        box[3] = 3.0f;
+    }
+
+    // Fills or clears the mod car slots from the enabled mods. Returns whether a slot changed.
+    bool apply_new_cars(uint8_t* rdram, const std::vector<ModFile>& mods) {
+        std::vector<NewCarFile> files = new_car_files(mods);
+        bool changed = false;
+        int slot = 0;
+        for (const NewCarFile& f : files) {
+            if (slot >= new_car_slots) {
+                fprintf(stderr, "[newcar] %s in %s: every mod car slot is taken (%d)\n", f.id.c_str(),
+                        mods[f.mod].mod_id.c_str(), new_car_slots);
+                continue;
+            }
+            const std::string base = "rush2/new_cars/" + f.id;
+            std::vector<uint8_t> text;
+            std::vector<std::vector<uint8_t>> glbs;
+            std::vector<std::string> scheme_files;
+            rush2::car2049::ModCar spec;
+            std::string error;
+            if (!read_mod_file(mods[f.mod], base + ".json", text)) {
+                error = "can't read " + f.id + ".json";
+            }
+            else if (read_new_car(text, spec, scheme_files, error)) {
+                if (scheme_files.empty()) scheme_files.push_back(f.id + ".glb");
+                for (const std::string& file : scheme_files) {
+                    glbs.emplace_back();
+                    if (!read_mod_file(mods[f.mod], "rush2/new_cars/" + file, glbs.back())) {
+                        error = "can't read " + file;
+                        break;
+                    }
+                }
+                spec.schemes = int(glbs.size());
+            }
+            if (!error.empty()) {
+                fprintf(stderr, "[newcar] %s in %s: %s\n", f.id.c_str(), mods[f.mod].mod_id.c_str(), error.c_str());
+                continue;
+            }
+            int n = slot++;
+            uint64_t h = rush2::track_cache::hash(text.data(), text.size(), 0);
+            for (const auto& g : glbs) h = rush2::track_cache::hash(g.data(), g.size(), h);
+            std::string key = mods[f.mod].mod_id + "/" + f.id + "/" + std::to_string(h);
+            if (applied_new_key[n] == key) continue;
+            std::shared_ptr<Model> model;
+            std::vector<uint8_t> car;
+            std::vector<StandIn> stand_ins;
+            std::string prefix = "NC" + std::to_string(n + 1);
+            if (!convert(prefix, "newcar_" + std::to_string(n + 1), uint32_t(64 + n), glbs, model, car, stand_ins,
+                         error, true)) {
+                fprintf(stderr, "[newcar] %s in %s: %s\n", f.id.c_str(), mods[f.mod].mod_id.c_str(), error.c_str());
+                slot--;
+                continue;
+            }
+            if (!spec.has_box) {
+                box_from_model(*model, spec.box);
+                spec.has_box = true;
+            }
+            std::map<uint32_t, std::vector<uint8_t>> scuffed;
+            size_t triangles = 0;
+            for (const Part& p : model->parts) triangles += p.tris.size() / 3;
+            for (const StandIn& s : stand_ins) {
+                if (s.scuffed != s.texels) scuffed[s.offset] = s.scuffed; // unpainted: nothing to scuff
+            }
+            // The paints its textures take (texels 0 and 1 of a stand-in only name the ramps for rush2::derive), so the
+            // car select shows no MAIN or ACCENT COLOR row that would change nothing.
+            spec.paint_main = spec.paint_accent = false;
+            for (const StandIn& s : stand_ins) {
+                for (size_t i = 2; i < s.texels.size(); i++) {
+                    spec.paint_main |= s.texels[i] >= main_first && s.texels[i] <= main_last;
+                    spec.paint_accent |= s.texels[i] >= accent_first && s.texels[i] <= accent_last;
+                }
+            }
+            size_t car_bytes = car.size();
+            rush2::car2049::set_mod_car(rdram, n, std::move(car), prefix, scuffed, spec);
+            printf("[newcar] %s (%s) from %s as type %d: %zu triangles, %zu textures, %d scheme(s), %zu KB, based on %s\n",
+                   spec.name.c_str(), f.id.c_str(), mods[f.mod].mod_id.c_str(), rush2::car_types::first_mod + n,
+                   triangles, stand_ins.size(), spec.schemes, car_bytes / 1024, prefixes[spec.base]);
+            applied_new_key[n] = key;
+            applied_new[n].mod_id = mods[f.mod].mod_id;
+            applied_new[n].glb_hash = h;
+            applied_new[n].stand_ins = std::move(stand_ins);
+            applied_new[n].model = model;
+            changed = true;
+        }
+        for (int n = slot; n < new_car_slots; n++) {
+            if (applied_new_key[n].empty()) continue;
+            rush2::car2049::clear_mod_car(rdram, n);
+            printf("[newcar] mod car slot %d emptied\n", n + 1);
+            applied_new_key[n].clear();
+            applied_new[n] = Applied{};
+            changed = true;
+        }
+        return changed;
+    }
+
     void apply(uint8_t* rdram) {
         std::string signature;
         std::vector<ModFile> mods = enabled_mods(signature);
@@ -1099,6 +1458,7 @@ namespace {
         std::string models_before = model_signature;
         apply_models(rdram, mods);
         bool changed = model_signature != models_before;
+        changed = apply_new_cars(rdram, mods) || changed;
         for (int t = 0; t < types; t++) {
             std::string name = std::string("rush2/cars/") + prefixes[t] + ".glb";
             std::vector<uint8_t> glb;
@@ -1125,7 +1485,8 @@ namespace {
             std::vector<uint8_t> car;
             std::vector<StandIn> stand_ins;
             std::string error;
-            if (!convert(t, glb, model, car, stand_ins, error)) {
+            if (!convert(prefixes[t], std::string("carmod_") + prefixes[t], uint32_t(t), { glb }, model, car, stand_ins,
+                         error)) {
                 fprintf(stderr, "[carmod] %s in %s: %s\n", name.c_str(), from->mod_id.c_str(), error.c_str());
                 continue;
             }
@@ -1138,7 +1499,9 @@ namespace {
             std::map<uint32_t, std::vector<uint8_t>> scuffed;
             size_t triangles = 0;
             for (const Part& p : model->parts) triangles += p.tris.size() / 3;
-            for (const StandIn& s : stand_ins) scuffed[s.offset] = s.scuffed;
+            for (const StandIn& s : stand_ins) {
+                if (s.scuffed != s.texels) scuffed[s.offset] = s.scuffed; // unpainted: nothing to scuff
+            }
             rush2::car2049::set_body_car(rdram, t, std::move(car), prefixes[t], scuffed);
             printf("[carmod] %s from %s: %zu triangles, %zu textures\n", prefixes[t], from->mod_id.c_str(), triangles,
                    stand_ins.size());

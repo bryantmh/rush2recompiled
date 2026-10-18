@@ -3,7 +3,7 @@
 (+0x7C, 4 x xyz, feet), the positions the wheels are drawn at (car state +0xA8 + 0xC x wheel, copied from the
 descriptor at race start; carselect_preview_update_8005A598 draws them there) and the TIRE SIZE scales it draws them
 with: row 0 for a computer car, physics +0x7E0 + 1 for a human (+0x7E8 == 2), of the front / rear wheel scale tables
-(include/car_types.h: 57 types, 9 rows, the copies of 0x800C0A6C / 0x800C0B74).
+(include/car_types.h: 73 types, 9 rows, the copies of 0x800C0A6C / 0x800C0B74).
 
     python tools/car_wheels.py PID [CARS]
 
@@ -21,7 +21,7 @@ if rd.base is None:
 w = lambda a: struct.unpack('<I', rd.block(a, 4))[0]
 f = lambda a: struct.unpack('<f', rd.block(a, 4))[0]
 b = lambda a: struct.unpack('<B', rd.block(a ^ 3, 1))[0]
-TYPES, ROWS = 57, 9
+TYPES, ROWS = 73, 9
 FRONT = 0x80200000 + sum(((TYPES * size * (9 if rows == 3 else 1)) + 7) & ~7 for size, rows in
                          ((4, 1), (4, 1), (4, 1), (1, 1), (4, 1), (4, 1), (4, 1), (4, 1), (4, 3)))
 REAR = FRONT + ((TYPES * 4 * ROWS + 7) & ~7)

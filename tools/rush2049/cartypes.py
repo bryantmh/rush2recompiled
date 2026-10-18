@@ -1,13 +1,16 @@
-"""Widening Rush 2's per-car-type tables from 22 to 57 types (Rush 2049 cars as types 23-35, California Speed's as
-36-56; 22 keeps its meaning as Rush 2's "no car" marker).
+"""Widening Rush 2's per-car-type tables from 22 to 73 types (Rush 2049 cars as types 23-35, California Speed's as
+36-56, mod cars as 57-72; 22 keeps its meaning as Rush 2's "no car" marker). Keep N_NEW and the layouts in step with
+include/car_types.h.
 
-Each table moves to a 57-wide copy in free RDRAM (NEW_BASE, one 64 KB page so every relocated `lui` gets the same
+Each table moves to a 73-wide copy in free RDRAM (NEW_BASE, one 64 KB page so every relocated `lui` gets the same
 high half). This script finds the instructions that address the old tables (lui + addiu/load/store pairs, through
 indexed `addu`), and the row-stride idioms (r * 22 as shift/subtract sequences) next to them, and prints us.toml
 `[[patches.instruction]]` entries plus a review list of everything it couldn't decide.
 
     python cartypes.py scan        sites per function, with idioms and conflicts (review)
     python cartypes.py layout      old -> new table addresses (for src/rush2049/car2049.cpp)
+    python cartypes.py toml        the table patches (us.toml block "Rush 2's per-car-type tables")
+    python cartypes.py idtoml      the preview id patches (us.toml block "Car preview ids")
 """
 import re, sys, os
 import refscan
@@ -15,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 import names  # emitted func = "..." keys use the registry symbol names
 SYM = names.symbol_map()
 
-N_OLD, N_NEW = 22, 57
+N_OLD, N_NEW = 22, 73
 NEW_BASE = 0x80200000
 
 # (old address, element size, rows, meaning). Rows are: 0 = defaults/drones, 1 = player 1, 2 = player 2. The copies
@@ -151,11 +154,16 @@ REG = {n: i for i, n in enumerate(['zero', 'at', 'v0', 'v1', 'a0', 'a1', 'a2', '
 
 
 def stride_new(t, r, size):
-    """r*57*size in the idiom's 5 slots: sll t,r,3 (8r); subu t,t,r (7r); sll t,t,3 (56r); addu t,t,r (57r);
-    sll t,t,(0|2)."""
-    assert N_NEW == 57
+    """r*N_NEW*size in the idiom's 5 slots: 73 = sll t,r,3 (8r); addu t,t,r (9r); sll t,t,3 (72r); addu t,t,r
+    (73r); sll t,t,(0|2). (57 was 8r - r = 7r, x 8, + r.)"""
     T, R = REG[t.strip('$')], REG[r.strip('$')]
-    return [enc_r(0x00, 0, R, T, 3), enc_r(0x23, T, R, T, 0), enc_r(0x00, 0, T, T, 3), enc_r(0x21, T, R, T, 0),
+    if N_NEW == 73:
+        second = enc_r(0x21, T, R, T, 0)
+    elif N_NEW == 57:
+        second = enc_r(0x23, T, R, T, 0)
+    else:
+        raise ValueError('no shift idiom for %d types' % N_NEW)
+    return [enc_r(0x00, 0, R, T, 3), second, enc_r(0x00, 0, T, T, 3), enc_r(0x21, T, R, T, 0),
             enc_r(0x00, 0, T, T, 2 if size == 4 else 0)]
 
 
@@ -202,6 +210,9 @@ def main():
         print('REVIEW:')
         print('\n'.join(review))
         print(len(patches), 'patches')
+    if cmd == 'idtoml':
+        print(id_toml())
+        return
     if cmd == 'toml':
         for addr in sorted(patches):
             v, why = patches[addr]
@@ -314,20 +325,17 @@ def taint_patches(funcs, fnames):
     return patches, notes
 
 
-if __name__ == '__main__':
-    if sys.argv[1:2] == ['cand']:
-        candidates()
-    else:
-        main()
 
 
 # ---------------------------------------------------------------------------------------------------------------
 # Car preview ids: the car select shows car type t for player p with preview "car" id = p * 22 + t (44 ids), which
-# indexes the race per-car arrays below. With 57 types the ids run to 114, so these arrays move to 114-entry copies in
-# one 64 KB window (one lui value, 0x8021: 0x80208000-0x80218000) and every instruction addressing them is relocated
-# (strides unchanged).
+# indexes the race per-car arrays below. With 73 types the ids run to 146, so these arrays move to 146-entry copies
+# and every instruction addressing them is relocated (strides unchanged). They fill a 64 KB window (one lui value,
+# 0x8021: 0x80208000-0x80218000) in order and the ones past it go to a second (0x8023: from 0x8022A000). No lui is
+# shared by two arrays, so only each array's first entries (the ones code addresses) must stay in one window.
 ID_OLD, ID_NEW = 44, 2 * N_NEW
 ID_WINDOW = 0x80208000
+ID_WINDOW2 = 0x8022A000
 ID_ARRAYS = [
     (0x8010C480, 0x4E, 'part handles (func_80086700)'),
     (0x8010F330, 0x1C, 'per-car callbacks'),
@@ -342,9 +350,12 @@ ID_ARRAYS = [
 def id_layout():
     out, at = [], ID_WINDOW
     for old, stride, m in ID_ARRAYS:
+        size = (ID_NEW * stride + 15) & ~15
+        if at < ID_WINDOW2 and at + size > ID_WINDOW + 0x10000:
+            at = ID_WINDOW2
         out.append((old, at, stride, m))
-        at += (ID_NEW * stride + 15) & ~15
-    assert at <= ID_WINDOW + 0x10000
+        at += size
+    assert at <= ID_WINDOW2 + 0xE000
     return out
 
 
@@ -440,3 +451,10 @@ def id_toml():
         f = [fn for fn, ins in funcs.items() if any(i[0] == addr for i in ins)][0]
         out.append('[[patches.instruction]]\nfunc = "%s"\nvram = 0x%s\nvalue = 0x%08X # %s\n' % (SYM.get(f, f), addr, v, why))
     return '\n'.join(out)
+
+
+if __name__ == '__main__':
+    if sys.argv[1:2] == ['cand']:
+        candidates()
+    else:
+        main()

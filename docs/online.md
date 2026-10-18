@@ -264,8 +264,9 @@ settings, and was drawn with wheels of size 0. The race setup fills all 13 for e
 race uses (`fill_player_rows`, which calls the getters with that record's profile). The tables have 9 rows (8 players),
 moved there by tools/rush2049/cartypes.py (`NEW_PLAYER_ROWS`). A Rush 2049 car's options (ENGINE level and the like)
 are in a side slot of its profile (src/rush2049/car2049.cpp): each player's car select sends theirs
-(`rush2::car2049::side_block`), and the other machines' players race with them in guest side slots at 0x8021E000
-(`set_guest_side_block`, 0x1D0 bytes each; protocol version 5 added California Speed's types 36-56).
+(`rush2::car2049::side_block`), and the other machines' players race with them in guest side slots
+(`car_types::guest_side_slots`, `set_guest_side_block`, 0x2A0 bytes each; protocol version 5 added California Speed's
+types 36-56, version 6 the mod cars' 57-72, which the host doesn't let a player race online).
 
 The HUD and the frame's drawing are records 0 to n-1's. Around them (`race_start_timer_800AE670` 0x800AF1D4 to
 0x800AF1F4) the records' cars rotate by `local_player`, so record i holds this machine's player i's car, and those

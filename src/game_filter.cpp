@@ -318,6 +318,7 @@ Game rush2::game_filter::track_game(int t) {
 
 Game rush2::game_filter::car_game(int type) {
     if (type < rush2::car2049::rush2_types) return Game::Rush2;
+    if (rush2::car_types::is_mod(type)) return Game::Custom; // a mod's car (src/car_mods.cpp)
     return rush2::car_types::is_2049(type) ? Game::Rush2049 : Game::CalSpeed;
 }
 

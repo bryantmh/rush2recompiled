@@ -1391,12 +1391,20 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     }
     // Every car is picked by now. A Rush 2049 car (types 23-35, src/rush2049/car2049.cpp) loads from the Rush 2049 ROM
     // on every machine, a California Speed car (36-56, src/calspeed/calspeed_cars.cpp) from its ROM (the cars options
-    // already match, with the rest of the gameplay settings).
+    // already match, with the rest of the gameplay settings). A mod's car (57-72, src/car_mods.cpp) isn't raced
+    // online: its slot holds whichever car each machine's own mods put there.
+    for (const RosterEntry& e : slots) {
+        if (e.used && e.connected && rush2::car_types::is_mod(e.car.type)) {
+            error_text = e.name + "'s car comes from a mod: online races use the Rush 2, Rush 2049 and California "
+                "Speed cars only.";
+            return false;
+        }
+    }
     for (bool calspeed : { false, true }) {
         std::string driver;
         for (const RosterEntry& e : slots) {
             if (e.used && e.connected && e.car.type >= rush2::car2049::first_type &&
-                rush2::car_types::is_calspeed(e.car.type) == calspeed) {
+                !rush2::car_types::is_mod(e.car.type) && rush2::car_types::is_calspeed(e.car.type) == calspeed) {
                 driver = e.name;
                 break;
             }

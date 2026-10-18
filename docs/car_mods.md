@@ -130,6 +130,135 @@ after track_cache's header) and walk it with `tools/rush1/cartex.py` `meshes(d, 
 - **Hot swap:** a mod turned on or off is applied the next time the game is in the menus (game states 0-1), not
   mid-race.
 
+## New cars
+
+A mod can also add cars to the car select. Each one starts as a copy of a Rush 2 car you name (its physics, engine
+sound, tires and the player's options), with your mesh, its own wheel positions, size and colors. It dents the same
+way as a replaced car (see [Mod format](#mod-format)). Its colors work one of two ways:
+
+- **Paint colors:** one glb whose paint masks mark the paint, as a replaced car's. MAIN COLOR (and ACCENT COLOR, if a
+  mask uses it) repaint it with Rush 2's colors.
+- **Color schemes:** several glbs, each a complete livery drawn exactly as authored (its own textures, and its own
+  mesh if a scheme adds parts). The car select's STYLE row picks one, as it picks a Dreamcast Rush 2049 car's paint
+  job.
+
+### Files
+
+Put these files per car in the mod under `rush2/new_cars/` (the car's ID is any letters):
+
+- `<ID>.glb`: the car, in the same format and space as a replaced car's glb (see [Mod format](#mod-format)). You don't
+  need to fit it to a Rush 2 car. Model it at its real size: Rush 2's cars are about 14 ft long. The wheels go where
+  the `.json` puts them. With color schemes, one glb per scheme instead, named in the `.json`'s `schemes`.
+- `<ID>.json`:
+
+```json
+{
+    "name": "CUDA",
+    "base": "CAMARO",
+    "wheels": { "front": [39.2, 3.2, 60.0], "rear": [39.2, 4.0, -63.4] },
+    "wheel_scale": [1.08, 1.08],
+    "box": [6.9, 6.9, 3.0, 3.0],
+    "main_color": 26,
+    "accent_color": 3
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `name` | Required. The car select's logo and the AI Opponents list show it. Up to 12 letters, digits, spaces or `-`. |
+| `base` | The Rush 2 car it starts from, by its prefix (see the table in [Mod format](#mod-format)). Default `PICKUP`. |
+| `wheels` | The front and rear right wheel centers, in the glb's space (1/16 ft units). The left wheels mirror them (the sign of x doesn't matter). Default: the base car's. Rush 2's own wheels sit at y 3.2 (front) and 4.0 (rear), x 44 and z ±62.7. |
+| `wheel_scale` | Front and rear wheel model sizes, as Rush 2's TIRE SIZE (most of its cars use 1.0, the Pickup 1.25). A player's TIRE SIZE for the car starts here. Default: the base car's. |
+| `box` | The box the car hits other cars with: front, rear, half width, height in feet. Default: from the mesh, about a quarter foot inside each end, at least 3 ft to a side, 3 ft high. |
+| `main_color`, `accent_color` | The colors a new player starts the car in, 0-31 (Rush 2's color list). Default: the base car's. |
+| `schemes` | Color schemes: a list of glb file names in `rush2/new_cars/` (up to 16), in STYLE order. Without it the car is `<ID>.glb` with paint colors. |
+| `physics_from` | A Rush 2049 car (`"BRUISER"`, `"8-BALL"`, ...) whose physics the car takes in place of the base car's (see [Physics](#physics)). |
+| `physics` | The car's handling, speed and weight (see [Physics](#physics)). Each value you leave out is the base car's. |
+
+The wheels' drawn position is their center, and the car rides on them like the base car.
+
+### Physics
+
+`physics_from` names a Rush 2049 car: the new car then drives as that car does in its default setup, its physics
+exactly as the game builds them for it (its descriptor and its weight, inertia, steering, drive and settings rows),
+with the new car's own wheels and box. Without Rush 2049 loaded, the base car's physics are used instead.
+
+`physics` is an object of the values below, in Rush 2's own units (the values Rush 2's tables and car descriptors
+hold; `python tools/rush2049/cars.py r2` prints every stock car's). Give any of them; the rest stay the base car's.
+A key the game doesn't know, or a value of the wrong shape, skips the car and the log says why.
+
+| Key | Meaning (Rush 2's stock range) |
+|---|---|
+| `mass` | Weight in slugs (lb / 32.2). |
+| `pitch_roll_inertia`, `yaw_inertia` | How hard the car is to tip and to turn. |
+| `preload` | Suspension preload. |
+| `inertia_constants` | The descriptor's 3 chassis constants (their inverses are set with them). |
+| `suspension` | The descriptor's 14 spring and damper values, front and rear pairs. |
+| `suspension_constants` | The 2 suspension constants that follow them (16, 4). |
+| `drag`, `rolling_resistance` | Air drag (0.0135) and rolling resistance (75): top speed. |
+| `rear_grip` | Rear tires' sideways grip factor. |
+| `tire_curves` | `"base"` or `"2049"`: Rush 2049's front and rear tire curves, as its cars use (only with Rush 2049 loaded; otherwise the base car's). |
+| `drivetrain_inertia`, `final_drive`, `clutch` | Drivetrain (2.5, 3.3, 600). |
+| `torque` | 4 torque scales: gear 1, gear 2, gears 3 and up, and the common engine map. |
+| `gears` | 6 gear ratios: reverse, neutral, 1st to 4th. |
+| `top_gear` | 1-4. |
+| `shift_up`, `shift_down` | Automatic shift points, engine speed in radians a second (662.35 = 6325 rpm). |
+| `steering`, `yaw_damping` | Turning force and its damping. |
+| `drive` | Drive flags, as Rush 2's per-car table. |
+| `suspension_setting`, `tires_setting` | Where the SUSPENSION and TIRES options start (TIRES 0-10). |
+| `durability` | Where DURABILITY starts (the setup weight value). |
+
+Code: `read_new_car` (`src/car_mods.cpp`) maps the keys to descriptor offsets and per-type tables, and
+`build_mod_physics` (`src/rush2049/car2049.cpp`) writes them over the base car's copy (or the `physics_from` car's),
+every row of each table. `refresh_mod_physics` applies `physics_from` again whenever the Rush 2049 cars' physics are
+rebuilt (a new Rush 2049 source).
+
+### In the game
+
+- **Slots:** there are 16 new-car slots (car types 57-72). The enabled mods' cars fill them in mod order, then by
+  ID, and the car select lists them after California Speed's cars. A car past the 16th is left out, and the log
+  says so. Reordering or turning off mods can move a car to another slot: a player's saved choice on that slot then
+  becomes the car now in it.
+- **Game Filter:** new cars count as CUSTOM.
+- **Car select rows:** a new car has no STRIPE or STRIPE COLOR row (no stripes are stamped on it). It shows MAIN
+  COLOR and ACCENT COLOR only if its paint masks use them, so a car without a mask keeps its textures' own colors
+  and shows no color rows, like a Dreamcast car's single livery.
+- **Car Sheen:** a new car gets Rush 2's sheen layers, built from its body as California Speed's cars get them, and
+  follows the Graphics > Car Sheen setting like a Rush 2 car.
+- **AI Opponents:** each opponent can be given a new car ("<name> (Mod)"). Computer cars never pick one on their own.
+- **Online:** the host won't start a race while a player has a new car picked, because the other machines may not
+  have that mod.
+- **Car Stats bars:** a new car's bars are measured against the stock cars' range. Mods don't change the stock cars'
+  bars.
+- **Hot swap:** turning a mod on or off applies the next time the game is in the menus, like a replaced car.
+- **Log:** `[newcar] <name> (<ID>) from <mod> as type N: ... based on <base>` for each car, or why one was skipped.
+
+Code: `apply_new_cars` (`src/car_mods.cpp`) reads the files and converts the mesh as `build_container` does (parts
+named `NC1`..`NC16`, cached as the `track_cache` blob `newcar_<slot>`). `rush2::car2049::set_mod_car`
+(`src/rush2049/car2049.cpp`) serves it as asset 0xA0 + slot and copies the base car's per-type table entries, physics
+descriptor (with the wheel points) and boxes (`build_mod_physics`). The type layout is in `include/car_types.h`.
+
+Two traps the 73 types brought out, both crashes in the car select:
+
+- Car preview ids (player x 73 + type) pass 127 for player 2's mod cars (130-145). The carousel entry keeps the id in
+  byte +0x15, which `carselect_build_list_803B81F0` read signed at 0x803B93A0 (`lb`), so `func_8008813C` indexed the
+  preview arrays at -126. us.toml makes it `lbu`.
+- The part name table (0x800C0764's copy) is one of the per-type tables `build_mod_physics` copies from the base car,
+  so `set_mod_car` writes the `NC<slot>` prefix after the copy. Left on the base car's name, the car select found none
+  of the container's parts: `car_preview_make_nodes_80087A8C` gave every part the same scene node and linked it to
+  itself, and `node_show_80058ED4` recursed until the guest stack ran out.
+
+### Rush 2049 arcade cars
+
+`tools/arcade2049/car_mod.py OUT_MOD_DIR` builds the `rush2049_arcade_cars` mod from the arcade data ProjectR unpacks
+(docs/arcade2049.md). It holds every arcade car (the table in docs/arcade2049.md#cars). Every `COL` folder of a car is one color scheme (`<ID>_COLn.glb`, picked with STYLE), each its body's
+full-detail LOD with the arcade's textures as authored. The wheels are at the arcade's own points, the same for every
+arcade car (docs/arcade2049.md#wheel-positions). `--sides SIDES.png` draws them over the side views to check.
+
+A car with a Rush 2049 (N64) counterpart takes its physics (`physics_from`). The Deuce and the Caddy have none: their
+`physics` are the arcade's, mapped onto Rush 2 as Rush 2049's N64 cars are (`physics()` in the tool,
+docs/arcade2049.md#car-physics). Every car's `box` is the arcade's own. The tool reads the Rush 2 and Rush 2049 ROMs for that (`RUSH2_ROM`, `RUSH2049_ROM`).
+
 ## Replacing any model
 
 A mod's `rush2/models/**/<MODEL>.glb` replaces every model named `<MODEL>` wherever the game loads it: Rush 2's own

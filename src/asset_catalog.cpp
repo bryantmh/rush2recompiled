@@ -285,6 +285,10 @@ std::vector<Entry> containers(const std::function<void(const std::string&)>& sta
     status("Reading Rush 2...");
     std::set<std::string> shared_models;
     for (int i = 0; i < rush2::assets::slot_count; i++) {
+        // A mod's cars (src/car_mods.cpp) are the mod's own files, not any game's.
+        if (i >= rush2::car2049::first_mod_asset && i < rush2::car2049::first_mod_asset + rush2::car_types::count_mod) {
+            continue;
+        }
         std::vector<uint8_t> data;
         std::vector<rush2::assets::Span> spans;
         if (!rush2::assets::read_current(i, data, spans) || !maybe_container(data)) {

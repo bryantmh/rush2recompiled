@@ -13,7 +13,7 @@
 namespace rush2::online {
     // Bumped whenever the messages below change; machines with different versions can't play together (it is part of
     // the compatibility key too, but the hello checks it first to give a clearer reason).
-    constexpr uint32_t protocol_version = 5; // 5: California Speed car types 36-56, 0x1D0-byte side blocks
+    constexpr uint32_t protocol_version = 6; // 6: mod car types 57-72, 0x2A0-byte side blocks (5: California Speed)
 
     // Messages, each starting with its type byte. Host -> client unless marked client -> host.
     enum class Msg : uint8_t {

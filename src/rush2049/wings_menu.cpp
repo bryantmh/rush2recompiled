@@ -16,7 +16,9 @@
 // A 2049 car's colors are set as Rush 2049 sets them, so each panel has its own rows (the game keeps one list for
 // both): a Dreamcast disc's car has paint jobs, each its own livery, picked by one STYLE row (MAIN COLOR, its value
 // taken modulo the car's jobs: rush2::car2049::paint_jobs) in place of the three color rows and STRIPE; an N64 ROM's
-// car has three paint ramps, so it keeps its three colors (STRIPE COLOR named TERTIARY COLOR) without STRIPE. The
+// car has three paint ramps, so it keeps its three colors (STRIPE COLOR named TERTIARY COLOR) without STRIPE; a mod
+// car (docs/car_mods.md#new-cars) has its color schemes as STYLE, as a Dreamcast car, or else no stripes and only the
+// MAIN / ACCENT COLOR rows its textures take. The
 // whole list is kept when func_803B81F0 builds it (once per visit) and each panel's list is put in its place before
 // anything reads it: func_803B9478's per-slot loop (0x803B951C, slot $s7), func_803BC048's (0x803BC0C8, slot $s2)
 // and the row widgets' callbacks (their slot from the widget's +0x2C).
@@ -96,7 +98,7 @@ namespace {
     int base_count = 0;
     int current_slot = 0;
 
-    enum class Rows { Rush2, Ramps, Jobs, TwoColors };
+    enum class Rows { Rush2, Ramps, Jobs, TwoColors, Mod };
 
     int slot_car(uint8_t* rdram, int slot) {
         return (int8_t)MEM_B(0, (int32_t)(slot_type + slot));
@@ -104,11 +106,16 @@ namespace {
 
     // Which rows a slot's car has: Rush 2's, a 2049 car's three ramps, a Dreamcast car's paint jobs, or a California
     // Speed car's two colors (MAIN and ACCENT: src/calspeed/calspeed_cars.cpp) and no ENGINE (it plays its own engine
-    // sound, as California Speed has no engine choice: src/car_engines.cpp).
+    // sound, as California Speed has no engine choice: src/car_engines.cpp), or a mod car's: its color schemes as a
+    // Dreamcast car's paint jobs, or else no stripes and only the colors its textures take
+    // (rush2::car2049::mod_car_paints).
     Rows slot_rows(uint8_t* rdram, int slot) {
         int type = slot_car(rdram, slot);
         if (rush2::car_types::is_calspeed(type)) return Rows::TwoColors;
-        if (type < rush2::car2049::first_type || type >= rush2::car2049::types) return Rows::Rush2;
+        if (rush2::car_types::is_mod(type)) return rush2::car2049::paint_jobs(type) > 0 ? Rows::Jobs : Rows::Mod;
+        if (type < rush2::car2049::first_type || type >= rush2::car2049::types || rush2::car_types::is_mod(type)) {
+            return Rows::Rush2;
+        }
         return rush2::car2049::paint_jobs(type) > 0 ? Rows::Jobs : Rows::Ramps;
     }
 
@@ -119,12 +126,17 @@ namespace {
         }
         current_slot = slot;
         Rows rows = slot_rows(rdram, slot);
+        int paints = rows == Rows::Mod ? rush2::car2049::mod_car_paints(slot_car(rdram, slot)) : 3;
         int count = 0;
         for (int i = 0; i < base_count; i++) {
             int id = base_ids[i];
             if (rows == Rows::Jobs && (id == option_accent || id == option_stripe || id == option_stripe_colour)) continue;
             if (rows == Rows::Ramps && id == option_stripe) continue;
             if (rows == Rows::TwoColors && (id == option_stripe || id == option_stripe_colour || id == option_engine)) continue;
+            if (rows == Rows::Mod && (id == option_stripe || id == option_stripe_colour ||
+                                      (id == option_main && !(paints & 1)) || (id == option_accent && !(paints & 2)))) {
+                continue;
+            }
             if (rows == Rows::Jobs && swatch && id == option_main) id = option_style;
             MEM_W(0, (int32_t)(option_ids + count * 4)) = id;
             count++;

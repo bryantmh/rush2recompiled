@@ -157,7 +157,8 @@ extern "C" void rush2_engine_preview_start(uint8_t* rdram, recomp_context* ctx) 
     if (revs[slot].active) {
         stop(rdram, ctx, slot);
     }
-    if (type >= rush2::car2049::first_type && type < rush2::car2049::types) {
+    // A mod car revs its base Rush 2 car's engine (its ENGINE row is Rush 2's).
+    if (type >= rush2::car2049::first_type && type < rush2::car2049::types && !rush2::car_types::is_mod(type)) {
         rush2::engine2049::preview_start(rdram, slot, (int)(int8_t)ctx->r2);
         revs[slot].rush2049 = true;
         set_rev(rdram, slot, idle_rpm, idle_load);

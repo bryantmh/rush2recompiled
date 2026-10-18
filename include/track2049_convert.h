@@ -149,6 +149,9 @@ namespace rush2::track2049 {
     // sheen layers made from it. Its textures are renamed `texture_prefix` + their name.
     bool convert_body_car(const std::vector<uint8_t>& container, const std::string& frame, const std::string& name,
                           const std::string& texture_prefix, std::vector<uint8_t>& out, std::string& error);
+    // The sheen layers convert_body_car makes, added to a Rush 2 car container that already has the body `name`FRAME1
+    // and Rush 2's other parts as empty models (a mod car: src/car_mods.cpp). False with a message on a bad container.
+    bool add_body_sheen(std::vector<uint8_t>& container, const std::string& name, std::string& error);
 
     // Rush 2049's part models `sources` (ENGINE01G1.., TIRE01G1..; setup screen file 56) as a Rush 2 model container,
     // named `names`, and each one's center (the middle of its vertices, in model units).

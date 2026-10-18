@@ -139,7 +139,7 @@ Any model in the game can be swapped for your own mesh, of any detail. Run Dump 
 
 ## Modding: new cars
 
-A mod can add whole new cars to the car select, next to the ones it already has. For each car, put a `.glb` of it and a short `.json` under `rush2/new_cars/` in your mod: the car's name, which Rush 2 car it drives like, where its wheels go and its starting colors. It takes the player's paint and dents like the other cars, and AI opponents can be given it too. Up to 16 mod cars can be in the game at once. The full guide is [docs/car_mods.md](docs/car_mods.md#new-cars). `tools/arcade2049/car_mod.py` builds a mod with the five San Francisco Rush 2049 arcade cars the N64 game doesn't have.
+A mod can add whole new cars to the car select, next to the ones it already has. For each car, put a `.glb` of it and a short `.json` under `rush2/new_cars/` in your mod: the car's name, which Rush 2 car it starts from, where its wheels go, its starting colors or a list of whole color schemes, and any of its physics (weight, suspension, engine, gears and more) you want to set. It dents like the other cars, and AI opponents can be given it too. Up to 16 mod cars can be in the game at once. The full guide is [docs/car_mods.md](docs/car_mods.md#new-cars). `tools/arcade2049/car_mod.py` builds a mod with every San Francisco Rush 2049 arcade car and all its color schemes; the ones the N64 game also has drive like their N64 versions.
 
 ## Modding: replacing textures
 
