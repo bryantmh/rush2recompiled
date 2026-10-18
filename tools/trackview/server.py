@@ -4,7 +4,8 @@ Shows the collision colored by surface, the AI spine and its four racing lines c
 direction, the checkpoint gates with where each line crosses them, the backward path, and the converter's report
 with its positions marked. The track's own glb can be drawn over it.
 
-    python tools/trackview/server.py                       # tracks under build/mods and tmp/stock_tracks
+    python tools/trackview/server.py                       # tracks under build/mods and tmp/stock_tracks,
+                                                           # plus San Francisco Rush's and California Speed's (tools/trackview/stock.py)
     python tools/trackview/server.py --track PATH [--track PATH ...] [--port 8766] [--no-browser]
 
 Run AI races the track headless in the real game (build/Rush2Recompiled.exe as a simulation, tools/trackview/runs.py)
@@ -22,7 +23,7 @@ from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import bake, runs  # noqa: E402
+import bake, runs, stock  # noqa: E402
 
 STATIC = os.path.join(HERE, 'static')
 #: Folders searched for track folders (a folder holding track.glb), relative to the repo.
@@ -44,11 +45,13 @@ def tracks():
             continue
         seen.add(p)
         out.append(dict(folder=p, name=os.path.basename(p), group=group))
-    return out
+    return out + stock.listing()
 
 
 def known(folder):
     """Only folders the track list offers are read."""
+    if stock.is_stock(folder):
+        return folder if any(t['folder'] == folder for t in tracks()) else None
     folder = os.path.abspath(folder or '')
     return folder if any(t['folder'] == folder for t in tracks()) else None
 
@@ -92,7 +95,11 @@ class Handler(BaseHTTPRequestHandler):
                 folder = known(q.get('folder'))
                 if not folder:
                     return self.json({'error': 'unknown track folder'}, 404)
-                return self.json(bake.bake(folder, force=q.get('force') == '1'))
+                force = q.get('force') == '1'
+                res = stock.bake_stock(folder, force) if stock.is_stock(folder) else bake.bake(folder, force)
+                if not stock.is_stock(folder) and stock.dump_glb(folder):   # Rush 2 / 2049 stock tracks: the dump's model
+                    res = dict(res, has_glb=True, glb_scale=stock.GLB_SCALE)
+                return self.json(res)
             if u.path == '/runs':
                 folder = known(q.get('folder'))
                 if not folder:
@@ -109,7 +116,13 @@ class Handler(BaseHTTPRequestHandler):
                 folder = known(q.get('folder'))
                 if not folder:
                     return self.send(404, b'', 'text/plain')
-                with open(os.path.join(folder, 'track.glb'), 'rb') as f:
+                if stock.is_stock(folder):
+                    path = stock.glb_path(folder)
+                    if not path:
+                        return self.send(404, b'', 'text/plain')
+                else:
+                    path = stock.dump_glb(folder) or os.path.join(folder, 'track.glb')
+                with open(path, 'rb') as f:
                     return self.send(200, f.read(), 'model/gltf-binary')
             name = 'index.html' if u.path in ('/', '') else u.path.lstrip('/')
             path = os.path.abspath(os.path.join(STATIC, name))

@@ -760,6 +760,15 @@ merges and renames as needed.
 
 ### Track previewer
 
+The list also holds San Francisco Rush's 7 tracks and California Speed's 16 (listed when `build/rush1.z64` /
+`build/calspeed.z64` exist), as the virtual folders `stock:sf:<0-6>` and `stock:cs:<0-15>`: `tools/trackview/stock.py`
+builds their collision and paths without the converter (SF Rush through `tools/rush1/track1.py`, with a Backward view;
+California Speed's raw assets 94 + t / 110 + t with the game's surface remap, before its lane fixes). Their visible
+layer is the track as placed, made by `tools/trackview/track_glb.cpp` (built by `track_glb.bat`: the model dump's
+`write_glb` on the game's geometry and placement files, in feet where custom glbs are meters, so the page scales it)
+and cached per ROM in `tmp/trackview/`. California Speed's shared objects (cones, lamps, trees) aren't in its track
+file, so they're missing. Run AI races them by track select id.
+
 `python tools/trackview/server.py` opens a browser preview of every track folder under `build/mods/*/tracks/` and
 `tmp/stock_tracks/` (`--track <folder>` adds others; `.rtz` mods must be unzipped). `tools/trackview/bake.py` runs the
 converter outside the game (`tmp/track_mod_test/track_mod_test.exe`, rebuilt through `tools/track_mod_test.bat` when

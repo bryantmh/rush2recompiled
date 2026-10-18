@@ -13,22 +13,18 @@ San Francisco Rush 2049:
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
 6) Option for 2049 floor friction (cars roll more than slide).
+7) Add stunt scoring system
 
 General:
 1) Better lighting? Bloom for emmissives?
 2) 3-4 players skip Select Player: they race with their controller's record or the profile already chosen
       on that port; no profile pick or Create Player for them, and the post-race records and name entry (game state 6,
       func_800A952C, 2 player arrays: docs/players4.md) are players 1 and 2's.
-3) Import California Speed
 4) Weak brakes: no braking in mid-air, and gas + brake held together still accelerates (feels like SF Rush, seen with the
     2049 speed setting). Find whether it's our digital pedal mapping (src/controls.cpp) or the physics; toggle if design.
 5) Save indicator: show when the game saves.
 6) Texture filtering option ("uglymode"): point sampling through an RT64 patch (tools/lib_patch.py).
-8) Higher drone difficulty levels (after the catch-up option; drones cheat heavily at high levels).
-9) Model swap framework needs more work
+8) Higher drone difficulty levels
 10) Add an option to disable hood bob in hood view.
 11) The ability to save/load vehicle tuning setups by name
 12) Add an option to not hide front wheels when in hood view for Formula, Dragster, and Formula 1. (Not sure if wheel positions align with the hood models though). 
-
-Online:
-Every player except the host hears the host's engine instead of their own

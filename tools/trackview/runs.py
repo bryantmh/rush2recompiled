@@ -20,6 +20,8 @@ See: docs/custom_tracks.md#race-replays
 """
 import json, os, shutil, subprocess, threading, time
 
+import stock
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 BUILD = os.path.join(REPO, 'build')
@@ -27,7 +29,7 @@ EXE = os.path.join(BUILD, 'Rush2Recompiled.exe')
 RUNS = os.path.join(REPO, 'tmp', 'trackview', 'runs')
 DATA = os.path.join(REPO, 'tmp', 'trackview', 'sim_data')
 #: ROMs the game reads from its data folder (src/data_location.cpp data_files).
-ROMS = ['rush2.n64.us.z64', 'rush2049.z64', 'rush2049_dc.pak', 'rush1.z64']
+ROMS = ['rush2.n64.us.z64', 'rush2049.z64', 'rush2049_dc.pak', 'rush1.z64', 'calspeed.z64']
 #: Settings and saves, deleted before each run so it starts from defaults (caches such as track_cache are kept).
 RESET = ['saves', 'mod_config', 'ghosts', 'track_reports']
 MOD = 'trackview'
@@ -39,9 +41,13 @@ lock = threading.Lock()
 current = {}   # the run in progress: folder, name, pid, started, state
 
 
+def run_name(folder):
+    return stock.run_name(folder) if stock.is_stock(folder) else os.path.basename(os.path.abspath(folder))
+
+
 def run_path(folder):
     """The track's recording (the latest run's), whether or not it exists yet."""
-    return os.path.join(RUNS, os.path.basename(os.path.abspath(folder)) + '.r2rc')
+    return os.path.join(RUNS, run_name(folder) + '.r2rc')
 
 
 def latest(folder):
@@ -90,10 +96,13 @@ def prepare_data(folder):
     os.makedirs(tracks, exist_ok=True)
     for n in os.listdir(tracks):
         remove_link(os.path.join(tracks, n))
-    name = os.path.basename(os.path.abspath(folder))
-    r = subprocess.run(['cmd', '/c', 'mklink', '/J', os.path.join(tracks, name), os.path.abspath(folder)],
+    if stock.is_stock(folder):   # another game's track: raced by its track select id, the mod holds nothing
+        name = None
+    else:
+        name = os.path.basename(os.path.abspath(folder))
+    r = name and subprocess.run(['cmd', '/c', 'mklink', '/J', os.path.join(tracks, name), os.path.abspath(folder)],
                        capture_output=True, text=True)
-    if r.returncode != 0:
+    if r and r.returncode != 0:
         raise OSError('mklink failed: ' + r.stdout + r.stderr)
     with open(os.path.join(mods, MOD, 'mod.json'), 'w', encoding='utf-8') as f:
         json.dump({'game_id': 'rush2', 'id': MOD, 'display_name': 'Trackview', 'description': 'tools/trackview AI runs',
@@ -120,7 +129,7 @@ def start(folder, backward=False):
         if os.path.exists(old):
             os.remove(old)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
-    env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_TEST_RACE=os.path.basename(os.path.abspath(folder)),
+    env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_TEST_RACE=str(stock.menu_id(folder)) if stock.is_stock(folder) else os.path.basename(os.path.abspath(folder)),
                RUSH2_RACE_RECORD=rec, RUSH2_TEST_CAR='0')
     if backward:
         env['RUSH2_TEST_BACKWARD'] = '1'
@@ -128,7 +137,7 @@ def start(folder, backward=False):
     proc = subprocess.Popen([EXE], cwd=BUILD, env=env, stdout=log, stderr=subprocess.STDOUT)
     with lock:
         current.clear()
-        current.update(folder=os.path.abspath(folder), folder_name=os.path.basename(folder), backward=backward,
+        current.update(folder=folder if stock.is_stock(folder) else os.path.abspath(folder), folder_name=run_name(folder), backward=backward,
                        pid=proc.pid, started=time.time(), state='running')
     threading.Thread(target=watch, args=(proc, rec, log), daemon=True).start()
     return status()

@@ -63,6 +63,7 @@ button:disabled { opacity:.45; cursor:default; border-color:var(--line); }
   <div class="row"><select id="track"></select></div>
   <div class="row"><button id="reload" title="Convert the track again from its files">Reload</button>
     <button id="frame" title="Frame the whole track (F)">Frame</button>
+    <button id="export" title="Save the whole track as one .glb: model, collision, AI path and gates (meters, glTF axes)">Export glb</button>
     <select id="dir" style="width:auto"><option value="forward">Forward</option><option value="backward">Backward</option></select></div>
   <div class="stat" id="stats"></div>
 
@@ -105,6 +106,7 @@ button:disabled { opacity:.45; cursor:default; border-color:var(--line); }
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { createReplay } from './replay.js';
 
 const $ = id => document.getElementById(id);
@@ -113,7 +115,7 @@ const SPEED_MIN = 60, SPEED_MAX = 160;   // mph; stock lanes run 72-158
 const SURFACE_COLORS = { ROAD:'#7d8590', DIRT:'#a8743c', GRASS:'#4f9a3c', WALL:'#c4566a', WATER:'#3a7fd6', KILL:'#e0303a' };
 const CUSTOM_COLORS = ['#c58af9', '#e8c547', '#4fd1c5', '#f08a4b', '#8fb3ff', '#d36fb0', '#9ad35a', '#ff9eaa',
                        '#6ee0ff', '#c9a26b', '#b0b0ff', '#7fe0a0'];
-const LAYERS = [ ['collision','Collision', true], ['visible','Track model (track.glb)', false],
+const LAYERS = [ ['collision','Collision', true], ['visible','Track model (textured)', true],
   ['spine','AI spine', true], ['lane0','Racing line 1 (outer)', true], ['lane1','Racing line 2', true],
   ['lane2','Racing line 3', true], ['lane3','Racing line 4 (outer)', true], ['arrows','Race direction', true],
   ['gates','Checkpoint gates', true], ['crossings','Where lines cross gates', true], ['marks','Report positions', true],
@@ -129,10 +131,23 @@ renderer.setPixelRatio(window.devicePixelRatio);
 view.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#15171c');
-const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 20000);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 20000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.screenSpacePanning = false;
+// Zoom at a fixed speed like TESConversion's cellview: each wheel step moves the camera the same distance (meters)
+// however near the orbit point is, and past MIN_DIST the orbit point is carried forward so zoom never stalls (OrbitControls
+// scales each step by the distance, so it slows to a stop near the point).
+controls.enableZoom = false;
+const ZOOM_UNITS = 1, MIN_DIST = 2, MAX_DIST = 60000;
+renderer.domElement.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const px = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? 800 : 1;
+  const dir = camera.getWorldDirection(new THREE.Vector3());
+  const d = camera.position.distanceTo(controls.target) + ev.deltaY * px * ZOOM_UNITS;
+  if (d < MIN_DIST) controls.target.addScaledVector(dir, MIN_DIST - d);
+  camera.position.copy(controls.target).addScaledVector(dir, -Math.max(MIN_DIST, Math.min(MAX_DIST, d)));
+}, { passive: false });
 
 // The point the camera orbits, shown while the camera moves (drag, pan, zoom) and briefly after: three axes and a dot,
 // drawn over everything at a constant size on screen.
@@ -374,13 +389,15 @@ function stats() {
 async function buildVisible() {
   if (!layerOn.visible || glbFor === folder) return;
   glbFor = folder;
-  clear(groups.visible);
+  clear(groups.visible);   // first: a track without a model must not keep the last track's
+  if (!data || !data.has_glb) return;
   status('Loading track.glb…');
   try {
     const gltf = await new GLTFLoader().loadAsync('/glb?folder=' + encodeURIComponent(folder));
     if (glbFor !== folder) return;
     // what the game draws: not the collision, AI path or markers
     gltf.scene.traverse(o => { if (/^(COL_|AIPATH|AISPEED_|FINISH|CHECKPOINT_|START_)/.test(o.name)) o.visible = false; });
+    if (data.glb_scale) gltf.scene.scale.setScalar(data.glb_scale);   // a stock track's glb is in feet
     groups.visible.add(gltf.scene);
     status('');
   } catch (e) { status('track.glb failed to load: ' + e.message); glbFor = null; }
@@ -389,6 +406,15 @@ async function buildVisible() {
 // ---- interaction -------------------------------------------------------------------------------------------
 function applyLayers() {
   for (const [k] of LAYERS) groups[k].visible = !!layerOn[k];
+  // With the model drawn, the collision is a see-through overlay so its textures show (it is coplanar with the road).
+  const over = !!layerOn.visible;
+  groups.collision.children.forEach(m => {
+    const wall = m.userData.surface === 'WALL';
+    m.material.transparent = over || wall;
+    m.material.opacity = over ? 0.3 : wall ? 0.22 : 1;
+    m.material.depthWrite = !over && !wall;
+    m.material.needsUpdate = true;
+  });
   store.set('layers', layerOn);
   buildVisible();
 }
@@ -457,6 +483,51 @@ renderer.domElement.addEventListener('pointerup', e => {
 });
 window.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') frameAll(); });
 $('frame').onclick = frameAll;
+
+// Saves the whole track: the model (textured, as shown), the collision (one COL_<surface> mesh per surface, as the
+// converter reads them), the AI path and the gates, as one glb in meters. The model is loaded first if its layer is off.
+$('export').onclick = async () => {
+  if (!data || !data.collision) return;
+  const wasOn = layerOn.visible, f = folder;
+  if (!wasOn) { layerOn.visible = true; await buildVisible(); }
+  const out = new THREE.Group();
+  out.name = data.name;
+  if (data.has_glb && groups.visible.children.length) {
+    const model = groups.visible.children[0].clone(true);
+    model.name = 'TRACK_MODEL';
+    out.add(model);
+  }
+  for (const m of groups.collision.children) {
+    const copy = new THREE.Mesh(m.geometry, new THREE.MeshStandardMaterial({ color: m.material.color, side: THREE.DoubleSide, roughness: 1, metalness: 0 }));
+    copy.name = 'COL_' + m.userData.surface;
+    out.add(copy);
+  }
+  // The AI path and the gates as lines, in the direction shown: AIPATH_main, AIPATH_lane<n>, FINISH and CHECKPOINT_<n>.
+  const path = data[dirKey()], lineMat = new THREE.LineBasicMaterial({ color: '#ffffff' });
+  const addLine = (name, pts, loop) => {
+    const g = new THREE.BufferGeometry().setFromPoints(loop ? [...pts, pts[0]] : pts);
+    const l = new THREE.Line(g, lineMat);
+    l.name = name;
+    out.add(l);
+  };
+  addLine('AIPATH_main', path.spine.map(v3), true);
+  path.lanes.forEach((l, i) => addLine('AIPATH_lane' + i, l.pts.map(v3), true));
+  path.checkpoints.forEach((c, i) => {
+    const p = v3(c.pos), side = new THREE.Vector3(-c.dir[2], 0, c.dir[0]).normalize().multiplyScalar(c.radius);
+    addLine(i === 0 ? 'FINISH' : 'CHECKPOINT_' + (dirKey() === 'backward' ? path.checkpoints.length - i : i), [p.clone().sub(side), p.clone().add(side)], false);
+  });
+  out.updateMatrixWorld(true);
+  try {
+    const buf = await new GLTFExporter().parseAsync(out, { binary: true, onlyVisible: true });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buf], { type: 'model/gltf-binary' }));
+    a.download = (data.name || 'track').replace(/\W+/g, '_') + '.glb';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    status('');
+  } catch (e) { status('Export failed: ' + e.message); }
+  if (!wasOn && folder === f) { layerOn.visible = false; applyLayers(); }
+};
 $('dir').onchange = () => { buildPath(); applyLayers(); };
 $('track').onchange = () => { location.hash = $('track').value; };
 $('reload').onclick = () => load(folder, true);
@@ -488,6 +559,7 @@ async function load(f, force = false) {
   if (first) { frameAll(); replay.setTrack(f); }
   $('hud').style.display = 'none';
   // ?click=x,y inspects that page pixel once loaded (scripted screenshots)
+  if (first && new URLSearchParams(location.search).has('export')) setTimeout(() => $('export').click(), 3000);   // ?export: saves the glb (headless tests)
   const click = new URLSearchParams(location.search).get('click');
   if (click && first) { controls.update(); const [x, y] = click.split(',').map(Number); pick({ clientX: x, clientY: y }); }
 }
