@@ -8184,7 +8184,7 @@ text = "    rush2_car49_select_first_frame(rdram, ctx);"
 [[patches.hook]]
 func = "carselect_build_list_803B81F0"
 before_vram = 0x803B8CE4
-text = "    rush2_car49_select_cursor(rdram, ctx);"
+text = "    rush2_car49_select_cursor(rdram, ctx); rush2_filter_car_cursor(rdram, ctx);"
 
 # Rush 2049 engine sounds (src/rush2049/engine2049.cpp): a local player slot driving a 2049 car skips Rush 2's engine start
 # (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame
@@ -13185,3 +13185,26 @@ text = "    rush2_online_rumble_port(rdram, ctx);"
 func = "player_join_init_all_80080788"
 before_vram = 0x80080B0C
 text = "    rush2_online_record_presses(rdram, ctx);"
+
+# Game filter (src/game_filter.cpp): the track and car selects' Y prompt and panel, and the rebuild after a change
+# (teardown, then the rest of the frame skipped). The car lists are filtered in rush2_cheats_car_list, and the car the
+# carousel opens on follows them (rush2_filter_car_cursor, with rush2_car49_select_cursor above).
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803ABEDC
+text = "    if (rush2_track49_filter_frame(rdram, ctx)) goto L_803AC6D4;"
+
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6940
+text = "    rush2_track49_filter_text(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B94C0
+text = "    if (rush2_filter_car_frame(rdram, ctx)) goto L_803BA884;"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC7AC
+text = "    rush2_filter_car_text(rdram, ctx);"

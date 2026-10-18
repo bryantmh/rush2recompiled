@@ -45,6 +45,7 @@
 #include "recompui/config.h"
 
 #include "rush2.h"
+#include "game_filter.h"
 #include "online.h"
 #include "rush2_hooks.h"
 #include "steam_haptics.h"
@@ -592,6 +593,10 @@ bool rush2::input::port_has_playstation_controller(int port) {
     return type == SDL_CONTROLLER_TYPE_PS3 || type == SDL_CONTROLLER_TYPE_PS4 || type == SDL_CONTROLLER_TYPE_PS5;
 }
 
+bool rush2::input::takes_input() {
+    return !recompinput::game_input_disabled() && !hands_off();
+}
+
 void rush2::input::suppress_until_released(int port) {
     if (port >= 0 && port < num_ports) {
         blocked_until_release[port] = true;
@@ -792,6 +797,11 @@ bool rush2::input::get_n64_input(int port, uint16_t* buttons_out, float* x_out, 
     // While the Controller Setup screen listens for a binding, and after it binds one until everything is let go, the
     // game sees nothing from the port.
     if (rush2::controls::is_listening(port)) {
+        no_pedals();
+        return true;
+    }
+    // The track or car select's game filter panel is open: it reads the ports itself (src/game_filter.cpp).
+    if (rush2::game_filter::input_captured()) {
         no_pedals();
         return true;
     }

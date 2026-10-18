@@ -53,6 +53,7 @@
 #include "rt64_extended_gbi.h"
 
 #include "button_glyphs.h"
+#include "game_filter.h"
 #include "players4.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
@@ -441,6 +442,7 @@ namespace {
             if (!begun) {
                 begin();
             }
+            set_solid(false);
             constexpr uint32_t w = rush2::controls::glyph_width;
             constexpr uint32_t h = rush2::controls::glyph_height;
             constexpr uint32_t fmt_i = 4, siz_8b = 1, siz_16b = 2;
@@ -463,6 +465,20 @@ namespace {
             cmd(0xE1000000, 0);                                                     // s, t = 0
             uint32_t dsdx = (w << 10) / draw_w, dtdy = (h << 10) / draw_h;
             cmd(0xF1000000, (dsdx << 16) | dtdy);
+        }
+
+        // A filled rectangle of color rgba (alpha blended).
+        void rect(int x, int y, int w, int h, uint32_t rgba) {
+            if (w <= 0 || h <= 0 || cursor + 0x100 > start + glyph_dl_size) {
+                return;
+            }
+            if (!begun) {
+                begin();
+            }
+            set_solid(true);
+            cmd(0xFA000000, rgba);                                                  // SetPrimColor
+            uint32_t ulx = std::max(x, 0) * 4, uly = std::max(y, 0) * 4, lrx = (x + w) * 4, lry = (y + h) * 4;
+            cmd(0xF6000000 | (lrx << 12) | lry, (ulx << 12) | uly);                 // FillRectangle
         }
 
         // Ends the list and calls it from the game's 2D display list.
@@ -494,6 +510,7 @@ namespace {
         uint32_t start;
         uint32_t cursor;
         bool begun = false;
+        bool solid = false;     // The combiner is set for rect (primitive color and alpha), not for glyphs.
 
         void cmd(uint32_t w0, uint32_t w1) {
             MEM_W(0, (int32_t)cursor) = (int32_t)w0;
@@ -515,12 +532,23 @@ namespace {
             // 1-cycle, no perspective, bilinear, no LUT, filtered texture conversion, no dithering. Translucent
             // surface blending, no Z.
             cmd(0xEF000000 | 0x002CF0, 0x00504240); // SetOtherMode
-            // Color = primitive, alpha = texel (the glyph's intensity) * primitive alpha, in both cycles.
+            solid = true;
+            set_solid(false);
+        }
+
+        // Color = primitive in both cycles; alpha = texel (the glyph's intensity) * primitive alpha for glyphs, the
+        // primitive alpha for rects.
+        void set_solid(bool on) {
+            if (on == solid) {
+                return;
+            }
+            solid = on;
             uint32_t c_sa = 15, c_sb = 15, c_m = 31, c_a = 3;
-            uint32_t a_sa = 1, a_sb = 7, a_m = 3, a_a = 7;
+            uint32_t a_sa = on ? 7 : 1, a_sb = 7, a_m = on ? 7 : 3, a_a = on ? 3 : 7;
             uint32_t w0 = (c_sa << 20) | (c_m << 15) | (a_sa << 12) | (a_m << 9) | (c_sa << 5) | c_m;
             uint32_t w1 = (c_sb << 28) | (c_a << 15) | (a_sb << 12) | (a_a << 9) |
                 (c_sb << 24) | (a_sa << 21) | (a_m << 18) | (c_a << 6) | (a_sb << 3) | a_a;
+            cmd(0xE7000000, 0);       // PipeSync
             cmd(0xFC000000 | w0, w1); // SetCombine
         }
     };
@@ -717,17 +745,24 @@ void rush2::controls::add_menu_glyph(uint8_t* rdram, int port, MenuButton button
     }
     Input in;
     if (shown_device(port) == Device::Keyboard) {
-        constexpr SDL_Scancode keys[] = { SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_Q, SDL_SCANCODE_E };
+        constexpr SDL_Scancode keys[] = { SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_Q, SDL_SCANCODE_E,
+                                          SDL_SCANCODE_I };
         in = { Input::Type::Key, keys[(int)button] };
     }
     else {
         constexpr SDL_GameControllerButton buttons[] = { SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B,
-            SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER };
+            SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_Y };
         in = { Input::Type::Button, buttons[(int)button] };
     }
     GlyphColor g = glyph_for(in, rush2::input::port_has_playstation_controller(port));
     if (g.glyph != Glyph::None) {
         menu_glyphs->add(g.glyph, g.rgba, x, y, w, h);
+    }
+}
+
+void rush2::controls::add_menu_rect(uint8_t* rdram, int x, int y, int w, int h, uint32_t rgba) {
+    if (menu_glyphs) {
+        menu_glyphs->rect(x, y, w, h, rgba);
     }
 }
 
@@ -752,6 +787,7 @@ bool rush2::wings::button_held(uint8_t* rdram, int player) {
 extern "C" void rush2_controls_frame(uint8_t* rdram, recomp_context* ctx) {
     rush2::input::set_rdram(rdram);
     lock_game_layout(rdram);
+    rush2::game_filter::game_frame(rdram);
 }
 
 // func_800AD7E4, before the widget list is created ($a2 = table; the count in $a3 is set here, its instruction is

@@ -30,6 +30,7 @@
 #include "texture_upscale.h"
 #include "wings.h"
 #include "ghost.h"
+#include "game_filter.h"
 #include "car2049.h"
 #include "car_probes.h"
 
@@ -873,7 +874,7 @@ void rush2::init_config() {
         namespace general = recompui::config::general;
         create_ordered_tab(general::tab_name, "rush2_general", general::id, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id, hide_respawn_option::id,
-                            catch_up_option::id, pause_extras_option::id, circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id, ghost_option::id, ghosts_kept_option::id } },
+                            catch_up_option::id, pause_extras_option::id, rush2::game_filter::option_id(), circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id, ghost_option::id, ghosts_kept_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
         }, nullptr, {
             { "Gameplay", [](rush2::ui::OptionsPage* page) {
@@ -908,6 +909,7 @@ void rush2::init_config() {
     add_hide_respawn_option(general_config);
     add_catch_up_option(general_config);
     add_pause_extras_option(general_config);
+    rush2::game_filter::add_option(general_config);
     add_circuit_review_option(general_config);
     add_more_circuit_option(general_config);
     add_circuit_fixed_difficulty_option(general_config);
@@ -986,6 +988,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(hide_respawn_option::id)));
     rush2::npc_cars::set_catch_up(std::get<bool>(
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
+    rush2::game_filter::apply(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(rush2::game_filter::option_id())));
     recompui::Modal::set_transparent_background(std::get<bool>(
         recompui::config::get_general_config().get_option_value(menu_background_option::id)));
     rush2::pause_menu::set_enabled(std::get<bool>(

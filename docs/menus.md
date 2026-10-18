@@ -71,6 +71,26 @@ row's index, never a fixed number.
 - Car select (state 2): A on the last row picks the car; with every player done the race starts. B goes back to the
   track select.
 
+### Game filter
+
+With more than one game's tracks (cars) on a select, C-up (Y, Triangle, I) opens the game filter panel
+(src/game_filter.cpp; General tab option Game Filter). While it is open the game sees no input, and the panel reads the
+ports through `get_menu_input`, so `--input-script` presses (which skip that path) don't reach it: drive it with
+`RUSH2_TEST_VPAD` (Y, UP/DOWN, A, B), which needs Background Input on when the window isn't focused. The hidden games
+are saved in the saves' "game_filter" section.
+
+How a select is rebuilt after a change, as the game rebuilds it between visits:
+
+- Track select: `trackselect_frame_803ABE0C` calls `trackselect_init_draw_803AB294(1)` every frame at 0x803ABEDC,
+  after its A/START and B checks; the setup runs once per visit, gated by byte 0x803C9218 (set by the setup, cleared by
+  `trackselect_init_draw_803AB294(0)`, the teardown B runs). The filter's hook there tears down and jumps to the
+  frame's end (L_803AC6D4); the next frame sets it up again (`rush2_track49_select_init` keeps the shown track).
+- Car select: `menu_screen_car_select_frame_803B9478` calls `carselect_build_list_803B81F0(1)` every frame at
+  0x803B94C0, gated by byte 0x803C69C0 (cleared by `carselect_build_list_803B81F0(0)`). In the setup, sp + 0x104 is
+  the player being set up; at 0x803B8CE4 $v0 is the car type the carousel opens on, looked up in that player's list.
+  Not found, the game opens on index 0 with that player's number as the type, so `rush2_filter_car_cursor` opens on
+  the list's first car when the filter took the record's car off.
+
 ## Pause menu
 
 `race_pause_menu_step_800AFD44` (src/pause_menu.cpp has the full layout).

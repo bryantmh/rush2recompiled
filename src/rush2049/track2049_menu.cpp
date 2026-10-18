@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -49,6 +50,7 @@
 #include "util/file.h"
 
 #include "data_files.h"
+#include "game_filter.h"
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "battle.h"
@@ -67,6 +69,7 @@ using namespace rush2::track2049;
 namespace {
     constexpr uint32_t track_id = 0x8010C3F0;
     constexpr uint32_t game_mode = 0x8010C3E8;       // 1 = circuit.
+    constexpr uint32_t game_state = 0x8010C0D0;      // 1 = the track select.
     constexpr uint32_t shown_track = 0x803D05AC;     // s16: the track the screen last showed.
 
     // The screen's 12-entry tables (overlay data).
@@ -281,9 +284,9 @@ namespace {
     // rush2::track2049::set_all_tracks_open: an online lobby's track select has every track this machine has.
     std::atomic<bool> all_tracks_open = false;
 
-    // Whether the track select offers track t (0-37): func_803AB01C's unlocks, the added tracks, and the stunt and
-    // battle filter.
-    bool track_selectable(uint8_t* rdram, int t) {
+    // Whether the track select would offer track t (0-79) without the game filter: func_803AB01C's unlocks, the added
+    // tracks, and the stunt and battle filter.
+    bool base_selectable(uint8_t* rdram, int t) {
         bool unlocked;
         if (all_tracks_open) unlocked = t <= stunt_host_slot || entry_available(t);
         else if (t < 9) unlocked = true;
@@ -292,6 +295,47 @@ namespace {
         else if (t == stunt_host_slot) unlocked = true;
         else unlocked = entry_available(t) && rush2::unlocks::track_open(rdram, t);
         return unlocked && kind_of(t) == select_kind.load();
+    }
+
+    // The game filter (src/game_filter.cpp), as of the screen's last setup (rush2_track49_select_init): the games
+    // with tracks on this select (0 where the filter can't apply), whether the Game Filter option was on (a change
+    // rebuilds the screen), and whether the filter would leave no track (then it is ignored).
+    unsigned filter_present = 0;
+    bool filter_on = false;
+    bool filter_leaves_none = false;
+    int filter_keep_track = -1;     // The track shown when a changed filter rebuilt the screen.
+
+    // Whether the track select offers track t (0-79): base_selectable and the game filter.
+    bool track_selectable(uint8_t* rdram, int t) {
+        using namespace rush2::game_filter;
+        return base_selectable(rdram, t) &&
+               (filter_present == 0 || !filter_on || filter_leaves_none || MEM_W(0, (int32_t)game_state) != 1 ||
+                !hidden(Screen::Tracks, track_game(t)));
+    }
+
+    // Notes which games' tracks the select offers and whether the filter applies to it: not to a circuit's (its TRACK
+    // row is greyed) or an online lobby's (it shows the host's track).
+    void update_filter(uint8_t* rdram) {
+        using namespace rush2::game_filter;
+        screen_built(Screen::Tracks);
+        filter_present = 0;
+        filter_on = enabled();
+        filter_leaves_none = true;
+        if (all_tracks_open || MEM_W(0, (int32_t)game_mode) == 1) {
+            return;
+        }
+        unsigned present = 0;
+        bool any_shown = false;
+        for (int t = 0; t < menu_tracks; t++) {
+            if (base_selectable(rdram, t)) {
+                present |= bit(track_game(t));
+                any_shown |= !hidden(Screen::Tracks, track_game(t));
+            }
+        }
+        if (std::popcount(present) >= 2) {
+            filter_present = present;
+            filter_leaves_none = !any_shown;
+        }
     }
 
     std::mutex menu_mutex;
@@ -757,6 +801,7 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     rush2::track1::restore_host(rdram);
     serve_menu_container(rdram);
     write_tables(rdram);
+    update_filter(rdram);
     int t = -1;
     if (select_kind == select_stunt) {
         // The game's choice (from the save record's nibble) is a race track, which this select doesn't offer.
@@ -781,6 +826,16 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
             if (mods[i].folder == test_folder && track_selectable(rdram, mod_menu_id + int(i))) t = mod_menu_id + int(i);
         }
     }
+    // The game filter: after it changed, the track that was shown; a choice it hides gives the first track it offers.
+    if (filter_present != 0 && filter_on) {
+        int chosen = t >= 0 ? t : (int8_t)MEM_B(0, (int32_t)track_id);
+        if (filter_keep_track >= 0 && track_selectable(rdram, filter_keep_track)) chosen = filter_keep_track;
+        for (int i = 0; i < menu_tracks && !track_selectable(rdram, chosen); i++) {
+            if (track_selectable(rdram, i)) chosen = i;
+        }
+        if (chosen != (int8_t)MEM_B(0, (int32_t)track_id)) t = chosen;
+    }
+    filter_keep_track = -1;
     if (t >= 0) {
         MEM_B(0, (int32_t)track_id) = uint8_t(t);
         MEM_H(0, (int32_t)shown_track) = int16_t(t);
@@ -790,6 +845,29 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
         stock_options.push_back((int32_t)MEM_W(0, (int32_t)(option_rows + row * 4)));
     }
     filter_options(rdram);
+}
+
+// func_803ABE0C at 0x803ABEDC, before the screen sets itself up for the frame (func_803AB294(1)): the game filter's
+// prompt and panel (src/game_filter.cpp). A changed filter tears the screen down and skips the rest of the frame (goto
+// its end); the next frame builds it again, on the track that was shown.
+extern "C" void trackselect_init_draw_803AB294(uint8_t* rdram, recomp_context* ctx);
+extern "C" int rush2_track49_filter_frame(uint8_t* rdram, recomp_context* ctx) {
+    if (!rush2::game_filter::frame(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present)) {
+        return 0;
+    }
+    filter_keep_track = (int8_t)MEM_B(0, (int32_t)track_id);
+    recomp_context saved = *ctx;
+    ctx->r4 = 0;
+    trackselect_init_draw_803AB294(rdram, ctx);
+    *ctx = saved;
+    return 1;
+}
+
+// End of the track select's option text callback (func_803C6268 at 0x803C6940): the game filter's prompt and panel.
+extern "C" void rush2_track49_filter_text(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_W(0, (int32_t)game_state) == 1) {
+        rush2::game_filter::draw(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present);
+    }
 }
 
 // func_803AB294 at 0x803AB6C8: $t7 = the number of carousel entries (10 + unlocked PIPE and ATARI), which must be

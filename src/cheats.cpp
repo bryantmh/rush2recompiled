@@ -56,6 +56,7 @@
 
 #include "recomp.h"
 #include "rush2_hooks.h"
+#include "game_filter.h"
 #include "rush2.h"
 #include "battle.h"
 #include "calspeed.h"
@@ -809,7 +810,7 @@ void rush2::cheats::set_unlock_system(bool enabled) {
 }
 
 // func_803B81F0 (car select setup) after each player's car list is built: every car with Unlock All Cars, then the
-// unlock system's choice (src/unlocks.cpp).
+// unlock system's choice (src/unlocks.cpp), then the game filter (src/game_filter.cpp).
 extern "C" void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx) {
     int players = std::min<int>(MEM_H(0, (int32_t)num_players), max_car_players);
     for (int p = 0; p < players; p++) {
@@ -822,4 +823,5 @@ extern "C" void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx) {
         }
         rush2::unlocks::filter_car_list(rdram, p);
     }
+    rush2::game_filter::filter_car_lists(rdram, players);
 }

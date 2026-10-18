@@ -223,6 +223,9 @@ namespace rush2 {
         // Blocks a port's game input from now until every input on its devices is released (after the Controller
         // Setup screen captures a binding, so the press that was bound isn't also seen by the game).
         void suppress_until_released(int port);
+        // Whether the game takes input now: not while the recomp menu has it, or while the window is unfocused with
+        // Background Input off.
+        bool takes_input();
     }
 
     // Button bindings for driving (src/controls.cpp). In races each player's bound inputs are turned into the game's
@@ -283,9 +286,12 @@ namespace rush2 {
         // Glyphs of the menu layout's buttons, as port's controller or keyboard shows them (src/controls_menu.cpp),
         // drawn from a widget's text callback: begin, add any number (x, y: top left; w x h pixels, 16x14 the
         // Controller Setup screen's size), end.
-        enum class MenuButton : uint8_t { A, B, L, R };
+        // Y is the menus' C-up (Y or Triangle, I on the keyboard). add_menu_rect fills a rectangle (rgba with alpha)
+        // in the same list, under what is added after it.
+        enum class MenuButton : uint8_t { A, B, L, R, Y };
         void begin_menu_glyphs(uint8_t* rdram);
         void add_menu_glyph(uint8_t* rdram, int port, MenuButton button, int x, int y, int w, int h);
+        void add_menu_rect(uint8_t* rdram, int x, int y, int w, int h, uint32_t rgba);
         void end_menu_glyphs(uint8_t* rdram);
     }
 

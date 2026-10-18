@@ -8,6 +8,7 @@
 //   Everything a player earns or sets up that the pak's records have no room for.
 //     "cars"          2049 car options and each record's selected car (src/rush2049/car2049.cpp)
 //     "collectibles"  SF Rush keys, 2049 coins and unlock purchases per profile (src/collectibles.cpp)
+//     "game_filter"   the games the track and car selects' filter hides (src/game_filter.cpp)
 //     "records"       2049 and SF Rush times and stats per profile (src/rush2049/track2049_records.cpp)
 //     "track_select"  the added track last chosen on the track selects (src/rush2049/track2049_menu.cpp)
 //     "wings"         each player's wing style, chosen on the car select (src/rush2049/wings_menu.cpp)

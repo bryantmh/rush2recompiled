@@ -14285,9 +14285,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803C69C0
-name = "carselect_list_byte"
+name = "carselect_built"
 type = "u8"
-desc = "Byte kept by car select list build (low confidence)."
+desc = "Car select set up for this visit: set by carselect_build_list_803B81F0(1)'s setup, which runs while it is 0; cleared by carselect_build_list_803B81F0(0), the teardown (players4's second round and the game filter rebuild the screen through it)."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -15068,9 +15068,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x803C9218
-name = "trackselect_byte"
+name = "trackselect_built"
 type = "u8"
-desc = "Byte kept by track select init draw (low confidence)."
+desc = "Track select set up for this visit: set by trackselect_init_draw_803AB294(1)'s setup, which runs while it is 0; cleared by trackselect_init_draw_803AB294(0), the teardown. Clearing it through the teardown rebuilds the screen (the game filter, src/game_filter.cpp)."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
