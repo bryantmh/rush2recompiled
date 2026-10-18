@@ -778,7 +778,7 @@ and the orbit marker from the URL, for headless screenshots
 ### Race replays
 
 The previewer's **Run AI** races the track headless in the real game, about 50 times faster than real time (a 7-minute
-Wario Stadium race takes about 30 s, 20 of them the menus), and replays it. `tools/trackview/runs.py` starts
+Wario Stadium race takes about 15 s, 5 of them the boot), and replays it. `tools/trackview/runs.py` starts
 `build/Rush2Recompiled.exe` as a simulation run (`src/sim_run.cpp`, `RUSH2_SIM=1`):
 
 - **Its own data folder** (`RUSH2_DATA_DIR` = `tmp/trackview/sim_data/`, registered as the config path in main): the
@@ -787,9 +787,9 @@ Wario Stadium race takes about 30 s, 20 of them the menus), and replays it. `too
   are deleted (its `track_cache` and other caches are kept), the ROMs are hard-linked in from `build/`, and its only
   mod, `trackview`, is generated with `tracks/<folder>` a directory junction to the track folder, so any track folder
   the viewer lists can be raced.
-- **No window, no sound, no real input:** the window is created hidden, audio isn't queued, and only the menu input
-  script (`8:START,11:A,13:A,22:A,25:A,27:A,32:A`, `RUSH2_TEST_MOD_FOLDER=<folder>` picking the track,
-  `RUSH2_TEST_CAR=0`, `RUSH2_TEST_BACKWARD=1` for the backward path) reaches the game.
+- **No window, no sound, no real input:** the window is created hidden, audio isn't queued, and no input reaches the game:
+  the race starts straight from the title screen (`RUSH2_TEST_RACE=<folder>`,
+  docs/menus.md#starting-a-race-without-the-menus; `RUSH2_TEST_CAR=0`, `RUSH2_TEST_BACKWARD=1` for the backward path).
 - **Turbo** from the race's first physics tick (`lib/patches/N64ModernRuntime.patch`, `ultramodern::set_turbo`): the
   game's clocks (osGetCount, osGetTime, timers, VIs) run on a virtual clock that the VI thread steps 1/60 s at a time,
   as soon as the game has gone idle after the last VI (the idle thread's `pause_self` finds no game thread to run and

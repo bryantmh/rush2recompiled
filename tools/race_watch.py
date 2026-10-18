@@ -8,7 +8,7 @@ finishing, wrecks, respawns and stuck spells, with where each happened on the la
 --launch starts build/Rush2Recompiled.exe with that --input-script (environment variables such as RUSH2_TEST_TRACK
 pass through), watches it, and closes that process (by its PID) at the end. --pid watches a game already running and
 leaves it alone. --path takes the race's path file (tools/track_mod_test.bat output, path.bin) so events are placed
-by spine point and lap distance. Writes DIR/samples.jsonl (every car every 0.1 s) and DIR/events.txt, prints the
+by spine point and lap distance. Writes DIR/samples.jsonl (every car every 0.1 s, 'wall' the seconds since launch) and DIR/events.txt, prints the
 summary. Stops early once every computer car has finished or the game exits.
 
 --trace CAR instead logs every change of that car's wreck and drawing fields (TRACE_FIELDS: wrecked +0x648, flags
@@ -265,9 +265,11 @@ def main():
         proc = subprocess.Popen([exe, '--input-script', a.launch], cwd=os.path.dirname(exe), stdout=log,
                                 stderr=subprocess.STDOUT)
         pid = proc.pid
+        launched = time.time()
         time.sleep(4)
     else:
         pid = a.pid
+        launched = time.time()
     rd = None
     for _ in range(60):
         rd = Rdram(pid, write=a.wreck_at is not None)
@@ -310,6 +312,7 @@ def main():
         if cur is None:
             time.sleep(0.1)
             continue
+        cur['wall'] = round(time.time() - launched, 2)   # seconds since launch (or since attaching)
         samples.write(json.dumps(cur) + '\n')
         n = max(1, min(8, cur['cars']))
         racing = cur['state'] == 3

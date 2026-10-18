@@ -219,7 +219,9 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/ghost.cpp
     ${CMAKE_SOURCE_DIR}/src/game_filter.cpp
     ${CMAKE_SOURCE_DIR}/src/race_record.cpp
+    ${CMAKE_SOURCE_DIR}/src/race_setup.cpp
     ${CMAKE_SOURCE_DIR}/src/sim_run.cpp
+    ${CMAKE_SOURCE_DIR}/src/test_race.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/ghost_logic.cpp
     ${CMAKE_SOURCE_DIR}/src/unlocks_shop.cpp
     ${CMAKE_SOURCE_DIR}/src/rush1/track1.cpp

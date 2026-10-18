@@ -23,6 +23,8 @@ Data the game derives from the ROMs at run time (converted tracks, built car dec
 RecompUI settings need to be hot-swappable or clearly labeled that they are not
 
 Never assume the saved car or track is the current car or track. They change all the time. Set the ones you want manually
+
+Do test runs outside the game when you can. When a run has to be in-game, pick JUST PLAY on Select Player, never a saved player, so the run doesn't touch the user's profile. The cursor starts on the first saved player, so the input script has to move it to JUST PLAY. Don't back up and restore build/saves around runs: a restore throws away whatever the user changed while the run was going
 An ingame run takes a long time. Don't waste time doing one if the answer can easily be found outside the game, or wate time by doing runs piecemeal
 
 Code reviews follow this standard so every review covers the same ground the same way. Reviews are independent on purpose: don't look for or use earlier reviews' findings

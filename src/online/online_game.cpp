@@ -34,29 +34,16 @@
 #include "car2049.h"
 #include "circuit.h"
 #include "players4.h"
+#include "race_setup.h"
 
 // ultramodern's conversion of a controller's stick to the N64 stick's range and shape (ultramodern/src/input.cpp).
 void convert_to_n64_range(float x, float y, int8_t& stick_x, int8_t& stick_y);
 
 extern "C" void physics_thread_step_once_80076D70(uint8_t* rdram, recomp_context* ctx);
 extern "C" void race_end_to_menu_800AAC64(uint8_t* rdram, recomp_context* ctx);
-extern "C" void menu_screen_dispatch_800AE0D4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void music_queue_stop_80062FA4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void carselect_build_list_803B81F0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void overlay_load_800A62C0(uint8_t* rdram, recomp_context* ctx);
-extern "C" void car_record_get_main_color_800B2694(uint8_t* rdram, recomp_context* ctx);
-extern "C" void car_record_get_accent_color_800B2640(uint8_t* rdram, recomp_context* ctx);
-extern "C" void car_options_get_color_lo_800B2608(uint8_t* rdram, recomp_context* ctx);
-extern "C" void car_record_get_stripe_color_800B25D0(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_lookup_value_f_800B259C(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_get_stat_value_b_800B2468(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_get_stat_value_a_800B2424(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_lookup_value_d_800B2554(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_lookup_value_c_800B2530(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_lookup_value_b_800B250C(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_lookup_value_a_800B24E8(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_get_stat_value_c_800B24AC(uint8_t* rdram, recomp_context* ctx);
-extern "C" void carselect_lookup_value_e_800B2578(uint8_t* rdram, recomp_context* ctx);
 
 namespace rush2::ram_watch {
     void frame(uint8_t* rdram, uint32_t frame_number);
@@ -175,8 +162,6 @@ namespace {
     constexpr uint32_t race_saved_players = 0x800E7BB8;  // s32: the player count the race was set up with
     constexpr int32_t record_car = 0x0;
     constexpr int32_t record_port = 0x1;
-    constexpr int32_t record_masks = 0xC;            // u16 per action: the N64 buttons bound to it
-    constexpr int32_t record_masks_size = 0x12;
     constexpr int32_t record_automatic = 0x20;       // u8: TRANSMISSION, 1 automatic (CarChoice::automatic)
     constexpr int32_t record_profile = 0x24;         // The player's save profile (a controller's buffer, 0x6C0 bytes)
     // Each player races with the profile their car select left (RosterEntry::profile): the race reads the car's type
@@ -228,18 +213,9 @@ namespace {
     }
     uint32_t hud_rewritten = 0;  // The HUD element list rush2::online::game::hud_built last set up.
 
-    // The front end screen up (func_800AE0D4): 0x10 the title screen, 0 the main menu after it, up to 0xD the other
-    // menu screens; 0xE is the boot logos, 0x11 and 0x12 the attract demo, -1 none.
-    constexpr uint32_t menu_screen = 0x800E7BC4;  // s16
-    constexpr int16_t last_menu_screen = 0xD;
-    constexpr int16_t title_screen = 0x10;
-
     // Whether the game is in the menus (title screen, front end, track or car select), where a race can be set up.
     bool in_menus(uint8_t* rdram) {
-        int32_t state = MEM_W(0, (int32_t)game_state);
-        int16_t screen = MEM_H(0, (int32_t)menu_screen);
-        bool front_end = state == 0 && ((screen >= 0 && screen <= last_menu_screen) || screen == title_screen);
-        return (front_end || state == 1 || state == 2) && MEM_BU(0, (int32_t)demo_flag) == 0;
+        return rush2::race_setup::in_menus(rdram);
     }
 
     // The per-player rows of the car type tables at 0x80200000 (row 0 the computer cars', row p + 1 player p's, every
@@ -253,48 +229,7 @@ namespace {
     // uses, the same bytes on every machine, and an extra type's options from the profile's side block
     // (rush2::car2049::set_guest_side_block, sent with the profile). The tables have 8 player rows.
     void fill_player_rows(uint8_t* rdram, recomp_context* ctx) {
-        namespace ct = rush2::car_types;
-        constexpr int types = ct::types;
-        constexpr int player_rows = 8;
-        struct Table {
-            uint32_t address;
-            bool is_float;
-            void (*get)(uint8_t*, recomp_context*);
-        };
-        static const Table tables[] = {
-            { ct::table(ct::main_color), false, car_record_get_main_color_800B2694 },
-            { ct::table(ct::accent_color), false, car_record_get_accent_color_800B2640 },
-            { ct::table(ct::stripe), false, car_options_get_color_lo_800B2608 },
-            { ct::table(ct::stripe_color), false, car_record_get_stripe_color_800B25D0 },
-            { ct::table(ct::engine), false, carselect_lookup_value_d_800B2554 },     // ENGINE
-            { ct::table(ct::torque), false, carselect_lookup_value_c_800B2530 },     // Engine torque map
-            { ct::table(ct::suspension), false, carselect_lookup_value_b_800B250C },     // Suspension
-            { ct::table(ct::tires), false, carselect_lookup_value_a_800B24E8 },     // Handling
-            { ct::table(ct::weight), true, carselect_get_stat_value_c_800B24AC },  // Weight (DURABILITY)
-            { ct::table(ct::rims), false, carselect_lookup_value_f_800B259C },     // Rims (the wheels' texture).
-            { ct::table(ct::horn), false, carselect_lookup_value_e_800B2578 },
-            { ct::table(ct::front_wheel_scale), true, carselect_get_stat_value_b_800B2468 },    // Front wheel scale.
-            { ct::table(ct::rear_wheel_scale), true, carselect_get_stat_value_a_800B2424 },    // Rear wheel scale.
-        };
-        recomp_context saved = *ctx;
-        for (int p = 0; p < race_players && p < player_rows; p++) {
-            uint32_t profile = (uint32_t)MEM_W(record_profile, (int32_t)(player_records + p * player_record_size));
-            int row = p + 1;
-            for (const Table& t : tables) {
-                for (int type = 0; type < types; type++) {
-                    ctx->r4 = (gpr)(int32_t)profile;
-                    ctx->r5 = (gpr)type;
-                    t.get(rdram, ctx);
-                    if (t.is_float) {
-                        MEM_W(0, (int32_t)(t.address + (row * types + type) * 4)) = (int32_t)ctx->f0.u32l;
-                    }
-                    else {
-                        MEM_B(0, (int32_t)(t.address + row * types + type)) = (int8_t)ctx->r2;
-                    }
-                }
-            }
-        }
-        *ctx = saved;
+        rush2::race_setup::fill_player_rows(rdram, ctx, race_players);
     }
 
     // Sets the race up as the menus would and starts it (game state 7). The players are the roster's used slots by
@@ -399,35 +334,11 @@ namespace {
             MEM_B(i, (int32_t)menu_settings) = (int8_t)settings.menu[i];
         }
 
-        // Every machine's records start the same: blank but for the button masks, the game's default layout that the
-        // binding tables are locked to (src/controls.cpp). The menus fill them only for players who picked a profile,
-        // so a race started from the title screen would have none (no brake, gears or the like). Records 4-7 fit since
-        // the globals after the records moved (tools/players4/relocate.py).
-        static constexpr uint16_t masks[record_masks_size / 2] = {
-            0x8000,  // GAS: A
-            0x4000,  // BRAKE: B
-            0xFFFE,  // STEERING: the stick (-2)
-            0x0010,  // SHIFT UP: R
-            0x2000,  // SHIFT DOWN: Z
-            0x0004,  // REVERSE: C-down
-            0x0008,  // ABORT: C-up
-            0x0020,  // VIEW: L
-            0x0001,  // HORN: C-right
-        };
+        // Every machine's records start the same: blank but for the button masks (rush2::race_setup::init_record).
         rush2::car2049::clear_guest_side_blocks();
         for (int p = 0; p < race_players; p++) {
             int32_t record = (int32_t)(player_records + p * player_record_size);
-            for (int32_t i = 0; i < (int32_t)player_record_size; i++) {
-                MEM_B(i, record) = 0;
-            }
-            for (int i = 0; i < record_masks_size / 2; i++) {
-                MEM_H(record_masks + i * 2, record) = (int16_t)masks[i];
-            }
-            MEM_B(record_car, record) = (int8_t)p;
-            MEM_B(record_port, record) = (int8_t)no_port;
-            MEM_B(record_automatic, record) = (int8_t)cars[p].automatic;
-            MEM_B(record_range, record) = default_range;
-            MEM_B(record_range + 1, record) = default_range;
+            rush2::race_setup::init_record(rdram, p, no_port, cars[p].automatic);
             // The profile as the player's car select sent it (the same bytes on every machine; this machine's players'
             // own already hold them), its car type set to the car they picked, and its Rush 2049 car options.
             // A player who sent none (the test aids' races) races with a blank one on every machine.
@@ -479,16 +390,8 @@ namespace {
         // The front end is left as its loop leaves it for a race (func_800AE288 at 0x800AE428-0x800AE458): the screen up
         // is told it's left ($s1 the screen, $s0 0) and none is up. The title screen keeps its data in the heap the
         // race reuses, and would otherwise be left after the race with that data gone.
-        if (!from_car_select && MEM_H(0, (int32_t)menu_screen) >= 0) {
-            recomp_context saved = *ctx;
-            ctx->r17 = (gpr)(int32_t)MEM_H(0, (int32_t)menu_screen);
-            ctx->r16 = 0;
-            menu_screen_dispatch_800AE0D4(rdram, ctx);
-            *ctx = saved;
-        }
         if (!from_car_select) {
-            MEM_H(0, (int32_t)menu_screen) = -1;
-            MEM_W(0, (int32_t)game_state) = 7;
+            rush2::race_setup::leave_front_end(rdram, ctx);
         }
         // From here on every frame is two retraces, this one (the race start) included.
         set_fixed_frame_time(rdram);

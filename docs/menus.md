@@ -108,6 +108,33 @@ How a select is rebuilt after a change, as the game rebuilds it between visits:
   the menus read only enabled ports' presses (menu buttons 0x8011962A pressed, 0x80125A68 repeat). Online the
   records have no port, so leaving the race turns the menus' ports back on (docs/online.md#race-end).
 
+## Starting a race without the menus
+
+A test that only needs a race shouldn't script the menus at all: `RUSH2_TEST_RACE=<track select id or custom track
+folder>` (src/test_race.cpp) sets the race up on the first frame the title screen is up and starts it, so the race is
+loading about 5 s after launch (through the menus it took about 25 s). `tools/test_race.py TRACK --cars T,T` runs one
+hidden and silent from a data folder of its own and reports when it loaded, each player's car type and how far it
+drove; read its docstring for the options.
+
+- `RUSH2_TEST_RACE_CARS=T[,T...]`: one car type per player, 1 to 4 players (split screen). Without it one player, in
+  `RUSH2_TEST_CAR`'s car or the Pickup (0). `RUSH2_TEST_RACE_LAPS`, `RUSH2_TEST_RACE_DRONES`: the track select's LAPS
+  and DRONES (0x800D5760 +0 and +1, raw counts); otherwise the saved ones. `RUSH2_TEST_MANUAL`, `RUSH2_TEST_DEATHS`
+  and `RUSH2_TEST_FINISH` (src/players4.cpp) still apply.
+- Each player races as JUST PLAY leaves them, never with a saved player: record +0x24 is the controller's own buffer
+  (`controller_buffers` 0x8010D740 + port * 0x6C0), its 0xC0 bytes of options at +0x4C4 reset from
+  `controller_default_options` 0x80118A50 + port * 0xC0, as `menu_select_player_pick_saved_803B44E8` does for JUST PLAY
+  (0x803B4590-0x803B4620, cursor 0). Player p is on controller port p, so the input script drives player 1.
+- The car select's part: `profile_set_selected_car_type_80097F8C(buffer + 0x31, type)` (which keeps a 2049 or other
+  added type in full, src/rush2049/car2049.cpp), the car table entry (0x800D9C10 + p * 9: type, colors from the
+  buffer's getters) and the car type tables' player rows (`rush2::race_setup::fill_player_rows`).
+- The track select's part: the track through `rush2::track2049::host_menu_track` (an added track races in its host
+  slot), ONE RACE's game mode (0x8010C3E8 = 0; the race start makes a stunt track or arena stunt mode itself).
+- Then the front end is left as for a race and game state 7 starts it (`rush2::race_setup::leave_front_end`, also how
+  an online quick race starts, src/online/online_game.cpp).
+
+The setup pieces are in src/race_setup.cpp, shared with online races. After the race the game goes back to the
+front end as after any race.
+
 ## Driving the menus from a test
 
 `--input-script "<seconds>:<button>[:<hold seconds>],..."` presses N64 buttons (A B Z START DU DD DL DR L R CU CD CL

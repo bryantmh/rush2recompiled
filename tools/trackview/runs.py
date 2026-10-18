@@ -8,8 +8,8 @@ race and the player's data is never touched. Before each run that folder's setti
 generated: mods/trackview/tracks/<folder> is a directory junction to the track folder, so any track folder the viewer
 lists can be raced, whether or not it is in an enabled mod.
 
-The game goes through the menus with an input script (RUSH2_TEST_MOD_FOLDER picks the track on the track select,
-src/rush2049/track2049_menu.cpp; RUSH2_TEST_CAR=0 player 1's car, which waits on the grid), records the race
+The race starts straight from the title screen (RUSH2_TEST_RACE=<folder>, src/test_race.cpp; RUSH2_TEST_CAR=0
+player 1's car, which waits on the grid), records the race
 (RUSH2_RACE_RECORD, src/race_record.cpp) and exits once every computer car has finished or got stuck. A run takes
 seconds, so only the latest is kept: tmp/trackview/runs/<folder>.r2rc, replaced by the next run of the track. A run
 that isn't done in TIMEOUT is closed, by its PID only.
@@ -31,9 +31,7 @@ ROMS = ['rush2.n64.us.z64', 'rush2049.z64', 'rush2049_dc.pak', 'rush1.z64']
 #: Settings and saves, deleted before each run so it starts from defaults (caches such as track_cache are kept).
 RESET = ['saves', 'mod_config', 'ghosts', 'track_reports']
 MOD = 'trackview'
-#: Title screen START, then A through the menus to the race (the custom-track recipe in docs/custom_tracks.md).
-SCRIPT = '8:START,11:A,13:A,22:A,25:A,27:A,32:A'
-#: A run longer than this (wall clock) is closed: a full race takes about 30 s (20 s of it the menus), so a run still
+#: A run longer than this (wall clock) is closed: a full race takes about 15 s (5 s of it the boot), so a run still
 #: going after 2 minutes has hung.
 TIMEOUT = 2 * 60
 
@@ -122,12 +120,12 @@ def start(folder, backward=False):
         if os.path.exists(old):
             os.remove(old)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
-    env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_TEST_MOD_FOLDER=os.path.basename(os.path.abspath(folder)),
+    env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_TEST_RACE=os.path.basename(os.path.abspath(folder)),
                RUSH2_RACE_RECORD=rec, RUSH2_TEST_CAR='0')
     if backward:
         env['RUSH2_TEST_BACKWARD'] = '1'
     log = open(rec[:-5] + '.log', 'w')
-    proc = subprocess.Popen([EXE, '--input-script', SCRIPT], cwd=BUILD, env=env, stdout=log, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen([EXE], cwd=BUILD, env=env, stdout=log, stderr=subprocess.STDOUT)
     with lock:
         current.clear()
         current.update(folder=os.path.abspath(folder), folder_name=os.path.basename(folder), backward=backward,

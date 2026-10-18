@@ -471,8 +471,9 @@ text = "    rush2_cheats_car_list(rdram, ctx);"
 func = "game_main_loop_frame_800B0228"
 before_vram = 0x800B02AC
 # Online play (src/online/online_game.cpp): the lockstep frame (inputs, then the frame's two physics ticks), once the
-# frame has begun (func_80088C64 returned) and before anything reads input.
-text = "    rush2_online_frame(rdram, ctx);\n    rush2_controls_frame(rdram, ctx);"
+# frame has begun (func_80088C64 returned) and before anything reads input. Then the RUSH2_TEST_RACE test aid
+# (src/test_race.cpp), which starts a race from the title screen.
+text = "    rush2_online_frame(rdram, ctx);\n    rush2_test_race_frame(rdram, ctx);\n    rush2_controls_frame(rdram, ctx);"
 
 # Controller Setup screen (src/controls_menu.cpp). func_800AD7E4 runs the screen and func_800B6134 draws its text.
 # The widget hook replaces the screen's widgets (it sets the count, so the instruction that did is patched out), and
