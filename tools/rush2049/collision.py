@@ -442,6 +442,54 @@ def leaf_for_cell(c, x, z, rules):
             return c.leaves[off][0] if off else []
 
 
+SEG_FIELDS = ('O', 3), ('M', 9), ('30', 3), ('3C', 3), ('48', 3), ('54', 1), ('58', 1), ('5C', 1), ('60', 1), \
+             ('64', 1), ('68', 1), ('6C', 1), ('70', 1), ('74', 1), ('78', 1), ('7C', 1), ('80', 1)
+
+
+def seg_fields(values):
+    """A SEG record's 33 floats (as the file holds them, game space) by field: 'O' origin, 'M' the 3x3 world ->
+    segment matrix (rows: across, normal, along), '30' across direction, '3C' / '48' along directions at the
+    left / right edge, and the scalars by offset ('54' half-width scale, '58' length, '74' / '78' edge slopes...)."""
+    import numpy as np
+    out, i = {}, 0
+    for name, n in SEG_FIELDS:
+        v = np.array(values[i:i + n], float)
+        out[name] = v.reshape(3, 3) if name == 'M' else (v if n > 1 else float(v[0]))
+        i += n
+    return out
+
+
+def seg_surface(seg, nxt, points):
+    """collision_seg_surface_8006BDA8 (Rush 2; 2049's func_800ACC18 is the same), vectorized: for game-space points
+    (n, 3) on spline road segment `seg` (seg_fields) whose next segment is `nxt` (the table's next entry, wrapping),
+    returns (height of each point above the surface along its normal, t along the segment 0-1, u across 0-1).
+    The surface: the origin line from seg's origin to nxt's, offset across by '30' x (u - 0.5) x '54', lifted by
+    the cubic (t^3 (h0 - h1) - t^2 (2 h0 - h1) + t h0) x length, h0 / h1 the edge slopes '74'..'78' at u."""
+    import numpy as np
+    with np.errstate(all='ignore'):     # zero-length segments (unused records) give NaN, not warnings
+        return _seg_surface(seg, nxt, np.asarray(points, float).reshape(-1, 3))
+
+
+def _seg_surface(S, T, P):
+    import numpy as np
+    L = (P - S['O']) @ S['M'].T
+    length = L[:, 0] * (S['60'] - S['5C']) + S['58']
+    t = (L[:, 2] - L[:, 0] * S['5C']) / length
+    u = np.where(L[:, 0] > 0, 0.5 + 0.5 * L[:, 0] / (L[:, 2] * S['70'] + S['6C']),
+                 0.5 - 0.5 * L[:, 0] / (L[:, 2] * S['68'] + S['64']))
+    lerp = lambda a, b, s: a[None] * (1 - s)[:, None] + b[None] * s[:, None]
+    along = lerp(S['3C'], S['48'], u) * (1 - t)[:, None] + lerp(T['3C'], T['48'], u) * t[:, None]
+    across = lerp(S['30'], T['30'], t)
+    normal = np.cross(along, across)
+    ps = S['O'][None] + S['30'][None] * ((u - 0.5) * S['54'])[:, None]
+    pt = T['O'][None] + T['30'][None] * ((u - 0.5) * T['54'])[:, None]
+    h0 = S['74'] + (S['78'] - S['74']) * u
+    h1 = T['74'] + (T['78'] - T['74']) * u
+    lift = (t ** 3 * (h0 - h1) - t ** 2 * (2 * h0 - h1) + t * h0) * length
+    q = ps * (1 - t)[:, None] + pt * t[:, None] - lift[:, None] * normal
+    return np.einsum('ij,ij->i', P - q, normal), t, u
+
+
 def world_polygon(c, p):
     """A polygon's vertices in world space: vertex 0 is its origin, the rest are in its local frame (matrix rows =
     world -> local)."""

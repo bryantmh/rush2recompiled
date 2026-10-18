@@ -272,7 +272,11 @@ namespace {
             uint32_t node = nodes + i * node_size;
             node_of_matrix[(uint32_t)MEM_W(0, (int32_t)(node + 4))] = node;
         }
-        for (const auto& rec : prop_records) {
+        for (auto rec : prop_records) {
+            // A custom track's props react as a 2049 type found by name.
+            if (rec.type == rush2::track2049::prop_knock || rec.type == rush2::track2049::prop_tip) {
+                rec.type = movers::classify(types, rec.type == rush2::track2049::prop_knock ? "CONE1" : "STOPHIT");
+            }
             if (rec.type < 0 || rec.type >= (int)types.size()) {
                 continue;
             }

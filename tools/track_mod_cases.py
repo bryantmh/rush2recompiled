@@ -193,11 +193,15 @@ class Case:
     AIPATH_main out; visual: False leaves the visible mesh out (only COL_ROAD); movers: adds the MOVE_ objects of
     mover_defs and checks their conversion (check_movers); lanes: {k: (offset(s), reverse, used)} paints
     AIPATH_lane<k> at offset(s) ft left of the line (reverse: drawn against the race), and the path files' four lanes
-    must be those (used: False, the converter has to leave that lane offset from AIPATH_main) and the offset ones."""
+    must be those (used: False, the converter has to leave that lane offset from AIPATH_main) and the offset ones;
+    objects: adds the billboards, props, translucent card, far mover and AI path values of object_defs and checks them
+    (check_objects); splines: the road is spline road, a ROAD_SPLINES segment per road piece with a rise along it
+    (spline_segments), and check_splines checks the file's SEG section, flags and segment indices."""
 
     def __init__(self, name, line, gates, start=0.0, reverse=False, overshoot=0.0, kinks=(), dupes=(), errors=(),
                  warnings=(), allow=(), wrong=(), gaps=(), floors=(), lift=None, heights=(), export='pairs',
-                 nopath=False, ribbon=True, visual=True, movers=False, lanes=None, note=''):
+                 nopath=False, ribbon=True, visual=True, movers=False, lanes=None, objects=False, splines=False,
+                 note=''):
         self.__dict__.update(locals())
         del self.__dict__['self']
 
@@ -358,7 +362,7 @@ def build(c, folder):
     g = Glb()
     L = c.line.length
     n = int(round(L / STEP))
-    verts, nrms, tris = [], [], []
+    verts, nrms, tris, segv = [], [], [], []
     inside = lambda s, a, b: (s - a) % L < (b - a) % L
     pieces = [(k, 0.0) for k in range(n) if not any(inside((k + 0.5) * L / n, a, b) for a, b in c.gaps)]
     pieces += [(k, d) for a, b, d in c.floors for k in range(n) if inside((k + 0.5) * L / n, a, b)]
@@ -381,13 +385,18 @@ def build(c, folder):
             base = len(verts)
             verts += [to_gltf(v) for v in tri]
             nrms += [(-up[0], up[1], up[2])] * 3
+            segv += [float(k)] * 3
             tris.append((base, base + 1, base + 2))
-    g.mesh('COL_ROAD_case', verts, nrms, tris)
+    g.mesh('COL_ROAD_case', verts, nrms, tris, attrs={'_SEGMENT': segv} if c.splines else None)
+    if c.splines:
+        g.empty('ROAD_SPLINES')
+        g.js['nodes'][-1]['extras'] = {'segments': spline_segments(c, n)}
     if c.visual:
         g.mesh('TRACK_visual', verts, nrms, tris)
     if c.ribbon:
         rv, rt, matrix = ribbon_mesh(c)
-        g.mesh('AIPATH_main', rv, [(0.0, 1.0, 0.0)] * len(rv), rt, matrix)
+        attrs = {'_SPEED': [float(OBJ_SPEED)] * len(rv), '_AI_MODE': [float(OBJ_MODE)] * len(rv)} if c.objects else None
+        g.mesh('AIPATH_main', rv, [(0.0, 1.0, 0.0)] * len(rv), rt, matrix, attrs=attrs)
     for k, (offset, reverse, _) in (c.lanes or {}).items():
         lv, lt = lane_mesh(c, offset, reverse)
         g.mesh('AIPATH_lane%d' % k, lv, [(0.0, 1.0, 0.0)] * len(lv), lt)
@@ -397,6 +406,7 @@ def build(c, folder):
         d = (t[0] * gate.arrow, 0.0, t[2] * gate.arrow)
         g.empty(gate.name, gate_matrix(pos, d, gate.half))
     toml = build_movers(g, c) if c.movers else ''
+    toml += build_objects(g, c) if c.objects else ''
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, 'track.glb'), 'wb') as f:
         f.write(g.bytes())
@@ -482,6 +492,10 @@ def check(c, folder):
         check_lanes(c, fwd, back, fails)
     if c.movers:
         check_movers(c, out, report, fails)
+    if c.objects:
+        check_objects(c, out, report, fails, fwd)
+    if c.splines:
+        check_splines(c, out, report, fails)
     return fails, notes
 
 
@@ -709,6 +723,189 @@ def check_movers(c, out, report, fails):
                     break
 
 
+# --- billboards, props, translucency, far movers, authored AI values (objects=True) -----------------------------------
+# A case with objects=True adds: three BILLBOARD_ cards (two of one mesh and scale, which share a model) in a BLEND
+# material, both PROP_ kinds and a billboard prop, a translucent TRACK_glass card, MOVE_far whose mesh
+# reaches past the 2000 ft vertex reach, and _SPEED / _AI_MODE on AIPATH_main; check_objects() reads them back.
+
+OBJ_SPEED, OBJ_MODE = 77, 5
+
+
+def card(w, h):
+    """An upright card w x h (m) in the local x-y plane, its front toward +z (Blender's front view), base at y 0."""
+    verts = [(-w / 2, 0.0, 0.0), (w / 2, 0.0, 0.0), (w / 2, h, 0.0), (-w / 2, h, 0.0)]
+    return verts, [(0.0, 0.0, 1.0)] * 4, [(0, 1, 2), (0, 2, 3)]
+
+
+def object_defs(c):
+    L = c.line.length
+
+    def beside(s, side=90.0):
+        p, lat = c.line.at(s), c.line.lateral(s)
+        return to_gltf((p[0] + lat[0] * side, p[1], p[2] + lat[2] * side))
+
+    return dict(
+        billboards=[('a', beside(0.12 * L), 2.0), ('b', beside(0.14 * L), 2.0), ('c', beside(0.16 * L), 1.0)],
+        props=[('KNOCK_box', -2, beside(0.20 * L), quat_axis((0, 1, 0), 30), False),
+               ('TIP_sign', -3, beside(0.22 * L), (0, 0, 0, 1), False),
+               ('KNOCK_card', -2, beside(0.24 * L), (0, 0, 0, 1), True)],
+        glass=beside(0.30 * L), far=beside(0.70 * L))
+
+
+def build_objects(g, c):
+    d = object_defs(c)
+    glass = g.material('glass', None, 'BLEND', True)
+    plain = g.material('plain')
+
+    def prims(mesh, mat):
+        v, n, t = mesh
+        return [(mat, v, n, [(0.0, 0.0)] * len(v), None, t)]
+    for name, at, scale in d['billboards']:
+        g.textured_mesh('BILLBOARD_' + name, prims(card(2.0, 3.0), glass), trs=(at, (0, 0, 0, 1), (scale,) * 3))
+    for name, _, at, rot, bill in d['props']:
+        node = g.textured_mesh('PROP_' + name, prims(card(1.0, 1.0) if bill else box(0.5, 0.5), plain),
+                               trs=(at, rot, (1, 1, 1)))
+        if bill:
+            g.js['nodes'][node]['extras'] = {'billboard': True}
+    g.textured_mesh('TRACK_glass', prims(card(4.0, 4.0), glass), trs=(d['glass'], (0, 0, 0, 1), (1, 1, 1)))
+    node = g.empty('MOVE_far', trs=(d['far'], (0, 0, 0, 1), (1, 1, 1)))
+    g.textured_mesh('MOVEVIS_far', prims(box(3.0, 800.0), plain), parent=node)    # 800 m (2,625 ft) up
+    g.animate('MOVE_farAction', node, [0, 1, 2, 3, 4], None, [quat_axis((0, 1, 0), k * 90.0) for k in range(5)], None)
+    return '\n[movers.far]\nmode = "loop"\n'
+
+
+def check_objects(c, out, report, fails, fwd):
+    d = object_defs(c)
+    for rx in (r'^Billboards: 3 BILLBOARD_', r'^Props: 3 PROP_', r'^MOVE_far: .* [1-9]\d* triangles'):
+        if not re.search(rx, report, re.M):
+            fails.append('no report line /%s/' % rx)
+    pl = open(os.path.join(out, 'placement.bin'), 'rb').read()
+    count = (len(pl) - 0x18) // 0x64
+    recs = []
+    for i in range(count):
+        o = 0x18 + i * 0x64
+        recs.append(dict(name=pl[o:o + 16].split(b'\0')[0].decode(), m=struct.unpack_from('>9f', pl, o + 0x10),
+                         pos=struct.unpack_from('>3f', pl, o + 0x34), flags=struct.unpack_from('>I', pl, o + 0x40)[0]))
+
+    def at(p):
+        g = to_game_pt(p)
+        found = [r for r in recs if math.dist(r['pos'], g) < 0.05]
+        return found[0] if found else None
+    names = {}
+    for name, p, _ in d['billboards']:
+        r = at(p)
+        if not r:
+            fails.append('BILLBOARD_%s: no placement record at its position' % name)
+            continue
+        names[name] = r['name']
+        if r['flags'] & 0x48000 != 0x48000:
+            fails.append('BILLBOARD_%s flags %#x: want a camera card (0x8000) in the late pass (0x40000)' % (name, r['flags']))
+    if len(names) == 3 and (names['a'] != names['b'] or names['a'] == names['c']):
+        fails.append('billboard models %s: a and b (same mesh and scale) should share one, c have its own' % names)
+    pf = os.path.join(out, 'props.txt')
+    props = [l.split() for l in open(pf).read().splitlines()] if os.path.exists(pf) else []
+    for name, kind, p, rot, bill in d['props']:
+        r = at(p)
+        rows = [pr for pr in props if r and int(pr[0]) == recs.index(r)]
+        if not r or not rows:
+            fails.append('PROP_%s: no prop record' % name)
+            continue
+        if int(rows[0][1]) != kind:
+            fails.append('PROP_%s type %s, want %d' % (name, rows[0][1], kind))
+        if bool(r['flags'] & 0x8000) != bill:
+            fails.append('PROP_%s flags %#x: camera card should be %s' % (name, r['flags'], bill))
+        if name == 'KNOCK_box' and abs(abs(r['m'][0]) - math.cos(math.radians(30))) > 1e-3:
+            fails.append('PROP_KNOCK_box placed unturned (m %s)' % (r['m'][:3],))
+    if not any(r['flags'] & 0x40000 and not r['flags'] & 0x8000 for r in recs):
+        fails.append('TRACK_glass: no section in the late pass')
+    pb = open(os.path.join(out, 'mover_paths.bin'), 'rb').read() if os.path.exists(os.path.join(out, 'mover_paths.bin')) else b''
+    if pb:
+        dir_at = struct.unpack_from('>I', pb, 0)[0]
+        base = struct.unpack_from('>I', pb, dir_at + 4)[0]
+        node = struct.unpack_from('>I', pb, base + 28)[0]
+        scale = struct.unpack_from('>3f', pb, node + 24)
+        if scale[0] < 1.2:
+            fails.append('MOVE_far path scale %.2f: its coarser vertex units aren\'t made up' % scale[0])
+    else:
+        fails.append('MOVE_far: no mover_paths.bin')
+    mc = os.path.join(out, 'mover_collision.bin')
+    if not os.path.exists(mc) or os.path.getsize(mc) < 0x10:
+        fails.append('no mover_collision.bin with MOVE_far (no collision): the movers code would never start')
+    bad = [(k, pt[3], pt[4]) for k, lane in enumerate(fwd['lanes']) for pt in lane['points'] if (pt[3], pt[4]) != (OBJ_SPEED, OBJ_MODE)]
+    if bad:
+        fails.append('%d lane points without the authored speed %d / mode %d (first: lane %d %d / %d)' % (
+            len(bad), OBJ_SPEED, OBJ_MODE, *bad[0]))
+
+
+SPLINE_RISE = 0.02    # the splines case's up slope at each segment's start (its end slope is minus it: a hump)
+
+
+def spline_segments(c, n):
+    """A segment per road piece k of build() (n pieces): start line across the road at the piece's start, length the
+    piece's, half-widths ROAD_HALF, edge slopes SPLINE_RISE (a 0.02 x 10 ft / 4 = 0.05 ft hump mid-piece), as the
+    game's 33-float SEG records (docs/rush2049_research/collision.md)."""
+    L = c.line.length
+    out = []
+    for k in range(n):
+        s0, s1 = k * L / n, (k + 1) * L / n
+        o, t, lat = c.line.at(s0), c.line.tangent(s0), c.line.lateral(s0)
+        across = [-x for x in lat]      # u 0 at the +lateral side
+        up = (t[1] * across[2] - t[2] * across[1], t[2] * across[0] - t[0] * across[2], t[0] * across[1] - t[1] * across[0])
+        if up[1] < 0:
+            across = list(lat)
+            up = tuple(-x for x in up)
+        # The next start line in this frame (rows across, up, along): its ends fix the length's change across (0x60:
+        # a bend's outside is longer) and the half-widths' change along (0x68 / 0x70), so it is t = 1, u = 0 / 1.
+        o1, lat1 = c.line.at(s1), c.line.lateral(s1)
+        sgn = 1.0 if across == [-x for x in lat] else -1.0
+        frame = lambda p: [sum(r[i] * (p[i] - o[i]) for i in range(3)) for r in (across, up, t)]
+        left = frame([o1[i] + sgn * lat1[i] * ROAD_HALF for i in range(3)])     # u = 0 end (-across)
+        right = frame([o1[i] - sgn * lat1[i] * ROAD_HALF for i in range(3)])    # u = 1 end
+        taper = (right[2] - left[2]) / (right[0] - left[0])
+        length = left[2] - left[0] * taper
+        out.append(list(o) + list(across) + list(up) + list(t) + list(across) + list(t) + list(t) +
+                   [2 * ROAD_HALF, length, 0.0, taper, -ROAD_HALF, (left[0] + ROAD_HALF) / left[2],
+                    ROAD_HALF, (right[0] - ROAD_HALF) / right[2], SPLINE_RISE, SPLINE_RISE, 0.0, 0.0])
+    return out
+
+
+def check_splines(c, out, report, fails):
+    import collision as C
+    import numpy as np
+    n = int(round(c.line.length / STEP))
+    want = spline_segments(c, n)
+    if not re.search(r'^Spline road: %d segments, \d+ polygons' % n, report, re.M):
+        fails.append('no "Spline road: %d segments" report line' % n)
+    col = C.Collision.parse(open(os.path.join(out, 'collision.bin'), 'rb').read(), C.R2)
+    if len(col.segs) != n:
+        fails.append('SEG section holds %d segments, want %d' % (len(col.segs), n))
+        return
+    got = [struct.unpack('>33f', s) for s in col.segs]
+    worst = max(abs(a - b) for g, w in zip(got, want) for a, b in zip(g, w))
+    if worst > 1e-3:
+        fails.append('SEG records differ from ROAD_SPLINES by %.4f' % worst)
+    segs = [C.seg_fields(g) for g in got]
+    flat = off = 0
+    for p in col.polys:
+        if p['flags'] & 0xF != 0:
+            continue
+        if not p['flags'] & 0x1000 or p['seg'] is None:
+            flat += 1
+            continue
+        w = np.array(C.world_polygon(col, p))
+        k = p['seg']
+        h, t, u = C.seg_surface(segs[k], segs[(k + 1) % n], w)
+        # Its corners: in its own segment's stretch (t 0-1, u 0-1), the flat road being the cubic's lift above the
+        # surface (the game puts the surface point the lift below the start lines' joining, along the normal).
+        lift = SPLINE_RISE * t * (1 - t) * segs[k]['58']
+        if (t < -0.01).any() or (t > 1.01).any() or (u < -0.01).any() or (u > 1.01).any() or np.abs(h - lift).max() > 0.05:
+            off += 1
+    if flat:
+        fails.append('%d road polygons without a segment (flag 0x1000 and an index)' % flat)
+    if off:
+        fails.append('%d spline polygons off their segment (outside its stretch, or the surface misplaced)' % off)
+
+
 def to_game_pt(p):
     return (-p[0] * FEET_PER_METER, p[1] * FEET_PER_METER, p[2] * FEET_PER_METER)
 
@@ -731,6 +928,9 @@ def cases():
     out = [
         Case('oval', o, std(), note='control'),
         Case('movers', o, std(), movers=True, note='MOVE_ objects: loop, ping-pong, ride, parented; poses, moving collision'),
+        Case('objects', o, std(), objects=True,
+             note='BILLBOARD_ (shared models), PROP_ kinds, BLEND late pass, MOVE_ past the vertex reach, _SPEED/_AI_MODE'),
+        Case('splines', o, std(), splines=True, note='ROAD_SPLINES + _SEGMENT: SEG section, flag 0x1000, indices'),
         Case('ribbon_reversed', o, std(), reverse=True, note='curve drawn against the race'),
         Case('painted_lanes', o, std(),
              lanes={1: (lambda s: 28.0, False, True), 3: (lambda s: -2.0 + 5.0 * math.sin(s / L * 28 * math.pi), True, True)},

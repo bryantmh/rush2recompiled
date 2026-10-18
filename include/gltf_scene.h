@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -16,7 +17,8 @@ namespace rush2::gltf {
         std::vector<std::array<float, 3>> pos, nrm;   // world space; nrm is unit length ({0, 1, 0} when the mesh has none)
         std::vector<std::array<float, 2>> uv;          // TEXCOORD_0, or 0
         std::vector<std::array<float, 4>> col;         // COLOR_0 (0-1) when the mesh has it, else empty
-        std::vector<uint32_t> tris;                    // 3 per triangle, counter-clockwise from the front (a mirroring
+        std::map<std::string, std::vector<float>> attrs; // custom scalar attributes ("_SPEED" ...), one value per vertex
+        std::vector<uint32_t> tris;                   // 3 per triangle, counter-clockwise from the front (a mirroring
                                                        // node matrix is undone)
         int material = -1;
     };

@@ -41,7 +41,7 @@
 
 namespace {
     // Bump when the converter's output changes for the same input (the build stamp already covers new builds).
-    constexpr uint64_t converter_version = 13;
+    constexpr uint64_t converter_version = 15;
     constexpr int cache_k = 1000;   // track_cache keys of mod tracks: 1000 + a hash of the folder (2049 tracks use 1-37)
 
     std::mutex mutex;
@@ -358,7 +358,7 @@ namespace {
         if (rush2::track_cache::load_blob(report_blob_name(f), f.source, blob)) remember_report(f.entry, deserialize_report(blob), true);
     }
 
-    // The stand-ins without their texels: source, image, tint, cutoff and key each.
+    // The stand-ins without their texels: source, image, tint, cutoff, blend (u32) and key each.
     std::vector<uint8_t> serialize_textures(const std::vector<rush2::track_mod::Texture>& textures) {
         std::vector<uint8_t> out;
         auto add = [&](const void* p, size_t n) { out.insert(out.end(), (const uint8_t*)p, (const uint8_t*)p + n); };
@@ -369,6 +369,8 @@ namespace {
             add(&t.image, 4);
             add(t.tint.data(), 16);
             add(&t.cutoff, 4);
+            uint32_t blend = t.blend;
+            add(&blend, 4);
             add(&t.key, 8);
         }
         return out;
@@ -383,13 +385,16 @@ namespace {
             return true;
         };
         uint32_t n = 0;
-        if (!get(&n, 4) || size_t(n) * 36 != in.size() - 4) return false;
+        if (!get(&n, 4) || size_t(n) * 40 != in.size() - 4) return false;
         textures.assign(n, {});
         for (rush2::track_mod::Texture& t : textures) {
             get(&t.source, 4);
             get(&t.image, 4);
             get(t.tint.data(), 16);
             get(&t.cutoff, 4);
+            uint32_t blend = 0;
+            get(&blend, 4);
+            t.blend = blend != 0;
             get(&t.key, 8);
         }
         return true;
@@ -469,11 +474,12 @@ void rush2::track_mod::publish_textures() {
                 int image = t.image;
                 std::array<float, 4> tint = t.tint;
                 float cutoff = t.cutoff;
+                bool blend = t.blend;
                 rush2::derive::ModTexture mt;
                 uint64_t seed = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(folder.data()), folder.size(),
                                                          0x747261636Bull);
                 mt.id = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(&t.key), 8, seed ^ t.source);
-                mt.load = [from, image, tint, cutoff](rush2::upscale::Image& out, rush2::upscale::Image&) {
+                mt.load = [from, image, tint, cutoff, blend](rush2::upscale::Image& out, rush2::upscale::Image&) {
                     {
                         std::lock_guard lock{ from->mutex };
                         if (!from->tried) {
@@ -492,10 +498,12 @@ void rush2::track_mod::publish_textures() {
                         if (image >= (int)from->images.size()) return false;
                         if (!rush2::upscale::decode_image(from->images[image].data, out) || out.empty()) return false;
                     }
-                    // As make_texture made the stand-in: tinted by the material's color, alpha cut out at cutoff.
+                    // As make_texture made the stand-in: tinted by the material's color, alpha cut out at cutoff (a
+                    // translucent one keeps its alpha, which its stand-in can't hold).
                     for (size_t i = 0; i + 3 < out.rgba.size(); i += 4) {
                         for (int k = 0; k < 3; k++) out.rgba[i + k] = uint8_t(std::clamp(out.rgba[i + k] * tint[k], 0.0f, 255.0f));
-                        out.rgba[i + 3] = out.rgba[i + 3] * tint[3] >= cutoff * 255.0f ? 255 : 0;
+                        float a = out.rgba[i + 3] * tint[3];
+                        out.rgba[i + 3] = blend ? uint8_t(std::clamp(a, 0.0f, 255.0f)) : a >= cutoff * 255.0f ? 255 : 0;
                     }
                     return true;
                 };

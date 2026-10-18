@@ -193,7 +193,7 @@ namespace {
                                                  std::vector<std::string>(names.begin(), names.end()));
             }
             rush2::track2049::set_texanim_data({});
-            rush2::track2049::set_prop_data({}, track.geometry);
+            rush2::track2049::set_prop_data(track.prop_records, track.geometry);   // PROP_KNOCK_* / PROP_TIP_*
             // A battle arena's PICKUP_ markers (drawn with Rush 2049's models, src/rush2049/battle.cpp) and every custom
             // track's solid triangles, which the weapons' shots stop on.
             rush2::battle::set_data(track.pickup_records, {}, track.geometry, track.solid_triangles);
@@ -611,6 +611,18 @@ extern "C" void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx) {
     ctx->r24 = hosting(rdram) && !mod_cloud_dome(rdram) && !track_has_sky ? 2 : 1;
 }
 
+// render_sky_cloud_scroll_8008918C at 0x800891F8: $t7 = the view's sky matrix, $v1 = its camera. A sky model only
+// follows the camera's x and z (0x800891EC-0x80089200) and keeps its world height, which suits the stock skies. A
+// custom track's SKY mesh is scaled down to fit the model's s16 vertices about its origin (docs/custom_tracks.md#sky),
+// so at world height a big dome (Alcatraz's arcade sky, 27,600 ft, drawn 2,048) ends below the track's top: it follows
+// the camera's height too. A stock sky model named in track.toml is used only when there is no SKY mesh.
+extern "C" void rush2_track49_sky_height(uint8_t* rdram, recomp_context* ctx) {
+    if (!hosting_mod(rdram) || !track_has_sky) return;
+    const rush2::track_mod::StockSky* k = rush2::track_mod::stock_sky(mod_settings.sky);
+    if (k && k->model[0]) return;
+    MEM_W(0x28, (int32_t)ctx->r15) = MEM_W(0x28, (int32_t)ctx->r3);
+}
+
 // func_80093048 at 0x80093290, after it found the path's 4 AI lanes (pointers 0x800D57A0, counts 0x800D5780) and
 // before func_800924E4 works out the race's time from them: the lanes' target speeds (u8 mph at point + 6) go through
 // the Car Speeds lane map (src/rush2049/car2049.cpp): Rush 2049's lanes are set for its faster cars. The drones' driver
@@ -881,9 +893,15 @@ extern "C" void rush2_track49_respawn_delay(uint8_t* rdram, recomp_context* ctx)
 // func_800A5ADC (race setup) before it stores gravity (0x80110018, 32.2 x the gravity cheat's multiplier) at 0x800A5E4C
 // ($f8) and 0x800A6170 ($f6). Rush 2049 races with 32.2 x {1.0, 1.15, 1.3, 1.5} (0x801202F8) where Rush 2 has {0.8,
 // 1.0, 1.5, 2.0} (0x800CB580), both Normal at index 1, so its tracks get 2049's multiplier for the same setting
-// (docs/rush2049_research/car_physics.md, "Gravity: Rush 2 vs Rush 2049").
+// (docs/rush2049_research/car_physics.md, "Gravity: Rush 2 vs Rush 2049"). A custom race track gets it when its
+// track.toml says gravity = "rush2049" (custom arenas, raced as 2049's, always do).
 extern "C" void rush2_track49_gravity(uint8_t* rdram, float* gravity) {
-    if (rush2::track2049::game_type(rdram) == rush2::track2049::GameType::none) {
+    bool mod_2049 = false;
+    {
+        std::lock_guard lock{ track_mutex };
+        mod_2049 = hosting_mod(rdram) && mod_settings.gravity == "rush2049";
+    }
+    if (rush2::track2049::game_type(rdram) == rush2::track2049::GameType::none && !mod_2049) {
         return;
     }
     constexpr float rush2_scale[4] = { 0.8f, 1.0f, 1.5f, 2.0f };

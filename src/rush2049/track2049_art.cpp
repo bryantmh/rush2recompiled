@@ -2278,8 +2278,10 @@ namespace {
                 float x = (sx - rush2::track2049::preview_center_x) * d, y = (rush2::track2049::preview_center_y - sy) * d;
                 return quad.add({ x * preview_units, y * preview_units, preview_disc_depth * preview_units, s, t, 255, 255, 255 });
             };
-            int a = corner(x0, y0, 0, 1), b = corner(x1, y0, float(w), 1);
-            int c = corner(x1, y1, float(w), float(1 + rows)), e = corner(x0, y1, 0, float(1 + rows));
+            // s runs against x: the menu camera's x is mirrored on screen, so texel 0 at x0 showed the picture
+            // reversed (stock thumbnails and mod previews alike).
+            int a = corner(x0, y0, float(w), 1), b = corner(x1, y0, 0, 1);
+            int c = corner(x1, y1, 0, float(1 + rows)), e = corner(x0, y1, float(w), float(1 + rows));
             quad.quad(a, b, c, e);
             emit_group(mini, quad);
         }

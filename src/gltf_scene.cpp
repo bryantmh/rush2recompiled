@@ -173,6 +173,14 @@ bool rush2::gltf::read_glb(const std::vector<uint8_t>& bytes, Scene& scene, std:
                     read_accessor(js, bin, c, col_width, col);
                 }
                 size_t count = pos.size() / 3;
+                // Custom scalar attributes (glTF's application-specific "_NAME"), such as the AI path's _SPEED.
+                for (auto it = at.begin(); it != at.end(); ++it) {
+                    if (it.key().empty() || it.key()[0] != '_') continue;
+                    int c = it.value().get<int>();
+                    if (js["accessors"][c].value("type", std::string()) != "SCALAR") continue;
+                    std::vector<float> v;
+                    if (read_accessor(js, bin, c, 1, v) && v.size() == count) prim.attrs[it.key()] = std::move(v);
+                }
                 if (p.contains("indices")) read_accessor(js, bin, p["indices"].get<int>(), 1, idx);
                 else for (size_t k = 0; k < count; k++) idx.push_back(float(k));
                 for (size_t k = 0; k < count; k++) {

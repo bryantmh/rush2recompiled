@@ -1147,6 +1147,18 @@ def render(text, style, size=(128, 32)):
     return render_sfrush(text, size) if style == "sfrush" else render_2049(text, size)
 
 
+def render_fit(text, style, aspect=4):
+    """text in the style on the smallest canvas of the given width:height (from 128 x 32, 8 px wider a step) it fits
+    whole, a pixel clear of the sides: a long name (custom tracks' logos, which are drawn at any size) gets a wider
+    banner instead of being cut off."""
+    for w in range(128, 1025, 8):
+        im = render(text, style, (w, w // aspect))
+        box = im.getbbox()
+        if box is None or (box[0] >= 1 and box[2] <= w - 1):
+            return im
+    return im
+
+
 def compare_sheet():
     """Each real banner beside its name drawn in the font, on a slate background."""
     import glob

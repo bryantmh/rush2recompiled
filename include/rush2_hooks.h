@@ -143,6 +143,7 @@ void rush2_trackmod_wheel_fallback(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_sky_height(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_model(uint8_t* rdram, recomp_context* ctx);

@@ -36,6 +36,8 @@ Both games take gravity as 32.2 x a table entry picked by a race setting, but th
 - The port gives 2049 tracks (any `track2049::game_type` but none) 2049's multiplier for the gravity cheat's setting:
   `rush2_track49_gravity` (src/rush2049/track2049.cpp) rewrites the value func_800A5ADC stores, hooked at 0x800A5E3C
   ($f8) and 0x800A615C ($f6). Before October 2026 they ran on Rush 2's table and fell 15% slower than in 2049.
+  Custom race tracks keep Rush 2's table unless their track.toml sets `gravity = "rush2049"` (the arcade Alcatraz
+  conversion does); custom arenas, raced as 2049's, always get 2049's.
 
 ## 1. Formulas
 

@@ -78,6 +78,9 @@ namespace rush2::track_mod {
         // [track] type: "race" (a lap through FINISH and the checkpoints), or an arena hosted by Rush 2's stunt track:
         // "stunt" (Rush 2's stunt mode) or "battle" (Rush 2049's battle, src/rush2049/battle.cpp).
         std::string type = "race";
+        // [track] gravity: "rush2" (Rush 2's table, the default) or "rush2049" (Rush 2049's, 15% stronger at Normal:
+        // rush2_track49_gravity), for each gravity cheat setting.
+        std::string gravity = "rush2";
         std::optional<float> start_time;
         std::vector<std::array<float, 3>> checkpoint_time;   // per checkpoint: first lap, later laps (third unused)
         std::vector<float> best_times;
@@ -107,6 +110,8 @@ namespace rush2::track_mod {
         std::vector<uint8_t> texels;
         std::array<float, 4> tint = { 1, 1, 1, 1 };    // the material's baseColorFactor
         float cutoff = 0.0f;                            // alpha below cutoff x 255 is clear (0: opaque)
+        bool blend = false;                             // translucent (BLEND): the full-size image keeps its alpha
+                                                        // (the stand-in's is cut at cutoff)
         uint64_t key = 0;                               // rush2::upscale::rgba16_key of the texels
     };
 

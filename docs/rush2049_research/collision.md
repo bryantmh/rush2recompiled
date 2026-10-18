@@ -62,14 +62,31 @@ self-check (`python collision.py` from `tools/rush2049`).
 
 | Offset | Contents |
 |---|---|
-| +0x00 | vec3 origin |
-| +0x0C | 3×3 float matrix (world → segment frame, applied to point − origin by `func_80054454`) |
-| +0x30, +0x3C, +0x48 | vec3s, lerped between this segment and the next |
-| +0x54 | float scale on the +0x30 offsets |
-| +0x58, +0x5C, +0x60 | floats; +0x60 is the segment length used to compute the parameter t |
-| +0x64–+0x70 | four floats: across-track mapping coefficients |
-| +0x74, +0x78 | floats: cubic height terms |
+| +0x00 | vec3 origin O (the middle of the segment's start line) |
+| +0x0C | 3×3 float matrix M, world → segment frame (rows: across, up, along), applied to point − O |
+| +0x30 | vec3 across direction A |
+| +0x3C, +0x48 | vec3 along directions at the left (u = 0) and right (u = 1) edge |
+| +0x54 | float width: the start line runs O + A (u − 0.5) w |
+| +0x58 | float length at the middle |
+| +0x5C, +0x60 | floats: how the length changes across (the inside of a bend is shorter) |
+| +0x64, +0x68 | floats: left half-width and its change along |
+| +0x6C, +0x70 | floats: right half-width and its change along |
+| +0x74, +0x78 | floats: up slope at the left / right edge (the cubic's end slopes) |
 | +0x7C–+0x83 | not read by either reader (often `80000000` = −0.0) |
+
+**The surface** [V: decoded from `func_8006BDA8` and its helpers `func_8006BD04` (out = M (a − b)) and `func_8006BD54`
+(a vec3 lerp: a (1 − s) + b s); a Python port, `seg_surface` in tools/rush2049/collision.py, puts 99% of the spline polygon
+corners of 2049's files 139 and 140 within 0.02 ft of it]. S is the segment, T the next one (index + 1, wrapping at
+nSeg). For a point P: L = M (P − O); along t = (L2 − L0 · 0x5C) / ℓ with ℓ = L0 (0x60 − 0x5C) + 0x58; across
+u = 0.5 + 0.5 L0 / (L2 · 0x70 + 0x6C) when L0 > 0, else 0.5 − 0.5 L0 / (L2 · 0x68 + 0x64). Then the frame:
+along C = lerp(lerp(S.3C, S.48, u), lerp(T.3C, T.48, u), t), across A' = lerp(S.30, T.30, t), up B = C × A'. The
+surface point: Q = lerp(S.O + S.30 (u − 0.5) S.54, T.O + T.30 (u − 0.5) T.54, t) − d B, with h0 = lerp(S.74, S.78, u),
+h1 = lerp(T.74, T.78, u) and d = (t³ (h0 − h1) − t² (2 h0 − h1) + t h0) ℓ. The function writes the matrix rows A', B,
+C and returns (A', B, C) · (P − Q): its middle component is P's height above the road. So the road between two
+segments' start lines is their straight joining with a cubic rise along it, whose end slopes vary linearly across.
+The polygon only selects the segment: its flat face is used to find it under a wheel, the height comes from here.
+Custom tracks can carry segments (docs/custom_tracks.md, "Spline road"); the arcade's own records
+(docs/arcade2049.md) convert to these exactly.
 
 ### NODE, 0x14 bytes: quadtree over world X/Z **[V]**
 - **Readers:** Rush 2 `func_8006CE28` (walk up from a cached node, then descend) and `func_8006CD60` (descend);

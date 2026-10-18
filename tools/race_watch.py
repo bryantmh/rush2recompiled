@@ -16,15 +16,21 @@ summary. Stops early once every computer car has finished or the game exits.
 blink, +0x342 wreck state, +0xE4 drawn flags), polled every ~2 ms, to DIR/trace.txt (wreck to respawn timing).
 --wreck-at S (with --trace) wrecks that car S wall-clock seconds after the race state begins, writing +0x648 = 1 as a
 crash does (the only write this tool makes).
+--records PLACEMENT_BIN instead samples every placement record (the converted track's placement.bin, from
+tools/track_mod_test.bat, gives their count and names; RDRAM: pointer 0x8010C15C, 0x64 bytes each, matrix +0x10,
+position +0x34) every 0.37 s for --seconds of the race and prints the ones whose matrix or position changed, and
+how far: moving objects that should turn or travel but don't show up as never changing.
+--peek ADDR (repeatable, hex) instead prints the u32 at each RDRAM address during the race, smallest and largest seen
+over --seconds (scene_node_table_count 0x800FAE58: how full the scene node table at 0x800D9E90 is).
 --pos (with --trace) adds the car's positions, rounded to a foot: physics +0x224, car state +0 (where a computer car's
 body node is put, cam_update_all_players_8009D9F4) and the body node's own (node +0xF0 of 0x800D9E90, 0x38 each, its
 matrix +4, position +0x24; nhid = its hidden flag 0x400), logging a line whenever one moves.
 RDRAM is found by matching the boot code at 0x80000450 from the Rush 2 ROM (tools/rush2049/roms.py; RUSH2_ROM).
 Fields: car state 0x801124A0 + car x 0x354 (position +0, place +0xE9, finished +0xEA, wreck state +0x342, out of
 deaths +0x343), physics car 0x800F5470 + car x 0x81C (laps +0x7FD, next checkpoint +0x7FE, brake +0x730, throttle
-+0x734, kind +0x7E6: 0 human), game time 0x80117488, game state 0x8010C0D0, cars 0x8010C15A.
++0x734, kind +0x7E6: 0 human, type +0x7EA, up = row 1 y of the world -> car matrix +0x2CC: below 0 upside down), game time 0x80117488, game state 0x8010C0D0, cars 0x8010C15A.
 """
-import argparse, ctypes, ctypes.wintypes as wt, json, math, os, struct, subprocess, sys, time
+import argparse, ctypes, ctypes.wintypes as wt, json, math, os, re, struct, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -112,7 +118,8 @@ def sample(rd):
         out['list'].append({'pos': [round(sf(st + i * 4), 1) for i in range(3)], 'place': sb(st + 0xE9),
                             'finished': sb(st + 0xEA), 'wreck': sb(st + 0x342), 'out': sb(st + 0x343),
                             'laps': cb(ph + 0x7FD), 'next_cp': ch(ph + 0x7FE), 'throttle': round(cf(ph + 0x734), 2),
-                            'brake': round(cf(ph + 0x730), 2), 'human': ch(ph + 0x7E6) == 0})
+                            'brake': round(cf(ph + 0x730), 2), 'human': ch(ph + 0x7E6) == 0,
+                            'up': round(cf(ph + 0x2DC), 2), 'type': cb(ph + 0x7EA)})
     return out
 
 
@@ -192,6 +199,51 @@ def trace(rd, car, seconds, out, proc, wreck_at=None, pos=False):
         f.write('\n'.join(lines) + '\n')
 
 
+def records(rd, placement_bin, seconds, proc):
+    """Samples the placement records' matrices and positions every 0.37 s during the race; prints each record's
+    largest matrix and position change, moving ones first."""
+    pl = open(placement_bin, 'rb').read()
+    count = (len(pl) - 0x18) // 0x64
+    names = [pl[0x18 + i * 0x64:0x18 + i * 0x64 + 16].split(b'\0')[0].decode('latin1') for i in range(count)]
+    snaps, t0 = [], time.time()
+    while time.time() - t0 < seconds and not (proc and proc.poll() is not None):
+        g, b = rd.block(0x8010C0D0, 4), rd.block(0x8010C15C, 4)
+        if g and b and struct.unpack('<I', g)[0] == 3:
+            base = struct.unpack('<I', b)[0]
+            blob = rd.block(base, count * 0x64) if base >= 0x80000000 else None
+            if blob:
+                snaps.append([struct.unpack_from('<12f', blob, i * 0x64 + 0x10) for i in range(count)])
+        time.sleep(0.37)    # not a whole second: flipbooks loop in 0.5 and 1 s
+    if len(snaps) < 2:
+        print('no race samples')
+        return
+    rows = []
+    for i in range(count):
+        dm = max(abs(s[i][k] - snaps[0][i][k]) for s in snaps for k in range(9))
+        dp = max(math.dist(s[i][9:12], snaps[0][i][9:12]) for s in snaps)
+        rows.append((dm + dp > 1e-4, dm, dp, i))
+    print('%d samples, %d records, %d changed' % (len(snaps), count, sum(r[0] for r in rows)))
+    for moved, dm, dp, i in sorted(rows, key=lambda r: (not r[0], r[3])):
+        if moved or re.search(r'M\d{3}$', names[i]):
+            print('  %4d %-16s matrix change %.3f, moved %.1f ft, at (%.0f, %.0f, %.0f)' % (
+                i, names[i], dm, dp, *snaps[-1][i][9:12]))
+
+
+def peek(rd, addrs, seconds, proc):
+    """Samples u32 words at addrs during the race; prints each one's range."""
+    seen, t0 = {a: [] for a in addrs}, time.time()
+    while time.time() - t0 < seconds and not (proc and proc.poll() is not None):
+        g = rd.block(0x8010C0D0, 4)
+        if g and struct.unpack('<I', g)[0] == 3:
+            for a in addrs:
+                v = rd.block(a, 4)
+                if v:
+                    seen[a].append(struct.unpack('<I', v)[0])
+        time.sleep(0.25)
+    for a, vs in seen.items():
+        print('0x%08X: ' % a + ('min %d, max %d (%d samples)' % (min(vs), max(vs), len(vs)) if vs else 'no race samples'))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--pid', type=int)
@@ -200,7 +252,9 @@ def main():
     ap.add_argument('--path')
     ap.add_argument('--out', default=os.path.join(REPO, 'tmp', 'race_watch'))
     ap.add_argument('--trace', type=int, help="log changes of this car's wreck and drawing fields instead")
+    ap.add_argument('--records', help='placement.bin of the raced custom track: report which records move')
     ap.add_argument('--pos', action='store_true', help="with --trace: also log the car's positions")
+    ap.add_argument('--peek', action='append', type=lambda v: int(v, 16), help='print this u32 during the race')
     ap.add_argument('--wreck-at', type=float, help='with --trace: wreck that car this many seconds into the race')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -223,6 +277,16 @@ def main():
     if not rd or not rd.base:
         print('RDRAM not found')
         return 1
+    if a.peek:
+        peek(rd, a.peek, a.seconds, proc)
+        if proc and proc.poll() is None:
+            proc.terminate()
+        return 0
+    if a.records:
+        records(rd, a.records, a.seconds, proc)
+        if proc and proc.poll() is None:
+            proc.terminate()
+        return 0
     if a.trace is not None:
         trace(rd, a.trace, a.seconds, a.out, proc, a.wreck_at, a.pos)
         if proc and proc.poll() is None:

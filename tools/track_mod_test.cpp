@@ -6,7 +6,8 @@
 //
 // prefix: the host slot's, default HAWAII. sky container: a model container file holding the stock sky track.toml's
 // sky names (the game reads it from the ROMs; e.g. tools/rush2049/assets.py's Las Vegas geometry, asset 0x33).
-// Moving objects (MOVE_*) are written as mover_paths.bin, mover_collision.bin and mover_records.txt.
+// Moving objects (MOVE_*) are written as mover_paths.bin, mover_collision.bin and mover_records.txt; props (PROP_*) as
+// props.txt.
 
 #include <cstdio>
 #include <filesystem>
@@ -86,6 +87,16 @@ int main(int argc, char** argv) {
             text += line;
         }
         write_all(outdir / "pickups.txt", std::vector<uint8_t>(text.begin(), text.end()));
+    }
+    if (!out.track.prop_records.empty()) {
+        // Props (PROP_*): record type x y z (game ft) per line.
+        std::string text;
+        for (const auto& p : out.track.prop_records) {
+            char line[96];
+            snprintf(line, sizeof(line), "%d %d %.2f %.2f %.2f\n", p.record, p.type, p.pos[0], p.pos[1], p.pos[2]);
+            text += line;
+        }
+        write_all(outdir / "props.txt", std::vector<uint8_t>(text.begin(), text.end()));
     }
     printf("OK: wrote %s\n", outdir.string().c_str());
     return 0;

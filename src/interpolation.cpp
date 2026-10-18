@@ -151,6 +151,7 @@ namespace {
     struct NodeState {
         uint32_t transform = 0;
         Vec3 pos{};
+        float scale = 0;
         uint32_t gen = 0;
     };
     NodeState nodes[max_nodes];
@@ -729,12 +730,18 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     NodeState& state = nodes[index];
     uint32_t transform = (uint32_t)MEM_W(4, (int32_t)node);
     Vec3 pos = read_vec3(rdram, transform + 0x24);
-    if (transform != state.transform ||
+    // A scale step (a custom track's flip-book frame shown or hidden by scaling it about its pivot, docs/custom_tracks.md)
+    // is a snap too: blending it draws shrunken copies between the pivot and the frame.
+    Vec3 axis = read_vec3(rdram, transform);
+    float scale = dot(axis, axis);
+    bool scale_step = state.scale > 0 && (scale > state.scale * 16.0f || scale * 16.0f < state.scale);
+    if (transform != state.transform || scale_step ||
         (distance(pos, state.pos) > node_teleport_distance && !view_attached((uint32_t)node))) {
         state.gen++;
     }
     state.transform = transform;
     state.pos = pos;
+    state.scale = scale;
 
     uint32_t gen = level_base[depth] + state.gen;
     level_current[depth] = gen;

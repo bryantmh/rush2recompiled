@@ -91,10 +91,11 @@ class Glb:
         self.js['accessors'].append(a)
         return len(self.js['accessors']) - 1
 
-    def mesh(self, name, verts, normals, tris, matrix=None, parent=None, trs=None, color=None):
+    def mesh(self, name, verts, normals, tris, matrix=None, parent=None, trs=None, color=None, attrs=None):
         """verts/normals: glTF xyz tuples; tris: index triples (counter-clockwise front); matrix: the node's (column
         major), else none; parent: a node index to put it under; trs: (translation, rotation xyzw, scale). Returns
-        the node's index. color: (r, g, b) 0-1 for a plain material of its own."""
+        the node's index. color: (r, g, b) 0-1 for a plain material of its own. attrs: {'_NAME': [one float per
+        vertex]}, custom attributes (the AI path's _SPEED and _AI_MODE)."""
         material = 0
         if color:
             self.js['materials'].append({'name': 'color%d' % len(self.js['materials']), 'pbrMetallicRoughness': {
@@ -106,7 +107,49 @@ class Glb:
                                'NORMAL': self._accessor(nrm, 'VEC3', 3, 5126, 34962),
                                'TEXCOORD_0': self._accessor([0.0] * (2 * len(verts)), 'VEC2', 2, 5126, 34962)},
                 'indices': self._accessor([i for t in tris for i in t], 'SCALAR', 1, 5125, 34963), 'material': material}
+        for key, values in (attrs or {}).items():
+            prim['attributes'][key] = self._accessor([float(v) for v in values], 'SCALAR', 1, 5126, 34962)
         self.js['meshes'].append({'name': name, 'primitives': [prim]})
+        node = {'name': name, 'mesh': len(self.js['meshes']) - 1}
+        if matrix:
+            node['matrix'] = matrix
+        return self._node(node, parent, trs)
+
+    def image(self, name, png):
+        """Embeds PNG bytes; returns the texture index (one texture per image, with its own sampler)."""
+        self.js.setdefault('images', []).append({'name': name, 'mimeType': 'image/png',
+                                                 'bufferView': self._view(png, None)})
+        del self.js['bufferViews'][-1]['target']
+        return len(self.js['images']) - 1
+
+    def material(self, name, image=None, alpha_mode='OPAQUE', double_sided=False, wrap=(10497, 10497)):
+        """A material with an optional base color image (an index from image()); wrap = glTF sampler (wrapS, wrapT).
+        Returns its index."""
+        m = {'name': name, 'pbrMetallicRoughness': {'baseColorFactor': [1.0, 1.0, 1.0, 1.0], 'metallicFactor': 0.0}}
+        if image is not None:
+            self.js.setdefault('samplers', []).append({'wrapS': wrap[0], 'wrapT': wrap[1]})
+            self.js.setdefault('textures', []).append({'source': image, 'sampler': len(self.js['samplers']) - 1})
+            m['pbrMetallicRoughness']['baseColorTexture'] = {'index': len(self.js['textures']) - 1}
+        if alpha_mode != 'OPAQUE':
+            m['alphaMode'] = alpha_mode
+        if double_sided:
+            m['doubleSided'] = True
+        self.js['materials'].append(m)
+        return len(self.js['materials']) - 1
+
+    def textured_mesh(self, name, prims, matrix=None, parent=None, trs=None):
+        """A mesh of several primitives, each (material, verts, normals, uvs, colors or None, tris): verts/normals
+        glTF xyz, uvs (u, v), colors (r, g, b, a) 0-1. Returns the node's index."""
+        out = []
+        for material, verts, normals, uvs, colors, tris in prims:
+            at = {'POSITION': self._accessor([c for v in verts for c in v], 'VEC3', 3, 5126, 34962, True),
+                  'NORMAL': self._accessor([c for v in normals for c in v], 'VEC3', 3, 5126, 34962),
+                  'TEXCOORD_0': self._accessor([c for v in uvs for c in v], 'VEC2', 2, 5126, 34962)}
+            if colors:
+                at['COLOR_0'] = self._accessor([c for v in colors for c in v], 'VEC4', 4, 5126, 34962)
+            out.append({'attributes': at, 'material': material,
+                        'indices': self._accessor([i for t in tris for i in t], 'SCALAR', 1, 5125, 34963)})
+        self.js['meshes'].append({'name': name, 'primitives': out})
         node = {'name': name, 'mesh': len(self.js['meshes']) - 1}
         if matrix:
             node['matrix'] = matrix

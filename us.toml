@@ -728,6 +728,12 @@ text = "    rush2_track49_select_model(rdram, ctx);"
 
 [[patches.hook]]
 func = "trackselect_init_draw_803AB294"
+# A custom track's own SKY mesh follows the camera's height too (src/rush2049/track2049.cpp).
+[[patches.hook]]
+func = "render_sky_cloud_scroll_8008918C"
+before_vram = 0x800891F8
+text = "    rush2_track49_sky_height(rdram, ctx);"
+
 before_vram = 0x803ABCA0
 text = "    rush2_track49_select_pose(rdram, ctx);"
 
