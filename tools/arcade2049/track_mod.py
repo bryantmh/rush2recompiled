@@ -461,11 +461,15 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
             still.append(o.name + ' (hidden until a script shows it: left out)')
             continue
         V = L @ M + pos
-        # The bay's water sheets reach 10,000 ft out but lie in the world: in the sky (drawn without depth, scaled
-        # around the camera) they painted a dark plane across the dome.
+        # The bay's water sheets reach 10,700 ft out, past what the game draws (2,000 ft): scenery for the near part
+        # (depth tested against the island) and sky too, where the far part meets the distant land (GS_APANS, 9,750
+        # ft) as in the arcade. The sky sits at (1 - its scale) x the camera's height (src/rush2049/track2049.cpp
+        # rush2_track49_sky_height), so both keep their true angles below the horizon.
         is_water = all(ti < len(t.textures) and t.textures[ti].name in WATER_TEXTURES for *_, ti in lod.tris)
-        is_sky = o.name in sky_names or 'CLOUDS' in o.name or (
-            not is_water and np.max(np.linalg.norm(V[:, [0, 2]], axis=1)) > SKY_RADIUS)
+        far = np.max(np.linalg.norm(V[:, [0, 2]], axis=1)) > SKY_RADIUS
+        is_sky = o.name in sky_names or 'CLOUDS' in o.name or (far and not is_water)
+        if is_water and far:
+            add_tris(sky, lod, V, 0.0)
         spin = [s.split() for s in script if s.lower().startswith(('spinx', 'spiny', 'spinz'))]
         flip = [s.split() for s in script if s.lower().startswith('flipbook')]
         if not is_sky and spin:
@@ -510,8 +514,12 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
                         keys += [(period - eps, False), (period, True)]
                     elif s1 < period - eps:
                         keys.append((period, False))
-                    frv = np.array([v[0] for v in fr.lods[0].verts], float)
-                    movers.append(('%s_%d' % (fr.name, len(movers)), [(fr.lods[0], frv @ M)], pos,
+                    frv = np.array([v[0] for v in fr.lods[0].verts], float) @ M
+                    # Pivot on the frame's own geometry, on a whole foot: its vertices then round to the scenery's
+                    # 1/16 ft grid and its edges meet the walls around it (BLINK3's placement is the world origin,
+                    # 1,000 ft away, and left hairline cracks).
+                    pivot = np.round(frv.mean(axis=0) + pos)
+                    movers.append(('%s_%d' % (fr.name, len(movers)), [(fr.lods[0], frv + pos - pivot)], pivot,
                                    [k[0] for k in keys], None, [[1.0] * 3 if k[1] else [0.001] * 3 for k in keys]))
                     tri_count += len(fr.lods[0].tris)
                 continue
@@ -532,7 +540,13 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
     for s in sorted(set(still)):
         report.append('still: ' + s)
     if sky:
-        g.textured_mesh('SKY', [(m,) + v for m, v in sky.items()])
+        # The sky is drawn without depth in material order: the dome, the far water over it, the land on the water,
+        # then the clouds.
+        def sky_layer(m):
+            name = g.js['materials'][m]['name']
+            return (3 if 'CLOUD' in name.upper() else 2 if name.startswith('GS_APANS') else
+                    1 if name in WATER_TEXTURES else 0)
+        g.textured_mesh('SKY', [(m,) + sky[m] for m in sorted(sky, key=sky_layer)])
 
     # Collision.
     seg_records, spline_tris, flat = spline_road(t, t.collision(with_segment=True), report)

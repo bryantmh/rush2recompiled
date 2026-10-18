@@ -3238,6 +3238,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         std::vector<int> all(stris.size());
         for (size_t i = 0; i < all.size(); i++) all[i] = int(i);
         float unit = std::min(16.0f, 32000.0f / std::max(sky_extent, 1.0f));
+        out.track.sky_scale = unit / 16.0f;
         MeshList m;
         m.cmd(0xE3001001, 0x00000000);
         m.cmd(0xE3000F00, 0x00000000);

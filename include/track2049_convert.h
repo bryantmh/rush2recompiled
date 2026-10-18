@@ -99,6 +99,9 @@ namespace rush2::track2049 {
         std::vector<uint8_t> pvs;           // The slot's visibility table: 16 bytes per camera region.
         uint8_t fog[3];                     // Fog colour, RGB.
         uint8_t pvs_count;                  // Camera regions under visibility control.
+        // A custom track's SKY mesh: drawn size / modeled size (under 1 when it is shrunk to fit s16 vertices). The
+        // sky is placed at (1 - sky_scale) x the camera's height, so it looks as it would at its modeled size.
+        float sky_scale = 1.0f;
         std::vector<PathRecord> path_records;
         std::vector<SpinRecord> spin_records;
         std::vector<PropRecord> prop_records;

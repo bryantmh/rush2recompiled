@@ -286,6 +286,14 @@ namespace {
             if (h != 0xFFFF) {
                 MEM_H(0, (int32_t)(p.node + 0xC)) = h;
             }
+            // A custom track's flip-book frame is hidden by a scale step to 0.001 (docs/custom_tracks.md): hide its
+            // node instead of drawing it shrunk. Its matrix then never jumps, so src/interpolation.cpp blends it with
+            // the camera as the scenery is; snapped back each time it showed, it shook against the walls around it.
+            if (light_track == 0) {
+                float s2 = o.m[0] * o.m[0] + o.m[1] * o.m[1] + o.m[2] * o.m[2];
+                uint32_t flags = (uint32_t)MEM_W(0, (int32_t)p.node);
+                MEM_W(0, (int32_t)p.node) = s2 < 1e-4f ? flags | node_hidden : flags & ~node_hidden;
+            }
         }
     }
 

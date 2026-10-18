@@ -238,6 +238,7 @@ namespace {
         w.pods(t.pvs);
         w.pod(t.fog);
         w.pod(t.pvs_count);
+        w.pod(t.sky_scale);
         w.pods(t.path_records);
         w.pods(t.spin_records);
         w.pods(t.prop_records);
@@ -277,6 +278,7 @@ namespace {
         r.pods(t.pvs);
         r.pod(t.fog);
         r.pod(t.pvs_count);
+        r.pod(t.sky_scale);
         r.pods(t.path_records);
         r.pods(t.spin_records);
         r.pods(t.prop_records);

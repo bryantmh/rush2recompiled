@@ -613,14 +613,21 @@ extern "C" void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx) {
 
 // render_sky_cloud_scroll_8008918C at 0x800891F8: $t7 = the view's sky matrix, $v1 = its camera. A sky model only
 // follows the camera's x and z (0x800891EC-0x80089200) and keeps its world height, which suits the stock skies. A
-// custom track's SKY mesh is scaled down to fit the model's s16 vertices about its origin (docs/custom_tracks.md#sky),
-// so at world height a big dome (Alcatraz's arcade sky, 27,600 ft, drawn 2,048) ends below the track's top: it follows
-// the camera's height too. A stock sky model named in track.toml is used only when there is no SKY mesh.
+// custom track's SKY mesh past 2,000 ft is shrunk by sky_scale about its origin to fit the model's s16 vertices
+// (docs/custom_tracks.md#sky): at world height a big dome (Alcatraz's arcade sky, 27,600 ft, drawn 2,048) ended below
+// the track's top. Shrunk about the camera instead, it looks as it would at full size: its height is (1 - sky_scale) x
+// the camera's, which also keeps distant land and water in the sky at their true angles below the horizon. A stock sky
+// model named in track.toml is used only when there is no SKY mesh.
 extern "C" void rush2_track49_sky_height(uint8_t* rdram, recomp_context* ctx) {
     if (!hosting_mod(rdram) || !track_has_sky) return;
     const rush2::track_mod::StockSky* k = rush2::track_mod::stock_sky(mod_settings.sky);
     if (k && k->model[0]) return;
-    MEM_W(0x28, (int32_t)ctx->r15) = MEM_W(0x28, (int32_t)ctx->r3);
+    uint32_t bits = (uint32_t)MEM_W(0x28, (int32_t)ctx->r3);
+    float y;
+    memcpy(&y, &bits, 4);
+    y *= 1.0f - track.sky_scale;
+    memcpy(&bits, &y, 4);
+    MEM_W(0x28, (int32_t)ctx->r15) = (int32_t)bits;
 }
 
 // func_80093048 at 0x80093290, after it found the path's 4 AI lanes (pointers 0x800D57A0, counts 0x800D5780) and
