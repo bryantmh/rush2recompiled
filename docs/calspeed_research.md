@@ -114,8 +114,55 @@ particles and stunt scoring, which know materials 0-2 and 8 (airborne); Californ
 ## 5. Paths
 
 - **Format:** Rush 2's path file (`tools/rush2049/paths.py`), one per track (no backward races). After the four AI
-  lanes come two more lists of `{u16 count, 3 x u16 0}` + count x {s16 x, y, z}: a finer route line (701 points on
-  Monterey), unused by Rush 2. [V layout, I use]
+  lanes come two more lists of `{u16 count, 3 x u16 0}` + count x {s16 x, y, z}, unused by Rush 2: two more route
+  lines (701 points on Monterey; 620 and 635 on San Francisco, one on each carriageway of its bridge, up on the deck
+  at y 180, x 2426 and 2518 at z -2400). Perhaps California Speed's reset line. [V layout, I use]
+- **Route line (Rush 2's spine):** its points are about 40 ft apart (median 39-44 ft; 73-82 ft on Monterey, Santa Cruz,
+  Fuji and California), where Rush 2's are 20 ft (19.7-20.0 on every race track). California Speed's loader
+  (`func_800A2A44`) keeps the route header at 0x80142700 (+4 the points 0x80142704, +8 u8 branches, +0xC the branch
+  records 0x8014270C: 16 bytes, +6 the main-line point a branch joins, +0xA its count, +0xC its points); Rush 2 keeps
+  the same at 0x80111940 (`path_branch_records` 0x8011194C). [V]
+- **Resets:** California Speed's tracker `func_8009BF34` keeps each car's nearest route point (per-car state +0x10E,
+  branch +0x10C (-1 the main line), the previous at +0x110 / +0x10D; the nearest in 3D of the 10 points from the last
+  one on). A reset (`func_800A4020`, a1 = 0) puts the car back on that point, with no move along the route; a1 = 1 (a
+  car outside the collision grid, `func_800AE668`) uses the last checkpoint's route crossing instead. Nothing else
+  resets a car: California Speed has no wrecks, and its only other caller is the ground contact `func_800A58A4`, when
+  no wheel is down and the four wheels' heights sum under -3000 (a car fallen 750 ft under the world).
+  (`func_8009F2E4` would reset with a0 != 0, but its one caller `func_8009F194` is only called with a0 = 0, the
+  grid, from `func_80093678`.) `func_800A56C0` places it at the point + the slot's offset turned
+  along the route (`func_800A4C44`: x = (dz, -dx), z = toward the next point, a branch's last point toward its
+  main-line join; 0x800C8E00 turns the rows by (-dx, dz)), at the route point's height. The slot table 0x800D8630
+  (12 bytes each) holds the grid (slots 0-7: x 0 / 12, z 60 / 40 / 20 / 0) and the resets (slots 8-15, = 8 + the
+  car: x -2.4, 2.4, -16.8, -12, -7.2, 7.2, 12, 16.8), and every slot gets the track's shift 0x800D86F0 (16 floats:
+  9, 6, -6, -3.6, 10.8, 16.2, 7.2, -6, -15.6, 6.96, -3.6, 7.2, -10.8, 3.6, 0, 0) on x. Rush 2's respawn
+  (`respawn_place_car_80090A40`, docs/rush2049_research/checkpoints.md section 8) instead moves a car on by its speed x
+  (seconds wrecked + 1.5) in 20 ft points (590-800 ft; 2 to 4 times that on California Speed's points), players along
+  the route line and computer cars along their lanes. Ported as California Speed has it, for every car
+  (src/calspeed/calspeed_rom.cpp): `track_route` is `func_8009BF34` run for each race car every frame from
+  `rush2_calspeed_car_frame` (its candidates, forks, carried list and reads past a branch's end alike; it starts on
+  the main-line point nearest the car, where California Speed starts at checkpoint 0's crossing + 1 ahead of its own
+  grid); `rush2_calspeed_respawn_advance` (0x80091368) moves the respawn point on by nothing; and
+  `rush2_calspeed_respawn_place` (0x800918E8) puts the car on its tracked point + the slot offset for the car and
+  track along (dz, -dx), at the point's height (California Speed's route points sit 0.1-0.4 ft over the road, median,
+  and it adds no lift where Rush 2 adds 1.5 ft), faced along the route. Not ported: the a1 = 1 reset (outside the
+  collision grid; Rush 2 has no such test) and `func_800A4C44`'s road-polygon matrix (`func_800AF57C`), which tilts the
+  side offset with a banked road; the no-road matrix is used. A car stuck at one spot is put back at that spot. [V code;
+  the shift's sign from the grid: only z toward the next point keeps all 8 slots on every track's road]
+- **Route heights:** the route line isn't always on the road: San Francisco's points 324-433 (the bridge, 3,700 ft)
+  lie at sea level (y 2-6), 180 ft under the deck they follow in x and z, in the middle of its two carriageways (the
+  deck's collision is one polygon over both and the middle; the lanes climb the cables to 400 ft at the towers).
+  California Speed's reset puts a car on the point's height, and its wheel query (`func_800AF1EC` -> `func_800AE884`:
+  the wheel's height over each polygon's plane along its normal, the polygon's matrix at +4 in s16 / 16384, taken
+  from 5 under to 250 over, the lowest wins) only finds road under a wheel, and the collision has nothing under the
+  bridge, so a reset there would drop the car and reset it again when it is 750 ft down. The real game never gets
+  there: the bridge's sides are type 6 walls 13-658 ft high (337 polygons) that keep a car on the deck, and it has no
+  wrecks, so neither reset cause happens on the bridge. Rush 2's wreck respawns do, and the exact port dropped the car
+  there. So where California Speed's wheel test finds no road under the reset spot (`rush2::calspeed::ground_under`,
+  its `func_800AE884` over the converted collision's ground polygons, types 0-2 as remapped, -5 to 250 ft), the car
+  goes on the AI lane point nearest where it wrecked, 1.5 ft up as Rush 2 puts a computer car, faced along that lane
+  (`func_8006D348` with $a3 = 0); everywhere else the reset is California Speed's. Route points with no road within 15 ft under or 5 over them: San Francisco 111, LA 95, Santa Cruz 61, San
+  Diego 43, California 34, San Andreas 14, Silicon Valley 4, Monterey 2, Central Valley 1, the rest 0 (jump gaps
+  included). [V data and code]
 - **Lane speeds** are displayed mph, true mph x 1.2 like Rush 2049's: lane 0 averages 162-172 mph over the race
   tracks, distance-weighted, where Rush 2's paths average 139.3. They go through the Car Speeds lane map as 2049
   paths (`rush2_race_lane_speeds`), and the record seed (`record_seed`, lane 0's time) uses true mph. [V]
@@ -150,6 +197,46 @@ past SF Rush's in the ROM image and filled from the ROM, the .ctl copy lives at 
 microcode reads its ADPCM codebooks with 24-bit addresses), and the songs are Rush 2 songs 29-37. California Speed
 has no per-track songs: its options' Audio Track picks one (strings at 0x800D4658), so a California Speed track
 plays a random one of its songs by default (`src/music.cpp`). Its menu song isn't identified. [V layout]
+
+### Engine sounds
+
+California Speed's engine code is Rush 2's (src/car_engines.cpp plays it; Rush 2's side is in src/engine_preview.cpp
+and docs/functions/rush2_audio.md), with its own tables, constants and samples. [V code; not yet heard in game]
+
+| California Speed | Rush 2 | What it does |
+|---|---|---|
+| 0x80056594 | 0x8008C61C | Starts engine a0 on slot a1: 0x801427C0[slot] = engine + 9 x slot + 1 (Rush 2: + 10 x slot), command 0x1FFE + slot |
+| 0x800563DC | 0x8008C49C | Stops every slot's engine sounds, clears 0x801427C0 and 0x80149D44 |
+| 0x800565FC | 0x800626FC | Command 0x1FFE / 0x1FFF: starts the slot's layers, sets 0x80149D44[slot] = 1 |
+| 0x80056724 | 0x80062CC4 | Every audio frame: each slot's layers' volume, pitch and reverb mix (0x80134384[slot]) |
+| 0x8005629C | 0x80062598 | Layer pitch: min(rpm / base, 2), 1 for sound 0x23 |
+| 0x8005632C | 0x80062640 | Table indices: rpm / 1000 (0-10), (load + 80) x 0.025 (0-12) |
+| 0x800564B0 | 0x800624E4 | Layer volume (below) |
+| 0x800ADE48 | 0x8008C6E8 | Race start: the slot's rpm and load, then 0x80056594 with 0x80141568[slot] |
+| 0x800ADEFC | 0x80064F70 | The slot's rpm (0x80168F68) and load (0x80134458) each frame |
+| 0x8007EC08 | 0x8009E66C | Player engine start: rpm scale 0.8 (0x800F7798; Rush 2 1.0), load scale 0.3 (0x8016E150; Rush 2 0.3) |
+| 0x8007EC70 | 0x800650DC | rpm = \|car +0x846\| x 0.8, load = car +0x458 x 0.3 (both as u16 & 0x7FFF); +0x846 is Rush 2's +0x7F0 (rad/s x 9.549 x 0.9, written at 0x80090EDC), +0x458 Rush 2's +0x3F4 |
+
+- **Engine per car:** s8 table 0x8007D284 (car select order, read at 0x8009EDE0 into 0x80141568[slot]): SPORTSTER 5,
+  MUSCLE 0, 486SE 2, PREDATOR 0, MANO 1, FIVE OH 4, MT DEW 6, HOPPER 1, FAIRCHILD 7, INSECT 3, MERCADO 7, GOLF CART 4,
+  SQUIRREL 7, FORKLIFT 0, CONV 0, SLED 2, BAJA 6, OL TRUCK 3, CAMPER 7, SEMI 0, DOZER 1. Engine 8 is unused. There is
+  no engine choice, so the port's car select hides ENGINE for these cars.
+- **Layers:** sound 0x80058220 [id x 2 + layer] (-1 none, | 0x200 on slot 1, the same sample), pitch base
+  0x80058198 [(id - 1) x 2 + layer]. Engines 0-8 on slot 0: 26, 2D, 2C, 30, 2B + 23, 2D, 2E + 2F, 29 + 2A, 27 + 28;
+  bases (layer 0 / 1) 4000/3000, 5000/3000, 6000/3000, 4000/3000, 4000/4000, 7000/5000, 5000/5000, 5000/5000,
+  5000/5000. Slot 1 (player 2) differs: engine 4 is 2B + 2B (no 23), engine 5 is 24 + 25, and engines 5, 6 and 8
+  have bases 4000/4000. Sound 0x23 gets volume 0 and pitch 1 every frame (0x80056888), so it is silent and not played.
+- **Volume:** (int)((int)(A[layer][rpm index] x B[layer][load index] x 1635 + 3270 x 6) x engine volume / 40), with
+  1635 at 0x800AE3DC and 6 at 0x800AE3E0 (no code writes them; Rush 2: x 2000 + 24000), A = 0x80058354 (2 x 11),
+  B = 0x800582B8 (2 x 13), the engine volume option at 0x80150B31 (0-40).
+- **Samples:** the sound effect bank, ROM .ctl 0xD73AE0-0xD78C40 and .tbl 0xD78C40 (loaded at 0x80056E88; one
+  instrument, 95 sounds, 44100 Hz). The engine sounds 0x24-0x30 are looped VADPCM (order 2, 4 predictors), volume 127, sustain
+  127, no detune. The output rate is 22050 Hz, as Rush 2's.
+
+The port reads these from the ROM once (`cs::make`) and plays every California Speed car's engine on the host:
+local players 1 and 2's at a player's own volume (Rush 2's slot engine start is skipped for them,
+`rush2_engine49_start`, as for 2049 cars; player 2 uses the slot 1 rows), other cars by position as
+src/car_engines.cpp plays Rush 2's. Without the bank the cars fall back to their stand-in Rush 2 ENGINE values.
 
 ## 7. Cars
 
@@ -187,7 +274,7 @@ Rush 2's with the fields from +0x5B0 on moved 0x64 later (Rush 2's mass +0x5B0 i
   0x8007D2C4 (3), handling 0x8007D304 (4 for all), steer and yaw adds 0x8007D31C / 0x8007D348 (Rush 2's 0x800C0DF0 /
   0x800C0E1C, the same values), rims 0x8007D3BC. The handling value indexes both adds (`func_8009A838`,
   `func_8009A88C`), as Rush 2's TIRES does: TIRES = 4 (S1 D1). Rush 2's SUSPENSION has no counterpart (NORMAL), and
-  ENGINE (the engine sound) is the most similar Rush 2 car's. 0x8007D3FC / 0x8007D43C are per-player carousel ids
+  ENGINE (the engine sound) is the most similar Rush 2 car's, heard only if California Speed's own engines (6. Engine sounds) can't be read. 0x8007D3FC / 0x8007D43C are per-player carousel ids
   (player x 42 + i, + 21), not colors. [V]
 - **Descriptors** (0x800D6418: 18 pointers to 0xE0-byte descriptors) are Rush 2's 0xEC-byte layout less a few fields
   (`build_descriptor`): 0x00-0x53 the same; Rush 2's +0x54/+0x58/+0x5C missing (California Speed reads
@@ -336,6 +423,5 @@ port's 5x7 lettering. [V in game]
 
 ## 8. Open items
 
-- California Speed's own engine sounds (its cars play Rush 2's).
 - The menu song (for a California Speed menu song switch in the Sound tab).
 - What the finer route line in the paths is for.

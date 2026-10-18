@@ -25,10 +25,11 @@ Join the [Discord](https://discord.gg/nYfFAKMnyx) or watch the [YouTube video](h
 - **AI opponents.** Choose the car, paint and rims of each computer opponent in the General tab.
 - **Ghost races.** Previously a 2049 exclusive feature. Record your runs and race against your own ghost car.
 - **Unlocks.** Earn cars, tracks and engines through an UNLOCKS shop. You can disable and revert to original Rush 2 behavior if you wish
+- **Mod Support** Add or create new tracks and cars
 
-## Three games in one
+## Four games in one
 
-Rush 2 Recompiled is also a home for the rest of the series. Add your ROMs of **San Francisco Rush 2049** and **San Francisco Rush: Extreme Racing** (both N64, US versions) on the Games tab and their tracks, cars, music and mechanics join Rush 2's, all playable through the same menus, with the same widescreen, online play, split screen, ghosts and unlocks. Either ROM is optional and independent of the other; with neither, you get Rush 2 on its own.
+Rush 2 Recompiled is also a home for the rest of the series. Add your ROMs of **San Francisco Rush 2049**, **San Francisco Rush: Extreme Racing** and (experimental) **California Speed** (all N64, US versions) on the Games tab and their tracks, cars, music and mechanics join Rush 2's, all playable through the same menus, with the same widescreen, online play, split screen, ghosts and unlocks. Each ROM is optional and independent of the others; with none, you get Rush 2 on its own.
 
 ### San Francisco Rush 2049
 
@@ -42,8 +43,6 @@ Add the Rush 2049 ROM to get:
 - **Battle arenas.** Eight deathmatch arenas in the BATTLE row, with weapons, pickups, and arrows pointing to the other cars. Computer-controlled drones can fill the arenas, and weapons can also be turned on in regular arena races with a cheat. The track select's BATTLE row turns any race into a battle race: a row of weapon and power-up pickups on every checkpoint line past the start, and drones that grab them and shoot.
 - **Coins.** Collect 2049's coins, which are counted per player in the Progress tab and count toward unlocks.
 
-
-
 ### San Francisco Rush
 
 Add the San Francisco Rush ROM on the Games tab to get:
@@ -52,6 +51,15 @@ Add the San Francisco Rush ROM on the Games tab to get:
 - **The Rush 1 music.** The nine Rush 1 race songs play on its tracks, picked at random.
 - **Rush 1 car decals.** Some of Rush 1's own unique paint jobs are available as a stripe option.
 - **Keys.** Collect the keys hidden on the Rush 1 tracks, which are counted per player in the Progress tab and count toward unlocks.
+
+### California Speed (experimental)
+
+California Speed (Atari Games, 1999) runs on the same engine as Rush 2, so it comes across well, but it is the newest addition and still has rough edges. Add the California Speed ROM on the Games tab to get:
+
+- **The California Speed tracks.** All sixteen tracks, from Monterey to Mt. Shasta, Fuji and San Andreas, after the custom tracks in the track select. Its point-to-point courses are raced over one lap.
+- **The California Speed cars.** All twenty-one cars join the car select after the other cars. Computer cars can drive them too: on every track, only on California Speed's tracks, or not at all.
+- **Road Hold.** California Speed keeps cars on its hills instead of launching them off every crest. This is on by default and can be turned off to use Rush 2's own gravity.
+- **The California Speed music.** Its nine songs play on its tracks, picked at random.
 
 #### Dreamcast disc (experimental)
 
@@ -65,6 +73,7 @@ Rush 2049 can also be loaded from a Dreamcast disc image instead of the N64 ROM,
 - Your own ROM of **Rush 2: Extreme Racing USA**
 - Optional: a ROM of **San Francisco Rush 2049** to play its tracks, cars, arenas and more
 - Optional: a ROM of **San Francisco Rush: Extreme Racing** to play its tracks, music and more
+- Optional, experimental: a ROM of **California Speed** to play its tracks, cars and music
 
 Each game takes one exact ROM, the North American (USA) release, and other regions or versions are turned away. Check yours against these SHA-1 hashes (of the `.z64` file; `.n64` and `.v64` files of the same ROM work too):
 
@@ -73,6 +82,7 @@ Each game takes one exact ROM, the North American (USA) release, and other regio
 | Rush 2: Extreme Racing USA | Rush 2 - Extreme Racing USA (USA) | 12 MB | `01b0a31b1accc18061e8c85f6c5edf0dbd79f097` |
 | San Francisco Rush 2049 (optional) | San Francisco Rush 2049 (USA) | 12 MB | `3f99351d7bb61656614bdb2aa1a90cfe55d1922c` |
 | San Francisco Rush: Extreme Racing (optional) | San Francisco Rush - Extreme Racing (USA) | 8 MB | `cc62539cb30b180c3c7e0aa927786ed061d8d9ab` |
+| California Speed (optional, experimental) | California Speed (USA) | 16 MB | `bd4c070a71ef58499587cb811fb7490b88dd7c0b` |
 
 ## Getting started
 
@@ -93,7 +103,7 @@ Most options live in the settings menu (press Escape, or select).
 - **Sound:** race and menu music per game, plus whether other cars' engines are heard
 - **Controls:** choose which controllers (and the keyboard) can play, the split screen layout, and each save profile's steering, stick deadzone and rumble settings, with buttons to test each rumble effect
 - **Progress:** see the keys and coins you've collected
-- **Games:** pick your Rush 2049 and San Francisco Rush ROMs, then turn on their tracks, cars and Wings
+- **Games:** pick your Rush 2049, San Francisco Rush and California Speed ROMs, then turn on their tracks, cars and Wings
 - **Cheats:** unlock all tracks and cars, plus driving, survival, race and visual cheats. Enable the cheat menu first.
 
 To change your button layout, use the game's own **Controls** screen, under Setup or from the pause menu. Pick a row, press A, then press the button you want for it.
@@ -118,38 +128,30 @@ Texture upscaling keeps its files in the `texture_upscale` folder there: the ups
 
 Want to keep everything on a USB stick or next to the game? Turn on portable mode in the General tab under Data Location. Your data moves into the game's folder the next time you launch.
 
-## Modding: mod.json
+## Modding:
 
-Every mod is a folder or `.rtz` in the `mods` folder (Settings > Mods > Open Mods Folder) with a `mod.json` at its root:
+Rush 2: Recompiled supports modding of tracks and cars. Install one a mod author has made or work on your own!
 
-```json
-{
-  "game_id": "rush2",
-  "id": "my_mod",
-  "display_name": "My Mod",
-  "version": "1.0.0",
-  "authors": ["You"],
-  "minimum_recomp_version": "0.0.0"
-}
-```
-
-`description` and `short_description` are optional, and a `thumb.png` beside it is the mod's picture. A field that's missing or written wrong doesn't hide the mod: it gets a default (the file name for `id`, 0.0.0 for versions) and the mod's page in the Mods menu lists the problems under "mod.json". A mod added while the game runs shows up when you press the refresh button next to Open Mods Folder; a mod with code (`mod_syms.bin`) only turns on after a restart.
 
 ## Modding: replacing models (experimental)
 
 Any model in the game can be swapped for your own mesh, of any detail. Run Dump Models to get every model as a `.glb` in `asset_dump/models`. Open the one you want in Blender or a similar program, edit it or model over it in the same position and scale, and export it as glTF Binary (`.glb`) with its textures embedded and no Draco compression. Keep the dumped file name. Make a mod folder in the `mods` folder holding a `mod.json` (with `"game_id": "rush2"`) and your file under `rush2/models/`, for example `rush2/models/tracks/ALCATRAZ/ALCATRAZL4156.glb`. You can zip the folder into an `.rtz`. Turn the mod on in the Mods menu, and the model changes the next time the game loads it. Only the look changes: cars and tracks still drive and collide as before. A whole car can also go in `rush2/cars/<CAR>.glb`, where it takes the player's paint and dents. `tools/car_mod.py` can build that from a mesh and texture.
 
+## Modding: new cars
+
+A mod can add whole new cars to the car select, next to the ones it already has. For each car, put a `.glb` of it and a short `.json` under `rush2/new_cars/` in your mod: the car's name, which Rush 2 car it drives like, where its wheels go and its starting colors. It takes the player's paint and dents like the other cars, and AI opponents can be given it too. Up to 16 mod cars can be in the game at once. The full guide is [docs/car_mods.md](docs/car_mods.md#new-cars). `tools/arcade2049/car_mod.py` builds a mod with the five San Francisco Rush 2049 arcade cars the N64 game doesn't have.
+
 ## Modding: replacing textures
 
 Any texture can be redrawn or upscaled with whatever tool you like. In Settings > Graphics, under Your Own Upscales, press Dump Textures: every texture in your ROMs is written as a `.png` to `asset_dump/textures`, named after what it belongs to. Edit or upscale the images at any size, and save them under `asset_dump/user_texture_pack` in the same folders, or all in one folder. The file name only has to start with the dumped name, so an upscaler's suffix is fine. Then press Install Upscaled Textures. It builds `mods/rush2_custom_textures.rtz` and turns it on right away, and that one file is what you share. Car bodies are dumped painted violet, yellow and cyan to show where the player's paint goes; keep those areas apart, and the game repaints them in the chosen colors. Textures the game makes as you play, like paint jobs and stripes, are made from your versions automatically.
 
+## Modding: custom tracks
+
+You can add whole new race tracks. Build the track in Blender, mark its surfaces, finish line and checkpoints by object name, draw the racing line the computer cars follow, and export it as `track.glb`. Next to it goes a short `track.toml` with the track's name and, if you like, its timer, fog color, music and surfaces of your own. Add a logo and a track select model if you want them. Put the files in a mod under `rush2/tracks/<your track>/` and turn the mod on. The game converts the track, lists it on the track select after Rush 2049's tracks, and writes a report of anything wrong to the `track_reports` folder. Custom tracks race forward, backward or mirrored, with computer opponents, records and ghosts. To see a track the way the game loads it, and watch the computer cars race it, without starting the game, use [Trackview](docs/custom_tracks.md#previewing-your-track). The full guide is [docs/custom_tracks.md](docs/custom_tracks.md).
+
 ## Modding: HUD layout
 
 You can move, resize or hide any part of the race HUD, separately for each split screen layout and race mode, with the HUD editor. It needs Python and a build of the HUD previewer (`cmd //c "tools\hud_preview\build.bat"`, which also needs your Rush 2 ROM extracted as for building the game). Run `python tools/hud_preview/editor.py --mods <your mods folder>` and open the address it prints. Pick a layout, aspect ratio and mode, then drag elements, set their anchor or scale, or hide them. Type a name and press Save as Mod. The editor writes a mod folder holding a `mod.json` and `rush2/hud_placements.inc`, with only your changes. Turn the mod on in the Mods menu. While it's on, the game picks up each new save within a couple of seconds, without a restart. To keep working on a mod later, start the editor with `--mod <its name>`. The full guide is [docs/hud_layout.md](docs/hud_layout.md#hud-editor).
-
-## Modding: custom tracks (experimental)
-
-You can add whole new race tracks. Build the track in Blender, mark its surfaces, finish line and checkpoints by object name, draw the racing line the computer cars follow, and export it as `track.glb`. Next to it goes a short `track.toml` with the track's name and, if you like, its timer, fog color, music and surfaces of your own. Add a logo and a track select model if you want them. Put the files in a mod under `rush2/tracks/<your track>/` and turn the mod on. The game converts the track, lists it on the track select after Rush 2049's tracks, and writes a report of anything wrong to the `track_reports` folder. Custom tracks race forward, backward or mirrored, with computer opponents, records and ghosts. To see a track the way the game loads it, and watch the computer cars race it, without starting the game, use [Trackview](docs/custom_tracks.md#previewing-your-track). The full guide is [docs/custom_tracks.md](docs/custom_tracks.md).
 
 ## Credits
 

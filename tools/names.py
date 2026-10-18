@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Per-game function registries: what we know about disassembled functions.
 
-Registries live in syms/names/<game>.toml for game in rush1 (SF Rush), rush2 (Rush 2: Extreme Racing USA) and
-rush2049 (Rush 2049). Addresses are per game; they are NOT comparable across games. Each entry:
+Registries live in syms/names/<game>.toml for game in rush1 (SF Rush), rush2 (Rush 2: Extreme Racing USA), rush2049
+(Rush 2049) and calspeed (California Speed, N64). Addresses are per game; they are NOT comparable across games. Each
+entry:
 
     [[func]]
     vram   = 0x80076854          # required, unique per registry
@@ -14,8 +15,9 @@ rush2049 (Rush 2049). Addresses are per game; they are NOT comparable across gam
     consts = "0x3C = frames per second; 0x16 = car type count"   # meaning of the magic numbers it uses
     status = "verified"          # "verified" (confirmed in code/data/test) or "inferred" (educated guess)
     ported = true                # true if src/ or us.toml reimplements/patches it
-    rush2  = 0x80077518          # rush1/rush2049 only: the equivalent Rush 2 function, if matched
-    rush1 / rush2049 = [0x..]    the same function in the other games, as lists (several copies can map to one function).
+    rush2  = 0x80077518          # rush1/rush2049/calspeed only: the equivalent Rush 2 function, if matched
+    rush1 / rush2049 / calspeed = [0x..]   the same function in the other games, as lists (several copies can map to
+                                 one function).
                                  Derived: `names.py backlinks` fills them from the `rush2` links, creating a stub entry
                                  in the rush2 registry for every linked Rush 2 function. Do not edit by hand.
     link   = "same-code"         # how the rush2 link was established: "same-code" (near-identical code, checked with
@@ -37,7 +39,8 @@ Commands (run from anywhere):
                                               existing ones missing fields are filled and a differing desc is appended
     names.py anchors [--game G]               set every docs/*.md ref to the heading (#slug) of the first mention
                                               of the address in that doc; other refs are plain file paths
-    names.py backlinks                        derive rush1/rush2049 lists from the rush2 links (all games, both ways)
+    names.py backlinks                        derive rush1/rush2049/calspeed lists from the rush2 links (all games,
+                                              both ways)
     names.py rename [--apply]                 give the build the registry names: rewrite func_XXXXXXXX -> <name>_XXXXXXXX
                                               (rush2 registry entries that have a name) in syms/rush2.us.syms.toml, us.toml
                                               and the CODE of src/ include/ patches/ (comments and docs are left alone,
@@ -64,9 +67,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIR = ROOT / "syms" / "names"
-GAMES = ("rush1", "rush2", "rush2049")
-FIELDS = ("vram", "name", "sig", "desc", "consts", "status", "ported", "rush2", "rush1", "rush2049", "link", "area", "ref")
-LIST_FIELDS = ("rush1", "rush2049")
+GAMES = ("rush1", "rush2", "rush2049", "calspeed")
+OTHER_GAMES = ("rush1", "rush2049", "calspeed")  # the games linked to Rush 2
+FIELDS = ("vram", "name", "sig", "desc", "consts", "status", "ported", "rush2", "rush1", "rush2049", "calspeed", "link",
+          "area", "ref")
+LIST_FIELDS = OTHER_GAMES
 LINKS = ("same-code", "role")
 STATUSES = ("verified", "inferred")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -146,7 +151,7 @@ def sym(game, e):
 
 def show(game, e):
     print("%-8s %08X  %s" % (game, e["vram"], sym(game, e)))
-    for k in ("status", "area", "ported", "rush2", "rush1", "rush2049", "ref"):
+    for k in ("status", "area", "ported", "rush2") + OTHER_GAMES + ("ref",):
         if k in e:
             v = e[k]
             if k == "rush2":
@@ -421,7 +426,7 @@ def cmd_backlinks(a):
                 e.pop(k, None)
     made = 0
     fwd = {}  # rush2 vram -> {game: [vram]}
-    for g in ("rush1", "rush2049"):
+    for g in OTHER_GAMES:
         for e in reg[g]:
             if "rush2" in e:
                 fwd.setdefault(e["rush2"], {}).setdefault(g, []).append(e["vram"])
@@ -429,17 +434,17 @@ def cmd_backlinks(a):
         e = by["rush2"].get(t)
         if e is None:
             e = {"vram": t, "status": "inferred",
-                 "desc": "Has counterparts in the other games (see rush1/rush2049); purpose not yet worked out."}
+                 "desc": "Has counterparts in the other games (see rush1/rush2049/calspeed); purpose not yet worked out."}
             reg["rush2"].append(e)
             by["rush2"][t] = e
             made += 1
         for g, lst in d.items():
             e[g] = sorted(lst)
-        for g in ("rush1", "rush2049"):
-            other = "rush2049" if g == "rush1" else "rush1"
-            if g in d and other in d:
-                for v in d[g]:
-                    by[g][v][other] = sorted(d[other])
+        for g in d:
+            for other in d:
+                if other != g:
+                    for v in d[g]:
+                        by[g][v][other] = sorted(d[other])
     for g in GAMES:
         dump(g, reg[g])
     print("%d stub rush2 entries created; %d rush2 entries now link to other games" % (made, len(fwd)))
@@ -687,7 +692,7 @@ def cmd_index(a):
                 old.unlink()
         for ar in areas:
             fp = INDEX_DIR / ("%s_%s.md" % (g, ar))
-            title = "%s %s functions" % ({"rush1": "SF Rush", "rush2": "Rush 2", "rush2049": "Rush 2049"}[g], ar)
+            title = "%s %s functions" % ({"rush1": "SF Rush", "rush2": "Rush 2", "rush2049": "Rush 2049", "calspeed": "California Speed"}[g], ar)
             out = ["# %s\n\n" % title,
                    "Generated by `tools/names.py index` from syms/names/%s.toml; edit the registry, not this file.\n"
                    "Names and signatures marked inferred are educated guesses from the code.\n\n" % g,

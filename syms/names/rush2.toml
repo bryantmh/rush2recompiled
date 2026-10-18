@@ -5389,6 +5389,7 @@ sig = "f32 snd_engine_volume_law(s32 a0, s32 a1, s32 a2)"
 desc = "Part of Rush 2's engine sound law (with func_80062640 and func_80062598)."
 consts = "40.0, 2000.0"
 status = "inferred"
+calspeed = [0x800564B0]
 area = "audio"
 ref = "src/car_engines.cpp"
 
@@ -5398,6 +5399,7 @@ name = "snd_engine_pitch_law"
 sig = "void snd_engine_pitch_law(f32 *rpm, s32 a1, s32 a2)"
 desc = "Part of Rush 2's engine sound law (with func_80062640 and func_800624E4)."
 status = "inferred"
+calspeed = [0x8005629C]
 area = "audio"
 ref = "src/car_engines.cpp"
 
@@ -5407,6 +5409,7 @@ name = "snd_engine_layer_select"
 sig = "s32 snd_engine_layer_select(s32 *out_sound, s32 *out, s32 a2)"
 desc = "Rush 2 engine sound law (with func_80062598 and func_800624E4): layer sound = 0x800BD1FC[engine*2+layer], pitch = min(r / 0x800BD15C[engine*2+layer], 2)."
 status = "verified"
+calspeed = [0x8005632C]
 area = "audio"
 ref = "src/car_engines.cpp"
 
@@ -5416,6 +5419,7 @@ name = "snd_engine_slot_start"
 sig = "void snd_engine_slot_start(s32 slot)"
 desc = "Starts an engine sound voice: selects layers (snd_engine_layer_select), computes pitch/volume via snd_engine_pitch_law and snd_engine_volume_law, then snd_play_effect; sets snd_engine_pitch (800BD154) and snd_engine_volume (800BD158) state. (low confidence on details)"
 status = "inferred"
+calspeed = [0x800565FC]
 area = "audio"
 ref = "docs/functions/rush2_audio.md#rush-2-audio-functions"
 
@@ -5444,6 +5448,7 @@ name = "snd_engine_voices_update"
 sig = "void snd_engine_voices_update(void)"
 desc = "Rush 2 engine voice updater; loops over local player slots 0-1 only, so computer cars are silent. | Retunes the engine slot voices (2 slots) every audio frame."
 status = "verified"
+calspeed = [0x80056724]
 area = "audio"
 ref = "docs/rush2049_research/audio.md#7-engine-sounds"
 
@@ -5704,9 +5709,10 @@ ref = "docs/rush2049_research/audio.md#7-engine-sounds"
 vram = 0x80064F70
 name = "car_engine_sound_update"
 sig = "s32 car_engine_sound_update(Car *car, s32 a1, s32 a2)"
-desc = "Patched in us.toml. Rush 2049 engine sounds (src/rush2049/engine2049.cpp): a local player slot driving a 2049 car skips Rush 2's engine start (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame (func_80064F70); func_8008C49C (pause, race end) stops it. | Reads car-state +0x344 covered level (tunnels and covered areas, inferred). | Per-car, per-frame engine update ($a0 rpm, $a1 load, $a2 slot; both 0 with the engine off, car state +0x343 > 0 = engine off): writes the slot's rpm and load. Hooked at entry to also run Rush 2049's engine layers."
+desc = "Patched in us.toml. Rush 2049 engine sounds (src/rush2049/engine2049.cpp): a local player slot driving a 2049 or California Speed car (whose engine src/car_engines.cpp plays) skips Rush 2's engine start (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame (func_80064F70); func_8008C49C (pause, race end) stops it. | Reads car-state +0x344 covered level (tunnels and covered areas, inferred). | Per-car, per-frame engine update ($a0 rpm, $a1 load, $a2 slot; both 0 with the engine off, car state +0x343 > 0 = engine off): writes the slot's rpm and load. Hooked at entry to also run Rush 2049's engine layers."
 status = "verified"
 ported = true
+calspeed = [0x800ADEFC]
 area = "collision"
 ref = "us.toml"
 
@@ -5716,6 +5722,7 @@ name = "car_engine_sound_set_rpm_load"
 sig = "void car_engine_sound_set_rpm_load(Car *car, s32 slot)"
 desc = "Reads engine load as u16 & 0x7FFF (car +0x3F4 x [0x800E7BAC]) for Rush 2 engine sound volume. | Sets the engine rpm/load for a car's slot; car +0x648 (s8) nonzero means no engine; byte 0x800E7BCE nonzero mutes every engine to 0 rpm. rpm = |car +0x7F0| x [0x800E7BA4], load = car +0x3F4 x [0x800E7BAC] (u16 & 0x7FFF)."
 status = "verified"
+calspeed = [0x8007EC70]
 area = "audio"
 ref = "docs/rush2049_research/audio.md#7-engine-sounds"
 
@@ -6426,7 +6433,7 @@ ref = "docs/functions/rush2_track.md#rush-2-track-functions"
 vram = 0x8006DB70
 name = "car_timer_countdown_update"
 sig = "void car_timer_countdown_update(s32 a0, s32 a1, s32 a2)"
-desc = "Per-car timer/state update walking the path via path_next_node, path_spine_ptr (80111944) and path_checkpoint_ptr (8011194C) and car_timer_update; loops over players with car stride 0x30C; called from car_place_by_case. (low confidence)"
+desc = "Per-car timer/state update walking the path via path_next_node, path_spine_ptr (80111944) and path_branch_records (8011194C) and car_timer_update; loops over players with car stride 0x30C; called from car_place_by_case. (low confidence)"
 consts = "0x30C = per-player stride"
 status = "inferred"
 area = "car"
@@ -9026,10 +9033,11 @@ ref = "us.toml"
 vram = 0x8008C49C
 name = "engine_sound_stop"
 sig = "void engine_sound_stop(void)"
-desc = "Patched in us.toml. Rush 2049 engine sounds (src/rush2049/engine2049.cpp): a local player slot driving a 2049 car skips Rush 2's engine start (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame (func_80064F70); func_8008C49C (pause, race end) stops it. | Stops every slot's engine (command 0x8000 | sound per sound, clears 0x800D56F8); stops only slots with an engine set. Hooked at entry (pause, race end)."
+desc = "Patched in us.toml. Rush 2049 engine sounds (src/rush2049/engine2049.cpp): a local player slot driving a 2049 or California Speed car (whose engine src/car_engines.cpp plays) skips Rush 2's engine start (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame (func_80064F70); func_8008C49C (pause, race end) stops it. | Stops every slot's engine (command 0x8000 | sound per sound, clears 0x800D56F8); stops only slots with an engine set. Hooked at entry (pause, race end)."
 consts = "0x8000 = stop command flag"
 status = "verified"
 ported = true
+calspeed = [0x800563DC]
 area = "audio"
 ref = "us.toml"
 
@@ -9047,10 +9055,11 @@ ref = "docs/functions/rush2_audio.md#rush-2-audio-functions"
 vram = 0x8008C61C
 name = "engine_sound_start"
 sig = "void engine_sound_start(s32 engine, s32 slot)"
-desc = "Patched in us.toml. Rush 2049 engine sounds (src/rush2049/engine2049.cpp): a local player slot driving a 2049 car skips Rush 2's engine start (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame (func_80064F70); func_8008C49C (pause, race end) stops it. | Starts engine a0 on slot a1: sets 0x800D56F8[slot] = engine + 10*slot + 1 and sends command 0x1FFE + slot; takes a lock (message queue 0x800D3E48, created on first call). Hooked at 0x8008C684 and called by the car select ENGINE row preview."
+desc = "Patched in us.toml. Rush 2049 engine sounds (src/rush2049/engine2049.cpp): a local player slot driving a 2049 or California Speed car (whose engine src/car_engines.cpp plays) skips Rush 2's engine start (func_8008C61C: race start, end of a pause) and plays 2049's engine from the car's rpm and load each frame (func_80064F70); func_8008C49C (pause, race end) stops it. | Starts engine a0 on slot a1: sets 0x800D56F8[slot] = engine + 10*slot + 1 and sends command 0x1FFE + slot; takes a lock (message queue 0x800D3E48, created on first call). Hooked at 0x8008C684 and called by the car select ENGINE row preview."
 consts = "0x1FFE = engine start command"
 status = "verified"
 ported = true
+calspeed = [0x80056594]
 area = "audio"
 ref = "us.toml"
 
@@ -9061,6 +9070,7 @@ sig = "void race_start_engine_sounds(s32 a0, s32 a1, s32 a2, s32 a3)"
 desc = "Race setup step between func_8009E664 and func_8008C61C: starts the race's engines."
 consts = "0xA = 10 loop/limit; 0x7FFF = max volume/pitch"
 status = "inferred"
+calspeed = [0x800ADE48]
 area = "audio"
 ref = "src/engine_preview.cpp"
 
@@ -9414,7 +9424,7 @@ ref = "docs/rush2049_research/checkpoints.md#8-car-tracker-checkpoint-window-and
 vram = 0x8008FA10
 name = "respawn_find_spot"
 sig = "s32 respawn_find_spot(Car *car, s32 node, s32 a2, s32 depth)"
-desc = "Recursive helper of respawn_place_car that searches for a valid respawn position along the path data (path_node_count, path_spine_count, path_checkpoint_ptr, stride 0x50). (low confidence)"
+desc = "Recursive helper of respawn_place_car that searches for a valid respawn position along the path data (path_node_count, path_spine_count, path_branch_records, stride 0x50). (low confidence)"
 consts = "0x50 = path record stride"
 status = "inferred"
 area = "car"
@@ -9444,7 +9454,7 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 vram = 0x8008FC84
 name = "route_walk_branch_step"
 sig = "void route_walk_branch_step(void *a0, s32 a1, s32 a2, s32 *a3, s32 a4)"
-desc = "Route/path helper used by route_branch_walk; loops twice over path data (path_checkpoint_ptr, path_spine_count, path_node_count) with stride 0x50. (low confidence)"
+desc = "Route/path helper used by route_branch_walk; loops twice over path data (path_branch_records, path_spine_count, path_node_count) with stride 0x50. (low confidence)"
 consts = "0x50 = path record stride"
 status = "inferred"
 rush2049 = [0x800D2CDC]
@@ -9464,7 +9474,7 @@ ref = "docs/rush2049_research/race.md#33-routes-from-0x32c"
 vram = 0x8008FEA8
 name = "route_branch_scan_a"
 sig = "void route_branch_scan_a(void *a0, s32 a1, s32 a2, s32 a3, s32 stack)"
-desc = "Loops over route branches checking route_branch_can_attach (reads path_checkpoint_ptr); one of the helpers of route_branch_walk. (low confidence)"
+desc = "Loops over route branches checking route_branch_can_attach (reads path_branch_records); one of the helpers of route_branch_walk. (low confidence)"
 status = "inferred"
 rush2049 = [0x800D2DCC]
 area = "track"
@@ -9483,7 +9493,7 @@ ref = "docs/functions/rush2_track.md#rush-2-track-functions"
 vram = 0x8009008C
 name = "route_branch_walk"
 sig = "s32 route_branch_walk(void *a0, s32 a1, s32 *a2, s32 a3, s32 stack13, s32 stack14)"
-desc = "Recursive walk over route branches using route_branch_scan_a/b and route_walk_branch_step; reads path_node_count, path_spine_count and path_checkpoint_ptr (stride 0x50). (low confidence)"
+desc = "Recursive walk over route branches using route_branch_scan_a/b and route_walk_branch_step; reads path_node_count, path_spine_count and path_branch_records (stride 0x50). (low confidence)"
 consts = "0x50 = path record stride"
 status = "inferred"
 area = "track"
@@ -9524,7 +9534,7 @@ ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 vram = 0x80090A40
 name = "respawn_place_car"
 sig = "void respawn_place_car(Car *car)"
-desc = "Patched in us.toml. Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. | Respawn: moves on from the tracker's point along the route (func_8008F8B0) by min(lane speed mph x 1.4667, 146.67) x k x (seconds wrecked + T)/20 points (k = 0.8, 1.1 if state +0x300 set; T = 1.5 s); calls func_8008F220 if it passes the next checkpoint's crossing. | Respawn: moves a player's respawn point on along the branch and places a crashed car 1.5 ft over its respawn point. Hooked at 0x80091368 and 0x800918E8. | Battle arenas: rush2_track49_respawn_zone_place (0x800918E8) puts every car at 2049's battle respawn point (the route point farthest from the other cars), +3 ft, no speed, and points func_8006D348 at it (0x1A8(sp) point, 0x1B0(sp) branch -1, a3 = 1)."
+desc = "Patched in us.toml. Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. | Respawn: moves on from the tracker's point along the route (func_8008F8B0) by min(lane speed mph x 1.4667, 146.67) x k x (seconds wrecked + T)/20 points (k = 0.8, 1.1 if state +0x300 set; T = 1.5 s); calls func_8008F220 if it passes the next checkpoint's crossing. | Respawn: moves a player's respawn point on along the branch and places a crashed car 1.5 ft over its respawn point. Hooked at 0x80091368 and 0x800918E8. | Battle arenas: rush2_track49_respawn_zone_place (0x800918E8) puts every car at 2049's battle respawn point (the route point farthest from the other cars), +3 ft, no speed, and points func_8006D348 at it (0x1A8(sp) point, 0x1B0(sp) branch -1, a3 = 1). | California Speed resets (src/calspeed/calspeed_rom.cpp, docs/calspeed_research.md section 5): at 0x80091368 no move along the route (rush2_calspeed_respawn_advance), at 0x800918E8 the car's route point from California Speed's tracker (track_route, its func_8009BF34) plus its per-car and per-track offset, at the point's height (rush2_calspeed_respawn_place); where California Speed's wheel test finds no road under that spot (San Francisco's bridge, whose route lies at sea level), the AI lane point nearest the car, +1.5 ft, faced along the lane."
 consts = "146.667 = max speed ft/s, 1.46667 = mph to ft/s"
 status = "verified"
 ported = true
@@ -9536,7 +9546,7 @@ ref = "us.toml"
 vram = 0x80091ADC
 name = "car_store_last_safe_pose"
 sig = "void car_store_last_safe_pose(void)"
-desc = "Each frame stores the car's last safe pose into car +0x7B0."
+desc = "Stores a pose into car +0x7B0 (the physics snapshot position); called only from car_race_start_pose_setup_8009A264, at the race start (not each frame)."
 status = "verified"
 area = "race"
 ref = "docs/rush2049_research/race.md#4-how-the-race-is-defined"
@@ -11016,6 +11026,17 @@ area = "race"
 ref = "us.toml"
 
 [[func]]
+vram = 0x8009E66C
+name = "player_engine_start"
+sig = "void player_engine_start(s16 slot)"
+desc = "Race setup: starts the slot's engine (race_start_engine_sounds with 0x800E7BBC[slot], rpm 250, load 100) and sets the engine sound scales: rpm 1.0 (0x800E7BA4), load [0x800CFDDC] = 0.3 (0x800E7BAC)."
+consts = "0xFA = start rpm; 0x64 = start load"
+status = "verified"
+calspeed = [0x8007EC08]
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
 vram = 0x8009E6D0
 name = "profile_get_selected_car_type"
 sig = "s32 profile_get_selected_car_type(u8 *rec_byte)"
@@ -11050,7 +11071,7 @@ ref = "docs/online.md#the-race"
 vram = 0x8009EF34
 name = "race_checkpoint_progress_update"
 sig = "void race_checkpoint_progress_update(void)"
-desc = "Large per-frame checkpoint progress computation (11 loops) called from checkpoint_gate_test: queries race_query_by_index, race_progress_wrap_to_loop_start, route_choose_branch, normalizes vectors, race_spine_dist_to_next_checkpoint; state in path_checkpoint_ptr and path_node_count/path_checkpoint_count."
+desc = "Large per-frame checkpoint progress computation (11 loops) called from checkpoint_gate_test: queries race_query_by_index, race_progress_wrap_to_loop_start, route_choose_branch, normalizes vectors, race_spine_dist_to_next_checkpoint; state in path_branch_records and path_node_count/path_checkpoint_count."
 consts = "0x81C = car stride, 0x50 = path record stride"
 status = "inferred"
 area = "race"

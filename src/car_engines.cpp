@@ -10,6 +10,9 @@
 // - A Rush 2 car plays Rush 2's engine for its default engine sound with Rush 2's law. Its samples are read from the
 //   game's sound effect bank (the ALInstrument at 0x800D2478, as func_80062264 starts them) and decoded from the ROM
 //   here, and mixed into the game's output, since Rush 2's own player has voices for only the two local engines.
+// - A California Speed car plays its own engine with California Speed's tables and samples (below). Local players 1
+//   and 2's California Speed cars are played here too, at a player's own volume, since Rush 2's slot engines only have
+//   Rush 2's sounds (their start is skipped: src/rush2049/engine2049.cpp).
 //
 // Rush 2's engine law (func_80062640 / func_80062598 / func_800624E4), from the slot's rpm r = |car +0x7F0| x
 // [0x800E7BA4] and load l = car +0x3F4 x [0x800E7BAC] (both as u16 & 0x7FFF, func_800650DC / func_80064F70):
@@ -37,6 +40,7 @@
 #include "librecomp/game.hpp"
 #include "audio2049.h"
 #include "car2049.h"
+#include "calspeed.h"
 #include "car_engines.h"
 #include "engine2049.h"
 #include "online.h"
@@ -261,45 +265,210 @@ namespace {
         rush2::track2049::effects_running(rdram);
     }
 
-    void update_rush2(uint8_t* rdram, int car, int engine, uint32_t c, const float pos[3],
-                      const std::vector<Listener>& listeners, bool own) {
+    // One car's engine under Rush 2's law, which California Speed shares with its own tables: each layer's sample and
+    // pitch base, the rpm and load volume tables, and volume = (int)((int)(A x B x volume_scale + volume_base) x engine
+    // volume / 40).
+    struct Law {
+        std::shared_ptr<Sample> sample[2];   // null: no layer
+        float base[2] = {};
+        float rpm_table[2][11] = {}, load_table[2][13] = {};
+        float volume_scale = 2000.0f, volume_base = 24000.0f;
+        float rpm_scale = 1.0f, load_scale = 0.0f;
+    };
+
+    std::shared_ptr<Sample> rush2_sample(uint8_t* rdram, int id) {
+        auto it = samples.find(id);
+        if (it == samples.end()) it = samples.emplace(id, load_sample(rdram, id)).first;
+        return it->second;
+    }
+
+    // Rush 2's engine `engine` (0-9) from its tables in RDRAM.
+    Law rush2_law(uint8_t* rdram, int engine) {
+        Law law;
+        for (int layer = 0; layer < 2; layer++) {
+            int id = (int32_t)MEM_W(0, (int32_t)(engine_sounds + (engine * 2 + layer) * 4));
+            if (id >= 0 && (id & ~0x200) != turbo_sound) law.sample[layer] = rush2_sample(rdram, id & ~0x200);
+            law.base[layer] = f32_at(rdram, engine_bases + (engine * 2 + layer) * 4);
+            for (int i = 0; i < 11; i++) law.rpm_table[layer][i] = f32_at(rdram, rpm_table + (layer * 11 + i) * 4);
+            for (int i = 0; i < 13; i++) law.load_table[layer][i] = f32_at(rdram, load_table + (layer * 13 + i) * 4);
+        }
+        law.rpm_scale = f32_at(rdram, rpm_scale);
+        law.load_scale = f32_at(rdram, load_scale);
+        return law;
+    }
+
+    void play(uint8_t* rdram, int car, const Law& law, uint32_t c, const float pos[3],
+              const std::vector<Listener>& listeners, bool own) {
         if (levels49[car] >= 0) stop_car(car);
-        float r = float(uint32_t(std::abs((int)(int16_t)MEM_H(0, (int32_t)(c + car_rpm)) * f32_at(rdram, rpm_scale))) & 0x7FFF);
-        float l = float(uint32_t((int16_t)(int32_t)(f32_at(rdram, c + car_load) * f32_at(rdram, load_scale))) & 0x7FFF);
+        float r = float(uint32_t(std::abs((int)(int16_t)MEM_H(0, (int32_t)(c + car_rpm)) * law.rpm_scale)) & 0x7FFF);
+        float l = float(uint32_t((int16_t)(int32_t)(f32_at(rdram, c + car_load) * law.load_scale)) & 0x7FFF);
         int ri = std::clamp(int(r / 1000.0f), 0, 10);
         int li = std::clamp(int((l + 80.0f) * 0.025f), 0, 12);
         float option_volume = (int8_t)MEM_B(0, (int32_t)engine_volume) / 40.0f;
         for (int layer = 0; layer < 2; layer++) {
             Voice& v = voices[car][layer];
-            int id = (int32_t)MEM_W(0, (int32_t)(engine_sounds + (engine * 2 + layer) * 4));
-            if (id < 0 || (id & ~0x200) == turbo_sound) {
+            const std::shared_ptr<Sample>& sample = law.sample[layer];
+            if (sample == nullptr) {
                 v = Voice{};
                 continue;
             }
-            id &= ~0x200;
-            auto it = samples.find(id);
-            if (it == samples.end()) it = samples.emplace(id, load_sample(rdram, id)).first;
-            if (it->second == nullptr) {
-                v = Voice{};
-                continue;
-            }
-            float base = f32_at(rdram, engine_bases + (engine * 2 + layer) * 4);
+            float base = law.base[layer];
             float pitch = base > 0.0f ? std::min(r / base, 2.0f) : 1.0f;
-            float a = f32_at(rdram, rpm_table + (layer * 11 + ri) * 4);
-            float b = f32_at(rdram, load_table + (layer * 13 + li) * 4);
-            int volume = int(float(int(a * b * 2000.0f + 24000.0f)) * option_volume);
+            float a = law.rpm_table[layer][ri];
+            float b = law.load_table[layer][li];
+            int volume = int(float(int(a * b * law.volume_scale + law.volume_base)) * option_volume);
             audio::EmitterParams e = own ? own_engine(1.0f) : hear(pos, listeners, other_car_volume);
-            float gain = std::clamp(volume / 32767.0f, 0.0f, 1.0f) * it->second->level * e.volume;
+            float gain = std::clamp(volume / 32767.0f, 0.0f, 1.0f) * sample->level * e.volume;
             float angle = (std::clamp(e.pan, -1.0f, 1.0f) + 1.0f) * 0.25f * 3.14159265f;
-            if (v.sample != it->second) {
+            if (v.sample != sample) {
                 v = Voice{};
-                v.sample = it->second;
+                v.sample = sample;
             }
-            v.step = pitch * it->second->rate;
+            v.step = pitch * sample->rate;
             v.target[0] = gain * std::cos(angle);
             v.target[1] = gain * std::sin(angle);
         }
     }
+}
+
+// California Speed's engines (docs/calspeed_research.md, "Engine sounds"). California Speed plays them as Rush 2 does
+// (its engine code is Rush 2's: start 0x80056594, voice update 0x80056724, laws 0x8005629C / 0x8005632C / 0x800564B0),
+// with its own tables and sound bank, which are read from its ROM once:
+//   engine        = 0x8007D284 [car] (s8, 9 engines), voice id = engine + 9 x slot + 1 (0x80056594)
+//   layer sound   = 0x80058220 [id * 2 + layer] (-1 none; slot 1's rows have 0x200 set and their own sounds for
+//                   engines 4 and 5), its pitch base 0x80058198 [(id - 1) * 2 + layer]; sound 0x23 (engine 4's second
+//                   layer on slot 0: the FIVE OH and GOLF CART) plays at pitch 1 and volume 0 (0x80056724), so it is
+//                   left out
+//   volume (s16)  = (int)((int)(A[layer][rpm index] x B[layer][load index] x 1635 (0x800AE3DC) + 3270 x 6 (0x800AE3E0))
+//                   x engine volume / 40), A = 0x80058354 (2 x 11), B = 0x800582B8 (2 x 13)
+//   rpm, load     = |car rpm| x 0.8, car load x 0.3 (0x8007EC08 / 0x8007EC70; the same car fields as Rush 2's)
+// The samples are its sound effect bank's (ROM .ctl 0xD73AE0, .tbl 0xD78C40, read at 0x80056E88).
+namespace {
+    namespace cs {
+        constexpr int car_count = rush2::car_types::count_calspeed;
+        constexpr int engines = 9;
+        constexpr int ids = 2 * engines;
+        constexpr uint32_t car_engines = 0x8007D284;
+        constexpr uint32_t sounds = 0x80058220;
+        constexpr uint32_t bases = 0x80058198;
+        constexpr uint32_t rpm_table = 0x80058354;
+        constexpr uint32_t load_table = 0x800582B8;
+        constexpr uint32_t volume_scale = 0x800AE3DC;
+        constexpr uint32_t volume_base = 0x800AE3E0;
+        constexpr float rpm_scale = 0.8f, load_scale = 0.3f;
+        constexpr int silent_sound = 0x23;
+        constexpr uint32_t ctl = 0xD73AE0, tbl = 0xD78C40;
+
+        struct Bank {
+            int8_t engine[car_count] = {};
+            Law law[ids];   // by voice id - 1
+        };
+        std::mutex bank_mutex;
+        std::shared_ptr<const Bank> bank;
+        bool loaded = false;
+
+        uint32_t be32(const std::vector<uint8_t>& rom, uint32_t o) {
+            if ((uint64_t)o + 4 > rom.size()) return 0;
+            return (uint32_t(rom[o]) << 24) | (uint32_t(rom[o + 1]) << 16) | (uint32_t(rom[o + 2]) << 8) | rom[o + 3];
+        }
+
+        float main_f32(const std::vector<uint8_t>& rom, uint32_t vram) {
+            uint32_t bits = rush2::calspeed::main_word(rom, vram);
+            float f;
+            memcpy(&f, &bits, 4);
+            return f;
+        }
+
+        // Sound `id` of the sound effect bank, as load_sample reads Rush 2's from RDRAM (the .ctl's pointers are
+        // offsets into it, the wave bases offsets into the .tbl).
+        std::shared_ptr<Sample> load(const std::vector<uint8_t>& rom, int id) {
+            auto at = [&](uint32_t o) { return ctl + be32(rom, o); };
+            uint32_t inst = at(at(ctl + 4) + 0xC);
+            if (id < 0 || id >= int16_t(be32(rom, inst + 0xC) & 0xFFFF)) return nullptr;
+            uint32_t sound = at(inst + 0x10 + id * 4);
+            uint32_t env = at(sound), keymap = at(sound + 4), wave = at(sound + 8);
+            uint32_t base = be32(rom, wave), len = be32(rom, wave + 4);
+            uint32_t loop = be32(rom, wave + 0xC), book = be32(rom, wave + 0x10);
+            if (wave + 0x14 > rom.size() || rom[wave + 8] != 0 || book == 0 || (uint64_t)tbl + base + len > rom.size()) {
+                return nullptr;
+            }
+            book += ctl;
+            int order = (int32_t)be32(rom, book), predictors = (int32_t)be32(rom, book + 4);
+            if (order != 2 || predictors <= 0 || predictors > 16) return nullptr;
+            std::vector<int16_t> coefs(predictors * order * 8);
+            for (size_t i = 0; i < coefs.size(); i++) coefs[i] = int16_t(be32(rom, uint32_t(book + 8 + i * 2)) >> 16);
+            auto s = std::make_shared<Sample>();
+            if (!decode_vadpcm(std::span<const uint8_t>(rom).subspan(tbl + base, len), coefs, order, predictors, s->pcm) ||
+                s->pcm.empty()) {
+                return nullptr;
+            }
+            if (loop != 0 && be32(rom, ctl + loop + 8) != 0) {
+                s->loop_start = be32(rom, ctl + loop);
+                s->loop_end = std::min<uint32_t>(be32(rom, ctl + loop + 4), (uint32_t)s->pcm.size());
+                if (s->loop_end <= s->loop_start + 1) s->loop_end = 0;
+            }
+            s->level = (be32(rom, sound + 0xC) >> 16 & 0xFF) / 127.0f * (be32(rom, env + 0xC) >> 16 & 0xFF) / 127.0f;
+            s->rate = std::exp2(int8_t(be32(rom, keymap + 4) >> 16 & 0xFF) / 1200.0f);
+            return s;
+        }
+
+        std::shared_ptr<const Bank> make(const std::vector<uint8_t>& rom) {
+            auto b = std::make_shared<Bank>();
+            for (int i = 0; i < car_count; i++) {
+                uint32_t a = car_engines + i;
+                b->engine[i] = int8_t(rush2::calspeed::main_word(rom, a & ~3u) >> (24 - 8 * (a & 3)));
+                if (b->engine[i] < 0 || b->engine[i] >= engines) return nullptr;
+            }
+            std::map<int, std::shared_ptr<Sample>> decoded;
+            for (int id = 1; id <= ids; id++) {
+                Law& law = b->law[id - 1];
+                for (int layer = 0; layer < 2; layer++) {
+                    int sound = (int32_t)rush2::calspeed::main_word(rom, sounds + (id * 2 + layer) * 4);
+                    law.base[layer] = main_f32(rom, bases + ((id - 1) * 2 + layer) * 4);
+                    for (int i = 0; i < 11; i++) law.rpm_table[layer][i] = main_f32(rom, rpm_table + (layer * 11 + i) * 4);
+                    for (int i = 0; i < 13; i++) law.load_table[layer][i] = main_f32(rom, load_table + (layer * 13 + i) * 4);
+                    if (sound < 0 || (sound & ~0x200) == silent_sound) continue;
+                    sound &= ~0x200;
+                    auto it = decoded.find(sound);
+                    if (it == decoded.end()) it = decoded.emplace(sound, load(rom, sound)).first;
+                    if (it->second == nullptr) return nullptr;
+                    law.sample[layer] = it->second;
+                }
+                law.volume_scale = main_f32(rom, volume_scale);
+                law.volume_base = 3270.0f * (int32_t)rush2::calspeed::main_word(rom, volume_base);
+                law.rpm_scale = rpm_scale;
+                law.load_scale = load_scale;
+            }
+            fprintf(stderr, "[engines] California Speed engines ready (%zu sounds)\n", decoded.size());
+            return b;
+        }
+
+        // The bank, read once the ROM is there (null without it, or if it isn't as expected).
+        std::shared_ptr<const Bank> get() {
+            std::lock_guard lock{ bank_mutex };
+            if (!loaded) {
+                auto rom = rush2::calspeed::get_rom();
+                if (rom == nullptr) return nullptr;
+                bank = make(*rom);
+                loaded = true;
+                if (bank == nullptr) fprintf(stderr, "[engines] California Speed engines not found, its cars play Rush 2's\n");
+            }
+            return bank;
+        }
+
+        // The California Speed engine of physics car `c`, or -1.
+        int engine_of(uint8_t* rdram, uint32_t c, std::shared_ptr<const Bank>& b) {
+            int type = MEM_BU(0, (int32_t)(c + car_type));
+            if (!rush2::car_types::is_calspeed(type)) return -1;
+            b = get();
+            return b != nullptr ? b->engine[type - rush2::car_types::first_calspeed] : -1;
+        }
+    }
+}
+
+int rush2::car_engines::calspeed_engine(uint8_t* rdram, uint32_t car) {
+    std::shared_ptr<const cs::Bank> b;
+    return cs::engine_of(rdram, car, b);
 }
 
 void rush2::car_engines::set_enabled(bool enabled) {
@@ -333,17 +502,25 @@ void rush2::car_engines::update(uint8_t* rdram) {
     bool muted = MEM_BU(0, (int32_t)engines_muted) != 0;
     bool extra_player[max_cars] = {};
     bool slot_player[max_cars] = {};
+    int player_slot[max_cars] = {};
     for (int s = 0; s < local; s++) {
         int car = local_car(s);
-        if (car >= 0 && car < max_cars) (s < 2 ? slot_player : extra_player)[car] = true;
+        if (car >= 0 && car < max_cars) {
+            (s < 2 ? slot_player : extra_player)[car] = true;
+            player_slot[car] = s & 1;
+        }
     }
     std::lock_guard lock{ mutex };
     for (int car = 0; car < max_cars; car++) {
         uint32_t c = physics_cars + car * physics_car_size;
-        // Local players 1 and 2's cars have the game's own engines; the other cars' only play with the option on, the
-        // other human cars' (a ghost's) not at all, but for the other machines' players' online.
+        // Local players 1 and 2's cars have the game's own engines, but for California Speed cars (Rush 2's start is
+        // skipped for them: src/rush2049/engine2049.cpp); the other cars' only play with the option on, the other human
+        // cars' (a ghost's) not at all, but for the other machines' players' online.
+        std::shared_ptr<const cs::Bank> cs_bank;
+        int cs_engine = cs::engine_of(rdram, c, cs_bank);
+        bool own = extra_player[car] || (slot_player[car] && cs_engine >= 0);
         bool other_human = online <= 0 && (int8_t)MEM_B(0, (int32_t)(c + car_driver)) == 2;
-        bool skipped = extra_player[car] ? false : slot_player[car] || other_human || !option;
+        bool skipped = own ? false : slot_player[car] || other_human || !option;
         bool off = (int16_t)MEM_H(0, (int32_t)(c + car_active)) == 0 || skipped || muted || (int8_t)MEM_B(0, (int32_t)(c + car_engine_off)) != 0 ||
                    (int8_t)MEM_B(0, (int32_t)(car_states + car * car_state_size + 0x343)) > 0;
         if (off) {
@@ -359,13 +536,17 @@ void rush2::car_engines::update(uint8_t* rdram) {
                             extra_player[car]);
             continue;
         }
+        if (cs_engine >= 0) {
+            play(rdram, car, cs_bank->law[cs_engine + cs::engines * (own ? player_slot[car] : 0)], c, pos, listeners, own);
+            continue;
+        }
         int type = MEM_BU(0, (int32_t)(c + car_type));
         int engine = type < rush2::car2049::types ? (int8_t)MEM_B(0, (int32_t)(default_engines + type)) : -1;
         if (engine < 0 || engine >= 10) {
             stop_car(car);
             continue;
         }
-        update_rush2(rdram, car, engine, c, pos, listeners, extra_player[car]);
+        play(rdram, car, rush2_law(rdram, engine), c, pos, listeners, own);
     }
     updated_rdram = rdram;
     updated_ms = now_ms();

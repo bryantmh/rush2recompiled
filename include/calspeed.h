@@ -1,6 +1,7 @@
 #ifndef __CALSPEED_H__
 #define __CALSPEED_H__
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -99,8 +100,21 @@ namespace rush2::calspeed {
     // The Cal Speed track (1-16) raced in the host slot, or 0.
     int race_track();
     void set_race_track(int k);
-    // The raced track's converted path file, whose racing line tells when a car has fallen under the course.
-    void set_race_path(const std::vector<uint8_t>& path);
+    // The raced track's converted path file, whose racing line tells when a car has fallen under the course, and its
+    // collision, whose ground tells where a reset has road under it.
+    void set_race_path(const std::vector<uint8_t>& path, const std::vector<uint8_t>& collision);
+
+    // A ground polygon of a converted track's collision as California Speed's wheel query reads it: its first vertex
+    // in the world, the rows mapping world to its frame, and every vertex's x and z in that frame.
+    struct GroundPolygon {
+        float origin[3];
+        float m[9];
+        std::vector<std::array<float, 2>> xz;
+    };
+    std::vector<GroundPolygon> ground_polygons(const std::vector<uint8_t>& collision);
+    // California Speed's func_800AE884 as func_800AF1EC calls it: whether p is over the polygon by more than -5 ft and
+    // less than `best`, and if so how far (along the polygon's normal).
+    bool ground_under(const GroundPolygon& g, const float p[3], float best, float& height);
 
     // California Speed's 21 cars as car types 36-56 (src/calspeed/calspeed_cars.cpp, docs/calspeed_research.md#cars),
     // in its order, with its names (0x8008A6D4, 20 bytes each).

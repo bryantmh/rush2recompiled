@@ -151,10 +151,11 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
 ## 8. Implementation [V]
 
 - **Types.** The 2049 cars are Rush 2 types 23-35 (type 22 stays Rush 2's "no car" marker). The 22-entry per-type
-  tables (§2) and the per-type box tables move to copies for every type at 0x80200000.. (57 types with California
-  Speed's 36-56, docs/calspeed_research.md#7-cars; the layout is `include/car_types.h`, and
-  `tools/rush2049/cartypes.py` generates the matching us.toml patches); preview ids become player * 57 + type, so the
-  race/preview per-car arrays move to 114-entry copies (0x80208000-0x80217BC2). A fill loop that steps a pointer to an
+  tables (§2) and the per-type box tables move to copies for every type at 0x80200000.. (73 types with California
+  Speed's 36-56, docs/calspeed_research.md#7-cars, and the mod cars' 57-72, docs/car_mods.md#new-cars; the layout is
+  `include/car_types.h`, and `tools/rush2049/cartypes.py` generates the matching us.toml patches); preview ids become
+  player * 73 + type, so the race/preview per-car arrays move to 146-entry copies in two windows (from 0x80208000,
+  and the ones that don't fit from 0x8022A000). A fill loop that steps a pointer to an
   end (bne) needs that end a whole step from its start: cartypes.py rounds it up (func_8008A1FC's part-handle clear
   steps 8 bytes).
 - **The part-handle table 0x8010C480 is not just 44 cars x 39 parts.** Indices 1716 and up hold track-object,

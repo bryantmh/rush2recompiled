@@ -859,7 +859,9 @@ func = "race_setup_800A5ADC"
 before_vram = 0x800A615C
 text = "    rush2_track49_gravity(rdram, &ctx->f6.fl);"
 
-# Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot.
+# Rush 2049's respawn zones (type 2 branches, src/rush2049/track2049.cpp): the car is put back on the spot. California
+# Speed's reset (src/calspeed/calspeed_rom.cpp, rush2_calspeed_respawn_*): no move along the route, the nearest route
+# point from its tracker with its per-car and per-track offset.
 [[patches.hook]]
 func = "car_track_position_80090570"
 before_vram = 0x80090758
@@ -868,12 +870,12 @@ text = "    if (rush2_track49_respawn_zone(rdram, ctx)) goto L_80090A1C;"
 [[patches.hook]]
 func = "respawn_place_car_80090A40"
 before_vram = 0x80091368
-text = "    rush2_track49_respawn_zone_advance(rdram, ctx);"
+text = "    rush2_track49_respawn_zone_advance(rdram, ctx); rush2_calspeed_respawn_advance(rdram, ctx);"
 
 [[patches.hook]]
 func = "respawn_place_car_80090A40"
 before_vram = 0x800918E8
-text = "    rush2_track49_respawn_zone_place(rdram, ctx);"
+text = "    rush2_track49_respawn_zone_place(rdram, ctx); rush2_calspeed_respawn_place(rdram, ctx);"
 
 [[patches.hook]]
 func = "respawn_place_car_80090A40"

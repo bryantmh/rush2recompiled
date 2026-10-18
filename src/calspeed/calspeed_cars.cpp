@@ -87,9 +87,9 @@ namespace {
         { 0.95f, 1.05f, 1.05f, 1.05f, 1.05f, 1.0f, 1.15f, 1.05f, 1.05f, 1.0f, 0.95f, 0.65f, 0.87f, 0.9f, 0.96f, 1.1f,
           1.35f, 1.0f, 1.0f, 1.4f, 1.5f },
     };
-    // Rush 2's ENGINE (its engine sound, 0-9) for each car, from the Rush 2 car most like it (California Speed has its
-    // own engine sounds, not ported): sports cars the BMW's or the Vette's, the trucks the SUV's, the small cars the
-    // VW's.
+    // Rush 2's ENGINE (its engine sound, 0-9) for each car, from the Rush 2 car most like it: sports cars the BMW's or
+    // the Vette's, the trucks the SUV's, the small cars the VW's. Only heard if California Speed's own engines (played
+    // by src/car_engines.cpp) can't be read from its ROM.
     constexpr int8_t engines[car_count] = { 9, 5, 0, 0, 2, 2, 5, 0, 1, 3, 8, 3, 3, 3, 0, 0, 6, 6, 9, 9, 9 };
     // Rush 2's SUSPENSION has no California Speed counterpart (its suspension code reads only descriptor +0x50):
     // NORMAL, so the car select can move it both ways.

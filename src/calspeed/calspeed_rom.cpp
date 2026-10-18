@@ -240,10 +240,16 @@ namespace {
     std::vector<std::array<float, 3>> race_points;   // the raced track's spine, branch and AI lane points
     float under_since[max_race_cars];
     bool under[max_race_cars] = {};
+    std::vector<rush2::calspeed::GroundPolygon> race_ground;   // the raced track's ground polygons (for resets)
 }
 
-void rush2::calspeed::set_race_path(const std::vector<uint8_t>& path) {
+static void reset_trackers();
+static void track_route(uint8_t* rdram, int car, float x, float y, float z);
+
+void rush2::calspeed::set_race_path(const std::vector<uint8_t>& path, const std::vector<uint8_t>& collision) {
     race_points.clear();
+    race_ground = ground_polygons(collision);
+    reset_trackers();
     std::fill(std::begin(under), std::end(under), false);
     // Rush 2's path file (tools/rush2049/paths.py): route header 0x32C {u16 spine, u16, u32, u8 branches, ...}, the
     // branch records (16 bytes), u16 point total, the spine and branch points {s16 x, y, z}, then 4 lanes of
@@ -297,6 +303,7 @@ extern "C" void rush2_calspeed_car_frame(uint8_t* rdram, recomp_context* ctx) {
         return f;
     };
     float x = f32(slot), y = f32(slot + 4), z = f32(slot + 8);
+    track_route(rdram, car, x, y, z);
     // The nearest racing-line point, height counted at half weight (as tools/race_watch.py places a car).
     float best = 1e30f, best_y = y;
     for (const auto& p : race_points) {
@@ -308,6 +315,28 @@ extern "C" void rush2_calspeed_car_frame(uint8_t* rdram, recomp_context* ctx) {
         }
     }
     float now = f32((int32_t)race_time);
+    { // TEMP: wreck each car once near RUSH2_CS_WRECK_AT "x,z;x,z"
+        static const char* at = getenv("RUSH2_CS_WRECK_AT");
+        static int done[max_race_cars][4] = {};
+        float wx, wz;
+        int n = 0;
+        for (const char* s = at; s != nullptr && *s != 0 && n < 4; n++) {
+            if (sscanf(s, "%f,%f", &wx, &wz) != 2) break;
+            if (!done[car][n] && std::hypot(x - wx, z - wz) < 40.0f && MEM_B(0, (int32_t)(slot + slot_wrecked)) == 0) {
+                done[car][n] = 1;
+                printf("[cstest] car %d wrecked at %.0f %.0f %.0f\n", car, x, y, z);
+                recomp_context saved = *ctx;
+                ctx->r29 = (uint64_t)(int64_t)(int32_t)((uint32_t)ctx->r29 - 0x20);
+                ctx->r4 = (uint64_t)car;
+                ctx->r5 = 1;
+                car_wreck_trigger_8006E1A8(rdram, ctx);
+                *ctx = saved;
+                return;
+            }
+            s = strchr(s, ';');
+            if (s != nullptr) s++;
+        }
+    }
     if (y > best_y - under_depth || MEM_B(0, (int32_t)(slot + slot_wrecked)) != 0 ||
         MEM_B(0, (int32_t)(slot + slot_out)) != 0 || (int16_t)MEM_H(0, (int32_t)(physics + car_placing)) >= 0) {
         under[car] = false;
@@ -928,6 +957,270 @@ extern "C" void rush2_calspeed_tire_load(uint8_t* rdram, recomp_context* ctx) {
     uint32_t bits;
     memcpy(&bits, &load, 4);
     ctx->r6 = (uint64_t)(int64_t)(int32_t)bits;
+}
+
+// California Speed's reset (docs/calspeed_research.md#5-paths): its tracker func_8009BF34 keeps each car's nearest
+// route point (per-car state +0x10E, branch +0x10C; the nearest of the 10 points from the last one on), and
+// func_800A4020 (a1 = 0, from func_8009F2E4 with slot 8 + the car's index) puts the car back on that point: no move
+// along the route for the time it was wrecked. func_800A56C0 places it at the point + the slot's offset turned along
+// the route (func_800A4C44: x = (dz, -dx), z = toward the next point; at a branch's end, its spine join): slots 8-15
+// (0x800D8630, 12 bytes each) are x = -2.4, 2.4, -16.8, -12, -7.2, 7.2, 12, 16.8 ft for cars 0-7, plus the track's
+// shift 0x800D86F0 (16 floats, by track) also given to its grid. Rush 2's respawn_place_car_80090A40 moves a car on by
+// its speed x (seconds wrecked + 1.5 s) in 20 ft points (590-800 ft; California Speed's points are 40-80 ft apart,
+// so 2 to 4 times that), players along the route line and computer cars along their own lanes.
+namespace {
+    constexpr uint32_t cs_reset_slots = 0x800D8630, cs_track_shift = 0x800D86F0;
+    struct ResetShift {
+        bool loaded = false;
+        float car[max_race_cars] = {};
+        float track[16] = {};
+    };
+    const ResetShift& reset_shift() {
+        static ResetShift shift;
+        if (!shift.loaded) {
+            auto rom = rush2::calspeed::get_rom();
+            if (rom == nullptr) return shift;
+            auto word = [&](uint32_t vram) {
+                uint32_t bits = rush2::calspeed::main_word(*rom, vram);
+                float f;
+                memcpy(&f, &bits, 4);
+                return f;
+            };
+            for (int i = 0; i < max_race_cars; i++) shift.car[i] = word(cs_reset_slots + uint32_t(8 + i) * 12);
+            for (int t = 0; t < 16; t++) shift.track[t] = word(cs_track_shift + uint32_t(t) * 4);
+            shift.loaded = true;
+        }
+        return shift;
+    }
+}
+
+// California Speed's route tracker, func_8009BF34 (each race car every frame; per-car state +0x10C list (-1 the main
+// line, else a branch), +0x10E point, +0x10D / +0x110 the previous ones, +0x112 / +0x113 / +0x13D / +0x13E a fork,
+// +0x140 / +0x141 a branch's end). The route is read as it does, from the route header (Rush 2's at 0x80111940 is laid
+// out as California Speed's at 0x80142700: s16 main-line points, +4 the points {s16 x, y, z}, +8 u8 branches, +0xC
+// the branch records, 16 bytes: +0 u8 the list it leaves, +2 u16 the point it leaves at, +4 s8 the list it joins, +6
+// u16 the point it joins at, +0xA u16 its points, +0xC the points), including its reads past a branch's last point
+// (the next points in memory, laid out alike). It starts on the main-line point nearest the car (California Speed:
+// checkpoint 0's crossing + 1, ahead of its own grid; Rush 2's grid stands behind it).
+namespace {
+    constexpr uint32_t route_header = 0x80111940;
+    struct RouteTracker {
+        bool started = false;
+        int list = -1, point = 0, prev_list = -1, prev_point = 0;
+        bool fork = false;
+        int fork_branch = 0, fork_list = -1, fork_point = 0;
+        bool branch_end = false;
+        int end_list = -1;
+    };
+    RouteTracker trackers[max_race_cars];
+
+    uint32_t branch_record(uint8_t* rdram, int b) {
+        return (uint32_t)MEM_W(0, (int32_t)(route_header + 0xC)) + uint32_t(b) * 16;
+    }
+
+    void route_point(uint8_t* rdram, int list, int i, float q[3]) {
+        uint32_t points = list < 0 ? (uint32_t)MEM_W(0, (int32_t)(route_header + 4))
+                                   : (uint32_t)MEM_W(0, (int32_t)(branch_record(rdram, list) + 0xC));
+        for (int k = 0; k < 3; k++) q[k] = (float)MEM_H(0, (int32_t)(points + uint32_t(i) * 6 + uint32_t(k) * 2));
+    }
+}
+
+static void reset_trackers() {
+    for (RouteTracker& tr : trackers) tr = RouteTracker();
+}
+
+static void track_route(uint8_t* rdram, int car, float x, float y, float z) {
+    int count = MEM_H(0, (int32_t)route_header);
+    if (count <= 0 || car < 0 || car >= max_race_cars) return;
+    RouteTracker& tr = trackers[car];
+    // California Speed compares whole feet (trunc.w.s of the position).
+    float cx = float(int(x)), cy = float(int(y)), cz = float(int(z));
+    auto dist = [&](const float q[3]) {
+        return (q[0] - cx) * (q[0] - cx) + (q[1] - cy) * (q[1] - cy) + (q[2] - cz) * (q[2] - cz);
+    };
+    if (!tr.started) {
+        tr = RouteTracker();
+        float best = 1e30f;
+        for (int i = 0; i < count; i++) {
+            float q[3];
+            route_point(rdram, -1, i, q);
+            float d = dist(q);
+            if (d < best) best = d, tr.point = i;
+        }
+        tr.prev_point = tr.point;
+        tr.started = true;
+        return;
+    }
+    // The current point and the next two (at a fork, 5 on from where it forks and the branch's points 1-5).
+    float best = 1e20f;
+    int best_list = tr.list, best_point = tr.point;
+    int list = tr.list;   // carried from one candidate to the next, as 0x40($sp) is
+    for (int a = 0; a < (tr.fork ? 10 : 3); a++) {
+        int i = tr.point + a;
+        if (tr.fork) {
+            if (a < 5) {
+                i = tr.fork_point + a;
+                list = tr.fork_list;
+            }
+            else {
+                i = a - 4;
+                list = tr.fork_branch;
+            }
+        }
+        else if (list >= 0) {
+            uint32_t r = branch_record(rdram, list);
+            if (i + 1 == int(MEM_HU(0, (int32_t)(r + 0xA)))) {
+                i = MEM_HU(0, (int32_t)(r + 6));
+                list = (int8_t)MEM_B(0, (int32_t)(r + 4));
+            }
+        }
+        if (list < 0 && i >= count) i %= count;
+        float q[3];
+        route_point(rdram, list, i, q);
+        float d = dist(q);
+        if (d < best) best = d, best_list = list, best_point = i;
+    }
+    if (best_point != tr.point) {
+        tr.prev_list = tr.list;
+        tr.prev_point = tr.point;
+        tr.list = best_list;
+        tr.point = best_point;
+    }
+    // Forks: entered on reaching a branch's start, left two points on along the main line or three into a branch.
+    if (tr.fork) {
+        if (tr.list == tr.prev_list) {
+            if (tr.list == -1 && tr.fork_point + 2 < tr.prev_point) tr.fork = false;
+            if (tr.list >= 0 && tr.prev_point >= 3) tr.fork = false;
+        }
+    }
+    else if (tr.branch_end) {
+        if (tr.end_list == tr.list && tr.prev_list == tr.end_list) tr.branch_end = false;
+    }
+    else {
+        int branches = MEM_BU(0, (int32_t)(route_header + 8));
+        for (int b = 0; b < branches; b++) {
+            uint32_t r = branch_record(rdram, b);
+            if (MEM_BU(0, (int32_t)r) == uint8_t(tr.list) && int(MEM_HU(0, (int32_t)(r + 2))) == tr.point) {
+                tr.fork = true;
+                tr.fork_branch = b;
+                tr.fork_list = tr.list;
+                tr.fork_point = tr.point;
+                break;
+            }
+            if (int(MEM_HU(0, (int32_t)(r + 0xA))) == tr.point + 3 && tr.list == b) {
+                tr.branch_end = true;
+                tr.end_list = (int8_t)MEM_B(0, (int32_t)(r + 4));
+                break;
+            }
+        }
+    }
+}
+
+// respawn_place_car_80090A40 at 0x80091368, about to move the respawn point $t0 points on: none.
+extern "C" void rush2_calspeed_respawn_advance(uint8_t* rdram, recomp_context* ctx) {
+    if (on_calspeed_track(rdram)) {
+        ctx->r8 = 0;
+    }
+}
+
+// respawn_place_car_80090A40 at 0x800918E8, car $s4 placed 1.5 ft over its respawn point (+0x664): put where
+// California Speed's func_800A4020 (a1 = 0) and func_800A56C0 put it, on its tracked route point (track_route) + the
+// slot's offset turned along the route (func_800A4C44's matrix: x = (dz, -dx)), at the point's height, and faced
+// along the route there (func_8006D348: point 0x1A8($sp), loaded into $a1 next, of branch $a2 / 0x1B0($sp), -1 the
+// main line; $a3 = 1, the route). Where that spot has no road under it, on the lane point nearest the car instead
+// ($a2 the lane, $a3 = 0).
+extern "C" void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t cars = 0x800F5470, car_size = 0x81C, respawn_point = 0x664;
+    int t = raced_track - 1;
+    uint32_t car = (uint32_t)ctx->r20;
+    if (!on_calspeed_track(rdram) || t < 0 || t >= 16 || car < cars || (car - cars) % car_size != 0 ||
+        (car - cars) / car_size >= uint32_t(max_race_cars)) {
+        return;
+    }
+    const ResetShift& shift = reset_shift();
+    int index = int((car - cars) / car_size);
+    const RouteTracker& tr = trackers[index];
+    int count = MEM_H(0, (int32_t)route_header);
+    if (!shift.loaded || !tr.started || count <= 0) return;
+    float q[3], next[3];
+    route_point(rdram, tr.list, tr.point, q);
+    // func_800A4C44: toward the next point; a branch's last point toward the main-line point it joins (record +6),
+    // the main line's last toward its first (California Speed: the loop checkpoint's crossing).
+    if (tr.list >= 0) {
+        uint32_t r = branch_record(rdram, tr.list);
+        if (tr.point == int(MEM_HU(0, (int32_t)(r + 0xA))) - 1) {
+            route_point(rdram, -1, MEM_HU(0, (int32_t)(r + 6)), next);
+        }
+        else {
+            route_point(rdram, tr.list, tr.point + 1, next);
+        }
+    }
+    else {
+        route_point(rdram, -1, tr.point + 1 < count ? tr.point + 1 : 0, next);
+    }
+    float dx = next[0] - q[0], dz = next[2] - q[2];
+    float len = std::sqrt(dx * dx + dz * dz);
+    if (len > 0.0f) {
+        dx /= len;
+        dz /= len;
+    }
+    float side = shift.car[index] + shift.track[t];
+    float pos[3] = { q[0] + side * dz, q[1], q[2] - side * dx };
+    int point = tr.point, list = tr.list, on_route = 1;
+    // California Speed only resets a car fallen 750 ft under the world or off the collision grid, and never on San
+    // Francisco's bridge (its sides are walls up to 658 ft high), whose route points lie at sea level under the deck;
+    // Rush 2's wrecks reset cars anywhere. Where its wheel query (ground_under) finds no road under the reset point,
+    // the car goes on the computer cars' lane point nearest where it wrecked, as Rush 2 puts a computer car (+1.5 ft).
+    bool road = false;
+    for (const auto& g : race_ground) {
+        float h;
+        if (rush2::calspeed::ground_under(g, pos, 250.0f, h)) {
+            road = true;
+            break;
+        }
+    }
+    if (!road) {
+        constexpr uint32_t lane_headers = 0x80110020;   // path_lane_headers: {u16 count, u8 pad[2], points}[4]
+        constexpr uint32_t car_slots = 0x801124A0, car_slot_size = 0x354;   // car state: position (3 f32) at +0
+        int32_t slot = (int32_t)(car_slots + uint32_t(index) * car_slot_size);
+        float at[3];
+        for (int k = 0; k < 3; k++) {
+            uint32_t bits = (uint32_t)MEM_W(0, slot + 4 * k);
+            memcpy(&at[k], &bits, 4);
+        }
+        float best = 1e30f;
+        int best_lane = -1, best_point = 0;
+        for (int lane = 0; lane < 4; lane++) {
+            int32_t header = (int32_t)(lane_headers + uint32_t(lane) * 8);
+            int n = MEM_HU(0, header);
+            uint32_t points = (uint32_t)MEM_W(0, header + 4);
+            for (int i = 0; i < n; i++) {
+                float l[3], d = 0.0f;
+                for (int k = 0; k < 3; k++) {
+                    l[k] = (float)MEM_H(0, (int32_t)(points + uint32_t(i) * 8 + uint32_t(k) * 2));
+                    d += (l[k] - at[k]) * (l[k] - at[k]);
+                }
+                if (d < best) {
+                    best = d;
+                    best_lane = lane;
+                    best_point = i;
+                    pos[0] = l[0];
+                    pos[1] = l[1] + 1.5f;
+                    pos[2] = l[2];
+                }
+            }
+        }
+        if (best_lane >= 0) {
+            point = best_point;
+            list = best_lane;
+            on_route = 0;
+        }
+    }
+    for (int k = 0; k < 3; k++) put_f32(rdram, car + respawn_point + 4 * k, pos[k]);
+    MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1A8)) = point;
+    MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1B0)) = list;
+    ctx->r6 = (uint64_t)(int64_t)list;
+    ctx->r7 = (uint64_t)on_route;
 }
 
 // Rush 2's fall floor: race_stuck_wrongway_update_8008CDA4 puts back a car whose y is below -190 (0x8008CF20, $f16;

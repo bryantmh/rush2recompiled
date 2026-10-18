@@ -471,13 +471,16 @@ namespace {
 
     constexpr size_t route = 0x32C, checkpoints = 0xC;
 
-    // The walls' edges in the world (x, z and the edge's height range), from Rush 2's collision file
+    // The polygons of the surface types `keep` accepts, in the world, from Rush 2's collision file
     // (docs/rush2049_research/collision.md: header 0xC, segments 0x84, nodes 0x14, polygons 0x18, vertices 8; a
     // polygon's first vertex is its world origin and the others are in its frame, the matrix rows mapping world to it).
-    struct WallEdge {
-        double ax, az, bx, bz, ylo, yhi;
+    using Polygon = std::vector<std::array<double, 3>>;
+    struct FramePolygon {
+        std::array<double, 3> origin;   // its first vertex, in the world
+        double m[9];                    // rows mapping world to its frame
+        Polygon local;                  // every vertex in its frame (the first at 0)
     };
-    std::vector<WallEdge> wall_edges(const Bytes& col) {
+    template <typename Keep> std::vector<FramePolygon> frame_polygons(const Bytes& col, Keep keep) {
         uint32_t segs = u16(col, 0), nodes = u16(col, 2), polys = u16(col, 4), verts = u16(col, 6), leaf = u16(col, 8);
         size_t poly0 = 12 + segs * 0x84 + nodes * 0x14, vert0 = poly0 + polys * 0x18;
         size_t vlist0 = vert0 + verts * 8 + leaf;
@@ -487,15 +490,14 @@ namespace {
             int shift[3] = { 10, 5, 0 };
             for (int a = 0; a < 3; a++) v[a] = (int16_t(u16(col, o + a * 2)) * 32 + ((frac >> shift[a]) & 31)) / 32.0;
         };
-        std::vector<WallEdge> out;
+        std::vector<FramePolygon> out;
         for (uint32_t i = 0; i < polys; i++) {
             size_t p = poly0 + i * 0x18;
-            int type = col.at(p + 1) & 0xF;
-            if (type != 5 && type != 6) continue;
+            if (!keep(col.at(p + 1) & 0xF)) continue;
             int count = u16(col, p + 2) & 0xF;
-            double m[9];
-            for (int k = 0; k < 9; k++) m[k] = int16_t(u16(col, p + 4 + k * 2)) / 16384.0;
-            std::vector<std::array<double, 3>> w;
+            FramePolygon f;
+            for (int k = 0; k < 9; k++) f.m[k] = int16_t(u16(col, p + 4 + k * 2)) / 16384.0;
+            Polygon& w = f.local;
             size_t at = vlist0 + u16(col, p + 0x16);
             while (count > 0 && at + 2 <= col.size()) {
                 uint32_t v = u16(col, at);
@@ -507,15 +509,40 @@ namespace {
                     double l[3];
                     vert(v + k, l);
                     if (w.empty()) {
-                        w.push_back({ l[0], l[1], l[2] });
+                        f.origin = { l[0], l[1], l[2] };
+                        w.push_back({ 0.0, 0.0, 0.0 });
                     }
                     else {
-                        std::array<double, 3> g;
-                        for (int j = 0; j < 3; j++) g[j] = w[0][j] + m[j] * l[0] + m[3 + j] * l[1] + m[6 + j] * l[2];
-                        w.push_back(g);
+                        w.push_back({ l[0], l[1], l[2] });
                     }
                 }
             }
+            if (w.size() >= 3) out.push_back(std::move(f));
+        }
+        return out;
+    }
+
+    template <typename Keep> std::vector<Polygon> world_polygons(const Bytes& col, Keep keep) {
+        std::vector<Polygon> out;
+        for (const FramePolygon& f : frame_polygons(col, keep)) {
+            Polygon w;
+            for (const auto& l : f.local) {
+                std::array<double, 3> g;
+                for (int j = 0; j < 3; j++) g[j] = f.origin[j] + f.m[j] * l[0] + f.m[3 + j] * l[1] + f.m[6 + j] * l[2];
+                w.push_back(g);
+            }
+            out.push_back(std::move(w));
+        }
+        return out;
+    }
+
+    // The walls' edges in the world (x, z and the edge's height range): types 5 and 6 (as remap_surfaces leaves them).
+    struct WallEdge {
+        double ax, az, bx, bz, ylo, yhi;
+    };
+    std::vector<WallEdge> wall_edges(const Bytes& col) {
+        std::vector<WallEdge> out;
+        for (const Polygon& w : world_polygons(col, [](int type) { return type == 5 || type == 6; })) {
             for (size_t k = 0; k < w.size(); k++) {
                 const auto& a = w[k];
                 const auto& b = w[(k + 1) % w.size()];
@@ -746,6 +773,39 @@ namespace {
     std::vector<rush2::track2049::MenuLogo> art_logos;
     std::vector<float> art_radius;   // per track, its landmark's radius (0: none)
     std::vector<float> seeds;        // per track, lane 0's lap seconds (-1: not worked out)
+}
+
+std::vector<rush2::calspeed::GroundPolygon> rush2::calspeed::ground_polygons(const std::vector<uint8_t>& collision) {
+    // California Speed's wheel query func_800AF1EC skips types 5-9; remap_surfaces left its ground types 0-3 as 0-2.
+    std::vector<GroundPolygon> out;
+    for (const FramePolygon& f : frame_polygons(collision, [](int type) { return type <= 2; })) {
+        GroundPolygon g;
+        for (int k = 0; k < 3; k++) g.origin[k] = float(f.origin[k]);
+        for (int k = 0; k < 9; k++) g.m[k] = float(f.m[k]);
+        for (const auto& l : f.local) g.xz.push_back({ float(l[0]), float(l[2]) });
+        out.push_back(std::move(g));
+    }
+    return out;
+}
+
+// func_800AE884 with func_800AF1EC's window: p's height over the polygon along its frame's y, if over -5 and under
+// `best`, and p inside its edges in the frame's x and z (the first vertex at 0, the edges taken in order).
+bool rush2::calspeed::ground_under(const GroundPolygon& g, const float p[3], float best, float& height) {
+    float d[3] = { p[0] - g.origin[0], p[1] - g.origin[1], p[2] - g.origin[2] };
+    float l[3];
+    for (int r = 0; r < 3; r++) l[r] = d[0] * g.m[r * 3] + d[1] * g.m[r * 3 + 1] + d[2] * g.m[r * 3 + 2];
+    if (l[1] <= -5.0f || best < l[1]) return false;
+    size_t n = g.xz.size();
+    const auto& last = g.xz[n - 1];
+    if (0.0f < l[2] * last[0] - l[0] * last[1]) return false;
+    if (l[2] * g.xz[1][0] - l[0] * g.xz[1][1] < 0.0f) return false;
+    for (size_t k = 2; k < n; k++) {
+        const auto& a = g.xz[k - 1];
+        const auto& b = g.xz[k];
+        if ((l[2] - a[1]) * (b[0] - a[0]) - (l[0] - a[0]) * (b[1] - a[1]) < 0.0f) return false;
+    }
+    height = l[1];
+    return true;
 }
 
 std::string rush2::calspeed::menu_model_name(int t) {

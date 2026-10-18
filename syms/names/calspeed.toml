@@ -1,0 +1,133 @@
+# Function registry for calspeed. Format and tooling: tools/names.py (docstring). Keep sorted; run `names.py fmt`.
+
+[[func]]
+vram = 0x8005629C
+name = "snd_engine_pitch_law"
+sig = "f32 snd_engine_pitch_law(f32 *pitch, s32 index, s16 slot)"
+desc = "Engine layer pitch: *pitch = min(slot rpm (0x80168F68[slot]) / base 0x80058198[index], 2.0); 1.0 when the layer's sound 0x80058228[index] is 0x23. index = (voice id - 1) * 2 + layer. Also stores it at 0x800F93E0."
+consts = "0x23 = silent engine layer sound; 2.0 = pitch cap"
+status = "verified"
+ported = true
+rush2 = 0x80062598
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x8005632C
+name = "snd_engine_layer_select"
+sig = "void snd_engine_layer_select(s32 *rpm_index, s32 *load_index, s16 slot)"
+desc = "Engine volume table indices: rpm_index = clamp(rpm 0x80168F68[slot] / 1000, 0, 10), load_index = clamp((load 0x80134458[slot] + 80) * 0.025, 0, 12)."
+status = "verified"
+ported = true
+rush2 = 0x80062640
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x800563DC
+name = "engine_sound_stop"
+sig = "void engine_sound_stop(void)"
+desc = "Stops both slots' engine layer sounds (0x80055E64 per sound of 0x80058220[id * 2 + layer]), clears 0x801427C0[slot] and 0x80149D44[slot]."
+status = "verified"
+rush2 = 0x8008C49C
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x800564B0
+name = "snd_engine_volume_law"
+sig = "s32 snd_engine_volume_law(s32 layer, s32 load_index, s32 rpm_index)"
+desc = "Engine layer volume = (int)((int)(A[layer][rpm_index] * B[layer][load_index] * 1635 + 3270 * 6) * engine volume (0x80150B31) / 40), A = 0x80058354 (2 x 11), B = 0x800582B8 (2 x 13), 1635 at 0x800AE3DC, 6 at 0x800AE3E0 (constants; Rush 2: x 2000 + 24000)."
+consts = "1635.0 (0x800AE3DC) = volume scale; 6 x 3270 (0x800AE3E0) = volume base; 40 = engine volume option max"
+status = "verified"
+ported = true
+rush2 = 0x800624E4
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x80056594
+name = "engine_sound_start"
+sig = "void engine_sound_start(s32 engine, s32 slot)"
+desc = "Starts engine `engine` (0-8) on local slot `slot`: sends command 0x1FFE + slot and sets 0x801427C0[slot] = engine + 9 * slot + 1 (Rush 2: + 10 * slot), under a lock (0x800539AC / 0x800539E8)."
+consts = "0x1FFE = engine start command; 9 = engines per slot"
+status = "verified"
+rush2 = 0x8008C61C
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x800565FC
+name = "snd_engine_slot_start"
+sig = "void snd_engine_slot_start(s32 slot)"
+desc = "Audio command 0x1FFE / 0x1FFF: starts the slot's two engine layers (0x80058220[id * 2 + layer], id = 0x801427C0[slot]) at the law's pitch and volume via 0x800555BC, sets 0x80149D44[slot] = 1."
+status = "verified"
+ported = true
+rush2 = 0x800626FC
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x80056724
+name = "snd_engine_voices_update"
+sig = "void snd_engine_voices_update(void)"
+desc = "Every audio frame, for each slot with an engine (0x801427C0, 0x80149D44): finds each layer's playing voice among the 16 at 0x801418C0 and sets its volume (snd_engine_volume_law; 0 for sound 0x23), pitch (snd_engine_pitch_law) and FX mix (0x80134384[slot] low byte). Skipped while 0x80022D20 or byte 0x800FF260 is set."
+consts = "0x23 = silent layer sound; 16 = sound voices"
+status = "verified"
+ported = true
+rush2 = 0x80062CC4
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x8007EC08
+name = "player_engine_start"
+sig = "void player_engine_start(s16 slot)"
+desc = "Race setup: starts the slot's engine (race_start_engine_sounds with 0x80141568[slot], rpm 250, load 100) and sets the engine sound scales: rpm 0.8 (0x800F7798), load 0.3 (0x8016E150)."
+consts = "0xFA = start rpm; 0x64 = start load; 0.8 = rpm scale (Rush 2 1.0); 0.3 = load scale"
+status = "verified"
+rush2 = 0x8009E66C
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x8007EC70
+name = "car_engine_sound_set_rpm_load"
+sig = "void car_engine_sound_set_rpm_load(Car *car, s32 slot)"
+desc = "Each frame: rpm = |car +0x846| * 0.8 (as u16), load = car +0x458 * 0.3 (as s16), or 0, 0 while byte 0x80151AF8 is set; skipped while 0x8014AC7A is set; then snd_engine_set_rpm_load. +0x846 = Rush 2's +0x7F0 (engine rad/s x 9.549 x 0.9, 0x80090EDC), +0x458 = Rush 2's +0x3F4."
+status = "verified"
+ported = true
+rush2 = 0x800650DC
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x800ADE48
+name = "race_start_engine_sounds"
+sig = "void race_start_engine_sounds(s32 a0, u16 rpm, u16 load, u16 slot)"
+desc = "Sets the slot's rpm (0x80168F68) and load (0x80134458), clears 0x80134384 / 0x801347EC, and starts engine 0x80141568[slot] (reset to 0 if 9 or more) with engine_sound_start."
+status = "verified"
+rush2 = 0x8008C6E8
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x800ADEFC
+name = "snd_engine_set_rpm_load"
+sig = "void snd_engine_set_rpm_load(u16 rpm, s16 load, s16 slot)"
+desc = "The slot's engine rpm (0x80168F68 = rpm & 0x7FFF) and load (0x80134458 = load & 0x7FFF) each frame; 0x801347EC = 0x800FFE5C; ramps the slot's FX mix 0x80134384 up to 0x40 (by 2) while the car's byte 0x80151DB6 is set, down to 0 otherwise."
+status = "verified"
+rush2 = 0x80064F70
+link = "role"
+area = "audio"
+ref = "docs/calspeed_research.md#engine-sounds"

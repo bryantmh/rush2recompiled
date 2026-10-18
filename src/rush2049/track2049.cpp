@@ -163,7 +163,7 @@ namespace {
             }
             cs_rom = rom.get();
             track = std::move(cs_track.track);
-            rush2::calspeed::set_race_path(track.path);
+            rush2::calspeed::set_race_path(track.path, track.collision);
             track_has_sky = rush2::track2049::model_names(track.geometry).contains("SKYO1");
             rush2::track2049::set_mover_data(0, {}, {}, {}, {}, {});
             rush2::track2049::set_texanim_data({});

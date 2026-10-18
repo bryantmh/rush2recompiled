@@ -14,7 +14,8 @@
 // car's rpm and load every frame). A slot whose car is a 2049 car gets 2049's engine in place of Rush 2's: its start is
 // skipped, and each func_80064F70 call updates the 2049 layers from the car's +0x7F0 (Rush 2 keeps 2049's rpm x 0.9
 // there) and +0x3F4 (the torque, 2049's +0x404), as 2049 plays the local player's car. Rush 2's computer cars have no
-// engine sound; src/car_engines.cpp gives the other cars theirs (an option).
+// engine sound; src/car_engines.cpp gives the other cars theirs (an option). A slot whose car is a California Speed car
+// skips Rush 2's start too: src/car_engines.cpp plays California Speed's engine for it.
 
 #include <algorithm>
 #include <atomic>
@@ -111,8 +112,8 @@ namespace {
 }
 
 // func_8008C61C at 0x8008C684, once it holds its lock (message queue 0x800D3E48, which its first call creates; slot
-// at sp + 0x36): a slot driving a 2049 car doesn't start Rush 2's engine. The function is left here, releasing the lock
-// and its stack frame (0x30) as its end does.
+// at sp + 0x36): a slot driving a 2049 or California Speed car doesn't start Rush 2's engine. The function is left
+// here, releasing the lock and its stack frame (0x30) as its end does.
 extern "C" int rush2_engine49_start(uint8_t* rdram, recomp_context* ctx) {
     uint32_t sp = (uint32_t)ctx->r29;
     int slot = (int16_t)MEM_H(0, (int32_t)(sp + 0x36));
@@ -123,12 +124,16 @@ extern "C" int rush2_engine49_start(uint8_t* rdram, recomp_context* ctx) {
     uint32_t car = slot_car(rdram, slot, index);
     {
         std::lock_guard lock{ engines_mutex };
-        if (index >= 8 || rush2::car2049::engine_level(rdram, car) < 0) {
-            race[slot].active = false;
+        bool rush2049 = index < 8 && rush2::car2049::engine_level(rdram, car) >= 0;
+        race[slot].active = rush2049;
+        if (!rush2049) {
             stop(race[slot]);
-            return 0;
+            int calspeed = index < 8 ? rush2::car_engines::calspeed_engine(rdram, car) : -1;
+            if (calspeed < 0) {
+                return 0;
+            }
+            fprintf(stderr, "[engines] Slot %d: California Speed engine %d\n", slot, calspeed);
         }
-        race[slot].active = true;
     }
     recomp_context saved = *ctx;
     ctx->r4 = (uint64_t)(int64_t)(int32_t)engine_lock;

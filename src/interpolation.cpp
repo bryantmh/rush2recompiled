@@ -253,11 +253,14 @@ namespace {
     uint32_t clip_poly = 0;              // The polygon whose G_VTX is at clip_vtx_cmd.
     uint32_t clip_vtx_cmd = 0;
 
-    // Clip-space w below which the sky's triangles are cut, in polygon units (16x world units, camera-relative).
-    // The dome is thousands of units away, so this plane only removes parts more than ~80 degrees off the view
-    // direction, which are never on screen; it stays in front of the camera through the rotation of RT64's
-    // interpolated frames.
-    constexpr float sky_clip_w = 4096.0f;
+    // Clip-space w below which the sky's triangles are cut, in polygon units (16x world units, camera-relative):
+    // 16 ft in front of the camera. The dome's lid is flat at a fixed 900 ft world height (tables at 0x800C1AA4,
+    // render_sky_cloud_scroll_8008918C moves the dome with the camera in x and z only) and Alcatraz's road climbs to
+    // 733 ft, so at its highest jump the lid is within 150 ft overhead: cutting at 256 ft (4096) removed the lid above
+    // 25 degrees up and the clear color showed at the top of the screen. The interpolated frames stay in front of
+    // this plane because the triangles are clipped under both frames' planes (SkyClipPlane); the w of a vertex in
+    // them differs from the blend of its two w's only by the camera's movement times its turn in one frame, a few units.
+    constexpr float sky_clip_w = 256.0f;
 
     // The clip-space w column of each view's full transform (root modelview x view rotation x projection), this game
     // frame and the last. RT64 draws the frames between the two with the projection interpolated element by element
@@ -306,22 +309,50 @@ namespace {
         return v;
     }
 
-    // Sutherland-Hodgman: clips the convex polygon in[0..n) against w[plane] >= sky_clip_w into out, returns its size.
-    int clip_against(const ClipVtx* in, int n, int plane, ClipVtx* out) {
-        int k = 0;
-        for (int i = 0; i < n; i++) {
-            const ClipVtx& a = in[i];
-            const ClipVtx& b = in[(i + 1) % n];
-            bool a_in = a.w[plane] >= sky_clip_w;
-            bool b_in = b.w[plane] >= sky_clip_w;
-            if (a_in) {
-                out[k++] = a;
-            }
-            if (a_in != b_in) {
-                out[k++] = lerp_vtx(a, b, (sky_clip_w - a.w[plane]) / (b.w[plane] - a.w[plane]));
+    // The point where the edge from a (kept: w >= sky_clip_w under both planes) to b (cut under one or both) leaves
+    // the kept region: the first of its crossings of the planes b is behind.
+    ClipVtx exit_vtx(const ClipVtx& a, const ClipVtx& b) {
+        float t = 1.0f;
+        for (int p = 0; p < 2; p++) {
+            if (b.w[p] < sky_clip_w) {
+                t = std::fmin(t, (sky_clip_w - a.w[p]) / (b.w[p] - a.w[p]));
             }
         }
-        return k;
+        return lerp_vtx(a, b, t);
+    }
+
+    // Clips the triangle v[0..2] to the kept region into six slots, a convex polygon in the triangle's winding: slot
+    // 2i is vertex i or, when it is cut, the point where the edge from its previous neighbor leaves the region, slot
+    // 2i + 1 the same toward its next neighbor (both the vertex itself when it is kept, both the one exit point when
+    // only one neighbor is kept). The slot count and order never change, so RT64's vertex interpolation, which pairs
+    // a group's vertices by index when their counts match (GameFrame::matchScene, lib/rt64 rt64_game_frame.cpp),
+    // pairs each slot with itself in the last frame, and each slot moves continuously as the camera turns.
+    // Sutherland-Hodgman output, whose count and order depend on which vertices are cut, paired unrelated corners
+    // whenever the counts happened to match and swung whole triangles across the sky in the interpolated frames.
+    // Returns false when no vertex is kept: the slots are then one point and draw nothing.
+    bool clip_tri_slots(const ClipVtx v[3], ClipVtx out[6]) {
+        bool in[3];
+        int kept = 0;
+        for (int i = 0; i < 3; i++) {
+            in[i] = v[i].w[0] >= sky_clip_w && v[i].w[1] >= sky_clip_w;
+            kept += in[i];
+        }
+        if (kept == 0) {
+            for (int i = 0; i < 6; i++) out[i] = v[0];
+            return false;
+        }
+        for (int i = 0; i < 3; i++) {
+            int prev = (i + 2) % 3, next = (i + 1) % 3;
+            if (in[i]) {
+                out[2 * i] = out[2 * i + 1] = v[i];
+            } else if (in[prev] && in[next]) {
+                out[2 * i] = exit_vtx(v[prev], v[i]);
+                out[2 * i + 1] = exit_vtx(v[next], v[i]);
+            } else {
+                out[2 * i] = out[2 * i + 1] = exit_vtx(v[in[prev] ? prev : next], v[i]);
+            }
+        }
+        return true;
     }
 
     void write_vtx(uint8_t* rdram, uint32_t addr, const ClipVtx& v) {
@@ -470,10 +501,12 @@ void rush2_sky_depth(uint8_t* rdram, recomp_context* ctx) {
 // beside or behind it: the overhead cap's center is within a few degrees of the camera plane whenever the camera is
 // level, and the lower rings wrap around past the widescreen edges. Those triangles get cut into vertices at w = 0
 // that project to infinity, and draw stretched (striped) or drop out, flickering as the camera pitches and turns.
-// The RSP clips them at the real near plane instead. Triangles with a vertex below sky_clip_w are clipped here
-// and redrawn from a side display list, with their texture coordinates and colors interpolated along the edges.
-// They are clipped under this frame's view and the last one's (SkyClipPlane), so the frames RT64 interpolates
-// between them keep the sky in front of the camera during fast turns such as the race start flyover.
+// The RSP clips them at the real near plane instead. Every dome triangle is clipped here at sky_clip_w into six
+// vertex slots (clip_tri_slots) and redrawn from a side display list, with its texture coordinates and colors
+// interpolated along the edges. The slots keep the piece's vertex count and order the same every frame, which RT64's
+// vertex interpolation needs to pair the right vertices. They are clipped under this frame's view and the last
+// one's (SkyClipPlane), so the frames RT64 interpolates between them keep the sky in front of the camera during fast
+// turns such as the race start flyover.
 void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
     uint32_t poly = (uint32_t)ctx->r30;
     uint32_t vtx_cmd = clip_vtx_cmd;
@@ -524,13 +557,8 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
     prev.valid = prev.valid && prev.gen == cur.gen;
 
     ClipVtx in[4];
-    bool any_near = false;
     for (uint32_t i = 0; i < n; i++) {
         in[i] = read_vtx(rdram, kseg0(vtx.values.word1) + i * 16, cur, prev);
-        any_near |= in[i].w[0] < sky_clip_w || in[i].w[1] < sky_clip_w;
-    }
-    if (!any_near) {
-        return;
     }
 
     // The triangles, in the game's winding.
@@ -563,55 +591,38 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
-    // Clip each triangle against both planes (at most 5 vertices each), as a fan.
-    ClipVtx out[20];
+    // Six slots per triangle, drawn as a fan of four triangles (two G_TRI2) each.
+    ClipVtx out[4 * 6];
     int out_count = 0;
-    int out_tris[12][3];
-    int out_tri_count = 0;
     for (int t = 0; t < tri_count; t++) {
-        ClipVtx poly_in[3] = { in[tris[t][0]], in[tris[t][1]], in[tris[t][2]] };
-        ClipVtx half[4];
-        ClipVtx clipped[5];
-        int k = clip_against(poly_in, 3, 0, half);
-        k = clip_against(half, k, 1, clipped);
-        if (k < 3) {
-            continue;
-        }
-        int base = out_count;
-        for (int i = 0; i < k; i++) {
-            out[out_count++] = clipped[i];
-        }
-        for (int i = 1; i + 1 < k; i++) {
-            out_tris[out_tri_count][0] = base;
-            out_tris[out_tri_count][1] = base + i;
-            out_tris[out_tri_count][2] = base + i + 1;
-            out_tri_count++;
-        }
+        ClipVtx tri[3] = { in[tris[t][0]], in[tris[t][1]], in[tris[t][2]] };
+        clip_tri_slots(tri, &out[out_count]);
+        out_count += 6;
     }
 
-    // The original triangles become no-ops; the G_VTX calls the clipped vertices and triangles.
+    // The original triangles become no-ops; the G_VTX calls the slots and their fans.
     for (uint32_t addr = vtx_cmd + 8; addr < head; addr += 8) {
         MEM_W(0, (int32_t)addr) = (int32_t)0xE7000000; // G_RDPPIPESYNC
         MEM_W(4, (int32_t)addr) = 0;
     }
-    if (out_tri_count == 0) {
-        MEM_W(0, (int32_t)vtx_cmd) = (int32_t)0xE7000000;
-        MEM_W(4, (int32_t)vtx_cmd) = 0;
-        return;
-    }
-
     uint32_t vtx_addr = side_alloc(out_count * 16);
     for (int i = 0; i < out_count; i++) {
         write_vtx(rdram, vtx_addr + i * 16, out[i]);
     }
-    GfxCommand cmds[1 + 12];
+    GfxCommand cmds[1 + 4 * 2];
     cmds[0].values.word0 = 0x01000000u | ((uint32_t)out_count << 12) | ((uint32_t)out_count << 1);
     cmds[0].values.word1 = vtx_addr;
-    for (int i = 0; i < out_tri_count; i++) {
-        cmds[1 + i].values.word0 = 0x05000000u | (out_tris[i][0] * 2 << 16) | (out_tris[i][1] * 2 << 8) | (out_tris[i][2] * 2);
-        cmds[1 + i].values.word1 = 0;
+    auto tri_word = [](int a, int b, int c) {
+        return (uint32_t)(a * 2 << 16) | (uint32_t)(b * 2 << 8) | (uint32_t)(c * 2);
+    };
+    for (int t = 0; t < tri_count; t++) {
+        int b = t * 6;
+        cmds[1 + t * 2].values.word0 = 0x06000000u | tri_word(b, b + 1, b + 2);
+        cmds[1 + t * 2].values.word1 = tri_word(b, b + 2, b + 3);
+        cmds[2 + t * 2].values.word0 = 0x06000000u | tri_word(b, b + 3, b + 4);
+        cmds[2 + t * 2].values.word1 = tri_word(b, b + 4, b + 5);
     }
-    replace_with_call(rdram, vtx_cmd, write_side_dl(rdram, cmds, 1 + out_tri_count));
+    replace_with_call(rdram, vtx_cmd, write_side_dl(rdram, cmds, 1 + tri_count * 2));
 }
 
 // func_8007C624 exit. Resets the group IDs so later draws (HUD, other views) don't inherit them.

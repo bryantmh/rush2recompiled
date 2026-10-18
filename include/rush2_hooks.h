@@ -383,6 +383,8 @@ void rush2_calspeed_road_hold(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_tire_load(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_respawn_advance(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
 
 // Rush 2049 wings physics and drawing (src/rush2049/wings_state.cpp, src/rush2049/wings_render.cpp).

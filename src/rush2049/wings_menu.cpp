@@ -51,6 +51,7 @@ namespace {
     constexpr int option_accent = 3;
     constexpr int option_stripe = 4;
     constexpr int option_stripe_colour = 5;
+    constexpr int option_engine = 8;
     constexpr int option_durability = 12;
     constexpr int option_wings = 15;
     constexpr int option_style = 16; // STYLE (MAIN COLOR) as the swatch widget sees it, so it draws no swatch
@@ -102,7 +103,8 @@ namespace {
     }
 
     // Which rows a slot's car has: Rush 2's, a 2049 car's three ramps, a Dreamcast car's paint jobs, or a California
-    // Speed car's two colors (MAIN and ACCENT: src/calspeed/calspeed_cars.cpp).
+    // Speed car's two colors (MAIN and ACCENT: src/calspeed/calspeed_cars.cpp) and no ENGINE (it plays its own engine
+    // sound, as California Speed has no engine choice: src/car_engines.cpp).
     Rows slot_rows(uint8_t* rdram, int slot) {
         int type = slot_car(rdram, slot);
         if (rush2::car_types::is_calspeed(type)) return Rows::TwoColors;
@@ -122,7 +124,7 @@ namespace {
             int id = base_ids[i];
             if (rows == Rows::Jobs && (id == option_accent || id == option_stripe || id == option_stripe_colour)) continue;
             if (rows == Rows::Ramps && id == option_stripe) continue;
-            if (rows == Rows::TwoColors && (id == option_stripe || id == option_stripe_colour)) continue;
+            if (rows == Rows::TwoColors && (id == option_stripe || id == option_stripe_colour || id == option_engine)) continue;
             if (rows == Rows::Jobs && swatch && id == option_main) id = option_style;
             MEM_W(0, (int32_t)(option_ids + count * 4)) = id;
             count++;

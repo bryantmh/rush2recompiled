@@ -191,8 +191,8 @@ The extras:
 
 The sky's world polygons (flag 0x2000) draw at the primitive depth, which puts RT64's near clip on the camera plane,
 so sky triangles reaching beside or behind the camera stretch or drop out. `rush2_interp_poly_end`
-(src/interpolation.cpp, hooked at 0x8007D890 in `func_8007C624`) clips them at w = 4096 itself and redraws them from
-a side display list.
+(src/interpolation.cpp, hooked at 0x8007D890 in `func_8007C624`) clips them at w = 256 (16 ft in front of the camera,
+in polygon units of 1/16 ft) itself and redraws them from a side display list.
 
 - The clip w is the polygon vertex times the root modelview times the projection stack. `func_8007C624` loads the
   perspective at 0x8007CB88, then multiplies the view's rotation into the projection at 0x8007CED0 (`guLookAtF`
@@ -208,6 +208,23 @@ a side display list.
   projection element by element in its interpolated frames, so w there lies between the two; clipping against
   only the current frame let sky vertices swing behind the camera in fast turns (the race start flyover turns about
   15 degrees a frame).
+- **Fixed vertex slots.** RT64 interpolates a draw's vertices between frames by index, only when the vertex count
+  matches the last frame's (`GameFrame::matchScene`, lib/rt64 rt64_game_frame.cpp). Sutherland-Hodgman clipping gave
+  a piece 3 to 5 vertices per triangle in an order set by which corners were cut, so whenever the counts happened to
+  match, unrelated corners were paired and whole triangles swung across the sky in the interpolated frames (large
+  triangles flickering now and then on every dome track). `clip_tri_slots` now clips every dome triangle, cut or not,
+  into six slots: slot 2i is vertex i, or where the edge from its previous neighbor leaves the kept region when it is
+  cut, slot 2i + 1 the same toward its next neighbor; duplicates where nothing is cut. Count and order never change
+  and each slot moves continuously, so the pairing is always right. Drawn as a fan of four triangles per slot set
+  (two G_TRI2).
+- **The clip distance.** The dome is not a sphere around the camera: `render_sky_cloud_scroll_8008918C` moves it with
+  the camera in x and z only, and its vertex table (0x800C1AA4, 25 vertices, 24 pieces indexed by 0x800C1CB4) is a
+  flat lid at a fixed 900 ft world height out to a 725 ft radius, sloping to 600 ft at 1450 ft and 300 ft (alpha 0,
+  alphas at 0x800C1C98, texture coordinates at 0x800C1BD0) at 2180 ft. Alcatraz's road climbs to 733 ft, so at its highest jump the lid is within 150 ft overhead, and the
+  earlier clip at w = 4096 (256 ft) cut away the lid above about 25 degrees up: the clear color showed at the top of
+  the screen. 16 ft keeps the lid down to a camera nearly touching it; the interpolated frames stay in front because
+  both frames' planes are used, and a vertex's w in them differs from the blend of its two w's only by the camera's
+  movement times its turn in one frame (a few units).
 
 ## No Controller Pak manager
 

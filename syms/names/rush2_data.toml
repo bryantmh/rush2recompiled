@@ -2953,6 +2953,42 @@ status = "verified"
 ref = "docs/online.md#race-end"
 
 [[var]]
+vram = 0x800C1AA4
+name = "sky_dome_vertices"
+type = "f32[25][3]"
+desc = "Sky dome vertex table in polygon units (1/16 ft): x and z camera-relative offsets, y a fixed world height. Vertex 0 the apex and 1-8 a ring at 900 ft (radius 725 ft), 9-16 at 600 ft (1450 ft), 17-24 at 300 ft (2180 ft). render_sky_cloud_scroll_8008918C adds the camera's x and z (x16) each frame and copies y as is, so the dome never follows the camera's height (docs/game_fixes.md#sky-flicker)."
+area = "render"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800C1BD0
+name = "sky_dome_uvs"
+type = "f32[25][2]"
+desc = "Sky dome texture coordinates per vertex of sky_dome_vertices, scaled by 32 and offset by the cloud scroll in render_sky_cloud_scroll_8008918C."
+area = "render"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800C1C98
+name = "sky_dome_alphas"
+type = "u8[25]"
+desc = "Sky dome vertex alpha per vertex of sky_dome_vertices: 255 apex, 240 ring 1, 160 ring 2, 0 ring 3 (the rim fades out). render_sky_cloud_scroll_8008918C takes the FOG fade off it when the piece's flag 0x100 is set."
+area = "render"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800C1CB4
+name = "sky_dome_pieces"
+type = "s8[24][4]"
+desc = "Sky dome piece vertex indices into sky_dome_vertices: 8 cap triangles (apex + ring 1, 4th index -1) then 16 quads between rings 1-2 and 2-3; the 24 world polygons sky_setup_800A45A8 creates and render_sky_cloud_scroll_8008918C refills each frame."
+area = "render"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x800C1CB7
 name = "sky_setup_byte"
 type = "u8"
@@ -7922,9 +7958,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800E7BA4
-name = "engine_sound_rpm_base"
+name = "engine_sound_rpm_scale"
 type = "f32"
-desc = "Float set at player engine start, read by engine sound rpm/load setter."
+desc = "Engine sound rpm scale (1.0, set by player_engine_start_8009E66C): car_engine_sound_set_rpm_load takes rpm = |car +0x7F0| x it. California Speed: 0.8 (0x800F7798)."
 area = "audio"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -7958,9 +7994,9 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800E7BAC
-name = "engine_sound_param_out"
+name = "engine_sound_load_scale"
 type = "f32"
-desc = "Float written at player engine start, never read (low confidence)."
+desc = "Engine sound load scale (0.3 from 0x800CFDDC, set by player_engine_start_8009E66C): load = car +0x3F4 x it. California Speed: 0.3 (0x8016E150)."
 area = "audio"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -12179,12 +12215,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8011194C
-name = "path_checkpoint_ptr"
+name = "path_branch_records"
 type = "void*"
-desc = "Pointer to derived path checkpoint/branch data, heavily read by race progress code (low confidence)."
+desc = "Pointer to the route branch records (16 bytes each: +4 s8, +6 u16 the main-line point the branch joins, +0xA u16 its point count, +0xC its points), part of the route header copy at 0x80111940 (+0 s16 main-line points, +4 their pointer, +8 u8 branch count). California Speed keeps the same at 0x80142700."
 area = "track"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/calspeed_research.md#5-paths"
 
 [[var]]
 vram = 0x80111950
