@@ -73,7 +73,12 @@ row's index, never a fixed number.
   another game's, docs/custom_tracks.md#where-it-is-listed). `RUSH2_TEST_ARCADE_INSTALL=1` runs the Games tab's Rush
   2049 Arcade Build and Install at launch (docs/arcade2049.md#building-it-in-the-game).
 - Car select (state 2): A on the last row picks the car; with every player done the race starts. B goes back to the
-  track select.
+  track select. Rows on an N64 2049 car (RUSH2_TEST_CAR=24, the 8-Ball): CAR, STYLE, TRANSMISSION, MAIN, ACCENT,
+  TERTIARY COLOR, RIMS, HORN, ENGINE (8 DD), TORQUE, SUSPENSION, TIRES (11 DD), WINGS, DURABILITY; the rows follow the
+  car and its STYLE, so changing STYLE on the way down moves the rest. Space DD presses 1 s apart: presses 0.5 s apart
+  are partly dropped. `tools/test_race.py menus --config cheats.unlock_all_parts=true --env RUSH2_TEST_TRACK=0 --env
+  RUSH2_TEST_CAR=24 --script "8:START,11:A,13.5:A,17:A,..." --shots ...` reaches it at 17 s as JUST PLAY in its own
+  data folder.
 
 ### Game filter
 

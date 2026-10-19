@@ -305,9 +305,18 @@ shown row 0x803CB3A0[slot] (4 shown), car type 0x803CB362[slot] (s8).
 | 2049 (N64 ROM) | STRIPE hidden; STRIPE COLOR labelled TERTIARY COLOR |
 | 2049 (Dreamcast disc) | ACCENT COLOR, STRIPE, STRIPE COLOR hidden; MAIN COLOR labelled STYLE, value STYLE n, no swatch |
 
-STYLE is the MAIN COLOR byte (0x80201190 + (slot + 1) * 36 + type) modulo the car's paint jobs. func_803B9478 adds a
+STYLE is the MAIN COLOR byte (MAIN's table copy + (slot + 1) * types + type) modulo the car's paint jobs. func_803B9478 adds a
 step to it and wraps at 32 (case 2 after 0x803B98A4); the hook there sets the byte so the sum wraps at the jobs. The
 swatch widget (func_803BAA44 shows one for ids 2, 3 and 5) sees STYLE as id 16, so it draws none.
+
+**Row byte offset.** func_803B9478 reaches a panel's row byte as a pointer to row `slot` of a per-type table copy plus
+the table width: Rush 2's `0x16(reg)` is patched to `types(reg)` by us.toml's "row offset" patches
+(tools/rush2049/cartypes.py), so the offset moves whenever `rush2::car_types::types` grows (0x24 with the 2049 cars,
+0x39 with California Speed's, 0x49 with the mod cars). Hooks that read or write the byte through that register use
+`rush2::car_types::types`, never a number: ENGINE (rush2_car49_engine_before/_value, 0x803B9E3C/0x803B9E78), TIRES
+(rush2_car49_tires_before/_value, 0x803BA0BC/0x803BA134), the color rows (rush2_paint_step_value) and the SF Rush
+STRIPE (rush2_car1_stripe_value, 0x803B9B8C). Until 2026-10-19 they still used 0x24, so once California Speed's cars
+were added the extra ENGINE levels, SLICKS / PRO SLICKS, the 2049 shades and the SF Rush stripe could not be picked.
 
 A player's choices are applied at car init (func_8008DBA0): a per-car copy of the descriptor (0x80225000, 8 x 0xEC)
 gets the torque scale x torque[ENGINE][h] / torque[0][h] (h = the car's own HANDLING); the car's mass, inertias and
@@ -377,9 +386,9 @@ shades starts as color 32-52 (the slot's record field gets the stand-in, the sha
 before 2026-10-14 keep the colors they hold.
 
 The car select's left/right on a color row (func_803B9478 cases MAIN 0x803B9960, ACCENT 0x803B9A20, STRIPE COLOR
-0x803B9BA0) adds the step to the row byte (0x80201190 / 0x80201248 / 0x802013B8 + (slot + 1) * 36 + type), wraps it
+0x803B9BA0) adds the step to the row byte (MAIN / ACCENT / STRIPE COLOR copy + (slot + 1) * types + type), wraps it
 at 32 (31 below 0, 0 from 32) and calls the setter with it. Hooks keep the byte before the add (0x803B9998, 0x803B9A58,
-0x803B9BD8) and, at the setter call (0x803B9A0C, 0x803B9ACC, 0x803B9C4C: row byte $v0 + 0x24, value $v1, type $a3,
+0x803B9BD8) and, at the setter call (0x803B9A0C, 0x803B9ACC, 0x803B9C4C: row byte $v0 + types, value $v1, type $a3,
 step $a1), wrap it at the colors offered instead. A Dreamcast car's MAIN row is its STYLE and keeps its own wrap.
 
 ## 10. Car speeds [V]

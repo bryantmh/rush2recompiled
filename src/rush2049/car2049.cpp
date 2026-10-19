@@ -3641,11 +3641,15 @@ extern "C" int rush2_car49_offroad(uint8_t* rdram, recomp_context* ctx) {
     return 1;
 }
 
-// Car select, func_803B9478: changing a player's TIRES value (0x803BA0BC: the row byte at $v0 + 0x24 before the change;
-// 0x803BA134: the new value in $v1 after Rush 2's wrap at 11; type $a3, direction $a1, 0 = back to the default; player
-// $s7). While the 2049 cars are on, every car's row goes on to SLICKS and PRO SLICKS; the unlock system skips the ones
+// Car select, func_803B9478: changing a player's TIRES value (0x803BA0BC: the row byte at $v0 + row_offset before the
+// change; 0x803BA134: the new value in $v1 after Rush 2's wrap at 11; type $a3, direction $a1, 0 = back to the default;
+// player $s7). While the 2049 cars are on, every car's row goes on to SLICKS and PRO SLICKS; the unlock system skips the ones
 // it keeps locked (src/unlocks.cpp).
 namespace {
+    // The car select addresses a player's row byte as $reg + the table width (row player + 1 of the widened per-type
+    // tables, include/car_types.h; us.toml's "row offset" patches), not Rush 2's 0x16.
+    constexpr uint32_t row_offset = (uint32_t)types;
+
     int tires_before = -1;
 
     // Rush 2's own sets are always open; SLICKS (1) and PRO SLICKS (2) are the unlock system's.
@@ -3658,7 +3662,7 @@ namespace {
 }
 
 extern "C" void rush2_car49_tires_before(uint8_t* rdram, recomp_context* ctx) {
-    tires_before = (int8_t)MEM_B(0, (int32_t)((uint32_t)ctx->r2 + 0x24));
+    tires_before = (int8_t)MEM_B(0, (int32_t)((uint32_t)ctx->r2 + row_offset));
 }
 
 extern "C" void rush2_car49_tires_value(uint8_t* rdram, recomp_context* ctx) {
@@ -3675,7 +3679,7 @@ extern "C" void rush2_car49_tires_value(uint8_t* rdram, recomp_context* ctx) {
     do {
         value = (value + step + count) % count;
     } while (!tires_open(rdram, player, value));
-    MEM_B(0, (int32_t)((uint32_t)ctx->r2 + 0x24)) = (int8_t)value;
+    MEM_B(0, (int32_t)((uint32_t)ctx->r2 + row_offset)) = (int8_t)value;
     ctx->r3 = (uint64_t)(int64_t)value;
 }
 
@@ -3696,15 +3700,15 @@ const char* rush2::car2049::tire_name(int tire) {
     return tire >= 0 && tire < tires49_count ? tire_names[tire] : "";
 }
 
-// Car select, func_803B9478: changing a player's ENGINE value. At 0x803B9E3C the row byte is at $v1 + 0x24 (type $a3,
-// direction $a1, player $s7); at 0x803B9E78 the new value is in $v0, after Rush 2's wrap at 10 and its skip of a
+// Car select, func_803B9478: changing a player's ENGINE value. At 0x803B9E3C the row byte is at $v1 + row_offset (type
+// $a3, direction $a1, player $s7); at 0x803B9E78 the new value is in $v0, after Rush 2's wrap at 10 and its skip of a
 // locked engine. The 2049 cars have 9 engines; the unlock system may lock levels 3-8 (src/unlocks.cpp).
 namespace {
     int engine_before = -1;
 }
 
 extern "C" void rush2_car49_engine_before(uint8_t* rdram, recomp_context* ctx) {
-    engine_before = (int8_t)MEM_B(0, (int32_t)((uint32_t)ctx->r3 + 0x24));
+    engine_before = (int8_t)MEM_B(0, (int32_t)((uint32_t)ctx->r3 + row_offset));
 }
 
 extern "C" void rush2_car49_engine_value(uint8_t* rdram, recomp_context* ctx) {
@@ -3720,7 +3724,7 @@ extern "C" void rush2_car49_engine_value(uint8_t* rdram, recomp_context* ctx) {
     do {
         value = (value + step + engine_levels) % engine_levels;
     } while (value != 0 && !rush2::unlocks::engine_open(rdram, player, value));
-    MEM_B(0, (int32_t)((uint32_t)ctx->r3 + 0x24)) = (int8_t)value;
+    MEM_B(0, (int32_t)((uint32_t)ctx->r3 + row_offset)) = (int8_t)value;
     ctx->r2 = (uint64_t)value;
 }
 

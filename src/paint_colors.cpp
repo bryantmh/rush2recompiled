@@ -23,7 +23,7 @@
 //
 // The car select (menu_screen_car_select_frame 0x803B9478) adds left/right to the row's byte (MAIN,
 // ACCENT and STRIPE COLOR copies, include/car_types.h; + (slot + 1) * types + type) and wraps it at 32. A hook before the add
-// keeps the value, and one at the setter call (the row byte at $v0 + 0x24, value $v1) wraps it at count() instead. A
+// keeps the value, and one at the setter call (the row byte at $v0 + types, value $v1) wraps it at count() instead. A
 // Dreamcast 2049 car's MAIN row is its STYLE (src/rush2049/wings_menu.cpp) and is left alone.
 
 #include <algorithm>
@@ -83,7 +83,7 @@ namespace {
     };
 
     constexpr uint32_t rush2_table = 0x800CE19C;     // Rush 2's RGBA table
-    constexpr uint32_t row_value = 0x24;             // the car select row byte, from $v0
+    constexpr uint32_t row_value = rush2::car_types::types; // the car select row byte, from $v0 (the table width)
     constexpr uint32_t block_span = 0x584 + rush2::car_types::types * 13; // a record's blocks, the extra types' included
     constexpr int fields = 3;                        // MAIN, ACCENT, STRIPE COLOR
 
@@ -303,7 +303,7 @@ extern "C" void rush2_paint_step_before(uint8_t* rdram, recomp_context* ctx, int
     step_before = value;
 }
 
-// Car select, at the setter call after the change: $v0 + 0x24 = the row byte, $v1 = its value, $a3 = the type, $a1 =
+// Car select, at the setter call after the change: $v0 + types = the row byte, $v1 = its value, $a3 = the type, $a1 =
 // the step. With the 2049 shades the row wraps at count().
 extern "C" void rush2_paint_step_value(uint8_t* rdram, recomp_context* ctx, int field) {
     int before = step_before;

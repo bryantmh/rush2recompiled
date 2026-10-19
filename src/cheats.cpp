@@ -22,7 +22,7 @@
 // - Unlock All Cars replaces each player's car list once car select (func_803B81F0) has built it. The game lists
 //   cars 0-15, cars 16-19 for every 3 keys found on the current track, car 20 once 0x800C20D8 (or the profile's
 //   +0x4B4) is set, and car 21 once all 4 cans on the current track are found; the Rush 2049 cars follow.
-// - Unlock All Parts offers every ENGINE level on the Rush 2049 cars.
+// - Unlock All Parts offers every ENGINE level on the Rush 2049 cars and the SLICKS and PRO SLICKS tires.
 // Otherwise the unlock system decides what each player's car list holds (src/unlocks.cpp). Its own option, Unlock
 // System, is kept in this tab's config but shown on the Progress tab.
 //
@@ -78,7 +78,7 @@ namespace {
     constexpr uint32_t midway_unlocked = 0x800E7D19;
 
     constexpr uint32_t num_players = 0x8010C3E2;  // s16
-    constexpr uint32_t car_list = rush2::car2049::car_list; // u8 [36][2]: car i of player p at + 2 * i + p.
+    constexpr uint32_t car_list = rush2::car2049::car_list; // u8 [types][2]: car i of player p at + 2 * i + p.
     constexpr uint32_t car_list_size = 0x803CB398; // s16 [2]
     constexpr int num_cars = 22;
     constexpr int max_car_players = 2;
@@ -614,7 +614,9 @@ void rush2::cheats::create_tab() {
     config.add_bool_option(
         unlock_parts_id,
         "Unlock All Parts",
-        "Offers every <recomp-color primary>ENGINE</recomp-color> level on the Rush 2049 cars without buying them. "
+        "Offers every <recomp-color primary>ENGINE</recomp-color> level on the Rush 2049 cars and the "
+        "<recomp-color primary>SLICKS</recomp-color> and <recomp-color primary>PRO SLICKS</recomp-color> tires "
+        "without buying them. "
         "Nothing is saved, so turning this off locks them again.",
         false
     );

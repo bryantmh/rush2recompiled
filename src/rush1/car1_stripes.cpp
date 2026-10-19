@@ -42,6 +42,7 @@
 #include "assets.h"
 #include "car1_decals.h"
 #include "car1_stripes.h"
+#include "car_types.h"
 #include "rush2_hooks.h"
 #include "track1.h"
 #include "track_cache.h"
@@ -341,8 +342,8 @@ extern "C" void rush2_car1_stripe_before(uint8_t* rdram, recomp_context* ctx) {
     stripe_before = (int8_t)ctx->r25;
 }
 
-// At 0x803B9B8C the game has changed the value ($v1, stored at $v0 + 0x24; type $a3, direction $a1): a car with the SF
-// Rush stripe cycles through 9 values.
+// At 0x803B9B8C the game has changed the value ($v1, stored at $v0 + the table width car_types::types, us.toml's
+// "row offset" patches; type $a3, direction $a1): a car with the SF Rush stripe cycles through 9 values.
 extern "C" void rush2_car1_stripe_value(uint8_t* rdram, recomp_context* ctx) {
     int before = stripe_before;
     stripe_before = -1;
@@ -352,7 +353,7 @@ extern "C" void rush2_car1_stripe_value(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     int value = (std::clamp(before, 0, sf_rush_value) + step + sf_rush_value + 1) % (sf_rush_value + 1);
-    MEM_B(0, (int32_t)((uint32_t)ctx->r2 + 0x24)) = (int8_t)value;
+    MEM_B(0, (int32_t)((uint32_t)ctx->r2 + rush2::car_types::types)) = (int8_t)value;
     ctx->r3 = (uint64_t)value;
 }
 
