@@ -646,16 +646,79 @@ namespace {
     struct ScaledLane {
         uint32_t points = 0;
         std::vector<uint8_t> speeds;
+    constexpr uint32_t lane_points = 0x800D57A0, lane_counts = 0x800D5780;
+
     };
     ScaledLane scaled_lanes[4];
 }
 
 extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
-    constexpr uint32_t lane_points = 0x800D57A0, lane_counts = 0x800D5780;
-    // California Speed's lanes are in the same displayed mph as Rush 2049's (true mph x 1.2: its lane 0 averages
-    // 162-172 over its race tracks, distance-weighted, where Rush 2's average 139.3), so they map the same way.
-    bool rush2049_path = (rush2::track2049::race_track() != 0 || rush2::calspeed::race_track() > 0) &&
-                         MEM_B(0, (int32_t)track_id) == host_slot;
+
+    // A California Speed track's lanes: the speeds func_800924E4 works the race time out from (`timed`: California
+    // Speed's / 1.2, the times its tracks have always had) and the ones the drones drive (`driven`: its true mph,
+    // capped where a Rush 2 car can't hold them, rush2::calspeed::capped_lane_speeds), both through the Car Speeds lane
+    // map. The lanes hold `timed` until the race time is worked out (rush2_race_lane_speeds), then `driven`
+    // (rush2_track49_race_time). `mph` and `capped` are the file's speeds and their caps, mapped again every race (the
+    // Car Speeds setting can change between two races on the same loaded path).
+    struct CalSpeedLane {
+        uint32_t points = 0;
+        std::vector<uint8_t> mph, capped, timed, driven;
+    };
+    CalSpeedLane calspeed_lanes[4];
+
+    bool lane_holds(uint8_t* rdram, uint32_t points, const std::vector<uint8_t>& speeds) {
+        for (size_t i = 0; i < speeds.size(); i++) {
+            if (MEM_BU(0, (int32_t)(points + i * 8 + 6)) != speeds[i]) return false;
+        }
+        return true;
+    }
+
+    void write_lane(uint8_t* rdram, uint32_t points, const std::vector<uint8_t>& speeds) {
+        for (size_t i = 0; i < speeds.size(); i++) {
+            MEM_B(0, (int32_t)(points + i * 8 + 6)) = (int8_t)speeds[i];
+        }
+    }
+
+    bool calspeed_path(uint8_t* rdram) {
+        return rush2::calspeed::race_track() > 0 && MEM_B(0, (int32_t)track_id) == host_slot;
+    }
+
+    void calspeed_lane_speeds(uint8_t* rdram) {
+        int t = rush2::calspeed::race_track() - 1;
+        for (int lane = 0; lane < 4; lane++) {
+            uint32_t points = (uint32_t)MEM_W(0, (int32_t)(lane_points + lane * 4));
+            uint32_t count = MEM_HU(0, (int32_t)(lane_counts + lane * 2));
+            CalSpeedLane& l = calspeed_lanes[lane];
+            if (points == 0 || count > 4096) {
+                continue;
+            }
+            // The path file can stay loaded from one race to the next, holding the speeds written last time.
+            bool again = l.points == points && l.timed.size() == count &&
+                         (lane_holds(rdram, points, l.driven) || lane_holds(rdram, points, l.timed));
+            if (!again) {
+                std::vector<std::array<float, 3>> pos(count);
+                l.mph.resize(count);
+                for (uint32_t i = 0; i < count; i++) {
+                    for (int k = 0; k < 3; k++) pos[i][k] = (float)(int16_t)MEM_H(0, (int32_t)(points + i * 8 + k * 2));
+                    l.mph[i] = MEM_BU(0, (int32_t)(points + i * 8 + 6));
+                }
+                l.capped = rush2::calspeed::capped_lane_speeds(pos, l.mph, !rush2::calspeed::point_to_point(t));
+                l.points = points;
+            }
+            l.timed.resize(count);
+            l.driven.resize(count);
+            for (uint32_t i = 0; i < count; i++) {
+                l.timed[i] = l.mph[i] ? (uint8_t)std::max(1, rush2::car2049::map_lane_speed(l.mph[i], true)) : 0;
+                l.driven[i] = l.capped[i] ? (uint8_t)std::max(1, rush2::car2049::map_lane_speed(l.capped[i], false)) : 0;
+            }
+            write_lane(rdram, points, l.timed);
+        }
+    }
+    if (calspeed_path(rdram)) {
+        calspeed_lane_speeds(rdram);
+        return;
+    }
+    bool rush2049_path = rush2::track2049::race_track() != 0 && MEM_B(0, (int32_t)track_id) == host_slot;
     for (int lane = 0; lane < 4; lane++) {
         uint32_t points = (uint32_t)MEM_W(0, (int32_t)(lane_points + lane * 4));
         uint32_t count = MEM_HU(0, (int32_t)(lane_counts + lane * 2));
@@ -806,6 +869,16 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     if (!rush2::battle::race_battle_applies(rdram)) return;
     constexpr uint32_t header = 0x8010BCE8;
     int count = (int16_t)MEM_H(0, (int32_t)(header + 8));
+    // The race time is worked out: a California Speed track's drones get their lanes' driving speeds.
+    if (calspeed_path(rdram)) {
+        for (int lane = 0; lane < 4; lane++) {
+            const CalSpeedLane& l = calspeed_lanes[lane];
+            uint32_t points = (uint32_t)MEM_W(0, (int32_t)(lane_points + lane * 4));
+            if (points != 0 && points == l.points && MEM_HU(0, (int32_t)(lane_counts + lane * 2)) == l.driven.size()) {
+                write_lane(rdram, points, l.driven);
+            }
+        }
+    }
     int before = MEM_HU(0, (int32_t)header);
     auto scale = [&](uint32_t at) { MEM_H(0, (int32_t)at) = (int16_t)std::min(32767, (int)std::lround(MEM_HU(0, (int32_t)at) * 1.5)); };
     scale(header);

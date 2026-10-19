@@ -1003,7 +1003,8 @@ float rush2::calspeed::record_seed(int t) {
     if (seeds[size_t(t)] >= 0.0f) return seeds[size_t(t)];
     // Lane 0 of the path (docs/rush2049_research/race.md: route header 0x32C, branches, points, then 4 lanes of
     // {u16 count, u8, u8, u32} + count x {s16 x, y, z, u8 mph, u8}), driven at its speeds; a circuit's lap closes the
-    // loop. The speeds are displayed mph, true mph x 1.2 (as Rush 2049's: track2049.cpp rush2_race_lane_speeds).
+    // loop, at its speeds / 1.2, the speeds the race timer is worked out from (track2049.cpp rush2_race_lane_speeds;
+    // the drones drive them as true mph, capped: docs/calspeed_research.md#5-paths).
     float seconds = 0.0f;
     try {
         Bytes p = asset(*rom, path_asset + t);
@@ -1030,4 +1031,82 @@ float rush2::calspeed::record_seed(int t) {
     }
     seeds[size_t(t)] = seconds;
     return seconds;
+}
+
+// California Speed's lanes are set for its own cars, whose tires grip about 3 times as hard as Rush 2's (tire curve
+// grip 7.8 against 2.6-3.2, tools/rush2049/cars.py calspeed) and which its road hold keeps on the road over crests,
+// and Rush 2's drone driver (func_80074990) only aims for the lane's speed: it never slows for a curve the lane doesn't
+// slow for. So a lane point's speed is capped at what the lane's curve there allows at `corner_g` (the circle through
+// the points `reach` ft before and after it, seen from above) and its crest or dip at `vertical_g` (the change of
+// grade over `reach` ft either side), and then, walking back from every point, at what braking at `brake_ft_s2` from
+// the point before reaches. Points 1000 ft or more apart (a lane jumping back at its end) don't join. The values are
+// the sim's (tools/calspeed/sim_wrecks.py, lane_hold.py; docs/calspeed_research.md#5-paths): Rush 2's drones pull
+// up to about 2.5 g; at 3 g they ran wide and wrecked twice as often, and without the crest cap they flew off crests
+// California Speed's lanes take at 190-200 mph and landed in wrecks.
+std::vector<uint8_t> rush2::calspeed::capped_lane_speeds(const std::vector<std::array<float, 3>>& pos,
+                                                         const std::vector<uint8_t>& mph, bool loop) {
+    constexpr double corner_g = 2.5, vertical_g = 4.0, brake_ft_s2 = 40.0, reach = 60.0, gap = 1000.0, g = 32.17,
+                     mph_ft_s = 5280.0 / 3600.0;
+    const int n = int(pos.size());
+    std::vector<uint8_t> out = mph;
+    if (n < 3 || int(mph.size()) != n) return out;
+    auto step = [&](int i, int j) { return std::hypot(double(pos[j][0] - pos[i][0]), double(pos[j][2] - pos[i][2])); };
+    auto next = [&](int i, int dir) {
+        int k = i + dir;
+        if (loop) k = (k + n) % n;
+        return k >= 0 && k < n ? k : -1;
+    };
+    // The point `reach` ft from i along the lane in `dir`, or -1 past an end or a gap.
+    auto point_at = [&](int i, int dir) {
+        double d = 0.0;
+        int j = i;
+        while (d < reach) {
+            int k = next(j, dir);
+            if (k < 0 || k == i) return -1;
+            double s = step(j, k);
+            if (s >= gap) return -1;
+            d += s;
+            j = k;
+        }
+        return j;
+    };
+    std::vector<double> v(mph.size());
+    for (int i = 0; i < n; i++) {
+        v[size_t(i)] = mph[size_t(i)] * mph_ft_s;
+        int a = point_at(i, -1), c = point_at(i, 1);
+        if (mph[size_t(i)] == 0 || a < 0 || c < 0) continue;
+        double ab = step(a, i), bc = step(i, c), ca = step(c, a);
+        double area2 = std::fabs(double(pos[i][0] - pos[a][0]) * (pos[c][2] - pos[a][2]) -
+                                 double(pos[i][2] - pos[a][2]) * (pos[c][0] - pos[a][0]));
+        if (area2 < 1e-6) continue;
+        double radius = ab * bc * ca / (2.0 * area2);
+        v[size_t(i)] = std::min(v[size_t(i)], std::sqrt(corner_g * g * radius));
+    }
+    for (int i = 0; i < n; i++) {
+        int a = point_at(i, -1), c = point_at(i, 1);
+        if (mph[size_t(i)] == 0 || a < 0 || c < 0) continue;
+        double before = 0.0, after = 0.0;
+        for (int j = a; j != i; j = next(j, 1)) before += step(j, next(j, 1));
+        for (int j = i; j != c; j = next(j, 1)) after += step(j, next(j, 1));
+        if (before <= 0.0 || after <= 0.0) continue;
+        double up = (pos[i][1] - pos[a][1]) / before, down = (pos[c][1] - pos[i][1]) / after;
+        double k = std::fabs(up - down) / (0.5 * (before + after));
+        if (k > 1e-6) v[size_t(i)] = std::min(v[size_t(i)], std::sqrt(vertical_g * g / k));
+    }
+    // Twice round, so a circuit's braking carries over its start.
+    for (int pass = 0; pass < (loop ? 2 : 1); pass++) {
+        for (int i = n - 1; i >= 0; i--) {
+            int j = next(i, 1);
+            if (j < 0 || v[size_t(i)] <= 0.0 || v[size_t(j)] <= 0.0) continue;
+            double d = step(i, j);
+            if (d >= gap) continue;
+            v[size_t(i)] = std::min(v[size_t(i)], std::sqrt(v[size_t(j)] * v[size_t(j)] + 2.0 * brake_ft_s2 * d));
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        if (mph[size_t(i)] > 0) {
+            out[size_t(i)] = uint8_t(std::clamp((int)std::lround(v[size_t(i)] / mph_ft_s), 1, (int)mph[size_t(i)]));
+        }
+    }
+    return out;
 }

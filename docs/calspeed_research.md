@@ -358,9 +358,44 @@ probe is California Speed's own. [V: disassembly; in game]
   (`func_8006D348` with $a3 = 0); everywhere else the reset is California Speed's. Route points with no road within 15 ft under or 5 over them: San Francisco 111, LA 95, Santa Cruz 61, San
   Diego 43, California 34, San Andreas 14, Silicon Valley 4, Monterey 2, Central Valley 1, the rest 0 (jump gaps
   included). [V data and code]
-- **Lane speeds** are displayed mph, true mph x 1.2 like Rush 2049's: lane 0 averages 162-172 mph over the race
-  tracks, distance-weighted, where Rush 2's paths average 139.3. They go through the Car Speeds lane map as 2049
-  paths (`rush2_race_lane_speeds`), and the record seed (`record_seed`, lane 0's time) uses true mph. [V]
+- **Lane speeds** are true mph. California Speed's own drone code reads them so: `func_8009C774` (0x8009C7FC /
+  0x8009C828, the current and next lane point's u8 at +6, lerped, into state +0x10), `func_8009CF00` (0x8009D0B0 /
+  0x8009D130) and its reset `func_800A4020` (0x800A4210) multiply the byte by 1.46667 (an immediate, lui 0x3FBB / ori
+  0xBBBC), mph to ft/s, as Rush 2's driver does (0x800CF8E0). The port first divided them by 1.2 as Rush 2049's
+  displayed mph, and that made the drones easy to beat: they follow the lanes as closely as Rush 2's (sim race, 7
+  drones, x/z distance to the nearest lane: median 0.8 ft on Monterey vs 0.7 ft on a Rush 2 track), but all four lanes
+  over the 16 tracks are 145 / 170 / 181 / 188 mph at the 10th / 50th / 90th / 95th percentile (Rush 2's circuits:
+  111 / 139 / 160 / 163), so after / 1.2 the drones held 121-157 mph on wide roads a player drives near top speed
+  (Rush 2's average car: 168 mph); Rush 2's lanes sit at its cars' top speed on straights. [V disassembly and data]
+- **Driven speeds** (`rush2_race_lane_speeds` 0x80093290 and `rush2_track49_race_time` 0x80093298, src/rush2049/
+  track2049.cpp; `rush2::calspeed::capped_lane_speeds`, calspeed_convert.cpp): California Speed's lanes are set for its
+  cars, which grip about 3 times as hard (tire curve grip 7.8 against 2.6-3.2) and which its road hold keeps down over
+  crests, and Rush 2's driver only slows where the lane does. Driven at full speed (3 g cap only) the drones ran wide
+  and flew off crests California Speed's lanes take at 190-200 mph (California's (1030, 70, 7450): airborne at 130
+  mph, 50 ft over the lane, landing at 164 mph in a wreck). Each lane point is capped at what its curve allows at
+  2.5 g (circle through the points 60 ft before and after, seen from above; Rush 2's drones pull up to 2.4-2.6 g at
+  the 99th percentile in the sim) and its crest or dip at 4 g (change of grade over 60 ft either side), then braking at
+  40 ft/s^2 back from every point. California Speed's lanes also drop speed in one step (213 -> 117 mph at Santa
+  Cruz's (-18000, -670, 5900)), which Rush 2's driver can't brake for; the braking pass spreads those. The race
+  timer stays as it was: func_800924E4 works the checkpoint times out from the lanes at / 1.2 (the timed speeds are
+  written at 0x80093290), and the driven speeds are written after it (0x80093298). Both go through the Car Speeds
+  lane map as Rush 2 paths (x 1.2 with Rush 2049 speeds). The record seed (`record_seed`) keeps / 1.2. Tuned in the
+  sim with Drone Cheating off (tools/calspeed/sim_wrecks.py --no-catch-up, tools/calspeed/lane_hold.py): wrecks not
+  from a rollover, before the finish, per minute of race: 0.33 over the 16 tracks against Rush 2's 0.24 (7 tracks);
+  the / 1.2 lanes on the five worst tracks 3.08 (now 0.48 there); at 3 g corners twice the 2.5 g count. No drone
+  wrecks at speed off its lane. Rollovers (1.20 / min against Rush 2's 0.16) are the road hold's. [V sim]
+- **Computer cars' resets:** California Speed's reset calls `func_8009DAA8` (0x800A41C4) after placing a car: the
+  drone (lane state 0x80151D80 + 0x128 x the car's +0x83A) goes on its own lane's point nearest the reset spot,
+  searched between the last and the next checkpoint's crossings (+0x24; +2 in game mode 6), +0x26 = -1, +0x20 the
+  clock, +0 = 20.0, +4 = 0, keeping its lane (+0x28). Under Rush 2's driver, which puts a drone back once it is 100
+  ft from its lane point or stuck, a reset onto the route line looped: California's lanes 0-1 run 200-270 ft from the
+  route and lane 3 at (1500, -20, 6850), so a drone reset there drove back across to its lane and was put back again
+  (55 of the track's 99 wrecks in one race), and slot offsets left drones against walls on Central Valley and San
+  Andreas. So `rush2_calspeed_respawn_place` puts a computer car on the lane point nearest California Speed's reset
+  spot, of its own lane unless that is more than 50 ft away there (then the nearest lane's), 1.5 ft up and faced along
+  the lane as Rush 2 puts one, with +0x28 that lane, +0x24 that point, +0x26 = -1 and +0x20 the clock (+0 / +4 Rush 2's
+  driver works out every frame). Players keep California Speed's reset.
+  [V disassembly and sim]
 - **Start grid:** Rush 2 lines the grid up behind the spine point where checkpoint 0 crosses the spine, 60 ft deep
   (slot table 0x800CC2BC, `car_place_by_case_8006DE20` case 0). A point-to-point track's road ends a few feet behind
   its first spine point, and on six tracks checkpoint 0 crosses within 50 ft of it, so the back rows (the player's)

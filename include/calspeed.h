@@ -104,6 +104,11 @@ namespace rush2::calspeed {
     int race_track();
     // A California Speed track is being raced now (not the attract demo): its physics hooks run.
     bool racing(uint8_t* rdram);
+    // An AI lane's target speeds (true mph, as California Speed's drone code reads them) capped where a Rush 2 car
+    // can't hold them: the lane's curve limits the speed and the braking before it (docs/calspeed_research.md#5-paths).
+    // pos: each point's x, y, z; loop: a circuit's lane (its last point leads to its first).
+    std::vector<uint8_t> capped_lane_speeds(const std::vector<std::array<float, 3>>& pos,
+                                            const std::vector<uint8_t>& mph, bool loop);
     void set_race_track(int k);
     // The raced track's converted path file, whose racing line tells when a car has fallen under the course, and its
     // collision, whose ground tells where a reset has road under it.

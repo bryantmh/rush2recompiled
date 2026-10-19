@@ -1350,7 +1350,7 @@ extern "C" void rush2_calspeed_respawn_advance(uint8_t* rdram, recomp_context* c
 // slot's offset turned along the route (func_800A4C44's matrix: x = (dz, -dx)), at the point's height, and faced
 // along the route there (func_8006D348: point 0x1A8($sp), loaded into $a1 next, of branch $a2 / 0x1B0($sp), -1 the
 // main line; $a3 = 1, the route). Where that spot has no road under it, on the lane point nearest the car instead
-// ($a2 the lane, $a3 = 0).
+// ($a2 the lane, $a3 = 0). A computer car goes on a lane point near the spot (below).
 extern "C" void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t cars = 0x800F5470, car_size = 0x81C, respawn_point = 0x664;
     int t = raced_track - 1;
@@ -1460,6 +1460,66 @@ extern "C" void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx) {
     ctx->f16.fl = std::min(ctx->f16.fl, lowest - floor_depth);
 }
 
+    // A computer car goes on a lane point, as Rush 2 puts one back (respawn_place_car_80090A40: on its lane, +1.5 ft,
+    // faced along it). California Speed's reset leaves a drone on the spot above and then calls func_8009DAA8
+    // (0x800A41C4), which sets its lane point (lane state 0x80151D80 + 0x128 x the car's +0x83A, Rush 2's car state
+    // + 0x30C: +0x24 its lane's point nearest the spot, +0x26 = -1, +0x20 the game clock) and keeps its lane (+0x28).
+    // But Rush 2's driver puts a drone back once it is more than 100 ft from that point (drone_driver_80074990 at
+    // 0x80075238), and its stuck test once it can't move on, which California Speed never does: where a track's lanes
+    // take another road than its route line (California's lanes 0-1 run 200-270 ft from the route and lane 3 at
+    // (1500, -20, 6850)) a drone reset onto the route drove back across to its lane and was put back on the route,
+    // and where the slot's side offset left it against a wall it was put back there; both over and over for the rest
+    // of the race (California, Central Valley, San Andreas). So a drone goes on the point of its own lane nearest the
+    // spot (in 3D, the whole lane), or of the lane nearest the spot when its own is more than `own_lane` ft away there.
+    constexpr uint32_t drone_flag = 0x7E6, lane_headers = 0x80110020, game_clock = 0x80117488;
+    constexpr uint32_t car_slots = 0x801124A0, car_slot_size = 0x354, drone_state = 0x30C;
+    constexpr float own_lane = 50.0f;
+    if (MEM_H(0, (int32_t)(car + drone_flag)) != 0) {
+        int32_t state = (int32_t)(car_slots + uint32_t(index) * car_slot_size + drone_state);
+        auto lane_point = [&](int lane, int i, int k) {
+            uint32_t points = (uint32_t)MEM_W(0, (int32_t)(lane_headers + uint32_t(lane) * 8 + 4));
+            return (float)MEM_H(0, (int32_t)(points + uint32_t(i) * 8 + uint32_t(k) * 2));
+        };
+        auto nearest_on = [&](int lane, int& at) {
+            int n = MEM_HU(0, (int32_t)(lane_headers + uint32_t(lane) * 8));
+            float best = 1e30f;
+            for (int i = 0; i < n && MEM_W(0, (int32_t)(lane_headers + uint32_t(lane) * 8 + 4)) != 0; i++) {
+                float d = 0.0f;
+                for (int k = 0; k < 3; k++) {
+                    float l = lane_point(lane, i, k);
+                    d += (l - pos[k]) * (l - pos[k]);
+                }
+                if (d < best) {
+                    best = d;
+                    at = i;
+                }
+            }
+            return best;
+        };
+        int lane = MEM_H(0, state + 0x28), at = -1;
+        float best = lane >= 0 && lane < 4 ? nearest_on(lane, at) : 1e30f;
+        if (best > own_lane * own_lane) {
+            for (int l = 0; l < 4; l++) {
+                int i = -1;
+                float d = nearest_on(l, i);
+                if (d < best) {
+                    best = d;
+                    lane = l;
+                    at = i;
+                }
+            }
+        }
+        if (at >= 0) {
+            for (int k = 0; k < 3; k++) pos[k] = lane_point(lane, at, k) + (k == 1 ? 1.5f : 0.0f);
+            point = at;
+            list = lane;
+            on_route = 0;
+            MEM_H(0, state + 0x28) = (int16_t)lane;
+            MEM_H(0, state + 0x24) = (int16_t)at;
+            MEM_H(0, state + 0x26) = -1;
+            MEM_W(0, state + 0x20) = MEM_W(0, (int32_t)game_clock);
+        }
+    }
 // The end of a point-to-point race. A car keeps driving once it has finished, and San Francisco's road ends in the
 // subway tunnel's end wall (collision polygon 1723, z -4030..-4059) about 300 ft past its finish line (checkpoint 4
 // at z -3748), where Rush 2's crash tests wrecked a car arriving at race speed. California Speed has no wrecks (it
