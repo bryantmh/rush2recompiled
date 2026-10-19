@@ -397,6 +397,8 @@ void rush2_calspeed_road_hold(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_tire_load(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx);
+int rush2_calspeed_finished_car(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_demo_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_respawn_advance(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);

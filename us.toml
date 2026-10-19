@@ -1054,20 +1054,22 @@ func = "car_car_collision_response_8006E2A8"
 before_vram = 0x8006EB80
 text = "    if (rush2_track49_battle_arena(rdram)) { ctx->r4 = ctx->r8; goto L_8006EBB0; }"
 
+# California Speed's point-to-point tracks: a finished car skips these crash tests too, so it bumps off the wall past
+# the finish instead of wrecking (src/calspeed/calspeed_rom.cpp, rush2_calspeed_finished_car).
 [[patches.hook]]
 func = "car_crash_damage_stage_800715E8"
 before_vram = 0x8007173C
-text = "    if (rush2_track49_battle_arena(rdram)) goto L_80071768;"
+text = "    if (rush2_track49_battle_arena(rdram) || rush2_calspeed_finished_car(rdram, ctx)) goto L_80071768;"
 
 [[patches.hook]]
 func = "car_crash_damage_stage_800715E8"
 before_vram = 0x80071794
-text = "    if (rush2_track49_battle_arena(rdram)) goto L_800717B4;"
+text = "    if (rush2_track49_battle_arena(rdram) || rush2_calspeed_finished_car(rdram, ctx)) goto L_800717B4;"
 
 [[patches.hook]]
 func = "car_crash_damage_stage_800715E8"
 before_vram = 0x800717B8
-text = "    if (rush2_track49_battle_arena(rdram)) goto L_80071800;"
+text = "    if (rush2_track49_battle_arena(rdram) || rush2_calspeed_finished_car(rdram, ctx)) goto L_80071800;"
 
 [[patches.hook]]
 func = "car_apply_damage_state_to_preview_8008D3F8"
@@ -13099,11 +13101,12 @@ func = "race_track_load_step_8008BC64"
 vram = 0x8008BDAC
 value = 0x28410082 # slti at, v0, 0x28 -> 0x82: clear every group of the copy
 
-# Finish place kept when a finished car runs out of deaths (src/game_fixes.cpp).
+# Finish place kept when a finished car runs out of deaths (src/game_fixes.cpp). The race behind the records screen on a
+# California Speed track starts its cars at the start line (src/calspeed/calspeed_rom.cpp, rush2_calspeed_demo_start).
 [[patches.hook]]
 func = "race_car_finish_or_respawn_handle_8009E180"
 before_vram = 0x8009E180
-text = "    rush2_fix_finish_place(rdram, ctx);"
+text = "    rush2_fix_finish_place(rdram, ctx); rush2_calspeed_demo_start(rdram, ctx);"
 
 # Hide Respawning Cars (option): a computer car is hidden through its respawn glide instead of sitting whole in its
 # fire (src/game_fixes.cpp).

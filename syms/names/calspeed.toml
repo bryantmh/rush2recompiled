@@ -123,6 +123,15 @@ area = "car"
 ref = "docs/calspeed_research.md#wheel-effects"
 
 [[func]]
+vram = 0x80082894
+name = "car_pedals_race_over"
+desc = "A car's pedals: once the race is over (byte 0x8014FE0B) or the player's own byte (0x80151C02 + index x 0x2A8) is set, throttle +0x418 = 0, +0x414 = 1 and brake +0x41C = +0x614 x 0.009 x 5 (x 7 while +0x438 > 120): the car brakes to a stop after the finish. Otherwise +0x41C = +0x718."
+consts = "0.009 (0x3C1374BC) = brake factor; 5 / 7 = brake multiplier under / over 120"
+status = "inferred"
+area = "car"
+ref = "docs/calspeed_research.md#the-end-of-a-point-to-point-race"
+
+[[func]]
 vram = 0x8008F060
 name = "cs_car_physics_step"
 sig = "void cs_car_physics_step(Car *car)"

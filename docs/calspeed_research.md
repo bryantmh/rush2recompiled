@@ -333,6 +333,37 @@ probe is California Speed's own. [V: disassembly; in game]
   1000 ft (Yosemite's lane 1 jumping back 5581 ft at its end) aren't road and stay. The lanes' checkpoint
   crossings are worked out at load (`func_80092BC4`). [V: Monterey's jump wrecks gone in the sim]
 
+### The end of a point-to-point race
+
+- **After the finish line** a car keeps driving: the player's under their control until every player has finished
+  and the race is over (game state 4: `func_800AAE20` clears every car's release +0x71C at 0x800AAF18, and
+  `physics_car_tick_80075880` no longer steps a car without it). San Francisco's lanes end about 190 ft past its finish
+  line (checkpoint 4, (3434, -293, -3748), flag 1) and the subway tunnel ends in a wall (collision polygon 1723, type 5,
+  z -4030..-4059) about 300 ft past it, so a car that crossed the line at race speed hit it, and Rush 2's crash tests
+  (`car_crash_damage_stage_800715E8`: impact force over +0x644, speed over 400 ft/s, spin rate +0x44 over 10) wrecked
+  it. California Speed has no wrecks; once the race is over (byte 0x8014FE0B, set in the code at 0x80080850) or the player's
+  own byte (0x80151C02 + index x 0x2A8) is set, `func_80082894` takes the pedals: throttle +0x418 = 0, +0x414 = 1,
+  brake +0x41C = +0x614 x 0.009 x 5 (x 7 while +0x438 is over 120), with the road hold x 4 (not ported; Rush 2
+  keeps its own ending). On its point-to-point
+  tracks a finished car (car state +0xEA) skips Rush 2's three crash tests, as in a battle arena
+  (`rush2_calspeed_finished_car`, calspeed_rom.cpp), and bumps off the wall instead. [V in-game: with player 1's grid
+  put behind the finish line, an unfinished car hitting the wall at about 105 ft/s scored 334337 against its threshold
+  390000; with the threshold lowered to 100000 the unfinished car wrecked there and a finished one didn't]
+- **The records screen** (game state 6, `postrace_records_update_800A952C`) races the same track behind it:
+  `race_run_full_800A63A0` sets the attract byte 0x800FAE6C and runs `race_setup_800A5ADC` without loading the track
+  again, and `race_car_finish_or_respawn_handle_8009E180` (kind 0) starts each car through case 0 of
+  `car_place_by_case_8006DE20` (at once, no glide) at spine point 0x80110BDC: the race load's pick from the menu
+  track's demo list (`demo_start_pick_8008E6B4`, 0x800C456C, HAWAII's: the host slot's), an arbitrary spot on a
+  California Speed track. On San Francisco it was by the finish line, so the cars drove into the tunnel's end wall,
+  turned, wrecked and glided back over and over. `rush2_calspeed_demo_start` (at the start of func_8009E180, kind 0)
+  starts them at checkpoint 0's spine crossing instead (path header copy 0x8010BCE8 + 0x2E), where the race's grid
+  stands, on every California Speed track. The attract byte also turned off everything California Speed's
+  (`on_calspeed_track`: road hold, smooth collision, walls, resets), so the cars drove that race with Rush 2's rules on
+  California Speed's roads; game state 6 now counts as a California Speed race, and the cars' route trackers (resets)
+  start again there. The screen only comes up for a time that makes the table, and the lap count it checks is the
+  4-player copy at 0x802407F0 (src/players4.cpp moves 0x800C2274). [V in-game: San Francisco, the records race starts
+  at (-1148, 9, 10145) and drives the course with no wrecks]
+
 ## 6. Music
 
 `src/rush1/track1_audio.cpp`, as SF Rush's. California Speed's audio setup (0x80056AD4) loads the music bank

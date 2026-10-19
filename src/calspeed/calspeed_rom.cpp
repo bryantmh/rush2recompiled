@@ -245,6 +245,9 @@ namespace {
 
 static void reset_trackers();
 static void track_route(uint8_t* rdram, int car, float x, float y, float z);
+namespace {
+    bool on_calspeed_track(uint8_t* rdram);
+}
 
 void rush2::calspeed::set_race_path(const std::vector<uint8_t>& path, const std::vector<uint8_t>& collision) {
     race_points.clear();
@@ -287,7 +290,9 @@ extern "C" void rush2_calspeed_car_frame(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t physics_cars = 0x800F5470, physics_car_size = 0x81C;
     constexpr uint32_t car_placing = 0x6C8;                  // s16: >= 0 while the car is being placed
     constexpr uint32_t car_out = 0x6D1;                      // u8: set by the type 7 floor before the wreck
-    if (raced_track <= 0 || race_points.empty() || MEM_W(0, (int32_t)game_mode) != 3) {
+    // The race and the one behind the records screen after it (game state 6, see on_calspeed_track).
+    int mode = MEM_W(0, (int32_t)game_mode);
+    if (raced_track <= 0 || race_points.empty() || (mode != 3 && (mode != 6 || !on_calspeed_track(rdram)))) {
         return;
     }
     int car = (int16_t)MEM_H(0, (int32_t)((uint32_t)ctx->r4 + 0xE));
@@ -665,11 +670,14 @@ namespace {
 namespace {
     // A California Speed race: its track is set and the race is in the host slot. The attract demo starts its race
     // without the track select (whose start clears the track), so one on HAWAII, the host slot, right after a
-    // California Speed race would still find it set; the demo never races a California Speed track.
+    // California Speed race would still find it set; the demo never races a California Speed track. The race behind
+    // the records screen after a race (game state 6) is an attract race too (race_run_full_800A63A0 sets the byte)
+    // on the track just raced, so it is California Speed's.
     constexpr uint32_t attract_demo = 0x800FAE6C; // u8, nonzero while the attract demo runs
+    constexpr uint32_t game_state = 0x8010C0D0;   // 3 racing, 6 the records screen after it
     bool on_calspeed_track(uint8_t* rdram) {
         return raced_track > 0 && MEM_B(0, (int32_t)0x8010C3F0) == rush2::track2049::host_slot &&
-               MEM_BU(0, (int32_t)attract_demo) == 0;
+               (MEM_BU(0, (int32_t)attract_demo) == 0 || MEM_W(0, (int32_t)game_state) == 6);
     }
 
     // Hold::Gravity's extra gravity: the road hold's factors (road_hold_push / weight) x the car's gravity (+0x200, the
@@ -1428,6 +1436,47 @@ extern "C" void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx) {
     float lowest = 1e30f;
     for (const auto& p : race_points) lowest = std::min(lowest, p[1]);
     ctx->f16.fl = std::min(ctx->f16.fl, lowest - floor_depth);
+}
+
+// The end of a point-to-point race. A car keeps driving once it has finished, and San Francisco's road ends in the
+// subway tunnel's end wall (collision polygon 1723, z -4030..-4059) about 300 ft past its finish line (checkpoint 4
+// at z -3748), where Rush 2's crash tests wrecked a car arriving at race speed. California Speed has no wrecks (it
+// brakes the car to a stop after the finish, func_80082894), so on these tracks a finished car (car state +0xEA)
+// skips the three crash tests of car_crash_damage_stage_800715E8 (the impact force, over 400 ft/s and the spin rate)
+// as in a battle arena, and only bumps off the wall. Hooked at 0x8007173C, 0x80071794 and 0x800717B8 ($a1 = the car).
+extern "C" int rush2_calspeed_finished_car(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t cars = 0x800F5470, car_size = 0x81C, car_index = 0x7E2;     // s16: its car state
+    constexpr uint32_t car_states = 0x801124A0, car_state_size = 0x354, finished = 0xEA; // s8: 1 once it finished
+    uint32_t car = (uint32_t)ctx->r5;
+    if (!on_calspeed_track(rdram) || !rush2::calspeed::point_to_point(raced_track - 1) || car < cars ||
+        car >= cars + max_race_cars * car_size) {
+        return 0;
+    }
+    int index = (int16_t)MEM_H(0, (int32_t)(car + car_index));
+    return index >= 0 && index < max_race_cars &&
+           MEM_B(0, (int32_t)(car_states + uint32_t(index) * car_state_size + finished)) == 1;
+}
+
+// The race behind the records screen after a race (game state 6): race_run_full_800A63A0 races the track just raced
+// as an attract race, without loading it again, and race_car_finish_or_respawn_handle_8009E180 (kind 0) puts its
+// cars on the grid through car_place_by_case_8006DE20 case 0, which in an attract race starts them at spine point
+// 0x80110BDC: the race load's pick from the menu track's demo list (demo_start_pick_8008E6B4, 0x800C456C: HAWAII's,
+// the host slot's). On San Francisco that was by its finish line, so the cars drove into the tunnel's end wall,
+// turned and wrecked over and over. On a California Speed track they start at the start line instead: checkpoint
+// 0's spine crossing (the path header copy 0x8010BCE8, checkpoint i's at +0x2E + i x 0x50), where the race's grid
+// stands. Case 0 places a car at once (no glide). The route trackers start again from where the cars now are. At
+// the start of func_8009E180 ($a0 = the kind).
+extern "C" void rush2_calspeed_demo_start(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t demo_point = 0x80110BDC;     // s16: the attract race's start spine point
+    constexpr uint32_t checkpoint0_spine = 0x8010BCE8 + 0x2E;
+    if ((int16_t)ctx->r4 != 0 || MEM_BU(0, (int32_t)attract_demo) == 0 || !on_calspeed_track(rdram)) {
+        return;
+    }
+    int16_t start = (int16_t)MEM_H(0, (int32_t)checkpoint0_spine);
+    if (start >= 0 && start < MEM_H(0, (int32_t)route_header)) {
+        MEM_H(0, (int32_t)demo_point) = start;
+    }
+    reset_trackers();
 }
 
 bool rush2::calspeed::racing(uint8_t* rdram) {
