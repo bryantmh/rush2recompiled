@@ -596,7 +596,7 @@ namespace {
     }
 
     void hide_slot(uint8_t*, int slot);
-    void place_slot(uint8_t*, int slot, const char* model, const float m[9], const float pos[3], bool billboard);
+    void place_slot(uint8_t*, int slot, const char* model, const float m[9], const float pos[3], bool billboard = false, bool last = false);
 
     // An arena pickup shown, hidden, given a model or posed: its placement record's scene node (Rush 2049's arenas)
     // or its renderer slot (a custom arena's, placed each frame it is out).
@@ -755,9 +755,11 @@ namespace {
         rush2::battle_render::hide(slot);
     }
 
-    void place_slot(uint8_t*, int slot, const char* model, const float m[9], const float pos[3], bool billboard = false) {
+    void place_slot(uint8_t*, int slot, const char* model, const float m[9], const float pos[3], bool billboard,
+                    bool last) {
         if (slot < 0 || slot >= slot_count) return;
-        rush2::battle_render::place(slot, model, m, pos, slots[slot].color, slots[slot].view, slots[slot].attached, billboard);
+        rush2::battle_render::place(slot, model, m, pos, slots[slot].color, slots[slot].view, slots[slot].attached, billboard, 0.0f,
+                                    last);
     }
 
     // Colors (the models' primitive color; most of them have a combiner that doesn't use it). 2049 gives the weapon
@@ -1975,7 +1977,8 @@ namespace {
                 body_pose(rdram, i, c, m);
                 pitch(m, f.shield_spin);
                 scale_matrix(m, f.shield_scale);
-                place_slot(rdram, shield_slot, "WFX_SHIELDG1", m, c);
+                // Drawn last: the globe writes depth, so a pickup seen through it would vanish.
+                place_slot(rdram, shield_slot, "WFX_SHIELDG1", m, c, false, true);
             }
         }
     }

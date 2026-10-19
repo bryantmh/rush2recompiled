@@ -103,6 +103,7 @@ namespace {
         bool attached = false;
         bool billboard = false;
         float push = 0.0f;
+        bool last = false;
         uint32_t gen = 0;
     };
 
@@ -434,7 +435,7 @@ bool rush2::battle_render::has_model(const char* name) {
 }
 
 void rush2::battle_render::place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view, bool attached,
-                                 bool billboard, float push) {
+                                 bool billboard, float push, bool last) {
     std::lock_guard lock{ mutex };
     if (slot < 0 || slot >= max_slots) return;
     Item& it = items[slot];
@@ -457,6 +458,7 @@ void rush2::battle_render::place(int slot, const char* model, const float m[9], 
     it.attached = attached;
     it.billboard = billboard;
     it.push = push;
+    it.last = last;
 }
 
 void rush2::battle_render::hide(int slot) {
@@ -507,9 +509,12 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
             dl.projection_group(0x21000000u | (view << 16));
             dl.cmd(G_MTX_LOAD_PROJECTION_W0, projection);
         }
-        for (int slot = 0; slot < rush2::battle_render::max_slots; slot++) {
+        // The models marked last after the others: a see-through model that writes depth hides what is drawn after it.
+        for (int order = 0; order < rush2::battle_render::max_slots * 2; order++) {
+            int slot = order % rush2::battle_render::max_slots;
             const Item& it = items[slot];
             if (!it.on || (it.view >= 0 && it.view != (int)view) || it.attached != (pass == 1)) continue;
+            if (it.last != (order >= rush2::battle_render::max_slots)) continue;
             float m[4][4] = {};
             float rel[3] = { it.pos[0] - cam[0], it.pos[1] - cam[1], it.pos[2] - cam[2] };
             if (it.push != 0.0f) {
