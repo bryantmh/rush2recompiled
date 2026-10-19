@@ -241,19 +241,89 @@ def ribbon(path):
     return out
 
 
-def export(name, coll_rush2, path_bytes, out_dir):
+RUN_UP = 100.0   # ft of path before an open track's START, for the grid behind it
+
+
+def closed_path(spine):
+    """Whether the spine is a loop: its ends are no further apart than three of its usual steps."""
+    if len(spine) < 3:
+        return False
+    steps = sorted(math.dist(spine[i], spine[i + 1]) for i in range(len(spine) - 1))
+    return math.dist(spine[0], spine[-1]) <= 3 * steps[len(steps) // 2]
+
+
+def strip(rungs, closed):
+    """A ribbon mesh's (verts, normals, tris) from rungs of game points (a, b), joined end to start when closed."""
+    verts, nrms, tris = [], [], []
+    for a, b in rungs:
+        verts += [to_gltf(a), to_gltf(b)]
+        nrms += [(0.0, 1.0, 0.0)] * 2
+    n = len(rungs)
+    for i in range(n if closed else n - 1):
+        j = (i + 1) % n
+        tris += [(2 * i, 2 * i + 1, 2 * j), (2 * i + 1, 2 * j + 1, 2 * j)]
+    return verts, nrms, tris
+
+
+def race_dir(spine, p, closed, at=None):
+    """The spine's direction of travel (game x, z) at spine point `at`, else at its point nearest p."""
+    n = len(spine)
+    if at is not None and 0 <= at < n:
+        i = at
+    else:
+        i = min(range(n), key=lambda k: (spine[k][0] - p[0]) ** 2 + (spine[k][2] - p[2]) ** 2)
+    a = spine[(i - 1) % n if closed else max(i - 1, 0)]
+    b = spine[(i + 1) % n if closed else min(i + 1, n - 1)]
+    return (b[0] - a[0], b[2] - a[2])
+
+
+def lane_ribbons(path, closed, half=1.5):
+    """The four stock lanes as AIPATH_lane1..4 ribbons (name, rungs, speeds, modes), lane1 the leftmost in the race's
+    direction as the converter numbers them (track_mod_convert.cpp: left of travel is (-fz, fx) in game space).
+    Each ribbon is 2 x `half` ft wide around the lane; its _SPEED (mph) and _AI_MODE are the lane bytes."""
+    spine = path['spine']
+    out = []
+    for ln in path['lanes']:
+        pts = ln['points']
+        if len(pts) < 2:
+            continue
+        rungs, side = [], 0.0
+        for i, q in enumerate(pts):
+            a = pts[(i - 1) % len(pts) if closed else max(i - 1, 0)]
+            b = pts[(i + 1) % len(pts) if closed else min(i + 1, len(pts) - 1)]
+            t = (b[0] - a[0], b[2] - a[2])
+            m = math.hypot(*t) or 1.0
+            lat = (-t[1] / m, t[0] / m)
+            rungs.append(((q[0] - lat[0] * half, q[1], q[2] - lat[1] * half),
+                          (q[0] + lat[0] * half, q[1], q[2] + lat[1] * half)))
+            f = race_dir(spine, q, closed)
+            s = min(spine, key=lambda k: (k[0] - q[0]) ** 2 + (k[2] - q[2]) ** 2)
+            side += (q[0] - s[0]) * -f[1] + (q[2] - s[2]) * f[0]
+        out.append((side / len(pts), rungs, [q[3] for q in pts], [q[4] for q in pts]))
+    out.sort(key=lambda r: -r[0])
+    return [('AIPATH_lane%d' % (k + 1), r[1], r[2], r[3]) for k, r in enumerate(out)]
+
+
+def build_glb(coll_rush2, path_bytes, visual=True, lanes=False):
+    """A custom track's glb (Glb) of a Rush 2 format collision and path file: COL_<surface>_stock meshes, the gates
+    as FINISH / CHECKPOINT_n Empties, AIPATH_main, and with `visual` the collision again as TRACK_visual. `lanes` adds
+    the four lanes as AIPATH_lane1..4 with their speeds and steering (tools/trackview/export.py), which the converter
+    then uses as they are. An open path is written as path_layout says: a point-to-point track (START, the
+    checkpoints between, FINISH) or a run-in circuit (START, the gates in race order, the path ending at the loop
+    start), with AIPATH_main left open. Returns (glb, polygon types exported as walls, the parsed path, the layout).
+    The track.toml needs the layout's key (`point_to_point = true` / `run_in = true`)."""
     c = collision.Collision.parse(coll_rush2, collision.R2)
     path = paths.parse(path_bytes)
     g = Glb()
     by_type = defaultdict(lambda: ([], [], []))
-    visual = ([], [], [])
+    shown = ([], [], [])
     unknown = defaultdict(int)
     for ptype, pts, normal in polygons(c):
         surface = SURFACE.get(ptype)
         if surface is None:
             unknown[ptype] += 1
             surface = 'WALL'
-        for target in (by_type[surface], visual):
+        for target in (by_type[surface], shown) if visual else (by_type[surface],):
             verts, nrms, tris = target
             for k in range(1, len(pts) - 1):
                 tri = [pts[0], pts[k], pts[k + 1]]
@@ -266,32 +336,118 @@ def export(name, coll_rush2, path_bytes, out_dir):
                 tris.append((base, base + 1, base + 2))
     for surface, (verts, nrms, tris) in sorted(by_type.items()):
         g.mesh('COL_%s_stock' % surface, verts, nrms, tris)
-    g.mesh('TRACK_visual', *visual)
+    if visual:
+        g.mesh('TRACK_visual', *shown)
     # The header's finish checkpoint (2049's race 4 and 5 flag none), then the others in race order from it. A stock
     # gate's direction points back against the race (every stock path file); the game's gate test takes a side change
-    # either way (0x800A15BC), while the converter takes FINISH's arrow as the race direction, so it is turned round.
+    # either way (0x800A15BC), while the converter takes FINISH's arrow as the race direction, so each gate's arrow is
+    # set along the spine's travel where it crosses (other games' converted paths needn't follow Rush 2's habit).
+    spine = path['spine']
+    closed = closed_path(spine)
     cps = path['cps']
-    f = path['finish_cp'] if 0 <= path['finish_cp'] < len(cps) else 0
-    for i in range(len(cps)):
-        cp = cps[(f + i) % len(cps)]
-        back = tuple(-d for d in cp['dir'])
-        g.empty('FINISH' if i == 0 else 'CHECKPOINT_%d' % i, gate_matrix(cp['pos'], back, math.sqrt(cp['r2'])))
-    verts, nrms, tris = [], [], []
-    for a, b in ribbon(path):
-        verts += [to_gltf(a), to_gltf(b)]
-        nrms += [(0.0, 1.0, 0.0)] * 2
-    n = len(verts) // 2
-    for i in range(n - 1):
-        tris += [(2 * i, 2 * i + 1, 2 * i + 2), (2 * i + 1, 2 * i + 3, 2 * i + 2)]
-    g.mesh('AIPATH_main', verts, nrms, tris)
+    layout = path_layout(path)
+    if layout == 'point_to_point':
+        s, e = path_start(cps), path_finish(cps)
+        named = [('START', s)] + [('CHECKPOINT_%d' % (k + 1), i) for k, i in enumerate(range(s + 1, e))] + [('FINISH', e)]
+    elif layout == 'run_in':
+        # The gates in file order (the race's): START, FINISH where it is (Golden Gate has a checkpoint after it), the
+        # others numbered in order. The converter flags the loop start itself, from where AIPATH_main ends.
+        s, e = path_start(cps), path_finish(cps)
+        named, k = [], 0
+        for i in range(s, len(cps)):
+            if i == s:
+                named.append(('START', i))
+            elif i == e:
+                named.append(('FINISH', i))
+            else:
+                k += 1
+                named.append(('CHECKPOINT_%d' % k, i))
+    else:
+        f = path['finish_cp'] if 0 <= path['finish_cp'] < len(cps) else 0
+        named = [('FINISH' if i == 0 else 'CHECKPOINT_%d' % i, (f + i) % len(cps)) for i in range(len(cps))]
+    if layout != 'circuit':
+        closed = False
+    rungs = ribbon(path)
+    for name, i in named:
+        cp = cps[i]
+        pos = cp['pos']
+        if name == 'START':
+            # The grid lines up behind START, so a custom track's AIPATH_main needs RUN_UP ft before it. California
+            # Speed's start lines are at their paths' first point and the game moves them on for the grid
+            # (src/calspeed/calspeed_convert.cpp move_start): START goes RUN_UP ft along. Rush 2's and San Francisco
+            # Rush's run-in starts stay where they are: the path is drawn back RUN_UP ft behind them instead, along
+            # its first step.
+            if 0 <= cp['cross'][0] < len(spine):
+                at = cp['cross'][0]
+            else:
+                at = min(range(len(spine)), key=lambda k: math.dist(spine[k], pos))
+            run = sum(math.dist(spine[k], spine[k + 1]) for k in range(at))
+            if run < RUN_UP and layout == 'point_to_point':
+                k = at
+                while run < RUN_UP and k + 1 < len(spine):
+                    run += math.dist(spine[k], spine[k + 1])
+                    k += 1
+                if k != at:
+                    pos = tuple(float(v) for v in spine[k])
+            elif run < RUN_UP and len(rungs) >= 2:
+                (a0, b0), (a1, b1) = rungs[0], rungs[1]
+                d = [(a0[c] + b0[c] - a1[c] - b1[c]) / 2 for c in range(3)]
+                m = math.hypot(d[0], d[2]) or 1.0
+                d = (d[0] / m, 0.0, d[2] / m)
+                steps = int(math.ceil((RUN_UP - run) / 20.0))
+                rungs = [(tuple(a0[c] + d[c] * 20.0 * j for c in range(3)), tuple(b0[c] + d[c] * 20.0 * j for c in range(3)))
+                         for j in range(steps, 0, -1)] + rungs
+        # Along the spine where the gate's own crossing is (cross[0], the path file's): a gate where two stretches
+        # pass close (New York One's checkpoint 4) would find the other stretch by distance.
+        travel = race_dir(spine, pos, closed, None if pos is not cp['pos'] else cp['cross'][0])
+        along = cp['dir'][0] * travel[0] + cp['dir'][2] * travel[1] >= 0
+        arrow = tuple(cp['dir']) if along else tuple(-d for d in cp['dir'])
+        if pos is not cp['pos']:
+            m = math.hypot(*travel) or 1.0
+            arrow = (travel[0] / m, 0.0, travel[1] / m)
+        g.empty(name, gate_matrix(pos, arrow, math.sqrt(cp['r2'])))
+    g.mesh('AIPATH_main', *strip(rungs, closed and lanes))
+    if lanes:
+        for name, lane_rungs, speed, mode in lane_ribbons(path, closed):
+            verts, nrms, tris = strip(lane_rungs, closed)
+            g.mesh(name, verts, nrms, tris, attrs={'_SPEED': [v for v in speed for _ in (0, 1)],
+                                                  '_AI_MODE': [v for v in mode for _ in (0, 1)]})
+    return g, dict(unknown), path, layout
+
+
+def path_start(cps):
+    """The start line: the first checkpoint flagged 2 (lap counting armed)."""
+    return next((i for i, c in enumerate(cps) if c['flags'] & 2), 0)
+
+
+def path_finish(cps):
+    """The finish (lap) line: the first checkpoint flagged 1."""
+    return next((i for i, c in enumerate(cps) if c['flags'] & 1), 0)
+
+
+def path_layout(path):
+    """'circuit', 'run_in' or 'point_to_point' (track.toml's keys) for a parsed path file. An open spine whose start
+    line isn't its finish line is a run-in circuit when its laps loop from a later checkpoint (flags 4 or the header's
+    loop_cp: Rush 2's New York One, Rush 2049's race 6, San Francisco Rush's Golden Gate; the spine then ends at that
+    checkpoint's crossing), else point to point (California Speed's courses)."""
+    cps = path['cps']
+    s, e = path_start(cps), path_finish(cps)
+    if closed_path(path['spine']) or s == e or not any(c['flags'] & 2 for c in cps):
+        return 'circuit'
+    loops = [i for i, c in enumerate(cps) if c['flags'] & 4] + ([path['loop_cp']] if path['loop_cp'] >= 0 else [])
+    return 'run_in' if any(i != s for i in loops) else 'point_to_point'
+
+
+def export(name, coll_rush2, path_bytes, out_dir):
+    g, unknown, path, layout = build_glb(coll_rush2, path_bytes)
     folder = os.path.join(out_dir, name)
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, 'track.glb'), 'wb') as f:
         f.write(g.bytes())
     with open(os.path.join(folder, 'track.toml'), 'w', newline='\n') as f:
-        f.write('[track]\nname = "%s"\n' % name)
+        f.write('[track]\nname = "%s"\n' % name + ('%s = true\n' % layout if layout != 'circuit' else ''))
     lanes = [q[3] for ln in path['lanes'] for q in ln['points']]
-    return folder, lanes, dict(unknown)
+    return folder, lanes, unknown
 
 
 def tracks():

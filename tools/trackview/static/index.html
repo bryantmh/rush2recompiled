@@ -63,7 +63,7 @@ button:disabled { opacity:.45; cursor:default; border-color:var(--line); }
   <div class="row"><select id="track"></select></div>
   <div class="row"><button id="reload" title="Convert the track again from its files">Reload</button>
     <button id="frame" title="Frame the whole track (F)">Frame</button>
-    <button id="export" title="Save the whole track as one .glb: model, collision, AI path and gates (meters, glTF axes)">Export glb</button>
+    <button id="export" title="Save the track as a custom track folder (zip): a custom track's own files as they are; a stock track's collision, AI path, lanes, gates and model as track.glb with its track.toml">Export track</button>
     <select id="dir" style="width:auto"><option value="forward">Forward</option><option value="backward">Backward</option></select></div>
   <div class="stat" id="stats"></div>
 
@@ -106,7 +106,6 @@ button:disabled { opacity:.45; cursor:default; border-color:var(--line); }
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { createReplay } from './replay.js';
 
 const $ = id => document.getElementById(id);
@@ -279,6 +278,13 @@ function textSprite(text, color) {
 
 function dirKey() { return $('dir').value === 'backward' && data.backward ? 'backward' : 'forward'; }
 
+// A path whose ends are no further apart than three of its usual steps is a loop; a point-to-point course's isn't.
+function isLoop(pts) {
+  if (pts.length < 3) return false;
+  const steps = pts.slice(1).map((q, i) => q.distanceTo(pts[i])).sort((a, b) => a - b);
+  return pts[0].distanceTo(pts[pts.length - 1]) <= 3 * steps[steps.length >> 1];
+}
+
 function buildPath() {
   for (const k of ['spine', 'lane0', 'lane1', 'lane2', 'lane3', 'arrows', 'gates', 'crossings']) clear(groups[k]);
   pickables.length = 0;
@@ -287,12 +293,12 @@ function buildPath() {
   // distance along the spine, for the inspector
   const along = [0];
   for (let i = 1; i < spine.length; i++) along.push(along[i - 1] + spine[i].distanceTo(spine[i - 1]));
-  groups.spine.add(line(spine, null, { color: '#ffffff', loop: true }));
+  groups.spine.add(line(spine, null, { color: '#ffffff', loop: isLoop(spine) }));
   pickables.push({ group: 'spine', pts: spine, info: i => `AI spine point ${i} of ${spine.length}\n${along[i].toFixed(0)} m (${(along[i] * FT).toFixed(0)} ft) from the start` });
   p.lanes.forEach((ln, li) => {
     const pts = ln.pts.map(v3);
     const cols = ln.pts.map((_, i) => speedColor(ln.speed[i]));
-    groups['lane' + li].add(line(pts, cols, { loop: true }));
+    groups['lane' + li].add(line(pts, cols, { loop: isLoop(pts) }));
     const pm = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts.map(q => q.clone().setY(q.y + LIFT))),
                                 new THREE.PointsMaterial({ size: 3, sizeAttenuation: false, vertexColors: true }));
     pm.geometry.setAttribute('color', new THREE.Float32BufferAttribute(cols.flatMap(c => [c.r, c.g, c.b]), 3));
@@ -307,6 +313,7 @@ function buildPath() {
   for (let i = 0; i < spine.length; i++) {
     if (along[i] < next) continue;
     next = along[i] + 40;
+    if (i + 1 === spine.length && !isLoop(spine)) break;
     const a = spine[i], b = spine[(i + 1) % spine.length];
     const m = new THREE.Mesh(cone, coneMat);
     m.position.copy(a).setY(a.y + 3.5);
@@ -484,49 +491,22 @@ renderer.domElement.addEventListener('pointerup', e => {
 window.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') frameAll(); });
 $('frame').onclick = frameAll;
 
-// Saves the whole track: the model (textured, as shown), the collision (one COL_<surface> mesh per surface, as the
-// converter reads them), the AI path and the gates, as one glb in meters. The model is loaded first if its layer is off.
+// Saves the track as a custom track folder, zipped (tools/trackview/export.py): a custom track's own files as they
+// are, a stock track rebuilt as a modder would author it, so the game's converter reads either back as the same track.
 $('export').onclick = async () => {
-  if (!data || !data.collision) return;
-  const wasOn = layerOn.visible, f = folder;
-  if (!wasOn) { layerOn.visible = true; await buildVisible(); }
-  const out = new THREE.Group();
-  out.name = data.name;
-  if (data.has_glb && groups.visible.children.length) {
-    const model = groups.visible.children[0].clone(true);
-    model.name = 'TRACK_MODEL';
-    out.add(model);
-  }
-  for (const m of groups.collision.children) {
-    const copy = new THREE.Mesh(m.geometry, new THREE.MeshStandardMaterial({ color: m.material.color, side: THREE.DoubleSide, roughness: 1, metalness: 0 }));
-    copy.name = 'COL_' + m.userData.surface;
-    out.add(copy);
-  }
-  // The AI path and the gates as lines, in the direction shown: AIPATH_main, AIPATH_lane<n>, FINISH and CHECKPOINT_<n>.
-  const path = data[dirKey()], lineMat = new THREE.LineBasicMaterial({ color: '#ffffff' });
-  const addLine = (name, pts, loop) => {
-    const g = new THREE.BufferGeometry().setFromPoints(loop ? [...pts, pts[0]] : pts);
-    const l = new THREE.Line(g, lineMat);
-    l.name = name;
-    out.add(l);
-  };
-  addLine('AIPATH_main', path.spine.map(v3), true);
-  path.lanes.forEach((l, i) => addLine('AIPATH_lane' + i, l.pts.map(v3), true));
-  path.checkpoints.forEach((c, i) => {
-    const p = v3(c.pos), side = new THREE.Vector3(-c.dir[2], 0, c.dir[0]).normalize().multiplyScalar(c.radius);
-    addLine(i === 0 ? 'FINISH' : 'CHECKPOINT_' + (dirKey() === 'backward' ? path.checkpoints.length - i : i), [p.clone().sub(side), p.clone().add(side)], false);
-  });
-  out.updateMatrixWorld(true);
+  if (!folder) return;
+  status('Exporting…');
   try {
-    const buf = await new GLTFExporter().parseAsync(out, { binary: true, onlyVisible: true });
+    const r = await fetch('/export?folder=' + encodeURIComponent(folder));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'track.zip';
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([buf], { type: 'model/gltf-binary' }));
-    a.download = (data.name || 'track').replace(/\W+/g, '_') + '.glb';
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     status('');
   } catch (e) { status('Export failed: ' + e.message); }
-  if (!wasOn && folder === f) { layerOn.visible = false; applyLayers(); }
 };
 $('dir').onchange = () => { buildPath(); applyLayers(); };
 $('track').onchange = () => { location.hash = $('track').value; };
@@ -559,7 +539,7 @@ async function load(f, force = false) {
   if (first) { frameAll(); replay.setTrack(f); }
   $('hud').style.display = 'none';
   // ?click=x,y inspects that page pixel once loaded (scripted screenshots)
-  if (first && new URLSearchParams(location.search).has('export')) setTimeout(() => $('export').click(), 3000);   // ?export: saves the glb (headless tests)
+  if (first && new URLSearchParams(location.search).has('export')) setTimeout(() => $('export').click(), 3000);   // ?export: saves the zip (headless tests)
   const click = new URLSearchParams(location.search).get('click');
   if (click && first) { controls.update(); const [x, y] = click.split(',').map(Number); pick({ clientX: x, clientY: y }); }
 }

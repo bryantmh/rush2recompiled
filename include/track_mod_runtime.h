@@ -32,6 +32,10 @@ namespace rush2::track_mod {
     // Track `index`'s type (a RaceType) as of the last scan (the track select's), or race_race when there is no such
     // track.
     int type_of(int index);
+    // Whether track `index` is a point-to-point race (track.toml point_to_point) / a run-in circuit (run_in), as of
+    // the last scan.
+    bool point_to_point(int index);
+    bool run_in(int index);
     // The RaceType of a track with these settings (its track.toml type).
     int type_of(const Settings& settings);
     // The track prefix a custom track of these settings is converted with: its host slot's (STUNT1 for an arena).

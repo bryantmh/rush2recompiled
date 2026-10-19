@@ -18,6 +18,8 @@ or --logo-text, in Rush 2049's banner lettering by tools/banner_font.py, as the 
     construction horses (bounce); MOVE_ the spinning objects (spin<axis>, degrees per second [I]) and each flipbook
     frame (flipbook <frames per second>)
   - [track] gravity = "rush2049": the arcade's tracks race on Rush 2049's gravity
+  - [track] smooth_collision = false: the arcade's road is built for flat-faced collision (src/arcade2049/arcade_track.cpp
+    does the same)
 Left out (reported): the coin pickups, sounds, event scripts (the finish sign's swap, the hidden ship).
 
 The game builds this mod itself (Games tab, src/arcade2049/arcade_track.cpp, a C++ port of this file for TRACK4):
@@ -738,7 +740,7 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         f.write(g.bytes())
     with open(os.path.join(folder, 'track.toml'), 'w', newline='\n') as f:
         f.write('[track]\nname = "%s"\nauthor = "Rush 2049 arcade (converted)"\ndescription = "%s from San Francisco '
-                'Rush 2049 Special Edition (arcade)"\ngravity = "rush2049"\n\n[look]\nfog_color = "#0c1424"\n\n[menu]\nlogo = "logo.png"\nafter = "rush2049"\n'
+                'Rush 2049 Special Edition (arcade)"\ngravity = "rush2049"\nsmooth_collision = false\n\n[look]\nfog_color = "#0c1424"\n\n[menu]\nlogo = "logo.png"\nafter = "rush2049"\n'
                 % (name, name))
         if preview is None:
             here = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'previews', track_id + '.png')

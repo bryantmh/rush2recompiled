@@ -1553,13 +1553,14 @@ extern "C" void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx) {
 // at z -3748), where Rush 2's crash tests wrecked a car arriving at race speed. California Speed has no wrecks (it
 // brakes the car to a stop after the finish, func_80082894), so on these tracks a finished car (car state +0xEA)
 // skips the three crash tests of car_crash_damage_stage_800715E8 (the impact force, over 400 ft/s and the spin rate)
-// as in a battle arena, and only bumps off the wall. Hooked at 0x8007173C, 0x80071794 and 0x800717B8 ($a1 = the car).
+// as in a battle arena, and only bumps off the wall. Point-to-point custom tracks get the same (their road ends past
+// the finish too). Hooked at 0x8007173C, 0x80071794 and 0x800717B8 ($a1 = the car).
 extern "C" int rush2_calspeed_finished_car(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t cars = 0x800F5470, car_size = 0x81C, car_index = 0x7E2;     // s16: its car state
     constexpr uint32_t car_states = 0x801124A0, car_state_size = 0x354, finished = 0xEA; // s8: 1 once it finished
     uint32_t car = (uint32_t)ctx->r5;
-    if (!on_calspeed_track(rdram) || !rush2::calspeed::point_to_point(raced_track - 1) || car < cars ||
-        car >= cars + max_race_cars * car_size) {
+    bool cs = on_calspeed_track(rdram) && rush2::calspeed::point_to_point(raced_track - 1);
+    if ((!cs && !rush2::track2049::mod_point_to_point(rdram)) || car < cars || car >= cars + max_race_cars * car_size) {
         return 0;
     }
     int index = (int16_t)MEM_H(0, (int32_t)(car + car_index));

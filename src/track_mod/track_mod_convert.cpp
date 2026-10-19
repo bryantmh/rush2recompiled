@@ -10,6 +10,8 @@
 //   AIPATH_lane1..4           optional: one of the four racing lines, its ribbon's center line (paint_lane); 1 is
 //                             the leftmost in the race's direction. A lane left out is offset from AIPATH_main.
 //   FINISH, CHECKPOINT_n      gates: Empty, green (Blender Y = glTF -Z) arrow forward, X scale = half the width (m).
+//   START                     a point-to-point or run-in race's start line ([track] point_to_point / run_in; FINISH is
+//                             then the finish (lap) line only and AIPATH_main is open).
 //   START_n                   ignored: Rush 2 lines the grid up behind FINISH itself (said in the report).
 //   AISPEED_<mph>             caps the AI's target speed from the nearest path point on (0 lifts the cap).
 //   SKY                       the sky: its own model SKYO1, drawn around the camera without depth or fog.
@@ -1310,6 +1312,8 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     if (auto v = t["track"]["smooth_collision"].value<bool>()) s.smooth_collision = *v;
     if (auto v = t["track"]["smooth_fold"].value<double>()) s.smooth_fold = float(std::clamp(*v, 0.0, 90.0));
     if (auto v = t["track"]["road_hold"].value<bool>()) s.road_hold = *v;
+    if (auto v = t["track"]["point_to_point"].value<bool>()) s.point_to_point = *v;
+    if (auto v = t["track"]["run_in"].value<bool>()) s.run_in = *v;
     if (s.gravity != "rush2" && s.gravity != "rush2049") {
         report.error("track.toml: [track] gravity must be \"rush2\" or \"rush2049\"; \"" + s.gravity + "\" races on Rush 2's.");
         s.gravity = "rush2";
@@ -1429,6 +1433,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
 
     // ---- sort the objects ----
     const rush2::gltf::Node* finish = nullptr;
+    const rush2::gltf::Node* start_line = nullptr;      // START: a point-to-point race's start line
     const rush2::gltf::Node* aipath = nullptr;
     std::array<const rush2::gltf::Node*, 4> lane_nodes{};   // AIPATH_lane1..4
     std::map<int, const rush2::gltf::Node*> checkpoints, grid;
@@ -1437,6 +1442,19 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     std::vector<const rush2::gltf::Node*> visual, sky, billboard_nodes;
     std::vector<std::pair<int, const rush2::gltf::Node*>> prop_nodes;    // PROP_: PropRecord::type
     const bool arena = is_arena(settings);
+    // A point-to-point race ([track] point_to_point): run once from START to FINISH along an open AIPATH_main, as
+    // California Speed's point-to-point courses are (checkpoint 0 the start line, flags 2; the last the finish, flags 1).
+    const bool p2p = settings.point_to_point && !arena;
+    if (settings.point_to_point && arena) report.info("track.toml: point_to_point is for races; an arena ignores it.");
+    // A circuit with a run-in ([track] run_in), as Rush 2's New York One, Rush 2049's race 6 and San Francisco Rush's
+    // Golden Gate: the race starts at START on a stretch of its own that leads into the loop, and the laps go round
+    // the loop. AIPATH_main is open, from behind START along the run-in and once round the loop, ending where it first
+    // met the loop, at the loop's checkpoint (flags 4): Rush 2 carries a car's progress past the spine's last point on
+    // from that checkpoint's crossing (func_8008CCF8, docs/rush2049_research/race.md).
+    const bool run_in = settings.run_in && !arena && !p2p;
+    if (settings.run_in && settings.point_to_point) report.error("track.toml: run_in and point_to_point can't both be set; it is raced point to point.");
+    if (settings.run_in && arena) report.info("track.toml: run_in is for races; an arena ignores it.");
+    const bool open_path = p2p || run_in;   // AIPATH_main isn't a loop; gates START, ..., FINISH
     std::vector<std::pair<uint16_t, const rush2::gltf::Node*>> collision_nodes;
     const rush2::gltf::Node* road_splines = nullptr;    // ROAD_SPLINES: the spline road's segment table
     std::set<std::string> seen;
@@ -1522,6 +1540,11 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             continue;
         }
         if (name == "FINISH") { finish = &n; continue; }
+        if (name == "START") {
+            if (open_path) start_line = &n;
+            else report.info("START is a point-to-point or run-in race's start line ([track] point_to_point or run_in); ignored.");
+            continue;
+        }
         if (int k = number_after(name, "CHECKPOINT_"); k >= 0) { checkpoints[k] = &n; continue; }
         if (int k = number_after(name, "START_"); k >= 0) { grid[k] = &n; continue; }
         if (int k = number_after(name, "AISPEED_"); k >= 0) { aispeeds.push_back({ float(k), &n }); continue; }
@@ -1592,8 +1615,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         if (!grid.empty()) finish = nullptr;
     }
     else {
-        if (!finish) report.error("No FINISH marker: add an Empty named FINISH on the start/finish line.");
-        if (checkpoints.empty()) report.error("No checkpoints: add Empties CHECKPOINT_1, CHECKPOINT_2, ... around the lap.");
+        if (!finish) report.error(p2p ? "No FINISH marker: add an Empty named FINISH on the finish line."
+                                      : "No FINISH marker: add an Empty named FINISH on the start/finish line.");
+        if (checkpoints.empty() && !open_path) report.error("No checkpoints: add Empties CHECKPOINT_1, CHECKPOINT_2, ... around the lap.");
     }
     int expected = 1;
     for (const auto& [k, n] : checkpoints) {
@@ -1601,13 +1625,20 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                                         std::to_string(expected) + " is missing.");
         expected = k + 1;
     }
-    if ((int)checkpoints.size() > max_checkpoints) {
-        report.error("At most " + std::to_string(max_checkpoints) + " checkpoints (the game has 10 gates including the finish).");
+    // A point-to-point race's start line takes one of the 10 gates.
+    const int max_cps = open_path ? max_checkpoints - 1 : max_checkpoints;
+    if ((int)checkpoints.size() > max_cps) {
+        report.error("At most " + std::to_string(max_cps) + " checkpoints (the game has 10 gates including the finish" +
+                     std::string(open_path ? " and the start" : "") + ").");
     }
     // at: the forward spine point where the AI path crosses it (the first past it), -1 for none.
-    struct Gate { std::string name; Vec3 pos, dir; float radius; int at = -1; };
+    // A circuit's gates are FINISH and then CHECKPOINT_1, 2, ...; a point-to-point race's START, the checkpoints and
+    // FINISH last (START stands in at the path's start when there is none: see the AI path below).
+    // loop: a run-in circuit's loop start (flags 4), where the path's end comes back onto it.
+    struct Gate { std::string name; Vec3 pos, dir; float radius; int at = -1; bool loop = false; };
     std::vector<Gate> gates;
-    if (finish) gates.push_back({ "FINISH", to_game(finish->position()), forward(finish), half_width(finish) });
+    if (finish && !open_path) gates.push_back({ "FINISH", to_game(finish->position()), forward(finish), half_width(finish) });
+    if (start_line) gates.push_back({ "START", to_game(start_line->position()), forward(start_line), half_width(start_line) });
     if (arena) {
         // Start spots: Rush 2049's battle starts player p at checkpoint [0, 2, 1, 3][p] (rush2_track49_battle_start), the
         // stunt mode at the path's first point, which is START_1's.
@@ -1621,10 +1652,12 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             gates.push_back({ "START_" + std::to_string(k), to_game(n->position()), forward(n), 20.0f });
         }
     }
+    int cps_added = 0;
     for (const auto& [k, n] : checkpoints) {
-        if ((int)gates.size() > max_checkpoints) break;   // the extra ones were reported above
+        if (cps_added++ >= max_cps) break;   // the extra ones were reported above
         gates.push_back({ "CHECKPOINT_" + std::to_string(k), to_game(n->position()), forward(n), half_width(n) });
     }
+    if (finish && open_path) gates.push_back({ "FINISH", to_game(finish->position()), forward(finish), half_width(finish) });
     for (size_t i = 0; i < gates.size(); i++) {
         const Gate& g = gates[i];
         if (length(g.dir) < 0.5f) report.error(g.name + " points straight up or down; turn it so its green arrow points down the track.");
@@ -2010,7 +2043,13 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                             std::to_string(rungs.size()) + " cross sections, " + fmt_w(min_w) +
                             (max_w - min_w > 0.5f ? " to " + fmt_w(max_w) : std::string()) + " wide.");
                 float closing = length(sub(rungs.front().p, rungs.back().p));
-                if (!ribbon.closed && closing > median * 3.0f + 10.0f && !arena) {
+                if (open_path && ribbon.closed) {
+                    report.warning(std::string("AIPATH_main is a closed loop, but the track is ") +
+                                   (p2p ? "point-to-point: it is raced once from its start to its end."
+                                        : "a run-in circuit: it is read from its start round to its end.") +
+                                   " In Blender: Curve > Toggle Cyclic to open it.");
+                }
+                if (!ribbon.closed && closing > median * 3.0f + 10.0f && !arena && !open_path) {
                     report.warning("AIPATH_main isn't a closed loop (its ends are " + fmt_ft(closing) +
                                    " apart); it is closed with a straight line. In Blender: Curve > Toggle Cyclic.");
                 }
@@ -2035,7 +2074,61 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // computer cars follow it as best they can; the path's own warnings are left out, the error already says what's
     // wrong.
     bool stand_in = false;
-    if (!arena && !finish) {
+    // A point-to-point race runs along AIPATH_main to FINISH: the curve is turned round when its start is the end
+    // nearer FINISH. With no START, the start line stands p2p_run_up ft along the path from its start, room for the
+    // grid Rush 2 lines up behind it (four rows 20 ft apart; California Speed's move_start keeps 75 ft); with no
+    // FINISH, the finish line is at the path's end. A run-in circuit's curve starts at its free end: the other end is
+    // the one that comes back onto the path, where the loop begins.
+    constexpr float p2p_run_up = 100.0f;
+    if (open_path && rungs.size() >= 4) {
+        if (p2p && finish && dist_xz(rungs.front().p, to_game(finish->position())) < dist_xz(rungs.back().p, to_game(finish->position()))) {
+            std::reverse(rungs.begin(), rungs.end());
+            for (PathPoint& r : rungs) r.lateral = mul(r.lateral, -1.0f);
+            report.info("AIPATH_main starts at FINISH's end; it was turned round to run to FINISH.");
+        }
+        if (run_in) {
+            // How close each end comes to the rest of the path (more than a quarter of it away along the curve).
+            size_t n = rungs.size(), far = n / 4;
+            auto nearest = [&](const Vec3& p, size_t from, size_t to) {
+                float best = 1e30f;
+                for (size_t i = from; i < to; i++) best = std::min(best, length(sub(rungs[i].p, p)));
+                return best;
+            };
+            if (nearest(rungs.front().p, far, n) < nearest(rungs.back().p, 0, n - far)) {
+                std::reverse(rungs.begin(), rungs.end());
+                for (PathPoint& r : rungs) r.lateral = mul(r.lateral, -1.0f);
+                report.info("AIPATH_main starts at the end that joins the loop; it was turned round to start on the run-in.");
+            }
+        }
+        auto line_at = [&](const char* name, size_t i, size_t j) {
+            Gate g{ name, mul(add(rungs[i].p, rungs[j].p), 0.5f), sub(rungs[j].p, rungs[i].p), 40.0f };
+            g.dir[1] = 0.0f;
+            g.dir = normalize(g.dir);
+            g.radius = std::max(rungs[i].half_width * 1.5f, 40.0f);
+            return g;
+        };
+        if (!start_line) {
+            size_t i = 0;
+            for (float s = 0.0f; i + 2 < rungs.size() && s < p2p_run_up; i++) s += length(sub(rungs[i + 1].p, rungs[i].p));
+            Gate g = line_at("START", i, i + 1);
+            report.info("No START: the start line is " + fmt_ft(p2p_run_up) + " along AIPATH_main from its start, at " +
+                        fmt_pos(g.pos) + ".");
+            gates.insert(gates.begin(), g);
+        }
+        if (!finish) {
+            Gate g = line_at("FINISH", rungs.size() - 2, rungs.size() - 1);
+            report.warning("With no FINISH, a stand-in finish line is used at the end of AIPATH_main, " + fmt_pos(g.pos) + ".");
+            gates.push_back(g);
+        }
+    }
+    else if (open_path && !start_line && !gates.empty()) {
+        Gate g = gates.front();
+        g.name = "START";
+        g.pos = sub(g.pos, mul(g.dir, p2p_run_up));
+        report.warning("With no START and no usable AI path, a stand-in start line is used at " + fmt_pos(g.pos) + ".");
+        gates.insert(gates.begin(), g);
+    }
+    if (!arena && !finish && !open_path) {
         Gate f{ "FINISH", {}, { 0.0f, 0.0f, 1.0f }, 40.0f };
         if (rungs.size() >= 2) {
             f.pos = mul(add(rungs[0].p, rungs[1].p), 0.5f);
@@ -2096,7 +2189,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 corners.push_back({ sub(m.pos, mul(m.dir, d)), m.radius });
                 corners.push_back({ add(m.pos, mul(m.dir, d)), m.radius });
             }
-            for (size_t k = 0; k < corners.size(); k++) {
+            for (size_t k = 0; k + (open_path ? 1 : 0) < corners.size(); k++) {   // an open path stops at its last gate
                 const auto& [a, wa] = corners[k];
                 const auto& [b, wb] = corners[(k + 1) % corners.size()];
                 add_run(a, b, wa, wb);
@@ -2126,6 +2219,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         struct Crossing { float s; bool along; Vec3 at; };   // s: distance along rungs; along: the arrow's way
         size_t nr = rungs.size();
         std::vector<float> at(nr + 1, 0.0f);   // distance along the closed loop to rung i (at[nr]: the lap)
+        // A point-to-point or run-in path is open: no step from its last rung back to its first.
+        const size_t steps = open_path ? nr - 1 : nr;
         std::vector<std::vector<Crossing>> found(gates.size());
         auto trace = [&]() {
             for (size_t i = 0; i < nr; i++) at[i + 1] = at[i] + length(sub(rungs[(i + 1) % nr].p, rungs[i].p));
@@ -2133,7 +2228,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 const Gate& gate = gates[g];
                 Vec3 side_dir = { -gate.dir[2], 0.0f, gate.dir[0] };
                 found[g].clear();
-                for (size_t i = 0; i < nr; i++) {
+                for (size_t i = 0; i < steps; i++) {
                     const Vec3& a = rungs[i].p;
                     const Vec3& b = rungs[(i + 1) % nr].p;
                     float sa = dot(sub(a, gate.pos), gate.dir), sb = dot(sub(b, gate.pos), gate.dir);
@@ -2153,8 +2248,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                     again = false;
                     for (size_t k = 0; k < c.size() && !again; k++) {
                         size_t j = (k + 1) % c.size();
-                        if (j == k || c[k].along == c[j].along) continue;
-                        float apart = std::fmod(c[j].s - c[k].s + at[nr], at[nr]);
+                        if (j == k || c[k].along == c[j].along || (open_path && j == 0)) continue;
+                        float apart = open_path ? c[j].s - c[k].s : std::fmod(c[j].s - c[k].s + at[nr], at[nr]);
                         if (apart > jitter) continue;
                         c.erase(c.begin() + long(std::max(k, j)));
                         c.erase(c.begin() + long(std::min(k, j)));
@@ -2174,7 +2269,39 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             report.info("AIPATH_main runs against the gates' arrows; it was reversed.");
             trace();
         }
-        float lap = at[nr];
+        float lap = at[steps];   // a point-to-point race's: start to end
+        // A run-in circuit's loop start: the gate (not START) whose first crossing is nearest where the path ends. A
+        // path drawn a little past it crosses it again there: the path is cut at that second crossing, so it ends on
+        // the loop start as the stock run-in paths do (New York One's spine and lanes end 7-45 ft before it).
+        if (run_in) {
+            constexpr float join_reach = 300.0f;   // ft from the path's end to the loop start's crossing
+            const Vec3 end = rungs.back().p;
+            int best_g = -1;
+            float best_d = 1e30f;
+            for (size_t g = 1; g < gates.size(); g++) {
+                if (found[g].empty()) continue;
+                float d = length(sub(found[g].front().at, end));
+                if (d < best_d) { best_d = d; best_g = int(g); }
+            }
+            if (best_g < 0) {
+                report.error("A run-in circuit needs a checkpoint where AIPATH_main's end comes back onto it: the loop "
+                             "starts there.");
+            }
+            else {
+                auto& c = found[size_t(best_g)];
+                for (size_t k = 1; k < c.size(); k++) {
+                    if (c[k].s > c[0].s + join_reach && length(sub(c[k].at, end)) < join_reach) { lap = c[k].s; break; }
+                }
+                if (best_d > join_reach && lap == at[steps]) {
+                    report.error("AIPATH_main ends " + fmt_ft(best_d) + " from " + gates[size_t(best_g)].name + ", the "
+                                 "nearest checkpoint: a run-in circuit's path ends where it comes back onto itself, at "
+                                 "the checkpoint where the loop starts.");
+                }
+                gates[size_t(best_g)].loop = true;
+                for (auto& cg : found) cg.erase(std::remove_if(cg.begin(), cg.end(), [&](const Crossing& k) { return k.s > lap + 1.0f; }), cg.end());
+                report.info("Run-in circuit: the loop starts at " + gates[size_t(best_g)].name + "; the laps go round from there.");
+            }
+        }
         out.lap_feet = lap;
         // Each gate's crossing: the one going the way its arrow points. A gate wide enough to reach another stretch of
         // road (a compact track's next leg) is told apart by its arrow when that stretch runs the other way; the game
@@ -2219,8 +2346,13 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 gate.dir = mul(gate.dir, -1.0f);
             }
         }
-        // The lap starts at FINISH's crossing (else, already reported, at the rung nearest FINISH).
-        float start = gate_s[0];
+        // The lap starts at FINISH's crossing (else, already reported, at the rung nearest FINISH); a point-to-point
+        // race's spine at the path's start, its run-up to START included (the grid lines up behind START on it).
+        float start = open_path ? 0.0f : gate_s[0];
+        if (open_path && gate_s[0] >= 0.0f && gate_s[0] < 60.0f) {
+            report.warning("START is only " + fmt_ft(gate_s[0]) + " along AIPATH_main from its start: the grid lines up "
+                           "behind START, four rows 20 ft (6 m) apart, so begin the curve about 30 m (100 ft) further back.");
+        }
         if (start < 0.0f) {
             size_t near = 0;
             float best = 1e30f;
@@ -2230,10 +2362,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             }
             start = at[near];
         }
-        for (float s = 0.0f; s < lap - spine_step * 0.5f; s += spine_step) {
-            float u = std::fmod(start + s, lap);
+        for (float s = 0.0f; open_path ? s <= lap : s < lap - spine_step * 0.5f; s += spine_step) {
+            float u = open_path ? s : std::fmod(start + s, lap);
             size_t seg = size_t(std::upper_bound(at.begin(), at.end(), u) - at.begin());
-            seg = std::clamp<size_t>(seg, 1, nr) - 1;
+            seg = std::clamp<size_t>(seg, 1, steps) - 1;
             float span = std::max(1e-6f, at[seg + 1] - at[seg]);
             float f = std::clamp((u - at[seg]) / span, 0.0f, 1.0f);
             const PathPoint& a = rungs[seg];
@@ -2247,22 +2379,56 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             p.mode = f < 0.5f ? a.mode : b.mode;
             spine.push_back(p);
         }
-        // Each gate's crossing as the first spine point past it (the finish line: point 0, on it).
+        // Each gate's crossing as the first spine point past it (the finish line: point 0, on it; a point-to-point
+        // race's gates all where the path meets them, in order START, CHECKPOINT_1, ..., FINISH).
         std::vector<std::pair<float, size_t>> order;
         for (size_t g = 0; g < gates.size(); g++) {
             if (gate_s[g] < 0.0f || spine.empty()) continue;
+            if (open_path) {
+                gates[g].at = int(std::min(size_t(gate_s[g] / spine_step) + 1, spine.size() - 1));
+                order.push_back({ gate_s[g], g });
+                continue;
+            }
             float q = std::fmod(gate_s[g] - start + lap, lap);
             gates[g].at = g == 0 ? 0 : int((size_t(q / spine_step) + 1) % spine.size());
             if (g > 0) order.push_back({ q, g });
         }
         std::sort(order.begin(), order.end());
+        if (run_in) {
+            // A run-in circuit's gates go in the file as the path meets them, FINISH among them (San Francisco Rush's
+            // Golden Gate has a checkpoint after its finish line): START first, the checkpoints in number order.
+            bool ok = !order.empty() && order[0].second == 0;
+            int last = 0;
+            for (const auto& [q, g] : order) {
+                int k = number_after(gates[g].name, "CHECKPOINT_");
+                if (k < 0) continue;
+                ok = ok && k > last;
+                last = k;
+            }
+            if (!ok) {
+                std::string seen;
+                for (const auto& [q, g] : order) seen += ", " + gates[g].name;
+                report.error("The gates aren't in race order: along the AI path from its start it meets them as " +
+                             seen.substr(2) + ". START comes first and the checkpoints are numbered 1, 2, 3, ... in "
+                             "that order (FINISH may be anywhere among them).");
+            }
+            std::vector<Gate> sorted;
+            std::vector<bool> taken(gates.size(), false);
+            for (const auto& [q, g] : order) { sorted.push_back(gates[g]); taken[g] = true; }
+            for (size_t g = 0; g < gates.size(); g++) if (!taken[g]) sorted.push_back(gates[g]);
+            gates = std::move(sorted);
+        }
         bool in_order = true;
-        for (size_t k = 0; k < order.size(); k++) in_order = in_order && order[k].second == k + 1;
-        if (!in_order && order.size() + 1 == gates.size()) {
+        size_t first = p2p ? 0 : 1;
+        for (size_t k = 0; k < order.size(); k++) in_order = in_order && order[k].second == k + first;
+        if (!run_in && !in_order && order.size() + first == gates.size()) {
             std::string seen;
             for (const auto& [q, g] : order) seen += ", " + gates[g].name;
-            report.error("The checkpoints aren't numbered in race order: from FINISH the AI path meets them as " +
-                         seen.substr(2) + ". Number them 1, 2, 3, ... in that order.");
+            report.error(p2p ? "The gates aren't in race order: along the AI path from its start it meets them as " +
+                               seen.substr(2) + ". Number the checkpoints 1, 2, 3, ... in that order, START before them "
+                               "and FINISH after."
+                             : "The checkpoints aren't numbered in race order: from FINISH the AI path meets them as " +
+                               seen.substr(2) + ". Number them 1, 2, 3, ... in that order.");
         }
         if (spine.size() > 4000) { report.error("The AI path is too long for the game (over 80 km)."); spine.clear(); }
         // The path's height: the road under it (the game's nearest-point searches are 3D).
@@ -2359,13 +2525,26 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // ---- target speeds ----
     // Per point of sp, for a race along it: the backward race brakes for the same corners from the other side, and an
     // AISPEED_ marker caps the speed from it on in either direction. forward: the race the report speaks of.
+    // Past a run-in circuit's last spine point the race goes on from the loop start's crossing.
+    long loop_at = -1;
+    for (const Gate& g : gates) if (g.loop && g.at >= 0) loop_at = g.at;
     auto target_speeds = [&](const std::vector<PathPoint>& sp, bool forward) {
         size_t n = sp.size();
+        // Point i + k along the race: a circuit wraps to its start, a run-in circuit to its loop start, a
+        // point-to-point path stops at its end.
+        auto ahead_of = [&](size_t i, size_t k) -> size_t {
+            if (!open_path) return (i + k) % n;
+            size_t j = i + k;
+            if (j < n) return j;
+            if (run_in && loop_at >= 0 && size_t(loop_at) < n) return std::min(size_t(loop_at) + (j - n), n - 1);
+            return n - 1;
+        };
         std::vector<float> v(n), mph(n), radius(n);
         for (size_t i = 0; i < n; i++) {
-            const Vec3& a = sp[(i + n - 3) % n].p;
+            // A point-to-point path doesn't wrap: its ends look only along the path.
+            const Vec3& a = sp[open_path ? (i < 3 ? 0 : i - 3) : (i + n - 3) % n].p;
             const Vec3& b = sp[i].p;
-            const Vec3& c = sp[(i + 3) % n].p;
+            const Vec3& c = sp[ahead_of(i, 3)].p;
             Vec3 ab = sub(b, a), bc = sub(c, b), ac = sub(c, a);
             ab[1] = bc[1] = ac[1] = 0.0f;
             float area2 = std::fabs(ab[0] * bc[2] - ab[2] * bc[0]);
@@ -2381,7 +2560,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         const size_t ahead = size_t(500.0f / spine_step);
         for (size_t i = 0; i < n; i++) {
             float r = 1e9f;
-            for (size_t k = 0; k <= ahead; k++) r = std::min(r, radius[(i + k) % n]);
+            for (size_t k = 0; k <= ahead; k++) r = std::min(r, radius[ahead_of(i, k)]);
             float s = table[0][1];
             if (r >= table[10][0]) s = table[10][1];
             else for (int t = 0; t < 10; t++) {
@@ -2422,6 +2601,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             // From this marker up to the next one (all the way round when it is the only one).
             size_t from = caps[c].first, to = caps[(c + 1) % caps.size()].first;
             size_t count = caps.size() == 1 ? n : (to + n - from) % n;
+            if (open_path && (c + 1 == caps.size() || caps.size() == 1)) count = n - from;   // the last one: to the end
             for (size_t k = 0; k < count; k++) {
                 size_t f = (from + k) % n;
                 size_t i = forward ? f : (n - f) % n;
@@ -2432,8 +2612,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         const float decel = 28.0f;
         for (int pass = 0; pass < 2; pass++) {
             for (size_t k = 0; k < n; k++) {
-                size_t i = (n - 1 - k), j = (i + 1) % n;
-                if (authored[i]) continue;
+                size_t i = (n - 1 - k), j = ahead_of(i, 1);
+                if (authored[i] || (p2p && i + 1 == n)) continue;
                 v[i] = std::min(v[i], std::sqrt(v[j] * v[j] + 2.0f * decel * spine_step));
             }
         }
@@ -2612,7 +2792,28 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     auto write_path = [&](const std::vector<PathPoint>& sp, const Lanes& lanes, const std::vector<float>& mph,
                           const std::vector<Gate>& order, std::vector<uint8_t>& d, const LaneAI* ai = nullptr) {
         add16(d, 0);                               // base time (the game uses 90)
-        for (int i = 0; i < 3; i++) add16(d, 0xFFFF); // loop / finish / arm checkpoints: recomputed at load
+        // An open path's flags per gate: the start line arms lap counting (2), FINISH is the lap line (1), a run-in
+        // circuit's loop start is where its laps go round from (4); a point-to-point race's loop start is the start.
+        auto open_flags = [&](size_t c) -> uint16_t {
+            const Gate& g = order[c];
+            if (c == 0) return 2;
+            return uint16_t((g.name == "FINISH" || (p2p && c + 1 == order.size()) ? 1 : 0) | (g.loop ? 4 : 0));
+        };
+        if (open_path && !order.empty()) {
+            // The header's loop, finish and arm checkpoints, as California Speed's point-to-point files and Rush 2's
+            // run-in ones (New York One: 1, 5, 0) have them.
+            size_t loop = 0, fin = order.size() - 1;
+            for (size_t c = 1; c < order.size(); c++) {
+                if ((open_flags(c) & 4) && loop == 0) loop = c;
+                if (open_flags(c) & 1) fin = c;
+            }
+            add16(d, uint16_t(loop));
+            add16(d, uint16_t(fin));
+            add16(d, 0);
+        }
+        else {
+            for (int i = 0; i < 3; i++) add16(d, 0xFFFF); // loop / finish / arm checkpoints: recomputed at load
+        }
         add16(d, uint16_t(order.size()));
         add16(d, 0);
         for (size_t c = 0; c < 10; c++) {
@@ -2623,7 +2824,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 // side change either way).
                 for (float f : g.dir) addf(d, -f);
                 add32(d, uint32_t(std::min(65535.0f, g.radius) * std::min(65535.0f, g.radius)));
-                add16(d, c == 0 ? 7 : 0);          // finish: lap line, arms lap counting, loop start
+                // Circuit: the finish is the lap line, arms lap counting and starts the loop (7). An open path:
+                // open_flags.
+                add16(d, open_path ? open_flags(c) : c == 0 ? 7 : 0);
                 add16(d, 45);
                 add16(d, 45);
             }
@@ -2846,6 +3049,15 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 report.info("Pickups: " + std::to_string(weapons) + " weapon(s), " + std::to_string(powerups) + " power-up spot(s).");
             }
         }
+    }
+    else if (!spine.empty() && open_path) {
+        // Raced one way only (the track select lists no BACKWARD for it): the backward file is the forward one. The
+        // race behind the records screen starts its cars at START, not partway down a road that ends or on the loop.
+        write_path(spine, lanes, speed_mph, gates, out.track.path, &lane_ai);
+        out.track.path_backward = out.track.path;
+        int16_t at = int16_t(std::max(0, gates[0].at));
+        for (int b = 0; b < 2; b++) out.track.demo_starts[b].assign(4, at);
+        out.checkpoints = int(gates.size()) - 2;
     }
     else if (!spine.empty()) {
         write_path(spine, lanes, speed_mph, gates, out.track.path, &lane_ai);

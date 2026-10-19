@@ -41,7 +41,7 @@
 #include "rush2_hooks.h"
 #include "collision_polys.h"
 #include "calspeed.h"
-#include "track_mod_runtime.h"
+#include "track2049.h"
 
 namespace {
     // Rush 2's collision file pointers (collision_file_load_800814B0, docs/rush2049_research/collision.md).
@@ -88,11 +88,9 @@ namespace {
     // The fold angle: the raced custom track's smooth_fold, else 20 degrees; RUSH2_SMOOTH_FOLD overrides both.
     float fold_degrees(uint8_t* rdram) {
         if (const char* v = getenv("RUSH2_SMOOTH_FOLD")) return (float)atof(v);
-        rush2::track_mod::Settings s;
-        if (!rush2::calspeed::racing(rdram) && rush2::track_mod::race_track() >= 0 && rush2::track_mod::race_settings(s)) {
-            return s.smooth_fold;
-        }
-        return 20.0f;
+        float fold = 20.0f;
+        if (!rush2::calspeed::racing(rdram)) rush2::track2049::mod_smooth_collision(rdram, &fold);
+        return fold;
     }
 
     float f32(uint8_t* rdram, uint32_t at) {
@@ -231,9 +229,8 @@ namespace {
     bool wanted(uint8_t* rdram) {
         if (!enabled) return false;
         if (rush2::calspeed::racing(rdram)) return true;
-        if (rush2::track_mod::race_track() < 0) return false;
-        rush2::track_mod::Settings s;
-        return !rush2::track_mod::race_settings(s) || s.smooth_collision;   // the track's opt-out
+        // A custom track's: its track.toml smooth_collision (the author's opt-out).
+        return rush2::track2049::mod_smooth_collision(rdram);
     }
 
     // Cracks and ledges. California Speed's floors (and converted custom tracks) have hairline gaps between neighboring

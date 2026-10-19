@@ -134,6 +134,11 @@ namespace rush2::track2049 {
     // Whether the race is on a custom track whose track.toml asks for California Speed's road hold
     // ([track] road_hold = true; src/calspeed/calspeed_rom.cpp rush2_calspeed_road_hold).
     bool mod_road_hold(uint8_t* rdram);
+    // Whether the race is on a custom track that races with smooth collision (its track.toml smooth_collision), and its
+    // fold angle (degrees).
+    bool mod_smooth_collision(uint8_t* rdram, float* fold = nullptr);
+    // Whether the race is on a point-to-point custom track ([track] point_to_point = true).
+    bool mod_point_to_point(uint8_t* rdram);
     // Whether the race is on the obstacle course.
     bool obstacle_race(uint8_t* rdram);
     // Whether the race is in a battle arena (also true at race setup, before the menu id becomes the host slot's).

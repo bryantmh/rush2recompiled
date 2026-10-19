@@ -19,6 +19,8 @@ found and what is wrong (see [Checking your track](#checking-your-track)), so re
 - [Sky](#sky)
 - [Moving objects](#moving-objects)
 - [Billboards and props](#billboards-and-props)
+- [Point to point](#point-to-point)
+- [Run-in circuits](#run-in-circuits)
 - [Stunt and battle arenas](#stunt-and-battle-arenas)
 - [Track select art](#track-select-art)
 - [Textures](#textures)
@@ -178,6 +180,11 @@ edge. None of this touches Rush 2's own tracks.
   stays sharp. Lower it to keep more edges sharp, raise it to round more.
 - `[track] smooth_collision = false`: the raw flat faces, as the game would drive them, cracks and ledges included.
 
+The Rush 2049 arcade tracks the Games tab builds set `smooth_collision = false`: their road is built for flat faces.
+
+(`rush2::track2049::mod_smooth_collision` hands the raced track's `smooth_collision` and `smooth_fold` to
+src/smooth_collision.cpp, set as the race applies the track, so the wheel probes never read the settings.)
+
 Checking it: RUSH2_SMOOTH_LOG=1 prints how many corners were smoothed and how many kept sharp when a race on the
 track starts; RUSH2_SMOOTH_LOG=2 adds every probe of the player's car that found a surface more than a foot off, every
 crack filled and ledge held, and (from `car_ground_contact_800703EC`) every wheel height over half a foot;
@@ -204,7 +211,8 @@ the display size. Move every marker into place: markers left at the origin are r
 
 | Name | What |
 |---|---|
-| `FINISH` | The start/finish line. The grid lines up behind it. |
+| `FINISH` | The start/finish line. The grid lines up behind it. On a point-to-point track, the finish line only. |
+| `START` | A point-to-point or run-in track's start line ([Point to point](#point-to-point), [Run-in circuits](#run-in-circuits)). The grid lines up behind it. |
 | `CHECKPOINT_1`, `CHECKPOINT_2`, ... | Checkpoints in lap order, numbered without gaps. At most 9. |
 | `AISPEED_<mph>` | Optional speed cap for the computer cars ([The AI path](#the-ai-path)). |
 
@@ -281,6 +289,8 @@ description = "One short line"
 type        = "race"                  # "race" (the default), "stunt" or "battle": see Stunt and battle arenas
 gravity     = "rush2"                 # "rush2" (the default) or "rush2049": Rush 2049's, 15% stronger at Normal
 road_hold   = false                   # true: California Speed's road hold keeps cars on crests: see Road hold
+point_to_point = false                # true: raced once from START to FINISH: see Point to point
+run_in      = false                   # true: starts on a run-in into the loop: see Run-in circuits
 
 [race]
 # Timer (with checkpoints on). Leave these out and the game works it out from the AI path, as stock Rush 2 does.
@@ -433,6 +443,54 @@ see-through by its texture's alpha after the solid scenery, the way Rush 2 draws
 scenery, billboards, props, moving objects and the `SKY`. See-through surfaces aren't sorted against each other, so
 two that overlap on screen can show in either order: keep them apart, or use Alpha Clip where hard edges will do.
 
+## Point to point
+
+`[track] point_to_point = true` makes a race that runs once from a start line to a finish line somewhere else, as
+California Speed's courses do, instead of laps round a circuit:
+
+- `AIPATH_main` is an open curve (not Cyclic) from behind the start to the finish and a little past it. If the curve
+  is drawn from the finish end, it is turned round.
+- `START` (an Empty, like the other gates) is the start line. Leave it out and the start line goes 30 m (100 ft) along
+  `AIPATH_main` from its start. The grid lines up behind `START`, four rows 6 m (20 ft) apart, so begin the curve
+  about 30 m (100 ft) before it; the report warns when there isn't room.
+- `CHECKPOINT_1` to `CHECKPOINT_8` lie in order between them, and `FINISH` is the finish line. With no `FINISH`, the
+  finish line is the end of `AIPATH_main`.
+- The race is one lap: the track select hides LAPS and BACKWARD for it.
+- Cars that have finished keep driving and bump off whatever ends the road without wrecking, as on California Speed's
+  tracks.
+- `[race] start_time` is the clock at the start, and `checkpoint_time` has one entry per `CHECKPOINT_n`. The time
+  added at the finish doesn't matter.
+
+The path file is written as California Speed's point-to-point ones are: checkpoint 0 is `START` (flags 2), the last
+is `FINISH` (flags 1), and the header's loop, finish and arm checkpoints are 0, the last and 0. The converter's
+`p2p` / `open_path` branches (track_mod_convert.cpp) keep the path open, and `rush2::track_mod::point_to_point` /
+`rush2::track2049::mod_point_to_point` give the race one lap, hide the rows, and extend `rush2_calspeed_finished_car`
+to these tracks.
+
+## Run-in circuits
+
+`[track] run_in = true` makes a circuit whose race starts on a stretch of its own that leads into the loop, as Rush 2's
+New York One, Rush 2049's race 6 (Presidio) and San Francisco Rush's Golden Gate do. The first lap runs from `START`
+along the run-in and round to `FINISH`; the laps after that go round the loop.
+
+- `AIPATH_main` is an open curve (not Cyclic): it starts about 30 m (100 ft) behind `START`, runs along the run-in,
+  goes once round the loop and ends where it first came onto the loop, a few meters before the checkpoint there. That
+  checkpoint is where the loop starts. If the curve is drawn from the loop end, it is turned round.
+- Put a `CHECKPOINT_n` where the run-in meets the loop. The report names the checkpoint it took as the loop start;
+  the curve's end has to finish within 90 m (300 ft) of it. A curve drawn on past it is cut there.
+- `START` is the start line and the grid lines up behind it. Leave it out and the start line goes 30 m (100 ft) along
+  `AIPATH_main`. `FINISH` is the lap line, anywhere on the loop. The checkpoints are numbered in the order the race
+  meets them from `START`, and `FINISH` may come before the last of them (Golden Gate has a checkpoint after its
+  finish line).
+- LAPS works as on any circuit; the track select has no BACKWARD for it.
+
+The path file is written as Rush 2's run-in ones are (New York One: header loop, finish and arm checkpoints 1, 5 and 0):
+the gates in the order the path meets them, `START` flagged 2, the loop start 4 and `FINISH` 1. The spine and the lanes
+end at the loop start's crossing, and past the spine's last point the game carries a car's progress on from that
+crossing (`func_8008CCF8`, docs/rush2049_research/race.md). The converter's `run_in` branches (track_mod_convert.cpp)
+pick the loop start, put the gates in race order and wrap the target speeds' look-ahead and braking from the path's
+end to the loop start; `rush2::track_mod::run_in` hides BACKWARD and keeps the race forwards.
+
 ## Stunt and battle arenas
 
 Set `type = "stunt"` or `type = "battle"` in track.toml's `[track]` to make an arena instead of a race track. A stunt
@@ -550,6 +608,22 @@ Click any point for its details (a racing line point's target speed, its Blender
 drag to pan, scroll to zoom, F to frame the track; while you move the camera a small cross marks the point it turns
 around.
 
+**Export track** saves the track as a custom track folder, zipped, that the game reads back as the same track:
+
+- A custom track: its folder's files exactly as they are.
+- A stock track (Rush 2's, Rush 2049's, San Francisco Rush's and California Speed's): a track.glb with everything a
+  modder would build. That means the collision as `COL_<surface>_stock` meshes, the gates as `FINISH` / `CHECKPOINT_n`
+  (or `START` ... `FINISH` on a point-to-point or run-in course) and `AIPATH_main`. The four racing lines come as `AIPATH_lane1`
+  to `AIPATH_lane4` with the game's own target speeds and steering in `_SPEED` and `_AI_MODE`, and the track's
+  textured model is included. A track.toml comes with it, holding the game's settings for that track: Rush 2049
+  gravity, California Speed's road hold, point to point, run-in.
+
+What a stock export can't keep: the collision is the game's own (polygons as the game cut them, not the faces they
+were modeled from), and lanes are re-spaced at 6 m (20 ft) like any custom track's. California Speed's start lines
+are moved 30 m (100 ft) along the road for the grid, as the game moves them; the run-in courses (New York One, Rush
+2049's race 6, Golden Gate) keep theirs, and their AI path is drawn 30 m (100 ft) back behind the start line instead. California Speed's shared
+roadside objects (cones, lamps, trees) aren't in its track files, so they're missing.
+
 **Run AI** races the computer cars around your track in the real game. The race runs hidden and as fast as your PC
 manages: a three-lap race takes about half a minute. The game uses its own settings and save for it, so nothing
 you've set or saved is touched. Then watch the race: play, pause, rewind and fast forward on the timeline, follow a
@@ -596,7 +670,8 @@ merges and renames as needed.
 
 ## How custom tracks race
 
-- **Options:** backward, mirror, laps, fog, drones and the rest all work as on stock tracks.
+- **Options:** backward, mirror, laps, fog, drones and the rest all work as on stock tracks (a point-to-point track
+  has no laps or backward).
 - **Records:** each track keeps its own records, forward and backward, under its folder name.
 - **Ghosts:** saved like the stock tracks'. A ghost holds at most 150 seconds a lap, so a longer lap cuts its ghost
   short.
@@ -607,8 +682,6 @@ merges and renames as needed.
 
 - Moving objects that react to the race, such as traffic or a train that waits for the cars: they play on their own
   clock (a ride only waits for a car on its floor)
-- A run-up before the lap: the AI path must be a closed loop through `FINISH` (NY One and Rush 2049's race 6 start
-  outside their loop)
 - Setting the fog distance
 - Surface grip, such as ice or sticky surfaces (Rush 2 only changes slowdown per surface)
 - New sounds, dust or skid marks for custom surfaces
@@ -854,6 +927,24 @@ bake.py; Reload converts again. The page works in glTF meters (game = (-x, y, z)
 over it as is. `?show=a,b&hide=c`, `?dir=backward`, `?click=x,y` and `?pivot` set layers, the path, an inspector click
 and the orbit marker from the URL, for headless screenshots
 (`msedge --headless=new --use-angle=swiftshader --virtual-time-budget=20000 --screenshot=...`).
+
+**Export track** is `tools/trackview/export.py` (`/export?folder=`; also `python tools/trackview/export.py FOLDER
+OUT.zip`). A custom track's folder is zipped as it is. A stock track is rebuilt by `tools/stock_track_glb.py`
+`build_glb(..., visual=False, lanes=True)` from the game's collision and path files, and the model dump's placed glb
+is merged in by `merge_glb` (its root nodes scaled from feet to meters, its buffers, accessors, textures and
+animations re-indexed). The page used to export from the browser through three.js's GLTFLoader and GLTFExporter,
+which isn't a round trip: GLTFLoader lower-cases custom attributes (`_SPEED` becomes `_speed`), and GLTFExporter
+prefixes every non-standard attribute with `_` again, so the file came back with `__SPEED`, `__AI_MODE` and
+`__SEGMENT`, losing authored AI speeds and the spline road. That export also dropped animations, `START_*` and
+`AISPEED_*`, and wrote the AI path as lines the converter can't read. Checked by converting the exports back (export, bake, compare
+path.bin with the ROM's): Rush 2's and Rush 2049's lanes land within 1.5 m (median) of the ROM's with the same speeds
+and the gates exactly on the stock ones; the run-in courses get the stock header (1, 5, 0 on New York One) and flags,
+their spine ending 30-57 ft before the loop start as the stock ones do (25-41 ft); a custom track's zip is
+byte-identical to its folder. `stock_track_glb.path_layout` tells the three layouts apart from the path file: an
+open spine whose start line (flags 2) isn't its finish line (flags 1) is a run-in when a later checkpoint is flagged 4
+(the loop start), else point to point. `build_glb` sets each gate's arrow along the path's travel
+at the gate's own spine crossing (`cross[0]`). San Francisco Rush's converted paths point their gates along the race,
+where Rush 2's point back, and the old blind flip also had New York One's CHECKPOINT_5 backwards.
 
 ### Race replays
 

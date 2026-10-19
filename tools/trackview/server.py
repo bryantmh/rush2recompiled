@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import bake, runs, stock  # noqa: E402
+import bake, export, runs, stock  # noqa: E402
 
 STATIC = os.path.join(HERE, 'static')
 #: Folders searched for track folders (a folder holding track.glb), relative to the repo.
@@ -112,6 +112,19 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(404, b'', 'text/plain')
                 with open(path, 'rb') as f:
                     return self.send(200, f.read(), 'application/octet-stream')
+            if u.path == '/export':
+                folder = known(q.get('folder'))
+                if not folder:
+                    return self.send(404, b'', 'text/plain')
+                name, data = export.export(folder)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/zip')
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Content-Disposition', 'attachment; filename="%s"' % name)
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                self.wfile.write(data)
+                return
             if u.path == '/glb':
                 folder = known(q.get('folder'))
                 if not folder:

@@ -99,6 +99,13 @@ namespace rush2::track_mod {
         // [track] road_hold (default false): California Speed's road hold (src/calspeed/calspeed_rom.cpp
         // rush2_calspeed_road_hold) keeps cars on the track's crests, while the CS Road Hold option is on.
         bool road_hold = false;
+        // [track] point_to_point (default false): a race run once from START to FINISH along an open AIPATH_main, as
+        // California Speed's point-to-point courses (one lap, no BACKWARD; docs/custom_tracks.md#point-to-point).
+        bool point_to_point = false;
+        // [track] run_in (default false): a circuit whose race starts at START on a run-in that leads into the loop, as
+        // Rush 2's New York One (laps round the loop from the checkpoint where AIPATH_main's end rejoins it; no
+        // BACKWARD; docs/custom_tracks.md#run-in-circuits).
+        bool run_in = false;
         std::map<std::string, Surface> surfaces;              // by upper-case name
         std::map<std::string, MoverSettings> movers;          // by the name after MOVE_
     };

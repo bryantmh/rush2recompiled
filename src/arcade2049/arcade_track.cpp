@@ -1294,7 +1294,9 @@ bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::file
     out[dir + "track.glb"] = g.bytes();
     out[dir + "track.toml"] = text_bytes(
         "[track]\nname = \"" + name + "\"\nauthor = \"Rush 2049 arcade (converted)\"\ndescription = \"" + name +
-        " from San Francisco Rush 2049 Special Edition (arcade)\"\ngravity = \"rush2049\"\n\n[look]\nfog_color = "
+        " from San Francisco Rush 2049 Special Edition (arcade)\"\ngravity = \"rush2049\"\n"
+        // The arcade's road is built for its own flat-faced collision: no smoothing (docs/custom_tracks.md#smooth-collision).
+        "smooth_collision = false\n\n[look]\nfog_color = "
         "\"#0c1424\"\n\n[menu]\nlogo = \"logo.png\"\nafter = \"rush2049\"\npreview = \"preview.png\"\n");
     for (const char* file : { "logo.png", "preview.png" }) {
         std::vector<uint8_t> bytes;

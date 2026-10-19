@@ -182,7 +182,8 @@ def bake_stock(folder, force=False):
                               'lane fixes (long steps split, checkpoint 0 moved on point-to-point tracks).')]
     os.makedirs(bake.CACHE, exist_ok=True)
     for old in os.listdir(bake.CACHE):
-        if old.startswith('stock_%s_%d-' % (game, t)):
+        # Older bakes and models; not glb_path's work folder.
+        if old.startswith('stock_%s_%d-' % (game, t)) and os.path.isfile(os.path.join(bake.CACHE, old)):
             os.remove(os.path.join(bake.CACHE, old))
     with open(cached, 'w', encoding='utf-8') as f:
         json.dump(res, f, separators=(',', ':'))

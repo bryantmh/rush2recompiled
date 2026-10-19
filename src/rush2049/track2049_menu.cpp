@@ -274,6 +274,14 @@ namespace {
                 (id == option_backward || (id == option_laps && rush2::calspeed::point_to_point(t - cs_first)))) {
                 continue;
             }
+            // A point-to-point custom track is raced one way over one lap, as California Speed's; a run-in one forwards.
+            if (is_mod_track(t) && (id == option_backward || id == option_laps) &&
+                rush2::track_mod::point_to_point(t - mod_menu_id)) {
+                continue;
+            }
+            if (is_mod_track(t) && id == option_backward && rush2::track_mod::run_in(t - mod_menu_id)) {
+                continue;
+            }
             MEM_W(0, (int32_t)(option_rows + n++ * 4)) = id;
         }
         MEM_W(0, (int32_t)option_count) = n;

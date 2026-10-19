@@ -41,7 +41,7 @@
 
 namespace {
     // Bump when the converter's output changes for the same input (the build stamp already covers new builds).
-    constexpr uint64_t converter_version = 15;
+    constexpr uint64_t converter_version = 16;
     constexpr int cache_k = 1000;   // track_cache keys of mod tracks: 1000 + a hash of the folder (2049 tracks use 1-37)
 
     std::mutex mutex;
@@ -238,6 +238,19 @@ int rush2::track_mod::type_of(int index) {
     // the race hooks can ask every frame.
     std::lock_guard lock{ mutex };
     return index >= 0 && index < (int)entries.size() ? type_of(entries[index].settings) : race_race;
+}
+
+bool rush2::track_mod::point_to_point(int index) {
+    // As type_of(index): the last scan, no rescan.
+    std::lock_guard lock{ mutex };
+    return index >= 0 && index < (int)entries.size() && entries[index].settings.point_to_point &&
+           type_of(entries[index].settings) == race_race;
+}
+
+bool rush2::track_mod::run_in(int index) {
+    std::lock_guard lock{ mutex };
+    return index >= 0 && index < (int)entries.size() && entries[index].settings.run_in &&
+           !entries[index].settings.point_to_point && type_of(entries[index].settings) == race_race;
 }
 
 std::string rush2::track_mod::host_prefix(const Settings& settings) {

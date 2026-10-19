@@ -102,6 +102,9 @@ namespace {
     int slot = host_slot;              // The slot `track` is applied to.
     std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
     std::atomic_bool applied_road_hold = false; // A custom track whose track.toml asks for road_hold is applied.
+    std::atomic_bool applied_smooth = false;    // A custom track racing with smooth collision is applied.
+    std::atomic_bool applied_p2p = false;       // A point-to-point custom track is applied.
+    std::atomic<float> applied_smooth_fold = 20.0f; // Its fold angle (degrees).
     rush2::track2049::ConvertedTrack track;
     bool track_has_sky = false;        // The converted geometry has a SKYO1 model.
     std::set<std::string> shared_models;   // Rush 2's shared model names, read once.
@@ -366,6 +369,9 @@ namespace {
         applied = true;
         applied_slot = slot;
         applied_road_hold = is_mod_k(loaded_track) && mod_settings.road_hold;
+        applied_smooth = is_mod_k(loaded_track) && mod_settings.smooth_collision;
+        applied_p2p = is_mod_k(loaded_track) && mod_settings.point_to_point && !rush2::track_mod::is_arena(mod_settings);
+        applied_smooth_fold = mod_settings.smooth_fold;
     }
 
     void restore(uint8_t* rdram) {
@@ -395,6 +401,8 @@ namespace {
         applied = false;
         applied_slot = -1;
         applied_road_hold = false;
+        applied_smooth = false;
+        applied_p2p = false;
     }
 
     bool hosting(uint8_t* rdram) {
@@ -445,6 +453,18 @@ void rush2::track2049::set_battle_arena(int n) {
 
 int rush2::track2049::loaded_slot() {
     return applied_slot;
+}
+
+bool rush2::track2049::mod_smooth_collision(uint8_t* rdram, float* fold) {
+    int s = applied_slot;
+    if (!applied_smooth || s < 0 || MEM_B(0, (int32_t)track_id) != s) return false;
+    if (fold) *fold = applied_smooth_fold;
+    return true;
+}
+
+bool rush2::track2049::mod_point_to_point(uint8_t* rdram) {
+    int s = applied_slot;
+    return applied_p2p && s >= 0 && MEM_B(0, (int32_t)track_id) == s;
 }
 
 bool rush2::track2049::mod_road_hold(uint8_t* rdram) {
@@ -973,10 +993,22 @@ static int calspeed_race(uint8_t* rdram) {
     return -1;
 }
 
+// The custom track (index into rush2::track_mod::tracks()) of the race being set up (its track select id) or run (the
+// host slot), or -1.
+static int mod_race(uint8_t* rdram) {
+    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    if (t >= rush2::track2049::mod_menu_id && t < rush2::track2049::mod_menu_id + rush2::track2049::mod_capacity) {
+        return t - rush2::track2049::mod_menu_id;
+    }
+    if (t == host_slot && rush2::track_mod::race_track() >= 0) return rush2::track_mod::race_track();
+    return -1;
+}
+
 // End of func_80094698, which copied the race options into the race's settings: the obstacle course is raced alone
 // over one lap, forwards and unmirrored, with checkpoints on (Rush 2049 has no such options for it). A Cal Speed
 // track is raced forwards (California Speed has no backward races, and its tracks one path), a point-to-point one over
-// one lap (its finish line isn't its start).
+// one lap (its finish line isn't its start); so is a point-to-point custom track (track.toml point_to_point). A run-in
+// custom track (run_in) is raced forwards: its path has one direction.
 extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t laps = 0x8010C0E2;          // s16
     constexpr uint32_t drones = 0x800D3E90;        // s16
@@ -1006,6 +1038,15 @@ extern "C" void rush2_track49_obstacle_settings(uint8_t* rdram, recomp_context* 
     }
     if (int cs = calspeed_race(rdram); cs >= 0) {
         if (rush2::calspeed::point_to_point(cs)) MEM_H(0, (int32_t)laps) = 1;
+        MEM_B(0, (int32_t)backward) = 0;
+        return;
+    }
+    if (int mod = mod_race(rdram); mod >= 0 && rush2::track_mod::point_to_point(mod)) {
+        MEM_H(0, (int32_t)laps) = 1;
+        MEM_B(0, (int32_t)backward) = 0;
+        return;
+    }
+    if (int mod = mod_race(rdram); mod >= 0 && rush2::track_mod::run_in(mod)) {
         MEM_B(0, (int32_t)backward) = 0;
         return;
     }
