@@ -101,6 +101,7 @@ namespace {
     std::shared_ptr<const rush2::rom2049::Source> loaded_source; // The Rush 2049 source it was converted from.
     int slot = host_slot;              // The slot `track` is applied to.
     std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
+    std::atomic_bool applied_road_hold = false; // A custom track whose track.toml asks for road_hold is applied.
     rush2::track2049::ConvertedTrack track;
     bool track_has_sky = false;        // The converted geometry has a SKYO1 model.
     std::set<std::string> shared_models;   // Rush 2's shared model names, read once.
@@ -364,6 +365,7 @@ namespace {
         }
         applied = true;
         applied_slot = slot;
+        applied_road_hold = is_mod_k(loaded_track) && mod_settings.road_hold;
     }
 
     void restore(uint8_t* rdram) {
@@ -392,6 +394,7 @@ namespace {
         }
         applied = false;
         applied_slot = -1;
+        applied_road_hold = false;
     }
 
     bool hosting(uint8_t* rdram) {
@@ -442,6 +445,11 @@ void rush2::track2049::set_battle_arena(int n) {
 
 int rush2::track2049::loaded_slot() {
     return applied_slot;
+}
+
+bool rush2::track2049::mod_road_hold(uint8_t* rdram) {
+    int s = applied_slot;
+    return applied_road_hold && s >= 0 && MEM_B(0, (int32_t)track_id) == s;
 }
 
 bool rush2::track2049::obstacle_race(uint8_t* rdram) {

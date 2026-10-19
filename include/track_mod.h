@@ -96,6 +96,9 @@ namespace rush2::track_mod {
         // (src/smooth_collision.cpp); smooth_fold (degrees, default 20): an edge folding more than this stays sharp.
         bool smooth_collision = true;
         float smooth_fold = 20.0f;
+        // [track] road_hold (default false): California Speed's road hold (src/calspeed/calspeed_rom.cpp
+        // rush2_calspeed_road_hold) keeps cars on the track's crests, while the CS Road Hold option is on.
+        bool road_hold = false;
         std::map<std::string, Surface> surfaces;              // by upper-case name
         std::map<std::string, MoverSettings> movers;          // by the name after MOVE_
     };

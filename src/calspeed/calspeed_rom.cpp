@@ -126,7 +126,6 @@ namespace {
         // The computer cars' choice is among California Speed's cars.
         bool cars_on = std::get<bool>(config.get_option_value(cars_option_id));
         config.update_option_disabled(drones_option_id, disabled || !cars_on);
-        config.update_option_disabled(road_hold_option_id, disabled);
         config.update_option_disabled(scenery_option_id, disabled);
         config.update_option_disabled(billboards_option_id, disabled);
     }
@@ -688,6 +687,12 @@ namespace {
                (MEM_BU(0, (int32_t)attract_demo) == 0 || MEM_W(0, (int32_t)game_state) == 6);
     }
 
+    // Where the road hold runs (with the CS Road Hold option on): California Speed's tracks, and custom tracks whose
+    // track.toml asks for it ([track] road_hold = true, docs/custom_tracks.md#road-hold).
+    bool road_hold_track(uint8_t* rdram) {
+        return road_hold_on && (on_calspeed_track(rdram) || rush2::track2049::mod_road_hold(rdram));
+    }
+
     // Hold::Gravity's extra gravity: the road hold's factors (road_hold_push / weight) x the car's gravity (+0x200, the
     // car's frame, turned by car_force_sum), less its part along the road while wheels touch it. In
     // car_physics_forces after car_force_sum, so it is added to the summed force at +0x4.
@@ -913,7 +918,7 @@ namespace {
 }
 
 extern "C" void rush2_calspeed_road_hold(uint8_t* rdram, recomp_context* ctx) {
-    if (!road_hold_on || !on_calspeed_track(rdram)) {
+    if (!road_hold_track(rdram)) {
         return;
     }
     uint32_t car = (uint32_t)ctx->r16;
@@ -990,8 +995,8 @@ void rush2::calspeed::init_config() {
         road_hold_option_id,
         "CS Road Hold",
         "Keeps cars on California Speed's hills as California Speed does: over a crest every car is held to the road "
-        "instead of flying off it. Flat road, slopes and corners drive as on any other track. Off, its tracks have "
-        "Rush 2's own gravity. Takes effect at once.",
+        "instead of flying off it. Flat road, slopes and corners drive as on any other track. Custom tracks that ask "
+        "for it get it too. Off, these tracks have Rush 2's own gravity. Takes effect at once.",
         true
     );
     config.add_option_change_callback(road_hold_option_id,
@@ -1082,7 +1087,7 @@ void rush2::calspeed::load_config() {
 // The ground push is the wheels on the road's part (0.32 each, less past 0.5 compression): lifting by the whole push,
 // a lifted wheel's 1.5 included, made the springs up to 7 times as strong and bounced and rolled the cars.
 extern "C" void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx) {
-    if (hold != Hold::Copy || !road_hold_on || !on_calspeed_track(rdram)) {
+    if (hold != Hold::Copy || !road_hold_track(rdram)) {
         return;
     }
     constexpr uint32_t physics_cars = 0x800F5470, physics_car_size = 0x81C;
@@ -1140,7 +1145,7 @@ namespace {
 }
 
 extern "C" void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx) {
-    if (!road_hold_on || !on_calspeed_track(rdram)) {
+    if (!road_hold_track(rdram)) {
         return;
     }
     constexpr uint32_t physics_cars = 0x800F5470, physics_car_size = 0x81C;
@@ -1194,7 +1199,7 @@ extern "C" void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx)
 // car_tire_model ($a2; $a0 = the car): the springs' load (0x34($sp), x gravity_scale with the springs) /
 // gravity_scale, capped at the car's weight (+0x5AC) as the game caps it (0x8006AD30-0x8006AD44).
 extern "C" void rush2_calspeed_tire_load(uint8_t* rdram, recomp_context* ctx) {
-    if (!heavy_world || !road_hold_on || !on_calspeed_track(rdram)) {
+    if (!heavy_world || !road_hold_track(rdram)) {
         return;
     }
     uint32_t car = (uint32_t)ctx->r4;

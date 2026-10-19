@@ -766,7 +766,8 @@ Rush 2's with the fields from +0x5B0 on moved 0x64 later (Rush 2's mass +0x5B0 i
   Drones (All Tracks, CS Tracks, Off: `rush2_car49_drone`). They have no unlock shop items.
   Online, a California Speed car needs every machine to have the ROM (`online_net.cpp`). [V]
 - **CS Road Hold** (Games tab, `calspeed_road_hold`, default On, takes effect at once): off, its tracks
-  have Rush 2's own gravity only (see Road hold). `tools/calspeed/sim_wrecks.py` races the tracks headless with it on
+  have Rush 2's own gravity only (see Road hold). Custom tracks get it too with `[track] road_hold = true`
+  (`rush2::track2049::mod_road_hold`, docs/custom_tracks.md#road-hold), so the option stays enabled without the ROM. `tools/calspeed/sim_wrecks.py` races the tracks headless with it on
   and off and counts the computer cars' wrecks and rollovers.
 
 ### Road hold

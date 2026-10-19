@@ -66,7 +66,7 @@ California Speed (Atari Games, 1999) runs on the same engine as Rush 2, so it co
 
 - **The California Speed tracks.** All sixteen tracks, from Monterey to Mt. Shasta, Fuji and San Andreas, after the custom tracks in the track select. Its point-to-point courses are raced over one lap.
 - **The California Speed cars.** All twenty-one cars join the car select after the other cars. Computer cars can drive them too: on every track, only on California Speed's tracks, or not at all.
-- **Road Hold.** California Speed keeps cars on its hills instead of launching them off every crest. This is on by default and can be turned off to use Rush 2's own gravity.
+- **Road Hold.** California Speed keeps cars on its hills instead of launching them off every crest. This is on by default and can be turned off to use Rush 2's own gravity. Custom tracks can ask for it too (`road_hold = true` in their track.toml).
 - **The California Speed music.** Its nine songs play on its tracks, picked at random.
 
 ### Rush 2049 arcade mods

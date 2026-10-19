@@ -183,6 +183,18 @@ track starts; RUSH2_SMOOTH_LOG=2 adds every probe of the player's car that found
 crack filled and ledge held, and (from `car_ground_contact_800703EC`) every wheel height over half a foot;
 RUSH2_SMOOTH_FOLD=<degrees> tries another fold angle without editing the track.
 
+### Road hold
+
+`[track] road_hold = true` races the track with California Speed's road hold, as its own tracks are raced
+(`rush2_calspeed_road_hold` and the hooks beside it in src/calspeed/calspeed_rom.cpp, explained in
+docs/calspeed_research.md#road-hold): the world is 2.28 times as heavy with every car's springs, dampers and tire loads
+scaled to match, so on flat road, slopes and corners a car drives as on any other track, but it takes 2.28 g to lift
+off a crest, a car whose wheels leave the road falls at up to 4.6 g, and over a kink between two faces the car's
+velocity away from the road is taken out so it follows the road instead of hopping. Use it for a track whose hills
+are built like California Speed's (long crests taken flat out, made of large flat faces); jumps still fly, a little
+shorter. The default is off: Rush 2's own gravity. It runs only while the player's CS Road Hold option (Games tab) is
+on, which needs no California Speed ROM. It stacks with `gravity = "rush2049"`, which raises the gravity it scales.
+
 ## Markers
 
 Markers are Empties (Add > Empty > Arrows). Rotate each so its green (Y) arrow points down the track in the race
@@ -268,6 +280,7 @@ version     = "0.1"
 description = "One short line"
 type        = "race"                  # "race" (the default), "stunt" or "battle": see Stunt and battle arenas
 gravity     = "rush2"                 # "rush2" (the default) or "rush2049": Rush 2049's, 15% stronger at Normal
+road_hold   = false                   # true: California Speed's road hold keeps cars on crests: see Road hold
 
 [race]
 # Timer (with checkpoints on). Leave these out and the game works it out from the AI path, as stock Rush 2 does.

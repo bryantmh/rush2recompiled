@@ -131,6 +131,9 @@ namespace rush2::track2049 {
     void set_battle_arena(int n);
     // The Rush 2 slot the raced 2049 track or stunt arena is loaded in (host_slot or stunt_host_slot), or -1.
     int loaded_slot();
+    // Whether the race is on a custom track whose track.toml asks for California Speed's road hold
+    // ([track] road_hold = true; src/calspeed/calspeed_rom.cpp rush2_calspeed_road_hold).
+    bool mod_road_hold(uint8_t* rdram);
     // Whether the race is on the obstacle course.
     bool obstacle_race(uint8_t* rdram);
     // Whether the race is in a battle arena (also true at race setup, before the menu id becomes the host slot's).
