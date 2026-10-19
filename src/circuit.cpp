@@ -132,6 +132,7 @@ namespace {
         std::bitset<course_ids> courses = before_calspeed();  // bit t: track t
         std::set<std::string> mods;    // custom tracks by folder
         std::map<int, Car> cars;
+        int battle = -1;    // the race select's BATTLE row for this circuit, -1 not set yet (rush2::circuit::race_battle)
     };
 
     constexpr const char* saves_section = "circuits";
@@ -174,6 +175,7 @@ namespace {
                                                 c[5].get<int>(), c[6].get<int>() };
                 }
             }
+            if (e.contains("battle") && e["battle"].is_number_integer()) s.battle = e["battle"].get<int>() != 0 ? 1 : 0;
             setups.push_back(s);
         }
     }
@@ -190,9 +192,11 @@ namespace {
             for (const auto& [race, c] : s.cars) {
                 cars.push_back({ race, c.type, c.main, c.accent, c.stripe, c.stripe_color, c.rim });
             }
-            list.push_back({ { "seed", s.seed }, { "races", s.length }, { "courses", courses },
-                             { "mods", nlohmann::json(std::vector<std::string>(s.mods.begin(), s.mods.end())) },
-                             { "cars", cars } });
+            nlohmann::json e = { { "seed", s.seed }, { "races", s.length }, { "courses", courses },
+                                 { "mods", nlohmann::json(std::vector<std::string>(s.mods.begin(), s.mods.end())) },
+                                 { "cars", cars } };
+            if (s.battle >= 0) e["battle"] = s.battle;   // older records have none: set at the next track select
+            list.push_back(e);
         }
         rush2::data_files::write(rush2::data_files::File::Saves, saves_section,
             nlohmann::json{ { "version", 1 }, { "list", list } }.dump());
@@ -210,6 +214,20 @@ namespace {
             if (s.seed == seed) found = s;
         }
         return found;
+    }
+
+    // The current circuit's record to change (the circuit block must be set), added when it has none: such a circuit
+    // (older, or from a code) is Rush 2's, 28 races over every course. Hold setups_mutex.
+    Setup& setup_of(uint8_t* rdram) {
+        uint32_t block = (uint32_t)MEM_W(0, (int32_t)circuit_block);
+        uint32_t seed = (uint32_t)MEM_W(block_seed, (int32_t)block);
+        load_setups();
+        for (Setup& s : setups) {
+            if (s.seed == seed) return s;
+        }
+        setups.push_back(Setup{ seed });
+        while (setups.size() > setups_kept) setups.pop_front();
+        return setups.back();
     }
 
     int finished(uint8_t* rdram) {
@@ -365,6 +383,8 @@ extern "C" void rush2_circuit_races_left(uint8_t* rdram, recomp_context* ctx) {
 // no step) and the flag the option text and arrows grey from (0x803AC554-0x803AC594 -> 0x803D0608 = 0). With the option
 // on, both take the track's own tests for DIFFICULTY and DEATHS on any circuit race, a step starts from the circuit's
 // values (the menu's may have changed since, in a single race) and DIFFICULTY's is written to the block.
+// The race select's added BATTLE row (option 11, src/rush2049/track2049_menu.cpp) is the circuit's like DEATHS: kept in
+// the circuit's record (rush2::circuit::race_battle), open on the first race and, with the option on, on every race.
 extern "C" void pak_mark_dirty_8005F338(uint8_t* rdram, recomp_context* ctx);     // $a0 address, $a1 length, $t1 = 0
 
 namespace {
@@ -377,14 +397,29 @@ namespace {
     constexpr uint32_t option_rows = 0x803D05D8;      // s32 [rows]: option id per row
     constexpr int option_difficulty = 7;
     constexpr int option_deaths = 10;
+    constexpr int option_battle = 11;                 // added: the race select's BATTLE row
+    constexpr uint32_t circuit_race = 0x800D3DF0;     // s8: the circuit race's index (> 0 greys DEATHS)
 
     std::atomic<bool> more_settings = false;
 
+    int cursor_option(uint8_t* rdram) {
+        int row = (int32_t)MEM_W(0, (int32_t)option_cursor);
+        return (int32_t)MEM_W(0, (int32_t)(option_rows + row * 4));
+    }
+
     bool more_settings_option(uint8_t* rdram) {
         if (!more_settings.load()) return false;
-        int row = (int32_t)MEM_W(0, (int32_t)option_cursor);
-        int option = (int32_t)MEM_W(0, (int32_t)(option_rows + row * 4));
+        int option = cursor_option(rdram);
         return option == option_difficulty || option == option_deaths;
+    }
+
+    // Whether the cursor's option skips the circuit's greying (its step is the track select's own): BATTLE as the game
+    // tests DEATHS, open on the first race, and on every race with More Circuit Settings.
+    bool open_in_circuit(uint8_t* rdram) {
+        if (cursor_option(rdram) == option_battle) {
+            return more_settings.load() || (int8_t)MEM_B(0, (int32_t)circuit_race) <= 0;
+        }
+        return more_settings_option(rdram);
     }
 
     bool in_circuit(uint8_t* rdram) {
@@ -396,14 +431,32 @@ void rush2::circuit::set_more_settings(bool enabled) {
     more_settings.store(enabled);
 }
 
+// A circuit another machine hosts online takes the host's BATTLE with its settings (src/online/online_lobby.cpp).
+int rush2::circuit::race_battle(uint8_t* rdram) {
+    if (!in_circuit(rdram) || rush2::online::game::circuit_length() > 0) return -1;
+    std::lock_guard lock{ setups_mutex };
+    return setup_of(rdram).battle;
+}
+
+bool rush2::circuit::set_race_battle(uint8_t* rdram, bool on) {
+    if (!in_circuit(rdram) || rush2::online::game::circuit_length() > 0) return false;
+    std::lock_guard lock{ setups_mutex };
+    Setup& s = setup_of(rdram);
+    if (s.battle != (on ? 1 : 0)) {
+        s.battle = on ? 1 : 0;
+        save_setups();
+    }
+    return true;
+}
+
 // func_803ABE0C at 0x803ABF3C: $a0 = whether this is a circuit, about to take the circuit's greying.
 extern "C" void rush2_circuit_more_input(uint8_t* rdram, recomp_context* ctx) {
-    if (ctx->r4 != 0 && more_settings_option(rdram)) ctx->r4 = 0;
+    if (ctx->r4 != 0 && open_in_circuit(rdram)) ctx->r4 = 0;
 }
 
 // func_803ABE0C at 0x803AC558: $v0 = whether this is not a circuit, about to take the circuit's greyed flag.
 extern "C" void rush2_circuit_more_grey(uint8_t* rdram, recomp_context* ctx) {
-    if (ctx->r2 == 0 && more_settings_option(rdram)) ctx->r2 = 1;
+    if (ctx->r2 == 0 && open_in_circuit(rdram)) ctx->r2 = 1;
 }
 
 // func_803ABE0C at 0x803AC064, about to step the cursor's option: DIFFICULTY and DEATHS step from the circuit's.
@@ -539,20 +592,8 @@ extern "C" void rush2_circuit_race_car(uint8_t* rdram, recomp_context* ctx) {
     c.stripe_color = MEM_BU(5, (int32_t)entry);
     if (c.type >= car_types) return;
     c.rim = MEM_BU(0, (int32_t)(rim_table + car_types + c.type));
-    uint32_t seed = (uint32_t)MEM_W(block_seed, (int32_t)block);
     std::lock_guard lock{ setups_mutex };
-    load_setups();
-    Setup* found = nullptr;
-    for (Setup& s : setups) {
-        if (s.seed == seed) found = &s;
-    }
-    if (found == nullptr) {
-        // A circuit with no record (older, or from a code) is Rush 2's: 28 races over every course.
-        setups.push_back(Setup{ seed });
-        while (setups.size() > setups_kept) setups.pop_front();
-        found = &setups.back();
-    }
-    found->cars[race] = c;
+    setup_of(rdram).cars[race] = c;
     save_setups();
     printf("[circuit] Race %d: car %d, paint %d/%d, stripe %d/%d, rims %d\n", race + 1, c.type, c.main, c.accent,
            c.stripe, c.stripe_color, c.rim + 1);

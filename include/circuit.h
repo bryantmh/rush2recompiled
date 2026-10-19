@@ -39,6 +39,13 @@ namespace rush2::circuit {
     // DIFFICULTY included. Takes effect at once.
     void set_more_settings(bool enabled);
 
+    // Game thread. The race select's BATTLE row in a circuit is the circuit's, like DEATHS: race_battle gives the
+    // current circuit's (0 / 1; -1 not set yet, or not in a circuit of this machine's), set_race_battle sets it (false
+    // when not in one). The track select opens on it and its step sets it; the row is open on the first race and,
+    // with More Circuit Settings, on every race.
+    int race_battle(uint8_t* rdram);
+    bool set_race_battle(uint8_t* rdram, bool on);
+
     // Fixed Circuit Difficulty (General tab): a circuit race no longer steps the circuit's difficulty toward the
     // standings. Read at the end of each circuit race.
     void set_fixed_difficulty(bool enabled);

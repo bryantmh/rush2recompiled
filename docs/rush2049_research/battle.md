@@ -363,7 +363,13 @@ else no time limit. The section keeps `"points"` and `"minutes"` (0 off).
 Not in 2049. The race track select (ONE RACE, CIRCUIT, PRACTICE; not GHOST RACE, STUNT or BATTLE) has a BATTLE row
 below DEATHS, OFF by default, kept in the save's `track_select` section as `"race_battle"` (a save without it is off).
 It needs the Rush 2049 ROM (the battle's models) and is read when a race starts (`Mode::race` in
-src/rush2049/battle.cpp; not in stunt mode, `0x8010C3E8 == 2`, or a ghost race).
+src/rush2049/battle.cpp; not in stunt mode, `0x8010C3E8 == 2`, or a ghost race). A circuit keeps its own BATTLE,
+like DEATHS: `"battle"` in its record in the saves' `circuits` section (`rush2::circuit::race_battle`; a record without
+one takes the saved single-race value the next time the track select opens), which the track select opens on
+(`apply_race_battle`) and the row's step writes instead of `track_select`. The game greys every option in a circuit but
+DEATHS on the first race (`func_803ABE0C` at 0x803ABF28-0x803ABF74 and 0x803AC554, race 0x800D3DF0 > 0 or option != 10);
+`rush2_circuit_more_input` / `rush2_circuit_more_grey` (src/circuit.cpp) let BATTLE through the same way: on the first
+race, and on every race with More Circuit Settings.
 
 - **The row** is option 11, past the game's 0-10, so every place that indexes a table by the option is hooked
   (src/rush2049/track2049_menu.cpp, `rush2_track49_battle_*`):

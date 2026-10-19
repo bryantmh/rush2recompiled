@@ -347,6 +347,7 @@ namespace {
     int selection = -1;            // Added track (id - 12) last chosen on the track select, or -1.
     int stunt_selection = -1;      // Track (11 or 25-29) last chosen on the stunt track select, or -1.
     int battle_selection = -1;     // Track (30-37) last chosen on the battle track select, or -1.
+    bool race_battle_selection = false;    // The BATTLE row out of a circuit (a circuit keeps its own: rush2::circuit).
     bool selection_loaded = false;
     std::vector<uint8_t> menu_container;
     std::shared_ptr<const rush2::rom2049::Source> menu_container_rom; // 2049 ROM the container was built with.
@@ -401,7 +402,18 @@ namespace {
             minutes = legacy == 3 ? rush2::battle::default_minutes : legacy;
         }
         rush2::battle::set_time_limit_minutes(minutes);
-        rush2::battle::set_race_battle(read("\"race_battle\"") == 1);
+        race_battle_selection = read("\"race_battle\"") == 1;
+        rush2::battle::set_race_battle(race_battle_selection);
+    }
+
+    // The BATTLE row's value as the track select opens: a circuit's own, which it takes from the row out of a circuit
+    // when it has none yet (it started, or was recorded before circuits kept one).
+    void apply_race_battle(uint8_t* rdram) {
+        bool on = race_battle_selection;
+        int circuit = rush2::circuit::race_battle(rdram);
+        if (circuit >= 0) on = circuit != 0;
+        else rush2::circuit::set_race_battle(rdram, on);
+        rush2::battle::set_race_battle(on);
     }
 
     void write_selection() {
@@ -410,7 +422,7 @@ namespace {
             ", \"battle\": " + std::to_string(battle_selection) +
             ", \"points\": " + std::to_string(rush2::battle::points_to_win()) +
             ", \"minutes\": " + std::to_string(rush2::battle::time_limit_minutes()) +
-            ", \"race_battle\": " + std::to_string(rush2::battle::race_battle() ? 1 : 0) + " }");
+            ", \"race_battle\": " + std::to_string(race_battle_selection ? 1 : 0) + " }");
     }
 
     void save_selection(int value) {
@@ -869,6 +881,7 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ menu_mutex };
     refresh_mods();     // the custom tracks' types, which say which select a saved choice belongs to
     load_selection();
+    apply_race_battle(rdram);
     set_race_track(0);
     rush2::track1::set_race_track(0);
     set_stunt_arena(0);
@@ -1707,15 +1720,19 @@ extern "C" int rush2_track49_battle_value(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_803ABE0C at 0x803AC078: $t9 = the cursor row's option, about to be bounded for the left / right jump table;
-// $a1 = the step (-1, 1, or 0 for the default). The BATTLE row toggles (the default is off) and is saved. Returns 1
-// to go on to the case's end (0x803AC410).
+// $a1 = the step (-1, 1, or 0 for the default). The BATTLE row toggles (the default is off) and is saved: in a circuit
+// as the circuit's (rush2::circuit::race_battle; src/circuit.cpp says when a circuit lets it step). Returns 1 to go on
+// to the case's end (0x803AC410).
 extern "C" int rush2_track49_battle_step(uint8_t* rdram, recomp_context* ctx) {
     if ((int32_t)ctx->r25 != option_battle) return 0;
     bool on = (int32_t)ctx->r5 != 0 && !rush2::battle::race_battle();
     if (on != rush2::battle::race_battle()) {
         std::lock_guard lock{ menu_mutex };
         rush2::battle::set_race_battle(on);
-        write_selection();
+        if (!rush2::circuit::set_race_battle(rdram, on)) {
+            race_battle_selection = on;
+            write_selection();
+        }
     }
     return 1;
 }
