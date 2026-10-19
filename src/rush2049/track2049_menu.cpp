@@ -4,7 +4,8 @@
 // through 0-11 and shows a carousel of dioramas built from 12-entry tables. With Rush 2049 tracks available it
 // offers ids 12-17 after them, Rush 2049's stunt arenas as ids 25-28, its obstacle course as id 29 and its battle
 // arenas DM1-DM8 as ids 30-37, with SF Rush (Rush 1) tracks available ids 18-24, then the custom tracks as 38-63 and
-// California Speed's tracks as 64-79 (src/calspeed/):
+// California Speed's tracks as 64-79 (src/calspeed/). The carousel lists them in display order (build_order: custom
+// tracks can be listed after another game's with track.toml [menu] after):
 // - The per-track tables the screen reads (diorama names 0x803C91E0, scales 0x803C9180, cloud heights 0x803C91B0,
 //   logo names 0x803C9668) and its carousel array (0x803D0698, 0x1C bytes per entry) only have room for 12. Copies
 //   with room for 128 entries live in the memory the game heap used before it moved (src/assets.cpp), and us.toml
@@ -85,6 +86,9 @@ namespace {
     constexpr uint32_t new_cloud_heights = table_data + 0x400;
     constexpr uint32_t new_logo_names = table_data + 0x600;
     constexpr uint32_t new_carousel = table_data + 0x800;          // 128 x 0x1C
+    constexpr uint32_t carousel_entry = 0x1C;
+    constexpr uint32_t carousel_count = 0x803D05AE;                 // s16: its entries
+    constexpr uint32_t carousel_position = 0x803D05B4;              // s16: the entry shown
     constexpr uint32_t new_circuit_instances = table_data + 0x1600; // 80 x s32, the circuit screen's dioramas
     constexpr uint32_t mod_strings = table_data + 0x1800;          // 32 bytes per custom track: its model and logo names
     constexpr uint32_t calspeed_strings = table_data + 0x1C00;     // 32 bytes per Cal Speed track: the same
@@ -201,6 +205,7 @@ namespace {
     std::vector<bool> mod_ok;
     std::vector<rush2::track_mod::MenuArt> mod_arts;
     std::string mod_signature;
+    std::atomic<bool> mods_reload = false;     // rush2::track2049::mods_changed
 
     bool is_mod_track(int t) {
         return t >= mod_menu_id && t < mod_menu_id + mod_capacity;
@@ -532,13 +537,85 @@ namespace {
         }
     }
 
+    // The order the track select lists its entries in: every id 0-79 once. Ids stay what saves and races use; only the
+    // carousel follows this order (rush2_track49_select_count, _carousel_order, _step). Custom tracks with a track.toml
+    // [menu] after are moved behind the last entry of that game on their own select (race, stunt or battle), or behind
+    // the custom track of that folder; several behind one anchor keep the mod order. The others stay at 38-63.
+    std::vector<int> display_order;
+
+    bool anchor_game(const std::string& name, rush2::game_filter::Game& out) {
+        using rush2::game_filter::Game;
+        if (name == "rush2") out = Game::Rush2;
+        else if (name == "sfrush") out = Game::SFRush;
+        else if (name == "rush2049") out = Game::Rush2049;
+        else if (name == "calspeed") out = Game::CalSpeed;
+        else return false;
+        return true;
+    }
+
+    void build_order(const std::vector<rush2::track_mod::Entry>& entries) {
+        display_order.clear();
+        for (int t = 0; t < menu_tracks; t++) display_order.push_back(t);
+        size_t n = std::min(entries.size(), size_t(mod_capacity));
+        std::vector<bool> placed(n);
+        for (size_t i = 0; i < n; i++) placed[i] = entries[i].settings.menu_after.empty();
+        std::map<int, int> behind;      // anchor -> the custom track last put behind it
+        auto place = [&](int self, int anchor) {
+            display_order.erase(std::find(display_order.begin(), display_order.end(), self));
+            int after = behind.count(anchor) ? behind[anchor] : anchor;
+            display_order.insert(std::find(display_order.begin(), display_order.end(), after) + 1, self);
+            behind[anchor] = self;
+        };
+        // An anchor on another custom track waits for that one to be placed (a loop of them stays put).
+        for (size_t pass = 0; pass <= n; pass++) {
+            for (size_t i = 0; i < n; i++) {
+                if (placed[i]) continue;
+                const std::string& after = entries[i].settings.menu_after;
+                int self = mod_menu_id + int(i);
+                rush2::game_filter::Game game;
+                int anchor = -1;
+                if (anchor_game(after, game)) {
+                    for (int t : display_order) {
+                        if (!is_mod_track(t) && rush2::game_filter::track_game(t) == game && kind_of(t) == kind_of(self)) {
+                            anchor = t;
+                        }
+                    }
+                }
+                else {
+                    size_t j = 0;
+                    while (j < n && entries[j].folder != after) j++;
+                    if (j < n && j != i && !placed[j]) continue;
+                    if (j < n && j != i) anchor = mod_menu_id + int(j);
+                }
+                placed[i] = true;
+                if (anchor < 0) {
+                    printf("[trackmod] %s: [menu] after = \"%s\" names no game (rush2, sfrush, rush2049, calspeed) or "
+                           "custom track; it stays at the end\n", entries[i].folder.c_str(), after.c_str());
+                    continue;
+                }
+                place(self, anchor);
+            }
+        }
+    }
+
+    // The tracks the carousel shows, in display order.
+    std::vector<int> shown_tracks(uint8_t* rdram) {
+        std::vector<int> shown;
+        for (int t : display_order) {
+            if (track_selectable(rdram, t)) shown.push_back(t);
+        }
+        return shown;
+    }
+
     // The enabled mods' custom tracks: converted (or read from the cache) when the enabled mods change, for their track
     // select art. A track that doesn't convert isn't offered; its report (<config>/track_reports) says why.
     void refresh_mods() {
         std::vector<rush2::track_mod::Entry> entries = rush2::track_mod::tracks();
         std::string signature;
-        for (const auto& e : entries) signature += e.mod_id + "/" + e.folder + ";";
-        if (signature == mod_signature) return;
+        for (const auto& e : entries) signature += e.mod_id + "/" + e.folder + ">" + e.settings.menu_after + ";";
+        bool reload = mods_reload.exchange(false);
+        if (signature == mod_signature && !display_order.empty() && !reload) return;
+        if (reload) menu_container_built = false;   // the art is built again from the new files
         mod_signature = signature;
         mod_ok.clear();
         mod_arts.clear();
@@ -546,6 +623,7 @@ namespace {
         for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
             mod_types.push_back(rush2::track_mod::type_of(entries[i].settings));
         }
+        build_order(entries);
         if (entries.size() > size_t(mod_capacity)) {
             printf("[trackmod] The track select has room for %d custom tracks; %zu are left out\n", mod_capacity,
                    entries.size() - size_t(mod_capacity));
@@ -872,12 +950,49 @@ extern "C" void rush2_track49_filter_text(uint8_t* rdram, recomp_context* ctx) {
 
 // func_803AB294 at 0x803AB6C8: $t7 = the number of carousel entries (10 + unlocked PIPE and ATARI), which must be
 // the number of tracks the build loop finds selectable.
+// The position loop before it has set the carousel position (s16 0x803D05B4) to the track's place in id order; it
+// becomes its place in display order (build_order).
 extern "C" void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx) {
-    int count = 0;
-    for (int t = 0; t < menu_tracks; t++) {
-        if (track_selectable(rdram, t)) count++;
+    std::lock_guard lock{ menu_mutex };
+    std::vector<int> shown = shown_tracks(rdram);
+    ctx->r15 = int(shown.size());
+    auto at = std::find(shown.begin(), shown.end(), (int8_t)MEM_B(0, (int32_t)track_id));
+    if (at != shown.end()) MEM_H(0, (int32_t)carousel_position) = int16_t(at - shown.begin());
+}
+
+// func_803AB294 at 0x803AB878, the carousel built: its entries hold the tracks in id order, each entry's place (+0x4 -
+// +0x17) from its index. The tracks (+0x0) and their model instances (+0x18) are put in display order.
+extern "C" void rush2_track49_carousel_order(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ menu_mutex };
+    std::vector<int> shown = shown_tracks(rdram);
+    int count = std::min<int>(MEM_H(0, (int32_t)carousel_count), int(shown.size()));
+    for (int i = 0; i < count; i++) {
+        uint32_t entry = new_carousel + i * carousel_entry;
+        for (int j = i; j < count; j++) {
+            uint32_t other = new_carousel + j * carousel_entry;
+            if (MEM_BU(0, (int32_t)other) != shown[i]) continue;
+            if (j != i) {
+                uint8_t track = MEM_BU(0, (int32_t)entry);
+                uint32_t node = (uint32_t)MEM_W(0, (int32_t)(entry + 0x18));
+                MEM_B(0, (int32_t)entry) = MEM_BU(0, (int32_t)other);
+                MEM_W(0, (int32_t)(entry + 0x18)) = MEM_W(0, (int32_t)(other + 0x18));
+                MEM_B(0, (int32_t)other) = track;
+                MEM_W(0, (int32_t)(other + 0x18)) = node;
+            }
+            break;
+        }
     }
-    ctx->r15 = count;
+}
+
+// func_803ABE0C at 0x803AC12C: TRACK left / right moved the carousel position by one (wrapped) and the track id to
+// the next selectable id ($a2, at $a3); the track is the one at the new position, in display order.
+extern "C" void rush2_track49_select_step(uint8_t* rdram, recomp_context* ctx) {
+    int count = MEM_H(0, (int32_t)carousel_count);
+    int position = MEM_H(0, (int32_t)carousel_position);
+    if (position < 0 || position >= count || count > menu_tracks) return;
+    uint8_t t = MEM_BU(0, (int32_t)(new_carousel + position * carousel_entry));
+    MEM_B(0, (int32_t)ctx->r7) = t;
+    ctx->r6 = (int8_t)t;
 }
 
 // Rush 2049's own preview for the 2049 entries (docs/rush2049_research/menus.md §7.5): the carousel instances the
@@ -1727,12 +1842,14 @@ std::string rush2::track2049::mod_track_name(int t) {
     return i < entries.size() ? entries[i].settings.name : std::string();
 }
 
+void rush2::track2049::mods_changed() {
+    mods_reload = true;
+}
+
 // The carousel array (new_carousel, 0x1C bytes per entry, +0 the track (u8); func_803AB294 builds it) and its
 // count (s16 0x803D05AE).
 int rush2::track2049::carousel_index(uint8_t* rdram, int t) {
     constexpr uint32_t carousel = new_carousel;
-    constexpr uint32_t carousel_entry = 0x1C;
-    constexpr uint32_t carousel_count = 0x803D05AE;
     int count = std::min<int>(MEM_H(0, (int32_t)carousel_count), menu_tracks);
     for (int i = 0; i < count; i++) {
         if (MEM_BU(0, (int32_t)(carousel + i * carousel_entry)) == t) return i;

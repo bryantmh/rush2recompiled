@@ -48,6 +48,7 @@
 #include "librecomp/rsp.hpp"
 
 #include "rush2.h"
+#include "arcade2049.h"
 #include "light_bar.h"
 #include "online.h"
 #include "data_files.h"
@@ -548,6 +549,7 @@ static bool get_game_input(int controller_num, uint16_t* buttons, float* x, floa
 
 static void launcher_init(recompui::LauncherMenu* menu) {
     rush2::online::game::init_overlay();
+    rush2::arcade2049::start_refresh();
     const recomp::GameEntry& game = supported_games[0];
     auto game_options_menu = menu->init_game_options_menu(game.game_id, game.mod_game_id, game.display_name,
                                                           game.thumbnail_bytes, recompui::GameOptionsMenuLayout::Center);

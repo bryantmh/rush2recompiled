@@ -198,7 +198,8 @@ class Track:
         size, nn, npl, nv, ns, nleaf, nvl = struct.unpack_from('<7I', d, 0)
         po = 0x40 + nn * 0x24
         vo = po + npl * 0x1C
-        vlo = size - nvl * 2
+        # The vertex lists follow the leaves (TRACK8's file ends in 2 bytes of padding, so not size - nvl * 2).
+        vlo = vo + nv * 12 + ns * 0xA4 + nleaf * 2
         verts = [struct.unpack_from('<3i', d, vo + 12 * k) for k in range(nv)]
         out = []
         for i in range(npl):

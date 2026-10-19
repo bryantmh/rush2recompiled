@@ -1420,6 +1420,7 @@ namespace {
     bool has_own[types] = {};
     std::vector<uint8_t> own[types];     // each type's asset before its mod (a recomp fix, or empty: the ROM's)
     std::string last_signature;
+    std::atomic<bool> reload_requested = false;   // rush2::car_mods::reload
     bool initialized = false;
     int frames = 0;
 
@@ -2198,8 +2199,10 @@ std::vector<rush2::mod_files::ModFile> rush2::mod_files::enabled_mods(std::strin
     std::vector<ModFile> out;
     for (const recomp::mods::ModDetails& mod : recomp::mods::get_all_mod_details("rush2")) {
         bool on = recomp::mods::is_mod_enabled(mod.mod_id);
-        signature += mod.mod_id + (on ? "+" : "-") + ";";
-        if (on) out.push_back({ mod.mod_id, recomp::mods::get_mod_filename(mod.mod_id) });
+        // The mod's file too: a mod reinstalled as an .rtz in place of its folder (src/arcade2049) keeps its id.
+        std::filesystem::path file = recomp::mods::get_mod_filename(mod.mod_id);
+        signature += mod.mod_id + (on ? "+" : "-") + rush2::upscale::path_utf8(file) + ";";
+        if (on) out.push_back({ mod.mod_id, file });
     }
     return out;
 }
@@ -2227,5 +2230,9 @@ void rush2::car_mods::check(uint8_t* rdram) {
     if (state < 0 || state > 1) return; // only in the menus: no car is loaded then
     std::string signature;
     enabled_mods(signature);
-    if (signature != last_signature) apply(rdram);
+    if (signature != last_signature || reload_requested.exchange(false)) apply(rdram);
+}
+
+void rush2::car_mods::reload() {
+    reload_requested = true;
 }

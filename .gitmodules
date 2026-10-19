@@ -18,3 +18,11 @@
 	path = lib/miniupnp
 	url = https://github.com/miniupnp/miniupnp
 	ignore = dirty
+[submodule "lib/Clipper2"]
+	path = lib/Clipper2
+	url = https://github.com/AngusJohnson/Clipper2
+	ignore = dirty
+[submodule "lib/earcut"]
+	path = lib/earcut
+	url = https://github.com/mapbox/earcut.hpp
+	ignore = dirty

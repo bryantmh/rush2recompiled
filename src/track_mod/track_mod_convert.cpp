@@ -1365,6 +1365,7 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     str("menu", "preview", s.preview);
     str("menu", "logo", s.logo);
     str("menu", "diorama", s.diorama);
+    str("menu", "after", s.menu_after);
     if (auto* surf = t["surfaces"].as_table()) {
         int next_slot = 3;
         for (auto& [key, node] : *surf) {

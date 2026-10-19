@@ -4,7 +4,8 @@ colored, z-buffered, alpha-tested. For checking model dumps without a 3D app.
     python tools/glb_view.py MODEL.glb OUT.png [--yaw DEG] [--pitch DEG] [--size N] [--node NAME ...] [--views N] [--scene N]
 
 Draws scene N (default 0: a track as placed) with its node matrices; LODs other than the first are scaled to 0 in
-the dumps, so they are skipped. --node keeps
+the dumps, so they are skipped. --max-edge M leaves out triangles with an edge longer than M glb units (a track's water
+or ground sheets, to frame the rest). --node keeps
 only nodes whose names start with one of the given texts. --views N draws N panels around the model, side by side.
 Needs numpy and Pillow.
 """
@@ -169,9 +170,14 @@ def main():
     ap.add_argument('--yaw', type=float, default=35); ap.add_argument('--pitch', type=float, default=25)
     ap.add_argument('--size', type=int, default=512); ap.add_argument('--node', nargs='*', default=[])
     ap.add_argument('--views', type=int, default=1); ap.add_argument('--scene', type=int, default=0)
+    ap.add_argument('--max-edge', type=float, default=0)
     a = ap.parse_args()
     gltf, bin_ = load(a.glb)
     tris = triangles(gltf, bin_, a.node, a.scene)
+    if tris is not None and a.max_edge > 0:
+        P = tris[0]
+        keep = np.max(np.linalg.norm(P - np.roll(P, 1, axis=1), axis=2), axis=1) <= a.max_edge
+        tris = tuple(x[keep] for x in tris) if keep.any() else None
     if tris is None:
         print('nothing to draw'); return
     texs = textures(gltf, bin_)

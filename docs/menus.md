@@ -67,7 +67,11 @@ row's index, never a fixed number.
 
 - Track select (state 1): the carousel's shown entry s16 0x803D05B4, entry count s16 0x803D05AE; the option rows'
   cursor s32 0x803D05BC, top row on screen 0x803D05C4, row count 0x803D05CC. A confirms the track and goes on to the
-  car select. `RUSH2_TEST_TRACK=ID` opens it on a track.
+  car select. `RUSH2_TEST_TRACK=ID` opens it on a track. The save's game filter can hide that track (the screen then
+  opens on the first track it shows): `RUSH2_TEST_NO_FILTER=1` ignores the filter for the run without touching the
+  save. TRACK left / right walks the carousel, which lists the tracks in display order (custom tracks can sit after
+  another game's, docs/custom_tracks.md#where-it-is-listed). `RUSH2_TEST_ARCADE_INSTALL=1` runs the Games tab's Rush
+  2049 Arcade Build and Install at launch (docs/arcade2049.md#building-it-in-the-game).
 - Car select (state 2): A on the last row picks the car; with every player done the race starts. B goes back to the
   track select.
 

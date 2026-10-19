@@ -72,6 +72,8 @@ namespace rush2::track2049 {
     // The track select's 38-entry diorama tables and asset 3 with the added tracks' dioramas (src/rush2049/track2049_menu.cpp),
     // for screens other than the track select that show them (the unlock system's shop): call before loading asset 3.
     void prepare_menu_art(uint8_t* rdram);
+    // A mod's tracks changed under the same mod id (src/arcade2049 reinstalled one): the track select reads them again.
+    void mods_changed();
     // Asset 3 as the track select gets it (with the added tracks' art), built here when the game hasn't yet: for the
     // catalog (rush2::catalog), which dumps every texture the game can draw whichever menus have been opened. Any
     // thread. False when no other game's tracks are offered (asset 3 is Rush 2's own).

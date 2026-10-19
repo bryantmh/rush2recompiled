@@ -17,6 +17,8 @@ namespace rush2::car_mods {
     void init(uint8_t* rdram);
     // Once per frame: applies mods turned on or off since, while the game is in the menus.
     void check(uint8_t* rdram);
+    // A mod's files changed under the same id (src/arcade2049 reinstalled one): check reads every mod again.
+    void reload();
 
     // Liveries (docs/car_mods.md#liveries): a mod's rush2/liveries/<ID>.json gives an existing car (a Rush 2 or Rush
     // 2049 car) more looks, each a whole mesh drawn as authored, picked with the car select's STYLE row. STYLE 1 is the

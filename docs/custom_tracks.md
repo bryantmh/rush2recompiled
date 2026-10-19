@@ -296,6 +296,7 @@ music = "track5"           # default song: "track1" to "track8"; players can sti
 logo    = "logo.png"
 preview = "preview.png"
 diorama = "diorama.glb"
+after   = "rush2049"      # where the track select lists it: see Track select art
 ```
 
 - `checkpoint_time` has one entry per checkpoint. Rush 2 keeps one time for the first lap and one for every lap
@@ -459,6 +460,22 @@ The track select shows a track's logo and a model of it, as it does for the stoc
 - **Route preview:** without a diorama, the track select shows Rush 2049's kind of preview: the AI path as a small tube
   with a light running round it in the race direction, in front of `preview.png` (a screenshot of your track, for
   example).
+
+### Where it is listed
+
+Custom tracks come after the stock and added tracks, in the mod order. `after` in `[menu]` lists a track elsewhere:
+
+| `after =` | Listed |
+|---|---|
+| `"rush2"`, `"sfrush"`, `"rush2049"`, `"calspeed"` | right after that game's tracks on the same select (a stunt arena after that game's stunt arenas, and so on) |
+| a custom track's folder name | right after that track |
+
+Several tracks after the same one keep the mod order. A name that matches nothing leaves the track at the end (the log
+says so). Only the order changes: records, ghosts and saved choices are kept under the track's folder name as before.
+
+For developers: the ids stay 38-63; `build_order` in src/rush2049/track2049_menu.cpp makes the display order, the
+carousel is put in that order once built (0x803AB878) and TRACK left / right takes the track at the new carousel
+position (0x803AC12C).
 
 ## Textures
 

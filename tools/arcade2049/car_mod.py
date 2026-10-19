@@ -15,6 +15,9 @@ arcade texture, drawn as authored (no paint mask: each scheme keeps the arcade's
 name, the Rush 2 car it starts from (engine sound, options), the wheel centers (the arcade's, the same for every car:
 --sides draws them over the side views) and the arcade's collision box; it drives as its base car. The brake lights (BRAKE) and wheels
 (Rush 2's are drawn) are left out.
+
+The game builds this mod itself (Games tab, src/arcade2049/arcade_cars.cpp, a C++ port of this file): change both
+together and compare them with tools/arcade2049/cpp_test/build.bat (docs/arcade2049.md, "Building it in the game").
 """
 import argparse, importlib.util, json, os, sys
 

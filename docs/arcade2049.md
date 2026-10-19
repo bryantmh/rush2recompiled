@@ -13,6 +13,34 @@ python tools/arcade2049/track_mod.py TRACK4 OUT --id alcatraz_test --finish-at 1
 Install the output as `build/mods/<mod id>` and enable it in `build/mods.json`. Rush 2049's ROM in the Games tab makes
 the props react (docs/custom_tracks.md, "Props").
 
+## Building it in the game
+
+Players don't need Python: the Games tab's San Francisco Rush 2049 Arcade section (Build and Install, Select Folder)
+builds both mods from the arcade data with `src/arcade2049/`, a C++ port of `track_mod.py` (TRACK4 only),
+`car_mod.py` and `arcade.py`, and installs them as `<mods>/rush2049_arcade.rtz` and `rush2049_arcade_cars.rtz`
+(a loose folder of the same id, the Python install, is replaced). It takes about 2.5 s. Each mod.json carries
+`"rush2_arcade": {"key", "data"}`: the hash of the input files, the shipped assets and the build. At launch
+(`start_refresh`, from the launcher) an installed mod whose key changed is built again once from that folder, keeping
+whether it was on. Afterwards `rush2::car_mods::reload` and `rush2::track2049::mods_changed` make the car select and
+track select read the new files without a restart.
+
+- **Keep the two in step.** A change to `track_mod.py` or `car_mod.py` goes into `src/arcade2049/` too. Check with
+  `cmd //c "tools\arcade2049\cpp_test\build.bat tmp\arcade\cpp"` (the C++ outside the game, about 2.5 s)
+  against the Python output: the car files come out identical, the track's scenery, gates, AI lanes, movers and
+  materials identical. Then run both tracks through `tools/track_mod_test.bat` and `tools/track_mod_check.py`.
+- **Where they differ:** shapely's polygon work in `spline_road` is Clipper2 (`lib/Clipper2`, collinear corners kept) and
+  earcut (`lib/earcut`) instead of constrained Delaunay. The footprint area per segment matches within 0.03%. The
+  converted collision has 6,845 polygons against 6,602 (index cells within 36 on both) and the same ground height
+  along the lap, with fewer enclosed cracks than the Python output (452 vs 536 under 50 sq ft). `crowded_cells`
+  measures distance to each cell instead of buffering, and gives the same joins.
+- **Shipped pictures:** the logo (`banner_font.render_fit`) and round preview (`round_preview`) are fixed for
+  Alcatraz, so the Python tool's output is shipped as `assets/arcade2049/alcatraz_logo.png` and
+  `alcatraz_preview.png`. Regenerate them if either changes.
+- **TRACK8** is SF Rush's Track 2, Embarcadero, left on the 2049 disk. It is The Rock's TRACK2 (same 200 textures,
+  220 road segments) with checkpoints matching SF Rush 64's exactly, and it is already in the game from the N64 ROM.
+  Its drone path is stale data from another track. `arcade.py` now reads its collision: its vertex lists follow the
+  leaves, and the file ends in 2 bytes of padding.
+
 ## Where the data is
 
 ProjectR (a native port of the arcade games) unpacks the arcade disk (`sf2049se.chd`) to
@@ -24,7 +52,7 @@ ProjectR (a native port of the arcade games) unpacks the arcade disk (`sf2049se.
 |---|---|
 | TRACK1, 2, 3, 5, 6, 7 | the N64's Marina, Haight, Civic, Metro, Mission, Presidio (matched by their paths) |
 | TRACK4 | **Alcatraz** (arcade only) |
-| TRACK8 | STUNT_TRACK2 (`roaddat.rom` +0x1C), its `dobs` empty |
+| TRACK8 | SF Rush's Embarcadero (The Rock's TRACK2), named STUNT_TRACK2 in `roaddat.rom` +0x1C, its `dobs` empty |
 
 ## Axes
 

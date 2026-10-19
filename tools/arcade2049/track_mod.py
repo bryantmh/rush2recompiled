@@ -19,6 +19,10 @@ or --logo-text, in Rush 2049's banner lettering by tools/banner_font.py, as the 
     frame (flipbook <frames per second>)
   - [track] gravity = "rush2049": the arcade's tracks race on Rush 2049's gravity
 Left out (reported): the coin pickups, sounds, event scripts (the finish sign's swap, the hidden ship).
+
+The game builds this mod itself (Games tab, src/arcade2049/arcade_track.cpp, a C++ port of this file for TRACK4):
+change both together and compare them with tools/arcade2049/cpp_test/build.bat (docs/arcade2049.md, "Building it
+in the game").
 """
 import argparse, io, json, math, os, sys
 from collections import defaultdict
@@ -734,7 +738,7 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         f.write(g.bytes())
     with open(os.path.join(folder, 'track.toml'), 'w', newline='\n') as f:
         f.write('[track]\nname = "%s"\nauthor = "Rush 2049 arcade (converted)"\ndescription = "%s from San Francisco '
-                'Rush 2049 Special Edition (arcade)"\ngravity = "rush2049"\n\n[look]\nfog_color = "#0c1424"\n\n[menu]\nlogo = "logo.png"\n'
+                'Rush 2049 Special Edition (arcade)"\ngravity = "rush2049"\n\n[look]\nfog_color = "#0c1424"\n\n[menu]\nlogo = "logo.png"\nafter = "rush2049"\n'
                 % (name, name))
         if preview is None:
             here = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'previews', track_id + '.png')

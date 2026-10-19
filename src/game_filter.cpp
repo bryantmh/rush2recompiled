@@ -24,6 +24,7 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -304,7 +305,9 @@ void rush2::game_filter::apply(bool on) {
 }
 
 bool rush2::game_filter::enabled() {
-    return option_on.load();
+    // Test aid: RUSH2_TEST_NO_FILTER=1 shows every game, whatever the save's filter (test runs never change the save).
+    static const bool test_off = [] { const char* v = std::getenv("RUSH2_TEST_NO_FILTER"); return v && *v == '1'; }();
+    return option_on.load() && !test_off;
 }
 
 Game rush2::game_filter::track_game(int t) {

@@ -114,8 +114,10 @@ namespace {
         std::vector<std::pair<std::string, std::filesystem::path>> mods;
         for (const recomp::mods::ModDetails& mod : recomp::mods::get_all_mod_details("rush2")) {
             bool on = recomp::mods::is_mod_enabled(mod.mod_id);
-            signature += mod.mod_id + (on ? "+" : "-") + ";";
-            if (on) mods.push_back({ mod.mod_id, recomp::mods::get_mod_filename(mod.mod_id) });
+            // The mod's file too: a mod reinstalled as an .rtz in place of its folder (src/arcade2049) keeps its id.
+            std::filesystem::path file = recomp::mods::get_mod_filename(mod.mod_id);
+            signature += mod.mod_id + (on ? "+" : "-") + rush2::upscale::path_utf8(file) + ";";
+            if (on) mods.push_back({ mod.mod_id, file });
         }
         if (signature == entries_signature) return;
         entries_signature = signature;

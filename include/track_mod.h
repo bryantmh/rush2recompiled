@@ -89,6 +89,9 @@ namespace rush2::track_mod {
         float cloud_scroll = 0.0f, sky_parallax = 0.0f;
         std::string music;
         std::string preview, logo, diorama;                   // [menu] files in the track's folder
+        // [menu] after: where the track select lists the track: behind a game's tracks ("rush2", "sfrush", "rush2049",
+        // "calspeed") or behind another custom track (its folder name). Empty: after the stock and added tracks.
+        std::string menu_after;
         // [track] smooth_collision (default true): the road's tilt blends smoothly across polygon edges
         // (src/smooth_collision.cpp); smooth_fold (degrees, default 20): an edge folding more than this stays sharp.
         bool smooth_collision = true;

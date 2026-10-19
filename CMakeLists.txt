@@ -173,6 +173,14 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/track_mod/track_mod.cpp
     ${CMAKE_SOURCE_DIR}/src/track_mod/track_mod_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/track_mod/track_mod_menu.cpp
+    ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_data.cpp
+    ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_glb.cpp
+    ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_track.cpp
+    ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_cars.cpp
+    ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_install.cpp
+    ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.engine.cpp
+    ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.offset.cpp
+    ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.rectclip.cpp
     ${CMAKE_SOURCE_DIR}/src/asset_catalog.cpp
     ${CMAKE_SOURCE_DIR}/src/asset_catalog_walk.cpp
     ${CMAKE_SOURCE_DIR}/lib/hqx/hq2x.c
@@ -278,6 +286,8 @@ target_include_directories(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/lib/tomlplusplus
     ${CMAKE_SOURCE_DIR}/lib/hqx
+    ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/include
+    ${CMAKE_SOURCE_DIR}/lib/earcut/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/sse2neon
     ${CMAKE_SOURCE_DIR}/lib/rt64/include

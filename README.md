@@ -69,6 +69,15 @@ California Speed (Atari Games, 1999) runs on the same engine as Rush 2, so it co
 - **Road Hold.** California Speed keeps cars on its hills instead of launching them off every crest. This is on by default and can be turned off to use Rush 2's own gravity.
 - **The California Speed music.** Its nine songs play on its tracks, picked at random.
 
+### Rush 2049 arcade mods
+
+The arcade release of San Francisco Rush 2049 (Special Edition) had a track and cars the N64 version never got. If you have the arcade game's files as unpacked by [Project R](https://t3hd0gg.com/project-r/) (a free native PC port of the arcade game; you supply your own arcade files), press Build and Install under Rush 2049 Arcade on the Games tab. It finds ProjectR's folder by itself (or press Select Folder) and builds and turns on two mods in a few seconds, no restart needed:
+
+- **Alcatraz.** The arcade-only Alcatraz track, listed right after the Rush 2049 tracks, with computer opponents, records and ghosts like any custom track.
+- **Arcade cars.** The arcade's Truck, Deuce and Caddy join the car select, and the arcade-only color schemes for the 2049 cars show up as a STYLE row.
+
+The mods are built from your own copy of the arcade game and aren't shared with the download. They rebuild themselves when a new version of the game changes them.
+
 ## What you need
 
 - A Windows 10 or 11 PC, or a Linux PC (any desktop distro with glibc 2.38 or newer, such as Ubuntu 24.04, Fedora 39, Debian 13, current Arch or SteamOS; see [docs/linux.md](docs/linux.md))

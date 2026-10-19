@@ -899,6 +899,18 @@ func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB6C8
 text = "    rush2_track49_select_count(rdram, ctx);"
 
+# Custom tracks listed where their track.toml [menu] after puts them: the carousel is put in display order once built,
+# and TRACK left / right takes the track at the new carousel position (src/rush2049/track2049_menu.cpp, build_order).
+[[patches.hook]]
+func = "trackselect_init_draw_803AB294"
+before_vram = 0x803AB878
+text = "    rush2_track49_carousel_order(rdram, ctx);"
+
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803AC12C
+text = "    rush2_track49_select_step(rdram, ctx);"
+
 # Rush 2049 entries show 2049's own track select preview (src/rush2049/track2049_menu.cpp): the camera-space model replaces the
 # diorama when the carousel instances it, and its pose replaces the carousel's spin each frame.
 [[patches.hook]]
