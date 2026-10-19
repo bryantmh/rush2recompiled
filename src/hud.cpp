@@ -53,6 +53,7 @@
 #include "online.h"
 #include "odometer2049.h"
 #include "pause_menu.h"
+#include "stunt2049.h"
 #include "track2049.h"
 
 #include "recompui/recompui.h"
@@ -795,6 +796,66 @@ void rush2::hud::draw_image_part(uint8_t* rdram, uint32_t address, int w, int h,
     write_2d_commands(rdram, cmds, count);
 }
 
+void rush2::hud::draw_i4_part(uint8_t* rdram, uint32_t address, int w, int h, int src_x, int src_y, int src_w, int src_h,
+                               float x0, float y0, float x1, float y1, float anchor, uint32_t rgba, uint32_t shade) {
+    if (MEM_W(0, (int32_t)dl_2d_cursor) == 0 || x1 <= x0 || y1 <= y0 || w <= 0 || h <= 0 || (w & 15) != 0 ||
+        w * h > 8192 || src_w <= 0 || src_h <= 0) {
+        return;
+    }
+    set_anchor(rdram, anchor);
+    float step_x = (float)src_w / (x1 - x0);
+    float step_y = (float)src_h / (y1 - y0);
+    int32_t fx0 = (int32_t)std::lround(x0 * 4.0f), fy0 = (int32_t)std::lround(y0 * 4.0f);
+    int32_t fx1 = (int32_t)std::lround(x1 * 4.0f), fy1 = (int32_t)std::lround(y1 * 4.0f);
+    int32_t start_s = src_x * 32, start_t = src_y * 32;
+    if (fx0 < 0 || fy0 < 0 || fx1 > 0xFFF || fy1 > 0xFFF) {
+        return;
+    }
+    GfxCommand cmds[26];
+    uint32_t count = 0;
+    auto cmd = [&](uint32_t w0, uint32_t w1) {
+        cmds[count].values.word0 = w0;
+        cmds[count].values.word1 = w1;
+        count++;
+    };
+    gEXEnable(&cmds[count++]);
+    gEXPushPrimColor(&cmds[count++]);
+    gEXPushEnvColor(&cmds[count++]);
+    gEXPushOtherMode(&cmds[count++]);
+    gEXPushCombineMode(&cmds[count++]);
+    cmd(0xE7000000, 0);
+    // 1-cycle, bilinear, translucent surface blending, no Z (draw_image_part's); color = shade to rgba by the texel's
+    // intensity, alpha = the texel's times rgba's.
+    cmd(0xEF000000 | 0x002CF0, 0x00504240);
+    cmd(0xFA000000, rgba);
+    cmd(0xFB000000, shade);
+    uint32_t c_a = 3, c_b = 5, c_c = 1, c_d = 5, a_a = 1, a_b = 7, a_c = 3, a_d = 7;
+    cmd(0xFC000000 | (c_a << 20) | (c_c << 15) | (a_a << 12) | (a_c << 9) | (c_a << 5) | c_c,
+        (c_b << 28) | (c_d << 15) | (a_b << 12) | (a_d << 9) | (c_b << 24) | (a_a << 21) | (a_c << 18) | (c_d << 6) | (a_b << 3) | a_d);
+    // gDPLoadTextureBlock_4b with both axes clamped (no masks), so RT64 hashes just the image: texture packs replace
+    // it by that hash (tools/build_font_pack.py rt64_hash).
+    constexpr uint32_t fmt_i = 4, siz_4b = 0, siz_16b = 2, clamp = 2;
+    uint32_t tile_clamp = (clamp << 18) | (clamp << 8);
+    uint32_t line = ((uint32_t)w / 2 + 7) / 8;
+    uint32_t words = (uint32_t)w / 16;
+    cmd(0xFD000000 | (fmt_i << 21) | (siz_16b << 19), address & 0x1FFFFFFF);
+    cmd(0xF5000000 | (fmt_i << 21) | (siz_16b << 19), (7u << 24) | tile_clamp);
+    cmd(0xE6000000, 0);
+    cmd(0xF3000000, (7u << 24) | ((uint32_t)((w * h + 3) / 4 - 1) << 12) | ((2048 + words - 1) / words));
+    cmd(0xE7000000, 0);
+    cmd(0xF5000000 | (fmt_i << 21) | (siz_4b << 19) | (line << 9), tile_clamp);
+    cmd(0xF2000000, ((uint32_t)((w - 1) << 2) << 12) | (uint32_t)((h - 1) << 2));
+    cmd(0xE4000000 | ((uint32_t)fx1 << 12) | (uint32_t)fy1, ((uint32_t)fx0 << 12) | (uint32_t)fy0);
+    cmd(0xE1000000, ((uint32_t)start_s & 0xFFFF) << 16 | ((uint32_t)start_t & 0xFFFF));
+    cmd(0xF1000000, ((uint32_t)std::lround(1024.0f * step_x) & 0xFFFF) << 16 | ((uint32_t)std::lround(1024.0f * step_y) & 0xFFFF));
+    cmd(0xE7000000, 0);
+    gEXPopCombineMode(&cmds[count++]);
+    gEXPopOtherMode(&cmds[count++]);
+    gEXPopEnvColor(&cmds[count++]);
+    gEXPopPrimColor(&cmds[count++]);
+    write_2d_commands(rdram, cmds, count);
+}
+
 void rush2::hud::push_scissor(uint8_t* rdram, float x0, float y0, float x1, float y1, float anchor) {
     if (MEM_W(0, (int32_t)dl_2d_cursor) == 0) {
         return;
@@ -854,6 +915,31 @@ bool rush2::hud::battle_place(int player, rush2::hud_layout::BattlePlace& out) {
     }
     out = frame_output.battle[player];
     return true;
+}
+
+bool rush2::hud::stunt_place(int player, rush2::hud_layout::StuntPlace& out) {
+    if (player < 0 || player > 3 || !layout_solved) {
+        return false;
+    }
+    out = rush2::hud_layout::StuntPlace{};
+    bool any = false;
+    for (const layout::Element& e : frame_output.elements) {
+        int k = e.role == layout::Role::StuntScore ? 0 : e.role == layout::Role::StuntTrick ? 1 : -1;
+        if (k < 0 || e.player != player || !e.possible || e.hidden) {
+            continue;
+        }
+        rush2::hud_layout::StuntPlace::Box& b = out.box[k];
+        b.valid = true;
+        b.x = (float)e.x;
+        b.y = (float)e.y;
+        b.w = (float)(e.game.x1 - e.game.x0);
+        b.h = (float)(e.game.y1 - e.game.y0);
+        b.scale = e.scale;
+        b.anchor = e.origin < G_EX_ORIGIN_NONE ? e.origin / (float)G_EX_ORIGIN_RIGHT : 0.5f;
+        any = true;
+    }
+    out.swap = frame_output.stunt_swap[player];
+    return any;
 }
 
 void rush2::hud::set_widget_scale(int slot, float scale_x, float scale_y, float anchor) {
@@ -1826,6 +1912,7 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
             rush2::odometer2049::draw(rdram, p, (float)o.x, (float)o.y, o.scale, anchor);
         }
     }
+    rush2::stunt2049::draw_hud(rdram);
     rush2::pause_menu::draw(rdram, ctx);
     end_anchoring(rdram);
     capture_end(rdram);

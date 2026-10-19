@@ -1745,6 +1745,15 @@ area = "render"
 ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
 
 [[func]]
+vram = 0x800A6094
+name = "view_point_at_depth"
+sig = "void view_point_at_depth(s32 view, s16 *screen_xy, f32 *camera, f32 depth, f32 *out)"
+desc = "World position of a screen point at a depth in front of view's camera (view struct 0x8017A510 + view * 0x48): x = (sx - cx) * depth / (+0x1C * +0x24), y likewise, rotated by the camera (func_8009E820) and added to its position. Places the overlay HUD's models."
+status = "verified"
+area = "render"
+ref = "docs/rush2049_research/stunts.md#5-the-hud"
+
+[[func]]
 vram = 0x800A61B0
 name = "matrix_world_to_local"
 desc = "MUL: world to local transform o[i] = M[i][2]*v2 + (v0*M[i][0] + v1*M[i][1])."
@@ -2171,6 +2180,24 @@ area = "menu"
 ref = "tools/rush2049/ui49.py"
 
 [[func]]
+vram = 0x800B3B4C
+name = "hud_box_create"
+sig = "s8 *hud_box_create(s32 x0, s32 y0, s32 x1, s32 y1, s32 alpha, s32 a5, s32 a6, s32 a7)"
+desc = "Makes a translucent box (one of 16 at 0x80116DE4, 0x20 each) of five HUD rectangles (func_800B39BC): a (0,0,16) fill inside a 1 px (0,0,192) border, both at alpha."
+status = "verified"
+area = "ui"
+ref = "docs/rush2049_research/stunts.md#5-the-hud"
+
+[[func]]
+vram = 0x800B3F50
+name = "text_line_height"
+sig = "s16 text_line_height(void)"
+desc = "A line's height in the current font: 0x80149B60 (glyph table byte 4) plus the font's size bytes."
+status = "inferred"
+area = "ui"
+ref = "docs/rush2049_research/stunts.md#5-the-hud"
+
+[[func]]
 vram = 0x800B3FA4
 name = "text_width"
 desc = "Width in pixels of string a0 in the current font (a1 = -1: whole string)"
@@ -2185,6 +2212,15 @@ status = "inferred"
 ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
 
 [[func]]
+vram = 0x800B42F0
+name = "text_set_font"
+sig = "s32 text_set_font(s32 font)"
+desc = "Selects font n for the text calls (func_800B4200, under the 0x801461D0 lock)."
+status = "inferred"
+area = "ui"
+ref = "docs/rush2049_research/stunts.md#5-the-hud"
+
+[[func]]
 vram = 0x800B4360
 name = "util_call_1940_wrapper"
 sig = "void util_call_1940_wrapper(s32 a0, s32 a1, s32 a2, s32 a3)"
@@ -2194,6 +2230,15 @@ rush2 = 0x800B1A48
 link = "same-code"
 area = "util"
 ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
+
+[[func]]
+vram = 0x800B669C
+name = "text_set_align"
+sig = "void text_set_align(s32 h, s32 v)"
+desc = "Sets the text alignment used by text_draw_800B71D4: 0x80118E20 = h (1 and 2 measure the string), 0x80118E24 = v (1 centers on y, 4 bottom)."
+status = "verified"
+area = "ui"
+ref = "docs/rush2049_research/stunts.md#5-the-hud"
 
 [[func]]
 vram = 0x800B7170
@@ -2223,6 +2268,16 @@ name = "text_draw"
 desc = "Draws string a2 at (a0, a1) in the current font, with the current horizontal (0x80118E20) and vertical (0x80118E24) alignment"
 status = "inferred"
 ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
+
+[[func]]
+vram = 0x800B74A0
+name = "text_set_color"
+sig = "void text_set_color(s32 index)"
+desc = "Sets the text color to entry index of 0x80118E34 (8 bytes: RGBA color, RGBA shade; 1 = 0xE6E6E6 / 0x3C3C3C) through func_800B7360; index 0x16 blends 0x80118E2C and 0x80118E28 by 0x8017A630."
+consts = "0x16 = blended color"
+status = "verified"
+area = "ui"
+ref = "docs/rush2049_research/stunts.md#5-the-hud"
 
 [[func]]
 vram = 0x800B9284
@@ -2597,6 +2652,93 @@ desc = "Returns an animated object's path velocity (path direction x speed) by i
 status = "verified"
 area = "collision"
 ref = "docs/rush2049_research/collision.md#mover-0x20-bytes-2049-only-moving-collision-v"
+
+[[func]]
+vram = 0x800C1B60
+name = "stunt_award_trick"
+sig = "void stunt_award_trick(u32 trick)"
+desc = "Counts a trick for player $t1 (0-9: back/front flip, left/right roll, helicopter, multi-axis, side/back/front two wheels, air; 5 points, 3 for multi-axis and side two wheels; each new kind after the first change raises the multiplier +0x68) or, for 11, lands the combo: pure flips/rolls x25 or helicopters x15 more with wings <= 1 s, else no wings x7 / wings <= 3 s x2 more, 3-10 kinds 10/20/40/60/80/100/500/1000 more; score = points x multiplier into total +0x14 and best +8 (not when crashed, +2)."
+consts = "0xB/0xC/0xD = pure helicopter/roll/flip bonus (+0x66); 1/2 = landing with no wings/under 3 s (+0x64)"
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x800C2004
+name = "stunt_detect_back_wheels"
+sig = "void stunt_detect_back_wheels(void)"
+desc = "Back wheels only, a wheelie (detector flag 4, times +0x4C/+0x50): trick 7 per 0.15 s past 0.25 s; starts with only the back pair down or a back wheel under 0.75 and both front over 2.5 up."
+consts = "0.75/1.0/2.5 = wheel heights; 0.15 = step"
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x800C220C
+name = "stunt_detect_front_wheels"
+sig = "void stunt_detect_front_wheels(void)"
+desc = "Front wheels only (detector flag 2, times +0x44/+0x48): trick 8 per 0.15 s past 0.25 s. As compiled it starts whenever wheel 3 is 2.5 up; the end test (back wheel down, front wheel over 0.75 up, back wheel under 1 up, 3 wheels down) stops a wrong start the next frame."
+consts = "0.75/1.0/2.5 = wheel heights; 0.15 = step"
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x800C2430
+name = "stunt_detect_flip"
+sig = "void stunt_detect_flip(void)"
+desc = "Flip detector (detector flag 0x40, turns at +0x10): trick 0 (x > 0, back flip) or 1 per half turn about x; ends past 27 degrees of yaw or roll."
+consts = "0.4712 = other axes' limit"
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x800C26C4
+name = "stunt_detect_heli"
+sig = "void stunt_detect_heli(void)"
+desc = "Helicopter detector (detector flag 0x10, turns at +0x1C): trick 4 per half turn about y; ends past 27 degrees of pitch or roll."
+consts = "0.4712 = other axes' limit"
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x800C2944
+name = "stunt_detect_roll"
+sig = "void stunt_detect_roll(void)"
+desc = "Roll detector (detector flag 0x20, turns at +4): starts while the car can trick and its z turn is the fastest; counts trick 3 (z > 0) or 2 per half turn (144-216 degrees, or past 99 when cut short), ends past 72 degrees of pitch or 27 of yaw."
+consts = "1.2566 = pitch limit; 0.4712 = yaw limit; 2.5133-3.7699 = half turn; 1.7279 = cut short"
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x800C2BE0
+name = "stunt_update_players"
+sig = "void stunt_update_players(void)"
+desc = "Stunt round, every frame (game type 4, from func_800FA9B4): each player's trick detectors (rolls, helicopters, flips, multi-axis, air, side/front/back two wheels) and the landing that scores the combo (func_800C1B60(11) once 3 wheels are down and the air time ended over 1 s ago). Its labels at 0x800C30B8 and 0x800C3408 are mid-function. Ported to src/rush2049/stunt2049.cpp (Stunt Scoring option)."
+consts = "0x801569B8 + p*0x7C = detector; 0x80152038 + p*0x78 = score; 0x15000000 = detector reset flags; 0.15 (0x80123F3C) = two-wheel step; 5.0 = air time before it counts; 1.0 = landing delay"
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x800C3578
+name = "stunt_crash"
+sig = "void stunt_crash(s32 player)"
+desc = "A wreck drops the player's combo: score +2 = 1 (not scored), lands it if one is going, resets the detector. Called from the wreck code (func_800C54F0, func_800E6AF8, func_800FAC08)."
+status = "verified"
+ported = true
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
 
 [[func]]
 vram = 0x800C3AD0
@@ -3923,12 +4065,31 @@ ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 vram = 0x80391B00
 name = "battle_hud_update"
 sig = "void battle_hud_update(void)"
-desc = "Battle and stunt overlay HUD. Battle (game type 6): the weapon and power-up models, and each player's coin model (BCOIN_<color>G1) at the screen positions of 0x803940D0. Stunt (type 4): the stunt names sliding in."
+desc = "Battle and stunt overlay HUD. Battle (game type 6): the weapon and power-up models, and each player's coin model (BCOIN_<color>G1) at the screen positions of 0x803940D0. Stunt (type 4): each kind of trick's STNT_xxxG1 icon (table 0x80393B40) sliding into a stack over 0.5 s (slots 0x803950C0 + p*0x2D0, 0x48 each), fading out for a crashed combo; clears the score's display fields once the combo is no longer shown (docs/rush2049_research/stunts.md section 5)."
 consts = "0.012 (0x80394F34) / 0.009 (0x80394F3C) = coin scale with 1-2 / 3-4 views; -1.5708 (0x80394F38) = coin tilt"
 status = "verified"
 ported = true
 area = "battle"
 ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x803925D0
+name = "stunt_hud_setup"
+sig = "void stunt_hud_setup(void)"
+desc = "Mode overlay setup (once, 0x80395ED4): battle (type 6) builds its HUD from 0x80393DE8; stunt (type 4) makes each player's total box centered on 0x80393F50's place, width(\"8888888\") + 8 by line height + 4 in font 10/11/12 by view count, with func_800B3B4C(..., alpha 0x80), then frees the icon slots."
+status = "verified"
+area = "race"
+ref = "docs/rush2049_research/stunts.md#5-the-hud"
+
+[[func]]
+vram = 0x80392894
+name = "stunt_hud_text"
+sig = "s32 stunt_hud_text(s32 arg0)"
+desc = "Stunt overlay's text (mode overlay, HUD table entry 0x80393DE0): per player the icon slots' counts (X %i), the combo's points (+0x10, set from +0xC until it lands), the BONUS X n flash for each new kind of trick (+0x70; frame counter 0x80395ED8 + p*4), the landing's bonus lines (+0x6C, +0x67, +0x65) and the total (+0x14), in font 10 (one view) or 12, color 1, centered on y."
+consts = "0x80393FD0 = icon place by view count and player; 0x80393F50 = total's place; 0x80115F28 = bonus line's place; 12 / 6 = text x offset (one view / more)"
+status = "verified"
+area = "race"
+ref = "docs/rush2049_research/stunts.md#1-where-the-code-is"
 
 [[func]]
 vram = 0x803936A8

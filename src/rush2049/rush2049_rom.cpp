@@ -227,8 +227,16 @@ bool rush2::rom2049::file_image(const std::vector<uint8_t>& file, const char* na
             // 4-bit texels and a 16-color RGBA16 palette.
             size_t texels = imag + be32(file, rec + 24);
             size_t pal_rec = plhd + (size_t)palette * 0x18;
-            if ((uint32_t)palette >= plhd_n || pal_rec + 0x18 > file.size() || w <= 0 || h <= 0) return false;
-            size_t colors = imag + be32(file, pal_rec + 20);
+            if (w <= 0 || h <= 0) return false;
+            size_t colors;
+            if (plhd_n == 0) {
+                // No palette records (file 67's stunt icons): each texture's TXLD load list takes its 16 colors from
+                // right after its texels.
+                colors = texels + (size_t)(w * h + 1) / 2;
+            } else {
+                if ((uint32_t)palette >= plhd_n || pal_rec + 0x18 > file.size()) return false;
+                colors = imag + be32(file, pal_rec + 20);
+            }
             if (texels + (size_t)(w * h + 1) / 2 > file.size() || colors + 32 > file.size()) return false;
             rows.resize((size_t)(w * h));
             for (int t = 0; t < w * h; t++) {

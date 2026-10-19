@@ -422,6 +422,13 @@ void rush2_ghost_settings(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_race_setup(uint8_t* rdram, recomp_context* ctx);
 // Rush 2049's odometer (src/rush2049/odometer.cpp): the race setup, also on a restart, starts the distances over.
 void rush2_odometer_race_setup(uint8_t* rdram, recomp_context* ctx);
+int rush2_stunt2049_update(uint8_t* rdram, recomp_context* ctx);
+void rush2_stunt2049_body_hit(uint8_t* rdram, recomp_context* ctx);
+void rush2_stunt2049_wreck(uint8_t* rdram, recomp_context* ctx, int car);
+void rush2_stunt2049_hud(uint8_t* rdram, recomp_context* ctx, int step);
+void rush2_stunt2049_race_setup(uint8_t* rdram, recomp_context* ctx);
+void rush2_stunt2049_box_visible(uint8_t* rdram, recomp_context* ctx);
+void rush2_stunt2049_panel_text(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_drone_type(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_drone_colors(uint8_t* rdram, recomp_context* ctx);
 int rush2_ghost_car_tick(uint8_t* rdram, recomp_context* ctx);

@@ -6,6 +6,8 @@ texture, named by its RT64 texture hash), so the pack can be rebuilt or hand-edi
 game's own pixels are packed.
 
   python tools/build_font_pack.py trace <font_tables.json>        Redraw every font sheet as an SVG.
+  python tools/build_font_pack.py trace-2049                      Redraw the Rush 2049 font sheets the game draws
+                                                                  (ROM2049_FONTS; RUSH2049_ROM = the 2049 ROM).
   python tools/build_font_pack.py trace-hud <texture dump dir>...  Redraw the HUD images listed in hud.json.
   python tools/build_font_pack.py pack                            Rasterize the SVGs and write the .rtz.
   python tools/build_font_pack.py images <image dump> <out dir>   Write every dumped 2D image as <RT64 hash>.png.
@@ -17,7 +19,9 @@ game's own pixels are packed.
                                                                   thins its outline so a narrow cell squeezes it less.
 
 font_tables.json comes from running the game with RUSH2_DUMP_FONT_TABLES=<path> (src/fonts.cpp). It holds each font's
-pages: the sheet's pixels and the rectangle of every character in it. The HUD images come from RT64 texture dumps
+pages: the sheet's pixels and the rectangle of every character in it. The Rush 2049 fonts the game draws (the Rush 2049
+Stunt HUD's, src/rush2049/stunt2049.cpp) are read from the 2049 ROM instead (rom2049_tables) and kept in
+tools/font_pack/svg_2049; their ids in fonts.json are "rush2049_<font>". The HUD images come from RT64 texture dumps
 (<hash>.v5.tmem and .tile.json, from the RT64 debugger's texture dumper in developer mode).
 
 Regular fonts: every glyph is a full-intensity core with a dim one-texel halo around it, which the game's color
@@ -74,6 +78,10 @@ MENU_SVG_DIR = os.path.join(PACK_DIR, 'menu_svg')
 # The battle HUD's digits (src/hud.cpp draw_number), drawn by tools/font_pack/draw_battle_digits.py: white, with the
 # figure in the alpha, as RT64 samples an intensity image.
 BATTLE_SVG_DIR = os.path.join(PACK_DIR, 'battle_svg')
+# Rush 2049's font sheets (trace-2049), drawn by src/hud.cpp draw_i4_part as I4 sheets like the game's own.
+SVG_2049_DIR = os.path.join(PACK_DIR, 'svg_2049')
+# Rush 2049 fonts the game draws: 4BAERO-PLAIN12 and AERO-PLAIN7 (include/font2049.h).
+ROM2049_FONTS = (10, 12)
 VECTOR_FONT = os.path.join(ROOT, 'assets', 'InterVariable.ttf')
 OUTPUT = os.path.join(ROOT, 'assets', 'rush2_hires_fonts.rtz')
 
@@ -1244,9 +1252,36 @@ def dump_images(dump_path, out_dir):
 # Commands
 
 
-def trace(table_path):
+def rom2049_tables():
+    """Font tables (the RUSH2_DUMP_FONT_TABLES format) for ROM2049_FONTS, from the Rush 2049 ROM: each page's coverage
+    as I4 (IA8 pages keep their low nibble, as src/rush2049/font2049.cpp loads them) and its glyphs' inclusive cells."""
+    sys.path.insert(0, os.path.join(ROOT, 'tools', 'rush2049'))
+    import font49
+    import roms
+    rom = roms.Rush2049()
+    tables = []
+    for n in ROM2049_FONTS:
+        k = font49.FIRST + n
+        _, images = font49.atlas(rom, k)
+        cells = font49.glyphs(rom, k)
+        pages = []
+        for index, image in enumerate(images):
+            values = np.array(image, np.uint8) // 17
+            packed = (values[:, 0::2] << 4) | values[:, 1::2]
+            glyphs = [[0, 0, 0, 0] for _ in range(128)]
+            for char, (page, x0, y0, x1, y1) in cells.items():
+                if page == index and ord(char) < 128:
+                    glyphs[ord(char)] = [x0, y0, x1, y1]
+            pages.append({'first': 0, 'last': 127, 'w': image.width, 'h': image.height, 'glyphs': glyphs,
+                          'pixels': packed.tobytes().hex()})
+        tables.append({'id': f'rush2049_{n}', 'pages': pages})
+    return tables
+
+
+def trace(table_path, tables=None, svg_dir=SVG_DIR):
     fonts = json.load(open(FONT_LIST))
-    tables = json.load(open(table_path))
+    if tables is None:
+        tables = json.load(open(table_path))
 
     # Group pages by sheet. Sheets shared by several pages (a font's digits and W-Z) get every page's characters.
     sheets = {}
@@ -1264,8 +1299,8 @@ def trace(table_path):
                 merged['glyphs'] += [[0, 0, 0, 0]] * (code + 1 - len(merged['glyphs']))
                 merged['glyphs'][code] = rect
 
-    os.makedirs(SVG_DIR, exist_ok=True)
-    for old in glob.glob(os.path.join(SVG_DIR, '*.svg')):
+    os.makedirs(svg_dir, exist_ok=True)
+    for old in glob.glob(os.path.join(svg_dir, '*.svg')):
         os.remove(old)
 
     for font in fonts.values():
@@ -1293,13 +1328,13 @@ def trace(table_path):
         for hash_name, page, elements in per_sheet:
             chars = ''.join(chr(c) for c, *_ in glyph_cells(page) if 33 <= c <= 126)
             title = f'{font["name"]}: {chars[:1]}-{chars[-1:]} ({hash_name})'
-            with open(os.path.join(SVG_DIR, hash_name + '.svg'), 'w', newline='\n') as f:
+            with open(os.path.join(svg_dir, hash_name + '.svg'), 'w', newline='\n') as f:
                 f.write(format_svg(title, page['w'], page['h'], elements))
             print(f'{hash_name} {font["name"]} {page["w"]}x{page["h"]}: {detail}')
 
 
 def pack():
-    svgs = sorted(glob.glob(os.path.join(SVG_DIR, '*.svg')))
+    svgs = sorted(glob.glob(os.path.join(SVG_DIR, '*.svg')) + glob.glob(os.path.join(SVG_2049_DIR, '*.svg')))
     if not svgs:
         sys.exit('No SVGs in ' + SVG_DIR)
     textures = []
@@ -1417,6 +1452,8 @@ if __name__ == '__main__':
         fit_glyph(sys.argv[2], sys.argv[3], *(float(v) for v in args), **opts)
     elif len(sys.argv) == 3 and sys.argv[1] == 'trace':
         trace(sys.argv[2])
+    elif len(sys.argv) == 2 and sys.argv[1] == 'trace-2049':
+        trace(None, rom2049_tables(), SVG_2049_DIR)
     elif len(sys.argv) >= 3 and sys.argv[1] == 'trace-hud':
         trace_hud(sys.argv[2:])
     elif len(sys.argv) == 2 and sys.argv[1] == 'pack':

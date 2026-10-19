@@ -4,7 +4,8 @@ reports how it went: when it loaded and started, each human car's type and how f
 got past the race (test aid; docs/menus.md#starting-a-race-without-the-menus).
 
     python tools/test_race.py TRACK [--cars T,T,...] [--laps N] [--drones N] [--script S] [--seconds S]
-                              [--turbo] [--finish S] [--mod NAME] [--out DIR] [--env K=V ...]
+                              [--turbo] [--finish S] [--mod NAME] [--out DIR] [--env K=V ...] [--games K=V ...]
+                              [--shots S,S,...]
 
 TRACK is a track select id (0-11 Rush 2, 12-17 Rush 2049, 18-24 SF Rush, 25-28 stunt arenas, 29 obstacle course,
 30-37 battle arenas, 38-63 custom tracks, 64-79 California Speed) or a custom track's folder name. --cars gives one
@@ -14,11 +15,12 @@ car type per player (1-4 players; Rush 2 0-21, 2049 23-35, California Speed 36-5
 The game runs as a sim run (RUSH2_SIM=1, src/sim_run.cpp): hidden, deaf to real controllers, no audio, from a data
 folder of its own (tmp/test_race/data), so the player's settings and saves are never read or written. Before each run
 its settings and saves are cleared (its caches are kept), the ROMs in build/ are hard-linked in, build/games.json is
-copied (the same games on), and the mods enabled in build/mods.json are linked in and enabled, plus --mod ones and
-the mod holding a TRACK folder. Real time by default; --turbo runs the race as fast as the machine goes from its first
-tick (the script's presses stop then). --finish S finishes the players' cars S seconds into the race
-(RUSH2_TEST_FINISH) to reach the race-over screens. The run is closed after --seconds (by its PID). race_watch.py
-does the watching: DIR/samples.jsonl, DIR/events.txt, DIR/run.log (the game's output).
+copied (the same games on; --games K=V sets one of its options, V as JSON or else a string), and the mods enabled
+in build/mods.json are linked in and enabled, plus --mod ones and the mod holding a TRACK folder. Real time by
+default; --turbo runs the race as fast as the machine goes from its first tick (the script's presses stop then).
+--finish S finishes the players' cars S seconds into the race (RUSH2_TEST_FINISH) to reach the race-over screens.
+The run is closed after --seconds (by its PID). race_watch.py does the watching: DIR/samples.jsonl, DIR/events.txt,
+DIR/run.log (the game's output).
 """
 import argparse, json, math, os, shutil, subprocess, sys
 
@@ -58,7 +60,7 @@ def mod_name(entry):
     return entry[:-4] if entry.endswith('.rtz') else entry
 
 
-def prepare_data(track, extra_mods):
+def prepare_data(track, extra_mods, games=()):
     os.makedirs(DATA, exist_ok=True)
     for n in os.listdir(DATA):
         p = os.path.join(DATA, n)
@@ -72,6 +74,17 @@ def prepare_data(track, extra_mods):
             link(src, dst)
     if os.path.exists(os.path.join(BUILD, 'games.json')):
         shutil.copyfile(os.path.join(BUILD, 'games.json'), os.path.join(DATA, 'games.json'))
+    if games:
+        path = os.path.join(DATA, 'games.json')
+        cfg = json.load(open(path, encoding='utf-8')) if os.path.exists(path) else {}
+        for kv in games:
+            k, _, v = kv.partition('=')
+            try:
+                cfg[k] = json.loads(v)
+            except ValueError:
+                cfg[k] = v
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=4)
     enabled = []
     try:
         with open(os.path.join(BUILD, 'mods.json'), encoding='utf-8') as f:
@@ -141,8 +154,11 @@ def main():
     ap.add_argument('--mod', action='append', default=[])
     ap.add_argument('--out', default=os.path.join(REPO, 'tmp', 'test_race', 'out'))
     ap.add_argument('--env', action='append', default=[], help='extra environment variable K=V for the game')
+    ap.add_argument('--games', action='append', default=[], help='games.json option K=V for the run')
+    ap.add_argument('--shots', help='screenshot the game window at these seconds after launch (comma separated) into '
+                    'DIR/shot_<seconds>.png; the window is shown for it (RUSH2_SIM_SHOW), without taking the focus')
     a = ap.parse_args()
-    mods = prepare_data(a.track, a.mod)
+    mods = prepare_data(a.track, a.mod, a.games)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_SIM_TURBO='1' if a.turbo else '0', RUSH2_TEST_RACE=a.track,
                RUSH2_TEST_RACE_CARS=a.cars)
@@ -155,11 +171,13 @@ def main():
     for kv in a.env:
         k, _, v = kv.partition('=')
         env[k] = v
+    if a.shots:
+        env['RUSH2_SIM_SHOW'] = '1'
     script = a.script or '1:A:%g' % max(1.0, a.seconds - 1)
     print('track %s, cars %s, mods %s' % (a.track, a.cars, ', '.join(mods) or 'none'), flush=True)
     os.makedirs(a.out, exist_ok=True)
     r = subprocess.run([sys.executable, os.path.join(HERE, 'race_watch.py'), '--launch', script, '--seconds',
-                        str(a.seconds), '--out', a.out], env=env, capture_output=True, text=True,
+                        str(a.seconds), '--out', a.out] + (['--shots', a.shots] if a.shots else []), env=env, capture_output=True, text=True,
                        timeout=a.seconds + 60)
     with open(os.path.join(a.out, 'watch.txt'), 'w') as f:
         f.write(r.stdout + r.stderr)

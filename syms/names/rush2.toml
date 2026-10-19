@@ -5164,7 +5164,7 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 vram = 0x80060E34
 name = "hud_stunt_box_visible"
 sig = "s32 hud_stunt_box_visible(HudElement *e)"
-desc = "Visibility callback of the stunt panel's boxes (func_80093B38 elements): hides the box unless the panel shows (track 11 or the 0x8010C200 cheat byte), the player (param >> 4) is under the player count, and for the trick name's box (param & 0xF == 1) while the player's 0x8010C070 flag is clear."
+desc = "Visibility callback of the stunt panel's boxes (func_80093B38 elements): hides the box unless the panel shows (track 11 or the 0x8010C200 cheat byte), the player (param >> 4) is under the player count, and for the trick name's box (param & 0xF == 1) while the player's 0x8010C070 flag is clear. The Rush 2049 Stunt HUD hooks its first test (0x80060E98) to hide the boxes and keep whether they would show (src/rush2049/stunt2049.cpp)."
 consts = "e+0x2C = (player << 4) | box (0 BEST/TOTAL scores, 1 trick name); 0xB = STUNT1 track id"
 status = "verified"
 area = "ui"
@@ -5791,7 +5791,7 @@ ref = "us.toml"
 vram = 0x80065588
 name = "car_stunt_scoring_update"
 sig = "void car_stunt_scoring_update(Car *car, s32 a1)"
-desc = "Material (POLY bits 4-7) consumer: effects and skid code. Stunt scoring in race; calls func_80065360 (0x80065DC0) and func_8006544C."
+desc = "Material (POLY bits 4-7) consumer: effects and skid code. Stunt scoring in race; calls func_80065360 (0x80065DC0) and func_8006544C. Rush 2049 stunt scoring (Stunt Scoring option, src/rush2049/stunt2049.cpp, docs/rush2049_research/stunts.md): hooked at its start to run Rush 2049's detectors and scoring in its place."
 status = "verified"
 area = "car"
 ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
@@ -6464,7 +6464,7 @@ ref = "docs/rush2049_research/race.md#4-how-the-race-is-defined"
 vram = 0x8006E1A8
 name = "car_wreck_trigger"
 sig = "void car_wreck_trigger(s16 car_index, s32 a1)"
-desc = "Wrecks car a0 (car index; a1 = 1 from the probes): unless the last wreck was under 5 s ago, places it by case 2 (func_8006DE20). The wheel probe calls it for surface types 3 (plus sound 0x6F, water) and 7 (the out-of-bounds floor, no sound); the body probe for 3 and 4."
+desc = "Wrecks car a0 (car index; a1 = 1 from the probes): unless the last wreck was under 5 s ago, places it by case 2 (func_8006DE20). The wheel probe calls it for surface types 3 (plus sound 0x6F, water) and 7 (the out-of-bounds floor, no sound); the body probe for 3 and 4. Rush 2049 stunt scoring (src/rush2049/stunt2049.cpp): hook at 0x8006E210, past the 5 s guard ($t6 = car), drops the car's player's combo as 2049's func_800C54F0 calls func_800C3578."
 consts = "5.0 = seconds between wrecks; 2 = placement case (wreck)"
 status = "verified"
 rush2049 = [0x800C54F0]
@@ -6573,7 +6573,7 @@ ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
 vram = 0x8006FC94
 name = "car_wall_collision_query"
 sig = "void car_wall_collision_query(Car *car, f32 *pos, f32 *out_normal, Mat3 *m, s32 stack0) | Entry hooked on California Speed tracks (rush2_calspeed_wall_collision, src/calspeed/calspeed_walls.cpp): its own wall collision runs for the car on body point 0 and the probe is skipped for all four points (docs/calspeed_research.md#walls-california-speeds-body-collision)."
-desc = "Leaf/polygon query (wall response through body probe func_8006FC64); u16[40] stack buffer (0xF4 -> 0x144); saved point pointer at sp+0x15C. | Collision query using a saved point pointer at sp+0x15C; reads the car table's driver byte. | Cell = x - 0.99 truncated for negative x (0.99 at 0x800CF7xx/0x800CF8xx). On a converted 2049 course it takes 2049's exact floor and 17-bit leaf offsets (mask bit 4 + q): cell hook at 0x8006FD60 ($t0 = the point), leaf-offset hook at 0x8006FD88 (src/rush2049/track2049_collision.cpp)."
+desc = "Leaf/polygon query (wall response through body probe func_8006FC64); u16[40] stack buffer (0xF4 -> 0x144); saved point pointer at sp+0x15C. | Collision query using a saved point pointer at sp+0x15C; reads the car table's driver byte. | Cell = x - 0.99 truncated for negative x (0.99 at 0x800CF7xx/0x800CF8xx). On a converted 2049 course it takes 2049's exact floor and 17-bit leaf offsets (mask bit 4 + q): cell hook at 0x8006FD60 ($t0 = the point), leaf-offset hook at 0x8006FD88 (src/rush2049/track2049_collision.cpp). Rush 2049 stunt scoring: the body push at 0x8006FF60 is Rush 2049's body hit (car +0x7D4 bit 0x100000, func_800C3880), rush2_stunt2049_body_hit."
 status = "verified"
 calspeed = [0x800AFAFC, 0x800B1624]
 area = "collision"
@@ -9304,7 +9304,7 @@ ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-reb
 vram = 0x8008E40C
 name = "race_wreck_respawn_wait"
 sig = "void race_wreck_respawn_wait(Car *car)"
-desc = "Patched in us.toml. Rush 2049 rules by game type (src/rush2049/track2049.cpp): no stuck reset, 2049's wreck wait (2.25 s in a battle, 3.5 s otherwise; 2049 func_800D138C), and no track map or radar (their stunt track tests). / BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand) | Wreck delay of 3.5 s before respawn. | Wreck handling for a player waiting to be put back ($f16 = 3.5, seconds since the wreck). Hooked at 0x8008E678. | Online: at 0x8008E4C4 a car with a view takes the respawn camera path (camera mode +0x348 = 4, view camera state, sound, +0x342 = 1, +0x104) with its own timing; hook 0x8008E4C8 (rush2_online_sim_view)."
+desc = "Patched in us.toml. Rush 2049 rules by game type (src/rush2049/track2049.cpp): no stuck reset, 2049's wreck wait (2.25 s in a battle, 3.5 s otherwise; 2049 func_800D138C), and no track map or radar (their stunt track tests). / BEGIN 4 player relocations (generated by tools/players4/relocate.py, do not edit by hand) | Wreck delay of 3.5 s before respawn. | Wreck handling for a player waiting to be put back ($f16 = 3.5, seconds since the wreck). Hooked at 0x8008E678. | Online: at 0x8008E4C4 a car with a view takes the respawn camera path (camera mode +0x348 = 4, view camera state, sound, +0x342 = 1, +0x104) with its own timing; hook 0x8008E4C8 (rush2_online_sim_view). Rush 2049 stunt scoring: hook at 0x8008E4C0, where a car's wreck begins (state +0x342 0, +0x648 set; $t0 = car), drops its player's combo (rush2_stunt2049_wreck)."
 consts = "3.5 s = wreck delay"
 status = "verified"
 ported = true
@@ -13226,7 +13226,7 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 vram = 0x800B7654
 name = "hud_widget_text_cb_player_stats"
 sig = "s32 hud_widget_text_cb_player_stats(HudWidget *w)"
-desc = "Stunt panel text callback (HUD layout entry 111): for every player ($s6) prints the trick name and multiplier while 0x8010C070[player] is set, and BEST (0x8010C068) / TOTAL (0x8010C074) with their values; sets the text scale 0x800BEF48 to 0 so the text draws at once."
+desc = "Stunt panel text callback (HUD layout entry 111): for every player ($s6) prints the trick name and multiplier while 0x8010C070[player] is set, and BEST (0x8010C068) / TOTAL (0x8010C074) with their values; sets the text scale 0x800BEF48 to 0 so the text draws at once. Rush 2049 stunt scoring (src/rush2049/stunt2049.cpp): hooks at 0x800B7838/0x800B78C0 (the trick name's table slot points at the combo's name), 0x800B78F4 (points line), 0x800B7974 (BEST) and 0x800B79F8 (TOTAL) rewrite its text with Rush 2049's scores."
 consts = "0x78/0xE6 = panel y (player 1 of 2 / others); 0x4A = trick name center x; 0x102 = labels' right edge; 0x10C = values' x"
 status = "verified"
 ported = true

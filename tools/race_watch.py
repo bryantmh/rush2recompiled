@@ -256,6 +256,8 @@ def main():
     ap.add_argument('--pos', action='store_true', help="with --trace: also log the car's positions")
     ap.add_argument('--peek', action='append', type=lambda v: int(v, 16), help='print this u32 during the race')
     ap.add_argument('--wreck-at', type=float, help='with --trace: wreck that car this many seconds into the race')
+    ap.add_argument('--shots', help='screenshot the window at these seconds after launch (comma separated) into '
+                    'DIR/shot_<seconds>.png; a simulation run needs RUSH2_SIM_SHOW=1 to show its window')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     proc = None
@@ -300,6 +302,10 @@ def main():
     events = []
     prev, still_since, started, t0 = None, {}, None, time.time()
     finish_time = {}
+    shots = sorted(float(v) for v in a.shots.split(',')) if a.shots else []
+    if shots:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rush1'))
+        import shots as shot_tool
 
     def event(t, car, text, pos):
         line = '%7.1f s  car %d  %s  at %s' % (t, car, text, where(pos))
@@ -308,6 +314,11 @@ def main():
     while time.time() - t0 < a.seconds:
         if proc and proc.poll() is not None:
             break
+        while shots and time.time() - launched >= shots[0]:
+            hwnd = shot_tool.find_window(pid)
+            if hwnd:
+                shot_tool.capture(hwnd, os.path.join(a.out, 'shot_%g.png' % shots[0]))
+            shots.pop(0)
         cur = sample(rd)
         if cur is None:
             time.sleep(0.1)

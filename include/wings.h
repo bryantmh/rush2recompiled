@@ -48,6 +48,8 @@ namespace rush2::wings {
         int style = 0;
     };
     bool car_input(uint8_t* rdram, int car, Input& out);
+    // Physics thread: whether race car `car` (0-7) had its wings out in its last physics step (Rush 2049's car +0x3F8).
+    bool gliding(int car);
     void set_ghost_input(int car, bool active, const Input& in);
 
     // Mixes the playing wing sounds into the game's audio output (src/rush2049/wings_sound.cpp). samples is interleaved

@@ -135,7 +135,13 @@ SDL_Window* window;
 ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::gfx_data_t) {
     uint32_t flags = SDL_WINDOW_RESIZABLE;
     if (rush2::sim::active()) {
-        flags |= SDL_WINDOW_HIDDEN; // a simulation run shows nothing (src/sim_run.cpp)
+        // A simulation run shows nothing (src/sim_run.cpp), unless RUSH2_SIM_SHOW is set (test aid: tools/test_race.py
+        // --shots captures the window); then it's shown without taking the focus.
+        if (std::getenv("RUSH2_SIM_SHOW") == nullptr) {
+            flags |= SDL_WINDOW_HIDDEN;
+        } else {
+            SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
+        }
     }
 
 #if defined(__APPLE__)

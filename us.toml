@@ -103,11 +103,12 @@ before_vram = 0x8007057C
 text = "    rush2_smooth_debug_contact(rdram, ctx);"
 
 # Directional rumble's wall grinding (src/rumble.cpp): in car_wall_collision_query, where a body probe is inside a wall
-# and the car is about to be pushed out along the normal at sp+0xB0. $s1 = car.
+# and the car is about to be pushed out along the normal at sp+0xB0. $s1 = car. Also Rush 2049 stunt scoring's body hit
+# (src/rush2049/stunt2049.cpp: 2049 sets car +0x7D4 bit 0x100000 at the same push, func_800C3880).
 [[patches.hook]]
 func = "car_wall_collision_query_8006FC94"
 before_vram = 0x8006FF60
-text = "    rush2_rumble_wall(rdram, ctx);"
+text = "    rush2_rumble_wall(rdram, ctx); rush2_stunt2049_body_hit(rdram, ctx);"
 
 # Overlay: inflated to 0x803AA800 by func_800A62C0.
 [[patches.hook]]
@@ -462,6 +463,53 @@ text = "    rush2_hud_stunt_text(rdram, ctx, 1);"
 func = "hud_widget_text_cb_player_stats_800B7654"
 before_vram = 0x800B7AE8
 text = "    rush2_hud_stunt_text(rdram, ctx, 0);"
+
+# Rush 2049 stunt scoring (src/rush2049/stunt2049.cpp, docs/rush2049_research/stunts.md): with the Stunt Scoring option on
+# Rush 2049, its trick detectors and scoring run in place of Rush 2's ($a0 = car, $a1 = player).
+[[patches.hook]]
+func = "car_stunt_scoring_update_80065588"
+before_vram = 0x80065588
+text = "    if (rush2_stunt2049_update(rdram, ctx)) return;"
+
+# ... and a wreck drops the combo (Rush 2049 calls func_800C3578 from its wreck trigger): car_wreck_trigger after its 5 s
+# guard ($t6 = car), and a car's wreck beginning in race_wreck_respawn_wait ($t0 = car).
+[[patches.hook]]
+func = "car_wreck_trigger_8006E1A8"
+before_vram = 0x8006E210
+text = "    rush2_stunt2049_wreck(rdram, ctx, (int)(int16_t)ctx->r14);"
+
+[[patches.hook]]
+func = "race_wreck_respawn_wait_8008E40C"
+before_vram = 0x8008E4C0
+text = "    rush2_stunt2049_wreck(rdram, ctx, (int)(int16_t)ctx->r8);"
+
+# ... and its scores on Rush 2's stunt panel ($s6 = player, $s5 = the sprintf buffer): the trick name's table slot points
+# at the combo's name while it is measured and printed (0x800B7838 to 0x800B78C0), then the points line, BEST and TOTAL
+# are rewritten after their sprintf.
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B7838
+text = "    rush2_stunt2049_hud(rdram, ctx, 0);"
+
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B78C0
+text = "    rush2_stunt2049_hud(rdram, ctx, 1);"
+
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B78F4
+text = "    rush2_stunt2049_hud(rdram, ctx, 2);"
+
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B7974
+text = "    rush2_stunt2049_hud(rdram, ctx, 3);"
+
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B79F8
+text = "    rush2_stunt2049_hud(rdram, ctx, 4);"
 
 # Laps-left number, printed by the sprite callback func_800B9D48 through a printf wrapper. $a0/$a1 = x/y.
 [[patches.hook]]
@@ -908,8 +956,16 @@ func = "race_start_timer_800AE670"
 before_vram = 0x800AEB20
 text = "    rush2_track49_obstacle_clock(rdram, ctx);"
 
+# Rush 2049 Stunt HUD (src/rush2049/stunt2049.cpp): Rush 2's stunt boxes are hidden under it, and whether they would
+# show is kept for it.
+[[patches.hook]]
+func = "hud_stunt_box_visible_80060E34"
+before_vram = 0x80060E98
+text = "    rush2_stunt2049_box_visible(rdram, ctx);"
+
 # Rush 2049's battle arenas (src/rush2049/battle.cpp) are played in stunt mode but have no stunt score: its panel's visibility
-# callbacks func_800B9CC0 (the trick score panel) and func_800B7654 (the BEST / TOTAL scores) hide them.
+# callbacks func_800B9CC0 (the trick score panel) and func_800B7654 (the BEST / TOTAL scores) hide them. The Rush 2049
+# Stunt HUD hides func_800B7654's text too.
 [[patches.hook]]
 func = "hud_widget_cb_it_badge_800B9CC0"
 before_vram = 0x800B9D2C
@@ -918,7 +974,7 @@ text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
 [[patches.hook]]
 func = "hud_widget_text_cb_player_stats_800B7654"
 before_vram = 0x800B76CC
-text = "    rush2_battle_hide_stunt_panel(rdram, ctx);"
+text = "    rush2_stunt2049_panel_text(rdram, ctx); rush2_battle_hide_stunt_panel(rdram, ctx);"
 
 # Battle: the No Race Timer cheat doesn't hide a battle's time left.
 [[patches.hook]]
@@ -12853,7 +12909,7 @@ text = "    rush2_ghost_settings(rdram, ctx);"
 [[patches.hook]]
 func = "race_load_track_800A5110"
 before_vram = 0x800A5114
-text = "    rush2_ghost_race_setup(rdram, ctx); rush2_odometer_race_setup(rdram, ctx);"
+text = "    rush2_ghost_race_setup(rdram, ctx); rush2_odometer_race_setup(rdram, ctx); rush2_stunt2049_race_setup(rdram, ctx);"
 
 [[patches.hook]]
 func = "race_preload_car_assets_800A37F4"

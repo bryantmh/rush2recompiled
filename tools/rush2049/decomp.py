@@ -1,6 +1,6 @@
 """Decompile Rush 2 / Rush 2049 functions with m2c (research aid).
 
-Usage: python decomp.py r2|49|ovl FUNCADDR [more...]
+Usage: python decomp.py r2|49|ovl FUNCADDR[-ENDADDR] [more...]
   ovl = the in-race mode overlay (stunt/battle HUD, weapons; ROM 0xB6FEC4 raw deflate, loaded at 0x8038A400), read from
   the ROM (tools/rush2049/roms.py); function bounds come from scanning it for jr $ra.
 Needs m2c (git clone https://github.com/matt-kempster/m2c) at $M2C or ./m2c. Function bounds come from
@@ -84,8 +84,8 @@ def func_end(game, start, rd):
         a += 4
     return end
 
-def emit(game, start):
-    rd = reader(game); end = func_end(game, start, rd)
+def emit(game, start, end=None):
+    rd = reader(game); end = end or func_end(game, start, rd)
     ins_list = [(a, rd(a)) for a in range(start, end, 4)]
     labels = set()
     for a, w in ins_list:
@@ -163,8 +163,9 @@ def emit(game, start):
 if __name__ == '__main__':
     game = sys.argv[1]
     for f in sys.argv[2:]:
-        a = int(f.replace('func_', ''), 16)
-        asm = emit(game, a)
+        a, _, e = f.replace('func_', '').partition('-')   # START-END: explicit bounds (a mid-function label split it)
+        a = int(a, 16)
+        asm = emit(game, a, int(e, 16) if e else None)
         with tempfile.NamedTemporaryFile('w', suffix='.s', delete=False) as t:
             t.write('.set noat\n.set noreorder\n' + asm.replace('/* ', '/* ').replace('*/ ', '*/ '))
             path = t.name

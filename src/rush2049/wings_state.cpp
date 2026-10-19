@@ -257,6 +257,10 @@ void rush2::wings::set_ghost_input(int car, bool active, const Input& in) {
     }
 }
 
+bool rush2::wings::gliding(int car) {
+    return car >= 0 && car < max_cars && cars[car].flag;
+}
+
 uint32_t rush2::wings::car_struct(int index) {
     return 0x800F5470u + uint32_t(index) * 0x81Cu;
 }

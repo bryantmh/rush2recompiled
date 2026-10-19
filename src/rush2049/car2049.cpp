@@ -41,6 +41,7 @@
 #include "paint_colors.h"
 #include "car_probes.h"
 #include "engine2049.h"
+#include "font2049.h"
 #include "online.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
@@ -407,50 +408,10 @@ namespace {
     }
     uint16_t rgba5551(int r, int g, int b) { return uint16_t(((r >> 3) << 11) | ((g >> 3) << 6) | ((b >> 3) << 1) | 1); }
 
-    // Rush 2049's menu font AERO-PLAIN16 (font 13: atlas file 35, glyph table file 51; docs/rush2049_research/menus.md
-    // section 10), which the 2049 cars' name logos are lettered in. Atlas: I4 pages, rows top down; glyph records (12
-    // bytes from offset 20): char, page, x0, y0, x1, y1 (inclusive cell, cells top-aligned).
-    struct LogoFont {
-        struct Page { int w = 0, h = 0; std::vector<uint8_t> coverage; };
-        struct Glyph { int page, x0, y0, x1, y1; };
-        std::vector<Page> pages;
-        std::map<char, Glyph> glyphs;
-    };
+    // Rush 2049's menu font AERO-PLAIN16 (font 13, include/font2049.h), which the 2049 cars' name logos are lettered
+    // in.
+    using LogoFont = rush2::font2049::Font;
     std::optional<LogoFont> aero_font;
-
-    std::optional<LogoFont> load_aero_font(const rush2::rom2049::Source& rom) {
-        constexpr int atlas_file = 35, glyph_file = 51;
-        std::vector<uint8_t> atlas, table;
-        if (rom.is_dreamcast() || !rom.read_file(atlas_file, atlas) || !rom.read_file(glyph_file, table) || atlas.size() < 4) {
-            return std::nullopt;
-        }
-        LogoFont font;
-        uint32_t imag = 0, txhd = 0, txhd_n = 0;
-        for (size_t o = be32(atlas, 0); o + 12 <= atlas.size(); o += 12) {
-            if (memcmp(&atlas[o], "IMAG", 4) == 0) imag = be32(atlas, o + 4);
-            else if (memcmp(&atlas[o], "TXHD", 4) == 0) { txhd = be32(atlas, o + 4); txhd_n = be32(atlas, o + 8); }
-        }
-        for (uint32_t i = 0; i < txhd_n; i++) {
-            size_t rec = txhd + size_t(i) * 0x24;
-            if (rec + 0x24 > atlas.size()) return std::nullopt;
-            LogoFont::Page p;
-            p.w = (atlas[rec + 16] << 8) | atlas[rec + 17];
-            p.h = (atlas[rec + 18] << 8) | atlas[rec + 19];
-            size_t texels = imag + be32(atlas, rec + 24);
-            if (p.w <= 0 || p.h <= 0 || texels + size_t(p.w * p.h + 1) / 2 > atlas.size()) return std::nullopt;
-            p.coverage.resize(size_t(p.w * p.h));
-            for (int t = 0; t < p.w * p.h; t++) p.coverage[t] = uint8_t(((atlas[texels + t / 2] >> ((t & 1) ? 0 : 4)) & 15) * 17);
-            font.pages.push_back(std::move(p));
-        }
-        for (size_t o = 20; o + 12 <= table.size(); o += 12) {
-            LogoFont::Glyph g{ table[o + 1], table[o + 2], table[o + 3], table[o + 4], table[o + 5] };
-            if (table[o] == 0 || g.page >= int(font.pages.size()) || g.x1 < g.x0 || g.y1 < g.y0 ||
-                g.x1 >= font.pages[g.page].w || g.y1 >= font.pages[g.page].h) continue;
-            font.glyphs[char(table[o])] = g;
-        }
-        if (font.glyphs.count('A') == 0) return std::nullopt;
-        return font;
-    }
 
     // Text in `font`, centered in a w x h mask: set at its own size, a glyph's width plus one texel apart, then
     // scaled up by 1.25 (less if the name would be wider than the slot) to about the size of Rush 2's lettering.
@@ -1239,7 +1200,7 @@ static void load_cars(uint8_t* rdram) {
         }
     }
     logos49 = true;
-    aero_font = load_aero_font(*rom);
+    aero_font = rush2::font2049::load(*rom, 13);
     rebuild_select_bank(rdram);
     for (int k = 0; k < car_count; k++) {
         std::vector<uint8_t> car;

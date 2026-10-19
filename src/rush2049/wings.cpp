@@ -39,6 +39,7 @@
 #include "rush2049_dc.h"
 #include "texture_upscale.h"
 #include "odometer2049.h"
+#include "stunt2049.h"
 
 namespace {
     const std::string config_id = "games";
@@ -48,6 +49,7 @@ namespace {
     const std::string drones_option_id = "rush2049_computer_cars";
     const std::string speeds_option_id = "car_speeds";
     const std::string odometer_option_id = "rush2049_odometer";
+    const std::string stunt_option_id = "stunt_scoring";
     const std::string source_option_id = "rush2049_source";
     const char* rom_file_name = "rush2049.z64";
 
@@ -457,6 +459,27 @@ void rush2::wings::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::odometer2049::set_option(std::get<bool>(cur_value));
         });
+
+    wings_config.add_enum_option(
+        stunt_option_id,
+        "Stunt Scoring",
+        "Sets how stunts score. "
+        "<recomp-color primary>Rush 2</recomp-color> scores 2 wheels, air time, flips and rolls. "
+        "<recomp-color primary>Rush 2049</recomp-color> scores Rush 2049's flips, rolls, helicopter spins, wheelies, "
+        "2 wheels and air time: each new kind of trick in a combo raises its multiplier, landing with little or no "
+        "use of the wings raises it more, and a wreck loses the combo. Rush 2049's stunt display (each trick's icon "
+        "with its count, the combo's points and bonuses, the total) replaces Rush 2's stunt boxes when its ROM is "
+        "loaded. Takes effect at once.",
+        {
+            { rush2::stunt2049::Scoring::Rush2, "Rush2", "Rush 2" },
+            { rush2::stunt2049::Scoring::Rush2049, "Rush2049", "Rush 2049" },
+        },
+        rush2::stunt2049::Scoring::Rush2
+    );
+    wings_config.add_option_change_callback(stunt_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::stunt2049::set_scoring(static_cast<rush2::stunt2049::Scoring>(std::get<uint32_t>(cur_value)));
+        });
 }
 
 void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
@@ -465,7 +488,7 @@ void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
     button->add_pressed_callback(select_rom);
     for (const std::string& id : { source_option_id, wings_option_id, tracks_option_id, cars_option_id, drones_option_id,
-                                    speeds_option_id, odometer_option_id }) {
+                                    speeds_option_id, odometer_option_id, stunt_option_id }) {
         page->add_option(wings_config, id);
     }
     refresh = [note = heading.note, shown = rom_status_text()]() mutable {

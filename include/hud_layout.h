@@ -196,6 +196,15 @@ namespace rush2::hud_layout {
         float weapon_scale = 1, coin_scale = 1, powerup_scale = 1;
     };
 
+    // A player's stunt panel boxes as the layout places them (0 the scores', 1 the trick name's), where the Rush 2049
+    // Stunt HUD draws (src/rush2049/stunt2049.cpp): top left corner (x, y) in 4:3 screen pixels kept from `anchor` (as
+    // rush2::hud::set_widget_scale), the box's size as the game draws it, drawn `scale` times that.
+    struct StuntPlace {
+        struct Box { bool valid = false; float x = 0, y = 0, w = 0, h = 0, scale = 1, anchor = 0.5f; };
+        Box box[2];
+        bool swap = false;  // the scores' box is under the trick name's: only one of them shows at a time
+    };
+
     struct Output {
         Config config;
         std::vector<Part> parts;        // the catalog's, for this race (hud_catalog::parts(variant_of(config)))
@@ -247,6 +256,9 @@ namespace rush2::hud {
     // Where player's Rush 2049 battle HUD goes this race (src/hud.cpp: the engine's Output::battle as solved for the
     // race). False if the race has none or the layout isn't known yet.
     bool battle_place(int player, rush2::hud_layout::BattlePlace& out);
+    // Where player's stunt panel boxes are this frame (the solved layout's StuntScore and StuntTrick elements). False
+    // if the race has neither or the layout isn't known yet.
+    bool stunt_place(int player, rush2::hud_layout::StuntPlace& out);
 }
 
 #endif

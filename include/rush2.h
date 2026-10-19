@@ -112,6 +112,12 @@ namespace rush2 {
         // alpha scaled by `alpha` (0-255).
         void draw_image_part(uint8_t* rdram, uint32_t address, int w, int h, int src_x, int src_y, int src_w, int src_h,
                              float x0, float y0, float x1, float y1, float anchor, bool point = false, uint8_t alpha = 255);
+        // The part of an I4 image of w x h texels at `address` (w a multiple of 16, at most 8192 texels) over that
+        // rectangle: its color goes from `shade` to `rgba` (RGBA8888) with the texel's intensity, its alpha is the
+        // texel's times rgba's. The image is loaded whole and clamped, so a texture pack can replace it by its hash
+        // (the high-resolution fonts' Rush 2049 sheets, tools/build_font_pack.py).
+        void draw_i4_part(uint8_t* rdram, uint32_t address, int w, int h, int src_x, int src_y, int src_w, int src_h,
+                          float x0, float y0, float x1, float y1, float anchor, uint32_t rgba, uint32_t shade);
         // Calls display list `dl` from the 2D display list, with the render state (other mode, combiner, geometry mode,
         // primitive color, viewport and projection) put back after it.
         void call_list(uint8_t* rdram, uint32_t dl);
