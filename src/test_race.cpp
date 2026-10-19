@@ -157,6 +157,11 @@ namespace {
             rush2::battle::set_race_battle(std::atoi(battle) != 0);
         }
         int slot = rush2::track2049::host_menu_track(rdram, track);
+        // View p follows player p's car, as online sets them (src/online/online_game.cpp); the menus leave them so, but
+        // from the title screen view 0 kept another car and split screen's first view watched it from afar.
+        for (int p = 0; p < players; p++) {
+            MEM_B(p, (int32_t)view_cars) = (int8_t)p;
+        }
         // Set before the race starts, as online does (src/online/online_game.cpp): the race camera keeps a per-view
         // collision cache from its car, and switching cars mid-race crashes in collision_node_find_cached_8006CE28.
         if (const char* view_car = env("RUSH2_TEST_RACE_VIEW_CAR")) {

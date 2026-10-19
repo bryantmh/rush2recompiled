@@ -133,6 +133,7 @@ namespace {
     }
     rush2::calspeed::Converted cs_track;       // The raced Cal Speed track's extras (its files are moved to `track`).
     const std::vector<uint8_t>* cs_rom = nullptr;  // The Cal Speed ROM it was converted from.
+    bool cs_billboards = false;                     // The Billboard Trees setting it was converted with.
     rush2::track_mod::Settings mod_settings;   // The raced custom track's track.toml.
     std::array<std::optional<float>, 16> mod_drag;  // Its [surfaces] drag by polygon material slot.
     std::array<uint8_t, 16> mod_like{};             // The stock material each slot passes for: road 0, dirt 1, grass 2.
@@ -157,7 +158,9 @@ namespace {
                     (uint32_t)MEM_W(0, (int32_t)(asset_offsets + 0x14 * 4)), shared_models);
             }
             std::string error;
-            if (!rush2::calspeed::load_track(*rom, k - cs_k, prefix_of(slot), shared_models, cs_track, error)) {
+            cs_billboards = rush2::calspeed::billboards_enabled();
+            if (!rush2::calspeed::load_track(*rom, k - cs_k, prefix_of(slot), shared_models, cs_billboards, cs_track,
+                                             error)) {
                 printf("[CalSpeed] Couldn't convert track %d: %s\n", k - cs_k, error.c_str());
                 return false;
             }
@@ -521,6 +524,10 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
     }
     // A Cal Speed ROM selected again in the Games tab is another copy: its tracks are converted (or read) again.
     if (is_cs_k(k) && cs_rom != rush2::calspeed::get_rom().get()) {
+        loaded_track = 0;
+    }
+    // So is one whose California Speed Billboard Trees setting changed.
+    if (is_cs_k(k) && cs_billboards != rush2::calspeed::billboards_enabled()) {
         loaded_track = 0;
     }
     if (loaded_track != k) {

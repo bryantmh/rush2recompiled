@@ -115,7 +115,7 @@ Most options live in the settings menu (press Escape, or select).
 - **Sound:** race and menu music per game, plus whether other cars' engines are heard
 - **Controls:** choose which controllers (and the keyboard) can play, the split screen layout, and each save profile's steering, stick deadzone and rumble settings, with buttons to test each rumble effect
 - **Progress:** see the keys and coins you've collected
-- **Games:** pick your Rush 2049, San Francisco Rush and California Speed ROMs, then turn on their tracks, cars, Wings and Rush 2049 stunt scoring
+- **Games:** pick your Rush 2049, San Francisco Rush and California Speed ROMs, then turn on their tracks, cars, Wings and Rush 2049 stunt scoring, and build the Rush 2049 arcade mods
 - **Cheats:** unlock all tracks and cars, plus driving, survival, race and visual cheats. Turn on Enable Cheat Menu first (see [docs/cheats.md](docs/cheats.md)).
 - **Online:** host or join a lobby (see below)
 

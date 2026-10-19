@@ -77,6 +77,56 @@ All in the main data, Rush 2's layouts (`src/calspeed/calspeed_convert.cpp`):
   go down to -306, and its cars were put back every 7.5 s onto road still under the floor. On California Speed's tracks
   the floor is 300 ft below the racing line's lowest point (`rush2_calspeed_fall_floor`). [V: sim]
 
+### Billboard trees
+
+Most of California Speed's roadside trees are one flat see-through card built into a track section's list, so from
+the side they thin to a line. The Games tab's **California Speed Billboard Trees** option (on by default,
+`calspeed_billboards` in games.json) turns those cards to face the camera about their upright axis when a track is
+converted (`src/calspeed/calspeed_billboards.cpp`, `include/calspeed_billboards.h`), after the extended scenery. Cached
+apart (track_cache key 2000 + t, + 100 with the scenery, + 200 with the billboards; blob suffix `_bb`), and
+`track2049.cpp` converts again when the setting changed, so a change takes effect from the next race.
+
+- **Which cards.** A lone quad of a section model (two triangles sharing no corner with anything else of the model,
+  LOD 0's own list, not a called one) standing upright (|normal y| under 0.1) as a rectangle (bottom and top corners
+  level within 15% of its height), at least 6 ft tall, at most 1.6 times as wide as tall (wider ones are hedges and
+  tree walls), whose texture shows see-through texels (8% or more of the card) and is on the track's list of tree
+  textures (`trees`: each texture is named T + its texels' offset in the track's container, asset 62 + t; most of
+  California Speed's textures have no texture record). The list was picked by eye from a sheet of every texture on a
+  card passing the shape tests: left out are signs, cattle, buoys, lamps, poles, the Bay Bridge's cables, a face,
+  pictures of cars, flowerbeds and pictures of a row of trees. Not turned either: a card another card crosses (a
+  crossed "X" tree) or touches within 1 ft (a row), or that a solid upright surface crosses or touches (a slope, a
+  wall); a see-through one (a tree wall behind the tree) doesn't count. A section drawn by a record that turns or
+  scales it is left alone (the turn is in world axes). Every California Speed section has one LOD.
+- **Counts** (`python tools/calspeed/billboards.py`): Monterey 165, Silicon Valley 129, Highway 1 507, Central Valley
+  271 (with bushes and crop plants), Santa Cruz 405, San Diego 169 (with palms), Mt. Shasta 500, Yosemite 287, Mojave
+  Desert 754 (Joshua trees, cacti, shrubs). San Francisco, Clover, Los Angeles, Fuji, Oval, California and San
+  Andreas have none.
+- **Drawing.** Each section with cards gets a copy of its list with the cards' triangles taken out (G_NOOP, or the
+  G_TRI2's other half as a G_TRI1), then, per draw state (replayed as the extended scenery does), each card:
+  `G_MTX push mul T(base)` (a static Mtx after the container's end), `G_DL turn`, `G_VTX` of its 4 vertices in its own
+  frame (x across, y up, around the base's middle, its visible side toward -z: the side away from its triangles'
+  cross(v1 - v0, v2 - v0), since the game culls back faces and the cross product points to the culled side in Rush 2's
+  world; built the other way the turned cards were invisible), `G_TRI2` with the triangles' own
+  winding, `G_POPMTX`; the list then restores the TLUT mode and ends. The model record's LOD 0 list points at the copy.
+  The cards stay part of their section's scene node: no new nodes (the node table holds 1,024), culled and hidden with
+  the section.
+- **The turn.** `turn` is a two-command list, `G_MTX nopush mul 0x0D000000` and `G_ENDDL`. Rush 2's relocator
+  (func_8007786C) and the merge (`walk_reloc`) rebase the pointers of top-level lists only and never enter a G_DL
+  target, so its segment address stays as it is (a G_MTX in the section's own list would get the container's base
+  added). `rush2_interp_root_modelview` (src/interpolation.cpp, func_8007C624 after the root modelview) writes the
+  view's yaw-only matrix, `view_billboard_basis_8007BF2C`'s output at 0x800E7C78 (rows: (-b, 0, a), (0, 1, 0),
+  (-a, 0, -b) from the look-at matrix 0x800E7CC8's +0x8 and +0x28), as an Mtx into the side buffer and sets segment
+  0x0D to it (`G_MOVEWORD G_MW_SEGMENT`), once per view: split screen views each get their own. The Mtx takes the
+  basis by columns (Mtx row r = basis column r), as `gfx_build_node_matrix_cols_8007B290` builds the game's own flag
+  0x8000 nodes (row 0 from basis +0x0, +0x10, +0x20). Taken by rows it is the opposite turn about y, which faces the
+  camera only while the camera looks along a world axis: the first build did that, and the cards stood up to 90
+  degrees off. The basis shows a model's -z side to the camera, so a card shows its front. Rush 2 itself only ever sets segment 0.
+
+Offline: `python tools/calspeed/billboards.py [TRACK...] [--review]` runs it outside the game
+(tools/calspeed/billboards_test.cpp, which also walks every new list and checks each card's command sequence and the
+turn list) and draws tmp/billboards/chosen.png (every card turned), flat_<reason>.png (the ones left flat) and, with
+`--review`, textures.png (one card per texture passing the shape tests, to pick the lists).
+
 ### Track select landmarks
 
 California Speed's track select shows each track's landmark (asset 6, `<NAME>NICHIMEN`) as a relief in a niche,

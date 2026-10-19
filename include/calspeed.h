@@ -59,6 +59,9 @@ namespace rush2::calspeed {
     // The California Speed Tracks option. Tracks are offered when it is on and the ROM is present.
     void set_option(bool enabled);
     bool available();
+    // The California Speed Billboard Trees option: load_track turns the tracks' flat single trees to face the camera
+    // (src/calspeed/calspeed_billboards.cpp). Read when a track is converted, so a change takes effect from the next race.
+    bool billboards_enabled();
 
     // Asset `index` (0-127) of California Speed's asset table (ROM 0x5760C), decompressed.
     bool read_asset(const std::vector<uint8_t>& rom, int index, std::vector<uint8_t>& out);
@@ -77,10 +80,10 @@ namespace rush2::calspeed {
         std::map<std::string, std::string> piece_models;
     };
     // t: track 0-15. prefix: the host slot's track prefix. shared_models: Rush 2's shared model names (assets 0x12,
-    // 0x14), which win over the track's in Rush 2's lookups. The track comes from the disk cache when this build
-    // converted it from the same ROM before.
+    // 0x14), which win over the track's in Rush 2's lookups. billboards: turn its single trees to the camera. The track
+    // comes from the disk cache when this build converted it from the same ROM (and settings) before.
     bool load_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
-                    const std::set<std::string>& shared_models, Converted& out, std::string& error);
+                    const std::set<std::string>& shared_models, bool billboards, Converted& out, std::string& error);
 
     // Track select art: per track a diorama (California Speed's own track select landmark, asset 6) and a 128 x 32
     // name logo made from its track select banner (asset 3), named menu_model_name / menu_logo_name. Also gives the

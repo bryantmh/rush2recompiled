@@ -41,3 +41,5 @@ The game's menus (game states, front-end screen ids, Start Game rows, track/car 
 The race HUD's placement is the layout engine's rules (src/hud_layout.cpp, docs/hud_layout.md) over the HUD catalog (src/hud_catalog.cpp: every part the HUD can draw, from the ROM's tables and the game's callbacks). Never move or anchor a HUD element by hand in src/hud.cpp or a feature's code: add a new element's parts to the catalog (where it's drawn, where it can move, its role), say when it can appear (`possible()`, from the settings alone) and add its rule, then check every variant offline with tools/hud_preview (`--matrix` draws every layout, aspect and option with everything that can appear, from the catalog and ROM images, no capture needed) before any in-game run. `[hud] widget ...` lines in a game log mean the catalog is missing something
 
 When running the game, turn the sound all the way down so it doesn't interrupt the computer's user
+
+Stutters are unacceptable. If something you add or modify has a large frametime stutter, you have implemented it incorrectly. Adding a cache that still stutters on first load is not a valid fix.

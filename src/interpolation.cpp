@@ -23,6 +23,7 @@
 
 #include "recomp.h"
 #include "rush2.h"
+#include "calspeed_billboards.h"
 
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
@@ -453,11 +454,28 @@ void rush2_interp_projection(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // func_8007C624, after the root modelview G_MTX (load) is written at $v0.
+// Also points RSP segment 0x0D at this view's camera-facing turn for the California Speed billboard trees
+// (src/calspeed/calspeed_billboards.cpp): view_billboard_basis_8007BF2C's yaw-only rotation (0x800E7C78, f32 4x4,
+// set for this view earlier in func_8007C624) as an Mtx in the side buffer, one per view and frame, built from it as
+// the game builds its own camera-facing nodes' matrices.
 void rush2_interp_root_modelview(uint8_t* rdram, recomp_context* ctx) {
     uint32_t cmd_addr = (uint32_t)ctx->r2;
-    GfxCommand cmds[3];
+    GfxCommand cmds[4];
     object_group(&cmds[0], view_id(0x30000000u, cur_view, views[cur_view].gen), G_EX_NOPUSH, G_EX_COMPONENT_SKIP);
     cmds[2] = read_command(rdram, cmd_addr);
+    constexpr uint32_t billboard_basis = 0x800E7C78;
+    uint32_t turn = side_alloc(64);
+    for (int i = 0; i < 16; i++) {
+        int row = i / 4, col = i % 4;
+        // By columns, as gfx_build_node_matrix_cols_8007B290 builds a flag 0x8000 node's matrix from it: Mtx row r is
+        // the basis's column r (rows taken as they are turn the card the other way about y).
+        float f = row < 3 && col < 3 ? read_f32(rdram, billboard_basis + (col * 4 + row) * 4) : (row == 3 && col == 3 ? 1.0f : 0.0f);
+        int32_t fixed = (int32_t)std::lround(f * 65536.0f);
+        MEM_H(i * 2, (int32_t)turn) = (int16_t)(fixed >> 16);
+        MEM_H(32 + i * 2, (int32_t)turn) = (int16_t)(fixed & 0xFFFF);
+    }
+    cmds[3].values.word0 = 0xDB060000u | (rush2::calspeed::billboard_segment * 4);  // G_MOVEWORD G_MW_SEGMENT
+    cmds[3].values.word1 = turn;
     views[cur_view].root_mtx = cmds[2].values.word1;
     // The view's rotation is the matrix the game multiplied into the projection a few commands back.
     for (uint32_t back = 1; back <= 8; back++) {
@@ -467,7 +485,7 @@ void rush2_interp_root_modelview(uint8_t* rdram, recomp_context* ctx) {
             break;
         }
     }
-    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 3));
+    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 4));
 }
 
 // func_8007C624, after the G_RDPPIPESYNC that starts each world-space polygon is written at $v0. $fp = polygon.

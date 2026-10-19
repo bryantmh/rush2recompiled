@@ -48,8 +48,11 @@ namespace {
     const std::string cars_option_id = "calspeed_cars";
     const std::string drones_option_id = "calspeed_computer_cars";
     const std::string road_hold_option_id = "calspeed_road_hold";
+    const std::string billboards_option_id = "calspeed_billboards";
     // The California Speed Road Hold option: off, its tracks have Rush 2's own gravity only.
     std::atomic_bool road_hold_on = true;
+    // The California Speed Billboard Trees option (src/calspeed/calspeed_billboards.cpp).
+    std::atomic_bool billboards_on = true;
     const char* rom_file_name = "calspeed.z64";
 
     constexpr size_t rom_size = 0x1000000;
@@ -121,6 +124,7 @@ namespace {
         bool cars_on = std::get<bool>(config.get_option_value(cars_option_id));
         config.update_option_disabled(drones_option_id, disabled || !cars_on);
         config.update_option_disabled(road_hold_option_id, disabled);
+        config.update_option_disabled(billboards_option_id, disabled);
     }
 
     void select_rom() {
@@ -990,6 +994,22 @@ void rush2::calspeed::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             road_hold_on = std::get<bool>(cur_value);
         });
+    config.add_bool_option(
+        billboards_option_id,
+        "California Speed Billboard Trees",
+        "Turns California Speed's flat trees to face you, so they look round from every side instead of thinning to a "
+        "line as you pass. Rows of trees, hedges, crossed trees and signs stay as they are. Off, every tree is as "
+        "California Speed drew it. Takes effect from the next race.",
+        true
+    );
+    config.add_option_change_callback(billboards_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            billboards_on = std::get<bool>(cur_value);
+        });
+}
+
+bool rush2::calspeed::billboards_enabled() {
+    return billboards_on;
 }
 
 void rush2::calspeed::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
@@ -1001,6 +1021,7 @@ void rush2::calspeed::add_games_section(rush2::ui::OptionsPage* page, std::funct
     page->add_option(rush2::wings::games_config(), cars_option_id);
     page->add_option(rush2::wings::games_config(), drones_option_id);
     page->add_option(rush2::wings::games_config(), road_hold_option_id);
+    page->add_option(rush2::wings::games_config(), billboards_option_id);
     refresh = [note = heading.note, shown = rush2::calspeed::rom_available()]() mutable {
         if (rush2::calspeed::rom_available() != shown) {
             shown = !shown;
@@ -1012,6 +1033,7 @@ void rush2::calspeed::add_games_section(rush2::ui::OptionsPage* page, std::funct
 // Runs after rush2::wings::load_config(), which loads the option.
 void rush2::calspeed::load_config() {
     road_hold_on = std::get<bool>(rush2::wings::games_config().get_option_value(road_hold_option_id));
+    billboards_on = std::get<bool>(rush2::wings::games_config().get_option_value(billboards_option_id));
     std::vector<uint8_t> data;
     std::filesystem::path path = stored_rom_path();
     if (std::filesystem::exists(path)) {

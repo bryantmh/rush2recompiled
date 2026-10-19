@@ -18,6 +18,8 @@
 // - Visibility (0x800C0680, 16 bytes per region, the tracks' tables back to back, counts at 0x800C4C80), fog colour
 //   (0x80094CB4), cloud scroll (0x80094C2C) and sky parallax (0x80094C6C) from California Speed's per-track tables,
 //   which have Rush 2's layout.
+// - Billboard trees (option): src/calspeed/calspeed_billboards.cpp turns the single tree cards of the track's sections
+//   to face the camera.
 
 #include <algorithm>
 #include <array>
@@ -31,6 +33,7 @@
 #include <vector>
 
 #include "calspeed.h"
+#include "calspeed_billboards.h"
 #include "texture_upscale.h"
 #include "track2049.h"
 #include "track2049_convert.h"
@@ -695,7 +698,7 @@ namespace {
     }
 
     bool convert(const Bytes& rom, int t, const std::string& prefix, const std::set<std::string>& shared_models,
-                 rush2::calspeed::Converted& out) {
+                 bool billboards, rush2::calspeed::Converted& out) {
         rush2::track2049::ConvertedTrack& track = out.track;
         out.record_models.clear();
         out.piece_models.clear();
@@ -707,6 +710,12 @@ namespace {
         // The track's container and the shared object containers its records draw from.
         std::vector<Bytes> files;
         files.push_back(asset(rom, geometry_asset + t));
+        if (billboards) {
+            rush2::calspeed::BillboardResult turned;
+            rush2::calspeed::add_billboards(t, files[0], track.placement, turned);
+            printf("[CalSpeed] Track %d billboard trees: %s", t, turned.report.c_str());
+            fflush(stdout);
+        }
         for (int a = first_object_asset; a <= last_object_asset; a++) {
             Bytes objects = asset(rom, a);
             std::set<std::string> names = rush2::track2049::model_names(objects);
@@ -775,9 +784,11 @@ namespace {
         return true;
     }
 
-    std::string extras_name(int t, const std::string& prefix) {
-        return "calspeed_track" + std::to_string(t) + "_" + prefix;
+    std::string extras_name(int t, const std::string& prefix, bool billboards) {
+        return "calspeed_track" + std::to_string(t) + "_" + prefix + (billboards ? "_bb" : "");
     }
+    // track_cache keys: the track with its billboard trees is kept apart from it without.
+    constexpr int billboards_k = 200;
 
     std::mutex art_mutex;
     const Bytes* art_rom = nullptr;
@@ -829,15 +840,17 @@ std::string rush2::calspeed::menu_logo_name(int t) {
 }
 
 bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
-                                 const std::set<std::string>& shared_models, Converted& out, std::string& error) {
+                                 const std::set<std::string>& shared_models, bool billboards, Converted& out,
+                                 std::string& error) {
     if (t < 0 || t >= track_count) {
         error = "no such California Speed track";
         return false;
     }
     uint64_t source = rom_source(rom);
     Bytes extras;
-    if (rush2::track_cache::load_2049(calspeed_k + t, prefix, source, out.track) &&
-        rush2::track_cache::load_blob(extras_name(t, prefix), source, extras)) {
+    int k = calspeed_k + t + (billboards ? billboards_k : 0);
+    if (rush2::track_cache::load_2049(k, prefix, source, out.track) &&
+        rush2::track_cache::load_blob(extras_name(t, prefix, billboards), source, extras)) {
         Reader r{ extras };
         out.cloud_scroll = r.word();
         out.sky_parallax = r.word();
@@ -846,19 +859,19 @@ bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const s
         if (r.ok) return true;
     }
     try {
-        convert(rom, t, prefix, shared_models, out);
+        convert(rom, t, prefix, shared_models, billboards, out);
     }
     catch (const ConvertError& e) {
         error = e.message;
         return false;
     }
-    rush2::track_cache::save_2049(calspeed_k + t, prefix, source, out.track);
+    rush2::track_cache::save_2049(k, prefix, source, out.track);
     Writer w;
     w.word(out.cloud_scroll);
     w.word(out.sky_parallax);
     w.map(out.record_models);
     w.map(out.piece_models);
-    rush2::track_cache::save_blob(extras_name(t, prefix), source, w.b);
+    rush2::track_cache::save_blob(extras_name(t, prefix, billboards), source, w.b);
     return true;
 }
 

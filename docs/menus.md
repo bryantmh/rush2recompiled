@@ -120,7 +120,9 @@ loading about 5 s after launch (through the menus it took about 25 s). `tools/te
 hidden and silent from a data folder of its own and reports when it loaded, each player's car type and how far it
 drove; read its docstring for the options.
 
-- `RUSH2_TEST_RACE_CARS=T[,T...]`: one car type per player, 1 to 4 players (split screen). Without it one player, in
+- `RUSH2_TEST_RACE_CARS=T[,T...]`: one car type per player, 1 to 4 players (split screen). View p follows car p
+  (`view_cars` 0x80240380, as online sets them): left unset, view 0 kept another car and split screen's first view
+  watched it from far off. Without it one player, in
   `RUSH2_TEST_CAR`'s car or the Pickup (0). `RUSH2_TEST_RACE_LAPS`, `RUSH2_TEST_RACE_DRONES`: the track select's LAPS
   and DRONES (0x800D5760 +0 and +1, raw counts); otherwise the saved ones. `RUSH2_TEST_RACE_BATTLE=1`: the race
   select's BATTLE row on (not saved; docs/rush2049_research/battle.md section 7.2). `RUSH2_TEST_MANUAL`, `RUSH2_TEST_DEATHS`

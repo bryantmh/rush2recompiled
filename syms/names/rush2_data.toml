@@ -8236,11 +8236,29 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800E7C78
+name = "view_billboard_basis"
+type = "f32[16]"
+desc = "Yaw-only 4x4 rotation for camera-facing cards, written per view by view_billboard_basis_8007BF2C (from view_fog_setup) from the look-at matrix 0x800E7CC8: rows (-b, 0, a), (0, 1, 0), (-a, 0, -b) with (a, b) its +0x8, +0x28 normalized; taken by columns (Mtx row r = its column r, gfx_build_node_matrix_cols_8007B290) it shows a model's -z side to the camera. Read by scene_walk for nodes with flag 0x8000 and by src/interpolation.cpp for the California Speed billboard trees (segment 0x0D)."
+area = "render"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x800E7CB8
 name = "stunt_scoring_out"
 type = "u32"
 desc = "Word written by car_stunt_scoring_update, never read (low confidence)."
 area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800E7CC8
+name = "view_lookat_matrix"
+type = "f32[16]"
+desc = "The current view's camera look-at matrix (4x4, row stride 0x10); +0x8 and +0x28 (column 2's x and z) are the horizontal direction view_billboard_basis_8007BF2C turns cards to."
+area = "render"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 

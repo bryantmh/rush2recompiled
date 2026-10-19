@@ -246,6 +246,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/calspeed/calspeed_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/calspeed/calspeed_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/calspeed/calspeed_logos.cpp
+    ${CMAKE_SOURCE_DIR}/src/calspeed/calspeed_billboards.cpp
     ${CMAKE_SOURCE_DIR}/src/smooth_collision.cpp
     ${CMAKE_SOURCE_DIR}/src/surface_fx.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049.cpp
