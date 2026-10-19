@@ -393,6 +393,11 @@ static void auto_import_rom(int argc, char** argv) {
     if (recomp::is_rom_valid(game_id)) {
         return;
     }
+    // Test aid: RUSH2_TEST_FIRST_BOOT=1 in a simulation run's own data folder (src/sim_run.cpp) leaves the ROM
+    // unimported, so the launcher shows Locate ROM as on a first boot without touching the player's data.
+    if (!rush2::sim::data_dir().empty() && getenv("RUSH2_TEST_FIRST_BOOT") != nullptr) {
+        return;
+    }
 
     std::vector<std::filesystem::path> candidates;
     for (int i = 1; i < argc; i++) {

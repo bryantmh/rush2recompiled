@@ -1,5 +1,5 @@
 diff --git a/recompui/include/recompui/recompui.h b/recompui/include/recompui/recompui.h
-index 30c463b..6761f4d 100644
+index 30c463b..056edff 100644
 --- a/recompui/include/recompui/recompui.h
 +++ b/recompui/include/recompui/recompui.h
 @@ -3,6 +3,9 @@
@@ -12,7 +12,17 @@ index 30c463b..6761f4d 100644
  
  #include "SDL.h"
  #include "RmlUi/Core.h"
-@@ -90,6 +93,23 @@ namespace recompui {
+@@ -48,6 +51,9 @@ namespace recompui {
+ 
+     void queue_event(const SDL_Event& event);
+     bool try_deque_event(SDL_Event& out);
++    // Runs the task on the UI thread, holding the UI lock, at the start of the next UI frame. For work finishing on
++    // another thread (a file picker's result) that has to touch elements.
++    void queue_ui_task(std::function<void()> task);
+ 
+     std::unique_ptr<UiEventListenerInstancer> make_event_listener_instancer();
+     void register_event(UiEventListenerInstancer& listener, const std::string& name, event_handler_t* handler);
+@@ -90,6 +96,23 @@ namespace recompui {
      void close_prompt();
      bool is_prompt_open();
      void update_mod_list(bool scan_mods = true);
@@ -36,7 +46,7 @@ index 30c463b..6761f4d 100644
      void process_game_started();
  
      void apply_color_hack();
-@@ -104,6 +124,10 @@ namespace recompui {
+@@ -104,6 +127,10 @@ namespace recompui {
      void activate_mouse();
  
      void message_box(const char* msg);
@@ -72,10 +82,55 @@ index 33f79ab..3e6423c 100644
          // The first option is treated as disabled and the second option is treated as enabled.
          bool is_texture_pack_enable_config_option(const recomp::config::ConfigOption& option, bool show_errors);
 diff --git a/recompui/src/base/ui_state.cpp b/recompui/src/base/ui_state.cpp
-index 277a421..b347a8c 100644
+index 277a421..4d68b7d 100644
 --- a/recompui/src/base/ui_state.cpp
 +++ b/recompui/src/base/ui_state.cpp
-@@ -710,11 +710,7 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
+@@ -5,6 +5,7 @@
+ #include <SDL2/SDL_video.h>
+ #endif
+ #include <chrono>
++#include <thread>
+ 
+ #include "rt64_render_hooks.h"
+ 
+@@ -527,6 +528,12 @@ bool recompui::try_deque_event(SDL_Event& out) {
+     return ui_event_queue.try_dequeue(out);
+ }
+ 
++moodycamel::ConcurrentQueue<std::function<void()>> ui_task_queue{};
++
++void recompui::queue_ui_task(std::function<void()> task) {
++    ui_task_queue.enqueue(std::move(task));
++}
++
+ recompui::MenuAction recompui::menu_action_mapping::menu_action_from_rml_key(const Rml::Input::KeyIdentifier& key) {
+     auto it = recompui::menu_action_mapping::rml_key_to_action.find(key);
+     if (it != recompui::menu_action_mapping::rml_key_to_action.end()) {
+@@ -646,7 +653,11 @@ void recompui::activate_mouse() {
+     ui_state->update_focus(true, false);
+ }
+ 
++// The thread draw_hook runs on, which holds ui_state_mutex while it handles input and runs UI tasks (message_box).
++static thread_local bool on_ui_thread = false;
++
+ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer* swap_chain_framebuffer) {
++    on_ui_thread = true;
+ 
+     apply_background_input_mode();
+ 
+@@ -662,6 +673,11 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
+ 
+     std::lock_guard lock{ ui_state_mutex };
+ 
++    std::function<void()> ui_task;
++    while (ui_task_queue.try_dequeue(ui_task)) {
++        ui_task();
++    }
++
+     SDL_Event cur_event{};
+ 
+     bool mouse_moved = false;
+@@ -710,11 +726,7 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
                  }
                  last_mouse_pos[0] = cur_event.motion.x;
                  last_mouse_pos[1] = cur_event.motion.y;
@@ -88,6 +143,29 @@ index 277a421..b347a8c 100644
              }
              // fallthrough
              case SDL_EventType::SDL_MOUSEBUTTONDOWN:
+@@ -904,8 +916,21 @@ void recompui::set_render_hooks() {
+ }
+ 
+ void recompui::message_box(const char* msg) {
+-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, recompui::programconfig::get_program_name().data(), msg, nullptr);
+     printf("[ERROR] %s\n", msg);
++    fflush(stdout);
++#ifndef __APPLE__
++    if (on_ui_thread) {
++        // The UI thread holds ui_state_mutex, which the main thread's event handling waits on, so blocking here left the
++        // game window not responding and the box free to sit behind it (a wrong file picked at Locate ROM). Shown from
++        // its own thread instead, owned by the game window so it stays in front and the game waits for it.
++        std::thread([text = std::string{ msg }]() {
++            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, recompui::programconfig::get_program_name().data(), text.c_str(), window);
++        }).detach();
++        return;
++    }
++#endif
++    // Other threads block until it's closed: some callers quit the game right after it.
++    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, recompui::programconfig::get_program_name().data(), msg, nullptr);
+ }
+ 
+ void recompui::show_context(ContextId context, std::string_view param) {
 diff --git a/recompui/src/composites/ui_mod_details_panel.cpp b/recompui/src/composites/ui_mod_details_panel.cpp
 index 88291e2..38daf7e 100644
 --- a/recompui/src/composites/ui_mod_details_panel.cpp
@@ -858,3 +936,221 @@ index a7954c7..a3edb30 100644
  void renderer::secondary_disable_texture_pack(const std::string& mod_id) {
      texture_pack_action_queue.enqueue(TexturePackSecondaryDisableAction{mod_id});
  }
+diff --git a/recompui/src/util/file.cpp b/recompui/src/util/file.cpp
+index 7ee84ed..ffb696b 100644
+--- a/recompui/src/util/file.cpp
++++ b/recompui/src/util/file.cpp
+@@ -12,6 +12,18 @@
+ 
+ #if defined(_WIN32)
+ #include <Shlobj.h>
++#include <shobjidl.h>
++#include <commdlg.h>
++#include <SDL_syswm.h>
++#include <atomic>
++#include <thread>
++#include <vector>
++#pragma comment(lib, "comdlg32.lib")
++#pragma comment(lib, "ole32.lib")
++#include "recompui/recompui.h"
++
++// TODO make this not be global
++extern SDL_Window* window;
+ #elif defined(__linux__)
+ #include <unistd.h>
+ #include <pwd.h>
+@@ -20,6 +32,172 @@
+ #endif
+ 
+ namespace recompui {
++#if defined(_WIN32)
++    // The Windows file picker. NFD's opened on the UI thread, which is RT64's render thread: that thread never set up
++    // COM, so the picker only worked when some other thread happened to have made a multithreaded apartment (a
++    // DualSense's haptics, an overlay, an audio driver) and otherwise silently didn't open, and with no owner it could
++    // open behind the game. Here it runs on its own thread with its own COM apartment, owned by the game window so it
++    // stays in front of it (fullscreen too), without stalling the UI. If the modern picker can't open, the older one is
++    // tried, then both without an owner, and if none opens the player is told why instead of nothing happening. The
++    // result goes back to the UI thread (queue_ui_task), as the callbacks touch elements.
++    namespace {
++        enum class PickResult { Picked, Cancelled, Failed };
++
++        std::atomic_bool picker_open = false;
++
++        HWND game_window() {
++            if (window == nullptr) {
++                return nullptr;
++            }
++            SDL_SysWMinfo info;
++            SDL_VERSION(&info.version);
++            if (!SDL_GetWindowWMInfo(window, &info) || info.subsystem != SDL_SYSWM_WINDOWS) {
++                return nullptr;
++            }
++            return info.info.win.window;
++        }
++
++        PickResult pick_modern(HWND owner, bool multiple, std::vector<std::filesystem::path>& paths, HRESULT& error) {
++            IFileOpenDialog* dialog = nullptr;
++            error = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
++            if (FAILED(error)) {
++                return PickResult::Failed;
++            }
++            FILEOPENDIALOGOPTIONS options = 0;
++            dialog->GetOptions(&options);
++            options |= FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR;
++            if (multiple) {
++                options |= FOS_ALLOWMULTISELECT;
++            }
++            dialog->SetOptions(options);
++
++            PickResult result = PickResult::Failed;
++            error = dialog->Show(owner);
++            if (error == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
++                result = PickResult::Cancelled;
++            }
++            else if (SUCCEEDED(error)) {
++                // The picker was shown and closed with a choice: never fall back to showing another one after this.
++                result = PickResult::Cancelled;
++                IShellItemArray* items = nullptr;
++                if (SUCCEEDED(dialog->GetResults(&items))) {
++                    DWORD count = 0;
++                    items->GetCount(&count);
++                    for (DWORD i = 0; i < count; i++) {
++                        IShellItem* item = nullptr;
++                        if (FAILED(items->GetItemAt(i, &item))) {
++                            continue;
++                        }
++                        PWSTR path = nullptr;
++                        if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
++                            paths.emplace_back(path);
++                            CoTaskMemFree(path);
++                        }
++                        item->Release();
++                    }
++                    items->Release();
++                }
++                if (!paths.empty()) {
++                    result = PickResult::Picked;
++                }
++            }
++            dialog->Release();
++            return result;
++        }
++
++        PickResult pick_legacy(HWND owner, bool multiple, std::vector<std::filesystem::path>& paths, HRESULT& error) {
++            std::vector<wchar_t> buffer(1 << 16, L'\0');
++            OPENFILENAMEW ofn{};
++            ofn.lStructSize = sizeof(ofn);
++            ofn.hwndOwner = owner;
++            ofn.lpstrFilter = L"All Files\0*.*\0";
++            ofn.lpstrFile = buffer.data();
++            ofn.nMaxFile = (DWORD)buffer.size();
++            ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | (multiple ? OFN_ALLOWMULTISELECT : 0);
++            if (!GetOpenFileNameW(&ofn)) {
++                DWORD code = CommDlgExtendedError();
++                error = code;
++                return code == 0 ? PickResult::Cancelled : PickResult::Failed;
++            }
++            // One file: its full path. Several: the folder, then each name, each ending in a null, then another null.
++            std::wstring first = buffer.data();
++            const wchar_t* next = buffer.data() + first.size() + 1;
++            if (*next == L'\0') {
++                paths.emplace_back(first);
++            }
++            while (*next != L'\0') {
++                std::wstring name = next;
++                paths.emplace_back(std::filesystem::path{ first } / name);
++                next += name.size() + 1;
++            }
++            return paths.empty() ? PickResult::Cancelled : PickResult::Picked;
++        }
++
++        void pick_files(bool multiple, std::function<void(bool, std::vector<std::filesystem::path>)> done) {
++            HWND owner = game_window();
++            if (picker_open.exchange(true)) {
++                printf("[file picker] Already open, bringing it to the front\n");
++                // Already open (a controller can still press the button while the window is disabled): bring it up.
++                if (owner != nullptr) {
++                    HWND popup = GetWindow(owner, GW_ENABLEDPOPUP);
++                    if (popup != nullptr && popup != owner) {
++                        SetForegroundWindow(popup);
++                    }
++                }
++                return;
++            }
++
++            std::thread([owner, multiple, done = std::move(done)]() {
++                HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
++                printf("[file picker] Opening (COM 0x%08lX, %s)\n", (unsigned long)com, owner != nullptr ? "owned by the game window" : "no game window");
++                fflush(stdout);
++
++                std::vector<std::filesystem::path> paths;
++                PickResult result = PickResult::Failed;
++                HRESULT error = S_OK;
++                HRESULT first_error = S_OK;
++                for (HWND try_owner : { owner, (HWND)nullptr }) {
++                    for (auto pick : { pick_modern, pick_legacy }) {
++                        if (result == PickResult::Failed) {
++                            paths.clear();
++                            result = pick(try_owner, multiple, paths, error);
++                            if (result == PickResult::Failed) {
++                                printf("[file picker] %s picker%s failed: 0x%08lX\n", pick == pick_modern ? "Modern" : "Legacy",
++                                    try_owner != nullptr ? " owned by the game window" : "", (unsigned long)error);
++                                if (first_error == S_OK) {
++                                    first_error = error;
++                                }
++                            }
++                        }
++                    }
++                    if (owner == nullptr) {
++                        break;
++                    }
++                }
++
++                if (SUCCEEDED(com)) {
++                    CoUninitialize();
++                }
++                picker_open = false;
++                printf("[file picker] %s\n", result == PickResult::Picked ? "Picked" : result == PickResult::Cancelled ? "Cancelled" : "Couldn't open");
++                fflush(stdout);
++
++                if (result == PickResult::Failed) {
++                    char message[256];
++                    snprintf(message, sizeof(message),
++                        "Windows couldn't open the file picker (error 0x%08lX).\n"
++                        "Please try again, or restart the game if it keeps happening.", (unsigned long)first_error);
++                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "File picker", message, window);
++                }
++                bool success = result == PickResult::Picked;
++                recompui::queue_ui_task([done, success, paths = std::move(paths)]() mutable {
++                    done(success, std::move(paths));
++                });
++            }).detach();
++        }
++    }
++#endif
++
+     static void perform_file_dialog_operation(const std::function<void(bool, const std::filesystem::path&)>& callback) {
+         nfdnchar_t* native_path = nullptr;
+         nfdresult_t result = NFD_OpenDialogN(&native_path, nullptr, 0, nullptr);
+@@ -133,6 +311,10 @@ namespace recompui {
+         file::apple::dispatch_on_ui_thread([callback]() {
+             perform_file_dialog_operation(callback);
+         });
++#elif defined(_WIN32)
++        pick_files(false, [callback](bool success, std::vector<std::filesystem::path> paths) {
++            callback(success, success ? paths.front() : std::filesystem::path{});
++        });
+ #else
+         perform_file_dialog_operation(callback);
+ #endif
+@@ -143,6 +325,10 @@ namespace recompui {
+         file::apple::dispatch_on_ui_thread([callback]() {
+             perform_file_dialog_operation_multiple(callback);
+         });
++#elif defined(_WIN32)
++        pick_files(true, [callback](bool success, std::vector<std::filesystem::path> paths) {
++            callback(success, std::list<std::filesystem::path>(paths.begin(), paths.end()));
++        });
+ #else
+         perform_file_dialog_operation_multiple(callback);
+ #endif
