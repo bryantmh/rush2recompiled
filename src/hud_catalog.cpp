@@ -209,8 +209,10 @@ namespace rush2::hud_catalog {
                 case 0x800BA868: {  // hud_widget_cb_lap_banner_800BA868: WRONG WAY and its three arrows
                     p.role = Role::Message;
                     // At (88, 50) (player 2 and up: 160), the arrows under it at x 160 - 16 k, 16 lower, blinking. With
-                    // one player it slides away from 3 s to 3.5 s after it shows, in a straight line, to (22, 192), the
-                    // arrows to x 60 - 16 k (142 lower); with more it hides at 3 s. One element: they move together.
+                    // one player it slides away from 3 s to 3.5 s after it shows, in a straight line, to (22, 180), the
+                    // arrows to x 60 - 16 k (130 lower: the game's 142 is patched in us.toml so the arrows sit 12 above
+                    // the bottom, as far as they are from the left, instead of on its last row); with more it hides at
+                    // 3 s. One element: they move together.
                     int k = (int)sub;
                     int base_y = second ? 160 : 50;
                     int x = k == 0 ? 88 : 160 - 16 * k;
@@ -219,7 +221,7 @@ namespace rush2::hud_catalog {
                     p.reach = p.at;
                     if (v.players < 2) {
                         int x1 = k == 0 ? 22 : 60 - 16 * k;
-                        p.end = p.at.moved(x1 - x, 142);
+                        p.end = p.at.moved(x1 - x, 130);
                         p.reach.add(p.end);
                     }
                     p.group = message_wrong_way;

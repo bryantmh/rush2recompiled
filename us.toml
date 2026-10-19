@@ -12669,6 +12669,26 @@ value = 0x90420760 # lbu $v0, 0x39B8($v0) -> 80240760
 
 [[patches.instruction]]
 func = "hud_widget_cb_lap_banner_800BA868"
+vram = 0x800BAB68
+value = 0x3C014302 # lui $at, 0x430E (142.0) -> 130.0: WRONG WAY slides 130 down, its arrows 12 px above the bottom like the left (docs/hud_layout.md#sliding-elements)
+
+[[patches.instruction]]
+func = "hud_widget_cb_lap_banner_800BA868"
+vram = 0x800BAB6C
+value = 0x3C014302 # lui $at, 0x430E -> 130.0
+
+[[patches.instruction]]
+func = "hud_widget_cb_lap_banner_800BA868"
+vram = 0x800BAC90
+value = 0x3C014302 # lui $at, 0x430E -> 130.0
+
+[[patches.instruction]]
+func = "hud_widget_cb_lap_banner_800BA868"
+vram = 0x800BACC4
+value = 0x3C014302 # lui $at, 0x430E -> 130.0
+
+[[patches.instruction]]
+func = "hud_widget_cb_lap_banner_800BA868"
 vram = 0x800BA8C4
 value = 0x3C0B8024 # lui -> 8024
 

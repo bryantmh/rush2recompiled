@@ -165,8 +165,11 @@ WRONG WAY (`hud_widget_cb_lap_banner_800BA868`) moves. It shows at (88,50) (play
 three arrows under it at x 160 - 16k, 16 lower, blinking (alpha 0x60 / 0xFF by the time since it showed: (t mod
 350) / 50 against the arrow's index). With one player, from 3 s to 3.5 s after it shows it slides in a straight
 line to (22,192), the arrows to x 60 - 16k, 142 lower (`f = (t - 3000) / 500`, x = start + f (end - start), y =
-start + 142 f); with two or more players (`race_player_count_8010C3E2` >= 2, read at 0x800BAB00) it hides at 3 s instead: Rush
-2's own behavior, which the recomp keeps. Its parts carry the slide's end (`Part::end`).
+start + 142 f). That put the arrows on the screen's last rows (208-239), past the game's 2D clip inset at 230, which
+cut off their lower tips (a CRT's overscan hid them); the recomp patches the 142.0 (`lui $at, 0x430E` at 0x800BAB68,
+0x800BAB6C, 0x800BAC90, 0x800BACC4, in us.toml) to 130.0, so the slide ends at (22,180) with the arrows 12 above the
+bottom, as far as they are from the left edge. With two or more players (`race_player_count_8010C3E2` >= 2, read
+at 0x800BAB00) it hides at 3 s instead: Rush 2's own behavior, which the recomp keeps. Its parts carry the slide's end (`Part::end`).
 
 The text and its arrows are one element, so they always move together. With one view the group is anchored by the
 screen third it's in at each end of the slide (`Element::origin`, `origin_end`: the middle at the start, the left
@@ -232,7 +235,7 @@ What each callback does with its entry was read from its code; each part's `note
 | 0x800B94C0 | time left: COUNTDOWNBG, DIGIT0 16 x 17 cells | (250,14), shared; hidden while 0x8010C3F2 is 0 and by No Race Timer (0x800D9E88) outside a battle |
 | 0x800BA608 | position: COUNTDOWNBG, DIGIT1 / DIGIT0 cells | (250,37) / (250,205) |
 | 0x800B92F4 | gear: GEAR dim; the lit gear (parameter bit 12) a 32 x 6 row at y + 6 x gear | (212,14) / (212,195); hidden while `hud_show_gear_8010C44A` is 0 (read at 0x800B938C), gone for good when the car's +0x3D8 is set (automatic) |
-| 0x800BA868 | WRONG WAY, HUDARROW k = 1-3 | WRONGWAY (88,50), player 2 on (88,160); arrows (160 - 16k, base + 16). One player: after 3 s it slides to (22,192), the arrows to x 60 - 16k, 142 lower. The table's positions are never used |
+| 0x800BA868 | WRONG WAY, HUDARROW k = 1-3 | WRONGWAY (88,50), player 2 on (88,160); arrows (160 - 16k, base + 16). One player: after 3 s it slides to (22,192), the arrows to x 60 - 16k, 142 lower (patched to 130: (22,180)). The table's positions are never used |
 | 0x800B9C44 | CROSSBONES (the DEATHS option `race_deaths_8010BC98`) | x 80 with the time shown, else 12; y 10 / 120; shown while the option is on and player < players |
 | 0x800B9CC0 | IT badge: ITBG (82,11), IT (86,15), +110 for player 2 | shown when `race_type_8010C3E8` is 2, `race_game_mode_800FAE6C` is 0, `race_mode_option_8010C169` is set and the player's record +0x21 (0x800C2161 + player x 40) is set; a battle hides it (`rush2_battle_hide_stunt_panel`, 0x800B9D2C) |
 | 0x80060F24 | bonus time: BONUSTIME4 and its box | (96,160) and (0x64,0x9B)-(0xDC,0xB5); both 50 higher with 2 or more players |
