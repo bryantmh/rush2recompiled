@@ -197,6 +197,19 @@ effect from the next race.
   road to 4,000 ft behind spine 0 (`SCNXCUTnn`, one model a 1,000 ft, no collision): each band takes its texture
   state, coordinates and rate along the strip from the authored end triangle holding both its column vertices (the
   strip wraps its texture per triangle), so the two share the column's edges.
+  Each faces the road by rule: the game culls the side a triangle's cross product points to (Rush 2's world turns x
+  the other way), so that product points away from the road. Taken from the strip's own triangles, the - side's
+  summed the wrong way and was never drawn.
+  Land runs from the drawn ground out to each cutout's bottom row (`SCNXLANDnn`, no collision). Stock Mojave's ground
+  ends 440 to 690 ft out, well short of the cutouts; from the start's straight their feet sit under the ground's
+  skyline, but from the road behind the cut (down to 100 ft lower) the sky showed under them. Every 25 ft along a
+  cutout, a plane across the road through everything drawn (stock and swept, not the cutouts) gives the ground's outer
+  edge: from the piece nearest the road, out through pieces starting within 2 ft and 3 ft up or down of the edge so
+  far. The land joins that edge, tucked 3 ft in and 1 ft under it so the two never part, to the bottom row exactly.
+  One texture a side, the ground state found most often at the edge (each plane's own put road-shoulder strips and
+  striped slopes in it), at its median rate across the ground (short pieces across a texture wrap read many times
+  it), running up the land's slope from the foot. Where the sweep's ground reaches past a cutout's line (the + side
+  past 1,000 ft back, the road bending toward it, behind the crest) there is no land.
   Past the sweep's end they go on straight for 4,000 ft (`SCNXRUNONnn`, one model a 1,000 ft for the s16 vertices'
   2,047 ft reach): the crest hides the road's end, but not the end of a 300 ft wall. They stand behind the corridor's
   own walls and have no collision.

@@ -1759,6 +1759,9 @@ namespace {
         // that edge's height at the cut, full height 600 ft back (a wall standing at the cut, or carried ahead of it,
         // had an open end beside authored land that has nothing there, and the sky showed around it). Behind the
         // corridor's own walls: no collision.
+        // Mojave's cutouts' bottom rows (a point of it, its along where the strip ends, its side), for the land under them.
+        struct CutFoot { V3 p; double from; double sg; int state; double st[2]; uint8_t c[4]; };
+        std::vector<CutFoot> cut_feet;
         if (t == 11) {
             struct Side { double plane; double sign; };
             int added = 0, outer = 0;
@@ -2063,12 +2066,11 @@ namespace {
                     r.rate[axis] = low_rate[axis] + (high_rate[axis] - low_rate[axis]) * u;
                     rows.push_back(r);
                 }
-                // The strip's face toward the road (its triangles' facing near the end).
-                V3 face{ 0, 0, 0 };
-                for (const auto& fi : faces) {
-                    if (along(verts[size_t(fi[0])].p) > nearest + 300) continue;
-                    face = add(face, cross(sub(verts[size_t(fi[1])].p, verts[size_t(fi[0])].p), sub(verts[size_t(fi[2])].p, verts[size_t(fi[0])].p)));
-                }
+                // It faces the road. The game culls the side the cross product points to (Rush 2's world turns x the
+                // other way), so that product points away from the road (the - side's strip, summed from its own
+                // triangles, came out the other way and was never drawn).
+                double side = across(rows[0].v.p) > 0 ? 1 : -1;
+                V3 face = mul(n, side);
                 // Each pair of rows takes its texture coordinates from the authored end triangle holding both its
                 // vertices (the strip wraps its texture per triangle: a vertex's coordinates differ between the
                 // triangles sharing it), and one rate along the strip: the top edge's (the skyline's scale).
@@ -2102,6 +2104,11 @@ namespace {
                         }
                         break;
                     }
+                }
+                {
+                    CutFoot cf{ rows[0].v.p, along(rows[0].v.p), side, seg_state[0], { seg_st[0][0][0], seg_st[0][0][1] }, {} };
+                    for (int x = 0; x < 4; x++) cf.c[x] = rows[0].v.c[x];
+                    cut_feet.push_back(cf);
                 }
                 V3 back = mul(f, -1);
                 double from = nearest, to = -4000;
@@ -2626,6 +2633,200 @@ namespace {
                 m.origin = { std::round((lo[0] + hi[0]) / 2), std::round((lo[1] + hi[1]) / 2), std::round((lo[2] + hi[2]) / 2) };
                 models.push_back(std::move(m));
             }
+        }
+
+        // Mojave's land out to its cutouts: the ground (authored or swept) ends 440 to 690 ft out and the cutouts stand
+        // 1,030 and 1,550 ft out; from the start's straight their feet sit under the ground's skyline, but from the road
+        // behind the cut, 100 ft lower, the sky showed under them. Every 25 ft along each cutout, the drawn ground's
+        // outer edge on a plane across the road (walking out from the road through ground pieces that touch) is joined
+        // by land to the cutout's bottom row; the land's inner edge tucks 3 ft in and 1 ft under the ground so the
+        // two never part. Its texture is the edge's, laid flat at the ground's scale. One model a 1,000 ft
+        // (`SCNXLANDnn`), no collision (out of reach).
+        if (!cut_feet.empty()) {
+            struct Seg { double l0, y0, l1, y1; int state; double st0[2], st1[2]; uint8_t c[4]; };
+            struct Flat { V3 p[3]; double st[3][2]; uint8_t c[4]; int state; };
+            std::vector<Flat> flats;
+            auto add_flat = [&](const V3* p, const double (*st)[2], const uint8_t* c, int state) {
+                V3 tn = cross(sub(p[1], p[0]), sub(p[2], p[0]));
+                double tl = std::sqrt(dot(tn, tn));
+                if (tl < 1e-6 || std::fabs(tn[1] / tl) < 0.2) return;   // walls and cards
+                Flat fl;
+                for (int k = 0; k < 3; k++) { fl.p[k] = p[k]; fl.st[k][0] = st[k][0]; fl.st[k][1] = st[k][1]; }
+                for (int x = 0; x < 4; x++) fl.c[x] = c[x];
+                fl.state = state;
+                flats.push_back(fl);
+            };
+            for (const Tri& tr : scene.tris) {
+                V3 p[3] = { tr.v[0].p, tr.v[1].p, tr.v[2].p };
+                double st[3][2] = { { tr.v[0].st[0], tr.v[0].st[1] }, { tr.v[1].st[0], tr.v[1].st[1] }, { tr.v[2].st[0], tr.v[2].st[1] } };
+                add_flat(p, st, tr.v[0].c, tr.state);
+            }
+            for (const NewModel& m : models) {
+                if (m.name.rfind("SCNXCUT", 0) == 0) continue;
+                for (const OutQuad& q : m.quads) {
+                    if (q.state < 0) continue;
+                    for (int t0 = 0; t0 < q.count - 2; t0++) {
+                        int ix[3] = { 0, t0 + 1, t0 + 2 };
+                        V3 p[3];
+                        double st[3][2];
+                        for (int k = 0; k < 3; k++) { p[k] = q.v[ix[k]].p; st[k][0] = q.v[ix[k]].st[0]; st[k][1] = q.v[ix[k]].st[1]; }
+                        add_flat(p, st, q.v[0].c, q.state);
+                    }
+                }
+            }
+            int land_models = 0, land_quads = 0;
+            for (const CutFoot& cf : cut_feet) {
+                double foot_l = cf.sg * across(cf.p);
+                // The ground's outer edge on the plane at along `a`: from the road out through touching pieces.
+                struct Edge { bool ok = false; double l, y, st[2], rate; uint8_t c[4]; int state; };
+                auto edge_at = [&](double a) {
+                    std::vector<Seg> segs;
+                    for (const Flat& fl : flats) {
+                        double d[3];
+                        for (int k = 0; k < 3; k++) d[k] = along(fl.p[k]) - a;
+                        if ((d[0] > 0 && d[1] > 0 && d[2] > 0) || (d[0] < 0 && d[1] < 0 && d[2] < 0)) continue;
+                        double pl[2], py[2], pst[2][2];
+                        int got = 0;
+                        for (int k = 0; k < 3 && got < 2; k++) {
+                            int j = (k + 1) % 3;
+                            if ((d[k] < 0) == (d[j] < 0)) continue;
+                            double u = d[k] / (d[k] - d[j]);
+                            V3 p = add(fl.p[k], mul(sub(fl.p[j], fl.p[k]), u));
+                            pl[got] = cf.sg * across(p);
+                            py[got] = p[1];
+                            for (int x = 0; x < 2; x++) pst[got][x] = fl.st[k][x] + (fl.st[j][x] - fl.st[k][x]) * u;
+                            got++;
+                        }
+                        if (got < 2) continue;
+                        if (std::max(pl[0], pl[1]) < 0 || std::max(pl[0], pl[1]) > foot_l - 20) continue;
+                        int i0 = pl[0] <= pl[1] ? 0 : 1, i1 = 1 - i0;
+                        Seg sg{ pl[i0], py[i0], pl[i1], py[i1], fl.state, { pst[i0][0], pst[i0][1] }, { pst[i1][0], pst[i1][1] }, {} };
+                        for (int x = 0; x < 4; x++) sg.c[x] = fl.c[x];
+                        segs.push_back(sg);
+                    }
+                    Edge e;
+                    if (segs.empty()) return e;
+                    // Start on the piece nearest the road, then each step to a piece starting within 2 ft (and 3 ft
+                    // up or down) of the edge so far that reaches further out.
+                    const Seg* at = &segs[0];
+                    for (const Seg& sg : segs) if (sg.l0 < at->l0) at = &sg;
+                    for (bool grew = true; grew;) {
+                        grew = false;
+                        const Seg* next = nullptr;
+                        for (const Seg& sg : segs) {
+                            if (sg.l1 <= at->l1 + 0.1) continue;
+                            if (sg.l0 > at->l1 + 2) continue;
+                            // its height where the edge so far ends
+                            double y = sg.l1 - sg.l0 > 0.01 ? sg.y0 + (sg.y1 - sg.y0) * std::clamp((at->l1 - sg.l0) / (sg.l1 - sg.l0), 0.0, 1.0) : sg.y0;
+                            if (std::fabs(y - at->y1) > 3) continue;
+                            if (!next || sg.l1 > next->l1) next = &sg;
+                        }
+                        if (next) { at = next; grew = true; }
+                    }
+                    e.ok = true;
+                    e.l = at->l1;
+                    e.y = at->y1;
+                    e.state = at->state;
+                    for (int x = 0; x < 4; x++) e.c[x] = at->c[x];
+                    double len = std::max(0.5, std::hypot(at->l1 - at->l0, at->y1 - at->y0));
+                    e.rate = std::max(std::fabs(at->st1[0] - at->st0[0]), std::fabs(at->st1[1] - at->st0[1])) / len;
+                    return e;
+                };
+                double from = cf.from, to = -4000;
+                // One texture for the side's land: the ground state found most often at its edge (taking each plane's
+                // own put road-shoulder strips and striped slopes in it), at that state's rate across the ground.
+                std::vector<Edge> edges;
+                for (double a = from; a > to - 0.01; a -= 25) edges.push_back(edge_at(std::max(a, to)));
+                std::map<int, int> votes;
+                for (const Edge& e : edges) if (e.ok) votes[e.state]++;
+                int land_state = -1;
+                for (const auto& [st, count] : votes) if (land_state < 0 || count > votes[land_state]) land_state = st;
+                // (the median: a short piece across a texture wrap gives a rate many times the ground's)
+                std::vector<double> rates;
+                for (const Edge& e : edges) if (e.ok && e.state == land_state && e.rate > 0) rates.push_back(e.rate);
+                double rate = 0;
+                if (!rates.empty()) {
+                    std::nth_element(rates.begin(), rates.begin() + rates.size() / 2, rates.end());
+                    rate = rates[rates.size() / 2];
+                }
+                if (getenv("SCENERY_PIECES")) {
+                    char pl[120];
+                    snprintf(pl, sizeof(pl), "  land %+.0f side: state %d, %.1f a ft, %zu of %zu planes with an edge\n", cf.sg, land_state, rate,
+                             rates.size(), edges.size());
+                    report += pl;
+                }
+                size_t edge_i = 0;
+                Edge prev = edges[edge_i++];
+                double prev_a = from;
+                for (int piece = 0; from > to; piece++) {
+                    double step_end = std::max(to, from - 1000);
+                    NewModel m;
+                    char name[16];
+                    snprintf(name, sizeof(name), "SCNXLAND%02d", land_models++);
+                    m.name = name;
+                    V3 lo{ 1e30, 1e30, 1e30 }, hi{ -1e30, -1e30, -1e30 };
+                    for (double a = from - 25; a > step_end - 0.01; a -= 25) {
+                        double a1 = std::max(a, step_end);
+                        Edge cur = edge_i < edges.size() ? edges[edge_i++] : edge_at(a1);
+                        if (prev.ok && cur.ok && rate > 0) {
+                            auto vtx = [&](double av, double l, double y, const Edge& e) {
+                                OutVtx o;
+                                o.p = add(add(s0, mul(f, av)), mul(n, cf.sg * l));
+                                o.p[1] = y;
+                                o.st[0] = int32_t(std::lround(dot(sub(o.p, s0), f) * rate));
+                                o.st[1] = int32_t(std::lround(dot(sub(o.p, s0), n) * rate));
+                                for (int x = 0; x < 4; x++) o.c[x] = e.c[x];
+                                return o;
+                            };
+                            // On the cutout's bottom row exactly (its vertices: the column's, moved back along -f).
+                            auto foot = [&](double av, const Edge& e) {
+                                OutVtx o = vtx(av, foot_l, 0, e);
+                                o.p = add(cf.p, mul(f, av - along(cf.p)));
+                                o.st[0] = int32_t(std::lround(dot(sub(o.p, s0), f) * rate));
+                                o.st[1] = int32_t(std::lround(dot(sub(o.p, s0), n) * rate));
+                                return o;
+                            };
+                            OutQuad q;
+                            q.state = land_state;
+                            q.bare = true;
+                            q.v[0] = vtx(prev_a, prev.l - 3, prev.y - 1, prev);
+                            q.v[1] = foot(prev_a, prev);
+                            q.v[2] = foot(a1, cur);
+                            q.v[3] = vtx(a1, cur.l - 3, cur.y - 1, cur);
+                            // Across, the texture runs up the land's own slope from the foot (laid flat it streaked
+                            // where the land climbs from the swept ground 100 ft under the cutout's foot).
+                            for (int k : { 0, 3 }) {
+                                const OutVtx& ft = q.v[k == 0 ? 1 : 2];
+                                V3 d = sub(q.v[k].p, ft.p);
+                                q.v[k].st[1] = int32_t(std::lround(ft.st[1] - std::sqrt(dot(d, d)) * rate));
+                            }
+                            V3 qn = cross(sub(q.v[2].p, q.v[0].p), sub(q.v[3].p, q.v[1].p));
+                            if (qn[1] > 0) { std::swap(q.v[0], q.v[1]); std::swap(q.v[2], q.v[3]); }   // seen from above
+                            const State& st = scene.states[size_t(q.state)];
+                            for (int x = 0; x < 2; x++) {
+                                double per = st.period[x];
+                                if (per <= 0) continue;
+                                int32_t lo_st = std::min({ q.v[0].st[x], q.v[1].st[x], q.v[2].st[x], q.v[3].st[x] });
+                                int32_t shift = int32_t(std::floor(lo_st / per) * per);
+                                for (int k = 0; k < 4; k++) q.v[k].st[x] -= shift;
+                            }
+                            for (int k = 0; k < 4; k++) for (int x = 0; x < 3; x++) { lo[x] = std::min(lo[x], q.v[k].p[x]); hi[x] = std::max(hi[x], q.v[k].p[x]); }
+                            m.quads.push_back(q);
+                            land_quads++;
+                        }
+                        prev = cur;
+                        prev_a = a1;
+                    }
+                    if (!m.quads.empty()) {
+                        m.origin = { std::round((lo[0] + hi[0]) / 2), std::round((lo[1] + hi[1]) / 2), std::round((lo[2] + hi[2]) / 2) };
+                        models.push_back(std::move(m));
+                    }
+                    from = step_end;
+                }
+            }
+            char line[120];
+            snprintf(line, sizeof(line), "start: land out to the cutouts: %d quads\n", land_quads);
+            report += line;
         }
 
         // Trees: the upright cards beside the road (tree and bush cards, which face along the road and so aren't swept)
