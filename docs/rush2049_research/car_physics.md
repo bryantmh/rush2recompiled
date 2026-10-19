@@ -15,7 +15,7 @@ Off-road tires' extra road drag (+0x5A8, func_8006AFD8) is not simulated, so SUV
 | Car Speeds = Rush 2 (default) | 2049 cars: torque x 0.827 / 0.837 / 0.857 (gears 1 / 2 / 3+), gear ratios x 0.909 (R) / 0.908 / 0.896 / 0.884 / 0.869 (`build_physics`). Rush 2 cars unchanged. AI lanes on 2049 tracks / 1.2. |
 | Car Speeds = Rush 2049 | 2049 cars: 2049's torque scale and gears. Rush 2 and SF Rush cars: the inverse factors (torque / 0.827.., gears / 0.908..), applied per race car at init (`rush2_car49_setup_desc`). Other AI lanes x 1.2; speedometer x 1.2. |
 | Rush 2049 Cars | None: only adds the 13 cars to the car select. |
-| Rush 2049 Computer Cars | None: only which cars the AI drives. |
+| Rush 2049 Drones | None: only which cars the AI drives. |
 
 In both modes the 2049 cars keep Rush 2's STANDARD torque map, Rush 2's steering and the other §3 differences, so
 Car Speeds = Rush 2049 brings them to 2049's top speed (158 mph) but leaves 0-60 about 0.2 s slower than native. The

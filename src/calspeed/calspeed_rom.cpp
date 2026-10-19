@@ -940,7 +940,7 @@ void rush2::calspeed::init_config() {
     recomp::config::Config& config = rush2::wings::games_config();
     config.add_bool_option(
         tracks_option_id,
-        "California Speed Tracks",
+        "CS Tracks",
         "Adds the sixteen tracks of California Speed to the track select, after the custom tracks. Its point-to-point "
         "courses are raced over one lap. Requires a California Speed (USA) ROM.",
         true
@@ -951,7 +951,7 @@ void rush2::calspeed::init_config() {
         });
     config.add_bool_option(
         cars_option_id,
-        "California Speed Cars",
+        "CS Cars",
         "Adds the twenty-one cars of California Speed to the car select, after the other cars, for players and the "
         "computer cars. Takes effect the next time the car select opens. Requires a California Speed (USA) ROM.",
         true
@@ -963,17 +963,17 @@ void rush2::calspeed::init_config() {
         });
     config.add_enum_option(
         drones_option_id,
-        "California Speed Computer Cars",
-        "Sets where the computer cars drive California Speed cars (with California Speed Cars on). "
+        "CS Drones",
+        "Sets where the computer cars drive California Speed cars (with CS Cars on). "
         "<recomp-color primary>All Tracks</recomp-color> adds California Speed's cars to the computer cars' picks on "
         "every track. "
-        "<recomp-color primary>California Speed Tracks</recomp-color> races only California Speed cars on the "
+        "<recomp-color primary>CS Tracks</recomp-color> races only California Speed cars on the "
         "California Speed tracks. "
         "<recomp-color primary>Off</recomp-color> keeps them out of the computer cars; players can still pick them. "
         "Requires a California Speed (USA) ROM.",
         {
             { rush2::car2049::DroneCars::AllTracks, "AllTracks", "All Tracks" },
-            { rush2::car2049::DroneCars::Rush2049Tracks, "CalSpeedTracks", "California Speed Tracks" },
+            { rush2::car2049::DroneCars::Rush2049Tracks, "CalSpeedTracks", "CS Tracks" },
             { rush2::car2049::DroneCars::Off, "Off", "Off" },
         },
         rush2::car2049::DroneCars::AllTracks
@@ -984,7 +984,7 @@ void rush2::calspeed::init_config() {
         });
     config.add_bool_option(
         road_hold_option_id,
-        "California Speed Road Hold",
+        "CS Road Hold",
         "Keeps cars on California Speed's hills as California Speed does: over a crest every car is held to the road "
         "instead of flying off it. Flat road, slopes and corners drive as on any other track. Off, its tracks have "
         "Rush 2's own gravity. Takes effect at once.",
@@ -996,7 +996,7 @@ void rush2::calspeed::init_config() {
         });
     config.add_bool_option(
         billboards_option_id,
-        "California Speed Billboard Trees",
+        "CS Billboard Trees",
         "Turns California Speed's flat trees to face you, so they look round from every side instead of thinning to a "
         "line as you pass. Rows of trees, hedges, crossed trees and signs stay as they are. Off, every tree is as "
         "California Speed drew it. Takes effect from the next race.",
@@ -1016,6 +1016,7 @@ void rush2::calspeed::add_games_section(rush2::ui::OptionsPage* page, std::funct
     recompui::ContextId context = recompui::get_current_context();
     rush2::ui::OptionsPage::Heading heading = page->add_heading("California Speed", rom_status_text());
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
+    button->set_flex_shrink(0.0f);  // Beside a long title in a narrow column, the title wraps instead.
     button->add_pressed_callback(select_rom);
     page->add_option(rush2::wings::games_config(), tracks_option_id);
     page->add_option(rush2::wings::games_config(), cars_option_id);

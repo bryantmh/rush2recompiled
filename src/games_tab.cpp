@@ -84,12 +84,15 @@ namespace {
 
     class GamesPage : public rush2::ui::OptionsPage {
     public:
-        GamesPage(ResourceId rid, Element* parent) : OptionsPage(rid, parent, html(description)) {
+        // In columns: Rush 2049; San Francisco Rush and the Rush 2049 arcade game; California Speed.
+        GamesPage(ResourceId rid, Element* parent) : OptionsPage(rid, parent, html(description), 3) {
             rush2::wings::add_games_section(this, refresh[0]);
             add_option(rush2::wings::games_config(), fire_backward_option_id);
+            next_column();
             rush2::track1::add_games_section(this, refresh[1]);
-            rush2::calspeed::add_games_section(this, refresh[2]);
             rush2::arcade2049::add_games_section(this, refresh[3]);
+            next_column();
+            rush2::calspeed::add_games_section(this, refresh[2]);
             update_battle_options(battles);
         }
 

@@ -423,11 +423,12 @@ dump's `names.txt` (docs/asset_catalog.md, Texture dump).
 - a second row: Open Dump Folder (opens `asset_dump`), Install Upscaled Textures.
 
 Each row is a `rush2::ui::FocusRow` (`OptionsPage::add_row`), which scrolls into view when a button in it takes focus,
-so the controller can reach the buttons.
+so the controller can reach the buttons. In the Graphics tab's column, buttons that don't fit beside each other wrap
+onto another line at full size.
 
 **Status:** each button shows its own progress. What the upscaling mode is doing ("Upscaling textures...", or the
-Custom upscaler's last problem, kept to one line) shows in the top right corner of the Texture Upscaling option
-(`OptionsPage::add_option_status`). The label is laid over the row, so it moves nothing.
+Custom upscaler's last problem, kept to one line) shows on a line under the Texture Upscaling option's name
+(`OptionsPage::add_option_status`, docs/settings_menu.md). The line is there while it's empty, so it moves nothing.
 
 **Dump Textures** runs in the background. It writes every texture of every model the game can draw, read from the ROMs
 and named after the model file and model (docs/asset_catalog.md, Texture dump):

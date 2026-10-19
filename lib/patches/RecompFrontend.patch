@@ -801,10 +801,10 @@ index d065a14..c01a3cf 100644
  
      class TabbedModal : public Modal {
 diff --git a/recompui/src/elements/ui_select.cpp b/recompui/src/elements/ui_select.cpp
-index e289e9e..a69f4d7 100644
+index e289e9e..739c8f8 100644
 --- a/recompui/src/elements/ui_select.cpp
 +++ b/recompui/src/elements/ui_select.cpp
-@@ -297,6 +297,17 @@ namespace recompui {
+@@ -297,6 +297,23 @@ namespace recompui {
          }
      }
  
@@ -819,20 +819,28 @@ index e289e9e..a69f4d7 100644
 +        }
 +    }
 +
++    void Select::set_option_enabled(int index, bool enabled) {
++        if (index >= 0 && index < (int)option_elements.size()) {
++            option_elements[index]->set_enabled(enabled);
++        }
++    }
++
      void Select::add_change_callback(std::function<void(SelectOption& option, int option_index)> callback) {
          change_callbacks.emplace_back(callback);
      }
 diff --git a/recompui/src/elements/ui_select.h b/recompui/src/elements/ui_select.h
-index cc4932c..b44f4f0 100644
+index cc4932c..b8c28c2 100644
 --- a/recompui/src/elements/ui_select.h
 +++ b/recompui/src/elements/ui_select.h
-@@ -78,6 +78,9 @@ namespace recompui {
+@@ -78,6 +78,11 @@ namespace recompui {
          void set_selection(std::string_view option_value) {
              select_set_selection(option_value);
          }
 +        // Rush 2 recomp: whether the option list is open, and closing it (Back closes it, ui_modal.cpp).
 +        bool is_list_open();
 +        void close_list();
++        // Rush 2 recomp: grays out one choice of the list so it can't be picked (a config's disabled enum choice).
++        void set_option_enabled(int index, bool enabled);
      private:
          void add_option_elements();
      };

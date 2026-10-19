@@ -229,7 +229,7 @@ void a49::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
         "unpacked folder (sf2049se).<br/><br/>"
         "They install as two mods, Rush 2049 Arcade Tracks and Rush 2049 Arcade Cars, which the Mods menu can turn off. "
         "Building takes a few seconds and you can keep playing; they show up the next time you're in the menus.";
-    rush2::ui::OptionsPage::Heading heading = page->add_heading("San Francisco Rush 2049 Arcade", status_note(), description);
+    rush2::ui::OptionsPage::Heading heading = page->add_heading("Rush 2049 Arcade", status_note(), description);
     Element* row = page->add_row(description);
     Button* build = context.create_element<Button>(row, "Build and Install", ButtonStyle::Secondary);
     build->add_pressed_callback([]() {

@@ -3,10 +3,14 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 
 namespace recompui {
     class Element;
+}
+namespace rush2::ui {
+    struct ExpandPanel;
 }
 
 // Circuit length and courses (src/circuit.cpp): the General tab's Circuit Length select and Circuit Courses section.
@@ -24,8 +28,9 @@ namespace rush2::circuit {
     // Makes a callback that shows text in the page's description pane (OptionsPage::text_shower).
     using TextShower = std::function<std::function<void()>(const std::string&)>;
     // Adds the Circuit Length select and the collapsible Circuit Courses section to a list (the General tab's, under
-    // Gameplay).
-    void add_section(recompui::Element* parent, const TextShower& text_shower);
+    // Circuits). With a panel, the course list opens in the panel's area instead of under its button.
+    void add_section(recompui::Element* parent, const TextShower& text_shower,
+                     std::shared_ptr<rush2::ui::ExpandPanel> panel = nullptr);
 
     // Game thread. The current circuit's (0x800D3E40's) length in races, and whether it may pick track t.
     int length(uint8_t* rdram);

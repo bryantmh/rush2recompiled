@@ -2,6 +2,7 @@
 #define __OPTIONS_PAGE_H__
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,13 +31,42 @@ namespace rush2::ui {
         std::function<void()> on_show;
     };
 
+    // Where sections with a Show/Hide list (AI Opponents, Circuit Courses) open their list: a spare column of a column
+    // page, so opening one never makes the column with its button grow, scroll or move. One list shows at a time:
+    // a section opening its list calls the others' closers.
+    struct ExpandPanel {
+        recompui::Element* area = nullptr;
+        std::vector<std::function<void()>> closers;
+
+        // Adds a section's closer, returning its index for open().
+        size_t add(std::function<void()> closer) {
+            closers.push_back(std::move(closer));
+            return closers.size() - 1;
+        }
+        // Closes every list but the opener's.
+        void open(size_t opener) {
+            for (size_t i = 0; i < closers.size(); i++) {
+                if (i != opener) closers[i]();
+            }
+        }
+    };
+
+    class CompactOption;
+
     // A settings page built from option rows of any configs, in any order, under headings. Like the frontend's options
     // menu: the left side scrolls, the hovered or focused option's description shows on the right, and configs that
     // require confirmation get an Apply button.
+    //
+    // With columns > 0 the page is laid out like the Cheats tab instead: side-by-side columns that each scroll on their
+    // own, with the description across the bottom. Each option is one line, its name and then its control (a switch,
+    // a dropdown of its choices, a slider or a text box). Headings, rows and options go into the current column;
+    // next_column() moves on to the next one. The columns are block boxes, not flex ones: RmlUi lays out every
+    // nested flex box several times over, and a page of rows in flex columns took tens of milliseconds to lay out
+    // (tools/rml_layout_bench).
     class OptionsPage : public recompui::ConfigPage {
     public:
-        // description is shown on the right while no option is hovered.
-        OptionsPage(recompui::ResourceId rid, recompui::Element* parent, const std::string& description = "");
+        // description is shown on the right (or below the columns) while no option is hovered.
+        OptionsPage(recompui::ResourceId rid, recompui::Element* parent, const std::string& description = "", int columns = 0);
 
         struct Heading {
             recompui::Element* row;    // Elements added to it (a button) go to the right of the title.
@@ -54,7 +84,13 @@ namespace rush2::ui {
         recompui::Label* add_option_status(const std::string& option_id);
         // An added option's row (to show or hide it), or null.
         recompui::Element* get_option_row(const std::string& option_id);
+        // Where headings, rows and options go: the list, or the current column.
         recompui::Element* get_list() { return list; }
+        // Column layout: what's added next goes at the top of the next column (the last column keeps it).
+        void next_column();
+        // Column layout: the page's last column as the place sections open their Show/Hide lists (leave it empty
+        // otherwise). The same panel every call.
+        std::shared_ptr<ExpandPanel> expand_panel();
         void set_default_description(const std::string& text);
         // Runs once per frame while the page is open (to show progress of work done in the background).
         void add_update_callback(std::function<void()> callback) { update_callbacks.push_back(std::move(callback)); }
@@ -68,11 +104,19 @@ namespace rush2::ui {
         virtual void on_update() {}
 
     private:
+        // One of element (list layout) and compact (column layout) is set.
         struct Row {
             recomp::config::Config* config;
-            recompui::ConfigOptionElement* element;
+            std::string option_id;
+            recompui::ConfigOptionElement* element = nullptr;
+            CompactOption* compact = nullptr;
         };
         recompui::Element* list = nullptr;
+        std::vector<recompui::Element*> columns;
+        std::shared_ptr<ExpandPanel> panel;
+        size_t column = 0;
+        // What has gone into each column, for the top spacing of its first heading.
+        std::vector<int> column_items;
         recompui::Element* description_text = nullptr;
         recompui::Button* apply_button = nullptr;
         std::vector<Row> rows;
@@ -82,6 +126,9 @@ namespace rush2::ui {
         std::string default_description;
         std::string shown_option;
         recomp::config::Config* shown_config = nullptr;
+        // What the description shows, so showing the same again doesn't change its text (which lays the page out).
+        bool shown_default = false;
+        std::string shown_text;
 
         void show_description(recomp::config::Config* config, const std::string& option_id);
         void show_text(const std::string& text);

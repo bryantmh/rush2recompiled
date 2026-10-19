@@ -504,12 +504,17 @@ namespace {
     // The section: a heading with a button that opens and closes the opponents' choices below it.
     class Section : public Element {
     public:
-        Section(ResourceId rid, Element* parent, std::function<void()> on_show)
-            : Element(rid, parent, Events(EventType::Update), "div", false) {
+        Section(ResourceId rid, Element* parent, std::function<void()> on_show,
+                std::shared_ptr<rush2::ui::ExpandPanel> panel)
+            : Element(rid, parent, Events(EventType::Update), "div", false), panel(std::move(panel)) {
             ContextId context = get_current_context();
             set_display(Display::Flex);
             set_flex_direction(FlexDirection::Column);
-            set_padding(12.0f);
+            // Lined up with the option rows above it (OptionsPage's column layout).
+            set_padding_top(4.0f);
+            set_padding_bottom(4.0f);
+            set_padding_left(4.0f);
+            set_padding_right(4.0f);
             set_gap(8.0f);
             set_width(100.0f, Unit::Percent);
             set_as_navigation_container(NavigationType::Vertical);
@@ -532,13 +537,25 @@ namespace {
                 queue_update();
             });
             button = context.create_element<Button>(head, expanded ? "Hide" : "Show", ButtonStyle::Secondary);
+            button->set_min_width(136.0f);  // Show and Hide the same width, so the row doesn't shift.
             button->set_flex_shrink(0.0f);
             button->add_pressed_callback([this]() {
                 expanded = !expanded;
+                if (expanded && this->panel) {
+                    this->panel->open(panel_index);
+                }
                 queue_update();
             });
+            if (this->panel) {
+                panel_index = this->panel->add([this]() {
+                    if (expanded) {
+                        expanded = false;
+                        queue_update();
+                    }
+                });
+            }
 
-            body = context.create_element<Element>(this, 0, "div", false);
+            body = context.create_element<Element>(this->panel ? this->panel->area : this, 0, "div", false);
             body->set_display(Display::Flex);
             body->set_flex_direction(FlexDirection::Column);
             body->set_as_navigation_container(NavigationType::Vertical);
@@ -559,6 +576,8 @@ namespace {
         Button* button = nullptr;
         Element* body = nullptr;
         bool built = false;
+        std::shared_ptr<rush2::ui::ExpandPanel> panel;
+        size_t panel_index = 0;
         bool stale = false; // The choices changed under the shown controls (Reset), or a car with other rows was picked.
         int refocus = -1;   // The opponent whose Car row is focused again after the rebuild.
 
@@ -591,8 +610,9 @@ const char* const rush2::npc_cars::description =
     "(its paint job) in place of colors. Random keeps the game's own pick. Reset sets them all back to Random. "
     "Takes effect at the next race.";
 
-void rush2::npc_cars::add_section(recompui::Element* parent, std::function<void()> on_show) {
-    recompui::get_current_context().create_element<Section>(parent, std::move(on_show));
+void rush2::npc_cars::add_section(recompui::Element* parent, std::function<void()> on_show,
+                                  std::shared_ptr<rush2::ui::ExpandPanel> panel) {
+    recompui::get_current_context().create_element<Section>(parent, std::move(on_show), std::move(panel));
 }
 
 // rubber_band (func_800A1A98) at 0x800A2F14, before easing the drone's multipliers toward $f2 (+0x808) and $f12

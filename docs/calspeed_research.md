@@ -549,10 +549,10 @@ Rush 2's with the fields from +0x5B0 on moved 0x64 later (Rush 2's mass +0x5B0 i
   3.05 / 1.68 / 1.17 / 0.88 on every car; `func_8008E748` reads desc + 0xC0 + gear x 4); no reverse (the Pickup's);
   0xD4 = +0xE0 (top gear, s16); 0xD8/0xDC = +0xE4/+0xE8 (shift thresholds). The cars differ only in mass, inertia,
   wheel layout, grip factors and box (0x800D60E0, 16 bytes each). [V layout]
-- **Options** (Games tab): California Speed Cars (offered in the car select, after the other cars) and California
-  Speed Computer Cars (All Tracks, California Speed Tracks, Off: `rush2_car49_drone`). They have no unlock shop items.
+- **Options** (Games tab): CS Cars (offered in the car select, after the other cars) and CS
+  Drones (All Tracks, CS Tracks, Off: `rush2_car49_drone`). They have no unlock shop items.
   Online, a California Speed car needs every machine to have the ROM (`online_net.cpp`). [V]
-- **California Speed Road Hold** (Games tab, `calspeed_road_hold`, default On, takes effect at once): off, its tracks
+- **CS Road Hold** (Games tab, `calspeed_road_hold`, default On, takes effect at once): off, its tracks
   have Rush 2's own gravity only (see Road hold). `tools/calspeed/sim_wrecks.py` races the tracks headless with it on
   and off and counts the computer cars' wrecks and rollovers.
 

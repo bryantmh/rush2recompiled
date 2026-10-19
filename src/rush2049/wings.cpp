@@ -406,7 +406,7 @@ void rush2::wings::init_config() {
 
     wings_config.add_enum_option(
         drones_option_id,
-        "Rush 2049 Computer Cars",
+        "Rush 2049 Drones",
         "Sets where the computer cars drive Rush 2049 cars (with Rush 2049 Cars on). "
         "<recomp-color primary>All Tracks</recomp-color> picks the computer cars from Rush 2's and Rush 2049's cars on "
         "every track. "
@@ -486,6 +486,7 @@ void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function
     recompui::ContextId context = recompui::get_current_context();
     rush2::ui::OptionsPage::Heading heading = page->add_heading("Rush 2049", rom_status_text());
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
+    button->set_flex_shrink(0.0f);  // Beside a long title in a narrow column, the title wraps instead.
     button->add_pressed_callback(select_rom);
     for (const std::string& id : { source_option_id, wings_option_id, tracks_option_id, cars_option_id, drones_option_id,
                                     speeds_option_id, odometer_option_id, stunt_option_id }) {

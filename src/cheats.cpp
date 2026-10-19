@@ -381,13 +381,15 @@ namespace {
             recomp::config::Config& config = recompui::config::get_config(config_id);
             set_as_navigation_container(NavigationType::Vertical);
 
-            // One full-width side: the columns, then the description.
+            // One full-width side: the columns, then the description. Placed, not flexed, like the column layout of
+            // rush2::ui::OptionsPage: RmlUi lays out nested flex boxes many times over (tools/rml_layout_bench).
+            constexpr float description_height = 92.0f;
+            constexpr float column_gap = 32.0f;
             body->get_right()->set_display(Display::None);
             Element* left = body->get_left();
-            left->set_display(Display::Flex);
-            left->set_flex_direction(FlexDirection::Column);
-            left->set_padding(16.0f);
-            left->set_gap(8.0f);
+            left->set_display(Display::Block);
+            left->set_position(Position::Relative);
+            left->set_height(100.0f, Unit::Percent);
 
             ConfigHeaderFooter* top = add_header();
             Label* intro = context.create_element<Label>(top->get_left(), page_description, theme::Typography::Body);
@@ -396,21 +398,29 @@ namespace {
             reset->add_pressed_callback([this]() { reset_cheats(); });
 
             Element* grid = context.create_element<Element>(left, 0, "div", false);
-            grid->set_display(Display::Flex);
-            grid->set_flex_direction(FlexDirection::Row);
-            grid->set_gap(32.0f);
-            grid->set_width(100.0f, Unit::Percent);
+            grid->set_position(Position::Absolute);
+            grid->set_top(16.0f);
+            grid->set_left(16.0f);
+            grid->set_right(16.0f - column_gap * 0.5f);
+            grid->set_bottom(description_height + 24.0f);
             grid->set_as_navigation_container(NavigationType::Horizontal);
 
-            for (const auto& groups : page_columns) {
+            const size_t column_count = page_columns.size();
+            for (size_t c = 0; c < column_count; c++) {
+                const auto& groups = page_columns[c];
                 Element* column = context.create_element<Element>(grid, 0, "div", false);
-                column->set_display(Display::Flex);
-                column->set_flex_direction(FlexDirection::Column);
-                column->set_flex_grow(1.0f);
-                column->set_flex_basis(0.0f);
+                column->set_position(Position::Absolute);
+                column->set_top(0.0f);
+                column->set_bottom(0.0f);
+                column->set_left(100.0f * c / column_count, Unit::Percent);
+                column->set_width(100.0f / column_count, Unit::Percent);
+                column->set_padding_left(c == 0 ? 0.0f : column_gap * 0.5f);
+                column->set_padding_right(column_gap * 0.5f);
+                column->set_overflow_y(Overflow::Auto);
                 column->set_as_navigation_container(NavigationType::Vertical);
                 for (const Group& group : groups) {
                     Label* title = context.create_element<Label>(column, group.title, theme::Typography::LabelLG);
+                    title->set_display(Display::Block);
                     title->set_padding_top(column_has_rows(column) ? 16.0f : 0.0f);
                     title->set_padding_bottom(6.0f);
                     title->set_margin_bottom(4.0f);
@@ -423,10 +433,14 @@ namespace {
             }
 
             description = context.create_element<Element>(left, 0, "p", true);
+            description->set_position(Position::Absolute);
+            description->set_left(16.0f);
+            description->set_right(16.0f);
+            description->set_bottom(16.0f);
+            description->set_height(description_height);
             description->set_typography(theme::Typography::Body);
             description->set_line_height(28.0f);
             description->set_padding_top(8.0f);
-            description->set_min_height(64.0f);
             description->set_color(theme::color::TextDim);
 
             queue_update();

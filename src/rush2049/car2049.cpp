@@ -2493,8 +2493,8 @@ const char* rush2::car2049::display_name(int k) {
 
 // func_800A37F4, after a drone's random car type (0-15, $t7) is drawn from the seed just stepped ($a0) and before it
 // is stored and checked against the cars already chosen: with the 2049 cars available the draw covers them too
-// (types 23-35 after Rush 2's 16), as the Rush 2049 Computer Cars option allows, and California Speed's (36-56) as
-// its California Speed Computer Cars option allows. On one game's track with that game's "Tracks" setting it covers
+// (types 23-35 after Rush 2's 16), as the Rush 2049 Drones option allows, and California Speed's (36-56) as
+// its CS Drones option allows. On one game's track with that game's "Tracks" setting it covers
 // only that game's cars (13 or 21 types, enough for the 7 drones to differ).
 extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
     using rush2::car2049::DroneCars;

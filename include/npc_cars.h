@@ -2,12 +2,16 @@
 #define __NPC_CARS_H__
 
 #include <functional>
+#include <memory>
 
 namespace recompui {
     class Element;
 }
 namespace recomp::config {
     class Config;
+}
+namespace rush2::ui {
+    struct ExpandPanel;
 }
 
 // The computer cars' car, paint, stripe and rims, chosen per opponent in the General tab's AI Opponents section
@@ -21,9 +25,11 @@ namespace rush2::npc_cars {
     void load_config();
     // The choices' config (npc_cars.json), for online lobbies to compare (src/online_tab.cpp).
     recomp::config::Config& config();
-    // Adds the collapsible AI Opponents section to a list (the General tab's, under Gameplay).
-    // on_show, if given, runs when the section's heading is hovered or focused (to show its description).
-    void add_section(recompui::Element* parent, std::function<void()> on_show = nullptr);
+    // Adds the collapsible AI Opponents section to a list (the General tab's). on_show, if given, runs when the
+    // section's heading is hovered or focused (to show its description). With a panel, the opponents' rows open in
+    // the panel's area instead of under the heading.
+    void add_section(recompui::Element* parent, std::function<void()> on_show = nullptr,
+                     std::shared_ptr<rush2::ui::ExpandPanel> panel = nullptr);
     // What the section does, for the page's description pane.
     extern const char* const description;
     // Drone Cheating: off, the drones' pace no longer depends on the gap to the cars around them.

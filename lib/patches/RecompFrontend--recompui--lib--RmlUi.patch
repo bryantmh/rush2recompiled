@@ -1,0 +1,431 @@
+diff --git a/Include/RmlUi/SVG/ElementSVG.h b/Include/RmlUi/SVG/ElementSVG.h
+index d010af16..59b4262b 100644
+--- a/Include/RmlUi/SVG/ElementSVG.h
++++ b/Include/RmlUi/SVG/ElementSVG.h
+@@ -50,6 +50,10 @@ public:
+ 	/// Returns the element's inherent size.
+ 	bool GetIntrinsicDimensions(Vector2f& dimensions, float& ratio) override;
+ 
++	/// Releases the parsed files and textures shared between SVG elements (rush2-recomp patch). Called by the SVG plugin at
++	/// shutdown, while the render managers still exist.
++	static void ReleaseSharedResources();
++
+ protected:
+ 	/// Renders the image.
+ 	void OnRender() override;
+@@ -77,8 +81,11 @@ private:
+ 	bool geometry_dirty = false;
+ 	bool texture_dirty = false;
+ 
+-	// The texture this element is rendering from.
+-	CallbackTexture texture;
++	// The texture this element is rendering from, shared with every SVG element showing the same file at the same size
++	// (rush2-recomp patch): a page of identical icons rasterizes and uploads the icon once instead of once per element.
++	SharedPtr<CallbackTexture> texture;
++	// The resolved path of the source file, which keys the shared document and textures.
++	String source_path;
+ 
+ 	// The image's intrinsic dimensions.
+ 	Vector2f intrinsic_dimensions;
+@@ -88,7 +95,8 @@ private:
+ 	// The geometry used to render this element.
+ 	Geometry geometry;
+ 
+-	UniquePtr<lunasvg::Document> svg_document;
++	// Parsed once per file and shared (rush2-recomp patch).
++	SharedPtr<lunasvg::Document> svg_document;
+ };
+ 
+ } // namespace Rml
+diff --git a/Source/Core/Layout/FlexFormattingContext.cpp b/Source/Core/Layout/FlexFormattingContext.cpp
+index b90ef51b..02ff955e 100644
+--- a/Source/Core/Layout/FlexFormattingContext.cpp
++++ b/Source/Core/Layout/FlexFormattingContext.cpp
+@@ -352,9 +352,17 @@ void FlexFormattingContext::Format(Vector2f& flex_resulting_content_size, Vector
+ 			if (initial_box_size.x < 0.f && flex_available_content_size.x >= 0.f)
+ 				format_box.SetContent(Vector2f(flex_available_content_size.x - item.cross.sum_edges, initial_box_size.y));
+ 
+-			FormattingContext::FormatIndependent(flex_container_box, element, (format_box.GetSize().x >= 0 ? &format_box : nullptr),
+-				FormattingContextType::Block);
+-			item.inner_flex_base_size = element->GetBox().GetSize().y;
++			// Measured once per layout for each size it's measured at (rush2-recomp patch, LayoutMeasureCache).
++			const LayoutMeasureCache::Kind kind = LayoutMeasureCache::Kind::FlexBaseHeight;
++			if (!LayoutMeasureCache::Find(element, kind, format_box.GetSize(), flex_content_containing_block, flex_available_content_size,
++					item.inner_flex_base_size))
++			{
++				FormattingContext::FormatIndependent(flex_container_box, element, (format_box.GetSize().x >= 0 ? &format_box : nullptr),
++					FormattingContextType::Block);
++				item.inner_flex_base_size = element->GetBox().GetSize().y;
++				LayoutMeasureCache::Store(element, kind, format_box.GetSize(), flex_content_containing_block, flex_available_content_size,
++					item.inner_flex_base_size);
++			}
+ 		}
+ 
+ 		// Calculate the hypothetical main size (clamped flex base size).
+@@ -678,8 +686,18 @@ void FlexFormattingContext::Format(Vector2f& flex_resulting_content_size, Vector
+ 				if (content_size.y < 0.0f)
+ 				{
+ 					item.box.SetContent(Vector2f(used_main_size_inner, content_size.y));
+-					FormattingContext::FormatIndependent(flex_container_box, item.element, &item.box, FormattingContextType::Block);
+-					item.hypothetical_cross_size = item.element->GetBox().GetSize().y + item.cross.sum_edges;
++					// Measured once per layout for each size it's measured at (rush2-recomp patch, LayoutMeasureCache).
++					const LayoutMeasureCache::Kind kind = LayoutMeasureCache::Kind::FlexCrossHeight;
++					float cross_height;
++					if (!LayoutMeasureCache::Find(item.element, kind, item.box.GetSize(), flex_content_containing_block, flex_available_content_size,
++							cross_height))
++					{
++						FormattingContext::FormatIndependent(flex_container_box, item.element, &item.box, FormattingContextType::Block);
++						cross_height = item.element->GetBox().GetSize().y;
++						LayoutMeasureCache::Store(item.element, kind, item.box.GetSize(), flex_content_containing_block, flex_available_content_size,
++							cross_height);
++					}
++					item.hypothetical_cross_size = cross_height + item.cross.sum_edges;
+ 				}
+ 				else
+ 				{
+diff --git a/Source/Core/Layout/LayoutDetails.cpp b/Source/Core/Layout/LayoutDetails.cpp
+index 84a3f3a8..b27d4f1c 100644
+--- a/Source/Core/Layout/LayoutDetails.cpp
++++ b/Source/Core/Layout/LayoutDetails.cpp
+@@ -37,6 +37,8 @@
+ #include "FormattingContext.h"
+ #include "LayoutEngine.h"
+ #include <float.h>
++#include <cstring>
++#include <unordered_map>
+ 
+ namespace Rml {
+ 
+@@ -244,6 +246,10 @@ float LayoutDetails::GetShrinkToFitWidth(Element* element, Vector2f containing_b
+ {
+ 	RMLUI_ASSERT(element);
+ 
++	float cached_width;
++	if (LayoutMeasureCache::Find(element, LayoutMeasureCache::Kind::ShrinkToFitWidth, containing_block, {}, {}, cached_width))
++		return cached_width;
++
+ 	// @performance Can we lay out the elements directly using a fit-content size mode, instead of fetching the
+ 	// shrink-to-fit width first? Use a non-definite placeholder for the box content width, and available width as a
+ 	// maximum constraint.
+@@ -279,6 +285,7 @@ float LayoutDetails::GetShrinkToFitWidth(Element* element, Vector2f containing_b
+ 			Math::Max(0.f, containing_block.x - box.GetSizeAcross(BoxDirection::Horizontal, BoxArea::Margin, BoxArea::Padding));
+ 		shrink_to_fit_width = Math::Min(shrink_to_fit_width, available_width);
+ 	}
++	LayoutMeasureCache::Store(element, LayoutMeasureCache::Kind::ShrinkToFitWidth, containing_block, {}, {}, shrink_to_fit_width);
+ 	return shrink_to_fit_width;
+ }
+ 
+@@ -578,4 +585,65 @@ void LayoutDetails::BuildBoxHeight(Box& box, const ComputedValues& computed, flo
+ 	box.SetContent(content_area);
+ }
+ 
++namespace {
++	struct MeasureKey {
++		Element* element;
++		int kind;
++		float sizes[6];
++		bool operator==(const MeasureKey& other) const
++		{
++			return element == other.element && kind == other.kind && std::memcmp(sizes, other.sizes, sizeof(sizes)) == 0;
++		}
++	};
++	struct MeasureKeyHash {
++		size_t operator()(const MeasureKey& key) const
++		{
++			size_t h = std::hash<const void*>()(key.element) ^ (size_t(key.kind) * 0x9E3779B97F4A7C15ull);
++			for (float f : key.sizes)
++			{
++				uint32_t bits;
++				std::memcpy(&bits, &f, sizeof(bits));
++				h = (h ^ bits) * 0x100000001B3ull;
++			}
++			return h;
++		}
++	};
++	// Per thread: each thread lays out its own contexts.
++	thread_local int measure_cache_depth = 0;
++	thread_local std::unordered_map<MeasureKey, float, MeasureKeyHash> measure_cache;
++
++	MeasureKey MakeMeasureKey(Element* element, LayoutMeasureCache::Kind kind, Vector2f a, Vector2f b, Vector2f c)
++	{
++		return MeasureKey{element, int(kind), {a.x, a.y, b.x, b.y, c.x, c.y}};
++	}
++} // namespace
++
++LayoutMeasureCache::Scope::Scope()
++{
++	measure_cache_depth++;
++}
++
++LayoutMeasureCache::Scope::~Scope()
++{
++	if (--measure_cache_depth == 0)
++		measure_cache.clear();
++}
++
++bool LayoutMeasureCache::Find(Element* element, Kind kind, Vector2f a, Vector2f b, Vector2f c, float& value)
++{
++	if (measure_cache_depth == 0)
++		return false;
++	auto it = measure_cache.find(MakeMeasureKey(element, kind, a, b, c));
++	if (it == measure_cache.end())
++		return false;
++	value = it->second;
++	return true;
++}
++
++void LayoutMeasureCache::Store(Element* element, Kind kind, Vector2f a, Vector2f b, Vector2f c, float value)
++{
++	if (measure_cache_depth > 0)
++		measure_cache[MakeMeasureKey(element, kind, a, b, c)] = value;
++}
++
+ } // namespace Rml
+diff --git a/Source/Core/Layout/LayoutDetails.h b/Source/Core/Layout/LayoutDetails.h
+index 3adc17c3..8b27b666 100644
+--- a/Source/Core/Layout/LayoutDetails.h
++++ b/Source/Core/Layout/LayoutDetails.h
+@@ -147,5 +147,31 @@ private:
+ 	static void BuildBoxHeight(Box& box, const ComputedValues& computed, float min_height, float max_height, float containing_block_height);
+ };
+ 
++/*
++    Sizes measured during one layout of a document, for reuse (rush2-recomp patch).
++
++    Flex containers format each item up to three times: to measure its base size, to measure its cross size, then for
++    real. Nested flex containers multiply that, so a page of rows in columns in flex containers formatted every row
++    hundreds of times per layout. A measurement depends only on the element and the sizes it was measured with, and
++    nothing in the document changes during a layout, so the same measurement gives the same size: it is kept here and
++    reused. Only measurements are kept; every element is still formatted for real by its container, so the boxes and
++    offsets it ends up with are what they were without the cache. Active while a LayoutEngine::FormatElement runs.
++*/
++class LayoutMeasureCache {
++public:
++	enum class Kind { ShrinkToFitWidth, FlexBaseHeight, FlexCrossHeight };
++
++	// Holds the cache open for the layout of a document, and empties it after.
++	class Scope {
++	public:
++		Scope();
++		~Scope();
++	};
++
++	// A measurement of the element of this kind with these input sizes, if one was made during this layout.
++	static bool Find(Element* element, Kind kind, Vector2f a, Vector2f b, Vector2f c, float& value);
++	static void Store(Element* element, Kind kind, Vector2f a, Vector2f b, Vector2f c, float value);
++};
++
+ } // namespace Rml
+ #endif
+diff --git a/Source/Core/Layout/LayoutEngine.cpp b/Source/Core/Layout/LayoutEngine.cpp
+index 4de65d13..6d111b5f 100644
+--- a/Source/Core/Layout/LayoutEngine.cpp
++++ b/Source/Core/Layout/LayoutEngine.cpp
+@@ -32,6 +32,7 @@
+ #include "../../../Include/RmlUi/Core/Profiling.h"
+ #include "ContainerBox.h"
+ #include "FormattingContext.h"
++#include "LayoutDetails.h"
+ 
+ namespace Rml {
+ 
+@@ -39,6 +40,9 @@ void LayoutEngine::FormatElement(Element* element, Vector2f containing_block)
+ {
+ 	RMLUI_ASSERT(element && containing_block.x >= 0 && containing_block.y >= 0);
+ 
++	// Measurements made while formatting the document are reused until it's done (rush2-recomp patch).
++	LayoutMeasureCache::Scope measure_cache;
++
+ 	RootBox root(containing_block);
+ 
+ 	auto layout_box = FormattingContext::FormatIndependent(&root, element, nullptr, FormattingContextType::Block);
+diff --git a/Source/SVG/ElementSVG.cpp b/Source/SVG/ElementSVG.cpp
+index 0e8d834a..f7ecbf4c 100644
+--- a/Source/SVG/ElementSVG.cpp
++++ b/Source/SVG/ElementSVG.cpp
+@@ -39,9 +39,43 @@
+ #include <cmath>
+ #include <lunasvg.h>
+ #include <string.h>
++#include <unordered_map>
+ 
+ namespace Rml {
+ 
++// Shared between SVG elements (rush2-recomp patch). Each element used to load, parse, rasterize and upload its file on
++// its own, and the upload waits for the GPU: a settings page with a play button per song stalled for each one, every
++// time the page was built. Now a file is parsed once, and rasterized and uploaded once per size it's shown at.
++namespace {
++	struct SvgTextureKey {
++		String path;
++		Vector2i size;
++		RenderManager* render_manager;
++		bool operator==(const SvgTextureKey& other) const
++		{
++			return path == other.path && size == other.size && render_manager == other.render_manager;
++		}
++	};
++	struct SvgTextureKeyHash {
++		size_t operator()(const SvgTextureKey& key) const
++		{
++			return std::hash<String>()(key.path) ^ (std::hash<int>()(key.size.x) * 31) ^ (std::hash<int>()(key.size.y) * 131) ^
++				std::hash<const void*>()(key.render_manager);
++		}
++	};
++	std::unordered_map<String, SharedPtr<lunasvg::Document>> shared_documents;
++	std::unordered_map<SvgTextureKey, SharedPtr<CallbackTexture>, SvgTextureKeyHash> shared_textures;
++	// Past this many textures, the ones no element shows any more are released when another is made (sizes change with
++	// the window's).
++	constexpr size_t shared_texture_limit = 256;
++} // namespace
++
++void ElementSVG::ReleaseSharedResources()
++{
++	shared_textures.clear();
++	shared_documents.clear();
++}
++
+ ElementSVG::ElementSVG(const String& tag) : Element(tag) {}
+ 
+ ElementSVG::~ElementSVG() {}
+@@ -76,7 +110,8 @@ void ElementSVG::OnRender()
+ 			GenerateGeometry();
+ 
+ 		UpdateTexture();
+-		geometry.Render(GetAbsoluteOffset(BoxArea::Content), Texture(texture));
++		if (texture)
++			geometry.Render(GetAbsoluteOffset(BoxArea::Content), Texture(*texture));
+ 	}
+ }
+ 
+@@ -132,8 +167,9 @@ bool ElementSVG::LoadSource()
+ 	source_dirty = false;
+ 	texture_dirty = true;
+ 	intrinsic_dimensions = Vector2f{};
+-	texture = {};
++	texture.reset();
+ 	svg_document.reset();
++	source_path.clear();
+ 
+ 	const String attribute_src = GetAttribute<String>("src", "");
+ 
+@@ -150,22 +186,32 @@ bool ElementSVG::LoadSource()
+ 		GetSystemInterface()->JoinPath(directory, document_source_url, "");
+ 	}
+ 
+-	String svg_data;
+-
+-	if (path.empty() || !GetFileInterface()->LoadFile(path, svg_data))
++	auto shared = shared_documents.find(path);
++	if (shared != shared_documents.end())
+ 	{
+-		Log::Message(Rml::Log::Type::LT_WARNING, "Could not load SVG file %s", path.c_str());
+-		return false;
++		svg_document = shared->second;
+ 	}
++	else
++	{
++		String svg_data;
+ 
+-	// We use a reset-release approach here in case clients use a non-std unique_ptr (lunasvg uses std::unique_ptr)
+-	svg_document.reset(lunasvg::Document::loadFromData(svg_data).release());
++		if (path.empty() || !GetFileInterface()->LoadFile(path, svg_data))
++		{
++			Log::Message(Rml::Log::Type::LT_WARNING, "Could not load SVG file %s", path.c_str());
++			return false;
++		}
+ 
+-	if (!svg_document)
+-	{
+-		Log::Message(Rml::Log::Type::LT_WARNING, "Could not load SVG data from file %s", path.c_str());
+-		return false;
++		// We use a reset-release approach here in case clients use a non-std unique_ptr (lunasvg uses std::unique_ptr)
++		svg_document.reset(lunasvg::Document::loadFromData(svg_data).release());
++
++		if (!svg_document)
++		{
++			Log::Message(Rml::Log::Type::LT_WARNING, "Could not load SVG data from file %s", path.c_str());
++			return false;
++		}
++		shared_documents[path] = svg_document;
+ 	}
++	source_path = path;
+ 
+ 	intrinsic_dimensions.x = Math::Max(float(svg_document->width()), 1.0f);
+ 	intrinsic_dimensions.y = Math::Max(float(svg_document->height()), 1.0f);
+@@ -182,25 +228,39 @@ void ElementSVG::UpdateTexture()
+ 	if (!render_manager)
+ 		return;
+ 
+-	// Callback for generating texture.
+-	auto texture_callback = [this](const CallbackTextureInterface& texture_interface) -> bool {
+-		RMLUI_ASSERT(svg_document);
+-		lunasvg::Bitmap bitmap = svg_document->renderToBitmap(render_dimensions.x, render_dimensions.y);
+-
+-		// Swap red and blue channels, assuming LunaSVG v2.3.2 or newer, to convert to RmlUi's expected RGBA-ordering.
+-		const size_t bitmap_byte_size = bitmap.width() * bitmap.height() * 4;
+-		uint8_t* bitmap_data = bitmap.data();
+-		for (size_t i = 0; i < bitmap_byte_size; i += 4)
+-			std::swap(bitmap_data[i], bitmap_data[i + 2]);
+-
+-		if (!bitmap.valid() || !bitmap.data())
+-			return false;
+-		if (!texture_interface.GenerateTexture({reinterpret_cast<const Rml::byte*>(bitmap.data()), bitmap_byte_size}, render_dimensions))
+-			return false;
+-		return true;
+-	};
+-
+-	texture = render_manager->MakeCallbackTexture(std::move(texture_callback));
++	SvgTextureKey key{source_path, render_dimensions, render_manager};
++	auto shared = shared_textures.find(key);
++	if (shared == shared_textures.end())
++	{
++		if (shared_textures.size() >= shared_texture_limit)
++		{
++			for (auto it = shared_textures.begin(); it != shared_textures.end();)
++				it = it->second.use_count() == 1 ? shared_textures.erase(it) : std::next(it);
++		}
++
++		// Callback for generating texture. It holds what it draws, so the texture can be regenerated after the element
++		// that made it is gone.
++		SharedPtr<lunasvg::Document> document = svg_document;
++		const Vector2i dimensions = render_dimensions;
++		auto texture_callback = [document, dimensions](const CallbackTextureInterface& texture_interface) -> bool {
++			lunasvg::Bitmap bitmap = document->renderToBitmap(dimensions.x, dimensions.y);
++			if (!bitmap.valid() || !bitmap.data())
++				return false;
++
++			// Swap red and blue channels, assuming LunaSVG v2.3.2 or newer, to convert to RmlUi's expected RGBA-ordering.
++			const size_t bitmap_byte_size = bitmap.width() * bitmap.height() * 4;
++			uint8_t* bitmap_data = bitmap.data();
++			for (size_t i = 0; i < bitmap_byte_size; i += 4)
++				std::swap(bitmap_data[i], bitmap_data[i + 2]);
++
++			if (!texture_interface.GenerateTexture({reinterpret_cast<const Rml::byte*>(bitmap.data()), bitmap_byte_size}, dimensions))
++				return false;
++			return true;
++		};
++
++		shared = shared_textures.emplace(std::move(key), MakeShared<CallbackTexture>(render_manager->MakeCallbackTexture(std::move(texture_callback)))).first;
++	}
++	texture = shared->second;
+ 	texture_dirty = false;
+ }
+ 
+diff --git a/Source/SVG/SVGPlugin.cpp b/Source/SVG/SVGPlugin.cpp
+index cb5a0014..f251e668 100644
+--- a/Source/SVG/SVGPlugin.cpp
++++ b/Source/SVG/SVGPlugin.cpp
+@@ -47,7 +47,12 @@ namespace SVG {
+ 			Log::Message(Log::LT_INFO, "SVG plugin initialised.");
+ 		}
+ 
+-		void OnShutdown() override { delete this; }
++		void OnShutdown() override
++		{
++			// Before the render managers go (rush2-recomp patch).
++			ElementSVG::ReleaseSharedResources();
++			delete this;
++		}
+ 
+ 		int GetEventClasses() override { return Plugin::EVT_BASIC; }
+ 

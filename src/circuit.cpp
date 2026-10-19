@@ -773,12 +773,17 @@ namespace {
     // courses last.
     class Section : public Element {
     public:
-        Section(ResourceId rid, Element* parent, const rush2::circuit::TextShower& text_shower)
-            : Element(rid, parent, Events(EventType::Update), "div", false) {
+        Section(ResourceId rid, Element* parent, const rush2::circuit::TextShower& text_shower,
+                std::shared_ptr<rush2::ui::ExpandPanel> panel)
+            : Element(rid, parent, Events(EventType::Update), "div", false), panel(std::move(panel)) {
             ContextId context = get_current_context();
             set_display(Display::Flex);
             set_flex_direction(FlexDirection::Column);
-            set_padding(12.0f);
+            // Lined up with the option rows above it (OptionsPage's column layout).
+            set_padding_top(4.0f);
+            set_padding_bottom(4.0f);
+            set_padding_left(4.0f);
+            set_padding_right(4.0f);
             set_gap(8.0f);
             set_width(100.0f, Unit::Percent);
             set_as_navigation_container(NavigationType::Vertical);
@@ -821,13 +826,25 @@ namespace {
             Label* title = context.create_element<Label>(head, "Circuit Courses", theme::Typography::LabelMD);
             title->set_flex_grow(1.0f);
             button = context.create_element<Button>(head, expanded ? "Hide" : "Show", ButtonStyle::Secondary);
+            button->set_min_width(136.0f);  // Show and Hide the same width, so the row doesn't shift.
             button->set_flex_shrink(0.0f);
             button->add_pressed_callback([this]() {
                 expanded = !expanded;
+                if (expanded && this->panel) {
+                    this->panel->open(panel_index);
+                }
                 queue_update();
             });
+            if (this->panel) {
+                panel_index = this->panel->add([this]() {
+                    if (expanded) {
+                        expanded = false;
+                        queue_update();
+                    }
+                });
+            }
 
-            body = context.create_element<Element>(this, 0, "div", false);
+            body = context.create_element<Element>(this->panel ? this->panel->area : this, 0, "div", false);
             body->set_display(Display::Flex);
             body->set_flex_direction(FlexDirection::Column);
             body->set_gap(6.0f);
@@ -849,6 +866,8 @@ namespace {
         Button* button = nullptr;
         Element* body = nullptr;
         bool built = false;
+        std::shared_ptr<rush2::ui::ExpandPanel> panel;
+        size_t panel_index = 0;
         std::vector<std::pair<int, Toggle*>> game_toggles;  // (index in games, toggle)
         std::vector<std::pair<int, Toggle*>> course_toggles; // (track, toggle)
         std::vector<ModCourse> mods;                         // the custom tracks when built
@@ -942,7 +961,8 @@ namespace {
     };
 }
 
-void rush2::circuit::add_section(recompui::Element* parent, const TextShower& text_shower) {
-    recompui::get_current_context().create_element<Section>(parent, text_shower);
+void rush2::circuit::add_section(recompui::Element* parent, const TextShower& text_shower,
+                                 std::shared_ptr<rush2::ui::ExpandPanel> panel) {
+    recompui::get_current_context().create_element<Section>(parent, text_shower, std::move(panel));
 }
 

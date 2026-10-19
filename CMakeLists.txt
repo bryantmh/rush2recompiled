@@ -37,12 +37,15 @@ add_compile_definitions(
 
 # Changes to the submodules in lib/ are kept as lib/patches/<submodule>.patch, so they commit with this project and the
 # submodules stay on their upstream commits. Each patch is applied to its submodule's working tree here. After editing
-# a submodule, write its patch again with `python tools/lib_patch.py save` before committing.
+# a submodule, write its patch again with `python tools/lib_patch.py save` before committing. Patches apply in name order,
+# so a nested submodule's (RecompFrontend--...) comes after its parent's.
 find_package(Git REQUIRED)
 file(GLOB LIB_PATCHES "${CMAKE_SOURCE_DIR}/lib/patches/*.patch")
 foreach(LIB_PATCH ${LIB_PATCHES})
     get_filename_component(LIB_NAME ${LIB_PATCH} NAME_WE)
-    set(LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${LIB_NAME}")
+    # A nested submodule's patch names its path with "--" for "/" (RecompFrontend--recompui--lib--RmlUi).
+    string(REPLACE "--" "/" LIB_SUBDIR ${LIB_NAME})
+    set(LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${LIB_SUBDIR}")
     set(LIB_APPLIED "${CMAKE_BINARY_DIR}/lib_patches/${LIB_NAME}.patch") # The patch as it was last applied.
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${LIB_PATCH})
 

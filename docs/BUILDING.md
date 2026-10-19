@@ -43,7 +43,7 @@ How the port works, how the ROM is laid out, and how to build it. For the player
   place in its player's top or bottom half to the same place in their left or right half, the shared track map is
   centered on the line, and in widescreen each half's elements anchor to that half (`src/splitscreen.cpp`,
   `src/hud.cpp`, hooks in `us.toml`).
-- Fonts (Settings > Graphics): **Original** or **High Resolution** (default). High Resolution enables a built-in RT64
+- Fonts (Settings > Graphics): **Original** or **HD** (default). HD enables a built-in RT64
   texture pack (`assets/rush2_hires_fonts.rtz`, copied into the mods folder at startup) with every font and the race
   HUD's numbers and "MPH" label redrawn as vector art; no original pixels are packed. Regular fonts use Inter with each
   font's weight, outline and layout fitted to the original sheet, the squared fonts use a hand-made squared glyph set,

@@ -230,6 +230,7 @@ void rush2::track1::add_games_section(rush2::ui::OptionsPage* page, std::functio
     recompui::ContextId context = recompui::get_current_context();
     rush2::ui::OptionsPage::Heading heading = page->add_heading("San Francisco Rush", rom_status_text());
     auto* button = context.create_element<recompui::Button>(heading.row, "Select ROM", recompui::ButtonStyle::Secondary);
+    button->set_flex_shrink(0.0f);  // Beside a long title in a narrow column, the title wraps instead.
     button->add_pressed_callback(select_rom);
     page->add_option(rush2::wings::games_config(), tracks_option_id);
     page->add_option(rush2::wings::games_config(), stripes_option_id);
