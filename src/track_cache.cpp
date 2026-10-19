@@ -8,14 +8,18 @@
 // cached track from outliving a change to the converters, the ROM readers they use, or the track structs below; the
 // static_asserts on the structs' sizes are there to catch a field added without being serialized.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <system_error>
+#include <thread>
 #include <type_traits>
+#include <unordered_map>
 
 #include "librecomp/game.hpp"
 #include "util/file.h"
@@ -155,15 +159,64 @@ namespace {
         return cache_dir() / ((kind == Kind::Rush1 ? "rush1_" : "rush2049_") + std::to_string(track) + ".bin");
     }
 
+    // Entries read ahead into memory (rush2::track_cache::preload_*), by file: the next load of one takes its bytes
+    // from here instead of the disk, once. At most preload_limit bytes, the oldest dropped first (a track picked at the
+    // car select and then left unraced stays until then).
+    constexpr size_t preload_limit = 64u << 20;
+    std::mutex preloaded_mutex;
+    std::unordered_map<std::string, std::vector<uint8_t>> preloaded;
+    std::vector<std::string> preload_order;
+    size_t preloaded_bytes = 0;
+
+    std::string path_key(const std::filesystem::path& path) {
+        std::u8string u = path.generic_u8string();
+        return std::string(u.begin(), u.end());
+    }
+
+    // The bytes preloaded for the file, taken out (false if there are none).
+    bool take_preloaded(const std::filesystem::path& path, std::vector<uint8_t>& bytes) {
+        std::lock_guard lock{ preloaded_mutex };
+        auto it = preloaded.find(path_key(path));
+        if (it == preloaded.end()) return false;
+        bytes = std::move(it->second);
+        preloaded_bytes -= bytes.size();
+        preload_order.erase(std::find(preload_order.begin(), preload_order.end(), it->first));
+        preloaded.erase(it);
+        return true;
+    }
+
+    // The whole file in one read (a character iterator took milliseconds for a car texture's upscale).
+    bool read_file(const std::filesystem::path& path, std::vector<uint8_t>& bytes) {
+        std::ifstream in(path, std::ios::binary | std::ios::ate);
+        if (!in) return false;
+        bytes.resize(size_t(in.tellg()));
+        in.seekg(0);
+        return (bool)in.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)bytes.size());
+    }
+
+    // The file's bytes if they start with `expected` (the entry's key): the preloaded ones, or else (none, or written
+    // again since they were read) the disk's.
+    bool read_entry(const std::filesystem::path& path, const std::vector<uint8_t>& expected, std::vector<uint8_t>& bytes) {
+        auto keyed = [&] {
+            return bytes.size() >= expected.size() && memcmp(bytes.data(), expected.data(), expected.size()) == 0;
+        };
+        if (take_preloaded(path, bytes) && keyed()) return true;
+        return read_file(path, bytes) && keyed();
+    }
+
+    // Whether the file starts with `expected` (an entry's key), reading only that much.
+    bool starts_with(const std::filesystem::path& path, const std::vector<uint8_t>& expected) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) return false;
+        std::vector<uint8_t> head(expected.size());
+        return in.read(reinterpret_cast<char*>(head.data()), (std::streamsize)head.size()) && head == expected;
+    }
+
     // Reads the entry's file and checks its key; the reader is then at the track's fields.
     bool open(Kind kind, int track, const std::string& prefix, uint64_t source, std::vector<uint8_t>& bytes) {
-        std::ifstream in(file_for(kind, track), std::ios::binary);
-        if (!in) return false;
-        bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
         Writer expected;
         key(expected, kind, track, prefix, source);
-        return bytes.size() >= expected.bytes.size() &&
-               memcmp(bytes.data(), expected.bytes.data(), expected.bytes.size()) == 0;
+        return read_entry(file_for(kind, track), expected.bytes, bytes);
     }
 
     size_t key_size(Kind kind, int track, const std::string& prefix, uint64_t source) {
@@ -172,13 +225,13 @@ namespace {
         return w.bytes.size();
     }
 
-    // Written to a temporary file and renamed, so a crash never leaves half an entry behind.
-    void store(Kind kind, int track, const std::vector<uint8_t>& bytes) {
+    // Written to a temporary file of the writing thread's own and renamed, so a crash never leaves half an entry
+    // behind and two threads writing at once (a background build and the game) never share one.
+    void store(const std::filesystem::path& path, const std::vector<uint8_t>& bytes) {
         std::error_code ec;
         std::filesystem::create_directories(cache_dir(), ec);
-        std::filesystem::path path = file_for(kind, track);
         std::filesystem::path temp = path;
-        temp += ".tmp";
+        temp += "." + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id()) % 1000000) + ".tmp";
         {
             std::ofstream out(temp, std::ios::binary | std::ios::trunc);
             if (!out) return;
@@ -188,6 +241,7 @@ namespace {
         std::filesystem::rename(temp, path, ec);
         if (ec) {
             fprintf(stderr, "[TrackCache] Couldn't write %s: %s\n", path.string().c_str(), ec.message().c_str());
+            std::filesystem::remove(temp, ec);
         }
     }
 
@@ -309,11 +363,88 @@ namespace {
         r.pods(t.mover_collision);
     }
 
-    std::mutex cache_mutex;
-
     std::filesystem::path blob_file(const std::string& name) {
         return cache_dir() / ("blob_" + name + ".bin");
     }
+
+    // One mutex per entry for rush2::track_cache::claim, never freed (a few hundred entries at most).
+    std::mutex claims_mutex;
+    std::unordered_map<std::string, std::unique_ptr<std::mutex>> claims;
+
+    void preload_file(const std::filesystem::path& path) {
+        std::string key = path_key(path);
+        {
+            std::lock_guard lock{ preloaded_mutex };
+            if (preloaded.count(key)) return;
+        }
+        std::vector<uint8_t> bytes;
+        if (!read_file(path, bytes) || bytes.size() > preload_limit) return;
+        std::lock_guard lock{ preloaded_mutex };
+        if (preloaded.count(key)) return;
+        while (preloaded_bytes + bytes.size() > preload_limit && !preload_order.empty()) {
+            auto it = preloaded.find(preload_order.front());
+            preloaded_bytes -= it->second.size();
+            preloaded.erase(it);
+            preload_order.erase(preload_order.begin());
+        }
+        preloaded_bytes += bytes.size();
+        preload_order.push_back(key);
+        preloaded.emplace(key, std::move(bytes));
+    }
+}
+
+std::unique_lock<std::mutex> rush2::track_cache::claim(const std::string& entry) {
+    std::mutex* m;
+    {
+        std::lock_guard lock{ claims_mutex };
+        std::unique_ptr<std::mutex>& p = claims[entry];
+        if (!p) p = std::make_unique<std::mutex>();
+        m = p.get();
+    }
+    return std::unique_lock<std::mutex>(*m);
+}
+
+std::string rush2::track_cache::rush1_entry(int t) {
+    return "rush1_" + std::to_string(t);
+}
+
+std::string rush2::track_cache::entry_2049(int k) {
+    return "rush2049_" + std::to_string(k);
+}
+
+std::string rush2::track_cache::blob_entry(const std::string& name) {
+    return "blob_" + name;
+}
+
+bool rush2::track_cache::has_rush1(int t, const std::string& prefix, uint64_t source) {
+    Writer expected;
+    key(expected, Kind::Rush1, t, prefix, source);
+    return starts_with(file_for(Kind::Rush1, t), expected.bytes);
+}
+
+bool rush2::track_cache::has_2049(int k, const std::string& prefix, uint64_t source) {
+    Writer expected;
+    key(expected, Kind::Rush2049, k, prefix, source);
+    return starts_with(file_for(Kind::Rush2049, k), expected.bytes);
+}
+
+bool rush2::track_cache::has_blob(const std::string& name, uint64_t source) {
+    if (source == 0) return false;
+    Writer expected;
+    key(expected, Kind::Blob, 0, name, source);
+    return starts_with(blob_file(name), expected.bytes);
+}
+
+void rush2::track_cache::preload_rush1(int t) {
+    preload_file(file_for(Kind::Rush1, t));
+}
+
+void rush2::track_cache::preload_2049(int k) {
+    preload_file(file_for(Kind::Rush2049, k));
+}
+
+void rush2::track_cache::preload_blob(const std::string& name) {
+    preload_file(blob_file(name));
 }
 
 // FNV-1a over 8-byte words (then the tail bytes), with a rotate so high bits feed back: a whole ROM hashes in a few
@@ -344,7 +475,6 @@ uint64_t rush2::track_cache::hash(const uint8_t* data, size_t size, uint64_t see
 
 bool rush2::track_cache::load_rush1(int t, const std::string& prefix, uint64_t source, rush2::track1::ConvertedTrack& track,
                                     std::vector<uint8_t>& logo) {
-    std::lock_guard lock{ cache_mutex };
     std::vector<uint8_t> bytes;
     if (!open(Kind::Rush1, t, prefix, source, bytes)) return false;
     Reader r(bytes);
@@ -359,16 +489,14 @@ bool rush2::track_cache::load_rush1(int t, const std::string& prefix, uint64_t s
 
 void rush2::track_cache::save_rush1(int t, const std::string& prefix, uint64_t source, const rush2::track1::ConvertedTrack& track,
                                     const std::vector<uint8_t>& logo) {
-    std::lock_guard lock{ cache_mutex };
     Writer w;
     key(w, Kind::Rush1, t, prefix, source);
     write(w, track);
     w.pods(logo);
-    store(Kind::Rush1, t, w.bytes);
+    store(file_for(Kind::Rush1, t), w.bytes);
 }
 
 bool rush2::track_cache::load_2049(int k, const std::string& prefix, uint64_t source, rush2::track2049::ConvertedTrack& track) {
-    std::lock_guard lock{ cache_mutex };
     std::vector<uint8_t> bytes;
     if (!open(Kind::Rush2049, k, prefix, source, bytes)) return false;
     Reader r(bytes);
@@ -381,26 +509,19 @@ bool rush2::track_cache::load_2049(int k, const std::string& prefix, uint64_t so
 }
 
 void rush2::track_cache::save_2049(int k, const std::string& prefix, uint64_t source, const rush2::track2049::ConvertedTrack& track) {
-    std::lock_guard lock{ cache_mutex };
     Writer w;
     key(w, Kind::Rush2049, k, prefix, source);
     write(w, track);
-    store(Kind::Rush2049, k, w.bytes);
+    store(file_for(Kind::Rush2049, k), w.bytes);
 }
 
 bool rush2::track_cache::load_blob(const std::string& name, uint64_t source, std::vector<uint8_t>& out) {
     if (source == 0) return false;
-    std::lock_guard lock{ cache_mutex };
-    std::ifstream in(blob_file(name), std::ios::binary | std::ios::ate);
-    if (!in) return false;
-    // One read of the whole file (a character iterator took milliseconds for a car texture's upscale).
-    std::vector<uint8_t> bytes(size_t(in.tellg()));
-    in.seekg(0);
-    if (!in.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)bytes.size())) return false;
     Writer expected;
     key(expected, Kind::Blob, 0, name, source);
     size_t at = expected.bytes.size();
-    if (bytes.size() < at || memcmp(bytes.data(), expected.bytes.data(), at) != 0) return false;
+    std::vector<uint8_t> bytes;
+    if (!read_entry(blob_file(name), expected.bytes, bytes)) return false;
     Reader r(bytes);
     r.at = at;
     std::vector<uint8_t> loaded;
@@ -412,23 +533,8 @@ bool rush2::track_cache::load_blob(const std::string& name, uint64_t source, std
 
 void rush2::track_cache::save_blob(const std::string& name, uint64_t source, const std::vector<uint8_t>& data) {
     if (source == 0) return;
-    std::lock_guard lock{ cache_mutex };
     Writer w;
     key(w, Kind::Blob, 0, name, source);
     w.pods(data);
-    std::error_code ec;
-    std::filesystem::create_directories(cache_dir(), ec);
-    std::filesystem::path path = blob_file(name);
-    std::filesystem::path temp = path;
-    temp += ".tmp";
-    {
-        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-        if (!out) return;
-        out.write(reinterpret_cast<const char*>(w.bytes.data()), (std::streamsize)w.bytes.size());
-        if (!out) return;
-    }
-    std::filesystem::rename(temp, path, ec);
-    if (ec) {
-        fprintf(stderr, "[TrackCache] Couldn't write %s: %s\n", path.string().c_str(), ec.message().c_str());
-    }
+    store(blob_file(name), w.bytes);
 }

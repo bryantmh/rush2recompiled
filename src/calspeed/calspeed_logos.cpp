@@ -330,6 +330,8 @@ std::vector<rush2::car2049::NameLogo> rush2::calspeed::name_logos(const std::vec
     uint64_t key = rom_source(rom) ^ (uint64_t(cache_version) << 56);
     std::vector<uint8_t> blob;
     constexpr size_t each = size_t(w * h) + 512;
+    // Built ahead of the boot by rush2::calspeed::prepare_cars, which the boot then waits for here.
+    auto claim = rush2::track_cache::claim(rush2::track_cache::blob_entry("calspeed_name_logos"));
     if (rush2::track_cache::load_blob("calspeed_name_logos", key, blob) && blob.size() == each * car_count) {
         for (int n = 0; n < car_count; n++) {
             auto at = blob.begin() + ptrdiff_t(each * n);

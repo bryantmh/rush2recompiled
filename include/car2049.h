@@ -10,6 +10,10 @@
 #include "recomp.h"
 #include "car_types.h"
 
+namespace rush2::rom2049 {
+    class Source;
+}
+
 // Rush 2049 cars as Rush 2 car types 23-35 (src/rush2049/car2049.cpp); type 22 is Rush 2's "no car" marker. This file
 // also keeps what every extra type (2049's, California Speed's 36-56 and mod cars 57-72, include/car_types.h) shares:
 // the widened per-type tables, assets, side slots for the player records' options, denting and the car select's list.
@@ -55,6 +59,9 @@ namespace rush2::car2049 {
     // A player record's selected car (the byte at record + 0x31, with the 2049 types kept beside it).
     int saved_type(uint8_t* rdram, uint32_t at);
     void init_assets(uint8_t* rdram);
+    // Converts the cars and part models of a Rush 2049 source into the disk cache (those not there yet) and reads them
+    // into memory, so init_assets / check_source only install them. Any thread (src/prewarm.cpp, at launch).
+    void prepare(const rush2::rom2049::Source& rom);
     // Fills the 2049 types' physics: descriptors, per-type table entries and boxes. Call after init_tables.
     void init_physics(uint8_t* rdram);
     // Once per frame: rebuilds the cars and their physics in the menus after the Rush 2049 source changed.

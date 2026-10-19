@@ -55,6 +55,7 @@
 #include "wings.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
+#include "prewarm.h"
 #include "car_engines.h"
 #include "steam_input_filter.h"
 #include "linux_window.h"
@@ -550,6 +551,8 @@ static bool get_game_input(int controller_num, uint16_t* buttons, float* x, floa
 static void launcher_init(recompui::LauncherMenu* menu) {
     rush2::online::game::init_overlay();
     rush2::arcade2049::start_refresh();
+    // The cars, then every track, converted in the background ahead of the boot and the races (src/prewarm.cpp).
+    rush2::prewarm::start();
     const recomp::GameEntry& game = supported_games[0];
     auto game_options_menu = menu->init_game_options_menu(game.game_id, game.mod_game_id, game.display_name,
                                                           game.thumbnail_bytes, recompui::GameOptionsMenuLayout::Center);

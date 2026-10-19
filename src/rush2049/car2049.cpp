@@ -1158,6 +1158,53 @@ static void load_jobs(const std::vector<uint8_t>& car, const std::vector<rush2::
     }
 }
 
+// Car k's converted container (k 0-based): from the disk cache (src/track_cache.cpp) when this build converted it from
+// the same source before, else converted and stored. Any thread: the background builds (rush2::car2049::prepare)
+// make them ahead of the boot, which then waits on the entry's claim instead of converting it again.
+static bool car_container(const rush2::rom2049::Source& rom, int k, std::vector<uint8_t>& car, std::string& error) {
+    std::string cache_name = "car2049_" + std::to_string(k + 1);
+    auto claim = rush2::track_cache::claim(rush2::track_cache::blob_entry(cache_name));
+    if (rush2::track_cache::load_blob(cache_name, rom.cache_key(), car)) return true;
+    if (!rush2::track2049::convert_car(rom, k + 1, "CAR" + std::to_string(k + 1), car, error)) return false;
+    rush2::track_cache::save_blob(cache_name, rom.cache_key(), car);
+    return true;
+}
+
+// The engine and tire models the unlock system's shop shows (src/unlocks_shop.cpp): the part centers (3 floats each)
+// followed by the model container, as kept on disk with the cars. Any thread, as car_container.
+static bool parts_container(const rush2::rom2049::Source& rom, std::vector<uint8_t>& packed, std::string& error) {
+    std::vector<std::string> names, sources;
+    for (int i = 0; i < part_models + tire_models; i++) {
+        names.push_back(part_model_name(i));
+        sources.push_back(i < part_models ? "ENGINE0" + std::to_string(first_part_model + i) + "G1"
+                                          : "TIRE0" + std::to_string(i - part_models + 1) + "G1");
+    }
+    auto claim = rush2::track_cache::claim(rush2::track_cache::blob_entry("parts2049"));
+    if (rush2::track_cache::load_blob("parts2049", rom.cache_key(), packed) &&
+        packed.size() >= names.size() * sizeof(std::array<float, 3>)) {
+        return true;
+    }
+    std::vector<uint8_t> parts;
+    std::vector<std::array<float, 3>> centers;
+    if (!rush2::track2049::convert_parts(rom, sources, names, parts, centers, error)) return false;
+    packed.resize(centers.size() * sizeof(centers[0]));
+    memcpy(packed.data(), centers.data(), packed.size());
+    packed.insert(packed.end(), parts.begin(), parts.end());
+    rush2::track_cache::save_blob("parts2049", rom.cache_key(), packed);
+    return true;
+}
+
+void rush2::car2049::prepare(const rush2::rom2049::Source& rom) {
+    for (int k = 0; k < car_count; k++) {
+        std::vector<uint8_t> car;
+        std::string error;
+        if (car_container(rom, k, car, error)) rush2::track_cache::preload_blob("car2049_" + std::to_string(k + 1));
+    }
+    std::vector<uint8_t> packed;
+    std::string error;
+    if (parts_container(rom, packed, error)) rush2::track_cache::preload_blob("parts2049");
+}
+
 // The 2049 cars' and parts' assets and their per-car data (paints), from the Rush 2049 source in use. At boot, and
 // again when the Games tab switches the source (rush2::car2049::check_source).
 static void load_cars(uint8_t* rdram) {
@@ -1205,14 +1252,7 @@ static void load_cars(uint8_t* rdram) {
     for (int k = 0; k < car_count; k++) {
         std::vector<uint8_t> car;
         std::string error;
-        // The converted cars are kept on disk (src/track_cache.cpp), so they're converted once per build and source.
-        std::string cache_name = "car2049_" + std::to_string(k + 1);
-        bool converted = rush2::track_cache::load_blob(cache_name, rom->cache_key(), car);
-        if (!converted && rush2::track2049::convert_car(*rom, k + 1, "CAR" + std::to_string(k + 1), car, error)) {
-            rush2::track_cache::save_blob(cache_name, rom->cache_key(), car);
-            converted = true;
-        }
-        if (converted) {
+        if (car_container(*rom, k, car, error)) {
             Paint& p = paints[k];
             p.texture_table = be32(car, 8);
             p.texture_count = be32(car, 20);
@@ -1240,34 +1280,13 @@ static void load_cars(uint8_t* rdram) {
         }
     }
     // The engine and tire models the unlock system's shop shows (src/unlocks_shop.cpp).
-    std::vector<uint8_t> parts;
-    std::string error;
-    std::vector<std::string> names;
-    std::vector<std::string> sources;
-    for (int i = 0; i < part_models + tire_models; i++) {
-        names.push_back(part_model_name(i));
-        sources.push_back(i < part_models ? "ENGINE0" + std::to_string(first_part_model + i) + "G1"
-                                          : "TIRE0" + std::to_string(i - part_models + 1) + "G1");
-    }
-    // Kept on disk with the cars: the part centers (3 floats each) followed by the model container.
     std::vector<uint8_t> packed;
-    bool parts_ok = false;
-    if (rush2::track_cache::load_blob("parts2049", rom->cache_key(), packed) &&
-        packed.size() >= names.size() * sizeof(std::array<float, 3>)) {
-        size_t n = names.size();
+    std::string error;
+    if (parts_container(*rom, packed, error)) {
+        size_t n = size_t(part_models + tire_models);
         part_centers.resize(n);
         memcpy(part_centers.data(), packed.data(), n * sizeof(part_centers[0]));
-        parts.assign(packed.begin() + n * sizeof(part_centers[0]), packed.end());
-        parts_ok = true;
-    }
-    else if (rush2::track2049::convert_parts(*rom, sources, names, parts, part_centers, error)) {
-        packed.resize(part_centers.size() * sizeof(part_centers[0]));
-        memcpy(packed.data(), part_centers.data(), packed.size());
-        packed.insert(packed.end(), parts.begin(), parts.end());
-        rush2::track_cache::save_blob("parts2049", rom->cache_key(), packed);
-        parts_ok = true;
-    }
-    if (parts_ok) {
+        std::vector<uint8_t> parts(packed.begin() + n * sizeof(part_centers[0]), packed.end());
         rush2::assets::replace(rdram, rush2::car2049::parts_asset, parts, origin);
     }
     else {

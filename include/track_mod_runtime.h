@@ -56,9 +56,15 @@ namespace rush2::track_mod {
     // the first race of it doesn't convert again). False when the track can't be converted: its report says why.
     bool menu_art(int index, MenuArt& out);
 
-    // Starts a background thread that converts the enabled mods' tracks into the disk cache whenever the enabled mods
-    // change, so the track select doesn't convert them when it opens. The first call starts it; later calls do nothing.
-    void prepare_in_background();
+    // Converts the enabled mods' tracks into the disk cache (those not there yet) and keeps their menu art and file
+    // hashes in memory, so the track select and the race read none of the mods' files. Any thread: src/prewarm.cpp runs
+    // it at launch and again whenever signature() changes.
+    void prepare();
+    // Changes when the enabled mods (or their files' paths) do.
+    std::string signature();
+    // Reads track `index`'s cache entries into memory now, for the race about to load it (src/prewarm.cpp, from the
+    // car select). Does nothing for a track prepare hasn't read.
+    void preload(int index);
 
     // Has the textures of the tracks load and menu_art have seen (the enabled ones) drawn full size in place of their
     // stand-ins (rush2::derive::set_mod_textures, source "tracks"). Does nothing when that set hasn't changed. load

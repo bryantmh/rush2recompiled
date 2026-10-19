@@ -84,6 +84,11 @@ namespace rush2::calspeed {
     // comes from the disk cache when this build converted it from the same ROM (and settings) before.
     bool load_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
                     const std::set<std::string>& shared_models, bool billboards, Converted& out, std::string& error);
+    // Converts track t into the disk cache as the scenery options are set now, unless it is there (src/prewarm.cpp).
+    void prepare_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
+                       const std::set<std::string>& shared_models);
+    // Reads track t's cache entry (as the options are set now) into memory, for the race about to load it.
+    void preload_track(int t);
 
     // Track select art: per track a diorama (California Speed's own track select landmark, asset 6) and a 128 x 32
     // name logo made from its track select banner (asset 3), named menu_model_name / menu_logo_name. Also gives the
@@ -154,6 +159,9 @@ namespace rush2::calspeed {
     // built (rush2::car2049::init_physics), and each frame (check_cars) once a ROM is chosen later, in the menus.
     void init_cars(uint8_t* rdram);
     void check_cars(uint8_t* rdram);
+    // Converts the cars and name logos into the disk cache (those not there yet) and reads them into memory, so
+    // init_cars only installs them. Any thread (src/prewarm.cpp, at launch).
+    void prepare_cars(const std::vector<uint8_t>& rom);
 }
 
 #endif

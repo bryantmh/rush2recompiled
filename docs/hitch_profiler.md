@@ -77,5 +77,12 @@ Checked with the same run on the first launch of a new build (this build's cache
 - Upscaler: `textureDrawn` copies TMEM into a job and the upscaler's decode thread (`decode_loop`) decodes it, so
   `decode_tmem` is off the gfx thread.
 
+2026-10-19: every conversion now runs at launch in the background (docs/prewarm.md): the boot's car conversions, the
+first race of each added track, the track select's mod track reads and the car select's save write are gone from the
+game thread.
+
+`--brief` prints one line per busy game or graphics thread per hitch, and `--sym-path DIR` reads a copy of the run's
+exe and PDB (another session's build replaces build/'s, after which a log can't be symbolized).
+
 Still open: the race start's first frame (about 50 ms, almost all `TextureCache::waitForGPUUploads`), texture packs
 loading in the first `send_dl`, the specialized shader compiles on every launch, and the pacing after a hitch.

@@ -103,6 +103,13 @@ namespace rush2::track1 {
                        const std::map<std::string, std::string>& pieces);
     void clear_redirects();
 
+    // Converts every track into the disk cache (those not there yet) and keeps their lap times for record_seed. Any
+    // thread (src/prewarm.cpp, at launch).
+    void prepare(const std::vector<uint8_t>& rom);
+    // Reads track k's (1-7) cache entry into memory now, for the race about to load it (src/prewarm.cpp, from the car
+    // select). Any thread.
+    void preload(int k);
+
     // The Rush 1 track (1-7) being raced, or 0 (src/rush1/track1.cpp).
     int race_track();
     void set_race_track(int k);

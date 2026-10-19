@@ -40,7 +40,9 @@ The race setup runs on the race's first frame: `race_start_timer_800AE670` -> `r
 (`src/rush1/track1.cpp`), which converted the track from the Rush 1 ROM there: 26 ms (applying it takes 0.4 ms). Rush
 2049 tracks convert at the same point. A stock Rush 2 track spends ~16 ms in `race_setup` on that frame.
 
-The conversion used to be kept only for the last track raced in the session. It is now cached on disk.
+The conversion used to be kept only for the last track raced in the session. It is now cached on disk, every track
+is converted into that cache in the background at launch, and the car select reads the chosen track's entry into
+memory (docs/prewarm.md), so a race start converts and reads nothing.
 
 ## Converted track cache
 

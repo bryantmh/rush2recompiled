@@ -278,6 +278,78 @@ namespace {
         int cache_key = 0;          // the track's own entry in the track cache
     };
 
+    // A track whose files read_files has read and hashed, kept by report_key with the files' stamp, so the track select
+    // and the race (on the game thread) skip reading them again while they are unchanged: with five mods that took
+    // about 100 ms when the track select opened. Its menu art too, once made or read (menu_art).
+    struct Known {
+        std::string stamp;
+        uint64_t source = 0;
+        int cache_key = 0;
+        std::vector<uint8_t> toml;
+        bool has_art = false;
+        rush2::track_mod::MenuArt art;
+    };
+    std::mutex known_mutex;
+    std::map<std::string, Known> known;
+
+    // What read_files reads, by time and size: the mod's .rtz, or each of the track's files in a folder mod.
+    std::string stamp(const rush2::track_mod::Entry& e) {
+        auto one = [](const std::filesystem::path& p) {
+            std::error_code ec;
+            auto time = std::filesystem::last_write_time(p, ec).time_since_epoch().count();
+            auto size = ec ? 0 : std::filesystem::file_size(p, ec);
+            return std::to_string(ec ? 0 : time) + ":" + std::to_string(ec ? 0 : size) + ";";
+        };
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(e.mod_path, ec)) return one(e.mod_path);
+        std::string s;
+        for (const std::string& name : { std::string("track.glb"), std::string("track.toml"), e.settings.logo,
+                                          e.settings.diorama, e.settings.preview }) {
+            if (!name.empty()) s += one(e.mod_path / std::filesystem::u8path(e.dir + name));
+        }
+        return s;
+    }
+
+    void remember_files(const Files& f) {
+        if (f.sky_pending) return;   // its source isn't the one the race will key on
+        std::string s = stamp(f.entry);
+        std::lock_guard lock{ known_mutex };
+        Known& k = known[report_key(f.entry)];
+        if (k.stamp != s || k.source != f.source) k = Known{};
+        k.stamp = s;
+        k.source = f.source;
+        k.cache_key = f.cache_key;
+        k.toml = f.toml;
+    }
+
+    // Track `index`'s entry, source and cache key (and toml) as read_files last read them, without the other files'
+    // bytes; false when they changed since or were never read.
+    bool known_files(int index, Files& f, Known* copy = nullptr) {
+        {
+            std::lock_guard lock{ mutex };
+            scan();
+            if (index < 0 || index >= (int)entries.size()) return false;
+            f.entry = entries[index];
+        }
+        std::string s = stamp(f.entry);
+        std::lock_guard lock{ known_mutex };
+        auto it = known.find(report_key(f.entry));
+        if (it == known.end() || it->second.stamp != s) return false;
+        f.source = it->second.source;
+        f.cache_key = it->second.cache_key;
+        f.toml = it->second.toml;
+        if (copy != nullptr) *copy = it->second;
+        return true;
+    }
+
+    void remember_art(const Files& f, const rush2::track_mod::MenuArt& art) {
+        std::lock_guard lock{ known_mutex };
+        auto it = known.find(report_key(f.entry));
+        if (it == known.end() || it->second.source != f.source) return;
+        it->second.art = art;
+        it->second.has_art = true;
+    }
+
     // The model container of a stock sky that is a model (track.toml sky, Extras::sky_container): Rush 2's own track
     // geometry asset, or a Rush 2049 track's geometry file converted. Kept once read; false while it can't be (before
     // the game has loaded an asset, or without a Rush 2049 ROM), and the track is then converted without it. `pending`
@@ -294,9 +366,9 @@ namespace {
         if (it == read.end()) {
             std::vector<uint8_t> bytes;
             if (k->game == 2) {
-                uint8_t* rdram = rush2::assets::rdram();
-                pending = rdram == nullptr;
-                if (rdram == nullptr || !rush2::assets::read_original(rdram, k->asset_or_k, bytes)) return false;
+                // From the ROM's own asset table, so this works before the game boots (src/prewarm.cpp).
+                pending = rush2::assets::rom_offset(k->asset_or_k) == 0;
+                if (pending || !rush2::assets::rom_original(k->asset_or_k, bytes)) return false;
             }
             else {
                 auto rom = rush2::wings::get_rom();
@@ -339,6 +411,7 @@ namespace {
         }
         uint64_t name = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(e.folder.data()), e.folder.size());
         f.cache_key = cache_k + int(name % 1000000);
+        remember_files(f);
         return true;
     }
 
@@ -521,20 +594,36 @@ void rush2::track_mod::publish_textures() {
 }
 
 bool rush2::track_mod::load(int index, const std::string& prefix, Converted& out) {
+    // The cached track by what the background pass (prepare) read of its files, else the files read now.
     Files f;
-    if (!read_files(index, f)) return false;
-    std::lock_guard converting{ convert_mutex };
-    out = Converted{};
-    Report settings_report;
-    parse_settings(std::string(f.toml.begin(), f.toml.end()), out.settings, settings_report);
-    if (rush2::track_cache::load_2049(f.cache_key, prefix, f.source, out.track) && cached_textures(f)) {
+    bool known_now = known_files(index, f);
+    if (!known_now && !read_files(index, f)) return false;
+    auto load_cached = [&]() {
+        out = Converted{};
+        Report settings_report;
+        parse_settings(std::string(f.toml.begin(), f.toml.end()), out.settings, settings_report);
+        if (!rush2::track_cache::load_2049(f.cache_key, prefix, f.source, out.track) || !cached_textures(f)) return false;
         for (const auto& [name, sf] : out.settings.surfaces) out.custom_drag[sf.material] = sf.drag;
         publish_textures();
         return true;
-    }
+    };
+    if (load_cached()) return true;
+    std::lock_guard converting{ convert_mutex };
+    if (known_now && !read_files(index, f)) return false;
+    if (load_cached()) return true;   // converted meanwhile by the background pass
+    out = Converted{};
+    Report settings_report;
+    parse_settings(std::string(f.toml.begin(), f.toml.end()), out.settings, settings_report);
     bool ok = convert_and_store(f, prefix, out);
     if (ok) publish_textures();
     return ok;
+}
+
+void rush2::track_mod::preload(int index) {
+    Files f;
+    if (!known_files(index, f)) return;
+    rush2::track_cache::preload_2049(f.cache_key);
+    rush2::track_cache::preload_blob(texture_blob_name(f));
 }
 
 std::string rush2::track_mod::identity(int index) {
@@ -554,53 +643,56 @@ std::string rush2::track_mod::identity(int index) {
 }
 
 bool rush2::track_mod::menu_art(int index, MenuArt& out) {
+    // The art the background pass (prepare) kept, while the track's files are unchanged: no file reads.
     Files f;
+    Known k;
+    if (known_files(index, f, &k) && k.has_art) {
+        out = std::move(k.art);
+        return true;
+    }
     if (!read_files(index, f)) return false;
     std::lock_guard converting{ convert_mutex };
     std::vector<uint8_t> blob;
     if (rush2::track_cache::load_blob(menu_blob_name(f), f.source, blob) && deserialize(blob, out) && cached_textures(f)) {
         cached_report(f);
+        remember_art(f, out);
         return true;
     }
     Converted converted;
     if (!convert_and_store(f, rush2::track_mod::host_prefix(f.entry.settings), converted)) return false;
     out = std::move(converted.menu);
+    if (!f.sky_pending) remember_art(f, out);
     return true;
 }
 
-void rush2::track_mod::prepare_in_background() {
-    static std::atomic_bool started = false;
-    if (started.exchange(true)) return;
-    // One thread for the session: about once a second it rescans the enabled mods, and when they changed, converts each
-    // of their tracks that the disk cache doesn't hold yet (menu_art stores it). The track select then reads them from
-    // the cache instead of converting them on the frame it opens.
-    std::thread([]() {
-        std::string prepared;
-        while (true) {
-            // Not before the game has loaded an asset: a stock sky's model reads from one (stock_sky_container), and a
-            // track converted without it would be cached under a hash its race load never asks for.
-            if (rush2::assets::rdram() == nullptr) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                continue;
-            }
-            std::string signature;
-            size_t count = 0;
-            {
-                std::lock_guard lock{ mutex };
-                scan();
-                signature = entries_signature;
-                count = entries.size();
-            }
-            if (signature != prepared) {
-                prepared = signature;
-                for (size_t i = 0; i < count; i++) {
-                    MenuArt art;
-                    menu_art(int(i), art);
-                }
-            }
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-    }).detach();
+std::string rush2::track_mod::signature() {
+    // The enabled mods and each track's files' stamp, so a mod rewritten in place (src/arcade2049 reinstalls one at
+    // launch) has its tracks prepared again before the track select reads them.
+    std::vector<Entry> list;
+    std::string s;
+    {
+        std::lock_guard lock{ mutex };
+        scan();
+        list = entries;
+        s = entries_signature;
+    }
+    for (const Entry& e : list) s += stamp(e);
+    return s;
+}
+
+void rush2::track_mod::prepare() {
+    // Each enabled mod's tracks that the disk cache doesn't hold yet are converted (menu_art stores them), and their
+    // menu art and file hashes kept, so the track select and the race read none of the mod's files.
+    size_t count = 0;
+    {
+        std::lock_guard lock{ mutex };
+        scan();
+        count = entries.size();
+    }
+    for (size_t i = 0; i < count; i++) {
+        MenuArt art;
+        menu_art(int(i), art);
+    }
 }
 
 void rush2::track_mod::register_mod_notes() {

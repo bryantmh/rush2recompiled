@@ -28,6 +28,12 @@ namespace rush2::assets {
     bool replacement(int index, std::vector<uint8_t>& data, std::vector<Span>& spans);
     // Decompresses the game's own copy of a deflate-compressed asset from the Rush 2 ROM, ignoring any replacement.
     bool read_original(uint8_t* rdram, int index, std::vector<uint8_t>& out);
+    // The same for Rush 2's own assets (index below 0x71), with no game memory: the ROM offset comes from the asset
+    // table in the ROM's main segment. Callable from any thread once the game has started (recomp::get_rom), so
+    // background builds (src/prewarm.cpp) can read them before the game boots.
+    bool rom_original(int index, std::vector<uint8_t>& out);
+    // That table's ROM offset of asset `index` (0 when the ROM isn't there yet).
+    uint32_t rom_offset(int index);
     // The asset as the game loads it now: a replacement's bytes and spans, else Rush 2's own. Callable from any thread
     // once the game has loaded an asset (it reads the asset table from that load's RDRAM). False if there is none.
     bool read_current(int index, std::vector<uint8_t>& out, std::vector<Span>& spans);

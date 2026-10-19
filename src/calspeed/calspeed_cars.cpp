@@ -140,10 +140,16 @@ namespace {
         return "CS" + std::to_string(n + 1);
     }
 
-    // Car n's container, converted (or from the disk cache).
+    std::string car_cache_name(int n) {
+        return "calspeed_car_" + std::to_string(n + 1);
+    }
+
+    // Car n's container, converted (or from the disk cache). Any thread: rush2::calspeed::prepare_cars makes them ahead
+    // of the boot, which then waits on the entry's claim instead of converting it again.
     bool load_car(const std::vector<uint8_t>& rom, int n, std::vector<uint8_t>& car, std::string& error) {
         uint64_t key = rush2::calspeed::rom_source(rom) ^ (uint64_t(cache_version) << 56);
-        std::string cache_name = "calspeed_car_" + std::to_string(n + 1);
+        std::string cache_name = car_cache_name(n);
+        auto claim = rush2::track_cache::claim(rush2::track_cache::blob_entry(cache_name));
         if (rush2::track_cache::load_blob(cache_name, key, car)) {
             return true;
         }
@@ -408,6 +414,16 @@ void rush2::calspeed::set_drone_cars(rush2::car2049::DroneCars mode) {
 
 rush2::car2049::DroneCars rush2::calspeed::drone_cars() {
     return (rush2::car2049::DroneCars)drones.load();
+}
+
+void rush2::calspeed::prepare_cars(const std::vector<uint8_t>& rom) {
+    for (int n = 0; n < car_count; n++) {
+        std::vector<uint8_t> car;
+        std::string error;
+        if (load_car(rom, n, car, error)) rush2::track_cache::preload_blob(car_cache_name(n));
+    }
+    rush2::calspeed::name_logos(rom);
+    rush2::track_cache::preload_blob("calspeed_name_logos");
 }
 
 void rush2::calspeed::init_cars(uint8_t* rdram) {

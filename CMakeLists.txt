@@ -254,6 +254,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/surface_fx.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049.cpp
     ${CMAKE_SOURCE_DIR}/src/track_cache.cpp
+    ${CMAKE_SOURCE_DIR}/src/prewarm.cpp
     ${CMAKE_SOURCE_DIR}/src/texture_origin.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_art.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_convert.cpp

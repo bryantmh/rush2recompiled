@@ -1,6 +1,7 @@
 """Reports the long frames in a hitch profiler log and the code each thread ran during them (test aid).
 
 Usage: python tools/hitch_profile.py LOG [--ms 20] [--game-ms 45] [--threads N] [--depth N] [--from S] [--to S] [--folded DIR]
+                                     [--brief] [--sym-path DIR]
 
 LOG comes from a run with RUSH2_HITCH_LOG=<file> (src/hitch_profiler.cpp, docs/hitch_profiler.md). A hitch is a gap
 of more than --ms milliseconds between two RT64 presents (what a frame time overlay shows) or of more than --game-ms
@@ -9,7 +10,8 @@ lists the threads that were busy and, per thread, the dominant call path: the ch
 thread's samples in the hitch went through, down to where it branches, then the branches. Symbols come from the PDBs
 (the recompiled functions keep their names, e.g. race_setup_800A5ADC). At the end, the functions that account for the
 most hitch time across the whole run. --folded writes each hitch's stacks in folded form (one file per hitch) for
-flame graph viewers such as speedscope.
+flame graph viewers such as speedscope. --brief prints one line per busy game or graphics thread per hitch instead: its
+dominant path below the thread's own loop (where a stall's cause is), for comparing runs.
 """
 import argparse, bisect, collections, ctypes, ctypes.wintypes as wt, os, sys
 
@@ -22,6 +24,9 @@ ap.add_argument('--depth', type=int, default=14, help='frames of each dominant p
 ap.add_argument('--from', dest='t0', type=float, default=0, help='ignore hitches before this many seconds')
 ap.add_argument('--to', dest='t1', type=float, default=1e9, help='ignore hitches after this many seconds')
 ap.add_argument('--folded', help='write folded stacks of each hitch into this folder')
+ap.add_argument('--brief', action='store_true', help='one line per busy game or graphics thread per hitch')
+ap.add_argument('--sym-path', help='folder holding a copy of the run\'s exe and its PDB (another session may have '
+                'rebuilt build/ since the run)')
 args = ap.parse_args()
 
 # ---- parse -------------------------------------------------------------------------------------------------------
@@ -67,11 +72,15 @@ class SYMBOL_INFOW(ctypes.Structure):
 HPROC = wt.HANDLE(0x7E57)
 dbghelp.SymSetOptions(0x2 | 0x4 | 0x10)  # UNDNAME | DEFERRED_LOADS | LOAD_LINES
 dbghelp.SymInitializeW.argtypes = [wt.HANDLE, wt.LPCWSTR, wt.BOOL]
-dbghelp.SymInitializeW(HPROC, None, False)
+dbghelp.SymInitializeW(HPROC, args.sym_path, False)
 dbghelp.SymLoadModuleExW.argtypes = [wt.HANDLE, wt.HANDLE, wt.LPCWSTR, wt.LPCWSTR, ctypes.c_uint64, wt.DWORD, ctypes.c_void_p, wt.DWORD]
 dbghelp.SymLoadModuleExW.restype = ctypes.c_uint64
 dbghelp.SymFromAddrW.argtypes = [wt.HANDLE, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(SYMBOL_INFOW)]
 for base, size, path in modules:
+    # A copy of the run's own image (and its PDB beside it) in --sym-path wins over the one in the log's path, which a
+    # later build may have replaced.
+    if args.sym_path and os.path.exists(os.path.join(args.sym_path, os.path.basename(path))):
+        path = os.path.join(args.sym_path, os.path.basename(path))
     dbghelp.SymLoadModuleExW(HPROC, None, path, None, base, size, None, 0)
 mod_bases = sorted((b, b + s, os.path.basename(p)) for b, s, p in modules)
 sym_cache = {}
@@ -148,6 +157,10 @@ def cycles_per_ms():
 
 CPMS = cycles_per_ms()
 KEY = ('Gfx Thread', 'RT64 Present', 'RT64 Workload')
+# --brief: frames every thread's stack starts with, and the ones that mean the thread was only waiting.
+BRIEF_SKIP = ('RtlUserThreadStart', 'BaseThreadInitThunk', 'wcsrchr', '_Invoke', '_thread_func', 'run_thread_function',
+              'boot_main_thread', 'game_thread_main_init', 'game_thread_entry', 'game_main_loop_frame', 'gfx_thread_func')
+BRIEF_WAITS = ('WaitForSingleObject', 'SleepConditionVariable', 'waitWithPartialSpinning', 'loading_screen_wait_frame')
 offenders = collections.Counter()  # function -> ms of hitch time spent under it (deepest dominant node per thread)
 
 
@@ -186,7 +199,8 @@ for hi, (a, b, kinds) in enumerate(hitches):
         by[tid].append((sid, cyc))
     kinds_s = ', '.join('%s gap %.0f ms' % (k, v) for k, v in sorted(kinds.items()))
     ev = [tag for t, tag in other_marks if a <= t <= b]
-    print('\n=== hitch %d at %.3f s: %s%s' % (hi, a / 1e6, kinds_s, ('   marks: ' + ' '.join(ev)) if ev else ''))
+    print('%s=== hitch %d at %.3f s: %s%s' % ('' if args.brief else '\n', hi, a / 1e6, kinds_s,
+                                            ('   marks: ' + ' '.join(ev)) if ev else ''))
     cpu = {tid: sum(c for _, c in ss) / CPMS for tid, ss in by.items()}
     busy = sorted(by.items(), key=lambda kv: -cpu[kv[0]])
     # The threads that used the most CPU in the hitch, plus the game's and RT64's frame threads whatever they did.
@@ -200,6 +214,15 @@ for hi, (a, b, kinds) in enumerate(hitches):
         nbusy = cpu[tid]
         stks = [sym_stack(sid) for sid, _ in ss]
         path, branches, ends = dominant(stks)
+        if args.brief:
+            n = thread_name(tid)
+            if (n.startswith('[Game]') or n == 'Gfx Thread') and nbusy >= 10:
+                # Below the thread's entry and the game's main loop, and not a thread that was only waiting.
+                frames = [f for f, _ in path if not any(w in f for w in BRIEF_SKIP)]
+                tail = [f for f, _ in branches.most_common(2)]
+                if not any(w in ' '.join(frames[-3:] + tail) for w in BRIEF_WAITS):
+                    print('    %s %.0f ms: %s' % (n, nbusy, ' > '.join(f[:60] for f in frames[:10] + ['-> ' + t for t in tail])))
+            continue
         print('  -- %s: %d samples, %.1f ms CPU' % (thread_name(tid), len(ss), nbusy))
         shown_path = path[-args.depth:]
         if len(path) > len(shown_path):

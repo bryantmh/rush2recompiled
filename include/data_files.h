@@ -32,8 +32,9 @@ namespace rush2::data_files {
 
     // A section's JSON text, or "" if the file or the section is missing.
     std::string read(File file, const std::string& section);
-    // Replaces a section and writes the file (through a temporary file; the previous one is kept as .bak). Returns
-    // false if json isn't valid JSON or the file couldn't be written.
+    // Replaces a section and writes the file (through a temporary file; the previous one is kept as .bak) on a writer
+    // thread, so the caller never waits on the disk; read sees the new section at once. Returns false if json isn't
+    // valid JSON.
     bool write(File file, const std::string& section, const std::string& json);
 
     // Moves the files of older versions into the layout above: car2049.json, collectibles.json,

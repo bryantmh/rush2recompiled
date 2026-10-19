@@ -849,6 +849,8 @@ bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const s
     uint64_t source = rom_source(rom);
     Bytes extras;
     int k = calspeed_k + t + (billboards ? billboards_k : 0);
+    // The background builds (src/prewarm.cpp) convert these too: whichever comes second waits here, then reads the disk.
+    auto claim = rush2::track_cache::claim(rush2::track_cache::entry_2049(k));
     if (rush2::track_cache::load_2049(k, prefix, source, out.track) &&
         rush2::track_cache::load_blob(extras_name(t, prefix, billboards), source, extras)) {
         Reader r{ extras };
@@ -873,6 +875,29 @@ bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const s
     w.map(out.piece_models);
     rush2::track_cache::save_blob(extras_name(t, prefix, billboards), source, w.b);
     return true;
+}
+
+void rush2::calspeed::prepare_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
+                                    const std::set<std::string>& shared_models) {
+    bool scenery = scenery_enabled(), billboards = billboards_enabled();
+    uint64_t source = rom_source(rom);
+    int k = calspeed_k + t + (scenery ? scenery_k : 0) + (billboards ? billboards_k : 0);
+    if (rush2::track_cache::has_2049(k, prefix, source) &&
+        rush2::track_cache::has_blob(extras_name(t, prefix, scenery, billboards), source)) {
+        return;
+    }
+    Converted out;
+    std::string error;
+    if (!load_track(rom, t, prefix, shared_models, scenery, billboards, out, error)) {
+        printf("[CalSpeed] Couldn't convert track %d: %s\n", t, error.c_str());
+    }
+}
+
+void rush2::calspeed::preload_track(int t) {
+    bool scenery = scenery_enabled(), billboards = billboards_enabled();
+    rush2::track_cache::preload_2049(calspeed_k + t + (scenery ? scenery_k : 0) + (billboards ? billboards_k : 0));
+    // Raced in the host slot, HAWAII (src/rush2049/track2049.cpp prefix_of).
+    rush2::track_cache::preload_blob(extras_name(t, "HAWAII", scenery, billboards));
 }
 
 bool rush2::calspeed::menu_art(const std::vector<uint8_t>& rom, std::vector<rush2::track2049::MenuModel>& models,

@@ -111,6 +111,14 @@ namespace rush2::track2049 {
     bool coin_icon(const rush2::rom2049::Source& rom2049, bool gold, std::vector<uint8_t>& texels,
                    std::vector<uint8_t>& palette);
 
+    // Converts every Rush 2049 track and arena of the source in use, and every California Speed track (as its scenery
+    // options are set), into the disk cache (those not there yet), when their options are on. Any thread
+    // (src/prewarm.cpp, at launch).
+    void prepare();
+    // Reads the cache entry of the 2049 or California Speed track that track select id t races into memory now, for
+    // the race about to load it (src/prewarm.cpp, from the car select). Any thread.
+    void preload(int t);
+
     // The 2049 track (1-6, or obstacle) raced in the host slot, or 0 (src/rush2049/track2049.cpp).
     int race_track();
     void set_race_track(int k);

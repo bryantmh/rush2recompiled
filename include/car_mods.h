@@ -13,9 +13,14 @@
 // rush2/new_cars/<ID>.glb with <ID>.json adds a car to the car select instead (mod car types 57-72,
 // docs/car_mods.md#new-cars).
 namespace rush2::car_mods {
-    // At boot, after the car tables and assets are set up (rush2_heap_init).
+    // At boot, after the car tables and assets are set up (rush2_heap_init): installs what prepare made for the enabled
+    // mods (waiting for it if it is being made), or reads and converts their files itself when it has nothing.
     void init(uint8_t* rdram);
-    // Once per frame: applies mods turned on or off since, while the game is in the menus.
+    // Reads and converts the enabled mods' car files (models, liveries, new cars, replaced cars) for init or check to
+    // install, with no game memory. Any thread: src/prewarm.cpp runs it at launch.
+    void prepare();
+    // Once per frame: applies mods turned on or off since, while the game is in the menus. Their files are read and
+    // converted on a background thread; the change is installed by a later frame once that is done.
     void check(uint8_t* rdram);
     // A mod's files changed under the same id (src/arcade2049 reinstalled one): check reads every mod again.
     void reload();

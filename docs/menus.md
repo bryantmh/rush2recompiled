@@ -123,7 +123,8 @@ A test that only needs a race shouldn't script the menus at all: `RUSH2_TEST_RAC
 folder>` (src/test_race.cpp) sets the race up on the first frame the title screen is up and starts it, so the race is
 loading about 5 s after launch (through the menus it took about 25 s). `tools/test_race.py TRACK --cars T,T` runs one
 hidden and silent from a data folder of its own and reports when it loaded, each player's car type and how far it
-drove; read its docstring for the options.
+drove; read its docstring for the options. `tools/test_race.py menus --script S` runs the same sandbox with no race set
+up, for a script through the real menus (it starts as JUST PLAY: the folder has no saved players).
 
 - `RUSH2_TEST_RACE_CARS=T[,T...]`: one car type per player, 1 to 4 players (split screen). View p follows car p
   (`view_cars` 0x80240380, as online sets them): left unset, view 0 kept another car and split screen's first view

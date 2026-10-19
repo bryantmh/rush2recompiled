@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,26 @@ namespace rush2::track_cache {
     // Rush 2049 track k (as rush2::track2049::convert_track numbers them).
     bool load_2049(int k, const std::string& prefix, uint64_t source, rush2::track2049::ConvertedTrack& track);
     void save_2049(int k, const std::string& prefix, uint64_t source, const rush2::track2049::ConvertedTrack& track);
+
+    // Whether the entry is on disk for this build and source, reading only its key (the background builds,
+    // src/prewarm.cpp, skip what is there).
+    bool has_rush1(int t, const std::string& prefix, uint64_t source);
+    bool has_2049(int k, const std::string& prefix, uint64_t source);
+    bool has_blob(const std::string& name, uint64_t source);
+
+    // Held while an entry is loaded, converted and saved, so a background build (src/prewarm.cpp) and the game wait
+    // for each other on the same entry instead of converting it twice; then the second finds it on disk. Hold one at a
+    // time. Named by rush1_entry, entry_2049 or blob_entry.
+    std::unique_lock<std::mutex> claim(const std::string& entry);
+    std::string rush1_entry(int t);
+    std::string entry_2049(int k);
+    std::string blob_entry(const std::string& name);
+
+    // Reads the entry's file into memory now (off the game thread), so its next load takes it from there (once)
+    // instead of reading the disk. The key is still checked by that load.
+    void preload_rush1(int t);
+    void preload_2049(int k);
+    void preload_blob(const std::string& name);
 }
 
 #endif

@@ -8,7 +8,8 @@ got past the race (test aid; docs/menus.md#starting-a-race-without-the-menus).
                               [--config NAME.K=V ...]
                               [--shots S,S,...]
 
-TRACK is a track select id (0-11 Rush 2, 12-17 Rush 2049, 18-24 SF Rush, 25-28 stunt arenas, 29 obstacle course,
+TRACK `menus` sets no race up: the game boots to the title and the --script drives the menus (as JUST PLAY: the
+data folder has no saved players). Otherwise TRACK is a track select id (0-11 Rush 2, 12-17 Rush 2049, 18-24 SF Rush, 25-28 stunt arenas, 29 obstacle course,
 30-37 battle arenas, 38-63 custom tracks, 64-79 California Speed) or a custom track's folder name. --cars gives one
 car type per player (1-4 players; Rush 2 0-21, 2049 23-35, California Speed 36-56, mod cars 57-72). --script is the
 --input-script (default: gas held from 1 s), counted from launch: the race is up about 5 s in.
@@ -104,7 +105,7 @@ def prepare_data(track, extra_mods, games=(), configs=()):
     enabled += extra_mods
     src_mods = os.path.join(BUILD, 'mods')
     entries = os.listdir(src_mods) if os.path.isdir(src_mods) else []
-    if not track.isdigit():
+    if not track.isdigit() and track != 'menus':
         for e in entries:
             if os.path.isdir(os.path.join(src_mods, e, 'tracks', track)) or os.path.isdir(os.path.join(src_mods, e, 'rush2', 'tracks', track)):
                 enabled.append(mod_name(e))
@@ -172,8 +173,9 @@ def main():
     a = ap.parse_args()
     mods = prepare_data(a.track, a.mod, a.games, a.config)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
-    env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_SIM_TURBO='1' if a.turbo else '0', RUSH2_TEST_RACE=a.track,
-               RUSH2_TEST_RACE_CARS=a.cars)
+    env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_SIM_TURBO='1' if a.turbo else '0')
+    if a.track != 'menus':
+        env.update(RUSH2_TEST_RACE=a.track, RUSH2_TEST_RACE_CARS=a.cars)
     if a.laps is not None:
         env['RUSH2_TEST_RACE_LAPS'] = str(a.laps)
     if a.drones is not None:

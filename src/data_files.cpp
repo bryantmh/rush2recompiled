@@ -1,11 +1,14 @@
 // The recomp's own JSON files and the migration of older versions' files (include/data_files.h).
 
+#include <condition_variable>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include "json/json.hpp"
@@ -60,13 +63,13 @@ namespace {
         return false;
     }
 
-    bool write_json(const fs::path& path, const json& j, int indent) {
+    bool write_text(const fs::path& path, const std::string& text) {
         std::error_code ec;
         fs::create_directories(path.parent_path(), ec);
         fs::path temp = with_suffix(path, ".tmp");
         {
             std::ofstream f{ temp, std::ios::trunc };
-            f << j.dump(indent) << "\n";
+            f << text;
             f.close(); // Flushes, so a full disk fails here rather than after the rename.
             if (f.fail()) {
                 printf("[Data] Couldn't write %s\n", temp.string().c_str());
@@ -82,6 +85,10 @@ namespace {
             return false;
         }
         return true;
+    }
+
+    bool write_json(const fs::path& path, const json& j, int indent) {
+        return write_text(path, j.dump(indent) + "\n");
     }
 
     State& state_of(rush2::data_files::File file) {
@@ -102,6 +109,54 @@ namespace {
     bool write_state(rush2::data_files::File file, State& s) {
         s.root["version"] = layout_version;
         return write_json(path_of(file), s.root, 2);
+    }
+
+    // rush2::data_files::write's files are written on a thread of their own: replacing one (a temporary file, two
+    // renames) took about 100 ms on Windows, on the game thread at the car select. The text is made when write is
+    // called, so the file always gets a whole state, the latest; the reads come from memory. What is still queued at
+    // exit is written then (the destructor).
+    struct Writer {
+        std::mutex mutex;
+        std::condition_variable wake;
+        std::map<fs::path, std::string> pending;
+        bool stop = false;
+        std::thread thread;
+
+        void put(const fs::path& path, std::string text) {
+            std::lock_guard lock{ mutex };
+            pending[path] = std::move(text);
+            if (!thread.joinable()) thread = std::thread([this] { run(); });
+            wake.notify_one();
+        }
+
+        void run() {
+            std::unique_lock lock{ mutex };
+            while (true) {
+                wake.wait(lock, [this] { return stop || !pending.empty(); });
+                if (pending.empty()) return;
+                fs::path path = pending.begin()->first;
+                std::string text = std::move(pending.begin()->second);
+                pending.erase(pending.begin());
+                lock.unlock();
+                write_text(path, text);
+                lock.lock();
+            }
+        }
+
+        ~Writer() {
+            {
+                std::lock_guard lock{ mutex };
+                stop = true;
+            }
+            wake.notify_one();
+            if (thread.joinable()) thread.join();
+        }
+    };
+    Writer writer;
+
+    void queue_state(rush2::data_files::File file, State& s) {
+        s.root["version"] = layout_version;
+        writer.put(path_of(file), s.root.dump(2) + "\n");
     }
 
     void remove_with_backup(const fs::path& path) {
@@ -313,7 +368,8 @@ bool rush2::data_files::write(File file, const std::string& section, const std::
     std::lock_guard lock{ files_mutex };
     State& s = state_of(file);
     s.root[section] = std::move(j);
-    return write_state(file, s);
+    queue_state(file, s);
+    return true;
 }
 
 void rush2::data_files::migrate() {

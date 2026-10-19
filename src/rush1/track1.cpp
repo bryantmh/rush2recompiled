@@ -266,10 +266,12 @@ namespace {
         return s;
     }
 
-    // The Rush 1 ROM's hash, the source key of its cached tracks (src/track_cache.cpp). Under track_mutex.
+    // The Rush 1 ROM's hash, the source key of its cached tracks (src/track_cache.cpp).
     uint64_t rom_source(const std::vector<uint8_t>& rom) {
+        static std::mutex hash_mutex;
         static const std::vector<uint8_t>* hashed_rom = nullptr;
         static uint64_t rom_hash = 0;
+        std::lock_guard lock{ hash_mutex };
         if (hashed_rom != &rom) {
             rom_hash = rush2::track_cache::hash(rom.data(), rom.size());
             hashed_rom = &rom;
@@ -277,32 +279,60 @@ namespace {
         return rom_hash;
     }
 
-    // The track and its logo come from the disk cache (src/track_cache.cpp) when this build converted them from the
-    // same ROM before; converting takes ~26 ms inside the race setup, on the race's first frame.
+    // Converts track t (0-6) with its in-race logo (Rush 2's host slot logo, read from the ROM) and stores them in the
+    // disk cache. No game memory: any thread.
+    bool convert_and_store(const std::vector<uint8_t>& rom, int t, rush2::track1::ConvertedTrack& out,
+                           std::vector<uint8_t>& logo_out, std::string& error) {
+        if (!rush2::track1::convert_track(rom, t, prefix_of_host, out, error)) return false;
+        logo_out.clear();
+        std::vector<uint8_t> logo;
+        if (!rush2::assets::rom_original(4 + host_slot, logo) || !rush2::track1::build_race_logo(logo, rom, t, logo_out)) {
+            logo_out.clear();
+        }
+        rush2::track_cache::save_rush1(t, prefix_of_host, rom_source(rom), out, logo_out);
+        return true;
+    }
+
+    // Track t from the disk cache (src/track_cache.cpp) when this build converted it from the same ROM before, else
+    // converted and stored (~26 ms). Any thread; the background builds (rush2::track1::prepare) do every track ahead of
+    // the races, and the race waits on the entry's claim if one is converting it.
+    bool cached_or_converted(const std::vector<uint8_t>& rom, int t, rush2::track1::ConvertedTrack& out,
+                             std::vector<uint8_t>& logo, std::string& error) {
+        auto claim = rush2::track_cache::claim(rush2::track_cache::rush1_entry(t));
+        if (rush2::track_cache::load_rush1(t, prefix_of_host, rom_source(rom), out, logo)) return true;
+        return convert_and_store(rom, t, out, logo, error);
+    }
+
     bool convert(uint8_t* rdram, int k) {
         auto rom = rush2::track1::get_rom();
         if (rom == nullptr) {
             return false;
         }
-        uint64_t source = rom_source(*rom);
-        if (!rush2::track_cache::load_rush1(k - 1, prefix_of_host, source, track, race_logo)) {
-            std::string error;
-            if (!rush2::track1::convert_track(*rom, k - 1, prefix_of_host, track, error)) {
-                printf("[Rush1] Couldn't convert track %d: %s\n", k, error.c_str());
-                return false;
-            }
-            race_logo.clear();
-            std::vector<uint8_t> logo;
-            if (!rush2::assets::read_original(rdram, 4 + host_slot, logo) ||
-                !rush2::track1::build_race_logo(logo, *rom, k - 1, race_logo)) {
-                race_logo.clear();
-            }
-            rush2::track_cache::save_rush1(k - 1, prefix_of_host, source, track, race_logo);
+        std::string error;
+        if (!cached_or_converted(*rom, k - 1, track, race_logo, error)) {
+            printf("[Rush1] Couldn't convert track %d: %s\n", k, error.c_str());
+            return false;
         }
         lap_seconds[k - 1][0] = track.lap_seconds[0];
         lap_seconds[k - 1][1] = track.lap_seconds[1];
         return true;
     }
+}
+
+void rush2::track1::prepare(const std::vector<uint8_t>& rom) {
+    for (int t = 0; t < track_count; t++) {
+        ConvertedTrack ct;
+        std::vector<uint8_t> logo;
+        std::string error;
+        if (!cached_or_converted(rom, t, ct, logo, error)) continue;
+        std::lock_guard lock{ track_mutex };
+        lap_seconds[t][0] = ct.lap_seconds[0];
+        lap_seconds[t][1] = ct.lap_seconds[1];
+    }
+}
+
+void rush2::track1::preload(int k) {
+    if (k >= 1 && k <= track_count) rush2::track_cache::preload_rush1(k - 1);
 }
 
 void rush2::track1::set_redirects(uint8_t* rdram, const std::map<std::string, std::string>& records,
@@ -519,13 +549,12 @@ float rush2::track1::record_seed(int k, bool backward) {
     std::lock_guard lock{ track_mutex };
     float s = lap_seconds[k - 1][backward ? 1 : 0];
     if (s <= 0.0f) {
-        // Not converted yet in this session: the cached track's times, or convert just the times.
+        // Not raced yet in this session: the cached track's times (the background builds have stored it).
         auto rom = get_rom();
         ConvertedTrack ct;
         std::vector<uint8_t> logo;
         std::string error;
-        if (rom != nullptr && (rush2::track_cache::load_rush1(k - 1, prefix_of_host, rom_source(*rom), ct, logo) ||
-                               convert_track(*rom, k - 1, prefix_of_host, ct, error))) {
+        if (rom != nullptr && cached_or_converted(*rom, k - 1, ct, logo, error)) {
             lap_seconds[k - 1][0] = ct.lap_seconds[0];
             lap_seconds[k - 1][1] = ct.lap_seconds[1];
             s = lap_seconds[k - 1][backward ? 1 : 0];
