@@ -1179,6 +1179,21 @@ namespace rush2::track2049::movers {
             }
             float tt = (f.dir & 8) ? node.time - f.t : f.t;
             float r = tt / node.time;
+            // A custom track's flip-book frame steps between full size and hidden (scale under 0.01, write_pose)
+            // over 2 ms (tools/arcade2049/track_mod.py). Blended, a game frame landing in that window drew the
+            // outgoing and incoming frames both shrunk about their pivots: their edges pulled in from the walls
+            // around them (see-through cracks) and shook. A step shorter than a frame jumps at its middle instead:
+            // the frames' timers drift apart by float rounding, and a jump at a node's end let a game frame landing
+            // on it show two frames or none (tools/rush2049/cpp_test/movers_test.cpp --custom checks both).
+            if (options_.custom && node.time < 1.0f / 60.0f) {
+                const PathNode& to = p.nodes[next];
+                for (int i = 0; i < 3; i++) {
+                    if (node.scale[i] < 0.01f || to.scale[i] < 0.01f) {
+                        r = r < 0.5f ? 0.0f : 1.0f;
+                        break;
+                    }
+                }
+            }
             float s[3];
             for (int i = 0; i < 3; i++) {
                 float s0 = node.scale[i];

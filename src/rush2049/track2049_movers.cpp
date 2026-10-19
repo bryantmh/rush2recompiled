@@ -21,6 +21,7 @@
 // - The tick and car hooks also run the knock-over props (src/rush2049/track2049_props.cpp) and animated textures.
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -33,6 +34,7 @@
 #include <vector>
 
 #include "recomp.h"
+#include "rush2.h"
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "battle.h"
@@ -338,6 +340,7 @@ namespace {
 
     bool setup(uint8_t* rdram) {
         active = false;
+        rush2::interpolation_clear_node_aliases();
         light_colours.clear();
         for (auto& l : car_lights) l = 0;
         placed.clear();
@@ -441,6 +444,23 @@ namespace {
         for (const Placed& p : placed) {
             if (p.object >= 0 && slot_bits != 0xFFFF) {
                 write_pose(rdram, p, objects[p.object], slot_bits);
+            }
+        }
+        // A custom track's flip-book: frames hidden by a scale under 0.01 on one pivot (tools/arcade2049/track_mod.py),
+        // one shown at a time. Their nodes share one interpolation ID (src/interpolation.cpp), so the frame shown
+        // pairs with the one it replaces instead of starting unblended.
+        if (light_track == 0) {
+            std::map<std::array<float, 3>, uint32_t> leaders;
+            for (const Placed& p : placed) {
+                if (p.node == 0 || p.object < 0) continue;
+                const movers::Object& o = objects[p.object];
+                const auto& nodes = world.paths()[o.path].nodes;
+                if (!std::any_of(nodes.begin(), nodes.end(), [](const movers::PathNode& n) { return n.scale[0] < 0.01f; })) {
+                    continue;
+                }
+                uint32_t& leader = leaders[{ nodes[0].pos[0], nodes[0].pos[1], nodes[0].pos[2] }];
+                if (leader == 0) leader = p.node;
+                rush2::interpolation_node_alias(p.node, leader);
             }
         }
         // A custom track's object may have only collision (no record), which the movers move all the same.
@@ -663,6 +683,7 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ movers_mutex };
     int slot = rush2::track2049::loaded_slot();
     if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot) {
+        rush2::interpolation_clear_node_aliases();  // the node pool belongs to another track now
         if (active) {
             rush2::track2049::stop_object_sounds();
         }

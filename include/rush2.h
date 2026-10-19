@@ -86,6 +86,11 @@ namespace rush2 {
     // Draws a scene node in the primitive color `rgba` (for models that use it; Rush 2's nodes carry no color).
     // interpolation_clear_view_attached also forgets these.
     void interpolation_node_color(uint32_t node, uint32_t rgba);
+    // Draws scene node `node` under `leader`'s interpolation ID (alias the leader to itself too): nodes shown one at a
+    // time in the same place, such as a custom track's flip-book frames, so the one shown pairs with the one it
+    // replaces. Cleared when a track's moving objects are set up.
+    void interpolation_clear_node_aliases();
+    void interpolation_node_alias(uint32_t node, uint32_t leader);
 
     // Race HUD placement (src/hud.cpp).
     namespace hud {

@@ -170,6 +170,26 @@ namespace {
     NodeColor node_colors[96];
     int node_color_count = 0;
 
+    // Nodes drawn under another node's ID (rush2::interpolation_node_alias): a custom track's flip-book frames, one
+    // shown at a time on a shared pivot. A frame shown after being hidden has no group in RT64's previous frame to
+    // pair with, so it was drawn unblended for a game frame while the camera, whose position is in every node's
+    // matrix, was blended: the frame shook against the walls around it at every step. Under the book's ID it pairs
+    // with the frame it replaces, whose matrix is the same.
+    struct NodeAlias {
+        uint32_t node, leader;
+    };
+    NodeAlias node_aliases[256];
+    int node_alias_count = 0;
+
+    uint32_t alias_of(uint32_t node) {
+        for (int i = 0; i < node_alias_count; i++) {
+            if (node_aliases[i].node == node) {
+                return node_aliases[i].leader;
+            }
+        }
+        return 0;
+    }
+
     bool view_attached(uint32_t node) {
         for (int i = 0; i < attached_count; i++) {
             if (attached_nodes[i] == node) {
@@ -713,7 +733,8 @@ bool rush2_interp_get_modelview(uint8_t* rdram, float out[4][4]) {
 void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     uint32_t cmd_addr = (uint32_t)ctx->r2;
     uint32_t node = (uint32_t)ctx->r23;
-    uint32_t index = (node - node_pool) / node_size;
+    uint32_t leader = node_alias_count ? alias_of(node) : 0;
+    uint32_t index = ((leader ? leader : node) - node_pool) / node_size;
 
     // Nodes past the fixed-point range under an extended draw distance have float matrices (src/draw_distance.cpp).
     // F3DEX2 stores the G_MTX params XORed with G_MTX_PUSH; gEXMatrixFloat takes them the same way.
@@ -746,7 +767,8 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     Vec3 axis = read_vec3(rdram, transform);
     float scale = dot(axis, axis);
     bool scale_step = state.scale > 0 && (scale > state.scale * 16.0f || scale * 16.0f < state.scale);
-    if (transform != state.transform || scale_step ||
+    // The frames of a flip-book share their leader's state, each with its own transform: not a reused node.
+    if ((transform != state.transform && leader == 0) || scale_step ||
         (distance(pos, state.pos) > node_teleport_distance && !view_attached((uint32_t)node))) {
         state.gen++;
     }
@@ -850,6 +872,16 @@ void rush2::interpolation_node_color(uint32_t node, uint32_t rgba) {
     }
     if (node_color_count < (int)std::size(node_colors)) {
         node_colors[node_color_count++] = { node, rgba };
+    }
+}
+
+void rush2::interpolation_clear_node_aliases() {
+    node_alias_count = 0;
+}
+
+void rush2::interpolation_node_alias(uint32_t node, uint32_t leader) {
+    if (node != 0 && leader != 0 && alias_of(node) == 0 && node_alias_count < (int)std::size(node_aliases)) {
+        node_aliases[node_alias_count++] = { node, leader };
     }
 }
 

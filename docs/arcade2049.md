@@ -77,10 +77,13 @@ Alcatraz has 100 coin pickups in trails along its shortcuts and jumps (every arc
 16 cones, 30 construction horses, 68 billboards, 8 spinning objects (lighthouse beams, police lights, three circling planes) and
 6 flipbooks (runway chaser lights, sirens, blinkers). A frame is hidden by scaling it to 0.001; the movers code hides such a node instead of drawing it
 (blended between scales, the runway lights drew shrunken copies between the loop center and the loop; snapped, the
-frames shook). Each frame's pivot is its own geometry's center on a whole foot, so its vertices round to the
+frames shook). A flipbook's pivot is its frames' geometry center on a whole foot, so their vertices round to the
 scenery's 1/16 ft grid (BLINK3's placement is the world origin, 1,000 ft away: hairline cracks along its walls). All
 frames of a flipbook loop in exactly the same time: the first frame's keys end on its shown pose (an open loop adds
-0.001 s, and it drifted until no frame or two showed; the blinker frames carry their walls).
+0.001 s, and it drifted until no frame or two showed; the blinker frames carry their walls). The 2 ms steps between
+frames are not blended in the game (docs/custom_tracks.md, flip-book frames): blended, frames caught mid-step drew
+shrunk, and the lights' walls shook and showed cracks. A flipbook's frames share one pivot (the center of all its
+frames' geometry), so the game draws them under one interpolation ID and the frame shown blends with the camera.
 
 ## roaddat.rom (collision)
 

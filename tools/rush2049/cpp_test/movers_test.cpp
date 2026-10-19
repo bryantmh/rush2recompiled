@@ -9,7 +9,15 @@
 // (rest pose) func_800BF838's rewrite of every MOVER polygon must give back the rest matrix and origin within one
 // quantisation step, and it counts the group operations per kind.
 // ROM: RUSH2049_ROM (default %LOCALAPPDATA%\Rush2Recompiled\rush2049.z64).
+//
+//     out\movers_test.exe --custom <mover_paths.bin> [seconds] [fps]
+//
+// A custom track's moving objects instead (the converter's mover_paths.bin, e.g. from tmp/track_mod_test's
+// track_mod_test.exe <track folder> <out>), stepped at fps (default 60) from a few start phases: counts game frames
+// where an object is drawn part-shrunk (scale between 0.01 and 0.99: a flip-book frame caught mid-step) and, per
+// flip-book (frames sharing a pivot), frames where not exactly one of its frames shows.
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -94,9 +102,77 @@ namespace {
         }
         printf("\n");
     }
+
+    // --custom: a custom track's mover_paths.bin, checked for flip-book steps (see the header).
+    int run_custom(const char* file, float seconds, float fps) {
+        std::vector<uint8_t> data;
+        if (!read_file(file, data)) {
+            printf("Can't read %s\n", file);
+            return 1;
+        }
+        std::vector<Path> paths;
+        if (!parse_paths(data.data(), data.size(), paths)) {
+            printf("Bad paths file\n");
+            return 1;
+        }
+        // As src/rush2049/track2049_movers.cpp sets up a custom track: each path its own type.
+        std::vector<TypeInfo> types;
+        for (const Path& p : paths) {
+            TypeInfo t;
+            t.name = p.name;
+            t.model = p.name;
+            t.flags = ((p.flags & path_wait_trigger) ? 5u << 16 : 0u) | 0x21;
+            types.push_back(t);
+        }
+        Options options;
+        options.custom = true;
+        int failures = 0;
+        for (int phase = 0; phase < 4; phase++) {
+            World w;
+            w.init(paths, types, options);
+            w.update(phase * 0.0041f);
+            // Flip-book frames: objects with a node of scale under 0.01 (hidden), in books by their pivot (the
+            // first node's position; tools/arcade2049/track_mod.py gives a book's frames one pivot, and the game
+            // draws them under one interpolation ID). Each book must show exactly one frame at every step.
+            std::map<std::array<float, 3>, std::vector<int>> books;
+            for (int i = 0; i < (int)w.objects().size(); i++) {
+                const auto& nodes = w.paths()[w.objects()[i].path].nodes;
+                for (const PathNode& n : nodes) {
+                    if (n.scale[0] < 0.01f) {
+                        books[{ nodes[0].pos[0], nodes[0].pos[1], nodes[0].pos[2] }].push_back(i);
+                        break;
+                    }
+                }
+            }
+            int partial = 0, wrong = 0, frames = 0, steps = int(seconds * fps);
+            for (const auto& [pivot, objs] : books) frames += (int)objs.size();
+            for (int s = 0; s < steps; s++) {
+                w.update(1.0f / fps);
+                for (const auto& [pivot, objs] : books) {
+                    int shown = 0;
+                    for (int i : objs) {
+                        const float* m = w.objects()[i].m;
+                        float sc = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+                        partial += sc > 0.01f && sc < 0.99f;
+                        shown += sc >= 0.01f;
+                    }
+                    wrong += shown != 1;
+                }
+            }
+            printf("phase %d: %zu objects, %d flip-book frames in %zu books, %d steps; part-shrunk frames %d, "
+                   "book steps without exactly one frame %d\n",
+                   phase, w.objects().size(), frames, books.size(), steps, partial, wrong);
+            failures += partial + wrong;
+        }
+        printf(failures ? "FAIL\n" : "OK\n");
+        return failures ? 1 : 0;
+    }
 }
 
 int main(int argc, char** argv) {
+    if (argc > 2 && std::string(argv[1]) == "--custom") {
+        return run_custom(argv[2], argc > 3 ? (float)atof(argv[3]) : 20.0f, argc > 4 ? (float)atof(argv[4]) : 60.0f);
+    }
     float seconds = argc > 1 ? (float)atof(argv[1]) : 40.0f;
     int only = argc > 2 ? atoi(argv[2]) : 0;
     const char* env49 = getenv("RUSH2049_ROM");

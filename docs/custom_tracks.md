@@ -722,7 +722,17 @@ merges and renames as needed.
 - **Flip-book frames:** a custom track's moving object whose scale is under 0.01 has its node hidden (flag 0x400,
   `write_pose` in `track2049_movers.cpp`) instead of drawn shrunk. Shown again at the same matrix, it interpolates with
   the camera like the scenery; a scale step needs a snap (src/interpolation.cpp snaps a node whose scale changes more
-  than 4x in a frame), and snapped frames shook against the walls next to them.
+  than 4x in a frame), and snapped frames shook against the walls next to them. A scale segment shorter than 1/60 s
+  with a hidden end is not blended (`track2049_movers_logic.cpp`, the scale lerp): it jumps at its middle. Blended, a
+  game frame landing in the converter's 2 ms step drew the outgoing and incoming frames both shrunk (edges pulled in
+  from the walls, see-through cracks, shaking); jumping at the segment's end, the frames' float timers drifted enough
+  for a game frame to show two frames or none. A frame shown after being hidden has no matrix group in RT64's previous
+  frame, so it was drawn unblended for a game frame while the camera (whose position is in every node's matrix) was
+  blended, and it shook at every step: a book's frames share one pivot (`tools/arcade2049/track_mod.py`), and
+  `track2049_movers.cpp` setup gives the nodes of frames on one pivot one interpolation ID
+  (`rush2::interpolation_node_alias`, `src/interpolation.cpp`), so the frame shown pairs with the one it replaces,
+  whose matrix is the same. `tools/rush2049/cpp_test/movers_test.cpp --custom <mover_paths.bin>` checks a converted
+  track's flip-books (no part-shrunk frames, exactly one frame per pivot at every step).
 - **Hiding warnings:** `"hide_track_warnings": true` in a mod's mod.json (read in `scan`, `Entry::hide_warnings`) leaves
   warnings out of the Mods tab notes; the report file and console keep them.
 - **Problems in the Mods menu:** `rush2::track_mod::register_mod_notes` gives recompui's mod details panel

@@ -13,7 +13,6 @@ San Francisco Rush 2049:
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
 6) Option for 2049 floor friction (cars roll more than slide).
-7) Add stunt scoring system
 
 General:
 1) Better lighting? Bloom for emmissives?

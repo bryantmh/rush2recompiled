@@ -501,6 +501,13 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
             if len(frames) > 1:
                 fps = float(flip[0][1])
                 period, eps = len(frames) / fps, 0.002
+                # One pivot for the whole book, its frames' geometry center on a whole foot: their vertices then round
+                # to the scenery's 1/16 ft grid and their edges meet the walls around them (BLINK3's placement is
+                # the world origin, 1,000 ft away, and left hairline cracks). Shared, the frame shown has the matrix
+                # of the one it replaces, and the game draws a book's frames under one interpolation ID
+                # (src/rush2049/track2049_movers.cpp): with a pivot each, every frame started unblended and shook.
+                pivot = np.round(np.concatenate([np.array([v[0] for v in fr.lods[0].verts], float) @ M
+                                                 for fr in frames]).mean(axis=0) + pos)
                 for j, fr in enumerate(frames):
                     s0, s1 = j / fps, (j + 1) / fps
                     keys = [(0.0, j == 0)]
@@ -515,10 +522,6 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
                     elif s1 < period - eps:
                         keys.append((period, False))
                     frv = np.array([v[0] for v in fr.lods[0].verts], float) @ M
-                    # Pivot on the frame's own geometry, on a whole foot: its vertices then round to the scenery's
-                    # 1/16 ft grid and its edges meet the walls around it (BLINK3's placement is the world origin,
-                    # 1,000 ft away, and left hairline cracks).
-                    pivot = np.round(frv.mean(axis=0) + pos)
                     movers.append(('%s_%d' % (fr.name, len(movers)), [(fr.lods[0], frv + pos - pivot)], pivot,
                                    [k[0] for k in keys], None, [[1.0] * 3 if k[1] else [0.001] * 3 for k in keys]))
                     tri_count += len(fr.lods[0].tris)
