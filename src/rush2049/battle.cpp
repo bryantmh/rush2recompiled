@@ -60,6 +60,7 @@
 #include "arrows.h"
 #include "audio2049.h"
 #include "battle.h"
+#include "collision_polys.h"
 #include "online.h"
 #include "battle_ai.h"
 #include "battle_render.h"
@@ -309,15 +310,13 @@ namespace {
     // What is running: a battle arena, a race with the BATTLE row on, or the Weapons cheat in another race.
     enum class Mode { none, arena, race, cheat };
 
-    // A race's pickups (Mode::race): sets of 4-6 across the road, sized to it (place_race_pickups), by each checkpoint
+    // A race's pickups (Mode::race): rows of 1-6 across the road, sized to it (place_race_pickups), by each checkpoint
     // line but the start / finish line and halfway between the lines, each a random weapon or power-up. One taken
     // comes back after race_pickup_return seconds in its place, as another kind.
     constexpr int race_pickups_max = 6;             // the most in a set (a row across a wide road)
     constexpr float race_pickup_spacing = 25.0f;    // the least between two: over twice pickup_radius + touch_margin (9.5)
     constexpr float race_pickup_spacing_max = 40.0f;   // the most between two in a row (on a very wide road)
     constexpr float race_pickup_margin = 5.0f;      // the least from a pickup to the road's edge
-    constexpr float race_pickup_zigzag_width = race_pickup_spacing * 1.5f;   // the least for a zigzag: its pairs that wide
-    constexpr float race_pickup_narrow_width = 10.0f;  // a narrow zigzag's left-right swing
     constexpr float race_pickup_slide = 10.0f;     // a set that doesn't fit moves on along the lanes by this at a time,
     constexpr float race_pickup_slide_max = 400.0f;   // up to this far (SF Rush's lanes fly over jumps for 220 ft and more)
     constexpr float race_pickup_air = 4.0f;        // a lane point higher than this over the ground is in the air (a jump)
@@ -659,18 +658,25 @@ namespace {
     }
 
     // ------------------------------------------------------------------------------------------------------------
-    // The arena's collision: its solid polygons as triangles, in a grid over x and z.
+    // Collision as triangles in a grid over x and z: the arena's solid polygons (arena), which shots stop on, and a
+    // race track's walls (walls: Rush 2's loaded collision, types 5 and 6), which race pickups stay clear of.
 
     struct Triangle {
         float a[3], b[3], c[3];
     };
-    std::vector<Triangle> triangles;
-    std::unordered_map<int64_t, std::vector<int>> triangle_grid;
+    struct Mesh {
+        std::vector<Triangle> triangles;
+        std::unordered_map<int64_t, std::vector<int>> grid;
+    };
+    Mesh arena, walls;
     constexpr float grid_cell = 48.0f;
 
     int64_t grid_key(int x, int z) { return ((int64_t)x << 32) ^ (uint32_t)z; }
 
-    void build_collision(const std::vector<float>& t) {
+    // t: 9 floats a triangle.
+    void build_collision(Mesh& mesh, const std::vector<float>& t) {
+        auto& triangles = mesh.triangles;
+        auto& triangle_grid = mesh.grid;
         triangles.clear();
         triangle_grid.clear();
         for (size_t i = 0; i + 9 <= t.size(); i += 9) {
@@ -692,7 +698,9 @@ namespace {
     }
 
     // The first triangle the segment p0-p1 crosses: its point and unit normal (facing p0).
-    bool sweep(const float p0[3], const float p1[3], float hit[3], float normal[3]) {
+    bool sweep(const Mesh& mesh, const float p0[3], const float p1[3], float hit[3], float normal[3]) {
+        const auto& triangles = mesh.triangles;
+        const auto& triangle_grid = mesh.grid;
         float d[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
         float best = 2.0f;
         int x0 = (int)std::floor(std::min(p0[0], p1[0]) / grid_cell), x1 = (int)std::floor(std::max(p0[0], p1[0]) / grid_cell);
@@ -730,6 +738,22 @@ namespace {
         if (best > 1.0f) return false;
         for (int i = 0; i < 3; i++) hit[i] = p0[i] + d[i] * best + normal[i] * 0.05f;
         return true;
+    }
+
+    // A race track's walls (surface types 5 and 6) from Rush 2's loaded collision, as triangles (each polygon a fan).
+    void build_walls(uint8_t* rdram) {
+        std::vector<float> t;
+        int count = rush2::collision::polygon_count(rdram);
+        for (int i = 0; i < count; i++) {
+            uint16_t flags;
+            float v[16][3];
+            int n = rush2::collision::polygon(rdram, i, flags, v);
+            if ((flags & 0xF) != 5 && (flags & 0xF) != 6) continue;
+            for (int k = 1; k + 1 < n; k++) {
+                for (const float* p : { v[0], v[k], v[k + 1] }) t.insert(t.end(), p, p + 3);
+            }
+        }
+        build_collision(walls, t);
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -892,6 +916,10 @@ namespace {
         bool found = false;
         float y = 0.0f;
         int type = 0, material = 0;
+        // What kind of ground it is to a car: 0 road, 1 dirt, 2 grass. The stock tracks' material (0x00 road, 0x11
+        // dirt, 0x22 grass); a custom surface's material is its own slot (3-15) and its type is the material it
+        // drives like (docs/custom_tracks.md, track_mod_convert.cpp), so a road built of several surfaces is one road.
+        int surface = 0;
     };
     Ground ground_at(uint8_t* rdram, float x, float y, float z) {
         Ground g;
@@ -914,6 +942,7 @@ namespace {
         g.y = read_f(rdram, args + 0x14);
         g.type = flags & 0xF;
         g.material = (flags >> 4) & 0xF;
+        g.surface = g.material <= 2 ? g.material : g.type;
         return g;
     }
 
@@ -1038,7 +1067,7 @@ namespace {
         bool any = false, grounded = true;
         float left[3] = {}, right[3] = {};
         float across[2] = {};   // unit, x/z
-        int material = 0;
+        int material = 0;   // the road's surface (Ground::surface)
     };
     RowPlace row_place(uint8_t* rdram, const Lane* lanes, const float* anchor, float distance) {
         RowPlace r;
@@ -1066,7 +1095,7 @@ namespace {
                     fprintf(stderr, "[Battle] road: lane %d in the air: found %d, %.1f ft over the ground\n", l, (int)g.found, pts[l][1] - g.y);
                 }
                 r.grounded = r.grounded && on;
-                if (on) materials[g.material]++;
+                if (on && g.surface < 16) materials[g.surface]++;
             }
         }
         for (int m = 1; m < 16; m++) {
@@ -1102,6 +1131,7 @@ namespace {
     // road_reach past the outer lanes (checkpoint gates are no limit: their radii are 150-900 ft). Offsets are along
     // across from the left lane point.
     constexpr float road_step = 1.0f;
+    constexpr float wall_probe_height = 2.5f;   // walls are looked for this high over the ground (a pickup's height)
     constexpr float road_patch = 3.0f;
     constexpr float road_reach = 50.0f;   // the most past the outer lanes: some tracks' ground beside the road is the
                                           // road's material too (2049 track 3: 150 ft and more of it each side)
@@ -1132,10 +1162,17 @@ namespace {
                     if (test_road) fprintf(stderr, "[Battle] road: edge %.0f ft %s of the left lane: found %d type %d step %.1f\n", d, side < 0 ? "left" : "right", (int)g.found, g.type, g.y - last);
                     break;
                 }
+                // A wall between this foot and the last (the ground can go on under it on a custom track).
+                float from[3] = { x - r.across[0] * side, last + wall_probe_height, z - r.across[1] * side };
+                float to[3] = { x, g.y + wall_probe_height, z }, hit[3], normal[3];
+                if (sweep(walls, from, to, hit, normal)) {
+                    if (test_road) fprintf(stderr, "[Battle] road: edge %.0f ft %s of the left lane: a wall\n", d, side < 0 ? "left" : "right");
+                    break;
+                }
                 last = g.y;
-                if (g.material != r.material) {
+                if (g.surface != r.material) {
                     if (++patch > road_patch) {
-                        if (test_road) fprintf(stderr, "[Battle] road: edge %.0f ft %s of the left lane: material %d, the road's %d\n", d, side < 0 ? "left" : "right", g.material, r.material);
+                        if (test_road) fprintf(stderr, "[Battle] road: edge %.0f ft %s of the left lane: surface %d (material %d), the road's %d\n", d, side < 0 ? "left" : "right", g.surface, g.material, r.material);
                         break;
                     }
                     samples.push_back(NAN);
@@ -1159,31 +1196,27 @@ namespace {
         road.lo = -to_left;
         road.hi = to_right;
         road.y.assign(left.rbegin(), left.rend());
-        road.y.push_back(start.material == r.material ? start.y : NAN);
+        road.y.push_back(start.surface == r.material ? start.y : NAN);
         road.y.insert(road.y.end(), right.begin(), right.end());
         return road;
     }
 
-    // The pickups: Mario Kart sets by each checkpoint line but the start / finish line (where the grid waits) and
-    // halfway along the lanes from each line to the next (the last to the first too, but not over a point-to-point
-    // lane's jump back), every two at least race_pickup_spacing apart, so a car can never touch two at once (it takes
-    // one within pickup_radius + touch_margin of its middle). The road at the set (road_across: the AI lanes say where
-    // it is, its surface how wide it is) less race_pickup_margin on each side decides the set:
-    // - wide enough for 4 in a row: a row straight across, as many as fit race_pickup_spacing apart (up to
-    //   race_pickups_max), spread evenly, at most race_pickup_spacing_max apart.
-    // - else race_pickup_zigzag_width: 4 in a zigzag, two pairs across the road filling the width, the second pair
-    //   race_pickup_spacing further on (front, back, front, back from the left).
-    // - else race_pickup_narrow_width: 4 in a narrow zigzag, alternately left and right of the middle, each
-    //   race_pickup_spacing further on than the last.
-    // A set is centered between the outer lanes (the racing line), moved in to stay on the road.
-    // From the set's anchor (where the lanes cross the checkpoint line, or each lane's halfway point) it moves on along
-    // the lanes race_pickup_slide at a time (up to race_pickup_slide_max) to the first place where every lane point is
-    // on the ground (not over a jump) and every pickup is on the road's surface (one further on: the road's material,
-    // drivable, near the height of the one across from it). A set with no room is left out. Every set has at most
-    // as many as the renderer's slots allow (100) shared by all of them. race_pickup_height over the ground under each.
+    // The pickups: Mario Kart rows straight across the road by each checkpoint line but the start / finish line (where
+    // the grid waits) and halfway along the lanes from each line to the next (the last to the first too, but not over
+    // a point-to-point lane's jump back), every two at least race_pickup_spacing apart, so a car can never touch two at
+    // once (it takes one within pickup_radius + touch_margin of its middle). The road at the row (road_across: the AI
+    // lanes say where it is, its surface and walls how wide it is) less race_pickup_margin on each side decides the
+    // row: as many as fit race_pickup_spacing apart (up to race_pickups_max; 1 where two don't fit), spread evenly, at
+    // most race_pickup_spacing_max apart, centered between the outer lanes (the racing line) and moved in to stay on
+    // the road. From the row's anchor (where the lanes cross the checkpoint line, or each lane's halfway point) it
+    // moves on along the lanes race_pickup_slide at a time (up to race_pickup_slide_max) to the first place where every
+    // lane point is on the ground (not over a jump), the road reaches from the left lane to the right one and no
+    // pickup is on a patch of another surface. A row with no room is left out. Every row has at most as many as the
+    // renderer's slots allow (100) shared by all of them. race_pickup_height over the ground under each.
     void place_race_pickups(uint8_t* rdram) {
         auto started = std::chrono::steady_clock::now();
         race_pickups.clear();
+        build_walls(rdram);
         for (int k = 0; k < 11; k++) race_pickup_models[k] = rush2::battle_render::find_model(race_pickup_prefixes[k]);
         int count = std::clamp<int>((int16_t)MEM_H(0, (int32_t)checkpoint_count), 0, max_checkpoints);
         int finish = (int16_t)MEM_H(0, (int32_t)finish_checkpoint);
@@ -1210,7 +1243,6 @@ namespace {
             }
             std::vector<std::array<float, 3>> best;
             float best_slide = -1.0f, best_width = 0.0f;
-            const char* best_shape = "";
             for (float slide = 0.0f; slide <= race_pickup_slide_max && best.empty(); slide += race_pickup_slide) {
                 RowPlace r = row_place(rdram, lanes, anchor, slide);
                 if (!r.any || !r.grounded || game_ctx == nullptr) continue;
@@ -1221,60 +1253,27 @@ namespace {
                 // moved in to stay on the road.
                 float lanes_mid = ((r.right[0] - r.left[0]) * r.across[0] + (r.right[2] - r.left[2]) * r.across[1]) * 0.5f;
                 auto centered = [&](float span) { return std::clamp(lanes_mid, lo + span * 0.5f, hi - span * 0.5f); };
-                // The set: each pickup's offset across (from the left lane point) and distance on along the road.
-                std::vector<std::array<float, 2>> layout;
-                const char* shape;
-                if (usable >= race_pickup_spacing * 3.0f) {
-                    int n = std::min(most, (int)(usable / race_pickup_spacing) + 1);
-                    float gap = std::min(usable / (float)(n - 1), race_pickup_spacing_max), mid = centered(gap * (float)(n - 1));
-                    for (int k = 0; k < n; k++) layout.push_back({ mid + gap * ((float)k - (float)(n - 1) * 0.5f), 0.0f });
-                    shape = "row";
-                }
-                else if (usable >= race_pickup_zigzag_width) {
-                    float step = usable / 3.0f, mid = centered(usable);
-                    for (int k = 0; k < 4; k++) layout.push_back({ mid + step * ((float)k - 1.5f), (k & 1) ? race_pickup_spacing : 0.0f });
-                    shape = "zigzag";
-                }
-                else if (usable >= race_pickup_narrow_width) {
-                    float mid = centered(race_pickup_narrow_width);
-                    for (int k = 0; k < 4; k++) layout.push_back({ mid + (k & 1 ? 0.5f : -0.5f) * race_pickup_narrow_width, race_pickup_spacing * (float)k });
-                    shape = "narrow";
-                }
-                else {
-                    continue;
-                }
-                float forward[2] = { r.across[1], -r.across[0] };
+                if (usable < 0.0f) continue;
+                // A row straight across: as many as fit race_pickup_spacing apart (1 on a road too narrow for two),
+                // spread evenly, at most race_pickup_spacing_max apart; offsets from the left lane point.
+                int n = std::min(most, (int)(usable / race_pickup_spacing) + 1);
+                float gap = n > 1 ? std::min(usable / (float)(n - 1), race_pickup_spacing_max) : 0.0f, mid = centered(gap * (float)(n - 1));
                 std::vector<std::array<float, 3>> spots;
                 bool ok = true;
-                for (const auto& at : layout) {
-                    float y = road.height_at(at[0]);
-                    if (std::isnan(y)) {
-                        ok = false;   // on a patch of another surface
-                        break;
-                    }
-                    std::array<float, 3> p = { r.left[0] + r.across[0] * at[0] + forward[0] * at[1], y,
-                                               r.left[2] + r.across[1] * at[0] + forward[1] * at[1] };
-                    if (at[1] > 0.0f) {
-                        // Further on: the road's surface there too, near this height (not over a drop or a jump).
-                        Ground g = ground_at(rdram, p[0], y + race_pickup_air, p[2]);
-                        if (!g.found || g.type > 2 || g.material != r.material || std::fabs(g.y - y) > race_pickup_air) {
-                            ok = false;
-                            break;
-                        }
-                        p[1] = g.y;
-                    }
-                    spots.push_back(p);
+                for (int k = 0; k < n && ok; k++) {
+                    float at = mid + gap * ((float)k - (float)(n - 1) * 0.5f), y = road.height_at(at);
+                    ok = !std::isnan(y);   // not on a patch of another surface
+                    spots.push_back({ r.left[0] + r.across[0] * at, y, r.left[2] + r.across[1] * at });
                 }
                 if (!ok) continue;
                 best = spots;
                 best_slide = slide;
                 best_width = road.hi - road.lo;
-                best_shape = shape;
             }
             if (test_log) {
                 if (best.empty()) fprintf(stderr, "[Battle] race %s %d: no room\n", halfway ? "halfway after line" : "line", c);
-                else fprintf(stderr, "[Battle] race %s %d: %d in a %s, road %.0f ft, moved on %.0f ft\n", halfway ? "halfway after line" : "line", c,
-                             (int)best.size(), best_shape, best_width, best_slide);
+                else fprintf(stderr, "[Battle] race %s %d: %d in a row, road %.0f ft, moved on %.0f ft\n", halfway ? "halfway after line" : "line", c,
+                             (int)best.size(), best_width, best_slide);
             }
             if (best.empty()) continue;
             if (race_pickups.size() + best.size() > (size_t)(slot_count - race_pickup_slot_first)) break;
@@ -1322,7 +1321,7 @@ namespace {
         }
         // The track's collision is this file's only for a converted Rush 2049 track that is the one loaded.
         int slot49 = rush2::track2049::loaded_slot();
-        flat_ground = triangles.empty() || slot49 < 0 || MEM_B(0, (int32_t)track_id) != slot49;
+        flat_ground = arena.triangles.empty() || slot49 < 0 || MEM_B(0, (int32_t)track_id) != slot49;
         if (m == Mode::arena) {
             int count = (int)MEM_W(0, (int32_t)node_count);
             std::map<uint32_t, uint32_t> node_of_matrix;
@@ -1844,7 +1843,7 @@ namespace {
 
             int victim = s.weapon == mine ? -1 : car_hit(rdram, s);
             float wall[3], normal[3];
-            bool walled = sweep(s.prev, s.pos, wall, normal);
+            bool walled = sweep(arena, s.prev, s.pos, wall, normal);
             if (!walled && flat_ground && (s.weapon == mine || s.weapon == grenade) && s.pos[1] < s.ground && s.prev[1] >= s.pos[1]) {
                 // A track without collision here: level ground at the height of the car that let the shot go.
                 walled = true;
@@ -2349,7 +2348,7 @@ void rush2::battle::set_data(const std::vector<PickupRecord>& pickup_list, const
     pickup_records = pickup_list;
     pool_records = pool_list;
     read_models(converted_geometry);
-    build_collision(solid_triangles);
+    build_collision(arena, solid_triangles);
     // A battle arena (it has pickups): the computer opponents' navigation grid.
     if (!pickup_list.empty()) rush2::battle_ai::set_arena(solid_triangles);
 }

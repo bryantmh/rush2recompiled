@@ -39,6 +39,7 @@
 
 #include "recomp.h"
 #include "rush2_hooks.h"
+#include "collision_polys.h"
 #include "calspeed.h"
 #include "track_mod_runtime.h"
 
@@ -495,4 +496,17 @@ extern "C" void rush2_smooth_debug_contact(uint8_t* rdram, recomp_context* ctx) 
            f32(rdram, car + 0x2F0 + 0x24 * (uint32_t)wheel + 12), f32(rdram, car + 0x2F0 + 0x24 * (uint32_t)wheel + 16),
            f32(rdram, car + 0x2F0 + 0x24 * (uint32_t)wheel + 20));
     fflush(stdout);
+}
+
+int rush2::collision::polygon_count(uint8_t* rdram) {
+    uint32_t polys = (uint32_t)MEM_W(0, (int32_t)poly_table_ptr), verts = (uint32_t)MEM_W(0, (int32_t)vert_table_ptr);
+    if (polys == 0 || verts <= polys) return 0;
+    return (int)((verts - polys) / poly_size);
+}
+
+int rush2::collision::polygon(uint8_t* rdram, int i, uint16_t& flags, float out[16][3]) {
+    uint32_t poly = (uint32_t)MEM_W(0, (int32_t)poly_table_ptr) + poly_size * (uint32_t)i;
+    flags = MEM_HU(0, (int32_t)poly);
+    float m[9];
+    return world_vertices(rdram, poly, out, m);
 }

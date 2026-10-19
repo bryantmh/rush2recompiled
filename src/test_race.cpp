@@ -8,6 +8,8 @@
 // - RUSH2_TEST_RACE_LAPS=<n>, RUSH2_TEST_RACE_DRONES=<n>: the track select's LAPS and DRONES (the race keeps the saved
 //   ones otherwise).
 // - RUSH2_TEST_RACE_BATTLE=1: the race select's BATTLE row on (rush2::battle::set_race_battle; not saved).
+// - RUSH2_TEST_RACE_VIEW_CAR=<car>: the first view follows that car (a drone: 1 and up) for the whole race, as
+//   RUSH2_ONLINE_VIEW_CAR does online, to watch a drone drive the course.
 //
 // Each player races as JUST PLAY on Select Player has them: with their controller's own buffer (0x8010D740 +
 // port * 0x6C0, never a saved player's profile) and its options set to the defaults, as menu_select_player_pick_saved
@@ -55,6 +57,7 @@ namespace {
     constexpr uint32_t car_table = 0x800D9C10;         // 9 bytes per car slot: +1 type, +2 main, +3 accent,
     constexpr uint32_t car_entry_size = 9;             // +4 stripe, +5 stripe color
     constexpr uint32_t num_players = 0x8010C3E2;       // s16
+    constexpr uint32_t view_cars = 0x80240380;         // u8 per view: the car it follows
     constexpr uint32_t num_views = 0x8010C3EC;         // s16
     constexpr uint32_t race_type = 0x8010C3E8;         // s32: 0 a race, 1 circuit, 2 stunt
     constexpr uint32_t menu_settings = 0x800D5760;     // +0 laps, +1 drones (func_80094698 copies them to the race)
@@ -154,6 +157,11 @@ namespace {
             rush2::battle::set_race_battle(std::atoi(battle) != 0);
         }
         int slot = rush2::track2049::host_menu_track(rdram, track);
+        // Set before the race starts, as online does (src/online/online_game.cpp): the race camera keeps a per-view
+        // collision cache from its car, and switching cars mid-race crashes in collision_node_find_cached_8006CE28.
+        if (const char* view_car = env("RUSH2_TEST_RACE_VIEW_CAR")) {
+            MEM_B(0, (int32_t)view_cars) = (int8_t)std::atoi(view_car);
+        }
         rush2::race_setup::leave_front_end(rdram, ctx);
         std::string types;
         for (int type : cars) {
