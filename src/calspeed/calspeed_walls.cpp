@@ -45,7 +45,6 @@ namespace {
     constexpr uint32_t vlist_table = 0x80111930;  // vertex index lists
     constexpr uint32_t leaf_table = 0x8011187C;   // leaf polygon lists: u8 count, u16 entries (bits 15-13 run, 12-0 index)
     constexpr uint32_t poly_size = 0x18, vert_size = 8;
-    constexpr uint8_t marker = 0x80;              // root NODE +2: a converted Rush 2049 file (17-bit leaf offsets)
     constexpr int vlist_run_mark = 0xC0, vlist_run_mask = 0x3F;
 
     // The physics car (0x81C bytes).
@@ -303,9 +302,7 @@ namespace {
         uint32_t node = (uint32_t)call.r2;
         if (node == 0) return 0;
         int q = (int16_t)MEM_H(0, (int32_t)(scratch + 0x10)) & 3;
-        uint32_t offset = MEM_HU(0xC + 2 * q, (int32_t)node);
-        uint32_t root = (uint32_t)MEM_W(0, (int32_t)node_table);
-        if ((MEM_BU(2, (int32_t)root) & marker) && (MEM_BU(3, (int32_t)node) & (0x10 << q))) offset += 0x10000;
+        uint32_t offset = rush2::collision::leaf_offset(rdram, node, q);   // with the extended scenery's far leaves
         if (offset == 0) return 0;
         return (uint32_t)MEM_W(0, (int32_t)leaf_table) + offset;
     }

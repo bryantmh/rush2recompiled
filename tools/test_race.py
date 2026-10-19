@@ -170,7 +170,12 @@ def main():
                     help='option of another settings file for the run, NAME.K=V (e.g. cheats.unlock_all_parts=true)')
     ap.add_argument('--shots', help='screenshot the game window at these seconds after launch (comma separated) into '
                     'DIR/shot_<seconds>.png; the window is shown for it (RUSH2_SIM_SHOW), without taking the focus')
+    ap.add_argument('--data', help="the run's data folder (default tmp/test_race/data); give each run that may "
+                    "overlap another session's its own")
     a = ap.parse_args()
+    if a.data:
+        global DATA
+        DATA = os.path.abspath(a.data)
     mods = prepare_data(a.track, a.mod, a.games, a.config)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_SIM_TURBO='1' if a.turbo else '0')

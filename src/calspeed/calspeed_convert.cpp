@@ -18,8 +18,10 @@
 // - Visibility (0x800C0680, 16 bytes per region, the tracks' tables back to back, counts at 0x800C4C80), fog colour
 //   (0x80094CB4), cloud scroll (0x80094C2C) and sky parallax (0x80094C6C) from California Speed's per-track tables,
 //   which have Rush 2's layout.
-// - Billboard trees (option): src/calspeed/calspeed_billboards.cpp turns the single tree cards of the track's sections
-//   to face the camera.
+// - Extended scenery (option): src/calspeed/calspeed_scenery.cpp adds to the track's container, placement and
+//   collision before the merge.
+// - Billboard trees (option): src/calspeed/calspeed_billboards.cpp then turns the single tree cards of the track's
+//   sections to face the camera.
 
 #include <algorithm>
 #include <array>
@@ -34,6 +36,7 @@
 
 #include "calspeed.h"
 #include "calspeed_billboards.h"
+#include "calspeed_scenery.h"
 #include "texture_upscale.h"
 #include "track2049.h"
 #include "track2049_convert.h"
@@ -698,7 +701,7 @@ namespace {
     }
 
     bool convert(const Bytes& rom, int t, const std::string& prefix, const std::set<std::string>& shared_models,
-                 bool billboards, rush2::calspeed::Converted& out) {
+                 bool scenery, bool billboards, rush2::calspeed::Converted& out) {
         rush2::track2049::ConvertedTrack& track = out.track;
         out.record_models.clear();
         out.piece_models.clear();
@@ -707,9 +710,25 @@ namespace {
         std::set<std::string> used;
         track.placement = convert_placement(asset(rom, placement_asset + t), prefix, out.record_models, renamed, kinds, used);
 
+        track.collision = asset(rom, collision_asset + t);
+        remap_surfaces(track.collision);
+        track.path = asset(rom, path_asset + t);
+        if (rush2::calspeed::point_to_point(t)) move_start(track.path, track.collision);
+        split_lane_steps(track.path);
+        track.path_backward = track.path;
+
         // The track's container and the shared object containers its records draw from.
         std::vector<Bytes> files;
         files.push_back(asset(rom, geometry_asset + t));
+        // The extended scenery's models go into the track's own container (they draw with its texture-load lists),
+        // its records into the placement and its polygons into the collision.
+        if (scenery) {
+            rush2::calspeed::SceneryResult added;
+            bool ok = rush2::calspeed::add_scenery(t, files[0], track.placement, track.collision, track.path, added);
+            printf("[CalSpeed] Track %d scenery: %s%s", t, ok ? "" : "not added: ", added.report.c_str());
+            fflush(stdout);
+        }
+        // After the scenery, which reads the sections' lists as California Speed built them.
         if (billboards) {
             rush2::calspeed::BillboardResult turned;
             rush2::calspeed::add_billboards(t, files[0], track.placement, turned);
@@ -753,13 +772,6 @@ namespace {
         piece("CONE1O1", "CON17HIT1I1");
         piece("CURVEHITO1", names.contains("LAMPHIT1I1") ? "LAMPHIT1I1" : "LIGHTHIT1I1");
 
-        track.collision = asset(rom, collision_asset + t);
-        remap_surfaces(track.collision);
-        track.path = asset(rom, path_asset + t);
-        if (rush2::calspeed::point_to_point(t)) move_start(track.path, track.collision);
-        split_lane_steps(track.path);
-        track.path_backward = track.path;
-
         int regions = 0;
         for (int k = 0; k < t; k++) regions += main_byte(rom, pvs_counts + k);
         int count = std::min<int>(main_byte(rom, pvs_counts + t), max_regions);
@@ -784,10 +796,11 @@ namespace {
         return true;
     }
 
-    std::string extras_name(int t, const std::string& prefix, bool billboards) {
-        return "calspeed_track" + std::to_string(t) + "_" + prefix + (billboards ? "_bb" : "");
+    std::string extras_name(int t, const std::string& prefix, bool scenery, bool billboards) {
+        return "calspeed_track" + std::to_string(t) + "_" + prefix + (scenery ? "_scenery" : "") + (billboards ? "_bb" : "");
     }
-    // track_cache keys: the track with its billboard trees is kept apart from it without.
+    // track_cache keys: the track with its extended scenery (and billboard trees) is kept apart from it without.
+    constexpr int scenery_k = 100;
     constexpr int billboards_k = 200;
 
     std::mutex art_mutex;
@@ -840,7 +853,7 @@ std::string rush2::calspeed::menu_logo_name(int t) {
 }
 
 bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
-                                 const std::set<std::string>& shared_models, bool billboards, Converted& out,
+                                 const std::set<std::string>& shared_models, bool scenery, bool billboards, Converted& out,
                                  std::string& error) {
     if (t < 0 || t >= track_count) {
         error = "no such California Speed track";
@@ -848,11 +861,11 @@ bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const s
     }
     uint64_t source = rom_source(rom);
     Bytes extras;
-    int k = calspeed_k + t + (billboards ? billboards_k : 0);
+    int k = calspeed_k + t + (scenery ? scenery_k : 0) + (billboards ? billboards_k : 0);
     // The background builds (src/prewarm.cpp) convert these too: whichever comes second waits here, then reads the disk.
     auto claim = rush2::track_cache::claim(rush2::track_cache::entry_2049(k));
     if (rush2::track_cache::load_2049(k, prefix, source, out.track) &&
-        rush2::track_cache::load_blob(extras_name(t, prefix, billboards), source, extras)) {
+        rush2::track_cache::load_blob(extras_name(t, prefix, scenery, billboards), source, extras)) {
         Reader r{ extras };
         out.cloud_scroll = r.word();
         out.sky_parallax = r.word();
@@ -861,7 +874,7 @@ bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const s
         if (r.ok) return true;
     }
     try {
-        convert(rom, t, prefix, shared_models, billboards, out);
+        convert(rom, t, prefix, shared_models, scenery, billboards, out);
     }
     catch (const ConvertError& e) {
         error = e.message;
@@ -873,7 +886,7 @@ bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const s
     w.word(out.sky_parallax);
     w.map(out.record_models);
     w.map(out.piece_models);
-    rush2::track_cache::save_blob(extras_name(t, prefix, billboards), source, w.b);
+    rush2::track_cache::save_blob(extras_name(t, prefix, scenery, billboards), source, w.b);
     return true;
 }
 

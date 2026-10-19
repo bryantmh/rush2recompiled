@@ -12,7 +12,8 @@
 //   141, 0x184A4 leaf bytes) needs them.
 // The converter (src/rush2049/track2049_convert.cpp, convert_collision) marks its files by setting bit 7 of the root
 // node's unused byte +2 and putting the leaf section size's bits 16-22 in bits 0-6; these hooks take 2049's behavior
-// only for a marked file, so Rush 2's own, SF Rush's and custom tracks keep Rush 2's.
+// only for a marked file, so Rush 2's own, SF Rush's and custom tracks keep Rush 2's. California Speed's tracks keep
+// Rush 2's walk too; with their extended scenery the leaf fetches also take the leaves it adds (leaf_offset).
 
 #include <algorithm>
 #include <array>
@@ -23,6 +24,8 @@
 #include <cstring>
 #include <vector>
 
+#include "calspeed_scenery.h"
+#include "collision_polys.h"
 #include "recomp.h"
 #include "rush2_hooks.h"
 
@@ -70,12 +73,22 @@ namespace {
     }
 
     // A leaf offset just read from node->child[q]: + 0x10000 when the node's mask bit 4 + q is set.
+    // On a California Speed track with its extended scenery (src/calspeed/calspeed_scenery.cpp, root tagged
+    // scenery_collision_tag) that bit says the child is an index into the far-leaf table instead: u32 leaf offsets
+    // after the vertex lists, 4-byte aligned from the file's start.
     void leaf_offset(uint8_t* rdram, gpr& offset, gpr node, gpr q) {
-        if (!is_2049(rdram)) {
+        uint8_t tag = root_tag(rdram);
+        if (!(MEM_BU(3, (int32_t)node) & (0x10 << ((int32_t)q & 3)))) {
             return;
         }
-        if (MEM_BU(3, (int32_t)node) & (0x10 << ((int32_t)q & 3))) {
+        if (tag & marker) {
             offset = (int32_t)((uint32_t)offset + 0x10000);
+        }
+        else if (tag & rush2::calspeed::scenery_collision_tag) {
+            uint32_t base = (uint32_t)MEM_W(0, (int32_t)file_base);
+            uint32_t vlists = (uint32_t)MEM_W(0, (int32_t)vlist_table);
+            uint32_t table = base + ((vlists - base + MEM_HU(10, (int32_t)base) + 3) & ~3u);
+            offset = MEM_W(0, (int32_t)(table + ((uint32_t)offset & 0xFFFF) * 4));
         }
     }
 }
@@ -87,6 +100,13 @@ extern "C" void rush2_track49_collision_load(uint8_t* rdram, recomp_context* ctx
     if (tag & marker) {
         ctx->r11 = (int32_t)(((uint32_t)ctx->r11 & 0xFFFF) | ((uint32_t)(tag & 0x7F) << 16));
     }
+}
+
+// For code that reads leaves itself (California Speed's wall collision, src/calspeed/calspeed_walls.cpp).
+uint32_t rush2::collision::leaf_offset(uint8_t* rdram, uint32_t node, int q) {
+    gpr offset = (gpr)MEM_HU(0xC + 2 * (q & 3), (int32_t)node);
+    ::leaf_offset(rdram, offset, (gpr)(int32_t)node, (gpr)q);
+    return (uint32_t)offset;
 }
 
 // collision_node_find_8006CD60 at 0x8006CDA8, per node: $v0 = xmin + xmax, $v1 = zmin + zmax, $t4 / $t7 their
@@ -141,7 +161,10 @@ extern "C" void collision_ground_query_8006CF00(uint8_t* rdram, recomp_context* 
 extern "C" void rush2_track49_collision_selftest(uint8_t* rdram, recomp_context* ctx) {
     static const bool enabled = std::getenv("RUSH2_TEST_COLLISION") != nullptr;
     static uint32_t tested = 0;
-    if (!enabled || !is_2049(rdram)) {
+    // California Speed's extended scenery (src/calspeed/calspeed_scenery.cpp) is checked too, with Rush 2's lookups:
+    // the polygons whose probes miss are listed.
+    bool scenery = (root_tag(rdram) & rush2::calspeed::scenery_collision_tag) != 0;
+    if (!enabled || (!is_2049(rdram) && !scenery)) {
         return;
     }
     uint32_t base = (uint32_t)MEM_W(0, (int32_t)file_base);
@@ -162,6 +185,9 @@ extern "C" void rush2_track49_collision_selftest(uint8_t* rdram, recomp_context*
         }
     };
     std::vector<std::array<float, 3>> probes; // Points on floor polygons.
+    std::vector<int> probe_poly;              // Their polygons.
+    std::vector<std::array<float, 3>> probe_up; // Half a foot up from them: straight up, or (scenery) the floor's
+                                                // normal, as straight up drifts out of a sloped floor's uphill edge.
     for (int pi = 0; pi < n_poly; pi++) {
         int32_t rec = (int32_t)(polys + pi * 0x18);
         uint16_t flags = MEM_HU(0, rec);
@@ -195,7 +221,11 @@ extern "C" void rush2_track49_collision_selftest(uint8_t* rdram, recomp_context*
         }
         std::array<float, 3> c = {};
         for (const auto& v : w) for (int j = 0; j < 3; j++) c[j] += v[j] / count;
+        std::array<float, 3> up = { 0.0f, 0.5f, 0.0f };
+        if (scenery) up = { m[3] * 0.5f, m[4] * 0.5f, m[5] * 0.5f };
         probes.push_back(c);
+        probe_poly.push_back(pi);
+        probe_up.push_back(up);
         for (auto& v : w) for (int j = 0; j < 3; j++) v[j] = c[j] + (v[j] - c[j]) * 0.97f;
         for (int i = 0; i < count; i++) {
             const auto& a = w[i];
@@ -204,18 +234,22 @@ extern "C" void rush2_track49_collision_selftest(uint8_t* rdram, recomp_context*
             for (int s = 0; s <= steps; s++) {
                 float t = (float)s / steps;
                 probes.push_back({ a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t });
+                probe_poly.push_back(pi);
+                probe_up.push_back(up);
             }
         }
     }
 
     // The game's stack is borrowed below its stack pointer, as battle.cpp's ground_at does.
+    std::vector<int> found_poly(probes.size(), -1);   // what each probe found (the last pass): polygon, height
+    std::vector<float> found_h(probes.size(), 0.0f);
     auto hits = [&]() {
         recomp_context saved = *ctx;
         uint32_t args = ((uint32_t)saved.r29 - 0x100u) & ~0xFu;   // +0 the point, +0x10 the surface's, +0x20 matrix
         std::vector<bool> hit(probes.size());
         for (size_t i = 0; i < probes.size(); i++) {
             const auto& p = probes[i];
-            float q[3] = { p[0], p[1] + 0.5f, p[2] };
+            float q[3] = { p[0] + probe_up[i][0], p[1] + probe_up[i][1], p[2] + probe_up[i][2] };
             for (int k = 0; k < 3; k++) {
                 uint32_t bits;
                 memcpy(&bits, &q[k], 4);
@@ -228,11 +262,53 @@ extern "C" void rush2_track49_collision_selftest(uint8_t* rdram, recomp_context*
             collision_ground_query_8006CF00(rdram, ctx);
             uint32_t poly = (uint32_t)ctx->r2;
             *ctx = saved;
-            hit[i] = poly >= 0x80000000u && std::fabs(read_f(rdram, (int32_t)(args + 0x14)) - p[1]) <= 0.05f;
+            // The floor's height under the lifted point (moved off along a sloped floor's normal).
+            const auto& u = probe_up[i];
+            float expect = p[1] - (u[1] > 0.0f ? (u[0] * u[0] + u[2] * u[2]) / u[1] : 0.0f);
+            hit[i] = poly >= 0x80000000u && std::fabs(read_f(rdram, (int32_t)(args + 0x14)) - expect) <= 0.05f;
+            found_poly[i] = poly >= 0x80000000u ? (int)((poly - polys) / 0x18) : -1;
+            found_h[i] = read_f(rdram, (int32_t)(args + 0x14));
         }
         return hit;
     };
     auto start = std::chrono::steady_clock::now();
+    if (scenery) {
+        std::vector<bool> hit = hits();
+        std::vector<int> missed;   // polygons with a probe that misses
+        int misses = 0;
+        for (size_t i = 0; i < probes.size(); i++) {
+            if (hit[i]) continue;
+            misses++;
+            if (missed.empty() || missed.back() != probe_poly[i]) missed.push_back(probe_poly[i]);
+        }
+        std::sort(missed.begin(), missed.end());
+        missed.erase(std::unique(missed.begin(), missed.end()), missed.end());
+        printf("[scenery] collision self-test: %zu probes over %d polygons, %d miss (another surface nearer in height, or "
+               "none), on %zu polygons:", probes.size(), n_poly, misses, missed.size());
+        for (int m : missed) printf(" %d", m);
+        printf("\n");
+        // RUSH2_TEST_COLLISION_FROM=<polygon>: the misses on that polygon and later ones (the scenery's, from the
+        // converter's report) in detail: nothing found, or which polygon at what height.
+        if (const char* from_env = std::getenv("RUSH2_TEST_COLLISION_FROM")) {
+            int from = std::atoi(from_env), none = 0, above = 0, below = 0, shown = 0, none_before = 0;
+            for (size_t i = 0; i < probes.size(); i++) {
+                if (!hit[i] && probe_poly[i] < from && found_poly[i] < 0) none_before++;
+                if (hit[i] || probe_poly[i] < from) continue;
+                float d = found_h[i] - probes[i][1];
+                if (found_poly[i] < 0) none++;
+                else if (d > 0) above++;
+                else below++;
+                if (found_poly[i] < 0 && shown++ < 25) {
+                    printf("[scenery]   polygon %d at (%.1f %.1f %.1f): found %d, %.2f ft %s\n", probe_poly[i], probes[i][0],
+                           probes[i][1], probes[i][2], found_poly[i], std::fabs(d), d > 0 ? "over" : "under");
+                }
+            }
+            printf("[scenery] misses from polygon %d: %d found nothing, %d a surface over the probe, %d one under (before it: "
+                   "%d found nothing)\n", from, none, above, below, none_before);
+        }
+        fflush(stdout);
+        return;
+    }
     std::vector<bool> with_2049 = hits();
     split_and_cell_off = true;
     std::vector<bool> with_rush2 = hits();

@@ -59,6 +59,9 @@ namespace rush2::calspeed {
     // The California Speed Tracks option. Tracks are offered when it is on and the ROM is present.
     void set_option(bool enabled);
     bool available();
+    // The California Speed Extended Scenery option: load_track adds the scenery of src/calspeed/calspeed_scenery.cpp
+    // (include/calspeed_scenery.h). Read when a track is converted, so a change takes effect from the next race.
+    bool scenery_enabled();
     // The California Speed Billboard Trees option: load_track turns the tracks' flat single trees to face the camera
     // (src/calspeed/calspeed_billboards.cpp). Read when a track is converted, so a change takes effect from the next race.
     bool billboards_enabled();
@@ -80,10 +83,12 @@ namespace rush2::calspeed {
         std::map<std::string, std::string> piece_models;
     };
     // t: track 0-15. prefix: the host slot's track prefix. shared_models: Rush 2's shared model names (assets 0x12,
-    // 0x14), which win over the track's in Rush 2's lookups. billboards: turn its single trees to the camera. The track
-    // comes from the disk cache when this build converted it from the same ROM (and settings) before.
+    // 0x14), which win over the track's in Rush 2's lookups. scenery: add the extended scenery. billboards: turn its
+    // single trees to the camera. The track comes from the disk cache when this build converted it from the same ROM
+    // (and settings) before.
     bool load_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
-                    const std::set<std::string>& shared_models, bool billboards, Converted& out, std::string& error);
+                    const std::set<std::string>& shared_models, bool scenery, bool billboards, Converted& out,
+                    std::string& error);
     // Converts track t into the disk cache as the scenery options are set now, unless it is there (src/prewarm.cpp).
     void prepare_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
                        const std::set<std::string>& shared_models);
@@ -104,16 +109,16 @@ namespace rush2::calspeed {
                          std::vector<uint8_t>& out);
     // Seed time in seconds for the record tables of track t: the time its AI lane 0 takes over one lap, or 0.
     float record_seed(int t);
-
-    // The Cal Speed track (1-16) raced in the host slot, or 0.
-    int race_track();
-    // A California Speed track is being raced now (not the attract demo): its physics hooks run.
-    bool racing(uint8_t* rdram);
     // An AI lane's target speeds (true mph, as California Speed's drone code reads them) capped where a Rush 2 car
     // can't hold them: the lane's curve limits the speed and the braking before it (docs/calspeed_research.md#5-paths).
     // pos: each point's x, y, z; loop: a circuit's lane (its last point leads to its first).
     std::vector<uint8_t> capped_lane_speeds(const std::vector<std::array<float, 3>>& pos,
                                             const std::vector<uint8_t>& mph, bool loop);
+
+    // The Cal Speed track (1-16) raced in the host slot, or 0.
+    int race_track();
+    // A California Speed track is being raced now (not the attract demo): its physics hooks run.
+    bool racing(uint8_t* rdram);
     void set_race_track(int k);
     // The raced track's converted path file, whose racing line tells when a car has fallen under the course, and its
     // collision, whose ground tells where a reset has road under it.

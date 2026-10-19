@@ -6378,7 +6378,7 @@ ref = "docs/rush2049_research/collision.md#node-0x14-bytes-quadtree-over-world-x
 vram = 0x8006CE28
 name = "collision_node_find_cached"
 sig = "s32 collision_node_find_cached(CollCache *cache, s32 x, s32 z, u16 *leaf_out)"
-desc = "NODE quadtree query: walks up from a cached node until the cell is inside its bounds (min inclusive, max exclusive), then descends with collision_node_find_8006CD60 (quadrant q = (x >= splitX) + 2 * (z < splitZ)). The four leaf queries pass the cell as x - 0.99 truncated for negative x (2049: exact floor)."
+desc = "NODE quadtree query: walks up from a cached node until the cell is inside its bounds (min inclusive, max exclusive), then descends with collision_node_find_8006CD60 (quadrant q = (x >= splitX) + 2 * (z < splitZ)). A cell outside the root's box gets 0 (no node: no floor, no walls); the descent never checks a child's box. The four leaf queries pass the cell as x - 0.99 truncated for negative x (2049: exact floor). California Speed's extended scenery grows the root's box to hold its polygons (docs/calspeed_research.md#extended-scenery)."
 consts = "0x14 = node size"
 status = "verified"
 rush2049 = [0x800ACA9C]

@@ -48,9 +48,12 @@ namespace {
     const std::string cars_option_id = "calspeed_cars";
     const std::string drones_option_id = "calspeed_computer_cars";
     const std::string road_hold_option_id = "calspeed_road_hold";
+    const std::string scenery_option_id = "calspeed_scenery";
     const std::string billboards_option_id = "calspeed_billboards";
     // The California Speed Road Hold option: off, its tracks have Rush 2's own gravity only.
     std::atomic_bool road_hold_on = true;
+    // The California Speed Extended Scenery option (src/calspeed/calspeed_scenery.cpp).
+    std::atomic_bool scenery_on = true;
     // The California Speed Billboard Trees option (src/calspeed/calspeed_billboards.cpp).
     std::atomic_bool billboards_on = true;
     const char* rom_file_name = "calspeed.z64";
@@ -124,6 +127,7 @@ namespace {
         bool cars_on = std::get<bool>(config.get_option_value(cars_option_id));
         config.update_option_disabled(drones_option_id, disabled || !cars_on);
         config.update_option_disabled(road_hold_option_id, disabled);
+        config.update_option_disabled(scenery_option_id, disabled);
         config.update_option_disabled(billboards_option_id, disabled);
     }
 
@@ -995,6 +999,18 @@ void rush2::calspeed::init_config() {
             road_hold_on = std::get<bool>(cur_value);
         });
     config.add_bool_option(
+        scenery_option_id,
+        "CS Extended Scenery",
+        "Fills in where California Speed's tracks stop. Behind the start line the road goes on past a row of "
+        "road-closed barricades and bends out of sight, and the sea reaches the horizon on the coast tracks. Off, the "
+        "tracks are as California Speed built them. Takes effect from the next race.",
+        true
+    );
+    config.add_option_change_callback(scenery_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            scenery_on = std::get<bool>(cur_value);
+        });
+    config.add_bool_option(
         billboards_option_id,
         "CS Billboard Trees",
         "Turns California Speed's flat trees to face you, so they look round from every side instead of thinning to a "
@@ -1006,6 +1022,10 @@ void rush2::calspeed::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             billboards_on = std::get<bool>(cur_value);
         });
+}
+
+bool rush2::calspeed::scenery_enabled() {
+    return scenery_on;
 }
 
 bool rush2::calspeed::billboards_enabled() {
@@ -1022,6 +1042,7 @@ void rush2::calspeed::add_games_section(rush2::ui::OptionsPage* page, std::funct
     page->add_option(rush2::wings::games_config(), cars_option_id);
     page->add_option(rush2::wings::games_config(), drones_option_id);
     page->add_option(rush2::wings::games_config(), road_hold_option_id);
+    page->add_option(rush2::wings::games_config(), scenery_option_id);
     page->add_option(rush2::wings::games_config(), billboards_option_id);
     refresh = [note = heading.note, shown = rush2::calspeed::rom_available()]() mutable {
         if (rush2::calspeed::rom_available() != shown) {
@@ -1034,6 +1055,7 @@ void rush2::calspeed::add_games_section(rush2::ui::OptionsPage* page, std::funct
 // Runs after rush2::wings::load_config(), which loads the option.
 void rush2::calspeed::load_config() {
     road_hold_on = std::get<bool>(rush2::wings::games_config().get_option_value(road_hold_option_id));
+    scenery_on = std::get<bool>(rush2::wings::games_config().get_option_value(scenery_option_id));
     billboards_on = std::get<bool>(rush2::wings::games_config().get_option_value(billboards_option_id));
     std::vector<uint8_t> data;
     std::filesystem::path path = stored_rom_path();
@@ -1439,28 +1461,6 @@ extern "C" void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx
             on_route = 0;
         }
     }
-    for (int k = 0; k < 3; k++) put_f32(rdram, car + respawn_point + 4 * k, pos[k]);
-    MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1A8)) = point;
-    MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1B0)) = list;
-    ctx->r6 = (uint64_t)(int64_t)list;
-    ctx->r7 = (uint64_t)on_route;
-}
-
-// Rush 2's fall floor: race_stuck_wrongway_update_8008CDA4 puts back a car whose y is below -190 (0x8008CF20, $f16;
-// SF Rush's tracks use -290, rush2_track1_fall_floor). California Speed's roads go lower (Silicon Valley's to -306),
-// so its cars were put back every few seconds there, onto a road still under the floor. On its tracks the floor is
-// `floor_depth` below the racing line's lowest point: its ground runs up to about 200 ft below the roads, and a car
-// that falls off is wrecked sooner by rush2_calspeed_car_frame (60 ft under the racing line for 2 s).
-extern "C" void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx) {
-    constexpr float floor_depth = 300.0f;
-    if (race_points.empty() || !on_calspeed_track(rdram)) {
-        return;
-    }
-    float lowest = 1e30f;
-    for (const auto& p : race_points) lowest = std::min(lowest, p[1]);
-    ctx->f16.fl = std::min(ctx->f16.fl, lowest - floor_depth);
-}
-
     // A computer car goes on a lane point, as Rush 2 puts one back (respawn_place_car_80090A40: on its lane, +1.5 ft,
     // faced along it). California Speed's reset leaves a drone on the spot above and then calls func_8009DAA8
     // (0x800A41C4), which sets its lane point (lane state 0x80151D80 + 0x128 x the car's +0x83A, Rush 2's car state
@@ -1521,6 +1521,28 @@ extern "C" void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx) {
             MEM_W(0, state + 0x20) = MEM_W(0, (int32_t)game_clock);
         }
     }
+    for (int k = 0; k < 3; k++) put_f32(rdram, car + respawn_point + 4 * k, pos[k]);
+    MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1A8)) = point;
+    MEM_W(0, (int32_t)((uint32_t)ctx->r29 + 0x1B0)) = list;
+    ctx->r6 = (uint64_t)(int64_t)list;
+    ctx->r7 = (uint64_t)on_route;
+}
+
+// Rush 2's fall floor: race_stuck_wrongway_update_8008CDA4 puts back a car whose y is below -190 (0x8008CF20, $f16;
+// SF Rush's tracks use -290, rush2_track1_fall_floor). California Speed's roads go lower (Silicon Valley's to -306),
+// so its cars were put back every few seconds there, onto a road still under the floor. On its tracks the floor is
+// `floor_depth` below the racing line's lowest point: its ground runs up to about 200 ft below the roads, and a car
+// that falls off is wrecked sooner by rush2_calspeed_car_frame (60 ft under the racing line for 2 s).
+extern "C" void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx) {
+    constexpr float floor_depth = 300.0f;
+    if (race_points.empty() || !on_calspeed_track(rdram)) {
+        return;
+    }
+    float lowest = 1e30f;
+    for (const auto& p : race_points) lowest = std::min(lowest, p[1]);
+    ctx->f16.fl = std::min(ctx->f16.fl, lowest - floor_depth);
+}
+
 // The end of a point-to-point race. A car keeps driving once it has finished, and San Francisco's road ends in the
 // subway tunnel's end wall (collision polygon 1723, z -4030..-4059) about 300 ft past its finish line (checkpoint 4
 // at z -3748), where Rush 2's crash tests wrecked a car arriving at race speed. California Speed has no wrecks (it

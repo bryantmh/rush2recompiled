@@ -133,6 +133,7 @@ namespace {
     }
     rush2::calspeed::Converted cs_track;       // The raced Cal Speed track's extras (its files are moved to `track`).
     const std::vector<uint8_t>* cs_rom = nullptr;  // The Cal Speed ROM it was converted from.
+    bool cs_scenery = false;                        // The Extended Scenery setting it was converted with.
     bool cs_billboards = false;                     // The Billboard Trees setting it was converted with.
     rush2::track_mod::Settings mod_settings;   // The raced custom track's track.toml.
     std::array<std::optional<float>, 16> mod_drag;  // Its [surfaces] drag by polygon material slot.
@@ -201,9 +202,10 @@ namespace {
                 return false;
             }
             std::string error;
+            cs_scenery = rush2::calspeed::scenery_enabled();
             cs_billboards = rush2::calspeed::billboards_enabled();
-            if (!rush2::calspeed::load_track(*rom, k - cs_k, prefix_of(slot), shared_model_names(), cs_billboards, cs_track,
-                                             error)) {
+            if (!rush2::calspeed::load_track(*rom, k - cs_k, prefix_of(slot), shared_model_names(), cs_scenery, cs_billboards,
+                                             cs_track, error)) {
                 printf("[CalSpeed] Couldn't convert track %d: %s\n", k - cs_k, error.c_str());
                 return false;
             }
@@ -542,8 +544,9 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
     if (is_cs_k(k) && cs_rom != rush2::calspeed::get_rom().get()) {
         loaded_track = 0;
     }
-    // So is one whose California Speed Billboard Trees setting changed.
-    if (is_cs_k(k) && cs_billboards != rush2::calspeed::billboards_enabled()) {
+    // So is one whose California Speed Extended Scenery or Billboard Trees setting changed.
+    if (is_cs_k(k) && (cs_scenery != rush2::calspeed::scenery_enabled() ||
+                       cs_billboards != rush2::calspeed::billboards_enabled())) {
         loaded_track = 0;
     }
     if (loaded_track != k) {
@@ -708,16 +711,13 @@ extern "C" void rush2_track49_sky_height(uint8_t* rdram, recomp_context* ctx) {
 // (func_80074990) aims for the lane speed x 1.05 x their rubber band (+0x808). The path file can stay
 // loaded from one race to the next, so the lanes scaled last are remembered and not scaled again.
 namespace {
+    constexpr uint32_t lane_points = 0x800D57A0, lane_counts = 0x800D5780;
+
     struct ScaledLane {
         uint32_t points = 0;
         std::vector<uint8_t> speeds;
-    constexpr uint32_t lane_points = 0x800D57A0, lane_counts = 0x800D5780;
-
     };
     ScaledLane scaled_lanes[4];
-}
-
-extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
 
     // A California Speed track's lanes: the speeds func_800924E4 works the race time out from (`timed`: California
     // Speed's / 1.2, the times its tracks have always had) and the ones the drones drive (`driven`: its true mph,
@@ -779,6 +779,9 @@ extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
             write_lane(rdram, points, l.timed);
         }
     }
+}
+
+extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
     if (calspeed_path(rdram)) {
         calspeed_lane_speeds(rdram);
         return;
@@ -931,9 +934,6 @@ extern "C" bool rush2_mod_checkpoint_crossing(uint8_t* rdram, recomp_context* ct
 
 extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
     path_race_time(rdram);
-    if (!rush2::battle::race_battle_applies(rdram)) return;
-    constexpr uint32_t header = 0x8010BCE8;
-    int count = (int16_t)MEM_H(0, (int32_t)(header + 8));
     // The race time is worked out: a California Speed track's drones get their lanes' driving speeds.
     if (calspeed_path(rdram)) {
         for (int lane = 0; lane < 4; lane++) {
@@ -944,6 +944,9 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
             }
         }
     }
+    if (!rush2::battle::race_battle_applies(rdram)) return;
+    constexpr uint32_t header = 0x8010BCE8;
+    int count = (int16_t)MEM_H(0, (int32_t)(header + 8));
     int before = MEM_HU(0, (int32_t)header);
     auto scale = [&](uint32_t at) { MEM_H(0, (int32_t)at) = (int16_t)std::min(32767, (int)std::lround(MEM_HU(0, (int32_t)at) * 1.5)); };
     scale(header);

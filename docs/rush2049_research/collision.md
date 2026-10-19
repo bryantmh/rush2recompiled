@@ -101,6 +101,10 @@ Custom tracks can carry segments (docs/custom_tracks.md, "Spline road"); the arc
 | +0xC | u16 child[4] |
 
 - **Quadrant:** q = (x ≥ midX) + 2·(z < midZ) (`func_8006CD60`, `func_800AC9BC`).
+- **Outside the root:** `func_8006CE28` climbs parents until the cell is inside a node's box (min inclusive, max
+  exclusive) and returns 0 when even the root's box doesn't hold it, so a point outside the root gets no floor and no
+  walls. The descent splits on each node's box but never checks it: a node's edge quadrants take the points of its
+  parent's quadrant past its box.
 - **Child mask:**
   - Bit q set → child[q] is a node index. Index 0 = null quadrant (no collision).
   - Bit q clear → child[q] is a byte offset into LEAF (0 = empty).
@@ -145,6 +149,9 @@ Rush 2's four (`func_8006CF00`, `func_8006F704`, `func_8006FC94`, `func_8008BDC0
   tick and logs the difference. Track 6: 956 894 probes, 727 floors found only with 2049's walk, none lost. Track 3
   (17-bit offsets): 444 found, 6 that 2049's leaf answers with a surface nearer in height (its leaf lists the floor:
   checked offline).
+- California Speed's tracks with their extended scenery (docs/calspeed_research.md#extended-scenery) tag the root
+  with bit 6 instead (0x40) and keep Rush 2's walk; on such a file the same fetches read a node mask bit 4 + q as "the
+  child is an index into the far-leaf table" (u32 leaf offsets after the vertex lists).
 - Leaves stay at most 29 polygons (file 139), inside the queries' u16[36] stack buffers (`func_8006FC94` has 40).
 - Custom tracks (`src/track_mod/track_mod_convert.cpp`) cap leaves at 36 for the same buffers; up to 255 crashed the
   stock Alcatraz export in `func_8006FC94`'s query (docs/custom_tracks.md).

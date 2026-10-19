@@ -77,10 +77,221 @@ All in the main data, Rush 2's layouts (`src/calspeed/calspeed_convert.cpp`):
   go down to -306, and its cars were put back every 7.5 s onto road still under the floor. On California Speed's tracks
   the floor is 300 ft below the racing line's lowest point (`rush2_calspeed_fall_floor`). [V: sim]
 
+### Extended scenery
+
+California Speed built its tracks only as far as its camera looked. A point-to-point track's road stops a few feet
+behind the start line (the game doesn't let a car turn round), so turning round in Rush 2 shows the void, and its seas
+are patches whose edges show as holes on the horizon, more so with the Draw Distance option. The Games tab's
+**CS Extended Scenery** option (on by default, `calspeed_scenery` in games.json) fills these in when a
+track is converted (`src/calspeed/calspeed_scenery.cpp`, `include/calspeed_scenery.h`): `add_scenery` changes the
+track's own container (asset 62 + t), the converted placement and the remapped collision before the merge. The
+converted track is cached apart from the plain one (track_cache key 2100 + t, blob `..._scenery`), and
+`src/rush2049/track2049.cpp` converts again when the setting changed since the track was loaded, so a change takes
+effect from the next race.
+
+- **Reading the track.** The track's section records (those drawing a model of its own container) are run through
+  their lists into world triangles (world = record position + vertex / 16 x the record's rows). California Speed's
+  lists set their state with only a `G_DL` into a texture-load list (the container's [7]..[8] range),
+  `G_SETOTHERMODE_L/_H` and `G_SETCOMBINE` (counts over Monterey's lists: DE 497, E2 188, E3 160, FC 128, E7 73, no
+  inline loads), so each triangle's state is those words; new lists replay them and draw with the track's own
+  textures. The new models are appended to the container (vertices and lists after its end, then a new model table
+  with the texture and palette tables copied after it and a new sorted name table); the merge copies the whole
+  container, so their pointers move with it. A load list's render tile (F5/F2 for tile 0) gives the texture's size and
+  wrap, and its texels (the SETTIMG before the LOADBLOCK, the palette before the LOADTLUT) its mean color.
+- **Behind the start** (point-to-point tracks). The cut is just inside the road's back end: along lines parallel to
+  spine point 0's direction (every 5 ft within 30 ft of the spine), the furthest back the floor triangles reach; the
+  most forward of those near the spine's own, so the whole road is there (Los Angeles' end is slanted by 57 ft). The
+  triangles crossing that plane within 260 ft of the spine give the cross-section: each piece with its ends' texture
+  coordinates and colors and the rate its texture coordinates change per foot going back (the projection of the back
+  direction on its triangle; zero on a clamped axis). Pieces facing along the road (|normal . forward| > 0.6: tree
+  cards, building ends) are left out, as they would sweep into walls, and so is the water on a track with the sea fill.
+  The sweep goes straight on (texture coordinates continue the triangles' own mapping, so it lies over whatever
+  California Speed built behind the road without showing) until 20 ft past the end of what was built there (coverage
+  in 10 ft bins up to the first 40 ft gap), at least 40 ft past the barricades, then bends on a 600 ft radius (eased in
+  and out over 120 ft) and rises 10 ft over a crest 250 ft on and drops 110 ft by 900 ft on. The bend is the best of
+  six (70 degrees, 91 and 45, either way): the fewest track triangles inside its corridor past the straight part, then
+  the fewest clear sight lines from the grid (12 eyes: 20 and 60 ft ahead of spine point 0, 12 ft either side and on
+  it, 5 and 14 ft up) to its end's cross-section, through the track's triangles and the sweep's own. When every bend
+  leaves its end in sight (San Francisco starts on the Bay Bridge's approach over open water) the road goes on 9,000 ft
+  with a 15 degree bend instead, past the farthest the game draws (8,000 ft at Draw Distance 4x). Each 1,000 ft of path
+  is one model (`SCNXBACKnn`). Texture coordinates are taken back by whole repeats per quad to stay in s16.
+  Two fixes for what the cut catches of structures above the road: a flat surface over 12 ft up that 20 ft ahead
+  (same state and height) is much wider and reaches over the spine belongs to something crossing over the road (Los
+  Angeles' wide underside 25 ft up, whose diagonal edge the cut clips a corner of) and is left out, as it would sweep
+  into a strip hanging in the air (raised ground beside a road widens ahead too but never reaches over it: Monterey's
+  stays). And on a structure's underside (over 10 ft up, facing down) running a little off the road's direction (Los
+  Angeles' overpass decks, 16 degrees), the texture axis that changes much more across the piece than going back,
+  while the other changes faster going back, stops changing going back (else the stripes slide sideways off the deck
+  along the sweep), and a short piece of a run of one state (a squeezed seam strip, -318 per ft) takes the run's
+  longest piece's rates. The road's own pieces keep their small drifts, which keep its lane lines meeting.
+  Los Angeles only: its overpass decks cross the road 16 degrees off its direction and end square to their own
+  heading, up to 76 ft behind the cut on one side. Swept straight back from the cut, the copy kinked away from the
+  stock deck and lay in its plane over that wedge (it flickered through it). So a raised structure there (pieces over
+  10 ft up joined end to end, with a floor among them) goes on along its own heading (from its upright faces'
+  facing, about 0.29 ft across a ft) past where the stock one stops, then turns onto the road's over 300 ft
+  (`drift_shift`), and each end of each piece starts where the stock surface under it stops (planes behind the cut
+  every 2 ft, while one has a piece of the same state through that end's point). Those decks have no collision
+  (overhead, out of reach). Its left edge (- side: the barrier 21 ft out and the hedge behind it) has the same trouble
+  at road level: the stock road goes on up to 56 ft behind the cut, narrowing (the barrier comes in to 14 ft out, the
+  hedge to 17), so straight copies stood beside the stock ones as a second rail. Each piece of that edge is followed
+  plane by plane behind the cut (same state, overlapping heights, within 3 ft across of the last), starts where its
+  stock copy ends, and turns back out to its own line over 30 ft (`pull_d`, `pull_dl`), with type 5 walls along the
+  turn.
+- **Tree cards.** The upright cards beside the road within 240 ft ahead of the cut (vertical, facing along the road,
+  outside the road's width: California Speed's tree and bush planes) are copied back along the sweep every 240 ft,
+  each moved by the path's frame at its distance (position across, height over the road and turn kept), so the
+  verge goes on behind the start, past what California Speed built there (`SCNXTREESnn`).
+- **Tree walls.** A tree wall (a surface facing across the road, 12 ft tall or more, its texture green, outside the
+  road) that starts up to 150 ft ahead of the cut, so the cut misses it, goes on too: the cross-sections 10, 25, 50,
+  90 and 150 ft ahead give it (no piece of its state within 15 ft across at the cut or on a nearer plane), and it is
+  drawn straight back to the cut and swept from there, its texture going on as it went (Yosemite's two at 75 and 99 ft,
+  Santa Cruz's at 63). Only where the cut's ground reaches it (within 15 ft; Monterey's at 190 ft would stand past its
+  grass, which ends at 54, and Santa Cruz's at 253 in the sea), except on Silicon Valley, where its far-left tree wall
+  at 128 ft stands behind the 10 ft wall the ground ends in at 85 (hidden from the road); and only when its texture
+  moves going back (Highway 1's green bank holds still and would smear). One with a track collision wall between it
+  and the spine is out of reach and gets no collision. Santa Cruz's right side takes the same exception for walls
+  stopping within 25 ft of the cut: its tree wall at 108 ft and the hillside at 227 ft stand behind its 30 ft tree
+  wall at 63 and stopped 10 ft short of the cut. There the cut's ground ended at 61 ft, 2 ft short of that wall, with
+  its foot 1 ft over the ground, and the trees behind showed through the hole along its whole length: the ground goes
+  on out to the wall on its own slope and the wall's foot down to 1 ft under it. That ground's last authored edge slants
+  across the cut (0.5 ft ahead at the wall, 0.5 behind at the rail), so its sweep starts from that edge's own vertices
+  (`skip`). Mount Shasta's right tree wall, on its green hill's crest 74 ft out, ends 337 ft ahead of the cut and
+  stopped abruptly in the view back: a plane 338 ft ahead (Shasta only) carries it on.
+- **Sides that stop short of the cut** (Monterey's left, Mount Shasta's right). Monterey's grass ends 54 ft out at the
+  cut but runs to its tree wall 190 ft out 40 ft ahead; Mount Shasta's green hill and the trees on it end 50 ft out at
+  the cut. That side's outer profile comes from the nearest plane ahead (20 to 250 ft) where it runs on furthest:
+  from the cut's edge outward the ground's chain of pieces (each starting where the last ended, the one reaching
+  furthest out, or a jump to one starting lower) and the walls at its end. A piece joining within 2 ft starts
+  exactly where the last ended (Shasta's hill had 1 and 2 ft gaps, a line of sky across it), and the walls' feet go
+  down to 1 ft under the chain's ground where they stand (Monterey's tree wall stood 6 ft in from the grass's end with
+  its foot half a foot over it). It is drawn straight from that plane back
+  to the cut, moved up or down so it meets the cut's ground edge exactly (taken as it stood on its plane, Monterey's
+  stood 0.9 ft over the cut's grass and the sky showed between the two strips), and swept with the rest. Only on those
+  two sides: run on every track it changed others (Highway 1, San Diego, Los Angeles) that needed nothing.
+- **Checking offline.** `tools/calspeed/scenery.py` renders with back faces culled and textures filtered as the game
+  draws them (`glb_view.py --cull 1 --bilinear`): drawn both ways, a surface facing the wrong way showed in the render
+  and was a hole in game.
+- **Past the reach** (Central Valley's right, Mojave Desert). The cross-section takes 260 ft each side; the authored
+  data at the cut past that is swept too where it matters: Central Valley's tree wall stands 279 ft out on the right,
+  77 ft tall, all along the road (cut off at the cut, it stopped there), and Mojave's right slope runs on to 310 ft.
+  No collision behind a track wall on that side (`past_reach`).
+- **Mojave's canyon walls.** They stand off the road from 600 ft ahead, past the cross-section's 260 ft reach, so the
+  cut never meets them. Each side's profile out to 1,500 ft from the road is taken at a plane where its wall is whole
+  (+ side 1,500 ft ahead; - side 2,100 ft ahead), in across and height from the spine there (the road winds and
+  climbs), from where the swept ground ends on that side (the authored data's own edge at the cut: 310 ft on the +
+  side with the ground past the reach, 241 ft on the - side), lifted or lowered to that edge. Rules, each from a hole
+  seen in game:
+  - One unbroken profile: each piece starting where the last ended. The - side's plane climbs to 133 ft at 393 ft
+    out, then a valley starts 124 ft under the road at 517 ft (sky showed through the break): it goes straight on to
+    the nearest piece out that starts no more than 30 ft lower (the face at 648 ft), the valley left out.
+  - Nothing past 3/4 of the bend's radius on the inside of the bend (the + side here): it folds over itself there (the
+    + side's face at 743 ft twisted into a ribbon with the sky under it). That side ends at 450 ft, its slope 50 ft up.
+  - The walls rise out of the flat ground: at the cut every piece lies at the edge's height, full shape 600 ft back
+    (`rise_len`). A wall standing at the cut had an open end beside authored land that has nothing out there, and
+    walls carried forward of the cut into the authored land stood as floating slabs.
+  Only the - side keeps a canyon profile (from the plane 2,100 ft ahead). The right slope's outer edge (past 239 ft)
+  is taken from 3 ft ahead of the cut, its ends on the authored vertices there.
+  The distant canyon cutouts (a wall strip of three rows of quads: the + side's from 602 ft ahead, 1,029 ft out; the
+  - side's from 1,584 ft ahead, 1,552 ft out, its rocky top a second texture over the first) end in a column of
+  vertices facing the start, and the sky showed past it. Each goes on from that column itself, straight back along the
+  road to 4,000 ft behind spine 0 (`SCNXCUTnn`, one model a 1,000 ft, no collision): each band takes its texture
+  state, coordinates and rate along the strip from the authored end triangle holding both its column vertices (the
+  strip wraps its texture per triangle), so the two share the column's edges.
+  Past the sweep's end they go on straight for 4,000 ft (`SCNXRUNONnn`, one model a 1,000 ft for the s16 vertices'
+  2,047 ft reach): the crest hides the road's end, but not the end of a 300 ft wall. They stand behind the corridor's
+  own walls and have no collision.
+- **Barricades.** A row of Type III barricades (two posts on feet, three boards with orange and white stripes, amber
+  lamps; a ROAD CLOSED sign on the face of the upper two boards) stands across the road `barricade` ft (45) behind
+  where the road ends on the spine's line, plus the cut's lead on a slanted end. The road is the flat collision type
+  0 pieces within 8 ft of the start's height and 80 ft of the spine, gaps of up to 25 ft taken in (Santa Cruz's spine
+  runs on the dirt median between carriageways 5 ft apart in height). Each carriageway and each median between them
+  (gaps over 1 ft) gets its own row of barricades up to 10.5 ft wide, so none straddles a level change; the sign goes
+  on the middle one of each carriageway at least 0.6 of the widest run. The boards stay level over the higher foot and
+  each leg reaches down to the ground under it. Their textures are made in the converter (stripes 32 x 16 RGBA16, the
+  sign 128 x 32 IA8 with 5 x 7 letters at twice size: in I8 the intensity is the alpha too, and the dark letters went
+  see-through) and loaded inline. The sign's text runs along -across (checked in game). They are shaded like the road
+  under them (`SCNXBARRICADE`). Highway 1's stand on the stock road 420 ft ahead of spine point 0 instead, on the grid's
+  side of the hill's crest (behind it, from the grid 1,250 ft ahead and 40 ft lower, they were out of sight): over the
+  road's own profile there, the carriageway shifted with the spine across, and the invisible wall across the road
+  moves with them (a car backed from the grid stopped 7 ft short of them).
+- **Collision behind the start.** Everything drawn has collision, along the whole sweep. A piece takes the surface
+  (flags and info) of the collision polygon under it at the cut; one with none there takes its nearest flat
+  neighbor's if flat (else type 0) or is a type 5 wall (facing as its triangles did, turned with the path). Collision
+  needs no texture, so pieces on one line of the profile with the same surface are one polygon, a piece lying on one
+  already taken (a decal) is dropped, and end-to-end pieces join while their shared point stays within 0.3 ft of the
+  joined line (rounded curbs and banks); slivers under 0.1 ft go. The track's own walls go on too, as its collision
+  has them: California Speed walls its roads with invisible walls far taller than what is drawn (Monterey's stone wall
+  is 3 ft, its collision wall 88 ft: polygons 1325/1531), and a car's body points pass over a wall only as tall as the
+  drawing (it sank into the stone wall). Every collision polygon of a type over 2 crossing the plane 3 ft ahead of the
+  cut (they stop about at it) gives a piece with its flags and facing (a quad's two triangles join into one); a drawn
+  wall lying on one of those is left to it. The path is cut into segments shared by every piece
+  (so neighbors share edges): a segment goes on while the sweep's middle and both edges stay within 0.25 ft of
+  straight lines (coarser only if the polygons would pass the 13-bit polygon numbers of a leaf entry). A segment quad
+  twisted by more than 0.15 ft (the bend and the grade twist wide sloped pieces) goes in as two triangles, since a
+  file polygon is flat. Pieces with no surface under them at the cut also get a 20 ft lead ahead of it (the track's
+  own collision can stop short of the cut off the road). An open outer edge (the profile's last piece is ground) gets
+  a wall from 10 ft under to 30 ft over it; type 5 walls stand across the whole sweep at the barricades (30 ft under
+  the road to 60 ft over it) and at its end. The converter checks that every quad drawn in the sweep lies on one of
+  the polygons (report line "drawn quads without collision"). They go after the file's own polygons (POLY, VERT and vertex
+  lists grow; the vertex list offsets stay under 64 KB). Every quadtree quadrant they reach gets a leaf of its own polygons
+  plus the new ones, or, past 36 polygons (the queries' u16[36] buffers), a new node splitting it (boxes split toward
+  zero as California Speed's builder did; a new polygon filed by its x/z outline, an old one by its box, with 2 units
+  to spare, so either rounding finds them; a node made to split takes as its box the cells that reach it, see below). Those leaves can't go in the leaf section: Silicon Valley's is 65,478 bytes of its 16-bit reach. They
+  go after the vertex lists behind a table of u32 offsets from the leaf section (4-byte aligned from the file's start);
+  a node mask bit 4 + q says quadrant q's child is an index into that table. The root's byte +2 gets bit 6
+  (`scenery_collision_tag`; Rush 2049's converted files use bit 7), and the four leaf fetch hooks of
+  `src/rush2049/track2049_collision.cpp` read the table on such a file. Rush 2's own walk is kept otherwise. A leaf's
+  count byte is its number of polygons, not of u16 entries (a run entry covers up to 8): the readers stop once they
+  have that many, so a count of entries leaves the last polygons unread (the car fell through the new road). California
+  Speed's own wall collision port (`src/calspeed/calspeed_walls.cpp`, out of the build for now) reads leaves itself,
+  so it goes through the same rule (`rush2::collision::leaf_offset`).
+  The root's box also has to hold the new polygons: `collision_node_find_cached_8006CE28` climbs from a cached node
+  until the cell is inside a node's box and gives a cell outside the root's box no node (no floor, no walls), and
+  most tracks' roots end just behind the start (Monterey's at z -8103, the barricades stand at -8140). The root's box
+  grows by as much on both sides of each axis that needs it, so min + max and its split lines stay, and its edge
+  quadrants take the new cells; polygons are filed by the cells that reach each quadrant (Rush 2's descent splits on
+  a node's box but never checks it, so a node's edge quadrants take its region past its box). A node made to split a
+  full leaf takes those cells as its box, so its splits divide all of them (with the quadrant's own box, the cells
+  past it would all land in the new node's edge quadrants again) and the cached walk's climb still stops at it only
+  for cells that reach it.
+- **The sea** (Highway 1, San Francisco, Santa Cruz, San Diego). Water is the triangles whose texture is mostly blue
+  (mean blue over 0.3, 1.5 x red, 1.15 x green) and that face up; its level is the area-weighted median height. The sea
+  is a plane 1.5 ft under it (under the track's own water, which covers it), mapped with the biggest water triangle's
+  texture coordinates as a function of x and z, out to 9,000 ft past the track. It is made of 256 ft cells, left out
+  where the track has anything other than water lower than 2 ft over the water level (tunnels, the shore), merged
+  into rectangles: within 4,000 ft of the track in 3,840 ft tiles (`SCNXSEAnnn`, s16 vertices at 1/16 ft reach 2,047
+  ft from their record), beyond in 15,360 ft tiles drawn at 4 times scale (the record's matrix). At the original
+  Draw Distance the game skips a node more than 2,048 ft from the camera on an axis, so the far tiles show with the
+  longer draw distances only, as California Speed's own big sections do. Levels: Highway 1 -178, San Francisco -173,
+  Santa Cruz -740, San Diego -211. Collision: each rectangle of the near tiles is a type 3 polygon at the sea's
+  level (Rush 2's water hazard: a wheel or body point touching it wrecks the car, which is reset). California Speed's
+  own water mostly has none (Highway 1: 381,000 of 13.9 million sq ft has a floor under it; San Francisco 334 sq ft),
+  so a car falling in sinks through it until Rush 2's reset.
+- **Records.** One top-level placement record per new model, appended to the end of the top-level chain with an
+  empty culling box: the visibility regions are the first records of the chain (as many as the track's region
+  count), so they are never a region and never hidden.
+
+Offline: `python tools/calspeed/scenery.py [TRACK...] [--views back,top,far,sea,sign] [--stock]` runs it outside the game
+(tools/calspeed/scenery_test.cpp: it walks the new collision as Rush 2 does, from the root box check down, and checks
+every new polygon is in the leaf at points across it (pulled 3% in from the edges) and that half a foot off each
+point along the floor's normal a floor of that leaf holds it; it prints the new polygons' range) and draws views
+with `tools/glb_view.py` (its `--eye`/`--at` perspective camera) into tmp/scenery/; left and right are the game's (Los
+Angeles' overpasses stand on the right looking back in both), but the ROAD CLOSED sign's own texture reads backwards
+there while it reads right in game. `--stock` draws the unchanged track from the same eyes. Every point-to-point track: 0
+track triangles in the bend's way and no sight line to the end except San Francisco's long road; every drawn quad on
+a collision polygon; collision checks clean.
+
+In game: `RUSH2_TEST_COLLISION=1` runs the collision self-test on a scenery file too (src/rush2049/track2049_collision.cpp:
+every floor probed with Rush 2's ground query `collision_ground_query_8006CF00`, half a foot off along the normal);
+`RUSH2_TEST_COLLISION_FROM=<first new polygon>` details the misses from there on. On all 11 point-to-point tracks no
+probe on a new polygon finds nothing (the rest find a surface stacked over or under it: the ground query keeps the
+lowest within reach). `python tools/calspeed/scenery_drive.py [TRACK...]` backs a car from the grid into the
+barricades (and in arcs to the sides) and reports how far it got, its lowest point and wrecks.
+
 ### Billboard trees
 
 Most of California Speed's roadside trees are one flat see-through card built into a track section's list, so from
-the side they thin to a line. The Games tab's **California Speed Billboard Trees** option (on by default,
+the side they thin to a line. The Games tab's **CS Billboard Trees** option (on by default,
 `calspeed_billboards` in games.json) turns those cards to face the camera about their upright axis when a track is
 converted (`src/calspeed/calspeed_billboards.cpp`, `include/calspeed_billboards.h`), after the extended scenery. Cached
 apart (track_cache key 2000 + t, + 100 with the scenery, + 200 with the billboards; blob suffix `_bb`), and
@@ -292,7 +503,9 @@ over a body point is "inside" by that rule, which is the tunnel's kicks. Califor
 The port (`src/calspeed/calspeed_walls.cpp`, `rush2_calspeed_wall_collision`, hooked at `car_wall_collision_query`'s
 entry) runs the whole of it over Rush 2's car struct when the probe is called for body point 0 on a California Speed
 track and skips Rush 2's probe for all four points; the leaf comes from Rush 2's `collision_node_find_cached_8006CE28`
-with Rush 2's cell rule, so the body sees the wheels' leaves. Every car takes the state-2 path (Rush 2's struct has no
+with Rush 2's cell rule, so the body sees the wheels' leaves. The leaf offset is read with
+`rush2::collision::leaf_offset` (include/collision_polys.h), the leaf fetch hooks' rule, so it takes a converted 2049
+file's 17-bit offsets and the extended scenery's far leaves. Every car takes the state-2 path (Rush 2's struct has no
 such state). Left out: the per-point wall type (+0x862), which nothing of Rush 2's reads; Rush 2's probe plays no wall
 sound (its 0x6F is the type 3/4 sinking) and its directional rumble (src/rumble.cpp) gets each hit's normal. The
 converter's surface remap (4, 7, 8, 9 to 5) is kept: the port takes types 4 and up as California Speed does, so it
