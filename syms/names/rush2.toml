@@ -6066,7 +6066,7 @@ ref = "docs/functions/rush2_car.md#rush-2-car-functions"
 vram = 0x8006942C
 name = "car_integrate_position_orientation"
 sig = "void car_integrate_position_orientation(Car *car)"
-desc = "Position and orientation integration stage of the physics step."
+desc = "Position and orientation integration stage of the physics step. | California Speed's func_80090540 zeroes the pitch and roll rates +0x40/+0x48 after this; a port on its tracks was removed the same day it went in (broke hill driving)."
 status = "verified"
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
@@ -6103,7 +6103,7 @@ ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-reb
 vram = 0x80069AB4
 name = "car_torque_from_forces"
 sig = "void car_torque_from_forces(Car *car)"
-desc = "Torque = sum of force x position. | Yaw torque from force x wheel position (with func_80069A14 and func_800697D0)."
+desc = "Torque = sum of force x position. | Yaw torque from force x wheel position (with func_80069A14 and func_800697D0). | California Speed's func_8008FC1C adds a lifted-wheel torque after this sum; a port on its tracks was removed the same day it went in (broke hill driving)."
 status = "verified"
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
@@ -6346,6 +6346,7 @@ consts = "0xC0 = VLIST run marker; 0x3F = VLIST mask"
 status = "verified"
 rush1 = [0x80079CDC]
 rush2049 = [0x800AD5D0, 0x800AD734]
+calspeed = [0x800AE884]
 area = "collision"
 ref = "docs/rush2049_research/collision.md#vert-8-bytes-v"
 
@@ -6549,11 +6550,12 @@ ref = "us.toml"
 vram = 0x8006F704
 name = "collision_poly_extract"
 sig = "void collision_poly_extract(Car *car, f32 *pos, s32 a2, void *a3, s32 stack10, s32 stack14)"
-desc = "Patched in us.toml. Rush 2049 moving track objects (src/rush2049/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes). | Polygon extraction from POLY (flags, matrix, vertices, vlist); leaf query that copies a leaf into an unchecked u16[36] stack buffer (next local 0xA4 -> 0xEC). | Wheel probe (ground query for a wheel). Hooked at 0x8006F99C when a polygon is found ($t9 = its POLY record). Expands a leaf into a u16[36] buffer unchecked. Hooked at 0x8006FADC ($v1 = surface type, sp+0x138 = the car; types 3, 4, 7 have effects) for the No Out-of-Bounds Wreck cheat (src/cheats.cpp). | Cell = x - 0.99 truncated for negative x (0.99 at 0x800CF7xx/0x800CF8xx). On a converted 2049 course it takes 2049's exact floor and 17-bit leaf offsets (mask bit 4 + q): cell hook at 0x8006F7D0 ($t0 = the point), leaf-offset hook at 0x8006F820 (src/rush2049/track2049_collision.cpp). | Stores the hit polygon type (flags & 15) to *arg (car +0x5FC + 4 x wheel) and material ((flags & 0xF0) >> 4) to car +0x60C + 2 x wheel at 0x8006FA90; no polygon: type 1, material 1 at 0x8006FBE4. Custom surface material hook at 0x8006FA90 (docs/custom_tracks.md)."
+desc = "Patched in us.toml. Rush 2049 moving track objects (src/rush2049/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes). | Polygon extraction from POLY (flags, matrix, vertices, vlist); leaf query that copies a leaf into an unchecked u16[36] stack buffer (next local 0xA4 -> 0xEC). | Wheel probe (ground query for a wheel). Hooked at 0x8006F99C when a polygon is found ($t9 = its POLY record). Expands a leaf into a u16[36] buffer unchecked. Hooked at 0x8006FADC ($v1 = surface type, sp+0x138 = the car; types 3, 4, 7 have effects) for the No Out-of-Bounds Wreck cheat (src/cheats.cpp). | Cell = x - 0.99 truncated for negative x (0.99 at 0x800CF7xx/0x800CF8xx). On a converted 2049 course it takes 2049's exact floor and 17-bit leaf offsets (mask bit 4 + q): cell hook at 0x8006F7D0 ($t0 = the point), leaf-offset hook at 0x8006F820 (src/rush2049/track2049_collision.cpp). | Stores the hit polygon type (flags & 15) to *arg (car +0x5FC + 4 x wheel) and material ((flags & 0xF0) >> 4) to car +0x60C + 2 x wheel at 0x8006FA90; no polygon: type 1, material 1 at 0x8006FBE4. Custom surface material hook at 0x8006FA90 (docs/custom_tracks.md). | Smooth collision hook at 0x8006FA70 (src/smooth_collision.cpp): after the surface dispatch, 0x94($sp) = the POLY found, 0x13C($sp) = the wheel point, $s1 = the result (its [1] the height), *0x148($sp) = the wheel frame; on California Speed and custom tracks a flat floor polygon's frame comes from the smooth normal. Crack and ledge hooks there too: 0x8006F748 (entry) and 0x8006F860 ($t1 = the leaf's polygon count, the u16 list at 0xA4($sp)) note the leaf size, 0x8006FBD0 (no polygon held the point: fills from a floor polygon within 1 ft and continues at 0x8006FA70); a found surface more than 0.75 ft above the point gives way to the road under the wheel or is climbed 0.1 ft per probe (docs/calspeed_research.md#the-subway-tunnel-loop-at-the-end-of-san-francisco)."
 consts = "250/-5 = the wheel's height window over a polygon (upper limit = the best so far, nearest wins; loop acceptance at 0x8006F8F8 with $f4 = the height, $f24 = the best), -200 = surface threshold, 0x6F = sound id"
 status = "verified"
 ported = true
 rush2049 = [0x800C6AA0]
+calspeed = [0x800AF1EC]
 area = "collision"
 ref = "docs/rush2049_research/collision.md#quadtree-lookups-v"
 
@@ -6563,15 +6565,17 @@ name = "car_wall_response_vec"
 sig = "void car_wall_response_vec(Vec3 *v, Car *car)"
 desc = "Body probe wall response (surface type 5 walls)."
 status = "verified"
+calspeed = [0x800B0A04]
 area = "collision"
 ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
 
 [[func]]
 vram = 0x8006FC94
 name = "car_wall_collision_query"
-sig = "void car_wall_collision_query(Car *car, f32 *pos, f32 *out_normal, Mat3 *m, s32 stack0)"
+sig = "void car_wall_collision_query(Car *car, f32 *pos, f32 *out_normal, Mat3 *m, s32 stack0) | Entry hooked on California Speed tracks (rush2_calspeed_wall_collision, src/calspeed/calspeed_walls.cpp): its own wall collision runs for the car on body point 0 and the probe is skipped for all four points (docs/calspeed_research.md#walls-california-speeds-body-collision)."
 desc = "Leaf/polygon query (wall response through body probe func_8006FC64); u16[40] stack buffer (0xF4 -> 0x144); saved point pointer at sp+0x15C. | Collision query using a saved point pointer at sp+0x15C; reads the car table's driver byte. | Cell = x - 0.99 truncated for negative x (0.99 at 0x800CF7xx/0x800CF8xx). On a converted 2049 course it takes 2049's exact floor and 17-bit leaf offsets (mask bit 4 + q): cell hook at 0x8006FD60 ($t0 = the point), leaf-offset hook at 0x8006FD88 (src/rush2049/track2049_collision.cpp)."
 status = "verified"
+calspeed = [0x800AFAFC, 0x800B1624]
 area = "collision"
 ref = "docs/rush2049_research/collision.md#quadtree-lookups-v"
 
@@ -6579,10 +6583,11 @@ ref = "docs/rush2049_research/collision.md#quadtree-lookups-v"
 vram = 0x800703EC
 name = "car_ground_contact"
 sig = "void car_ground_contact(Car *car)"
-desc = "Ground contact and suspension travel. Rush 2 ground contact; counterpart of 2049 func_800CF06C."
+desc = "Ground contact and suspension travel. Rush 2 ground contact; counterpart of 2049 func_800CF06C. | California Speed's missed-wheel rule (a wheel finding no road keeps its compression while 3 hit) was hooked here at entry and 0x80070680 on 2026-10-18 and removed the same day (collision felt broken)."
 consts = "0x2CC/0x260/0x290/0x230 = car matrix/wheel offsets, 40 = probe range"
 status = "verified"
 rush2049 = [0x800CF06C]
+calspeed = [0x800A58A4]
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
 
@@ -6590,7 +6595,7 @@ ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-reb
 vram = 0x800706D0
 name = "car_physics_forces"
 sig = "void car_physics_forces(Car *car)"
-desc = "Patched in us.toml. Rush 2049 wings physics (src/rush2049/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is part of rush2_model_draw. / Rush 2049 moving track objects (src/rush2049/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes). | Physics forces stage: calls func_800703EC (ground contact and suspension travel), func_8006AFD8 (wheels and drag), func_8006A02C (force sum), func_80069E74 (steering yaw terms), func_80069AB4 (torque sum). Rush 2 physics forces stage; counterpart of 2049 func_800E2A64. Hook point 0x800706E4/0x800706EC. | Physics step per car: wheel probes, drag, torque sum, gravity, position integration. Hooked at 0x800706DC/0x800706E4/0x800706EC (movers), after the torque sum and before position integration (wings)."
+desc = "Patched in us.toml. Rush 2049 wings physics (src/rush2049/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is part of rush2_model_draw. / Rush 2049 moving track objects (src/rush2049/track2049_movers.cpp): func_80076578 is the physics tick (here after Rush 2's subway trains move), func_800706D0 runs a car's physics (here after its wheel probes). | Physics forces stage: calls func_800703EC (ground contact and suspension travel), func_8006AFD8 (wheels and drag), func_8006A02C (force sum), func_80069E74 (steering yaw terms), func_80069AB4 (torque sum). Rush 2 physics forces stage; counterpart of 2049 func_800E2A64. Hook point 0x800706E4/0x800706EC. | Physics step per car: wheel probes, drag, torque sum, gravity, position integration. Hooked at 0x800706DC/0x800706E4/0x800706EC (movers), after the torque sum and before position integration (wings). | California Speed's lifted-wheel torque (0x80070704) and pitch/roll rate reset (0x8007071C) were hooked here on 2026-10-18 and removed the same day: they broke hill driving."
 status = "verified"
 ported = true
 rush1 = [0x8007B2EC]
@@ -8066,7 +8071,8 @@ name = "tire_mark_extend"
 sig = "void tire_mark_extend(void)"
 desc = "Moves a tire mark's leading edge to the wheel's contact point (draw state 0x801124A0 + car x 0x134, +0x6C + wheel x 0xC; car in $t1, wheel in $s4, mark slot in $s0) and resets its polygon (polygon_set at 0x80082184, color 0x800C5634)."
 consts = "0xC0 = entry stride, 0.75 = light scale"
-status = "inferred"
+status = "verified"
+ported = true
 area = "render"
 ref = "docs/calspeed_research.md#wheel-effects"
 
@@ -8075,8 +8081,7 @@ vram = 0x8008219C
 name = "stub_empty"
 sig = "void stub_empty(void)"
 desc = "Empty function."
-status = "verified"
-ported = true
+status = "inferred"
 area = "other"
 ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 
@@ -8119,22 +8124,22 @@ sig = "s32 particle_emitter_spawn(s16 car, s16 emitter, s32 a2)"
 desc = "Patched in us.toml. Throws an emitter's particles: emitters 0-3 a wheel, 4 and 5 the car's own. A wheel under speed / 4 10 throws nothing (0x8008279C); material 1 throws DUST (0x800828EC, emitter 0x8010D26C), 2 SPLASH (0x8008292C, 0x8010D28C), anything else SMOKE / SMOKE_FAST by speed. Hooked at 0x8008277C for converted tracks' rules (src/surface_fx.cpp). Car preview ids (car select: id = player * 73 + type, was * 22) index the race per-car arrays, which move to 146-entry copies in two windows, 0x80208000- and 0x8022A000- (include/car_types.h, tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 73."
 status = "verified"
 ported = true
+calspeed = [0x800BCF9C]
 area = "render"
 ref = "docs/calspeed_research.md#wheel-effects"
 
 [[func]]
 vram = 0x80082D14
-calspeed = [0x800BCF9C]
 name = "car_state_draw_objects"
 sig = "void car_state_draw_objects(Car *car)"
 desc = "Runs a car state's draw objects (+0x108..+0x2FF, wheel nodes)."
 status = "inferred"
+calspeed = [0x800BC914]
 area = "car"
 ref = "src/ghost.cpp"
 
 [[func]]
 vram = 0x800831CC
-calspeed = [0x800BC914]
 name = "scene_pool_reset"
 sig = "void scene_pool_reset(void)"
 desc = "Attaches nodes to the global object list then resets the list pool (list_pool_reset); uses object_list_head. No callers."
@@ -8416,24 +8421,24 @@ sig = "Node *scene_node_new_with_matrix_ex(void *a0, s32 a1, s32 a2)"
 desc = "Like scene_node_new_with_matrix with extra args: creates a node with a scene matrix, sets flags 0x80 and stores the matrix in scene_node_matrix_ptr; used by car scene node building."
 consts = "0x80 = node flag"
 status = "inferred"
+calspeed = [0x800BA7CC]
 area = "render"
 ref = "docs/functions/rush2_render.md#rush-2-render-functions"
 
 [[func]]
 vram = 0x80085FD0
-calspeed = [0x800BA7CC]
 name = "car_build_scene_nodes"
 sig = "void car_build_scene_nodes(void)"
 desc = "Patched in us.toml. Rush 2's per-car-type tables (0x800C06B4-0x800C0FDE, 22 entries, 1 or 3 rows) moved to 73-entry copies at 0x80200000 for the Rush 2049 cars (types 23-35), California Speed's (36-56) and mod cars (57-72; 22 stays Rush 2's \"no car\" marker; include/car_types.h), built at boot by src/rush2049/car2049.cpp. Generated by tools/rush2049/cartypes.py toml: table address relocations, row-stride idioms (r * 22 -> r * 73) and row offsets. / Car preview ids (car select: id = player * 73 + type, was * 22) index the race per-car arrays, which move to 146-entry copies in two windows, 0x80208000- and 0x8022A000- (include/car_types.h; strides unchanged), with the id arithmetic re-based from 22 to 73. | Sets a RIM n texture (RIM0n, asset 0x12) on the wheel node via func_8005A4C0. | Maps a car preview id to its type. | Wheel rim: table 0x80201020 [row * 36 + type] (row $s5: 0 drone, car + 1 for a human), into $t9 at 0x800865C8; AI Opponents hook at 0x800865CC gives an opponent its chosen rim (src/npc_cars.cpp)."
 consts = "0x16 = 22 car types; 0x38 = node size"
 status = "verified"
 ported = true
+calspeed = [0x800BA8C4]
 area = "car"
 ref = "us.toml"
 
 [[func]]
 vram = 0x80086700
-calspeed = [0x800BA8C4]
 name = "car_parts_build"
 sig = "void car_parts_build(s32 car_type, s32 a1, s32 a2)"
 desc = "Patched in us.toml. Rush 2's per-car-type tables (0x800C06B4-0x800C0FDE, 22 entries, 1 or 3 rows) moved to 73-entry copies at 0x80200000 for the Rush 2049 cars (types 23-35), California Speed's (36-56) and mod cars (57-72; 22 stays Rush 2's \"no car\" marker; include/car_types.h), built at boot by src/rush2049/car2049.cpp. Generated by tools/rush2049/cartypes.py toml: table address relocations, row-stride idioms (r * 22 -> r * 73) and row offsets. / Car preview ids (car select: id = player * 73 + type, was * 22) index the race per-car arrays, which move to 146-entry copies in two windows, 0x80208000- and 0x8022A000- (include/car_types.h; strides unchanged), with the id arithmetic re-based from 22 to 73. | Builds a car container from part names (suffix list 0x800C6180); 39 part handles used unchecked. Builds <CARNAME> + 39 suffixes (FRAME1, D0_FR1, ... H2D_R; list 0x800C6180) and stores handles at 0x8010C480 + car*0x4E; handles used unchecked. | Part handle code (part handle table 0x8010C480, stride 0x4E); also the converted car part layout: frame, five body panels in damage stages, and headlights."

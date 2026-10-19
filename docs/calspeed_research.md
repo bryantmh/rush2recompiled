@@ -193,15 +193,68 @@ into the tunnel in a silent sim-mode run and logs the wheels, analyze.py summari
 
 Rules fitted to these (vertical faces to walls, a road under the wheel preferred over a slab just above it, walls
 facing down dropped from the body probe) made cars fall through roads elsewhere and were removed. California Speed's
-own probes are Rush 2's: its polygon test `func_800AE884` (ground types: the same -5 to 250 window, nearest wins;
-walls: the point behind the plane within the window), its wheel probe `func_800AF1EC` and its body probe
-`func_800AFAFC` (the same -5, 0.25, 5, 3.75 and -3.5) and its ground contact `func_800A58A4`, which is Rush 2's
-`car_ground_contact_800703EC` with the road hold built in (0.32, 0.5, 0.9 and 1.5 factors, 3 and -3 clamps, 40 and
--40). Its quadtree walk is 2049's (every floor and wall listed for its cells under 2049's rules, 9 floors missed
-under Rush 2's; no wall gaps either way). So what keeps its cars down where ours are kicked is not the probes; the
-remaining differences are the car's springs and dampers (California Speed's cars are rebalanced onto Rush 2's
-roster, section 7) and the road hold (ours is a heavier world, Hold::Heavy, not California Speed's push inside its
-ground contact). Open. [V: probes and constants from the disassembly; kicks in game]
+wheel probe is Rush 2's: its polygon test `func_800AE884` (ground types: the same -5 to 250 window, nearest wins), its
+wheel probe `func_800AF1EC` and its ground contact `func_800A58A4`, which is Rush 2's `car_ground_contact_800703EC`
+with the road hold's per-wheel factor built in (+0x314: 0.32 on the road, 0.5 - compression + c past 0.5 ft of it,
+0.5, 1.5 and 0.9 by how far a lifted wheel is out; 3 and -3 clamps, 40 and -40). Its quadtree is built to 2049's rules
+(every floor and wall listed for its cells under them, 9 floors missed under Rush 2's; no wall gaps either way). What
+differs is the body: California Speed never calls Rush 2's body probe (its copy `func_800AFAFC` has no caller in the
+main code); its ground contact runs its own wall collision, next section, which the tunnel's ceilings and sloped faces
+don't trigger. Ported on 2026-10-18 and taken out of the build the same day: with it (and with the missed-wheel rule
+below) the user found collision on California Speed tracks broken in general, hold on or off; the port is parked in
+tmp/cs_tunnel/removed/calspeed_walls.cpp. The build runs Rush 2's body probe on these tracks. [V: disassembly; in game]
+
+### Walls: California Speed's body collision
+
+Rush 2's body probe (`car_wall_collision_query_8006FC94`, four calls per car from the ground contact, one per body
+point) takes a wall (types 5 and 6) when the body point projects inside it along its normal and lies from 5 ft behind
+its plane to 3.75 ft in front, then pushes the car out along the normal and adds a force on the point. A ceiling 3 ft
+over a body point is "inside" by that rule, which is the tunnel's kicks. California Speed's ground contact
+`func_800A58A4` calls `func_800B1624` instead (at its start, before the wheel probes), the cars' wall collision:
+- `func_800B1624` (car): the leaf under each of the four body points (+0x284 in its car struct, Rush 2's +0x260;
+  `func_800AE668` from the point's cached node +0x3E4 + 4i, Rush 2's +0x380; cell = x - 0.99 truncated for negative x
+  as Rush 2's), each leaf once; `func_800B1548` runs every polygon of a leaf whose type (flags & 0xF) is 4 or more
+  through `func_800B0E80` with one hit record {POLY, body point, depth} (0x800DCCE8, zeroed); a hit left in the record
+  at the end goes to `func_800B0A04`.
+- `func_800B0E80` (car, POLY, record): the polygon already in the record is skipped. The four body points, in the
+  order 0, 1, 3, 2 (0x800B1878: round the car), less the polygon's first vertex (VERT units: s16 x 32 + 5 fraction
+  bits, x 1/32 at 0x800DCCD8) and turned into its frame (the POLY matrix, row 1 = the normal). For each edge of that
+  quad whose ends' heights have opposite signs: the crossing with the plane at t = |y0 / (y1 - y0)|, the fraction of
+  the edge behind the plane (t when y rises along the edge, else 1 - t, the edge's direction turned toward the part
+  behind), clipped to the polygon's footprint in its x/z: the crossing must be inside every polygon edge (edge 0-1 is
+  the frame's x axis, so its test is -x1 z_c <= 0; the others by cross product, the closing edge back to vertex 0 by
+  z_last x_c - x_last z_c >= 0), and where the edge's line leaves an edge the fraction is cut there. The hit depth is
+  |fraction x (y1 - y0)|; the deepest edge wins and the hit point is the edge's first end when |y0| / |y1| < 1, else the
+  second. A depth under 0.0005 (0x800DCCE0) is no hit. A car in state 2 (+0x840) holds the hit in the record: a second
+  polygon's deeper hit has the held one applied first and itself retested against the moved car, a shallower one is
+  applied at once and the held one retested; any other car's hit is applied at once.
+- `func_800B0A04` (car, record): the car moves out of the wall by normal x depth: position (+0x248, Rush 2's +0x224),
+  its copy (+0x808, Rush 2's +0x7B0), the four body points and wheel contact points (+0x254, Rush 2's +0x230), and
+  the body points are copied to their previous positions (+0x2B4, Rush 2's +0x290). The hit point's velocity r x w + v
+  (body offset +0xE8, angular velocity +0x40, velocity +0x34, all the car's frame) goes to the world (the car matrix
+  +0x324 transposed, Rush 2's +0x2CC) and into the wall's frame; the force on the point, in that frame, is -v.x and
+  -v.z x 10000 / mass (+0x614, Rush 2's +0x5B0) x 1/dt (+0x698, Rush 2's +0x63C) x 0.006 (0.015 when the polygon's type
+  is under 4 or over 9), and -v.y x 10000 / mass x 1/dt x 0.1 + 8 / dt x (1 - |forward . normal|) (the car matrix's
+  third row, 1.0 at 0x800DCCD0); back to the world and the car's frame it is added to the point's force (+0xB8 + 12 x
+  point, zeroed by the ground contact, Rush 2's too). Walls of types 4-9 also record their type per point (+0x862,
+  nothing of Rush 2's).
+
+The port (`src/calspeed/calspeed_walls.cpp`, `rush2_calspeed_wall_collision`, hooked at `car_wall_collision_query`'s
+entry) runs the whole of it over Rush 2's car struct when the probe is called for body point 0 on a California Speed
+track and skips Rush 2's probe for all four points; the leaf comes from Rush 2's `collision_node_find_cached_8006CE28`
+with Rush 2's cell rule, so the body sees the wheels' leaves. Every car takes the state-2 path (Rush 2's struct has no
+such state). Left out: the per-point wall type (+0x862), which nothing of Rush 2's reads; Rush 2's probe plays no wall
+sound (its 0x6F is the type 3/4 sinking) and its directional rumble (src/rumble.cpp) gets each hit's normal. The
+converter's surface remap (4, 7, 8, 9 to 5) is kept: the port takes types 4 and up as California Speed does, so it
+would take them unremapped too. The leaf lists are unaligned (a count byte, then u16 entries), so the port reads
+them bytewise. Test: tmp/cs_tunnel/run.py (silent sim run with RUSH2_CS_WALL_LOG=1: drops the player's car onto the
+street over the tunnel's start, onto the street before the first ramp (it drifts to the west edge wall) and before the
+second ramp down, logs wheels, velocity and position; analyze.py flags lifts, slams and velocity jumps; the game log's
+`[cswall]` lines are the hits). In that test the car stands on and drives over the ceiling pieces (z 8900 to 8680) with
+level compressions, grinds the west edge wall (polygons 170-176, 996) without passing it (before the fix of the leaf
+lists' unaligned entries it fell through) and drives the tunnel road end to end. Left as it is: the wheel probe's hop
+at the exit ramp's slab foot (wheel 0 at compression 3 for a step, a 2.4 ft lift, near (-1039, 102, 7094)): the wheel
+probe is California Speed's own. [V: disassembly; in game]
 
 ## 5. Paths
 
@@ -429,11 +482,15 @@ is the same in both (32.2 ft/s/s x the 0x800D7380 table, Rush 2's 0x800CB580). [
     height and the suspension's damping ratio is Rush 2's;
   - the tires' load / 2.28 (`rush2_calspeed_tire_load`, hooked at 0x8006AD4C as $a2 goes to `car_tire_model_8006A2FC`:
     min(0x34($sp) / 2.28, weight +0x5AC), the game's cap): grip is Rush 2's;
-  - direction: while every wheel is within 1.0 ft of the road, only the part of the extra square to the road (the
-    mean normal of the polygons under the touching wheels, or under all four when none touch, turned into the car's
-    frame by the car matrix +0x2CC as `push_car`), so hills, banks and grades pull as on any other track and the
-    springs see exactly 2.28 x their Rush 2 load; once any wheel is more than 1.0 ft out (a jump, or over nothing:
-    compression clamps at -3) the whole extra pulls straight down, California Speed's rule;
+  - direction: while every wheel is within 1.0 ft of the road, the whole extra (weight x the factor sum) square to
+    the road (the mean normal of the polygons under the touching wheels, or under all four when none touch, turned
+    into the car's frame by the car matrix +0x2CC as `push_car`), so hills, banks and grades pull along the road as
+    on any other track and the springs see 2.28 x their Rush 2 load on flat road; California Speed pushes the same
+    amount along the car's own down axis, so on a bank or on the walls of San Francisco's subway tunnel loop the car is pressed on as hard
+    as on flat road. Until 2026-10-18 the extra was the projection of the scaled gravity onto that normal, which is
+    nothing on a vertical wall: in the subway tunnel loop (route points 360-440, polygons 7120-7288, surface type 0
+    material 6, spline flag 0x1060) cars had no hold, fell off and flew across and through its walls. Once any wheel is more than 1.0 ft out (a jump, or over nothing: compression
+    clamps at -3) the whole extra pulls straight down, California Speed's rule;
   - stick: no amount of gravity keeps a car on the road over a kink (California Speed's roads are large flat
     polygons, a hill is a run of them): the car's velocity has to turn at once while gravity bends it over time, and
     at 2.28 g a 5 degree kink at 180 ft/s still lifts the car 1.7 ft for 0.4 s. So while a wheel has lifted
@@ -517,6 +574,77 @@ is the same in both (32.2 ft/s/s x the 0x800D7380 table, Rush 2's 0x800CB580). [
   from 0.25 to 1.25 ft up): both start only once the car has begun to fly, so it lifted and was then yanked down.
 - California Speed also stops cars from turning around on the track (they can only face along it); not located yet,
   and not ported.
+
+### The subway tunnel loop at the end of San Francisco
+
+The loop at the end of San Francisco is a subway tunnel (route points 360-440, polygons 7120-7288, surface type 0
+material 6, spline flag 0x1060, type 6 walls at x 2446 and x 2561 up to y 658; the road runs y 14 at z -1109, y 476 at
+z -2050, y 14 at z -3000, y 476 at z -3715, y 7 at z -4724). Under the Rush 2 engine the ride there is bumpy on
+invisible collision, cars go flying and some are shot through the walls. tmp/cs_tunnel/race_log.py (a silent sim race
+of computer cars that logs every car's position, velocity, compressions, surface types, polygon normals, attitude,
+body rates and torque every 20 ms, then anomalies by route point) is the trace tool.
+
+#### A missed wheel keeps its compression (tried, removed)
+
+California Speed's ground contact `func_800A58A4` (Rush 2 `car_ground_contact_800703EC`) counts the wheels whose
+probe found road; a wheel that found none keeps its last compression, travel and polygon when 3 or more did, and is put
+1000 ft under the road (clamped to -3) only when fewer did. Rush 2 puts every missed wheel at -3 (its `0x800CA27C`
+"no polygon" matrix), so one wheel probing past a polygon edge became an instant full unload of that corner (a kick).
+Ported as `rush2_calspeed_ground_contact_enter`/`_leave` (hooks at the entry of `car_ground_contact_800703EC` and at
+0x80070680 before its wheel-speed clamp; src/calspeed/calspeed_walls.cpp): the four wheels' +0x5BC/+0x5CC/+0x5DC/
++0x5EC, type +0x5FC, halves +0x60C/+0x614/+0x61C, polygon matrix +0x2F0 and contact point +0x230 are saved on entry
+and, with exactly 3 hits, the missed wheel's are restored (rate +0x5EC zeroed); a wheel that was already off the road
+last step stays off. Fires about 55 times a race on San Francisco. Taken out of the build on 2026-10-18 with the wall
+port (the user: collision broken in general); parked in tmp/cs_tunnel/removed/calspeed_walls.cpp. [V: disassembly; sim race]
+
+#### Body rates: pitch and roll do not carry (tried, removed)
+
+Two more California Speed rules were ported on 2026-10-18 and removed the same day because they broke driving on
+hills. They are recorded so nobody ports them again. The orientation step `func_80090540` (Rush 2
+`car_integrate_position_orientation_8006942C`) turns the car matrix +0x324 by its angular velocity +0x40 x dt
+(`func_800C8A68`: yaw, pitch, then roll) and then zeroes the pitch and roll rates (+0x40 and +0x48 at
+0x8009093C-0x80090944), keeping the yaw rate +0x44 (forced to +-5 or +-6.7 for the turning-around states 0x890). The
+torque sum `func_8008FC1C` (Rush 2 `car_torque_from_forces_80069AB4`) adds, unless all four wheels are in the air
+(surface type 10, Rush 2's 8), for every wheel whose compression is -0.1 or less a torque F x r with F = the car's
+gravity +0x200 x -2 x (compression + 0.1) at the wheel's descriptor position (+0x74 there, Rush 2's +0x7C) with its y
+zeroed (0x8008FDEC-0x8008FF5C), then its +0x134..+0x13C; no force goes with it. Both depend on the rest of
+California Speed's physics (its road hold on the ground above all) and on Rush 2's they change how a car behaves on
+every hill. Not ported either: `func_800901E0` (skipped once 0x8014FE0B is set) lifts the car along its up axis by
+the mean of (+0x630 - 0.35) when positive and levels pitch when the player word +0x1dc4 is set; `func_8008FFFC`
+clamps the car-frame velocity +0x34 to forward only (v.z >= 0), creeps it up to 6.25 and caps speed at 400;
+`func_8008F7E4` turns the road hold's push to world down when any compression is below -1.0. The tick `func_8008F060`
+runs `func_800A58A4`, `func_8008F23C`, `func_8008F0B4`, `func_8008FC1C`, `func_8008FFA8` via `func_80090BFC`,
+`func_8008FFFC`, `func_80090540`. Trap met while porting: the MEM_ macros subtract 0xFFFFFFFF80000000, so a car
+address taken from a register has to be `int32_t` (sign-extended); as `uint32_t` the writes land 4 GB past rdram and
+the hook silently does nothing. [V]
+
+Smooth collision (2026-10-18, src/smooth_collision.cpp, docs/custom_tracks.md#smooth-collision): on California Speed's
+tracks every flat floor polygon's frame comes from a smooth normal (the blend of its corners' mean normals, folds past
+20 degrees kept sharp), hooked in `collision_poly_extract_8006F704` at 0x8006FA70 after the surface dispatch; heights
+stay the flat faces'. Spline polygons (flag 0x1000) keep their segment. The facets of the subway tunnel's curved floor
+were the repeated kicks along the tunnel: with the smooth frame a 50 s silent sim drive from the user's spot past
+checkpoint 3 through the tunnel (tmp/cs_tunnel/run.py ramp, bumps.py) went from 245 compression jumps over 0.5 ft,
+219 vertical velocity jumps over 4 ft/s and 226 airborne samples to 31, 10 and 9.
+
+The kick at the spot itself is the mesh, found with the RUSH2_SMOOTH_LOG=2 probe log and tmp/cs_tunnel/spot.py and
+geom.py (which floor polygons hold a point, the leaf's polygons, their plane and spline heights): the road's right edge
+there has a raised sidewalk, polygons 2727 and 5044 (type 0, 1.9 ft above the road along the shared edge, vertices at
+the same x/z as the road's but 1.9 ft higher, no wall face), and a hairline crack (0.004 ft) between spline polygon
+5064 and 2727 where a wheel finds no floor for a frame. The same pattern recurs along the whole course: sidewalk
+polygons like 5019 over the road edge 2699 near (-503, -6786), and the subway platforms in the tunnel (2464/4766 at
+-207 over the -209 floor near (-55, -5280)). The probe (and California Speed's own cs_wheel_probe 800AF1EC, same -5 to
+250 window, nearest wins) takes the highest polygon holding the point, so a wheel point entering a sidewalk's footprint
+is lifted 1.9 ft in one step. Fix, in the same file (hooks at 0x8006F748 and 0x8006F860 note the leaf's polygon count,
+0x8006FBD0 fills a crack and continues at 0x8006FA70): a floor polygon within 1 ft of the point counts, the surface
+nearest the wheel wins, a found surface more than 0.75 ft above the point gives way to the road while any is under the
+wheel and otherwise is climbed at 0.1 ft per probe; neither applies to a car falling faster than 10 ft/s (car-frame velocity +0x38), so a landing from the hill road keeps its full depth and the floor holds it. Platform corners are then driven over as ledges (a climb and a
+1.9 ft drop off the far edge) rather than launching the car.
+
+Trap met on the way: `MEM_W(offset, base)` adds the offset to the (int32) base before widening to the 64-bit address,
+so an offset held in a `uint32_t` constant makes the sum unsigned 32-bit and the access lands 4 GB away (reads zero,
+writes vanish). The first smooth collision build read the POLY slot as 0, never matched the player's car, wrote its
+frame into nowhere and its height from garbage, which was itself a source of 1.9 ft kicks. Stack slot offsets are
+`int32_t` now.
 
 ### Rebalance
 

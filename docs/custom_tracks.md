@@ -152,6 +152,37 @@ other games' tracks (tools/arcade2049 uses it), not for modelling by hand.
   polygon under a wheel by its flat face, then asks the segment for the height). Faces of different segments are never
   joined into one polygon, so a face per segment and road surface is the most it costs.
 
+### Smooth collision
+
+Every custom track's road gets a smooth tilt without any work by its author (src/smooth_collision.cpp; California
+Speed's converted tracks get the same). Each vertex of the drivable `COL_*` faces (surface types road, dirt, grass
+and the like; not walls) takes the mean normal of the faces that meet at its position, leaving out neighbors that
+fold away by more than the fold angle, and under a wheel the game blends the face's corner normals, so the tilt the
+suspension and tires see changes smoothly across a face edge instead of jumping. Two faces that share an edge blend
+the same two corners along it, so there is no jump at the edge. Heights are not changed: a car rests on exactly the
+faces you built, and a face's flat shape still decides which face a wheel is on. So more detail in the road mesh
+makes a smoother ride, not a bumpier one, and anything sharper than the fold angle (a curb, a ramp lip, a jump's
+edge) keeps its edge. Faces on a spline road keep their segment's surface.
+
+The same code also covers two flaws of a converted mesh that the game's wheel probe turns into kicks. The probe
+takes only the faces whose footprint holds the wheel's point exactly, and of those the highest within 5 ft above the
+point. A hairline crack between two faces (vertices that do not quite meet) makes a wheel find no floor for a frame,
+and a raised ledge beside the road (a sidewalk, a platform) whose top is a plain floor face with no wall on its edge
+lifts a wheel that strays under it by its full height in one step. With smooth collision on, a floor face whose
+footprint is within 1 ft of the point counts too, the surface nearest the wheel wins (so a ledge more than 0.75 ft up
+gives way to the road the wheel is on while any road is under it), and a ledge with no road left under the wheel is
+climbed at 0.1 ft per probe instead of jumped onto (a car coming down fast, a landing, keeps the full depth so the floor holds it). A face steeper than the fold angle is never extended past its
+edge. None of this touches Rush 2's own tracks.
+
+- `[track] smooth_fold = 20`: the fold angle in degrees (0 to 90). An edge whose faces meet at more than this angle
+  stays sharp. Lower it to keep more edges sharp, raise it to round more.
+- `[track] smooth_collision = false`: the raw flat faces, as the game would drive them, cracks and ledges included.
+
+Checking it: RUSH2_SMOOTH_LOG=1 prints how many corners were smoothed and how many kept sharp when a race on the
+track starts; RUSH2_SMOOTH_LOG=2 adds every probe of the player's car that found a surface more than a foot off, every
+crack filled and ledge held, and (from `car_ground_contact_800703EC`) every wheel height over half a foot;
+RUSH2_SMOOTH_FOLD=<degrees> tries another fold angle without editing the track.
+
 ## Markers
 
 Markers are Empties (Add > Empty > Arrows). Rotate each so its green (Y) arrow points down the track in the race

@@ -400,6 +400,14 @@ void rush2_calspeed_fall_floor(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_respawn_advance(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
+// Directional rumble (src/rumble.cpp): a car's contact with a wall of the given world normal.
+void rush2_rumble_wall_contact(uint8_t* rdram, uint32_t car, const float* normal);
+
+// Smooth-shaded collision on California Speed and custom tracks (src/smooth_collision.cpp).
+void rush2_smooth_collision_surface(uint8_t* rdram, recomp_context* ctx);
+void rush2_smooth_collision_leaf(uint8_t* rdram, recomp_context* ctx, int count);
+bool rush2_smooth_collision_gap(uint8_t* rdram, recomp_context* ctx);
+void rush2_smooth_debug_contact(uint8_t* rdram, recomp_context* ctx);
 
 // Rush 2049 wings physics and drawing (src/rush2049/wings_state.cpp, src/rush2049/wings_render.cpp).
 void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx);

@@ -1307,6 +1307,8 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     if (s.name.empty()) report.error("track.toml: [track] name is required.");
     str("track", "type", s.type);
     str("track", "gravity", s.gravity);
+    if (auto v = t["track"]["smooth_collision"].value<bool>()) s.smooth_collision = *v;
+    if (auto v = t["track"]["smooth_fold"].value<double>()) s.smooth_fold = float(std::clamp(*v, 0.0, 90.0));
     if (s.gravity != "rush2" && s.gravity != "rush2049") {
         report.error("track.toml: [track] gravity must be \"rush2\" or \"rush2049\"; \"" + s.gravity + "\" races on Rush 2's.");
         s.gravity = "rush2";

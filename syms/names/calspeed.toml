@@ -123,6 +123,106 @@ area = "car"
 ref = "docs/calspeed_research.md#wheel-effects"
 
 [[func]]
+vram = 0x8008F060
+name = "cs_car_physics_step"
+sig = "void cs_car_physics_step(Car *car)"
+desc = "California Speed's per-car physics step, Rush 2's car_physics_forces_800706D0: func_800A58A4 (ground contact + walls), func_8008F23C (wheel forces, force sum, road hold), func_8008F0B4, func_8008FC1C (torque), func_8008FFA8 via func_80090BFC (angular acceleration), func_8008FFFC (velocities), func_80090540 (position and orientation)."
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x8008F23C
+name = "cs_car_wheel_forces"
+sig = "void cs_car_wheel_forces(Car *car)"
+desc = "Wheel forces and force sum (Rush 2 car_wheel_forces_drag_8006AFD8 + car_force_sum_8006A02C) with the road hold: per wheel (0, -weight +0x610 x factor +0x314, 0) added to the force sum +0x4 in the car's frame, or turned from world down by func_800C9008 when func_8008F7E4 says a wheel is more than 1.0 out; factor x4 once byte 0x8014FE0B is set."
+consts = "0x610 = weight, 0x314 = per-wheel hold factor, 4 = after-race factor"
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x8008F7E4
+name = "cs_hold_direction"
+sig = "s32 cs_hold_direction(Car *car)"
+desc = "Road hold direction rule: returns nonzero (push world down instead of along the car's down axis) when any wheel's compression +0x620 is below -1.0."
+consts = "-1.0 = lifted threshold"
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x8008FC1C
+name = "cs_car_torque_from_forces"
+sig = "void cs_car_torque_from_forces(Car *car)"
+desc = "Torque sum +0x10 (Rush 2 car_torque_from_forces_80069AB4: F x r over the wheels with r.y += compression and the body points) plus the lifted-wheel torque: unless all four wheels are type 10 (air), for each wheel with compression +0x620 <= -0.1, F = gravity +0x200 x -2 x (compression + 0.1) at the descriptor wheel position (+0x74, y zeroed), tau += F x r (0x8008FDEC-0x8008FF5C); then adds +0x134..+0x13C. Ported: rush2_calspeed_lift_torque (calspeed_rom.cpp)."
+consts = "-0.1 = lift threshold, -2 = weights per foot of lift, 10 = air surface type"
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x8008FFA8
+name = "cs_car_angular_accel"
+sig = "void cs_car_angular_accel(Car *car)"
+desc = "Angular acceleration = torque +0x10 x the descriptor's inverse inertias (Rush 2 car_angular_accel_80069A54), via func_80090BFC."
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x8008FFFC
+name = "cs_car_integrate_velocities"
+sig = "void cs_car_integrate_velocities(Car *car)"
+desc = "Velocity integration (Rush 2 car_integrate_velocities_800697D0) plus California Speed's forward-only rule: car-frame v.z (+0x3C) >= 0, crept up to 6.25, speed capped at 400. Not ported (handling)."
+consts = "6.25 = creep speed, 400 = speed cap"
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x800901E0
+name = "cs_car_lift_and_level"
+sig = "void cs_car_lift_and_level(Car *car)"
+desc = "After the orientation step: lifts the car along its up axis by mean(+0x630 - 0.35) over the wheels when positive (Rush 2's step lifts by max(+0x5CC - 0.5) itself) and, when the player word +0x1dc4 is set (never seen), levels the pitch. Skipped once byte 0x8014FE0B is set. Not ported."
+consts = "0.35 = rest height allowance"
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x80090540
+name = "cs_car_integrate_orientation"
+sig = "void cs_car_integrate_orientation(Car *car)"
+desc = "Position and orientation integration (Rush 2 car_integrate_position_orientation_8006942C): position +0x248 += v dt, car matrix +0x324 rotated by angular velocity +0x40 x dt (func_800C8A68, yaw then pitch then roll), then ZEROES the pitch and roll rates +0x40/+0x48 (0x8009093C-0x80090944), keeping yaw +0x44 (forced +-5/+-6.7 in states 0x890); calls func_800901E0 unless byte 0x8014FE0B is set. Ported: rush2_calspeed_body_rates (calspeed_rom.cpp)."
+consts = "5/6.7 = forced yaw rates, 0x890 = turning states"
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x80090BFC
+name = "cs_car_accel_wrapper"
+sig = "void cs_car_accel_wrapper(Car *car)"
+desc = "Calls func_8008FFA8 (angular acceleration) from the physics step func_8008F060."
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+
+[[func]]
+vram = 0x800A58A4
+name = "cs_car_ground_contact"
+sig = "void cs_car_ground_contact(Car *car)"
+desc = "Ground contact, Rush 2's car_ground_contact_800703EC with the road hold inside: zeroes the body point forces +0xB8, runs func_800B1624 (walls), then func_800AF1EC per wheel (compression +0x620 = rest +0x630 - height); a wheel off the road with under 3 touching gets compression -1000 (clamped -3); clamps +-3; the per-wheel road hold factor +0x314 = 0.32 on the road (0.5 - compression + c past 0.5 ft), 0.5 / 1.5 / 0.9 for a lifted wheel out under 0.5 / 0.75 / more; wheel speed +0x650 = travel change x 1/dt (+0x698) clamped +-40; normalizes +0x3D8; no wheel down and the wheel points' y summing under -3000 resets (func_800A4020)."
+consts = "0.32/0.5/1.5/0.9 = road hold factors, 3/-3 = compression clamp, 40 = wheel speed clamp, -1000 = no-road compression, 0x698 = 1/dt"
+status = "verified"
+rush2 = 0x800703EC
+rush2049 = [0x800CF06C]
+link = "role"
+area = "car"
+ref = "docs/calspeed_research.md#stacked-roads-the-subway-tunnel"
+
+[[func]]
 vram = 0x800ADE48
 name = "race_start_engine_sounds"
 sig = "void race_start_engine_sounds(s32 a0, u16 rpm, u16 load, u16 slot)"
@@ -143,6 +243,104 @@ rush2 = 0x80064F70
 link = "role"
 area = "audio"
 ref = "docs/calspeed_research.md#engine-sounds"
+
+[[func]]
+vram = 0x800AE7AC
+name = "cs_vlist_decode"
+sig = "u16 cs_vlist_decode(u8 *list, s32 count, u16 *out)"
+desc = "A polygon's vertex indices from its run-length list: a u16 index, then when 2 or more are left and the next byte is 0xC0 or more, that byte & 0x3F further indices; returns the u16 after the list."
+consts = "0xC0/0x3F = run byte mark and mask"
+status = "verified"
+area = "collision"
+ref = "docs/calspeed_research.md#walls-california-speeds-body-collision"
+
+[[func]]
+vram = 0x800AE884
+name = "cs_poly_test"
+sig = "s32 cs_poly_test(Poly *poly, f32 *p, f32 *p2, f32 *local, f32 *height, u16 *info, s32 mode, f32 best)"
+desc = "Polygon test: p less the first vertex into the polygon's frame; rejects a height <= best or < *height (the lower limit, -5), then the footprint (cross products with the vertex list, edge 0-1 along x); *height = the height. With p2 given, walls (types 5, 6, 7, 9) also need p2 behind the plane (local y < *height and < 0); type 8 passes. Rush 2's collision_poly_point_test_8006C670 in role."
+status = "verified"
+rush2 = 0x8006C670
+rush1 = [0x80079CDC]
+rush2049 = [0x800AD5D0, 0x800AD734]
+link = "role"
+area = "collision"
+ref = "docs/calspeed_research.md#stacked-roads-the-subway-tunnel"
+
+[[func]]
+vram = 0x800AF1EC
+name = "cs_wheel_probe"
+sig = "s32 cs_wheel_probe(Car *car, f32 *p, f32 *height, Mat3 *m, void *out, s32 wheel)"
+desc = "Wheel probe, Rush 2's collision_poly_extract_8006F704: the leaf under the wheel (cell x - 0.99 truncated for negative x), every ground polygon through func_800AE884 with p2 = 0 (-5 to 250 window, nearest wins)."
+status = "verified"
+rush2 = 0x8006F704
+rush2049 = [0x800C6AA0]
+link = "role"
+area = "collision"
+ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800AFAFC
+name = "cs_body_probe_unused"
+sig = "void cs_body_probe_unused(Car *car, f32 *p, f32 *p2, Mat3 *m)"
+desc = "Rush 2's body probe car_wall_collision_query_8006FC94 as California Speed carries it (the same -5, 3.75, 0.25, 5, -3.5), with the two-point wall rule of func_800AE884; no caller in the main code: the ground contact uses func_800B1624 instead."
+status = "verified"
+rush2 = 0x8006FC94
+link = "role"
+area = "collision"
+ref = "docs/calspeed_research.md#stacked-roads-the-subway-tunnel"
+
+[[func]]
+vram = 0x800B0A04
+name = "cs_wall_hit_apply"
+sig = "void cs_wall_hit_apply(Car *car, Hit *hit)"
+desc = "Applies a wall hit: car out along the normal by the depth (position +0x248, copy +0x808, body points +0x284, wheel contact points +0x254; body copied to previous +0x2B4); the hit point's velocity r x w + v (+0xE8, +0x40, +0x34) to the world (car matrix +0x324 transposed) and the wall's frame; force -v.x, -v.z x 10000/mass (+0x614) x 1/dt (+0x698) x 0.006 (0.015 for types under 4 or over 9), -v.y x 10000/mass x 1/dt x 0.1 + 8/dt x (1 - |forward . normal|), back to the car's frame onto the point's force +0xB8 + 12 x point; wall types 4-9 recorded per point at +0x862."
+consts = "0.006/0.015 = along-wall gain, 0.1 = into-wall share, 8 = out push x 1/dt, 1.0 (0x800DCCD0) = facing term, 0x614 = mass, 0x698 = 1/dt"
+status = "verified"
+rush2 = 0x8006FC64
+link = "role"
+area = "collision"
+ref = "docs/calspeed_research.md#walls-california-speeds-body-collision"
+
+[[func]]
+vram = 0x800B0E80
+name = "cs_wall_test"
+sig = "void cs_wall_test(Car *car, Poly *poly, Hit *hit)"
+desc = "One wall polygon against the car's body quad (points in the order 0x800B1878 = 0, 1, 3, 2, in the polygon's frame): each edge whose ends straddle the plane is cut at the crossing, its part behind the plane clipped to the footprint (edge 0-1 = the frame's x axis), depth = fraction x |dy|; the deepest edge is the hit (point = first end when |y0|/|y1| < 1, else the second), under 0.0005 none. Car state +0x840 == 2 holds the hit in the record (a deeper second hit: the held applied, this retested; a shallower: applied, the held retested), others apply at once (func_800B0A04)."
+consts = "1/32 (0x800DCCD8) = VERT units, 0.0005 (0x800DCCE0) = least depth, 0x840 = car state (2 holds hits)"
+status = "verified"
+area = "collision"
+ref = "docs/calspeed_research.md#walls-california-speeds-body-collision"
+
+[[func]]
+vram = 0x800B1548
+name = "cs_leaf_walls"
+sig = "void cs_leaf_walls(Car *car, void *leaf, s16 q, Hit *hit)"
+desc = "Every polygon of leaf quadrant q's list (u8 count, run-length u16 entries via func_800AE73C) whose type (flags & 0xF) is 4 or more goes through func_800B0E80 with the hit record."
+status = "verified"
+area = "collision"
+ref = "docs/calspeed_research.md#walls-california-speeds-body-collision"
+
+[[func]]
+vram = 0x800B1624
+name = "cs_car_wall_collision"
+sig = "void cs_car_wall_collision(Car *car)"
+desc = "California Speed's wall collision, called by its ground contact func_800A58A4 in place of Rush 2's body probe: the leaf under each of the 4 body points (+0x284; func_800AE668 from the cached node +0x3E4 + 4i, cell x - 0.99 truncated for negative x), each once; func_800B1548 runs every type >= 4 polygon of a leaf through func_800B0E80 with one hit record {POLY, point, depth} (0x800DCCE8 zeroes); a held hit goes to func_800B0A04. Port written 2026-10-18 and taken out of the build the same day (collision felt broken); parked in tmp/cs_tunnel/removed/calspeed_walls.cpp."
+consts = "0x284 = body points (world), 0x3E4 = leaf query node cache, 0.99 = Rush 2's cell bias"
+status = "verified"
+rush2 = 0x8006FC94
+link = "role"
+area = "collision"
+ref = "docs/calspeed_research.md#walls-california-speeds-body-collision"
+
+[[func]]
+vram = 0x800B8CE8
+name = "cs_tire_grip_scale"
+sig = "void cs_tire_grip_scale(Car *car, s32 wheel, f32 *fx, f32 *fz)"
+desc = "Scales a tire's two force components by the car descriptor's grip factors +0x6C and +0x70 (1.0 on most cars)."
+status = "inferred"
+area = "car"
+ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
 
 [[func]]
 vram = 0x800BA7CC
@@ -239,6 +437,33 @@ consts = "40.0 = speed divisor; 0.5 = base scale; 2.5 = max scale; 0.835, 0.9 = 
 status = "verified"
 area = "render"
 ref = "docs/calspeed_research.md#wheel-effects"
+
+[[func]]
+vram = 0x800C8A68
+name = "cs_mat3_rotate_angles"
+sig = "void cs_mat3_rotate_angles(Mat3 *m, f32 *angles)"
+desc = "Rotates a 3x3 matrix by small angles about y, x then z (the orientation step passes angular velocity x dt)."
+status = "inferred"
+area = "math"
+ref = "docs/functions/calspeed_math.md#california-speed-math-functions"
+
+[[func]]
+vram = 0x800C9008
+name = "cs_mat3_mul_vec"
+sig = "void cs_mat3_mul_vec(Mat3 *m, f32 *v, f32 *out)"
+desc = "out = M v: a world vector into the car's frame with the car matrix (rows = car axes in world)."
+status = "inferred"
+area = "math"
+ref = "docs/functions/calspeed_math.md#california-speed-math-functions"
+
+[[func]]
+vram = 0x800C90CC
+name = "cs_mat3_tmul_vec"
+sig = "void cs_mat3_tmul_vec(Mat3 *m, f32 *v, f32 *out)"
+desc = "out = M^T v: a car-frame vector into the world with the car matrix."
+status = "inferred"
+area = "math"
+ref = "docs/functions/calspeed_math.md#california-speed-math-functions"
 
 [[func]]
 vram = 0x800C9C10

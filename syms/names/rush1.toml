@@ -3381,6 +3381,7 @@ desc = "Collision polygon point test: accepts local z in [best, 5) and takes the
 status = "verified"
 rush2 = 0x8006C670
 rush2049 = [0x800AD5D0, 0x800AD734]
+calspeed = [0x800AE884]
 link = "role"
 area = "collision"
 ref = "docs/rush1_research.md#5-collision-v"

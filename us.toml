@@ -69,6 +69,39 @@ func = "physics_car_tick_80075880"
 before_vram = 0x80075B90
 text = "    rush2_rumble_impact(rdram, ctx);"
 
+# Smooth-shaded collision (src/smooth_collision.cpp): in the wheel probe after the surface dispatch (flat plane, spline
+# or arc), 0x94($sp) = the POLY found, 0x13C($sp) = the wheel's point, $s1 = the result (its [1] the height), *0x148($sp)
+# = the wheel's frame. On a California Speed or custom track a flat floor polygon's frame and height come from the
+# smooth surface instead.
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006FA70
+text = "    rush2_smooth_collision_surface(rdram, ctx);"
+
+# ... and its crack filling: the probe's leaf polygon count is noted at the entry (0) and once the leaf is decoded
+# ($t1 = count, the list at 0xA4($sp)); at 0x8006FBD0 (no polygon held the wheel's point) a floor polygon within a foot
+# of the point is taken on a California Speed or custom track and the probe continues at 0x8006FA70 with it.
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006F748
+text = "    rush2_smooth_collision_leaf(rdram, ctx, 0);"
+
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006F860
+text = "    rush2_smooth_collision_leaf(rdram, ctx, (int)ctx->r9);"
+
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006FBD0
+text = "    if (rush2_smooth_collision_gap(rdram, ctx)) goto L_8006FA70;"
+
+# Debug for the smooth collision (RUSH2_SMOOTH_LOG=2, src/smooth_collision.cpp): after each wheel's probe.
+[[patches.hook]]
+func = "car_ground_contact_800703EC"
+before_vram = 0x8007057C
+text = "    rush2_smooth_debug_contact(rdram, ctx);"
+
 # Directional rumble's wall grinding (src/rumble.cpp): in car_wall_collision_query, where a body probe is inside a wall
 # and the car is about to be pushed out along the normal at sp+0xB0. $s1 = car.
 [[patches.hook]]

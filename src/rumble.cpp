@@ -105,10 +105,19 @@ namespace {
 // (+0x4..), so a car grinding along a wall only shows in the force sum at the first impact; this catches every tick of
 // it. $s1 = car. Records the contact's side and how fast the car slides along the wall for rush2_rumble_impact.
 extern "C" void rush2_rumble_wall(uint8_t* rdram, recomp_context* ctx) {
+    float normal[3];
+    for (int i = 0; i < 3; i++) {
+        normal[i] = get_f32(rdram, (uint32_t)ctx->r29 + 0xB0 + 4 * i);
+    }
+    rush2_rumble_wall_contact(rdram, (uint32_t)ctx->r17, normal);
+}
+
+// A wall contact of `car` with a wall whose normal (world frame, out of the wall) is `normal`: Rush 2's probe above,
+// and California Speed's wall collision on its tracks (src/calspeed/calspeed_walls.cpp).
+extern "C" void rush2_rumble_wall_contact(uint8_t* rdram, uint32_t car, const float* normal) {
     if (!rush2::input::rumble_directional()) {
         return;
     }
-    uint32_t car = (uint32_t)ctx->r17;
     int port = -1;
     for (int i = 0; i < num_ports; i++) {
         if (port_car[i] == car) {
@@ -118,9 +127,8 @@ extern "C" void rush2_rumble_wall(uint8_t* rdram, recomp_context* ctx) {
     if (port < 0) {
         return;
     }
-    float normal[3], velocity[3], m[9];
+    float velocity[3], m[9];
     for (int i = 0; i < 3; i++) {
-        normal[i] = get_f32(rdram, (uint32_t)ctx->r29 + 0xB0 + 4 * i);
         velocity[i] = get_f32(rdram, car + car_velocity + 4 * i);
     }
     for (int i = 0; i < 9; i++) {
