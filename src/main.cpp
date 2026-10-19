@@ -683,10 +683,14 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--input-script") == 0 && i + 1 < argc) {
             parse_input_script(argv[++i]);
+            rush2::input::set_rumble_muted(true);
         }
         else if (strcmp(argv[i], "--debug-rumble") == 0) {
             rush2::input::set_rumble_debug(true);
         }
+    }
+    if (rush2::sim::active()) {
+        rush2::input::set_rumble_muted(true);
     }
     recompui::register_launcher_init_callback(launcher_init);
     recompui::register_launcher_update_callback(launcher_update);

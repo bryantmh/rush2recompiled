@@ -396,24 +396,48 @@ src/rush2049/battle.cpp; not in stunt mode, `0x8010C3E8 == 2`, or a ghost race).
   about halved every 0.35 s), and turns speed / 100 times 2049's rate (the same turning circle), each step stopping at the target's
   direction. Seen in game: missiles at 360 ft/s, one closing on a drone from 118 ft and hitting it
   (`R2_BATTLE_TEST=log,give4,missile` logs each missile's speed and target distance).
-- **Pickups**: a row on each checkpoint line but the start / finish line (header +4, 0x8010BCEC), where the
-  grid waits (Rush 2's path, docs/rush2049_research/race.md section 3: the header copy 0x8010BCE8 has the checkpoint
-  count at +8 (0x8010BCF0) and the checkpoints from +0xC (0x8010BCF4, 0x50 each: +0 the gate's middle, +0xC the
-  direction of travel, +0x22 where the spine, lanes 1-4 and branches cross it); the lane headers at 0x80110020, 8 each,
-  +0 point count, +4 points of 8 bytes). As many as fit 12 ft apart (1 to 8) are evenly spaced (one in the middle of each equal part) across the road
-  at the line, which is measured with Rush 2's ground query `collision_ground_query_8006CF00(pos, out_point,
-  out_matrix)` (it puts cars on the grid and back on the track; returns the POLY record of the polygon nearest in
-  height within 250 ft, walls skipped, or 0; +0 u16 flags, & 0xF the surface type). From the gate's middle it
-  probes 1 ft steps to each side, up to 60 ft, while there is ground of type 0-2 with no step over 0.45 ft (a curb;
-  a banked road rises about 0.35 ft a foot), except a step of up to 1 ft within 15 ft of the middle (a median the
-  middle is on). The row stays 5 ft in from those edges, at least 20 ft wide, 2.5 ft over the ground under each
-  pickup. Game code is called with `battle::tick`'s caller's context (the movers hook), its stack borrowed below
-  its stack pointer; without it the AI lanes' crossings give the width. Each is a random one of the 8 weapons,
-  health, invisibility or shield (the `WEPICON_*` models of file 76, drawn by src/rush2049/battle_render.cpp in
-  slots 60-159; a line that doesn't fit is left empty). One taken comes back 7 s later (about Mario Kart's item boxes) in its place as another kind. On the test track the
-  road came out 68-120 ft wide (the material is not a test: a gate's middle can be on a patch of another one).
-  Test aids: `R2_BATTLE_TEST=road` logs where each side stopped, `startrow` puts a row on the start line too (in
-  view on the grid; the race starts about 23 s into the recipe below).
+- **Pickups**: Mario Kart sets of 4-6 across the road, sized to it, any two at least 25 ft apart (over twice the
+  9.5 ft a car reaches, pickup radius 6 + touch margin 3.5: no car can touch two at once). `place_race_pickups`
+  (src/rush2049/battle.cpp), from Rush 2's path (docs/rush2049_research/race.md section 3: the header copy
+  0x8010BCE8 has the checkpoint count at +8 (0x8010BCF0) and the checkpoints from +0xC (0x8010BCF4, 0x50 each: +0 the
+  gate's middle, +0xC the direction of travel, +0x18 the gate's radius², +0x22 where the spine, lanes 1-4 and branches
+  cross it); the lane headers at 0x80110020, 8 each, +0 point count, +4 points of 8 bytes: s16 x, y, z, u8 mph, u8
+  behavior):
+  - **Anchors**: a set by each checkpoint line (all but the start / finish line, header +4 at 0x8010BCEC, where the
+    grid waits), from where each lane crosses the gate (`lane_crossing`: the checkpoint's crossing index, from
+    `checkpoint_crossing_lanes_80092884`, is the first lane point past the gate's plane, so the exact crossing is on
+    the step from the point before it), and a set halfway between lines, from each lane's point halfway by distance
+    to its crossing of the next line (`lane_halfway`; the last line to the first too, wrapping on a circuit, but not
+    over a step over 500 ft, a point-to-point lane's jump back to its start).
+  - **The road** (`road_across`): the AI lanes say where it is (they are mostly 0-30 ft apart, often one line, so not
+    how wide it is). A line straight across the road through the leftmost lane point is probed every foot with Rush
+    2's ground query `collision_ground_query_8006CF00(pos, out_point, out_matrix)` (called with `battle::tick`'s
+    caller's context, its stack borrowed below its stack pointer), outward from the outer lanes, while the ground is
+    drivable (types 0-2), has no step over 1 ft (a ledge or wall: a wall has no ground of its own) and is the road's
+    material: the most common under the lane points (POLY flags bits 4-7: 0 asphalt, 1 dirt, 2 grass; the drag
+    hooks 0x8006B63C dirt and 0x8006B6A4 grass; on a dirt road dirt is the road). A patch of another material up to
+    3 ft is crossed but gets no pickup. It goes at most 50 ft past the outer lanes: some tracks' ground beside the
+    road is the road's material too (2049 track 3 had 150 ft of it each side), and the checkpoint gates are no limit
+    (radii 150-900 ft). Where the road stops between the lanes (a divided road) the place is turned down.
+  - **The set**, 5 ft in from each edge (the usable width), centered between the outer lanes (the racing line) and
+    moved in to stay on the road: 75 ft or more, a row straight across, as many as fit 25 ft apart (up to 6; fewer
+    when the 100 renderer slots, 60-159, would run short over the track's sets), spread evenly, at most 40 ft apart;
+    37.5-75 ft, a zigzag of 4, two pairs filling the width, the second pair 25 ft further on; 10-37.5 ft, a narrow
+    zigzag of 4, alternately 5 ft left and right of the middle, each 25 ft further on. A pickup further on must be on
+    the road's surface there too, within 4 ft of the height across from it.
+  - **Moving on**: from the anchors the set moves along every lane 10 ft at a time (up to 400 ft, `lane_advance`;
+    SF Rush's lanes fly over jumps for 220 ft and more) to the first place where every lane point is on the ground
+    (no more than 4 ft over it: not over a jump; elsewhere the lanes are on the road, a median 0-0.4 ft over it on
+    every stock track) and the set fits. A set with no room is left out.
+  Each pickup is 2.5 ft over the ground under it, a random one of the 8 weapons, health, invisibility or shield (the
+  `WEPICON_*` models of file 76, drawn by src/rush2049/battle_render.cpp). One taken comes back 7 s later (about
+  Mario Kart's item boxes) in its place as another kind. Drones are nudged toward a pickup they want
+  (`rush2_battle_race_steer`, 0.35 at most). Placing them takes 1-4 ms at the race start.
+  Test aids: `R2_BATTLE_TEST=log` lists every set (how many, its shape, the road's width, how far it moved on, or no
+  room), each pickup (`cp N+` = halfway after line N), the time placing took and each one taken; `road` logs where
+  each probe stopped and why (and a lane in the air); `startrow` puts a set on the start line too (in view on the
+  grid: add `--drones 0 --shots 6.8`); `RUSH2_TEST_RACE_BATTLE=1` turns the BATTLE row on for a direct race start
+  (`tools/test_race.py TRACK --env RUSH2_TEST_RACE_BATTLE=1 --env R2_BATTLE_TEST=log`).
 - **HUD**: the Weapons cheat's health bar with the weapon held and its ammo and the power-up in effect, placed by the
   HUD layout engine (`battle_race_place`, docs/hud_layout.md: beside the bar in widescreen, stacked over it at 4:3).
   The bar and the digits are drawn straight into the 2D list (`draw_views`), in the widget draw loop just before the

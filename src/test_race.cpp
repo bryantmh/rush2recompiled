@@ -7,6 +7,7 @@
 //   per player, 1 to 4 players (split screen). Without it, one player in RUSH2_TEST_CAR's car, or the Pickup (0).
 // - RUSH2_TEST_RACE_LAPS=<n>, RUSH2_TEST_RACE_DRONES=<n>: the track select's LAPS and DRONES (the race keeps the saved
 //   ones otherwise).
+// - RUSH2_TEST_RACE_BATTLE=1: the race select's BATTLE row on (rush2::battle::set_race_battle; not saved).
 //
 // Each player races as JUST PLAY on Select Player has them: with their controller's own buffer (0x8010D740 +
 // port * 0x6C0, never a saved player's profile) and its options set to the defaults, as menu_select_player_pick_saved
@@ -25,6 +26,7 @@
 
 #include "recomp.h"
 #include "calspeed.h"
+#include "battle.h"
 #include "car_types.h"
 #include "online.h"
 #include "race_setup.h"
@@ -147,6 +149,9 @@ namespace {
         }
         if (const char* drones = env("RUSH2_TEST_RACE_DRONES")) {
             MEM_B(1, (int32_t)menu_settings) = (int8_t)std::atoi(drones);
+        }
+        if (const char* battle = env("RUSH2_TEST_RACE_BATTLE")) {
+            rush2::battle::set_race_battle(std::atoi(battle) != 0);
         }
         int slot = rush2::track2049::host_menu_track(rdram, track);
         rush2::race_setup::leave_front_end(rdram, ctx);

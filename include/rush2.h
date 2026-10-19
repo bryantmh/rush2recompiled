@@ -185,6 +185,9 @@ namespace rush2 {
         bool rumble_debug_enabled(); // --debug-rumble
         // Prints each impact and the side levels in Directional mode to the console (--debug-rumble), to tune it.
         void set_rumble_debug(bool enabled);
+        // Sends no rumble or haptics to any controller: test runs (sim runs, --input-script) that would otherwise
+        // vibrate the controller of the user working at the machine.
+        void set_rumble_muted(bool muted);
         // Side of the latest impact on a port's car: -1 = right, 1 = left, near 0 = head on. A hard impact (wall,
         // car) rumbles for longer and isn't overridden by the soft ones from the tires sliding.
         void set_rumble_impact(int port, float side, bool hard);

@@ -90,6 +90,7 @@ namespace {
     // layout) instead of only selecting the reverse gear.
     std::atomic_bool any_port_directional = false; // Set by the VI thread: gates the impact hook (src/rumble.cpp).
     std::atomic_bool rumble_debug = false; // Prints Enhanced's impacts and levels (--debug-rumble).
+    std::atomic_bool rumble_muted = false; // Test runs: no rumble or haptics at all (set_rumble_muted).
 
     // Rumble state is kept per slot: a port's, or test_slot's, which plays the Controls tab's rumble tests on the last
     // controller used when it isn't driving a port (update_rumble).
@@ -870,6 +871,10 @@ bool rush2::input::rumble_debug_enabled() {
     return rumble_debug.load(std::memory_order_relaxed);
 }
 
+void rush2::input::set_rumble_muted(bool muted) {
+    rumble_muted = muted;
+}
+
 void rush2::input::set_rumble_debug(bool enabled) {
     rumble_debug = enabled;
 }
@@ -1000,9 +1005,9 @@ void rush2::input::update_rumble() {
     using rush2::control_profiles::RumbleMode;
 
     // Losing focus with Background Input off stops everything this game plays on the controllers once, then sends
-    // nothing until focus comes back (hands_off).
+    // nothing until focus comes back (hands_off). A test run (rumble_muted) never sends any.
     static bool was_hands_off = false;
-    if (hands_off()) {
+    if (hands_off() || rumble_muted) {
         if (!was_hands_off) {
             was_hands_off = true;
             for (int slot = 0; slot < num_slots; slot++) {
