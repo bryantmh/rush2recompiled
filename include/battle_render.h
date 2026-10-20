@@ -8,11 +8,16 @@
 // Rush 2049's model files are copied into spare RDRAM as they are, and the models placed here are drawn at the end of
 // each view from display lists of their own, so they need no scene nodes or track geometry.
 namespace rush2::battle_render {
-    constexpr int max_slots = 176;   // 0-159 src/rush2049/battle.cpp, 160-175 coin glows (src/collectibles.cpp)
+    // 0-159 src/rush2049/battle.cpp, 160-175 coin glows (src/collectibles.cpp), 176-185 arcade checkpoint banners
+    // (src/arcade2049/arcade_checkpoints.cpp).
+    constexpr int max_slots = 186;
 
     // Loads the model files from the Rush 2049 ROM if they aren't (game thread). False without a ROM.
     bool ready(uint8_t* rdram);
     bool has_model(const char* name);
+    // A model of the port's own: `dl`, a display list in RDRAM drawn as the loaded models are (its own render state and
+    // texture loads; vertices in 1/16 ft). Kept when the Rush 2049 source changes.
+    void add_model(const char* name, uint32_t dl);
     // The first model whose name starts with `prefix` (the pickups' names carry a level of detail suffix), or "".
     std::string find_model(const char* prefix);
     // The middle of a model's bounding box, in its own axes (world feet before the axes' scale): the vertices its

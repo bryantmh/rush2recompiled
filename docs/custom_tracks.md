@@ -658,7 +658,8 @@ How it works inside is in [Track previewer](#track-previewer) and [Race replays]
 
 | What | Limit | Why |
 |---|---|---|
-| Collision polygons | 8,191 after flat neighbors are joined, and at most 255 in one small area | The game's collision format. Stock tracks use 2,100 to 7,100. |
+| Collision polygons | about 16,000 after flat neighbors are joined (65,535 corners: polygons don't share them, so 16,000 quads or 21,000 triangles) | The game's collision format. Stock tracks use 2,100 to 7,100. |
+| Collision in one spot | 36 polygons within about a foot of any point (walls count within 6 ft where there is room) | The game's collision lookups hold 36. The report names the spot when a track passes it. |
 | Track triangles | about 40,000 (rule of thumb) | The whole track is loaded into the game's memory, which it shares with the cars. |
 | Track size | about 10 km (32,000 ft) from the origin in any direction | Positions are stored as 16-bit numbers. |
 | Checkpoints | 9 | The game has 10 gates including the finish line. |
@@ -858,8 +859,14 @@ merges and renames as needed.
   frame, which collapse to a point (holes).
 - **Collision:** `build_collision` keeps each face's normal (no flipping), merges flat same-surface neighbors into
   convex polygons of up to 8 vertices, and builds the quadtree Rush 2's way; past 64 KB of leaves it builds the tagged
-  form the 2049 port reads (splits toward zero, 17-bit leaf offsets, root byte +2 = 0x80 | size bits 16-22:
-  `src/rush2049/track2049_collision.cpp`). A leaf holds at most 36 polygons (`max_leaf`): the game's queries copy a
+  form the 2049 port reads (splits toward zero, 17-bit leaf offsets, root byte +2 = 0x80 | size bits 16-20:
+  `src/rush2049/track2049_collision.cpp`). Past 8,191 polygons (Rush 2's leaf entries hold a 13-bit polygon number
+  and a 3-bit run) the leaves are written wide, one plain u16 polygon number per entry, and the root's byte +2 gets
+  bit 5 (`rush2::collision::wide_leaf_tag`, either form); `rush2_collision_leaf_read_wide` reads them in place of
+  `collision_leaf_read_8006CCEC` (docs/rush2049_research/collision.md#leaf-lists-v). The limit is then the header's
+  u16 corner count (65,535; each polygon has its own corners), which past it leaves the last polygons out with an
+  error (until 2026-10-19 the converter cut every track at 8,191 polygons). A leaf holds at most 36 polygons
+  (`max_leaf`): the game's queries copy a
   leaf into an unchecked u16[36] stack buffer, and a longer one overwrites the callers' locals
   (docs/rush2049_research/collision.md). With leaves of up to 255 the stock Alcatraz export had cells of 70, and a
   computer car's wall query (`car_wall_collision_query_8006FC94`) about 35 s into a race got its saved point pointer
@@ -867,8 +874,10 @@ merges and renames as needed.
   A cell lists the polygons whose x/z outline (not box: a long diagonal strip's box covers far more than the strip,
   and stacked boxes on pipes and terraced slopes crowded single spots past 36) comes within 1 ft of it, walls within
   6 ft (the wall query reaches 5 ft past the car) unless that crowds the cell past 36. A cell past 36 splits below
-  `min_cell` until it fits; one that never does fails with "too dense". `tools/rush2049/collision.py` validation
-  flags leaves past 36.
+  `min_cell` until it fits, down to 4 ft; past 36 there with walls listed only 1 ft out it splits on, down to 1 ft
+  (until 2026-10-19 the 4 ft cell failed: a polygon passing near a crowded spot no longer counts). One that never fits
+  fails with "N collision polygons meet near (x, y, z)", the spot in the author's Blender coordinates.
+  `tools/rush2049/collision.py` validation flags leaves past 36.
 - **Reading the ribbon:** `read_ribbon` builds the rungs from the mesh's shape, never the order its vertices are
   stored in. Blender's glTF export of a cyclic curve stores the first rung's two vertices twice each (the UV seam: u
   wraps 1 to 0), so pairing stored vertices two at a time read a 0 m first rung and failed every cyclic curve with

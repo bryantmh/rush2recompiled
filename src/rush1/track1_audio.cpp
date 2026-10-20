@@ -24,6 +24,7 @@
 // songs 29-37. The song header keeps a slot for every song of both games from the first install on, so either game can
 // be installed first; a song of a game not installed yet is a copy of Rush 2's song 0 (nothing asks for it).
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -74,6 +75,7 @@ namespace {
     static_assert(cs_empty_instrument + 0x20 <= 0x8000);
 
     std::mutex mutex;
+    std::atomic_bool rom_final = false; // rush2_track1_audio_init has grown the ROM image (rush2::track1::rom_image_final)
     uint32_t block_rom = 0;          // Where the block is in the ROM image, or 0.
     bool block_filled = false;
     uint32_t rush2_bank = 0;         // ALBank* of Rush 2's music bank.
@@ -283,8 +285,9 @@ namespace {
 }
 
 // func_800B3B78 at 0x800B4000, after alSeqpSetBank: Rush 2's music bank is in place. Reserves the SF Rush and
-// California Speed blocks in the ROM image (before any other thread reads the ROM) and fills each whose ROM is
-// already there.
+// California Speed blocks in the ROM image and fills each whose ROM is already there. Growing the image replaces
+// recomp's ROM buffer, so threads off the game thread wait for rom_image_final before reading recomp::get_rom (until
+// 2026-10-19 the prewarm read it once it was loaded and could inflate from the freed buffer: a crash at boot).
 extern "C" void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ mutex };
     uint32_t ctl = (uint32_t)MEM_W(0, (int32_t)(ctx->r29 + 0x144));
@@ -298,8 +301,13 @@ extern "C" void rush2_track1_audio_init(uint8_t* rdram, recomp_context* ctx) {
         grown.resize(cs_block_rom + (cs_block_end - cs_block), 0);
         recomp::set_rom_contents(std::move(grown));
     }
+    rom_final = true;
     fill_block();
     fill_cs_block();
+}
+
+bool rush2::track1::rom_image_final() {
+    return rom_final;
 }
 
 int rush2::track1::song_sequence(uint8_t* rdram, recomp_context* ctx, int song) {

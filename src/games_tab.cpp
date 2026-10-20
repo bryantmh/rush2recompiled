@@ -91,6 +91,7 @@ namespace {
             next_column();
             rush2::track1::add_games_section(this, refresh[1]);
             rush2::arcade2049::add_games_section(this, refresh[3]);
+            rush2::arcade2049::add_options(this);
             next_column();
             rush2::calspeed::add_games_section(this, refresh[2]);
             update_battle_options(battles);
@@ -129,6 +130,7 @@ void rush2::games::create_tab() {
     rush2::wings::init_config();
     rush2::track1::init_config();
     rush2::calspeed::init_config();
+    rush2::arcade2049::init_config();
     add_battle_options();
     recompui::config::create_tab(tab_name, tab_id,
         [](ContextId context, Element* parent) {

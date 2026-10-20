@@ -20,6 +20,9 @@ namespace rush2::track_mod {
 
     // The enabled mods' tracks, in mod order (rescanned when the enabled mods change).
     std::vector<Entry> tracks();
+    // A mod's file was replaced under the same id and name (src/arcade2049 rebuilt it): the next tracks() reads the
+    // mods again, which the enabled mods and their file names alone don't show.
+    void rescan();
 
     // The custom track (index into tracks()) raced in the host slot, or -1. RUSH2_TEST_MOD_TRACK=<n> races track n
     // whenever the host slot (HAWAII) is raced, for testing without a track select entry.

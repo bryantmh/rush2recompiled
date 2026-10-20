@@ -25,6 +25,7 @@
 #include "texture_upscale.h"
 #include "track2049.h"
 #include "track_cache.h"
+#include "wings_internal.h"
 
 namespace a49 = rush2::arcade2049;
 
@@ -33,10 +34,20 @@ namespace {
         return recompui::file::get_program_path() / "assets" / "arcade2049";
     }
 
+    // The Games tab's Alcatraz Only option: the track mod holds just Alcatraz, else every arcade track
+    // (a49::arcade_tracks). Changing it rebuilds an installed mod (start_refresh's check).
+    const std::string alcatraz_only_option_id = "arcade_alcatraz_only";
+    std::atomic_bool alcatraz_only = true;
+
     // The arcade folders each mod reads.
     std::vector<std::filesystem::path> inputs(const std::filesystem::path& data, bool cars) {
-        if (!cars) return { data / "TRACKS" / "TRACK4" };
         std::vector<std::filesystem::path> out;
+        if (!cars) {
+            for (const a49::ArcadeTrack& a : a49::arcade_tracks) {
+                if (!alcatraz_only || std::string(a.id) == "alcatraz") out.push_back(data / "TRACKS" / a.folder);
+            }
+            return out;
+        }
         for (const char* car : { "CAR2", "CAR4", "CAR5", "CAR6", "CAR7", "CAR8", "CAR10", "CAR11" }) out.push_back(data / "CARS" / car);
         return out;
     }
@@ -51,7 +62,12 @@ namespace {
                 if (it->is_regular_file(ec)) files.push_back(it->path());
             }
         }
-        if (!cars) files.push_back(assets_dir() / "alcatraz_logo.png"), files.push_back(assets_dir() / "alcatraz_preview.png");
+        if (!cars) {
+            for (const a49::ArcadeTrack& a : a49::arcade_tracks) {
+                if (alcatraz_only && std::string(a.id) != "alcatraz") continue;
+                for (const char* file : { "_logo.png", "_preview.png" }) files.push_back(assets_dir() / (std::string(a.id) + file));
+            }
+        }
         std::sort(files.begin(), files.end());
         for (const auto& f : files) {
             std::string name = rush2::upscale::path_utf8(f.lexically_relative(data));
@@ -164,9 +180,9 @@ namespace {
                 Installed have = installed(id);
                 if (!have.rtz || have.key.empty() || have.key == key) continue;
             }
-            set_state(cars ? "Building the cars..." : "Building Alcatraz...");
+            set_state(cars ? "Building the cars..." : alcatraz_only ? "Building Alcatraz..." : "Building the arcade tracks...");
             a49::ModFiles files;
-            bool ok = cars ? a49::build_car_mod(data, files, log) : a49::build_track_mod(data, assets_dir(), files, log);
+            bool ok = cars ? a49::build_car_mod(data, files, log) : a49::build_track_mod(data, assets_dir(), files, log, alcatraz_only);
             if (!ok || !install(id, files, key, data, !refresh, error)) {
                 if (error.empty()) error = "the arcade data couldn't be read";
                 printf("[arcade2049] %s: %s\n%s", id.c_str(), error.c_str(), log.c_str());
@@ -179,16 +195,23 @@ namespace {
         if (built) {
             rush2::car_mods::reload();
             rush2::track2049::mods_changed();
+            a49::checkpoints_changed();
         }
-        if (!refresh) set_state("Installed: Alcatraz and the arcade cars");
-        else if (built) set_state("Rebuilt for this version");
+        if (!refresh) set_state(alcatraz_only ? "Installed: Alcatraz and the arcade cars" : "Installed: the arcade tracks and cars");
+        else if (built) set_state("Rebuilt");
     }
 
+    std::atomic_bool refresh_again = false;   // the Alcatraz Only option changed during a build
+
     bool start(const std::filesystem::path& data, bool refresh) {
-        if (busy.exchange(true)) return false;
+        if (busy.exchange(true)) {
+            if (refresh) refresh_again = true;
+            return false;
+        }
         // Detached: a build still running when the game closes leaves at most a .rtz.new behind.
         std::thread([data, refresh]() {
             run(data, refresh);
+            while (refresh_again.exchange(false)) run(data, true);
             busy = false;
             state_generation++;
         }).detach();
@@ -261,6 +284,38 @@ void a49::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
         seen = now;
         note->set_text(status_note());
     };
+}
+
+void a49::init_config() {
+    recomp::config::Config& config = rush2::wings::games_config();
+    config.add_bool_option(
+        alcatraz_only_option_id,
+        "Alcatraz Only",
+        "On, the arcade tracks are just Alcatraz, the track only the arcade game has. Off, the arcade game's own "
+        "versions of Marina, Civic, Metro and Mission are added too, as tracks of their own after the "
+        "Rush 2049 tracks. Changing it rebuilds the arcade tracks in the background (it needs the arcade data); they "
+        "show up the next time you're in the menus.",
+        true
+    );
+    config.add_option_change_callback(alcatraz_only_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            bool on = std::get<bool>(cur_value);
+            if (on == alcatraz_only.exchange(on)) return;
+            // Only an installed mod is rebuilt (run's refresh compares its key, which holds the option).
+            std::filesystem::path data = data_dir();
+            if (!data.empty()) start(data, true);
+        });
+    init_checkpoints_config(config);
+}
+
+void a49::load_config() {
+    alcatraz_only = std::get<bool>(rush2::wings::games_config().get_option_value(alcatraz_only_option_id));
+    load_checkpoints_config();
+}
+
+void a49::add_options(rush2::ui::OptionsPage* page) {
+    page->add_option(rush2::wings::games_config(), alcatraz_only_option_id);
+    add_checkpoints_option(page);
 }
 
 void a49::start_refresh() {

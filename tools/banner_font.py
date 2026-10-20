@@ -1154,11 +1154,15 @@ def render(text, style, size=(128, 32)):
 def render_fit(text, style, aspect=4):
     """text in the style on the smallest canvas of the given width:height (from 128 x 32, 8 px wider a step) it fits
     whole, a pixel clear of the sides: a long name (custom tracks' logos, which are drawn at any size) gets a wider
-    banner instead of being cut off."""
+    banner instead of being cut off. render shrinks letters to fit the width, and a cut can land in the gap between
+    letters and leave the sides clear, so the letters must also be as tall as on a much wider canvas of that height."""
     for w in range(128, 1025, 8):
         im = render(text, style, (w, w // aspect))
         box = im.getbbox()
-        if box is None or (box[0] >= 1 and box[2] <= w - 1):
+        if box is None:
+            return im
+        wide = render(text, style, (w * 4, w // aspect)).getbbox()
+        if box[0] >= 1 and box[2] <= w - 1 and wide is not None and wide[3] - wide[1] == box[3] - box[1]:
             return im
     return im
 

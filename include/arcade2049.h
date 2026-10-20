@@ -1,12 +1,18 @@
 #ifndef __ARCADE2049_H__
 #define __ARCADE2049_H__
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
 #include <optional>
 #include <string>
 #include <vector>
+
+
+namespace recomp::config {
+    class Config;
+}
 
 namespace rush2::ui {
     class OptionsPage;
@@ -28,11 +34,31 @@ namespace rush2::arcade2049 {
     // The data folder `picked` (any file or folder inside it) is in, if any.
     std::optional<std::filesystem::path> find_data_dir(const std::filesystem::path& picked);
 
+    // The arcade tracks the track mod can hold: Alcatraz (arcade only) and, with the Alcatraz Only option off, the
+    // arcade's own versions of the six Rush 2049 tracks, as tracks of their own (tracks/<id>/ in the mod).
+    struct ArcadeTrack {
+        const char* folder;   // TRACKS/<folder>
+        const char* id;
+        const char* name;
+    };
+    // In track select order: the N64 tracks' (Marina, Haight, Civic, Metro, Mission, Presidio), Alcatraz last, all after
+    // the Rush 2049 tracks (each track.toml's [menu] after names the one before).
+    inline constexpr ArcadeTrack arcade_tracks[] = {
+        { "TRACK1", "marina_arcade", "Marina Arcade" },
+        { "TRACK2", "haight_arcade", "Haight Arcade" },
+        { "TRACK3", "civic_arcade", "Civic Arcade" },
+        { "TRACK5", "metro_arcade", "Metro Arcade" },
+        { "TRACK6", "mission_arcade", "Mission Arcade" },
+        { "TRACK7", "presidio_arcade", "Presidio Arcade" },
+        { "TRACK4", "alcatraz", "Alcatraz" },
+    };
+
     // The two mods' files by their path in the mod. `cancelled` is polled between steps; the log gets what each
-    // conversion did (as the Python tools print). assets_dir holds alcatraz_logo.png and alcatraz_preview.png.
+    // conversion did (as the Python tools print). assets_dir holds each track's <id>_logo.png and <id>_preview.png
+    // (made by tools/build_banners.py --arcade and tools/arcade2049/track_mod.py --ship-previews). alcatraz_only: just Alcatraz, else every arcade_tracks entry.
     using ModFiles = std::map<std::string, std::vector<uint8_t>>;
     bool build_track_mod(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir, ModFiles& out,
-                         std::string& log, const std::function<bool()>& cancelled = {});
+                         std::string& log, bool alcatraz_only = true, const std::function<bool()>& cancelled = {});
     bool build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, std::string& log,
                        const std::function<bool()>& cancelled = {});
 
@@ -42,6 +68,19 @@ namespace rush2::arcade2049 {
     // Once the launcher is up: installed arcade mods built by another build or from other data are rebuilt in the
     // background.
     void start_refresh();
+
+    // The Games tab's options under Rush 2049 Arcade: Alcatraz Only (arcade_install.cpp) and Arcade Checkpoints.
+    void init_config();
+    void load_config();   // after rush2::wings::load_config()
+    void add_options(rush2::ui::OptionsPage* page);
+
+    // The Arcade Checkpoints option (src/arcade2049/arcade_checkpoints.cpp): the arcade's CHECKPOINT banner, from the
+    // arcade tracks mod, over the Rush 2049 tracks' checkpoints.
+    void init_checkpoints_config(recomp::config::Config& config);
+    void load_checkpoints_config();
+    void add_checkpoints_option(rush2::ui::OptionsPage* page);
+    void checkpoints_changed();                 // the arcade tracks mod was installed again: read the banner again
+    // checkpoints_frame (every game frame) is in include/arcade_checkpoints.h, which needs the game's headers.
 }
 
 #endif

@@ -6359,8 +6359,8 @@ ref = "docs/rush2049_research/collision.md#vert-8-bytes-v"
 [[func]]
 vram = 0x8006CCEC
 name = "collision_leaf_read"
-sig = "u8 *collision_leaf_read(void *leaf, u16 *first_poly, u8 *counts)"
-desc = "Reads LEAF lists: u8 count then u16 entries (bits 15-13 extra run, 12-0 first poly index). | Decodes a collision leaf's polygon list. 2049's equivalent is func_800ADCE0."
+sig = "void collision_leaf_read(s32 count, u16 *out, u8 *entries) /* $t0 = poly put first */"
+desc = "Decodes a collision leaf's polygon list: count (the leaf's first byte, read by the caller) u16 entries (bits 15-13 extra run, 12-0 first poly index) into the query's u16 list; polygon $t0 (the car's last) is stored from the front, the rest from the back of the count slots. 2049's equivalent is func_800ADCE0. Hooked at its entry by rush2_collision_leaf_read_wide (src/rush2049/track2049_collision.cpp) for custom tracks past 8,191 polygons, whose entries are plain u16 numbers (root NODE +2 bit 0x20)."
 consts = "0x1FFF = poly index mask (bits 12-0)"
 status = "verified"
 rush1 = [0x8007A0C4]

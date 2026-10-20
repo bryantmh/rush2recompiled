@@ -1868,6 +1868,7 @@ std::string rush2::track2049::mod_track_name(int t) {
 }
 
 void rush2::track2049::mods_changed() {
+    rush2::track_mod::rescan();   // the mod's track list too: a rebuilt mod keeps its id and file name
     mods_reload = true;
 }
 

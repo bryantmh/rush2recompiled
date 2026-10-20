@@ -921,7 +921,7 @@ namespace {
         // drives like (docs/custom_tracks.md, track_mod_convert.cpp), so a road built of several surfaces is one road.
         int surface = 0;
     };
-    Ground ground_at(uint8_t* rdram, float x, float y, float z) {
+    Ground ground_at(uint8_t* rdram, float x, float y, float z, float* up = nullptr) {
         Ground g;
         if (game_ctx == nullptr) return g;
         recomp_context saved = *game_ctx;
@@ -943,6 +943,10 @@ namespace {
         g.type = flags & 0xF;
         g.material = (flags >> 4) & 0xF;
         g.surface = g.material <= 2 ? g.material : g.type;
+        // The matrix's rows are the polygon's axes, row 1 (+0xC) its up.
+        if (up != nullptr) {
+            for (int k = 0; k < 3; k++) up[k] = read_f(rdram, args + 0x20 + 0xC + k * 4);
+        }
         return g;
     }
 
@@ -3259,4 +3263,36 @@ extern "C" void rush2_battle_race_steer(uint8_t* rdram, recomp_context* ctx) {
     write_f(rdram, car + 0x728, nudged);
     static const bool test_log = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "steer") != nullptr;
     if (test_log) fprintf(stderr, "[Battle] t=%.2f car %d to pickup %.2f rad (score %.0f) steer %.2f -> %.2f\n", clock_seconds, i, best_angle, best, steer, nudged);
+}
+
+// The middle of the AI lanes where they cross checkpoint c's line: halfway between the outermost crossings along the
+// line (the lanes are often on one line, so not their average). False if no lane crosses it.
+bool rush2::battle::checkpoint_lane_middle(uint8_t* rdram, int c, float out[3]) {
+    if (c < 0 || c >= max_checkpoints) return false;
+    uint32_t cp = checkpoint_records + (uint32_t)c * checkpoint_size;
+    float dir_x = read_f(rdram, cp + 0xC), dir_z = read_f(rdram, cp + 0x14);
+    float lo = 1e30f, hi = -1e30f, lo_p[3] = {}, hi_p[3] = {};
+    for (int l = 0; l < lane_count; l++) {
+        Lane lane = lane_at(rdram, l);
+        float f = lane_crossing(rdram, lane, l, c);
+        if (f < 0.0f) continue;
+        float p[3];
+        lane_point_at(rdram, lane, f, p);
+        float across = p[0] * -dir_z + p[2] * dir_x;
+        if (across < lo) lo = across, std::copy(p, p + 3, lo_p);
+        if (across > hi) hi = across, std::copy(p, p + 3, hi_p);
+    }
+    if (lo > hi) return false;
+    for (int k = 0; k < 3; k++) out[k] = (lo_p[k] + hi_p[k]) * 0.5f;
+    return true;
+}
+
+// Rush 2's ground query (ground_at) from outside a battle tick, with the caller's game context.
+bool rush2::battle::ground_under(uint8_t* rdram, recomp_context* ctx, const float p[3], float& ground_y, float up[3]) {
+    recomp_context* had = game_ctx;
+    game_ctx = ctx;
+    Ground g = ground_at(rdram, p[0], p[1], p[2], up);
+    game_ctx = had;
+    if (g.found) ground_y = g.y;
+    return g.found;
 }

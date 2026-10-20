@@ -5,9 +5,11 @@
 //   build.bat [OUT_DIR] [DATA_DIR]     (OUT_DIR default tmp/arcade/cpp; DATA_DIR default ProjectR's sf2049se folder)
 //
 // Writes OUT_DIR/rush2049_arcade/ and OUT_DIR/rush2049_arcade_cars/ and prints each converter's log and time.
+// ARCADE_ALL=1 builds every arcade track into the track mod (the Alcatraz Only option off), not just Alcatraz.
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 
 // The game links stb_image through RT64; here it is compiled in.
@@ -44,7 +46,7 @@ int main(int argc, char** argv) {
         auto t0 = std::chrono::steady_clock::now();
         a49::ModFiles files;
         std::string log;
-        bool ok = which == 0 ? a49::build_track_mod(data, "assets/arcade2049", files, log)
+        bool ok = which == 0 ? a49::build_track_mod(data, "assets/arcade2049", files, log, std::getenv("ARCADE_ALL") == nullptr)
                              : a49::build_car_mod(data, files, log);
         double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         const char* id = which == 0 ? a49::track_mod_id : a49::car_mod_id;

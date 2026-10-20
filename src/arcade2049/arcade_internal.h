@@ -134,6 +134,7 @@ namespace rush2::arcade2049 {
         bool segments(std::vector<std::array<double, 33>>& out, std::string& error) const;
         bool path_tables(std::vector<PathTable>& out, std::string& error) const;
         bool read(const std::string& name, std::vector<uint8_t>& out) const;
+        bool roaddat(std::vector<uint8_t>& out) const;   // the collision block of roaddat.rom
 
     private:
         std::filesystem::path dir;

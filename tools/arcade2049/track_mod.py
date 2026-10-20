@@ -3,6 +3,10 @@
 arcade's full model detail (LOD 0) and texture size. Formats and findings: docs/arcade2049.md.
 
     python tools/arcade2049/track_mod.py TRACK4 OUT_MOD_DIR [--id alcatraz] [--name Alcatraz] [--mod-id ID]
+    python tools/arcade2049/track_mod.py --ship-previews
+
+--ship-previews cuts each tools/arcade2049/previews/<id>.png round (round_preview) into the game's shipped
+assets/arcade2049/<id>_preview.png, which its own build (src/arcade2049) puts in the mod.
 
 Reads the arcade data ProjectR unpacks (ARCADE2049_DATA, default %LOCALAPPDATA%\\ProjectR\\Data\\sf2049se) and
 writes OUT_MOD_DIR/mod.json and OUT_MOD_DIR/tracks/<id>/track.glb + track.toml + logo.png (the name
@@ -41,7 +45,12 @@ SKY_TEXTURES = ('GS_SKY', 'GS_APANS', 'AL_MOON')
 LANE_MAP = 1.2              # a Rush 2049 lane speed / 1.2 is the Rush 2 lane speed (docs/rush2049_research/cars.md)
 SKY_RADIUS = 9000.0          # ft: objects reaching past this from the origin are sky (the track spans about 2,500)
 SURFACE = {0: 'ROAD', 1: 'DIRT', 2: 'GRASS', 3: 'WATER', 5: 'WALL', 6: 'WALL', 7: 'KILL'}
-GATE_TEXTURES = {'MG_CHECK5'}
+# The checkpoint banners (TE_CHKPNT on Mission and Presidio), the finish sign when no FINISHSIGN dob marks it, and
+# how far apart along the lap two banners must be to be two checkpoints (a banner's pieces and stacked banners are one).
+GATE_TEXTURES = {'MG_CHECK5', 'MG_W_CHECK6', 'TE_CHKPNT'}
+FINISH_TEXTURES = {'TE_FINISH'}
+GATE_MERGE = 250.0
+GATE_REACH = 120.0   # ft: banner pieces farther from the lap (signs off the course, on Mission) aren't checkpoints
 WATER_TEXTURES = {'WATER2'}      # the bay's sheets (A_WATER_RIBS and the water tower's aren't water)
 WATER_EDGE = 2500.0          # ft: water collision triangles are split as scenery is (MAX_EDGE)
 P_SWAP = np.array([[1, 0, 0], [0, 0, 1], [0, 1, 0]], float)
@@ -104,6 +113,8 @@ def road_half_width(tris2d, point, tangent, height, reach=25.0):
 
 MAX_EDGE = 2500.0            # ft: longer scenery triangle edges are split (the converter draws none over 4000 ft)
 MAX_LEAF = 36                # the game's collision queries hold 36 polygons per index cell (track_mod_convert.cpp)
+NEAR_FULL = 24               # cells past this get their exactly flat neighbours joined (relieve_crowding)
+FLAT = 0.001                 # ft: neighbours this flat are joined without moving anything
 CELL = 4.0                   # ft: the converter's smallest cell
 
 
@@ -124,9 +135,10 @@ def split_large(tri, limit):
     return out
 
 
-def crowded_cells(polys):
+def crowded_cells(polys, limit=MAX_LEAF):
     """Index cells (CELL ft, as the converter's quadtree ends) where more than MAX_LEAF polygons' outlines (walls
-    widened by 6 ft, the rest by 1, as the converter lists them) meet. Returns {cell: [polygon indices]}."""
+    widened by 6 ft, the rest by 1, as the converter lists them) meet (more than `limit`). Returns {cell: [polygon
+    indices]}."""
     from shapely.geometry import Polygon, box
     boxes = defaultdict(list)    # quick pass: polygons by the cells their widened boxes cover
     shapes = []
@@ -143,7 +155,7 @@ def crowded_cells(polys):
                 boxes[(cx, cz)].append(i)
     out = {}
     for (cx, cz), ids in boxes.items():
-        if len(ids) <= MAX_LEAF:
+        if len(ids) <= limit:
             continue
         c = box(cx * CELL, cz * CELL, (cx + 1) * CELL, (cz + 1) * CELL)
         hit = []
@@ -156,7 +168,7 @@ def crowded_cells(polys):
                 shapes[i] = g.buffer(6.0 if f & 0xF in (5, 6) else 1.0)
             if shapes[i].intersects(c):
                 hit.append(i)
-        if len(hit) > MAX_LEAF:
+        if len(hit) > limit:
             out[(cx, cz)] = hit
     return out
 
@@ -210,17 +222,126 @@ def convex(poly, nrm):
     return True
 
 
+def drop_spline_twins(polys, report):
+    """The arcade lists some spline road polygons twice, once with their segment and once flat (the same corners and
+    facing; 74 in Presidio's tunnel, a few on Civic and Metro). The spline copy becomes the smooth road (spline_road),
+    so the flat one is a second road on it: it is dropped. Besides doubling the road's polygons, the pairs crowd past
+    the game's 36 per cell where Presidio's tunnel sections meet. polys: t.collision(with_segment=True).
+    arcade_track.cpp drop_spline_twins is the same."""
+    key = lambda pts: tuple(sorted(tuple(math.floor(v * 100 + 0.5) for v in p) for p in pts))
+    spline = defaultdict(list)
+    for f, pts, n, k in polys:
+        if k is not None:
+            spline[key(pts)].append(np.asarray(n, dtype=float))
+    out, dropped = [], 0
+    for f, pts, n, k in polys:
+        if k is None and any(float(m @ np.asarray(n, dtype=float)) > 0 for m in spline.get(key(pts), ())):
+            dropped += 1
+            continue
+        out.append((f, pts, n, k))
+    if dropped:
+        report.append('collision: %d flat copies of spline road polygons dropped' % dropped)
+    return out
+
+
+def drop_copies(polys, report):
+    """The arcade's collision repeats some polygons exactly (same surface, corners and facing; 105 walls on Presidio).
+    The copies change nothing, but share every edge four ways, which keeps relieve_crowding from joining them: a
+    corner fan of wall pieces repeated stays past the game's 36 per cell. Keeps the first of each. arcade_track.cpp
+    drop_copies is the same."""
+    seen, out, n = {}, [], 0
+    for f, pts, nrm in polys:
+        key = (f, tuple(sorted(pts)))
+        if key in seen and float(np.dot(seen[key], nrm)) > 0:
+            n += 1
+            continue
+        seen.setdefault(key, np.asarray(nrm, dtype=float))
+        out.append((f, pts, nrm))
+    if n:
+        report.append('collision: %d exact copies of other polygons dropped' % n)
+    return out
+
+
+APEX_POLYS = 24             # a corner shared by this many polygons is a cone tip (cut_tips)
+TIP_CUT = 12.0               # ft across x/z: where a cone tip is cut off
+
+
+def cut_tips(polys, report):
+    """A corner shared by APEX_POLYS or more polygons of one surface all the way round (the tip of a cone of steep
+    wedges, as Haight's pit at 2653, 76, -3305 with 31) puts every one of them in the index cells there, past the
+    game's 36, and wedges at an angle can't be joined flat. Each polygon's corner there is replaced by the points TIP_CUT
+    ft out (across x/z) along its two edges, the same point for the neighbours sharing an edge (no cracks), and the hole
+    closed with a cap of convex pieces of at most 8 corners over the ring of cuts. A fan with a gap of more than 60
+    degrees (a corner at the surface's edge) is left alone. arcade_track.cpp cut_tips is the same."""
+    at = defaultdict(list)
+    for i, (f, pts, n) in enumerate(polys):
+        for p in pts:
+            if not at[p] or at[p][-1] != i:
+                at[p].append(i)
+    xz_len = lambda p, c: math.hypot(p[0] - c[0], p[2] - c[2])
+    polys = list(polys)
+    touched, caps, tips = set(), [], 0
+    for c in sorted(at):
+        ids = at[c]
+        if len(ids) < APEX_POLYS:
+            continue
+        if any(i in touched or polys[i][0] & 0xF != polys[ids[0]][0] & 0xF or len(polys[i][1]) >= 8 for i in ids):
+            continue
+        r = TIP_CUT
+        for i in ids:
+            P = polys[i][1]
+            k = P.index(c)
+            r = min(r, 0.5 * xz_len(P[(k + 1) % len(P)], c), 0.5 * xz_len(P[(k + len(P) - 1) % len(P)], c))
+        if r < 4.0:
+            continue
+        def cut(q):
+            s = r / xz_len(q, c)
+            return tuple(c[j] + (q[j] - c[j]) * s for j in range(3))
+        ring, cut_pts = [], []
+        nsum = np.zeros(3)
+        for i in ids:
+            f, P, n = polys[i]
+            k = P.index(c)
+            a, b = cut(P[(k + len(P) - 1) % len(P)]), cut(P[(k + 1) % len(P)])
+            cut_pts.append(P[:k] + [a, b] + P[k + 1:])
+            for p in (a, b):
+                if all(e[1] != p for e in ring):
+                    ring.append((math.atan2(p[2] - c[2], p[0] - c[0]), p))
+            nsum = nsum + np.asarray(n, dtype=float)
+        ring.sort()
+        gap = max((ring[k + 1][0] if k + 1 < len(ring) else ring[0][0] + 2 * math.pi) - ring[k][0]
+                  for k in range(len(ring))) if ring else 0
+        if len(ring) < 3 or gap > math.pi / 3:
+            continue
+        for n_, i in enumerate(ids):
+            polys[i] = (polys[i][0], cut_pts[n_], polys[i][2])
+        touched |= set(ids)
+        nrm = nsum / (np.linalg.norm(nsum) or 1.0)
+        for s in range(1, len(ring) - 1, 6):
+            caps.append((polys[ids[0]][0], [ring[0][1]] + [ring[k][1] for k in range(s, min(s + 6, len(ring) - 1) + 1)],
+                         nrm))
+        tips += 1
+    if tips:
+        report.append('collision: %d cone tips where %d or more polygons meet cut off and capped' % (tips, APEX_POLYS))
+    return polys + caps
+
+
 def relieve_crowding(polys, report, tolerance=1.0):
     """Where a spot has more collision polygons than the game's index cell holds (a finely tessellated curved tunnel
     wall), joins neighbouring polygons of a surface into one flat convex polygon of at most 8 corners (the converter's
     own rule): the second's other corners move onto the first's plane (everywhere they are used, so no cracks open)
-    when that is under `tolerance` ft, then twice and three times that while spots stay crowded. Every face is kept. Returns the polygons (corners welded) with those merges."""
-    polys = weld([(f, [tuple(p) for p in pts], n) for f, pts, n in polys])
-    total, worst = 0, 0.0
-    steps = [tolerance] * 6 + [tolerance * 2] * 3 + [tolerance * 3] * 3
-    for tol in steps:
-        cells = crowded_cells(polys)
+    when that is under `tolerance` ft, then twice and three times that while spots stay crowded. Every face is kept.
+    First, where a cell is near full (NEAR_FULL), exactly flat neighbours are joined, nothing moved: the converter's
+    cells don't line up with ours and split its polygons its own way, so it can count a few more than we do (Presidio
+    Arcade's tunnel portal, 13 pieces of one flat ring wall). Returns the polygons (corners welded) with those merges."""
+    polys = cut_tips(drop_copies(weld([(f, [tuple(p) for p in pts], n) for f, pts, n in polys]), report), report)
+    total, worst, flat_joins = 0, 0.0, 0
+    steps = [(FLAT, NEAR_FULL)] * 6 + [(tolerance, MAX_LEAF)] * 6 + [(tolerance * 2, MAX_LEAF)] * 3 +         [(tolerance * 3, MAX_LEAF)] * 3
+    for tol, limit in steps:
+        cells = crowded_cells(polys, limit)
         if not cells:
+            if limit < MAX_LEAF:
+                continue
             break
         crowd = {i for ids in cells.values() for i in ids}
         edges = defaultdict(list)
@@ -255,9 +376,14 @@ def relieve_crowding(polys, report, tolerance=1.0):
             worst = max(worst, d)
         if not joined:
             continue
-        total += len(joined)
+        if limit < MAX_LEAF:
+            flat_joins += len(joined)
+        else:
+            total += len(joined)
         polys = [(f, [moved.get(p, p) for p in joined.get(i, pts)], n) for i, (f, pts, n) in enumerate(polys)
                  if i not in gone]
+    if flat_joins:
+        report.append('collision: %d flat polygon pairs joined where more than %d crowd a cell' % (flat_joins, NEAR_FULL))
     if total:
         report.append("collision: %d polygon pairs in spots over the game's %d polygons per cell joined flat (corners "
                       "moved %.2f ft at most)" % (total, MAX_LEAF, worst))
@@ -369,7 +495,7 @@ def spline_road(t, polys, report):
     return records, tris, flat
 
 
-def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None, preview=None):
+def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None, preview=None, after='rush2049'):
     t = arcade.Track(track)
     report = []
     g = Glb()
@@ -558,7 +684,7 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         g.textured_mesh('SKY', [(m,) + sky[m] for m in sorted(sky, key=sky_layer)])
 
     # Collision.
-    seg_records, spline_tris, flat = spline_road(t, t.collision(with_segment=True), report)
+    seg_records, spline_tris, flat = spline_road(t, drop_spline_twins(t.collision(with_segment=True), report), report)
     col_polys = [(f, p, n, -1) for f, p, n in relieve_crowding(flat, report)]
     for flags, tri, k in spline_tris:
         up = np.cross(np.subtract(tri[1], tri[0]), np.subtract(tri[2], tri[0]))
@@ -648,8 +774,20 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         fp = np.array(arcade.to_world_dobs(finish[0]))
         gates.append(('FINISH', int(np.argmin(np.linalg.norm(lap - fp, axis=1)))))
     else:
-        report.append('no FINISHSIGN: the finish is the lap\'s first point')
-        gates.append(('FINISH', 0))
+        # Mission's finish is a sign in worlds.rom (TE_FINISH).
+        signs = []
+        for nm, flags, m, p in t.worlds():
+            o = t.by_name.get(nm)
+            if o:
+                L = o.lods[0]
+                pts = [L.verts[k][0] for tr in L.tris if t.textures[tr[3]].name in FINISH_TEXTURES for k in tr[:3]]
+                if pts:
+                    signs.append(np.mean(pts, 0) + p)
+        if signs:
+            gates.append(('FINISH', int(np.argmin(np.linalg.norm(lap - signs[0], axis=1)))))
+        else:
+            report.append('no FINISHSIGN: the finish is the lap\'s first point')
+            gates.append(('FINISH', 0))
     if finish_at is not None:
         # Test aid: the finish moved finish_at ft along the lap, to start a race next to something far into it.
         i, run = gates[0][1], 0.0
@@ -667,9 +805,22 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         pts = [L.verts[k][0] for tr in L.tris if t.textures[tr[3]].name in GATE_TEXTURES for k in tr[:3]]
         if pts:
             c = np.mean(pts, 0) + p
-            banners.append(int(np.argmin(np.linalg.norm(lap - c, axis=1))))
+            i = int(np.argmin(np.linalg.norm(lap - c, axis=1)))
+            if np.linalg.norm((lap[i] - c)[[0, 2]]) <= GATE_REACH:
+                banners.append(i)
     f0 = gates[0][1]
-    for k, i in enumerate(sorted(set(banners), key=lambda i: (i - f0) % n)):
+    # Distance along the lap from the finish; banners within GATE_MERGE of the last one kept (or of the finish, either
+    # side) are pieces of it.
+    step = np.linalg.norm(np.roll(lap, -1, axis=0) - lap, axis=1)
+    run = np.concatenate([[0.0], np.cumsum(np.roll(step, -f0))])
+    total = run[-1]
+    kept = []
+    for i in sorted(set(banners), key=lambda i: (i - f0) % n):
+        at = run[(i - f0) % n]
+        if at < GATE_MERGE or total - at < GATE_MERGE or (kept and at - kept[-1][1] < GATE_MERGE):
+            continue
+        kept.append((i, at))
+    for k, (i, at) in enumerate(kept):
         gates.append(('CHECKPOINT_%d' % (k + 1), i))
     for gname, i in gates:
         l, r = half[i]
@@ -740,8 +891,11 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         f.write(g.bytes())
     with open(os.path.join(folder, 'track.toml'), 'w', newline='\n') as f:
         f.write('[track]\nname = "%s"\nauthor = "Rush 2049 arcade (converted)"\ndescription = "%s from San Francisco '
-                'Rush 2049 Special Edition (arcade)"\ngravity = "rush2049"\nsmooth_collision = false\n\n[look]\nfog_color = "#0c1424"\n\n[menu]\nlogo = "logo.png"\nafter = "rush2049"\n'
-                % (name, name))
+                'Rush 2049 Special Edition (arcade)"\ngravity = "rush2049"\nsmooth_collision = false\n\n%s[menu]\nlogo = "logo.png"\nafter = "%s"\n'
+                % (name, name,
+                   # Alcatraz is at night; the other arcade tracks keep the custom tracks' default fog.
+                   '[look]\nfog_color = "#0c1424"\n\n' if os.path.basename(os.path.normpath(t.folder)) == 'TRACK4' else '',
+                   after))
         if preview is None:
             here = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'previews', track_id + '.png')
             preview = here if os.path.exists(here) else None
@@ -752,6 +906,13 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
     import banner_font
     banner_font.render_fit(logo_text or name, 'rush2049').convert('RGBA').save(
         os.path.join(folder, 'logo.png'))
+    # The arcade's CHECKPOINT banner (the same on arcade tracks 1-5), which the game's Arcade Checkpoints option hangs
+    # over the Rush 2049 tracks' checkpoints (src/arcade2049/arcade_checkpoints.cpp).
+    for tex in t.textures:
+        if tex.name == 'MG_CHECK5':
+            from PIL import Image
+            Image.fromarray(tex.rgba(t.texels)).save(os.path.join(out_dir, 'checkpoint.png'))
+            break
     mod_json = os.path.join(out_dir, 'mod.json')
     if not os.path.exists(mod_json):
         with open(mod_json, 'w', newline='\n') as f:
@@ -792,6 +953,8 @@ def main():
     ap.add_argument('out', help='the mod folder to write')
     ap.add_argument('--id', default='alcatraz', help='track folder name (its records and ghosts key)')
     ap.add_argument('--name', default='Alcatraz')
+    ap.add_argument('--after', default='rush2049', help='track.toml [menu] after: the game, or the custom track folder '
+                    'it follows in the track select (the game\'s own build chains them, include/arcade2049.h)')
     ap.add_argument('--mod-id', default='rush2049_arcade')
     ap.add_argument('--logo-text', help='the track select name banner (default: the name)')
     ap.add_argument('--finish-at', type=float, help='test aid: move FINISH this many feet along the lap (a race then '
@@ -799,8 +962,21 @@ def main():
     ap.add_argument('--preview', help='a picture for the track select, cut round like the 2049 tracks\' (default: '
                     'tools/arcade2049/previews/<id>.png when there is one)')
     a = ap.parse_args()
-    build(a.track, a.out, a.id, a.name, a.mod_id, a.finish_at, a.logo_text, a.preview)
+    build(a.track, a.out, a.id, a.name, a.mod_id, a.finish_at, a.logo_text, a.preview, a.after)
+
+
+def ship_previews():
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'previews')
+    assets = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'assets', 'arcade2049')
+    for name in sorted(os.listdir(here)):
+        if name.endswith('.png'):
+            out = os.path.join(assets, name[:-4] + '_preview.png')
+            round_preview(os.path.join(here, name)).save(out)
+            print('wrote', os.path.relpath(out))
 
 
 if __name__ == '__main__':
-    main()
+    if '--ship-previews' in sys.argv:
+        ship_previews()
+    else:
+        main()

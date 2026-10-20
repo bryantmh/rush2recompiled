@@ -335,6 +335,7 @@ void rush2_track49_movers_probe(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_pads(uint8_t* rdram, recomp_context* ctx);
 // Rush 2049's collision lookups on its converted courses (src/rush2049/track2049_collision.cpp).
 void rush2_track49_collision_load(uint8_t* rdram, recomp_context* ctx);
+int rush2_collision_leaf_read_wide(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_collision_split(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_collision_cell(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_collision_cell_basis(uint8_t* rdram, recomp_context* ctx);

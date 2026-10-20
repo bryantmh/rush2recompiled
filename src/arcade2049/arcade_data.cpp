@@ -196,7 +196,11 @@ bool a49::Track::worlds(std::vector<WorldEntry>& out, std::string& error) const 
     uint32_t first = r.u32(4);
     for (size_t o = first; o + 0x4C <= w.size(); o += 0x4C) {
         WorldEntry e;
+        // char name[15], u8 1: a name that fills 8 characters runs on past the leftovers' place (AF_G3226 then '5'
+        // is AF_G32265); when the long name isn't an object the first 8 are kept (arcade.py worlds).
         e.name = r.name(o, 8);
+        std::string long_name = r.name(o, 15);
+        if (long_name.size() > e.name.size() && by_name.count(long_name)) e.name = long_name;
         for (int k = 0; k < 9; k++) e.m[k] = r.f32(o + 16 + 4 * k);
         e.pos = { r.f32(o + 52), r.f32(o + 56), r.f32(o + 60) };
         out.push_back(std::move(e));
@@ -234,9 +238,26 @@ bool a49::Track::dobs(std::vector<DobsEntry>& out, std::string& error) const {
     return true;
 }
 
+// roaddat.rom is a run of blocks, each starting with its u32 size; the track's collision is the largest (arcade.py
+// roaddat: the first on most tracks, after a 13-polygon block on TRACK6, Mission).
+bool a49::Track::roaddat(std::vector<uint8_t>& out) const {
+    std::vector<uint8_t> d;
+    if (!read("roaddat.rom", d)) return false;
+    size_t best = 0, best_at = 0;
+    for (size_t o = 0; o + 28 <= d.size();) {
+        size_t size = size_t(d[o]) | size_t(d[o + 1]) << 8 | size_t(d[o + 2]) << 16 | size_t(d[o + 3]) << 24;
+        if (size < 28 || o + size > d.size()) break;
+        if (size > best) best = size, best_at = o;
+        o += size;
+    }
+    if (best == 0) out = std::move(d);
+    else out.assign(d.begin() + best_at, d.begin() + best_at + best);
+    return true;
+}
+
 bool a49::Track::collision(std::vector<CollisionPoly>& out, std::string& error) const {
     std::vector<uint8_t> d;
-    if (!read("roaddat.rom", d)) {
+    if (!roaddat(d)) {
         error = "no roaddat.rom";
         return false;
     }
@@ -287,7 +308,7 @@ bool a49::Track::collision(std::vector<CollisionPoly>& out, std::string& error) 
 
 bool a49::Track::segments(std::vector<std::array<double, 33>>& out, std::string& error) const {
     std::vector<uint8_t> d;
-    if (!read("roaddat.rom", d)) {
+    if (!roaddat(d)) {
         error = "no roaddat.rom";
         return false;
     }

@@ -15,4 +15,8 @@ namespace rush2::collision {
     // fetches read it with the converted files' extensions: a Rush 2049 file's 17-bit offsets and a California Speed
     // file's far leaves (src/rush2049/track2049_collision.cpp).
     uint32_t leaf_offset(uint8_t* rdram, uint32_t node, int q);
+    // Root NODE +2 bit set by the custom track converter past 8,191 polygons: each leaf entry is a plain u16 polygon
+    // number (no 3-bit run), read by rush2_collision_leaf_read_wide (src/rush2049/track2049_collision.cpp).
+    inline constexpr uint8_t wide_leaf_tag = 0x20;
+    bool wide_leaves(uint8_t* rdram);
 }

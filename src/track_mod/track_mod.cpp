@@ -200,6 +200,11 @@ std::vector<rush2::track_mod::Entry> rush2::track_mod::tracks() {
     return entries;
 }
 
+void rush2::track_mod::rescan() {
+    std::lock_guard lock{ mutex };
+    entries_signature.clear();
+}
+
 int rush2::track_mod::race_track() {
     int r = raced;
     if (r < 0) {

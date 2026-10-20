@@ -181,6 +181,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_track.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_install.cpp
+    ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_checkpoints.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.engine.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.offset.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.rectclip.cpp

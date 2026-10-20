@@ -56,9 +56,10 @@ namespace {
 #endif
     }
 
-    // The game has started: recomp::get_rom (Rush 2's own assets, rush2::assets::rom_original) is set.
+    // The game has started and recomp::get_rom (Rush 2's own assets, rush2::assets::rom_original) is in its final
+    // buffer: the boot grows the image once (rush2::track1::rom_image_final), freeing the one loaded first.
     void wait_for_rush2_rom() {
-        while (recomp::get_rom().empty()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        while (!rush2::track1::rom_image_final()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     // What the tracks are built from: the ROMs, their options and settings, the enabled mods.

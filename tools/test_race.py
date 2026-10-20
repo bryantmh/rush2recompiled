@@ -19,13 +19,14 @@ folder of its own (tmp/test_race/data), so the player's settings and saves are n
 its settings and saves are cleared (its caches are kept), the ROMs in build/ are hard-linked in, build/games.json is
 copied (the same games on; --games K=V sets one of its options, V as JSON or else a string; --config NAME.K=V sets
 one in NAME.json, e.g. cheats.unlock_all_parts=true), and the mods enabled
-in build/mods.json are linked in and enabled, plus --mod ones and the mod holding a TRACK folder. Real time by
+in build/mods.json are linked in and enabled, plus --mod ones and the mod holding a TRACK folder (--mod-dir PATH links
+a mod folder from anywhere, such as a converter's output, or copies a .rtz, in place of the installed mod of its id). Real time by
 default; --turbo runs the race as fast as the machine goes from its first tick (the script's presses stop then).
 --finish S finishes the players' cars S seconds into the race (RUSH2_TEST_FINISH) to reach the race-over screens.
 The run is closed after --seconds (by its PID). race_watch.py does the watching: DIR/samples.jsonl, DIR/events.txt,
 DIR/run.log (the game's output).
 """
-import argparse, json, math, os, shutil, subprocess, sys
+import argparse, json, math, os, shutil, subprocess, sys, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -77,7 +78,7 @@ def set_options(name, pairs):
         json.dump(cfg, f, indent=4)
 
 
-def prepare_data(track, extra_mods, games=(), configs=()):
+def prepare_data(track, extra_mods, games=(), configs=(), mod_dirs=()):
     os.makedirs(DATA, exist_ok=True)
     for n in os.listdir(DATA):
         p = os.path.join(DATA, n)
@@ -112,10 +113,29 @@ def prepare_data(track, extra_mods, games=(), configs=()):
     mods = os.path.join(DATA, 'mods')
     os.makedirs(mods, exist_ok=True)
     for n in os.listdir(mods):
-        remove_link(os.path.join(mods, n))
+        p = os.path.join(mods, n)
+        if os.path.isdir(p) and not os.path.isjunction(p) and not os.path.islink(p):
+            shutil.rmtree(p)      # a --mod-dir copy, or a mod the game rebuilt into a folder
+        else:
+            remove_link(p)
     wanted = []
+    replaced = set()
+    for d in mod_dirs:
+        if os.path.isfile(d):
+            # A packed mod (.rtz): copied, since the game may replace it (the arcade mods' rebuild).
+            with zipfile.ZipFile(d) as z:
+                mid = json.loads(z.read('mod.json'))['id']
+            shutil.copyfile(d, os.path.join(mods, mid + '.rtz'))
+            replaced.add(mid)
+            wanted.append(mid)
+            continue
+        with open(os.path.join(d, 'mod.json'), encoding='utf-8') as f:
+            mid = json.load(f)['id']
+        link(os.path.abspath(d), os.path.join(mods, mid))
+        replaced.add(mid)
+        wanted.append(mid)
     for e in entries:
-        if mod_name(e) in enabled and not e.endswith('.7z'):
+        if mod_name(e) in enabled and not e.endswith('.7z') and mod_name(e) not in replaced:
             link(os.path.join(src_mods, e), os.path.join(mods, e))
             if mod_name(e) not in wanted:
                 wanted.append(mod_name(e))
@@ -163,6 +183,8 @@ def main():
     ap.add_argument('--turbo', action='store_true')
     ap.add_argument('--finish', type=float)
     ap.add_argument('--mod', action='append', default=[])
+    ap.add_argument('--mod-dir', action='append', default=[], help='a mod folder to link in (or a .rtz to copy in), '
+                    'in place of the installed mod with the same id (its mod.json id)')
     ap.add_argument('--out', default=os.path.join(REPO, 'tmp', 'test_race', 'out'))
     ap.add_argument('--env', action='append', default=[], help='extra environment variable K=V for the game')
     ap.add_argument('--games', action='append', default=[], help='games.json option K=V for the run')
@@ -176,7 +198,7 @@ def main():
     if a.data:
         global DATA
         DATA = os.path.abspath(a.data)
-    mods = prepare_data(a.track, a.mod, a.games, a.config)
+    mods = prepare_data(a.track, a.mod, a.games, a.config, a.mod_dir)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_SIM_TURBO='1' if a.turbo else '0')
     if a.track != 'menus':

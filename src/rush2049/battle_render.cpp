@@ -110,6 +110,7 @@ namespace {
     std::mutex mutex;
     Item items[rush2::battle_render::max_slots];
     std::map<std::string, uint32_t> models;   // Name (15 characters at most) -> display list address
+    std::map<std::string, uint32_t> own_models;   // add_model's
     std::map<std::string, std::array<float, 3>> centers;   // model_center's, worked out on first use
     std::shared_ptr<const rush2::rom2049::Source> loaded_rom;
     bool loaded = false;
@@ -439,18 +440,20 @@ void rush2::battle_render::place(int slot, const char* model, const float m[9], 
     std::lock_guard lock{ mutex };
     if (slot < 0 || slot >= max_slots) return;
     Item& it = items[slot];
-    auto found = models.find(std::string(model).substr(0, 15));
-    if (found == models.end()) {
+    uint32_t dl = 0;
+    if (auto found = models.find(std::string(model).substr(0, 15)); found != models.end()) dl = found->second;
+    else if (auto own = own_models.find(model); own != own_models.end()) dl = own->second;
+    if (dl == 0) {
         it.on = false;
         return;
     }
     float d[3] = { pos[0] - it.pos[0], pos[1] - it.pos[1], pos[2] - it.pos[2] };
     // A new use of the slot, or a jump: nothing to move it from on the frames in between.
-    if (!it.on || it.dl != found->second || (!attached && d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > teleport_distance * teleport_distance)) {
+    if (!it.on || it.dl != dl || (!attached && d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > teleport_distance * teleport_distance)) {
         it.gen++;
     }
     it.on = true;
-    it.dl = found->second;
+    it.dl = dl;
     memcpy(it.m, m, sizeof(it.m));
     memcpy(it.pos, pos, sizeof(it.pos));
     it.rgba = rgba;
@@ -459,6 +462,11 @@ void rush2::battle_render::place(int slot, const char* model, const float m[9], 
     it.billboard = billboard;
     it.push = push;
     it.last = last;
+}
+
+void rush2::battle_render::add_model(const char* name, uint32_t dl) {
+    std::lock_guard lock{ mutex };
+    own_models[name] = dl;
 }
 
 void rush2::battle_render::hide(int slot) {

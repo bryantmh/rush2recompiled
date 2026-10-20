@@ -41,6 +41,7 @@
 
 #include "gltf_scene.h"
 #include "texture_upscale.h"
+#include "collision_polys.h"
 #include "track_mod.h"
 
 namespace {
@@ -57,7 +58,8 @@ namespace {
     // The game's collision queries copy a leaf into an unchecked u16[36] stack buffer (func_8006CF00, func_8006F704,
     // func_8008BDC0; func_8006FC94 has 40): a longer leaf overwrites the callers' locals, e.g. func_8006FC94's saved
     // point pointer at sp+0x15C, crashing in func_8006C670 (docs/rush2049_research/collision.md). Rush 2's own tracks
-    // reach 34. A leaf past this splits below min_cell until it fits.
+    // reach 34. A leaf past this splits below min_cell until it fits: to 4 ft, then (walls listed only 1 ft out) to
+    // 1 ft where it still doesn't.
     constexpr int max_leaf = 36;
 
     // Render state of Rush 2's own track sections (most common in HAWAII's lists).
@@ -381,7 +383,7 @@ namespace {
         if (degenerate) report.info(std::to_string(degenerate) + " collision triangles have no area and were skipped.");
 
         // Flat neighbors of the same surface merge into convex polygons, as the stock collision is built (mostly
-        // quads): a modeller's triangles would otherwise take one of the game's 8191 polygons each.
+        // quads): a modeller's triangles would otherwise take a polygon (and its corners) each.
         auto key = [](const Vec3& p) {
             return std::array<int32_t, 3>{ int32_t(std::lround(p[0] * 32.0f)), int32_t(std::lround(p[1] * 32.0f)),
                                            int32_t(std::lround(p[2] * 32.0f)) };
@@ -484,12 +486,23 @@ namespace {
                          "the origin); " + std::to_string(far) + " polygon(s) out there are left out.");
         }
         if (polys.empty()) { report.error("No collision: add COL_ROAD_* meshes (or a visible track mesh)."); return false; }
-        if (polys.size() > 8191) {
-            report.error("Collision has " + std::to_string(polys.size()) + " polygons after merging flat neighbors; the "
-                         "game's limit is 8191, so the last " + std::to_string(polys.size() - 8191) + " are left out "
-                         "(holes). Simplify the COL_* meshes.");
-            polys.resize(8191);
+        // Rush 2's leaf entries hold 13-bit polygon numbers (8,191). Past that the leaves are written wide, a plain
+        // u16 number per entry, and the root node says so (rush2::collision::wide_leaf_tag, read by
+        // rush2_collision_leaf_read_wide). What then binds is the file's u16 corner count (polygons don't share
+        // corners: 65,535 is about 16,000 quads).
+        size_t corners = 0, kept = 0;
+        for (const BuiltPoly& p : polys) {
+            if (corners + 1 + p.l.size() > 0xFFFF) break;
+            corners += 1 + p.l.size();
+            kept++;
         }
+        if (kept < polys.size()) {
+            report.error("Collision has " + std::to_string(polys.size()) + " polygons after merging flat neighbors, "
+                         "with more corners than the game's 65,535, so the last " + std::to_string(polys.size() - kept) +
+                         " are left out (holes). Simplify the COL_* meshes.");
+            polys.resize(kept);
+        }
+        const bool wide = polys.size() > 8191;
 
         // Quadtree over x/z (func_8006CD60): q = (x >= mid) + 2 * (z < mid); the halves share the mid line. Built
         // Rush 2's way first; when the cell lists pass Rush 2's 64 KB (as Rush 2049's track 3 does), again in the form
@@ -500,19 +513,21 @@ namespace {
         std::vector<uint8_t> leaves;
         std::map<std::vector<uint8_t>, uint32_t> leaf_at;
         bool overflow = false, tagged = false, crowded = false;
+        size_t crowded_count = 0;
+        Vec3 crowded_at{};                              // the first crowded spot, for the error
         auto encode_leaf = [&](const std::vector<int>& list) -> uint32_t {
             if (list.empty()) return 0;
             std::vector<uint8_t> raw;
             raw.push_back(uint8_t(list.size()));
             for (size_t i = 0; i < list.size();) {
                 size_t j = i + 1;
-                while (j < list.size() && list[j] == list[j - 1] + 1 && j - i < 8) j++;
-                add16(raw, uint16_t(((j - i - 1) << 13) | list[i]));
+                while (!wide && j < list.size() && list[j] == list[j - 1] + 1 && j - i < 8) j++;
+                add16(raw, wide ? uint16_t(list[i]) : uint16_t(((j - i - 1) << 13) | list[i]));
                 i = j;
             }
             auto it = leaf_at.find(raw);
             if (it != leaf_at.end()) return it->second;
-            if (leaves.size() + raw.size() > (tagged ? 0x7FFFFFu : 0xFFFFu)) { overflow = true; return 0; }
+            if (leaves.size() + raw.size() > (tagged ? 0x1FFFFFu : 0xFFFFu)) { overflow = true; return 0; }
             uint32_t off = uint32_t(leaves.size());
             leaves.insert(leaves.end(), raw.begin(), raw.end());
             leaf_at[raw] = off;
@@ -560,6 +575,14 @@ namespace {
                 for (int i : list) if (overlaps(polys[i], cx0, cx1, cz0, cz1)) sub_list.push_back(i);
                 bool split = ((int)sub_list.size() > leaf_limit && cx1 - cx0 > min_cell && cz1 - cz0 > min_cell) ||
                              ((int)sub_list.size() > max_leaf && cx1 - cx0 > 4 && cz1 - cz0 > 4);
+                if (!split && (int)sub_list.size() > max_leaf) {
+                    // Walls listed only 1 ft past the cell; where that is still too many (polygons crowding past a
+                    // spot, as Presidio Arcade's ramp ends), smaller cells, down to 1 ft.
+                    std::vector<int> tight;
+                    for (int i : list) if (overlaps(polys[i], cx0, cx1, cz0, cz1, false)) tight.push_back(i);
+                    if ((int)tight.size() > max_leaf && cx1 - cx0 > 1 && cz1 - cz0 > 1) split = true;
+                    else sub_list = std::move(tight);
+                }
                 if (split) {
                     int child = make_node(me, cx0, cx1, cz0, cz1, sub_list);
                     nodes[me].mask |= uint8_t(1 << q);
@@ -567,10 +590,12 @@ namespace {
                 }
                 else {
                     if ((int)sub_list.size() > max_leaf) {
-                        sub_list.clear();
-                        for (int i : list) if (overlaps(polys[i], cx0, cx1, cz0, cz1, false)) sub_list.push_back(i);
+                        if (!crowded) {
+                            crowded_count = sub_list.size();
+                            crowded_at = { float(cx0 + cx1) / 2, polys[sub_list[0]].v0[1], float(cz0 + cz1) / 2 };
+                        }
+                        sub_list.resize(max_leaf), overflow = crowded = true;
                     }
-                    if ((int)sub_list.size() > max_leaf) sub_list.resize(max_leaf), overflow = crowded = true;
                     biggest = std::max(biggest, sub_list.size());
                     uint32_t off = encode_leaf(sub_list);
                     nodes[me].child[q] = uint16_t(off);
@@ -595,9 +620,14 @@ namespace {
             if (!overflow || tagged || crowded) break;   // the tagged form only helps with size
             tagged = true;
         }
+        if (crowded) {
+            report.error(std::to_string(crowded_count) + " collision polygons meet near " + fmt_pos(crowded_at) +
+                         ", more than the game's 36 in one spot. Simplify the COL_* meshes there.");
+            return false;
+        }
         if (overflow || nodes.size() > 0x7FFF) {
-            report.error("The collision is too dense for the game's collision index (over 8 MB of cell lists, or over 36 "
-                         "polygons in one small spot). Simplify the COL_* meshes.");
+            report.error("The collision is too dense for the game's collision index (over 2 MB of cell lists). "
+                         "Simplify the COL_* meshes.");
             return false;
         }
 
@@ -626,7 +656,8 @@ namespace {
         for (size_t i = 0; i < nodes.size(); i++) {
             const Node& n = nodes[i];
             add16(out, uint16_t(n.parent));
-            add8(out, i == 0 && tagged ? uint8_t(0x80 | (leaves.size() >> 16)) : 0);
+            // The root's byte +2: the tagged form's 0x80 | leaf size bits 16-20, and the wide entries' bit.
+            add8(out, i == 0 ? uint8_t((tagged ? 0x80 | (leaves.size() >> 16) : 0) | (wide ? rush2::collision::wide_leaf_tag : 0)) : 0);
             add8(out, n.mask);
             for (int16_t b : n.b) add16(out, uint16_t(b));
             for (uint16_t c : n.child) add16(out, c);

@@ -1973,7 +1973,7 @@ namespace {
     // Rush 2 file: header {u16 nSeg, nNode, nPoly, nVert, leafBytes, vlistBytes}, then SEG NODE POLY VERT LEAF VLIST.
     // Leaf lists are deduplicated (byte 0 stays reserved so offset 0 means empty); vertex lists keep the source order
     // with Rush 2's run markers (0xC0 | n). The tree is 2049's, unchanged, and is walked the 2049 way: the root node's
-    // unused byte +2 holds 0x80 (2049 lookups) | the leaf section size's bits 16-22, which the header can't hold, and
+    // unused byte +2 holds 0x80 (2049 lookups) | the leaf section size's bits 16-20, which the header can't hold, and
     // leaf offsets past 16 bits keep 2049's mask bit 4 + q (src/rush2049/track2049_collision.cpp).
     Bytes build_collision_rush2(const Collision& c) {
         std::vector<size_t> order(c.polys.size());
@@ -2017,7 +2017,7 @@ namespace {
             }
             remap[off] = it->second;
         }
-        if (lblob.size() > 0x7FFFFF) {
+        if (lblob.size() > 0x1FFFFF) {
             fail("collision: leaf section " + hex(lblob.size()) + " too large");
         }
         for (size_t count : { c.segs.size(), c.nodes.size(), c.polys.size(), c.verts.size() }) {

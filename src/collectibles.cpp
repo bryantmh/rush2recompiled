@@ -50,6 +50,8 @@
 #include "librecomp/addresses.hpp"
 #include "util/file.h"
 
+#include "arcade2049.h"
+#include "arcade_checkpoints.h"
 #include "data_files.h"
 #include "rush2_hooks.h"
 #include "audio2049.h"
@@ -495,6 +497,7 @@ bool rush2::collectibles::purchase(const std::string& name, const std::string& i
 // func_800B0228 at 0x800B02B4, the top of the game thread's main loop (every frame): copies Rush 2's key masks for
 // the Progress tab. A race player's record (player slot + 0x24) is read too, in case it is newer than the pak image's.
 extern "C" void rush2_collect_frame(uint8_t* rdram, recomp_context* ctx) {
+    rush2::arcade2049::checkpoints_frame(rdram, ctx);   // the Arcade Checkpoints option's banners
     Rush2Snapshot snap;
     auto masks_at = [&](uint32_t record) {
         Rush2Masks m;

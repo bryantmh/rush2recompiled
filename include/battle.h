@@ -77,6 +77,13 @@ namespace rush2::battle {
     void hud_draw(uint8_t* rdram, recomp_context* ctx);
     // In the widget draw loop before the first banner or message: the views' part of hud_draw, so they go over it.
     void hud_draw_views(uint8_t* rdram);
+
+    // The race's path (Rush 2's copy): the middle of the AI lanes where they cross checkpoint c's line (halfway between
+    // the outermost lanes), false if none crosses it. Rush 2's ground query (collision_ground_query_8006CF00) at p:
+    // the ground's height under it and its up vector, false if there is no ground within 250 ft. ctx: a game thread
+    // context, whose stack is borrowed below its stack pointer. Used by src/arcade2049/arcade_checkpoints.cpp.
+    bool checkpoint_lane_middle(uint8_t* rdram, int c, float out[3]);
+    bool ground_under(uint8_t* rdram, recomp_context* ctx, const float p[3], float& ground_y, float up[3]);
 }
 
 #endif

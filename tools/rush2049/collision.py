@@ -34,6 +34,7 @@ SPLINE_FLAGS = 0x3000
 TYPE_WALL = (5, 6)
 TYPE_DISABLED = 0xF          # 2049 runtime only (func_800B2CB4)
 TAG_2049 = 0x80              # root NODE +2 of a converted file: walk the tree the 2049 way (src/rush2049/track2049_collision.cpp)
+TAG_WIDE = 0x20              # root NODE +2 of a custom track past 8,191 polygons: leaf entries are plain u16 polygon numbers
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -74,8 +75,9 @@ def encode_vlist(indices, game):
     return bytes(out)
 
 
-def decode_leaf(buf, off):
-    """Return (poly indices in file order, end offset) for a leaf list (func_8006CCEC / func_800ADCE0)."""
+def decode_leaf(buf, off, wide=False):
+    """Return (poly indices in file order, end offset) for a leaf list (func_8006CCEC / func_800ADCE0); `wide`: plain
+    u16 entries (TAG_WIDE, rush2_collision_leaf_read_wide)."""
     count = buf[off]
     off += 1
     out = []
@@ -83,8 +85,9 @@ def decode_leaf(buf, off):
     while left > 0:
         v = (buf[off] << 8) | buf[off + 1]
         off += 2
-        run = v >> 13
-        out.extend(range(v & 0x1FFF, (v & 0x1FFF) + run + 1))
+        run = 0 if wide else v >> 13
+        first = v if wide else v & 0x1FFF
+        out.extend(range(first, first + run + 1))
         left -= run + 1
     return out, off
 
@@ -131,7 +134,7 @@ class Collision:
             n_mover = 0
             o = 12
             if n_node and data[o + n_seg * SEG_SIZE + 2] & TAG_2049:   # converted from 2049: see build_rush2
-                leaf_bytes |= (data[o + n_seg * SEG_SIZE + 2] & 0x7F) << 16
+                leaf_bytes |= (data[o + n_seg * SEG_SIZE + 2] & 0x1F) << 16
         else:
             n_seg, n_node, n_poly, n_vert, n_mover, vlist_bytes, leaf_bytes = struct.unpack('>6HI', data[:16])
             o = 16
@@ -178,6 +181,7 @@ class Collision:
                 end += 2
             p['vend'] = end
         # leaf lists referenced by the quadtree
+        wide = game == R2 and bool(c.nodes) and bool(c.nodes[0]['pad'] & TAG_WIDE)
         for n in c.nodes:
             n['leaf'] = [None] * 4
             for q in range(4):
@@ -186,7 +190,7 @@ class Collision:
                 off = n['child'][q] | (0x10000 if (n['mask'] >> 4) & (1 << q) else 0)
                 n['leaf'][q] = off
                 if off and off not in c.leaves and off < len(c.leaf_blob):
-                    polys, end = decode_leaf(c.leaf_blob, off)
+                    polys, end = decode_leaf(c.leaf_blob, off, wide)
                     c.leaves[off] = (polys, c.leaf_blob[off:end])
         return c
 
@@ -241,11 +245,14 @@ class Collision:
                 continue
             if len(p['verts']) != n:
                 errs.append('poly %d vlist decodes to %d verts' % (i, len(p['verts'])))
-            for v in p['verts']:
+            for k, v in enumerate(p['verts']):
                 if v >= n_vert:
                     errs.append('poly %d vertex %d out of range' % (i, v))
                     break
-                if v >= (mark << 8):
+                # The first u16 is read as is (func_8006C670); only a later entry (not the next of a run) whose
+                # high byte reaches the marker would be taken for one. Custom tracks past 49,152 corners have those
+                # first entries.
+                if k > 0 and v != p['verts'][k - 1] + 1 and v >= (mark << 8):
                     errs.append('poly %d vertex %d collides with run marker' % (i, v))
             if p['flags'] & SPLINE_FLAGS:
                 if p['seg'] is None or p['seg'] >= n_seg:
@@ -297,7 +304,7 @@ class Collision:
         """Serialise as a Rush 2 file. Leaf lists are re-packed (deduplicated); vertex lists use Rush 2 run markers.
 
         tag_2049 marks a converted 2049 file for the recomp's 2049 lookups (src/rush2049/track2049_collision.cpp):
-        root NODE +2 (unread by Rush 2) = TAG_2049 | the leaf section size's bits 16-22, which the u16 header field
+        root NODE +2 (unread by Rush 2) = TAG_2049 | the leaf section size's bits 16-20, which the u16 header field
         can't hold, and leaf offsets past 16 bits set mask bit 4 + q as 2049 does."""
         # vertex lists, kept in the source file's order
         vblob = bytearray()
@@ -322,7 +329,7 @@ class Collision:
                 placed[raw] = len(lblob)
                 lblob += raw
             remap[off] = placed[raw]
-        if len(lblob) > (0x7FFFFF if tag_2049 else 0xFFFF):
+        if len(lblob) > (0x1FFFFF if tag_2049 else 0xFFFF):
             raise ValueError('leaf section 0x%X too large' % len(lblob))
         out = bytearray(struct.pack('>6H', len(self.segs), len(self.nodes), len(self.polys), len(self.verts),
                                     len(lblob) & 0xFFFF, len(vblob)))

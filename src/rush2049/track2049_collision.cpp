@@ -11,9 +11,12 @@
 // - 17-bit leaf offsets: a node's mask bit 4 + q adds 0x10000 to quadrant q's leaf offset. Only 2049 track 3 (file
 //   141, 0x184A4 leaf bytes) needs them.
 // The converter (src/rush2049/track2049_convert.cpp, convert_collision) marks its files by setting bit 7 of the root
-// node's unused byte +2 and putting the leaf section size's bits 16-22 in bits 0-6; these hooks take 2049's behavior
+// node's unused byte +2 and putting the leaf section size's bits 16-20 in bits 0-4; these hooks take 2049's behavior
 // only for a marked file, so Rush 2's own, SF Rush's and custom tracks keep Rush 2's. California Speed's tracks keep
 // Rush 2's walk too; with their extended scenery the leaf fetches also take the leaves it adds (leaf_offset).
+// Root +2 bit 5 (rush2::collision::wide_leaf_tag), set by the custom track converter on a collision of more than 8,191
+// polygons in either form, says the leaf entries are plain u16 polygon numbers instead of Rush 2's 13-bit number +
+// 3-bit run (rush2_collision_leaf_read_wide). On a marked file the size's bits 16-20 are in bits 0-4 (2 MB of leaves).
 
 #include <algorithm>
 #include <array>
@@ -98,7 +101,7 @@ namespace {
 extern "C" void rush2_track49_collision_load(uint8_t* rdram, recomp_context* ctx) {
     uint8_t tag = root_tag(rdram);
     if (tag & marker) {
-        ctx->r11 = (int32_t)(((uint32_t)ctx->r11 & 0xFFFF) | ((uint32_t)(tag & 0x7F) << 16));
+        ctx->r11 = (int32_t)(((uint32_t)ctx->r11 & 0xFFFF) | ((uint32_t)(tag & 0x1F) << 16));
     }
 }
 
@@ -107,6 +110,39 @@ uint32_t rush2::collision::leaf_offset(uint8_t* rdram, uint32_t node, int q) {
     gpr offset = (gpr)MEM_HU(0xC + 2 * (q & 3), (int32_t)node);
     ::leaf_offset(rdram, offset, (gpr)(int32_t)node, (gpr)q);
     return (uint32_t)offset;
+}
+
+bool rush2::collision::wide_leaves(uint8_t* rdram) {
+    return (root_tag(rdram) & wide_leaf_tag) != 0;
+}
+
+// collision_leaf_read_8006CCEC at its entry: $a0 = the leaf's polygon count (its first byte), $a1 = the query's u16
+// list, $a2 = the entries after the count, $t0 = the polygon to put first (the car's last one). Rush 2 decodes 13-bit
+// numbers with 3-bit runs: polygon $t0 goes to the front of the list, the rest fill it from the back. On a file with
+// wide leaves each entry is one u16 polygon number, stored the same way; returns 1 when it did the read.
+extern "C" int rush2_collision_leaf_read_wide(uint8_t* rdram, recomp_context* ctx) {
+    if (!rush2::collision::wide_leaves(rdram)) {
+        return 0;
+    }
+    int32_t count = (int32_t)ctx->r4;
+    uint32_t front = (uint32_t)ctx->r5, back = front + 2 * (uint32_t)count - 2, in = (uint32_t)ctx->r6;
+    uint32_t first = (uint32_t)ctx->r8;
+    for (int32_t i = 0; i < count; i++, in += 2) {
+        uint32_t poly = (uint32_t)MEM_BU(0, (int32_t)in) << 8 | MEM_BU(1, (int32_t)in);   // unaligned after the count
+        if (poly == first) {
+            MEM_H(0, (int32_t)front) = (int16_t)poly;
+            front += 2;
+        }
+        else {
+            MEM_H(0, (int32_t)back) = (int16_t)poly;
+            back -= 2;
+        }
+    }
+    ctx->r2 = (int32_t)back;
+    ctx->r4 = 0;
+    ctx->r5 = (int32_t)front;
+    ctx->r6 = (int32_t)in;
+    return 1;
 }
 
 // collision_node_find_8006CD60 at 0x8006CDA8, per node: $v0 = xmin + xmax, $v1 = zmin + zmax, $t4 / $t7 their
@@ -324,6 +360,6 @@ extern "C" void rush2_track49_collision_selftest(uint8_t* rdram, recomp_context*
     printf("[2049] collision self-test: %zu probes over %d polygons, leaf section 0x%X bytes: 2049's lookups find the "
            "floor at %d probes where Rush 2's split and cell don't, and miss it at %d where they find it (%d neither; "
            "%.0f ms)\n", probes.size(), n_poly,
-           (uint32_t)MEM_HU(8, (int32_t)base) | ((uint32_t)(root_tag(rdram) & 0x7F) << 16), fixed, broken, neither, ms);
+           (uint32_t)MEM_HU(8, (int32_t)base) | ((uint32_t)(root_tag(rdram) & 0x1F) << 16), fixed, broken, neither, ms);
     fflush(stdout);
 }

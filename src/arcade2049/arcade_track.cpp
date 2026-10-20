@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <numeric>
 #include <set>
@@ -34,6 +35,8 @@ namespace {
     constexpr double water_edge = 2500.0;      // ft: water collision triangles are split as scenery is
     constexpr size_t max_leaf = 36;            // the game's collision queries hold 36 polygons per index cell
     constexpr double cell_size = 4.0;          // ft: the converter's smallest cell
+    constexpr size_t near_full = 24;           // cells past this get their exactly flat neighbours joined
+    constexpr double flat_join = 0.001;        // ft: neighbours this flat are joined without moving anything
     constexpr int spline_window = 30;          // segments either side of a polygon's own that can hold part of it
     constexpr double spline_fit = 1.0;         // ft: a piece is on a segment's surface when its facet is this close
 
@@ -535,7 +538,8 @@ namespace {
 
     // Index cells (4 ft) where more than 36 polygons' outlines (walls widened by 6 ft, the rest by 1) meet:
     // cell -> polygon indices (track_mod.py crowded_cells).
-    std::map<std::pair<int64_t, int64_t>, std::vector<size_t>> crowded_cells(const std::vector<FlatPoly>& polys) {
+    std::map<std::pair<int64_t, int64_t>, std::vector<size_t>> crowded_cells(const std::vector<FlatPoly>& polys,
+                                                                             size_t limit = max_leaf) {
         std::map<std::pair<int64_t, int64_t>, std::vector<size_t>> boxes, out;
         for (size_t i = 0; i < polys.size(); i++) {
             double m = (polys[i].flags & 0xF) == 5 || (polys[i].flags & 0xF) == 6 ? 6.0 : 1.0;
@@ -547,7 +551,7 @@ namespace {
             for (int64_t cx = x0; cx <= x1; cx++) for (int64_t cz = z0; cz <= z1; cz++) boxes[{ cx, cz }].push_back(i);
         }
         for (const auto& [cell, ids] : boxes) {
-            if (ids.size() <= max_leaf) continue;
+            if (ids.size() <= limit) continue;
             std::vector<size_t> hit;
             for (size_t i : ids) {
                 const FlatPoly& f = polys[i];
@@ -557,7 +561,7 @@ namespace {
                 if (std::abs(ring_area(xz)) < 1e-3) m += 0.5;     // shapely buffered a degenerate outline by 0.5 first
                 if (near_cell(xz, cell.first * cell_size, cell.second * cell_size, cell_size, m)) hit.push_back(i);
             }
-            if (hit.size() > max_leaf) out[cell] = hit;
+            if (hit.size() > limit) out[cell] = hit;
         }
         return out;
     }
@@ -591,19 +595,165 @@ namespace {
         return true;
     }
 
+    // track_mod.py cut_tips: a corner shared by apex_polys or more polygons of one surface all the way round (the tip
+    // of a cone of steep wedges, as Haight's pit at 2653, 76, -3305 with 31) puts every one of them in the index cells
+    // there, past the game's 36, and wedges at an angle can't be joined flat. Each polygon's corner there is replaced
+    // by the points tip_cut ft out (across x/z) along its two edges, the same point for the neighbours sharing an
+    // edge (no cracks), and the hole closed with a cap of convex pieces of at most 8 corners over the ring of cuts.
+    // A fan with a gap of more than 60 degrees (a corner at the surface's edge) is left alone.
+    constexpr size_t apex_polys = 24;
+    constexpr double tip_cut = 12.0;
+
+    // track_mod.py drop_spline_twins: the arcade lists some spline road polygons twice, once with their segment and
+    // once flat (the same corners and facing; 74 in Presidio's tunnel, a few on Civic and Metro). The spline copy
+    // becomes the smooth road (spline_road), so the flat one is a second road on it: it is dropped. Besides doubling
+    // the road's polygons, the pairs crowd past the game's 36 per cell where Presidio's tunnel sections meet.
+    std::vector<CollisionPoly> drop_spline_twins(const std::vector<CollisionPoly>& polys, std::vector<std::string>& report) {
+        auto key = [](const CollisionPoly& p) {
+            std::vector<std::array<int64_t, 3>> k;
+            for (const V3& v : p.pts) {
+                k.push_back({ int64_t(std::floor(v[0] * 100 + 0.5)), int64_t(std::floor(v[1] * 100 + 0.5)),
+                              int64_t(std::floor(v[2] * 100 + 0.5)) });
+            }
+            std::sort(k.begin(), k.end());
+            return k;
+        };
+        std::map<std::vector<std::array<int64_t, 3>>, std::vector<V3>> spline;
+        for (const CollisionPoly& p : polys) if (p.seg >= 0) spline[key(p)].push_back(p.normal);
+        std::vector<CollisionPoly> out;
+        int n = 0;
+        for (const CollisionPoly& p : polys) {
+            if (p.seg < 0) {
+                auto it = spline.find(key(p));
+                if (it != spline.end() && std::any_of(it->second.begin(), it->second.end(),
+                                                      [&](const V3& m) { return dot(m, p.normal) > 0; })) {
+                    n++;
+                    continue;
+                }
+            }
+            out.push_back(p);
+        }
+        if (n) report.push_back("collision: " + std::to_string(n) + " flat copies of spline road polygons dropped");
+        return out;
+    }
+
+    // track_mod.py drop_copies: the arcade's collision repeats some polygons exactly (same surface, corners and
+    // facing; 105 walls on Presidio). The copies change nothing, but share every edge four ways, which keeps
+    // relieve_crowding from joining them: a corner fan of wall pieces repeated stays past the game's 36 per cell.
+    // Keeps the first of each.
+    std::vector<FlatPoly> drop_copies(const std::vector<FlatPoly>& polys, std::vector<std::string>& report) {
+        std::map<std::pair<uint32_t, std::vector<P3>>, V3> seen;
+        std::vector<FlatPoly> out;
+        int n = 0;
+        for (const FlatPoly& p : polys) {
+            std::vector<P3> corners(p.pts.begin(), p.pts.end());
+            std::sort(corners.begin(), corners.end());
+            auto key = std::make_pair(p.flags, std::move(corners));
+            auto it = seen.find(key);
+            if (it != seen.end() && dot(it->second, p.normal) > 0) {
+                n++;
+                continue;
+            }
+            seen.emplace(std::move(key), p.normal);
+            out.push_back(p);
+        }
+        if (n) report.push_back("collision: " + std::to_string(n) + " exact copies of other polygons dropped");
+        return out;
+    }
+
+    std::vector<FlatPoly> cut_tips(std::vector<FlatPoly> polys, std::vector<std::string>& report) {
+        std::map<P3, std::vector<size_t>> at;
+        for (size_t i = 0; i < polys.size(); i++) {
+            for (const P3& p : polys[i].pts) {
+                auto& ids = at[p];
+                if (ids.empty() || ids.back() != i) ids.push_back(i);
+            }
+        }
+        auto xz_len = [](const V3& d) { return std::hypot(d[0], d[2]); };
+        std::set<size_t> touched;
+        std::vector<FlatPoly> caps;
+        int tips = 0;
+        for (const auto& [c, ids] : at) {
+            if (ids.size() < apex_polys) continue;
+            if (std::any_of(ids.begin(), ids.end(), [&](size_t i) {
+                    return touched.count(i) || (polys[i].flags & 0xF) != (polys[ids[0]].flags & 0xF) ||
+                           polys[i].pts.size() >= 8;
+                })) continue;
+            double r = tip_cut;
+            for (size_t i : ids) {
+                const auto& P = polys[i].pts;
+                size_t k = size_t(std::find(P.begin(), P.end(), c) - P.begin());
+                r = std::min({ r, 0.5 * xz_len(P[(k + 1) % P.size()] - c), 0.5 * xz_len(P[(k + P.size() - 1) % P.size()] - c) });
+            }
+            if (r < 4.0) continue;
+            auto cut = [&](const P3& q) { return c + (q - c) * (r / xz_len(q - c)); };
+            std::vector<std::pair<double, P3>> ring;
+            auto add_ring = [&](const P3& p) {
+                for (const auto& e : ring) if (e.second == p) return;
+                ring.push_back({ std::atan2(p[2] - c[2], p[0] - c[0]), p });
+            };
+            std::vector<std::vector<P3>> cut_pts;
+            V3 nsum{ 0, 0, 0 };
+            for (size_t i : ids) {
+                const auto& P = polys[i].pts;
+                size_t k = size_t(std::find(P.begin(), P.end(), c) - P.begin());
+                P3 a = cut(P[(k + P.size() - 1) % P.size()]), b = cut(P[(k + 1) % P.size()]);
+                std::vector<P3> out(P.begin(), P.begin() + k);
+                out.push_back(a);
+                out.push_back(b);
+                out.insert(out.end(), P.begin() + k + 1, P.end());
+                cut_pts.push_back(std::move(out));
+                add_ring(a);
+                add_ring(b);
+                nsum = nsum + polys[i].normal;
+            }
+            std::sort(ring.begin(), ring.end());
+            double gap = 0;
+            for (size_t k = 0; k < ring.size(); k++) {
+                double next = k + 1 < ring.size() ? ring[k + 1].first : ring[0].first + 2 * 3.141592653589793;
+                gap = std::max(gap, next - ring[k].first);
+            }
+            if (ring.size() < 3 || gap > 3.141592653589793 / 3) continue;
+            for (size_t n = 0; n < ids.size(); n++) polys[ids[n]].pts = std::move(cut_pts[n]);
+            touched.insert(ids.begin(), ids.end());
+            V3 nrm = unit(nsum);
+            for (size_t s = 1; s + 1 < ring.size(); s += 6) {
+                FlatPoly cap{ polys[ids[0]].flags, { ring[0].second }, nrm };
+                for (size_t k = s; k <= std::min(s + 6, ring.size() - 1); k++) cap.pts.push_back(ring[k].second);
+                caps.push_back(std::move(cap));
+            }
+            tips++;
+        }
+        if (tips) {
+            char line[200];
+            snprintf(line, sizeof(line), "collision: %d cone tips where %zu or more polygons meet cut off and capped", tips,
+                     apex_polys);
+            report.push_back(line);
+        }
+        polys.insert(polys.end(), caps.begin(), caps.end());
+        return polys;
+    }
+
     // track_mod.py relieve_crowding: where a spot has more collision polygons than an index cell holds, joins
-    // neighbouring polygons of a surface into flat convex polygons of at most 8 corners.
+    // neighbouring polygons of a surface into flat convex polygons of at most 8 corners. First, where a cell is near
+    // full (near_full), exactly flat neighbours are joined, nothing moved: the converter's cells don't line up with
+    // these and split its polygons its own way, so it can count a few more (Presidio Arcade's tunnel portal, 13
+    // pieces of one flat ring wall).
     std::vector<FlatPoly> relieve_crowding(const std::vector<FlatPoly>& input, std::vector<std::string>& report,
                                            double tolerance = 1.0) {
-        std::vector<FlatPoly> polys = weld(input);
-        int total = 0;
+        std::vector<FlatPoly> polys = cut_tips(drop_copies(weld(input), report), report);
+        int total = 0, flat_joins = 0;
         double worst = 0.0;
-        std::vector<double> steps(6, tolerance);
-        for (int i = 0; i < 3; i++) steps.push_back(tolerance * 2);
-        for (int i = 0; i < 3; i++) steps.push_back(tolerance * 3);
-        for (double tol : steps) {
-            auto cells = crowded_cells(polys);
-            if (cells.empty()) break;
+        std::vector<std::pair<double, size_t>> steps(6, { flat_join, near_full });
+        for (int i = 0; i < 6; i++) steps.push_back({ tolerance, max_leaf });
+        for (int i = 0; i < 3; i++) steps.push_back({ tolerance * 2, max_leaf });
+        for (int i = 0; i < 3; i++) steps.push_back({ tolerance * 3, max_leaf });
+        for (auto [tol, limit] : steps) {
+            auto cells = crowded_cells(polys, limit);
+            if (cells.empty()) {
+                if (limit < max_leaf) continue;
+                break;
+            }
             std::set<size_t> crowd;
             for (const auto& [c, ids] : cells) crowd.insert(ids.begin(), ids.end());
             // Edges in first-seen order (a Python dict keyed by the corner pair).
@@ -667,7 +817,7 @@ namespace {
                 worst = std::max(worst, c.d);
             }
             if (joined.empty()) continue;
-            total += int(joined.size());
+            (limit < max_leaf ? flat_joins : total) += int(joined.size());
             std::vector<FlatPoly> next;
             for (size_t i = 0; i < polys.size(); i++) {
                 if (gone.count(i)) continue;
@@ -679,6 +829,11 @@ namespace {
             polys = std::move(next);
         }
         char line[256];
+        if (flat_joins) {
+            snprintf(line, sizeof(line), "collision: %d flat polygon pairs joined where more than %zu crowd a cell",
+                     flat_joins, near_full);
+            report.push_back(line);
+        }
         if (total) {
             snprintf(line, sizeof(line), "collision: %d polygon pairs in spots over the game's %zu polygons per cell "
                      "joined flat (corners moved %.2f ft at most)", total, max_leaf, worst);
@@ -728,13 +883,15 @@ namespace {
     }
 }
 
-bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir, ModFiles& out,
-                          std::string& log, const std::function<bool()>& cancelled) {
-    const std::string track_id = "alcatraz", name = "Alcatraz";
+// One arcade track (TRACKS/<folder>) as the mod's tracks/<track_id>/ (in a49, whose Vertex the body means).
+namespace rush2::arcade2049 {
+static bool build_one(const std::filesystem::path& data_dir, const char* folder, const std::string& track_id, const std::string& name,
+               const std::string& menu_after, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
+               const std::function<bool()>& cancelled) {
     std::vector<std::string> report;
     std::string error;
     Track t;
-    if (!t.open(data_dir / "TRACKS" / "TRACK4", error)) {
+    if (!t.open(data_dir / "TRACKS" / folder, error)) {
         log += error + "\n";
         return false;
     }
@@ -1016,7 +1173,7 @@ bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::file
     // Collision.
     std::vector<FootprintTri> spline_tris;
     std::vector<FlatPoly> flat;
-    spline_road(seg_records, collision, spline_tris, flat, report);
+    spline_road(seg_records, drop_spline_twins(collision, report), spline_tris, flat, report);
     if (cancelled && cancelled()) return false;
     struct ColPoly {
         uint32_t flags;
@@ -1164,29 +1321,57 @@ bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::file
         return best;
     };
     std::vector<std::pair<std::string, size_t>> gates;
-    auto finish = std::find_if(dobs.begin(), dobs.end(), [](const DobsEntry& d) { return d.name == "FINISHSIGN"; });
-    if (finish != dobs.end()) gates.push_back({ "FINISH", nearest(to_world_dobs(finish->pos)) });
-    else {
-        report.push_back("no FINISHSIGN: the finish is the lap's first point");
-        gates.push_back({ "FINISH", 0 });
-    }
-    std::vector<size_t> banners;
-    for (const WorldEntry& w : worlds) {
+    // The centre of the parts of a placed object drawn with one of `textures`, if it has any.
+    auto textured_center = [&](const WorldEntry& w, std::initializer_list<const char*> textures, V3& out) {
         const Object* o = t.find(w.name);
-        if (!o) continue;
+        if (!o) return false;
         V3 sum{};
         size_t count = 0;
         for (const auto& tr : o->lod0.tris) {
-            if (tr[3] >= t.textures.size() || t.textures[tr[3]].name != "MG_CHECK5") continue;
+            if (tr[3] >= t.textures.size()) continue;
+            const std::string& tex = t.textures[tr[3]].name;
+            if (std::none_of(textures.begin(), textures.end(), [&](const char* x) { return tex == x; })) continue;
             for (int c = 0; c < 3; c++) sum = sum + o->lod0.verts[tr[c]].pos, count++;
         }
-        if (count) banners.push_back(nearest(sum * (1.0 / count) + w.pos));
+        if (count) out = sum * (1.0 / count) + w.pos;
+        return count != 0;
+    };
+    auto finish = std::find_if(dobs.begin(), dobs.end(), [](const DobsEntry& d) { return d.name == "FINISHSIGN"; });
+    if (finish != dobs.end()) gates.push_back({ "FINISH", nearest(to_world_dobs(finish->pos)) });
+    else {
+        // Mission's finish is a sign in worlds.rom (TE_FINISH).
+        V3 c;
+        auto sign = std::find_if(worlds.begin(), worlds.end(), [&](const WorldEntry& w) { return textured_center(w, { "TE_FINISH" }, c); });
+        if (sign != worlds.end()) gates.push_back({ "FINISH", nearest(c) });
+        else {
+            report.push_back("no FINISHSIGN: the finish is the lap's first point");
+            gates.push_back({ "FINISH", 0 });
+        }
+    }
+    // The checkpoint banners (TE_CHKPNT on Mission and Presidio): pieces farther than gate_reach from the lap are signs
+    // off the course, and banners closer than gate_merge along the lap (to the last one kept or the finish) are one.
+    constexpr double gate_reach = 120.0, gate_merge = 250.0;
+    std::vector<size_t> banners;
+    for (const WorldEntry& w : worlds) {
+        V3 c;
+        if (!textured_center(w, { "MG_CHECK5", "MG_W_CHECK6", "TE_CHKPNT" }, c)) continue;
+        size_t i = nearest(c);
+        if (std::hypot(lap[i][0] - c[0], lap[i][2] - c[2]) <= gate_reach) banners.push_back(i);
     }
     size_t f0 = gates[0].second;
     std::sort(banners.begin(), banners.end());
     banners.erase(std::unique(banners.begin(), banners.end()), banners.end());
     std::stable_sort(banners.begin(), banners.end(), [&](size_t a, size_t b) { return (a + n - f0) % n < (b + n - f0) % n; });
-    for (size_t k = 0; k < banners.size(); k++) gates.push_back({ "CHECKPOINT_" + std::to_string(k + 1), banners[k] });
+    std::vector<double> run(n + 1, 0.0);   // along the lap from the finish
+    for (size_t k = 0; k < n; k++) run[k + 1] = run[k] + norm(lap[(f0 + k + 1) % n] - lap[(f0 + k) % n]);
+    double last = -1e300;
+    size_t kept = 0;
+    for (size_t i : banners) {
+        double at = run[(i + n - f0) % n];
+        if (at < gate_merge || run[n] - at < gate_merge || at - last < gate_merge) continue;
+        last = at;
+        gates.push_back({ "CHECKPOINT_" + std::to_string(++kept), i });
+    }
     for (const auto& [gname, i] : gates) {
         V2 tg = tangent(i);
         g.empty(gname, gate_matrix(lap[i], { tg[0], 0.0, tg[1] }, std::max({ half[i][0], half[i][1], 30.0 }) + 10.0));
@@ -1296,24 +1481,33 @@ bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::file
         "[track]\nname = \"" + name + "\"\nauthor = \"Rush 2049 arcade (converted)\"\ndescription = \"" + name +
         " from San Francisco Rush 2049 Special Edition (arcade)\"\ngravity = \"rush2049\"\n"
         // The arcade's road is built for its own flat-faced collision: no smoothing (docs/custom_tracks.md#smooth-collision).
-        "smooth_collision = false\n\n[look]\nfog_color = "
-        "\"#0c1424\"\n\n[menu]\nlogo = \"logo.png\"\nafter = \"rush2049\"\npreview = \"preview.png\"\n");
+        "smooth_collision = false\n\n" +
+        // Alcatraz is at night; the others keep the custom tracks' default fog.
+        std::string(track_id == "alcatraz" ? "[look]\nfog_color = \"#0c1424\"\n\n" : "") +
+        "[menu]\nlogo = \"logo.png\"\nafter = \"" + menu_after + "\"\n" +
+        (std::filesystem::exists(assets_dir / (track_id + "_preview.png")) ? "preview = \"preview.png\"\n" : ""));
+    // The logo and the round preview are shipped pictures (tools/build_banners.py --arcade, tools/arcade2049/track_mod.py
+    // --ship-previews).
     for (const char* file : { "logo.png", "preview.png" }) {
         std::vector<uint8_t> bytes;
         std::ifstream f(assets_dir / (track_id + "_" + file), std::ios::binary);
         if (!f) {
+            if (std::string(file) == "preview.png") continue;
             log += "missing " + rush2::upscale::path_utf8(assets_dir / (track_id + "_" + file)) + "\n";
             return false;
         }
         bytes.assign(std::istreambuf_iterator<char>(f), {});
         out[dir + file] = std::move(bytes);
     }
-    out["mod.json"] = text_bytes(nlohmann::json{
-        { "game_id", "rush2" }, { "id", track_mod_id }, { "display_name", "Rush 2049 Arcade Tracks" },
-        { "description", "Tracks from San Francisco Rush 2049 Special Edition (arcade), built from the arcade data by the "
-                         "Games tab." },
-        { "short_description", "Rush 2049 arcade tracks" }, { "version", "1.0.0" }, { "authors", { "rush2-recomp" } },
-        { "minimum_recomp_version", "0.0.0" } }.dump(4));
+    // The arcade's CHECKPOINT banner (the same on arcade tracks 1-5), which the Arcade Checkpoints option hangs over
+    // the Rush 2049 tracks' checkpoints (src/arcade2049/arcade_checkpoints.cpp).
+    for (const Texture& tex : t.textures) {
+        std::vector<uint8_t> rgba;
+        if (tex.name == "MG_CHECK5" && !out.count("checkpoint.png") && tex.rgba(texels, rgba)) {
+            out["checkpoint.png"] = png(rgba, tex.w, tex.h);
+            break;
+        }
+    }
 
     char line[256];
     snprintf(line, sizeof(line), "wrote %s: %zu scenery triangles, %zu textures, %zu collision triangles, %zu gates, lap of %zu points\n",
@@ -1325,5 +1519,25 @@ bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::file
     }
     if (knocks) log += "props: KNOCK " + std::to_string(knocks) + "\n";
     for (const std::string& r : report) log += r + "\n";
+    return true;
+}
+}
+
+bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir, ModFiles& out,
+                          std::string& log, bool alcatraz_only, const std::function<bool()>& cancelled) {
+    // Each after the one before it in arcade_tracks (the track select order), the first after the Rush 2049 tracks.
+    std::string after = "rush2049";
+    for (const ArcadeTrack& a : arcade_tracks) {
+        if (alcatraz_only && std::string(a.id) != "alcatraz") continue;
+        if (cancelled && cancelled()) return false;
+        if (!build_one(data_dir, a.folder, a.id, a.name, after, assets_dir, out, log, cancelled)) return false;
+        after = a.id;
+    }
+    out["mod.json"] = text_bytes(nlohmann::json{
+        { "game_id", "rush2" }, { "id", track_mod_id }, { "display_name", "Rush 2049 Arcade Tracks" },
+        { "description", "Tracks from San Francisco Rush 2049 Special Edition (arcade), built from the arcade data by the "
+                         "Games tab." },
+        { "short_description", "Rush 2049 arcade tracks" }, { "version", "1.0.0" }, { "authors", { "rush2-recomp" } },
+        { "minimum_recomp_version", "0.0.0" } }.dump(4));
     return true;
 }

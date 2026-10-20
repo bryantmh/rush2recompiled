@@ -16,14 +16,38 @@ the props react (docs/custom_tracks.md, "Props").
 ## Building it in the game
 
 Players don't need Python: the Games tab's San Francisco Rush 2049 Arcade section (Build and Install, Select Folder)
-builds both mods from the arcade data with `src/arcade2049/`, a C++ port of `track_mod.py` (TRACK4 only),
+builds both mods from the arcade data with `src/arcade2049/`, a C++ port of `track_mod.py`,
 `car_mod.py` and `arcade.py`, and installs them as `<mods>/rush2049_arcade.rtz` and `rush2049_arcade_cars.rtz`
-(a loose folder of the same id, the Python install, is replaced). It takes about 2.5 s. Each mod.json carries
+(a loose folder of the same id, the Python install, is replaced). It takes about 2.5 s for Alcatraz, 32 s for every
+track (see Alcatraz Only below). Each mod.json carries
 `"rush2_arcade": {"key", "data"}`: the hash of the input files, the shipped assets and the build. At launch
 (`start_refresh`, from the launcher) an installed mod whose key changed is built again once from that folder, keeping
 whether it was on. Afterwards `rush2::car_mods::reload` and `rush2::track2049::mods_changed` make the car select and
-track select read the new files without a restart.
+track select read the new files without a restart; `mods_changed` also has the custom track list read again
+(`rush2::track_mod::rescan`): it was kept by the enabled mods and their file names, which a rebuild keeps, so until
+2026-10-19 tracks added by a rebuild (Alcatraz Only turned off) showed only after a restart.
 
+- **Alcatraz Only** (Games tab, under the section, default on; `arcade_alcatraz_only` in games.json): on, the track
+  mod holds just Alcatraz (TRACK4). Off, it also holds the arcade's own versions of the six Rush 2049 tracks as tracks
+  of their own after the Rush 2049 ones (`a49::arcade_tracks`: TRACK1 `marina_arcade`, TRACK2 `haight_arcade`, TRACK3
+  `civic_arcade`, TRACK5 `metro_arcade`, TRACK6 `mission_arcade`, TRACK7 `presidio_arcade`, each "<Name> Arcade").
+  The track select shows them in the N64's order with Alcatraz last: each track.toml's `[menu] after` names the track
+  before it in `arcade_tracks` (the first `rush2049`); until 2026-10-19 they all followed `rush2049` and showed in
+  folder name order.
+  The option is part of the mod's key, so changing it rebuilds an installed mod in the background (and once more if
+  it changes during a build); without the arcade data a copied mod keeps the tracks it was built with. Their logos
+  are the N64 tracks' own banners with " A" after them (`tools/build_banners.py --arcade`: the font-drawn names drawn
+  again as "MARINA A", Metro's and Presidio's picture banners kept, narrowed, with the "A" beside them), and their
+  round previews are the user's in-game screenshots (`tools/arcade2049/previews/<id>.png`, cut by
+  `tools/arcade2049/track_mod.py --ship-previews` into `assets/arcade2049/<id>_preview.png`). Only Alcatraz sets a
+  fog color (its night). `ARCADE_ALL=1` makes cpp_test build them all. Offline
+  (`tools/track_mod_test.bat` + `tools/track_mod_check.py` on the C++ output) all seven pass. Haight and Presidio
+  needed the collision steps under "roaddat.rom" below (a cone tip on Haight; copies and a tunnel seam on Presidio)
+  and Presidio, at 13,047 polygons, the converter's wide leaves (docs/custom_tracks.md: until 2026-10-19 the game took
+  8,191). Presidio's checker run reports 543 lane points with no ground under them: the arcade's own collision has
+  none there either (its long jumps). In game (`tools/test_race.py presidio_arcade --mod-dir <cpp_test
+  output>/rush2049_arcade --drones 4`) the drones race Marina, Haight and Presidio Arcade past their checkpoints.
+- **Arcade Checkpoints** (Games tab, default off; `arcade_checkpoints`): see "Arcade checkpoints" below.
 - **Keep the two in step.** A change to `track_mod.py` or `car_mod.py` goes into `src/arcade2049/` too. Check with
   `cmd //c "tools\arcade2049\cpp_test\build.bat tmp\arcade\cpp"` (the C++ outside the game, about 2.5 s)
   against the Python output: the car files come out identical, the track's scenery, gates, AI lanes, movers and
@@ -33,9 +57,10 @@ track select read the new files without a restart.
   converted collision has 6,845 polygons against 6,602 (index cells within 36 on both) and the same ground height
   along the lap, with fewer enclosed cracks than the Python output (452 vs 536 under 50 sq ft). `crowded_cells`
   measures distance to each cell instead of buffering, and gives the same joins.
-- **Shipped pictures:** the logo (`banner_font.render_fit`) and round preview (`round_preview`) are fixed for
-  Alcatraz, so the Python tool's output is shipped as `assets/arcade2049/alcatraz_logo.png` and
-  `alcatraz_preview.png`. Regenerate them if either changes.
+- **Shipped pictures:** each track's logo and round preview are fixed pictures shipped as
+  `assets/arcade2049/<id>_logo.png` and `<id>_preview.png` (both part of the mod's key). Alcatraz's logo is
+  `banner_font.render_fit`; the others come from `tools/build_banners.py --arcade`, and every preview from
+  `tools/arcade2049/track_mod.py --ship-previews`. Regenerate them if a source changes.
 - **TRACK8** is SF Rush's Track 2, Embarcadero, left on the 2049 disk. It is The Rock's TRACK2 (same 200 textures,
   220 road segments) with checkpoints matching SF Rush 64's exactly, and it is already in the game from the N64 ROM.
   Its drone path is stale data from another track. `arcade.py` now reads its collision: its vertex lists follow the
@@ -81,8 +106,11 @@ underground.
 
 ## worlds.rom (static placements)
 
-u32 1, u32 0x18, a 16-byte TEMP record, then 0x4C-byte instances: name[8] (cut to 8 characters, so `object_named`
-matches by prefix), 8 flag bytes, f32 m[9], f32 pos[3], u32, s16 next, s16 -1, u32. Every Alcatraz matrix is identity.
+u32 1, u32 0x18, a 16-byte TEMP record, then 0x4C-byte instances: char name[15], u8 1, f32 m[9], f32 pos[3], u32,
+s16 next, s16 -1, u32. Bytes after a name's NUL are leftovers of longer names, so names were read as 8 characters
+(`object_named` matches by prefix); but a name that fills 8 characters runs on: `AF_G3226` then `5` is `AF_G32265`.
+Read at 8, arcade Marina, Haight, Civic and Presidio lost 64, 107, 355 and 469 placements (the AF_/FF_/AL_/BL_/LP_
+objects, ambiguous at 8); the readers now take the long name when it is an object. Every Alcatraz matrix is identity.
 
 ## dobs.rom (dynamic objects)
 
@@ -124,7 +152,29 @@ N64, a polygon's vertex 0 is its origin and the rest are in its frame: point = v
 axes, minus column 2 the face normal. Flags: the low byte is the N64 surface (0 road, 1 dirt, 5 wall), 0x1000 a
 spline surface, whose vertex list ends with its u16 segment index. Arcade Marina matches the N64 collision to 0.04
 ft. Where more polygons crowd a spot than Rush 2's 36 per collision cell, the converter welds corners and joins flat
-neighbors (`relieve_crowding`; on Alcatraz about 130 pairs, corners moved 1.4 ft at most).
+neighbors (`relieve_crowding`; on Alcatraz about 130 pairs, corners moved 1.4 ft at most). Before that, both readers'
+converters (`arcade_track.cpp` and `track_mod.py`, the same steps):
+
+- `drop_spline_twins`: some spline road polygons are listed twice, once with their segment and once flat (same corners
+  and facing): the flat copy is dropped, since the spline copy becomes the smooth road. Presidio 74 (its tunnel, where
+  the pairs crowded the seam between two tunnel sections past 36), Metro 4, Civic 1.
+- `drop_copies`: exact copies (surface, corners, facing) are dropped: they change nothing but share each edge four
+  ways, so the pair joins never took them (Presidio 119, Marina 165, Haight 131, Metro 103).
+- `cut_tips`: a corner shared by 24 or more polygons all the way round is a cone tip (Haight's pit, 31 steep wedges
+  at 2653, 76, -3305; wedges at an angle can't be joined flat). Each polygon's corner is replaced by the points 12 ft
+  out across x/z on its two edges (the neighbors sharing an edge get the same point: no cracks) and the hole is
+  capped with convex pieces of at most 8 corners over that ring. A fan with a gap over 60 degrees is left alone.
+- Then, where a 4 ft cell holds more than 24, exactly flat neighbors are joined first, nothing moved (Presidio 45): the
+  game's converter places its cells its own way and splits faces its own way, so it can count a few more than this
+  check does.
+
+The custom track converter also splits a cell still past 36 below 4 ft, down to 1 ft (docs/custom_tracks.md), which
+Presidio's tunnel portal needed (13 pieces of one flat ring wall where two tunnel sections meet).
+
+The file is a run of such blocks, each starting with its u32 size; the track's collision is the largest (`roaddat()`
+in both readers). It is the first block everywhere but TRACK6 (Mission), whose file starts with a 13-polygon block
+(1,368 bytes) before the 712,348-byte one; TRACK7 has three small blocks after its own (not decoded, perhaps the
+movers').
 
 ### Segments (the spline road)
 
@@ -173,7 +223,12 @@ ft/s x 60 / 88 / 1.2 (Rush 2049's lane speeds over Rush 2's, docs/rush2049_resea
 - `COL_*`: `roaddat` polygons by surface, the spline road as footprints on its segments (above). `roaddat` has no water: under the bay is sea floor (road) and walls, and
   the arcade drowns cars some other way (not found). The WATER2 sheets (the bay, at sea level) become `COL_WATER`,
   which wrecks and resets the car as Rush 2's own Alcatraz water does; no road polygon or lap point is under them.
-- `FINISH` at the finish sign; `CHECKPOINT_n` at the MG_CHECK5 banners (the arcade's own gate data wasn't found).
+- `FINISH` at the finish sign (the FINISHSIGN dob, else a TE_FINISH sign in worlds.rom, else the lap's first point:
+  Mission has neither placed); `CHECKPOINT_n` at the checkpoint banners (the arcade's own gate data wasn't found):
+  objects drawn with MG_CHECK5 / MG_W_CHECK6, or TE_CHKPNT on Mission and Presidio. A banner piece farther than 120
+  ft from the lap is a sign off the course (three on Mission), and banners within 250 ft along the lap of the one
+  before (or of the finish) are pieces of it (Marina's stacked pair). Checkpoints: Alcatraz 4, Marina 4, Haight 4,
+  Civic 3, Metro 3, Mission 5, Presidio 3.
 - `AIPATH_main`: table 0's lap as a ribbon as wide as the road, with `_SPEED` and `_AI_MODE` from its records and
   `keep_height`; `AIPATH_lane1-4`: every table within 60 ft of the lap, left to right, spread over the four slots.
 - `[track] gravity = "rush2049"`: Rush 2049's gravity table (the N64's, 37.03 ft/s² at Normal; the arcade's own
@@ -269,3 +324,30 @@ every arcade car, so it lands on Rush 2's roster mean, as the N64 roster's avera
 inertia follow the mass by the N64's frame formula (2425 and 412500). Tire curves, rear grip, drive flags and
 drivetrain inertia are the N64 2049 car's. Steering, yaw damping and the SUSPENSION and TIRES settings are Rush 2's
 mean, as for the N64 cars.
+
+## Arcade checkpoints
+
+The N64 Rush 2049 tracks mark their checkpoints with nothing. The Games tab's Arcade Checkpoints option
+(`src/arcade2049/arcade_checkpoints.cpp`, default off, takes effect at once) hangs the arcade's CHECKPOINT banner
+(texture MG_CHECK5, 256 x 64, the same on arcade tracks 1-5) over every checkpoint of the six Rush 2049 race tracks
+but the start / finish line (it has its own sign).
+
+- **Where the banner comes from:** Build and Install writes it into the track mod as `checkpoint.png`, so a copy of
+  `rush2049_arcade.rtz` brings it to an install without the arcade data. It is read on a worker when the option is on
+  (`load_image`), shrunk to a 64 x 16 RGBA16 stand-in in RDRAM 0x80E1E000, and drawn at full size as a mod texture
+  (`rush2::derive::set_mod_textures("arcade_checkpoints")`).
+- **Where it hangs:** from the race's own path (Rush 2's header copy at 0x8010BCE8: s16 finish checkpoint +4, count +8,
+  0x50-byte checkpoints from +0xC), so backward races get theirs. Each banner is centered between the outermost AI
+  lanes where they cross the gate's line (`rush2::battle::checkpoint_lane_middle`, from battle.cpp's lane crossings),
+  stands on the ground there along the ground's up vector (`rush2::battle::ground_under`,
+  collision_ground_query_8006CF00's matrix row 1), so it leans with a sloped or banked road, and faces along the gate.
+  It is a 64 x 16 ft quad 22 ft above the ground (the arcade's hang 8-18 ft tall, 40-130 ft wide, about 25 ft up),
+  with a mirrored second face 0.25 ft behind so it reads the right way from both sides. Placements are worked out when
+  the path's checkpoints change.
+- **Drawing:** rush2::battle_render slots 176-185 with a model of the port's own (`battle_render::add_model`): its
+  display list at 0x80E1E900 and vertices at 0x80E1E800. It is drawn without fog: the fog in place when battle_render
+  draws (the end of each view) isn't the scenery's, and with G_RM_FOG_SHADE_A the banner came out in the fog color
+  (the sky's) from about 100 ft away, so it showed only from under it.
+- **Test:** `tools/test_race.py 12 --env RUSH2_TEST_RACE_VIEW_CAR=1 --env RUSH2_TEST_ARCADE_INSTALL=1 --games
+  arcade_checkpoints=true --shots ...` (a drone passes Marina's first gate about 8 s into the race);
+  `RUSH2_TEST_ARCADE_CHECKPOINTS=finish` also hangs one over the start line, in view at the start.
