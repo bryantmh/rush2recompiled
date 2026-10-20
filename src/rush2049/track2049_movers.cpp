@@ -43,6 +43,7 @@
 #include "track2049.h"
 #include "track2049_convert.h"
 #include "track2049_movers_logic.h"
+#include "online_sync.h"
 #include "wings.h"
 #include "scene_nodes.h"
 
@@ -672,6 +673,9 @@ void rush2::track2049::reset_movers() {
     std::lock_guard lock{ movers_mutex };
     setup_pending = true;
     active = false;
+    // The moving bodies push cars on even ticks: counted from the race's start, so every machine of an online race
+    // (which ran different numbers of ticks before it) pushes on the same ticks.
+    tick = 0;
 }
 
 // func_80076578 at 0x800765F4, after Rush 2's subway trains moved: $sp + 0x18 = the tick's dt.
@@ -866,5 +870,28 @@ extern "C" void rush2_track49_movers_pads(uint8_t* rdram, recomp_context* ctx) {
     int index = (int)((car - cars) / car_size);
     if (index >= 0 && index < max_cars && contact_poly[index] >= 0) {
         pad_or_platform(rdram, car, contact_poly[index]);
+    }
+}
+
+// Online play's checks and resyncs (include/online_sync.h): the moving objects, which push the cars, and the collision
+// polygons they carry (each MOVER record's POLY matrix and VERT, which apply_ops moves in RDRAM).
+void rush2::track2049::movers_online_sync(rush2::online::sync::Walker& w) {
+    namespace s = rush2::online::sync;
+    std::lock_guard lock{ movers_mutex };
+    s::field(w, active);
+    s::field(w, tick);
+    s::field(w, contact_poly);
+    if (!active) {
+        return;
+    }
+    world.online_sync(w);
+    uint8_t* rdram = w.rdram;
+    uint32_t polys = (uint32_t)MEM_W(0, (int32_t)poly_table), verts = (uint32_t)MEM_W(0, (int32_t)vert_table);
+    if (polys == 0 || verts == 0) {
+        return;
+    }
+    for (const Mover& m : mover_records) {
+        s::rdram_words(w, polys + m.poly * 0x18 + 4, 0x14);
+        s::rdram_words(w, verts + m.vert * 8, 8);
     }
 }

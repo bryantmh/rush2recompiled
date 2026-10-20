@@ -8,6 +8,8 @@ and the docs that mention the address. Names come from the rush2 registry, the s
 naming batches in tmp/naming/*.jsonl ({"vram": "800xxxxx", "name": ...} per line).
 
 Usage: python fsum.py ADDR [ADDR...]        summaries of these functions
+       python fsum.py --reach ROOT... [--stop ADDR...] [--hooks]  functions reachable from the roots, the globals they
+                                             write and (--hooks) the us.toml hooks and ignored functions among them
        python fsum.py --order [--all]        unnamed functions in bottom-up call order (callees first), one per line
                                              with size and number of unnamed callees; --all includes named ones
        python fsum.py --globals              every global variable (address, number of functions using it)
@@ -628,6 +630,55 @@ if __name__ == '__main__':
             for g in todo[:int(a[2])]:
                 print(gsummary(g))
             print('# %d left after these' % max(0, len(todo) - int(a[2])))
+    elif a[0] == '--reach':
+        # Every function reachable from the roots (jal and tail calls; --stop ADDR... cuts the walk there) and every
+        # global those functions write, with its writers: the state a subsystem keeps (e.g. what the physics tick
+        # changes, for online play's synced state).
+        roots, stops = [], set()
+        dest = roots
+        for x in a[1:]:
+            if x == "--hooks":
+                continue
+            if x == '--stop':
+                dest = None
+                continue
+            v = int(x.replace('func_', '').split('_')[-1], 16)
+            (roots.append(v) if dest is not None else stops.add(v))
+        callees, _, _ = graph()
+        seen, todo = set(), list(roots)
+        while todo:
+            f = todo.pop()
+            if f in seen or f in stops:
+                continue
+            seen.add(f)
+            todo.extend(callees.get(f, ()))
+        for f in seen:
+            summarize(f)
+        writes = {}
+        for g, users in GUSE.items():
+            if g >= 0xA0000000 or cstr(g):
+                continue
+            w = [f for f in users if f in seen and any(t[0] == 'w' for t in users[f])]
+            if w:
+                writes[g] = w
+        if '--hooks' in a:
+            # The C++ the reached code runs: us.toml hooks inside reached functions and ignored (C++-replaced) ones.
+            import tomllib
+            us = tomllib.load(open(os.path.join(REPO, 'us.toml'), 'rb'))
+            byname = {n.lower(): f for f, (n, _) in FUNCS.items()}
+            ign = {x.lower() for x in us.get('patches', {}).get('ignored', [])}
+            for f in sorted(seen):
+                if FUNCS[f][0].lower() in ign:
+                    print('ignored %08X %s' % (f, name(f)))
+            for h in us.get('patches', {}).get('hook', []):
+                f = byname.get(h.get('func', '').lower())
+                if f in seen:
+                    at = h.get('before_vram', h.get('after_vram', 0))
+                    print('hook %08X in %s: %s' % (at, name(f), h.get('text', '').strip()[:110]))
+        print('# %d functions reached, %d globals written' % (len(seen), len(writes)))
+        for g in sorted(writes):
+            tags = sorted(set().union(*GUSE[g].values()))
+            print('%s %s  written by %s' % (gfmt(g), '/'.join(tags), ', '.join(sorted(name(f) for f in writes[g]))[:200]))
     elif a[0] == '--batch':
         nsl, k = int(a[1]), int(a[2])
         o = order()

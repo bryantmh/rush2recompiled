@@ -54,6 +54,7 @@
 
 #include "button_glyphs.h"
 #include "game_filter.h"
+#include "online.h"
 #include "players4.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
@@ -776,8 +777,10 @@ void rush2::controls::end_menu_glyphs(uint8_t* rdram) {
 }
 
 bool rush2::wings::button_held(uint8_t* rdram, int player) {
+    // Online every race record has no port (online_game.cpp): its held buttons are the player's lockstep input, the
+    // same on every machine.
     uint8_t port = player_port(rdram, player);
-    if (port >= num_game_ports) {
+    if (port >= num_game_ports && !rush2::online::game::in_race()) {
         return false;
     }
     // WINGS is C-left in the game's layout (src/controls.cpp).

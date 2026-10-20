@@ -577,7 +577,11 @@ namespace {
             std::vector<online::RosterEntry> players = online::roster();
             int me = online::local_slot();
             int count = 0;
-            bool racing = online::state() == online::State::Racing;
+            // A race under way, as the host's roster says (a player who joined during it isn't in it).
+            bool racing = false;
+            for (const online::RosterEntry& e : players) {
+                racing |= e.used && e.in_race;
+            }
             for (size_t i = 0; i < players.size(); i++) {
                 const online::RosterEntry& e = players[i];
                 if (!e.used) {
@@ -587,8 +591,8 @@ namespace {
                 Element* row = make_row(context, players_box, "");
                 theme::color color = e.connected ? theme::color::Text : theme::color::TextDim;
                 add_cell(context, row, e.name, 220.0f, color);
-                add_cell(context, row, !e.connected ? "Left" : racing ? "Racing" : progress_text(e.progress), 200.0f,
-                    color);
+                add_cell(context, row, !e.connected ? "Left" : racing && e.in_race ? "Racing" :
+                    racing ? "Waiting for the next race" : progress_text(e.progress), 200.0f, color);
                 // A machine's players (split screen) share its tag: the host's, yours, or its ping.
                 std::string tag;
                 if (e.machine == 0) {
@@ -624,7 +628,8 @@ namespace {
                 std::to_string(lobbies.size()) + (lobbies.size() == 1 ? " lobby on your network" :
                 " lobbies on your network"));
             for (const online::LanLobby& l : lobbies) {
-                std::string why = !l.compatible ? "Different app version or ROMs" : l.racing ? "Racing" :
+                // A lobby that's racing can be joined: the player waits for the next race.
+                std::string why = !l.compatible ? "Different app version or ROMs" :
                     l.players >= l.max_players ? "Full" : "";
                 Element* row = make_row(context, lan_box, why.empty() ? "Joins " + l.name + " at " + l.address + "." :
                     l.name + " can't be joined right now: " + why + ".");
@@ -639,7 +644,8 @@ namespace {
                 });
                 add_cell(context, row, l.name, 220.0f);
                 add_cell(context, row, std::to_string(l.players) + "/" + std::to_string(l.max_players), 60.0f);
-                add_cell(context, row, why, 0.0f, theme::color::TextDim);
+                add_cell(context, row, why.empty() && l.racing ? "Racing: join for the next race" : why, 0.0f,
+                    theme::color::TextDim);
             }
         }
     };

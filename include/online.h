@@ -14,12 +14,19 @@
 #include "recomp.h"
 
 namespace rush2::online {
+    // A line of the online log: the console, and this game run's online/session_<date>_<time>.txt in the data folder
+    // (the last 20 runs' kept), so a kick or a failed join leaves a record to read after (printf format, newline
+    // included). Any thread.
+    void session_log(const char* format, ...);
+
     constexpr int max_players = 8;
     // Players on one machine (split screen): a machine holds a slot per local player (RosterEntry::machine).
     constexpr int max_local_players = 4;
     constexpr uint16_t default_port = 47100;  // The host's port (UDP).
     constexpr uint16_t discovery_port = 47101; // LAN lobby beacons (UDP broadcast).
     constexpr int max_name_length = 16;
+    // Mod car slots (rush2::car_types::count_mod, types 57-72).
+    constexpr int max_mod_cars = 16;
 
     // One player's controls for one game frame, as every machine applies them.
     struct PlayerInput {
@@ -65,6 +72,9 @@ namespace rush2::online {
         // The car select's TRANSMISSION (player record +0x20: 1 automatic, 0 manual), which the race copies to the
         // car's gearbox (race_setup_cars_8009E6DC at 0x8009EA84, physics car +0x3D8).
         uint8_t automatic = 1;
+        // The player's Rush 2049 wing style (rush2::wings::saved_style, 0-2), which their car's wings fly with on
+        // every machine (src/rush2049/wings_state.cpp).
+        uint8_t wing_style = 0;
 
         bool operator==(const CarChoice&) const = default;
     };
@@ -88,6 +98,9 @@ namespace rush2::online {
         // cursor (0x803D05BC) and the top row on screen (0x803D05C4).
         int8_t option_cursor = 0;
         int8_t option_top = 1;
+        // Why the host's race can't start yet (start_race's last_error), shown on every machine so the player it names
+        // knows what to do (pick another car, close a menu); empty when nothing holds it.
+        std::string start_error;
     };
 
     struct RosterEntry {
@@ -108,6 +121,12 @@ namespace rush2::online {
         // has checked that one and has it.
         uint32_t track_checked = 0;
         bool lacks_track = false;
+        // The mod cars the player's machine has, by mod car slot (rush2::car_mods::online_car_checks: a hash of the mod,
+        // the car and its files; 0 an empty slot). A mod car races online only when every machine has the same car in
+        // the same slot (start_race), so its type number and options mean the same everywhere.
+        std::array<uint32_t, max_mod_cars> mod_cars{};
+        // Host's roster: the player is in the race under way (a player who joined during it waits for the next one).
+        bool in_race = false;
         // The player's settings that change the race (src/online_tab.cpp, "config/option=value" lines). The others'
         // games take the host's (rush2::online_tab::follow_host_settings).
         std::string gameplay;
@@ -117,6 +136,9 @@ namespace rush2::online {
         // The profile's Rush 2049 car options (rush2::car2049::side_block), sent the same way: every machine's race
         // reads the player's 2049 car setup from them.
         std::vector<uint8_t> side;
+        // A mod car's spec (rush2::car2049::mod_car_spec: its physics), sent the same way, so a machine without the car
+        // races it with the same physics (docs/online.md#mod-cars). Empty for the other cars.
+        std::vector<uint8_t> mod_spec;
     };
 
     // One of this machine's players as the car select left them (set_cars).
@@ -125,6 +147,7 @@ namespace rush2::online {
         CarChoice car;
         std::vector<uint8_t> profile;
         std::vector<uint8_t> side;
+        std::vector<uint8_t> mod_spec;
     };
 
     constexpr uint8_t games_rush2049 = 1;  // San Francisco Rush 2049 (src/rush2049/rush2049_rom.cpp).
@@ -140,7 +163,7 @@ namespace rush2::online {
         uint8_t max_players = 0;
         RaceSettings settings;
         bool compatible = false;  // Same build and ROMs as this machine.
-        bool racing = false;      // Mid-race (can't be joined until it ends).
+        bool racing = false;      // Mid-race (a player who joins waits for the next race).
     };
 
     enum class State {
@@ -194,6 +217,8 @@ namespace rush2::online {
 
     // Which other games' ROMs this machine has (games_* bits), sent to the host when joining.
     void set_local_games(uint8_t games);
+    // This machine's mod cars (RosterEntry::mod_cars), sent when joining and whenever they change.
+    void set_local_mod_cars(const std::array<uint32_t, max_mod_cars>& checks);
     // This machine's settings that change the race (RosterEntry::gameplay).
     void set_local_gameplay(const std::string& gameplay);
     void set_display_name(const std::string& name);
@@ -230,9 +255,14 @@ namespace rush2::online {
     // The machine's own players' inputs (in local order) for the frame `frame + input delay`. Called once per game frame.
     void submit_local_input(uint32_t frame, const std::vector<PlayerInput>& inputs);
     // Waits up to timeout_ms (negative: for good) for every player's input for `frame` and copies them to `out`
-    // (max_players entries, by slot).
+    // (max_players entries, by slot). *resync is set when the frame starts with a resync (below).
     enum class Wait { Ready, Timeout, Ended };  // Ended: the race ended (a disconnect from the host, or leave()).
-    Wait wait_frame_inputs(uint32_t frame, PlayerInput* out, int timeout_ms = -1);
+    Wait wait_frame_inputs(uint32_t frame, PlayerInput* out, int timeout_ms = -1, bool* resync = nullptr);
+    // Resyncs (docs/online.md#resyncs): when the machines' races differ (a state hash or the load check), the host
+    // marks a frame no machine has run yet. At its start the host sends its race state (send_snapshot), and every other
+    // machine waits for it (wait_snapshot) and takes it, so the race goes on in step instead of ending.
+    void send_snapshot(uint32_t frame, const std::vector<uint8_t>& state);
+    Wait wait_snapshot(uint32_t frame, std::vector<uint8_t>* out, int timeout_ms);
     // The number of game frames between sampling an input and applying it.
     uint32_t input_delay();
     // The race's seed and settings, fixed when it started.
@@ -242,7 +272,9 @@ namespace rush2::online {
     // Reports this machine's state hash for a frame; the host compares them (desync detection).
     void report_state_hash(uint32_t frame, uint32_t hash);
     // The machine finished loading the race; the race begins (wait_frame_inputs for frame 0 returns) once all have.
-    void report_loaded(uint32_t hash);
+    // hash is its starting state (state_hash: a difference resyncs), track and cars what it set up (the track's
+    // collision data, the cars' physics tables: a difference can't be repaired, and the race doesn't start).
+    void report_loaded(uint32_t hash, uint32_t track, uint32_t cars);
     // The race is over on this machine: back to the lobby.
     void race_finished();
     // A message for the race's overlay ("Waiting for ..."), empty for none.
@@ -262,6 +294,10 @@ namespace rush2::online {
         // In an online race: the car type player (car slot) `car` picked, which the race gives their car whatever its
         // profile says (src/rush2049/car2049.cpp, rush2_car49_select_get). False otherwise.
         bool car_type(int car, int* type);
+        // In an online race: the wing style player (car slot) `car` picked (CarChoice::wing_style). False otherwise.
+        bool wing_style(int car, int* style);
+        // This machine's mod cars as the lobby sees them (rush2::car_mods::online_car_checks; a test aid can fake them).
+        std::array<uint32_t, max_mod_cars> mod_car_checks();
         // In an online race: this machine's first player (car slot), whose record has their own profile; -1 otherwise.
         // A machine's players drive neighboring cars: local_race_player() + i for its player i (local_car).
         int local_race_player();

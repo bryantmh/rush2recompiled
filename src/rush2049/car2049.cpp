@@ -1498,6 +1498,231 @@ void rush2::car2049::clear_mod_car(uint8_t* rdram, int n) {
     rebuild_select_bank(rdram);
 }
 
+void rush2::car2049::copy_mod_car(uint8_t* rdram, int n, int from) {
+    if (n < 0 || n >= rush2::car_types::count_mod || from < 0 || from >= rush2::car_types::count_mod || n == from) return;
+    int from_type = rush2::car_types::first_mod + from;
+    std::string prefix;
+    ModCar spec;
+    {
+        std::lock_guard lock{ side_mutex };
+        if (!mod_slots[from].loaded) return;
+        prefix = mod_slots[from].prefix;
+        spec = mod_slots[from].spec;
+    }
+    std::vector<uint8_t> car;
+    std::vector<rush2::assets::Span> spans;
+    if (!rush2::assets::read_current(car_asset(from_type), car, spans)) return;
+    std::map<uint32_t, std::vector<uint8_t>> scuffed = bodies[from_type].given_scuffs;
+    set_mod_car(rdram, n, std::move(car), prefix, scuffed, spec);
+}
+
+void rush2::car2049::set_stand_in_mod_car(uint8_t* rdram, int n, const ModCar& spec) {
+    if (n < 0 || n >= rush2::car_types::count_mod) return;
+    int type = rush2::car_types::first_mod + n;
+    int base = std::clamp(spec.base, 0, rush2_types - 1);
+    std::vector<uint8_t> car;
+    std::vector<rush2::assets::Span> spans;
+    if (!rush2::assets::read_current(car_asset(base), car, spans)) return;
+    // The physics as the mod sets them. Its per-type rows include the part name table's entry, left on the base car's
+    // name (set_mod_car gives a mod car its own), which the copy's parts are named by.
+    build_mod_physics(rdram, n, spec);
+    std::string prefix;
+    uint32_t name = (uint32_t)MEM_W(0, (int32_t)(name_table + type * 4));
+    for (int i = 0; i < 8 && name >= 0x80000000u && name < 0x80800000u && MEM_B(i, (int32_t)name) != 0; i++) {
+        prefix += (char)MEM_B(i, (int32_t)name);
+    }
+    std::string logo = mod_logo_name(n);
+    for (size_t i = 0; i < 16; i++) {
+        MEM_B(0, (int32_t)(logo_names + (type - first_type) * 16 + i)) = i < logo.size() ? logo[i] : 0;
+    }
+    // Drawn and painted as the base Rush 2 car (not a body car), stripes included.
+    bodies[type] = Paint{};
+    MEM_W(0, (int32_t)(prefixes + type * 4)) = MEM_W(0, (int32_t)(old_prefixes + base * 4));
+    if (car.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
+        MEM_W(0, (int32_t)car_slot_size) = (int32_t)((car.size() + 15) & ~15u);
+    }
+    dented.clear();
+    rush2::assets::replace(rdram, car_asset(type), std::move(car), spans);
+    ModCar shown = spec;
+    shown.schemes = 1;
+    shown.paint_main = shown.paint_accent = true;
+    {
+        std::lock_guard lock{ side_mutex };
+        mod_slots[n].spec = shown;
+        mod_slots[n].prefix = prefix;
+        mod_slots[n].loaded = true;
+    }
+    mod_schemes[n] = 1;
+    mod_loaded[n] = true;
+    logos_mod[n] = spec.name;
+    rebuild_select_bank(rdram);
+}
+
+namespace {
+    // Slots lent to an online race (lend_mod_slot) and what this machine had in them, put back by return_mod_slots.
+    struct LentSlot {
+        bool lent = false;
+        bool had = false;
+        std::vector<uint8_t> car;
+        std::string prefix;
+        rush2::car2049::ModCar spec;
+        std::map<uint32_t, std::vector<uint8_t>> scuffed;
+    };
+    LentSlot lent_slots[rush2::car_types::count_mod];
+}
+
+void rush2::car2049::lend_mod_slot(uint8_t* rdram, int n, int from, const ModCar& spec) {
+    if (n < 0 || n >= rush2::car_types::count_mod) return;
+    LentSlot& l = lent_slots[n];
+    if (!l.lent) {
+        l = LentSlot{};
+        l.lent = true;
+        int type = rush2::car_types::first_mod + n;
+        std::vector<rush2::assets::Span> spans;
+        std::lock_guard lock{ side_mutex };
+        l.had = mod_slots[n].loaded && rush2::assets::read_current(car_asset(type), l.car, spans);
+        l.prefix = mod_slots[n].prefix;
+        l.spec = mod_slots[n].spec;
+        l.scuffed = bodies[type].given_scuffs;
+    }
+    if (from >= 0 && from != n && lent_slots[from].lent) {
+        // `from` was lent earlier this race (two machines hold the same cars in swapped slots): its own car is the
+        // one kept.
+        const LentSlot& f = lent_slots[from];
+        if (f.had) {
+            set_mod_car(rdram, n, f.car, f.prefix, f.scuffed, f.spec);
+        }
+    }
+    else if (from >= 0) {
+        copy_mod_car(rdram, n, from);
+    }
+    else {
+        set_stand_in_mod_car(rdram, n, spec);
+    }
+}
+
+void rush2::car2049::return_mod_slots(uint8_t* rdram) {
+    for (int n = 0; n < rush2::car_types::count_mod; n++) {
+        LentSlot& l = lent_slots[n];
+        if (!l.lent) continue;
+        if (l.had) {
+            set_mod_car(rdram, n, std::move(l.car), l.prefix, l.scuffed, l.spec);
+        }
+        else {
+            clear_mod_car(rdram, n);
+        }
+        l = LentSlot{};
+    }
+}
+
+namespace {
+    // ModCar's physics and look settings as bytes (mod_car_spec), little-endian, floats by their bits.
+    struct SpecWriter {
+        std::vector<uint8_t> out;
+        void u8(uint8_t v) { out.push_back(v); }
+        void u32(uint32_t v) { for (int i = 0; i < 4; i++) out.push_back(uint8_t(v >> (8 * i))); }
+        void f32(float f) { uint32_t v; memcpy(&v, &f, 4); u32(v); }
+    };
+    struct SpecReader {
+        const std::vector<uint8_t>& in;
+        size_t at = 0;
+        bool bad = false;
+        uint8_t u8() { if (at >= in.size()) { bad = true; return 0; } return in[at++]; }
+        uint32_t u32() { uint32_t v = 0; for (int i = 0; i < 4; i++) v |= uint32_t(u8()) << (8 * i); return v; }
+        float f32() { uint32_t v = u32(); float f; memcpy(&f, &v, 4); return f; }
+    };
+    constexpr uint8_t spec_version = 1;
+}
+
+std::vector<uint8_t> rush2::car2049::mod_car_spec(int n) {
+    ModCar m;
+    {
+        std::lock_guard lock{ side_mutex };
+        if (n < 0 || n >= rush2::car_types::count_mod || !mod_slots[n].loaded) return {};
+        m = mod_slots[n].spec;
+    }
+    SpecWriter w;
+    w.u8(spec_version);
+    w.u8(uint8_t(std::min<size_t>(m.name.size(), 32)));
+    for (size_t i = 0; i < m.name.size() && i < 32; i++) w.u8(uint8_t(m.name[i]));
+    w.u8(uint8_t(m.base));
+    w.u8(m.has_wheels ? 1 : 0);
+    for (auto& wheel : m.wheels) for (float f : wheel) w.f32(f);
+    w.f32(m.wheel_scale[0]);
+    w.f32(m.wheel_scale[1]);
+    w.u8(m.has_box ? 1 : 0);
+    for (float f : m.box) w.f32(f);
+    w.u32(uint32_t(m.main));
+    w.u32(uint32_t(m.accent));
+    w.u32(uint32_t(m.physics_from));
+    w.u32(uint32_t(m.top_gear));
+    w.u8(m.tires_2049 ? 1 : 0);
+    w.u32(uint32_t(m.desc_floats.size()));
+    for (const auto& [o, v] : m.desc_floats) { w.u32(o); w.f32(v); }
+    w.u32(uint32_t(m.table_floats.size()));
+    for (const auto& [o, v] : m.table_floats) { w.u32(o); w.f32(v); }
+    w.u32(uint32_t(m.table_bytes.size()));
+    for (const auto& [o, v] : m.table_bytes) { w.u32(o); w.u32(uint32_t(v)); }
+    return w.out;
+}
+
+bool rush2::car2049::read_mod_car_spec(const std::vector<uint8_t>& bytes, ModCar& m) {
+    SpecReader r{ bytes };
+    if (r.u8() != spec_version) return false;
+    m = ModCar{};
+    int name_size = r.u8();
+    for (int i = 0; i < name_size; i++) m.name += char(r.u8());
+    m.base = r.u8();
+    m.has_wheels = r.u8() != 0;
+    for (auto& wheel : m.wheels) for (float& f : wheel) f = r.f32();
+    m.wheel_scale[0] = r.f32();
+    m.wheel_scale[1] = r.f32();
+    m.has_box = r.u8() != 0;
+    for (float& f : m.box) f = r.f32();
+    m.main = int32_t(r.u32());
+    m.accent = int32_t(r.u32());
+    m.physics_from = int32_t(r.u32());
+    m.top_gear = int32_t(r.u32());
+    m.tires_2049 = r.u8() != 0;
+    // Counts are capped: a short message reads as bad, never as a huge list.
+    uint32_t count = std::min<uint32_t>(r.u32(), 4096);
+    for (uint32_t i = 0; i < count && !r.bad; i++) { uint32_t o = r.u32(); m.desc_floats.emplace_back(o, r.f32()); }
+    count = std::min<uint32_t>(r.u32(), 4096);
+    for (uint32_t i = 0; i < count && !r.bad; i++) { uint32_t o = r.u32(); m.table_floats.emplace_back(o, r.f32()); }
+    count = std::min<uint32_t>(r.u32(), 4096);
+    for (uint32_t i = 0; i < count && !r.bad; i++) { uint32_t o = r.u32(); m.table_bytes.emplace_back(o, int32_t(r.u32())); }
+    return !r.bad && m.base >= 0 && m.base < rush2_types;
+}
+
+uint32_t rush2::car2049::physics_hash(uint8_t* rdram, int type, int row, uint32_t h) {
+    if (type < 0 || type >= new_types) return h;
+    auto add = [&](uint32_t at, uint32_t size) {
+        for (uint32_t i = 0; i < size; i++) h = (h ^ (uint8_t)MEM_BU(0, (int32_t)(at + i))) * 16777619u;
+    };
+    // What the physics read for a car of `type` in row `row` (0 a computer car, player + 1): the per-type physics
+    // tables (as build_mod_physics counts them, with ENGINE), its descriptor and its box. Names, wheel scales, rims and
+    // colors are looks, which a stand-in mod car (set_stand_in_mod_car) has of its own.
+    constexpr uint32_t physics_tables[] = { types_::steer_base, types_::yaw_damping, types_::preload, types_::mass,
+                                            types_::inertia, types_::yaw_inertia, types_::weight, types_::engine,
+                                            types_::torque, types_::drive, types_::suspension, types_::tires };
+    for (const Table& t : tables) {
+        if (std::find(std::begin(physics_tables), std::end(physics_tables), t.old_base) == std::end(physics_tables)) {
+            continue;
+        }
+        int r = row < new_rows(t) ? row : 0;
+        add(types_::entry(t.old_base, r, type), (uint32_t)t.size);
+    }
+    int desc = (uint8_t)MEM_BU(0, (int32_t)(t_desc_index + type));
+    uint32_t at = (uint32_t)MEM_W(0, (int32_t)(desc_ptrs + desc * 4));
+    if (at >= 0x80000000u && at + desc_size <= 0x80800000u) {
+        // Words that are addresses (the tire curves, +0x68) point at the same data on every machine: their target is
+        // in the ROM's tables or build_physics' copies, laid out alike.
+        add(at, desc_size);
+    }
+    add(boxes + type * 16, 16);
+    return h;
+}
+
 int rush2::car2049::mod_car_paints(int type) {
     if (!rush2::car_types::is_mod(type)) return 3;
     std::lock_guard lock{ side_mutex };

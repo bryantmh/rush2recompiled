@@ -58,6 +58,7 @@
 #include "recomp.h"
 #include "battle.h"
 #include "battle_ai.h"
+#include "online_sync.h"
 #include "ghost.h"
 #include "rush2.h"
 
@@ -1476,4 +1477,51 @@ extern "C" void rush2_battle_ai_tick_end(uint8_t* rdram, recomp_context* ctx) {
         MEM_B(0, kind) = own_kind;
         if (MEM_BU(0, (int32_t)drone_extra) != 0) call(rdram, ctx, car_material_effects_update_800663CC, car);
     }
+}
+
+// Online play's checks and resyncs (include/online_sync.h): each computer car's brain (its goal, route and timers),
+// the AI's random numbers and its clock.
+void rush2::battle_ai::online_sync(rush2::online::sync::Walker& w) {
+    namespace s = rush2::online::sync;
+    std::lock_guard lock{ ai_mutex };
+    for (Brain& b : brains) {
+        s::field(w, b.p.aggression);
+        s::field(w, b.p.greed);
+        s::field(w, b.p.range);
+        s::field(w, b.p.caution);
+        s::field(w, b.p.pace);
+        s::field(w, b.side);
+        s::field(w, b.side_time);
+        s::field(w, b.pinned);
+        s::field(w, b.disengage);
+        s::field(w, b.goal);
+        s::field(w, b.target);
+        s::field(w, b.pickup);
+        s::field(w, b.roam_to);
+        s::field(w, b.think);
+        s::vector(w, b.path);
+        s::field(w, b.path_at);
+        s::field(w, b.replan);
+        s::field(w, b.path_goal);
+        s::field(w, b.path_failed);
+        s::field(w, b.stuck);
+        s::field(w, b.reverse);
+        s::field(w, b.reverse_steer);
+        s::field(w, b.idle);
+        s::field(w, b.idle_from);
+        s::field(w, b.evade);
+        s::field(w, b.evade_turn);
+        s::field(w, b.held);
+        s::vector(w, b.unreachable);
+        s::field(w, b.target_unreachable);
+        s::field(w, b.steer);
+        s::field(w, b.throttle);
+        s::field(w, b.brake);
+        s::field(w, b.gear);
+        s::field(w, b.buttons);
+    }
+    s::engine(w, rng);
+    s::field(w, round_live);
+    s::field(w, ai_clock);
+    s::field(w, stepping);
 }

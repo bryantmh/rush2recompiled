@@ -52,6 +52,7 @@
 #include "paint_colors.h"
 #include "npc_cars.h"
 #include "options_page.h"
+#include "online.h"
 #include "rush2_hooks.h"
 
 namespace {
@@ -166,6 +167,10 @@ extern "C" void rush2_npc_cars_apply(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     slot_rims[slot] = random_value;
+    // Online every machine paints the computer cars alike: the colors drawn here come from the race's seed.
+    if (rush2::online::game::in_race()) {
+        rng.seed(rush2::online::race_seed() * 2654435761u + (uint32_t)slot);
+    }
     if (MEM_BU(0, (int32_t)attract_mode) != 0 || MEM_BU(0, (int32_t)(cars + slot * car_size + car_kind)) != 1) {
         return;
     }

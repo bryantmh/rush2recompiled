@@ -35,5 +35,8 @@ California Speed:
 
 
 California speed had a custom RGB paint system, could that be ported over to here on rush?
-Would it be possible to allow the mapping of the left stick "up" position to be gas and the "down" position to be brake? I have some old N64 wheels I'd like to use for this game and the pedals map to the stick (so that gas/brake is analog)
 Also, this is a screenshot of the demo mode when the game is first launched. It has different camera angles, and the game runs through it's "attract mode" I have always loved this high angle. Anyway to add more camera angles, maybe some higher up and back like this one? Maybe classic Virtua Racing Heli cam LOL. Thanks again! Love all the mods you're already working on!
+
+Marina blue square
+Car shading map?
+Moving trolleys and subs don't work

@@ -52,6 +52,7 @@
 #include "rush2049_rom.h"
 #include "players4.h"
 #include "online.h"
+#include "online_sync.h"
 #include "stunt2049.h"
 #include "wings.h"
 
@@ -1172,4 +1173,54 @@ extern "C" void rush2_stunt2049_panel_text(uint8_t* rdram, recomp_context* ctx) 
     if (hud_on()) {
         ctx->r5 = 1;
     }
+}
+
+// Online play's checks and resyncs (include/online_sync.h): each player's trick detector and combo, which score the
+// stunt points.
+void rush2::stunt2049::online_sync(rush2::online::sync::Walker& w) {
+    namespace s = rush2::online::sync;
+    for (Player& p : players) {
+        Detector& d = p.det;
+        s::field(w, d.flags);
+        s::field(w, d.roll);
+        s::field(w, d.flip);
+        s::field(w, d.spin);
+        s::field(w, d.multi);
+        s::field(w, d.air_start);
+        s::field(w, d.air_end);
+        s::field(w, d.side_start);
+        s::field(w, d.side_end);
+        s::field(w, d.front_start);
+        s::field(w, d.front_end);
+        s::field(w, d.back_start);
+        s::field(w, d.back_end);
+        s::field(w, d.settled);
+        Score& c = p.score;
+        s::field(w, c.active);
+        s::field(w, c.crashed);
+        s::field(w, c.time);
+        s::field(w, c.best);
+        s::field(w, c.points);
+        s::field(w, c.shown_points);
+        s::field(w, c.total);
+        s::field(w, c.changes);
+        s::field(w, c.last);
+        s::field(w, c.count);
+        s::field(w, c.shown_count);
+        s::field(w, c.all_count);
+        s::field(w, c.wings_time);
+        s::field(w, c.landing);
+        s::field(w, c.shown_landing);
+        s::field(w, c.bonus);
+        s::field(w, c.shown_bonus);
+        s::field(w, c.mult);
+        s::field(w, c.shown_mult);
+        s::field(w, c.new_kinds);
+        s::field(w, c.landed);
+        s::field(w, c.shown_name);
+        s::field(w, c.shown_base);
+        s::field(w, c.panel_mult);
+    }
+    s::field(w, body_hit);
+    s::field(w, car_player);
 }

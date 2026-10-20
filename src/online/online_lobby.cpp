@@ -10,8 +10,10 @@
 //   is on its track select, take the host's circuit (online_game.cpp, follow_circuit) and go on as CONTINUE does.
 // - Track select: the host's. The others' track selects show the host's every frame (track, carousel, options and
 //   cursor; their controllers are off) and confirm when the host's does, so they go on to the car select with it.
-// - Car select: everyone picks their own car. A player who has stays on the screen, controller off
-//   (car_select_done), until all have; then the host starts the race and every car select starts it.
+// - Car select: everyone picks their own car. A player who has stays on the screen (car_select_done) until all
+//   have; then the host starts the race and every car select starts it. A player who picked can always change their
+//   car: B takes them to the track select, which goes on to the car select again as the host's is there. Why the host's
+//   race can't start (MenuState::start_error) shows on every machine, so the player it names knows what to do.
 // Each machine's progress comes from where its own game is, never from what it was told, so a player who backs out
 // or joins late is waited for and nobody waits on a step that already happened.
 // The game's controller reads go through controller_override (main.cpp): where the machine's players choose (Select
@@ -45,6 +47,9 @@
 #include "car2049.h"
 #include "players4.h"
 #include "circuit.h"
+#include "car_mods.h"
+#include "car_types.h"
+#include "wings.h"
 
 namespace {
     using namespace rush2::online;
@@ -113,6 +118,8 @@ namespace {
     bool start_sent = false;       // Host: asked for the race to start.
     bool allow_back = false;       // Backing out of the car select is how this machine follows the host back.
     bool after_race = false;       // Back to the track select once the post-race is done.
+    // Host: why its race couldn't start (start_race's error), published for every machine (MenuState::start_error).
+    std::string start_problem;
     int frames_in_state = 0;
     int last_state = -1;
     int pulse = 0;
@@ -172,7 +179,12 @@ namespace {
                       : rush2::calspeed::is_menu_track(t) ? games_calspeed : 0;
         s.battle_points = (uint8_t)rush2::battle::points_to_win();
         s.battle_minutes = (uint8_t)rush2::battle::time_limit_minutes();
-        s.race_battle = rush2::battle::race_battle() ? 1 : 0;
+        // The BATTLE row arms the race only with the Rush 2049 tracks on (rush2::battle::race_battle_applies): then
+        // every machine needs Rush 2049's ROM for it, or the race would have weapons on some machines only.
+        s.race_battle = rush2::battle::race_battle() && rush2::track2049::available() ? 1 : 0;
+        if (s.race_battle != 0) {
+            s.needs_games |= games_rush2049;
+        }
         s.mod_track = rush2::track2049::online_track_key(t);
         s.mod_track_name = rush2::track2049::mod_track_name(t);
         s.circuit = rush2::online::game::read_circuit(rdram);
@@ -260,6 +272,19 @@ namespace {
             (int8_t)MEM_B(2, (int32_t)block) >= rush2::circuit::length(rdram);
     }
 
+    // The ROMs in a games_* mask by name ("SF Rush and Rush 2049").
+    std::string games_names(uint8_t games) {
+        std::vector<std::string> names;
+        if (games & games_rush1) names.push_back("SF Rush");
+        if (games & games_rush2049) names.push_back("Rush 2049");
+        if (games & games_calspeed) names.push_back("California Speed");
+        std::string out;
+        for (size_t i = 0; i < names.size(); i++) {
+            out += (i == 0 ? "" : i + 1 == names.size() ? " and " : ", ") + names[i];
+        }
+        return out;
+    }
+
     void stop_following_rules() {
         if (following_rules) {
             rush2::battle::set_points_to_win(own_points);
@@ -337,6 +362,7 @@ namespace {
         if (phase != MenuPhase::Car) {
             car_chosen = false;
             start_sent = false;
+            start_problem.clear();
         }
         set_progress(phase == MenuPhase::Car ? (car_chosen ? Progress::CarChosen : Progress::ChoosingCar) :
             phase == MenuPhase::Track ? Progress::TrackSelect :
@@ -346,8 +372,12 @@ namespace {
         std::string lacking = missing_games(r, me, s.needs_games);
         bool unchecked = false;
         std::string lacking_mod = lacking_track(r, me, s, &unchecked);
+        // A custom track goes by its key (the machines number their custom tracks in their own mod order): one whose
+        // files haven't been read and hashed yet has none, and the others would race whatever their own id names.
+        bool keyless_mod = s.track >= rush2::track2049::mod_menu_id && s.track < rush2::calspeed::first_menu_id &&
+            s.mod_track.empty();
         bool can_confirm = !unsupported && all_on_track && lacking.empty() && lacking_mod.empty() && !unchecked &&
-            frames_in_state >= settle_frames;
+            !keyless_mod && frames_in_state >= settle_frames;
 
         if (gs == 1) {
             // The host browses its track select freely but confirms only once everyone is on theirs.
@@ -366,17 +396,29 @@ namespace {
         m.settings = s;
         m.option_cursor = (int8_t)MEM_W(0, (int32_t)option_cursor);
         m.option_top = (int8_t)MEM_W(0, (int32_t)option_top);
+        m.start_error = start_problem;
         publish_menu(m);
+
+        // A Battle needs the Rush 2049 ROM for its Start Game row (start_menu_row): a player without it can't follow.
+        std::string no_battle = StartKind(s.start_kind) == StartKind::Battle ? missing_games(r, me, games_rush2049) : "";
 
         if (unsupported && others) {
             notice = "Online races are One Race, Circuit, Stunt and Battle: back out to Start Game and pick one of those.";
         }
+        else if (phase != MenuPhase::Lobby && !no_battle.empty()) {
+            notice = no_battle + (no_battle.find(',') == std::string::npos ? " doesn't" : " don't") +
+                " have the Rush 2049 ROM a Battle needs: back out to Start Game and pick another race.";
+        }
         // A player who joined while the host was on the car select may lack the track: they stay on their track
         // select and the race doesn't start (below) until the host goes back and picks another.
         else if ((phase == MenuPhase::Track || phase == MenuPhase::Car) && !lacking.empty()) {
+            bool several = (s.needs_games & (s.needs_games - 1)) != 0;
             notice = lacking + (lacking.find(',') == std::string::npos ? " doesn't" : " don't") + " have the " +
-                (s.needs_games == games_rush1 ? "SF Rush" : s.needs_games == games_calspeed ? "California Speed" : "Rush 2049") +
-                " ROM this track needs.";
+                games_names(s.needs_games) + (several ? " ROMs" : " ROM") + " this race needs" +
+                (s.race_battle != 0 ? " (the BATTLE row's weapons are Rush 2049's)." : ".");
+        }
+        else if (phase == MenuPhase::Track && keyless_mod && others) {
+            notice = "Reading the custom track's files...";
         }
         else if ((phase == MenuPhase::Track || phase == MenuPhase::Car) && !lacking_mod.empty()) {
             notice = lacking_mod + (lacking_mod.find(',') == std::string::npos ? " doesn't" : " don't") +
@@ -399,9 +441,13 @@ namespace {
         if (phase == MenuPhase::Car && car_chosen && !start_sent && all_at_least(r, me, Progress::CarChosen) &&
             lacking.empty() && lacking_mod.empty() && !unchecked) {
             start_sent = start_race(s);
+            start_problem = start_sent ? std::string() : last_error();
             if (!start_sent) {
-                notice = last_error();
+                notice = start_problem;
             }
+        }
+        else if (!(phase == MenuPhase::Car && car_chosen)) {
+            start_problem.clear();
         }
     }
 
@@ -445,7 +491,9 @@ namespace {
                 set_ports(Ports::Blocked);
             }
             set_progress(Progress::Lobby);
-            notice = "Waiting for " + host + " to start a race.";
+            bool race_on = std::any_of(r.begin(), r.end(), [](const RosterEntry& e) { return e.used && e.in_race; });
+            notice = race_on ? "A race is under way: you'll race in the next one." :
+                "Waiting for " + host + " to start a race.";
             return;
         }
 
@@ -545,11 +593,12 @@ namespace {
                 notice.clear();
                 return;
             }
-            set_ports(car_chosen ? Ports::Blocked : Ports::Own);
+            // A player who picked keeps B, which takes them back to change their car (car_select_back).
+            set_ports(car_chosen ? Ports::BackOnly : Ports::Own);
             set_progress(car_chosen ? Progress::CarChosen : Progress::ChoosingCar);
-            notice = !car_chosen ? "Pick your car." : all_at_least(r, local_slot(), Progress::CarChosen) ?
-                "Waiting for " + host + " to start the race." :
-                "Waiting for " + list_names(r, local_slot(), Progress::CarChosen) + " to pick a car.";
+            notice = !car_chosen ? "Pick your car." : !hm.start_error.empty() ? hm.start_error :
+                all_at_least(r, local_slot(), Progress::CarChosen) ? "Waiting for " + host + " to start the race." :
+                "Waiting for " + list_names(r, local_slot(), Progress::CarChosen) + " to pick a car. (B changes your car.)";
             return;
         }
     }
@@ -671,6 +720,8 @@ void rush2::online::game::init_overlay() {
 
 void rush2::online::game::lobby_frame(uint8_t* rdram) {
     rush2::online_tab::follow_host_settings();
+    static_assert(rush2::car_types::count_mod == max_mod_cars);
+    set_local_mod_cars(rush2::online::game::mod_car_checks());
     State st = state();
     int gs = state_of(rdram);
     if (st == State::Offline || st == State::Connecting) {
@@ -687,8 +738,15 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
     }
     if (st != State::Lobby) {
         // The race is starting or running (online_game.cpp): the overlay is up only while it waits for someone
-        // (race_notice).
-        set_ports(gs == 2 ? Ports::Blocked : Ports::Off);
+        // (race_notice). A joiner who had just backed out of the car select (to change car) as the host started is on
+        // the track select: A takes it back in, where the race starts.
+        pulse++;
+        if (st == State::Loading && gs == 1 && !is_host()) {
+            set_ports(Ports::Fed, pulsed(button_a, 4));
+        }
+        else {
+            set_ports(gs == 2 ? Ports::Blocked : Ports::Off);
+        }
         update_overlay(!race_waiting.empty());
         return;
     }
@@ -749,7 +807,7 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         std::to_string(ports_mode.load()) + ": " + notice;
     if (now != logged) {
         logged = now;
-        std::fprintf(stderr, "[lobby] %s\n", now.c_str());
+        rush2::online::session_log("[lobby] %s\n", now.c_str());
     }
     update_overlay(true);
 }
@@ -826,6 +884,7 @@ bool rush2::online::game::car_select_done(uint8_t* rdram, recomp_context* ctx, b
                 lp.car.colors[i] = (uint8_t)MEM_BU(2 + i, entry);
             }
             lp.car.automatic = (uint8_t)MEM_BU(record_automatic, record);
+            lp.car.wing_style = (uint8_t)rush2::wings::saved_style(p);
             lp.name = rush2::collectibles::player_name(rdram, p);
             // The profile the player races with, as the car select left it, and its Rush 2049 car options
             // (online_game.cpp).
@@ -836,6 +895,10 @@ bool rush2::online::game::car_select_done(uint8_t* rdram, recomp_context* ctx, b
                     lp.profile[i] = (uint8_t)MEM_BU(0, (int32_t)(address + i));
                 }
                 lp.side = rush2::car2049::side_block(rdram, address);
+            }
+            // A mod car's physics, for a machine that hasn't it (docs/online.md#mod-cars).
+            if (rush2::car_types::is_mod(lp.car.type)) {
+                lp.mod_spec = rush2::car2049::mod_car_spec(lp.car.type - rush2::car_types::first_mod);
             }
         }
         set_cars(players);
@@ -853,5 +916,7 @@ bool rush2::online::game::car_select_back(uint8_t* rdram) {
     if (state() != State::Lobby || is_host()) {
         return false;
     }
-    return !allow_back;
+    // Following the host back, or a player who picked going to change their car (the track select brings them back
+    // in while the host's car select is up). A player who hasn't picked stays: the race waits for their car.
+    return !allow_back && !car_chosen;
 }

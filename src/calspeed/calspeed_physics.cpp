@@ -42,6 +42,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "calspeed.h"
+#include "online_sync.h"
 #include "car_types.h"
 #include "surface_fx.h"
 
@@ -769,4 +770,20 @@ extern "C" void rush2_csphys_wreck_log(uint8_t* rdram, recomp_context* ctx) {
     printf("[cswreck] trigger car %d a1 %d from %08X at %.0f %.0f %.0f speed %.0f\n", s, (int)ctx->r5,
            (uint32_t)ctx->r31, f32(rdram, car + car_position), f32(rdram, car + car_position + 4),
            f32(rdram, car + car_position + 8), f32(rdram, car + car_speed));
+}
+
+// Online play's checks and resyncs (include/online_sync.h): each car's California Speed physics state.
+void rush2::calspeed::physics::online_sync(rush2::online::sync::Walker& w) {
+    namespace s = rush2::online::sync;
+    for (CarState& c : cars) {
+        s::field(w, c.role);
+        s::field(w, c.grip_lateral);
+        s::field(w, c.grip_long);
+        s::field(w, c.hold);
+        s::field(w, c.probe_material);
+        s::field(w, c.normal);
+        s::field(w, c.rest);
+        s::field(w, c.mph4);
+        s::field(w, c.wall);
+    }
 }

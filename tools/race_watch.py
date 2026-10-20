@@ -111,12 +111,14 @@ def sample(rd):
     c = rd.block(CARS, CAR_SIZE * 8)
     g = rd.block(0x8010C0D0, 0x100)
     t = rd.block(0x80117488, 4)
-    if not (s and c and g and t):
+    clock = rd.block(0x8010C204, 4)   # race_time_float: the checkpoint clock (time left)
+    if not (s and c and g and t and clock):
         return None
     _, sf, sb, _ = word_view(s, STATES)
     _, cf, cb, ch = word_view(c, CARS)
     gw, _, gb, _ = word_view(g, 0x8010C0D0)
-    out = {'time': struct.unpack('<f', t)[0], 'state': gw(0x8010C0D0), 'cars': gb(0x8010C15A), 'list': []}
+    out = {'time': struct.unpack('<f', t)[0], 'state': gw(0x8010C0D0), 'cars': gb(0x8010C15A),
+           'clock': round(struct.unpack('<f', clock)[0], 2), 'list': []}
     for k in range(8):
         st, ph = STATES + k * STATE_SIZE, CARS + k * CAR_SIZE
         out['list'].append({'pos': [round(sf(st + i * 4), 1) for i in range(3)], 'place': sb(st + 0xE9),

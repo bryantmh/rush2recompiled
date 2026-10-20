@@ -4,6 +4,7 @@
 // Shared by the files of src/online/ (docs/online.md).
 
 #include <cstdint>
+#include <array>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -13,11 +14,11 @@
 namespace rush2::online {
     // Bumped whenever the messages below change; machines with different versions can't play together (it is part of
     // the compatibility key too, but the hello checks it first to give a clearer reason).
-    constexpr uint32_t protocol_version = 6; // 6: mod car types 57-72, 0x2A0-byte side blocks (5: California Speed)
+    constexpr uint32_t protocol_version = 8; // 8: setup check at load; 7: resyncs, mod cars (6: mod car types 57-72)
 
     // Messages, each starting with its type byte. Host -> client unless marked client -> host.
     enum class Msg : uint8_t {
-        Hello = 1,        // client -> host: u32 protocol, str key, str name, car, u8 games, long str gameplay
+        Hello = 1,        // client -> host: u32 protocol, str key, str name, car, u8 games, long str gameplay, mod cars
         Welcome = 2,      // u8 slot, str lobby name, u8 max players
         Reject = 3,       // str reason
         Roster = 4,       // roster
@@ -26,17 +27,21 @@ namespace rush2::online {
         SetProgress = 7,  // client -> host: u8 progress, u32 custom track checked, u8 lacks it
         SetName = 8,      // client -> host: str
         Start = 9,        // u32 seed, u8 input delay, settings, roster, max_players x (bytes profile, bytes side)
-        Loaded = 10,      // client -> host: u32 hash
+        Loaded = 10,      // client -> host: u32 state hash, u32 track, u32 cars (report_loaded)
         Go = 11,          // every machine has loaded: the race begins
         Input = 12,       // client -> host: u32 frame, u8 count, count x input (the machine's players in local order)
-        FrameInputs = 13, // u32 frame, max_players inputs
+        FrameInputs = 13, // u32 frame, u8 flags (frame_resync), max_players inputs
         Hash = 14,        // client -> host: u32 frame, u32 hash
-        Desync = 15,      // u32 frame: the machines' races differ; the race ends
-        LoadMismatch = 16,// a machine set up a different race; the race ends
+        // 15 (Desync) ended the race before protocol 7; races differing now resync.
+        LoadMismatch = 16,// str reason: the machines set up different races; it ends
         Finished = 17,    // client -> host: the race is over on this machine
         SetGameplay = 18, // client -> host: long str
-        MenuState = 19,   // u8 phase (MenuPhase), settings, s8 option cursor, s8 option top
+        MenuState = 19,   // u8 phase (MenuPhase), settings, s8 option cursor, s8 option top, str start error
+        SetModCars = 20,  // client -> host: mod cars
+        Snapshot = 21,    // u32 frame, bytes: the host's race state at the start of a resync frame
+        Notice = 22,      // str: something every machine shows for a while (a resync)
     };
+    constexpr uint8_t frame_resync = 1;  // FrameInputs flags: the frame starts with the host's race state (Snapshot).
 
     // ENet channels.
     constexpr uint8_t channel_lobby = 0;
@@ -78,6 +83,7 @@ namespace rush2::online {
                 u8(v);
             }
             u8(c.automatic);
+            u8(c.wing_style);
         }
         void settings(const RaceSettings& s) {
             u8(uint8_t(s.mode));
@@ -95,10 +101,15 @@ namespace rush2::online {
             str(s.mod_track_name);
             bytes(s.circuit);
         }
+        void mod_cars(const std::array<uint32_t, max_mod_cars>& checks) {
+            for (uint32_t c : checks) {
+                u32(c);
+            }
+        }
         void roster(const RosterEntry* entries) {
             for (int i = 0; i < max_players; i++) {
                 const RosterEntry& e = entries[i];
-                u8(uint8_t((e.used ? 1 : 0) | (e.connected ? 2 : 0) | (e.lacks_track ? 4 : 0)));
+                u8(uint8_t((e.used ? 1 : 0) | (e.connected ? 2 : 0) | (e.lacks_track ? 4 : 0) | (e.in_race ? 8 : 0)));
                 u8(e.machine);
                 u8(e.local_index);
                 u8(e.progress);
@@ -108,6 +119,7 @@ namespace rush2::online {
                 car(e.car);
                 u8(e.games);
                 long_str(e.gameplay);
+                mod_cars(e.mod_cars);
             }
         }
     };
@@ -173,6 +185,7 @@ namespace rush2::online {
                 v = u8();
             }
             c.automatic = u8();
+            c.wing_style = u8();
             return c;
         }
         RaceSettings settings() {
@@ -193,6 +206,13 @@ namespace rush2::online {
             s.circuit = bytes();
             return s;
         }
+        std::array<uint32_t, max_mod_cars> mod_cars() {
+            std::array<uint32_t, max_mod_cars> checks{};
+            for (uint32_t& c : checks) {
+                c = u32();
+            }
+            return checks;
+        }
         void roster(RosterEntry* entries) {
             for (int i = 0; i < max_players; i++) {
                 RosterEntry& e = entries[i];
@@ -200,6 +220,7 @@ namespace rush2::online {
                 e.used = (flags & 1) != 0;
                 e.connected = (flags & 2) != 0;
                 e.lacks_track = (flags & 4) != 0;
+                e.in_race = (flags & 8) != 0;
                 e.machine = u8();
                 e.local_index = u8();
                 if (e.machine >= max_players || e.local_index >= max_local_players) {
@@ -212,6 +233,7 @@ namespace rush2::online {
                 e.car = car();
                 e.games = u8();
                 e.gameplay = long_str();
+                e.mod_cars = mod_cars();
             }
         }
 

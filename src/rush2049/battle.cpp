@@ -62,6 +62,7 @@
 #include "battle.h"
 #include "collision_polys.h"
 #include "online.h"
+#include "online_sync.h"
 #include "battle_ai.h"
 #include "battle_render.h"
 #include "hud_layout.h"
@@ -3296,4 +3297,112 @@ bool rush2::battle::ground_under(uint8_t* rdram, recomp_context* ctx, const floa
     game_ctx = had;
     if (g.found) ground_y = g.y;
     return g.found;
+}
+
+// Online play's checks and resyncs (include/online_sync.h): the battle's fighters, pickups, power-ups, shots and clock,
+// and the renderer slots the cars and shots hold (not the HUD's, one set per view, which differ by machine).
+void rush2::battle::online_sync(rush2::online::sync::Walker& w) {
+    namespace s = rush2::online::sync;
+    std::lock_guard lock{ battle_mutex };
+    for (Fighter& f : fighters) {
+        s::field(w, f.present);
+        s::field(w, f.health);
+        s::field(w, f.kills);
+        s::field(w, f.deaths);
+        s::field(w, f.weapon);
+        s::field(w, f.ammo);
+        s::field(w, f.cooldown);
+        s::field(w, f.aim_yaw);
+        s::field(w, f.aim_pitch);
+        s::field(w, f.invisible);
+        s::field(w, f.shield);
+        s::field(w, f.shield_scale);
+        s::field(w, f.shield_spin);
+        s::field(w, f.was_wrecked);
+        s::field(w, f.buttons);
+        s::field(w, f.regive);
+        s::field(w, f.last_attacker);
+        s::field(w, f.ram_box);
+        s::field(w, f.box_front);
+        s::field(w, f.box_radius);
+    }
+    size_t pickup_count = pickups.size();
+    w.count(pickup_count);
+    for (size_t i = 0; i < pickup_count; i++) {
+        // Set up from the arena: the same on every machine (the setup check), only their state is walked.
+        Pickup scratch;
+        Pickup& p = i < pickups.size() ? pickups[i] : scratch;
+        s::field(w, p.angle);
+        s::field(w, p.taken);
+        s::field(w, p.holds);
+    }
+    s::vector(w, spots, [](s::Walker& w, Spot& p) {
+        s::field(w, p.pickup);
+        s::field(w, p.held);
+        s::field(w, p.last);
+    });
+    for (PowerupManager& m : powerup_managers) {
+        s::field(w, m.timer);
+        s::field(w, m.spot);
+    }
+    s::field(w, powerups_started);
+    s::vector(w, race_pickups, [](s::Walker& w, RacePickup& p) {
+        s::field(w, p.checkpoint);
+        s::field(w, p.halfway);
+        s::field(w, p.place);
+        s::field(w, p.pos);
+        s::field(w, p.kind);
+        s::field(w, p.taken);
+        s::field(w, p.back);
+        s::field(w, p.angle);
+    });
+    s::field(w, race_held);
+    s::field(w, race_go);
+    s::field(w, last_state);
+    s::field(w, over);
+    s::vector(w, shots, [](s::Walker& w, Shot& p) {
+        s::field(w, p.live);
+        s::field(w, p.owner);
+        s::field(w, p.weapon);
+        s::field(w, p.slot);
+        s::field(w, p.pos);
+        s::field(w, p.prev);
+        s::field(w, p.vel);
+        s::field(w, p.m);
+        s::field(w, p.life);
+        s::field(w, p.age);
+        s::field(w, p.radius);
+        s::field(w, p.speed);
+        s::field(w, p.bounced);
+        s::field(w, p.ram_front);
+        s::field(w, p.placed);
+        s::field(w, p.ring);
+        s::field(w, p.ring_clock);
+        s::field(w, p.ring_hits);
+        s::field(w, p.ground);
+        s::field(w, p.start);
+        s::field(w, p.drawn);
+    });
+    s::vector(w, effects, [](s::Walker& w, Effect& p) {
+        s::field(w, p.live);
+        s::field(w, p.slot);
+        s::field(w, p.pos);
+        s::field(w, p.age);
+        s::field(w, p.duration);
+        s::field(w, p.scale0);
+        s::field(w, p.scale1);
+        s::field(w, p.explosion);
+    });
+    s::engine(w, rng);
+    s::field(w, clock_seconds);
+    s::field(w, clock_set);
+    s::field(w, round_points);
+    for (int i = 0; i < slot_count; i++) {
+        bool per_view = (i >= hud_weapon_slot_first && i < shield_slot_first) ||
+            (i >= hud_powerup_slot_first && i < race_pickup_slot_first);
+        if (!per_view) {
+            s::field(w, slots[i].used);
+            s::field(w, slots[i].color);
+        }
+    }
 }

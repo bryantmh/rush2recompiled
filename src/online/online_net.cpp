@@ -13,6 +13,11 @@
 // frame, then broadcasts the frame. Frames before `delay` have no inputs (everyone coasts) so the first real ones
 // have time to arrive. A player who drops coasts for the rest of the race, from the first frame the host hadn't
 // broadcast yet, the same on every machine.
+//
+// Resyncs: when the machines' races differ (the load check, or a state hash every 30 frames), nothing ends. The host
+// marks the next frame it hasn't broadcast (frame_resync): no machine has run it yet. At that frame's start the host's
+// game sends its race state (send_snapshot) and every other machine's waits for it and takes it (online_game.cpp),
+// so all go on from the same state. Each machine logs what differed (the online folder of its data folder).
 
 #include <algorithm>
 #include <array>
@@ -30,6 +35,13 @@
 
 #include "enet/enet.h"
 
+#include <cstdarg>
+#include <ctime>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+#include "util/file.h"
 #include "online_internal.h"
 #include "car2049.h"
 
@@ -50,8 +62,19 @@ namespace {
     constexpr auto beacon_period = std::chrono::seconds(1);
     constexpr auto roster_period = std::chrono::seconds(1);
     constexpr auto slow_player_notice = std::chrono::seconds(1);  // Show "Waiting for ..." after this.
-    constexpr auto slow_player_drop = std::chrono::seconds(15);   // Then drop the player.
-    constexpr auto load_timeout = std::chrono::seconds(90);       // A player who hasn't loaded the race by then is dropped.
+    // A player whose game sends no input for this long while their connection is still up is dropped, so a game that
+    // hangs can't hold everyone's race for good. A lost connection is ENet's to find (its timeouts, handle_event).
+    constexpr auto slow_player_drop = std::chrono::seconds(30);
+    // A player who hasn't loaded the race by then is dropped (a first load can convert a track: give it time).
+    constexpr auto load_timeout = std::chrono::seconds(180);
+    // ENet gives up on a peer that hasn't acknowledged for timeout_min once its retries are out, and always after
+    // timeout_max: generous, so a network hiccup of a few seconds doesn't drop anyone.
+    constexpr uint32_t peer_timeout_min_ms = 10000;
+    constexpr uint32_t peer_timeout_max_ms = 30000;
+    constexpr auto notice_time = std::chrono::seconds(3);         // How long a Notice shows.
+    // Consecutive state checks that still differ after resyncs before the race is given up on: the machines set up
+    // different races (which the lobby's checks should prevent), and resyncing every second can't hold it.
+    constexpr int max_failed_checks = 15;
     constexpr uint32_t frame_ms = 33;  // A game frame (30 fps): the unit of the input delay.
     constexpr int max_input_delay = 8;
 
@@ -75,6 +98,7 @@ namespace {
     uint32_t my_track_checked = 0; // The custom track checked for and whether it's missing (set_track_check).
     bool my_lacks_track = false;
     uint8_t my_games = 0;
+    std::array<uint32_t, max_mod_cars> my_mod_cars{};
     // Host: how many players each machine (by its first slot) asked for (set_cars), which may be more than fit.
     int wanted_players[max_players] = {};
     std::string my_gameplay;
@@ -104,8 +128,13 @@ namespace {
     bool go = false;          // Every machine loaded: frame inputs flow.
     bool race_over = false;   // The session ended under the race (wait_frame_inputs returns false).
     std::map<uint32_t, std::array<PlayerInput, max_players>> frames;
+    std::map<uint32_t, uint8_t> frame_flags;              // frame_resync
+    std::map<uint32_t, std::vector<uint8_t>> snapshots;   // Client: the host's race state for a resync frame.
     clock_type::time_point waiting_since;
     bool waiting = false;
+    // A message every machine shows for a while (a resync), and when it came.
+    std::string notice_text;
+    clock_type::time_point notice_at;
     // Host only.
     std::map<uint32_t, PlayerInput> pending[max_players];
     uint32_t next_broadcast = 0;
@@ -113,7 +142,15 @@ namespace {
     clock_type::time_point load_started;
     bool loaded[max_players];
     uint32_t loaded_hash[max_players];
+    uint32_t loaded_track[max_players];   // report_loaded's setup check
+    uint32_t loaded_cars[max_players];
     std::map<uint32_t, std::array<std::optional<uint32_t>, max_players>> hashes;
+    // Resyncs: the frame to mark (none: UINT32_MAX), the first frame whose hashes count (older ones were taken before
+    // the last resync), consecutive checks that differed and the resyncs this race.
+    uint32_t resync_frame = UINT32_MAX;
+    uint32_t hashes_from = 0;
+    int failed_checks = 0;
+    int resyncs = 0;
 
     // Net thread. net_thread is started and joined from the UI thread (host, join, leave) and joined from the game
     // thread (update, after the thread ended itself), so those take thread_mutex: two threads joining the same
@@ -143,9 +180,14 @@ namespace {
     }
 
     std::vector<uint8_t> roster_message() {
+        RosterEntry entries[max_players];
+        for (int i = 0; i < max_players; i++) {
+            entries[i] = slots[i];
+            entries[i].in_race = cur_state != State::Lobby && race_slots[i].used;
+        }
         Writer w;
         w.u8(uint8_t(Msg::Roster));
-        w.roster(slots);
+        w.roster(entries);
         return w.data;
     }
 
@@ -197,6 +239,7 @@ namespace {
             e.track_checked = first.track_checked;
             e.lacks_track = first.lacks_track;
             e.games = first.games;
+            e.mod_cars = first.mod_cars;
             e.gameplay = first.gameplay;
             e.ping_ms = first.ping_ms;
         }
@@ -212,6 +255,7 @@ namespace {
             first.car = players[0].car;
             first.profile = players[0].profile;
             first.side = players[0].side;
+            first.mod_spec = players[0].mod_spec;
         }
         for (int local = 1; local < max_local_players; local++) {
             int slot = slot_of_local(machine, local);
@@ -243,6 +287,7 @@ namespace {
             e.car = p.car;
             e.profile = p.profile;
             e.side = p.side;
+            e.mod_spec = p.mod_spec;
         }
         sync_machine(machine);
     }
@@ -264,11 +309,20 @@ namespace {
         go = false;
         race_over = false;
         frames.clear();
+        frame_flags.clear();
+        snapshots.clear();
+        resync_frame = UINT32_MAX;
+        hashes_from = 0;
+        failed_checks = 0;
+        resyncs = 0;
+        notice_text.clear();
         waiting = false;
         for (int i = 0; i < max_players; i++) {
             pending[i].clear();
             loaded[i] = false;
             loaded_hash[i] = 0;
+            loaded_track[i] = 0;
+            loaded_cars[i] = 0;
         }
         hashes.clear();
         next_broadcast = 0;
@@ -281,6 +335,31 @@ namespace {
             race_over = true;
             inputs_cv.notify_all();
         }
+    }
+
+    // A message for every machine's race overlay for a few seconds (the host also sends it to the others).
+    void show_notice(const std::string& text) {
+        notice_text = text;
+        notice_at = clock_type::now();
+    }
+
+    // Host: the races differ. The next frame not yet broadcast starts with the host's race state; the hashes of the
+    // frames before it are dropped (they were taken before the fix).
+    void schedule_resync(const std::string& why) {
+        if (resync_frame != UINT32_MAX) {
+            return;  // One is already coming.
+        }
+        resync_frame = next_broadcast;
+        hashes_from = next_broadcast;
+        hashes.erase(hashes.begin(), hashes.lower_bound(hashes_from));
+        resyncs++;
+        rush2::online::session_log("[online] resync %d at frame %u: %s\n", resyncs, resync_frame, why.c_str());
+        std::string text = "Resyncing the race with the host...";
+        show_notice(text);
+        Writer w;
+        w.u8(uint8_t(Msg::Notice));
+        w.str(text);
+        queue(to_all, channel_lobby, w.data);
     }
 
     void reset_session() {
@@ -379,9 +458,15 @@ namespace {
             for (int i = 0; i < max_players; i++) {
                 pending[i].erase(f);
             }
+            uint8_t flags = 0;
+            if (f == resync_frame) {
+                flags |= frame_resync;
+                resync_frame = UINT32_MAX;
+            }
             Writer w;
             w.u8(uint8_t(Msg::FrameInputs));
             w.u32(f);
+            w.u8(flags);
             for (const PlayerInput& in : inputs) {
                 w.input(in);
             }
@@ -389,6 +474,7 @@ namespace {
                 send_packet(p, channel_inputs, w.data);
             }
             frames[f] = inputs;
+            frame_flags[f] = flags;
             next_broadcast = f + 1;
             last_progress = clock_type::now();
             inputs_cv.notify_all();
@@ -401,7 +487,7 @@ namespace {
                 if (machine != my_slot && needs_input(i) && pending[i].find(next_broadcast) == pending[i].end() &&
                     slot_peers[machine] != nullptr) {
                     drop_machine(machine);
-                    std::fprintf(stderr, "[online] dropped player %d (no input for frame %u)\n", i + 1, next_broadcast);
+                    rush2::online::session_log("[online] dropped player %d (no input for frame %u)\n", i + 1, next_broadcast);
                 }
             }
             last_progress = clock_type::now();
@@ -420,12 +506,14 @@ namespace {
                 int machine = slots[i].machine;
                 if (machine != my_slot && needs_input(i) && !loaded[i] && slot_peers[machine] != nullptr) {
                     drop_machine(machine);
-                    std::fprintf(stderr, "[online] dropped player %d (didn't load the race)\n", i + 1);
+                    rush2::online::session_log("[online] dropped player %d (didn't load the race)\n", i + 1);
                     queue(to_all, channel_lobby, roster_message());
                 }
             }
         }
-        std::optional<uint32_t> reference;
+        // What each machine set up: the same track and the same car physics, or the race can't be run (a resync copies
+        // the cars' state, not the track or the cars' tables). The host's is the reference: it names who differs.
+        int reference_slot = -1;
         for (int i = 0; i < max_players; i++) {
             if (!needs_input(i)) {
                 continue;
@@ -433,19 +521,54 @@ namespace {
             if (!loaded[i]) {
                 return;
             }
+            bool host_slot = race_slots[i].machine == my_slot;
+            if (reference_slot < 0 || (host_slot && race_slots[reference_slot].machine != my_slot)) {
+                reference_slot = i;
+            }
+        }
+        for (int i = 0; i < max_players && reference_slot >= 0; i++) {
+            if (!needs_input(i) || race_slots[i].machine == race_slots[reference_slot].machine) {
+                continue;
+            }
+            std::string what;
+            if (loaded_track[i] != loaded_track[reference_slot]) {
+                what = "loaded a different track than " + slots[reference_slot].name + "'s (for a custom track: other "
+                    "files of it; for another game's track: another copy of that game's ROM). Everyone needs the same "
+                    "track files.";
+            }
+            else if (loaded_cars[i] != loaded_cars[reference_slot]) {
+                what = "set the cars up with different physics than " + slots[reference_slot].name + "'s (another ROM, "
+                    "mod or car setting).";
+            }
+            if (!what.empty()) {
+                std::string reason = "The race couldn't start: " + slots[i].name + "'s game " + what;
+                rush2::online::session_log("[online] %s (track %08X/%08X, cars %08X/%08X)\n", reason.c_str(), loaded_track[i],
+                    loaded_track[reference_slot], loaded_cars[i], loaded_cars[reference_slot]);
+                Writer w;
+                w.u8(uint8_t(Msg::LoadMismatch));
+                w.str(reason);
+                for (ENetPeer* p : slot_peers) {
+                    send_packet(p, channel_lobby, w.data);
+                }
+                end_race(reason);
+                return;
+            }
+        }
+        std::optional<uint32_t> reference;
+        for (int i = 0; i < max_players; i++) {
+            if (!needs_input(i)) {
+                continue;
+            }
             if (!reference) {
                 reference = loaded_hash[i];
             }
             else if (*reference != loaded_hash[i]) {
-                Writer w;
-                w.u8(uint8_t(Msg::LoadMismatch));
-                for (ENetPeer* p : slot_peers) {
-                    send_packet(p, channel_lobby, w.data);
-                }
-                std::fprintf(stderr, "[online] player %d set up a different race (hash %08X, expected %08X)\n", i + 1,
+                // The race's first frame (the frame not yet broadcast is frame 0) starts from the host's state on
+                // every machine.
+                char why[96];
+                std::snprintf(why, sizeof(why), "player %d loaded a different start (%08X, expected %08X)", i + 1,
                     loaded_hash[i], *reference);
-                end_race("The race couldn't start: player " + std::to_string(i + 1) + "'s game set it up differently.");
-                return;
+                schedule_resync(why);
             }
         }
         go = true;
@@ -491,18 +614,22 @@ namespace {
             }
             if (differs >= 0) {
                 uint32_t frame = it->first;
-                Writer w;
-                w.u8(uint8_t(Msg::Desync));
-                w.u32(frame);
-                for (ENetPeer* p : slot_peers) {
-                    send_packet(p, channel_lobby, w.data);
+                if (++failed_checks >= max_failed_checks) {
+                    rush2::online::session_log("[online] %s's race can't be held in step (frame %u)\n",
+                        slots[differs].name.c_str(), frame);
+                    end_race("The race couldn't be kept in step with " + slots[differs].name + "'s game, which seems "
+                        "to have set it up differently. What differed is in the online folder of each game's data "
+                        "folder.");
+                    hashes.clear();
+                    return;
                 }
-                std::fprintf(stderr, "[online] desync at frame %u (player %d)\n", frame, differs + 1);
-                end_race("The race went out of sync at frame " + std::to_string(frame) + " (player " +
-                    std::to_string(differs + 1) + "). Its log is in the online folder.");
-                hashes.clear();
-                return;
+                schedule_resync("frame " + std::to_string(frame) + ": player " + std::to_string(differs + 1) +
+                    "'s state differs");
+                // schedule_resync dropped this frame's hashes and every earlier frame's.
+                it = hashes.lower_bound(hashes_from);
+                continue;
             }
+            failed_checks = 0;
             it = hashes.erase(it);
         }
     }
@@ -510,15 +637,6 @@ namespace {
     void host_receive(int slot, ENetPeer* peer, Reader& r, Msg type) {
         switch (type) {
             case Msg::Hello: {
-                uint32_t protocol = r.u32();
-                std::string key = r.str();
-                std::string name = clean_name(r.str());
-                CarChoice car = r.car();
-                uint8_t games = r.u8();
-                std::string gameplay = r.long_str();
-                if (r.bad) {
-                    return;
-                }
                 auto reject = [&](const std::string& reason) {
                     Writer w;
                     w.u8(uint8_t(Msg::Reject));
@@ -526,15 +644,26 @@ namespace {
                     send_packet(peer, channel_lobby, w.data);
                     enet_peer_disconnect_later(peer, 0);
                 };
+                // The version first: another version's hello may be laid out differently (reading all of it first
+                // ignored such a hello, and its player saw only "couldn't reach the host").
+                uint32_t protocol = r.u32();
+                std::string key = r.str();
                 if (protocol != protocol_version || key != compatibility_key()) {
                     reject("Your game is a different version than the host's (host: " + compatibility_key() +
-                        ", yours: " + key + "). Both need the same release.");
+                        ", yours: " + (r.bad ? std::string("older") : key) + "). Both need the same release.");
                     return;
                 }
-                if (cur_state != State::Lobby) {
-                    reject("The lobby is in a race. Join again when it ends.");
+                std::string name = clean_name(r.str());
+                CarChoice car = r.car();
+                uint8_t games = r.u8();
+                std::string gameplay = r.long_str();
+                std::array<uint32_t, max_mod_cars> mod_cars = r.mod_cars();
+                if (r.bad) {
+                    reject("The host couldn't read your game's hello.");
                     return;
                 }
+                // A player may join while a race is under way: they wait in the lobby for the next one (their slot isn't
+                // in the race's roster, so the race neither waits for nor checks them).
                 int free = -1;
                 if (used_count() < max_players_opt) {
                     for (int i = 0; i < max_players; i++) {
@@ -548,8 +677,9 @@ namespace {
                     reject("The lobby is full.");
                     return;
                 }
-                std::fprintf(stderr, "[online] %s joined as player %d\n", name.c_str(), free + 1);
+                rush2::online::session_log("[online] %s joined as player %d\n", name.c_str(), free + 1);
                 slot_peers[free] = peer;
+                enet_peer_timeout(peer, 0, peer_timeout_min_ms, peer_timeout_max_ms);
                 RosterEntry& e = slots[free];
                 e = RosterEntry{};
                 e.used = true;
@@ -558,6 +688,7 @@ namespace {
                 e.name = name;
                 e.car = car;
                 e.games = games;
+                e.mod_cars = mod_cars;
                 e.gameplay = gameplay;
                 wanted_players[free] = 1;
                 Writer w;
@@ -580,6 +711,7 @@ namespace {
                         p.car = r.car();
                         p.profile = r.bytes();
                         p.side = r.bytes();
+                        p.mod_spec = r.bytes();
                         players.push_back(std::move(p));
                     }
                     if (!r.bad && !players.empty() && cur_state == State::Lobby) {
@@ -613,6 +745,16 @@ namespace {
                     }
                 }
                 break;
+            case Msg::SetModCars:
+                if (slot >= 0) {
+                    std::array<uint32_t, max_mod_cars> mod_cars = r.mod_cars();
+                    if (!r.bad && mod_cars != slots[slot].mod_cars) {
+                        slots[slot].mod_cars = mod_cars;
+                        sync_machine(slot);
+                        queue(to_all, channel_lobby, roster_message());
+                    }
+                }
+                break;
             case Msg::SetName:
                 if (slot >= 0) {
                     std::string name = clean_name(r.str());
@@ -625,11 +767,15 @@ namespace {
             case Msg::Loaded:
                 if (slot >= 0 && cur_state == State::Loading) {
                     uint32_t hash = r.u32();
+                    uint32_t track = r.u32();
+                    uint32_t cars = r.u32();
                     if (!r.bad) {
                         for (int i = 0; i < max_players; i++) {
                             if (race_slots[i].used && race_slots[i].machine == slot) {
                                 loaded[i] = true;
                                 loaded_hash[i] = hash;
+                                loaded_track[i] = track;
+                                loaded_cars[i] = cars;
                             }
                         }
                         host_check_loaded();
@@ -659,7 +805,7 @@ namespace {
                 if (slot >= 0 && cur_state == State::Racing) {
                     uint32_t frame = r.u32();
                     uint32_t hash = r.u32();
-                    if (!r.bad) {
+                    if (!r.bad && frame >= hashes_from) {
                         for (int i = 0; i < max_players; i++) {
                             if (race_slots[i].used && race_slots[i].machine == slot) {
                                 hashes[frame][i] = hash;
@@ -682,7 +828,7 @@ namespace {
                 if (r.bad || slot >= max_players) {
                     return;
                 }
-                std::fprintf(stderr, "[online] joined lobby \"%s\" as player %d\n", name.c_str(), slot + 1);
+                rush2::online::session_log("[online] joined lobby \"%s\" as player %d\n", name.c_str(), slot + 1);
                 my_slot = slot;
                 my_track_checked = 0;
                 my_lacks_track = false;
@@ -694,7 +840,7 @@ namespace {
             }
             case Msg::Reject:
                 error_text = r.str();
-                std::fprintf(stderr, "[online] rejected: %s\n", error_text.c_str());
+                rush2::online::session_log("[online] rejected: %s\n", error_text.c_str());
                 break;
             case Msg::Roster:
                 r.roster(slots);
@@ -715,6 +861,7 @@ namespace {
                 for (RosterEntry& e : roster) {
                     e.profile = r.bytes();
                     e.side = r.bytes();
+                    e.mod_spec = r.bytes();
                 }
                 if (r.bad || cur_state != State::Lobby) {
                     return;
@@ -736,6 +883,7 @@ namespace {
                 m.settings = r.settings();
                 m.option_cursor = int8_t(r.u8());
                 m.option_top = int8_t(r.u8());
+                m.start_error = r.str();
                 if (r.bad) {
                     return;
                 }
@@ -752,24 +900,42 @@ namespace {
                 break;
             case Msg::FrameInputs: {
                 uint32_t f = r.u32();
+                uint8_t flags = r.u8();
                 std::array<PlayerInput, max_players> inputs{};
                 for (PlayerInput& in : inputs) {
                     in = r.input();
                 }
-                if (!r.bad && cur_state == State::Racing) {
+                // Also while still loading: Go travels on another channel, and after a lost packet the first frames can
+                // come before it (dropping them left this machine waiting on frame 0 until the host dropped it).
+                if (!r.bad && (cur_state == State::Racing || cur_state == State::Loading)) {
                     frames[f] = inputs;
+                    frame_flags[f] = flags;
                     inputs_cv.notify_all();
                 }
                 break;
             }
-            case Msg::Desync: {
-                uint32_t frame = r.u32();
-                end_race("The race went out of sync at frame " + std::to_string(frame) + ". Its log is in the online folder.");
+            case Msg::Snapshot: {
+                uint32_t f = r.u32();
+                std::vector<uint8_t> state = r.bytes();
+                if (!r.bad && (cur_state == State::Racing || cur_state == State::Loading)) {
+                    snapshots[f] = std::move(state);
+                    inputs_cv.notify_all();
+                }
                 break;
             }
-            case Msg::LoadMismatch:
-                end_race("The race couldn't start: the players' games set it up differently.");
+            case Msg::Notice: {
+                std::string text = r.str();
+                if (!r.bad) {
+                    show_notice(text);
+                }
                 break;
+            }
+            case Msg::LoadMismatch: {
+                std::string reason = r.str();
+                end_race(r.bad || reason.empty() ? std::string("The race couldn't start: the games set it up differently.")
+                                                 : reason);
+                break;
+            }
             default:
                 break;
         }
@@ -778,7 +944,7 @@ namespace {
     void handle_event(ENetEvent& ev) {
         switch (ev.type) {
             case ENET_EVENT_TYPE_CONNECT:
-                enet_peer_timeout(ev.peer, 0, 5000, 15000);
+                enet_peer_timeout(ev.peer, 0, peer_timeout_min_ms, peer_timeout_max_ms);
                 if (!hosting) {
                     Writer w;
                     w.u8(uint8_t(Msg::Hello));
@@ -788,6 +954,7 @@ namespace {
                     w.car(my_players[0].car);
                     w.u8(my_games);
                     w.long_str(my_gameplay);
+                    w.mod_cars(my_mod_cars);
                     send_packet(ev.peer, channel_lobby, w.data);
                 }
                 break;
@@ -823,7 +990,7 @@ namespace {
                         }
                         wanted_players[slot] = 0;
                         if (cur_state != State::Lobby) {
-                            std::fprintf(stderr, "[online] player %d left the race\n", slot + 1);
+                            rush2::online::session_log("[online] player %d left the race\n", slot + 1);
                         }
                         queue(to_all, channel_lobby, roster_message());
                     }
@@ -990,6 +1157,7 @@ bool rush2::online::host(const HostOptions& options) {
     slots[0].connected = true;
     slots[0].name = shown_name();
     slots[0].games = my_games;
+    slots[0].mod_cars = my_mod_cars;
     slots[0].gameplay = my_gameplay;
     for (int& w : wanted_players) {
         w = 0;
@@ -1013,7 +1181,7 @@ bool rush2::online::host(const HostOptions& options) {
     error_text.clear();
     clear_race();
     cur_state = State::Lobby;
-    std::fprintf(stderr, "[online] hosting \"%s\" on port %u\n", cur_lobby_name.c_str(), options.port);
+    rush2::online::session_log("[online] hosting \"%s\" on port %u\n", cur_lobby_name.c_str(), options.port);
     last_beacon = clock_type::time_point{};
     last_roster = clock_type::now();
     {
@@ -1123,7 +1291,13 @@ int rush2::online::local_slot() {
 
 std::vector<RosterEntry> rush2::online::roster() {
     std::lock_guard lock{ state_mutex };
-    return std::vector<RosterEntry>(std::begin(slots), std::end(slots));
+    std::vector<RosterEntry> out(std::begin(slots), std::end(slots));
+    if (hosting) {
+        for (int i = 0; i < max_players; i++) {
+            out[i].in_race = cur_state != State::Lobby && race_slots[i].used;
+        }
+    }
+    return out;
 }
 
 int rush2::online::max_players_setting() {
@@ -1180,6 +1354,28 @@ std::string rush2::online::public_address() {
 void rush2::online::set_local_games(uint8_t games) {
     std::lock_guard lock{ state_mutex };
     my_games = games;
+}
+
+void rush2::online::set_local_mod_cars(const std::array<uint32_t, max_mod_cars>& checks) {
+    std::lock_guard lock{ state_mutex };
+    if (checks == my_mod_cars) {
+        return;
+    }
+    my_mod_cars = checks;
+    if (cur_state == State::Offline || cur_state == State::Connecting || my_slot < 0) {
+        return;  // The hello carries them.
+    }
+    if (hosting) {
+        slots[0].mod_cars = my_mod_cars;
+        sync_machine(0);
+        queue(to_all, channel_lobby, roster_message());
+    }
+    else {
+        Writer w;
+        w.u8(uint8_t(Msg::SetModCars));
+        w.mod_cars(my_mod_cars);
+        queue(to_host, channel_lobby, w.data);
+    }
 }
 
 void rush2::online::set_local_gameplay(const std::string& gameplay) {
@@ -1270,6 +1466,7 @@ void rush2::online::set_cars(const std::vector<LocalPlayer>& players) {
             w.car(p.car);
             w.bytes(p.profile);
             w.bytes(p.side);
+            w.bytes(p.mod_spec);
         }
         queue(to_host, channel_lobby, w.data);
     }
@@ -1329,6 +1526,7 @@ void rush2::online::publish_menu(const MenuState& m) {
     w.settings(m.settings);
     w.u8(uint8_t(m.option_cursor));
     w.u8(uint8_t(m.option_top));
+    w.str(m.start_error);
     // Sent reliably: a change at once, the same state again twice a second (for players who just joined).
     if (w.data == menu_sent && ++menu_unchanged < 30) {
         return;
@@ -1361,7 +1559,7 @@ bool rush2::online::start_race(const RaceSettings& settings) {
             return false;
         }
         if (slots[i].used && slots[i].connected && (slots[i].games & cur_settings.needs_games) != cur_settings.needs_games) {
-            error_text = slots[i].name + " doesn't have the game ROM this track needs (the Games tab).";
+            error_text = slots[i].name + " doesn't have a game ROM this race needs (the Games tab).";
             return false;
         }
         if (slots[i].used && slots[i].connected && slots[i].gameplay != slots[0].gameplay) {
@@ -1391,15 +1589,9 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     }
     // Every car is picked by now. A Rush 2049 car (types 23-35, src/rush2049/car2049.cpp) loads from the Rush 2049 ROM
     // on every machine, a California Speed car (36-56, src/calspeed/calspeed_cars.cpp) from its ROM (the cars options
-    // already match, with the rest of the gameplay settings). A mod's car (57-72, src/car_mods.cpp) isn't raced
-    // online: its slot holds whichever car each machine's own mods put there.
-    for (const RosterEntry& e : slots) {
-        if (e.used && e.connected && rush2::car_types::is_mod(e.car.type)) {
-            error_text = e.name + "'s car comes from a mod: online races use the Rush 2, Rush 2049 and California "
-                "Speed cars only.";
-            return false;
-        }
-    }
+    // already match, with the rest of the gameplay settings). A mod's car (57-72, src/car_mods.cpp) races on every
+    // machine, whatever mods it has: one without that car shows a stand-in with the car's physics
+    // (docs/online.md#mod-cars).
     for (bool calspeed : { false, true }) {
         std::string driver;
         for (const RosterEntry& e : slots) {
@@ -1440,6 +1632,7 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     for (const RosterEntry& e : race_slots) {
         w.bytes(e.profile);
         w.bytes(e.side);
+        w.bytes(e.mod_spec);
     }
     queue(to_all, channel_lobby, w.data);
     queue(to_all, channel_lobby, roster_message());
@@ -1482,7 +1675,7 @@ void rush2::online::submit_local_input(uint32_t frame, const std::vector<PlayerI
     }
 }
 
-rush2::online::Wait rush2::online::wait_frame_inputs(uint32_t frame, PlayerInput* out, int timeout_ms) {
+rush2::online::Wait rush2::online::wait_frame_inputs(uint32_t frame, PlayerInput* out, int timeout_ms, bool* resync) {
     std::unique_lock lock{ state_mutex };
     auto started = clock_type::now();
     while (true) {
@@ -1493,7 +1686,12 @@ rush2::online::Wait rush2::online::wait_frame_inputs(uint32_t frame, PlayerInput
         auto it = frames.find(frame);
         if (go && it != frames.end()) {
             std::copy(it->second.begin(), it->second.end(), out);
+            if (resync != nullptr) {
+                auto flags = frame_flags.find(frame);
+                *resync = flags != frame_flags.end() && (flags->second & frame_resync) != 0;
+            }
             frames.erase(frames.begin(), it);
+            frame_flags.erase(frame_flags.begin(), frame_flags.lower_bound(frame));
             waiting = false;
             return Wait::Ready;
         }
@@ -1534,6 +1732,9 @@ void rush2::online::report_state_hash(uint32_t frame, uint32_t hash) {
         return;
     }
     if (hosting) {
+        if (frame < hashes_from) {
+            return;  // Taken before the last resync.
+        }
         for (int i = 0; i < max_players; i++) {
             if (race_slots[i].used && race_slots[i].machine == my_slot) {
                 hashes[frame][i] = hash;
@@ -1549,7 +1750,7 @@ void rush2::online::report_state_hash(uint32_t frame, uint32_t hash) {
     }
 }
 
-void rush2::online::report_loaded(uint32_t hash) {
+void rush2::online::report_loaded(uint32_t hash, uint32_t track, uint32_t cars) {
     std::lock_guard lock{ state_mutex };
     if (cur_state != State::Loading || my_slot < 0) {
         return;
@@ -1559,6 +1760,8 @@ void rush2::online::report_loaded(uint32_t hash) {
             if (race_slots[i].used && race_slots[i].machine == my_slot) {
                 loaded[i] = true;
                 loaded_hash[i] = hash;
+                loaded_track[i] = track;
+                loaded_cars[i] = cars;
             }
         }
     }
@@ -1566,6 +1769,8 @@ void rush2::online::report_loaded(uint32_t hash) {
         Writer w;
         w.u8(uint8_t(Msg::Loaded));
         w.u32(hash);
+        w.u32(track);
+        w.u32(cars);
         queue(to_host, channel_lobby, w.data);
     }
 }
@@ -1594,11 +1799,19 @@ void rush2::online::race_finished() {
 
 std::string rush2::online::race_status() {
     std::lock_guard lock{ state_mutex };
+    auto now = clock_type::now();
     if (cur_state == State::Loading) {
+        if (hosting) {
+            std::string names = machine_names(my_slot, [](int i) { return needs_input(i) && !loaded[i]; });
+            if (!names.empty()) {
+                return "Waiting for " + names + " to load the race...";
+            }
+        }
         return "Waiting for every player to load the race...";
     }
-    if (!waiting || clock_type::now() - waiting_since < slow_player_notice) {
-        return {};
+    bool notice = !notice_text.empty() && now - notice_at < notice_time;
+    if (!waiting || now - waiting_since < slow_player_notice) {
+        return notice ? notice_text : std::string();
     }
     if (hosting) {
         std::string names = machine_names(my_slot, [](int i) {
@@ -1606,10 +1819,44 @@ std::string rush2::online::race_status() {
             return needs_input(i) && pending[i].find(next_broadcast) == pending[i].end();
         });
         if (!names.empty()) {
-            return "Waiting for " + names + "...";
+            auto left = std::chrono::duration_cast<std::chrono::seconds>(slow_player_drop - (now - last_progress));
+            return "Waiting for " + names + "... (they leave the race in " +
+                std::to_string(std::max<long long>(left.count(), 0)) + " s if their game doesn't answer)";
         }
     }
-    return "Waiting for the other players...";
+    return notice ? notice_text : std::string("Waiting for the other players...");
+}
+
+void rush2::online::send_snapshot(uint32_t frame, const std::vector<uint8_t>& state) {
+    std::lock_guard lock{ state_mutex };
+    if (!hosting || cur_state != State::Racing) {
+        return;
+    }
+    Writer w;
+    w.u8(uint8_t(Msg::Snapshot));
+    w.u32(frame);
+    w.bytes(state);
+    queue(to_all, channel_inputs, w.data);
+}
+
+rush2::online::Wait rush2::online::wait_snapshot(uint32_t frame, std::vector<uint8_t>* out, int timeout_ms) {
+    std::unique_lock lock{ state_mutex };
+    auto started = clock_type::now();
+    while (true) {
+        if (race_over || cur_state == State::Offline) {
+            return Wait::Ended;
+        }
+        auto it = snapshots.find(frame);
+        if (it != snapshots.end()) {
+            *out = std::move(it->second);
+            snapshots.erase(snapshots.begin(), std::next(it));
+            return Wait::Ready;
+        }
+        if (clock_type::now() - started >= std::chrono::milliseconds(timeout_ms)) {
+            return Wait::Timeout;
+        }
+        inputs_cv.wait_for(lock, std::chrono::milliseconds(20));
+    }
 }
 
 void rush2::online::update() {
@@ -1618,5 +1865,48 @@ void rush2::online::update() {
     std::unique_lock lock{ thread_mutex, std::try_to_lock };
     if (lock.owns_lock() && !net_running && net_thread.joinable()) {
         net_thread.join();
+    }
+}
+
+void rush2::online::session_log(const char* format, ...) {
+    static std::mutex mutex;
+    static FILE* file = nullptr;
+    static bool opened = false;
+    char text[2048];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    std::fputs(text, stderr);
+    std::lock_guard lock{ mutex };
+    if (!opened) {
+        opened = true;
+        std::error_code ec;
+        std::filesystem::path dir = recompui::file::get_app_folder_path() / "online";
+        std::filesystem::create_directories(dir, ec);
+        // The oldest sessions' logs go, so the folder doesn't grow without end.
+        std::vector<std::filesystem::path> old;
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            std::string name = e.path().filename().string();
+            if (name.rfind("session_", 0) == 0 && e.path().extension() == ".txt") {
+                old.push_back(e.path());
+            }
+        }
+        std::sort(old.begin(), old.end());
+        for (size_t i = 0; i + 19 < old.size(); i++) {
+            std::filesystem::remove(old[i], ec);
+        }
+        std::time_t now = std::time(nullptr);
+        char name[64];
+        std::strftime(name, sizeof(name), "session_%Y%m%d_%H%M%S.txt", std::localtime(&now));
+        file = std::fopen((dir / name).string().c_str(), "a");
+    }
+    if (file != nullptr) {
+        std::time_t now = std::time(nullptr);
+        char stamp[16];
+        std::strftime(stamp, sizeof(stamp), "%H:%M:%S ", std::localtime(&now));
+        std::fputs(stamp, file);
+        std::fputs(text, file);
+        std::fflush(file);
     }
 }

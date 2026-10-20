@@ -141,6 +141,22 @@ namespace rush2::car2049 {
     void clear_mod_car(uint8_t* rdram, int n);
     // Mod car n's name, empty when no mod fills the slot.
     std::string mod_car_name(int n);
+    // Online races (src/car_mods.cpp lend_slot, docs/online.md#mod-cars): a mod car's type number is part of the race's
+    // state, so a raced mod car is in the same slot on every machine. copy_mod_car puts this machine's mod car `from`
+    // (the same car, in another slot here) in slot n too; set_stand_in_mod_car puts a car this machine hasn't there:
+    // `spec`'s physics, drawn as its base Rush 2 car. car_mods puts its own cars back after the race.
+    void copy_mod_car(uint8_t* rdram, int n, int from);
+    void set_stand_in_mod_car(uint8_t* rdram, int n, const ModCar& spec);
+    // Lends slot n to the race (game thread, in the menus): copy_mod_car(from) when from >= 0, else the stand-in.
+    // What the slot held is kept; return_mod_slots puts every lent slot back as it was.
+    void lend_mod_slot(uint8_t* rdram, int n, int from, const ModCar& spec);
+    void return_mod_slots(uint8_t* rdram);
+    // Online races' setup check (src/online/online_game.cpp): FNV-1a of `h` over what the physics read for a car of
+    // `type` in per-type table row `row` (its physics tables' entries, descriptor and box).
+    uint32_t physics_hash(uint8_t* rdram, int type, int row, uint32_t h);
+    // Mod car n's spec (its physics, name and look settings) as bytes, empty for an empty slot, and back.
+    std::vector<uint8_t> mod_car_spec(int n);
+    bool read_mod_car_spec(const std::vector<uint8_t>& bytes, ModCar& out);
     // Whether car `type` has a MAIN COLOR (bit 0) and ACCENT COLOR (bit 1) its textures take: a mod car's own, 3 for
     // any other type. Mod cars have no stripes (their texture prefix matches none).
     int mod_car_paints(int type);

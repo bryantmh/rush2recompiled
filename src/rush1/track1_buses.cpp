@@ -24,6 +24,7 @@
 #include "rush2.h"
 #include "track1.h"
 #include "track2049.h"
+#include "online_sync.h"
 
 extern "C" void heap_alloc_80083A0C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void model_find_by_name_8005BE3C(uint8_t* rdram, recomp_context* ctx);
@@ -340,4 +341,20 @@ extern "C" void rush2_track1_buses_drive(uint8_t* rdram, recomp_context* ctx) {
         if (f < lim) lim = f;
     }
     wf(rdram, limit, lim);
+}
+
+// Online play's checks and resyncs (include/online_sync.h): the buses (they block the cars, rush2_track1_buses_collision).
+void rush2::track1::buses_online_sync(rush2::online::sync::Walker& w) {
+    namespace s = rush2::online::sync;
+    s::field(w, active);
+    for (Bus& b : buses) {
+        s::field(w, b.path);
+        s::field(w, b.node);
+        s::field(w, b.speed);
+        s::field(w, b.dist);
+        s::field(w, b.heading);
+        s::field(w, b.turn);
+        s::field(w, b.pos);
+        s::field(w, b.matrix);
+    }
 }

@@ -12,6 +12,9 @@
 //   into the player records (rush2_online_player_input), as the game does from a controller port.
 // - The pause menu. Every player's presses reach it in lockstep (any START pauses everyone's race), the physics ticks
 //   stop while it is up, and it offers CONTINUE, RESTART and QUIT only (src/pause_menu.cpp).
+// - Resyncs. Whatever still differs is repaired, not fatal: the race state the machines compare (synced_ranges) is
+//   also what the host sends when they differ, and every other machine takes it at the start of the same frame
+//   (docs/online.md#resyncs), logging what differed to the online folder of its data folder.
 
 #include <algorithm>
 #include <array>
@@ -25,11 +28,19 @@
 #include <string>
 #include <vector>
 
+#include <chrono>
+#include <ctime>
+#include <filesystem>
+
 #include "car_types.h"
+#include "car_mods.h"
 #include "recomp.h"
+#include "util/file.h"
 #include "online.h"
+#include "online_sync.h"
 #include "rush2.h"
 #include "battle.h"
+#include "ghost.h"
 #include "track2049.h"
 #include "car2049.h"
 #include "circuit.h"
@@ -119,6 +130,16 @@ namespace {
     }
 }
 
+void rush2::online::sync::rdram_words(Walker& w, uint32_t address, uint32_t size) {
+    uint8_t* rdram = w.rdram;
+    if (rdram == nullptr) {
+        return;
+    }
+    for (uint32_t at = address & ~3u; at < address + size; at += 4) {
+        w.bytes(&MEM_W(0, (int32_t)at), 4);
+    }
+}
+
 namespace rush2::online::game {
     void set_input_source(bool (*source)(int, uint16_t*, float*, float*)) {
         input_source = source;
@@ -200,6 +221,7 @@ namespace {
     std::vector<uint8_t> menu_snapshot;
     int saved_battle_points = 0;
     int saved_battle_minutes = 0;
+    bool saved_race_battle = false;
     // Each machine's players drive neighboring cars (setup_race's race order): this machine's are local_player to
     // local_player + local_count - 1, and its views 0 to local_count - 1 follow them.
     int local_player = 0;   // This machine's first player (car slot) in the race.
@@ -207,11 +229,15 @@ namespace {
     int race_players = 1;
     std::vector<int> race_order;          // The lobby slot of each race player (car slot).
     std::vector<uint8_t> race_car_types;  // Each player's car type (rush2::online::game::car_type).
+    std::vector<uint8_t> race_wing_styles;  // Each player's wing style (rush2::online::game::wing_style).
 
     bool is_local_car(int car) {
         return car >= local_player && car < local_player + local_count;
     }
     uint32_t hud_rewritten = 0;  // The HUD element list rush2::online::game::hud_built last set up.
+    // The online folder's log of this race's resyncs (each machine's own, in its data folder): opened at the race's
+    // first resync.
+    std::string desync_log_path;
 
     // Whether the game is in the menus (title screen, front end, track or car select), where a race can be set up.
     bool in_menus(uint8_t* rdram) {
@@ -274,12 +300,75 @@ namespace {
             local_count = 1;
         }
         local_count = std::clamp(local_count, 1, (int)max_local_players);
+
+        // Mod cars (docs/online.md#mod-cars). The car's type number is part of the race's state (physics car +0x7EA),
+        // so a mod car races in the same slot on every machine: its picker's slot, or, when another mod car already
+        // took that slot (two machines with different mods there), the first free one. Every machine works the slots
+        // out the same way from the race's roster. One that has the car in that slot races it as it is; one that has it
+        // in another slot copies it there; one without it puts a stand-in there with the car's physics (the picker sent
+        // its spec), drawn as the base Rush 2 car. Its own cars come back after the race (return_mod_slots).
+        rush2::car2049::return_mod_slots(rdram);
+        std::array<uint32_t, max_mod_cars> slot_car{};               // The raced car in each slot (its check), 0 none.
+        std::array<const std::vector<uint8_t>*, max_mod_cars> slot_spec{};
+        std::vector<int> moved_from(cars.size(), -1);  // A player's mod car moved from this slot (its options move too).
+        for (size_t p = 0; p < cars.size(); p++) {
+            if (!rush2::car_types::is_mod(cars[p].type)) {
+                continue;
+            }
+            int picked = cars[p].type - rush2::car_types::first_mod;
+            uint32_t check = entries[p]->mod_cars[picked];
+            if (check == 0) {
+                check = 0x80000000u | (uint32_t)p;  // Its machine reported none: a car of its own.
+            }
+            int n = -1;
+            for (int k = 0; k < max_mod_cars && n < 0; k++) {
+                n = slot_car[k] == check ? k : -1;
+            }
+            if (n < 0 && slot_car[picked] == 0) {
+                n = picked;
+            }
+            for (int k = 0; k < max_mod_cars && n < 0; k++) {
+                n = slot_car[k] == 0 ? k : -1;
+            }
+            if (n < 0) {
+                continue;  // More different mod cars than slots: can't be, with 8 players and 16 slots.
+            }
+            if (slot_car[n] == 0) {
+                slot_car[n] = check;
+                slot_spec[n] = &entries[p]->mod_spec;
+            }
+            if (n != picked) {
+                moved_from[p] = picked;
+                cars[p].type = (uint8_t)(rush2::car_types::first_mod + n);
+            }
+        }
+        std::array<uint32_t, max_mod_cars> own_cars = rush2::online::game::mod_car_checks();
+        for (int n = 0; n < max_mod_cars; n++) {
+            if (slot_car[n] == 0 || own_cars[n] == slot_car[n]) {
+                continue;
+            }
+            int from = -1;
+            for (int k = 0; k < max_mod_cars && from < 0; k++) {
+                from = own_cars[k] == slot_car[n] ? k : -1;
+            }
+            rush2::car2049::ModCar spec;
+            if (slot_spec[n] == nullptr || !rush2::car2049::read_mod_car_spec(*slot_spec[n], spec)) {
+                spec = rush2::car2049::ModCar{};  // None came: the base car's physics, the same on every machine.
+            }
+            rush2::online::session_log("[online] mod car slot %d: %s\n", n + 1,
+                from >= 0 ? ("this machine's car from slot " + std::to_string(from + 1)).c_str() : "a stand-in");
+            rush2::car2049::lend_mod_slot(rdram, n, from, spec);
+        }
+
         race_car_types.clear();
+        race_wing_styles.clear();
         for (const CarChoice& c : cars) {
             race_car_types.push_back(c.type);
+            race_wing_styles.push_back(c.wing_style);
         }
         race_players = std::clamp(race_players, 1, (int)max_players);
         hud_rewritten = 0;
+        desync_log_path.clear();
 
         // What the race changes that the menus own, put back when it ends (end_race).
         menu_snapshot.clear();
@@ -292,10 +381,16 @@ namespace {
         // A battle's rules are the host's; the battle's own random numbers start from the race's seed.
         saved_battle_points = rush2::battle::points_to_win();
         saved_battle_minutes = rush2::battle::time_limit_minutes();
+        saved_race_battle = rush2::battle::race_battle();
         if (settings.mode == GameMode::Battle) {
             rush2::battle::set_points_to_win(settings.battle_points);
             rush2::battle::set_time_limit_minutes(settings.battle_minutes);
         }
+        // So is the race track select's BATTLE row (weapons, and half as much time again on the clock): the lobby
+        // shows the host's only while in the track select, and puts this machine's own back after it. A ghost race
+        // chosen offline before isn't raced online (it would keep the BATTLE row off here alone).
+        rush2::battle::set_race_battle(settings.race_battle != 0);
+        rush2::ghost::set_chosen(false);
         rush2::battle::set_online_seed(race_seed() | 1);
 
         // This machine's players' own profiles: menu records 0 and up, as Select Player and the car select left them.
@@ -316,7 +411,7 @@ namespace {
         if (!settings.mod_track.empty()) {
             track = rush2::track2049::track_for_online_key(settings.mod_track);
             if (track < 0) {
-                std::fprintf(stderr, "[online] this machine hasn't the custom track %s\n", settings.mod_track.c_str());
+                rush2::online::session_log("[online] this machine hasn't the custom track %s\n", settings.mod_track.c_str());
                 track = settings.track;  // The race's load check (report_loaded) ends it.
             }
         }
@@ -345,7 +440,10 @@ namespace {
             const std::vector<uint8_t>& sent = entries[p]->profile;
             bool have = sent.size() == profile_size;
             uint32_t own_profile = is_local_car(p) ? own_profiles[p - local_player] : 0;
-            bool own = own_profile != 0 && have;
+            // A mod car moved to another slot keeps its options (the profile's side block, 13 bytes per type) in its
+            // picked slot's place: it races with a copy whose options are in the new slot's place, even this
+            // machine's own player (whose save keeps them where they were).
+            bool own = own_profile != 0 && have && moved_from[p] < 0;
             uint32_t profile = own ? own_profile : guest_profiles + p * profile_size;
             // This machine's players' profiles are their saves themselves: they're never copied over (that put back
             // what the game had saved to them since the car select sent them).
@@ -353,7 +451,14 @@ namespace {
                 for (uint32_t i = 0; i < profile_size; i++) {
                     MEM_B(0, (int32_t)(profile + i)) = have ? (int8_t)sent[i] : 0;
                 }
-                rush2::car2049::set_guest_side_block(rdram, p, profile, entries[p]->side);
+                std::vector<uint8_t> side = entries[p]->side;
+                constexpr size_t options_size = 13;
+                size_t from = (size_t)(moved_from[p] + rush2::car_types::first_mod - rush2_car_types) * options_size;
+                size_t to = (size_t)(cars[p].type - rush2_car_types) * options_size;
+                if (moved_from[p] >= 0 && from + options_size <= side.size() && to + options_size <= side.size()) {
+                    std::copy_n(side.begin() + from, options_size, side.begin() + to);
+                }
+                rush2::car2049::set_guest_side_block(rdram, p, profile, side);
             }
             // This machine's player's profile is their save (its Controller Pak note): the byte's section keeps its
             // byte sum at +0, which the game checks when it reads the pak (func_80098190), so it's updated with the
@@ -402,7 +507,7 @@ namespace {
         }
         std::fill(std::begin(previous_held), std::end(previous_held), 0);
         std::fill(std::begin(pending_pressed), std::end(pending_pressed), 0);
-        std::fprintf(stderr, "[online] race set up: %d players, this machine is players %d-%d, track %d\n", race_players,
+        rush2::online::session_log("[online] race set up: %d players, this machine is players %d-%d, track %d\n", race_players,
             local_player + 1, local_player + local_count, settings.track);
     }
 
@@ -451,24 +556,66 @@ namespace {
         }
     }
 
-    // The state every machine must agree on: the cars' physics and race state and the random seeds.
-    uint32_t state_hash(uint8_t* rdram) {
-        constexpr uint32_t cars = 0x800F5470;
-        constexpr uint32_t car_size = 0x81C;
-        uint32_t h = 2166136261u;
-        auto add = [&](uint32_t address, uint32_t size) {
-            for (uint32_t i = 0; i < size; i++) {
-                uint8_t b = (uint8_t)MEM_BU(0, (int32_t)(address + i));
-                h = (h ^ b) * 16777619u;
-            }
-        };
-        for (int car = 0; car < 8; car++) {
-            add(cars + car * car_size, car_size);
-        }
+    // The race state every machine must agree on: the cars' physics and race state, the player records and the random
+    // seeds. state_hash compares it every 30 frames, and a resync copies the host's (capture_state, apply_state), so the
+    // two can't drift apart.
+    constexpr uint32_t sync_cars = 0x800F5470;      // Physics cars, 0x81C each
+    constexpr uint32_t sync_car_size = 0x81C;
+    struct SyncRange {
+        uint32_t address;
+        uint32_t size;
+    };
+
+    // The race's own variables beyond the cars: what the physics tick (physics_thread_step_once_80076D70) and the
+    // frame's race update (race_frame_update_800A3050) write, as `tools/rush2049/fsum.py --reach 0x80076D70 0x800A3050
+    // --stop 0x800A06F8 0x80062F50 0x8009E0C4` lists them, less the drawing, text and sound ones, and the race clock the
+    // drones steer by. Without them a resync copied the cars but not, say, which drone path node was being steered for
+    // (drone_steer_along_path_80074284), and the machines parted again within a second.
+    struct RaceGlobal {
+        uint32_t address;
+        uint32_t size;
+        const char* name;
+    };
+    constexpr RaceGlobal race_globals[] = {
+        { 0x80117488, 4, "the race clock (timer_game_time)" },
+        { 0x800D8FBC, 2, "the drones' path node (drone_path_node_index)" },
+        { 0x800D97E0, 4, "the drones' last path choice (drone_path_progress)" },
+        { 0x800E79B8, 2, "race_car_count" },
+        { 0x800E7B36, 2, "drone_tick_counter" },
+        { 0x800E7B9A, 2, "car_physics_counter" },
+        { 0x800E7BA0, 2, "drone_tick_state" },
+        { 0x800E7BAA, 2, "car_physics_state" },
+        { 0x800C1014, 4, "car_collision_f32" },
+        { 0x800FAEF8, 1, "physics_snapshot_flag" },
+        { 0x8010C034, 4, "race_time_accum" },
+        { 0x8010C0E4, 4, "physics_dt_scale" },
+        { 0x80111934, 2, "physics_substep_count" },
+        { 0x8010C020, 1, "race_checkpoint_flag" },
+        { 0x8010C038, 4, "race_checkpoint_word" },
+        { 0x8010C052, 1, "race_gate_flag" },
+        { 0x8010C05E, 1, "race_checkpoint_byte" },
+        { 0x8010C0E0, 1, "race_finished_flag" },
+        { 0x8010C171, 1, "race_checkpoint_event_flag" },
+        { 0x8010C204, 4, "race_time_float" },
+        { 0x80125B58, 4, "race_frame_float" },
+        // The race's copy of the path header (race_path_time_param_8010BCE8): the start time (+0), the checkpoint
+        // count (+8) and up to 10 checkpoints of 0x50 bytes from +0xC (each one's time extensions +0x1E/+0x20, its
+        // spine and lane crossings +0x22). The clock and the drones run on it, and the race setup's patches
+        // (track2049.cpp path_race_time, the BATTLE row's extra time) write it: one machine's different times
+        // parted the race at the first checkpoint.
+        { 0x8010BCE8, 0xC + 10 * 0x50, "the path header" },
+    };
+
+    std::vector<SyncRange> synced_ranges() {
+        std::vector<SyncRange> out;
+        out.push_back({ sync_cars, 8 * sync_car_size });
         // The records, but for the profile pointer (+0x24): this machine's player's is their own profile.
         for (int p = 0; p < race_players; p++) {
-            add(player_records + p * player_record_size, record_profile);
-            add(player_records + p * player_record_size + record_profile + 4, player_record_size - record_profile - 4);
+            out.push_back({ player_records + p * player_record_size, (uint32_t)record_profile });
+            uint32_t after = record_profile + 4;
+            if (after < player_record_size) {
+                out.push_back({ player_records + p * player_record_size + after, player_record_size - after });
+            }
         }
         // The cars' race state, but for the camera's bytes (+0x347 the view, +0x348/+0x349 the camera mode) and the
         // scene node handles (+0xF0 the body's, +0x8 of each 0x1C byte part object from +0x108), which differ by
@@ -485,21 +632,330 @@ namespace {
         };
         for (int car = 0; car < 8; car++) {
             uint32_t state = car_states + car * car_state_size;
-            for (uint32_t offset = 0; offset < car_state_size; offset++) {
-                if (!machine_own(offset)) {
-                    add(state + offset, 1);
+            uint32_t run = 0;
+            for (uint32_t offset = 0; offset <= car_state_size; offset++) {
+                if (offset == car_state_size || machine_own(offset)) {
+                    if (offset > run) {
+                        out.push_back({ state + run, offset - run });
+                    }
+                    run = offset + 1;
                 }
             }
         }
         for (uint32_t seed_address : rng_seeds) {
-            add(seed_address, 4);
+            out.push_back({ seed_address, 4 });
+        }
+        for (const RaceGlobal& g : race_globals) {
+            out.push_back({ g.address, g.size });
+        }
+        return out;
+    }
+
+    // The race state the port's C++ keeps (include/online_sync.h), walked by each module, compared and copied after
+    // the RDRAM ranges.
+    namespace sync = rush2::online::sync;
+    struct SyncPart {
+        const char* name;
+        void (*walk)(sync::Walker&);
+    };
+    constexpr SyncPart sync_parts[] = {
+        { "the Rush 2049 wings", rush2::wings::online_sync },
+        { "California Speed's physics", rush2::calspeed::physics::online_sync },
+        { "SF Rush's buses", rush2::track1::buses_online_sync },
+        { "the Rush 2049 moving objects", rush2::track2049::movers_online_sync },
+        { "the Rush 2049 stunt scoring", rush2::stunt2049::online_sync },
+        { "the battle", rush2::battle::online_sync },
+        { "the battle's computer cars", rush2::battle_ai::online_sync },
+    };
+
+    class Saver : public sync::Walker {
+    public:
+        std::vector<uint8_t> out;
+        void bytes(void* data, size_t size) override {
+            const uint8_t* p = static_cast<const uint8_t*>(data);
+            out.insert(out.end(), p, p + size);
+        }
+        void count(size_t& n) override {
+            uint32_t v = (uint32_t)n;
+            bytes(&v, sizeof(v));
+        }
+        bool loading() const override {
+            return false;
+        }
+    };
+
+    // Reads a Saver's bytes back. A count beyond what's left, or a walk running past the end, marks it bad and stops
+    // (the same build saves and loads, so it doesn't happen but for a damaged snapshot).
+    class Loader : public sync::Walker {
+    public:
+        const uint8_t* data = nullptr;
+        size_t size = 0, at = 0;
+        bool bad = false;
+        void bytes(void* out, size_t n) override {
+            if (bad || n > size - at) {
+                bad = true;
+                return;
+            }
+            std::memcpy(out, data + at, n);
+            at += n;
+        }
+        void count(size_t& n) override {
+            uint32_t v = 0;
+            bytes(&v, sizeof(v));
+            if (bad || v > size - at) {
+                bad = true;
+                return;
+            }
+            n = v;
+        }
+        bool loading() const override {
+            return true;
+        }
+    };
+
+    std::vector<uint8_t> save_part(uint8_t* rdram, const SyncPart& part) {
+        Saver s;
+        s.rdram = rdram;
+        part.walk(s);
+        return std::move(s.out);
+    }
+
+    uint32_t state_hash(uint8_t* rdram) {
+        uint32_t h = 2166136261u;
+        for (const SyncRange& r : synced_ranges()) {
+            for (uint32_t i = 0; i < r.size; i++) {
+                h = (h ^ (uint8_t)MEM_BU(0, (int32_t)(r.address + i))) * 16777619u;
+            }
+        }
+        for (const SyncPart& part : sync_parts) {
+            std::vector<uint8_t> bytes = save_part(rdram, part);
+            h = fnv(h, bytes.data(), bytes.size());
         }
         return h;
     }
 
-    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_BREAK makes this machine fail a check, for the paths that end a
-    // race: "load" reports a different starting state (a load mismatch), "noload" never reports loaded (the host drops
-    // the player after its load timeout), a frame number F reports a different state hash from frame F on (a desync).
+    // The synced RDRAM ranges' bytes, then each C++ part's as a u32 length and its walk's bytes.
+    std::vector<uint8_t> capture_state(uint8_t* rdram) {
+        std::vector<uint8_t> out;
+        for (const SyncRange& r : synced_ranges()) {
+            for (uint32_t i = 0; i < r.size; i++) {
+                out.push_back((uint8_t)MEM_BU(0, (int32_t)(r.address + i)));
+            }
+        }
+        for (const SyncPart& part : sync_parts) {
+            std::vector<uint8_t> bytes = save_part(rdram, part);
+            uint32_t n = (uint32_t)bytes.size();
+            out.insert(out.end(), reinterpret_cast<const uint8_t*>(&n), reinterpret_cast<const uint8_t*>(&n) + 4);
+            out.insert(out.end(), bytes.begin(), bytes.end());
+        }
+        return out;
+    }
+
+    // What a synced address is, for the desync log.
+    std::string describe(uint32_t address) {
+        char text[96];
+        if (address >= sync_cars && address < sync_cars + 8 * sync_car_size) {
+            uint32_t o = address - sync_cars;
+            std::snprintf(text, sizeof(text), "car %u physics +0x%03X", o / sync_car_size, o % sync_car_size);
+        }
+        else if (address >= car_states && address < car_states + 8 * car_state_size) {
+            uint32_t o = address - car_states;
+            std::snprintf(text, sizeof(text), "car %u race state +0x%03X", o / car_state_size, o % car_state_size);
+        }
+        else if (address >= player_records && address < player_records + max_players * player_record_size) {
+            uint32_t o = address - player_records;
+            std::snprintf(text, sizeof(text), "player %u record +0x%02X", o / player_record_size + 1,
+                o % player_record_size);
+        }
+        else {
+            for (const RaceGlobal& g : race_globals) {
+                if (address >= g.address && address < g.address + g.size) {
+                    if (g.size > 4) {
+                        std::snprintf(text, sizeof(text), "%s +0x%03X", g.name, address - g.address);
+                    }
+                    else {
+                        std::snprintf(text, sizeof(text), "%s", g.name);
+                    }
+                    return text;
+                }
+            }
+            std::snprintf(text, sizeof(text), "random seed 0x%08X", address & ~3u);
+        }
+        return text;
+    }
+
+    void desync_log(const std::string& text) {
+        if (desync_log_path.empty()) {
+            std::filesystem::path dir = recompui::file::get_app_folder_path() / "online";
+            std::error_code ec;
+            std::filesystem::create_directories(dir, ec);
+            std::time_t now = std::time(nullptr);
+            char name[64];
+            std::strftime(name, sizeof(name), "desync_%Y%m%d_%H%M%S.txt", std::localtime(&now));
+            desync_log_path = (dir / name).string();
+        }
+        if (FILE* f = std::fopen(desync_log_path.c_str(), "a")) {
+            std::fputs(text.c_str(), f);
+            std::fclose(f);
+        }
+        std::fputs(text.c_str(), stderr);
+    }
+
+    // Takes the host's race state (capture_state's bytes) and logs where this machine's differed. A word that is an
+    // RDRAM address on both machines but a different one is this machine's own (a pointer into memory laid out
+    // differently here) and is kept: copying the host's would point at the wrong thing.
+    void apply_state(uint8_t* rdram, const std::vector<uint8_t>& state, uint32_t frame) {
+        std::vector<SyncRange> ranges = synced_ranges();
+        size_t total = 0;
+        for (const SyncRange& r : ranges) {
+            total += r.size;
+        }
+        if (state.size() < total) {
+            desync_log("[online] resync at frame " + std::to_string(frame) + ": the host's state has " +
+                std::to_string(state.size()) + " bytes, this machine's " + std::to_string(total) + " (kept its own)\n");
+            return;
+        }
+        auto is_pointer = [](uint32_t v) { return v > 0x80000000u && v < 0x80800000u; };
+        std::string log = "[online] resync at frame " + std::to_string(frame) + ", race player " +
+            std::to_string(local_player + 1) + ": what differed from the host (this machine -> host)\n";
+        int differences = 0;
+        // Every difference by area ("car 3 physics", a variable's name), as the list shows only the first 200.
+        std::vector<std::pair<std::string, int>> areas;
+        auto count_area = [&](uint32_t address) {
+            std::string area = describe(address);
+            size_t plus = area.find(" +0x");
+            if (plus != std::string::npos) {
+                area.resize(plus);
+            }
+            for (auto& a : areas) {
+                if (a.first == area) {
+                    a.second++;
+                    return;
+                }
+            }
+            areas.emplace_back(area, 1);
+        };
+        size_t at = 0;
+        for (const SyncRange& r : ranges) {
+            for (uint32_t i = 0; i < r.size;) {
+                uint32_t address = r.address + i;
+                // A whole aligned word inside the range: compared as one (and kept if it's a pointer of this machine).
+                if ((address & 3) == 0 && i + 4 <= r.size) {
+                    uint32_t mine = (uint32_t)MEM_W(0, (int32_t)address);
+                    uint32_t host = 0;
+                    for (int b = 0; b < 4; b++) {
+                        host = (host << 8) | state[at + i + b];
+                    }
+                    if (mine != host) {
+                        bool kept = is_pointer(mine) && is_pointer(host);
+                        count_area(address);
+                        if (differences++ < 200) {
+                            char line[160];
+                            std::snprintf(line, sizeof(line), "  %-28s %08X -> %08X%s\n", describe(address).c_str(),
+                                mine, host, kept ? " (an address: kept)" : "");
+                            log += line;
+                        }
+                        if (!kept) {
+                            MEM_W(0, (int32_t)address) = (int32_t)host;
+                        }
+                    }
+                    i += 4;
+                    continue;
+                }
+                uint8_t mine = (uint8_t)MEM_BU(0, (int32_t)address);
+                uint8_t host = state[at + i];
+                if (mine != host) {
+                    count_area(address);
+                    if (differences++ < 200) {
+                        char line[160];
+                        std::snprintf(line, sizeof(line), "  %-28s %02X -> %02X\n", describe(address).c_str(), mine, host);
+                        log += line;
+                    }
+                    MEM_B(0, (int32_t)address) = (int8_t)host;
+                }
+                i++;
+            }
+            at += r.size;
+        }
+        // The C++ parts after the ranges: one that differs takes the host's whole.
+        for (const SyncPart& part : sync_parts) {
+            uint32_t n = 0;
+            if (state.size() - at < 4) {
+                log += std::string("  ") + part.name + ": missing from the host's state (kept this machine's)\n";
+                break;
+            }
+            std::memcpy(&n, state.data() + at, 4);
+            at += 4;
+            if (n > state.size() - at) {
+                log += std::string("  ") + part.name + ": cut short in the host's state (kept this machine's)\n";
+                break;
+            }
+            std::vector<uint8_t> mine = save_part(rdram, part);
+            if (mine.size() != n || std::memcmp(mine.data(), state.data() + at, n) != 0) {
+                Loader l;
+                l.rdram = rdram;
+                l.data = state.data() + at;
+                l.size = n;
+                part.walk(l);
+                differences++;
+                areas.emplace_back(part.name, 1);
+                log += std::string("  ") + part.name + (l.bad || l.at != n ? ": differed, and the host's didn't read back" :
+                    ": differed (took the host's)") + "\n";
+            }
+            at += n;
+        }
+        log += "  " + std::to_string(differences) + " difference(s)" + (differences > 200 ? " (the first 200 shown)" : "") +
+            "\n";
+        if (!areas.empty()) {
+            log += "  by area:";
+            for (size_t i = 0; i < areas.size(); i++) {
+                log += (i ? ", " : " ") + areas[i].first + " " + std::to_string(areas[i].second);
+            }
+            log += "\n";
+        }
+        desync_log(log);
+    }
+
+    // What the race was set up with, beyond the cars' state: the track's collision data (the file the ground and wall
+    // queries read, collision_file_load_800814B0: its 0xC-byte header at race_collision_asset_ptr 0x800D5754, u16
+    // counts and section sizes, the sections after it in order, VLIST last (pointer 0x80111930, its size at header
+    // +0xA); the loader writes nothing into it, so the same track hashes alike on every machine, wherever it sits),
+    // and what each car's physics read (rush2::car2049::physics_hash by the car's type, physics car +0x7EA, and table
+    // row, 0 for a computer car and +0x7E0 + 1 for a human, +0x7E8 == 2). These differing can't be repaired by a resync:
+    // the race doesn't start (online_net.cpp's host_check_loaded names who differs and why).
+    uint32_t track_fingerprint(uint8_t* rdram) {
+        constexpr uint32_t collision_header = 0x800D5754;   // race_collision_asset_ptr
+        constexpr uint32_t vlist = 0x80111930;              // collision_point_test_ptr_b: the VLIST section
+        uint32_t base = (uint32_t)MEM_W(0, (int32_t)collision_header);
+        uint32_t end = (uint32_t)MEM_W(0, (int32_t)vlist);
+        if (base < 0x80000000u || base >= 0x80800000u || end < base || end >= 0x80800000u) {
+            return 0;
+        }
+        end += (uint16_t)MEM_HU(0xA, (int32_t)base);
+        uint32_t h = 2166136261u;
+        for (uint32_t at = base; at < end && at < 0x80800000u; at++) {
+            h = (h ^ (uint8_t)MEM_BU(0, (int32_t)at)) * 16777619u;
+        }
+        return h;
+    }
+
+    uint32_t cars_fingerprint(uint8_t* rdram) {
+        uint32_t h = 2166136261u;
+        for (int car = 0; car < 8; car++) {
+            uint32_t physics_car = sync_cars + car * sync_car_size;
+            int type = MEM_BU(0x7EA, (int32_t)physics_car);
+            bool human = MEM_BU(0x7E8, (int32_t)physics_car) == 2;
+            int row = human ? MEM_H(0x7E0, (int32_t)physics_car) + 1 : 0;
+            h = rush2::car2049::physics_hash(rdram, type, row, h);
+        }
+        return h;
+    }
+
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_BREAK makes this machine fail a check: "load" reports a
+    // different starting state (a resync at frame 0), "track" a different track (the race doesn't start), "noload"
+    // never reports loaded (the host drops the player after its
+    // load timeout), "nudge:F" changes the race seed at frame F (a real difference, which a resync repairs), a frame
+    // number F reports a different state hash from frame F on (resyncs can't fix it: the race is given up on).
     const std::string& break_test() {
         static const std::string spec = std::getenv("RUSH2_ONLINE_BREAK") ? std::getenv("RUSH2_ONLINE_BREAK") : "";
         return spec;
@@ -572,6 +1028,7 @@ namespace {
         if (menus || state() != State::Lobby) {
             return;
         }
+        set_local_mod_cars(rush2::online::game::mod_car_checks());
         // RUSH2_ONLINE_LOCAL, RUSH2_ONLINE_CARS, RUSH2_ONLINE_MANUAL: this machine's players and cars.
         static bool cars_sent = false;
         if (!cars_sent) {
@@ -587,6 +1044,9 @@ namespace {
                     p.car.type = (uint8_t)std::atoi(types.c_str() + at);
                     size_t comma = types.find(',', at);
                     at = comma == std::string::npos ? types.size() : comma + 1;
+                }
+                if (rush2::car_types::is_mod(p.car.type)) {
+                    p.mod_spec = rush2::car2049::mod_car_spec(p.car.type - rush2::car_types::first_mod);
                 }
             }
             set_cars(players);
@@ -617,7 +1077,7 @@ namespace {
                 static std::string reported;
                 if (!raced && last_error() != reported) {
                     reported = last_error();
-                    std::fprintf(stderr, "[online] can't start: %s\n", reported.c_str());
+                    rush2::online::session_log("[online] can't start: %s\n", reported.c_str());
                 }
             }
         }
@@ -666,6 +1126,7 @@ namespace {
         rush2::battle::set_online_seed(0);
         rush2::battle::set_points_to_win(saved_battle_points);
         rush2::battle::set_time_limit_minutes(saved_battle_minutes);
+        rush2::battle::set_race_battle(saved_race_battle);
         if (!menu_snapshot.empty()) {
             size_t at = 0;
             for (const SavedRange& r : saved_ranges) {
@@ -697,7 +1158,7 @@ namespace {
                 points_text += " " + std::to_string(
                     (uint16_t)MEM_H(p * 2, (int32_t)rush2::players4::moved(stunt_points)));
             }
-            std::fprintf(stderr, "[online] stunt points:%s\n", points_text.c_str());
+            rush2::online::session_log("[online] stunt points:%s\n", points_text.c_str());
         }
         for (int i = 0; local_player != 0 && i < local_count; i++) {
             uint32_t points = rush2::players4::moved(stunt_points);
@@ -735,6 +1196,7 @@ namespace {
         if (!menu_snapshot.empty()) {
             rush2::battle::set_points_to_win(saved_battle_points);
             rush2::battle::set_time_limit_minutes(saved_battle_minutes);
+            rush2::battle::set_race_battle(saved_race_battle);
             size_t at = 0;
             for (const SavedRange& r : saved_ranges) {
                 for (uint32_t i = 0; i < r.size; i++) {
@@ -752,7 +1214,7 @@ namespace {
     // The race ended without the game ending it (the host left, a desync, a load mismatch): back to the menus as the
     // pause menu's QUIT goes, and, if the lobby is still there, back to the track select with it (race_finished).
     void race_ended_under_us(uint8_t* rdram, recomp_context* ctx) {
-        std::fprintf(stderr, "[online] race ended: %s\n", last_error().c_str());
+        rush2::online::session_log("[online] race ended: %s\n", last_error().c_str());
         end_race(rdram, ctx, phase != Phase::WaitMenus);
         race_finished();
         if (state() == State::Lobby) {
@@ -798,11 +1260,18 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     int32_t now_state = MEM_W(0, (int32_t)game_state);
+    // Frames the car select has been up: a race starts there once it has settled (below).
+    static int car_select_frames = 0;
+    car_select_frames = now_state == state_car_select ? car_select_frames + 1 : 0;
+    // Back in the menus after an online race: the mod car slots it lent get this machine's own cars back.
+    if (phase == Phase::Idle && (now_state == state_front_end || now_state == 1)) {
+        rush2::car2049::return_mod_slots(rdram);
+    }
     if (phase == Phase::Running && (now_state == state_post_race || now_state == state_front_end)) {
         // Race over, or QUIT from the pause menu: every machine gets here on the same frame and leaves the lockstep.
         // The post-race (saving to the profiles, the track's record tables, name entry) runs on each machine for its
         // own player only.
-        std::fprintf(stderr, "[online] race %s at frame %u\n", now_state == state_front_end ? "quit" : "over",
+        rush2::online::session_log("[online] race %s at frame %u\n", now_state == state_front_end ? "quit" : "over",
             race_frame);
         finish_race_locally(rdram, now_state == state_front_end);
         race_finished();
@@ -812,9 +1281,12 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     if (phase == Phase::WaitMenus) {
         // From the car select, the race starts there (rush2::online::game::car_select_done); from anywhere else in
         // the menus (the test aids), here.
-        if (MEM_W(0, (int32_t)game_state) == state_car_select) {
+        constexpr int car_select_settle = 15;
+        if (MEM_W(0, (int32_t)game_state) == state_car_select && (quick_test || car_select_frames >= car_select_settle)) {
             // Everyone has picked a car: the race starts as the car select starts it once all its players have
-            // (func_803B9478 at 0x803B96D4-0x803B96F4), with the race set up first.
+            // (func_803B9478 at 0x803B96D4-0x803B96F4), with the race set up first. A car select that only just came
+            // up (a player who backed out to change car as the host started is walked back in, online_lobby.cpp) gets
+            // a few frames to set itself up first.
             setup_race(rdram, ctx, true);
             phase = Phase::Loading;
             recomp_context saved = *ctx;
@@ -827,7 +1299,10 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
             overlay_load_800A62C0(rdram, ctx);
             *ctx = saved;
         }
-        else if (in_menus(rdram)) {
+        else if (in_menus(rdram) && (quick_test || MEM_W(0, (int32_t)game_state) != 1)) {
+            // Anywhere else in the menus (the test aids' quick races, the title screen) the race starts from the front
+            // end. A track select is walked on into the car select instead (online_lobby.cpp), whose race start
+            // leaves the menus as a local race does.
             setup_race(rdram, ctx, false);
             phase = Phase::Loading;
         }
@@ -839,13 +1314,19 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         }
         // The race's first physics frame: every machine reports what it set up, then waits for everyone.
         uint32_t hash = state_hash(rdram);
-        std::fprintf(stderr, "[online] race loaded at frame %u, state %08X\n", game_frame, hash);
+        uint32_t track = track_fingerprint(rdram);
+        uint32_t cars = cars_fingerprint(rdram);
+        rush2::online::session_log("[online] race loaded at frame %u, state %08X, track %08X, cars %08X\n", game_frame, hash,
+            track, cars);
         dump_full(rdram, "load");
         if (break_test() == "load") {
             hash ^= 1;
         }
+        if (break_test() == "track") {
+            track ^= 1;
+        }
         if (break_test() != "noload") {
-            report_loaded(hash);
+            report_loaded(hash, track, cars);
         }
         phase = Phase::Running;
         lockstep = true;
@@ -879,10 +1360,10 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     }
     submit_local_input(race_frame + input_delay(), locals);
     Wait got;
-    while ((got = wait_frame_inputs(race_frame, slot_inputs.data(), 250)) == Wait::Timeout) {
+    bool resync = false;
+    while ((got = wait_frame_inputs(race_frame, slot_inputs.data(), 250, &resync)) == Wait::Timeout) {
         rush2::online::game::race_notice(race_status());
     }
-    rush2::online::game::race_notice({});
     // By lobby slot to by race player (setup_race's order). A slot without a player left the lobby before the race.
     for (int p = 0; p < max_players; p++) {
         frame_inputs[p] = p < (int)race_order.size() ? slot_inputs[race_order[p]] : PlayerInput{};
@@ -891,6 +1372,32 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         race_ended_under_us(rdram, ctx);
         return;
     }
+    // A resync (the machines' races differed): this frame starts from the host's race state on every machine.
+    if (resync) {
+        if (is_host()) {
+            send_snapshot(race_frame, capture_state(rdram));
+            desync_log("[online] resync at frame " + std::to_string(race_frame) + ": sent this race's state\n");
+        }
+        else {
+            std::vector<uint8_t> state;
+            Wait w;
+            while ((w = wait_snapshot(race_frame, &state, 250)) == Wait::Timeout) {
+                rush2::online::game::race_notice("Resyncing the race with the host...");
+            }
+            if (w == Wait::Ended) {
+                race_ended_under_us(rdram, ctx);
+                return;
+            }
+            apply_state(rdram, state, race_frame);
+        }
+    }
+    if (break_test().rfind("nudge:", 0) == 0 && race_frame == (uint32_t)std::atoi(break_test().c_str() + 6)) {
+        // The race's random seed (kept odd): every later draw differs from the other machines'.
+        MEM_W(0, (int32_t)rng_seeds[0]) = MEM_W(0, (int32_t)rng_seeds[0]) ^ 2;
+        rush2::online::session_log("[online] test: changed the race seed at frame %u\n", race_frame);
+    }
+    // What the race waits for or a notice (a resync) for a few seconds; nothing otherwise.
+    rush2::online::game::race_notice(race_status());
 
     // Test aid: RUSH2_ONLINE_TRACE=DIR writes the cars' physics structs (8 x 0x81C bytes) before every frame's ticks to
     // DIR/cars.bin, one record per frame, to find the first frame and field where two runs part.
@@ -970,7 +1477,7 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         report_state_hash(race_frame, hash);
         static const bool log_hashes = std::getenv("RUSH2_ONLINE_HASHLOG") != nullptr;
         if (log_hashes) {
-            std::fprintf(stderr, "[online] frame %u hash %08X\n", race_frame, hash);
+            rush2::online::session_log("[online] frame %u hash %08X\n", race_frame, hash);
         }
     }
     race_frame++;
@@ -1441,6 +1948,26 @@ bool rush2::online::game::car_type(int car, int* type) {
     }
     *type = race_car_types[car];
     return true;
+}
+
+bool rush2::online::game::wing_style(int car, int* style) {
+    if (phase == Phase::Idle || car < 0 || car >= (int)race_wing_styles.size()) {
+        return false;
+    }
+    *style = race_wing_styles[car];
+    return true;
+}
+
+std::array<uint32_t, max_mod_cars> rush2::online::game::mod_car_checks() {
+    std::array<uint32_t, max_mod_cars> checks = rush2::car_mods::online_car_checks();
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_MODCARS=none reports no mod cars, as a machine without the mods
+    // would (its races put stand-ins in the slots).
+    static const bool none = std::getenv("RUSH2_ONLINE_MODCARS") != nullptr &&
+        std::string(std::getenv("RUSH2_ONLINE_MODCARS")) == "none";
+    if (none) {
+        checks.fill(0);
+    }
+    return checks;
 }
 
 int rush2::online::game::local_race_player() {

@@ -1426,6 +1426,14 @@ namespace {
     constexpr int new_car_slots = rush2::car_types::count_mod;
     Applied applied_new[new_car_slots]; // the new cars (rush2/new_cars), by slot
     std::string applied_new_key[new_car_slots]; // mod id, car id and the hash of its files
+    // A hash of each slot's key (0 empty), for online races (rush2::car_mods::online_car_checks; any thread).
+    std::atomic<uint32_t> online_checks[new_car_slots] = {};
+    uint32_t online_check(const std::string& key) {
+        if (key.empty()) return 0;
+        uint32_t h = 2166136261u;
+        for (char c : key) h = (h ^ uint8_t(c)) * 16777619u;
+        return h == 0 ? 1 : h;
+    }
     bool has_own[types] = {};
     std::vector<uint8_t> own[types];     // each type's asset before its mod (a recomp fix, or empty: the ROM's)
     std::string last_signature;
@@ -2282,6 +2290,7 @@ namespace {
                    c.spec.name.c_str(), c.id.c_str(), c.mod_id.c_str(), rush2::car_types::first_mod + n,
                    triangles, c.stand_ins.size(), c.spec.schemes, car_bytes / 1024, prefixes[c.spec.base]);
             applied_new_key[n] = c.key;
+            online_checks[n] = online_check(c.key);
             applied_new[n].mod_id = c.mod_id;
             applied_new[n].glb_hash = c.hash;
             applied_new[n].stand_ins = std::move(c.stand_ins);
@@ -2293,6 +2302,7 @@ namespace {
             rush2::car2049::clear_mod_car(rdram, n);
             printf("[newcar] mod car slot %d emptied\n", n + 1);
             applied_new_key[n].clear();
+            online_checks[n] = 0;
             applied_new[n] = Applied{};
             changed = true;
         }
@@ -2421,4 +2431,10 @@ void rush2::car_mods::check(uint8_t* rdram) {
 
 void rush2::car_mods::reload() {
     reload_requested = true;
+}
+
+std::array<uint32_t, rush2::car_types::count_mod> rush2::car_mods::online_car_checks() {
+    std::array<uint32_t, rush2::car_types::count_mod> out{};
+    for (int n = 0; n < new_car_slots; n++) out[n] = online_checks[n].load();
+    return out;
 }

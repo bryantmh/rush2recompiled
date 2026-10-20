@@ -9930,8 +9930,8 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 [[var]]
 vram = 0x8010BCE8
 name = "race_path_time_param"
-type = "u16"
-desc = "Halfword set by path load and race_time_from_lanes, read by race start timer and total time compute (low confidence)."
+type = "s16"
+desc = "Path header copy +0 (header at 0x8010BCE8, checkpoints from +0xC): the race's start time in seconds, set by path load and the time from the AI lanes (func_80093048 at 0x80093298, where src/rush2049/track2049.cpp path_race_time puts custom and 2049 tracks' times and the BATTLE row adds half again). Online play syncs the whole header copy (src/online/online_game.cpp race_globals)."
 area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"

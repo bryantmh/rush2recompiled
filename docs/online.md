@@ -81,10 +81,17 @@ who backs out or joins late is waited for, and nobody waits on a step that alrea
   whose players all have sends them together (`set_cars`: name, car, profile and Rush 2049 car options each), and the
   host gives each a slot of the lobby (the extra ones named after their profile). A player who has stays on the screen (the car select's
   everyone-picked check, `menu_screen_car_select_frame_803B9478` at 0x803B96D4, through src/players4.cpp's hook; its
-  flag in 0x803CB39C set) with their controller off; the host keeps B, which takes everyone back to the track select as in a local race. Once
+  flag in 0x803CB39C set) with B only. The host's B takes everyone back to the track select as in a local race; a
+  joiner's B takes them alone to their track select (`car_select_back` lets a player who picked leave), which presses A
+  again while the host's car select is up, so they pick again: whatever holds the race up, the player can change their
+  car. Why the host's race can't start yet (`start_race`'s error, `MenuState::start_error`) shows on every machine's
+  overlay, so the player it names sees it. Once
   all have, the host starts the race; each machine sets it up and starts it as the car select does
   (0x803B96D4-0x803B96F4: `music_queue_stop_80062FA4`, game state 7, `carselect_build_list_803B81F0(0)`,
-  `overlay_load_800A62C0(0)`). A joiner only backs out of it to follow the host.
+  `overlay_load_800A62C0(0)`). A joiner who backed out to change car just as the host started is on the track select
+  when the race comes: its A takes it back to the car select, where the race starts once the screen has been up 15
+  frames (the race start from the track select, `leave_front_end`, would leave the screen up). A Battle needs the Rush
+  2049 ROM for its Start Game row: the host is told who lacks it.
 
 The players' controllers are steered at the game's controller read (`get_game_input` in main.cpp): where the players
 choose (Select Player, the car select) every port is theirs; elsewhere every port is masked (no A and START, B only)
@@ -96,7 +103,10 @@ the menus showed.
 
 A hosting machine broadcasts a beacon ("R2OL", lobby name, players, settings, compatibility key) to 255.255.255.255 and
 127.0.0.1 on port 47101 every second. `lan_lobbies()` lists those heard in the last few seconds; a lobby with another
-compatibility key (another build) is listed but can't be joined. When the lobby closes the host sends one more beacon
+compatibility key (another build) is listed but can't be joined. A lobby that is racing can be joined: the player waits
+in the lobby for the next race (their slot isn't in the race's roster, `race_slots`, so the race neither waits for nor
+checks them; `RosterEntry::in_race` tells the Online tab who is racing). So a player who left or was dropped can come
+straight back. When the lobby closes the host sends one more beacon
 with max players 0 (`stop_beacons`), which takes it off every list at once. The listener thread is stopped by the
 online `atexit` handler (`stop_lan_listener`): a joinable `std::thread` left to its static destructor calls `abort()`,
 and Windows then spends seconds writing a crash dump on every close.
@@ -167,11 +177,11 @@ Every machine sets the race up the same way and then runs it in lockstep:
   gears from them, and they are set again after the physics ticks, whose input steps clear them, for the rest of the
   frame (the pause menu, the camera's VIEW).
 - **Checks**: when the race loads, each machine reports a hash of the cars' physics and race state, the player records
-  and the seeds; the race starts only if all match. Left out are what differs by machine: the records' profile
+  and the seeds; if they differ, the first frame starts from the host's (Resyncs). Left out are what differs by machine: the records' profile
   pointers, the car race state's camera bytes (+0x347-+0x349) and its scene node handles (+0xF0 the body's, +0x8 of
   each 0x1C byte part object from +0x108): the race setup allocates nodes for each view, so with two players on a
-  machine every node was one further on. Every 30 frames they compare the same hash; a mismatch ends the race
-  for everyone ("desync"). A player whose input doesn't come for 15 s is dropped: their car coasts.
+  machine every node was one further on. Every 30 frames they compare the same hash; a difference resyncs the race
+  (Resyncs). A player whose input doesn't come for 30 s is dropped: their car coasts (Connections and timeouts).
 - **Waiting**: while a frame's inputs are late by over a second, the lobby overlay comes up naming who it waits for
   (`race_status`, `race_notice`); it goes when they arrive.
 - **Pause**: any player's START pauses everyone's race. `race_pause_menu_step_800AFD44` reads every player's presses,
@@ -181,6 +191,91 @@ Every machine sets the race up the same way and then runs it in lockstep:
   online (hook at 0x800AFDE0, `rush2_online_pause_start_only`). OPTIONS, CONTROLS, AUDIO and SKIP TRACK change one
   machine's own settings, so online the cursor moves over CONTINUE, RESTART and QUIT only (`src/pause_menu.cpp`).
   RESTART restarts the race in lockstep; QUIT ends it (race end).
+
+## Resyncs
+
+Whatever makes the machines' races differ, the race goes on. The state the machines compare is also what a resync
+copies, so the hash and the copy can't drift apart:
+
+- `synced_ranges` in online_game.cpp: the eight physics cars 0x800F5470, the race players' records but for the profile
+  pointer, the cars' race state 0x801124A0 but for the machine's own bytes listed under Checks, and the two seeds;
+- `race_globals`: the race's variables beyond the cars, as `tools/rush2049/fsum.py --reach 0x80076D70 0x800A3050
+  --stop 0x800A06F8 0x80062F50 0x8009E0C4` lists what the physics tick and the frame's race update write (less the
+  drawing, text and sound ones): the race clock the drones steer by (`timer_game_time` 0x80117488), the checkpoint
+  clock (`race_time_float` 0x8010C204), the drones' path node and choice, the physics counters and substeps, the
+  checkpoint flags, and the race's copy of the path header (0x8010BCE8, 0x32C bytes: the start time, the checkpoint
+  count and the 10 checkpoints with their time extensions and crossings). Without them a resync copied the cars but
+  not, say, which drone path node was being steered for, and the machines parted again within a second;
+- the race state the port's C++ keeps outside RDRAM (`sync_parts`, include/online_sync.h): the Rush 2049 wings,
+  California Speed's physics, SF Rush's buses, the Rush 2049 moving objects (with the collision polygons and vertices
+  they move), the Rush 2049 stunt scoring, the battle (fighters, pickups, shots, its random numbers and clock) and the
+  battle's computer cars. Each module lists its fields once, in a walk taking a `Walker` (its `online_sync`): the same
+  walk saves them (for the hash and the host's snapshot) and loads them (a resync). What one machine draws or plays for
+  its own players (views, sounds, the HUD) stays out. A part that differs takes the host's whole.
+
+- When the hashes for a frame differ (every 30 frames), or the machines loaded different starts, the host marks the
+  next frame it hasn't broadcast (`schedule_resync`, `frame_resync` in its FrameInputs message): no machine has run it
+  yet, since none runs a frame before the host broadcasts it. At the top of that frame, after its inputs, the host's
+  game sends its state (`send_snapshot`, Msg::Snapshot) and every other game waits for it (`wait_snapshot`, the
+  overlay saying "Resyncing the race with the host...") and takes it (`apply_state`). Every machine then runs the frame
+  from the same state. Hashes of the frames before the resync are dropped. A load mismatch resyncs frame 0, so the race
+  starts instead of being refused.
+- `apply_state` keeps a word that is an RDRAM address on both machines but a different one (a pointer into memory laid
+  out differently on that machine; copying it would point at the wrong thing). The hashed state normally holds none.
+- Each machine writes what differed to `online/desync_<date>_<time>.txt` in its data folder (one file per race; the
+  host notes the frames it sent its state for): each differing field as "car N physics +0xOFF", "car N race state
+  +0xOFF", "player N record +0xOFF", a race global's name (with +0xOFF in the path header) or the seed, with this
+  machine's value and the host's (the first 200), then every difference counted by area ("by area: car 0 physics 126,
+  ...") and each C++ part that differed. These are what to read to
+  find a divergence's cause. Checked with `RUSH2_ONLINE_BREAK=nudge:300` (the joiner's seed changed at frame 300): a
+  resync at frame 302, the log naming the seed, the hashes equal to frame 2010.
+- Every `[online]` and `[lobby]` line (joins, race setups and loads, resyncs, drops, why a race ended or couldn't
+  start) also goes to `online/session_<date>_<time>.txt`, one per game run, the last 20 kept
+  (`rush2::online::session_log`), so a kick on a player's machine leaves a record without a console.
+- Only when 15 checks in a row differ even after resyncs (the machines set up different races, which the lobby's
+  checks prevent) does the race end, back to the lobby, naming the player and the logs.
+
+A resync repairs a race that drifted, not one set up differently: a setting that differs by machine comes back after
+every resync, and the log shows the same areas each time. What the race is set up from therefore comes from the host
+on every machine (Gameplay settings), and what can't be repaired is checked at the load (Load check).
+
+Wario Stadium (a custom track) with the track select's BATTLE row on resynced every 30 frames: the lobby showed the
+host's BATTLE row only while in the track select and put the joiner's own back at the car select, so the host raced
+with weapons and half as much time again on the clock (68 s against the track's 45) and the joiner without. The
+desync log's first difference was `race_time_float` at frame 120, then every car's physics once the drones fought.
+
+## Load check
+
+When the race loads, each machine also reports two fingerprints (protocol 8, `report_loaded`): its track's collision
+data (`track_fingerprint`: the collision file from its header at 0x800D5754 to the end of its VLIST section, which the
+loader doesn't write, so the same track hashes alike wherever it sits) and what each car's physics read
+(`cars_fingerprint`: `rush2::car2049::physics_hash` by the car's type, physics car +0x7EA, and table row). A resync can't
+repair these, so the host ends the race when they differ (Msg::LoadMismatch, `host_check_loaded` in online_net.cpp),
+naming who differs and whether it was the track (another version of a custom track, another copy of a game's ROM) or the
+cars (another ROM, mod or car setting). `RUSH2_ONLINE_BREAK=track` tests it.
+
+## Mod cars
+
+A mod's car (types 57-72, src/car_mods.cpp) is in the slot each machine's own mods put it in, and its type number is in
+the race's state (physics car +0x7EA, `race_setup_cars_8009E6DC`), so a raced mod car must be in the same slot on every
+machine. Each machine reports its mod cars (`RosterEntry::mod_cars`, `rush2::car_mods::online_car_checks`: a hash of
+the mod id, the car id and its files, per slot), and a player who picks one sends its spec with the car
+(`LocalPlayer::mod_spec`, `rush2::car2049::mod_car_spec`: the physics, base car and look settings of `ModCar`, not the
+model). `setup_race` gives each raced mod car a slot, the same on every machine: its picker's, or the first free one
+when another raced mod car already took that slot (two machines with different mods there); that player's car options
+in the profile's side block (13 bytes per type) move with it, and they race with a profile copy. Then for each slot:
+
+- this machine has the car there: nothing changes;
+- it has the car in another slot: it copies its own (`copy_mod_car`, the model, textures and spec), so the car looks as
+  it does on the picker's machine whatever the mod order;
+- it hasn't the car: a stand-in (`set_stand_in_mod_car`): the sent spec's physics through `build_mod_physics`, as
+  `set_mod_car` builds them, drawn as the spec's base Rush 2 car (its container from `rush2::assets::read_current`, its
+  part name prefix from the copied name table entry, painted and striped as a Rush 2 car).
+
+`lend_mod_slot` keeps what the slot held and `return_mod_slots` puts it back once the game is in the menus again (and
+before the next race's setup), synchronously, so the next race never meets a half-restored slot. Checked with the
+joiner reporting no mod cars (`RUSH2_ONLINE_MODCARS=none`), host CADDY (57), joiner DEUCE (58): the same start hash, the
+joiner's DEUCE drawn as its base HOTROD, in sync to the end.
 
 ## Players per machine
 
@@ -266,7 +361,7 @@ moved there by tools/rush2049/cartypes.py (`NEW_PLAYER_ROWS`). A Rush 2049 car's
 are in a side slot of its profile (src/rush2049/car2049.cpp): each player's car select sends theirs
 (`rush2::car2049::side_block`), and the other machines' players race with them in guest side slots
 (`car_types::guest_side_slots`, `set_guest_side_block`, 0x2A0 bytes each; protocol version 5 added California Speed's
-types 36-56, version 6 the mod cars' 57-72, which the host doesn't let a player race online).
+types 36-56, version 6 the mod cars' 57-72, which race online as Mod cars below says).
 
 The HUD and the frame's drawing are records 0 to n-1's. Around them (`race_start_timer_800AE670` 0x800AF1D4 to
 0x800AF1F4) the records' cars rotate by `local_player`, so record i holds this machine's player i's car, and those
@@ -399,7 +494,19 @@ lobby's frame): in memory only, with the joiner's own kept in players.json's `on
 back (and are written) on leaving the lobby, or at the next start if the game closed in one. Changes wait while a
 menu is open, since the configs are the UI's then, and never happen mid-race; the host's race start waits for any game
 that hasn't taken them yet. The joiner's own BATTLE row and battle rules are shown as the host's on the track select
-and put back after.
+and put back after; the race itself takes the host's BATTLE row (`setup_race`) and puts the machine's own back when it
+ends. With the Rush 2049 tracks on, that row arms the race, so it then needs every player to have the Rush 2049 ROM
+(`RaceSettings::needs_games`, which the lobby names), and a ghost race chosen offline before is cleared (it turns the
+row off).
+
+Other inputs to the race that differ by machine are made the same online:
+
+- Keys and coins: the game puts a key out unless every racer's profile has it (`race_key_all_racers_have_8005F00C`),
+  and each machine knows only its own players' profiles. Online every key is out (`rush2_collect_taken`); taking one
+  still counts for this machine's players.
+- The Rush 2049 wings: every race player's car flies with the wing style its player picked (`CarChoice::wing_style`,
+  `rush2::online::game::wing_style`), cars 5-8 included.
+- Controller combos read by port (`button_held` in src/controls_menu.cpp) ignore the port in an online race.
 
 ## Race end
 
@@ -434,10 +541,10 @@ with 0x800C1A9C = 0; 1 restarts the race), with 0x800BF31C = 1 so the front end 
 0xE) and the title screen instead of the car select (0xF). The front end loop (`menu_frontend_loop_800AE288`) switches
 to the next screen (0x800E7BB4) when it differs from the one up (0x800E7BC4, -1 none).
 
-A desync or a load mismatch ends the race but not the lobby: online_net.cpp's `end_race` marks the race over
+A race given up on (Resyncs) ends the race but not the lobby: online_net.cpp's `end_race` marks the race over
 (`racing()` false), the game thread leaves it the same way on the next frame (`race_ended_under_us`), the session goes
 back to the lobby (`race_finished`) and the lobby takes everyone back to the track select as after a race. The host
-stops relaying, comparing hashes and checking loads once the race is over. A player who still hasn't loaded the race 90
+stops relaying, comparing hashes and checking loads once the race is over. A player who still hasn't loaded the race 180
 s after it started is dropped (`load_timeout`), as a player whose input stops coming is in the race, and the others start
 without them.
 
@@ -454,7 +561,8 @@ without them.
 | `RUSH2_ONLINE_BOT=SEED`, `RUSH2_ONLINE_BOT_IDLE=F` | Drive (and fire, in a battle) from the frame number (repeatable runs), each of the machine's players with its own seed, after F frames. |
 | `RUSH2_ONLINE_SEED` | A fixed race seed. |
 | `RUSH2_ONLINE_HASHLOG` | Log the state hash every 30 frames. |
-| `RUSH2_ONLINE_BREAK=load` / `noload` / `F` | This machine fails a check: a different starting state (load mismatch), never loading (dropped after the load timeout), a different state hash from frame F on (desync). |
+| `RUSH2_ONLINE_BREAK=load` / `track` / `noload` / `nudge:F` / `F` | This machine fails a check: a different starting state (a resync at frame 0), a different track fingerprint (the race doesn't start: Load check), never loading (dropped after the load timeout), its race seed changed at frame F (a real difference, which a resync repairs), a different state hash from frame F on (resyncs can't fix it: the race is given up on). |
+| `RUSH2_ONLINE_MODCARS=none` | This machine reports no mod cars, as one without the mods: its races put stand-ins in the raced mod cars' slots. |
 | `RUSH2_ONLINE_TRACE=DIR` | Write the cars' physics before every frame to DIR/cars.bin; `tools/online_trace_diff.py A B` finds the first frame and words that differ. |
 | `RUSH2_ONLINE_DUMP=DIR`, `RUSH2_ONLINE_DUMP_AT=F,...` | Write the cars' physics and the seeds every 30 frames, and all of RDRAM at the load check (full_load.bin) / before frames F (full_F.bin); `tools/ram_diff.py` compares two (a load mismatch: diff full_load.bin over the hashed ranges). |
 | `RUSH2_ONLINE_VIEW_CAR=N` | Every machine's view follows car N (how the view dependence was found). |
@@ -491,4 +599,21 @@ game and the controller in the other works). The cause isn't found yet.
 
 - The per-player sound effects other than the engine (skids, shifts, horn) follow the race's first player on every
   machine (Players per machine): their state holds two players and changes the race.
-- The battle's own state isn't in the desync hash (a difference shows once it moves a car).
+- The battle's own state isn't in the hash or a resync (a difference shows once it moves a car, and is then corrected).
+
+## Connections and timeouts
+
+Nothing drops a player whose game and connection are working:
+
+- ENet gives up on a peer after 10 s without acknowledgements once its retries are spent, and always after 30 s
+  (`peer_timeout_min_ms`, `peer_timeout_max_ms`), set on both ends: a network hiccup of a few seconds drops no one.
+- A player whose game sends no input for 30 s while connected is dropped (a hung game can't hold everyone's race); the
+  overlay counts it down ("they leave the race in N s"). They can join again at once and race the next race.
+- A player who hasn't loaded the race after 180 s is dropped (a first load may convert a track); the host's overlay
+  names who it waits for.
+- The first frames' inputs are kept even if they arrive before Go (the two travel on different channels; with a lost
+  packet a client used to drop them and wait on frame 0 until the host dropped it).
+- The host reads a joiner's version before the rest of its hello, so a different version is told so instead of timing
+  out as "couldn't reach the host".
+- Computer cars' random paint colors come from the race's seed online (src/npc_cars.cpp), so every machine shows the same
+  colors.

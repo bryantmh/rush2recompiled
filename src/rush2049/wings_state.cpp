@@ -27,6 +27,8 @@
 #include <cstring>
 
 #include "recomp.h"
+#include "online.h"
+#include "online_sync.h"
 #include "rush2_hooks.h"
 #include "wings_internal.h"
 
@@ -212,6 +214,22 @@ float rush2::wings::body_height(int type) {
     return type >= 0 && type < (int)car_sizes.size() ? car_sizes[type].height : 3.5f;
 }
 
+namespace {
+    // The human players who fly: players 1-4 with their saved styles, or online every race player (up to 8) with the
+    // style they picked (CarChoice::wing_style), the same on every machine.
+    int flying_players() {
+        return rush2::online::game::in_race() ? rush2::wings::max_cars : rush2::wings::max_players;
+    }
+
+    int style_of(int player) {
+        int style = 0;
+        if (rush2::online::game::wing_style(player, &style)) {
+            return std::clamp(style, 0, 2);
+        }
+        return player >= 0 && player < rush2::wings::max_players ? player_style[player].load() : 0;
+    }
+}
+
 void rush2::wings::set_player_style(int player, int style) {
     if (player >= 0 && player < rush2::wings::max_players) {
         player_style[player] = std::clamp(style, 0, 2);
@@ -286,7 +304,7 @@ extern "C" void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx) {
         }
         if (player != 0) {
             int player_index = int((player - players) / player_size);
-            flag = flag && player_index >= 0 && player_index < rush2::wings::max_players && rush2::wings::button_held(rdram, player_index);
+            flag = flag && player_index >= 0 && player_index < flying_players() && rush2::wings::button_held(rdram, player_index);
             w.player = player_index;
         }
         else {
@@ -298,8 +316,8 @@ extern "C" void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx) {
     if (player != 0) {
         w.stick_x = stick_axis(rdram, player, 0);
         w.stick_y = stick_axis(rdram, player, 1);
-        if (w.player >= 0 && w.player < rush2::wings::max_players) {
-            w.style = player_style[w.player];
+        if (w.player >= 0 && w.player < flying_players()) {
+            w.style = style_of(w.player);
         }
     }
     else if (ghost.active) {
@@ -369,5 +387,25 @@ extern "C" void rush2_wings_car_init(uint8_t* rdram, recomp_context* ctx) {
             rush2::wings::set_sound(index, false);
         }
         cars[index] = CarWings{};
+    }
+}
+
+// Online play's checks and resyncs (include/online_sync.h): each car's wing state.
+void rush2::wings::online_sync(rush2::online::sync::Walker& w) {
+    namespace s = rush2::online::sync;
+    for (CarWings& c : cars) {
+        s::field(w, c.flag);
+        s::field(w, c.prev_y);
+        s::field(w, c.gravity_saved);
+        s::field(w, c.saved_gravity);
+        s::field(w, c.flags);
+        s::field(w, c.frame);
+        s::field(w, c.clock);
+        s::field(w, c.timer);
+        s::field(w, c.slide);
+        s::field(w, c.stick_x);
+        s::field(w, c.stick_y);
+        s::field(w, c.style);
+        s::field(w, c.player);
     }
 }

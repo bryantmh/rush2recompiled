@@ -10,6 +10,8 @@
 // specification, with every address, is docs/rush2049_research/movers.md; src/rush2049/track2049_movers_logic.cpp has the
 // per-function notes. Matrices are 3x3 row-major float[9] as 2049 stores them (row r = m[3r..3r+2], a point is
 // transformed as a row vector, p' = p * m). Units are 2049 world units (feet), the same as Rush 2's.
+namespace rush2::online::sync { class Walker; }
+
 namespace rush2::track2049::movers {
     // ---- Data -------------------------------------------------------------------------------------------------
 
@@ -205,6 +207,9 @@ namespace rush2::track2049::movers {
 
         // Group operations since the last take_group_ops() (init's are included in the first call).
         std::vector<GroupOp> take_group_ops();
+        // Online play's checks and resyncs (include/online_sync.h): what the race changes (the paths' runtime flags and
+        // followers, the objects).
+        void online_sync(rush2::online::sync::Walker& w);
 
     private:
         void restart(Object& o, int node);

@@ -608,6 +608,13 @@ extern "C" void rush2_collect_number(uint8_t* rdram, recomp_context* ctx) {
 // Start of func_8005F00C ($a0 = key bit): returns ($v0) whether every racer has taken the key. On an added track the
 // answer comes from this file's masks.
 extern "C" int rush2_collect_taken(uint8_t* rdram, recomp_context* ctx) {
+    // Online each machine knows only its own players' profiles (the others' records are copies), so the answer
+    // differed by machine and a key could be out on one only, where touching it changed the synced player record:
+    // every key is out online, on every track, and taking it still counts for this machine's players.
+    if (rush2::online::game::in_race()) {
+        ctx->r2 = 0;
+        return 1;
+    }
     int c = hosted_course(rdram);
     if (c < 0) {
         return 0;

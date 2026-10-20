@@ -15,6 +15,7 @@
 #include <cstring>
 
 #include "track2049_movers_logic.h"
+#include "online_sync.h"
 
 #if defined(__clang__)
 #pragma clang fp contract(off)
@@ -1205,5 +1206,48 @@ namespace rush2::track2049::movers {
                 o.m[k] = o.m[k] * s[k / 3];
             }
         }
+    }
+}
+
+namespace rush2::track2049::movers {
+    void World::online_sync(rush2::online::sync::Walker& w) {
+        namespace s = rush2::online::sync;
+        for (Path& p : paths_) {
+            s::field(w, p.flags);
+            s::field(w, p.follower);
+            for (PathNode& n : p.nodes) {
+                s::field(w, n.flags);
+            }
+        }
+        s::vector(w, objects_, [](s::Walker& w, Object& o) {
+            s::field(w, o.path);
+            s::field(w, o.type);
+            s::field(w, o.f.t);
+            s::field(w, o.f.node);
+            s::field(w, o.f.dir);
+            s::field(w, o.f.speed);
+            s::field(w, o.f.max_speed);
+            s::field(w, o.f.prev);
+            s::field(w, o.f.inv_rest);
+            s::field(w, o.f.rest_set);
+            s::field(w, o.f.rest_pos);
+            s::field(w, o.f.rest_inv);
+            s::field(w, o.m);
+            s::field(w, o.pos);
+            s::field(w, o.slot);
+            s::field(w, o.cars);
+            s::field(w, o.body);
+            s::field(w, o.body_index);
+            s::field(w, o.body_vel);
+            s::field(w, o.model);
+            s::field(w, o.anim_frame);
+            s::field(w, o.anim_timer);
+            s::field(w, o.anim_count);
+            s::field(w, o.anim_model);
+            s::field(w, o.sound_state);
+            s::field(w, o.sound);
+        });
+        s::vector(w, order_);
+        s::field(w, body_count_);
     }
 }
