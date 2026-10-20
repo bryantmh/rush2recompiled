@@ -72,6 +72,7 @@
 #include "track2049.h"
 #include "track_mod_runtime.h"
 #include "wings.h"
+#include "scene_nodes.h"
 
 extern "C" void hud_widget_alloc_800541F8(uint8_t* rdram, recomp_context* ctx);   // Allocates a 2D widget.
 extern "C" void widgets_create_800604FC(uint8_t* rdram, recomp_context* ctx);   // Builds HUD elements from layout entries.
@@ -104,7 +105,7 @@ namespace {
     constexpr uint32_t num_players = 0x8010C3E2;     // s16
     constexpr uint32_t record_base = 0x8010C15C;     // Pointer to the placement file's first record.
     constexpr uint32_t record_size = 0x64;
-    constexpr uint32_t nodes = 0x800D9E90;           // Scene nodes, 0x38 bytes each.
+    constexpr uint32_t nodes = rush2::scene_nodes::table;           // Scene nodes, 0x38 bytes each.
     constexpr uint32_t node_size = 0x38;
     constexpr uint32_t node_count = 0x800FAE58;
     constexpr uint32_t node_hidden = 0x400;
@@ -492,7 +493,7 @@ namespace {
     // from before it draws, so a model placed by it slides about on the car.
     void body_pose(uint8_t* rdram, int i, float pos[3], float m[9]) {
         int body = (int32_t)MEM_W(0, (int32_t)(body_nodes + (uint32_t)i * body_node_stride));
-        uint32_t transform = body >= 0 && body < 0x400 ? (uint32_t)MEM_W(4, (int32_t)(nodes + (uint32_t)body * node_size)) : 0;
+        uint32_t transform = body >= 0 && body < (int)rush2::scene_nodes::capacity ? (uint32_t)MEM_W(4, (int32_t)(nodes + (uint32_t)body * node_size)) : 0;
         if (transform >= 0x80000000u && transform < 0x80800000u) {
             for (int k = 0; k < 9; k++) m[k] = read_f(rdram, transform + k * 4);
             for (int k = 0; k < 3; k++) pos[k] = read_f(rdram, transform + 0x24 + k * 4);

@@ -94,6 +94,7 @@
 #include "rush2.h"
 
 #include "rush2_hooks.h"
+#include "scene_nodes.h"
 
 namespace {
     constexpr uint32_t option_ids = 0x803CB3B8;     // s32 [16]: car select rows' option ids
@@ -111,7 +112,7 @@ namespace {
 
     constexpr uint32_t car_base = 0x800F5470;       // physics cars, 0x81C each
     constexpr uint32_t car_size = 0x81C;
-    constexpr uint32_t node_table = 0x800D9E90;     // scene nodes, 0x38 each: +0 flags
+    constexpr uint32_t node_table = rush2::scene_nodes::table;     // scene nodes, 0x38 each: +0 flags
     constexpr uint32_t node_size = 0x38;
     constexpr int32_t node_hidden = 0x400;          // the scene walk skips the node and its children
     constexpr uint32_t game_time = 0x80117488;      // f32 seconds

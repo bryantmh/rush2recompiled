@@ -37,6 +37,7 @@
 #include "track2049.h"
 #include "track2049_movers_logic.h"
 #include "wings.h"
+#include "scene_nodes.h"
 
 namespace movers = rush2::track2049::movers;
 
@@ -45,7 +46,7 @@ namespace {
     constexpr uint32_t backward_flag = 0x80119848;
     constexpr uint32_t record_base = 0x8010C15C;   // Pointer to the placement file's first record.
     constexpr uint32_t record_size = 0x64;
-    constexpr uint32_t nodes = 0x800D9E90;         // Scene nodes, 0x38 bytes each.
+    constexpr uint32_t nodes = rush2::scene_nodes::table;         // Scene nodes, 0x38 bytes each.
     constexpr uint32_t node_size = 0x38;
     constexpr uint32_t node_count = 0x800FAE58;
     constexpr uint32_t node_hidden = 0x400;

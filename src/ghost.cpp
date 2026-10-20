@@ -76,6 +76,7 @@
 #include "track_mod_runtime.h"
 #include "track2049_convert.h"
 #include "wings.h"
+#include "scene_nodes.h"
 
 extern "C" void physics_car_tick_80075880(uint8_t* rdram, recomp_context* ctx); // A car's physics tick ($a0 car, $a1 clock bits).
 extern "C" void car_material_effects_update_800663CC(uint8_t* rdram, recomp_context* ctx); // After a drone's tick, when 0x800D042C is set.
@@ -133,9 +134,9 @@ namespace {
     constexpr uint32_t drone_extra = 0x800D042C;     // u8: func_80075C3C calls func_800663CC after each drone's tick
     constexpr uint32_t body_nodes = rush2::car_types::car_states;      // + car * 0x134: the car's body scene node index
     constexpr uint32_t body_node_stride = 0x134;
-    constexpr uint32_t node_pool = 0x800D9E90;
+    constexpr uint32_t node_pool = rush2::scene_nodes::table;
     constexpr uint32_t node_size = 0x38;
-    constexpr uint32_t max_nodes = 0x400;
+    constexpr uint32_t max_nodes = rush2::scene_nodes::capacity;
 
     // Car physics struct fields.
     constexpr uint32_t f_release = 0x71C;            // s16: nonzero once the car may drive

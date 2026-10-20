@@ -796,7 +796,19 @@ merges and renames as needed.
   whose origin reaches all its corners, else starts one at its center. Before, each got a section of its own: the
   arcade Alcatraz's bay (water pieces out to 10,700 ft) made 258 sections, and the race crashed at its start
   (scene_node_create_8007F6DC appends nodes to the table at 0x800D9E90 with no bound; real globals follow it near
-  0x800E7950, so it holds about 1,000 nodes for the track, cars and everything else). It now makes 110.
+  0x800E7950, so it holds about 1,000 nodes for the track, cars and everything else). It now makes 110. The table
+  itself has since moved (see Scene node table below).
+- **Scene node table:** every section, billboard, prop and moving object's record gets a scene node, and so do the
+  cars. The game's table at 0x800D9E90 holds 1,000 (0x38 bytes each, count `scene_node_table_count_800FAE58`, appended
+  with no bound). The arcade Haight (Rush 2049 Arcade, Alcatraz Only off) made 1,045 with its 167 billboards, 80 props
+  and 117 moving objects: the extra nodes ran over `text_state_stack_a_800E7C50`, whose handler the loading screen
+  calls, so its race start jumped to 0x300 and quit every time (and the texture deriver's thread then crashed on the
+  exit, which is what the dumps show). The arcade Metro makes 944 and Marina 831 (`race_watch.py --peek 800FAE58
+  --peek-always`). The table now lives at 0x80400000-0x80420000, 2,340 nodes (`include/scene_nodes.h`): it is a
+  `PLACED` entry of `tools/players4/relocate.py`, which points all 106 game accesses at it in us.toml (two stores in
+  func_800BC888 through another pointer are excluded), and the game heap starts at 0x80420000 (`src/assets.cpp`;
+  3 MB of it was still free in the arcade Metro's race). Interpolation keeps state for every node and its matrix IDs
+  hold 12 bits of node index (`src/interpolation.cpp` node_id).
 - **See-through materials:** BLEND triangles get their own sections (the grid cell is keyed by translucency too),
   whose records have the late-pass flag 0x40000 (drawn after the opaque nodes, as Rush 2's own transparent ones). Every
   list draws its translucent materials last with render mode 0xC8104A50 (fog, then AA z-buffered translucent: Rush 2's

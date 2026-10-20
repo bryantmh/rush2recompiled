@@ -292,7 +292,7 @@ void a49::init_config() {
         alcatraz_only_option_id,
         "Alcatraz Only",
         "On, the arcade tracks are just Alcatraz, the track only the arcade game has. Off, the arcade game's own "
-        "versions of Marina, Civic, Metro and Mission are added too, as tracks of their own after the "
+        "versions of Marina, Haight, Civic, Metro, Mission and Presidio are added too, as tracks of their own after the "
         "Rush 2049 tracks. Changing it rebuilds the arcade tracks in the background (it needs the arcade data); they "
         "show up the next time you're in the menus.",
         true

@@ -64,6 +64,7 @@
 #include "track_mod_runtime.h"
 #include "unlocks.h"
 #include "wings.h"
+#include "scene_nodes.h"
 
 using namespace rush2::track2049;
 
@@ -1028,7 +1029,7 @@ namespace {
     constexpr uint32_t camera = 0x800E79D0;       // view 0's camera: rows -right, up, forward, then +0x24 position
     constexpr uint32_t view = 0x802401F0;         // view 0's projection (func_80054A50): +0x14 tan(hfov / 2),
                                                   // +0x24 width, +0x2C/+0x30 the screen point straight ahead
-    constexpr uint32_t node_poses = 0x800D9E94;   // per scene node, 56 bytes: -> {matrix[9], position[3]}
+    constexpr uint32_t node_poses = rush2::scene_nodes::table + 4;   // per scene node, 56 bytes: -> {matrix[9], position[3]}
     constexpr uint32_t model_tables = 0x80118D78; // per model slot, 8 bytes: -> its 0x34-byte model records
     constexpr uint32_t model_slots = 0x800D5788;  // u8: loaded model slots
     constexpr uint32_t frame_seconds = 0x80023028;

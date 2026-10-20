@@ -798,7 +798,7 @@ func = "asset_lz_decompress_80077F84"
 before_vram = 0x80077F84
 text = "    if (rush2_asset_decompress(rdram, ctx)) return;"
 
-# Game heap moved to 0x80400000-0x80AE0000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
+# Game heap moved to 0x80420000-0x80AE0000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
 # resets the heap and func_800A62C0 loads the menu overlay, both of which set the heap top.
 [[patches.hook]]
 func = "mem_boot_layout_heap_800AF3B0"
@@ -9469,6 +9469,26 @@ vram = 0x8005436C
 value = 0x27396C00 # addiu $t9, $t9, -0x6AA8 -> 802F6C00
 
 [[patches.instruction]]
+func = "menu_stub_800543D0"
+vram = 0x800543DC
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_stub_800543D0"
+vram = 0x800543E8
+value = 0xAC250000 # sw $a1, -0x6170($at) -> 80400000
+
+[[patches.instruction]]
+func = "menu_getter_800543EC"
+vram = 0x80054400
+value = 0x3C028040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_getter_800543EC"
+vram = 0x80054410
+value = 0x8C420000 # lw $v0, -0x6170($v0) -> 80400000
+
+[[patches.instruction]]
 func = "getter_80054430"
 vram = 0x80054440
 value = 0x3C0F8024 # lui -> 8024
@@ -9579,6 +9599,86 @@ vram = 0x80054F14
 value = 0x25EF01F0 # addiu $t7, $t7, 0x1888 -> 802401F0
 
 [[patches.instruction]]
+func = "unused_helper_80058CC4"
+vram = 0x80058CD8
+value = 0x3C028040 # lui -> 8040
+
+[[patches.instruction]]
+func = "unused_helper_80058CC4"
+vram = 0x80058CE4
+value = 0x84420010 # lh $v0, -0x6160($v0) -> 80400010
+
+[[patches.instruction]]
+func = "unused_helper_80058CF0"
+vram = 0x80058D04
+value = 0x3C028040 # lui -> 8040
+
+[[patches.instruction]]
+func = "unused_helper_80058CF0"
+vram = 0x80058D10
+value = 0x8442000E # lh $v0, -0x6162($v0) -> 8040000E
+
+[[patches.instruction]]
+func = "node_hide_80058D1C"
+vram = 0x80058D24
+value = 0x3C128040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_hide_80058D1C"
+vram = 0x80058D48
+value = 0x26520000 # addiu $s2, $s2, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_hide_80058D1C"
+vram = 0x80058E30
+value = 0x3C178040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_hide_80058D1C"
+vram = 0x80058E34
+value = 0x26F70000 # addiu $s7, $s7, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_show_80058ED4"
+vram = 0x80058EDC
+value = 0x3C128040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_show_80058ED4"
+vram = 0x80058F00
+value = 0x26520000 # addiu $s2, $s2, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_show_80058ED4"
+vram = 0x80059004
+value = 0x3C178040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_show_80058ED4"
+vram = 0x80059008
+value = 0x26F70000 # addiu $s7, $s7, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "unused_getter_800593CC"
+vram = 0x800593E0
+value = 0x3C028040 # lui -> 8040
+
+[[patches.instruction]]
+func = "unused_getter_800593CC"
+vram = 0x800593F0
+value = 0x8C420004 # lw $v0, -0x616C($v0) -> 80400004
+
+[[patches.instruction]]
+func = "math_vec3_to_basis_wrap_800593F4"
+vram = 0x80059408
+value = 0x3C028040 # lui -> 8040
+
+[[patches.instruction]]
+func = "math_vec3_to_basis_wrap_800593F4"
+vram = 0x80059410
+value = 0x8C450004 # lw $a1, -0x616C($v0) -> 80400004
+
+[[patches.instruction]]
 func = "car_arrow_update_80059B9C"
 vram = 0x80059C4C
 value = 0x3C088024 # lui -> 8024
@@ -9587,6 +9687,36 @@ value = 0x3C088024 # lui -> 8024
 func = "car_arrow_update_80059B9C"
 vram = 0x80059C50
 value = 0x250800F0 # addiu $t0, $t0, 0x7A58 -> 802400F0
+
+[[patches.instruction]]
+func = "node_set_pos_matrix_8005A2D8"
+vram = 0x8005A2EC
+value = 0x3C078040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_set_pos_matrix_8005A2D8"
+vram = 0x8005A304
+value = 0x8CE70004 # lw $a3, -0x616C($a3) -> 80400004
+
+[[patches.instruction]]
+func = "node_set_texture_8005A4C0"
+vram = 0x8005A4DC
+value = 0x3C198040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_set_texture_8005A4C0"
+vram = 0x8005A4E0
+value = 0x27390000 # addiu $t9, $t9, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_set_texture_8005A4C0"
+vram = 0x8005A514
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_set_texture_8005A4C0"
+vram = 0x8005A51C
+value = 0xAC250014 # sw $a1, -0x615C($at) -> 80400014
 
 [[patches.instruction]]
 func = "carselect_preview_update_8005A598"
@@ -9599,6 +9729,26 @@ vram = 0x8005A9FC
 value = 0x25CE0450 # addiu $t6, $t6, 0x7AF0 -> 80240450
 
 [[patches.instruction]]
+func = "carselect_preview_update_8005A598"
+vram = 0x8005AC60
+value = 0x3C198040 # lui -> 8040
+
+[[patches.instruction]]
+func = "carselect_preview_update_8005A598"
+vram = 0x8005AC64
+value = 0x27390000 # addiu $t9, $t9, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "carselect_preview_update_8005A598"
+vram = 0x8005AC8C
+value = 0x3C0E8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "carselect_preview_update_8005A598"
+vram = 0x8005AC90
+value = 0x25CE0000 # addiu $t6, $t6, -0x6170 -> 80400000
+
+[[patches.instruction]]
 func = "node_attach_to_global_list_8005ACC8"
 vram = 0x8005AD94
 value = 0x3C058024 # lui -> 8024
@@ -9609,6 +9759,326 @@ vram = 0x8005AD98
 value = 0x24A50642 # addiu $a1, $a1, 0x2498 -> 80240642
 
 [[patches.instruction]]
+func = "menu_stub_8005ADD0"
+vram = 0x8005ADE4
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_stub_8005ADD0"
+vram = 0x8005ADF8
+value = 0xA425000C # sh $a1, -0x6164($at) -> 8040000C
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005AFEC
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005AFF4
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B444
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B450
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B474
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B47C
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B554
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B558
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B6A4
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B6AC
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B724
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_spawn_explosion_8005AEA4"
+vram = 0x8005B728
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_preview_anim_cb_8005B7FC"
+vram = 0x8005B8D4
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_anim_cb_8005B7FC"
+vram = 0x8005B8DC
+value = 0xA423000C # sh $v1, -0x6164($at) -> 8040000C
+
+[[patches.instruction]]
+func = "menu_stub_8005B950"
+vram = 0x8005B964
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_stub_8005B950"
+vram = 0x8005B974
+value = 0xAC25002C # sw $a1, -0x6144($at) -> 8040002C
+
+[[patches.instruction]]
+func = "car_preview_nodes_init_8005B978"
+vram = 0x8005BA58
+value = 0x3C108040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_nodes_init_8005B978"
+vram = 0x8005BA5C
+value = 0x26100000 # addiu $s0, $s0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_preview_nodes_init_8005B978"
+vram = 0x8005BAAC
+value = 0x3C108040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_nodes_init_8005B978"
+vram = 0x8005BAB0
+value = 0x26100000 # addiu $s0, $s0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C014
+value = 0x3C0D8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C020
+value = 0x25AD0000 # addiu $t5, $t5, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C0F4
+value = 0x3C0D8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C0F8
+value = 0x25AD0000 # addiu $t5, $t5, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C218
+value = 0x3C0D8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C224
+value = 0x25AD0000 # addiu $t5, $t5, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C284
+value = 0x3C0D8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C288
+value = 0x25AD0000 # addiu $t5, $t5, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C3E4
+value = 0x3C0D8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C3E8
+value = 0x25AD0000 # addiu $t5, $t5, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C418
+value = 0x3C0D8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C420
+value = 0x25AD0000 # addiu $t5, $t5, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C69C
+value = 0x3C0D8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C6A8
+value = 0x25AD0000 # addiu $t5, $t5, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "menu_stub_8005C8BC"
+vram = 0x8005C8D0
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_stub_8005C8BC"
+vram = 0x8005C8E4
+value = 0xAC250028 # sw $a1, -0x6148($at) -> 80400028
+
+[[patches.instruction]]
+func = "menu_set_word_8005CD28"
+vram = 0x8005CD44
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_set_word_8005CD28"
+vram = 0x8005CD50
+value = 0xAC380034 # sw $t8, -0x613C($at) -> 80400034
+
+[[patches.instruction]]
+func = "car_preview_stub_8005CD54"
+vram = 0x8005CD98
+value = 0x3C078040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_stub_8005CD54"
+vram = 0x8005CD9C
+value = 0x24E70000 # addiu $a3, $a3, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "menu_set_word_8005CDC8"
+vram = 0x8005CDE4
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_set_word_8005CDC8"
+vram = 0x8005CDF0
+value = 0xAC380030 # sw $t8, -0x6140($at) -> 80400030
+
+[[patches.instruction]]
+func = "car_preview_stub_8005CDF4"
+vram = 0x8005CE38
+value = 0x3C078040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_stub_8005CDF4"
+vram = 0x8005CE3C
+value = 0x24E70000 # addiu $a3, $a3, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D054
+value = 0x3C128040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D058
+value = 0x26520000 # addiu $s2, $s2, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D1E8
+value = 0x3C128040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D1EC
+value = 0x26520000 # addiu $s2, $s2, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D2B8
+value = 0x3C128040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D2BC
+value = 0x26520000 # addiu $s2, $s2, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D3A0
+value = 0x3C128040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D3A4
+value = 0x26520000 # addiu $s2, $s2, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "carselect_preview_update_b_8005DC98"
+vram = 0x8005DE0C
+value = 0x3C078040 # lui -> 8040
+
+[[patches.instruction]]
+func = "carselect_preview_update_b_8005DC98"
+vram = 0x8005DE78
+value = 0x24E70000 # addiu $a3, $a3, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "carselect_preview_update_b_8005DC98"
+vram = 0x8005DEA0
+value = 0x3C078040 # lui -> 8040
+
+[[patches.instruction]]
+func = "carselect_preview_update_b_8005DC98"
+vram = 0x8005DEA4
+value = 0x24E70000 # addiu $a3, $a3, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_table_search_8005E650"
+vram = 0x8005E66C
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_table_search_8005E650"
+vram = 0x8005E670
+value = 0x3C0C8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_table_search_8005E650"
+vram = 0x8005E674
+value = 0x258C0000 # addiu $t4, $t4, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_table_search_8005E650"
+vram = 0x8005E678
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_lookup_by_id_show_8005E710"
+vram = 0x8005E758
+value = 0x3C138040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_lookup_by_id_show_8005E710"
+vram = 0x8005E75C
+value = 0x26730000 # addiu $s3, $s3, -0x6170 -> 80400000
+
+[[patches.instruction]]
 func = "get_state_8005E7EC"
 vram = 0x8005E804
 value = 0x3C078024 # lui -> 8024
@@ -9617,6 +10087,66 @@ value = 0x3C078024 # lui -> 8024
 func = "get_state_8005E7EC"
 vram = 0x8005E818
 value = 0x24E70642 # addiu $a3, $a3, 0x2498 -> 80240642
+
+[[patches.instruction]]
+func = "breakable_behavior_hide_nodes_8005E918"
+vram = 0x8005EA1C
+value = 0x3C0A8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "breakable_behavior_hide_nodes_8005E918"
+vram = 0x8005EA20
+value = 0x254A0000 # addiu $t2, $t2, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "breakable_behavior_g_step_8005ED38"
+vram = 0x8005EDC0
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "breakable_behavior_g_step_8005ED38"
+vram = 0x8005EDD0
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_create_attached_8005F718"
+vram = 0x8005F7F0
+value = 0x3C078040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_create_attached_8005F718"
+vram = 0x8005F7F8
+value = 0x24E70000 # addiu $a3, $a3, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_anim_step_f0625_8005F900"
+vram = 0x8005F96C
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_anim_step_f0625_8005F900"
+vram = 0x8005F9C0
+value = 0xA425000C # sh $a1, -0x6164($at) -> 8040000C
+
+[[patches.instruction]]
+func = "breakable_behavior_b_step_8005FC08"
+vram = 0x8005FC88
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "breakable_behavior_b_step_8005FC08"
+vram = 0x8005FCA8
+value = 0xA426000C # sh $a2, -0x6164($at) -> 8040000C
+
+[[patches.instruction]]
+func = "breakable_behavior_generic_step_8005FD90"
+vram = 0x8005FDD4
+value = 0x3C078040 # lui -> 8040
+
+[[patches.instruction]]
+func = "breakable_behavior_generic_step_8005FD90"
+vram = 0x8005FDE0
+value = 0x24E70000 # addiu $a3, $a3, -0x6170 -> 80400000
 
 [[patches.instruction]]
 func = "hud_widget_free_8005FED8"
@@ -10329,6 +10859,36 @@ vram = 0x8007311C
 value = 0xE42000E0 # swc1 $f0, 0x7A50($at) -> 802400E0
 
 [[patches.instruction]]
+func = "scene_walk_8007B518"
+vram = 0x8007B570
+value = 0x3C118040 # lui -> 8040
+
+[[patches.instruction]]
+func = "scene_walk_8007B518"
+vram = 0x8007B598
+value = 0x26310000 # addiu $s1, $s1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "scene_walk_8007B518"
+vram = 0x8007BC04
+value = 0x3C118040 # lui -> 8040
+
+[[patches.instruction]]
+func = "scene_walk_8007B518"
+vram = 0x8007BC10
+value = 0x26310000 # addiu $s1, $s1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "pvs_apply_8007C27C"
+vram = 0x8007C4AC
+value = 0x3C138040 # lui -> 8040
+
+[[patches.instruction]]
+func = "pvs_apply_8007C27C"
+vram = 0x8007C4B0
+value = 0x26730000 # addiu $s3, $s3, -0x6170 -> 80400000
+
+[[patches.instruction]]
 func = "view_fog_setup_8007C624"
 vram = 0x8007C654
 value = 0x3C198024 # lui -> 8024
@@ -10347,6 +10907,26 @@ value = 0x3C098024 # lui -> 8024
 func = "view_fog_setup_8007C624"
 vram = 0x8007CF64
 value = 0x852906B0 # lh $t1, -0x5164($t1) -> 802406B0
+
+[[patches.instruction]]
+func = "view_fog_setup_8007C624"
+vram = 0x8007CF7C
+value = 0x3C0F8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "view_fog_setup_8007C624"
+vram = 0x8007CF80
+value = 0x25EF0000 # addiu $t7, $t7, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "view_fog_setup_8007C624"
+vram = 0x8007D988
+value = 0x3C0E8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "view_fog_setup_8007C624"
+vram = 0x8007D98C
+value = 0x25CE0000 # addiu $t6, $t6, -0x6170 -> 80400000
 
 [[patches.instruction]]
 func = "gfx_draw_frame_views_8007D9DC"
@@ -10549,6 +11129,96 @@ vram = 0x8007F0C0
 value = 0x27186C00 # addiu $t8, $t8, -0x6AA8 -> 802F6C00
 
 [[patches.instruction]]
+func = "util_set_fields_8007F118"
+vram = 0x8007F12C
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "util_set_fields_8007F118"
+vram = 0x8007F140
+value = 0xAC250024 # sw $a1, -0x614C($at) -> 80400024
+
+[[patches.instruction]]
+func = "get_field_0x34_8007F144"
+vram = 0x8007F158
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "get_field_0x34_8007F144"
+vram = 0x8007F15C
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "get_field_0x30_8007F170"
+vram = 0x8007F184
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "get_field_0x30_8007F170"
+vram = 0x8007F188
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_table_find_slot_8007F19C"
+vram = 0x8007F1C4
+value = 0x3C098040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_table_find_slot_8007F19C"
+vram = 0x8007F1C8
+value = 0x25290000 # addiu $t1, $t1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_table_lookup_index_8007F20C"
+vram = 0x8007F228
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_table_lookup_index_8007F20C"
+vram = 0x8007F22C
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_table_alloc_recursive_8007F268"
+vram = 0x8007F2BC
+value = 0x3C198040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_table_alloc_recursive_8007F268"
+vram = 0x8007F2C0
+value = 0x27390000 # addiu $t9, $t9, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_table_alloc_recursive_8007F268"
+vram = 0x8007F308
+value = 0x3C098040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_table_alloc_recursive_8007F268"
+vram = 0x8007F30C
+value = 0x25290000 # addiu $t1, $t1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_table_alloc_recursive_8007F268"
+vram = 0x8007F328
+value = 0x3C178040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_table_alloc_recursive_8007F268"
+vram = 0x8007F32C
+value = 0x26F70000 # addiu $s7, $s7, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_table_alloc_recursive_8007F268"
+vram = 0x8007F360
+value = 0x3C178040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_table_alloc_recursive_8007F268"
+vram = 0x8007F368
+value = 0x26F70000 # addiu $s7, $s7, -0x6170 -> 80400000
+
+[[patches.instruction]]
 func = "node_table_alloc_recursive_8007F268"
 vram = 0x8007F3B0
 value = 0x3C108024 # lui -> 8024
@@ -10559,6 +11229,21 @@ vram = 0x8007F3B4
 value = 0x261006B0 # addiu $s0, $s0, -0x5164 -> 802406B0
 
 [[patches.instruction]]
+func = "node_link_search_step_8007F504"
+vram = 0x8007F524
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_link_search_step_8007F504"
+vram = 0x8007F52C
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_link_search_8007F570"
+vram = 0x8007F5C8
+value = 0x3C178040 # lui -> 8040
+
+[[patches.instruction]]
 func = "node_link_search_8007F570"
 vram = 0x8007F5CC
 value = 0x3C168024 # lui -> 8024
@@ -10567,6 +11252,71 @@ value = 0x3C168024 # lui -> 8024
 func = "node_link_search_8007F570"
 vram = 0x8007F5D0
 value = 0x26D606B0 # addiu $s6, $s6, -0x5164 -> 802406B0
+
+[[patches.instruction]]
+func = "node_link_search_8007F570"
+vram = 0x8007F5D4
+value = 0x26F70000 # addiu $s7, $s7, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_link_search_8007F570"
+vram = 0x8007F64C
+value = 0x3C178040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_link_search_8007F570"
+vram = 0x8007F654
+value = 0x26F70000 # addiu $s7, $s7, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_link_search_8007F570"
+vram = 0x8007F688
+value = 0x3C188040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_link_search_8007F570"
+vram = 0x8007F68C
+value = 0x27180000 # addiu $t8, $t8, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "scene_node_create_8007F6DC"
+vram = 0x8007F724
+value = 0x3C0D8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "scene_node_create_8007F6DC"
+vram = 0x8007F730
+value = 0x25AD0000 # addiu $t5, $t5, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "scene_node_create_8007F6DC"
+vram = 0x8007F734
+value = 0x3C038040 # lui -> 8040
+
+[[patches.instruction]]
+func = "scene_node_create_8007F6DC"
+vram = 0x8007F738
+value = 0x24630000 # addiu $v1, $v1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "scene_node_create_8007F6DC"
+vram = 0x8007F7B4
+value = 0x3C188040 # lui -> 8040
+
+[[patches.instruction]]
+func = "scene_node_create_8007F6DC"
+vram = 0x8007F7E4
+value = 0x27180000 # addiu $t8, $t8, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_find_by_name_8007F84C"
+vram = 0x8007F86C
+value = 0x3C108040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_find_by_name_8007F84C"
+vram = 0x8007F880
+value = 0x26100000 # addiu $s0, $s0, -0x6170 -> 80400000
 
 [[patches.instruction]]
 func = "scene_lights_reset_8007FAB4"
@@ -10599,6 +11349,16 @@ vram = 0x8007FBBC
 value = 0xA42206B0 # sh $v0, -0x5164($at) -> 802406B0
 
 [[patches.instruction]]
+func = "scene_state_save_8007FB50"
+vram = 0x8007FBC8
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "scene_state_save_8007FB50"
+vram = 0x8007FBD4
+value = 0xA4220012 # sh $v0, -0x615E($at) -> 80400012
+
+[[patches.instruction]]
 func = "scene_state_restore_8007FBD8"
 vram = 0x8007FC00
 value = 0x3C028024 # lui -> 8024
@@ -10607,6 +11367,46 @@ value = 0x3C028024 # lui -> 8024
 func = "scene_state_restore_8007FBD8"
 vram = 0x8007FC0C
 value = 0x844206B2 # lh $v0, -0x5162($v0) -> 802406B2
+
+[[patches.instruction]]
+func = "scene_state_restore_8007FBD8"
+vram = 0x8007FC34
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "scene_state_restore_8007FBD8"
+vram = 0x8007FC38
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "placement_register_cull_box_8007FC80"
+vram = 0x8007FCA0
+value = 0x3C0B8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "placement_register_cull_box_8007FC80"
+vram = 0x8007FCAC
+value = 0x256B0000 # addiu $t3, $t3, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_set_pos_by_lookup_800800A4"
+vram = 0x800800B8
+value = 0x3C128040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_set_pos_by_lookup_800800A4"
+vram = 0x800800BC
+value = 0x26520000 # addiu $s2, $s2, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "node_list_walk_hide_8008019C"
+vram = 0x800801AC
+value = 0x3C128040 # lui -> 8040
+
+[[patches.instruction]]
+func = "node_list_walk_hide_8008019C"
+vram = 0x800801D0
+value = 0x26520000 # addiu $s2, $s2, -0x6170 -> 80400000
 
 [[patches.instruction]]
 func = "race_end_hud_cleanup_80080F48"
@@ -10677,6 +11477,116 @@ value = 0x3C0D8024 # lui -> 8024
 func = "race_fog_zone_setup_80081074"
 vram = 0x80081144
 value = 0x25AD01F0 # addiu $t5, $t5, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "placement_walk_80081790"
+vram = 0x80081880
+value = 0x3C028040 # lui -> 8040
+
+[[patches.instruction]]
+func = "placement_walk_80081790"
+vram = 0x80081888
+value = 0x8C420004 # lw $v0, -0x616C($v0) -> 80400004
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x800828C4
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x800828D4
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x80082904
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x80082914
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x80082944
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x80082954
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x80082984
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x80082994
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x800829C4
+value = 0x3C058040 # lui -> 8040
+
+[[patches.instruction]]
+func = "particle_emitter_spawn_8008270C"
+vram = 0x800829C8
+value = 0x24A50000 # addiu $a1, $a1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_build_textures_8008582C"
+vram = 0x80085E58
+value = 0x3C078040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_build_textures_8008582C"
+vram = 0x80085E64
+value = 0x24E70000 # addiu $a3, $a3, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_build_scene_nodes_80085FD0"
+vram = 0x80086400
+value = 0x3C048040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_build_scene_nodes_80085FD0"
+vram = 0x80086404
+value = 0x24840000 # addiu $a0, $a0, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_preview_apply_state_80087290"
+vram = 0x800874A0
+value = 0x3C098040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_apply_state_80087290"
+vram = 0x800874B0
+value = 0x25290000 # addiu $t1, $t1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_preview_apply_state_80087290"
+vram = 0x80087610
+value = 0x3C098040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_apply_state_80087290"
+vram = 0x80087618
+value = 0x25290000 # addiu $t1, $t1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "car_preview_copy_matrices_800878C8"
+vram = 0x80087940
+value = 0x3C168040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_copy_matrices_800878C8"
+vram = 0x80087954
+value = 0x26D60000 # addiu $s6, $s6, -0x6170 -> 80400000
 
 [[patches.instruction]]
 func = "carselect_build_preview_car_8008813C"
@@ -10839,6 +11749,16 @@ vram = 0x800896F4
 value = 0x93390380 # lbu $t9, 0x7B9C($t9) -> 80240380
 
 [[patches.instruction]]
+func = "car_preview_build_80089738"
+vram = 0x80089B20
+value = 0x3C088040 # lui -> 8040
+
+[[patches.instruction]]
+func = "car_preview_build_80089738"
+vram = 0x80089B24
+value = 0x25080000 # addiu $t0, $t0, -0x6170 -> 80400000
+
+[[patches.instruction]]
 func = "carselect_load_preview_scene_80089C98"
 vram = 0x80089D40
 value = 0x3C058024 # lui -> 8024
@@ -10867,6 +11787,16 @@ value = 0x3C048024 # lui -> 8024
 func = "carselect_load_preview_scene_80089C98"
 vram = 0x80089FBC
 value = 0x248401F0 # addiu $a0, $a0, 0x1888 -> 802401F0
+
+[[patches.instruction]]
+func = "breakables_update_8008A01C"
+vram = 0x8008A06C
+value = 0x3C118040 # lui -> 8040
+
+[[patches.instruction]]
+func = "breakables_update_8008A01C"
+vram = 0x8008A070
+value = 0x26310000 # addiu $s1, $s1, -0x6170 -> 80400000
 
 [[patches.instruction]]
 func = "race_scene_load_assets_8008A1FC"
@@ -11934,6 +12864,16 @@ vram = 0x8009DE64
 value = 0x25EF0470 # addiu $t7, $t7, 0x7C20 -> 80240470
 
 [[patches.instruction]]
+func = "cam_update_all_players_8009D9F4"
+vram = 0x8009DFBC
+value = 0x3C138040 # lui -> 8040
+
+[[patches.instruction]]
+func = "cam_update_all_players_8009D9F4"
+vram = 0x8009DFC0
+value = 0x26730000 # addiu $s3, $s3, -0x6170 -> 80400000
+
+[[patches.instruction]]
 func = "race_get_player_slot_ptr_8009E138"
 vram = 0x8009E154
 value = 0x3C088024 # lui -> 8024
@@ -12364,6 +13304,16 @@ vram = 0x800AC388
 value = 0x250801F0 # addiu $t0, $t0, 0x1888 -> 802401F0
 
 [[patches.instruction]]
+func = "menu_title_screen_run_800ABE7C"
+vram = 0x800AC744
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_title_screen_run_800ABE7C"
+vram = 0x800AC760
+value = 0xAC22002C # sw $v0, -0x6144($at) -> 8040002C
+
+[[patches.instruction]]
 func = "hud_widget_cb_finish_place_800B5A90"
 vram = 0x800B5A9C
 value = 0x3C0F8024 # lui -> 8024
@@ -12675,26 +13625,6 @@ value = 0x90420760 # lbu $v0, 0x39B8($v0) -> 80240760
 
 [[patches.instruction]]
 func = "hud_widget_cb_lap_banner_800BA868"
-vram = 0x800BAB68
-value = 0x3C014302 # lui $at, 0x430E (142.0) -> 130.0: WRONG WAY slides 130 down, its arrows 12 px above the bottom like the left (docs/hud_layout.md#sliding-elements)
-
-[[patches.instruction]]
-func = "hud_widget_cb_lap_banner_800BA868"
-vram = 0x800BAB6C
-value = 0x3C014302 # lui $at, 0x430E -> 130.0
-
-[[patches.instruction]]
-func = "hud_widget_cb_lap_banner_800BA868"
-vram = 0x800BAC90
-value = 0x3C014302 # lui $at, 0x430E -> 130.0
-
-[[patches.instruction]]
-func = "hud_widget_cb_lap_banner_800BA868"
-vram = 0x800BACC4
-value = 0x3C014302 # lui $at, 0x430E -> 130.0
-
-[[patches.instruction]]
-func = "hud_widget_cb_lap_banner_800BA868"
 vram = 0x800BA8C4
 value = 0x3C0B8024 # lui -> 8024
 
@@ -12744,6 +13674,76 @@ vram = 0x800BAC84
 value = 0x25EF07C0 # addiu $t7, $t7, -0x3C24 -> 802407C0
 
 [[patches.instruction]]
+func = "breakable_alloc_800BB27C"
+vram = 0x800BB32C
+value = 0x3C198040 # lui -> 8040
+
+[[patches.instruction]]
+func = "breakable_alloc_800BB27C"
+vram = 0x800BB330
+value = 0x27390000 # addiu $t9, $t9, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "breakable_callback_flag_test_800BBA84"
+vram = 0x800BBA98
+value = 0x3C038040 # lui -> 8040
+
+[[patches.instruction]]
+func = "breakable_callback_flag_test_800BBA84"
+vram = 0x800BBA9C
+value = 0x24630000 # addiu $v1, $v1, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "track_object_spawn_named_pair_800BC1B4"
+vram = 0x800BC298
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "track_object_spawn_named_pair_800BC1B4"
+vram = 0x800BC2B0
+value = 0xAC22002C # sw $v0, -0x6144($at) -> 8040002C
+
+[[patches.instruction]]
+func = "track_object_spawn_model_pair_a_800BC62C"
+vram = 0x800BC6DC
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "track_object_spawn_model_pair_a_800BC62C"
+vram = 0x800BC6FC
+value = 0xAC22002C # sw $v0, -0x6144($at) -> 8040002C
+
+[[patches.instruction]]
+func = "track_object_spawn_model_pair_b_800BC760"
+vram = 0x800BC804
+value = 0x3C018040 # lui -> 8040
+
+[[patches.instruction]]
+func = "track_object_spawn_model_pair_b_800BC760"
+vram = 0x800BC824
+value = 0xAC22002C # sw $v0, -0x6144($at) -> 8040002C
+
+[[patches.instruction]]
+func = "track_object_spawn_ratcone_800BC888"
+vram = 0x800BC914
+value = 0x3C028040 # lui -> 8040
+
+[[patches.instruction]]
+func = "track_object_spawn_ratcone_800BC888"
+vram = 0x800BC92C
+value = 0x8C450004 # lw $a1, -0x616C($v0) -> 80400004
+
+[[patches.instruction]]
+func = "menu_scene_diorama_update_803AD168"
+vram = 0x803AD210
+value = 0x3C138040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_scene_diorama_update_803AD168"
+vram = 0x803AD214
+value = 0x26730000 # addiu $s3, $s3, -0x6170 -> 80400000
+
+[[patches.instruction]]
 func = "menu_car_select_run_803AE55C"
 vram = 0x803AE648
 value = 0x3C018024 # lui -> 8024
@@ -12782,6 +13782,26 @@ value = 0x3C078024 # lui -> 8024
 func = "menu_car_select_run_803AE55C"
 vram = 0x803AE66C
 value = 0x8CE70214 # lw $a3, 0x18AC($a3) -> 80240214
+
+[[patches.instruction]]
+func = "menu_car_select_run_803AE55C"
+vram = 0x803AE740
+value = 0x3C1E8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_car_select_run_803AE55C"
+vram = 0x803AE744
+value = 0x27DE0000 # addiu $fp, $fp, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "menu_car_select_run_803AE55C"
+vram = 0x803AF760
+value = 0x3C1E8040 # lui -> 8040
+
+[[patches.instruction]]
+func = "menu_car_select_run_803AE55C"
+vram = 0x803AF768
+value = 0x27DE0000 # addiu $fp, $fp, -0x6170 -> 80400000
 
 [[patches.instruction]]
 func = "menu_title_screen_setup_803B0270"
@@ -12884,6 +13904,28 @@ vram = 0x803C46FC
 value = 0x8CA50004 # lw $a1, 0x2194($a1) -> 80240004
 
 # END 4 player relocations
+
+# The WRONG WAY banner's slide (docs/hud_layout.md#sliding-elements), kept outside the generated block above so
+# regenerating it doesn't drop them.
+[[patches.instruction]]
+func = "hud_widget_cb_lap_banner_800BA868"
+vram = 0x800BAB68
+value = 0x3C014302 # lui $at, 0x430E (142.0) -> 130.0: WRONG WAY slides 130 down, its arrows 12 px above the bottom like the left (docs/hud_layout.md#sliding-elements)
+
+[[patches.instruction]]
+func = "hud_widget_cb_lap_banner_800BA868"
+vram = 0x800BAB6C
+value = 0x3C014302 # lui $at, 0x430E -> 130.0
+
+[[patches.instruction]]
+func = "hud_widget_cb_lap_banner_800BA868"
+vram = 0x800BAC90
+value = 0x3C014302 # lui $at, 0x430E -> 130.0
+
+[[patches.instruction]]
+func = "hud_widget_cb_lap_banner_800BA868"
+vram = 0x800BACC4
+value = 0x3C014302 # lui $at, 0x430E -> 130.0
 
 # The unlock system's shop (src/unlocks_shop.cpp): the Start Game menu's UNLOCKS row leads to the records' profile
 # list, whose labels read as the shop's and whose A leaves for the track select, which opens the car select as the

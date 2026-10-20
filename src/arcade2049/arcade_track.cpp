@@ -1005,6 +1005,34 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         instances.push_back({ o, M, to_world_dobs(d.pos), d.script });
     }
 
+    // Most arcade skies are a ring of wall panels under a flat ceiling, centered off the origin, so a few near-side
+    // panels reach less than sky_radius (Marina G27322-3, Haight G20137-9, Civic AF_G27162-3, Metro G23003-5,
+    // Presidio G14557-8). As scenery they were cut off by the draw distance, opening a gap in the sky and leaving the
+    // ceiling's edge as a box overhead. A texture that at least two far objects use, and that far objects make up at
+    // least half the users of, is a sky texture, and every object using it is sky.
+    {
+        std::map<int, std::pair<int, int>> users;   // texture: objects using it, far ones
+        for (const Instance& in : instances) {
+            const Lod& lod = in.o->lod0;
+            bool water = std::all_of(lod.tris.begin(), lod.tris.end(), [&](const auto& tr) { return is_water_texture(tr[3]); });
+            double reach = 0;
+            for (const V3& p : placed(lod, in.M, in.pos)) reach = std::max(reach, std::hypot(p[0], p[2]));
+            bool far = reach > sky_radius && !water;
+            std::set<int> used;
+            for (const auto& tr : lod.tris) if (tr[3] < t.textures.size()) used.insert(tr[3]);
+            for (int ti : used) { users[ti].first++; users[ti].second += far; }
+        }
+        for (const Instance& in : instances) {
+            for (const auto& tr : in.o->lod0.tris) {
+                auto u = users.find(tr[3]);
+                if (u != users.end() && u->second.second >= 2 && u->second.second * 2 >= u->second.first) {
+                    sky_names.insert(in.o->name);
+                    break;
+                }
+            }
+        }
+    }
+
     PrimSet scenery, sky;
     int billboards = 0, knocks = 0;
     struct Mover {

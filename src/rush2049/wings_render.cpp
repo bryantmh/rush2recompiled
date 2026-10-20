@@ -31,6 +31,7 @@
 #include "rt64_extended_gbi.h"
 
 #include "wings_internal.h"
+#include "scene_nodes.h"
 
 namespace {
     // Spare RDRAM above the game's heap, below 16MB so display list addresses fit in 24 bits. The game heap ends at
@@ -43,7 +44,7 @@ namespace {
     uint32_t side_cursor = side_start;
 
     // Game addresses.
-    constexpr uint32_t node_pool = 0x800D9E90;
+    constexpr uint32_t node_pool = rush2::scene_nodes::table;
     constexpr uint32_t node_size = 0x38;
     constexpr uint32_t car_body_node = rush2::car_types::car_states; // Body node index of car i at + i * 0x134 (moved from 0x80113F90, include/car_types.h).
     constexpr uint32_t car_body_node_stride = 0x134;

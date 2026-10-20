@@ -522,6 +522,24 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
     sky = defaultdict(lambda: ([], [], [], [], []))
     sky_names = {o.name for o in t.objects
                  if any(t.textures[tr[3]].name.startswith(SKY_TEXTURES) for tr in o.lods[0].tris)}
+    # Most arcade skies are a ring of wall panels under a flat ceiling, centered off the origin, so a few near-side
+    # panels reach less than SKY_RADIUS; as scenery the draw distance cut them off and left a gap in the sky. A texture
+    # that at least two far objects use, and that far objects make up at least half the users of, is a sky texture,
+    # and every object using it is sky (as src/arcade2049/arcade_track.cpp).
+    users = defaultdict(lambda: [0, 0])
+    placed = list(instances(t, []))
+    for o, M, pos, _ in placed:
+        lod = o.lods[0]
+        if not lod.verts:
+            continue
+        V = np.array([v[0] for v in lod.verts], float) @ M + pos
+        water = all(ti < len(t.textures) and t.textures[ti].name in WATER_TEXTURES for *_, ti in lod.tris)
+        far = np.max(np.linalg.norm(V[:, [0, 2]], axis=1)) > SKY_RADIUS and not water
+        for ti in {tr[3] for tr in lod.tris if tr[3] < len(t.textures)}:
+            users[ti][0] += 1
+            users[ti][1] += far
+    sky_tex = {ti for ti, (n, f) in users.items() if f >= 2 and f * 2 >= n}
+    sky_names |= {o.name for o, *_ in placed if any(tr[3] in sky_tex for tr in o.lods[0].tris)}
     tri_count = 0
 
     def add_tris(target, lod, V, limit):

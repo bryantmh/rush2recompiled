@@ -7453,6 +7453,15 @@ status = "verified"
 ref = "docs/npc_cars.md#drone-car-table"
 
 [[var]]
+vram = 0x800D9E90
+name = "scene_node_table"
+type = "u8[0xDAC0]"
+desc = "Scene nodes, 0x38 each (+0 flags, +4 -> matrix[9] + position[3]); 1,000 fit before 0x800E7950. Moved by us.toml to 0x80400000 (2,340 nodes, include/scene_nodes.h): unused in the recomp."
+area = "render"
+status = "verified"
+ref = "docs/custom_tracks.md#for-developers"
+
+[[var]]
 vram = 0x800D9E94
 name = "node_pose_ptrs"
 type = "void*[]"

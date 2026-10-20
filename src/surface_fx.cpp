@@ -36,6 +36,7 @@
 #include "calspeed.h"
 #include "car_types.h"
 #include "surface_fx.h"
+#include "scene_nodes.h"
 
 extern "C" void scene_matrix_create_8007F91C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void scene_node_create_8007F6DC(uint8_t* rdram, recomp_context* ctx);
@@ -56,7 +57,7 @@ namespace {
     constexpr uint32_t draw_state_size = 0x134;
     constexpr uint32_t wheel_points = 0xA8;        // in a draw state: 4 x {x, y, z} feet, car frame
     constexpr uint32_t mark_color = 0x800C5634;    // RGBA of the tire marks' polygons
-    constexpr uint32_t nodes = 0x800D9E90, node_size = 0x38;
+    constexpr uint32_t nodes = rush2::scene_nodes::table, node_size = 0x38;
     constexpr uint32_t node_count = 0x800FAE58;
     constexpr uint32_t node_hidden = 0x400, node_prim = 0x2000;
     constexpr uint32_t model_slots = 0x80118D78;   // per model slot: its records (8 bytes each)

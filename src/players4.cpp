@@ -110,6 +110,7 @@ namespace {
         { 0x80119888, 0x8011CA88, 0x802F0000 }, // HUD elements, 0x40 each (func_80081008)
         { 0x8011CA90, 0x8011CDB0, 0x802F6400 }, // free HUD element pointers (func_80060418)
         { 0x800F9558, 0x800FAE58, 0x802F6C00 }, // 2D widgets, 0x20 each (func_800541F8)
+        { 0x800D9E90, 0x800E7950, 0x80400000 }, // scene nodes, 0x38 each (scene_node_create_8007F6DC)
     };
 
     // Per-frame graphics buffers.

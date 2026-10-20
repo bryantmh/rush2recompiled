@@ -27,12 +27,14 @@
 
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
+#include "scene_nodes.h"
 
 namespace {
     // Game addresses.
-    constexpr uint32_t node_pool = 0x800D9E90;  // Scene graph nodes, 0x38 bytes each.
+    constexpr uint32_t node_pool = rush2::scene_nodes::table;  // Scene graph nodes, 0x38 bytes each.
     constexpr uint32_t node_size = 0x38;
-    constexpr uint32_t max_nodes = 1024;
+    constexpr uint32_t max_nodes = rush2::scene_nodes::capacity; // node_id holds 12 bits of index
+    static_assert(max_nodes <= 0x1000);
     constexpr uint32_t camera_array = 0x800E79D0; // Per-view cameras, 0x40 bytes each.
     constexpr uint32_t poly_array = 0x800FAF00;   // World-space polygons, 0x58 bytes each.
     constexpr uint32_t poly_size = 0x58;
@@ -65,13 +67,13 @@ namespace {
     constexpr float camera_cut_cos = 0.5f; // 60 degrees
 
     // ID layout (never 0 = G_EX_ID_IGNORE or 0xFFFFFFFF = G_EX_ID_AUTO):
-    //   nodes:      1vvg gggg gggg gggg gggg ggnn nnnn nnnn  (bit 28 is always 0)
+    //   nodes:      1vv0 gggg gggg gggg gggg nnnn nnnn nnnn  (12 bits of node: the table holds 2,340, scene_nodes.h)
     //   polygons:   0001 vvgg gggg gggg gggg pppp pppp pppp
     //   projection: 0010 0000 0000 00vv gggg gggg gggg gggg
     //   view space: 0010 0001 0000 00vv 0000 0000 0000 0000  (the projection of camera-attached nodes)
     //   root view:  0011 0000 0000 00vv gggg gggg gggg gggg
     uint32_t node_id(uint32_t view, uint32_t gen, uint32_t node) {
-        return 0x80000000u | ((view & 3) << 29) | ((gen & 0x3FFFF) << 10) | (node & 0x3FF);
+        return 0x80000000u | ((view & 3) << 29) | ((gen & 0xFFFF) << 12) | (node & 0xFFF);
     }
 
     uint32_t poly_id(uint32_t view, uint32_t gen, uint32_t slot) {

@@ -213,7 +213,12 @@ ft/s x 60 / 88 / 1.2 (Rush 2049's lane speeds over Rush 2's, docs/rush2049_resea
   MASK or BLEND by how soft its alpha is, clamped where the textureMode clamps. Triangles with an edge over 2,500 ft
   are halved (UVs and colors interpolated).
 - `SKY`: objects using the sky textures (GS_SKY, GS_APANS, AL_MOON), the cloud layer, or reaching past 9,000 ft,
-  except the bay's WATER2 sheets (G6688-G6693, out to 10,700 ft): the sky is drawn without depth around the camera,
+  and every object using a texture that at least two far objects use and that far objects make up at least half the
+  users of. The other tracks' skies are a ring of wall panels under a flat ceiling, centered off the origin, so a few
+  near-side panels reach less than 9,000 ft: Marina G27322-G27323, Haight G20137-G20139 (under ceiling G20132),
+  Civic AF_G27162-AF_G27163, Metro G23003-G23005, Presidio G14557-G14558 (Mission's ring is all past it). As scenery
+  the 2,000 ft draw distance cut them off, so the sky had a gap and the ceiling's edge showed as a box overhead. The
+  texture rule adds exactly those panels and nothing else on any track. Excluded: the bay's WATER2 sheets (G6688-G6693, out to 10,700 ft): the sky is drawn without depth around the camera,
   so in it they painted a dark plane across the dome while the sky kept its world height. They are scenery (the near
   part, depth tested) and sky too: the game draws 2,000 ft, and the sky's water meets the distant land (GS_APANS) as in
   the arcade. Sky materials go in draw order: dome, water, land, clouds. The dome (27,600 ft) is scaled to fit the sky

@@ -140,7 +140,8 @@ namespace {
     constexpr int footer_gap = 5;
 
     // Glyph images and the display lists that draw them, in spare RDRAM below 16MB (display list addresses are 24
-    // bits). src/hud.cpp's 2D display lists use 0x80AE0000-0x80B00000 (the game heap's top lowered to make room),
+    // bits). The scene node table is at 0x80400000-0x80420000 (include/scene_nodes.h), the game heap 0x80420000-0x80AE0000
+    // (src/assets.cpp). src/hud.cpp's 2D display lists use 0x80AE0000-0x80B00000 (the game heap's top lowered to make room),
     // src/interpolation.cpp 0x80B00000-0x80C00000, src/rush1/track1_audio.cpp 0x80C90000-0x80C99E00,
     // src/rush2049/odometer.cpp 0x80C9A000-0x80C9AB00, src/pause_menu.cpp 0x80C9C000-0x80C9EF00,
     // src/hud.cpp 0x80C9F000-0x80C9F320, src/rush2049/car2049.cpp 0x80CA0000-0x80CB0000, src/widescreen.cpp

@@ -52,6 +52,7 @@
 
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
+#include "scene_nodes.h"
 
 using namespace rush2::car2049;
 
@@ -2952,9 +2953,9 @@ namespace {
     uint32_t light_side_cursor = light_side_start;
     constexpr uint32_t car_body_nodes = types_::car_states; // + car * 0x134: the car's body scene node index
     constexpr uint32_t car_body_node_stride = 0x134;
-    constexpr uint32_t scene_nodes = 0x800D9E90;
+    constexpr uint32_t scene_node_table = rush2::scene_nodes::table;
     constexpr uint32_t scene_node_size = 0x38;
-    constexpr int max_scene_nodes = 0x400;
+    constexpr int max_scene_nodes = (int)rush2::scene_nodes::capacity;
     constexpr uint32_t game_state = 0x8010C0D0;       // 0-2 menus and the car select, 3 and up a race
 
     // Rush 2's car combiners that blend toward ENV by ENV alpha (every one the car models use), and their copies'
@@ -3024,7 +3025,7 @@ namespace {
                     if (n < 0 || n >= max_scene_nodes || car_of_node.contains(n)) continue;
                     car_of_node[n] = car;
                     parent_of_node[n] = parent;
-                    uint32_t node = scene_nodes + uint32_t(n) * scene_node_size;
+                    uint32_t node = scene_node_table + uint32_t(n) * scene_node_size;
                     stack.push_back({ (int16_t)MEM_H(0, (int32_t)(node + 0xE)), n });                  // first child
                     if (n != root) stack.push_back({ (int16_t)MEM_H(0, (int32_t)(node + 0x10)), parent });  // next sibling
                 }
@@ -3048,7 +3049,7 @@ namespace {
     void node_rotation(uint8_t* rdram, int n, float out[9]) {
         float m[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
         for (int depth = 0; n >= 0 && n < max_scene_nodes && depth < 16; depth++) {
-            uint32_t transform = (uint32_t)MEM_W(4, (int32_t)(scene_nodes + uint32_t(n) * scene_node_size));
+            uint32_t transform = (uint32_t)MEM_W(4, (int32_t)(scene_node_table + uint32_t(n) * scene_node_size));
             if (transform >= 0x80000000u && transform < 0x80800000u) {
                 float r[9], p[9];
                 for (int i = 0; i < 9; i++) {
@@ -3094,8 +3095,8 @@ void rush2::car2049::light_model(uint8_t* rdram, recomp_context* ctx, uint32_t d
     }
     uint32_t node_addr = (uint32_t)ctx->r23;
     int car = -1;
-    if (node_addr >= scene_nodes && !car_of_node.empty()) {
-        auto it = car_of_node.find(int((node_addr - scene_nodes) / scene_node_size));
+    if (node_addr >= scene_node_table && !car_of_node.empty()) {
+        auto it = car_of_node.find(int((node_addr - scene_node_table) / scene_node_size));
         if (it != car_of_node.end()) car = it->second;
     }
     uint32_t rgba = 0;
@@ -3106,12 +3107,12 @@ void rush2::car2049::light_model(uint8_t* rdram, recomp_context* ctx, uint32_t d
     // instead; PRIM's alpha is kept.
     if (probes_ready && car >= 0) {
         float rot[9];
-        node_rotation(rdram, int((node_addr - scene_nodes) / scene_node_size), rot);
+        node_rotation(rdram, int((node_addr - scene_node_table) / scene_node_size), rot);
         uint32_t relit = rush2::probes::relight(rdram, car, (uint32_t)ctx->r30, rot);
         if (relit != 0) {
             uint32_t prim_alpha = 0xFF;
             if (!body) {
-                uint32_t body_node = scene_nodes + uint32_t((int32_t)MEM_W(0, (int32_t)(car_body_nodes + uint32_t(car) * car_body_node_stride))) * scene_node_size;
+                uint32_t body_node = scene_node_table + uint32_t((int32_t)MEM_W(0, (int32_t)(car_body_nodes + uint32_t(car) * car_body_node_stride))) * scene_node_size;
                 if ((uint32_t)MEM_W(0, (int32_t)body_node) & 0x2000) prim_alpha = MEM_BU(0, (int32_t)(body_node + 0x33));
             }
             GfxCommand env_push, env_pop, prim_push, prim_pop;
@@ -3163,7 +3164,7 @@ void rush2::car2049::light_model(uint8_t* rdram, recomp_context* ctx, uint32_t d
         if (copy != 0) {
             // Rush 2's own darkening: the car body node's ENV (flag 0x4000), black at alpha a, is a multiply by
             // 1 - a; its PRIM (flag 0x2000) is what the plain parts multiply by.
-            uint32_t body_node = scene_nodes + uint32_t((int32_t)MEM_W(0, (int32_t)(car_body_nodes + uint32_t(car) * car_body_node_stride))) * scene_node_size;
+            uint32_t body_node = scene_node_table + uint32_t((int32_t)MEM_W(0, (int32_t)(car_body_nodes + uint32_t(car) * car_body_node_stride))) * scene_node_size;
             uint32_t body_flags = (uint32_t)MEM_W(0, (int32_t)body_node);
             float keep = (body_flags & 0x4000) ? 1.0f - float(MEM_BU(0, (int32_t)(body_node + 0x37))) / 255.0f : 1.0f;
             uint32_t body_prim = (body_flags & 0x2000) ? (uint32_t)MEM_W(0, (int32_t)(body_node + 0x30)) : 0xFFFFFFFF;
@@ -3284,7 +3285,7 @@ namespace {
             for (const SheenSlot& s : sheen_slots) {
                 int n = (int32_t)MEM_W(0, (int32_t)(record + s.offset));
                 if (n < 0 || n >= max_scene_nodes) continue;
-                uint16_t h = MEM_HU(0, (int32_t)(scene_nodes + uint32_t(n) * scene_node_size + 0xC));
+                uint16_t h = MEM_HU(0, (int32_t)(scene_node_table + uint32_t(n) * scene_node_size + 0xC));
                 if (h == 0) continue;
                 if (h != MEM_HU(0, (int32_t)(parts + s.part * 2)) && h != MEM_HU(0, (int32_t)(parts + s.part * 2 + 2))) continue;
                 sheen_nodes.emplace(n, SheenNode{ rush2049, id, s.sheen });
@@ -3306,10 +3307,10 @@ void rush2::car2049::sheen_model(uint8_t* rdram, recomp_context* ctx) {
         built_at = now;
     }
     uint32_t node_addr = (uint32_t)ctx->r23;
-    if (node_addr < scene_nodes) {
+    if (node_addr < scene_node_table) {
         return;
     }
-    auto it = sheen_nodes.find(int((node_addr - scene_nodes) / scene_node_size));
+    auto it = sheen_nodes.find(int((node_addr - scene_node_table) / scene_node_size));
     if (it == sheen_nodes.end()) {
         return;
     }

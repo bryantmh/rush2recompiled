@@ -21,9 +21,10 @@ tools/track_mod_test.bat, gives their count and names; RDRAM: pointer 0x8010C15C
 position +0x34) every 0.37 s for --seconds of the race and prints the ones whose matrix or position changed, and
 how far: moving objects that should turn or travel but don't show up as never changing.
 --peek ADDR (repeatable, hex) instead prints the u32 at each RDRAM address during the race, smallest and largest seen
-over --seconds (scene_node_table_count 0x800FAE58: how full the scene node table at 0x800D9E90 is).
+over --seconds (scene_node_table_count 0x800FAE58: how full the scene node table at 0x80400000 is (include/scene_nodes.h)); --peek-always
+samples in every game state too (a race that crashes while it loads never reaches the race state).
 --pos (with --trace) adds the car's positions, rounded to a foot: physics +0x224, car state +0 (where a computer car's
-body node is put, cam_update_all_players_8009D9F4) and the body node's own (node +0xF0 of 0x800D9E90, 0x38 each, its
+body node is put, cam_update_all_players_8009D9F4) and the body node's own (node +0xF0 of the table at 0x80400000, 0x38 each, its
 matrix +4, position +0x24; nhid = its hidden flag 0x400), logging a line whenever one moves.
 RDRAM is found by matching the boot code at 0x80000450 from the Rush 2 ROM (tools/rush2049/roms.py; RUSH2_ROM).
 Fields: car state 0x801124A0 + car x 0x354 (position +0, place +0xE9, finished +0xEA, wreck state +0x342, out of
@@ -87,6 +88,9 @@ class Rdram:
         buf, done = ctypes.c_ubyte(value & 0xFF), ctypes.c_size_t()
         return k32.WriteProcessMemory(self.h, ctypes.c_void_p(self.base + ((vaddr ^ 3) - 0x80000000)),
                                       ctypes.byref(buf), 1, ctypes.byref(done))
+
+
+SCENE_NODES = 0x80400000   # the scene node table (include/scene_nodes.h; the game's 0x800D9E90 moved there)
 
 
 def word_view(blob, start):
@@ -183,10 +187,10 @@ def trace(rd, car, seconds, out, proc, wreck_at=None, pos=False):
             cur['ppos'] = xyz(c, 0x224)
             cur['spos'] = xyz(s, 0)
             node = struct.unpack_from('<i', s, 0xF0)[0]
-            m = rd.block(0x800D9E90 + node * 0x38 + 4, 4) if node >= 0 else None
+            m = rd.block(SCENE_NODES + node * 0x38 + 4, 4) if node >= 0 else None
             mat = rd.block(struct.unpack('<I', m)[0] + 0x24, 12) if m and struct.unpack('<I', m)[0] >= 0x80000000 else None
             cur['npos'] = xyz(mat, 0) if mat else '-'
-            nf = rd.block(0x800D9E90 + node * 0x38, 4) if node >= 0 else None
+            nf = rd.block(SCENE_NODES + node * 0x38, 4) if node >= 0 else None
             cur['nhid'] = (struct.unpack('<I', nf)[0] >> 10) & 1 if nf else '-'
         key = {k: v for k, v in cur.items() if k != 's304'}
         if prev is None or key != prev:
@@ -229,12 +233,12 @@ def records(rd, placement_bin, seconds, proc):
                 i, names[i], dm, dp, *snaps[-1][i][9:12]))
 
 
-def peek(rd, addrs, seconds, proc):
-    """Samples u32 words at addrs during the race; prints each one's range."""
+def peek(rd, addrs, seconds, proc, always=False):
+    """Samples u32 words at addrs during the race (always: in every state); prints each one's range."""
     seen, t0 = {a: [] for a in addrs}, time.time()
     while time.time() - t0 < seconds and not (proc and proc.poll() is not None):
         g = rd.block(0x8010C0D0, 4)
-        if g and struct.unpack('<I', g)[0] == 3:
+        if g and (always or struct.unpack('<I', g)[0] == 3):
             for a in addrs:
                 v = rd.block(a, 4)
                 if v:
@@ -255,6 +259,7 @@ def main():
     ap.add_argument('--records', help='placement.bin of the raced custom track: report which records move')
     ap.add_argument('--pos', action='store_true', help="with --trace: also log the car's positions")
     ap.add_argument('--peek', action='append', type=lambda v: int(v, 16), help='print this u32 during the race')
+    ap.add_argument('--peek-always', action='store_true', help='with --peek: sample in every game state, not just racing')
     ap.add_argument('--wreck-at', type=float, help='with --trace: wreck that car this many seconds into the race')
     ap.add_argument('--shots', help='screenshot the window at these seconds after launch (comma separated) into '
                     'DIR/shot_<seconds>.png; a simulation run needs RUSH2_SIM_SHOW=1 to show its window')
@@ -282,7 +287,7 @@ def main():
         print('RDRAM not found')
         return 1
     if a.peek:
-        peek(rd, a.peek, a.seconds, proc)
+        peek(rd, a.peek, a.seconds, proc, a.peek_always)
         if proc and proc.poll() is None:
             proc.terminate()
         return 0

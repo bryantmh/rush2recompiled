@@ -108,6 +108,11 @@ PLACED = [
     # The boxes hud_multi_widget_menu_setup_80093B38 builds (0x20 each), 10 of which the stunt panels' boxes and the
     # finished places' boxes outgrow with four players (us.toml raises the count to 20).
     (0x800C4254, 0x800C4394, 0x802FA000, 0x280, 'HUD boxes, 0x20 each (func_80093B38, func_80093A84)'),
+    # The scene nodes (0x38 each, scene_node_create_8007F6DC appends with no bound): 1,000 fit before the globals at
+    # 0x800E7950, and the arcade Haight's 167 billboards, 80 props and 117 moving objects made 1,045, which ran over
+    # text_state_stack_a (0x800E7C50) and crashed its race start. The copy at the bottom of the game heap's old range
+    # (the heap now starts at 0x80420000, src/assets.cpp) holds 2,340 (include/scene_nodes.h).
+    (0x800D9E90, 0x800E7950, 0x80400000, 0x20000, 'scene nodes, 0x38 each (scene_node_create_8007F6DC)'),
 ]
 
 # Functions that read the number of players (D_8010C3E2) clamped to 2 instead (rush2::players4::clamped_players):
@@ -126,6 +131,10 @@ CLAMPED = {
 # Instruction sites left alone: addresses that equal a moved array's start but are another array's loop end.
 EXCLUDE = {
     '800A375C',  # func_800A3748 fills 0x80118D58/0x80118F80 up to 0x80118F80/0x80118FA0
+    # func_800BC888's branch to 0x800BC948 stores through the object func_800BB27C returned ($v0), not the scene-node
+    # address the straight-line scan carries over from the lui at 0x800BC914.
+    '800BC950',
+    '800BC954',
 }
 
 # Loops that run over a whole moved array stop at its old end, which isn't in the moved range: these sites (vram) get
