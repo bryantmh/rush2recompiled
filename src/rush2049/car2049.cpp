@@ -3571,13 +3571,22 @@ extern "C" void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx) {
     int tires = row_byte(rdram, t_tires, row, type);
     bool slick = (tires == slicks || tires == pro_slicks) && setup49.loaded;
     bool fast = speeds_2049();
-    if (!car49 && !slick && !fast) {
+    // California Speed's physics (src/calspeed/calspeed_physics.cpp): a computer car driving a California Speed car
+    // already reads its own descriptor in this copy; every other car gets a copy converted for its heavier road hold.
+    if (rush2::calspeed::physics::native(rdram, car)) {
+        return;
+    }
+    bool cs_converted = rush2::calspeed::physics::converted(rdram, car);
+    if (!car49 && !slick && !fast && !cs_converted) {
         return;
     }
     uint32_t desc = (uint32_t)ctx->r30;
     uint32_t copy = car_descs + slot * desc_size;
     for (uint32_t o = 0; o < desc_size; o += 4) {
         MEM_W(0, (int32_t)(copy + o)) = MEM_W(0, (int32_t)(desc + o));
+    }
+    if (cs_converted) {
+        rush2::calspeed::physics::convert_descriptor(rdram, copy);
     }
     float torque = 1.0f;
     const Setup49& s = setup49;

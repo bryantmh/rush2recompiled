@@ -6068,6 +6068,7 @@ name = "car_integrate_position_orientation"
 sig = "void car_integrate_position_orientation(Car *car)"
 desc = "Position and orientation integration stage of the physics step. | California Speed's func_80090540 zeroes the pitch and roll rates +0x40/+0x48 after this; a port on its tracks was removed the same day it went in (broke hill driving)."
 status = "verified"
+calspeed = [0x80090540]
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
 
@@ -6077,6 +6078,7 @@ name = "car_integrate_velocities"
 sig = "void car_integrate_velocities(Car *car)"
 desc = "Velocities integration stage of the physics step. | Yaw torque from force x wheel position (with func_80069AB4 and func_80069A14)."
 status = "verified"
+calspeed = [0x8008FFFC]
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
 
@@ -6105,6 +6107,7 @@ name = "car_torque_from_forces"
 sig = "void car_torque_from_forces(Car *car)"
 desc = "Torque = sum of force x position. | Yaw torque from force x wheel position (with func_80069A14 and func_800697D0). | California Speed's func_8008FC1C adds a lifted-wheel torque after this sum; a port on its tracks was removed the same day it went in (broke hill driving)."
 status = "verified"
+calspeed = [0x8008FC1C]
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
 
@@ -6129,6 +6132,7 @@ consts = "0x2CC = car orientation matrix offset"
 status = "verified"
 ported = true
 rush2049 = [0x800E1C30]
+calspeed = [0x8008F7E4]
 area = "car"
 ref = "us.toml"
 
@@ -6150,6 +6154,7 @@ sig = "void car_tire_model(Car *car, Vec3 *vel, s32 a2, s32 a3, s32 stack0, s32 
 desc = "Tire brush model per wheel (called by func_8006ABB0): side force = load x cubic in slip, capped by friction circle sqrt(grip^2-(drive force/load)^2)*load; wheel struct car +0x424 + 0x5C*wheel; also passes on torque x m/(m + drivetrain inertia). | One tire's forces: side and drive force from wheel velocity, load and torque, with wheelspin and deflection kept in the wheel."
 status = "verified"
 ported = true
+calspeed = [0x800B8F68]
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
 
@@ -6183,6 +6188,7 @@ consts = "-10, -15, -0.7 = dirt/grass/pavement rear wheel coefficients; 0.0135 =
 status = "verified"
 ported = true
 rush2049 = [0x800E23A4]
+calspeed = [0x8008F268]
 area = "car"
 ref = "us.toml"
 
@@ -6600,6 +6606,7 @@ status = "verified"
 ported = true
 rush1 = [0x8007B2EC]
 rush2049 = [0x800E2A64]
+calspeed = [0x8008F060]
 area = "car"
 ref = "us.toml"
 
@@ -6688,6 +6695,7 @@ sig = "void car_auto_shift(Car *car)"
 desc = "Automatic gear shifts (holds neutral while asked gear +0x3E0 is 0; up-shift about 6325 rpm). | Gear selection; car +0x3E0 = 1 asks for a forward gear (0 = neutral). Auto-shift up threshold in the descriptor."
 status = "verified"
 rush2049 = [0x800E31D4]
+calspeed = [0x8008E5C4]
 area = "car"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
 
@@ -6715,6 +6723,7 @@ ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-reb
 [[func]]
 vram = 0x80071724
 desc = "Crash check: a total force above the car's crash threshold (table 0x800C090C, car +0x644) wrecks it. | Crash threshold test: a total force above car +0x644 wrecks the car."
+consts = "400 = speed ft/s; 10 = yaw rate rad/s; -30000 (0x800CF870) = damage force; -1000 = body contact; 0.707 (0x800CF878) = tip; 100 = speed"
 status = "verified"
 area = "collision"
 ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-rebalance-implemented-october-2026"
@@ -6773,6 +6782,7 @@ consts = "0x81C = car stride, 1.46667 = mph to ft/s"
 status = "verified"
 ported = true
 rush1 = [0x8007D174]
+calspeed = [0x8009CF00]
 area = "car"
 ref = "us.toml"
 
@@ -7019,6 +7029,7 @@ status = "verified"
 ported = true
 rush1 = [0x8007CDD4, 0x8007ECB0]
 rush2049 = [0x800E4B58]
+calspeed = [0x8009AE0C]
 area = "car"
 ref = "us.toml"
 
@@ -9311,6 +9322,14 @@ ported = true
 rush2049 = [0x800D138C]
 area = "race"
 ref = "docs/online.md#players-per-machine"
+
+[[func]]
+vram = 0x8008E448
+desc = "Per-car wreck state step ($t6 = race car, $a3 = its slot 0x801124A0 + 0x354 x car): state 0 with the physics car's crash flag +0x648 set starts the wreck (wreck state +0x342, counters at 0x800C2140 + 0x28 x car); state 1 goes to 2 after 3.5 s (+0x104 the wreck time, 0x80117488 the race clock)."
+consts = "3.5 = s from wreck to respawn state 2"
+status = "inferred"
+area = "race"
+ref = "docs/functions/rush2_race.md#rush-2-race-functions"
 
 [[func]]
 vram = 0x8008E6B4

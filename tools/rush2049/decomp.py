@@ -1,6 +1,7 @@
 """Decompile Rush 2 / Rush 2049 functions with m2c (research aid).
 
-Usage: python decomp.py r2|49|ovl FUNCADDR[-ENDADDR] [more...]
+Usage: python decomp.py r2|49|ovl|cs FUNCADDR[-ENDADDR] [more...]
+  cs = California Speed (tools/calspeed/cs.py, CALSPEED_ROM or build/calspeed.z64); bounds from the jr $ra scan.
   ovl = the in-race mode overlay (stunt/battle HUD, weapons; ROM 0xB6FEC4 raw deflate, loaded at 0x8038A400), read from
   the ROM (tools/rush2049/roms.py); function bounds come from scanning it for jr $ra.
 Needs m2c (git clone https://github.com/matt-kempster/m2c) at $M2C or ./m2c. Function bounds come from
@@ -38,6 +39,8 @@ def ovl_bounds():
     return starts
 
 def bounds(game):
+    if game == 'cs':
+        return []
     if game == 'ovl':
         if game not in _bounds: _bounds[game] = ovl_bounds()
         return _bounds[game]
@@ -63,6 +66,11 @@ def reader(game):
         return lambda a: struct.unpack('>I', d[a - OVL_BASE:a - OVL_BASE + 4])[0] if OVL_BASE <= a < OVL_BASE + len(d) else 0
     if game == 'r2':
         r = roms.Rush2(); return lambda a: struct.unpack('>I', r.read(a, 4))[0]
+    if game == 'cs':
+        sys.path.insert(0, os.path.join(REPO, 'tools', 'calspeed'))
+        os.environ.setdefault('CALSPEED_ROM', os.path.join(REPO, 'build', 'calspeed.z64'))
+        import cs
+        c = cs.CalSpeed(); return lambda a: struct.unpack('>I', c.read(a, 4))[0]
     r = roms.Rush2049()
     def rd(a):
         if a >= r.MAIN_VRAM: return r.w(a)

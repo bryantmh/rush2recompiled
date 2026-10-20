@@ -167,6 +167,48 @@ namespace rush2::calspeed {
     // Converts the cars and name logos into the disk cache (those not there yet) and reads them into memory, so
     // init_cars only installs them. Any thread (src/prewarm.cpp, at launch).
     void prepare_cars(const std::vector<uint8_t>& rom);
+    // California Speed car n's own physics values, unscaled, for a computer car running California Speed's physics
+    // (src/calspeed/calspeed_physics.cpp): its descriptor built into `desc` (Rush 2's layout) with its two tire curves
+    // as California Speed has them at `curves` (12 floats), its per-type table values, and its descriptor's two grip
+    // factors (+0x6C across, +0x70 along), which California Speed applies to every wheel's tire forces. False while
+    // the cars aren't loaded.
+    struct NativeCar {
+        float steer = 0, yaw = 0, preload = 0, mass = 0, inertia = 0;
+        int tires = 4;
+        float grip_lateral = 1.0f, grip_long = 1.0f;
+    };
+    bool native_car(uint8_t* rdram, int n, uint32_t desc, uint32_t curves, NativeCar& out);
+
+    // The CS Physics option (Games tab, docs/calspeed_research.md#cs-physics-california-speeds-world): on California
+    // Speed's tracks, Rush 2's world (the CS Road Hold port, the default) or California Speed's own physics. A car's
+    // role is set when the race sets it up, so a change takes effect from the next race.
+    namespace physics {
+        enum class Mode { Rush2World, CalSpeed };
+        void set_mode(Mode m);
+        Mode get_mode();
+        bool race_mode();   // the option is California Speed's (whatever the track)
+        // California Speed's physics run for this car now (a California Speed track is raced and the car was set up
+        // under the option); native: a computer car driving a California Speed car on its own values; converted:
+        // every other car, on its own values converted for the world.
+        bool active(uint8_t* rdram, uint32_t car);
+        bool native(uint8_t* rdram, uint32_t car);
+        bool converted(uint8_t* rdram, uint32_t car);
+        // A converted car's descriptor copy, for California Speed's heavier road hold.
+        void convert_descriptor(uint8_t* rdram, uint32_t desc);
+        // Called from the ground contact (calspeed_walls.cpp): its start, a wall hit on a body point, its end.
+        void ground_contact_begin(uint8_t* rdram, uint32_t car);
+        void wall_hit(uint32_t car, int point, int type);
+        void ground_contact_end(uint8_t* rdram, uint32_t car);
+        // Called from the hooks of calspeed_rom.cpp at the same spots; true when they ran (the callers' own rules
+        // then don't).
+        void wheel_forces_end(uint8_t* rdram, uint32_t car);
+        bool tire_load(uint8_t* rdram, recomp_context* ctx);
+        bool tire_grip(uint8_t* rdram, recomp_context* ctx);
+        bool force_sum(uint8_t* rdram, uint32_t car);
+        void torque_end(uint8_t* rdram, uint32_t car);
+        void orient_begin(uint8_t* rdram, uint32_t car);
+        void orient_end(uint8_t* rdram, uint32_t car);
+    }
 }
 
 #endif

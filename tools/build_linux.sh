@@ -47,6 +47,7 @@ if [ "$SYNC" = 1 ]; then
     : > "$patched"
     for patch in "$SRC"/lib/patches/*.patch; do
         lib="$(basename "$patch" .patch)"
+        lib="${lib//--//}" # A nested submodule's patch names its path with "--" for "/" (see CMakeLists.txt).
         grep -E '^\+\+\+ b/' "$patch" | sed 's|^+++ b/||' | while read -r file; do
             echo "/lib/$lib/$file" >> "$patched"
         done

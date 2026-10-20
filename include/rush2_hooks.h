@@ -404,6 +404,21 @@ void rush2_calspeed_demo_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_respawn_advance(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
+// California Speed's walls and missed wheels (src/calspeed/calspeed_walls.cpp) and physics (calspeed_physics.cpp),
+// with the CS Physics option.
+int rush2_calspeed_wall_collision(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_ground_contact_enter(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_ground_contact_leave(uint8_t* rdram, recomp_context* ctx);
+void rush2_csphys_init_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_csphys_init_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_csphys_probe(uint8_t* rdram, recomp_context* ctx);
+void rush2_csphys_wheel_forces(uint8_t* rdram, recomp_context* ctx);
+void rush2_csphys_torque(uint8_t* rdram, recomp_context* ctx);
+void rush2_csphys_orient_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_csphys_orient_end(uint8_t* rdram, recomp_context* ctx);
+int rush2_csphys_velocities(uint8_t* rdram, recomp_context* ctx);
+int rush2_csphys_shift(uint8_t* rdram, recomp_context* ctx);
+void rush2_csphys_wreck_log(uint8_t* rdram, recomp_context* ctx);
 // Directional rumble (src/rumble.cpp): a car's contact with a wall of the given world normal.
 void rush2_rumble_wall_contact(uint8_t* rdram, uint32_t car, const float* normal);
 

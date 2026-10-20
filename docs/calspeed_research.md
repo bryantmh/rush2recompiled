@@ -1012,6 +1012,109 @@ inputs. Each car's front and rear grip is held to at most the Pickup's ratio x i
 2.32 / 2.85, the Dozer 2.34 / 3.10). The car select's bars count grip but not rollover, so before this a car could rate
 well and still flip. [V]
 
+### CS Physics: California Speed's world
+
+The Games tab's **CS Physics** option (`calspeed_physics` in games.json; Rush 2, the default, or California Speed
+(test)) is the other way round from the road hold port above: on California Speed's tracks the world runs as
+California Speed's does, its computer cars drive its cars on its own values, and every other car is converted to that
+world instead (src/calspeed/calspeed_physics.cpp, walls and missed wheel in src/calspeed/calspeed_walls.cpp). Added
+2026-10-19 as a test: it replaces the default only if it races better (tools/calspeed/sim_wrecks.py `--hold cs`,
+`--cs-drones`). Rush 2's wrecks, respawns and car-to-car collision stay for every car. Roles are set at car init, so
+it takes effect from the next race; with it on, the CS Road Hold hooks stand aside.
+
+California Speed's physics are Rush 2's functions with a few rules changed. Each CS function was lined up against its
+Rush 2 counterpart with tools/calspeed/physdiff.py (struct accesses, constants, calls side by side; the car struct's
+fields below +0x224 are at the same offsets, from there on shifted: +0x24, +0x58 from +0x2CC, +0x5C/+0x64 further) and
+decompiled with `tools/rush2049/decomp.py cs` (m2c output in tmp/csphys/). The same code in both, so not ported: the AI
+driver `func_8009AE0C` (Rush 2 `drone_driver_80074990`, same constants), its avoidance `func_8009CF00` (Rush 2
+0x80071FBC), the difficulty tables (0.8 / 1 / 1.25 / 1.5 and 75 / 90 / 135 / 180), the steering terms
+`func_8008F0B4`, the accel stage `func_8008FFA8`, the drivetrain `func_8008E1D0`, the wheel frame velocity and slip
+functions and the tire model `func_800B8F68` but for its load cap. The physics step is `func_8008F060` (Rush 2
+`car_physics_forces_800706D0`): ground contact `func_800A58A4`, wheel forces and force sum `func_8008F23C`
+(`func_8008F268` + `func_8008F7E4`), steering `func_8008F0B4`, torque `func_8008FC1C`, accel `func_8008FFA8`,
+velocities `func_8008FFFC`, orientation `func_80090540` (calling `func_800901E0`). [V: disassembly]
+
+The rules that differ, as ported (Rush 2 fields; hooks in us.toml under "California Speed's physics"):
+
+1. Road hold factor per wheel (`func_800A58A4`, see [Road hold](#road-hold)), kept from step to step, set after the
+   wheel loop (0x80070680). Push = weight x the factors' sum along the car's down axis, or world down turned into the
+   car's frame when any compression is below -1 (`func_8008F7E4`, after `car_force_sum` at 0x800706F4).
+2. Hill push (`func_8008F7E4`): force z += 1200 when the forward axis y (+0x2E8) > 0.55, throttle +0x3B4 != 0, the rear
+   wheels' road speed < 25 mph and no wall on body points 0 and 1 (`func_800B0A04`'s marks at CS +0x862).
+3. The rear wheels' drive forces (+0x78, +0x84) always set to their mean (Rush 2 only for drive flag 1).
+4. Lifted-wheel torque (`func_8008FC1C`, after the torque at 0x80070704): unless all four wheels are air (type 8), per
+   wheel with compression <= -0.1, F = gravity +0x200 x -2 x (c + 0.1) at the descriptor wheel (+0x7C + 12i, y = 0).
+5. Pitch and roll rates +0x40 / +0x48 zeroed after the rotation (`func_80090540` 0x8009093C).
+6. Rest correction (`func_800901E0`) in place of Rush 2's lift by any wheel offset +0x5CC past 0.5 (held at 0.5 through
+   `car_integrate_position_orientation_8006942C`): d = +0x5CC - 0.35 per wheel; for a player's car the pitch is first
+   levelled (front z desc +0x84, rear +0x9C, at most dt x 0.15); if the sum is positive every offset drops by its mean
+   and the car rises by it along its up axis. Wheel points +0x230 and body points +0x260 are then rebuilt.
+7. Body points widened on the low side: |right axis y (+0x2D0)| > 0.3 gives w = 3 x (|r| - 0.3) signed; a body offset
+   with w x x > 0 gets x += w.
+8. Tunnel loop glue (`func_80090540`): with rear wheel materials +0x610 / +0x612 both 6, the car drops by its smallest
+   travel +0x5DC if positive, and its matrix is rebuilt square to the last hit wheel's road normal (CS +0x3D8). The
+   materials are California Speed's, kept per wheel in calspeed_physics.cpp (Rush 2's +0x60C holds the one its effects
+   treat it as, 6 -> 0, src/surface_fx.cpp `source_material`): a lifted wheel gets 10 unless it was on 6.
+9. Missed wheel keeps its compression with 3 hits, and the body-quad walls in place of the body probe (both from
+   [Walls](#walls-california-speeds-body-collision) and [the missed wheel](#a-missed-wheel-keeps-its-compression-tried-removed),
+   back in the build for this mode only).
+10. Drag on dirt or grass under both rear wheels (`func_8008F268`): k = -1 x (1 - off-road), else -0.7 x off-road
+    (Rush 2: -10 / -15, its track byte 0x8010D3A6 == 2 case aside); corrected after the wheel forces (0x800706EC) by
+    (k_cs - k_r2) x v on force +0x54.
+11. Grip factors: CS descriptor +0x6C (across) and +0x70 (along) scale every wheel's tire forces (`func_800B8CE8`; Rush 2
+    only the rear lateral +0x78), and the tire load is capped at 1100 lb (`func_800B8F68`).
+12. Velocities (`func_8008FFFC`, natives only, at the entry of `car_integrate_velocities_800697D0`): a creep to 6.25
+    ft/s off the brake, speed capped at 400 (no spin integration that step), stop below 3 ft/s on the brake. Its
+    forward-only clamp (v.z >= 0) is left out: the cars reverse with Rush 2's reverse gear (request -1, as Rush 2's
+    `car_auto_shift_800711F4`).
+13. Gearbox (`func_8008E5C4`, natives only, at the entry of `car_auto_shift_800711F4`): Rush 2's thresholds with road
+    speed gates (up needs 26 / 66 / 106 mph out of gears 1-3; below 30 / 70 / 110 mph in gears 2-4 it shifts down);
+    first gear picked by `func_8008E780`. Road speed = (spin x radius of rear tires 2 and 3) / 2 x 2.7273 (`func_800A3E20`).
+14. Lane speeds: the lanes' true speeds are driven, without `capped_lane_speeds`. California Speed has no catch-up
+    (its drones' speed and time factors +0x858, +0x454, +0x8AC are 1.0 all race); the port leaves it to the Drone
+    Cheating option, as on every other track (forcing it off, the first build, overrode the player's setting).
+
+Not ported: car-to-car collision (California Speed resolves every point contact, Rush 2 stops at the first), the
+turnaround states, the x4 hold after the race, the brake-off-when-tipped rule.
+
+Where Rush 2's rules meet California Speed's world (found in the sims, 2026-10-19):
+- **Crash check.** Rush 2's `func_80071724` sets the crash flag +0x648 (and `func_8008E448` the wreck state +0x342 of
+  the car's slot) when |force +0x4| (stored at +0x654) is above the threshold +0x644 (390000 lb for every car), when
+  the speed +0x3D4 is past 400 ft/s, when the yaw rate +0x44 is past 10 rad/s, and when two body point forces (+0xB8
+  y) are below -1000 with the car tipped past 45 degrees under 100 ft/s (one below -30000 only adds damage bits).
+  California Speed has none of it: its threshold table 0x8007D134 is never read. In this world every car is held down
+  with 2.28 g, and computer cars landed California's crest (1030, 70, 7450) at 240 ft/s with 400000-585000 lb,
+  upright on their lane, every lap. So every car's threshold is x 2.28 at its init. California Speed stores the speed
+  before its 400 ft/s cap; here the capped speed is stored, or every car falling down San Francisco's tunnel hump at
+  the cap was wrecked.
+- **Materials.** Rush 2's +0x60C holds the material Rush 2's effects treat a California Speed material as (6 -> 0,
+  src/surface_fx.cpp), so the tunnel glue reads California Speed's own, kept per wheel (`source_material`). Before
+  that the glue never ran: computer cars left the hump's crest at 170 ft/s, flew 4 s and came down through the
+  tunnel floor.
+- **Smooth collision** (src/smooth_collision.cpp) stands aside: its ledge rule (a floor more than 0.75 ft above the
+  wheel gives way to the road under it, climbed at 0.1 ft a probe) let cars at California Speed's 250 ft/s sink
+  through the ramp up to California's crest onto the ground under it and fall off its end. California Speed's probe
+  takes the highest floor holding the point, as Rush 2's own.
+- **Resets.** Rush 2's `race_stuck_wrongway_update_8008CDA4` resets a computer car (wreck state 2) with the flag
+  +0x810, below the fall floor, or under 25 ft/s for 6 s (12 s for some); these stay. Most of the remaining Santa
+  Cruz wrecks are these, around its lane's 213 -> 117 mph step at (-18000, -690, 5700).
+
+Test aids: RUSH2_CSPHYS_LOG=<physics car> prints that car's wheels on the tunnel (materials, compression, travel,
+hold factor, normal) and its drivetrain every 15 steps; RUSH2_CSPHYS_WRECKS=1 prints each wreck with the crash
+check's inputs and every `car_wreck_trigger_8006E1A8` call. tools/calspeed/sim_wrecks.py `--hold cs` races in this
+mode, `--cs-drones` with only California Speed computer cars, `--where` lists each wreck, `--read` re-reads the
+recordings.
+
+Roles (`rush2_csphys_init_begin` at the entry of `car_init_setup_8008DBA0`, the tables put back at 0x8008E01C):
+- **Native**: a computer car driving a California Speed car. The descriptor pointer for the init points at its race
+  copy (0x80225000 + slot x 0xEC), built unscaled by `rush2::calspeed::native_car` with California Speed's own tire
+  curves at 0x80225C00 + slot x 0x30; steer, yaw damping, preload, mass (x 0x8007D47C), inertia and TIRES 4 come from
+  California Speed's tables (0x8007CF20, 0x8007CF74, 0x8007D034, 0x8007D088, 0x8007D0DC).
+- **Converted**: every other car (players, Rush 2 / 2049 / mod cars the computer drives): its own values, its
+  descriptor copy's springs and anti-roll (+0x18-+0x2C) x 2.28 and dampers (+0x30-+0x4C) x sqrt 2.28, the tire load /
+  2.28 (no 1100 cap): the world holds it down at 1 + 4 x 0.32 = 2.28 g on the road, so it sits, rolls and grips as at
+  Rush 2's 1 g. It keeps Rush 2's velocities (reverse) and gearbox.
+
 ### Car name art
 
 California Speed has no name logos for its own cars. Its car select bank, asset 9, is Rush 2's (asset 0x11): the same

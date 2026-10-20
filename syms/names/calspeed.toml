@@ -132,13 +132,41 @@ area = "car"
 ref = "docs/calspeed_research.md#the-end-of-a-point-to-point-race"
 
 [[func]]
+vram = 0x8008E5C4
+name = "cs_car_auto_shift"
+sig = "void cs_car_auto_shift(Car *car)"
+desc = "Rush 2's auto shift with road-speed gates: up only past 26/66/106 mph out of gears 1-3, down below 30/70/110 mph in gears 2-4."
+consts = "26/66/106 = up mph; 30/70/110 = down mph"
+status = "verified"
+ported = true
+rush2 = 0x800711F4
+rush2049 = [0x800E31D4]
+link = "role"
+area = "car"
+ref = "docs/calspeed_research.md#cs-physics-california-speeds-world"
+
+[[func]]
+vram = 0x8008E780
+name = "cs_car_pick_gear"
+sig = "void cs_car_pick_gear(Car *car)"
+desc = "From neutral: the first gear whose wheel spin x final drive x ratio is under the up threshold; sets the shift timer +1 s."
+status = "inferred"
+ported = true
+area = "car"
+ref = "docs/calspeed_research.md#cs-physics-california-speeds-world"
+
+[[func]]
 vram = 0x8008F060
 name = "cs_car_physics_step"
 sig = "void cs_car_physics_step(Car *car)"
-desc = "California Speed's per-car physics step, Rush 2's car_physics_forces_800706D0: func_800A58A4 (ground contact + walls), func_8008F23C (wheel forces, force sum, road hold), func_8008F0B4, func_8008FC1C (torque), func_8008FFA8 via func_80090BFC (angular acceleration), func_8008FFFC (velocities), func_80090540 (position and orientation)."
-status = "inferred"
+desc = "Per-car physics step: ground contact 800A58A4, wheel forces + force sum 8008F23C, steering terms 8008F0B4, torque 8008FC1C, accel 8008FFA8, velocities 8008FFFC, orientation 80090540."
+status = "verified"
+rush2 = 0x800706D0
+rush1 = [0x8007B2EC]
+rush2049 = [0x800E2A64]
+link = "role"
 area = "car"
-ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+ref = "docs/calspeed_research.md#road-hold"
 
 [[func]]
 vram = 0x8008F23C
@@ -151,24 +179,45 @@ area = "car"
 ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
 
 [[func]]
-vram = 0x8008F7E4
-name = "cs_hold_direction"
-sig = "s32 cs_hold_direction(Car *car)"
-desc = "Road hold direction rule: returns nonzero (push world down instead of along the car's down axis) when any wheel's compression +0x620 is below -1.0."
-consts = "-1.0 = lifted threshold"
-status = "inferred"
+vram = 0x8008F268
+name = "cs_car_wheel_forces_drag"
+sig = "void cs_car_wheel_forces_drag(Car *car)"
+desc = "Rush 2's wheel force loop + drag; the rear dirt/grass drive drag is -1 x (1 - offroad +0x60C) (Rush 2 -10 / -15) and -0.7 x offroad else, no track byte case."
+consts = "0x800D7350-58 = -1, -1, -0.7 drag factors"
+status = "verified"
+ported = true
+rush2 = 0x8006AFD8
+rush2049 = [0x800E23A4]
+link = "role"
 area = "car"
-ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+ref = "docs/calspeed_research.md#road-hold"
+
+[[func]]
+vram = 0x8008F7E4
+name = "cs_car_force_sum"
+sig = "void cs_car_force_sum(Car *car)"
+desc = "Force sum: rear wheel z-forces averaged; road hold push weight x sum of per-wheel factors (+0x314) along car down, world down when any compression +0x620 < -1; hill push +1200 forward when forward axis y > 0.55, throttle, road speed < 25 mph, no wall on body points 0/1 (+0x862)."
+consts = "1200 = hill push lb; 0.55 = forward axis y; 25 = mph; -1.0 = lifted threshold"
+status = "verified"
+ported = true
+rush2 = 0x8006A02C
+rush2049 = [0x800E1C30]
+link = "role"
+area = "car"
+ref = "docs/calspeed_research.md#road-hold"
 
 [[func]]
 vram = 0x8008FC1C
 name = "cs_car_torque_from_forces"
 sig = "void cs_car_torque_from_forces(Car *car)"
-desc = "Torque sum +0x10 (Rush 2 car_torque_from_forces_80069AB4: F x r over the wheels with r.y += compression and the body points) plus the lifted-wheel torque: unless all four wheels are type 10 (air), for each wheel with compression +0x620 <= -0.1, F = gravity +0x200 x -2 x (compression + 0.1) at the descriptor wheel position (+0x74, y zeroed), tau += F x r (0x8008FDEC-0x8008FF5C); then adds +0x134..+0x13C. Ported: rush2_calspeed_lift_torque (calspeed_rom.cpp)."
-consts = "-0.1 = lift threshold, -2 = weights per foot of lift, 10 = air surface type"
-status = "inferred"
+desc = "Rush 2's torque sum plus the lifted-wheel torque: unless all wheels are air (type 10), per wheel with compression <= -0.1, F = gravity +0x200 x -2(c+0.1) at the descriptor wheel +0x74 (y zeroed), torque += F x r."
+consts = "-0.1 = lift threshold ft; -2 = gain"
+status = "verified"
+ported = true
+rush2 = 0x80069AB4
+link = "role"
 area = "car"
-ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+ref = "docs/calspeed_research.md#body-rates-pitch-and-roll-do-not-carry-tried-removed"
 
 [[func]]
 vram = 0x8008FFA8
@@ -183,31 +232,38 @@ ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
 vram = 0x8008FFFC
 name = "cs_car_integrate_velocities"
 sig = "void cs_car_integrate_velocities(Car *car)"
-desc = "Velocity integration (Rush 2 car_integrate_velocities_800697D0) plus California Speed's forward-only rule: car-frame v.z (+0x3C) >= 0, crept up to 6.25, speed capped at 400. Not ported (handling)."
-consts = "6.25 = creep speed, 400 = speed cap"
-status = "inferred"
+desc = "v += a dt with v.z >= 0; off the brake a creep to 6.25 ft/s; speed > 400 scaled to 400 and the spin not integrated; below 3 ft/s on the brake (> 0.5) v.x = v.z = 0."
+consts = "6.25 = creep ft/s; 400 = speed cap; 3 = stop speed"
+status = "verified"
+ported = true
+rush2 = 0x800697D0
+link = "role"
 area = "car"
-ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+ref = "docs/calspeed_research.md#body-rates-pitch-and-roll-do-not-carry-tried-removed"
 
 [[func]]
 vram = 0x800901E0
 name = "cs_car_lift_and_level"
 sig = "void cs_car_lift_and_level(Car *car)"
-desc = "After the orientation step: lifts the car along its up axis by mean(+0x630 - 0.35) over the wheels when positive (Rush 2's step lifts by max(+0x5CC - 0.5) itself) and, when the player word +0x1dc4 is set (never seen), levels the pitch. Skipped once byte 0x8014FE0B is set. Not ported."
-consts = "0.35 = rest height allowance"
-status = "inferred"
+desc = "Rest correction: d = +0x630 - 0.35 per wheel; for a human (+0x1dc4) pitch levelled first (max dt x 0.15); if sum d > 0 the offsets drop by the mean and the car rises by it along its up axis. Skipped when 0x8014FE0B is set."
+consts = "0.35 = rest offset ft; 0.15 = level rate rad/s"
+status = "verified"
+ported = true
 area = "car"
-ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+ref = "docs/calspeed_research.md#body-rates-pitch-and-roll-do-not-carry-tried-removed"
 
 [[func]]
 vram = 0x80090540
 name = "cs_car_integrate_orientation"
 sig = "void cs_car_integrate_orientation(Car *car)"
-desc = "Position and orientation integration (Rush 2 car_integrate_position_orientation_8006942C): position +0x248 += v dt, car matrix +0x324 rotated by angular velocity +0x40 x dt (func_800C8A68, yaw then pitch then roll), then ZEROES the pitch and roll rates +0x40/+0x48 (0x8009093C-0x80090944), keeping yaw +0x44 (forced +-5/+-6.7 in states 0x890); calls func_800901E0 unless byte 0x8014FE0B is set. Ported: rush2_calspeed_body_rates (calspeed_rom.cpp)."
-consts = "5/6.7 = forced yaw rates, 0x890 = turning states"
-status = "inferred"
+desc = "Rush 2's orientation step; zeroes pitch/roll rates +0x40/+0x48 after rotating; tunnel loop glue when rear materials +0x670 are both 6 (drop by min travel, matrix square to +0x3D8 normal); widens low-side body points past |row0.y| 0.3; calls 800901E0."
+consts = "6 = tunnel loop material; 0.3 = roll threshold; 3 = widen gain"
+status = "verified"
+ported = true
+rush2 = 0x8006942C
+link = "role"
 area = "car"
-ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+ref = "docs/calspeed_research.md#body-rates-pitch-and-roll-do-not-carry-tried-removed"
 
 [[func]]
 vram = 0x80090BFC
@@ -219,6 +275,19 @@ area = "car"
 ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
 
 [[func]]
+vram = 0x8009AE0C
+name = "cs_drone_driver"
+sig = "void cs_drone_driver(Car *car)"
+desc = "AI drone driver; same code and constants as Rush 2's drone_driver_80074990."
+status = "verified"
+rush2 = 0x80074990
+rush1 = [0x8007CDD4, 0x8007ECB0]
+rush2049 = [0x800E4B58]
+link = "role"
+area = "car"
+ref = "docs/calspeed_research.md#5-paths"
+
+[[func]]
 vram = 0x8009C774
 desc = "Drone lane target speed: reads the current and next lane point's speed byte (+6) at 0x8009C7FC/0x8009C828, x 1.46667 (mph to ft/s), lerped by the progress along the step, into drone state +0x10; also checks the lane's +4 offset. California Speed's version of the speed part of Rush 2's drone driver."
 consts = "1.46667 = mph to ft/s"
@@ -228,10 +297,15 @@ ref = "docs/calspeed_research.md#5-paths"
 
 [[func]]
 vram = 0x8009CF00
-desc = "Drone lane setup: reads lane point speed bytes at 0x8009D0B0 (x 1.46667 x 0.5, compared) and 0x8009D130 (x 1.46667 x 1.5 into state +0x10). Shows the lane bytes are true mph."
+name = "cs_drone_avoid"
+sig = "void cs_drone_avoid(Car *car)"
+desc = "Drone avoidance; same as Rush 2 0x80071FBC."
 consts = "1.46667 = mph to ft/s; 0.5, 1.5, 0.2 factors"
 status = "inferred"
-area = "race"
+rush2 = 0x80071FBC
+rush1 = [0x8007D174]
+link = "role"
+area = "car"
 ref = "docs/calspeed_research.md#5-paths"
 
 [[func]]
@@ -242,6 +316,17 @@ desc = "Drone lane point after a reset (called by func_800A4020 at 0x800A41C4 wi
 status = "verified"
 area = "race"
 ref = "docs/calspeed_research.md#5-paths"
+
+[[func]]
+vram = 0x800A3E20
+name = "cs_car_road_mph"
+sig = "s16 cs_car_road_mph(Car *car)"
+desc = "Road speed in mph x 4 at +0x7C6: (spin x radius of rear tires 2 and 3) x 0.5 x 2.7273."
+consts = "2.72727 = ft/s to mph x 4 / ... factor"
+status = "inferred"
+ported = true
+area = "car"
+ref = "docs/calspeed_research.md#cs-physics-california-speeds-world"
 
 [[func]]
 vram = 0x800A4020
@@ -379,11 +464,25 @@ ref = "docs/calspeed_research.md#walls-california-speeds-body-collision"
 [[func]]
 vram = 0x800B8CE8
 name = "cs_tire_grip_scale"
-sig = "void cs_tire_grip_scale(Car *car, s32 wheel, f32 *fx, f32 *fz)"
-desc = "Scales a tire's two force components by the car descriptor's grip factors +0x6C and +0x70 (1.0 on most cars)."
-status = "inferred"
+sig = "void cs_tire_grip_scale(Car *car, f32 *force)"
+desc = "Scales a tire's two force components by the descriptor's grip factors: +0x6C across, +0x70 along, on every wheel (Rush 2 only the rear lateral +0x78)."
+status = "verified"
+ported = true
 area = "car"
-ref = "docs/functions/calspeed_car.md#california-speed-car-functions"
+ref = "docs/calspeed_research.md#7-cars"
+
+[[func]]
+vram = 0x800B8F68
+name = "cs_tire_model"
+sig = "void cs_tire_model(Car *car, Tire *t, f32 load)"
+desc = "Rush 2's tire model with the load capped at 1100 lb first."
+consts = "1100 = tire load cap lb"
+status = "verified"
+ported = true
+rush2 = 0x8006A2FC
+link = "role"
+area = "car"
+ref = "docs/calspeed_research.md#road-hold"
 
 [[func]]
 vram = 0x800BA7CC

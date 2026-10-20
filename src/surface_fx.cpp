@@ -206,6 +206,11 @@ extern "C" void rush2_surface_wheel_material(uint8_t* rdram, recomp_context* ctx
     ctx->r14 = rules->materials[m].like;
 }
 
+int rush2::surface_fx::source_material(uint32_t car, int wheel) {
+    auto it = wheel_source.find(car + 2 * uint32_t(wheel));
+    return it == wheel_source.end() ? -1 : it->second;
+}
+
 // 0x8006FBE4: no polygon under the wheel ($v1 = car + 2 x wheel).
 extern "C" void rush2_surface_wheel_fallback(uint8_t* rdram, recomp_context* ctx) {
     if (!wheel_source.empty()) wheel_source.erase((uint32_t)ctx->r3);

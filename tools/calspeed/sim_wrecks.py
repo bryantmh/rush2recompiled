@@ -8,11 +8,16 @@ are hard-linked in from build/. Player 1 drives car 0 and waits on the grid; the
 options (California Speed's cars among them). The race is recorded (RUSH2_RACE_RECORD, src/race_record.cpp) and the
 game exits once every computer car has finished or got stuck; a run still going after TIMEOUT is closed by its PID.
 
-    python tools/calspeed/sim_wrecks.py [--tracks 64-79] [--hold on|off|both] [--no-catch-up] [--env K=V ...]
+    python tools/calspeed/sim_wrecks.py [--tracks 64-79] [--hold on|off|cs|both|all] [--no-catch-up] [--env K=V ...]
                                         [--tag NAME]
 
+--hold: on (CS Road Hold, the default world), off (Rush 2's gravity), cs (the CS Physics option's California Speed
+physics, src/calspeed/calspeed_physics.cpp); both = on and off, all = on, off and cs. --cs-drones races only
+California Speed cars as the computer cars (CS Drones: CS Tracks).
+
 --no-catch-up turns Drone Cheating off (the drones' pace is their lanes' alone); --env passes RUSH2_* switches to the
-game; --tag names the recordings (tmp/sim_wrecks/run_<track>_<hold>[_<tag>].r2rc, read by lane_hold.py).
+game; --where lists every wreck; --read summarizes the recordings already made (with the same --tag) instead of racing;
+--tag names the recordings (tmp/sim_wrecks/run_<track>_<hold>[_<tag>].r2rc, read by lane_hold.py).
 
 Prints, per track and road hold setting: each computer car's wrecks (wreck state 0 -> nonzero), rollovers (up vector
 y below 0 while not wrecked) and whether it finished, and totals. Wrecks are split by what led to them over the 2 s
@@ -34,7 +39,8 @@ SCRIPT = '8:START,11:A,13:A,24:A,60:A,62:A,66:A'
 TIMEOUT = 2 * 60
 
 
-def prepare(hold, catch_up=True):
+def prepare(hold, catch_up=True, cs_drones=False):
+    """hold: 'on', 'off' or 'cs'."""
     os.makedirs(DATA, exist_ok=True)
     for n in os.listdir(DATA):
         p = os.path.join(DATA, n)
@@ -49,9 +55,12 @@ def prepare(hold, catch_up=True):
                 os.link(src, dst)
             except OSError:
                 shutil.copyfile(src, dst)
-    if not hold:
+    games = {'on': {}, 'off': {'calspeed_road_hold': False}, 'cs': {'calspeed_physics': 'CalSpeed'}}[hold]
+    if cs_drones:
+        games['calspeed_computer_cars'] = 'CalSpeedTracks'
+    if games:
         with open(os.path.join(DATA, 'games.json'), 'w', encoding='utf-8') as f:
-            json.dump({'calspeed_road_hold': False}, f, indent=4)
+            json.dump(games, f, indent=4)
     if not catch_up:
         with open(os.path.join(DATA, 'general.json'), 'w', encoding='utf-8') as f:
             json.dump({'drone_catch_up': False}, f, indent=4)
@@ -87,6 +96,7 @@ def summarize(path):
             continue
         base = 2 + c * len(fields)
         wrecks = rolls = 0
+        events = []
         why = {'rolled': 0, 'stalled': 0, 'at speed': 0}
         was_wreck = was_roll = False
         finished = False
@@ -104,17 +114,22 @@ def summarize(path):
                     why['stalled'] += 1
                 else:
                     why['at speed'] += 1
+                p = (r - 1) * width + base if r else row
+                events.append((r / 60.0, vals[row + fi['x']], vals[row + fi['y']], vals[row + fi['z']],
+                               max(vals[k * width + base + fi['speed']] for k in before) if r else 0.0,
+                               vals[p + fi['speed']], vals[p + fi['next_cp']]))
             rolls += roll and not was_roll
             was_wreck, was_roll = wreck, roll
             finished = finished or vals[row + fi['finished']] != 0
-        out.append(dict(car=c, type=head['types'][c], wrecks=wrecks, rolls=rolls, finished=finished, why=why))
+        out.append(dict(car=c, type=head['types'][c], wrecks=wrecks, rolls=rolls, finished=finished, why=why,
+                        events=events))
     return out, rows
 
 
-def run(track, hold, catch_up=True, extra_env=None, tag=''):
-    prepare(hold, catch_up)
+def run(track, hold, catch_up=True, extra_env=None, tag='', cs_drones=False):
+    prepare(hold, catch_up, cs_drones)
     os.makedirs(WORK, exist_ok=True)
-    rec = os.path.join(WORK, 'run_%d_%s%s.r2rc' % (track, 'on' if hold else 'off', '_' + tag if tag else ''))
+    rec = os.path.join(WORK, 'run_%d_%s%s.r2rc' % (track, hold, '_' + tag if tag else ''))
     for old in (rec, rec + '.done'):
         if os.path.exists(old):
             os.remove(old)
@@ -143,9 +158,13 @@ def run(track, hold, catch_up=True, extra_env=None, tag=''):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--tracks', default='64-79', help='track select ids: 64-79 or a comma list')
-    ap.add_argument('--hold', default='both', choices=['on', 'off', 'both'])
+    ap.add_argument('--hold', default='both', choices=['on', 'off', 'cs', 'both', 'all'])
     ap.add_argument('--no-catch-up', action='store_true', help='Drone Cheating off')
     ap.add_argument('--env', action='append', default=[], help='K=V passed to the game')
+    ap.add_argument('--cs-drones', action='store_true', help='only California Speed cars as computer cars')
+    ap.add_argument('--where', action='store_true',
+                    help='list every wreck: time, place, top speed over the 2 s before, speed just before, next checkpoint')
+    ap.add_argument('--read', action='store_true', help='summarize the existing recordings instead of racing')
     ap.add_argument('--tag', default='', help='recording name suffix')
     a = ap.parse_args()
     if '-' in a.tracks:
@@ -153,14 +172,19 @@ def main():
         tracks = list(range(lo, hi + 1))
     else:
         tracks = [int(x) for x in a.tracks.split(',')]
-    holds = {'on': [True], 'off': [False], 'both': [True, False]}[a.hold]
+    holds = {'both': ['on', 'off'], 'all': ['on', 'off', 'cs']}.get(a.hold, [a.hold])
     totals = {h: [0, 0, 0, 0] for h in holds}   # wrecks, rolls, finished, cars
     causes = {h: {} for h in holds}
     for t in tracks:
         for h in holds:
             started = time.time()
-            res, done = run(t, h, not a.no_catch_up, dict(e.split('=', 1) for e in a.env), a.tag)
-            label = 'track %d hold %-3s' % (t, 'on' if h else 'off')
+            if a.read:
+                rec = os.path.join(WORK, 'run_%d_%s%s.r2rc' % (t, h, '_' + a.tag if a.tag else ''))
+                res, done = (summarize(rec) if os.path.exists(rec) else None), 'read'
+            else:
+                res, done = run(t, h, not a.no_catch_up, dict(e.split('=', 1) for e in a.env), a.tag,
+                                a.cs_drones)
+            label = 'track %d hold %-3s' % (t, h)
             if res is None:
                 print('%s  %s' % (label, done), flush=True)
                 continue
@@ -178,10 +202,14 @@ def main():
                 label, rows / 60.0, time.time() - started, w, ', '.join('%s %d' % kv for kv in why.items()), r, f,
                 len(cars), done,
                 ' '.join('t%d:%d/%d' % (c['type'], c['wrecks'], c['rolls']) for c in cars)), flush=True)
+            for c in cars if a.where else []:
+                for e in c['events']:
+                    print('    t%d %6.1f s at (%7.0f %5.0f %7.0f)  top %4.0f  before %4.0f ft/s  next cp %d' % (
+                        (c['type'],) + e[:6] + (int(e[6]),)))
     for h in holds:
         w, r, f, n = totals[h]
         print('TOTAL hold %-3s  wrecks %d (%s)  rollovers %d  finished %d/%d' % (
-            'on' if h else 'off', w, ', '.join('%s %d' % kv for kv in causes[h].items()), r, f, n))
+            h, w, ', '.join('%s %d' % kv for kv in causes[h].items()), r, f, n))
 
 
 if __name__ == '__main__':

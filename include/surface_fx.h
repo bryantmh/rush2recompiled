@@ -13,6 +13,9 @@
 // what each of them does, and Rush 2's own code sees the material each acts like. California Speed's are here; SF
 // Rush's and Rush 2049's tracks keep Rush 2's (their materials are Rush 2's numbers) until they need their own.
 namespace rush2::surface_fx {
+    // The track's own material (0-15) under wheel `wheel` of physics car `car` at its last probe that found a polygon
+    // (California Speed's physics read it, src/calspeed/calspeed_physics.cpp), or -1 when not known.
+    int source_material(uint32_t car, int wheel);
     // The particle a wheel throws while the car's dust bits are set (Rush 2's particle_emitter_spawn_8008270C).
     enum class Particle : uint8_t {
         Rush2,   // whatever Rush 2 throws for the `like` material

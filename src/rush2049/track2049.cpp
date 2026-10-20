@@ -800,9 +800,11 @@ namespace {
             }
             l.timed.resize(count);
             l.driven.resize(count);
+            // California Speed's physics (CS Physics option): its cars hold its own speeds, uncapped.
+            const std::vector<uint8_t>& drive = rush2::calspeed::physics::race_mode() ? l.mph : l.capped;
             for (uint32_t i = 0; i < count; i++) {
                 l.timed[i] = l.mph[i] ? (uint8_t)std::max(1, rush2::car2049::map_lane_speed(l.mph[i], true)) : 0;
-                l.driven[i] = l.capped[i] ? (uint8_t)std::max(1, rush2::car2049::map_lane_speed(l.capped[i], false)) : 0;
+                l.driven[i] = drive[i] ? (uint8_t)std::max(1, rush2::car2049::map_lane_speed(drive[i], false)) : 0;
             }
             write_lane(rdram, points, l.timed);
         }

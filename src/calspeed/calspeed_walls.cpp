@@ -32,6 +32,7 @@
 #include "recomp.h"
 #include "rush2_hooks.h"
 #include "calspeed.h"
+#include "collision_polys.h"
 
 extern "C" void collision_node_find_cached_8006CE28(uint8_t* rdram, recomp_context* ctx);
 
@@ -141,6 +142,8 @@ namespace {
     void apply_hit(uint8_t* rdram, uint32_t car, const Hit& hit) {
         float m[9], car_m[9];
         poly_matrix(rdram, hit.poly, m);
+        // The hit body point's wall, as func_800B0A04 marks it (+0x862, read by the hill push).
+        rush2::calspeed::physics::wall_hit(car, hit.point, MEM_HU(0, (int32_t)hit.poly) & 0xF);
         for (int k = 0; k < 9; k++) car_m[k] = f32(rdram, car + car_matrix + 4 * k);
         float normal[3] = { m[3], m[4], m[5] };
         float push[3] = { normal[0] * hit.depth, normal[1] * hit.depth, normal[2] * hit.depth };
@@ -311,10 +314,10 @@ namespace {
 // car_wall_collision_query_8006FC94's entry ($a0 = the car, 0x10($sp) = the body point 0-3): on a California Speed
 // track, its wall collision for the whole car on point 0, and Rush 2's probe skipped for every point (returns 1).
 extern "C" int rush2_calspeed_wall_collision(uint8_t* rdram, recomp_context* ctx) {
-    if (!rush2::calspeed::racing(rdram)) return 0;
+    uint32_t car = (uint32_t)ctx->r4;
+    if (!rush2::calspeed::physics::active(rdram, car)) return 0;
     int index = (int32_t)MEM_W(0x10, ctx->r29);
     if (index != 0) return 1;
-    uint32_t car = (uint32_t)ctx->r4;
     // func_800B1624: the leaves under the body points, each once.
     uint32_t lists[4];
     int n = 0;
@@ -333,6 +336,8 @@ extern "C" int rush2_calspeed_wall_collision(uint8_t* rdram, recomp_context* ctx
                    f32(rdram, car + car_position + 4), f32(rdram, car + car_position + 8), n);
         }
     }
+    // A custom track past 8,191 polygons has plain u16 entries (rush2::collision::wide_leaves).
+    bool wide = rush2::collision::wide_leaves(rdram);
     for (int l = 0; l < n; l++) {
         int count = MEM_BU(0, (int32_t)lists[l]), done = 0;
         uint32_t p = lists[l] + 1;
@@ -340,8 +345,9 @@ extern "C" int rush2_calspeed_wall_collision(uint8_t* rdram, recomp_context* ctx
             // The entries follow the count byte unaligned: two byte reads.
             uint32_t entry = (uint32_t)MEM_BU(0, (int32_t)p) << 8 | MEM_BU(1, (int32_t)p);
             p += 2;
-            for (uint32_t k = 0; k <= (entry >> 13) && done < count; k++, done++) {
-                uint32_t poly = polys + poly_size * ((entry & 0x1FFF) + k);
+            uint32_t run = wide ? 0 : entry >> 13, first = wide ? entry : entry & 0x1FFF;
+            for (uint32_t k = 0; k <= run && done < count; k++, done++) {
+                uint32_t poly = polys + poly_size * (first + k);
                 if ((MEM_HU(0, (int32_t)poly) & 0xF) >= 4) test_wall(rdram, car, poly, held);
             }
         }
@@ -401,7 +407,8 @@ namespace {
 }
 
 extern "C" void rush2_calspeed_ground_contact_enter(uint8_t* rdram, recomp_context* ctx) {
-    if (!rush2::calspeed::racing(rdram)) return;
+    if (!rush2::calspeed::physics::active(rdram, uint32_t(ctx->r4))) return;
+    rush2::calspeed::physics::ground_contact_begin(rdram, uint32_t(ctx->r4));
     int n = car_index(uint32_t(ctx->r4));
     if (n < 0) return;
     int32_t car = int32_t(ctx->r4);
@@ -415,11 +422,21 @@ extern "C" void rush2_calspeed_ground_contact_enter(uint8_t* rdram, recomp_conte
     }
 }
 
+namespace {
+    void keep_missed_wheels(uint8_t* rdram, int n, int32_t car);
+}
+
 extern "C" void rush2_calspeed_ground_contact_leave(uint8_t* rdram, recomp_context* ctx) {
-    if (!rush2::calspeed::racing(rdram)) return;
+    if (!rush2::calspeed::physics::active(rdram, uint32_t(ctx->r17))) return;
     int n = car_index(uint32_t(ctx->r17));
     if (n < 0) return;
-    int32_t car = int32_t(ctx->r17);
+    keep_missed_wheels(rdram, n, int32_t(ctx->r17));
+    rush2::calspeed::physics::ground_contact_end(rdram, uint32_t(ctx->r17));
+}
+
+namespace {
+// The missed-wheel rule itself, after car_ground_contact's wheel loop.
+void keep_missed_wheels(uint8_t* rdram, int n, int32_t car) {
     int hits = 0;
     bool miss[4];
     for (int i = 0; i < 4; i++) {
@@ -455,4 +472,5 @@ extern "C" void rush2_calspeed_ground_contact_leave(uint8_t* rdram, recomp_conte
                    hits, c.f, f32(rdram, car + 0x224), f32(rdram, car + 0x228), f32(rdram, car + 0x22C));
         }
     }
+}
 }

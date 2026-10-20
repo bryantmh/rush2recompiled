@@ -32,3 +32,8 @@ California Speed:
 1) Post-race records on point-to-point tracks: average lap and best lap are the same one-lap time (the whole run);
     consolidate them into one race-time page there (post-race screen and the menu's RECORDS screen), keeping or
     migrating times already saved.
+
+
+California speed had a custom RGB paint system, could that be ported over to here on rush?
+Would it be possible to allow the mapping of the left stick "up" position to be gas and the "down" position to be brake? I have some old N64 wheels I'd like to use for this game and the pedals map to the stick (so that gas/brake is analog)
+Also, this is a screenshot of the demo mode when the game is first launched. It has different camera angles, and the game runs through it's "attract mode" I have always loved this high angle. Anyway to add more camera angles, maybe some higher up and back like this one? Maybe classic Virtua Racing Heli cam LOL. Thanks again! Love all the mods you're already working on!

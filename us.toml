@@ -100,7 +100,7 @@ text = "    if (rush2_smooth_collision_gap(rdram, ctx)) goto L_8006FA70;"
 [[patches.hook]]
 func = "car_ground_contact_800703EC"
 before_vram = 0x8007057C
-text = "    rush2_smooth_debug_contact(rdram, ctx);"
+text = "    rush2_smooth_debug_contact(rdram, ctx); rush2_csphys_probe(rdram, ctx);"
 
 # Directional rumble's wall grinding (src/rumble.cpp): in car_wall_collision_query, where a body probe is inside a wall
 # and the car is about to be pushed out along the normal at sp+0xB0. $s1 = car. Also Rush 2049 stunt scoring's body hit
@@ -668,12 +668,12 @@ text = "    rush2_calspeed_wheel_damper(rdram, ctx);"
 [[patches.hook]]
 func = "car_physics_forces_800706D0"
 before_vram = 0x80070704
-text = "    rush2_wings_torque(rdram, ctx);"
+text = "    rush2_wings_torque(rdram, ctx); rush2_csphys_torque(rdram, ctx);"
 
 [[patches.hook]]
 func = "car_physics_forces_800706D0"
 before_vram = 0x80070714
-text = "    rush2_wings_save_position(rdram, ctx);"
+text = "    rush2_wings_save_position(rdram, ctx); rush2_csphys_orient_begin(rdram, ctx);"
 
 [[patches.hook]]
 func = "car_force_sum_8006A02C"
@@ -1587,7 +1587,7 @@ text = "    rush2_cheats_kill_floor(rdram, ctx);"
 [[patches.hook]]
 func = "car_physics_forces_800706D0"
 before_vram = 0x800706EC
-text = "    rush2_track49_movers_pads(rdram, ctx);"
+text = "    rush2_track49_movers_pads(rdram, ctx); rush2_csphys_wheel_forces(rdram, ctx);"
 
 # Rush 2049's collision lookups on its converted courses (src/rush2049/track2049_collision.cpp).
 [[patches.hook]]
@@ -13419,3 +13419,52 @@ text = "    if (rush2_filter_car_frame(rdram, ctx)) goto L_803BA884;"
 func = "carselect_text_cb_car_title_803BC048"
 before_vram = 0x803BC7AC
 text = "    rush2_filter_car_text(rdram, ctx);"
+
+# California Speed's physics on its tracks, with the CS Physics option (src/calspeed/calspeed_physics.cpp,
+# docs/calspeed_research.md#cs-physics-california-speeds-world): car roles and California Speed's own values at car
+# init, its walls in place of the body probe and its missed-wheel rule (src/calspeed/calspeed_walls.cpp), the
+# orientation step's end, its velocities and gearbox for its own cars.
+[[patches.hook]]
+func = "car_init_setup_8008DBA0"
+before_vram = 0x8008DBA0
+text = "    rush2_csphys_init_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_init_setup_8008DBA0"
+before_vram = 0x8008E01C
+text = "    rush2_csphys_init_end(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_ground_contact_800703EC"
+before_vram = 0x800703EC
+text = "    rush2_calspeed_ground_contact_enter(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_ground_contact_800703EC"
+before_vram = 0x80070680
+text = "    rush2_calspeed_ground_contact_leave(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_wall_collision_query_8006FC94"
+before_vram = 0x8006FC94
+text = "    if (rush2_calspeed_wall_collision(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "car_physics_forces_800706D0"
+before_vram = 0x8007071C
+text = "    rush2_csphys_orient_end(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_integrate_velocities_800697D0"
+before_vram = 0x800697D0
+text = "    if (rush2_csphys_velocities(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "car_auto_shift_800711F4"
+before_vram = 0x800711F4
+text = "    if (rush2_csphys_shift(rdram, ctx)) return;"
+
+[[patches.hook]]
+func = "car_wreck_trigger_8006E1A8"
+before_vram = 0x8006E1A8
+text = "    rush2_csphys_wreck_log(rdram, ctx);"

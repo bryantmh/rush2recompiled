@@ -182,7 +182,10 @@ namespace {
     // Rush 2's +0x54-+0x5C (its suspension code reads only +0x50), the rear lateral grip (+0x78) and the reverse gear;
     // those come from the Pickup (1.0 rear grip: the grip factors are in the car's tire curves). Its two grip factors
     // (+0x6C, +0x70; func_800B8CE8 scales a tire's two force components by them) are folded into its curves' grip.
-    void build_descriptor(uint8_t* rdram, const std::vector<uint8_t>& rom, int n, uint32_t out) {
+    // native: for California Speed's physics (rush2::calspeed::native_car), its curves at `curves` as California Speed
+    // has them (the grip factors applied per wheel instead).
+    void build_descriptor(uint8_t* rdram, const std::vector<uint8_t>& rom, int n, uint32_t out,
+                          uint32_t curves = 0, bool native = false) {
         auto w = [&](uint32_t vram) { return rush2::calspeed::main_word(rom, vram); };
         uint32_t d = w(cs_desc_ptrs + 4 * main_byte(rom, cs_desc_index + n));
         uint32_t pickup = (uint32_t)MEM_W(0, (int32_t)(0x800C07BC + MEM_BU(0, (int32_t)0x800C07E8) * 4));
@@ -194,8 +197,8 @@ namespace {
         for (uint32_t o : { 0x54u, 0x58u, 0x5Cu, 0xC8u }) put(o, (uint32_t)MEM_W(0, (int32_t)(pickup + o)));
         copy(0x60, 0x54, 2);                                          // drag, rolling resistance
         // Tire curves: copies of California Speed's front and rear ones with the car's grip factor.
-        uint32_t curves = ct::calspeed_tire_curves + n * 0x30;
-        float grip = f32_of(w(d + 0x70));
+        if (curves == 0) curves = ct::calspeed_tire_curves + n * 0x30;
+        float grip = native ? 1.0f : f32_of(w(d + 0x70));
         for (int c = 0; c < 2; c++) {
             uint32_t from = c == 0 ? cs_front_curve : cs_rear_curve;
             for (int i = 0; i < 6; i++) {
@@ -387,6 +390,23 @@ namespace {
         cars_loaded = served == car_count;
         printf("[CalSpeed] %d cars\n", served);
     }
+}
+
+bool rush2::calspeed::native_car(uint8_t* rdram, int n, uint32_t desc, uint32_t curves, NativeCar& out) {
+    std::shared_ptr<const std::vector<uint8_t>> rom = loaded_rom;
+    if (!cars_loaded || rom == nullptr || n < 0 || n >= car_count) return false;
+    build_descriptor(rdram, *rom, n, desc, curves, true);
+    auto w = [&](uint32_t vram) { return f32_of(rush2::calspeed::main_word(*rom, vram)); };
+    uint32_t d = rush2::calspeed::main_word(*rom, cs_desc_ptrs + 4 * main_byte(*rom, cs_desc_index + n));
+    out.steer = w(cs_steer + 4 * n);
+    out.yaw = w(cs_yaw_damping + 4 * n);
+    out.preload = w(cs_preload + 4 * n);
+    out.mass = w(cs_mass + 4 * n) * w(cs_mass_scale);
+    out.inertia = w(cs_inertia + 4 * n);
+    out.tires = 4;
+    out.grip_lateral = w(d + 0x6C);
+    out.grip_long = w(d + 0x70);
+    return true;
 }
 
 rush2::calspeed::CarDefaults rush2::calspeed::car_defaults(int n) {

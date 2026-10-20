@@ -50,6 +50,7 @@ namespace {
     const std::string road_hold_option_id = "calspeed_road_hold";
     const std::string scenery_option_id = "calspeed_scenery";
     const std::string billboards_option_id = "calspeed_billboards";
+    const std::string physics_option_id = "calspeed_physics";
     // The California Speed Road Hold option: off, its tracks have Rush 2's own gravity only.
     std::atomic_bool road_hold_on = true;
     // The California Speed Extended Scenery option (src/calspeed/calspeed_scenery.cpp).
@@ -918,10 +919,10 @@ namespace {
 }
 
 extern "C" void rush2_calspeed_road_hold(uint8_t* rdram, recomp_context* ctx) {
-    if (!road_hold_track(rdram)) {
+    uint32_t car = (uint32_t)ctx->r16;
+    if (rush2::calspeed::physics::force_sum(rdram, car) || !road_hold_track(rdram)) {
         return;
     }
-    uint32_t car = (uint32_t)ctx->r16;
     if (hold == Hold::Heavy) {
         heavy_push(rdram, car);
     }
@@ -1003,6 +1004,24 @@ void rush2::calspeed::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             road_hold_on = std::get<bool>(cur_value);
         });
+    config.add_enum_option(
+        physics_option_id,
+        "CS Physics",
+        "How cars drive on California Speed's tracks. "
+        "<recomp-color primary>Rush 2</recomp-color> keeps Rush 2's driving with the CS Road Hold. "
+        "<recomp-color primary>California Speed (test)</recomp-color> runs California Speed's own physics and walls; "
+        "its computer cars drive its cars on its own values, and your car is adjusted to still handle like Rush 2 "
+        "(CS Road Hold isn't used then). Cars still wreck. Takes effect from the next race.",
+        {
+            { rush2::calspeed::physics::Mode::Rush2World, "Rush2", "Rush 2" },
+            { rush2::calspeed::physics::Mode::CalSpeed, "CalSpeed", "California Speed (test)" },
+        },
+        rush2::calspeed::physics::Mode::Rush2World
+    );
+    config.add_option_change_callback(physics_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::calspeed::physics::set_mode(static_cast<rush2::calspeed::physics::Mode>(std::get<uint32_t>(cur_value)));
+        });
     config.add_bool_option(
         scenery_option_id,
         "CS Extended Scenery",
@@ -1047,6 +1066,7 @@ void rush2::calspeed::add_games_section(rush2::ui::OptionsPage* page, std::funct
     page->add_option(rush2::wings::games_config(), cars_option_id);
     page->add_option(rush2::wings::games_config(), drones_option_id);
     page->add_option(rush2::wings::games_config(), road_hold_option_id);
+    page->add_option(rush2::wings::games_config(), physics_option_id);
     page->add_option(rush2::wings::games_config(), scenery_option_id);
     page->add_option(rush2::wings::games_config(), billboards_option_id);
     refresh = [note = heading.note, shown = rush2::calspeed::rom_available()]() mutable {
@@ -1062,6 +1082,8 @@ void rush2::calspeed::load_config() {
     road_hold_on = std::get<bool>(rush2::wings::games_config().get_option_value(road_hold_option_id));
     scenery_on = std::get<bool>(rush2::wings::games_config().get_option_value(scenery_option_id));
     billboards_on = std::get<bool>(rush2::wings::games_config().get_option_value(billboards_option_id));
+    rush2::calspeed::physics::set_mode(static_cast<rush2::calspeed::physics::Mode>(
+        std::get<uint32_t>(rush2::wings::games_config().get_option_value(physics_option_id))));
     std::vector<uint8_t> data;
     std::filesystem::path path = stored_rom_path();
     if (std::filesystem::exists(path)) {
@@ -1087,7 +1109,7 @@ void rush2::calspeed::load_config() {
 // The ground push is the wheels on the road's part (0.32 each, less past 0.5 compression): lifting by the whole push,
 // a lifted wheel's 1.5 included, made the springs up to 7 times as strong and bounced and rolled the cars.
 extern "C" void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx) {
-    if (hold != Hold::Copy || !road_hold_track(rdram)) {
+    if (rush2::calspeed::physics::tire_grip(rdram, ctx) || hold != Hold::Copy || !road_hold_track(rdram)) {
         return;
     }
     constexpr uint32_t physics_cars = 0x800F5470, physics_car_size = 0x81C;
@@ -1145,7 +1167,7 @@ namespace {
 }
 
 extern "C" void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx) {
-    if (!road_hold_track(rdram)) {
+    if (rush2::calspeed::physics::active(rdram, (uint32_t)ctx->r4) || !road_hold_track(rdram)) {
         return;
     }
     constexpr uint32_t physics_cars = 0x800F5470, physics_car_size = 0x81C;
@@ -1199,7 +1221,7 @@ extern "C" void rush2_calspeed_wheel_damper(uint8_t* rdram, recomp_context* ctx)
 // car_tire_model ($a2; $a0 = the car): the springs' load (0x34($sp), x gravity_scale with the springs) /
 // gravity_scale, capped at the car's weight (+0x5AC) as the game caps it (0x8006AD30-0x8006AD44).
 extern "C" void rush2_calspeed_tire_load(uint8_t* rdram, recomp_context* ctx) {
-    if (!heavy_world || !road_hold_track(rdram)) {
+    if (rush2::calspeed::physics::tire_load(rdram, ctx) || !heavy_world || !road_hold_track(rdram)) {
         return;
     }
     uint32_t car = (uint32_t)ctx->r4;
