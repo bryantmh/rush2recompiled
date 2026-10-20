@@ -153,7 +153,9 @@ front end as after any race.
 `--input-script "<seconds>:<button>[:<hold seconds>],..."` presses N64 buttons (A B Z START DU DD DL DR L R CU CD CL
 CR; SL SR the stick) at times counted from that game's own launch. A press lasts 0.15 s unless given; use 0.3 s or
 more for the pause menu. The scripted presses skip the controller path (port claim, bindings): to test that, use
-`RUSH2_TEST_VPAD` (src/input.cpp).
+`RUSH2_TEST_VPAD` (src/input.cpp; SL SR SU SD are its left stick). It also works in `tools/test_race.py` runs, which
+otherwise ignore controllers, but a stick never claims a port, so press a button first (`2:LS,3:SU:10`). Bindings for
+the run go in with `--config 'players.bindings={"players":[{"controller":{"gas":{"axis":"-lefty"}}}]}'`.
 
 A recipe that reaches an online race through every menu (tools/online_test.py, the joiner launched 42 s after the
 host; `RUSH2_ONLINE_PORT` keeps it off a lobby already open on this machine):

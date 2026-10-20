@@ -227,6 +227,8 @@ namespace rush2 {
         bool is_controller_enabled(int32_t joystick_id);
         // The controller currently driving a port, or -1.
         int32_t get_port_controller(int port);
+        // Whether RUSH2_TEST_VPAD's virtual controller drives the port (a simulation run reads it like a real one).
+        bool is_test_vpad_port(int port);
         // The port the keyboard drives, or -1 for none (off, or it hasn't pressed anything yet).
         int get_keyboard_port();
         bool get_keyboard_enabled();

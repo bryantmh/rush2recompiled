@@ -565,6 +565,14 @@ int32_t rush2::input::get_port_controller(int port) {
     return (port >= 0 && port < num_ports) ? port_controllers[port].load() : no_controller;
 }
 
+// RUSH2_TEST_VPAD's virtual controller, once attached (start_test_vpad).
+static std::atomic<int32_t> test_vpad_id{ -1 };
+
+bool rush2::input::is_test_vpad_port(int port) {
+    int32_t id = get_port_controller(port);
+    return id != no_controller && id == test_vpad_id.load();
+}
+
 int rush2::input::get_keyboard_port() {
     return keyboard_port.load();
 }
@@ -611,10 +619,11 @@ void rush2::input::set_rdram(uint8_t* rdram) {
 
 // Test aid: RUSH2_TEST_VPAD="<seconds>:<input>[:<hold seconds>],..." attaches a virtual game controller (SDL's) and
 // presses its inputs at those times after launch: A B X Y BACK START LS RS LB RB UP DOWN LEFT RIGHT (buttons), RT LT
-// (the triggers, fully) and SL SR (the left stick fully left or right); a press holds 0.15 s unless given. Unlike
+// (the triggers, fully) and SL SR SU SD (the left stick fully left, right, up or down); a press holds 0.15 s unless given. Unlike
 // --input-script it goes through everything a real controller does: claiming a port, its bindings and control
 // profile, SDL's controller reads, and SDL's focus rule (with Background Input off an unfocused window sees none of
-// it). A thread of its own sets the pad's state, so it moves whatever the game's threads are doing.
+// it). A thread of its own sets the pad's state, so it moves whatever the game's threads are doing. A simulation run
+// (RUSH2_SIM) reads the port it claims, though it ignores every real controller.
 namespace {
     void start_test_vpad() {
         const char* spec = std::getenv("RUSH2_TEST_VPAD");
@@ -662,6 +671,8 @@ namespace {
             if (name == "LT") { p.axis = SDL_CONTROLLER_AXIS_TRIGGERLEFT; p.value = 32767; }
             if (name == "SL") { p.axis = SDL_CONTROLLER_AXIS_LEFTX; p.value = -32768; }
             if (name == "SR") { p.axis = SDL_CONTROLLER_AXIS_LEFTX; p.value = 32767; }
+            if (name == "SU") { p.axis = SDL_CONTROLLER_AXIS_LEFTY; p.value = -32768; }
+            if (name == "SD") { p.axis = SDL_CONTROLLER_AXIS_LEFTY; p.value = 32767; }
             if (p.button >= 0 || p.axis >= 0) {
                 presses.push_back(p);
             }
@@ -681,6 +692,7 @@ namespace {
             printf("[Input] RUSH2_TEST_VPAD: no virtual controller (%s)\n", SDL_GetError());
             return;
         }
+        test_vpad_id = SDL_JoystickInstanceID(pad);
         printf("[Input] RUSH2_TEST_VPAD: virtual controller attached\n");
         auto launch = std::chrono::steady_clock::now();
         std::thread([pad, presses, launch]() {

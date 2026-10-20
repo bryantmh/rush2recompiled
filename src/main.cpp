@@ -510,9 +510,11 @@ static void parse_input_script(const std::string& script) {
 }
 
 static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
-    // A simulation run takes only the script's presses, on a player 1 that is always connected (src/sim_run.cpp).
-    bool ret = rush2::sim::active() ? controller_num == 0 : rush2::input::get_n64_input(controller_num, buttons, x, y);
-    if (rush2::sim::active()) {
+    // A simulation run takes only the script's presses, on a player 1 that is always connected (src/sim_run.cpp), and
+    // the test virtual pad's (RUSH2_TEST_VPAD).
+    bool script_only = rush2::sim::active() && !rush2::input::is_test_vpad_port(controller_num);
+    bool ret = script_only ? controller_num == 0 : rush2::input::get_n64_input(controller_num, buttons, x, y);
+    if (script_only) {
         *buttons = 0;
         *x = *y = 0.0f;
     }

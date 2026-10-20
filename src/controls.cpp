@@ -242,9 +242,34 @@ namespace {
         return in.id == SDL_CONTROLLER_AXIS_LEFTX || in.id == SDL_CONTROLLER_AXIS_LEFTY;
     }
 
+    // Taken by steering on that stick, so it can't drive another action. An analog stick only steers with its left and
+    // right; its up and down can be bound to actions (an N64 wheel's pedals are the stick's up and down) and then stop
+    // reaching the game as the stick's vertical.
+    bool input_steers(const Input& in, int stick_id) {
+        if (stick_id == rush2::controls::Dpad || !input_uses_stick(in, stick_id)) {
+            return input_uses_stick(in, stick_id);
+        }
+        return in.id == SDL_CONTROLLER_AXIS_LEFTX || in.id == SDL_CONTROLLER_AXIS_RIGHTX;
+    }
+
     int steering_stick(const PortBindings& b) {
         const Input& in = b[static_cast<int>(Device::Controller)][static_cast<int>(Action::Steering)][0];
         return in.type == Input::Type::Stick ? in.id : -1;
+    }
+
+    // Whether an action is bound to the steering stick's up (`up`) or down, which then drops out of its vertical.
+    bool stick_direction_bound(const PortBindings& b, int stick_id, bool up) {
+        int axis_id = stick_id == rush2::controls::RightStick ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY;
+        // SDL's Y axis is positive down.
+        Input dir = axis((SDL_GameControllerAxis)axis_id, !up);
+        for (const Slots& slots : b[static_cast<int>(Device::Controller)]) {
+            for (const Input& in : slots) {
+                if (in == dir) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     // Binds `in` to an action slot. Whatever already used `in` on the same device takes the slot's old input.
@@ -265,7 +290,7 @@ namespace {
         if (in.type == Input::Type::Stick) {
             for (int a = 0; a < rush2::controls::action_count; a++) {
                 for (Input& other : set[a]) {
-                    if (input_uses_stick(other, in.id)) {
+                    if (input_steers(other, in.id)) {
                         other = {};
                     }
                 }
@@ -322,7 +347,7 @@ namespace {
             else {
                 for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++) {
                     Input in = button((SDL_GameControllerButton)b);
-                    if (!reserved_button(b) && !input_uses_stick(in, steer) && button_down(d, (SDL_GameControllerButton)b)) {
+                    if (!reserved_button(b) && !input_steers(in, steer) && button_down(d, (SDL_GameControllerButton)b)) {
                         *out = in;
                         return Scan::Captured;
                     }
@@ -330,7 +355,7 @@ namespace {
                 for (int a = 0; a < SDL_CONTROLLER_AXIS_MAX; a++) {
                     float v = axis_value(d.controller, a);
                     Input in = axis((SDL_GameControllerAxis)a, v > 0.0f);
-                    if (std::fabs(v) >= listen_threshold && !input_uses_stick(in, steer)) {
+                    if (std::fabs(v) >= listen_threshold && !input_steers(in, steer)) {
                         *out = in;
                         return Scan::Captured;
                     }
@@ -682,6 +707,10 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
             };
             sx = apply_deadzone(sx);
             sy = apply_deadzone(sy);
+            // A direction bound to an action (pedals on the stick) doesn't also tilt the wings or aim behind.
+            if ((sy > 0.0f && stick_direction_bound(b, steer, true)) || (sy < 0.0f && stick_direction_bound(b, steer, false))) {
+                sy = 0.0f;
+            }
             x += std::copysign(std::pow(std::fabs(sx), steering_exponent), sx);
             y += sy;
         }
