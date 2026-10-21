@@ -34,6 +34,7 @@
 #include "texture_derive.h"
 #include "texture_upscale.h"
 #include "track2049.h"
+#include "arcade2049.h"
 #include "track_cache.h"
 #include "track_mod.h"
 #include "track_mod_runtime.h"
@@ -400,6 +401,8 @@ namespace {
         return true;
     }
 
+    void key_files(Files& f);
+
     bool read_files(int index, Files& f) {
         {
             std::lock_guard lock{ mutex };
@@ -417,6 +420,14 @@ namespace {
         if (!e.settings.diorama.empty()) read_file(e, e.settings.diorama, f.extras.diorama);
         if (!e.settings.preview.empty()) read_file(e, e.settings.preview, f.extras.preview);
         stock_sky_container(e.settings.sky, f.extras.sky_container, f.extras.sky_model, f.sky_pending);
+        key_files(f);
+        remember_files(f);
+        return true;
+    }
+
+    // The source hash (what the cache keys the conversion on) and the cache key of the files read.
+    void key_files(Files& f) {
+        const rush2::track_mod::Entry& e = f.entry;
         uint64_t h = rush2::track_cache::hash(f.glb.data(), f.glb.size(), converter_version);
         h = rush2::track_cache::hash(f.toml.data(), f.toml.size(), h);
         h = rush2::track_cache::hash(f.extras.logo.data(), f.extras.logo.size(), h);
@@ -429,7 +440,33 @@ namespace {
         }
         uint64_t name = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(e.folder.data()), e.folder.size());
         f.cache_key = cache_k + int(name % 1000000);
-        remember_files(f);
+    }
+
+    // An arcade track (src/arcade2049) whose installed mod is out of date, the launch refresh not done with it yet:
+    // its files built now, in front of the refresh, so the race converts the new version (as any track converts on
+    // its first race) instead of the installed one. Not remembered: the installed files' stamp isn't theirs.
+    bool stale_arcade_files(int index, Files& f) {
+        {
+            std::lock_guard lock{ mutex };
+            scan();
+            if (index < 0 || index >= (int)entries.size()) return false;
+            f.entry = entries[index];
+        }
+        const rush2::track_mod::Entry& e = f.entry;
+        rush2::arcade2049::ModFiles files;
+        if (!rush2::arcade2049::stale_track_files(e.mod_id, e.folder, files)) return false;
+        auto take = [&](const std::string& name, std::vector<uint8_t>& out) {
+            auto it = files.find(e.dir + name);
+            if (it != files.end()) out = std::move(it->second);
+        };
+        take("track.glb", f.glb);
+        if (f.glb.empty()) return false;
+        take("track.toml", f.toml);
+        if (!e.settings.logo.empty()) take(e.settings.logo, f.extras.logo);
+        if (!e.settings.diorama.empty()) take(e.settings.diorama, f.extras.diorama);
+        if (!e.settings.preview.empty()) take(e.settings.preview, f.extras.preview);
+        stock_sky_container(e.settings.sky, f.extras.sky_container, f.extras.sky_model, f.sky_pending);
+        key_files(f);
         return true;
     }
 
@@ -614,8 +651,9 @@ void rush2::track_mod::publish_textures() {
 bool rush2::track_mod::load(int index, const std::string& prefix, Converted& out) {
     // The cached track by what the background pass (prepare) read of its files, else the files read now.
     Files f;
-    bool known_now = known_files(index, f);
-    if (!known_now && !read_files(index, f)) return false;
+    bool rebuilt = stale_arcade_files(index, f);
+    bool known_now = !rebuilt && known_files(index, f);
+    if (!rebuilt && !known_now && !read_files(index, f)) return false;
     auto load_cached = [&]() {
         out = Converted{};
         Report settings_report;

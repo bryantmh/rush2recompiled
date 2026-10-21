@@ -1226,7 +1226,8 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
                        'description': 'Tracks from San Francisco Rush 2049 Special Edition (arcade), converted with '
                                       'tools/arcade2049/track_mod.py.',
                        'short_description': 'Rush 2049 arcade tracks', 'version': '1.0.0',
-                       'authors': ['rush2-recomp'], 'minimum_recomp_version': '0.0.0'}, f, indent=4)
+                       'authors': ['rush2-recomp'], 'minimum_recomp_version': '0.0.0',
+                       'hide_track_warnings': True}, f, indent=4)
     print('wrote %s: %d scenery triangles, %d textures, %d collision polygons, %d gates, lap of %d points' % (
         folder, tri_count, len(mats), sum(len(v[2]) for v in by_type.values()), len(gates), n))
     for gname, i in gates:

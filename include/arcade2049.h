@@ -61,6 +61,9 @@ namespace rush2::arcade2049 {
                          std::string& log, bool alcatraz_only = true, const std::function<bool()>& cancelled = {});
     bool build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, std::string& log,
                        const std::function<bool()>& cancelled = {});
+    // One arcade_tracks entry's files (tracks/<id>/...), as build_track_mod writes them.
+    bool build_track_files(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir,
+                           const std::string& track_id, ModFiles& out, std::string& log, bool alcatraz_only);
 
     // The game (src/arcade2049/arcade_install.cpp).
     // The Games tab's Rush 2049 Arcade section: its status and the Build and Install / Select Folder buttons.
@@ -68,6 +71,11 @@ namespace rush2::arcade2049 {
     // Once the launcher is up: installed arcade mods built by another build or from other data are rebuilt in the
     // background.
     void start_refresh();
+    // A race loading an arcade track while the installed track mod is out of date (the refresh not done yet): that
+    // track's files built now, as the refresh will build them, so it races the new version as any other track would
+    // once converted (src/track_mod/track_mod.cpp load). False when the installed mod is current, not the game's or
+    // the arcade data is gone.
+    bool stale_track_files(const std::string& mod_id, const std::string& track_id, ModFiles& out);
 
     // The Games tab's options under Rush 2049 Arcade: Alcatraz Only (arcade_install.cpp) and Arcade Checkpoints.
     void init_config();

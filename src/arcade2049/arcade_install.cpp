@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -52,8 +53,21 @@ namespace {
         return out;
     }
 
-    // What a mod is built from: its input files' names and contents, the shipped assets and this build.
+    std::string compute_source_key(const std::filesystem::path& data, bool cars);
+
+    // What a mod is built from: its input files' names and contents, the shipped assets and this build. Worked out once
+    // per data folder, mod and Alcatraz Only setting (it reads every input file), for the refresh and a race's check.
     std::string source_key(const std::filesystem::path& data, bool cars) {
+        static std::mutex memo_mutex;
+        static std::map<std::string, std::string> memo;
+        std::string id = rush2::upscale::path_utf8(data) + (cars ? "|cars" : alcatraz_only ? "|alcatraz" : "|tracks");
+        std::lock_guard lock{ memo_mutex };
+        auto it = memo.find(id);
+        if (it != memo.end()) return it->second;
+        return memo[id] = compute_source_key(data, cars);
+    }
+
+    std::string compute_source_key(const std::filesystem::path& data, bool cars) {
         uint64_t h = rush2::track_cache::hash(nullptr, 0, rush2::track_cache::build() ^ (cars ? 0xCA45ull : 0x7AC4ull));
         std::vector<std::filesystem::path> files;
         std::error_code ec;
@@ -339,4 +353,23 @@ void a49::start_refresh() {
         std::filesystem::path data = built_by_game ? data_dir() : std::filesystem::path();
         if (!data.empty()) start(data, true);
     }).detach();
+}
+
+bool a49::stale_track_files(const std::string& mod_id, const std::string& track_id, ModFiles& out) {
+    if (mod_id != track_mod_id) return false;
+    Installed have = installed(track_mod_id);
+    if (!have.rtz || have.key.empty()) return false;    // not built by the game (a loose install is left as it is)
+    std::filesystem::path data = data_dir();
+    if (data.empty() || source_key(data, false) == have.key) return false;
+    std::string log;
+    auto t0 = std::chrono::steady_clock::now();
+    out.clear();
+    if (!build_track_files(data, assets_dir(), track_id, out, log, alcatraz_only)) {
+        printf("[arcade2049] %s: couldn't build it again for this race\n%s", track_id.c_str(), log.c_str());
+        out.clear();
+        return false;
+    }
+    printf("[arcade2049] %s built again for this race (the installed mod is out of date): %.1f s\n", track_id.c_str(),
+           std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+    return true;
 }

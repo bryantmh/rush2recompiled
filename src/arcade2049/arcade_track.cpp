@@ -1874,6 +1874,18 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
 }
 }
 
+bool a49::build_track_files(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir,
+                            const std::string& track_id, ModFiles& out, std::string& log, bool alcatraz_only) {
+    // As build_track_mod writes it: after the track before it in arcade_tracks (the same track.toml).
+    std::string after = "rush2049";
+    for (const ArcadeTrack& a : arcade_tracks) {
+        if (alcatraz_only && std::string(a.id) != "alcatraz") continue;
+        if (track_id == a.id) return build_one(data_dir, a.folder, a.id, a.name, after, assets_dir, out, log, nullptr);
+        after = a.id;
+    }
+    return false;
+}
+
 bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir, ModFiles& out,
                           std::string& log, bool alcatraz_only, const std::function<bool()>& cancelled) {
     // Each after the one before it in arcade_tracks (the track select order), the first after the Rush 2049 tracks.
@@ -1889,6 +1901,8 @@ bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::file
         { "description", "Tracks from San Francisco Rush 2049 Special Edition (arcade), built from the arcade data by the "
                          "Games tab." },
         { "short_description", "Rush 2049 arcade tracks" }, { "version", "1.0.0" }, { "authors", { "rush2-recomp" } },
-        { "minimum_recomp_version", "0.0.0" } }.dump(4));
+        { "minimum_recomp_version", "0.0.0" },
+        // Converted from the arcade's own data, so the converter's authoring warnings don't apply to it.
+        { "hide_track_warnings", true } }.dump(4));
     return true;
 }

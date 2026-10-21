@@ -10,6 +10,8 @@
 // - RUSH2_TEST_RACE_BATTLE=1: the race select's BATTLE row on (rush2::battle::set_race_battle; not saved).
 // - RUSH2_TEST_RACE_VIEW_CAR=<car>: the first view follows that car (a drone: 1 and up) for the whole race, as
 //   RUSH2_ONLINE_VIEW_CAR does online, to watch a drone drive the course.
+// - RUSH2_TEST_RACE_WAIT=<seconds>: the race starts that long after the title screen is first up (a mod rebuilt at
+//   launch finished first, as when a player starts a race after it).
 //
 // Each player races as JUST PLAY on Select Player has them: with their controller's own buffer (0x8010D740 +
 // port * 0x6C0, never a saved player's profile) and its options set to the defaults, as menu_select_player_pick_saved
@@ -20,6 +22,7 @@
 // slot an added track races in (rush2::track2049::host_menu_track). RUSH2_TEST_MANUAL and RUSH2_TEST_DEATHS
 // (src/players4.cpp) still apply.
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -183,6 +186,13 @@ extern "C" void rush2_test_race_frame(uint8_t* rdram, recomp_context* ctx) {
     static bool done = false;
     if (spec == nullptr || done || rush2::online::state() != rush2::online::State::Offline ||
         !rush2::race_setup::in_menus(rdram)) {
+        return;
+    }
+    // RUSH2_TEST_RACE_WAIT=<seconds>: stay on the title screen that long first (a launch-time rebuild, such as the
+    // arcade mods' refresh, finishing before the race).
+    static const double wait = env("RUSH2_TEST_RACE_WAIT") ? std::atof(env("RUSH2_TEST_RACE_WAIT")) : 0.0;
+    static const auto first = std::chrono::steady_clock::now();
+    if (std::chrono::duration<double>(std::chrono::steady_clock::now() - first).count() < wait) {
         return;
     }
     done = true;

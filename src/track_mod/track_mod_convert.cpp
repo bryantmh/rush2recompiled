@@ -2585,7 +2585,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         auto off = [&](size_t i) { return std::isnan(road[i]) || std::fabs(road[i] - spine[i].p[1]) > off_road; };
         size_t first_on = 0;
         while (first_on < n && off(first_on)) first_on++;
-        size_t in_air = 0;
+        size_t in_air = 0, gaps = 0;
         for (size_t k = 0; first_on < n && k < n;) {
             size_t a = (first_on + k) % n;
             if (!off(a)) { k++; continue; }
@@ -2620,11 +2620,31 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 for (size_t j = 0; j < len; j++) spine[(a + j) % n].air = true;
                 in_air += len;
             }
+            // Otherwise a point or two off the road between points on it, where the curve carries on between the
+            // road's heights either side: the probe slipped through a seam between collision polygons and found nothing
+            // near, or road 60 ft above (the Rush 2049 arcade's Civic Center and Mission each have one). The road is
+            // there at the curve's height.
+            else if (len <= 2 && !off(before) && !off(after)) {
+                bool follows = true;
+                for (size_t j = 0; j < len; j++) {
+                    float t = float(j + 1) / float(len + 1);
+                    float h = road[before] + (road[after] - road[before]) * t;
+                    follows = follows && std::fabs(spine[(a + j) % n].p[1] - h) < off_road;
+                }
+                if (follows) {
+                    for (size_t j = 0; j < len; j++) road[(a + j) % n] = spine[(a + j) % n].p[1];
+                    gaps += len;
+                }
+            }
             k += len;
         }
         if (in_air) {
             report.info("AIPATH_main is over a gap for " + std::to_string(in_air) + " point(s) (a jump): kept at the "
                         "curve's height.");
+        }
+        if (gaps) {
+            report.info("AIPATH_main crosses a seam in the road's collision at " + std::to_string(gaps) + " point(s): "
+                        "kept at the curve's height.");
         }
         size_t off_height = 0, no_road = 0;
         float worst = 0.0f;
@@ -2828,6 +2848,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             float best = 1e30f;
             Vec3 pick{};
             float pick_speed = std::nanf(""), pick_mode = std::nanf("");
+            bool pick_lifted = false;
             for (size_t j = 0; j < segments; j++) {
                 const Vec3& a = line[j];
                 const Vec3& b = line[(j + 1) % line.size()];
@@ -2837,10 +2858,21 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 if (std::fabs(dot(normalize(Vec3{ ab[0], 0.0f, ab[2] }), fwd)) < 0.5f) continue;
                 Vec3 x = add(a, mul(ab, sa / (sa - sb)));
                 float off = dot(sub(x, q.p), lat);
-                if (std::fabs(off) > reach || std::fabs(x[1] - q.p[1]) > gate_height) continue;
+                if (std::fabs(off) > reach) continue;
+                // Higher than gate_height above the spine is still beside it when the nearest road under the lane is
+                // no higher than the spine's: a racing line that jumps higher or further than AIPATH_main (the Rush
+                // 2049 arcade's Civic Center and Marina jumps), not road on another level. Such a point keeps its
+                // own height.
+                bool lifted = false;
+                if (std::fabs(x[1] - q.p[1]) > gate_height) {
+                    float g = x[1] > q.p[1] && !cpolys.empty() ? ground_under(cpolys, x, 400.0f) : NAN;
+                    lifted = x[1] > q.p[1] && (cpolys.empty() || std::isnan(g) || g < q.p[1] + gate_height);
+                    if (!lifted) continue;
+                }
                 if (std::fabs(off - want) < best) {
                     best = std::fabs(off - want);
                     pick = x;
+                    pick_lifted = lifted;
                     float f = sa / (sa - sb);
                     size_t jb = (j + 1) % line.size();
                     float s0 = ribbon.speed[j], s1 = ribbon.speed[jb];
@@ -2852,7 +2884,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 if (!missed++) first_missed = add(q.p, mul(lat, want));
                 continue;
             }
-            lane[i] = on_road(pick, q.air);
+            lane[i] = on_road(pick, q.air || pick_lifted);
             lane_speed[i] = pick_speed;
             lane_mode[i] = pick_mode;
         }
@@ -2902,6 +2934,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (size_t i = 0; i < spine.size(); i++) {
             if (spine[i].air) continue;              // over a jump: nothing under it is the point
             for (const auto& lane : lanes) {
+                // A painted lane jumping higher than the spine (paint_lane keeps such points over 30 ft above it).
+                if (lane[i][1] > spine[i].p[1] + 30.0f) continue;
                 if (!surface_near(cpolys, lane[i], 40.0f)) {
                     if (!off_road) first = lane[i];
                     off_road++;

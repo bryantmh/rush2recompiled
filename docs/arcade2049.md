@@ -24,7 +24,14 @@ track (see Alcatraz Only below). Each mod.json carries
 (`start_refresh`, from the launcher, on a worker thread) an installed mod whose key changed is built again once from
 that folder, keeping whether it was on, so a new build or new arcade data never needs the button. If that folder is
 gone, it builds from wherever the button would look (`data_dir`: ProjectR's folder); a loose (Python) install is left
-alone. Afterwards `rush2::car_mods::reload` and `rush2::track2049::mods_changed` make the car select and
+alone. A race on an arcade track while the installed track mod is still out of date doesn't wait for the refresh or
+race the old version: `rush2::track_mod::load` asks `a49::stale_track_files`, which builds just that track
+(`build_track_files`, the files `build_track_mod` writes for it, about 3 s for Marina) during the race load, and
+converts it as any track converts on its first race (keyed by its files, so the installed copy, once the refresh
+writes it, hits the same cache entry). Until 2026-10-20 a race in the first half minute after a new build raced the
+old track until the game was restarted. The inputs' hash (`source_key`) is worked out once per data folder and mod.
+Test: `tools/test_race.py marina_arcade --mod-dir <a copy of the .rtz with its mod.json key changed>` (the log says
+"built again for this race"); `RUSH2_TEST_RACE_WAIT=<s>` starts the race that long after the title screen instead. Afterwards `rush2::car_mods::reload` and `rush2::track2049::mods_changed` make the car select and
 track select read the new files without a restart; `mods_changed` also has the custom track list read again
 (`rush2::track_mod::rescan`): it was kept by the enabled mods and their file names, which a rebuild keeps, so until
 2026-10-19 tracks added by a rebuild (Alcatraz Only turned off) showed only after a restart.
