@@ -315,6 +315,13 @@ naming its segment (`_SEGMENT`, `ROAD_SPLINES`: docs/custom_tracks.md, "Spline r
 about 2,200 spline polygons, 6,600 in all. Along the lap, the slope's change per foot falls from 0.0070 (p99 0.10) on
 the facets to 0.0014 (p99 0.015). The pieces a chain's end leaves uncovered stay flat.
 
+Loops can't be cut from above (their walls and roof don't face up, and their segments stack, so the bands bowtie);
+until 2026-10-21 they fell to their flat facets, a crease every few feet up the loop. The arcade authors them as Rush
+2's Alcatraz and Atari do: spline polygons on their own segment (TRACK1, 4, 5, 6, 7: every steep or overhanging one's
+corners within 0.04 ft of it, t 0..1, none reaching past it). So a spline polygon facing less than 0.2 up, or whose
+segment has no band, and that fits its own segment is kept as it is, in its own facing (`kept` in `spline_road`):
+Alcatraz 232, TRACK1 248, TRACK7 4,348, matching the census.
+
 ## dpath.rom (the drones' paths)
 
 8 tables of 2000 slots of 0x18 bytes (384,000 bytes). Slot 0 is a header (u32 lap point count, u32 1 or 0, ...).

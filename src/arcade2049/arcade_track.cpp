@@ -311,10 +311,24 @@ namespace {
         int seg;
     };
 
+    // An arcade spline polygon kept as it is, on its own segment (spline_road: loops).
+    struct SplinePoly {
+        uint32_t flags;
+        std::vector<V3> pts;
+        V3 normal;
+        int seg;
+    };
+
     // track_mod.py spline_road: each segment gets the part of the spline road over its stretch, joined into flat
-    // footprint polygons that take their height from the segment; the rest stays flat.
+    // footprint polygons that take their height from the segment; the rest stays flat. The stretches are cut from
+    // above, which a loop can't be: its walls and roof don't face up and its segments stack over each other (their
+    // bands bowtie). The arcade authors loops as Rush 2's Alcatraz and Atari do, spline polygons on their own segment
+    // (TRACK1, 4, 5, 6, 7: every steep or overhanging one's corners within 0.04 ft of it, t 0..1, none reaching past
+    // it), so a spline polygon that can't be cut from above and fits its own segment goes to `kept` as it is, in its
+    // own facing (flat, it was a stream of creases up the loop).
     void spline_road(const std::vector<std::array<double, 33>>& records, const std::vector<CollisionPoly>& polys,
-                     std::vector<FootprintTri>& tris, std::vector<FlatPoly>& flat, std::vector<std::string>& report) {
+                     std::vector<FootprintTri>& tris, std::vector<SplinePoly>& kept, std::vector<FlatPoly>& flat,
+                     std::vector<std::string>& report) {
         std::vector<Seg> segs;
         for (const auto& r : records) segs.emplace_back(r);
         int ns = int(segs.size());
@@ -348,8 +362,23 @@ namespace {
 
         std::map<std::pair<int, uint32_t>, Paths64> pieces;     // (segment, flags) -> footprint parts
         int spline_polys = 0;
+        // The polygon on its own segment as the arcade authored it: every corner on the surface, inside its stretch.
+        auto fits_own = [&](const CollisionPoly& p) {
+            if (p.seg >= ns) return false;
+            for (const V3& q : p.pts) {
+                double h, tt, u;
+                seg_surface(segs[p.seg], nxt(p.seg), q, h, tt, u);
+                if (!(std::abs(h) < spline_fit && tt >= -0.01 && tt <= 1.01)) return false;
+            }
+            return true;
+        };
         for (const CollisionPoly& p : polys) {
             if (p.seg >= 0 && (p.flags & 0x1000)) spline_polys++;
+            if (p.seg >= 0 && p.seg < ns && (p.flags & 0x1000) && (p.flags & 0xF) <= 2 && (p.normal[1] < 0.2 || !bands[p.seg]) &&
+                fits_own(p)) {
+                kept.push_back({ (p.flags & 0xFF) | (p.flags & 0xC0000000u) | 0x1000, p.pts, p.normal, p.seg });
+                continue;
+            }
             if (p.seg < 0 || !(p.flags & 0x1000) || (p.flags & 0xF) > 2 || p.normal[1] < 0.2) {
                 flat.push_back({ p.flags, p.pts, p.normal });
                 continue;
@@ -455,8 +484,8 @@ namespace {
         for (const FlatPoly& f : flat) leftovers += (f.flags & 0x1000) ? 1 : 0;
         char line[256];
         snprintf(line, sizeof(line), "spline road: %d segments, %zu footprints from %d spline polygons (planes within "
-                 "%.2f ft of the surface), %d flat leftovers", ns, off.size(), spline_polys,
-                 off.empty() ? 0.0 : *std::max_element(off.begin(), off.end()), leftovers);
+                 "%.2f ft of the surface), %zu kept on their own segment (loops), %d flat leftovers", ns, off.size(),
+                 spline_polys, off.empty() ? 0.0 : *std::max_element(off.begin(), off.end()), kept.size(), leftovers);
         report.push_back(line);
     }
 
@@ -1529,8 +1558,9 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
 
     // Collision.
     std::vector<FootprintTri> spline_tris;
+    std::vector<SplinePoly> spline_kept;
     std::vector<FlatPoly> flat;
-    spline_road(seg_records, drop_spline_twins(collision, report), spline_tris, flat, report);
+    spline_road(seg_records, drop_spline_twins(collision, report), spline_tris, spline_kept, flat, report);
     if (cancelled && cancelled()) return false;
     struct ColPoly {
         uint32_t flags;
@@ -1545,6 +1575,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         if (up[1] <= 0) up = up * -1.0;     // footprints face up
         col_polys.push_back({ ft.flags, { ft.pts[0], ft.pts[1], ft.pts[2] }, up, ft.seg });
     }
+    for (SplinePoly& sp : spline_kept) col_polys.push_back({ sp.flags, std::move(sp.pts), sp.normal, sp.seg });
     {
         // Low rails: Rush 2 holds a car at a wall only by its body points, which ride 3.5 ft over the road
         // (docs/arcade2049.md#wall-heights-n64-port-raised-them), where the arcade's wheels take walls too. A wall whose
