@@ -57,6 +57,14 @@
 // 58) but leaves the rear wheels 22 units ahead of the rear arms' hubs (z about -85, under the wing) and inside the
 // sidepods. The wheel draw (func_8005A598) moves the FORMULA's rear wheels back to the hubs; physics is unchanged.
 //
+// Hood View Front Wheels (option, on by default). The wheel placer (carselect_preview_update_8005A598) runs once per
+// wheel node per frame ($a2 = wheel 0-3, front 0 and 1) and shows or hides it through node_swap_visibility_8005A528
+// (0x8005A78C): for a car with a view (car state +0x347) it shows the wheel in that view when $s0 = camera mode
+// (+0x348) >= 2 and hides it there otherwise, so the bumper (0) and hood (1) cameras never draw the car's own wheels.
+// The hood halves (H0_L / H0_R, 2049's CARnHOOD) are in the body's model space, as the wheels' positions are (car
+// state +0xA8), so they line up. On, the open-wheel cars (FORMULA, MOUNTAIN DEW, FORMULA 1) show their front wheels in
+// the hood camera.
+//
 // Stallion spoiler (user report). The STALLION's (type 14, asset 0x2B) body is symmetric about x = 0, but its spoiler,
 // in every TOP model (D0_TOP1, D1_TOP1, D0_DTOP1, D0_D2TOP2; the only vertices there behind z = -80), runs from x = -36
 // to 39 (trailing edge -13 to 17). The copy moves those vertices 2 units left (trailing edge -15 to 15, like the deck
@@ -91,6 +99,7 @@
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 #include "assets.h"
+#include "car_types.h"
 #include "rush2.h"
 
 #include "rush2_hooks.h"
@@ -138,6 +147,7 @@ namespace {
     constexpr int car_human = 2;
     std::atomic<bool> stunt_first_gear = false;
     std::atomic<bool> hide_respawning_cars = true;
+    std::atomic<bool> hood_front_wheels = true;
 }
 
 void rush2::set_stunt_first_gear(bool enabled) {
@@ -146,6 +156,10 @@ void rush2::set_stunt_first_gear(bool enabled) {
 
 void rush2::set_hide_respawning_cars(bool enabled) {
     hide_respawning_cars.store(enabled, std::memory_order_relaxed);
+}
+
+void rush2::set_hood_front_wheels(bool enabled) {
+    hood_front_wheels.store(enabled, std::memory_order_relaxed);
 }
 
 // func_803B9478 at 0x803BA7E8, after slot $s7's row-changeable byte is set: MAIN and ACCENT COLOR for the Dew.
@@ -304,6 +318,89 @@ namespace {
         return out;
     }
 
+    // Hood View Front Wheels: the FORMULA's front arms, taken from its front panel for the hood camera's hood list.
+    struct FormulaArms {
+        bool ok = false;
+        uint32_t hood_lists[2] = {};        // file offsets of H0_L's and H2_L's LOD 0 lists
+        uint32_t texture_list = 0;          // the wishbone's texture load list
+        std::vector<uint32_t> commands;     // its render state and triangles (w0, w1 pairs), indices from vertex 0
+        std::vector<uint32_t> vertices;     // file offsets of the triangles' vertices, in their new order
+        uint32_t scratch = 0;               // room at the copy's end for the hood lists with the arms (loaded with it)
+    };
+    FormulaArms formula_arms;
+    constexpr uint32_t arms_list_size = 0x100;      // per hood half: the wrapper list, then its vertices
+    constexpr uint32_t car_slot_size = 0x8001CF28;  // largest car asset: every car slot is allocated at it
+
+    int32_t find_model(const std::vector<uint8_t>& d, const std::string& name) {
+        uint32_t names = be32(d, 4), count = be32(d, 16);
+        for (uint32_t m = 0; m < count && names + m * 0x18 + 16 <= d.size(); m++) {
+            if (strncmp(reinterpret_cast<const char*>(&d[names + m * 0x18]), name.c_str(), 16) == 0) return (int32_t)m;
+        }
+        return -1;
+    }
+
+    // In FORM1D0_FR1's LOD 0 list, the commands after the G_DL to the wishbone's texture load list (G_SETTIMG of
+    // wishbone_texels) up to the next G_DL / G_VTX / G_ENDDL: G_SETOTHERMODE_L, G_SETCOMBINE and the front arms'
+    // G_TRI2s (vertices 14-19 of the list's first G_VTX: a tent across the car, x -38 to 38 at z 54-63).
+    void capture_formula_arms(const std::vector<uint8_t>& d, uint32_t wishbone_texels) {
+        uint32_t models = be32(d, 0);
+        int32_t h0 = find_model(d, "FORM1H0_L"), h2 = find_model(d, "FORM1H2_L"), fr = find_model(d, "FORM1D0_FR1");
+        if (h0 < 0 || h2 < 0 || fr < 0) return;
+        FormulaArms a;
+        a.hood_lists[0] = be32(d, models + h0 * 0x34 + 12) & 0xFFFFFF;
+        a.hood_lists[1] = be32(d, models + h2 * 0x34 + 12) & 0xFFFFFF;
+        uint32_t vtx = 0, vtx_first = 0;
+        bool in_arms = false;
+        std::vector<int> used(64, -1);
+        int next = 0;
+        for (uint32_t o = be32(d, models + fr * 0x34 + 12) & 0xFFFFFF; o + 8 <= d.size(); o += 8) {
+            uint32_t w0 = be32(d, o), w1 = be32(d, o + 4), op = w0 >> 24;
+            if (op == 0xDF) break;
+            if (op == 0x01) {
+                if (in_arms) break;
+                vtx = w1 & 0xFFFFFF;
+                vtx_first = ((w0 & 0xFF) >> 1) - ((w0 >> 12) & 0xFF);
+                continue;
+            }
+            if (op == 0xDE) {
+                if (in_arms) break;
+                uint32_t list = w1 & 0xFFFFFF;
+                if (list + 8 <= d.size() && be32(d, list) >> 24 == 0xFD && (be32(d, list + 4) & 0xFFFFFF) == wishbone_texels) {
+                    in_arms = true;
+                    a.texture_list = list;
+                }
+                continue;
+            }
+            if (!in_arms) continue;
+            if (op == 0x05 || op == 0x06) {
+                // Renumber the triangles' vertices (index * 2 in bytes 1-3 and, for G_TRI2, 5-7) from 0.
+                uint32_t words[2] = { w0, w1 };
+                for (int k = 0; k < (op == 0x06 ? 2 : 1); k++) {
+                    for (int b = 0; b < 3; b++) {
+                        int shift = 16 - b * 8;
+                        int v = int((words[k] >> shift) & 0xFF) / 2 - (int)vtx_first;
+                        if (v < 0 || v >= 64) return;
+                        if (used[v] < 0) {
+                            used[v] = next++;
+                            uint32_t at = vtx + uint32_t(v) * 16;
+                            if (at + 16 > d.size()) return;
+                            a.vertices.push_back(at);
+                        }
+                        words[k] = (words[k] & ~(0xFFu << shift)) | (uint32_t(used[v] * 2) << shift);
+                    }
+                }
+                a.commands.push_back(words[0]);
+                a.commands.push_back(words[1]);
+            }
+            else if (op == 0xE2 || op == 0xFC) {
+                a.commands.push_back(w0);
+                a.commands.push_back(w1);
+            }
+        }
+        a.ok = a.texture_list != 0 && !a.vertices.empty() && next <= 32;
+        if (a.ok) formula_arms = std::move(a);
+    }
+
     void fix_rocket_windshield(uint8_t* rdram) {
         constexpr int rocket_asset = 0x31;
         constexpr int windshield_texture = 6;
@@ -353,6 +450,17 @@ namespace {
                 fixed = true;
             }
         });
+        capture_formula_arms(d, wishbone_texels);
+        if (formula_arms.ok) {
+            // The wrapper lists are built in the loaded car (the game heap, which the renderer reaches), in room added
+            // at the copy's end. Every car slot is allocated at the largest car asset's size.
+            formula_arms.scratch = (uint32_t)(d.size() + 15) & ~15u;
+            d.resize(formula_arms.scratch + 2 * arms_list_size, 0);
+            if (d.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
+                MEM_W(0, (int32_t)car_slot_size) = (int32_t)((d.size() + 15) & ~15u);
+            }
+            fixed = true;
+        }
         if (fixed) {
             rush2::assets::replace(rdram, formula_asset, std::move(d));
         }
@@ -397,6 +505,140 @@ extern "C" void rush2_fix_formula_rear_wheels(uint8_t* rdram, recomp_context* ct
     if ((wheel == 2 || wheel == 3) && MEM_BU(0x7EA, (int32_t)ctx->r9) == type_formula) {
         ctx->f4.fl = rear_hub_z;
     }
+}
+
+namespace {
+    constexpr int type_formula = 18, type_formula1 = rush2::car_types::first_2049; // type_dew: above
+    constexpr int hood_camera = 1;
+    constexpr uint32_t player_count = 0x8010C3E2;   // s16; the hood is drawn with one player
+    constexpr uint32_t model_slots = 0x80118D78;    // per model slot: its records (8 bytes each)
+    constexpr uint32_t model_record_size = 0x34;
+    constexpr uint32_t car_part_handles = rush2::car_types::part_handles; // + car * 0x4E: u16 per part
+    constexpr int hood_parts[2] = { 31, 32 };      // H0_L, H2_L (car_hood_update_8005BFD8 swaps by damage)
+
+    // How far the hood camera's hood is modeled from the body's middle, in model units (1/16 ft): the camera sits
+    // 0.55 ft to the side (0x800BFC60), and the open-wheel cars' hoods were shifted with it so the nose looks centered.
+    // FORM1H0_L / H0_R meet at x = -6 (x -41 to 28), DEWH0_L / H0_R at -8 (-40 to 24); 2049's CAR1HOOD's nose tip is
+    // at x = -8. The body (and wheels) are centered on x = 0.
+    int hood_shift(int type) {
+        return type == type_formula ? -6 : type == type_dew || type == type_formula1 ? -8 : 0;
+    }
+
+    bool open_wheel(int type) {
+        return type == type_formula || type == type_dew || type == type_formula1;
+    }
+
+    // The hood half's list with the FORMULA's front arms after it, per race car and hood part, in the loaded car.
+    struct ArmsList {
+        uint32_t address = 0;   // the wrapper list
+        uint32_t original = 0;  // the record's own list it calls
+    };
+    ArmsList arms_lists[8][2];
+
+    uint32_t record_of(uint8_t* rdram, int car, int part) {
+        uint16_t h = MEM_HU(0, (int32_t)(car_part_handles + uint32_t(car) * 0x4E + part * 2));
+        if (h == 0) return 0;
+        uint32_t base = (uint32_t)MEM_W(0, (int32_t)(model_slots + uint32_t(h >> 10) * 8));
+        return base == 0 ? 0 : base + uint32_t(h & 0x3FF) * model_record_size;
+    }
+
+    // Builds car's wrapper for hood part i over list (the record's relocated LOD 0 list, at the hood list's file
+    // offset): G_DL list, then the arms: G_VTX of their vertices (moved by the hood's shift), G_TEXTURE on, G_DL to the
+    // wishbone's texture load list, and the front panel's render state and triangles.
+    void build_arms_list(uint8_t* rdram, int car, int i, uint32_t list, int shift) {
+        ArmsList& a = arms_lists[car][i];
+        // The relocator adds the container's load address to file offsets; the hood list gives it.
+        uint32_t base = list - formula_arms.hood_lists[i];
+        a.address = base + formula_arms.scratch + uint32_t(i) * arms_list_size;
+        // Inside a list the game's pointers are physical (the record holds the KSEG0 address).
+        auto addr = [](uint32_t at) { return at & 0x1FFFFFFF; };
+        uint32_t n = (uint32_t)formula_arms.vertices.size();
+        uint32_t vertices = a.address + arms_list_size - n * 16;
+        // The loaded container's own vertices (as its load left them), x moved by the hood's shift.
+        for (uint32_t k = 0; k < n; k++) {
+            uint32_t from = base + formula_arms.vertices[k];
+            uint32_t x = vertices + k * 16;
+            for (uint32_t b = 0; b < 16; b += 4) {
+                MEM_W(0, (int32_t)(x + b)) = MEM_W(0, (int32_t)(from + b));
+            }
+            MEM_H(0, (int32_t)x) = (int16_t)(MEM_H(0, (int32_t)x) + shift);
+        }
+        std::vector<uint32_t> cmds = {
+            0xDE000000, addr(list),
+            0x01000000 | (n << 12) | (n * 2), addr(vertices),
+            0xD7000002, 0xFFFFFFFF,
+            0xDE000000, addr(base + formula_arms.texture_list),
+        };
+        cmds.insert(cmds.end(), formula_arms.commands.begin(), formula_arms.commands.end());
+        cmds.push_back(0xDF000000);
+        cmds.push_back(0);
+        for (size_t k = 0; k < cmds.size() && k * 4 + n * 16 < arms_list_size; k++) {
+            MEM_W(0, (int32_t)(a.address + uint32_t(k) * 4)) = (int32_t)cmds[k];
+        }
+        a.original = list;
+    }
+
+    // Each frame, for a race car with a view: points its hood halves' LOD 0 list at the wrapper while the option is on
+    // and the car is the FORMULA, and back at their own list otherwise. A new race's car load writes the record anew.
+    void update_formula_arms(uint8_t* rdram, int car, int type) {
+        if (car < 0 || car >= 8 || !formula_arms.ok) return;
+        bool want = hood_front_wheels.load(std::memory_order_relaxed) && type == type_formula;
+        for (int i = 0; i < 2; i++) {
+            uint32_t record = record_of(rdram, car, hood_parts[i]);
+            if (record == 0) continue;
+            uint32_t list = (uint32_t)MEM_W(0xC, (int32_t)record);
+            ArmsList& a = arms_lists[car][i];
+            if (a.address != 0 && list == a.address) {
+                if (!want) MEM_W(0xC, (int32_t)record) = (int32_t)a.original;
+                continue;
+            }
+            if (want) {
+                build_arms_list(rdram, car, i, list, hood_shift(type));
+                MEM_W(0xC, (int32_t)record) = (int32_t)a.address;
+            }
+        }
+    }
+
+    // The hood (and so the wheels' shift) is drawn in camera mode 1 with one player.
+    bool hood_drawn(uint8_t* rdram, uint32_t car_state, int view) {
+        return view >= 0 && MEM_B(0x348, (int32_t)car_state) == hood_camera && MEM_H(0, (int32_t)player_count) < 2;
+    }
+}
+
+// func_8005A598 at 0x8005A774, $s0 just set to camera mode >= 2 (shown in the car's own view): $a0 = car state,
+// $a2 = wheel (0, 1 front), $t0 = node record (+0xE car), $t1 = physics car, $t3 = the car's view (-1 none).
+// Hood View Front Wheels: shows the open-wheel cars' front wheels in the hood camera, and has the FORMULA's hood list
+// draw its front arms.
+extern "C" void rush2_hood_front_wheels(uint8_t* rdram, recomp_context* ctx) {
+    int wheel = (int16_t)ctx->r6;
+    int view = (int8_t)ctx->r11;
+    int type = MEM_BU(0x7EA, (int32_t)ctx->r9);
+    if (wheel == 0 && view >= 0) {
+        update_formula_arms(rdram, MEM_H(0xE, (int32_t)ctx->r8), type);
+    }
+    if (!hood_front_wheels.load(std::memory_order_relaxed) || (wheel != 0 && wheel != 1) || view < 0 ||
+        MEM_B(0x348, (int32_t)ctx->r4) != hood_camera || !open_wheel(type)) {
+        return;
+    }
+    ctx->r16 = 1;
+}
+
+// func_8005A598 at 0x8005A8F4, the wheel's x stored at 0xCC($sp): the open-wheel cars' front wheels move with the hood
+// (hood_shift) while it is drawn, so they sit beside its nose.
+extern "C" void rush2_hood_front_wheels_x(uint8_t* rdram, recomp_context* ctx) {
+    int wheel = (int16_t)ctx->r6;
+    int type = MEM_BU(0x7EA, (int32_t)ctx->r9);
+    if (!hood_front_wheels.load(std::memory_order_relaxed) || (wheel != 0 && wheel != 1) || !open_wheel(type) ||
+        !hood_drawn(rdram, (uint32_t)ctx->r4, (int8_t)ctx->r11)) {
+        return;
+    }
+    uint32_t at = (uint32_t)ctx->r29 + 0xCC;
+    int32_t bits = MEM_W(0, (int32_t)at);
+    float x;
+    std::memcpy(&x, &bits, sizeof(x));
+    x += hood_shift(type) / 16.0f;
+    std::memcpy(&bits, &x, sizeof(x));
+    MEM_W(0, (int32_t)at) = bits;
 }
 
 // Breakable groups: the 0x82-group copy of the table at 0x800D8FC0 (see the top of the file). Each hook runs right

@@ -98,6 +98,47 @@ units ahead of the rear arms' hubs (z about -85, under the wing) and inside the 
 physics car, type at +0x7EA): the hook at 0x8005A8F8 (`rush2_fix_formula_rear_wheels`) gives the FORMULA's rear wheels
 z = -85.25 / 16 ft. Only the drawing moves; the physics wheels stay at -3.925.
 
+## Hood view front wheels
+
+Option (General > Gameplay, Hood View Front Wheels, on by default, hot-swappable). Rush 2 hides a car's own wheels in
+its bumper and hood cameras, which leaves the open-wheel cars' front wheels and arms missing from beside the nose. On,
+the FORMULA (18), MOUNTAIN DEW (21) and 2049's FORMULA 1 (23) show their front wheels in the hood camera, moved to sit
+beside the hood's nose, and the FORMULA's hood also draws its front arms.
+
+Visibility. `carselect_preview_update_8005A598` runs once per wheel node per frame (node record `$a0`, kept in `$t0`:
++0xE car, +0x10 wheel, 0 and 1 front). After `node_reset_visibility_800590AC` (0x8005A728) it sets `$s0` = camera
+mode (car state +0x348) >= 2 and calls `node_swap_visibility_8005A528` (0x8005A78C) with the car's view (+0x347): for a
+view >= 0 it shows the node in that view (`node_show_80058ED4`, mask `1 << view`) when `$s0` is set and hides it there
+(`node_hide_80058D1C`) otherwise. The hook at 0x8005A774 (`rush2_hood_front_wheels`, after the online one at
+0x8005A770) sets `$s0` for wheels 0 and 1 in camera mode 1.
+
+Centering. The hood camera (`cam_update_dispatch_8009D02C`, mode 1 at 0x8009D17C) sits at (-0.55, 3.2, 0) ft from the
+car (0x800BFC60-68) less the view's lagging offset (0x80240480 + view * 0xC), so 8.8 units left of the middle. The
+open-wheel cars' hoods were modeled shifted with it, so the nose looks centered: `FORM1H0_L` / `H0_R` meet at x = -6
+(x -41 to 28), `DEWH0_L` / `H0_R` at -8 (-40 to 24), and 2049's `CAR1HOOD` has its nose tip at x = -8 (-68 to 52).
+Closed cars' hoods are centered (`PICKUPH0_L` / `H0_R` meet at 0). The body and the wheel positions (car state +0xA8,
+the descriptor's +-2.75 ft) are centered on 0, so the wheels came out off-center against the hood. The hook at
+0x8005A8F4 (`rush2_hood_front_wheels_x`, after the wheel's x is stored at 0xCC($sp), passed by pointer at 0x8005AC40)
+moves the front wheels by the hood's shift / 16 ft while the hood is drawn (mode 1, one player: s16 0x8010C3E2 < 2).
+
+FORMULA arms. Its front wishbones are in the front panel `FORM1D0_FR1`, which the hood camera hides with the rest of the
+body: after the G_DL to the wishbone's texture load list (0x3070, texels 0x828) its list sets render mode `C8113278`
+and the car combiner `FC1216AC F0FFFE38` and draws four G_TRI2s over vertices 14-19 of its first G_VTX (a tent across
+the car, x -38 to 38, y 3-11, z 54-63). At boot `capture_formula_arms` records those commands, the vertices' file
+offsets and the hood lists' (`FORM1H0_L`, `FORM1H2_L`), and the FORMULA's asset copy gets 0x200 bytes of room at its end
+(the car slot size 0x8001CF28 grows to fit if needed). Each frame, for a race car with a view, `update_formula_arms`
+finds the hood halves' model records (part handles 31 and 32 of car record 0x8010C480 + car * 0x4E; handle >> 10 =
+model slot at 0x80118D78 + slot * 8, & 0x3FF = record, 0x34 bytes, LOD 0 list at +0xC). With the option on and the car
+the FORMULA it writes, in that room of the loaded car, a list that calls the hood's own list and then draws the arms
+(their vertices copied from the loaded car, x moved by the hood's shift, G_TEXTURE on, the texture load list, the
+captured commands), and points the record's LOD 0 at it; off, it points it back. The record holds a KSEG0 address but
+the pointers inside a list are physical (`00624F90`); a list in `recomp::alloc` memory (above 16 MB) froze the game in
+the hood camera, which is why the lists live in the loaded car. The arms run at axle height, so in the hood camera only
+their top edge shows along the bottom of the screen, meeting the wheels.
+
+The DEW's hood model has its front arms in it already. In the same loop, wheel 0 in hood mode also feeds the hood
+camera's bob (0x80240450 + view * 4, 0x8005A900-0x8005AA1C), which this leaves alone.
+
 ## Stallion spoiler
 
 User report. Always on: a vanilla bug, so it has no option.

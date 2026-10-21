@@ -24,6 +24,8 @@ namespace rush2 {
     void set_stunt_first_gear(bool enabled);
     // Hide Respawning Cars (src/game_fixes.cpp): a computer car is hidden through its glide back after a wreck.
     void set_hide_respawning_cars(bool enabled);
+    // Hood View Front Wheels (src/game_fixes.cpp): the open-wheel cars show their front wheels in the hood camera.
+    void set_hood_front_wheels(bool enabled);
     // Car model fixes (src/game_fixes.cpp): replaces the ROCKET's asset with its windshield unpainted, the FORMULA's
     // with its wishbones mirrored and the STALLION's with its spoiler centered. Call at boot.
     void fix_car_models(uint8_t* rdram);

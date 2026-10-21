@@ -14340,6 +14340,18 @@ func = "carselect_preview_update_8005A598"
 before_vram = 0x8005A770
 text = "    ctx->r16 = (gpr)(int32_t)rush2_online_wheels_shown(rdram, (uint32_t)ctx->r9, (int)(int8_t)ctx->r11, (int)(int32_t)ctx->r16);"
 
+# Hood View Front Wheels: the open-wheel cars' front wheels shown in their own hood camera (src/game_fixes.cpp).
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005A774
+text = "    rush2_hood_front_wheels(rdram, ctx);"
+
+# Hood View Front Wheels: the open-wheel cars' front wheels moved with the hood camera's hood (src/game_fixes.cpp).
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005A8F4
+text = "    rush2_hood_front_wheels_x(rdram, ctx);"
+
 # Online: every human car takes the viewed path in the simulation (rush2_online_sim_view, docs/online.md#the-race).
 [[patches.hook]]
 func = "car_wreck_steer_to_respawn_800754B4"
