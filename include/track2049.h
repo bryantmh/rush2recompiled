@@ -72,6 +72,9 @@ namespace rush2::track2049 {
     // The track select's 38-entry diorama tables and asset 3 with the added tracks' dioramas (src/rush2049/track2049_menu.cpp),
     // for screens other than the track select that show them (the unlock system's shop): call before loading asset 3.
     void prepare_menu_art(uint8_t* rdram);
+    // Builds the track select's art container (asset 3 with the added tracks' dioramas and logos) ahead of its next
+    // visit, off the game thread (the background builds, src/prewarm.cpp); that visit then only installs it.
+    void prepare_menu_container();
     // A mod's tracks changed under the same mod id (src/arcade2049 reinstalled one): the track select reads them again.
     void mods_changed();
     // Asset 3 as the track select gets it (with the added tracks' art), built here when the game hasn't yet: for the
@@ -97,6 +100,9 @@ namespace rush2::track2049 {
     int host_menu_track(uint8_t* rdram, int t);
     // Track select entry t's in-race logo container (asset 4 + the slot host_menu_track gives it), as the race shows it.
     bool menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_t>& out);
+    // Custom track `index`'s logo ([menu] logo) in the logo container of the slot it races in (asset `container`,
+    // 4 + HAWAII's or STUNT1's), so its race never shows the host's. False if it has none.
+    bool mod_race_logo(uint8_t* rdram, int index, int container, std::vector<uint8_t>& out);
     // Writes that logo's texels and palette over the loaded logo asset `asset` (4-16), which the game's widgets then
     // draw (the circuit review's card, the records screen). False if the asset isn't loaded or t has no logo.
     bool write_menu_logo(uint8_t* rdram, recomp_context* ctx, int asset, int t);
@@ -134,6 +140,9 @@ namespace rush2::track2049 {
     // Whether the race is on a custom track whose track.toml asks for California Speed's road hold
     // ([track] road_hold = true; src/calspeed/calspeed_rom.cpp rush2_calspeed_road_hold).
     bool mod_road_hold(uint8_t* rdram);
+    // Whether the race is on a custom track with no [audio] music, which plays a random one of the songs the player
+    // switched on (src/music.cpp).
+    bool mod_random_song(uint8_t* rdram);
     // Whether the race is on a custom track that races with smooth collision (its track.toml smooth_collision), and its
     // fold angle (degrees).
     bool mod_smooth_collision(uint8_t* rdram, float* fold = nullptr);

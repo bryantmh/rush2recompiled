@@ -9,6 +9,7 @@
 // static_asserts on the structs' sizes are there to catch a field added without being serialized.
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -416,23 +417,37 @@ std::string rush2::track_cache::blob_entry(const std::string& name) {
     return "blob_" + name;
 }
 
+namespace {
+    // Lookups that found no entry for this build: something is about to be converted (misses()).
+    std::atomic<uint64_t> miss_count = 0;
+
+    bool found(bool hit) {
+        if (!hit) miss_count++;
+        return hit;
+    }
+}
+
+uint64_t rush2::track_cache::misses() {
+    return miss_count;
+}
+
 bool rush2::track_cache::has_rush1(int t, const std::string& prefix, uint64_t source) {
     Writer expected;
     key(expected, Kind::Rush1, t, prefix, source);
-    return starts_with(file_for(Kind::Rush1, t), expected.bytes);
+    return found(starts_with(file_for(Kind::Rush1, t), expected.bytes));
 }
 
 bool rush2::track_cache::has_2049(int k, const std::string& prefix, uint64_t source) {
     Writer expected;
     key(expected, Kind::Rush2049, k, prefix, source);
-    return starts_with(file_for(Kind::Rush2049, k), expected.bytes);
+    return found(starts_with(file_for(Kind::Rush2049, k), expected.bytes));
 }
 
 bool rush2::track_cache::has_blob(const std::string& name, uint64_t source) {
     if (source == 0) return false;
     Writer expected;
     key(expected, Kind::Blob, 0, name, source);
-    return starts_with(blob_file(name), expected.bytes);
+    return found(starts_with(blob_file(name), expected.bytes));
 }
 
 void rush2::track_cache::preload_rush1(int t) {
@@ -476,7 +491,7 @@ uint64_t rush2::track_cache::hash(const uint8_t* data, size_t size, uint64_t see
 bool rush2::track_cache::load_rush1(int t, const std::string& prefix, uint64_t source, rush2::track1::ConvertedTrack& track,
                                     std::vector<uint8_t>& logo) {
     std::vector<uint8_t> bytes;
-    if (!open(Kind::Rush1, t, prefix, source, bytes)) return false;
+    if (!found(open(Kind::Rush1, t, prefix, source, bytes))) return false;
     Reader r(bytes);
     r.at = key_size(Kind::Rush1, t, prefix, source);
     rush2::track1::ConvertedTrack loaded;
@@ -498,7 +513,7 @@ void rush2::track_cache::save_rush1(int t, const std::string& prefix, uint64_t s
 
 bool rush2::track_cache::load_2049(int k, const std::string& prefix, uint64_t source, rush2::track2049::ConvertedTrack& track) {
     std::vector<uint8_t> bytes;
-    if (!open(Kind::Rush2049, k, prefix, source, bytes)) return false;
+    if (!found(open(Kind::Rush2049, k, prefix, source, bytes))) return false;
     Reader r(bytes);
     r.at = key_size(Kind::Rush2049, k, prefix, source);
     rush2::track2049::ConvertedTrack loaded;
@@ -521,7 +536,7 @@ bool rush2::track_cache::load_blob(const std::string& name, uint64_t source, std
     key(expected, Kind::Blob, 0, name, source);
     size_t at = expected.bytes.size();
     std::vector<uint8_t> bytes;
-    if (!read_entry(blob_file(name), expected.bytes, bytes)) return false;
+    if (!found(read_entry(blob_file(name), expected.bytes, bytes))) return false;
     Reader r(bytes);
     r.at = at;
     std::vector<uint8_t> loaded;

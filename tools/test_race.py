@@ -6,7 +6,7 @@ got past the race (test aid; docs/menus.md#starting-a-race-without-the-menus).
     python tools/test_race.py TRACK [--cars T,T,...] [--laps N] [--drones N] [--script S] [--seconds S]
                               [--turbo] [--finish S] [--mod NAME] [--out DIR] [--env K=V ...] [--games K=V ...]
                               [--config NAME.K=V ...]
-                              [--shots S,S,...] [--records PLACEMENT_BIN]
+                              [--shots S,S,...] [--records PLACEMENT_BIN] [--user-settings] [--show]
 
 TRACK `menus` sets no race up: the game boots to the title and the --script drives the menus (as JUST PLAY: the
 data folder has no saved players). Otherwise TRACK is a track select id (0-11 Rush 2, 12-17 Rush 2049, 18-24 SF Rush, 25-28 stunt arenas, 29 obstacle course,
@@ -78,7 +78,11 @@ def set_options(name, pairs):
         json.dump(cfg, f, indent=4)
 
 
-def prepare_data(track, extra_mods, games=(), configs=(), mod_dirs=()):
+#: Settings files --user-settings copies from build/ (how the game looks and plays; never the saves or the sound).
+USER_SETTINGS = ['graphics.json', 'general.json', 'cheats.json', 'circuit.json', 'npc_cars.json']
+
+
+def prepare_data(track, extra_mods, games=(), configs=(), mod_dirs=(), user_settings=False):
     os.makedirs(DATA, exist_ok=True)
     for n in os.listdir(DATA):
         p = os.path.join(DATA, n)
@@ -92,6 +96,10 @@ def prepare_data(track, extra_mods, games=(), configs=(), mod_dirs=()):
             link(src, dst)
     if os.path.exists(os.path.join(BUILD, 'games.json')):
         shutil.copyfile(os.path.join(BUILD, 'games.json'), os.path.join(DATA, 'games.json'))
+    if user_settings:
+        for n in USER_SETTINGS:
+            if os.path.exists(os.path.join(BUILD, n)):
+                shutil.copyfile(os.path.join(BUILD, n), os.path.join(DATA, n))
     if games:
         set_options('games', games)
     for entry in configs:
@@ -194,6 +202,11 @@ def main():
                     'DIR/shot_<seconds>.png; the window is shown for it (RUSH2_SIM_SHOW), without taking the focus')
     ap.add_argument('--records', help="a custom track's placement.bin: report which of its records moved during the race "
                     "(race_watch.py --records; moving objects)")
+    ap.add_argument('--user-settings', action='store_true', help="copy build/'s graphics, general, cheats, circuit "
+                    "and opponent settings in (profiling what the player sees: MSAA, SSAO and the like change RT64's "
+                    "work); the saves and sound settings stay the run's own")
+    ap.add_argument('--show', action='store_true', help='show the window (RUSH2_SIM_SHOW, without taking the focus): '
+                    'a hidden window presents differently, so profile with it shown')
     ap.add_argument('--data', help="the run's data folder (default tmp/test_race/data); give each run that may "
                     "overlap another session's its own")
     a = ap.parse_args()
@@ -202,7 +215,7 @@ def main():
         DATA = os.path.abspath(a.data)
     if a.records and not os.path.isfile(a.records):
         sys.exit('no placement file %s (the converted track: track_mod_test.exe output)' % a.records)
-    mods = prepare_data(a.track, a.mod, a.games, a.config, a.mod_dir)
+    mods = prepare_data(a.track, a.mod, a.games, a.config, a.mod_dir, a.user_settings)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_SIM_TURBO='1' if a.turbo else '0')
     if a.track != 'menus':
@@ -216,7 +229,7 @@ def main():
     for kv in a.env:
         k, _, v = kv.partition('=')
         env[k] = v
-    if a.shots:
+    if a.shots or a.show:
         env['RUSH2_SIM_SHOW'] = '1'
     script = a.script or '1:A:%g' % max(1.0, a.seconds - 1)
     print('track %s, cars %s, mods %s' % (a.track, a.cars, ', '.join(mods) or 'none'), flush=True)

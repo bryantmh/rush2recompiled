@@ -38,5 +38,3 @@ California Speed:
 California speed had a custom RGB paint system, could that be ported over to here on rush?
 Also, this is a screenshot of the demo mode when the game is first launched. It has different camera angles, and the game runs through it's "attract mode" I have always loved this high angle. Anyway to add more camera angles, maybe some higher up and back like this one? Maybe classic Virtua Racing Heli cam LOL. Thanks again! Love all the mods you're already working on!
 "No Damage" feature, be applied to all cars, not just the player, can be toggled.
-Backwards jets in Alcatraz 2049
-Hawaii record after completing alcatraz 2049

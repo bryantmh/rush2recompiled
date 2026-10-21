@@ -485,7 +485,7 @@ namespace {
                 write_pose(rdram, p, objects[p.object], slot_bits);
             }
         }
-        // A custom track's flip-book: frames hidden by a scale under 0.01 on one pivot (tools/arcade2049/track_mod.py),
+        // A custom track's flip-book: frames hidden by a scale under 0.01 on one pivot (src/arcade2049/arcade_track.cpp),
         // one shown at a time. Their nodes share one interpolation ID (src/interpolation.cpp), so the frame shown
         // pairs with the one it replaces instead of starting unblended.
         if (light_track == 0) {

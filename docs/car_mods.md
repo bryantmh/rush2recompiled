@@ -298,13 +298,12 @@ Two traps the 73 types brought out, both crashes in the car select:
 
 ### Rush 2049 arcade cars
 
-`tools/arcade2049/car_mod.py OUT_MOD_DIR` builds the `rush2049_arcade_cars` mod from the arcade data ProjectR unpacks
+The Games tab (`src/arcade2049/arcade_cars.cpp`) builds the `rush2049_arcade_cars` mod from the arcade data ProjectR unpacks
 (docs/arcade2049.md). It holds the three arcade cars that have no Rush 2049 (N64) counterpart as new cars: the Deuce
 (CAR10), the Caddy (CAR11) and the Truck (CAR8). Every `COL` folder of a car is one color scheme (`<ID>_COLn.glb`,
 picked with STYLE), each its body's full-detail LOD with the arcade's textures as authored, and its hood camera hood
 (the scheme's HOOD object, `<ID>_COLn_HOOD.glb`, in `hoods`). The wheels are at the
-arcade's own points, the same for every arcade car (docs/arcade2049.md#wheel-positions). `--sides SIDES.png` draws
-them over the side views to check.
+arcade's own points, the same for every arcade car (docs/arcade2049.md#wheel-positions).
 
 Each drives as the Rush 2 car of its kind, its `base` (Truck: PICKUP, Deuce: HOTROD, Caddy: CADDY), with no
 `physics` of its own: the arcade gives every car one physics descriptor (docs/arcade2049.md#car-physics), so its

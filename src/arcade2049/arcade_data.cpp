@@ -46,7 +46,7 @@ namespace {
 
     int s9(int v) { return v & 256 ? v - 512 : v; }
 
-    // Lines of a dobs script (CRLF), stripped, empty ones left out (Python's splitlines + strip).
+    // Lines of a dobs script (CRLF), stripped, empty ones left out.
     std::vector<std::string> script_lines(const std::string& text) {
         std::vector<std::string> out;
         size_t start = 0;

@@ -34,7 +34,6 @@
 #include "texture_derive.h"
 #include "texture_upscale.h"
 #include "track2049.h"
-#include "arcade2049.h"
 #include "track_cache.h"
 #include "track_mod.h"
 #include "track_mod_runtime.h"
@@ -442,34 +441,6 @@ namespace {
         f.cache_key = cache_k + int(name % 1000000);
     }
 
-    // An arcade track (src/arcade2049) whose installed mod is out of date, the launch refresh not done with it yet:
-    // its files built now, in front of the refresh, so the race converts the new version (as any track converts on
-    // its first race) instead of the installed one. Not remembered: the installed files' stamp isn't theirs.
-    bool stale_arcade_files(int index, Files& f) {
-        {
-            std::lock_guard lock{ mutex };
-            scan();
-            if (index < 0 || index >= (int)entries.size()) return false;
-            f.entry = entries[index];
-        }
-        const rush2::track_mod::Entry& e = f.entry;
-        rush2::arcade2049::ModFiles files;
-        if (!rush2::arcade2049::stale_track_files(e.mod_id, e.folder, files)) return false;
-        auto take = [&](const std::string& name, std::vector<uint8_t>& out) {
-            auto it = files.find(e.dir + name);
-            if (it != files.end()) out = std::move(it->second);
-        };
-        take("track.glb", f.glb);
-        if (f.glb.empty()) return false;
-        take("track.toml", f.toml);
-        if (!e.settings.logo.empty()) take(e.settings.logo, f.extras.logo);
-        if (!e.settings.diorama.empty()) take(e.settings.diorama, f.extras.diorama);
-        if (!e.settings.preview.empty()) take(e.settings.preview, f.extras.preview);
-        stock_sky_container(e.settings.sky, f.extras.sky_container, f.extras.sky_model, f.sky_pending);
-        key_files(f);
-        return true;
-    }
-
     std::string menu_blob_name(const Files& f) {
         return "trackmod_menu_" + std::to_string(f.cache_key);
     }
@@ -651,9 +622,8 @@ void rush2::track_mod::publish_textures() {
 bool rush2::track_mod::load(int index, const std::string& prefix, Converted& out) {
     // The cached track by what the background pass (prepare) read of its files, else the files read now.
     Files f;
-    bool rebuilt = stale_arcade_files(index, f);
-    bool known_now = !rebuilt && known_files(index, f);
-    if (!rebuilt && !known_now && !read_files(index, f)) return false;
+    bool known_now = known_files(index, f);
+    if (!known_now && !read_files(index, f)) return false;
     auto load_cached = [&]() {
         out = Converted{};
         Report settings_report;

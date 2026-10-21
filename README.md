@@ -156,7 +156,7 @@ Any model in the game can be swapped for your own mesh. Run Dump Models to get e
 
 ### New cars
 
-A mod can add whole new cars to the car select, each from a `.glb` and a short `.json` under `rush2/new_cars/` (name, base car, wheel positions, colors and any physics you want to set). `rush2/liveries/` adds extra looks to an existing car through a STYLE row. See [docs/car_mods.md](docs/car_mods.md). `tools/arcade2049/car_mod.py` builds a mod with the San Francisco Rush 2049 arcade's Truck, Deuce and Caddy and its arcade-only color schemes.
+A mod can add whole new cars to the car select, each from a `.glb` and a short `.json` under `rush2/new_cars/` (name, base car, wheel positions, colors and any physics you want to set). `rush2/liveries/` adds extra looks to an existing car through a STYLE row. See [docs/car_mods.md](docs/car_mods.md). The Games tab's San Francisco Rush 2049 Arcade section builds a mod with the arcade's Truck, Deuce and Caddy and its arcade-only color schemes.
 
 ### Replacing textures
 

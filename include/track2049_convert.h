@@ -10,8 +10,8 @@
 
 #include "rush2049_rom.h"
 
-// Conversion of a Rush 2049 race track to the files of a Rush 2 track slot (src/rush2049/track2049_convert.cpp). Port of
-// tools/rush2049/track.py; its output is byte-identical (tools/rush2049/cpp_test checks this).
+// Conversion of a Rush 2049 race track to the files of a Rush 2 track slot (src/rush2049/track2049_convert.cpp). 
+// tools/rush2049/cpp_test checks its output with the Rush 2 format validators.
 namespace rush2::track2049 {
     // A placement record holding a Rush 2049 path object at one of its spawn nodes (static_paths).
     struct PathRecord {

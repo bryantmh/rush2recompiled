@@ -8,7 +8,11 @@
 //
 // The stack walk runs while the target is suspended, so it must not take any lock the target could hold: no heap, no
 // loader lock, no RtlLookupFunctionEntry (it shares a lock with module loading). Unwind tables are read straight from
-// each module's exception directory instead, and modules are listed only while nothing is suspended.
+// each module's exception directory instead, and modules are listed only while nothing is suspended. Reads stay inside
+// the thread's stack (its TEB's bounds), so a walk never raises an exception: dispatching one looks up function tables
+// and calls vectored handlers, which take locks the suspended thread may hold. In case the sampler still gets stuck
+// with a thread suspended, the scanner thread resumes any thread held more than 100 ms (a run of 2026-10-21 stopped
+// logging at 57 s that way, with a background thread left suspended).
 //
 // Log lines (times in microseconds since the profiler started):
 //   F <qpc frequency>                     header
@@ -55,7 +59,13 @@ namespace {
         bool watched;
         bool alive;
         std::wstring name;
+        uintptr_t teb = 0;      // its TEB: NT_TIB StackBase at +8, StackLimit at +16
     };
+
+    // The thread the sampler has suspended now, for the scanner's watchdog.
+    std::mutex watch_mutex;
+    HANDLE watch_handle = nullptr;
+    int64_t watch_since = 0;
 
     FILE* out = nullptr;
     LARGE_INTEGER qpc_start;
@@ -85,6 +95,10 @@ namespace {
             return;
         }
         size_t n = std::min<size_t>(needed / sizeof(HMODULE), 1024);
+        // Modules unloaded since are dropped: their unwind tables are gone.
+        modules.erase(std::remove_if(modules.begin(), modules.end(), [&](const Module& m) {
+            return std::none_of(handles, handles + n, [&](HMODULE h) { return reinterpret_cast<uintptr_t>(h) == m.base; });
+        }), modules.end());
         for (size_t i = 0; i < n; i++) {
             uintptr_t base = reinterpret_cast<uintptr_t>(handles[i]);
             bool known = std::any_of(modules.begin(), modules.end(), [&](const Module& m) { return m.base == base; });
@@ -137,11 +151,14 @@ namespace {
     }
 
     // Walks the stack of a suspended thread. Lock free and allocation free; a bad read ends the walk.
-    int walk(CONTEXT ctx, uintptr_t* frames) {
+    int walk(CONTEXT ctx, uintptr_t* frames, uintptr_t stack_low, uintptr_t stack_high) {
         int n = 0;
         __try {
             while (n < max_frames && ctx.Rip != 0) {
                 frames[n++] = ctx.Rip;
+                if (ctx.Rsp < stack_low || ctx.Rsp + 8 > stack_high) {
+                    break;
+                }
                 const Module* m = find_module(ctx.Rip);
                 if (m == nullptr) {
                     modules_stale = true;
@@ -170,43 +187,105 @@ namespace {
         return n;
     }
 
-    void refresh_threads(std::vector<ThreadInfo>& threads, DWORD self) {
+    // The process's threads and their names, listed by a thread of its own: a snapshot of every thread on the system
+    // takes tens of milliseconds, in which the sampler would see nothing.
+    std::atomic<int> stuck_resumes = 0;    // threads the watchdog resumed (logged as marks "watchdog")
+    std::mutex scan_mutex;
+    std::vector<std::pair<DWORD, std::wstring>> scan;   // the latest list, under scan_mutex
+    bool scan_new = false;
+
+    void scanner(DWORD sampler_tid) {
+        SetThreadDescription(GetCurrentThread(), L"Hitch Profiler Scan");
+        DWORD pid = GetCurrentProcessId(), self = GetCurrentThreadId();
+        while (true) {
+            std::vector<std::pair<DWORD, std::wstring>> list;
+            HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+            if (snap != INVALID_HANDLE_VALUE) {
+                THREADENTRY32 te{ sizeof(te) };
+                for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
+                    if (te.th32OwnerProcessID != pid || te.th32ThreadID == sampler_tid || te.th32ThreadID == self) {
+                        continue;
+                    }
+                    std::wstring name;
+                    HANDLE h = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, te.th32ThreadID);
+                    if (h != nullptr) {
+                        PWSTR desc = nullptr;
+                        if (SUCCEEDED(GetThreadDescription(h, &desc)) && desc != nullptr) {
+                            name = desc;
+                            LocalFree(desc);
+                        }
+                        CloseHandle(h);
+                    }
+                    list.emplace_back(te.th32ThreadID, std::move(name));
+                }
+                CloseHandle(snap);
+                std::lock_guard lock{ scan_mutex };
+                scan.swap(list);
+                scan_new = true;
+            }
+            // The watchdog, every 20 ms between snapshots.
+            for (int i = 0; i < 10; i++) {
+                Sleep(20);
+                std::lock_guard lock{ watch_mutex };
+                if (watch_handle != nullptr && now_us() - watch_since > 100'000) {
+                    ResumeThread(watch_handle);
+                    watch_handle = nullptr;
+                    stuck_resumes++;
+                }
+            }
+        }
+    }
+
+    uintptr_t thread_teb(HANDLE h) {
+        struct BasicInformation {
+            LONG exit_status;
+            PVOID teb;
+            PVOID client_id[2];
+            ULONG_PTR affinity;
+            LONG priority, base_priority;
+        } info{};
+        using Query = LONG(NTAPI*)(HANDLE, int, PVOID, ULONG, PULONG);
+        static Query query = reinterpret_cast<Query>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationThread"));
+        if (query == nullptr || query(h, 0 /* ThreadBasicInformation */, &info, sizeof(info), nullptr) < 0) {
+            return 0;
+        }
+        return reinterpret_cast<uintptr_t>(info.teb);
+    }
+
+    // Takes the scanner's latest list, if there is a new one: opens the new threads, renames, drops the gone ones.
+    void refresh_threads(std::vector<ThreadInfo>& threads) {
+        std::vector<std::pair<DWORD, std::wstring>> list;
+        {
+            std::lock_guard lock{ scan_mutex };
+            if (!scan_new) {
+                return;
+            }
+            list.swap(scan);
+            scan_new = false;
+        }
         for (auto& t : threads) {
             t.alive = false;
         }
-        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-        if (snap == INVALID_HANDLE_VALUE) {
-            return;
-        }
-        THREADENTRY32 te{ sizeof(te) };
-        DWORD pid = GetCurrentProcessId();
-        for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
-            if (te.th32OwnerProcessID != pid || te.th32ThreadID == self) {
-                continue;
-            }
-            auto it = std::find_if(threads.begin(), threads.end(), [&](const ThreadInfo& t) { return t.tid == te.th32ThreadID; });
+        for (auto& [tid, name] : list) {
+            auto it = std::find_if(threads.begin(), threads.end(), [&](const ThreadInfo& t) { return t.tid == tid; });
             if (it == threads.end()) {
-                HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID);
+                HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid);
                 if (h == nullptr) {
                     continue;
                 }
-                threads.push_back({ te.th32ThreadID, h, 0, false, true, L"" });
+                threads.push_back({ tid, h, 0, false, true, L"" });
+                threads.back().teb = thread_teb(h);
                 QueryThreadCycleTime(h, &threads.back().cycles);
                 it = threads.end() - 1;
             }
             it->alive = true;
-            PWSTR desc = nullptr;
-            if (SUCCEEDED(GetThreadDescription(it->handle, &desc)) && desc != nullptr) {
-                if (it->name != desc) {
-                    it->name = desc;
-                    it->watched = it->name.starts_with(L"[Game]") || it->name == L"Gfx Thread" || it->name == L"VI Thread" ||
-                        it->name == L"SP Task Thread" || it->name == L"RT64 Present" || it->name == L"RT64 Workload";
-                    fprintf(out, "T %lu %ls\n", it->tid, desc);
-                }
-                LocalFree(desc);
+            if (!name.empty() && it->name != name) {
+                it->name = name;
+                it->watched = it->name.starts_with(L"[Game]") || it->name == L"Gfx Thread" || it->name == L"VI Thread" ||
+                    it->name == L"SP Task Thread" || it->name == L"RT64 Present" || it->name == L"RT64 Workload";
+                fprintf(out, "T %lu %ls\n", it->tid, name.c_str());
             }
         }
-        CloseHandle(snap);
         for (auto& t : threads) {
             if (!t.alive && t.handle != nullptr) {
                 CloseHandle(t.handle);
@@ -220,6 +299,7 @@ namespace {
         SetThreadDescription(GetCurrentThread(), L"Hitch Profiler");
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
         DWORD self = GetCurrentThreadId();
+        std::thread{ scanner, self }.detach();
         HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
         std::vector<ThreadInfo> threads;
         std::unordered_map<uint64_t, uint32_t> stack_ids;
@@ -229,14 +309,18 @@ namespace {
 
         while (true) {
             int64_t t = now_us();
-            if (t - last_refresh > 200'000 || modules_stale) {
+            // Modules are listed when a stack ran into one not listed yet, and every few seconds.
+            if (t - last_refresh > 5'000'000 || modules_stale) {
                 refresh_modules();
-                refresh_threads(threads, self);
                 last_refresh = t;
             }
+            refresh_threads(threads);
             {
                 std::lock_guard lock{ marks_mutex };
                 marks.swap(pending_marks);
+            }
+            for (static int logged = 0; logged < stuck_resumes; logged++) {
+                marks.emplace_back(t, "watchdog");
             }
             for (auto& [mt, tag] : marks) {
                 fprintf(out, "E %lld %s\n", (long long)mt, tag.c_str());
@@ -251,7 +335,17 @@ namespace {
                 if (delta == 0 && !th.watched) {
                     continue;
                 }
+                if (th.teb == 0) {
+                    continue;
+                }
+                {
+                    std::lock_guard lock{ watch_mutex };
+                    watch_handle = th.handle;
+                    watch_since = now_us();
+                }
                 if (SuspendThread(th.handle) == (DWORD)-1) {
+                    std::lock_guard lock{ watch_mutex };
+                    watch_handle = nullptr;
                     continue;
                 }
                 CONTEXT ctx{};
@@ -259,9 +353,17 @@ namespace {
                 int n = 0;
                 int64_t ts = now_us();
                 if (GetThreadContext(th.handle, &ctx)) {
-                    n = walk(ctx, frames);
+                    // The TEB is the thread's own memory and stays while it lives (its handle keeps it).
+                    const NT_TIB* tib = reinterpret_cast<const NT_TIB*>(th.teb);
+                    n = walk(ctx, frames, reinterpret_cast<uintptr_t>(tib->StackLimit), reinterpret_cast<uintptr_t>(tib->StackBase));
                 }
-                ResumeThread(th.handle);
+                {
+                    std::lock_guard lock{ watch_mutex };
+                    if (watch_handle == th.handle) {
+                        ResumeThread(th.handle);
+                    }
+                    watch_handle = nullptr;
+                }
                 if (n == 0) {
                     continue;
                 }

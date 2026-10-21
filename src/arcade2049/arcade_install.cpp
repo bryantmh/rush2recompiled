@@ -1,9 +1,9 @@
 // Builds and installs the Rush 2049 arcade mods (include/arcade2049.h) from the Games tab, on a worker thread: each
-// mod is written as <mods>/<id>.rtz (a zip of what tools/arcade2049/track_mod.py and car_mod.py write), its mod.json
+// mod is written as <mods>/<id>.rtz (a zip of the files build_track_mod and build_car_mod make), its mod.json
 // carrying "rush2_arcade": the key of what it was built from (the input files, the shipped assets and this build)
 // and the data folder. At launch, an installed mod whose key no longer matches (a new build, new arcade data) is
-// built again once from that folder, keeping whether it was on. A loose mod folder of the same id (the Python tools'
-// install) is replaced only by the button.
+// built again once from that folder, keeping whether it was on. A loose mod folder of the same id (an install by the
+// Python converters this replaced, removed 2026-10-20) is replaced only by the button.
 
 #include <atomic>
 #include <chrono>
@@ -36,7 +36,7 @@ namespace {
     }
 
     // The Games tab's Alcatraz Only option: the track mod holds just Alcatraz, else every arcade track
-    // (a49::arcade_tracks). Changing it rebuilds an installed mod (start_refresh's check).
+    // (a49::arcade_tracks). Changing it rebuilds an installed mod in the background (start).
     const std::string alcatraz_only_option_id = "arcade_alcatraz_only";
     std::atomic_bool alcatraz_only = true;
 
@@ -83,6 +83,19 @@ namespace {
             }
         }
         std::sort(files.begin(), files.end());
+        // Reading every file took about a second of each launch: the key is kept on disk under the files' names, sizes
+        // and times, and worked out again only when one of those changes.
+        uint64_t stamp = h;
+        for (const auto& f : files) {
+            std::string name = rush2::upscale::path_utf8(f.lexically_relative(data));
+            stamp = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(name.data()), name.size(), stamp);
+            uint64_t size_time[2] = { (uint64_t)std::filesystem::file_size(f, ec),
+                                      (uint64_t)std::filesystem::last_write_time(f, ec).time_since_epoch().count() };
+            stamp = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(size_time), sizeof(size_time), stamp);
+        }
+        const std::string blob = std::string("arcade_source_key_") + (cars ? "cars" : alcatraz_only ? "alcatraz" : "tracks");
+        std::vector<uint8_t> kept;
+        if (rush2::track_cache::load_blob(blob, stamp, kept) && kept.size() == 16) return std::string(kept.begin(), kept.end());
         for (const auto& f : files) {
             std::string name = rush2::upscale::path_utf8(f.lexically_relative(data));
             h = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(name.data()), name.size(), h);
@@ -91,6 +104,7 @@ namespace {
         }
         char text[17];
         snprintf(text, sizeof(text), "%016llx", (unsigned long long)h);
+        rush2::track_cache::save_blob(blob, stamp, std::vector<uint8_t>(text, text + 16));
         return text;
     }
 
@@ -126,6 +140,7 @@ namespace {
     std::string state_text;                  // what the section shows; written by the worker
     std::atomic<int> state_generation = 0;   // counts changes, so the page reads the note again only then
     std::atomic<bool> busy = false;
+    std::atomic<bool> rebuilding = false;    // a mod has been built this session (a49::rebuilt)
     std::filesystem::path chosen_data;       // the folder Select Folder picked, this session
 
     void set_state(const std::string& text) {
@@ -164,7 +179,7 @@ namespace {
             return false;
         }
         recomp::mods::close_mods();
-        // A loose folder of this id (the Python tools' install) would be a second mod of the same id.
+        // A loose folder of this id (an install by the old Python converters) would be a second mod of the same id.
         if (installed(id).loose) std::filesystem::remove_all(mods / id, ec);
         bool ok = false;
         for (int attempt = 0; attempt < 200 && !ok; attempt++) {
@@ -194,6 +209,7 @@ namespace {
                 Installed have = installed(id);
                 if (!have.rtz || have.key.empty() || have.key == key) continue;
             }
+            rebuilding = true;
             set_state(cars ? "Building the cars..." : alcatraz_only ? "Building Alcatraz..." : "Building the arcade tracks...");
             a49::ModFiles files;
             bool ok = cars ? a49::build_car_mod(data, files, log) : a49::build_track_mod(data, assets_dir(), files, log, alcatraz_only);
@@ -312,9 +328,10 @@ void a49::init_config() {
         true
     );
     config.add_option_change_callback(alcatraz_only_option_id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext context) {
             bool on = std::get<bool>(cur_value);
-            if (on == alcatraz_only.exchange(on)) return;
+            // Loading the settings: the launch's refresh (refresh_now) builds an out of date mod before the game starts.
+            if (on == alcatraz_only.exchange(on) || context == recomp::config::OptionChangeContext::Load) return;
             // Only an installed mod is rebuilt (run's refresh compares its key, which holds the option).
             std::filesystem::path data = data_dir();
             if (!data.empty()) start(data, true);
@@ -332,44 +349,30 @@ void a49::add_options(rush2::ui::OptionsPage* page) {
     add_checkpoints_option(page);
 }
 
-void a49::start_refresh() {
-    static bool started = false;
-    if (started) return;
-    started = true;
-    // Test aid: RUSH2_TEST_ARCADE_INSTALL=1 presses Build and Install at launch.
-    if (const char* test = std::getenv("RUSH2_TEST_ARCADE_INSTALL"); test && *test == '1') {
-        std::filesystem::path data = data_dir();
-        if (!data.empty()) start(data, false);
-        return;
-    }
-    // The check reads the installed mods and hashes their inputs: off the launcher's thread. A game-built mod is
-    // rebuilt from the folder it was built from, or wherever data_dir finds the arcade files if that one moved.
-    std::thread([]() {
-        bool built_by_game = false;
-        for (const char* id : { track_mod_id, car_mod_id }) {
-            Installed have = installed(id);
-            built_by_game = built_by_game || (have.rtz && !have.key.empty());
-        }
-        std::filesystem::path data = built_by_game ? data_dir() : std::filesystem::path();
-        if (!data.empty()) start(data, true);
-    }).detach();
+bool a49::rebuilt() {
+    return rebuilding;
 }
 
-bool a49::stale_track_files(const std::string& mod_id, const std::string& track_id, ModFiles& out) {
-    if (mod_id != track_mod_id) return false;
-    Installed have = installed(track_mod_id);
-    if (!have.rtz || have.key.empty()) return false;    // not built by the game (a loose install is left as it is)
-    std::filesystem::path data = data_dir();
-    if (data.empty() || source_key(data, false) == have.key) return false;
-    std::string log;
-    auto t0 = std::chrono::steady_clock::now();
-    out.clear();
-    if (!build_track_files(data, assets_dir(), track_id, out, log, alcatraz_only)) {
-        printf("[arcade2049] %s: couldn't build it again for this race\n%s", track_id.c_str(), log.c_str());
-        out.clear();
-        return false;
+void a49::refresh_now() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    // Test aid: RUSH2_TEST_ARCADE_INSTALL=1 presses Build and Install at launch.
+    bool test = false;
+    if (const char* v = std::getenv("RUSH2_TEST_ARCADE_INSTALL"); v && *v == '1') test = true;
+    // A game-built mod is rebuilt from the folder it was built from, or wherever data_dir finds the arcade files if
+    // that one moved.
+    bool built_by_game = false;
+    for (const char* id : { track_mod_id, car_mod_id }) {
+        Installed have = installed(id);
+        built_by_game = built_by_game || (have.rtz && !have.key.empty());
     }
-    printf("[arcade2049] %s built again for this race (the installed mod is out of date): %.1f s\n", track_id.c_str(),
-           std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
-    return true;
+    std::filesystem::path data = built_by_game || test ? data_dir() : std::filesystem::path();
+    if (data.empty()) return;
+    // A build already going (the Games tab's button) is waited for, then the check runs again on what it installed.
+    while (busy.exchange(true)) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    run(data, !test);
+    while (refresh_again.exchange(false)) run(data, true);
+    busy = false;
+    state_generation++;
 }

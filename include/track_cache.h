@@ -48,6 +48,9 @@ namespace rush2::track_cache {
     bool has_rush1(int t, const std::string& prefix, uint64_t source);
     bool has_2049(int k, const std::string& prefix, uint64_t source);
     bool has_blob(const std::string& name, uint64_t source);
+    // How many lookups (has_*, load_*) have found no entry for this build since launch: the launch's build pass shows its
+    // progress screen once there is one (something is being converted), never on a launch with everything built.
+    uint64_t misses();
 
     // Held while an entry is loaded, converted and saved, so a background build (src/prewarm.cpp) and the game wait
     // for each other on the same entry instead of converting it twice; then the second finds it on disk. Hold one at a

@@ -1,6 +1,6 @@
 // The game's Rush 2049 arcade converters (src/arcade2049/) outside the game: builds the two mods into folders, so
-// their output can be checked against tools/arcade2049/track_mod.py and car_mod.py (and with tools/track_mod_test.bat)
-// without a game run. Built and run by tools/arcade2049/cpp_test/build.bat:
+// their output can be checked (tools/track_mod_test.bat, tools/track_mod_check.py) without a game run. Built and run
+// by tools/arcade2049/cpp_test/build.bat:
 //
 //   build.bat [OUT_DIR] [DATA_DIR]     (OUT_DIR default tmp/arcade/cpp; DATA_DIR default ProjectR's sf2049se folder)
 //

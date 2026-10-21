@@ -268,6 +268,24 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     proc = None
+    shots = sorted(float(v) for v in a.shots.split(',')) if a.shots else []
+    if shots:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rush1'))
+        import shots as shot_tool
+
+    def take_shots():
+        # The shots that are due, also before the game has started (the launcher's build progress screen).
+        while shots and time.time() - launched >= shots[0]:
+            hwnd = shot_tool.find_window(pid)
+            if hwnd:
+                shot_tool.capture(hwnd, os.path.join(a.out, 'shot_%g.png' % shots[0]))
+            shots.pop(0)
+
+    def wait(seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            take_shots()
+            time.sleep(0.05)
     if a.launch:
         exe = os.path.join(REPO, 'build', 'Rush2Recompiled.exe')
         log = open(os.path.join(a.out, 'run.log'), 'w')
@@ -277,7 +295,7 @@ def main():
         with open(os.path.join(a.out, 'pid.txt'), 'w') as f:   # for tools attaching to this run
             f.write(str(pid))
         launched = time.time()
-        time.sleep(4)
+        wait(4)
     else:
         pid = a.pid
         launched = time.time()
@@ -286,7 +304,7 @@ def main():
         rd = Rdram(pid, write=a.wreck_at is not None)
         if rd.base:
             break
-        time.sleep(1)
+        wait(1)
     if not rd or not rd.base:
         print('RDRAM not found')
         return 1
@@ -311,11 +329,6 @@ def main():
     events = []
     prev, still_since, started, t0 = None, {}, None, time.time()
     finish_time = {}
-    shots = sorted(float(v) for v in a.shots.split(',')) if a.shots else []
-    if shots:
-        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rush1'))
-        import shots as shot_tool
-
     def event(t, car, text, pos):
         line = '%7.1f s  car %d  %s  at %s' % (t, car, text, where(pos))
         events.append(line)
@@ -323,11 +336,7 @@ def main():
     while time.time() - t0 < a.seconds:
         if proc and proc.poll() is not None:
             break
-        while shots and time.time() - launched >= shots[0]:
-            hwnd = shot_tool.find_window(pid)
-            if hwnd:
-                shot_tool.capture(hwnd, os.path.join(a.out, 'shot_%g.png' % shots[0]))
-            shots.pop(0)
+        take_shots()
         cur = sample(rd)
         if cur is None:
             time.sleep(0.1)

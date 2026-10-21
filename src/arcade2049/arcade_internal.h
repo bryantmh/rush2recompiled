@@ -200,6 +200,6 @@ namespace rush2::arcade2049 {
 
     inline std::vector<uint8_t> text_bytes(const std::string& s) { return { s.begin(), s.end() }; }
 
-    // Python's round(): halves to even (the default floating point rounding mode).
+    // Rounds halves to even (the default floating point rounding mode).
     inline double round_even(double v) { return std::nearbyint(v); }
 }

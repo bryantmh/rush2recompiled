@@ -35,6 +35,7 @@
 #include "car_types.h"
 #include "online.h"
 #include "race_setup.h"
+#include "texture_prewarm.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
 
@@ -159,6 +160,7 @@ namespace {
         if (const char* battle = env("RUSH2_TEST_RACE_BATTLE")) {
             rush2::battle::set_race_battle(std::atoi(battle) != 0);
         }
+        rush2::texture_prewarm::set_track(track);   // as the car select does (src/texture_prewarm.cpp)
         int slot = rush2::track2049::host_menu_track(rdram, track);
         // View p follows player p's car, as online sets them (src/online/online_game.cpp); the menus leave them so, but
         // from the title screen view 0 kept another car and split screen's first view watched it from afar.

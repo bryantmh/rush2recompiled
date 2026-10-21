@@ -46,6 +46,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <future>
 #include <map>
 #include <mutex>
 #include <random>
@@ -672,6 +673,11 @@ namespace {
     };
     Mesh arena, walls;
     constexpr float grid_cell = 48.0f;
+    // The arena mesh being built on a worker (set_data at the race load: about 100 ms on a big custom track); taken
+    // into `arena` by arena_mesh() once built. arena_solid says whether it has any triangles before that.
+    std::future<Mesh> arena_build;
+    std::mutex arena_build_mutex;
+    bool arena_solid = false;
 
     int64_t grid_key(int x, int z) { return ((int64_t)x << 32) ^ (uint32_t)z; }
 
@@ -697,6 +703,14 @@ namespace {
                 for (int z = z0; z <= z1; z++) triangle_grid[grid_key(x, z)].push_back(index);
             }
         }
+    }
+
+    // The arena's collision, taking it from the worker once built. Shots are the only reader and none fly before the
+    // countdown ends, seconds after the build, so the wait here never happens in play.
+    const Mesh& arena_mesh() {
+        std::lock_guard lock{ arena_build_mutex };
+        if (arena_build.valid()) arena = arena_build.get();
+        return arena;
     }
 
     // The first triangle the segment p0-p1 crosses: its point and unit normal (facing p0).
@@ -1327,7 +1341,7 @@ namespace {
         }
         // The track's collision is this file's only for a converted Rush 2049 track that is the one loaded.
         int slot49 = rush2::track2049::loaded_slot();
-        flat_ground = arena.triangles.empty() || slot49 < 0 || MEM_B(0, (int32_t)track_id) != slot49;
+        flat_ground = !arena_solid || slot49 < 0 || MEM_B(0, (int32_t)track_id) != slot49;
         if (m == Mode::arena) {
             int count = (int)MEM_W(0, (int32_t)node_count);
             std::map<uint32_t, uint32_t> node_of_matrix;
@@ -1849,7 +1863,7 @@ namespace {
 
             int victim = s.weapon == mine ? -1 : car_hit(rdram, s);
             float wall[3], normal[3];
-            bool walled = sweep(arena, s.prev, s.pos, wall, normal);
+            bool walled = sweep(arena_mesh(), s.prev, s.pos, wall, normal);
             if (!walled && flat_ground && (s.weapon == mine || s.weapon == grenade) && s.pos[1] < s.ground && s.prev[1] >= s.pos[1]) {
                 // A track without collision here: level ground at the height of the car that let the shot go.
                 walled = true;
@@ -2354,7 +2368,17 @@ void rush2::battle::set_data(const std::vector<PickupRecord>& pickup_list, const
     pickup_records = pickup_list;
     pool_records = pool_list;
     read_models(converted_geometry);
-    build_collision(arena, solid_triangles);
+    {
+        std::lock_guard build_lock{ arena_build_mutex };
+        if (arena_build.valid()) arena_build.wait();
+        arena = {};
+        arena_solid = solid_triangles.size() >= 9;
+        arena_build = std::async(std::launch::async, [t = solid_triangles] {
+            Mesh mesh;
+            build_collision(mesh, t);
+            return mesh;
+        });
+    }
     // A battle arena (it has pickups): the computer opponents' navigation grid.
     if (!pickup_list.empty()) rush2::battle_ai::set_arena(solid_triangles);
 }

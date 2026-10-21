@@ -1,7 +1,6 @@
 @echo off
-rem Builds the standalone track converter test (out\track2049_test.exe) and runs it against the Python output.
-rem   tools\rush2049\cpp_test\build.bat           build, regenerate the Python references, run
-rem   tools\rush2049\cpp_test\build.bat noref     build and run with the existing references
+rem Builds the standalone track converter test (out\track2049_test.exe), converts every 2049 track and checks each
+rem output with the Rush 2 format validators (tools\track_mod_check.py --stock).
 rem From Git Bash: cmd //c "tools\rush2049\cpp_test\build.bat"
 setlocal
 set "HERE=%~dp0"
@@ -20,13 +19,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if /i not "%1"=="noref" (
-    pushd tools\rush2049
-    python track.py >nul || echo track.py reported problems
-    popd
-    python tools\rush2049\cpp_test\make_ref.py >nul || echo make_ref.py reported problems
-)
 "%HERE%out\track2049_test.exe" "%REPO%"
 set "RESULT=%ERRORLEVEL%"
+for /d %%P in ("%HERE%out\static\*" "%HERE%out\nostatic\*") do (
+    python -I tools\track_mod_check.py "%%P" --stock > "%%P\check.txt" 2>&1
+    if errorlevel 1 (
+        echo %%P: PROBLEMS, see %%P\check.txt
+        set "RESULT=1"
+    ) else echo %%P: ALL OK
+)
 popd
 exit /b %RESULT%

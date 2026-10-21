@@ -1,37 +1,38 @@
 # San Francisco Rush 2049 arcade (SE) tracks and cars
 
-The arcade game (Rush 2049 Special Edition) has a track the N64 never got: Alcatraz. `tools/arcade2049/track_mod.py`
+The arcade game (Rush 2049 Special Edition) has a track the N64 never got: Alcatraz. `src/arcade2049/arcade_track.cpp`
 converts an arcade track into a custom-track mod (docs/custom_tracks.md) at the arcade's full model detail and texture
-size; `tools/arcade2049/arcade.py` reads the data. Nothing here is shared with the N64 or Dreamcast formats.
+size, and `src/arcade2049/arcade_cars.cpp` the cars into a car mod; the Games tab runs both (below).
+`tools/arcade2049/arcade.py` reads the data for study. Nothing here is shared with the N64 or Dreamcast formats.
 
 ```
-python tools/arcade2049/track_mod.py TRACK4 OUT_MOD_DIR [--id alcatraz] [--name Alcatraz] [--logo-text TEXT] [--preview PNG]
 python tools/arcade2049/arcade.py TRACK4          (a summary of the track's files)
-python tools/arcade2049/track_mod.py TRACK4 OUT --id alcatraz_test --finish-at 1970   (test copy: starts elsewhere)
+cmd //c "tools\arcade2049\cpp_test\build.bat [OUT_DIR] [DATA_DIR]"   (both mods built outside the game)
 ```
 
-Install the output as `build/mods/<mod id>` and enable it in `build/mods.json`. Rush 2049's ROM in the Games tab makes
-the props react (docs/custom_tracks.md, "Props").
+Rush 2049's ROM in the Games tab makes the props react (docs/custom_tracks.md, "Props"). The Python converters these
+were ported from (`tools/arcade2049/track_mod.py`, `car_mod.py`) were removed on 2026-10-20; their explanations are in
+the C++ and this page.
 
 ## Building it in the game
 
-Players don't need Python: the Games tab's San Francisco Rush 2049 Arcade section (Build and Install, Select Folder)
-builds both mods from the arcade data with `src/arcade2049/`, a C++ port of `track_mod.py`,
-`car_mod.py` and `arcade.py`, and installs them as `<mods>/rush2049_arcade.rtz` and `rush2049_arcade_cars.rtz`
-(a loose folder of the same id, the Python install, is replaced). It takes about 2.5 s for Alcatraz, 32 s for every
-track (see Alcatraz Only below). Each mod.json carries
-`"rush2_arcade": {"key", "data"}`: the hash of the input files, the shipped assets and the build. At launch
-(`start_refresh`, from the launcher, on a worker thread) an installed mod whose key changed is built again once from
-that folder, keeping whether it was on, so a new build or new arcade data never needs the button. If that folder is
-gone, it builds from wherever the button would look (`data_dir`: ProjectR's folder); a loose (Python) install is left
-alone. A race on an arcade track while the installed track mod is still out of date doesn't wait for the refresh or
-race the old version: `rush2::track_mod::load` asks `a49::stale_track_files`, which builds just that track
-(`build_track_files`, the files `build_track_mod` writes for it, about 3 s for Marina) during the race load, and
-converts it as any track converts on its first race (keyed by its files, so the installed copy, once the refresh
-writes it, hits the same cache entry). Until 2026-10-20 a race in the first half minute after a new build raced the
-old track until the game was restarted. The inputs' hash (`source_key`) is worked out once per data folder and mod.
-Test: `tools/test_race.py marina_arcade --mod-dir <a copy of the .rtz with its mod.json key changed>` (the log says
-"built again for this race"); `RUSH2_TEST_RACE_WAIT=<s>` starts the race that long after the title screen instead. Afterwards `rush2::car_mods::reload` and `rush2::track2049::mods_changed` make the car select and
+The Games tab's San Francisco Rush 2049 Arcade section (Build and Install, Select Folder) builds both mods from the
+arcade data with `src/arcade2049/` (its reader a port of `arcade.py`) and installs them as
+`<mods>/rush2049_arcade.rtz` and `rush2049_arcade_cars.rtz` (a loose folder of the same id, an install by the old
+Python converters, is replaced). The tracks are built at once, a thread each, and put together in the track select's
+order (byte for byte the sequential build): about 0.8 s for every track since 2026-10-21 (3.3 s one after another, 29 s
+before `crowded_cells` counted in blocks; see Alcatraz Only below). Each mod.json carries
+`"rush2_arcade": {"key", "data"}`: the hash of the input files, the shipped assets and the build. At launch, before the
+game starts (`a49::refresh_now`, the first job of the launch's build pass, docs/prewarm.md#what-is-built), an installed
+mod whose key changed is built again from that folder, keeping whether it was on, so a new build or new arcade data
+never needs the button and no race meets an out of date mod. If that folder is gone, it builds from wherever the button
+would look (`data_dir`: ProjectR's folder); a loose (old Python) install is left alone. Loading the Alcatraz Only setting
+starts no build of its own (the refresh compares the key, which holds it); changing it in the Games tab rebuilds in the
+background. The inputs' hash (`source_key`) is kept on disk under the input files' names, sizes and times
+(`arcade_source_key_*` in the track cache), so a launch reads the arcade files only when one changed: hashing them took
+about a second of every launch. Until 2026-10-21 the refresh ran beside the game and a race on a stale track built that
+track again during its race load (`stale_track_files`, a black screen of 2-4 s). Test: `tools/test_race.py menus
+--mod-dir <a copy of the .rtz with its mod.json key changed>` (the log says "installed" before "launch builds done"). Afterwards `rush2::car_mods::reload` and `rush2::track2049::mods_changed` make the car select and
 track select read the new files without a restart; `mods_changed` also has the custom track list read again
 (`rush2::track_mod::rescan`): it was kept by the enabled mods and their file names, which a rebuild keeps, so until
 2026-10-19 tracks added by a rebuild (Alcatraz Only turned off) showed only after a restart.
@@ -48,7 +49,7 @@ track select read the new files without a restart; `mods_changed` also has the c
   are the N64 tracks' own banners with " A" after them (`tools/build_banners.py --arcade`: the font-drawn names drawn
   again as "MARINA A", Metro's and Presidio's picture banners kept, narrowed, with the "A" beside them), and their
   round previews are the user's in-game screenshots (`tools/arcade2049/previews/<id>.png`, cut by
-  `tools/arcade2049/track_mod.py --ship-previews` into `assets/arcade2049/<id>_preview.png`). Only Alcatraz sets a
+  `tools/build_banners.py --arcade` into `assets/arcade2049/<id>_preview.png`). Only Alcatraz sets a
   fog color (its night). `ARCADE_ALL=1` makes cpp_test build them all. Offline
   (`tools/track_mod_test.bat` + `tools/track_mod_check.py` on the C++ output) all seven pass. Haight and Presidio
   needed the collision steps under "roaddat.rom" below (a cone tip on Haight; copies and a tunnel seam on Presidio)
@@ -57,19 +58,17 @@ track select read the new files without a restart; `mods_changed` also has the c
   none there either (its long jumps). In game (`tools/test_race.py presidio_arcade --mod-dir <cpp_test
   output>/rush2049_arcade --drones 4`) the drones race Marina, Haight and Presidio Arcade past their checkpoints.
 - **Arcade Checkpoints** (Games tab, default off; `arcade_checkpoints`): see "Arcade checkpoints" below.
-- **Keep the two in step.** A change to `track_mod.py` or `car_mod.py` goes into `src/arcade2049/` too. Check with
-  `cmd //c "tools\arcade2049\cpp_test\build.bat tmp\arcade\cpp"` (the C++ outside the game, about 2.5 s)
-  against the Python output: the car files come out identical, the track's scenery, gates, AI lanes, movers and
-  materials identical. Then run both tracks through `tools/track_mod_test.bat` and `tools/track_mod_check.py`.
-- **Where they differ:** shapely's polygon work in `spline_road` is Clipper2 (`lib/Clipper2`, collinear corners kept) and
-  earcut (`lib/earcut`) instead of constrained Delaunay. The footprint area per segment matches within 0.03%. The
-  converted collision has 6,845 polygons against 6,602 (index cells within 36 on both) and the same ground height
-  along the lap, with fewer enclosed cracks than the Python output (452 vs 536 under 50 sq ft). `crowded_cells`
-  measures distance to each cell instead of buffering, and gives the same joins.
+- **Checking a change.** `cmd //c "tools\arcade2049\cpp_test\build.bat tmp\arcade\cpp"` builds both mods outside
+  the game (about 2.5 s); run the tracks through `tools/track_mod_test.bat` and `tools/track_mod_check.py`.
+- **Against the Python port's output** (until it was removed): the car files came out identical, the track's scenery,
+  gates, AI lanes, movers and materials identical. The spline road's polygon work is Clipper2 (`lib/Clipper2`,
+  collinear corners kept) and earcut (`lib/earcut`) where the Python had shapely and constrained Delaunay: the
+  footprint area per segment matched within 0.03%, the converted collision had 6,845 polygons against 6,602 and the
+  same ground height along the lap, with fewer enclosed cracks (452 vs 536 under 50 sq ft).
 - **Shipped pictures:** each track's logo and round preview are fixed pictures shipped as
-  `assets/arcade2049/<id>_logo.png` and `<id>_preview.png` (both part of the mod's key). Alcatraz's logo is
-  `banner_font.render_fit`; the others come from `tools/build_banners.py --arcade`, and every preview from
-  `tools/arcade2049/track_mod.py --ship-previews`. Regenerate them if a source changes.
+  `assets/arcade2049/<id>_logo.png` and `<id>_preview.png` (both part of the mod's key), all made by
+  `tools/build_banners.py --arcade` (Alcatraz's logo with `banner_font.render_fit`). Regenerate them if a source
+  changes.
 - **TRACK8** is SF Rush's Track 2, Embarcadero, left on the 2049 disk. It is The Rock's TRACK2 (same 200 textures,
   220 road segments) with checkpoints matching SF Rush 64's exactly, and it is already in the game from the N64 ROM.
   Its drone path is stale data from another track. `arcade.py` now reads its collision: its vertex lists follow the
@@ -270,7 +269,7 @@ import's two-face problem, docs/custom_tracks.md), and `tools/arcade2049/wall_be
 behind a wall within the probe's reach (only road edges reaching a foot or so under the rails here). Where more polygons crowd a spot than a collision cell's 255 (36 before the port moved the
 queries' lists off the stack, docs/rush2049_research/collision.md#leaf-list-buffers-port-only-v), the converter welds corners and joins flat
 neighbors (`relieve_crowding`; on Alcatraz about 130 pairs, corners moved 1.4 ft at most). Before that, both readers'
-converters (`arcade_track.cpp` and `track_mod.py`, the same steps):
+converter (`arcade_track.cpp`):
 
 - `drop_spline_twins`: some spline road polygons are listed twice, once with their segment and once flat (same corners
   and facing): the flat copy is dropped, since the spline copy becomes the smooth road. Presidio 74 (its tunnel, where
@@ -363,12 +362,11 @@ ft/s x 60 / 88 / 1.2 (Rush 2049's lane speeds over Rush 2's, docs/rush2049_resea
   `keep_height`; `AIPATH_lane1-4`: every table within 60 ft of the lap, left to right, spread over the four slots.
 - `[track] gravity = "rush2049"`: Rush 2049's gravity table (the N64's, 37.03 ft/s² at Normal; the arcade's own
   value isn't checked).
-- `preview.png`: `--preview`, or `tools/arcade2049/previews/<id>.png` when there is one, cut like Rush 2049's
+- `preview.png`: `tools/arcade2049/previews/<id>.png` when there is one, cut like Rush 2049's
   track select thumbnails (TPIC): the middle square at 128 x 128 inside a hard-edged disc of radius 62 centered on
   (63.5, 64.5), which matches every TPIC's alpha exactly.
 - `logo.png`: the name in Rush 2049's banner lettering (`banner_font.render_fit`; "Alcatraz" fits the smallest
   canvas, 128 x 32, so its letters are as large as the stock tracks').
-- `--finish-at FEET` (test aid) moves the finish along the lap to start a race next to something far into it.
 
 ## Cars
 
@@ -396,7 +394,7 @@ These are the N64 2049 default descriptor's points (Rush 2's descriptor: y -0.8 
 A `COL` folder is a whole livery, not a paint color. Its texture names differ (the 'Cuda's `COL2` is a `B_` set,
 `COL8` a police car with `COP_` textures and a light bar), and some add parts (a blower, a hood scoop).
 
-`tools/arcade2049/car_mod.py` builds the `rush2049_arcade_cars` mod (docs/car_mods.md#rush-2049-arcade-cars). Most
+`src/arcade2049/arcade_cars.cpp` builds the `rush2049_arcade_cars` mod (docs/car_mods.md#rush-2049-arcade-cars). Most
 arcade cars are the arcade forms of N64 cars: matched by side and top silhouette against the N64 cars' bodies (the
 asset dump's FRAME1) and by shared texture names (the Truck's `C11_` set is the Crusher's, the Cuda's blower the
 Bruiser's). Only their `COL` folders that differ from the N64 car's look go in the mod, as liveries of the N64 car
@@ -446,14 +444,14 @@ the player, 0x140663861 for drones) and three floats at VA 0x1406EF600 a draw ro
 at VA 0x14066390C (car + 0xB00, picked per car at VA 0x1402954E0) scale mass by game mode, not by car. VA 0x14026C390
 builds four more descriptors (drone levels, torque scales 1.80-1.90 and 1.3) that the player car doesn't use.
 
-`tools/arcade2049/car_mod.py` `physics()` maps this onto Rush 2 the way `build_physics` (src/rush2049/car2049.cpp) maps
+An earlier `physics()` in the car converter mapped this onto Rush 2 the way `build_physics` (src/rush2049/car2049.cpp) maps
 the N64 cars. The arcade's mass, chassis constants, springs, suspension constants, rolling resistance, final drive,
 clutch and preload go in as they are, and so does each car's box. The N64 port gives every car a 3.5 ft box height,
 so the tool uses that in place of the table's 2. The drivetrain (torque, gears, drag, shift points) is the same for
 every arcade car, so it lands on Rush 2's roster mean, as the N64 roster's average car does. The pitch/roll and yaw
 inertia follow the mass by the N64's frame formula (2425 and 412500). Tire curves, rear grip, drive flags and
 drivetrain inertia are the N64 2049 car's. Steering, yaw damping and the SUSPENSION and TIRES settings are Rush 2's
-mean, as for the N64 cars.
+mean, as for the N64 cars. It was dropped: the cars now drive as their base car (docs/car_mods.md#rush-2049-arcade-cars).
 
 ## Arcade checkpoints
 

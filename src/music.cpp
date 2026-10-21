@@ -16,7 +16,8 @@
 // game, when it is switched off), Shuffle (a random song of the game) or Shuffle All (a random song of any
 // game in Shuffle All). SF Rush and California Speed offer only Original and Shuffle All: their own choice already is
 // a random song of the game. A game's In Shuffle All switch keeps its songs out of every Shuffle All (its own tracks'
-// Original and Shuffle still play them).
+// Original and Shuffle still play them). A custom track counts as a Rush 2 track; one with no song of its own
+// ([audio] music) has as its Original a random song of any game, of every song switched on.
 // Shuffles skip the song played last. A song of a game whose ROM or audio isn't available is skipped; with nothing
 // left the game picks as it would by itself. A Rush 2 or SF Rush song replaces the sequence Rush 2 chose (at
 // 0x8008C46C); a Rush 2049 song is queued on the 2049 player and the call turned into the "music off" case, whose
@@ -352,12 +353,13 @@ namespace {
         return -1;
     }
 
-    // A random playable song (of game g, or of any game in Shuffle All when all is set), skipping the last one when
-    // there's another.
-    int pick(bool all, Game g) {
+    // A random playable song (of game g, or of any game in Shuffle All when all is set, or of any game at all when
+    // any is set), skipping the last one when there's another.
+    int pick(bool all, Game g, bool any = false) {
         std::vector<int> pool;
         for (int i = 0; i < song_count; i++) {
-            bool in = all ? in_shuffle_all[(int)songs[i].game].load(std::memory_order_relaxed) : songs[i].game == g;
+            bool in = any ? true
+                    : all ? in_shuffle_all[(int)songs[i].game].load(std::memory_order_relaxed) : songs[i].game == g;
             if (in && playable(i)) {
                 pool.push_back(i);
             }
@@ -403,6 +405,10 @@ namespace {
         else if (host && rush2::calspeed::race_track() > 0) {
             g = Game::CalSpeed;
             original = pick(false, Game::CalSpeed);
+        }
+        else if (rush2::track2049::mod_random_song(rdram)) {
+            // A custom track without its own song ([audio] music): any song the player switched on, never its host's.
+            original = pick(false, g, true);
         }
         else if (t >= 0 && t < 12) {
             original = find_song(Game::Rush2, (int16_t)MEM_H(0, (int32_t)(track_songs + t * 2)));

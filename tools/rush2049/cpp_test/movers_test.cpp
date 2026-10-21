@@ -142,7 +142,7 @@ namespace {
             w.init(paths, types, options);
             w.update(phase * 0.0041f);
             // Flip-book frames: objects with a node of scale under 0.01 (hidden), in books by their pivot (the
-            // first node's position; tools/arcade2049/track_mod.py gives a book's frames one pivot, and the game
+            // first node's position; src/arcade2049/arcade_track.cpp gives a book's frames one pivot, and the game
             // draws them under one interpolation ID). Each book must show exactly one frame at every step.
             std::map<std::array<float, 3>, std::vector<int>> books;
             for (int i = 0; i < (int)w.objects().size(); i++) {

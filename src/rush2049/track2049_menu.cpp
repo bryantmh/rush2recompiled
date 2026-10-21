@@ -42,6 +42,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <set>
 #include <string>
@@ -386,6 +387,21 @@ namespace {
     bool menu_has_cs = false;
     std::string menu_container_mods;      // mod_signature the container was built with
 
+    // Asset 3 with the 2049, Rush 1, custom and Cal Speed tracks' dioramas and logos, and what it holds.
+    struct MenuBuild {
+        std::shared_ptr<const rush2::rom2049::Source> rom;
+        std::shared_ptr<const std::vector<uint8_t>> rom1, rom_cs;
+        std::string mods;     // mod_signature
+        std::vector<uint8_t> container;
+        bool has_2049 = false, has_rush1 = false, has_mods = false, has_cs = false;
+    };
+
+    // The container the background builds made for the track select's next visit (prepare_menu_container), and a
+    // count of the custom tracks' file reloads, so a build from art read before one is dropped.
+    std::mutex prebuilt_mutex;
+    std::optional<MenuBuild> prebuilt;
+    int menu_reloads = 0;
+
     // The save file's section (include/data_files.h): { "selected": n, "stunt": n, "battle": n, "points": n,
     // "minutes": n, "race_battle": 0/1 }. "race_battle" is the race select's BATTLE row (rush2::battle::race_battle), off without it.
     // "points" and "minutes" are the BATTLE select's POINTS and TIME LIMIT (rush2::battle::points_to_win,
@@ -651,7 +667,12 @@ namespace {
         for (const auto& e : entries) signature += e.mod_id + "/" + e.folder + ">" + e.settings.menu_after + ";";
         bool reload = mods_reload.exchange(false);
         if (signature == mod_signature && !display_order.empty() && !reload) return;
-        if (reload) menu_container_built = false;   // the art is built again from the new files
+        if (reload) {
+            menu_container_built = false;   // the art is built again from the new files
+            std::lock_guard lock{ prebuilt_mutex };
+            prebuilt.reset();
+            menu_reloads++;
+        }
         mod_signature = signature;
         mod_ok.clear();
         mod_arts.clear();
@@ -680,6 +701,62 @@ namespace {
         rush2::track_mod::publish_textures();   // the dioramas' (and tracks') full-size textures
     }
 
+    // Builds it from the ROMs and the custom tracks' art (any thread: Rush 2's own asset 3 comes from the ROM).
+    MenuBuild build_menu(std::shared_ptr<const rush2::rom2049::Source> rom, std::shared_ptr<const std::vector<uint8_t>> rom1,
+                         std::shared_ptr<const std::vector<uint8_t>> rom_cs, const std::string& mods_signature,
+                         const std::vector<bool>& ok, const std::vector<rush2::track_mod::MenuArt>& arts) {
+        MenuBuild b{ rom, rom1, rom_cs, mods_signature };
+        std::vector<uint8_t> asset3, with_2049, with_rush1;
+        if (!rush2::assets::rom_original(3, asset3)) {
+            printf("[2049] Failed to read the track select art\n");
+            return b;
+        }
+        if (rom != nullptr && !build_menu_container(asset3, *rom, with_2049)) {
+            printf("[2049] Failed to build the track select art\n");
+            with_2049.clear();
+        }
+        b.has_2049 = !with_2049.empty();
+        const std::vector<uint8_t>& base = with_2049.empty() ? asset3 : with_2049;
+        if (rom1 != nullptr && rush2::track1::extend_menu_container(base, *rom1, with_rush1)) {
+            b.has_rush1 = true;
+        }
+        const std::vector<uint8_t>& base2 = b.has_rush1 ? with_rush1 : base;
+        std::vector<MenuModel> models;
+        std::vector<MenuLogo> logos;
+        for (size_t i = 0; i < ok.size() && i < arts.size(); i++) {
+            if (!ok[i]) continue;
+            const rush2::track_mod::MenuArt& art = arts[i];
+            MenuModel model{ rush2::track_mod::diorama_model_name(int(i)), art.diorama, art.diorama_list,
+                             art.diorama_pointers, std::max(art.diorama_radius, 1.0f) };
+            if (model.blob.empty()) model.blob = { 0xDF, 0, 0, 0, 0, 0, 0, 0 };   // draws nothing
+            models.push_back(std::move(model));
+            logos.push_back({ rush2::track_mod::logo_texture_name(int(i)), art.logo, art.logo_palette });
+        }
+        bool with_mods = !models.empty();
+        if (rom_cs != nullptr) {
+            std::vector<MenuModel> cs_models;
+            std::vector<MenuLogo> cs_logos;
+            if (rush2::calspeed::menu_art(*rom_cs, cs_models, cs_logos)) {
+                models.insert(models.end(), cs_models.begin(), cs_models.end());
+                logos.insert(logos.end(), cs_logos.begin(), cs_logos.end());
+            }
+        }
+        if (!models.empty() || !logos.empty()) {
+            if (extend_menu_container(base2, models, logos, b.container)) {
+                b.has_mods = with_mods;
+                b.has_cs = rom_cs != nullptr;
+            }
+            else {
+                printf("[trackmod] Couldn't add the custom and Cal Speed tracks' track select art\n");
+                b.container.clear();
+            }
+        }
+        if (b.container.empty() && (b.has_2049 || b.has_rush1)) {
+            b.container = base2;
+        }
+        return b;
+    }
+
     // Asset 3 with the 2049, Rush 1, custom and Cal Speed tracks' dioramas and logos, rebuilt when a ROM, option or mod
     // changes.
     void serve_menu_container(uint8_t* rdram) {
@@ -698,62 +775,28 @@ namespace {
             return;
         }
         if (!same) {
-            menu_container.clear();
             menu_container_rom = rom;
             menu_container_rom1 = rom1;
             menu_container_rom_cs = rom_cs;
             menu_container_mods = mod_signature;
             menu_container_built = true;
-            menu_has_2049 = menu_has_rush1 = menu_has_mods = menu_has_cs = false;
-            std::vector<uint8_t> asset3, with_2049, with_rush1;
-            if (!rush2::assets::read_original(rdram, 3, asset3)) {
-                printf("[2049] Failed to read the track select art\n");
-            }
-            else {
-                if (rom != nullptr && !build_menu_container(asset3, *rom, with_2049)) {
-                    printf("[2049] Failed to build the track select art\n");
-                    with_2049.clear();
-                }
-                menu_has_2049 = !with_2049.empty();
-                const std::vector<uint8_t>& base = with_2049.empty() ? asset3 : with_2049;
-                if (rom1 != nullptr && rush2::track1::extend_menu_container(base, *rom1, with_rush1)) {
-                    menu_has_rush1 = true;
-                }
-                const std::vector<uint8_t>& base2 = menu_has_rush1 ? with_rush1 : base;
-                std::vector<MenuModel> models;
-                std::vector<MenuLogo> logos;
-                for (size_t i = 0; i < mod_ok.size(); i++) {
-                    if (!mod_ok[i]) continue;
-                    const rush2::track_mod::MenuArt& art = mod_arts[i];
-                    MenuModel model{ rush2::track_mod::diorama_model_name(int(i)), art.diorama, art.diorama_list,
-                                     art.diorama_pointers, std::max(art.diorama_radius, 1.0f) };
-                    if (model.blob.empty()) model.blob = { 0xDF, 0, 0, 0, 0, 0, 0, 0 };   // draws nothing
-                    models.push_back(std::move(model));
-                    logos.push_back({ rush2::track_mod::logo_texture_name(int(i)), art.logo, art.logo_palette });
-                }
-                bool with_mods = !models.empty();
-                if (rom_cs != nullptr) {
-                    std::vector<MenuModel> cs_models;
-                    std::vector<MenuLogo> cs_logos;
-                    if (rush2::calspeed::menu_art(*rom_cs, cs_models, cs_logos)) {
-                        models.insert(models.end(), cs_models.begin(), cs_models.end());
-                        logos.insert(logos.end(), cs_logos.begin(), cs_logos.end());
-                    }
-                }
-                if (!models.empty() || !logos.empty()) {
-                    if (extend_menu_container(base2, models, logos, menu_container)) {
-                        menu_has_mods = with_mods;
-                        menu_has_cs = rom_cs != nullptr;
-                    }
-                    else {
-                        printf("[trackmod] Couldn't add the custom and Cal Speed tracks' track select art\n");
-                        menu_container.clear();
-                    }
-                }
-                if (menu_container.empty() && (menu_has_2049 || menu_has_rush1)) {
-                    menu_container = base2;
+            // Built ahead by the background builds (prepare_menu_container) when nothing changed since; built here
+            // only after a change they haven't caught up with.
+            std::optional<MenuBuild> ready;
+            {
+                std::lock_guard lock{ prebuilt_mutex };
+                if (prebuilt && prebuilt->rom == rom && prebuilt->rom1 == rom1 && prebuilt->rom_cs == rom_cs &&
+                    prebuilt->mods == mod_signature) {
+                    ready = std::move(prebuilt);
+                    prebuilt.reset();
                 }
             }
+            MenuBuild build = ready ? std::move(*ready) : build_menu(rom, rom1, rom_cs, mod_signature, mod_ok, mod_arts);
+            menu_container = std::move(build.container);
+            menu_has_2049 = build.has_2049;
+            menu_has_rush1 = build.has_rush1;
+            menu_has_mods = build.has_mods;
+            menu_has_cs = build.has_cs;
         }
         if (menu_container.empty()) {
             rush2::assets::restore(rdram, 3);
@@ -881,6 +924,38 @@ bool rush2::track2049::catalog_menu_container(std::vector<uint8_t>& out) {
     }
     out = catalog_menu;
     return !out.empty();
+}
+
+void rush2::track2049::prepare_menu_container() {
+    auto rom = available() ? rush2::wings::get_rom() : nullptr;
+    auto rom1 = rush2::track1::available() ? rush2::track1::get_rom() : nullptr;
+    auto rom_cs = rush2::calspeed::available() ? rush2::calspeed::get_rom() : nullptr;
+    std::vector<bool> ok;
+    std::vector<rush2::track_mod::MenuArt> arts;
+    std::string signature;
+    int reloads;
+    {
+        std::lock_guard lock{ menu_mutex };
+        refresh_mods();
+        bool same = menu_container_built && menu_container_rom == rom && menu_container_rom1 == rom1 &&
+                    menu_container_rom_cs == rom_cs && menu_container_mods == mod_signature;
+        if (same) return;       // the game has this one
+        ok = mod_ok;
+        arts = mod_arts;
+        signature = mod_signature;
+        std::lock_guard pre_lock{ prebuilt_mutex };
+        reloads = menu_reloads;
+    }
+    {
+        std::lock_guard lock{ prebuilt_mutex };
+        if (prebuilt && prebuilt->rom == rom && prebuilt->rom1 == rom1 && prebuilt->rom_cs == rom_cs &&
+            prebuilt->mods == signature) {
+            return;
+        }
+    }
+    MenuBuild b = build_menu(rom, rom1, rom_cs, signature, ok, arts);
+    std::lock_guard lock{ prebuilt_mutex };
+    if (reloads == menu_reloads) prebuilt = std::move(b);
 }
 
 void rush2::track2049::prepare_menu_art(uint8_t* rdram) {
@@ -1391,7 +1466,7 @@ bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_
                rush2::calspeed::build_race_logo(logo, *rom, t - cs_first, out);
     }
     if (is_mod_track(t)) {
-        // The custom track's own logo; a race shows the host's (track_mod has no race logo).
+        // The custom track's own logo, as its race shows it (mod_race_logo).
         rush2::track_mod::MenuArt art;
         {
             std::lock_guard lock{ menu_mutex };
@@ -1402,6 +1477,20 @@ bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_
         return set_race_logo(logo, art.logo, art.logo_palette, out);
     }
     return false;
+}
+
+// Called by the race load under track_mutex, so it doesn't take menu_mutex (the select's init holds that one while it
+// takes track_mutex); the track was just converted, so menu_art has its art without reading files. Without its art the
+// logo is left clear (as a track without a [menu] logo has it), never the host's.
+bool rush2::track2049::mod_race_logo(uint8_t* rdram, int index, int container, std::vector<uint8_t>& out) {
+    std::vector<uint8_t> logo;
+    if (index < 0 || !rush2::assets::read_original(rdram, container, logo)) return false;
+    rush2::track_mod::MenuArt art;
+    if (!rush2::track_mod::menu_art(index, art) || art.logo.size() != 128 * 32 || art.logo_palette.size() != 512) {
+        art.logo.assign(128 * 32, 255);     // index 255 clear
+        art.logo_palette.assign(512, 0);
+    }
+    return set_race_logo(logo, art.logo, art.logo_palette, out);
 }
 
 namespace {

@@ -121,10 +121,10 @@ index 9ac8087..ea7e4db 100644
              bool reinterpretFixULS;
 diff --git a/src/common/rt64_live_textures.h b/src/common/rt64_live_textures.h
 new file mode 100644
-index 0000000..b92d988
+index 0000000..c8ad7b6
 --- /dev/null
 +++ b/src/common/rt64_live_textures.h
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,76 @@
 +//
 +// RT64
 +//
@@ -181,6 +181,25 @@ index 0000000..b92d988
 +    bool hasLiveReplacementContent(uint64_t contentKey);
 +    void removeLiveReplacement(uint64_t hash);
 +    void clearLiveReplacements();
++
++    // Rush 2 recomp: texture prewarming. A texture the game loads for the first time is uploaded (and decoded on the
++    // GPU) while its frame waits; a race's first frame brings hundreds. The host records what the texture cache
++    // uploads (TextureUploadObserver, called on the thread that processes display lists for each texture uploaded for
++    // the first time, with TMEM's 4 KB) and hands the same uploads back ahead of time (prewarmTexture: queued behind
++    // the game's own uploads and done in small batches, so no frame waits on them). A prewarmed texture is kept until
++    // the game draws with it, or until unpinPrewarmedTextures lets the ones still unused age out as any texture does.
++    struct TextureUploadObserver {
++        virtual ~TextureUploadObserver() = default;
++        virtual void textureUploaded(uint64_t hash, const uint8_t *TMEM, uint16_t width, uint16_t height, uint32_t tlut,
++            const LoadTile &tile, bool decodeTMEM) = 0;
++    };
++
++    extern std::atomic<TextureUploadObserver *> ActiveTextureUploadObserver;
++
++    bool prewarmTexture(uint64_t hash, std::vector<uint8_t> TMEM, uint16_t width, uint16_t height, uint32_t tlut, const LoadTile &tile, bool decodeTMEM);
++    void unpinPrewarmedTextures();
++    // Whether the texture cache holds the texture with this hash now.
++    bool hasCachedTexture(uint64_t hash);
 +};
 diff --git a/src/common/rt64_user_configuration.h b/src/common/rt64_user_configuration.h
 index 4857f22..5646b55 100644
@@ -249,6 +268,31 @@ index 20c0d4d..68cbeef 100644
              MapInitialized = true;
          }
      }
+diff --git a/src/hle/rt64_application.cpp b/src/hle/rt64_application.cpp
+index 785de27..3c40137 100644
+--- a/src/hle/rt64_application.cpp
++++ b/src/hle/rt64_application.cpp
+@@ -3,6 +3,8 @@
+ //
+ 
+ #include "rt64_application.h"
++
++#include <algorithm>
+ #include "rhi/rt64_render_hooks.h"
+ 
+ #include <cinttypes>
+@@ -350,7 +352,10 @@ namespace RT64 {
+         // Create the shader caches.
+         // Estimate the amount of shader compiler threads by trying to use about half of the system's available threads.
+         // We need the ubershader pipelines done as soon as possible, so we use a different thread count that demands more of the system.
+-        const uint32_t rasterShaderThreads = std::max(threadsAvailable / 2U, 1U);
++        // Rush 2 recomp: at most 4. The compiler allocates heavily from the process heap, and many threads compiling at
++        // once (a screen with new shaders) held its lock so much that the game's own threads waited on it for a frame
++        // or more. The ubershader draws until a shader is ready, and the disk shader cache builds the known ones at launch.
++        const uint32_t rasterShaderThreads = std::clamp(threadsAvailable / 2U, 1U, 4U);
+         const uint32_t ubershaderThreads = uint32_t(std::max(int(threadsAvailable) - 2, 1));
+         rasterShaderCache = std::make_unique<RasterShaderCache>(rasterShaderThreads, ubershaderThreads);
+         rasterShaderCache->setup(device.get(), renderInterface->getCapabilities().shaderFormat, shaderLibrary.get(), multisampling);
 diff --git a/src/hle/rt64_draw_call.h b/src/hle/rt64_draw_call.h
 index 0e62be1..35ed6a6 100644
 --- a/src/hle/rt64_draw_call.h
@@ -372,6 +416,48 @@ index 84f4e7c..eeab022 100644
          void clearExtended();
  
          // The expected size and order for the elements in each array are:
+diff --git a/src/hle/rt64_rdp_tmem.cpp b/src/hle/rt64_rdp_tmem.cpp
+index 6051f4e..690d3b2 100644
+--- a/src/hle/rt64_rdp_tmem.cpp
++++ b/src/hle/rt64_rdp_tmem.cpp
+@@ -9,6 +9,7 @@
+ 
+ #include "xxHash/xxh3.h"
+ 
++#include "common/rt64_live_textures.h"
+ #include "common/rt64_tmem_hasher.h"
+ 
+ #include "rt64_state.h"
+@@ -33,7 +34,13 @@ namespace RT64 {
+         const uint64_t hash = XXH3_64bits_digest(&xxh3);
+         if (hashSet.find(hash) == hashSet.end()) {
+             hashSet.insert(hash);
+-            textureCache->queueGPUUploadTMEM(hash, creationFrame, TMEM, RDP_TMEM_BYTES, width, height, 0, LoadTile(), false);
++            // Rush 2 recomp: prewarmed already (rt64_live_textures.h), or else uploaded and the observer told.
++            if (!textureCache->hasTexture(hash)) {
++                textureCache->queueGPUUploadTMEM(hash, creationFrame, TMEM, RDP_TMEM_BYTES, width, height, 0, LoadTile(), false);
++                if (TextureUploadObserver *observer = ActiveTextureUploadObserver.load()) {
++                    observer->textureUploaded(hash, TMEM, width, height, 0, LoadTile(), false);
++                }
++            }
+         }
+         
+         // Dump memory contents into a file if the process is active.
+@@ -54,7 +61,13 @@ namespace RT64 {
+         uint64_t hash = TMEMHasher::hash(TMEM, loadTile, width, height, tlut, TMEMHasher::CurrentHashVersion);
+         if (hashSet.find(hash) == hashSet.end()) {
+             hashSet.insert(hash);
+-            textureCache->queueGPUUploadTMEM(hash, creationFrame, TMEM, RDP_TMEM_BYTES, width, height, tlut, loadTile, true);
++            // Rush 2 recomp: prewarmed already (rt64_live_textures.h), or else uploaded and the observer told.
++            if (!textureCache->hasTexture(hash)) {
++                textureCache->queueGPUUploadTMEM(hash, creationFrame, TMEM, RDP_TMEM_BYTES, width, height, tlut, loadTile, true);
++                if (TextureUploadObserver *observer = ActiveTextureUploadObserver.load()) {
++                    observer->textureUploaded(hash, TMEM, width, height, tlut, loadTile, true);
++                }
++            }
+         }
+ 
+         // Dump memory contents into a file if the process is active.
 diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
 index ee2030b..cbd0ad5 100644
 --- a/src/hle/rt64_rsp.cpp
@@ -1760,10 +1846,82 @@ index f2eee70..a0b4bdc 100644
  
              struct {
 diff --git a/src/render/rt64_raster_shader.cpp b/src/render/rt64_raster_shader.cpp
-index 721a01e..8a4a1bb 100644
+index 721a01e..9ecd2d1 100644
 --- a/src/render/rt64_raster_shader.cpp
 +++ b/src/render/rt64_raster_shader.cpp
-@@ -275,7 +275,7 @@ namespace RT64 {
+@@ -85,7 +85,7 @@ namespace RT64 {
+     // RasterShader
+ 
+     RasterShader::RasterShader(RenderDevice *device, const ShaderDescription &desc, const RenderPipelineLayout *pipelineLayout, RenderShaderFormat shaderFormat, const RenderMultisampling &multisampling, 
+-        const ShaderCompiler *shaderCompiler, const OptimizerCacheSPIRV *optimizerCacheSPIRV)
++        const ShaderCompiler *shaderCompiler, const OptimizerCacheSPIRV *optimizerCacheSPIRV, const RasterShaderBlobs *prebuilt, RasterShaderBlobs *compiled)
+     {
+         assert(device != nullptr);
+ 
+@@ -176,6 +176,11 @@ namespace RT64 {
+             assert(false && "This platform does not support METAL shaders.");
+ #       endif
+         }
++        else if ((prebuilt != nullptr) && !prebuilt->empty()) {
++            // Rush 2 recomp: compiled by an earlier launch (disk shader cache).
++            vertexShader = device->createShader(prebuilt->vertexShader.data(), prebuilt->vertexShader.size(), "VSMain", shaderFormat);
++            pixelShader = device->createShader(prebuilt->pixelShader.data(), prebuilt->pixelShader.size(), "PSMain", shaderFormat);
++        }
+         else {
+ #       if defined(_WIN32)
+             RasterShaderText shaderText = generateShaderText(desc, useMSAA);
+@@ -205,6 +210,12 @@ namespace RT64 {
+ 
+             vertexShader = device->createShader(blobVS->GetBufferPointer(), blobVS->GetBufferSize(), "VSMain", shaderFormat);
+             pixelShader = device->createShader(blobPS->GetBufferPointer(), blobPS->GetBufferSize(), "PSMain", shaderFormat);
++            if (compiled != nullptr) {
++                const uint8_t *vsBytes = reinterpret_cast<const uint8_t *>(blobVS->GetBufferPointer());
++                const uint8_t *psBytes = reinterpret_cast<const uint8_t *>(blobPS->GetBufferPointer());
++                compiled->vertexShader.assign(vsBytes, vsBytes + blobVS->GetBufferSize());
++                compiled->pixelShader.assign(psBytes, psBytes + blobPS->GetBufferSize());
++            }
+ 
+             // Blobs can be discarded once the shaders are created.
+             blobVSLibraries[0]->Release();
+@@ -241,6 +252,37 @@ namespace RT64 {
+ 
+     RasterShader::~RasterShader() { }
+ 
++    uint64_t RasterShader::diskCacheKey(RenderShaderFormat shaderFormat, bool useMSAA) {
++        // Bump when the way a description becomes shader text changes (ShaderDescription::toShader,
++        // generateShaderText) without the libraries changing.
++        const uint64_t TextVersion = 1;
++        XXH3_state_t *state = XXH3_createState();
++        XXH3_64bits_reset(state);
++        XXH3_64bits_update(state, &TextVersion, sizeof(TextVersion));
++        XXH3_64bits_update(state, &shaderFormat, sizeof(shaderFormat));
++        XXH3_64bits_update(state, &useMSAA, sizeof(useMSAA));
++        XXH3_64bits_update(state, RenderParamsText, sizeof(RenderParamsText));
++#   ifdef _WIN32
++        if (shaderFormat == RenderShaderFormat::DXIL) {
++            XXH3_64bits_update(state, RasterVSLibraryBlobDXIL, sizeof(RasterVSLibraryBlobDXIL));
++            if (useMSAA) {
++                XXH3_64bits_update(state, RasterPSLibraryMSBlobDXIL, sizeof(RasterPSLibraryMSBlobDXIL));
++            }
++            else {
++                XXH3_64bits_update(state, RasterPSLibraryBlobDXIL, sizeof(RasterPSLibraryBlobDXIL));
++            }
++        }
++#   endif
++        if (shaderFormat == RenderShaderFormat::SPIRV) {
++            XXH3_64bits_update(state, RasterVSSpecConstantBlobSPIRV, sizeof(RasterVSSpecConstantBlobSPIRV));
++            XXH3_64bits_update(state, RasterPSSpecConstantBlobSPIRV, sizeof(RasterPSSpecConstantBlobSPIRV));
++            XXH3_64bits_update(state, RasterPSSpecConstantMSBlobSPIRV, sizeof(RasterPSSpecConstantMSBlobSPIRV));
++        }
++        const uint64_t key = XXH3_64bits_digest(state);
++        XXH3_freeState(state);
++        return key;
++    }
++
+     RasterShaderText RasterShader::generateShaderText(const ShaderDescription &desc, bool multisampling) {
+         const std::string renderParamsCode = desc.toShader();
+ 
+@@ -275,7 +317,7 @@ namespace RT64 {
          pss << std::string_view(RenderParamsText, sizeof(RenderParamsText));
          pss << "RenderParams getRenderParams() {" + renderParamsCode + "; return rp; }";
          pss <<
@@ -1772,7 +1930,7 @@ index 721a01e..8a4a1bb 100644
              "[shader(\"pixel\")]"
              "void PSMain("
              "  in float4 vertexPosition : SV_POSITION"
-@@ -289,6 +289,7 @@ namespace RT64 {
+@@ -289,6 +331,7 @@ namespace RT64 {
          pss <<
              ", out float4 pixelColor : SV_TARGET0"
              ", out float4 pixelAlpha : SV_TARGET1"
@@ -1780,7 +1938,7 @@ index 721a01e..8a4a1bb 100644
              ") {";
  
          if (desc.flags.smoothShade) {
-@@ -298,9 +299,11 @@ namespace RT64 {
+@@ -298,9 +341,11 @@ namespace RT64 {
          pss <<
              "   float4 resultColor;"
              "   float4 resultAlpha;"
@@ -1793,6 +1951,414 @@ index 721a01e..8a4a1bb 100644
              "}";
  
          return { vss.str(), pss.str() };
+diff --git a/src/render/rt64_raster_shader.h b/src/render/rt64_raster_shader.h
+index 3b991ff..938f6a7 100644
+--- a/src/render/rt64_raster_shader.h
++++ b/src/render/rt64_raster_shader.h
+@@ -7,6 +7,7 @@
+ #include "rt64_shader_common.h"
+ 
+ #include <condition_variable>
++#include <vector>
+ #include <mutex>
+ #include <thread>
+ 
+@@ -60,13 +61,28 @@ namespace RT64 {
+         std::string pixelShader;
+     };
+ 
++    // Rush 2 recomp: a specialized shader's compiled vertex and pixel shaders, kept in the disk shader cache
++    // (RasterShaderCache) so a later launch skips the compiler. Empty for formats that compile nothing at run time.
++    struct RasterShaderBlobs {
++        std::vector<uint8_t> vertexShader;
++        std::vector<uint8_t> pixelShader;
++
++        bool empty() const { return vertexShader.empty() || pixelShader.empty(); }
++    };
++
+     struct RasterShader {
+         ShaderDescription desc;
+         RenderDevice *device;
+         std::unique_ptr<RenderPipeline> pipeline;
+ 
++        // Rush 2 recomp: prebuilt, when not empty, are the shaders a previous launch compiled for this description
++        // (used instead of compiling); compiled, when given, receives the ones compiled here.
+         RasterShader(RenderDevice *device, const ShaderDescription &desc, const RenderPipelineLayout *pipelineLayout, RenderShaderFormat shaderFormat, const RenderMultisampling &multisampling, 
+-            const ShaderCompiler *shaderCompiler, const OptimizerCacheSPIRV *optimizerCacheSPIRV);
++            const ShaderCompiler *shaderCompiler, const OptimizerCacheSPIRV *optimizerCacheSPIRV, const RasterShaderBlobs *prebuilt = nullptr, RasterShaderBlobs *compiled = nullptr);
++
++        // Rush 2 recomp: identifies everything a compiled specialized shader depends on besides its description (the
++        // shader libraries and parameters it is built from), so the disk cache drops blobs another build made.
++        static uint64_t diskCacheKey(RenderShaderFormat shaderFormat, bool useMSAA);
+ 
+         ~RasterShader();
+         static RasterShaderText generateShaderText(const ShaderDescription &desc, bool multisampling);
+diff --git a/src/render/rt64_raster_shader_cache.cpp b/src/render/rt64_raster_shader_cache.cpp
+index bf7b669..e08e4ce 100644
+--- a/src/render/rt64_raster_shader_cache.cpp
++++ b/src/render/rt64_raster_shader_cache.cpp
+@@ -6,9 +6,24 @@
+ 
+ #include "common/rt64_thread.h"
+ 
++#include <cstdio>
++
+ #define ENABLE_OPTIMIZED_SHADER_GENERATION
+ 
+ namespace RT64 {
++    // Rush 2 recomp: disk shader cache (see RasterShaderCache in the header).
++    static std::filesystem::path DiskCacheDirectory;
++    static std::mutex DiskCacheDirectoryMutex;
++    static const uint32_t DiskFileMagic = 0x48533252; // "R2SH"
++    static const uint32_t DiskRecordMagic = 0x43455253; // "SREC"
++    static const uint32_t DiskFileVersion = 1;
++    static const uint32_t DiskBlobLimit = 16 * 1024 * 1024;
++
++    void RasterShaderCache::setDiskCacheDirectory(const std::filesystem::path &directory) {
++        const std::scoped_lock lock(DiskCacheDirectoryMutex);
++        DiskCacheDirectory = directory;
++    }
++
+     // RasterShaderCache::CompilationThread
+     
+     RasterShaderCache::CompilationThread::CompilationThread(RasterShaderCache *shaderCache) {
+@@ -38,13 +53,15 @@ namespace RT64 {
+         while (threadRunning) {
+             ShaderDescription shaderDesc;
+             bool fromPriorityQueue = false;
++            DiskJob diskJob;
++            bool fromDiskQueue = false;
+             
+             // Check the top of the queue or wait if it's empty.
+             {
+                 std::unique_lock<std::mutex> queueLock(shaderCache->descQueueMutex);
+                 shaderCache->descQueueActiveCount--;
+                 shaderCache->descQueueChanged.wait(queueLock, [this]() {
+-                    return !threadRunning || !shaderCache->descQueue.empty();
++                    return !threadRunning || !shaderCache->descQueue.empty() || !shaderCache->diskQueue.empty();
+                 });
+ 
+                 shaderCache->descQueueActiveCount++;
+@@ -53,6 +70,29 @@ namespace RT64 {
+                     shaderCache->descQueue.pop();
+                     fromPriorityQueue = true;
+                 }
++                else if (!shaderCache->diskQueue.empty()) {
++                    diskJob = std::move(shaderCache->diskQueue.front());
++                    shaderCache->diskQueue.pop();
++                    fromDiskQueue = true;
++                }
++            }
++
++            // Rush 2 recomp: a shader from the disk cache, built from the shaders an earlier launch compiled. Only
++            // when the game hasn't asked for anything: what it is drawing with comes first.
++            if (fromDiskQueue) {
++                const RenderPipelineLayout *uberPipelineLayout = shaderCache->shaderUber->pipelineLayout.get();
++                std::unique_ptr<RasterShader> newShader = std::make_unique<RasterShader>(shaderCache->device, diskJob.desc, uberPipelineLayout, shaderCache->shaderFormat, shaderCache->multisampling, shaderCache->shaderCompiler.get(), &shaderCache->optimizerCacheSPIRV, &diskJob.blobs);
++                {
++                    const std::unique_lock<std::mutex> lock(shaderCache->GPUShadersMutex);
++                    shaderCache->GPUShaders[diskJob.desc.hash()] = std::move(newShader);
++                }
++
++                if (--shaderCache->diskRemaining == 0) {
++                    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - shaderCache->diskStart).count();
++                    fprintf(stderr, "[rt64] shader cache: %u shaders ready %.1f s after setup\n", shaderCache->shaderCount(), seconds);
++                }
++
++                continue;
+             }
+             
+             // Compile the shader at the top of the queue.
+@@ -60,12 +100,15 @@ namespace RT64 {
+                 assert((shaderCache->shaderUber != nullptr) && "Ubershader should've been created by the time a new shader is submitted to the cache.");
+                 const RenderPipelineLayout *uberPipelineLayout = shaderCache->shaderUber->pipelineLayout.get();
+                 const RenderMultisampling multisampling = shaderCache->multisampling;
+-                std::unique_ptr<RasterShader> newShader = std::make_unique<RasterShader>(shaderCache->device, shaderDesc, uberPipelineLayout, shaderCache->shaderFormat, multisampling, shaderCache->shaderCompiler.get(), &shaderCache->optimizerCacheSPIRV);
++                RasterShaderBlobs compiled;
++                std::unique_ptr<RasterShader> newShader = std::make_unique<RasterShader>(shaderCache->device, shaderDesc, uberPipelineLayout, shaderCache->shaderFormat, multisampling, shaderCache->shaderCompiler.get(), &shaderCache->optimizerCacheSPIRV, nullptr, &compiled);
+ 
+                 {
+                     const std::unique_lock<std::mutex> lock(shaderCache->GPUShadersMutex);
+                     shaderCache->GPUShaders[shaderDesc.hash()] = std::move(newShader);
+                 }
++
++                shaderCache->storeDiskCache(shaderDesc, compiled);
+             }
+         }
+     }
+@@ -92,6 +135,7 @@ namespace RT64 {
+     }
+ 
+     RasterShaderCache::~RasterShaderCache() {
++        stopDiskLoader();
+         compilationThreads.clear();
+     }
+ 
+@@ -109,6 +153,179 @@ namespace RT64 {
+         if (shaderFormat == RenderShaderFormat::SPIRV) {
+             optimizerCacheSPIRV.initialize();
+         }
++
++        // Rush 2 recomp: read the disk shader cache for this format and multisampling and build its shaders.
++        stopDiskLoader();
++        {
++            const std::scoped_lock lock(diskMutex);
++            diskFile.close();
++            diskHashes.clear();
++            diskPending.clear();
++        }
++
++        std::filesystem::path directory;
++        {
++            const std::scoped_lock lock(DiskCacheDirectoryMutex);
++            directory = DiskCacheDirectory;
++        }
++
++#ifdef ENABLE_OPTIMIZED_SHADER_GENERATION
++        if (!directory.empty()) {
++            const bool useMSAA = (multisampling.sampleCount > 1);
++            const char *formatName = (shaderFormat == RenderShaderFormat::DXIL) ? "dxil" : (shaderFormat == RenderShaderFormat::SPIRV) ? "spirv" : "metal";
++            std::filesystem::path path = directory / (std::string("rt64_shaders_") + formatName + (useMSAA ? "_msaa" : "") + ".bin");
++            const uint64_t key = RasterShader::diskCacheKey(shaderFormat, useMSAA);
++            diskLoaderCancel = false;
++            diskStart = std::chrono::steady_clock::now();
++            diskLoader = std::make_unique<std::thread>(&RasterShaderCache::loadDiskCache, this, path, key);
++        }
++#endif
++    }
++
++    void RasterShaderCache::stopDiskLoader() {
++        if (diskLoader != nullptr) {
++            diskLoaderCancel = true;
++            diskLoader->join();
++            diskLoader.reset();
++        }
++    }
++
++    void RasterShaderCache::loadDiskCache(std::filesystem::path path, uint64_t key) {
++        Thread::setCurrentThreadName("RT64 Shader Disk");
++
++        // Read every whole record; a launch that ended while writing one leaves a partial record at the end.
++        std::vector<DiskJob> jobs;
++        uint64_t validSize = 0;
++        bool headerValid = false;
++        {
++            std::ifstream file(path, std::ios::binary);
++            uint32_t magic = 0, version = 0;
++            uint64_t fileKey = 0;
++            if (file.read(reinterpret_cast<char *>(&magic), sizeof(magic)) && file.read(reinterpret_cast<char *>(&version), sizeof(version)) &&
++                file.read(reinterpret_cast<char *>(&fileKey), sizeof(fileKey)))
++            {
++                headerValid = (magic == DiskFileMagic) && (version == DiskFileVersion) && (fileKey == key);
++            }
++
++            if (headerValid) {
++                validSize = uint64_t(file.tellg());
++                while (!diskLoaderCancel) {
++                    DiskJob job;
++                    uint32_t recordMagic = 0, vsSize = 0, psSize = 0;
++                    if (!file.read(reinterpret_cast<char *>(&recordMagic), sizeof(recordMagic)) || (recordMagic != DiskRecordMagic) ||
++                        !file.read(reinterpret_cast<char *>(&job.desc), sizeof(job.desc)) ||
++                        !file.read(reinterpret_cast<char *>(&vsSize), sizeof(vsSize)) || !file.read(reinterpret_cast<char *>(&psSize), sizeof(psSize)) ||
++                        (vsSize > DiskBlobLimit) || (psSize > DiskBlobLimit))
++                    {
++                        break;
++                    }
++
++                    job.blobs.vertexShader.resize(vsSize);
++                    job.blobs.pixelShader.resize(psSize);
++                    if ((vsSize > 0) && !file.read(reinterpret_cast<char *>(job.blobs.vertexShader.data()), vsSize)) {
++                        break;
++                    }
++
++                    if ((psSize > 0) && !file.read(reinterpret_cast<char *>(job.blobs.pixelShader.data()), psSize)) {
++                        break;
++                    }
++
++                    validSize = uint64_t(file.tellg());
++                    jobs.emplace_back(std::move(job));
++                }
++            }
++        }
++
++        if (diskLoaderCancel) {
++            return;
++        }
++
++        // Open the file for appending: cut a partial record off the end, or start it over for another build.
++        std::error_code ec;
++        std::filesystem::create_directories(path.parent_path(), ec);
++        if (headerValid) {
++            if (std::filesystem::file_size(path, ec) != validSize) {
++                std::filesystem::resize_file(path, validSize, ec);
++            }
++        }
++        else {
++            jobs.clear();
++        }
++
++        std::vector<DiskJob> pending;
++        {
++            const std::scoped_lock lock(diskMutex);
++            if (headerValid) {
++                diskFile.open(path, std::ios::binary | std::ios::app);
++            }
++            else {
++                diskFile.open(path, std::ios::binary | std::ios::trunc);
++                const uint32_t version = DiskFileVersion;
++                diskFile.write(reinterpret_cast<const char *>(&DiskFileMagic), sizeof(DiskFileMagic));
++                diskFile.write(reinterpret_cast<const char *>(&version), sizeof(version));
++                diskFile.write(reinterpret_cast<const char *>(&key), sizeof(key));
++                diskFile.flush();
++            }
++
++            for (const DiskJob &job : jobs) {
++                diskHashes.insert(job.desc.hash());
++            }
++
++            // Shaders compiled while the file was being read.
++            pending.swap(diskPending);
++        }
++
++        for (const DiskJob &job : pending) {
++            storeDiskCache(job.desc, job.blobs);
++        }
++
++        // Queue the cached shaders the game hasn't asked for yet.
++        uint32_t queued = 0;
++        {
++            const std::unique_lock<std::mutex> submissionLock(submissionMutex);
++            const std::unique_lock<std::mutex> queueLock(descQueueMutex);
++            for (DiskJob &job : jobs) {
++                bool &found = shaderHashes[job.desc.hash()];
++                if (!found) {
++                    found = true;
++                    diskQueue.push(std::move(job));
++                    queued++;
++                }
++            }
++
++            diskRemaining = int32_t(queued);
++        }
++
++        fprintf(stderr, "[rt64] shader cache: %zu shaders in %s, %u to build\n", jobs.size(), path.filename().string().c_str(), queued);
++        if (queued > 0) {
++            descQueueChanged.notify_all();
++        }
++    }
++
++    void RasterShaderCache::storeDiskCache(const ShaderDescription &desc, const RasterShaderBlobs &blobs) {
++        const std::scoped_lock lock(diskMutex);
++        if (!diskFile.is_open()) {
++            // The file is still being read: kept for the loader to write once it has the file open.
++            if (diskLoader != nullptr) {
++                diskPending.push_back({ desc, blobs });
++            }
++
++            return;
++        }
++
++        if (!diskHashes.insert(desc.hash()).second) {
++            return;
++        }
++
++        const uint32_t vsSize = uint32_t(blobs.vertexShader.size());
++        const uint32_t psSize = uint32_t(blobs.pixelShader.size());
++        diskFile.write(reinterpret_cast<const char *>(&DiskRecordMagic), sizeof(DiskRecordMagic));
++        diskFile.write(reinterpret_cast<const char *>(&desc), sizeof(desc));
++        diskFile.write(reinterpret_cast<const char *>(&vsSize), sizeof(vsSize));
++        diskFile.write(reinterpret_cast<const char *>(&psSize), sizeof(psSize));
++        diskFile.write(reinterpret_cast<const char *>(blobs.vertexShader.data()), vsSize);
++        diskFile.write(reinterpret_cast<const char *>(blobs.pixelShader.data()), psSize);
++        diskFile.flush();
+     }
+ 
+     void RasterShaderCache::submit(const ShaderDescription &desc) {
+@@ -135,9 +352,11 @@ namespace RT64 {
+     }
+     
+     void RasterShaderCache::waitForAll() {
++        stopDiskLoader();
+         {
+             std::unique_lock<std::mutex> queueLock(descQueueMutex);
+             descQueue = std::queue<ShaderDescription>();
++            diskQueue = std::queue<DiskJob>();
+         }
+ 
+         bool keepWaiting = false;
+diff --git a/src/render/rt64_raster_shader_cache.h b/src/render/rt64_raster_shader_cache.h
+index 5c40c18..794f565 100644
+--- a/src/render/rt64_raster_shader_cache.h
++++ b/src/render/rt64_raster_shader_cache.h
+@@ -5,6 +5,7 @@
+ #pragma once
+ 
+ #include <atomic>
++#include <chrono>
+ #include <condition_variable>
+ #include <filesystem>
+ #include <fstream>
+@@ -12,6 +13,7 @@
+ #include <queue>
+ #include <thread>
+ #include <unordered_map>
++#include <unordered_set>
+ 
+ #include "rt64_raster_shader.h"
+ 
+@@ -27,11 +29,18 @@ namespace RT64 {
+             void loop();
+         };
+ 
++        // Rush 2 recomp: a shader an earlier launch used, read back from the disk cache, with its compiled shaders.
++        struct DiskJob {
++            ShaderDescription desc;
++            RasterShaderBlobs blobs;
++        };
++
+         RenderDevice *device;
+         std::unique_ptr<RasterShaderUber> shaderUber;
+         OptimizerCacheSPIRV optimizerCacheSPIRV;
+         std::mutex submissionMutex;
+         std::queue<ShaderDescription> descQueue;
++        std::queue<DiskJob> diskQueue;
+         std::mutex descQueueMutex;
+         int32_t descQueueActiveCount = 0;
+         std::condition_variable descQueueChanged;
+@@ -45,7 +54,21 @@ namespace RT64 {
+         std::unique_ptr<ShaderCompiler> shaderCompiler;
+         RenderMultisampling multisampling;
+         bool usesHDR = false;
+-        
++
++        // Rush 2 recomp: disk shader cache. Every specialized shader compiled is appended to a file in the directory
++        // set with setDiskCacheDirectory (its description and, for DXIL, the compiled shaders), and setup() reads that
++        // file back on a thread of its own and builds all of its shaders in the background, so a later launch has
++        // them ready before the game draws with them instead of compiling them again on first use.
++        std::mutex diskMutex;
++        std::ofstream diskFile;
++        std::unordered_set<uint64_t> diskHashes;
++        std::unique_ptr<std::thread> diskLoader;
++        std::atomic<bool> diskLoaderCancel = false;
++        std::vector<DiskJob> diskPending;
++        std::atomic<int32_t> diskRemaining = 0;
++        std::chrono::steady_clock::time_point diskStart;
++        static void setDiskCacheDirectory(const std::filesystem::path &directory);
++
+         RasterShaderCache(uint32_t threadCount, uint32_t ubershaderThreadCount);
+         ~RasterShaderCache();
+         void setup(RenderDevice *device, RenderShaderFormat shaderFormat, const ShaderLibrary *shaderLibrary, const RenderMultisampling &multisampling);
+@@ -55,5 +78,8 @@ namespace RT64 {
+         RasterShader *getGPUShader(const ShaderDescription &desc);
+         RasterShaderUber *getGPUShaderUber() const;
+         uint32_t shaderCount();
++        void stopDiskLoader();
++        void loadDiskCache(std::filesystem::path path, uint64_t key);
++        void storeDiskCache(const ShaderDescription &desc, const RasterShaderBlobs &blobs);
+     };
+-};
+\ No newline at end of file
++};
 diff --git a/src/render/rt64_render_target_manager.h b/src/render/rt64_render_target_manager.h
 index 7368711..249ced4 100644
 --- a/src/render/rt64_render_target_manager.h
@@ -2055,19 +2621,21 @@ index 95618bc..984759e 100644
          std::vector<uint8_t> bytesTMEM;
          bool decodeTMEM = false;
 diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
-index 0848f3e..224e36f 100644
+index 0848f3e..315d140 100644
 --- a/src/render/rt64_texture_cache.cpp
 +++ b/src/render/rt64_texture_cache.cpp
-@@ -4,6 +4,8 @@
+@@ -4,6 +4,10 @@
  
  #define STB_IMAGE_IMPLEMENTATION
  
 +#include <algorithm>
++#include <thread>
++#include <chrono>
 +
  #include "ddspp/ddspp.h"
  #include "stb/stb_image.h"
  #include "xxHash/xxh3.h"
-@@ -11,8 +13,10 @@
+@@ -11,8 +15,10 @@
  // Needs to be included before other headers.
  #include "gbi/rt64_f3d.h"
  
@@ -2078,7 +2646,7 @@ index 0848f3e..224e36f 100644
  #include "common/rt64_load_types.h"
  #include "common/rt64_thread.h"
  #include "common/rt64_tmem_hasher.h"
-@@ -26,6 +30,35 @@ namespace RT64 {
+@@ -26,6 +32,59 @@ namespace RT64 {
      // ReplacementMap
      
      static const interop::float2 IdentityScale = { 1.0f, 1.0f };
@@ -2098,6 +2666,30 @@ index 0848f3e..224e36f 100644
 +        return (LiveCache != nullptr) && LiveCache->hasLiveReplacementContent(contentKey);
 +    }
 +
++    std::atomic<TextureUploadObserver *> ActiveTextureUploadObserver = nullptr;
++
++    bool prewarmTexture(uint64_t hash, std::vector<uint8_t> TMEM, uint16_t width, uint16_t height, uint32_t tlut, const LoadTile &tile, bool decodeTMEM) {
++        std::unique_lock liveCacheLock(LiveCacheMutex);
++        if (LiveCache == nullptr) {
++            return false;
++        }
++
++        LiveCache->queuePrewarmTMEM(hash, std::move(TMEM), width, height, tlut, tile, decodeTMEM);
++        return true;
++    }
++
++    void unpinPrewarmedTextures() {
++        std::unique_lock liveCacheLock(LiveCacheMutex);
++        if (LiveCache != nullptr) {
++            LiveCache->unpinPrewarmed();
++        }
++    }
++
++    bool hasCachedTexture(uint64_t hash) {
++        std::unique_lock liveCacheLock(LiveCacheMutex);
++        return (LiveCache != nullptr) && LiveCache->hasTexture(hash);
++    }
++
 +    void removeLiveReplacement(uint64_t hash) {
 +        std::unique_lock lock(LiveCacheMutex);
 +        if (LiveCache != nullptr) {
@@ -2114,7 +2706,7 @@ index 0848f3e..224e36f 100644
      static const uint32_t TextureDataPitchAlignment = 256;
      static const uint32_t TextureDataPlacementAlignment = 512;
  
-@@ -60,6 +93,14 @@ namespace RT64 {
+@@ -60,6 +119,14 @@ namespace RT64 {
          resolvedHashVersions.clear();
          fileSystemStreamResolvedPaths.clear();
  
@@ -2129,7 +2721,7 @@ index 0848f3e..224e36f 100644
          usedTexturePoolSize = 0;
          cachedTexturePoolSize = 0;
          fileSystemIsDirectory = false;
-@@ -207,6 +248,7 @@ namespace RT64 {
+@@ -207,6 +274,7 @@ namespace RT64 {
                  textureReplacements[i] = nullptr;
                  textureReplacementShiftedByHalf[i] = false;
                  textureReplacementReferenceCounted[i] = false;
@@ -2137,7 +2729,16 @@ index 0848f3e..224e36f 100644
                  versions[i]++;
              }
          }
-@@ -231,6 +273,7 @@ namespace RT64 {
+@@ -214,7 +282,7 @@ namespace RT64 {
+         globalVersion++;
+     }
+ 
+-    void TextureMap::add(uint64_t hash, uint64_t creationFrame, Texture *texture) {
++    void TextureMap::add(uint64_t hash, uint64_t creationFrame, Texture *texture, bool pinned) {
+         assert(hashMap.find(hash) == hashMap.end());
+ 
+         // Check for free spaces on the LIFO queue first.
+@@ -231,6 +299,7 @@ namespace RT64 {
              cachedTextureReplacementDimensions.emplace_back();
              textureReplacementShiftedByHalf.emplace_back(false);
              textureReplacementReferenceCounted.emplace_back(false);
@@ -2145,7 +2746,7 @@ index 0848f3e..224e36f 100644
              textureScales.push_back(IdentityScale);
              hashes.push_back(0);
              versions.push_back(0);
-@@ -240,10 +283,11 @@ namespace RT64 {
+@@ -240,21 +309,38 @@ namespace RT64 {
  
          hashMap[hash] = textureIndex;
          textures[textureIndex] = texture;
@@ -2158,8 +2759,29 @@ index 0848f3e..224e36f 100644
          textureScales[textureIndex] = IdentityScale;
          hashes[textureIndex] = hash;
          versions[textureIndex]++;
-@@ -254,7 +298,7 @@ namespace RT64 {
-         listIterators[textureIndex] = accessList.begin();
+         creationFrames[textureIndex] = creationFrame;
+         globalVersion++;
+ 
+-        accessList.push_front({ textureIndex, creationFrame });
+-        listIterators[textureIndex] = accessList.begin();
++        if (pinned) {
++            listIterators[textureIndex] = accessList.end();
++        }
++        else {
++            accessList.push_front({ textureIndex, creationFrame });
++            listIterators[textureIndex] = accessList.begin();
++        }
++    }
++
++    void TextureMap::unpinAll() {
++        // Rush 2 recomp: prewarmed textures never used go into the access list as last used when they were made, so
++        // the next eviction ages them out like any other.
++        for (uint32_t i = 0; i < uint32_t(textures.size()); i++) {
++            if ((textures[i] != nullptr) && (listIterators[i] == accessList.end())) {
++                accessList.push_back({ i, creationFrames[i] });
++                listIterators[i] = std::prev(accessList.end());
++            }
++        }
      }
  
 -    void TextureMap::replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted) {
@@ -2167,7 +2789,7 @@ index 0848f3e..224e36f 100644
          const auto it = hashMap.find(hash);
          if (it == hashMap.end()) {
              return;
-@@ -265,6 +309,7 @@ namespace RT64 {
+@@ -265,6 +351,7 @@ namespace RT64 {
          if (texture == textureReplacements[it->second]) {
              // The exception is that the shifting mode can be changed in real-time by the user while editing, so we update it regardless.
              textureReplacementShiftedByHalf[it->second] = shiftedByHalf;
@@ -2175,7 +2797,7 @@ index 0848f3e..224e36f 100644
              return;
          }
  
-@@ -277,7 +322,12 @@ namespace RT64 {
+@@ -277,7 +364,12 @@ namespace RT64 {
          textureReplacements[it->second] = texture;
          textureReplacementShiftedByHalf[it->second] = shiftedByHalf;
          textureReplacementReferenceCounted[it->second] = referenceCounted;
@@ -2189,7 +2811,7 @@ index 0848f3e..224e36f 100644
          cachedTextureReplacementDimensions[it->second] = interop::float3(float(texture->width), float(texture->height), float(texture->mipmaps));
          versions[it->second]++;
          globalVersion++;
-@@ -288,10 +338,31 @@ namespace RT64 {
+@@ -288,10 +380,31 @@ namespace RT64 {
          }
      }
  
@@ -2222,7 +2844,7 @@ index 0848f3e..224e36f 100644
  
          // Find the matching texture index in the hash map.
          const auto it = hashMap.find(hash);
-@@ -306,11 +377,24 @@ namespace RT64 {
+@@ -306,11 +419,24 @@ namespace RT64 {
          if (textureReplaced) {
              textureScale = textureScales[textureIndex];
              textureDimensions = cachedTextureReplacementDimensions[textureIndex];
@@ -2248,7 +2870,7 @@ index 0848f3e..224e36f 100644
          }
  
          // Remove the existing entry from the list if it exists.
-@@ -362,6 +446,7 @@ namespace RT64 {
+@@ -362,6 +488,7 @@ namespace RT64 {
                  textureReplacements[textureIndex] = nullptr;
                  textureReplacementShiftedByHalf[textureIndex] = false;
                  textureReplacementReferenceCounted[textureIndex] = false;
@@ -2256,7 +2878,59 @@ index 0848f3e..224e36f 100644
              }
              // Stop iterating if we reach an entry that has been used in the present.
              else if (age == 0) {
-@@ -487,9 +572,19 @@ namespace RT64 {
+@@ -410,6 +537,8 @@ namespace RT64 {
+         Thread::setCurrentThreadPriority(Thread::Priority::Low);
+ 
+         std::vector<uint8_t> replacementBytes;
++        LiveUpload liveLoad;
++        bool hasLiveLoad = false;
+         while (threadRunning) {
+             StreamDescription streamDesc;
+ 
+@@ -418,7 +547,7 @@ namespace RT64 {
+                 std::unique_lock queueLock(textureCache->streamDescStackMutex);
+                 textureCache->streamDescStackActiveCount--;
+                 textureCache->streamDescStackChanged.wait(queueLock, [this]() {
+-                    return !threadRunning || !textureCache->streamDescStack.empty();
++                    return !threadRunning || !textureCache->streamDescStack.empty() || !textureCache->liveLoadQueue.empty();
+                 });
+ 
+                 textureCache->streamDescStackActiveCount++;
+@@ -427,6 +556,33 @@ namespace RT64 {
+                     streamDesc = textureCache->streamDescStack.top();
+                     textureCache->streamDescStack.pop();
+                 }
++                else if (!textureCache->liveLoadQueue.empty()) {
++                    liveLoad = std::move(textureCache->liveLoadQueue.front());
++                    textureCache->liveLoadQueue.pop_front();
++                    hasLiveLoad = true;
++                }
++            }
++
++            // Rush 2 recomp: a live replacement's image, decoded and uploaded here rather than on the upload thread,
++            // where the game's frame would wait on it; the upload thread then only puts it in place.
++            if (hasLiveLoad) {
++                hasLiveLoad = false;
++                worker->commandList->begin();
++                liveLoad.texture = TextureCache::loadTextureFromBytes(worker->device, worker->commandList.get(), liveLoad.bytes, uploadResource);
++                worker->commandList->end();
++                if (liveLoad.texture != nullptr) {
++                    worker->execute();
++                    worker->wait();
++                }
++
++                liveLoad.bytes.clear();
++                liveLoad.bytes.shrink_to_fit();
++                textureCache->uploadQueueMutex.lock();
++                textureCache->liveUploadQueue.emplace_back(std::move(liveLoad));
++                textureCache->uploadQueueMutex.unlock();
++                textureCache->uploadQueueChanged.notify_all();
++                liveLoad = LiveUpload();
++                continue;
+             }
+             
+             if (!streamDesc.relativePath.empty()) {
+@@ -487,9 +643,19 @@ namespace RT64 {
          for (uint32_t i = 0; i < threadCount; i++) {
              streamThreads.push_back(std::make_unique<StreamThread>(this));
          }
@@ -2276,7 +2950,7 @@ index 0848f3e..224e36f 100644
          waitForAllStreamThreads(true);
          streamThreads.clear();
  
-@@ -500,6 +595,10 @@ namespace RT64 {
+@@ -500,6 +666,10 @@ namespace RT64 {
              uploadThread.reset();
          }
          
@@ -2287,7 +2961,7 @@ index 0848f3e..224e36f 100644
          descriptorSets.clear();
          tmemUploadResources.clear();
          replacementUploadResources.clear();
-@@ -929,6 +1028,63 @@ namespace RT64 {
+@@ -929,6 +1099,63 @@ namespace RT64 {
          return true;
      }
  
@@ -2351,7 +3025,7 @@ index 0848f3e..224e36f 100644
      Texture *TextureCache::loadTextureFromBytes(RenderDevice *device, RenderCommandList *commandList, const std::vector<uint8_t> &fileBytes, std::unique_ptr<RenderBuffer> &dstUploadResource, RenderPool *resourcePool, std::mutex *uploadResourcePoolMutex) {
          const uint32_t PNG_MAGIC = 0x474E5089;
          Texture *replacementTexture = new Texture();
-@@ -942,11 +1098,12 @@ namespace RT64 {
+@@ -942,11 +1169,12 @@ namespace RT64 {
              int width, height;
              stbi_uc *data = stbi_load_from_memory(fileBytes.data(), fileBytes.size(), &width, &height, nullptr, 4);
              if (data != nullptr) {
@@ -2368,13 +3042,36 @@ index 0848f3e..224e36f 100644
              }
  
              break;
-@@ -980,10 +1137,16 @@ namespace RT64 {
+@@ -980,10 +1208,39 @@ namespace RT64 {
          std::vector<RenderTextureBarrier> beforeDecodeBarriers;
          std::vector<RenderTextureBarrier> afterDecodeBarriers;
          std::vector<uint8_t> replacementBytes;
 +        std::vector<LiveUpload> liveUploadQueueCopy;
 +        std::vector<uint64_t> liveApplyQueueCopy;
 +        std::vector<Texture *> orphanLiveTextures;
++        std::vector<uint32_t> uploadMipLevels;
++        bool prewarmBatch = false;
++        std::vector<uint32_t> uploadMipDescriptorBase;
++
++        // Rush 2 recomp: the upload buffers and decode descriptor sets a batch reuses, made now instead of in the first
++        // big batch (a race's first frame brings hundreds of new textures, and the game's frame waits on the batch).
++        {
++            const size_t PreparedUploads = 512;
++            {
++                std::unique_lock queueLock(uploadResourcePoolMutex);
++                while (tmemUploadResources.size() < PreparedUploads) {
++                    tmemUploadResources.emplace_back(uploadResourcePool->createBuffer(RenderBufferDesc::UploadBuffer(0x1000)));
++                }
++            }
++
++            while (descriptorSets.size() < PreparedUploads) {
++                descriptorSets.emplace_back(std::make_unique<TextureDecodeDescriptorSet>(directWorker->device));
++            }
++
++            while (mipDescriptorSets.size() < PreparedUploads * 4) {
++                mipDescriptorSets.emplace_back(std::make_unique<TextureDecodeDescriptorSet>(directWorker->device));
++            }
++        }
  
          while (uploadThreadRunning) {
              resolvedPathQueueCopy.clear();
@@ -2385,22 +3082,37 @@ index 0848f3e..224e36f 100644
              beforeCopyBarriers.clear();
              beforeDecodeBarriers.clear();
              afterDecodeBarriers.clear();
-@@ -992,7 +1155,7 @@ namespace RT64 {
+@@ -992,12 +1249,21 @@ namespace RT64 {
              {
                  std::unique_lock queueLock(uploadQueueMutex);
                  uploadQueueChanged.wait(queueLock, [this]() {
 -                    return !uploadThreadRunning || !uploadQueue.empty() || !resolvedPathQueue.empty() || !streamResultQueue.empty();
-+                    return !uploadThreadRunning || !uploadQueue.empty() || !resolvedPathQueue.empty() || !streamResultQueue.empty() || !liveUploadQueue.empty() || !liveApplyQueue.empty();
++                    return !uploadThreadRunning || !uploadQueue.empty() || !resolvedPathQueue.empty() || !streamResultQueue.empty() || !liveUploadQueue.empty() || !liveApplyQueue.empty() || !prewarmQueue.empty();
                  });
  
++                prewarmBatch = false;
                  if (!uploadQueue.empty()) {
-@@ -1008,6 +1171,13 @@ namespace RT64 {
+                     queueCopy = uploadQueue;
+                 }
++                else if (!prewarmQueue.empty()) {
++                    // Rush 2 recomp: prewarmed textures, a few per batch so a game upload queued meanwhile waits little.
++                    const size_t PrewarmPerBatch = 24;
++                    size_t count = std::min(prewarmQueue.size(), PrewarmPerBatch);
++                    queueCopy.assign(std::make_move_iterator(prewarmQueue.begin()), std::make_move_iterator(prewarmQueue.begin() + count));
++                    prewarmQueue.erase(prewarmQueue.begin(), prewarmQueue.begin() + count);
++                    prewarmBatch = true;
++                }
+ 
+                 if (!resolvedPathQueue.empty()) {
+                     resolvedPathQueueCopy.insert(resolvedPathQueueCopy.end(), resolvedPathQueue.begin(), resolvedPathQueue.end());
+@@ -1008,6 +1274,14 @@ namespace RT64 {
                      streamResultQueueCopy.insert(streamResultQueueCopy.end(), streamResultQueue.begin(), streamResultQueue.end());
                      streamResultQueue.clear();
                  }
 +
 +                // A few live uploads per batch: the game's thread waits on every batch that has its own uploads in it.
-+                const size_t LiveUploadsPerBatch = 8;
++                // (Rush 2 recomp: they come decoded and uploaded by the stream threads now, so these are cheap.)
++                const size_t LiveUploadsPerBatch = 32;
 +                size_t liveUploadCount = std::min(liveUploadQueue.size(), LiveUploadsPerBatch);
 +                liveUploadQueueCopy.assign(std::make_move_iterator(liveUploadQueue.begin()), std::make_move_iterator(liveUploadQueue.begin() + liveUploadCount));
 +                liveUploadQueue.erase(liveUploadQueue.begin(), liveUploadQueue.begin() + liveUploadCount);
@@ -2408,7 +3120,7 @@ index 0848f3e..224e36f 100644
              }
              
              if (!streamResultQueueCopy.empty()) {
-@@ -1039,7 +1209,7 @@ namespace RT64 {
+@@ -1039,7 +1313,7 @@ namespace RT64 {
                  }
              }
  
@@ -2417,48 +3129,113 @@ index 0848f3e..224e36f 100644
                  // Create new upload buffers and descriptor heaps to fill out the required size.
                  const size_t queueSize = queueCopy.size();
                  const uint64_t TMEMSize = 0x1000;
-@@ -1059,6 +1229,7 @@ namespace RT64 {
+@@ -1059,18 +1333,95 @@ namespace RT64 {
                  // issues that can't be accounted for. Using dedicated copy queues for these operations has shown to eliminate these issues entirely.
                  copyWorker->commandList->begin();
                  textureMapAdditions.clear();
 +                uint32_t mipDescriptorSetCount = 0;
  
++                // Rush 2 recomp: each texture's resources and decode descriptor sets are made first, on several threads when
++                // the batch is big (creating them is most of a batch's time), then the commands are recorded in order.
++                uploadMipLevels.assign(queueSize, 1);
++                uploadMipDescriptorBase.assign(queueSize, 0);
                  for (size_t i = 0; i < queueSize; i++) {
-                     static uint32_t TMEMGlobalCounter = 0;
-@@ -1105,14 +1276,45 @@ namespace RT64 {
-                         static uint32_t TextureGlobalCounter = 0;
-                         TextureDecodeDescriptorSet *descSet = descriptorSets[i].get();
-                         dstTexture->format = RenderFormat::R8G8B8A8_UNORM;
--                        dstTexture->texture = directWorker->device->createTexture(RenderTextureDesc::Texture2D(upload.width, upload.height, 1, dstTexture->format, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
-+
+-                    static uint32_t TMEMGlobalCounter = 0;
+                     const TextureUpload &upload = queueCopy[i];
+                     Texture *newTexture = new Texture();
+                     newTexture->creationFrame = upload.creationFrame;
+                     textureMapAdditions.emplace_back(TextureMapAddition{ upload.hash, newTexture });
++                    if (upload.decodeTMEM) {
 +                        // Generated mipmaps: a level is added for as long as both sides halve exactly, so every texel of a
 +                        // level covers a whole block of the texture and the levels wrap and mirror the way it does.
 +                        uint32_t mipLevels = 1;
 +                        while ((((upload.width >> mipLevels) << mipLevels) == upload.width) && (((upload.height >> mipLevels) << mipLevels) == upload.height)) {
 +                            mipLevels++;
 +                        }
+ 
++                        uploadMipLevels[i] = mipLevels;
++                        uploadMipDescriptorBase[i] = mipDescriptorSetCount;
++                        mipDescriptorSetCount += mipLevels - 1;
++                    }
++                }
 +
-+                        dstTexture->mipmaps = mipLevels;
-+                        dstTexture->texture = directWorker->device->createTexture(RenderTextureDesc::Texture2D(upload.width, upload.height, mipLevels, dstTexture->format, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
-                         dstTexture->texture->setName("Texture Cache RGBA32 #" + std::to_string(TextureGlobalCounter++));
-                         descSet->setTexture(descSet->TMEM, dstTexture->tmem.get(), RenderTextureLayout::SHADER_READ);
-                         descSet->setTexture(descSet->RGBA32, dstTexture->texture.get(), RenderTextureLayout::GENERAL);
++                while (mipDescriptorSets.size() < mipDescriptorSetCount) {
++                    mipDescriptorSets.emplace_back(std::make_unique<TextureDecodeDescriptorSet>(directWorker->device));
++                }
++
++                auto createResources = [&](size_t i) {
++                    const TextureUpload &upload = queueCopy[i];
++                    Texture *newTexture = textureMapAdditions[i].texture;
+                     newTexture->format = RenderFormat::R8_UINT;
+                     newTexture->width = upload.width;
+                     newTexture->height = upload.height;
+                     newTexture->tmem = copyWorker->device->createTexture(RenderTextureDesc::Texture1D(std::max(uint32_t(upload.bytesTMEM.size()), 1U), 1, newTexture->format));
++                    if (upload.decodeTMEM) {
++                        TextureDecodeDescriptorSet *descSet = descriptorSets[i].get();
++                        const uint32_t mipLevels = uploadMipLevels[i];
++                        newTexture->format = RenderFormat::R8G8B8A8_UNORM;
++                        newTexture->mipmaps = mipLevels;
++                        newTexture->texture = directWorker->device->createTexture(RenderTextureDesc::Texture2D(upload.width, upload.height, mipLevels, newTexture->format, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
++                        descSet->setTexture(descSet->TMEM, newTexture->tmem.get(), RenderTextureLayout::SHADER_READ);
++                        descSet->setTexture(descSet->RGBA32, newTexture->texture.get(), RenderTextureLayout::GENERAL);
 +
 +                        // The decoder fills each level in from TMEM in a dispatch of its own, through a view of the level.
 +                        for (uint32_t m = 1; m < mipLevels; m++) {
-+                            if (mipDescriptorSetCount == mipDescriptorSets.size()) {
-+                                mipDescriptorSets.emplace_back(std::make_unique<TextureDecodeDescriptorSet>(directWorker->device));
-+                            }
-+
-+                            RenderTextureViewDesc mipViewDesc = RenderTextureViewDesc::Texture2D(dstTexture->format);
++                            RenderTextureViewDesc mipViewDesc = RenderTextureViewDesc::Texture2D(newTexture->format);
 +                            mipViewDesc.mipSlice = m;
 +                            mipViewDesc.mipLevels = 1;
-+                            dstTexture->mipViews.emplace_back(dstTexture->texture->createTextureView(mipViewDesc));
++                            newTexture->mipViews.emplace_back(newTexture->texture->createTextureView(mipViewDesc));
 +
-+                            TextureDecodeDescriptorSet *mipDescSet = mipDescriptorSets[mipDescriptorSetCount++].get();
-+                            mipDescSet->setTexture(mipDescSet->TMEM, dstTexture->tmem.get(), RenderTextureLayout::SHADER_READ);
-+                            mipDescSet->setTexture(mipDescSet->RGBA32, dstTexture->texture.get(), RenderTextureLayout::GENERAL, dstTexture->mipViews.back().get());
++                            TextureDecodeDescriptorSet *mipDescSet = mipDescriptorSets[uploadMipDescriptorBase[i] + m - 1].get();
++                            mipDescSet->setTexture(mipDescSet->TMEM, newTexture->tmem.get(), RenderTextureLayout::SHADER_READ);
++                            mipDescSet->setTexture(mipDescSet->RGBA32, newTexture->texture.get(), RenderTextureLayout::GENERAL, newTexture->mipViews.back().get());
 +                        }
++                    }
++                };
++
++                const size_t ParallelBatch = 32;
++                const size_t workerCount = (queueSize >= ParallelBatch) ? std::min<size_t>(std::max(std::thread::hardware_concurrency() / 4, 1U), 6) : 0;
++                if (workerCount > 0) {
++                    std::atomic<size_t> next = 0;
++                    auto work = [&]() {
++                        for (size_t i = next++; i < queueSize; i = next++) {
++                            createResources(i);
++                        }
++                    };
++
++                    std::vector<std::thread> workers;
++                    for (size_t w = 0; w < workerCount; w++) {
++                        workers.emplace_back(work);
++                    }
++
++                    work();
++                    for (std::thread &worker : workers) {
++                        worker.join();
++                    }
++                }
++                else {
++                    for (size_t i = 0; i < queueSize; i++) {
++                        createResources(i);
++                    }
++                }
++
++                for (size_t i = 0; i < queueSize; i++) {
++                    static uint32_t TMEMGlobalCounter = 0;
++                    const TextureUpload &upload = queueCopy[i];
++                    Texture *newTexture = textureMapAdditions[i].texture;
+                     newTexture->tmem->setName("Texture Cache TMEM #" + std::to_string(TMEMGlobalCounter++));
+                     newTexture->bytesTMEM = upload.bytesTMEM;
+                     newTexture->loadTile = upload.loadTile;
+@@ -1103,16 +1454,17 @@ namespace RT64 {
+ 
+                     if (upload.decodeTMEM) {
+                         static uint32_t TextureGlobalCounter = 0;
+-                        TextureDecodeDescriptorSet *descSet = descriptorSets[i].get();
+-                        dstTexture->format = RenderFormat::R8G8B8A8_UNORM;
+-                        dstTexture->texture = directWorker->device->createTexture(RenderTextureDesc::Texture2D(upload.width, upload.height, 1, dstTexture->format, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
+                         dstTexture->texture->setName("Texture Cache RGBA32 #" + std::to_string(TextureGlobalCounter++));
+-                        descSet->setTexture(descSet->TMEM, dstTexture->tmem.get(), RenderTextureLayout::SHADER_READ);
+-                        descSet->setTexture(descSet->RGBA32, dstTexture->texture.get(), RenderTextureLayout::GENERAL);
                          beforeDecodeBarriers.emplace_back(dstTexture->texture.get(), RenderTextureLayout::GENERAL);
                      }
  
@@ -2472,14 +3249,27 @@ index 0848f3e..224e36f 100644
                  }
  
                  replacementMapAdditions.clear();
-@@ -1176,6 +1378,45 @@ namespace RT64 {
+@@ -1136,8 +1488,11 @@ namespace RT64 {
+ 
+                     // Replacement texture hasn't been loaded yet.
+                     if (replacementTexture == nullptr) {
+-                        // Queue the texture for being loaded from a texture cache streaming thread.
+-                        if (resolvedPath.resolvedOperation == ReplacementOperation::Stream) {
++                        // Queue the texture for being loaded from a texture cache streaming thread. Rush 2 recomp: a
++                        // preloaded texture still on its way (packs are swapped in without waiting for their preloads,
++                        // TextureCache::applyReplacementDirectories) waits for that load the same way, instead of being
++                        // loaded here while the game's frame waits on this batch. Its stream is queued already.
++                        if ((resolvedPath.resolvedOperation == ReplacementOperation::Stream) || (resolvedPath.resolvedOperation == ReplacementOperation::Preload)) {
+ #                           if !ONLY_USE_LOW_MIP_CACHE
+                             // Make sure the replacement map hasn't queued or loaded the relative path already.
+                             auto &streamSet = textureMap.replacementMap.fileSystemStreamSets[resolvedPath.fileSystemIndex];
+@@ -1176,6 +1531,44 @@ namespace RT64 {
                      }
                  }
                  
 +                // Upload new live replacements and replace every texture hash waiting on them.
 +                for (const LiveUpload &liveUpload : liveUploadQueueCopy) {
-+                    replacementUploadResources.emplace_back();
-+                    Texture *liveTexture = TextureCache::loadTextureFromBytes(copyWorker->device, copyWorker->commandList.get(), liveUpload.bytes, replacementUploadResources.back());
++                    Texture *liveTexture = liveUpload.texture;
 +                    std::unique_lock liveLock(liveMutex);
 +                    auto contentIt = liveContents.find(liveUpload.contentKey);
 +                    if (liveTexture == nullptr) {
@@ -2518,15 +3308,7 @@ index 0848f3e..224e36f 100644
                  // Execute the copy worker and signal a semaphore so it synchronizes with the direct worker afterwards.
                  const RenderCommandList *copyCommandList = copyWorker->commandList.get();
                  RenderCommandSemaphore *syncSemaphore = copyToDirectSemaphore.get();
-@@ -1188,6 +1429,7 @@ namespace RT64 {
- 
-                 const ShaderRecord &textureDecode = shaderLibrary->textureDecode;
-                 bool pipelineSet = false;
-+                mipDescriptorSetCount = 0;
-                 for (size_t i = 0; i < queueSize; i++) {
-                     const TextureUpload &upload = queueCopy[i];
-                     if (upload.decodeTMEM) {
-@@ -1205,6 +1447,7 @@ namespace RT64 {
+@@ -1205,6 +1598,7 @@ namespace RT64 {
                          decodeCB.stride = interop::uint(upload.loadTile.line) << 3;
                          decodeCB.tlut = upload.tlut;
                          decodeCB.palette = upload.loadTile.palette;
@@ -2534,7 +3316,7 @@ index 0848f3e..224e36f 100644
  
                          // Dispatch compute shader for decoding texture.
                          const uint32_t ThreadGroupSize = 8;
-@@ -1214,6 +1457,16 @@ namespace RT64 {
+@@ -1214,6 +1608,16 @@ namespace RT64 {
                          directWorker->commandList->setComputeDescriptorSet(descriptorSets[i]->get(), 0);
                          directWorker->commandList->dispatch(dispatchX, dispatchY, 1);
  
@@ -2544,14 +3326,26 @@ index 0848f3e..224e36f 100644
 +                            decodeCB.Resolution.y = upload.height >> m;
 +                            decodeCB.mipLevel = m;
 +                            directWorker->commandList->setComputePushConstants(0, &decodeCB);
-+                            directWorker->commandList->setComputeDescriptorSet(mipDescriptorSets[mipDescriptorSetCount++]->get(), 0);
++                            directWorker->commandList->setComputeDescriptorSet(mipDescriptorSets[uploadMipDescriptorBase[i] + m - 1]->get(), 0);
 +                            directWorker->commandList->dispatch((decodeCB.Resolution.x + ThreadGroupSize - 1) / ThreadGroupSize, (decodeCB.Resolution.y + ThreadGroupSize - 1) / ThreadGroupSize, 1);
 +                        }
 +
                          afterDecodeBarriers.emplace_back(RenderTextureBarrier(textureMapAdditions[i].texture->texture.get(), RenderTextureLayout::SHADER_READ));
                      }
                  }
-@@ -1239,10 +1492,16 @@ namespace RT64 {
+@@ -1235,18 +1639,31 @@ namespace RT64 {
+                 {
+                     std::unique_lock lock(textureMapMutex);
+                     for (const TextureMapAddition &addition : textureMapAdditions) {
+-                        textureMap.add(addition.hash, addition.texture->creationFrame, addition.texture);
++                        // Rush 2 recomp: a prewarmed texture the game uploaded meanwhile too (or the other way round)
++                        // is in the map already: the copy goes the way evicted textures do.
++                        if (textureMap.hashMap.find(addition.hash) != textureMap.hashMap.end()) {
++                            textureMap.evictedTextures.emplace_back(addition.texture);
++                            continue;
++                        }
++
++                        textureMap.add(addition.hash, addition.texture->creationFrame, addition.texture, prewarmBatch);
                      }
  
                      for (const ReplacementMapAddition &addition : replacementMapAdditions) {
@@ -2569,7 +3363,56 @@ index 0848f3e..224e36f 100644
                  }
  
                  // Make the new queue the remaining subsection of the upload queue that wasn't processed in this batch.
-@@ -1312,9 +1571,9 @@ namespace RT64 {
+-                {
++                if (!prewarmBatch) {
+                     std::unique_lock queueLock(uploadQueueMutex);
+                     newQueue = std::vector<TextureUpload>(uploadQueue.begin() + queueSize, uploadQueue.end());
+                     uploadQueue = std::move(newQueue);
+@@ -1279,6 +1696,43 @@ namespace RT64 {
+         uploadQueueChanged.notify_all();
+     }
+ 
++    void TextureCache::queuePrewarmTMEM(uint64_t hash, std::vector<uint8_t> bytesTMEM, uint16_t width, uint16_t height, uint32_t tlut, const LoadTile &loadTile, bool decodeTMEM) {
++        if (decodeTMEM && ((width == 0) || (height == 0))) {
++            return;
++        }
++
++        TextureUpload newUpload;
++        newUpload.hash = hash;
++        newUpload.creationFrame = 0;
++        newUpload.width = width;
++        newUpload.height = height;
++        newUpload.tlut = tlut;
++        newUpload.loadTile = loadTile;
++        newUpload.bytesTMEM = std::move(bytesTMEM);
++        newUpload.decodeTMEM = decodeTMEM;
++        {
++            std::unique_lock queueLock(uploadQueueMutex);
++            prewarmQueue.emplace_back(std::move(newUpload));
++        }
++
++        uploadQueueChanged.notify_all();
++    }
++
++    void TextureCache::unpinPrewarmed() {
++        {
++            std::unique_lock queueLock(uploadQueueMutex);
++            prewarmQueue.clear();
++        }
++
++        std::unique_lock lock(textureMapMutex);
++        textureMap.unpinAll();
++    }
++
++    bool TextureCache::hasTexture(uint64_t hash) {
++        std::unique_lock lock(textureMapMutex);
++        return textureMap.hashMap.find(hash) != textureMap.hashMap.end();
++    }
++
+     void TextureCache::waitForGPUUploads() {
+         std::unique_lock queueLock(uploadQueueMutex);
+         uploadQueueFinished.wait(queueLock, [this]() {
+@@ -1312,9 +1766,9 @@ namespace RT64 {
          }
      }
  
@@ -2581,7 +3424,7 @@ index 0848f3e..224e36f 100644
      }
  
      bool TextureCache::useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex) {
-@@ -1323,7 +1582,9 @@ namespace RT64 {
+@@ -1323,7 +1777,9 @@ namespace RT64 {
          bool textureReplaced;
          bool hasMipmaps;
          bool shiftedByHalf;
@@ -2592,7 +3435,7 @@ index 0848f3e..224e36f 100644
      }
      
      bool TextureCache::addReplacement(uint64_t hash, const std::string &relativePath, ReplacementShift shift) {
-@@ -1406,6 +1667,168 @@ namespace RT64 {
+@@ -1406,6 +1862,176 @@ namespace RT64 {
          return false;
      }
  
@@ -2632,18 +3475,26 @@ index 0848f3e..224e36f 100644
 +            queueApply = (contentIt->second.texture != nullptr);
 +        }
 +
-+        {
-+            std::unique_lock queueLock(uploadQueueMutex);
-+            if (queueUpload) {
-+                liveUploadQueue.emplace_back(LiveUpload{ contentKey, std::move(fileBytes) });
++        if (queueUpload) {
++            // Rush 2 recomp: decoded by a stream thread first (StreamThread::loop), which then queues it for the
++            // upload thread.
++            {
++                std::unique_lock streamLock(streamDescStackMutex);
++                liveLoadQueue.emplace_back(LiveUpload{ contentKey, std::move(fileBytes) });
 +            }
 +
-+            if (queueApply) {
-+                liveApplyQueue.emplace_back(hash);
-+            }
++            streamDescStackChanged.notify_all();
 +        }
 +
-+        uploadQueueChanged.notify_all();
++        if (queueApply) {
++            {
++                std::unique_lock queueLock(uploadQueueMutex);
++                liveApplyQueue.emplace_back(hash);
++            }
++
++            uploadQueueChanged.notify_all();
++        }
++
 +        return true;
 +    }
 +
@@ -2761,7 +3612,7 @@ index 0848f3e..224e36f 100644
      void TextureCache::clearReplacementDirectories() {
          // Wait for the streaming threads to be finished.
          waitForAllStreamThreads(true);
-@@ -1431,9 +1854,14 @@ namespace RT64 {
+@@ -1431,9 +2057,14 @@ namespace RT64 {
  
          // Lock the texture map and start changing replacements. This function is assumed to be called from the only
          // thread that is capable of submitting new textures and must've waited beforehand for all textures to be uploaded.
@@ -2779,11 +3630,220 @@ index 0848f3e..224e36f 100644
      }
  
      void TextureCache::reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash) {
+@@ -1459,71 +2090,77 @@ namespace RT64 {
+         return loadReplacementDirectories({ replacementDirectory });
+     }
+     
+-    bool TextureCache::loadReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories) {
+-        clearReplacementDirectories();
++    PreparedReplacements::~PreparedReplacements() {
++        // Never swapped in: its low mip cache textures are its own.
++        for (auto &it : lowMipCacheTextures) {
++            delete it.second.texture;
++        }
++    }
+ 
+-        std::unique_lock lock(textureMapMutex);
+-        textureMap.replacementMap.replacementDirectories = replacementDirectories;
++    bool TextureCache::loadReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories) {
++        return applyReplacementDirectories(prepareReplacementDirectories(replacementDirectories), true);
++    }
+ 
+-        std::vector<std::unique_ptr<FileSystem>> fileSystems;
+-        std::vector<std::unordered_map<uint64_t, ReplacementResolvedPath>> fileSystemResolvedPaths;
+-        std::vector<uint32_t> fileSystemHashVersions;
+-        std::vector<std::unordered_set<std::string>> fileSystemStreamSets;
++    std::unique_ptr<PreparedReplacements> TextureCache::prepareReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories) {
++        std::unique_ptr<PreparedReplacements> p = std::make_unique<PreparedReplacements>();
++        p->replacementDirectories = replacementDirectories;
+         for (const ReplacementDirectory &replacementDirectory : replacementDirectories) {
+             if (std::filesystem::is_regular_file(replacementDirectory.dirOrZipPath)) {
+                 std::unique_ptr<FileSystem> fileSystem = FileSystemZip::create(replacementDirectory.dirOrZipPath, replacementDirectory.zipBasePath);
+                 if (fileSystem == nullptr) {
+                     fprintf(stderr, "Failed to load file system as a pack for replacements.\n");
+-                    return false;
++                    return p;
+                 }
+ 
+-                fileSystems.emplace_back(std::move(fileSystem));
+-                fileSystemResolvedPaths.emplace_back();
+-                fileSystemHashVersions.emplace_back();
+-                fileSystemStreamSets.emplace_back();
++                p->fileSystems.emplace_back(std::move(fileSystem));
++                p->fileSystemResolvedPaths.emplace_back();
++                p->fileSystemHashVersions.emplace_back();
++                p->fileSystemStreamSets.emplace_back();
+             }
+             else if (std::filesystem::is_directory(replacementDirectory.dirOrZipPath)) {
+                 std::unique_ptr<FileSystem> fileSystem = FileSystemDirectory::create(replacementDirectory.dirOrZipPath);
+                 if (fileSystem == nullptr) {
+                     fprintf(stderr, "Failed to load file system as a directory for replacements.\n");
+-                    return false;
++                    return p;
+                 }
+ 
+                 // Only enable that file system is a directory if it's only one directory.
+-                textureMap.replacementMap.fileSystemIsDirectory = (replacementDirectories.size() == 1);
+-                fileSystems.emplace_back(std::move(fileSystem));
+-                fileSystemResolvedPaths.emplace_back();
+-                fileSystemHashVersions.emplace_back();
+-                fileSystemStreamSets.emplace_back();
++                p->fileSystemIsDirectory = (replacementDirectories.size() == 1);
++                p->fileSystems.emplace_back(std::move(fileSystem));
++                p->fileSystemResolvedPaths.emplace_back();
++                p->fileSystemHashVersions.emplace_back();
++                p->fileSystemStreamSets.emplace_back();
+             }
+             else {
+                 fprintf(stderr, "Failed to identify what type of filesystem the path is.\n");
+-                return false;
++                return p;
+             }
+         }
+ 
+-        // Load databases and low mipmap caches from the filesystems in reverse order.
++        // Load databases and low mipmap caches from the filesystems in reverse order, with a command list of this
++        // call's own (the queue takes submissions from any thread).
+         {
+-            loaderCommandList->begin();
++            std::unique_ptr<RenderCommandList> commandList = copyWorker->commandQueue->createCommandList();
++            std::unique_ptr<RenderCommandFence> commandFence = copyWorker->device->createCommandFence();
++            commandList->begin();
+ 
+-            uint64_t totalMemory = 0;
+             std::vector<uint8_t> databaseBytes;
+             std::vector<uint8_t> mipCacheBytes;
+             std::vector<std::unique_ptr<RenderBuffer>> uploadBuffers;
+             std::set<uint32_t> knownHashVersions;
+-            for (int32_t i = int32_t(fileSystems.size()) - 1; i >= 0; i--) {
+-                if (fileSystems[i]->load(ReplacementDatabaseFilename, databaseBytes)) {
++            for (int32_t i = int32_t(p->fileSystems.size()) - 1; i >= 0; i--) {
++                if (p->fileSystems[i]->load(ReplacementDatabaseFilename, databaseBytes)) {
+                     try {
+                         ReplacementDatabase db;
+                         db = json::parse(databaseBytes.begin(), databaseBytes.end(), nullptr, true);
+ 
+                         if (db.config.hashVersion <= TMEMHasher::CurrentHashVersion) {
+-                            db.resolvePaths(fileSystems[i].get(), uint32_t(i), fileSystemResolvedPaths[i], false, nullptr, &fileSystemStreamSets[i]);
+-                            fileSystemHashVersions[i] = db.config.hashVersion;
++                            db.resolvePaths(p->fileSystems[i].get(), uint32_t(i), p->fileSystemResolvedPaths[i], false, nullptr, &p->fileSystemStreamSets[i]);
++                            p->fileSystemHashVersions[i] = db.config.hashVersion;
+                             knownHashVersions.insert(db.config.hashVersion);
+ 
+-                            if (textureMap.replacementMap.fileSystemIsDirectory) {
+-                                textureMap.replacementMap.directoryDatabase = std::move(db);
++                            if (p->fileSystemIsDirectory) {
++                                p->directoryDatabase = std::move(db);
+                             }
+                         }
+                     }
+@@ -1532,37 +2169,59 @@ namespace RT64 {
+                     }
+                 }
+ 
+-                if (fileSystems[i]->load(ReplacementLowMipCacheFilename, mipCacheBytes)) {
++                if (p->fileSystems[i]->load(ReplacementLowMipCacheFilename, mipCacheBytes)) {
+                     uploadBuffers.emplace_back();
+-                    if (!setLowMipCache(copyWorker->device, loaderCommandList.get(), mipCacheBytes.data(), mipCacheBytes.size(), uploadBuffers.back(), textureMap.replacementMap.lowMipCacheTextures, totalMemory)) {
++                    if (!setLowMipCache(copyWorker->device, commandList.get(), mipCacheBytes.data(), mipCacheBytes.size(), uploadBuffers.back(), p->lowMipCacheTextures, p->lowMipCacheMemory)) {
+                         fprintf(stderr, "Failed to load low mip cache.\n");
+                     }
+                 }
+             }
+ 
+-            loaderCommandList->end();
+-
+-            if (!textureMap.replacementMap.lowMipCacheTextures.empty()) {
+-                copyWorker->commandQueue->executeCommandLists(loaderCommandList.get(), loaderCommandFence.get());
+-                copyWorker->commandQueue->waitForCommandFence(loaderCommandFence.get());
++            commandList->end();
+ 
+-                // Memory used by low mip cache is considered as permanently in used.
+-                textureMap.replacementMap.usedTexturePoolSize += totalMemory;
+-                textureMap.replacementMap.cachedTexturePoolSize += totalMemory;
++            if (!p->lowMipCacheTextures.empty()) {
++                copyWorker->commandQueue->executeCommandLists(commandList.get(), commandFence.get());
++                copyWorker->commandQueue->waitForCommandFence(commandFence.get());
+             }
+ 
+-            // Build a vector from the known hash versions.
+-            textureMap.replacementMap.resolvedHashVersions.clear();
+-            textureMap.replacementMap.resolvedHashVersions.insert(textureMap.replacementMap.resolvedHashVersions.end(), knownHashVersions.begin(), knownHashVersions.end());
++            p->resolvedHashVersions.insert(p->resolvedHashVersions.end(), knownHashVersions.begin(), knownHashVersions.end());
+         }
+ 
+-        // Store the file systems in the replacement map.
+-        uint32_t fileSystemCount = uint32_t(fileSystems.size());
+-        textureMap.replacementMap.fileSystems = std::move(fileSystems);
+-        textureMap.replacementMap.fileSystemResolvedPaths = std::move(fileSystemResolvedPaths);
+-        textureMap.replacementMap.fileSystemHashVersions = std::move(fileSystemHashVersions);
+-        textureMap.replacementMap.fileSystemStreamSets = std::move(fileSystemStreamSets);
+-        textureMap.replacementMap.fileSystemStreamResolvedPaths.resize(fileSystemCount);
++        p->valid = true;
++        return p;
++    }
++
++    bool TextureCache::applyReplacementDirectories(std::unique_ptr<PreparedReplacements> p, bool waitForPreloads) {
++        clearReplacementDirectories();
++        if ((p == nullptr) || !p->valid) {
++            return false;
++        }
++
++        uint32_t fileSystemCount = 0;
++        {
++            std::unique_lock lock(textureMapMutex);
++            ReplacementMap &map = textureMap.replacementMap;
++            map.replacementDirectories = std::move(p->replacementDirectories);
++            map.fileSystemIsDirectory = p->fileSystemIsDirectory;
++            if (p->fileSystemIsDirectory) {
++                map.directoryDatabase = std::move(p->directoryDatabase);
++            }
++
++            // Memory used by low mip cache is considered as permanently in used.
++            map.lowMipCacheTextures = std::move(p->lowMipCacheTextures);
++            p->lowMipCacheTextures.clear();
++            map.usedTexturePoolSize += p->lowMipCacheMemory;
++            map.cachedTexturePoolSize += p->lowMipCacheMemory;
++            map.resolvedHashVersions = std::move(p->resolvedHashVersions);
++
++            // Store the file systems in the replacement map.
++            fileSystemCount = uint32_t(p->fileSystems.size());
++            map.fileSystems = std::move(p->fileSystems);
++            map.fileSystemResolvedPaths = std::move(p->fileSystemResolvedPaths);
++            map.fileSystemHashVersions = std::move(p->fileSystemHashVersions);
++            map.fileSystemStreamSets = std::move(p->fileSystemStreamSets);
++            map.fileSystemStreamResolvedPaths.resize(fileSystemCount);
++        }
+ 
+         // Queue all textures that must be preloaded to the stream queues.
+         bool texturesPreloaded = false;
+@@ -1579,8 +2238,11 @@ namespace RT64 {
+         if (texturesPreloaded) {
+             streamDescStackChanged.notify_all();
+ 
+-            // Wait for all the streaming threads to be finished.
+-            waitForAllStreamThreads(false);
++            // Wait for all the streaming threads to be finished (Rush 2 recomp: unless the caller draws on meanwhile,
++            // the textures then coming in as they load).
++            if (waitForPreloads) {
++                waitForAllStreamThreads(false);
++            }
+         }
+ 
+         reloadReplacements(true);
 diff --git a/src/render/rt64_texture_cache.h b/src/render/rt64_texture_cache.h
-index 9131697..f6eb2f7 100644
+index 9131697..be356ae 100644
 --- a/src/render/rt64_texture_cache.h
 +++ b/src/render/rt64_texture_cache.h
-@@ -14,6 +14,7 @@
+@@ -5,6 +5,7 @@
+ #pragma once
+ 
+ #include <atomic>
++#include <deque>
+ #include <condition_variable>
+ #include <filesystem>
+ #include <mutex>
+@@ -14,6 +15,7 @@
  
  #include <json/json.hpp>
  
@@ -2791,7 +3851,7 @@ index 9131697..f6eb2f7 100644
  #include "common/rt64_replacement_database.h"
  #include "hle/rt64_draw_call.h"
  
-@@ -31,6 +32,7 @@ namespace interop {
+@@ -31,6 +33,7 @@ namespace interop {
          uint stride;
          uint tlut;
          uint palette;
@@ -2799,7 +3859,33 @@ index 9131697..f6eb2f7 100644
      };
  };
  
-@@ -116,6 +118,8 @@ namespace RT64 {
+@@ -106,6 +109,25 @@ namespace RT64 {
+         void decrementReference(Texture *texture);
+     };
+ 
++    // Rush 2 recomp: texture packs opened and read off the thread that draws (TextureCache::prepareReplacementDirectories),
++    // waiting to be swapped in (applyReplacementDirectories): the packs' file systems, their databases' resolved paths
++    // and their low mip caches, already on the GPU.
++    struct PreparedReplacements {
++        std::vector<ReplacementDirectory> replacementDirectories;
++        std::vector<std::unique_ptr<FileSystem>> fileSystems;
++        std::vector<std::unordered_map<uint64_t, ReplacementResolvedPath>> fileSystemResolvedPaths;
++        std::vector<uint32_t> fileSystemHashVersions;
++        std::vector<std::unordered_set<std::string>> fileSystemStreamSets;
++        std::vector<uint32_t> resolvedHashVersions;
++        std::unordered_map<std::string, LowMipCacheTexture> lowMipCacheTextures;
++        uint64_t lowMipCacheMemory = 0;
++        ReplacementDatabase directoryDatabase;
++        bool fileSystemIsDirectory = false;
++        bool valid = false;
++
++        ~PreparedReplacements();
++    };
++
+     struct TextureMapAddition {
+         uint64_t hash = 0;
+         Texture *texture = nullptr;
+@@ -116,6 +138,8 @@ namespace RT64 {
          Texture *texture = nullptr;
          ReplacementShift shift = ReplacementShift::None;
          bool referenceCounted = false;
@@ -2808,7 +3894,7 @@ index 9131697..f6eb2f7 100644
      };
  
      struct TextureMap {
-@@ -126,6 +130,7 @@ namespace RT64 {
+@@ -126,6 +150,7 @@ namespace RT64 {
          std::vector<interop::float3> cachedTextureReplacementDimensions;
          std::vector<bool> textureReplacementShiftedByHalf;
          std::vector<bool> textureReplacementReferenceCounted;
@@ -2816,19 +3902,23 @@ index 9131697..f6eb2f7 100644
          std::vector<interop::float2> textureScales;
          std::vector<uint64_t> hashes;
          std::vector<uint32_t> freeSpaces;
-@@ -142,8 +147,9 @@ namespace RT64 {
+@@ -141,9 +166,12 @@ namespace RT64 {
+         TextureMap();
          ~TextureMap();
          void clearReplacements();
-         void add(uint64_t hash, uint64_t creationFrame, Texture *texture);
+-        void add(uint64_t hash, uint64_t creationFrame, Texture *texture);
 -        void replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted);
 -        bool use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf);
++        // Rush 2 recomp: pinned, the texture stays out of the access list (and so is never evicted) until it is used.
++        void add(uint64_t hash, uint64_t creationFrame, Texture *texture, bool pinned = false);
++        void unpinAll();
 +        void replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted, const ReplacementRegion &region = {});
 +        void unreplace(uint64_t hash, const Texture *texture);
 +        bool use(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex, interop::float2 &textureScale, interop::float3 &textureDimensions, bool &textureReplaced, bool &hasMipmaps, bool &shiftedByHalf, interop::uint2 &texelShift, bool &sourceRegion);
          bool evict(uint64_t submissionFrame, std::vector<uint64_t> &evictedHashes);
          void incrementLock();
          void decrementLock();
-@@ -186,6 +192,18 @@ namespace RT64 {
+@@ -186,6 +214,21 @@ namespace RT64 {
              }
          };
  
@@ -2842,20 +3932,24 @@ index 9131697..f6eb2f7 100644
 +        struct LiveUpload {
 +            uint64_t contentKey = 0;
 +            std::vector<uint8_t> bytes;
++            // Rush 2 recomp: decoded and uploaded by a stream thread before the upload thread takes it (nullptr: the
++            // bytes weren't an image RT64 can load).
++            Texture *texture = nullptr;
 +        };
 +
          struct StreamThread {
              std::unique_ptr<RenderWorker> worker;
              TextureCache *textureCache = nullptr;
-@@ -205,6 +223,7 @@ namespace RT64 {
+@@ -205,6 +248,8 @@ namespace RT64 {
          std::vector<std::unique_ptr<RenderBuffer>> tmemUploadResources;
          std::vector<std::unique_ptr<RenderBuffer>> replacementUploadResources;
          std::vector<std::unique_ptr<TextureDecodeDescriptorSet>> descriptorSets;
 +        std::vector<std::unique_ptr<TextureDecodeDescriptorSet>> mipDescriptorSets;
++        std::vector<TextureUpload> prewarmQueue;    // Rush 2 recomp: under uploadQueueMutex.
          std::mutex uploadQueueMutex;
          std::condition_variable uploadQueueChanged;
          std::condition_variable uploadQueueFinished;
-@@ -229,6 +248,12 @@ namespace RT64 {
+@@ -229,6 +274,13 @@ namespace RT64 {
          std::mutex uploadResourcePoolMutex;
          uint32_t lockCounter;
          bool developerMode;
@@ -2864,11 +3958,12 @@ index 9131697..f6eb2f7 100644
 +        std::unordered_map<uint64_t, ReplacementRegion> liveHashRegions; // Hashes whose region isn't the whole image.
 +        std::unordered_map<uint64_t, LiveContent> liveContents;
 +        std::vector<LiveUpload> liveUploadQueue; // Guarded by uploadQueueMutex.
++        std::deque<LiveUpload> liveLoadQueue;    // Rush 2 recomp: waiting for a stream thread. Guarded by streamDescStackMutex.
 +        std::vector<uint64_t> liveApplyQueue; // Guarded by uploadQueueMutex.
  
          TextureCache(RenderWorker *directWorker, RenderWorker *copyWorker, uint32_t threadCount, const ShaderLibrary *shaderLibrary);
          ~TextureCache();
-@@ -236,10 +261,17 @@ namespace RT64 {
+@@ -236,14 +288,30 @@ namespace RT64 {
          void queueGPUUploadTMEM(uint64_t hash, uint64_t creationFrame, const uint8_t *bytes, int bytesCount, int width, int height, uint32_t tlut, const LoadTile &loadTile, bool decodeTMEM);
          void waitForGPUUploads();
          void addResolvedPaths(uint64_t hash, uint32_t width, uint32_t height, uint32_t tlut, const LoadTile &loadTile, const std::vector<uint8_t> &bytesTMEM, bool decodeTMEM, std::vector<ReplacementResolvedPath> &resolvedPaths, uint64_t exclusiveDbHash = 0);
@@ -2878,6 +3973,10 @@ index 9131697..f6eb2f7 100644
          bool addReplacement(uint64_t hash, const std::string &relativePath, ReplacementShift shift);
          bool hasReplacement(uint64_t hash);
 +        bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, const ReplacementRegion &region);
++        // Rush 2 recomp: texture prewarming (rt64_live_textures.h).
++        void queuePrewarmTMEM(uint64_t hash, std::vector<uint8_t> bytesTMEM, uint16_t width, uint16_t height, uint32_t tlut, const LoadTile &loadTile, bool decodeTMEM);
++        void unpinPrewarmed();
++        bool hasTexture(uint64_t hash);
 +        bool hasLiveReplacementContent(uint64_t contentKey);
 +        void removeLiveReplacement(uint64_t hash);
 +        void clearLiveReplacements();
@@ -2887,6 +3986,15 @@ index 9131697..f6eb2f7 100644
          void clearReplacementDirectories();
          void reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash = 0);
          bool loadReplacementDirectory(const ReplacementDirectory &replacementDirectory);
+         bool loadReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories);
++        // Rush 2 recomp: loadReplacementDirectories in two steps, so the slow one (opening the packs, parsing their
++        // databases, uploading their low mip caches) runs on a thread of its own while the game keeps drawing with the
++        // packs it has. prepare is safe on any thread; apply must be called where loadReplacementDirectories would be.
++        std::unique_ptr<PreparedReplacements> prepareReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories);
++        bool applyReplacementDirectories(std::unique_ptr<PreparedReplacements> prepared, bool waitForPreloads);
+         bool saveReplacementDatabase();
+         void setReplacementDefaultShift(ReplacementShift shift);
+         void setReplacementDefaultOperation(ReplacementOperation shift);
 diff --git a/src/shaders/AmbientOcclusionApplyPS.hlsl b/src/shaders/AmbientOcclusionApplyPS.hlsl
 new file mode 100644
 index 0000000..d593ec5

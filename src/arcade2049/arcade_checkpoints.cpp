@@ -66,7 +66,7 @@ namespace {
     int written_generation = -1;
     bool shown = false;
 
-    // Reads checkpoint.png from the arcade tracks mod (the game's .rtz or the Python tools' loose folder) on a worker,
+    // Reads checkpoint.png from the arcade tracks mod (the game's .rtz or an old Python install's loose folder) on a worker,
     // and publishes the full image for the stand-in.
     void load_image() {
         if (loading.exchange(true)) return;

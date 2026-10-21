@@ -1,5 +1,5 @@
 """Tests the launcher's Locate ROM on a first boot (Windows): opens the file picker, cancels it, picks a file that isn't
-a ROM (the error box), then the Rush 2 ROM, and checks the launcher turns to Start Game. Never touches the player's
+a ROM (the error box), then the Rush 2 ROM, after which the launcher goes straight on to the build pass and the game. Never touches the player's
 data: it runs as a silent simulation in its own empty data folder with the ROM import skipped (RUSH2_TEST_FIRST_BOOT,
 docs/menus.md#launcher-on-a-first-boot). Screenshots and the game's log go to OUT_DIR.
 
@@ -121,5 +121,5 @@ try:
 finally:
     p.terminate()
 
-print('FAILED: ' + ', '.join(failures) if failures else 'OK (check 1_after.png shows Start Game)')
+print('FAILED: ' + ', '.join(failures) if failures else 'OK (check 1_after.png shows the game or the build progress screen, never Start Game)')
 sys.exit(1 if failures else 0)

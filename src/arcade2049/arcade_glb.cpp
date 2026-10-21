@@ -1,5 +1,5 @@
 // A minimal glTF 2.0 binary writer for the arcade converters (src/arcade2049/arcade_internal.h): a port of
-// tools/stock_track_glb.py's Glb, which the Python converters write their mods with.
+// tools/stock_track_glb.py's Glb, which the Python track tools write glbs with.
 
 #include <algorithm>
 #include <cstring>

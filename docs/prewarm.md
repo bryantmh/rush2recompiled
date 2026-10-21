@@ -1,35 +1,69 @@
-# Background builds
+# Launch builds
 
-Everything the game converts from the other games' ROMs and from mods is built off the game thread as soon as the app
-starts (`src/prewarm.cpp`, `include/prewarm.h`), so no menu, car select or race start converts anything. The results
-go into the disk cache (`src/track_cache.cpp`, docs/race_start_hitch.md#converted-track-cache), keyed on the build,
-so after a new build the first launch builds them once, in the background.
+Everything the game converts from the other games' ROMs and from mods is built before the game starts, behind a
+progress screen on the launcher (`src/prewarm.cpp`, `include/prewarm.h`), so the boot only installs and no menu, car
+select or race start converts anything. The results go into the disk cache (`src/track_cache.cpp`,
+docs/race_start_hitch.md#converted-track-cache), keyed on the build, so after a new build or install the first launch
+builds them once.
 
-## What is built, in order
+## What is built
 
-`rush2::prewarm::start` runs from `launcher_init` (src/main.cpp). With a valid ROM the game starts right away, so the
-cars get about a second before the boot (`rush2_heap_init`) installs them:
+`launcher_update` (src/main.cpp) calls `rush2::prewarm::start` once the Rush 2 ROM is valid and starts the game only
+when `rush2::prewarm::ready()`. The pass (`build_pass`) loads the ROM itself (`recomp::load_stored_rom`; the game
+loads it again when it starts) and runs, each on a thread of its own at normal priority:
 
-1. The cars, each on a thread of its own at normal priority:
-   - the Rush 2049 cars and part models of the source in use (`rush2::car2049::prepare`);
-   - California Speed's cars and name logos (`rush2::calspeed::prepare_cars`);
-   - the car mods' plan (`rush2::car_mods::prepare`, below), once `recomp::get_rom` is set.
+- the arcade mods rebuilt when out of date (`rush2::arcade2049::refresh_now`, docs/arcade2049.md), then from what that
+  installs the car mods' plan (`rush2::car_mods::prepare`, below) and the enabled mods' custom tracks
+  (`rush2::track_mod::prepare`, which also keeps their menu art);
+- the Rush 2049 cars and part models of the source in use (`rush2::car2049::prepare`);
+- California Speed's cars and name logos (`rush2::calspeed::prepare_cars`);
+- SF Rush's tracks (`rush2::track1::prepare`, which also keeps their lap times for the records screen's seeds);
+- Rush 2049's races, obstacle course, stunt and battle arenas and California Speed's tracks as its Extended Scenery and
+  Billboard Trees options are set (`rush2::track2049::prepare`);
 
-   The cars' cache entries are read into memory as well (`track_cache::preload_blob`), so the boot only installs them.
-2. Every track, at below-normal priority on two threads: Rush 2049's races, obstacle course, stunt and battle arenas
-   (`rush2::track2049::prepare`), California Speed's as its Extended Scenery and Billboard Trees options are set (same
-   call), SF Rush's (`rush2::track1::prepare`, which also keeps their lap times for the records screen's seeds) and the
-   enabled mods' custom tracks (`rush2::track_mod::prepare`, which also keeps their menu art). A game whose tracks
-   option is off is skipped. An entry already on disk for this build is skipped by its key alone (`has_2049`,
-   `has_rush1`, `has_blob` read only the key); a Dreamcast disc's tracks are keyed on their own files, which are read
-   for it.
-3. Then once a second it looks for changes: another Rush 2049 source or California Speed ROM picked in the Games tab
-   (their cars, which `check_source` / `check_cars` install in the menus), a tracks option turned on, other scenery
-   settings, other enabled mods. Each change builds what it needs.
+then the track select's art container (`prepare_menu_container`). A game whose tracks option is off is skipped. An
+entry already on disk for this build is skipped by its key alone (`has_2049`, `has_rush1`, `has_blob` read only the
+key); a Dreamcast disc's tracks are keyed on their own files, which are read for it.
+
+Measured 2026-10-21 (`tools/test_race.py menus --show`, every game's ROM, five mods): with nothing built and the arcade
+mods out of date the pass took 6.3 s (the arcade rebuild and reinstall about 2.3 s, the custom tracks converted from
+it, Rush 2049's and California Speed's tracks 3.3 s at once with them); with everything built 0.4 s. A ROM that
+doesn't load skips the pass and builds after the boot as before.
+
+After the pass, about once a second in the background: another Rush 2049 source or California Speed ROM picked in
+the Games tab (their cars, which `check_source` / `check_cars` install in the menus), a tracks option turned on, other
+scenery settings, other enabled mods. Each change builds what it needs; the settings have no apply button, so nothing
+waits for it. These builds wait for `rom_image_final` first: the boot grows the ROM image once, freeing the buffer
+the pass read.
 
 At the car select (`rush2::prewarm::frame`, from `rush2_cheats_frame`), the chosen track's cache entries are read into
 memory (`track1::preload`, `track2049::preload`, `calspeed::preload_track`, `track_mod::preload`), so the race start
 reads nothing from the disk.
+
+### The progress screen
+
+The launcher has two faces only: Locate ROM (no valid ROM) and this screen; it never offers Start Game (its button
+keeps the Locate ROM title, and a ROM just located goes straight on to the pass). With a ROM the launcher menu is
+invisible while the pass runs, and `show_build_progress` (src/main.cpp) shows the logo and the bar, with a line under it
+("BUILDING CUSTOM TRACKS"), only once something is being built (`Progress::building`: a track cache lookup missed,
+`track_cache::misses()`, or an arcade mod is rebuilt, `a49::rebuilt()`), never on a timer: a launch with everything
+built shows nothing on any computer (0 misses there, measured). The bar and the buttons stay in the layout and only
+their visibility changes: the menu sits from the bottom, so hiding the buttons outright moved the logo. The fill is positioned absolutely from the track's
+left edge, without overflow clipping on the rounded track (with it only the fill's end was drawn).
+
+`rush2::prewarm::progress()` gives the pass's fraction by time: each job has about how long it takes when it has work
+(`Job::seconds`, replaced by this computer's own time from the last launch it had work, `<config>/track_cache/
+launch_times.txt`), a running job counts for `seconds * (1 - exp(-ran / seconds))` of it (always moving, slower once it
+runs long) and a finished job for the time it took (a job that had everything built drops out). The bar eases toward
+that every frame and never goes back; once the pass is over it runs to the end in about a third of a second before the
+game starts. `RUSH2_TEST_BUILD_SCREEN=S` keeps the screen up S seconds after the pass to look at it.
+
+### Accurate Car Stats ranges
+
+The one build that needs the game running: the car bars' ranges drive the game's physics on the game thread
+(`rush2::car2049::prepare_bars`, a slice a frame). During the boot logos, title screen and attract demo the slice is
+10 ms instead of 6, so after a new build they're done about 4 s into the logos. With 20 ms every logo frame came late
+(54 ms game frames); with 10 ms the launch-to-race run had no game frame over 45 ms.
 
 ## The game and the background on the same entry
 

@@ -20,6 +20,11 @@ The stack walk reads each module's unwind table (`.pdata`) itself and never call
 the loader while a thread is suspended, so it can't deadlock on a lock the suspended thread holds. A 50-second run
 logs about 30 MB. The game behaves the same with it on: a race run with and without it reached the same race clock.
 
+The walk reads only inside the thread's stack (the bounds in its TEB), so it never raises an exception (dispatching one
+takes locks the suspended thread may hold), and modules unloaded since are dropped from its list. A run of 2026-10-21
+stopped logging at 57 s with a background thread left suspended; the scanner thread now resumes any thread the sampler
+has held for more than 100 ms and the log gets a `watchdog` mark for it.
+
 A run from launch to a race, stepping through the track and car selects (shots.py gives the timing; set the car and
 track explicitly):
 
@@ -84,5 +89,38 @@ game thread.
 `--brief` prints one line per busy game or graphics thread per hitch, and `--sym-path DIR` reads a copy of the run's
 exe and PDB (another session's build replaces build/'s, after which a log can't be symbolized).
 
-Still open: the race start's first frame (about 50 ms, almost all `TextureCache::waitForGPUUploads`), texture packs
-loading in the first `send_dl`, the specialized shader compiles on every launch, and the pacing after a hitch.
+`--sends MS` lists every `send_dl` of at least MS ms between `--from` and `--to` (how long RT64 held the gfx thread)
+and their median, p90 and max, for comparing runs. `--timeline S` prints presents and game frames per S-second bucket,
+`--blind MS` the times the sampler itself stalled (a thread it suspended was inside a long kernel call; its samples are
+missing there, so a report of that stretch is incomplete), `--busy` each thread's running samples only.
+
+## Race start textures
+
+The race start's first frames bring hundreds of new textures, and RT64 uploads each one (copies TMEM, decodes it on the
+GPU) before the frame that draws it can go on. Measured 2026-10-21 (`tools/test_race.py`, clean data folder):
+
+| Case | Race start `send_dl` |
+|---|---|
+| Las Vegas (track 0), no texture list | 34-38 ms one frame, 10-14 ms the next |
+| Arcade Alcatraz, second run, no texture list | 30-46 ms for 5 frames |
+| Arcade Alcatraz, second run, with its texture list | at most 11 ms (no hitch) |
+
+Texture prewarming (`src/texture_prewarm.cpp`) is what fixes it: the textures a track's race start uploaded are kept
+per track (`<config>/shader_cache/race_textures_<track>.bin`, recorded through `RT64::TextureUploadObserver`) and handed
+to RT64 again at that track's car select (`RT64::prewarmTexture`, uploaded in batches of 24 behind the game's own),
+so the race finds them in the texture cache. A recorded texture is kept only if it's still in RT64's cache 12 frames
+after its upload (`sift`), which drops one-frame render-to-texture copies RT64 evicts at once. The file header carries
+the `LoadTile` size and RT64's TMEM hash version, so a list from another RT64 version is ignored. Picking the same track
+again without racing doesn't prewarm it a second time.
+
+Tried and taken out (2026-10-21): making RT64's frame never wait for an upload on the GPU. Each batch had its own
+command lists and fence (so a batch never waited for the one before), was published as soon as it was submitted and
+signaled a semaphore the framebuffer worker's next submission waited on; TMEM textures were made ahead and evicted
+decoded textures reused by size. It changed nothing measurable: without a texture list the gfx thread waited about as
+long, on the framebuffer submission's fence instead, because the GPU itself is busy decoding the textures with the
+frame. Racing frames were 6-9 ms `send_dl` with and without it. The upload wait on the CPU isn't the cost to cut.
+
+The specialized shaders RT64 compiles are kept on disk (`rt64_shaders_<format>.bin` in the same folder,
+`RasterShaderCache` in the RT64 patch) and all built at launch, so a race no longer compiles them on first use.
+
+Still open: the pacing after a hitch, and a track's first race (no texture list yet).

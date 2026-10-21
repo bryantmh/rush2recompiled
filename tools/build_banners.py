@@ -12,12 +12,17 @@ game draws the banner with its exact colors instead (the full-color image, also 
 in the renderer: rush2::upscale::add_exact_image), so the quantizing only shows if that replacement is missing.
 
   python tools/build_banners.py [--preview DIR]     (--preview also saves every banner as DIR/<game>_trackN.png)
-  python tools/build_banners.py --arcade             (only the arcade tracks' logos, below)
+  python tools/build_banners.py --arcade             (only the arcade tracks' pictures, below)
 
---arcade writes assets/arcade2049/<id>_logo.png, the Rush 2049 arcade versions of the six race tracks (src/arcade2049,
-docs/arcade2049.md): each the N64 track's own banner with " A" after it. A name drawn with the font is drawn again as
-"<NAME> A"; a picture banner (tools/rush2049/banners/trackN_*.png) is kept, narrowed by the columns the "A" of
-"<NAME> A" takes (as many columns dropped evenly), with that "A" put after it.
+--arcade writes the pictures the game's Rush 2049 arcade track mod ships (assets/arcade2049/, src/arcade2049,
+docs/arcade2049.md):
+  - <id>_logo.png for the arcade versions of the six race tracks: each the N64 track's own banner with " A" after it.
+    A name drawn with the font is drawn again as "<NAME> A"; a picture banner (tools/rush2049/banners/trackN_*.png) is
+    kept, narrowed by the columns the "A" of "<NAME> A" takes (as many columns dropped evenly), with that "A" put
+    after it.
+  - alcatraz_logo.png: the plain name in Rush 2049's lettering (banner_font.render_fit: a wider canvas, not smaller
+    letters).
+  - <id>_preview.png: each tools/arcade2049/previews/<id>.png (in-game screenshots) cut round (round_preview).
 
 Writes include/track1_banners.h and include/track2049_banners.h.
 """
@@ -159,6 +164,29 @@ def arcade_logos():
         out = os.path.join(ROOT, "assets", "arcade2049", track_id + "_logo.png")
         im.save(out)
         print("Wrote", os.path.relpath(out, ROOT))
+    out = os.path.join(ROOT, "assets", "arcade2049", "alcatraz_logo.png")
+    banner_font.render_fit("Alcatraz", "rush2049").convert("RGBA").save(out)
+    print("Wrote", os.path.relpath(out, ROOT))
+    previews = os.path.join(ROOT, "tools", "arcade2049", "previews")
+    for name in sorted(os.listdir(previews)):
+        if name.endswith(".png"):
+            out = os.path.join(ROOT, "assets", "arcade2049", name[:-4] + "_preview.png")
+            round_preview(os.path.join(previews, name)).save(out)
+            print("Wrote", os.path.relpath(out, ROOT))
+
+
+def round_preview(path):
+    """A track select picture cut like Rush 2049's own (its TPIC thumbnails): the middle square of the image at
+    128 x 128, inside a disc of radius 62 centered on (63.5, 64.5) with hard edges, clear outside. That disc matches
+    every 2049 TPIC's alpha exactly."""
+    im = Image.open(path).convert("RGBA")
+    s = min(im.size)
+    x0, y0 = (im.width - s) // 2, (im.height - s) // 2
+    im = im.crop((x0, y0, x0 + s, y0 + s)).resize((128, 128), Image.LANCZOS)
+    alpha = Image.new("L", (128, 128))
+    alpha.putdata([255 if (x - 63.5) ** 2 + (y - 64.5) ** 2 <= 62 ** 2 else 0 for y in range(128) for x in range(128)])
+    im.putalpha(alpha)
+    return im
 
 
 if __name__ == "__main__":

@@ -49,6 +49,34 @@ index 37556bd..f39a56d 100644
          void close_mods();
          std::filesystem::path get_mods_directory();
          std::optional<ModDetails> get_details_for_mod(const std::string& mod_id);
+diff --git a/librecomp/src/config.cpp b/librecomp/src/config.cpp
+index 6bc03fd..d37284a 100644
+--- a/librecomp/src/config.cpp
++++ b/librecomp/src/config.cpp
+@@ -462,12 +462,19 @@ void Config::derive_all_config_option_dependencies() {
+ }
+ 
+ ConfigValueVariant Config::parse_config_option_json_value(const nlohmann::json& json_value, const ConfigOption &option) {
+-    if (json_parse_option_map.contains(option.id)) {
+-        return json_parse_option_map[option.id](json_value);
+-    }
+-
+     bool is_null = json_value.is_null();
+ 
++    // A custom parser gets the stored value; a missing one, or one it can't read, takes the option's default below
++    // (a graphics.json without ds_option made the downsampling parser throw and the game quit at startup).
++    if (!is_null && json_parse_option_map.contains(option.id)) {
++        try {
++            return json_parse_option_map[option.id](json_value);
++        }
++        catch (const nlohmann::json::exception&) {
++        }
++        is_null = true;
++    }
++
+     switch (option.type) {
+         case ConfigOptionType::None:
+         default: {
 diff --git a/librecomp/src/mod_manifest.cpp b/librecomp/src/mod_manifest.cpp
 index 71560eb..fe5783d 100644
 --- a/librecomp/src/mod_manifest.cpp

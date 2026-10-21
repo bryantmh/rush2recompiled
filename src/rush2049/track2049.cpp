@@ -42,6 +42,7 @@
 
 
 #include <mutex>
+#include <random>
 #include <set>
 #include <string>
 #include <vector>
@@ -102,6 +103,7 @@ namespace {
     int slot = host_slot;              // The slot `track` is applied to.
     std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
     std::atomic_bool applied_road_hold = false; // A custom track whose track.toml asks for road_hold is applied.
+    std::atomic_bool applied_random_song = false; // A custom track without [audio] music is applied.
     std::atomic_bool applied_smooth = false;    // A custom track racing with smooth collision is applied.
     std::atomic_bool applied_p2p = false;       // A point-to-point custom track is applied.
     std::atomic<float> applied_smooth_fold = 20.0f; // Its fold angle (degrees).
@@ -291,6 +293,12 @@ namespace {
         }
     }
 
+    // Whether the custom track's [audio] music names a song: "track1".."track8".
+    bool mod_song_set() {
+        const std::string& m = mod_settings.music;
+        return m.size() == 6 && m.compare(0, 5, "track") == 0 && m[5] >= '1' && m[5] <= '8';
+    }
+
     void apply(uint8_t* rdram) {
         if (!applied) {
             save_tables(rdram);
@@ -324,11 +332,18 @@ namespace {
             MEM_W(0, (int32_t)(sky_parallax + slot * 4)) = (int32_t)cs_track.sky_parallax;
         }
         else if (is_mod_k(loaded_track)) {
-            // music = "track1".."track8": Rush 2's songs by their track select order; anything else keeps the host's.
-            const std::string& m = mod_settings.music;
-            if (m.size() == 6 && m.compare(0, 5, "track") == 0 && m[5] >= '1' && m[5] <= '8') {
-                MEM_H(0, (int32_t)(songs + slot * 2)) = int16_t(m[5] - '1');
+            // music = "track1".."track8": Rush 2's songs by their track select order. Without one src/music.cpp plays
+            // a random song of every one the player switched on (mod_random_song); the slot gets a random one of
+            // Rush 2's for when it leaves the song to the game, never the host's.
+            int16_t song;
+            if (mod_song_set()) {
+                song = int16_t(mod_settings.music[5] - '1');
             }
+            else {
+                static std::mt19937 rng{ std::random_device{}() };
+                song = int16_t(std::uniform_int_distribution<int>(0, 7)(rng));
+            }
+            MEM_H(0, (int32_t)(songs + slot * 2)) = song;
             uint32_t bits;
             memcpy(&bits, &mod_settings.cloud_scroll, 4);
             MEM_W(0, (int32_t)(cloud_scroll + slot * 4)) = bits;
@@ -369,6 +384,7 @@ namespace {
         applied = true;
         applied_slot = slot;
         applied_road_hold = is_mod_k(loaded_track) && mod_settings.road_hold;
+        applied_random_song = is_mod_k(loaded_track) && !mod_song_set();
         applied_smooth = is_mod_k(loaded_track) && mod_settings.smooth_collision;
         applied_p2p = is_mod_k(loaded_track) && mod_settings.point_to_point && !rush2::track_mod::is_arena(mod_settings);
         applied_smooth_fold = mod_settings.smooth_fold;
@@ -401,6 +417,7 @@ namespace {
         applied = false;
         applied_slot = -1;
         applied_road_hold = false;
+        applied_random_song = false;
         applied_smooth = false;
         applied_p2p = false;
     }
@@ -460,6 +477,11 @@ bool rush2::track2049::mod_smooth_collision(uint8_t* rdram, float* fold) {
     if (!applied_smooth || s < 0 || MEM_B(0, (int32_t)track_id) != s) return false;
     if (fold) *fold = applied_smooth_fold;
     return true;
+}
+
+bool rush2::track2049::mod_random_song(uint8_t* rdram) {
+    int s = applied_slot;
+    return applied_random_song && s >= 0 && MEM_B(0, (int32_t)track_id) == s;
 }
 
 bool rush2::track2049::mod_point_to_point(uint8_t* rdram) {
@@ -599,7 +621,11 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
                 race_logo.clear();
             }
         }
-        else if (k >= mod_k || rom == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
+        else if (k >= mod_k) {
+            // The custom track's [menu] logo, so its race and post-race screens never show the host's.
+            if (!rush2::track2049::mod_race_logo(rdram, k - mod_k, 4 + slot, race_logo)) race_logo.clear();
+        }
+        else if (rom == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
             !rush2::track2049::build_race_logo(logo, *rom, k, race_logo)) {
             race_logo.clear();
         }

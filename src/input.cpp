@@ -393,6 +393,11 @@ namespace {
     }
 
     void update_port_assignments() {
+        // Skipped while the main thread holds the lock: it holds it while it pumps the window's events, which goes on
+        // for as long as the window is dragged or resized (Windows runs its own message loop inside the pump), and the
+        // game's frame waits on the controller read that runs this. The ports stay as they are until the next frame.
+        std::unique_lock device_lock{ rush2::input::sdl_device_mutex(), std::try_to_lock };
+        if (!device_lock.owns_lock()) return;
         std::vector<rush2::input::DisabledController> disabled;
         bool keyboard_on;
         {

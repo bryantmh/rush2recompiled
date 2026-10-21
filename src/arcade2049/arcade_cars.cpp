@@ -1,7 +1,10 @@
-// Converts the Rush 2049 arcade (SE) cars into a car mod (docs/car_mods.md#new-cars, #liveries): a port of
-// tools/arcade2049/car_mod.py, whose comments give the reasons for its tables (docs/arcade2049.md#cars). The Truck,
-// Deuce and Caddy become new cars, every color scheme a STYLE; five arcade schemes become liveries of Rush 2049's
-// N64 cars.
+// Converts the Rush 2049 arcade (SE) cars into a car mod (docs/car_mods.md#new-cars, #liveries; the arcade's formats:
+// docs/arcade2049.md#cars). The Truck, Deuce and Caddy become new cars, every color scheme (CARS/CARn/COLn: whole
+// liveries with their own texture sets and parts) a STYLE; five arcade schemes become liveries of Rush 2049's N64
+// cars. Per scheme: the body's full-detail LOD (CARBODY LOD 0) in the model dump's space (1/16 ft, x negated), one
+// material per arcade texture, drawn as authored (no paint mask: each scheme keeps the arcade's colors), and its
+// hood camera hood (HOOD, as Rush 2049's N64 cars draw theirs). The brake lights (BRAKE) and the wheels (Rush 2's
+// are drawn) are left out.
 
 #include <algorithm>
 #include <cmath>
@@ -22,6 +25,9 @@ namespace {
         const char* name;
         const char* base;    // the Rush 2 car it drives as (physics, engine sound, options)
     };
+    // Each drives as the Rush 2 car of its kind. The arcade can't tell them apart: it gives every car one physics
+    // descriptor (docs/arcade2049.md#car-physics), so its values made the Deuce and the Caddy drive alike, and harder
+    // than any stock car.
     const NewCar new_cars[] = {
         { "CAR8", "TRUCK", "TRUCK", "PICKUP" },
         { "CAR10", "DEUCE", "DEUCE", "HOTROD" },
@@ -29,7 +35,9 @@ namespace {
     };
 
     // Arcade color schemes as liveries of Rush 2049 (N64) cars: the arcade folder, its COL folders, and how far
-    // forward (ft) the arcade body moves to sit on the N64 car's wheels.
+    // forward (ft) the N64 car's wheels sit from the arcade's (the center of its descriptor's wheel points: the
+    // Bruiser's 0x80110984, 4.425 / -3.425; the others' 0x801108D0, the arcade's own). The arcade body moves by that,
+    // so it sits on the N64 car's wheels (a side and top silhouette fit agrees).
     struct Livery {
         const char* car;
         const char* folder;
@@ -44,14 +52,20 @@ namespace {
         { "BRUISER", "CAR7", { 1, 2, 3, 5, 6, 7, 8 }, 0.5 },
     };
 
-    // The arcade's wheels, the same for every car: right wheels at x 2.75, front z 3.925 / rear z -3.925, drawn
-    // centers 0.2 / 0.25 ft above the origin, the wheel model at 1.08.
+    // The arcade's wheels, the same for every car (docs/arcade2049.md#cars: its one car descriptor's wheel block,
+    // copied into each race car, and its WBLUR wheels placed there): right wheels at x 2.75, front z 3.925 / rear z
+    // -3.925, 0.8 / 0.75 ft below the body's origin (Rush 2's descriptor: y -0.8 / -0.75, the drawn center 1 ft
+    // higher, so 0.2 / 0.25 above). Every arcade wheel is 1.01 ft round (WHEEL), so the wheel model (15/16 ft at
+    // scale 1) is drawn at 1.08.
     constexpr double front[2] = { 2.75, 3.925 }, rear[2] = { 2.75, -3.925 };
     constexpr double wheel_y[2] = { 0.2, 0.25 };
     constexpr double wheel_scale = 1.08;
     constexpr double units = 16.0;     // vertex units per foot (the model dump's space)
 
-    // The arcade's collision boxes by car index (CARn - 1): front, rear, half width, height (the N64's 3.5 is kept).
+    // The arcade's collision boxes (project-r.exe VA 0x140664130, 12 x {front, rear, half width, height}, by car
+    // index = CARn - 1; docs/arcade2049.md#car-physics). Height: the N64 port of this code gives every car 3.5 ft; the
+    // arcade's table has 2 for all (and its drone box, VA 0x1406EF824), which isn't checked against Rush 2's box use,
+    // so the N64's is kept.
     constexpr double arcade_box[12][3] = { { 5.75, 6.5, 3 }, { 6.29, 6.58, 2.9 }, { 6.05, 6.65, 2.9 }, { 6.25, 5.75, 3 },
                                            { 6.44, 6.64, 3 }, { 6.25, 6.75, 3 }, { 5.75, 6, 3 }, { 6.7, 6.97, 2.8 },
                                            { 6.25, 6, 3 }, { 6.75, 7, 3 }, { 6.5, 6.5, 3 }, { 6.25, 5.5, 3 } };

@@ -58,18 +58,32 @@ index 30c463b..056edff 100644
      void set_render_hooks();
  
 diff --git a/recompui/include/recompui/renderer.h b/recompui/include/recompui/renderer.h
-index 33f79ab..3e6423c 100644
+index 33f79ab..da88c33 100644
 --- a/recompui/include/recompui/renderer.h
 +++ b/recompui/include/recompui/renderer.h
-@@ -37,6 +37,7 @@ namespace recompui {
+@@ -2,6 +2,7 @@
+ 
+ #include <unordered_set>
+ #include <filesystem>
++#include <memory>
+ 
+ #include "common/rt64_user_configuration.h"
+ #include "ultramodern/renderer_context.hpp"
+@@ -37,7 +38,13 @@ namespace recompui {
              std::unique_ptr<RT64::Application> app;
              std::unordered_set<std::string> enabled_texture_packs;
              std::unordered_set<std::string> secondary_disabled_texture_packs;
 +            std::filesystem::path generated_texture_pack;
              uint32_t last_refresh_rate = 0;
++            // Rush 2 recomp: texture packs are opened on a thread of their own and swapped in once ready
++            // (check_texture_pack_actions), so loading them never holds up a frame.
++            struct PackLoad;
++            std::unique_ptr<PackLoad> pack_load;
++            bool packs_dirty = false;
  
              void check_texture_pack_actions();
-@@ -55,6 +56,11 @@ namespace recompui {
+             void check_refresh_rate_changes();
+@@ -55,6 +62,11 @@ namespace recompui {
          void secondary_enable_texture_pack(const std::string& mod_id);
          void secondary_disable_texture_pack(const std::string& mod_id);
  
@@ -884,10 +898,16 @@ index 4d8c41e..24f94c7 100644
          virtual ~Slider();
          void set_value(double v);
 diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
-index a7954c7..a3edb30 100644
+index a7954c7..8d6f871 100644
 --- a/recompui/src/renderer/rt64_render_context.cpp
 +++ b/recompui/src/renderer/rt64_render_context.cpp
-@@ -43,7 +43,11 @@ struct TexturePackSecondaryDisableAction {
+@@ -1,3 +1,5 @@
++#include <atomic>
++#include <thread>
+ #include <memory>
+ #include <cstring>
+ #include <variant>
+@@ -43,7 +45,11 @@ struct TexturePackSecondaryDisableAction {
  struct TexturePackUpdateAction {
  };
  
@@ -900,7 +920,7 @@ index a7954c7..a3edb30 100644
  
  static moodycamel::ConcurrentQueue<TexturePackAction> texture_pack_action_queue;
  
-@@ -109,6 +113,8 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
+@@ -109,6 +115,8 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
              return RT64::UserConfiguration::RefreshRate::Display;
          case ultramodern::renderer::RefreshRate::Manual:
              return RT64::UserConfiguration::RefreshRate::Manual;
@@ -909,7 +929,27 @@ index a7954c7..a3edb30 100644
          case ultramodern::renderer::RefreshRate::OptionCount:
              return RT64::UserConfiguration::RefreshRate::OptionCount;
      }
-@@ -442,6 +448,10 @@ void renderer::RT64Context::check_texture_pack_actions() {
+@@ -335,6 +343,19 @@ renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::Window
+     high_precision_fb_enabled = app->shaderLibrary->usesHDR;
+ }
+ 
++// Rush 2 recomp: a texture pack load running on its own thread (RT64::TextureCache::prepareReplacementDirectories).
++struct renderer::RT64Context::PackLoad {
++    std::thread thread;
++    std::atomic<bool> done = false;
++    std::unique_ptr<RT64::PreparedReplacements> result;
++
++    ~PackLoad() {
++        if (thread.joinable()) {
++            thread.join();
++        }
++    }
++};
++
+ renderer::RT64Context::~RT64Context() = default;
+ 
+ void renderer::RT64Context::send_dl(const OSTask* task) {
+@@ -442,12 +463,29 @@ void renderer::RT64Context::check_texture_pack_actions() {
              },
              [&](TexturePackUpdateAction &) {
                  packs_changed = true;
@@ -920,7 +960,27 @@ index a7954c7..a3edb30 100644
              }
          }, cur_action);
      }
-@@ -465,7 +475,11 @@ void renderer::RT64Context::check_texture_pack_actions() {
+ 
+-    // If any packs were disabled, unload all packs and load all the active ones.
+     if (packs_changed) {
++        packs_dirty = true;
++    }
++
++    // Rush 2 recomp: swap in the packs a finished load opened. The packs in use stay until then.
++    if (pack_load != nullptr && pack_load->done) {
++        pack_load->thread.join();
++        app->textureCache->applyReplacementDirectories(std::move(pack_load->result), false);
++        pack_load.reset();
++    }
++
++    // If any packs were disabled, unload all packs and load all the active ones (Rush 2 recomp: on a thread of their
++    // own, one load at a time; changes made meanwhile start the next).
++    if (packs_dirty && pack_load == nullptr) {
++        packs_dirty = false;
+         // Sort the enabled texture packs in reverse order so that earlier ones override later ones.
+         std::vector<std::string> sorted_texture_packs{};
+         sorted_texture_packs.reserve(enabled_texture_packs.size());
+@@ -465,13 +503,23 @@ void renderer::RT64Context::check_texture_pack_actions() {
  
          // Build the path list from the sorted mod list.
          std::vector<RT64::ReplacementDirectory> replacement_directories;
@@ -933,7 +993,20 @@ index a7954c7..a3edb30 100644
          for (const std::string &mod_id : sorted_texture_packs) {
              replacement_directories.emplace_back(RT64::ReplacementDirectory(recomp::mods::get_mod_filename(mod_id)));
          }
-@@ -557,6 +571,10 @@ void renderer::secondary_enable_texture_pack(const std::string& mod_id) {
+ 
+         if (!replacement_directories.empty()) {
+-            app->textureCache->loadReplacementDirectories(replacement_directories);
++            pack_load = std::make_unique<PackLoad>();
++            PackLoad* load = pack_load.get();
++            RT64::TextureCache* cache = app->textureCache.get();
++            load->thread = std::thread([load, cache, dirs = std::move(replacement_directories)] {
++                load->result = cache->prepareReplacementDirectories(dirs);
++                load->done = true;
++            });
+         }
+         else {
+             app->textureCache->clearReplacementDirectories();
+@@ -557,6 +605,10 @@ void renderer::secondary_enable_texture_pack(const std::string& mod_id) {
      texture_pack_action_queue.enqueue(TexturePackSecondaryEnableAction{mod_id});
  }
  

@@ -1,6 +1,5 @@
-// Converts a Rush 2049 race track into the files of a Rush 2 track slot. This is the C++ port of the prototype in
-// tools/rush2049 (track.py and the parts of model.py, placement.py, collision.py and paths.py it calls) and gives
-// byte-identical output. Format details and evidence are in docs/rush2049_research (geometry.md, placement.md,
+// Converts a Rush 2049 race track into the files of a Rush 2 track slot. It began as a port of a Python prototype
+// (removed 2026-10-20; tools/rush2049/cpp_test checks its output with the Rush 2 format validators). Format details and evidence are in docs/rush2049_research (geometry.md, placement.md,
 // collision.md, race.md). All data is big-endian. 2049 track k (= 2049 track id + 1: race tracks 1-6, stunt arenas
 // 15-18, obstacle course 19, battle arenas DM1-8 7-14) uses these 2049 files:
 //
@@ -2182,7 +2181,7 @@ namespace {
         }
     }
 
-    // The floors of a Rush 2049 collision file over and under points (paths.floor_heights): each upward-facing,
+    // The floors of a Rush 2049 collision file over and under points: each upward-facing,
     // non-wall polygon as a fan of triangles, with its x/z bounds. A polygon's vertex 0 is its world origin and the
     // rest are in its local frame, whose axes are the rows of its matrix (row 1 is the normal).
     struct FloorTriangle {
@@ -2308,7 +2307,7 @@ namespace {
         return out;
     }
 
-    // A stunt arena's path (paths.spine_lanes). Rush 2 starts a stunt race at spine point 0, facing point 1, at the
+    // A stunt arena's path. Rush 2 starts a stunt race at spine point 0, facing point 1, at the
     // spine's height (func_800A34A8), and puts a crashed car back on the nearest point of its lanes (func_80090A40).
     // The arenas' spines lie on their floors already; as a safeguard each spine point is put on the highest floor
     // under it (up to floor_slack above), or failing that on the lowest floor at most floor_reach above it, rounded

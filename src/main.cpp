@@ -16,6 +16,7 @@
 #include "nfd.h"
 #include "texture_census.h"
 #include "texture_derive.h"
+#include "render/rt64_raster_shader_cache.h"
 
 #include "ultramodern/ultra64.h"
 #include "ultramodern/ultramodern.hpp"
@@ -550,11 +551,93 @@ static bool get_game_input(int controller_num, uint16_t* buttons, float* x, floa
     return ret;
 }
 
+// The launcher's progress screen for the launch's build pass (rush2::prewarm): a bar with a line under it saying what
+// is being built, in place of the launcher's buttons, under the logo. While the pass runs the launcher shows nothing
+// (its buttons are for locating a ROM), and the screen comes up only once something is being built (a cache lookup
+// missed, an arcade mod is rebuilt: Progress::building), so a launch with everything built goes straight to the game
+// on any computer.
+namespace {
+    recompui::Element* launcher_menu = nullptr;
+    recompui::Element* build_screen = nullptr;
+    recompui::Label* build_label = nullptr;
+    recompui::Element* build_fill = nullptr;
+    std::vector<recompui::Element*> launcher_buttons;
+
+    void add_build_screen(recompui::Element* parent) {
+        using namespace recompui;
+        ContextId context = get_current_context();
+        build_screen = context.create_element<Element>(parent, 0, "div", false);
+        // In the layout from the start, only invisible, and the buttons only made invisible when it shows: the menu
+        // sits from the bottom, so a change of its height would move the logo.
+        build_screen->set_visibility(Visibility::Hidden);
+        build_screen->set_flex_direction(FlexDirection::Column);
+        build_screen->set_align_items(AlignItems::Center);
+        build_screen->set_width(640.0f);
+        build_screen->set_margin_left_auto();
+        build_screen->set_margin_right_auto();
+        Element* track = context.create_element<Element>(build_screen, 0, "div", false);
+        track->set_width(100.0f, Unit::Percent);
+        track->set_height(14.0f);
+        track->set_border_radius(7.0f);
+        track->set_background_color(theme::color::TextA20);
+        track->set_position(Position::Relative);
+        // Pinned to the track's left edge. No overflow clipping on the track: with its rounded corners only the end of the
+        // fill showed.
+        build_fill = context.create_element<Element>(track, 0, "div", false);
+        build_fill->set_position(Position::Absolute);
+        build_fill->set_left(0.0f);
+        build_fill->set_top(0.0f);
+        build_fill->set_width(0.0f, Unit::Percent);
+        build_fill->set_height(100.0f, Unit::Percent);
+        build_fill->set_border_radius(7.0f);
+        build_fill->set_background_color(theme::color::Primary);
+        build_label = context.create_element<Label>(build_screen, "", theme::Typography::LabelSM);
+        build_label->set_text_transform(TextTransform::Uppercase);
+        build_label->set_color(theme::color::Text);
+        build_label->set_text_align(TextAlign::Center);
+        build_label->set_margin_top(12.0f);
+    }
+
+    float build_filled = 0.0f;   // the bar's fill as drawn, 0-1
+
+    // Updates the progress screen; true once the game can start: the pass is over and, if the screen came up, its bar
+    // has run to the end.
+    bool show_build_progress(bool ready) {
+        using namespace recompui;
+        static bool hidden = false, shown = false;
+        if (build_screen == nullptr) return ready;
+        if (!hidden) {
+            hidden = true;   // a ROM located just now: its buttons go
+            launcher_menu->set_visibility(Visibility::Hidden);
+        }
+        rush2::prewarm::Progress p = rush2::prewarm::progress();
+        if (!shown && !p.building) return ready;
+        if (!shown) {
+            shown = true;
+            for (Element* b : launcher_buttons) b->set_visibility(Visibility::Hidden);
+            launcher_menu->set_visibility(Visibility::Visible);
+            build_screen->set_visibility(Visibility::Visible);
+        }
+        static std::string text;
+        std::string now = !p.job.empty() ? "Building " + p.job : p.finished ? "Starting" : "Getting ready";
+        if (now != text) {
+            text = now;
+            build_label->set_text(text);
+        }
+        // Eased toward the pass's progress every frame, never back, so the bar moves smoothly left to right; once the
+        // pass is over it runs to the end quickly.
+        float target = ready || p.finished ? 1.0f : p.fraction;
+        if (target > build_filled) {
+            float step = ready ? std::max(0.03f, (target - build_filled) * 0.18f) : std::max(0.004f, (target - build_filled) * 0.12f);
+            build_filled = std::min(target, build_filled + step);
+            build_fill->set_width(100.0f * build_filled, Unit::Percent);
+        }
+        return ready && build_filled >= 1.0f;
+    }
+}
+
 static void launcher_init(recompui::LauncherMenu* menu) {
     rush2::online::game::init_overlay();
-    rush2::arcade2049::start_refresh();
-    // The cars, then every track, converted in the background ahead of the boot and the races (src/prewarm.cpp).
-    rush2::prewarm::start();
     const recomp::GameEntry& game = supported_games[0];
     auto game_options_menu = menu->init_game_options_menu(game.game_id, game.mod_game_id, game.display_name,
                                                           game.thumbnail_bytes, recompui::GameOptionsMenuLayout::Center);
@@ -575,15 +658,42 @@ static void launcher_init(recompui::LauncherMenu* menu) {
         menu->remove_default_title();
         game_options_menu->set_bottom(12.0f, recompui::Unit::Percent);
     }
-    game_options_menu->add_start_game_or_load_rom_option("Locate ROM", "Start Game");
-    game_options_menu->add_exit_option();
+    add_build_screen(game_options_menu);
+    launcher_menu = game_options_menu;
+    // With a valid ROM the game starts once the build pass is over: the menu isn't shown meanwhile.
+    std::u8string game_id = game.game_id;
+    if (recomp::is_rom_valid(game_id)) game_options_menu->set_visibility(recompui::Visibility::Hidden);
+    // Never Start Game: with a ROM the launcher starts the game itself (launcher_update).
+    launcher_buttons.push_back(game_options_menu->add_start_game_or_load_rom_option("Locate ROM", "Locate ROM"));
+    launcher_buttons.push_back(game_options_menu->add_exit_option());
 }
 
 static void launcher_update(recompui::LauncherMenu*) {
     static bool started = false;
     const recomp::GameEntry& game = supported_games[0];
     std::u8string game_id = game.game_id;
-    if (started || !recomp::is_rom_valid(game_id)) {
+    if (started) {
+        return;
+    }
+    // The ROM Locate ROM just stored: librecomp marks a ROM valid only when it checks the stored ones, so they're checked
+    // again once the file is there, and the launcher goes straight on to the build pass and the game (it never offers
+    // Start Game).
+    if (!recomp::is_rom_valid(game_id)) {
+        static std::filesystem::file_time_type checked{};
+        std::error_code ec;
+        auto written = std::filesystem::last_write_time(recomp::get_config_path() / game.stored_filename(), ec);
+        if (ec || written == checked) {
+            return;
+        }
+        checked = written;
+        recomp::check_all_stored_roms();
+        if (!recomp::is_rom_valid(game_id)) {
+            return;
+        }
+    }
+    // Every car and track is built before the game starts (src/prewarm.cpp).
+    rush2::prewarm::start(game_id);
+    if (!show_build_progress(rush2::prewarm::ready())) {
         return;
     }
     started = true;
@@ -715,6 +825,8 @@ int main(int argc, char** argv) {
     ultramodern::renderer::callbacks_t renderer_callbacks{
         .create_render_context = [](uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode) {
             rush2::census::set_rdram(rdram);
+            // RT64 keeps every specialized shader it compiles here and builds them all at launch (docs/hitch_profiler.md).
+            RT64::RasterShaderCache::setDiskCacheDirectory(recomp::get_config_path() / "shader_cache");
             auto presentation_mode = ultramodern::renderer::PresentationMode::PresentEarly;
             return recompui::renderer::create_render_context(rdram, window_handle, presentation_mode, developer_mode);
         },

@@ -319,7 +319,7 @@ like = "dirt"
 drag = 14
 
 [audio]
-music = "track5"           # default song: "track1" to "track8"; players can still change it
+music = "track5"           # default song: "track1" to "track8" (left out: each race a random one of every song, any game's, switched on in the Sound tab); players can still change it
 
 [menu]
 logo    = "logo.png"
@@ -991,7 +991,7 @@ merges and renames as needed.
   from the walls, see-through cracks, shaking); jumping at the segment's end, the frames' float timers drifted enough
   for a game frame to show two frames or none. A frame shown after being hidden has no matrix group in RT64's previous
   frame, so it was drawn unblended for a game frame while the camera (whose position is in every node's matrix) was
-  blended, and it shook at every step: a book's frames share one pivot (`tools/arcade2049/track_mod.py`), and
+  blended, and it shook at every step: a book's frames share one pivot (`src/arcade2049/arcade_track.cpp`), and
   `track2049_movers.cpp` setup gives the nodes of frames on one pivot one interpolation ID
   (`rush2::interpolation_node_alias`, `src/interpolation.cpp`), so the frame shown pairs with the one it replaces,
   whose matrix is the same. `tools/rush2049/cpp_test/movers_test.cpp --custom <mover_paths.bin>` checks a converted

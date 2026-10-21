@@ -1,11 +1,9 @@
-// Standalone test of src/rush2049/track2049_convert.cpp: converts Rush 2049 race tracks 1-6 for Rush 2 slot 2 (HAWAII), with
-// static_paths on and off, writes the files track.py writes and compares them byte for byte with the Python output.
+// Standalone test of src/rush2049/track2049_convert.cpp: converts Rush 2049 race tracks 1-6 for Rush 2 slot 2
+// (HAWAII), the battle and stunt arenas for slot 11 (STUNT1, which hosts both in the game) and the obstacle course for
+// slot 2, with static_paths on and off, and writes the files to tools/rush2049/cpp_test/out/{static,nostatic}/<track>.
+// build.bat then checks every folder with the Rush 2 format validators (tools/track_mod_check.py --stock).
 //
 //     out\track2049_test.exe [repo root]       (build.bat builds it and runs it from the repo root)
-//
-// References: tools/rush2049/out/trackN (python track.py) for static_paths on, and
-// tools/rush2049/cpp_test/out/ref_nostatic/trackN (python tools/rush2049/cpp_test/make_ref.py) for off.
-// C++ output goes to tools/rush2049/cpp_test/out/{static,nostatic}/trackN.
 // ROMs: RUSH2049_ROM (default %LOCALAPPDATA%\Rush2Recompiled\rush2049.z64) and RUSH2_ROM (default
 // <repo>/rush2.us.recomp.z64, which has Rush 2's main code uncompressed at 0x01000000 for the asset table).
 
@@ -35,26 +33,6 @@ namespace {
     void write_file(const fs::path& path, const std::vector<uint8_t>& data) {
         std::ofstream f(path, std::ios::binary);
         f.write((const char*)data.data(), (std::streamsize)data.size());
-    }
-
-    // Compares one file with its reference; prints and returns false on a difference.
-    bool compare(const fs::path& mine, const fs::path& ref) {
-        std::vector<uint8_t> a, b;
-        if (!read_file(ref, b)) {
-            printf("    %s: no reference %s\n", mine.filename().string().c_str(), ref.string().c_str());
-            return false;
-        }
-        read_file(mine, a);
-        if (a == b) {
-            return true;
-        }
-        size_t i = 0;
-        while (i < a.size() && i < b.size() && a[i] == b[i]) {
-            i++;
-        }
-        printf("    %s DIFFERS: size 0x%zX vs 0x%zX, first difference at 0x%zX\n", mine.filename().string().c_str(),
-               a.size(), b.size(), i);
-        return false;
     }
 
     uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
@@ -87,9 +65,12 @@ int main(int argc, char** argv) {
     printf("Rush 2 shared models: %zu\n", shared.size());
 
     fs::path test_dir = repo / "tools" / "rush2049" / "cpp_test" / "out";
-    int matched = 0, total = 0;
+    int converted = 0, total = 0;
     for (bool static_paths : { true, false }) {
         std::vector<int> ks = { 1, 2, 3, 4, 5, 6 };
+        for (int n = 0; n < rush2::track2049::battle_count; n++) {
+            ks.push_back(rush2::track2049::battle_first + n);
+        }
         for (int n = 0; n < rush2::track2049::stunt_count; n++) {
             ks.push_back(rush2::track2049::stunt_first + n);
         }
@@ -97,17 +78,19 @@ int main(int argc, char** argv) {
         for (int k : ks) {
             bool obstacle = k == rush2::track2049::obstacle;
             bool stunt = k >= rush2::track2049::stunt_first && !obstacle;
+            bool battle = k >= rush2::track2049::battle_first && k < rush2::track2049::battle_first + rush2::track2049::battle_count;
             std::string track = obstacle ? "obstacle"
                               : stunt ? "stunt" + std::to_string(k - rush2::track2049::stunt_first + 1)
+                              : battle ? "battle" + std::to_string(k - rush2::track2049::battle_first + 1)
                                       : "track" + std::to_string(k);
-            fs::path dir = test_dir / (static_paths ? "static" : "nostatic") / track;
-            fs::path ref = static_paths ? repo / "tools" / "rush2049" / "out" / track : test_dir / "ref_nostatic" / track;
+            std::string rel = std::string(static_paths ? "static" : "nostatic") + "/" + track;
+            fs::path dir = test_dir / rel;
             fs::create_directories(dir);
 
             rush2::track2049::ConvertedTrack t;
             std::string error;
             auto start = std::chrono::steady_clock::now();
-            bool ok = rush2::track2049::convert_track(*source49, k, stunt ? "STUNT1" : "HAWAII", shared, static_paths, t, error);
+            bool ok = rush2::track2049::convert_track(*source49, k, stunt || battle ? "STUNT1" : "HAWAII", shared, static_paths, t, error);
             double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             total++;
             if (!ok) {
@@ -121,14 +104,13 @@ int main(int argc, char** argv) {
             write_file(dir / "pathb.bin", t.path_backward);
             write_file(dir / "pvs.bin", t.pvs);
             {
-                // Text mode, like Python's open(..., 'w').
                 std::ofstream tables(dir / "tables.txt");
                 char line[64];
                 snprintf(line, sizeof(line), "fog %02x%02x%02x\npvs_count %d\n", t.fog[0], t.fog[1], t.fog[2], t.pvs_count);
                 tables << line;
             }
             {
-                // The animated textures, in the text texanim.py's describe() writes.
+                // The animated textures: one line per flip-book and per scroll.
                 std::ofstream f(dir / "texanim.txt");
                 char line[256];
                 for (const auto& fb : t.tex_anims.flipbooks) {
@@ -155,17 +137,11 @@ int main(int argc, char** argv) {
                     f << "\n";
                 }
             }
-            bool same = true;
-            for (const char* name : { "geometry.bin", "placement.bin", "collision.bin", "path.bin", "pathb.bin", "pvs.bin",
-                                      "tables.txt", "texanim.txt" }) {
-                same &= compare(dir / name, ref / name);
-            }
-            matched += same;
-            printf("%s static_paths=%d: %.1f ms, geometry 0x%zX, placement 0x%zX, collision 0x%zX: %s\n", track.c_str(),
-                   static_paths, ms, t.geometry.size(), t.placement.size(), t.collision.size(),
-                   same ? "identical" : "DIFFERENT");
+            converted++;
+            printf("%s static_paths=%d: %.1f ms, geometry 0x%zX, placement 0x%zX, collision 0x%zX\n", track.c_str(),
+                   static_paths, ms, t.geometry.size(), t.placement.size(), t.collision.size());
         }
     }
-    printf("%d of %d conversions byte-identical to the Python output\n", matched, total);
-    return matched == total ? 0 : 1;
+    printf("%d of %d conversions written\n", converted, total);
+    return converted == total ? 0 : 1;
 }

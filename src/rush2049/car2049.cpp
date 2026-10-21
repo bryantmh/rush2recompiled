@@ -4774,12 +4774,13 @@ void rush2::car2049::set_accurate_bars(bool on) {
 
 // The top of the main loop, once per frame (rush2_cheats_frame). Working out the bars' ranges drives every selectable
 // car through every option that sets a bar's ends, about a second of work, which the first car select (or the unlock
-// system's shop, which runs the car select's setup) would otherwise stall on. It runs here instead, a few
-// milliseconds a frame so no frame stalls, while the game is in the menus, track select or car select (game state
-// 0x8010C0D0 0-2: no race is using the test car's slot): from the first frame after boot, and again in the menus after
-// Car Speeds, the 2049 cars or Torque Rebalance change. A car select reached before it finishes does the rest at once
-// (find_ranges). The ranges are cached on disk (plan_ranges), so this only runs after a new build or a change of those
-// inputs.
+// system's shop, which runs the car select's setup) would otherwise stall on. It runs here instead, a slice a frame
+// so no frame stalls, while the game is in the menus, track select or car select (game state 0x8010C0D0 0-2: no race
+// is using the test car's slot): from the first frame after boot, and again in the menus after Car Speeds, the 2049
+// cars or Torque Rebalance change. The boot logos, title screen and attract demo draw almost nothing, so there the
+// slice is 10 ms instead of 6 (20 ms made every logo frame late): after a new build the ranges are done about 4 s
+// into the logos, long before a car select (one reached before they finish does the rest at once, find_ranges). The
+// ranges are cached on disk (plan_ranges), so this only runs after a new build or a change of those inputs.
 void rush2::car2049::prepare_bars(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t game_state = 0x8010C0D0;
     if (!accurate_bars.load(std::memory_order_relaxed) || cache().ranged) {
@@ -4789,7 +4790,10 @@ void rush2::car2049::prepare_bars(uint8_t* rdram, recomp_context* ctx) {
     if (state < 0 || state > 2) {
         return;
     }
-    constexpr auto slice = std::chrono::milliseconds(6);
+    constexpr uint32_t front_end_screen = 0x800E7BC4;   // s16: 0xE boot logos, 0x10 title, 0x11-0x12 attract demo
+    int16_t screen = (int16_t)MEM_H(0, (int32_t)front_end_screen);
+    bool idle_screen = state == 0 && (screen == 0xE || screen == 0x10 || screen == 0x11 || screen == 0x12);
+    const auto slice = std::chrono::milliseconds(idle_screen ? 10 : 6);
     TestCache& c = cache();
     plan_ranges(rdram, c);
     if (c.ranged) {

@@ -1,6 +1,11 @@
 """Checks a custom track's converted files (tools/track_mod_test.bat output) with the Rush 2 format validators.
 
-    python tools/track_mod_check.py OUTDIR
+    python tools/track_mod_check.py OUTDIR [--stock]
+
+--stock: OUTDIR is a converted stock track (Rush 2049 or SF Rush, e.g. tools/rush2049/cpp_test output): the geometry is
+also checked as a Rush 2 container (model.R2Model.check), the path with paths.validate, and placement records may name
+Rush 2's shared models (assets 0x12 and 0x14; the geometry must not define them too) or records Rush 2's own classifier gives a class of their own (keys,
+breakable glass and flags: placement.R2Rules), which the converters leave to Rush 2.
 
 geometry.bin: emulated Rush 2 loads (1P/2P x normal/mirror) and an RSP walk of every list (model.load_test).
 collision.bin: parses and validates (collision.Collision), then probes the ground under every AI lane point with the
@@ -11,7 +16,7 @@ placement.bin: parses (placement.parse_r2) and checks every record's model is in
 import os, struct, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rush2049'))
-import collision, model, paths, placement  # noqa: E402
+import collision, model, paths, placement, roms  # noqa: E402
 
 
 def names_of(geo):
@@ -41,10 +46,12 @@ def leaf_for(c, x, z):
         return c.leaves[off][0] if off else []
 
 
-def main(outdir):
+def main(outdir, stock=False):
     problems = []
     geo = open(os.path.join(outdir, 'geometry.bin'), 'rb').read()
     errs = model.load_test(geo)
+    if stock:
+        errs = model.R2Model(geo).check()[0] + errs
     problems += ['geometry: ' + e for e in errs[:20]]
     names = set(names_of(geo))
     print('geometry: %d bytes, %d models, load test %s' % (len(geo), len(names), 'OK' if not errs else '%d problems' % len(errs)))
@@ -67,6 +74,8 @@ def main(outdir):
         p['n_cp'], len(p['spine']), [ln['count'] for ln in p['lanes']], p['end'], len(p['raw'])))
     if p['end'] != len(p['raw']):
         problems.append('path: parse ends at %d, file is %d bytes' % (p['end'], len(p['raw'])))
+    if stock:
+        problems += ['path: ' + e for e in paths.validate(p)]
     for i, cp in enumerate(p['cps']):
         k = paths.crossing(cp, p['spine'])
         print('  checkpoint %d at spine %d (flags %d, radius %.0f ft)' % (i, k, cp['flags'], cp['r2'] ** 0.5))
@@ -86,7 +95,18 @@ def main(outdir):
 
     pl = placement.parse_r2(open(os.path.join(outdir, 'placement.bin'), 'rb').read())
     recs = pl[1] if isinstance(pl, tuple) else pl['records'] if isinstance(pl, dict) else pl
-    bad = [r.name for r in recs if r.name not in names]
+    special = lambda name: False
+    if stock:
+        r2 = roms.Rush2()
+        shared = set()
+        for a in (0x12, 0x14):
+            shared |= {m['name'] for m in model.R2Model(r2.asset(a)).models}
+        if names & shared:
+            problems.append('geometry names also in shared assets (shared slot may win): %s' % sorted(names & shared))
+        names |= shared
+        rules = placement.R2Rules(r2)
+        special = lambda name: rules.classify(name)[0] != 0
+    bad = [r.name for r in recs if r.name not in names and not special(r.name)]
     problems += ['placement: record %s has no model' % n for n in bad]
     print('placement: %d records, %d without a model' % (len(recs), len(bad)))
 
@@ -95,4 +115,5 @@ def main(outdir):
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1]))
+    args = [a for a in sys.argv[1:] if a != '--stock']
+    sys.exit(main(args[0], stock='--stock' in sys.argv))

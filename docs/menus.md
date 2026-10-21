@@ -172,12 +172,13 @@ boot logos.
 
 ## Launcher on a first boot
 
-`tools/first_boot_test.py OUT_DIR` runs the whole check (picker, cancel, a wrong file's error box, the ROM, Start Game).
+`tools/first_boot_test.py OUT_DIR` runs the whole check (picker, cancel, a wrong file's error box, the ROM, then the game).
 To test the launcher's Locate ROM (the first-boot screen) without touching the player's data, run in a simulation's own
 data folder with the ROM import skipped: `RUSH2_SIM=1 RUSH2_SIM_TURBO=0 RUSH2_SIM_SHOW=1 RUSH2_TEST_FIRST_BOOT=1
 RUSH2_DATA_DIR=<empty tmp folder>`. The launcher shows Locate ROM focused, so a posted ENTER opens the file picker.
 On Windows the picker and the error boxes are `#32770` windows owned by the game window (the picker titled `Open`);
 set its `Edit` child's text to a path and post IDOK to pick, IDCANCEL to cancel. Picking the ROM stores it in that
-folder and the row turns to Start Game. Posted mouse clicks don't reach the UI, and ENTER doesn't press the Games
+folder and the launcher goes straight on to the launch build pass and the game (`launcher_update` checks the stored
+ROMs again once the file is there; the launcher never offers Start Game, docs/prewarm.md#what-is-built). Posted mouse clicks don't reach the UI, and ENTER doesn't press the Games
 tab's Select ROM buttons; the launcher route is the one that works. The picker logs `[file picker]` lines
 (lib/RecompFrontend/recompui/src/util/file.cpp).
