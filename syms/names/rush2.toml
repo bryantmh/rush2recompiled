@@ -4226,7 +4226,7 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 vram = 0x800599A0
 name = "carselect_update_preview"
 sig = "void car_brake_lights_update(CarCallback *entry, s32 lit)"
-desc = "Brake lights (misnamed carselect_update_preview): every race frame (skipped while 0x800E7BB0 is set) rewrites entries 161-175 of the car's palette copy (palette record 0x800D97E8-moved + id x 0x18 +0x14, offsets +0x142-+0x15E): lit = 0xF801, else copied from Rush 2's CARPALETTE 0x80119648. Turns California Speed cars' gray ramp red."
+desc = "Brake lights (misnamed carselect_update_preview): every race frame (skipped while 0x800E7BB0 is set) rewrites entries 161-175 of the car's palette copy (palette record +0x14, offsets +0x142-+0x15E): lit (a1 set, car flags 0x1000 and not 0x10) = 0xF801, else copied from Rush 2's CARPALETTE 0x80119648. Hooked at entry (rush2_calspeed_brake_lights): skipped for California Speed cars, whose tail lights are lit by texture swap."
 consts = "0xF801 = lit brake red; 0x142 = entry 161 x 2"
 status = "verified"
 ported = true

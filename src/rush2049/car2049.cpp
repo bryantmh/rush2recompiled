@@ -226,11 +226,14 @@ namespace {
         float extent[3] = { 1.0f, 1.0f, 1.0f }; // half width, height, half length
         // Damage textures: the body's texture loads, each serving one panel (0 FR, 1 FL, 2 RR, 3 RL, 4 top), whose
         // G_SETTIMG reads the pristine texels or their scuffed copy by that panel's damage.
+        // A California Speed car's tail light textures also have lit copies of both (0: none), drawn while its brake
+        // lights are on (rush2_calspeed_brake_lights).
         struct DamageLoad {
             uint32_t at;        // file offset of the G_SETTIMG
             uint32_t pristine;  // file offsets of the texels
             uint32_t damaged;
             int panel;
+            uint32_t lit = 0, lit_damaged = 0;
         };
         std::vector<DamageLoad> damage_loads;
         // Rocket ZX exhaust flames (ROKTFLAMEG1-3): their vertices as modelled (at the origin, pointing back), and the
@@ -876,6 +879,20 @@ namespace {
         return out;
     }
 
+    // California Speed's tail lights: CARPALETTE's red ramp 128-143 (docs/calspeed_research.md#brake-lights-turn-
+    // california-speed-grays-red) on the car's body textures (texture record flags 0x20000000; the driver figures and
+    // other art drawn in those reds lack it). Lit, they are entry 187, 0xF801: the red Rush 2 lights its brake lights
+    // with (func_800599A0).
+    constexpr int tail_first = 128, tail_last = 143, tail_lit = 187;
+    bool calspeed_body_texture(const std::vector<uint8_t>& car, uint32_t texels) {
+        uint32_t table = be32(car, 8), count = be32(car, 20);
+        for (uint32_t i = 0; i < count && table + i * 0x20 + 0x20 <= car.size(); i++) {
+            uint32_t r = table + i * 0x20;
+            if (be32(car, r + 0x18) == texels) return (be32(car, r + 0x1C) & 0x20000000) != 0;
+        }
+        return false;
+    }
+
     // Gives the body (FRAME1, both LODs) damage textures. Its lists call a texture-load list (in the file's [7]..[8]
     // range) before each run of triangles; they are rewritten (appended to the file) with every load of a painted
     // texture inlined before the triangles of each panel it textures, so each load can be pointed at the pristine
@@ -899,10 +916,31 @@ namespace {
         struct Load {
             std::vector<uint8_t> commands;
             int settimg = -1;      // offset in `commands`
-            uint32_t texels = 0, damaged = 0;
+            uint32_t texels = 0, damaged = 0, lit = 0, lit_damaged = 0;
         };
         std::map<uint32_t, Load> loads;
         std::map<uint32_t, uint32_t> scuffed; // pristine texels -> copy
+        std::map<uint32_t, uint32_t> lit_copies; // texels -> their tail lights lit (0: no tail lights)
+        auto light = [&](uint32_t from, uint32_t size) -> uint32_t {
+            auto it = lit_copies.find(from);
+            if (it != lit_copies.end()) return it->second;
+            std::vector<uint8_t> copy(car.begin() + from, car.begin() + from + size);
+            bool any = false;
+            for (uint8_t& v : copy) {
+                if (v >= tail_first && v <= tail_last) {
+                    v = tail_lit;
+                    any = true;
+                }
+            }
+            uint32_t at = 0;
+            if (any) {
+                align();
+                at = uint32_t(car.size());
+                car.insert(car.end(), copy.begin(), copy.end());
+            }
+            lit_copies.emplace(from, at);
+            return at;
+        };
         auto load_at = [&](uint32_t list) -> const Load& {
             auto it = loads.find(list);
             if (it != loads.end()) return it->second;
@@ -975,6 +1013,15 @@ namespace {
                         car.insert(car.end(), copy.begin(), copy.end());
                     }
                     l.damaged = s->second;
+                }
+            }
+            if (p.calspeed && l.settimg >= 0 && ci8 && size > 0 && l.texels + size <= car.size() &&
+                calspeed_body_texture(car, l.texels)) {
+                l.lit = light(l.texels, size);
+                if (l.lit != 0) {
+                    // A load is switched only when it has a damaged copy: one without scuffs damages as itself.
+                    l.lit_damaged = l.damaged != 0 ? light(l.damaged, size) : l.lit;
+                    if (l.damaged == 0) l.damaged = l.texels;
                 }
             }
             return loads.emplace(list, std::move(l)).first->second;
@@ -1062,16 +1109,18 @@ namespace {
             put32(car, record + 4 + lod * 12 + 8, base);
             for (size_t i = 0; i < sites.size(); i++) {
                 const Load* l = site_loads[i].second;
-                p.damage_loads.push_back({ base + sites[i].first, l->texels, l->damaged, sites[i].second });
+                p.damage_loads.push_back({ base + sites[i].first, l->texels, l->damaged, sites[i].second, l->lit,
+                                           l->lit_damaged });
             }
         }
     }
 
     // Points each panel's body texture loads at the pristine or scuffed texels (asset copy at `base`), as the
-    // relocator would: 24-bit, rebased.
-    void set_damage_textures(uint8_t* rdram, uint32_t base, const Paint& p, const float level[5]) {
+    // relocator would: 24-bit, rebased. lit: the brake lights' copies where a load has them.
+    void set_damage_textures(uint8_t* rdram, uint32_t base, const Paint& p, const float level[5], bool lit = false) {
         for (const Paint::DamageLoad& d : p.damage_loads) {
-            uint32_t texels = level[d.panel] > 0.0f ? d.damaged : d.pristine;
+            uint32_t texels = level[d.panel] > 0.0f ? (lit && d.lit_damaged != 0 ? d.lit_damaged : d.damaged)
+                                                    : (lit && d.lit != 0 ? d.lit : d.pristine);
             MEM_W(0, (int32_t)(base + d.at + 4)) = (int32_t)((base + texels) & 0xFFFFFF);
         }
     }
@@ -1114,6 +1163,7 @@ namespace {
     }
 
     std::map<uint32_t, uint32_t> dented;   // asset copy base -> panel damage bits last applied
+    uint8_t brake_lit[8] = {};             // race car -> its California Speed tail lights lit (game thread)
 }
 
 namespace {
@@ -2831,6 +2881,28 @@ namespace {
     }
 }
 
+// Start of func_800599A0, Rush 2's brake lights ($a0 = the race car's callback entry, car index at +0xE; $a1 = braking):
+// every frame it rewrites entries 161-175 of the car's palette, Rush 2's tail light ramp, with 0xF801 when lit and
+// CARPALETTE's own when not. On a California Speed car those entries are the grays of its white, silver and chrome,
+// which it turned red, so for one it is skipped (returns true) and its own tail lights (CARPALETTE 128-143 on its body
+// textures) are lit by the same rule instead: rush2_car49_dent swaps in their lit copies (add_damage_textures).
+// docs/calspeed_research.md#brake-lights-turn-california-speed-grays-red
+extern "C" bool rush2_calspeed_brake_lights(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_BU(0, (int32_t)0x800E7BB0) != 0) return false; // Rush 2 leaves the lights alone then
+    int car = (int16_t)MEM_H(0, (int32_t)((uint32_t)ctx->r4 + 0xE));
+    if (car < 0 || car >= 8) return false;
+    uint32_t base = 0;
+    const Paint* p = car_instance(rdram, car, base);
+    if (p == nullptr || !p->calspeed) {
+        brake_lit[car] = 0;
+        return false;
+    }
+    // Lit while braking, when the car's flags have 0x1000 and not 0x10 (0x80059A1C-0x80059A28).
+    uint32_t flags = (uint32_t)MEM_W(0, (int32_t)(0x80112584 + car * 0x354));
+    brake_lit[car] = (int16_t)ctx->r5 != 0 && (flags & 0x1000) != 0 && (flags & 0x10) == 0;
+    return true;
+}
+
 extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
     int car = (int16_t)MEM_H(0, (int32_t)((uint32_t)ctx->r4 + 0xE));
     if (car < 0 || car >= 8) {
@@ -2864,19 +2936,21 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
         level[k] = v == 0 ? 0.0f : v == 1 ? 0.8f : 1.0f;
     }
     key |= uint32_t(livery + 1) << 16; // a livery shown since: its body takes the damage too
+    bool lit = brake_lit[car] != 0 && !(state >= 0 && state <= 2);
+    key |= uint32_t(lit) << 30;
     auto it = dented.find(base);
     if (it != dented.end() && it->second == key) {
         return;
     }
     dented[base] = key;
     if (p != nullptr) {
-        set_damage_textures(rdram, base, *p, level);
+        set_damage_textures(rdram, base, *p, level, lit);
         dent_body(rdram, base, p, level);
     }
     if (livery >= 0 && livery_base == base) {
         std::lock_guard lock{ livery_mutex };
         if (livery < (int)livery_bodies.size()) {
-            set_damage_textures(rdram, base, livery_bodies[livery], level);
+            set_damage_textures(rdram, base, livery_bodies[livery], level, lit);
             dent_body(rdram, base, &livery_bodies[livery], level);
         }
     }

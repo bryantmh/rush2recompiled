@@ -8380,6 +8380,13 @@ value = 0x8CC6B000 # lw $a2, 0x4F00($a2) -> 8021B000
 
 # Car damage: 2049 cars dent their body instead of swapping panels (src/rush2049/car2049.cpp). On a California Speed
 # track a car that has fallen under the course is wrecked back onto the road (src/calspeed/calspeed_rom.cpp).
+# California Speed cars' brake lights (src/rush2049/car2049.cpp): Rush 2's palette write (entries 161-175) is skipped
+# for them, it turned their grays red; their own tail lights are lit by its rule.
+[[patches.hook]]
+func = "carselect_update_preview_800599A0"
+before_vram = 0x800599A0
+text = "    if (rush2_calspeed_brake_lights(rdram, ctx)) return;"
+
 [[patches.hook]]
 func = "car_update_draw_nodes_8005CFB0"
 before_vram = 0x8005CFB0

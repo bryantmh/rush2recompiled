@@ -1124,11 +1124,21 @@ Rush 2's brake light update `func_800599A0` (registry name `carselect_update_pre
 race car, `$a0` = car callback entry with the car index at +0xE, `$a1` = brake lit) rewrites entries 161-175 of the
 car's palette copy (car palette record +0x14, `+0x142`-`+0x15E`) every frame unless 0x800E7BB0 is set: lit, all
 0xF801 (bright red); unlit, copied back from Rush 2's base CARPALETTE (0x80119648 + 0x142, its red tail light ramp).
-Lit is suppressed when the car's flags (0x80112584 + car x 0x354) have 0x1000 without 0x10. In Rush 2's CARPALETTE
-161-175 are the tail lights; in California Speed's CARPALETTE (asset 25) 152-175 is the gray ramp its cars use for
-white, silver and chrome (SEMI's TRUCK_4 is all grays), so every such texel of 161-175 shows Rush 2's tail light red.
-The car select doesn't run it, hence the difference. `rush2_car49_paint` paints California Speed's palette correctly;
-this later per-frame write is what changes it.
+Lit needs `$a1` set and the car's flags (0x80112584 + car x 0x354) to have 0x1000 and not 0x10 (0x80059A1C). In Rush
+2's CARPALETTE 161-175 are the tail lights; in California Speed's CARPALETTE (asset 25) 152-175 is the gray ramp its
+cars use for white, silver and chrome (SEMI's TRUCK_4 is all grays, CAMERO's headlight), so every such texel of
+161-175 showed Rush 2's tail light red. The car select doesn't run it, hence the difference. `rush2_car49_paint` paints
+California Speed's palette correctly; this later per-frame write is what changed it.
+
+California Speed's own tail lights are CARPALETTE's dark red ramp 128-143 (CAMERO's CAM_7, DIABLO's DIABLO_3/4). No
+California Speed code was found writing car palette entries at run time (no 0xF801 store but its traffic light
+animation at 0x800B989C, nothing at the palette's 128-143 offsets), so the lights are Rush 2's rule applied to these
+entries. The same reds are also drawn by the driver figures (MAN, ZWOMAN, WCHIC, SPR_GUY) and other art, so a palette
+write would flash them too: the lit state is a texture swap instead. `add_damage_textures` gives each body texture
+(texture record flags 0x20000000, which only the car's panel textures have) that holds 128-143 a lit copy, those
+texels as entry 187 (0xF801, Rush 2's lit red), and one of its scuffed copy. `rush2_calspeed_brake_lights` (hook at
+0x800599A0) skips Rush 2's write for a California Speed car and keeps its lit state by Rush 2's rule;
+`rush2_car49_dent` points the body's texture loads at the lit copies while it holds.
 
 ### Car name art
 
