@@ -53,7 +53,13 @@ who backs out or joins late is waited for, and nobody waits on a step that alrea
   track select by setting 0x800FAE6C = 2 (`menu_frontend_loop_800AE288` then leaves the screen and sets game state 1).
   The host is never held: Practice, Ghost Race and the profile screens keep the others in the lobby, and the host's
   track select tells it to back out. Past Start Game a circuit is told by the race type (0x8010C3E8 = 1), since the
-  circuit menu keeps its cursor in the Start Game row.
+  circuit menu keeps its cursor in the Start Game row, and the other kinds by what Start Game chose
+  (`rush2::track2049::chosen_start_kind`, set in `rush2_mode_menu_choose`), not by the row: 0x80023064 is the front
+  end's shared cursor, and leaving Start Game (`func_803B12C8`) pushes it onto a stack of the screens' rows (depth
+  0x80023066, rows 0x80023068) and zeroes it. Read from the row, the host's Select Player published One Race for a
+  Stunt or Battle, the joiners chose One Race, and their race selects showed the race tracks' dioramas under the
+  host's arena's name. A joiner whose choice isn't the host's (the host went back and chose another) backs out of
+  its track select and Select Player to Start Game and chooses again.
 - **Circuit menu** (circuits): Select Player goes on to it (screen 0xA, `menu_screen_circuit_menu_803B7018`: CONTINUE,
   ENTER CODE, NEW CIRCUIT, VIEW, which opens the standings, screen 0xB). The host's choice is the circuit; the others
   wait on theirs with their controllers off and, once the host is on its track select, take the host's circuit
@@ -67,7 +73,13 @@ who backs out or joins late is waited for, and nobody waits on a step that alrea
   an entry's target by 100 when its place relative to the shown one (+0x14) changed, whatever the change, so a jump of
   several entries left the dioramas out of line with the track. The shown entry steps one entry a frame toward the
   host's, the shorter way round (carousel length s16 0x803D05AE). A joiner's track select
-  offers every track that machine has, whatever its profile unlocked (`set_all_tracks_open`), so the host's is on it.
+  offers every track that machine has, whatever its profile unlocked (`set_all_tracks_open`), so the host's is on it,
+  but only those the host's own select offers: the host sends its carousel's tracks (`MenuState::offered_tracks`, from
+  `offered_tracks`; custom tracks count as one, being numbered by machine) and the joiner's select keeps those
+  (`set_online_offered`, rebuilt when the list changes as a game filter change rebuilds it). So the host's unlocks
+  and game filter apply on every machine and both carousels step through the same entries; before, a joiner's
+  carousel held tracks the host's filter hid and scrolled through all of them as the host moved one place. A list
+  with no track of the select's kind (the host's last select was another) is ignored.
   A custom track's select id (38 and up) is the machine's own numbering, so the host sends it as its key
   (`RaceSettings::mod_track`, `mod_id/folder#hash` from `rush2::track_mod::identity`, the hash of every file the
   conversion reads) and each machine looks its own id up (`track_for_online_key`). Each machine reports whether it has
@@ -437,6 +449,13 @@ The race start turns a race (type 0) on track 11, Rush 2's stunt arena, into stu
 30-37) are hosted there the same way (`rush2_track49_stunt_mode`, `enter_race` in `src/rush2049/track2049_menu.cpp`).
 So an online stunt or battle race is set up like any race with that track. Setting race type 2 directly left the
 stunt flag clear and the car stuck.
+
+The Rush 2049 stunt scoring (`src/rush2049/stunt2049.cpp`) keeps each race player's score (players are the race's
+cars 0 and up). Its HUD and Rush 2's stunt panel show a view's player, so a view reads its race player's score
+(`view_player`: `local_car(view)` online). They read view i's score before, so a joiner's HUD showed the host's
+points and its own scored nowhere. The HUD also no longer writes into the score (2049's overlay copies the counts and
+points and counts down the "BONUS X n" flashes there): the score is checked and resynced, and each machine draws only
+its own players, so those are the HUD's own (`HudPlayer::kinds_flashed`).
 
 Battles run C++ state of their own (`src/rush2049/battle.cpp`, `battle_ai.cpp`). Online (`rush2::battle::
 set_online_seed`): both of its random number generators start from the race seed at each race setup, the computer

@@ -279,6 +279,15 @@ namespace rush2::track2049 {
     // Online lobbies (src/online/online_lobby.cpp): while on, the track select offers every track this machine has,
     // whatever its profile unlocked, so the host's choice is on it.
     void set_all_tracks_open(bool on);
+    // The tracks the track select offers now (its carousel, in display order): the host's, sent to the lobby.
+    std::vector<int> offered_tracks(uint8_t* rdram);
+    // With every track open, a joiner's track select offers only `tracks`, the host's offered_tracks (empty: all), so
+    // the host's unlocks and game filter apply and both carousels step through the same entries. A change while the
+    // track select is up rebuilds it.
+    void set_online_offered(uint8_t* rdram, const std::vector<int>& tracks);
+    // What the Start Game menu last chose (None before any choice). Leaving the menu pushes its row onto the front
+    // end's row stack and zeroes the row (0x80023064), so past Start Game the row no longer tells.
+    StartKind chosen_start_kind();
     // The track select's carousel entry showing track `t`, or -1 (the carousel is built as the screen opens).
     int carousel_index(uint8_t* rdram, int t);
     // Online play's name for track select id `t`: a custom track's rush2::track_mod::identity, which machines with

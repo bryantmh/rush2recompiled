@@ -4225,13 +4225,13 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 [[func]]
 vram = 0x800599A0
 name = "carselect_update_preview"
-sig = "s32 carselect_update_preview(CarPreview *p, s32 a1)"
-desc = "Patched in us.toml. Car preview ids (car select: id = player * 73 + type, was * 22) index the race per-car arrays, which move to 146-entry copies in two windows, 0x80208000- and 0x8022A000- (include/car_types.h, tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 73."
-consts = "36 car preview ids per player (was 22)"
-status = "inferred"
+sig = "void car_brake_lights_update(CarCallback *entry, s32 lit)"
+desc = "Brake lights (misnamed carselect_update_preview): every race frame (skipped while 0x800E7BB0 is set) rewrites entries 161-175 of the car's palette copy (palette record 0x800D97E8-moved + id x 0x18 +0x14, offsets +0x142-+0x15E): lit = 0xF801, else copied from Rush 2's CARPALETTE 0x80119648. Turns California Speed cars' gray ramp red."
+consts = "0xF801 = lit brake red; 0x142 = entry 161 x 2"
+status = "verified"
 ported = true
-area = "menu"
-ref = "us.toml"
+area = "car"
+ref = "docs/calspeed_research.md#brake-lights-turn-california-speed-grays-red"
 
 [[func]]
 vram = 0x80059AE0

@@ -787,11 +787,25 @@ namespace {
         std::array<Slot, trick_count> slots;  // newest first
         int count = 0;
         int flash = -2;       // 0x80395ED8 + player x 4: frames left of the "BONUS X n" flash
+        // The combo's new kinds of trick (Score::new_kinds) already flashed. 2049 counts new_kinds down as it flashes
+        // them; here the score is the race's (checked and resynced online) and only the views' players are drawn, so
+        // the HUD keeps its own count.
+        int kinds_flashed = 0;
         float last_time = 0;  // the clock at the last frame drawn
         bool panel = false;   // Rush 2's stunt panel would show this frame (rush2_stunt2049_box_visible)
         std::string logged;
     };
     std::array<HudPlayer, 4> hud_players;
+
+    // The race player whose score view p's HUD shows: online, this machine's player p's car (the players are the race's
+    // cars 0 and up, and this machine's are local_race_player() and on); offline, player p. -1 for none.
+    int view_player(int p) {
+        if (rush2::online::game::local_race_player() >= 0) {
+            int car = rush2::online::game::local_car(p);
+            return car >= 0 && car < max_players ? car : -1;
+        }
+        return p;
+    }
 
     // Sizes are Rush 2049's with one view, in 320 x 240 screen pixels (docs/rush2049_research/stunts.md section 5):
     // an icon model (radius 320 model units, 16 to a unit) scaled 0.005 two units ahead of a 90 degree view is 16 px
@@ -848,13 +862,13 @@ namespace {
 
     void draw_player(uint8_t* rdram, const Uploaded& u, int p, float now) {
         HudPlayer& h = hud_players[p];
-        Score& s = players[p].score;
+        int race_player = view_player(p);
         bool panel = h.panel;
         h.panel = false;
         float dt = std::clamp(now - h.last_time, 0.0f, 0.1f);
         h.last_time = now;
         rush2::hud_layout::StuntPlace place;
-        if (!panel || !rush2::hud::stunt_place(p, place)) {
+        if (race_player < 0 || !panel || !rush2::hud::stunt_place(p, place)) {
             h.count = 0;
             return;
         }
@@ -864,10 +878,11 @@ namespace {
             return scale < 0.75f ? Style{ &u.sheets[1], 0.5f / std::max(scale, 0.01f) } : Style{ &u.sheets[0], 1.0f };
         };
 
-        // func_80391B00: the counts follow the combo until it lands; the icons show while the combo does.
-        if (!s.landed) {
-            s.shown_count = s.count;
-        }
+        // func_80391B00: the counts follow the combo until it lands; the icons show while the combo does. (2049 copies
+        // them into the score; the score is the race's, so they're the HUD's own here, as are the points below.)
+        const Score& s = players[race_player].score;
+        const std::array<int16_t, trick_count> shown_count = s.landed ? s.shown_count : s.count;
+        const int32_t shown_points = s.landed ? s.shown_points : s.points;
         bool showing = s.active && (now - s.time < shown_time || s.changes != 0);
         if (!showing && s.changes == 0) {
             h.count = 0;
@@ -884,7 +899,7 @@ namespace {
         // place along.
         if (showing) {
             for (int t = 0; t < trick_count; t++) {
-                if (s.shown_count[t] == 0) continue;
+                if (shown_count[t] == 0) continue;
                 bool has = false;
                 for (int i = 0; i < h.count; i++) has = has || h.slots[i].trick == t;
                 if (has || h.count >= trick_count) continue;
@@ -917,10 +932,13 @@ namespace {
         // The bonus lines (func_80392894): with the combo going, "BONUS X n" flashes for ten frames for each new kind
         // of trick; once it has landed, its bonuses.
         std::vector<std::string> lines;
-        if (s.new_kinds > 0) {
+        if (s.new_kinds < h.kinds_flashed) {
+            h.kinds_flashed = 0;    // the combo landed: its count started again
+        }
+        if (s.new_kinds > h.kinds_flashed) {
             if (h.flash == -1) {
                 h.flash = -2;
-                s.new_kinds--;
+                h.kinds_flashed++;
             } else if (h.flash == -2) {
                 h.flash = 10;
             }
@@ -931,9 +949,7 @@ namespace {
         } else {
             h.flash = -2;
         }
-        if (!s.landed) {
-            s.shown_points = s.points;
-        } else if (!s.crashed) {
+        if (s.landed && !s.crashed) {
             if (s.shown_mult >= 2) lines.push_back(std::string(bonus_text) + " X " + std::to_string(s.shown_mult));
             if (const char* name = bonus_name(s.shown_bonus)) lines.push_back(name);
             if (s.shown_landing == 1) lines.push_back(no_wings_text);
@@ -952,7 +968,7 @@ namespace {
                 float cy = points_cy - (float)(lines.size() - i) * line_h;
                 draw_centered(rdram, sheet, lines[i], X(tb.w * 0.5f), Y(cy), draw_scale, tb.anchor, 0);
             }
-            draw_centered(rdram, sheet, std::to_string(s.shown_points), X(tb.w * 0.5f), Y(points_cy), draw_scale,
+            draw_centered(rdram, sheet, std::to_string(shown_points), X(tb.w * 0.5f), Y(points_cy), draw_scale,
                           tb.anchor, 0);
             // A crashed combo fades out (func_80391B00, slot +0x34).
             uint8_t alpha = 255;
@@ -962,14 +978,14 @@ namespace {
             int icon_w = u.from->icon_w, icon_h = u.from->icon_h;
             for (int i = 0; i < h.count; i++) {
                 const Slot& o = h.slots[i];
-                std::string count = "X " + std::to_string(s.shown_count[o.trick]);
+                std::string count = "X " + std::to_string(shown_count[o.trick]);
                 // The oldest kinds past the box's right edge aren't shown.
                 if (o.timer == 0 && o.x + icon_size + 2 + text_width(sheet, count) * ts.mul > tb.w - margin) {
                     continue;
                 }
                 rush2::hud::draw_image_part(rdram, u.icons[o.trick], icon_w, icon_h, 0, 0, icon_w, icon_h, X(o.x), Y(o.y),
                                             X(o.x + icon_size), Y(o.y + icon_size), tb.anchor, false, alpha);
-                if (s.shown_count[o.trick] != 0) {
+                if (shown_count[o.trick] != 0) {
                     draw_text(rdram, sheet, count, X(o.x + icon_size + 2), Y(o.y + icon_size * 0.5f), draw_scale,
                               tb.anchor, alpha);
                 }
@@ -997,10 +1013,10 @@ namespace {
         if (log_tricks) {
             std::string shown = "total " + std::to_string(s.total);
             if (trick_drawn) {
-                shown += " | points " + std::to_string(s.shown_points) + " |";
+                shown += " | points " + std::to_string(shown_points) + " |";
                 for (int i = 0; i < h.count; i++) {
                     shown += std::string(" ") + trick_text[h.slots[i].trick] + " X " +
-                             std::to_string(s.shown_count[h.slots[i].trick]);
+                             std::to_string(shown_count[h.slots[i].trick]);
                 }
                 for (const std::string& l : lines) shown += " | " + l;
             }
@@ -1105,10 +1121,13 @@ extern "C" void rush2_stunt2049_hud(uint8_t* rdram, recomp_context* ctx, int ste
         return;
     }
     int player = (int32_t)ctx->r22;
-    if (!rush2::stunt2049::enabled() || player < 0 || player >= max_players) {
+    // The panel's player is a view's (online the presentation puts this machine's players first: stunt_rotate in
+    // src/online/online_game.cpp); the score is its race player's.
+    int scorer = player >= 0 && player < max_players ? view_player(player) : -1;
+    if (!rush2::stunt2049::enabled() || scorer < 0) {
         return;
     }
-    const Score& s = players[player].score;
+    const Score& s = players[scorer].score;
     uint32_t buffer = (uint32_t)ctx->r21;
     switch (step) {
         case 0: {

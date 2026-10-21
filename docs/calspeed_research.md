@@ -1115,6 +1115,21 @@ Roles (`rush2_csphys_init_begin` at the entry of `car_init_setup_8008DBA0`, the 
   2.28 (no 1100 cap): the world holds it down at 1 + 4 x 0.32 = 2.28 g on the road, so it sits, rolls and grips as at
   Rush 2's 1 g. It keeps Rush 2's velocities (reverse) and gearbox.
 
+### Brake lights turn California Speed grays red
+
+User report (2026-10-20): white and silver parts of California Speed cars (SEMI's exhaust stacks, CAMPER, OL TRUCK,
+DOZER...) are red in a race but right on the car select. [V] (RAM dump at race start, `tmp/cs_red`.)
+
+Rush 2's brake light update `func_800599A0` (registry name `carselect_update_preview`, a misnomer; it runs for every
+race car, `$a0` = car callback entry with the car index at +0xE, `$a1` = brake lit) rewrites entries 161-175 of the
+car's palette copy (car palette record +0x14, `+0x142`-`+0x15E`) every frame unless 0x800E7BB0 is set: lit, all
+0xF801 (bright red); unlit, copied back from Rush 2's base CARPALETTE (0x80119648 + 0x142, its red tail light ramp).
+Lit is suppressed when the car's flags (0x80112584 + car x 0x354) have 0x1000 without 0x10. In Rush 2's CARPALETTE
+161-175 are the tail lights; in California Speed's CARPALETTE (asset 25) 152-175 is the gray ramp its cars use for
+white, silver and chrome (SEMI's TRUCK_4 is all grays), so every such texel of 161-175 shows Rush 2's tail light red.
+The car select doesn't run it, hence the difference. `rush2_car49_paint` paints California Speed's palette correctly;
+this later per-frame write is what changes it.
+
 ### Car name art
 
 California Speed has no name logos for its own cars. Its car select bank, asset 9, is Rush 2's (asset 0x11): the same

@@ -3773,7 +3773,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         // Scripted movers (start / open / close events, once and door modes): a SCRP chunk with one script per path
         // and a TRIG chunk with the trigger boxes, read by movers::parse_scripts (track2049_movers_logic.cpp).
         std::vector<uint8_t> scripts;
-        bool any_script = false;
+        bool any_script = false, any_progress = false;
         std::set<std::string> used_triggers;
         auto event_bytes = [&](const Mover& m, const std::string& text, std::vector<uint8_t>& d) {
             std::istringstream in(text);
@@ -3805,9 +3805,21 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             else if (w.size() == 1 && what == "odd_lap") kind = 2;
             else if (w.size() == 1 && what == "even_lap") kind = 3;
             else if (w.size() == 1 && what == "final_lap") kind = 4;
+            else if (what == "progress" && w.size() == 2) {
+                seconds = std::strtof(w[1].c_str(), &end);
+                if (end && !*end && seconds >= 0) kind = 5;
+                if (kind == 5 && spine.empty()) {
+                    report.error("track.toml: movers." + m.name + ": \"" + text + "\" needs an AI path (AIPATH_main) to "
+                                 "measure the race along.");
+                    return false;
+                }
+                any_progress = true;
+            }
+            else if (w.size() == 1 && what == "last_checkpoint") kind = 6;
             if (kind < 0) {
                 report.error("track.toml: movers." + m.name + ": \"" + text + "\" isn't an event. Use \"time <seconds>\", "
-                             "\"trigger <name>\", \"trigger <name> lap <n>\", \"odd_lap\", \"even_lap\" or \"final_lap\".");
+                             "\"trigger <name>\", \"trigger <name> lap <n>\", \"progress <feet>\", \"odd_lap\", \"even_lap\", "
+                             "\"final_lap\" or \"last_checkpoint\".");
                 return false;
             }
             add8(d, uint8_t(kind));
@@ -3831,7 +3843,13 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             const std::vector<std::string>* lists[3] = { &st.start, &st.open, &st.close };
             for (int l = 0; on && l < 3; l++) {
                 if (mode == 4 ? l == 0 : l > 0) continue;
-                for (const std::string& e : *lists[l]) if (event_bytes(m, e, ev) && counts[l] < 255) counts[l]++;
+                for (const std::string& e : *lists[l]) {
+                    if (counts[l] == 255) {
+                        report.warning("track.toml: movers." + m.name + ": more than 255 events in one setting; the rest are left out.");
+                        break;
+                    }
+                    if (event_bytes(m, e, ev)) counts[l]++;
+                }
             }
             add8(scripts, mode);
             add8(scripts, uint8_t(on && mode == 4 && st.open_at_start ? 1 : 0));
@@ -3850,8 +3868,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             }
         }
         std::vector<uint8_t>& pb = out.track.mover_paths;
-        // Directory at 4: PTHD's entry, SCRP's and TRIG's (custom tracks), and an empty one ending it.
-        uint32_t headers = 4 + 12 * (any_script || !triggers.empty() ? 4 : 2);
+        // Directory at 4: PTHD's entry, SCRP's, TRIG's and LAPP's (custom tracks), and an empty one ending it.
+        uint32_t headers = 4 + 12 * (any_script || !triggers.empty() ? 5 : 2);
         add32(pb, 4);
         for (char c : std::string("PTHD")) add8(pb, uint8_t(c));
         add32(pb, headers);
@@ -3913,6 +3931,14 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             for (const Trigger& t : triggers) {
                 for (float f : t.lo) addf(pb, f);
                 for (float f : t.hi) addf(pb, f);
+            }
+            // LAPP, for progress events: the spine (the AI path from the finish line, a point every spine_step ft) and
+            // the lap's length, read by movers::parse_lap; 0 for an open AI path (point to point, run-in), measured
+            // along it with no laps.
+            entry(40, "LAPP", uint32_t(any_progress ? spine.size() : 0));
+            addf(pb, any_progress && !open_path ? float(spine.size()) * spine_step : 0.0f);
+            if (any_progress) {
+                for (const PathPoint& q : spine) for (float f : q.p) addf(pb, f);
             }
         }
     }

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <initializer_list>
@@ -887,6 +888,17 @@ namespace {
         }
         return sides;
     }
+
+    // The arcade's lap length per track (ProjectR's table 0x1407A9FE4, by track index), which its `when progress
+    // <feet>` counts laps with: progress = laps x this + feet into the lap (0x140233840; docs/arcade2049.md). Mission
+    // and Presidio have 0 there (no progress events). As track_mod.py's ARCADE_LAP_FT.
+    double arcade_lap_ft(const char* folder) {
+        static const std::pair<const char*, double> laps[] = {
+            { "TRACK1", 12600.0 }, { "TRACK2", 18000.0 }, { "TRACK3", 17000.0 }, { "TRACK4", 15900.0 }, { "TRACK5", 19700.0 },
+        };
+        for (const auto& [f, ft] : laps) if (std::strcmp(f, folder) == 0) return ft;
+        return 0.0;
+    }
 }
 
 // One arcade track (TRACKS/<folder>) as the mod's tracks/<track_id>/ (in a49, whose Vertex the body means).
@@ -1092,8 +1104,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     ColMesh object_road, object_wall;   // collision of objects that don't move
 
     // Trigger boxes: hidden dobs objects with a `name` (UNITCUBE mostly), which other objects' `when <name>` wait for
-    // a car to drive into; and `when progress <feet>`, a car that far into the race (along the drones' lap, counted
-    // from its first point [I]), made a box on the lap point at that distance for the car on that lap.
+    // a car to drive into.
     std::map<std::string, std::pair<V3, V3>> trigger_boxes;     // name -> game-space bounds
     std::vector<V3> lap_pts;
     {
@@ -1126,24 +1137,26 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     auto mod_event = [&](const std::vector<std::string>& w) -> std::string {
         if (w.empty()) return "";
         std::string a = lower(w[0]);
-        if (a == "progress" && w.size() > 1 && lap_length > 0) {
-            double d = std::strtod(w[1].c_str(), nullptr);
-            int lap = int(std::floor(d / lap_length)) + 1;
-            double into = d - (lap - 1) * lap_length;
-            size_t i = size_t(std::upper_bound(lap_at.begin(), lap_at.end(), into) - lap_at.begin());
-            i = i ? (i - 1) % lap_pts.size() : 0;
-            std::string name = "PROGRESS_" + w[1];
-            V3 c = lap_pts[i];
-            trigger_boxes[name] = { c - V3{ 70, 40, 70 }, c + V3{ 70, 40, 70 } };
-            used_triggers.insert(name);
-            return "trigger " + name + " lap " + std::to_string(lap);
+        if (a == "progress" && w.size() > 1) {
+            // The leader that far into the race: laps x the arcade's lap length (arcade_lap_ft) + feet into the lap
+            // [V]; the same lap and point on the converted lap, whose length differs a little.
+            double arcade_lap = arcade_lap_ft(folder), d = std::strtod(w[1].c_str(), nullptr);
+            if (arcade_lap <= 0 || lap_length <= 0) {
+                unknown_events.insert(w[0] + " " + w[1]);
+                return "";
+            }
+            double laps = std::floor(d / arcade_lap);
+            char b[48];
+            snprintf(b, sizeof(b), "progress %g", std::round((laps * lap_length + (d - laps * arcade_lap)) * 10.0) / 10.0);
+            return b;
         }
         if (!a.empty() && std::all_of(a.begin(), a.end(), [](char c) { return std::isdigit((unsigned char)c) || c == '.'; })) {
-            return "time " + w[0];      // seconds into the race [I]
+            return "time " + w[0];      // seconds into the race [V]
         }
         if (a == "oddlap") return "odd_lap";
         if (a == "evenlap") return "even_lap";
-        if (a == "finishswap") return "final_lap";     // [I] the finish sign turns as the last lap starts
+        if (a == "finishswap") return "last_checkpoint";   // [V] player 1 past the race's last checkpoint before the finish
+        if (a == "lastlap") return "final_lap";
         if (trigger_boxes.count(upper(w[0]))) {
             used_triggers.insert(upper(w[0]));
             return "trigger " + upper(w[0]);
@@ -1199,12 +1212,15 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         // same line or the next `when` line.
         struct Follow { V3 axis{}; double speed = 0, dist = 0, accel = 0; bool on = false; } follow;
         std::vector<std::string> start_ev, open_ev, close_ev;
-        bool has_start = false, collision = words.count("collision") > 0, first_close = false, seen_door = false;
+        // `collision` anywhere in the script, as the arcade reads it word by word ("followy 60 1400 22 collision").
+        bool collision = false;
+        for (const std::string& s : in.script) for (const std::string& x : split_words(s)) collision = collision || lower(x) == "collision";
+        bool has_start = false, first_close = false, seen_door = false;
         double open_delay = -1, close_delay = -1;
         std::vector<std::string>* pending = nullptr;
         for (const std::string& s : in.script) {
             auto w = split_words(s);
-            if (w.empty() || w[0][0] == '#') continue;
+            if (w.empty()) continue;
             std::string a = lower(w[0]);
             if (starts_with(a, "follow") && a.size() >= 7 && w.size() >= 3) {
                 char ax = a.back();

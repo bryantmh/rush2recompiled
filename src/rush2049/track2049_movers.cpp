@@ -82,6 +82,8 @@ namespace {
     constexpr uint32_t car_release = 0x71C;         // s16: nonzero once the car may drive
     constexpr uint32_t car_laps_done = 0x7FD;       // s8: laps completed (func_8008F220)
     constexpr uint32_t race_laps = 0x8010C0E2;      // s16: the race's laps
+    constexpr uint32_t car_next_checkpoint = 0x800; // s16: the checkpoint the car's gate test waits for (checkpoint_gate_test_800A1468)
+    constexpr uint32_t finish_checkpoint = 0x8010BCEC; // s16: the finish line's checkpoint (path header copy +4)
     constexpr uint32_t car_velocity = 0x218;        // f32[3] world
     constexpr uint32_t car_position = 0x224;        // f32[3] world
     constexpr uint32_t car_matrix = 0x2CC;          // f32[9] physics orientation
@@ -421,6 +423,11 @@ namespace {
         options.custom = light_track == 0;
         world = movers::World();
         world.init(std::move(paths), types, options);
+        if (light_track == 0) {
+            movers::LapPath lap;
+            if (movers::parse_lap(geometry_2049.data(), geometry_2049.size(), lap)) world.set_lap(lap);
+            if (movers_log) printf("[movers] lap for progress events: %zu points, %.0f ft\n", lap.points.size(), lap.length);
+        }
 
         // Records and their scene nodes.
         uint32_t base = (uint32_t)MEM_W(0, (int32_t)record_base);
@@ -774,6 +781,28 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
         }
         world.set_race(racing, leader, MEM_H(0, (int32_t)race_laps), trigger_entered);
         for (auto& e : trigger_entered) e.clear();
+        {
+            // Progress events: every racing car's position. last_checkpoint: player 1 on the last lap with the finish
+            // checkpoint as its next (car +0x800), which it becomes as the car passes the one before.
+            std::vector<std::array<float, 3>> positions(max_cars);
+            std::vector<uint8_t> live(max_cars, 0);
+            for (int i = 0; i < max_cars; i++) {
+                uint32_t c = cars + uint32_t(i) * car_size;
+                live[i] = MEM_H(0, (int32_t)(c + car_active)) != 0 && !rush2::ghost::is_ghost_car(i);
+                for (int k = 0; k < 3; k++) positions[i][k] = read_f(rdram, c + car_position + k * 4);
+            }
+            uint32_t player = cars + MEM_BU(0, (int32_t)player_slots) * car_size;
+            int laps = MEM_H(0, (int32_t)race_laps);
+            int next = MEM_H(0, (int32_t)(player + car_next_checkpoint));
+            bool last = laps > 0 && (int)MEM_B(0, (int32_t)(player + car_laps_done)) + 1 == laps &&
+                        next == MEM_H(0, (int32_t)finish_checkpoint);
+            float before = world.leader_progress();
+            world.set_cars(positions, live, last);
+            if (movers_log && (int)(world.leader_progress() / 1000.0f) != (int)(before / 1000.0f)) {
+                printf("[movers] tick %u: leader %.0f ft into the race\n", tick, world.leader_progress());
+                fflush(stdout);
+            }
+        }
     }
     world.hold_triggers();
     world.update(dt);

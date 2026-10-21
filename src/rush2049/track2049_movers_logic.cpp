@@ -487,7 +487,7 @@ namespace rush2::track2049::movers {
                         return false;
                     }
                     ScriptEvent e;
-                    e.kind = data[o] <= ScriptEvent::final_lap ? (ScriptEvent::Kind)data[o] : ScriptEvent::time;
+                    e.kind = data[o] <= ScriptEvent::last_checkpoint ? (ScriptEvent::Kind)data[o] : ScriptEvent::time;
                     e.box = be16(data + o + 2);
                     e.lap = be16(data + o + 4);
                     e.seconds = bef(data + o + 8);
@@ -500,6 +500,38 @@ namespace rush2::track2049::movers {
             }
             s.fired.assign(s.start.size() + s.open.size() + s.close.size(), 0);
             p.script = std::move(s);
+        }
+        return true;
+    }
+
+    bool parse_lap(const uint8_t* data, size_t size, LapPath& lap) {
+        lap = {};
+        uint32_t base, count;
+        if (!find_chunk(data, size, "LAPP", base, count)) {
+            return true;
+        }
+        if ((uint64_t)base + 4 + (uint64_t)count * 12 > size) {
+            return false;
+        }
+        lap.length = bef(data + base);
+        float at = 0.0f;
+        for (uint32_t k = 0; k < count; k++) {
+            std::array<float, 3> p;
+            for (int i = 0; i < 3; i++) p[i] = bef(data + base + 4 + k * 12 + i * 4);
+            if (k > 0) {
+                const auto& q = lap.points.back();
+                at += std::sqrt((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]) + (p[2] - q[2]) * (p[2] - q[2]));
+            }
+            lap.points.push_back(p);
+            lap.at.push_back(at);
+        }
+        // Length 0: an open path (point to point, a run-in circuit), measured along it with no laps.
+        lap.closed = lap.length > 0.0f;
+        if (!lap.closed && !lap.at.empty()) {
+            lap.length = lap.at.back();
+        }
+        if (lap.points.size() < 2 || !(lap.length > 0.0f)) {
+            lap = {};
         }
         return true;
     }
@@ -1010,6 +1042,89 @@ namespace rush2::track2049::movers {
         entered_ = entered;
     }
 
+    void World::set_lap(const LapPath& lap) {
+        lap_ = lap;
+        car_laps_.clear();
+        car_into_.clear();
+        car_segment_.clear();
+        leader_progress_ = 0.0f;
+    }
+
+    // Each car's progress as the Rush 2049 arcade works it out (ProjectR 0x140233840): the distance along the lap to
+    // the point nearest the car, plus its own lap counter x the lap's length; the counter goes up when that distance
+    // falls by more than half a lap (the car crossed the line forward) and down when it rises by as much (backward).
+    // The leader's progress is the furthest car's (0x14029E8C0), only while racing.
+    void World::set_cars(const std::vector<std::array<float, 3>>& cars, const std::vector<uint8_t>& live, bool at_last_checkpoint) {
+        last_checkpoint_ = racing_ && at_last_checkpoint && !at_last_checkpoint_;
+        at_last_checkpoint_ = racing_ && at_last_checkpoint;
+        if (lap_.points.empty() || !racing_) {
+            return;
+        }
+        car_laps_.resize(cars.size(), 0);
+        car_into_.resize(cars.size(), -1.0f);
+        car_segment_.resize(cars.size(), -1);
+        const float half = lap_.length * 0.5f;
+        const int n = (int)lap_.points.size(), segments = lap_.closed ? n : n - 1;
+        for (size_t c = 0; c < cars.size(); c++) {
+            if (c >= live.size() || !live[c]) {
+                continue;
+            }
+            // Nearest point on the lap's segments (a closed lap's last one runs back to the first): every segment the
+            // first time, then those within 50 segments (1,000 ft) of the last, so a part of the course passing near
+            // another (a bridge over it) can't take the car there; a reset's move back stays in reach.
+            float best = 1e30f, into = 0.0f;
+            int found = car_segment_[c];
+            auto test = [&](int i) {
+                const auto& a = lap_.points[i];
+                const auto& b = lap_.points[(i + 1) % n];
+                float ab[3], ap[3], len2 = 0.0f, t = 0.0f;
+                for (int k = 0; k < 3; k++) {
+                    ab[k] = b[k] - a[k];
+                    ap[k] = cars[c][k] - a[k];
+                    len2 += ab[k] * ab[k];
+                    t += ab[k] * ap[k];
+                }
+                t = len2 > 0.0f ? std::clamp(t / len2, 0.0f, 1.0f) : 0.0f;
+                float d2 = 0.0f;
+                for (int k = 0; k < 3; k++) d2 += (ap[k] - ab[k] * t) * (ap[k] - ab[k] * t);
+                if (d2 < best) {
+                    best = d2;
+                    found = i;
+                    float seg_end = i + 1 < n ? lap_.at[i + 1] : lap_.length;
+                    into = lap_.at[i] + (seg_end - lap_.at[i]) * t;
+                }
+            };
+            if (car_segment_[c] < 0 || car_segment_[c] >= segments) {
+                for (int i = 0; i < segments; i++) test(i);
+            }
+            else {
+                for (int step = -50; step <= 50; step++) {
+                    int i = car_segment_[c] + step;
+                    if (lap_.closed) i = ((i % segments) + segments) % segments;
+                    else if (i < 0 || i >= segments) continue;
+                    test(i);
+                }
+            }
+            car_segment_[c] = found;
+            into = std::min(into, lap_.length);
+            if (!lap_.closed) {
+                car_laps_[c] = 0;
+            }
+            else if (car_into_[c] < 0.0f) {
+                // First seen (the grid): a car behind the line is on lap 0, short of the first.
+                car_laps_[c] = into > half ? -1 : 0;
+            }
+            else if (car_into_[c] - into > half) {
+                car_laps_[c]++;
+            }
+            else if (into - car_into_[c] > half) {
+                car_laps_[c]--;
+            }
+            car_into_[c] = into;
+            leader_progress_ = std::max(leader_progress_, (float)car_laps_[c] * lap_.length + into);
+        }
+    }
+
     void World::update(float dt) {
         if (racing_) {
             race_time_ += dt;
@@ -1019,6 +1134,7 @@ namespace rush2::track2049::movers {
         }
         prev_leader_lap_ = leader_lap_;
         entered_.clear();
+        last_checkpoint_ = false;
     }
 
     // Whether one of `events` happens this update. A time event happens once (s.fired from index first_time).
@@ -1049,6 +1165,16 @@ namespace rush2::track2049::movers {
                 break;
             case ScriptEvent::final_lap:
                 any = any || (new_lap && laps_ > 0 && leader_lap_ == laps_);
+                break;
+            case ScriptEvent::progress:
+                // Once, as the arcade's sorted progress list fires each entry the leader has passed (0x14029E8C0).
+                if (racing_ && leader_progress_ >= e.seconds && first_time + k < s.fired.size() && !s.fired[first_time + k]) {
+                    s.fired[first_time + k] = 1;
+                    any = true;
+                }
+                break;
+            case ScriptEvent::last_checkpoint:
+                any = any || last_checkpoint_;
                 break;
             }
         }
@@ -1460,6 +1586,11 @@ namespace rush2::track2049::movers {
         }
         s::field(w, race_time_);
         s::field(w, prev_leader_lap_);
+        s::vector(w, car_laps_);
+        s::vector(w, car_into_);
+        s::vector(w, car_segment_);
+        s::field(w, leader_progress_);
+        s::field(w, at_last_checkpoint_);
         s::vector(w, objects_, [](s::Walker& w, Object& o) {
             s::field(w, o.path);
             s::field(w, o.type);

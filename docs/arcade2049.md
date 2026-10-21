@@ -117,7 +117,9 @@ objects, ambiguous at 8); the readers now take the long name when it is an objec
 ## dobs.rom (dynamic objects)
 
 u8 1, then records: u8 name length (with its NUL), the name (can be longer than the object table's 15 characters; a
-flipbook's frames are `<name>_1..n`), u16 script length, the script (CRLF lines), f32 m[9], f32 pos[3]. Script
+flipbook's frames are `<name>_1..n`), u16 script length, the script (CRLF lines, split into words at `:=#`, spaces, tabs and line ends, ProjectR
+0x1406EA215: `#` is not a comment, so `#followy 70 450 20` moves the object; Marina's four `#` trains and Metro's seven
+trolleys run from the start, which the converters missed until 2026-10-20), f32 m[9], f32 pos[3]. Script
 commands and what the converter makes of them:
 
 | Command | Meaning | Converted to |
@@ -142,15 +144,39 @@ Events (`when ...`), as the converter reads them:
 | Arcade event | Meaning | track.toml event |
 |---|---|---|
 | a trigger name, such as `mg1` | a car drives into the hidden box named `mg1` | `"trigger MG1"` |
-| `progress <feet>` | the leader that far into the race along the drones' lap from its first point **[I]** (Marina's lap is 12,869 ft) | a 140 x 80 x 140 ft box `TRIGGER_PROGRESS_<feet>` on the lap point at that distance, `"trigger PROGRESS_<feet> lap <n>"` |
-| a number, such as `3` | seconds into the race **[I]** | `"time 3"` |
-| `oddlap`, `evenlap` | the leader starts an odd / even lap | `"odd_lap"`, `"even_lap"` |
-| `finishswap` | the last lap starts **[I]** (the finish sign flips to FINAL LAP) | `"final_lap"` |
+| `progress <feet>` | the leader that far into the race: its lap counter x the arcade's lap length + feet into the lap **[V]** | `"progress <n>"`, the same lap and point on the converted lap (laps x its length + the feet into the lap) |
+| a number, such as `3` | seconds into the race **[V]** (x 100,000: a 100 kHz clock) | `"time 3"` |
+| `oddlap`, `evenlap` | a new lap, odd / even **[V]** | `"odd_lap"`, `"even_lap"` |
+| `lastlap` | the last lap starts **[V]** (no track uses it) | `"final_lap"` |
+| `finishswap` | player 1 (car 0) passes the race's last checkpoint before the finish **[V]** (the finish sign swaps; every track has one) | `"last_checkpoint"` |
+
+How the arcade runs them, from ProjectR's native port (`project-r.exe`, read with `llvm-objdump -d`,
+`tools/arcade2049/pe_xref.py` for references to a string and `tools/arcade2049/pe_read.py` for constants; the dobs parser at 0x1402D7A80 reads the
+word after `when` and compares it with `progress`, `finishswap`, `lastlap`, `oddlap`, `evenlap`, else a number):
+- `progress`: the value (a float) goes into a list kept sorted by it (0x14029E680, head 0x140951408). Each frame
+  0x14029E8C0 takes the largest progress of the race's cars (count 0x140A1CB39, 0xB48 apart) and fires every entry
+  below it, once. A car's progress (0x140233840) is its lap counter (0x1408B9268, s8 per car) x the track's lap length
+  (table 0x1407A9FE4, f32 per track: 12,600 Marina, 18,000 Haight, 17,000 Civic, 15,900 Alcatraz, 19,700 Metro, 0
+  Mission and Presidio, 3,200 the stunt track) + its distance along the lap path; the counter goes up when that
+  distance falls by more than half a lap and down when it rises by as much. The lap path starts at the finish line
+  (FINISHSIGN is within 15 ft of its first point on Marina, Haight and Metro). With a 0 lap length it is the car's
+  own +0x108 instead (Mission and Presidio, which have progress.rom; no progress events there).
+- `finishswap`: fires once (0x14029E360, from 0x1402934E0) when car 0's progress passes 0x140950E3C, the distance of
+  the race's last checkpoint before the finish (written while the checkpoint table 0x14094EE34 is built, 0x140293948).
+- `lastlap` (0x14029E4D0) fires when the lap number reaches the race's laps (0x14094EE30); `oddlap` / `evenlap`
+  (0x14029E530) by the new lap's low bit.
+- A number is seconds: x 100,000 (0x140621760) into a timed event (0x14029E3C0).
+So on Marina and Metro the trains do wait for lap 2: Marina's `progress 14000` is 1,400 ft into lap 2, Metro's
+`progress 32000` 12,300 ft into lap 2 (the N64 version runs them from the start). Until 2026-10-20 the converter made
+these a 140 ft box on the lap point a car had to drive through on that lap (often missed in play) and read
+`finishswap` as the last lap's start.
 
 An event the converter doesn't know is listed in the report and the object plays freely. Marina's timeline, checked
 with `movers_test.exe --script` (docs/custom_tracks.md#for-developers): the button box opens the ramp 17 ft and it
-closes 8 s later, the box itself closes and reopens 8 s later; the train starts on lap 2 and the trolley slides 300 ft
-on lap 2; on the final lap the finish sign swaps, the fences close and the stunt ramp rises 110 ft.
+closes 8 s later, the box itself closes and reopens 8 s later; the train starts 1,400 ft into lap 2 (`progress 14000`) and the trolley
+slides 300 ft 12,400 ft into lap 2 (`progress 25000`); a second ramp rises 15 ft 11,466 ft into lap 3 (`progress
+36666`); leaving the Fuji building (`stv_fujiexit`) raises the finish stunt ramp 110 ft and closes the fences; at the
+last checkpoint the finish sign swaps.
 
 Alcatraz has 100 coin pickups in trails along its shortcuts and jumps (every arcade race track has 100; left out),
 16 cones, 30 construction horses, 68 billboards, 8 spinning objects (lighthouse beams, police lights, three circling planes) and

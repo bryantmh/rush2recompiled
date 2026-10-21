@@ -45,6 +45,7 @@
 #include <random>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "recomp.h"
@@ -241,6 +242,8 @@ namespace {
 
     // The track select the Start Game menu opened (a SelectKind).
     std::atomic<int> select_kind = select_race;
+    // The row kind (StartKind) the Start Game menu last chose, -1 (None) before any: rush2::track2049::chosen_start_kind.
+    std::atomic<int> chosen_kind = -1;
 
     // The option list func_803AB294 built for this visit, before filter_options.
     std::vector<int> stock_options;
@@ -297,6 +300,15 @@ namespace {
 
     // rush2::track2049::set_all_tracks_open: an online lobby's track select has every track this machine has.
     std::atomic<bool> all_tracks_open = false;
+    // rush2::track2049::set_online_offered: with every track open, only those the host's track select offers (its
+    // unlocks and game filter), so both carousels hold the same entries and step alike. Custom tracks go by whether
+    // the host offers any (each machine numbers its own). A set without a track of the select's kind (the host's last
+    // select was another kind) doesn't apply. offered_rebuild: the set changed while the screen was up.
+    // Guarded by menu_mutex.
+    bool online_offered_on = false;
+    std::array<bool, menu_tracks> online_offered{};
+    std::array<bool, 3> offered_kinds{};    // by SelectKind: the set has a track of that kind
+    bool offered_rebuild = false;
 
     // Whether the track select would offer track t (0-79) without the game filter: func_803AB01C's unlocks, the added
     // tracks, and the stunt and battle filter.
@@ -308,6 +320,9 @@ namespace {
         else if (t == 10) unlocked = rush2::unlocks::track_open(rdram, t, MEM_BU(0, (int32_t)atari_unlocked) != 0);
         else if (t == stunt_host_slot) unlocked = true;
         else unlocked = entry_available(t) && rush2::unlocks::track_open(rdram, t);
+        if (all_tracks_open && online_offered_on && offered_kinds[select_kind.load()] && !online_offered[t]) {
+            unlocked = false;
+        }
         return unlocked && kind_of(t) == select_kind.load();
     }
 
@@ -328,7 +343,7 @@ namespace {
     }
 
     // Notes which games' tracks the select offers and whether the filter applies to it: not to a circuit's (its TRACK
-    // row is greyed) or an online lobby's (it shows the host's track).
+    // row is greyed) or an online joiner's (it offers the host's select's tracks, filtered by the host's filter).
     void update_filter(uint8_t* rdram) {
         using namespace rush2::game_filter;
         screen_built(Screen::Tracks);
@@ -902,6 +917,7 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     serve_menu_container(rdram);
     write_tables(rdram);
     update_filter(rdram);
+    offered_rebuild = false;
     int t = -1;
     if (select_kind == select_stunt) {
         // The game's choice (from the save record's nibble) is a race track, which this select doesn't offer.
@@ -952,7 +968,13 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
 // its end); the next frame builds it again, on the track that was shown.
 extern "C" void trackselect_init_draw_803AB294(uint8_t* rdram, recomp_context* ctx);
 extern "C" int rush2_track49_filter_frame(uint8_t* rdram, recomp_context* ctx) {
-    if (!rush2::game_filter::frame(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present)) {
+    // An online joiner's carousel holds the host's offered tracks (set_online_offered): a change rebuilds it the same way.
+    bool offered_changed;
+    {
+        std::lock_guard lock{ menu_mutex };
+        offered_changed = std::exchange(offered_rebuild, false);
+    }
+    if (!offered_changed && !rush2::game_filter::frame(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present)) {
         return 0;
     }
     filter_keep_track = (int8_t)MEM_B(0, (int32_t)track_id);
@@ -1814,6 +1836,7 @@ namespace {
 // UNLOCKS takes RECORDS' (its profile list, which then opens the shop: src/unlocks_shop.cpp). GHOST RACE takes ONE RACE's: the race it starts records player 1 and races the ghost.
 extern "C" void rush2_mode_menu_choose(uint8_t* rdram, recomp_context* ctx) {
     int kind = row_kind((int32_t)ctx->r10);
+    chosen_kind = kind;
     select_kind = kind == row_stunt ? select_stunt : kind == row_battle ? select_battle : select_race;
     rush2::ghost::set_chosen(kind == row_ghost);
     rush2::unlocks::set_shop_chosen(kind == row_unlocks);
@@ -1836,6 +1859,37 @@ int rush2::track2049::start_menu_row(StartKind kind) {
 
 void rush2::track2049::set_all_tracks_open(bool on) {
     all_tracks_open = on;
+}
+
+std::vector<int> rush2::track2049::offered_tracks(uint8_t* rdram) {
+    std::lock_guard lock{ menu_mutex };
+    return shown_tracks(rdram);
+}
+
+void rush2::track2049::set_online_offered(uint8_t* rdram, const std::vector<int>& tracks) {
+    std::array<bool, menu_tracks> offered{};
+    std::array<bool, 3> kinds{};
+    bool any_mod = false;
+    for (int t : tracks) {
+        if (t < 0 || t >= menu_tracks) continue;
+        offered[t] = true;
+        any_mod |= is_mod_track(t);
+    }
+    std::lock_guard lock{ menu_mutex };
+    for (int t = 0; t < menu_tracks; t++) {
+        if (is_mod_track(t)) offered[t] = any_mod;
+        if (offered[t]) kinds[kind_of(t)] = true;
+    }
+    bool on = !tracks.empty();
+    if (on == online_offered_on && (!on || offered == online_offered)) return;
+    online_offered_on = on;
+    online_offered = offered;
+    offered_kinds = kinds;
+    offered_rebuild = offered_rebuild || MEM_W(0, (int32_t)game_state) == 1;
+}
+
+rush2::track2049::StartKind rush2::track2049::chosen_start_kind() {
+    return StartKind(chosen_kind.load());
 }
 
 std::string rush2::track2049::online_track_key(int t) {

@@ -21,10 +21,12 @@
 //
 // A custom track's scripted moving objects (track.toml start / open / close, the SCRP and TRIG chunks): a race of
 // `laps` laps (default 3) of `lap seconds` (default 40) is simulated at 60 fps, the cars released at 1 s, and every
-// trigger box driven into once a lap (box b at 2 + 0.5 b s into each lap). Each scripted object's moves are printed
+// trigger box driven into once a lap (box b at 2 + 0.5 b s into each lap); with a LAPP chunk, a car drives the lap
+// (progress events) and passes the last checkpoint 90 % into the last lap (last_checkpoint). Each scripted object's moves are printed
 // (when it starts and stops, and how far from its spawn it is then), and every flip-book is checked to show exactly one
 // frame throughout.
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -203,8 +205,10 @@ namespace {
         options.custom = true;
         World w;
         w.init(paths, types, options);
+        LapPath lap_path;
+        if (parse_lap(data.data(), data.size(), lap_path)) w.set_lap(lap_path);
         static const char* modes[] = { "plain", "loop", "pingpong", "once", "door" };
-        static const char* kinds[] = { "time", "trigger", "odd_lap", "even_lap", "final_lap" };
+        static const char* kinds[] = { "time", "trigger", "odd_lap", "even_lap", "final_lap", "progress", "last_checkpoint" };
         printf("%zu paths, %zu trigger boxes\n", paths.size(), boxes.size());
         for (size_t i = 0; i < w.paths().size(); i++) {
             const Script& sc = w.paths()[i].script;
@@ -216,6 +220,7 @@ namespace {
                 for (const ScriptEvent& e : *lists[l]) {
                     printf(" %s:%s", names[l], kinds[e.kind]);
                     if (e.kind == ScriptEvent::time) printf(" %g", e.seconds);
+                    if (e.kind == ScriptEvent::progress) printf(" %g ft", e.seconds);
                     if (e.kind == ScriptEvent::trigger) printf(" box %d lap %d", e.box, e.lap);
                 }
             }
@@ -254,6 +259,21 @@ namespace {
                 }
             }
             w.set_race(racing, lap, laps, entered);
+            if (!lap_path.points.empty()) {
+                // One car round the lap at a steady speed, a lap per lap_seconds; on the last lap it passes the last
+                // checkpoint 90 % of the way round.
+                float run = racing ? (t - 1.0f) / lap_seconds * lap_path.length : 0.0f;
+                float d = std::fmod(run, lap_path.length);
+                size_t i = size_t(std::upper_bound(lap_path.at.begin(), lap_path.at.end(), d) - lap_path.at.begin());
+                i = i ? i - 1 : 0;
+                const auto& a = lap_path.points[i];
+                const auto& b = lap_path.points[(i + 1) % lap_path.points.size()];
+                float seg = (i + 1 < lap_path.at.size() ? lap_path.at[i + 1] : lap_path.length) - lap_path.at[i];
+                float f = seg > 0.0f ? (d - lap_path.at[i]) / seg : 0.0f;
+                std::array<float, 3> pos;
+                for (int k = 0; k < 3; k++) pos[k] = a[k] + (b[k] - a[k]) * f;
+                w.set_cars({ pos }, { 1 }, racing && lap == laps && into >= 0.9f * lap_seconds);
+            }
             w.update(dt);
             for (size_t i = 0; i < w.objects().size(); i++) {
                 const Object& o = w.objects()[i];

@@ -14,7 +14,7 @@
 namespace rush2::online {
     // Bumped whenever the messages below change; machines with different versions can't play together (it is part of
     // the compatibility key too, but the hello checks it first to give a clearer reason).
-    constexpr uint32_t protocol_version = 8; // 8: setup check at load; 7: resyncs, mod cars (6: mod car types 57-72)
+    constexpr uint32_t protocol_version = 9; // 9: the host's offered tracks; 8: setup check at load; 7: resyncs, mod cars (6: mod car types 57-72)
 
     // Messages, each starting with its type byte. Host -> client unless marked client -> host.
     enum class Msg : uint8_t {
@@ -36,7 +36,7 @@ namespace rush2::online {
         LoadMismatch = 16,// str reason: the machines set up different races; it ends
         Finished = 17,    // client -> host: the race is over on this machine
         SetGameplay = 18, // client -> host: long str
-        MenuState = 19,   // u8 phase (MenuPhase), settings, s8 option cursor, s8 option top, str start error
+        MenuState = 19,   // u8 phase (MenuPhase), settings, s8 option cursor, s8 option top, str start error, bytes offered tracks
         SetModCars = 20,  // client -> host: mod cars
         Snapshot = 21,    // u32 frame, bytes: the host's race state at the start of a resync frame
         Notice = 22,      // str: something every machine shows for a while (a resync)

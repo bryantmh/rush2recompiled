@@ -50,6 +50,10 @@ SURFACE = {0: 'ROAD', 1: 'DIRT', 2: 'GRASS', 3: 'WATER', 5: 'WALL', 6: 'WALL', 7
 GATE_TEXTURES = {'MG_CHECK5', 'MG_W_CHECK6', 'TE_CHKPNT'}
 FINISH_TEXTURES = {'TE_FINISH'}
 GATE_MERGE = 250.0
+# The arcade's lap length per track (ProjectR's table 0x1407A9FE4, by track index), which its `when progress <feet>`
+# counts laps with: progress = laps x this + feet into the lap (0x140233840; docs/arcade2049.md#dobsrom-dynamic-objects).
+# Mission and Presidio have 0 there (no progress events).
+ARCADE_LAP_FT = {'TRACK1': 12600.0, 'TRACK2': 18000.0, 'TRACK3': 17000.0, 'TRACK4': 15900.0, 'TRACK5': 19700.0}
 GATE_REACH = 120.0   # ft: banner pieces farther from the lap (signs off the course, on Mission) aren't checkpoints
 WATER_TEXTURES = {'WATER2'}      # the bay's sheets (A_WATER_RIBS and the water tower's aren't water)
 WATER_EDGE = 2500.0          # ft: water collision triangles are split as scenery is (MAX_EDGE)
@@ -621,8 +625,7 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
     object_road, object_wall = ([], [], []), ([], [], [])
 
     # Trigger boxes: hidden dobs objects with a `name` (UNITCUBE mostly), which other objects' `when <name>` wait for a
-    # car to drive into; and `when progress <feet>`, a car that far into the race (along the drones' lap, from its first
-    # point [I]), made a box on the lap point at that distance for the car on that lap.
+    # car to drive into.
     trigger_boxes = {}
     lap_pts = np.array(t.lap(), float)
     lap_at = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(np.vstack([lap_pts, lap_pts[:1]]), axis=0), axis=1))])
@@ -641,21 +644,21 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         if not w:
             return None
         a = w[0].lower()
-        if a == 'progress' and len(w) > 1 and lap_length > 0:
+        if a == 'progress' and len(w) > 1:
+            # The leader that far into the race: laps x the arcade's lap length (ARCADE_LAP_FT) + feet into the lap
+            # [V]; the same lap and point on the converted lap, whose length differs a little.
+            arcade_lap = ARCADE_LAP_FT.get(os.path.basename(os.path.normpath(t.folder)).upper(), 0)
             d = float(w[1])
-            lap = int(math.floor(d / lap_length)) + 1
-            into = d - (lap - 1) * lap_length
-            i = int(np.searchsorted(lap_at, into, side='right'))
-            i = (i - 1) % len(lap_pts) if i else 0
-            name = 'PROGRESS_' + w[1]
-            c = lap_pts[i]
-            trigger_boxes[name] = (c - (70, 40, 70), c + (70, 40, 70))
-            used_triggers.add(name)
-            return 'trigger %s lap %d' % (name, lap)
+            if arcade_lap <= 0 or lap_length <= 0:
+                unknown_events.add(' '.join(w))
+                return None
+            laps = math.floor(d / arcade_lap)
+            return 'progress %g' % round(laps * lap_length + (d - laps * arcade_lap), 1)
         if a and all(ch.isdigit() or ch == '.' for ch in a):
-            return 'time ' + w[0]                 # seconds into the race [I]
-        if a in ('oddlap', 'evenlap', 'finishswap'):
-            return {'oddlap': 'odd_lap', 'evenlap': 'even_lap', 'finishswap': 'final_lap'}[a]   # finishswap [I]
+            return 'time ' + w[0]                 # seconds into the race [V]
+        if a in ('oddlap', 'evenlap', 'finishswap', 'lastlap'):
+            # finishswap: player 1 past the race's last checkpoint before the finish [V]; lastlap: the last lap started.
+            return {'oddlap': 'odd_lap', 'evenlap': 'even_lap', 'finishswap': 'last_checkpoint', 'lastlap': 'final_lap'}[a]
         if w[0].upper() in trigger_boxes:
             used_triggers.add(w[0].upper())
             return 'trigger ' + w[0].upper()
@@ -688,13 +691,14 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         # the next `when` line.
         follow = None
         start_ev, open_ev, close_ev = [], [], []
-        collision = 'collision' in words
+        # `collision` anywhere in the script, as the arcade reads it word by word ('followy 60 1400 22 collision').
+        collision = any(x.lower() == 'collision' for ln in script for x in ln.split())
         first_close, seen_door = False, False
         open_delay = close_delay = -1.0
         pending = None
         for s in script:
             w = s.split()
-            if not w or w[0].startswith('#'):
+            if not w:
                 continue
             a = w[0].lower()
             if a.startswith('follow') and len(a) >= 7 and len(w) >= 3:

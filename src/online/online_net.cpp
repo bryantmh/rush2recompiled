@@ -884,6 +884,7 @@ namespace {
                 m.option_cursor = int8_t(r.u8());
                 m.option_top = int8_t(r.u8());
                 m.start_error = r.str();
+                m.offered_tracks = r.bytes();
                 if (r.bad) {
                     return;
                 }
@@ -1527,6 +1528,7 @@ void rush2::online::publish_menu(const MenuState& m) {
     w.u8(uint8_t(m.option_cursor));
     w.u8(uint8_t(m.option_top));
     w.str(m.start_error);
+    w.bytes(m.offered_tracks);
     // Sent reliably: a change at once, the same state again twice a second (for players who just joined).
     if (w.data == menu_sent && ++menu_unchanged < 30) {
         return;

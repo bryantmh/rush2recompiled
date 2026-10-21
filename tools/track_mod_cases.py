@@ -515,7 +515,7 @@ def script_defs(c):
         p, lat = c.line.at(s), c.line.lateral(s)
         return to_gltf((p[0] + lat[0] * side, p[1], p[2] + lat[2] * side))
 
-    pts = [beside(k * 0.1 * L) for k in (1, 2, 3, 4, 6)]
+    pts = [beside(k * 0.1 * L) for k in (1, 2, 3, 4, 6, 7, 8)]
     up = lambda p, h: (p[0], p[1] + h, p[2])
     return [
         dict(name='door', toml='mode = "door"\nopen = "trigger gate"\nclose_delay = 5\n', mode=4, open_at_start=0,
@@ -530,6 +530,12 @@ def script_defs(c):
         dict(name='card', toml='mode = "loop"\nstart = "odd_lap"\n', mode=1, open_at_start=0,
              events=[[(2, -1, 0)], [], []], delays=(-1.0, -1.0), at=pts[4], T=[pts[4], up(pts[4], 2), pts[4]],
              billboard=True),
+        # The leader 1.5 laps into the race (progress, along the AI path from the finish), and player 1 past the
+        # last checkpoint of the last lap.
+        dict(name='sub', toml='mode = "pingpong"\nstart = "progress %g"\n' % round(1.5 * L, 1), mode=2, open_at_start=0,
+             events=[[(5, -1, round(1.5 * L, 1))], [], []], delays=(-1.0, -1.0), at=pts[5], T=[pts[5], up(pts[5], 3)]),
+        dict(name='sign', toml='mode = "once"\nstart = "last_checkpoint"\n', mode=3, open_at_start=0,
+             events=[[(6, -1, 0.0)], [], []], delays=(-1.0, -1.0), at=pts[6], T=[pts[6], up(pts[6], 2)]),
     ]
 
 
@@ -573,6 +579,7 @@ def check_scripts(c, out, report, fails):
         fails.append('mover file chunks %s, want PTHD, SCRP and TRIG' % sorted(chunks))
         return
     defs = script_defs(c)
+    L = c.line.length
     o, count = chunks['SCRP']
     if count != len(defs):
         fails.append('SCRP has %d scripts, want %d' % (count, len(defs)))
@@ -601,6 +608,14 @@ def check_scripts(c, out, report, fails):
     o, count = chunks['TRIG']
     if count != 2:
         fails.append('TRIG has %d boxes, want 2' % count)
+    # LAPP, for the progress event: the spine from the finish line (a point every 20 ft) and the lap's length.
+    if 'LAPP' not in chunks:
+        fails.append('no LAPP chunk for the progress event')
+    else:
+        o, count = chunks['LAPP']
+        lap = struct.unpack_from('>f', pb, o)[0]
+        if count < 10 or abs(lap - count * 20.0) > 0.01 or abs(lap - L) > 40.0:
+            fails.append('LAPP: %d points over %.0f ft, want one every 20 ft over the %.0f ft lap' % (count, lap, L))
     if not re.search(r'TRIGGER_UNUSED isn.t used', report):
         fails.append('no warning for the unused TRIGGER_unused')
     # The moving billboard's placement record: node flag 0x8000.

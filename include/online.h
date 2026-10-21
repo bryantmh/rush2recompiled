@@ -98,6 +98,9 @@ namespace rush2::online {
         // cursor (0x803D05BC) and the top row on screen (0x803D05C4).
         int8_t option_cursor = 0;
         int8_t option_top = 1;
+        // The tracks the host's track select offers (rush2::track2049::offered_tracks, in its ids), which the others'
+        // offer too; empty until the host has been on its track select.
+        std::vector<uint8_t> offered_tracks;
         // Why the host's race can't start yet (start_race's last_error), shown on every machine so the player it names
         // knows what to do (pick another car, close a menu); empty when nothing holds it.
         std::string start_error;

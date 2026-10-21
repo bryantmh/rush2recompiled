@@ -179,7 +179,11 @@ class Track:
                 break
             nm = b[o:o + n].split(b'\0')[0].decode('latin1'); o += n
             sl = struct.unpack_from('<H', b, o)[0]; o += 2
-            script = [ln.strip() for ln in b[o:o + sl].split(b'\0')[0].decode('latin1').splitlines() if ln.strip()]
+            # The arcade splits a script into words at ":=# \t\r\n" (ProjectR 0x1406EA215, its dobs parser's
+            # separators), so '#followy 70 450' is followy, not a comment; a line here is still one command.
+            text = b[o:o + sl].split(b'\0')[0].decode('latin1')
+            text = text.replace(':', ' ').replace('=', ' ').replace('#', ' ')
+            script = [ln.strip() for ln in text.splitlines() if ln.strip()]
             o += sl
             m, p = struct.unpack_from('<9f', b, o), struct.unpack_from('<3f', b, o + 36); o += 48
             out.append((nm, script, m, p))

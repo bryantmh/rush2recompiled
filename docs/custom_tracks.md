@@ -416,6 +416,8 @@ a short piece of text:
 | `"odd_lap"` | The leading car starts lap 1, 3, 5, ... |
 | `"even_lap"` | The leading car starts lap 2, 4, 6, ... |
 | `"final_lap"` | The leading car starts the last lap |
+| `"progress 14000"` | The leading car is 14,000 ft into the race, counting every lap: on a 12,000 ft lap that is 2,000 ft into lap 2. Measured along `AIPATH_main` from the finish line (on a point-to-point track, from its start, with no laps). Needs `AIPATH_main` |
+| `"last_checkpoint"` | Player 1 passes the last checkpoint before the finish on the last lap (the finish banner turning to FINISH, say) |
 
 Each setting takes one event or a list of them; any one of a list sets it off.
 
@@ -891,21 +893,29 @@ merges and renames as needed.
   case checks the flags, node counts, every key's vertex pose against the glTF (a parented, scaled and turned object
   included), the records and the quadtree coverage.
 - **Scripted moving objects and triggers:** a mover with `mode = "once"` or `"door"`, or a `start` on a loop or
-  pingpong, is scripted. The converter appends two chunks to the mover file's directory (12-byte entries at +4:
-  PTHD per path, then SCRP, TRIG, terminator). SCRP has one record per path in PTHD order: u8 mode (0 not scripted,
+  pingpong, is scripted. The converter appends three chunks to the mover file's directory (12-byte entries at +4:
+  PTHD per path, then SCRP, TRIG, LAPP, terminator). SCRP has one record per path in PTHD order: u8 mode (0 not scripted,
   1 loop, 2 pingpong, 3 once, 4 door), u8 flags (bit 0 open_at_start), u8 counts of start / open / close events,
   3 pad, f32 open_delay, f32 close_delay (-1 = none), then the events, 12 bytes each: u8 kind (0 time, 1 trigger,
-  2 odd_lap, 3 even_lap, 4 final_lap), pad, s16 box (TRIG index), s16 lap (0 = any), pad, f32 seconds. TRIG holds
+  2 odd_lap, 3 even_lap, 4 final_lap, 5 progress, 6 last_checkpoint), pad, s16 box (TRIG index), s16 lap (0 = any),
+  pad, f32 seconds (progress: feet). LAPP (count = points, 0 when no event is a progress one): f32 lap length (0 for
+  an open AI path: point to point or run-in, measured along it with no laps), then the spine's points (f32 x, y, z,
+  game space, from the finish line every 20 ft), read by `movers::parse_lap`. TRIG holds
   24-byte boxes (f32 lo[3], hi[3], game space) from `TRIGGER_` nodes (mesh bounds, or an Empty's ±1 cube through its
   world matrix). A scripted path gets path flag pingpong 0x1 (loop 0x2 for a loop) and no ride flags.
   `movers::parse_scripts` reads them into `Path::script` and the boxes (`track2049_movers_logic.cpp`), for
   `light_track` 0 only. Each tick `track2049_movers.cpp` hands `World::set_race` whether the race is on (any active,
   non-ghost car released: car +0x71C), the leader's lap (max car +0x7FD laps done + 1), the race's laps (0x8010C0E2)
   and the boxes each car entered this tick with that car's lap (tested in the per-car hook against car +0x224, live
-  cars only: active +0x7E4, not wrecked, not a ghost). `World::step_scripted` runs such a path on a clock in seconds
+  cars only: active +0x7E4, not wrecked, not a ghost); then `World::set_cars` every active non-ghost car's position
+  and whether player 1 is on the last lap with the finish's checkpoint (0x8010BCEC) as its next (car +0x800).
+  Progress is the Rush 2049 arcade's (docs/arcade2049.md#dobsrom-dynamic-objects): distance along the lap to the
+  nearest point plus a per-car lap counter x the lap length, the counter stepped when that distance jumps by more than
+  half a lap; a progress event fires once when the leader's passes it, `last_checkpoint` as player 1's next
+  checkpoint turns into the finish on the last lap. `World::step_scripted` runs such a path on a clock in seconds
   (every node's time is travel except the end node's; a loop counts every node, wrapping with a restore group op as
   2049's loop does), sets the follower's node / t / dir from it and poses it with the shared `pose()`; time events
-  fire once each, from the green light. The script state is in the online sync. `movers_test.exe --script
+  fire once each, from the green light; progress events once each. The script state is in the online sync. `movers_test.exe --script
   <mover_paths.bin> [laps] [lap seconds]` simulates a race and prints each scripted object's starts and stops;
   `track_mod_cases.py`'s `scripts` case checks the chunks, a moving billboard's record flag (0x8000, `camera_card`:
   `MOVE_` with `billboard`, vertices scaled by key 0 and turned half a turn for the camera basis) and `covered`

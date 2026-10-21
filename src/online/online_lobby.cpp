@@ -113,6 +113,10 @@ namespace {
         ports_mode = (int)mode;
     }
 
+    // Host: the tracks its track select offered when last up (rush2::track2049::offered_tracks), sent with the menu
+    // state; cleared away from the selects, where the next select may be of another kind.
+    std::vector<uint8_t> host_offered;
+
     // This machine's place in the lobby.
     bool car_chosen = false;       // Picked a car on the car select (car_select_done).
     bool start_sent = false;       // Host: asked for the race to start.
@@ -154,10 +158,19 @@ namespace {
         }
     }
 
-    // The circuit menu keeps its cursor in the Start Game row: past Start Game, a circuit is known by the race type.
+    // On Start Game, its row; past it, what it chose. Leaving Start Game pushes its row onto the front end's row stack
+    // and zeroes it (func_803B12C8), so the row read One Race on Select Player and the track select: the host
+    // published One Race for a Stunt or Battle, the joiners chose it, and their race selects showed the race tracks'
+    // dioramas under the host's arena. A circuit is known by the race type too (the circuit menu keeps its cursor in the
+    // Start Game row).
     StartKind own_start_kind(uint8_t* rdram) {
-        if (MEM_W(0, (int32_t)race_type) == 1 && !(state_of(rdram) == 0 && screen_of(rdram) == screen_start_game)) {
+        bool on_start_game = state_of(rdram) == 0 && screen_of(rdram) == screen_start_game;
+        if (MEM_W(0, (int32_t)race_type) == 1 && !on_start_game) {
             return StartKind::Circuit;
+        }
+        StartKind chosen = rush2::track2049::chosen_start_kind();
+        if (!on_start_game && chosen != StartKind::None) {
+            return chosen;
         }
         return rush2::track2049::start_menu_kind(MEM_HU(0, (int32_t)start_game_row));
     }
@@ -391,12 +404,23 @@ namespace {
             set_ports(Ports::Own);
         }
 
+        if (gs == 1) {
+            host_offered.clear();
+            for (int t : rush2::track2049::offered_tracks(rdram)) {
+                host_offered.push_back((uint8_t)t);
+            }
+        }
+        else if (gs != 2) {
+            host_offered.clear();
+        }
+
         MenuState m;
         m.phase = unsupported ? MenuPhase::Lobby : phase;
         m.settings = s;
         m.option_cursor = (int8_t)MEM_W(0, (int32_t)option_cursor);
         m.option_top = (int8_t)MEM_W(0, (int32_t)option_top);
         m.start_error = start_problem;
+        m.offered_tracks = host_offered;
         publish_menu(m);
 
         // A Battle needs the Rush 2049 ROM for its Start Game row (start_menu_row): a player without it can't follow.
@@ -471,6 +495,8 @@ namespace {
         if (kind != StartKind::Circuit && hm.phase != MenuPhase::Lobby) {
             rush2::online::game::follow_circuit(rdram, {});
         }
+        // The host's unlocks and game filter: this machine's track select offers the tracks the host's does.
+        rush2::track2049::set_online_offered(rdram, std::vector<int>(hm.offered_tracks.begin(), hm.offered_tracks.end()));
 
         if (hm.phase == MenuPhase::Lobby) {
             if (gs == 1 || gs == 2) {
@@ -502,7 +528,13 @@ namespace {
             // makes this machine's controller player 1, func_800A6B58), the host's choice on Start Game (its row
             // differs by machine), then Select Player.
             int row = rush2::track2049::start_menu_row(kind);
-            if (screen == screen_select_player) {
+            if (screen == screen_select_player && own_start_kind(rdram) != kind) {
+                // Start Game chose another kind of race than the host's (the host went back and chose another, or
+                // this machine took its choice before the host's was known): back to Start Game for the host's.
+                set_ports(Ports::Fed, pulsed(button_b));
+                notice.clear();
+            }
+            else if (screen == screen_select_player) {
                 set_ports(Ports::Own);
                 notice = "Choose a player.";
             }
@@ -732,6 +764,8 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         stop_following_rules();
         rush2::online::game::follow_circuit(rdram, {});
         rush2::track2049::set_all_tracks_open(false);
+        rush2::track2049::set_online_offered(rdram, {});
+        host_offered.clear();
         set_profile_name({});
         update_overlay(false);
         return;

@@ -52,7 +52,10 @@ namespace {
         size_t start = 0;
         for (size_t k = 0; k <= text.size(); k++) {
             if (k == text.size() || text[k] == '\n' || text[k] == '\r') {
+                // The arcade splits a script into words at ":=# \t\r\n" (ProjectR 0x1406EA215, its dobs parser's
+                // separators), so "#followy 70 450" is followy, not a comment; a line here is still one command.
                 std::string line = text.substr(start, k - start);
+                for (char& c : line) if (c == ':' || c == '=' || c == '#') c = ' ';
                 size_t a = line.find_first_not_of(" \t\f\v");
                 size_t b = line.find_last_not_of(" \t\f\v");
                 if (a != std::string::npos) out.push_back(line.substr(a, b - a + 1));

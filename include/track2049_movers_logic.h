@@ -1,6 +1,7 @@
 #ifndef __TRACK2049_MOVERS_LOGIC_H__
 #define __TRACK2049_MOVERS_LOGIC_H__
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -36,11 +37,23 @@ namespace rush2::track2049::movers {
             odd_lap,    // the race leader started lap 1, 3, 5...
             even_lap,   // the leader started lap 2, 4...
             final_lap,  // the leader started the last lap
+            progress,   // the leader is `seconds` feet into the race (LapPath: laps x lap length + feet into the lap)
+            last_checkpoint,    // player 1 passed the last checkpoint before the finish, on the last lap
         };
         Kind kind = time;
         int16_t box = -1;           // trigger: its TriggerBox
         int16_t lap = 0;
-        float seconds = 0.0f;
+        float seconds = 0.0f;       // time: seconds; progress: feet
+    };
+
+    // A custom track's lap for progress events (LAPP chunk): its AI path's points from the finish line, game space, and
+    // the lap's length. Progress is measured as the Rush 2049 arcade measures it (ProjectR 0x140233840): the distance
+    // along the lap plus a lap counter of its own, stepped by one when that distance jumps by more than half a lap.
+    struct LapPath {
+        std::vector<std::array<float, 3>> points;
+        std::vector<float> at;      // distance of each point from the first
+        float length = 0.0f;
+        bool closed = true;         // false: an open path (point to point, run-in), no laps counted
     };
 
     struct Script {
@@ -140,6 +153,8 @@ namespace rush2::track2049::movers {
     // path, in path order) and a TRIG chunk (the trigger boxes). Fills paths[i].script and boxes; files without them
     // leave every path plain. Returns false on bad data.
     bool parse_scripts(const uint8_t* data, size_t size, std::vector<Path>& paths, std::vector<TriggerBox>& boxes);
+    // Its LAPP chunk (u32 count at the chunk: f32 lap length, then count f32 x, y, z points); none leaves lap empty.
+    bool parse_lap(const uint8_t* data, size_t size, LapPath& lap);
 
     // Parses the type table from 2049's decompressed main data (loaded at main_vram = 0x80086A50).
     bool parse_types(const uint8_t* main, size_t size, uint32_t main_vram, std::vector<TypeInfo>& out);
@@ -251,6 +266,12 @@ namespace rush2::track2049::movers {
         // (the race clock runs); leader_lap: the furthest car's lap (1 = the first); laps: the race's laps;
         // entered: per trigger box, the laps (1 = the first) of the cars that drove into it since the last update.
         void set_race(bool racing, int leader_lap, int laps, const std::vector<std::vector<int>>& entered);
+        // Custom tracks with progress events: the lap (set once at setup) and, each update while racing, where every
+        // car is (cars[i]: car i's position, live[i]: it is racing) and whether player 1 is on the last lap with the
+        // finish as its next checkpoint (last_checkpoint fires as that turns true).
+        void set_lap(const LapPath& lap);
+        void set_cars(const std::vector<std::array<float, 3>>& cars, const std::vector<uint8_t>& live, bool at_last_checkpoint);
+        float leader_progress() const { return leader_progress_; }
 
         // func_800C1A00: velocity of a ride-on platform group (first PTHD 0x20 object with this group, in spawn
         // order): its node direction x follower speed, negated going backward; zero if none.
@@ -292,6 +313,13 @@ namespace rush2::track2049::movers {
         float race_time_ = 0.0f;
         int leader_lap_ = 0, prev_leader_lap_ = 0, laps_ = 0;
         std::vector<std::vector<int>> entered_;
+        // Progress (set_lap / set_cars): per car its lap counter, last distance into the lap (< 0: not seen yet) and segment.
+        LapPath lap_;
+        std::vector<int32_t> car_laps_;
+        std::vector<float> car_into_;
+        std::vector<int32_t> car_segment_;   // the lap segment it was nearest (-1: search them all)
+        float leader_progress_ = 0.0f;
+        bool at_last_checkpoint_ = false, last_checkpoint_ = false;
     };
 
     // func_800C0294: moves a group vertex (8-byte VERT: s16 x, y, z, u16 fractions) by delta, rounding half away

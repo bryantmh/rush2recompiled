@@ -13,8 +13,9 @@
 // showed if it is still offered; the car select keeps each player's car, as it opens on the record's car.
 //
 // The filter applies where the prompt can show: not on a circuit's track select (its TRACK row is greyed), an online
-// lobby's selects (each machine shows the host's track), the ghost race's car select (its ghost panel takes the C
-// buttons), or the unlock system's shop. A filter that would leave a select empty is ignored there.
+// joiner's track select (it offers the host's select's tracks, so the host's filter applies there:
+// rush2::track2049::set_online_offered), the online lobby's car select, the ghost race's car select (its ghost panel
+// takes the C buttons), or the unlock system's shop. A filter that would leave a select empty is ignored there.
 
 // As in src/rush2049/wings.cpp: librecomp's nlohmann::json first.
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"

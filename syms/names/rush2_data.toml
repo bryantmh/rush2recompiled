@@ -1003,7 +1003,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x80023064
 name = "start_game_row"
 type = "u16"
-desc = "Menu state halfword written by many menu screens; read by options, start game, name entry. (low confidence) | The Start Game menu's row (func_803B12C8: One Race, Circuit, Practice, Ghost Race, Stunt, ...); online joiners take the host's."
+desc = "The front end's current menu row, shared by its screens: going to a deeper screen pushes it onto the row stack (depth 0x80023066, rows 0x80023068) and zeroes it. The Start Game menu's row (func_803B12C8: One Race, Circuit, Practice, Ghost Race, Stunt, ...), which it keeps on its first frame (it only clears the stack depth) and reads A/START that same frame; online joiners take the host's."
 area = "menu"
 status = "verified"
 ref = "docs/online.md#the-lobby"
@@ -1012,10 +1012,10 @@ ref = "docs/online.md#the-lobby"
 vram = 0x80023066
 name = "menu_state_u16_b"
 type = "u16"
-desc = "Menu state halfword written/read by many menu screens and race_reset_hud_and_globals. (low confidence)"
+desc = "Depth of the front end's menu row stack (rows at 0x80023068, s16 each): a screen going deeper pushes start_game_row 0x80023064; Start Game's first frame clears it. Also written by race_reset_hud_and_globals."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#the-lobby"
 
 [[var]]
 vram = 0x80023094
