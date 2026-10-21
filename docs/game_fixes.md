@@ -139,6 +139,20 @@ their top edge shows along the bottom of the screen, meeting the wheels.
 The DEW's hood model has its front arms in it already. In the same loop, wheel 0 in hood mode also feeds the hood
 camera's bob (0x80240450 + view * 4, 0x8005A900-0x8005AA1C), which this leaves alone.
 
+## Wheel spin under frame interpolation
+
+User report (2026-10-21). Always on: it only shows with the recomp's frame interpolation, so it has no option.
+
+`carselect_preview_update_8005A598` turns each wheel by an angle kept in its node record (+4, the last game time at
++0x14), drawn as a rotation by minus it (0x8005AA7C). Each game frame (1/30 s) the angle steps by the wheel's spin
+(physics car + wheel * 0x5C, +0x46C, rad/s) x the time since the last frame (0x80117488 - record +0x14), or, above
+64 rad/s, by a fixed 3.7 rad (212 degrees, double at 0x800CF488, 0x8005AA4C): on the N64 a strobe under the blurred
+rim, which the same 64 rad/s switches on (0x8005AAF8). Frame interpolation (src/interpolation.cpp, decomposed
+matrices) turns a wheel the short way between two frames' angles, so a 212 degree step drew as 148 degrees backward
+and every car's wheels spun backward at speed. The hook at 0x8005AA74 (`rush2_fix_wheel_spin_step`, before the angle
+is stored, on both paths) makes the step the true spin's, clamped to 0.8 of a half turn (2.51 rad) either way. The
+wheels turn at their true rate up to about 75 rad/s and at about 12 turns a second above it, always forward.
+
 ## Stallion spoiler
 
 User report. Always on: a vanilla bug, so it has no option.

@@ -14198,6 +14198,12 @@ func = "carselect_preview_update_8005A598"
 before_vram = 0x8005A8F8
 text = "    rush2_fix_formula_rear_wheels(rdram, ctx);"
 
+# Wheel spin steps kept under half a turn so frame interpolation turns the wheels forward (src/game_fixes.cpp).
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005AA74
+text = "    rush2_fix_wheel_spin_step(rdram, ctx);"
+
 # Breakable groups (src/game_fixes.cpp): the 40-group table at 0x800D8FC0 moves to a 0x82-group copy. Each hook puts
 # the copy's address in the register its function just loaded the table's into.
 [[patches.hook]]

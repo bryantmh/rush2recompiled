@@ -496,6 +496,26 @@ void rush2::fix_car_models(uint8_t* rdram) {
     fix_stallion_spoiler(rdram);
 }
 
+// func_8005A598 at 0x8005AA74, the wheel's new spin angle in $f0 about to be stored at node record +4 ($t0): the
+// angle steps by the wheel's spin (physics +0x46C, $t2 = physics car + wheel * 0x5C) x the time since the last frame
+// (0x80117488 - record +0x14), or by a fixed 3.7 rad (212 degrees, 0x800CF488) above 64 rad/s, the N64's strobe under
+// the blurred rim. Frame interpolation turns a wheel the short way between two angles, so a step over half a turn
+// spun the wheels backward. The step is now the true spin's, at most 0.8 of a half turn either way.
+extern "C" void rush2_fix_wheel_spin_step(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t game_time = 0x80117488;
+    constexpr float max_step = 0.8f * 3.14159265f;
+    auto f32 = [&](uint32_t offset, uint32_t base) {
+        int32_t bits = MEM_W(0, (int32_t)(base + offset));
+        float f;
+        std::memcpy(&f, &bits, sizeof(f));
+        return f;
+    };
+    uint32_t record = (uint32_t)ctx->r8;
+    float step = f32(0x46C, (uint32_t)ctx->r10) * (f32(0, game_time) - f32(0x14, record));
+    step = std::clamp(step, -max_step, max_step);
+    ctx->f0.fl = f32(4, record) + step;
+}
+
 // func_8005A598 at 0x8005A8F8, the wheel's z just loaded into $f4 (stored to 0xD4($sp) in the branch's delay slot):
 // $a2 = wheel (2, 3 rear), $t1 = physics car. The FORMULA's rear wheels are drawn at its rear arms' hubs.
 extern "C" void rush2_fix_formula_rear_wheels(uint8_t* rdram, recomp_context* ctx) {
