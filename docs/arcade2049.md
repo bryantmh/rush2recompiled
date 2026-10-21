@@ -211,7 +211,63 @@ spline surface, whose vertex list ends with its u16 segment index; the high word
 kept as `covered` on separate `COL_<SURF>_covered<n>` meshes and never joined across levels. The N64 2049's per-polygon
 light indices (its car shading map) are N64 only: the arcade's info word is 0 there, and `vlut` / `vl_zpath` are
 visibility lists, not lighting. Arcade Marina matches the N64 collision to 0.04
-ft. Where more polygons crowd a spot than a collision cell's 255 (36 before the port moved the
+ft.
+
+### Wall heights (N64 port raised them)
+
+The N64 port's collision keeps the arcade's walls but raised many of their tops. Marina's shortcut ramp between the
+lap road (y 557) and the train deck (y 643-667, the `#followy` trains at y 681), x 4370-4700, z -470 to -230: the
+same 46 wall polygons (roaddat 5933-6009, flags 0x55, info 0) stand 8-11 ft tall in the arcade and 18-22 ft on N64
+(file 139, polygons 1056-1114: same bottoms and footprints, tops about 10 ft higher), and in the recomp the rail
+cuts through cars driving on the ramp (below). The arcade polygons carry nothing else (info word 0, no flag bits) that would make
+them taller. `tools/arcade2049/wall_compare.py <TRACK> <file>` matches each arcade wall to its N64 one (x/z within 2 ft, same
+facing): Marina (139) 526 raised (median 10 ft), 1,332 the same, 33 lower, 1,002 unmatched; the other tracks match
+much less (Haight 140: 115 raised / 687 same / 1,044 unmatched; Civic 141, Metro 142, Mission 143, Presidio 144
+similar or worse), so the N64 reworked them more. Alcatraz has no N64 version. The arcade's wheel/ground probe
+(project-r.exe 0x1402C5E40, polygon test 0x1402C6210) is Rush 2's kind: a point counts for a polygon only when it
+projects inside it along the polygon's normal and is under 120 units (3 ft) in front; a type 5 hit sets a wall flag
+(0x1402C6020). Its contact (0x1402C6B80, same four point slots car + 0x720..0x738) takes the polygon of any
+type the point projects into, from 10 units (0.25 ft) behind to 120 (3 ft) in front, and pushes along that
+polygon's normal; the type (flags & 0xF) is read only after. So in the arcade a steep road-typed face holds cars as
+a wall does, while Rush 2's body probe takes only types 5 and 6. Steep (normal y within ±0.7) type 0 polygons: Marina
+634 (N64 234), Haight 128, Civic 184, Alcatraz 912, Metro 348, Mission 81, Presidio 4,572. Marina's elevated train
+deck (road y 667 at x 3365-3985 with 0x55 rails 3 ft over it, then y 643 at x 4370-4690, spline segments 3-8; the
+`#followy` trains start over it) is lined at x 4370-4690 by such faces (roaddat 5700-5757, y 631-665); the N64 file
+has 15 type 5 walls there. Checked 2026-10-21: the converted collision.bin keeps the ramp walls exactly (corners,
+heights, facing) and the drawn barrier's top (y 634.1, `tools/arcade2049/glb_near.py`) is the arcade wall's, so the
+roaddat decode is right; what differs is how the two games use the types. The lookup tree is right too:
+`tools/arcade2049/wall_reach.py <collision.bin>` looks up points 0.25-3.75 ft in front of every wall face (the body
+probe's reach) with Rush 2's cell rule, and on Marina all 12,927 per distance find their wall. The user's case
+(2026-10-21, screenshot): on the lower ramp, wheels on the road, the rail cuts through the car body. The walls are
+present and in the tree, but only as tall as the drawn rail (7-9 ft over the ramp road; the N64 made them 17-19), and
+Rush 2's body points pass over a wall only as tall as the drawing, as on California Speed (docs/calspeed_research.md,
+Monterey's 3 ft stone wall has an 88 ft collision wall). Measured in game (2026-10-21, Marina Arcade, car 0 read
+from RDRAM): the body points (car +0x260) ride 3.5 ft over the wheel contact points (+0x230), their offsets (+0xE8)
+y 3.0 from the car box's height (0x8021A000 + type x 16, +0xC; 3 ft for every stock and mod car). The train deck's
+rails top out 3.4 ft over its road (y 670.6 over 667.2, walls 5869/5870 of the converted file) and the ramp's
+about 3.5 ft over the road beside them, so the body points pass just over them, and the wheels don't hold the car either
+(the user's screenshot; the wheel probe `collision_poly_extract_8006F704` skips types 5 and 6 at 0x8006F89C),
+where the arcade's wheel contact takes any polygon: 0x1402C6B80 is called once per wheel (0x1402C8919-0x1402C8A27,
+the four cases each writing that wheel's compression, car +0x5C8-0x5D4), so in the arcade a wheel that reaches a
+wall polygon is pushed out along its normal, and a rail as low as the wheels holds the car. The polygon taken is the
+one the wheel's contact point is deepest in (0x1402C6210's distance is along column 2, minus the normal, in 1/40 ft:
+over -10 and under 120), of any type; a type 5 gets `0x1402C7090`'s force, -16000 x (depth + 0.25) - 2000 x the
+speed into the face (never pulling; past 0.25 ft deep car +0x588 x +0x75C x (speed + 1) x -0.5), a floor
+(p < 0: car +0x590 x -0.25, else (-4 depth - speed) x +0x588 x 0.25 x +0x75C) its suspension, clamped to +-1e6.
+Not ported (two tries, 2026-10-21, reverted: walls taken as floors in Rush 2's wheel probe let the soft suspension
+and the tire's grip carry a car over the rail; the wheel points through Rush 2's body probe got too involved).
+Instead the converter raises low walls (`arcade_track.cpp`, after the collision polygons are gathered): a wall whose
+corner stands 3 to 4 ft over the road 1.5 ft in front of it has all its corners 2 ft or more over the road raised
+to 5 ft (3.5 ft, the body points' height, still let a car over the deck rail in 3 of 4 drops), each corner moved up
+within the wall's plane. Each corner is measured on its own: the rails of the ramp up to the deck slope, their top
+corners feet apart, and stand 3.5 to 4 ft over the ramp; the car went through them until they were raised too
+(Marina 141 walls, Haight 4, Civic 23, Metro 4, Mission 60, Presidio 13, Alcatraz none). Rush 2's own tracks keep their walls clear of that height: of the
+steep type 5/6 walls with road 2 ft in front of their middle, those topping out under 3.6 ft over that road are
+Vegas 0 of 1,128, LA 4 of 1,673, Seattle 7 of 1,204, Atari 8 of 2,627, Crash 1 of 336; the converted arcade Marina
+has 114 of 1,730. Not the cause:
+these rails are single faces toward the road (no back-to-back pair, `tools/arcade2049/wall_twins.py`; the MK64
+import's two-face problem, docs/custom_tracks.md), and `tools/arcade2049/wall_behind.py <collision.bin>` lists road
+behind a wall within the probe's reach (only road edges reaching a foot or so under the rails here). Where more polygons crowd a spot than a collision cell's 255 (36 before the port moved the
 queries' lists off the stack, docs/rush2049_research/collision.md#leaf-list-buffers-port-only-v), the converter welds corners and joins flat
 neighbors (`relieve_crowding`; on Alcatraz about 130 pairs, corners moved 1.4 ft at most). Before that, both readers'
 converters (`arcade_track.cpp` and `track_mod.py`, the same steps):

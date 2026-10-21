@@ -8,7 +8,7 @@ finishing, wrecks, respawns and stuck spells, with where each happened on the la
 --launch starts build/Rush2Recompiled.exe with that --input-script (environment variables such as RUSH2_TEST_TRACK
 pass through), watches it, and closes that process (by its PID) at the end. --pid watches a game already running and
 leaves it alone. --path takes the race's path file (tools/track_mod_test.bat output, path.bin) so events are placed
-by spine point and lap distance. Writes DIR/samples.jsonl (every car every 0.1 s, 'wall' the seconds since launch) and DIR/events.txt, prints the
+by spine point and lap distance. Writes DIR/samples.jsonl (every car every 0.1 s, 'wall' the seconds since launch), DIR/events.txt and (--launch) DIR/pid.txt, prints the
 summary. Stops early once every computer car has finished or the game exits.
 
 --trace CAR instead logs every change of that car's wreck and drawing fields (TRACE_FIELDS: wrecked +0x648, flags
@@ -274,6 +274,8 @@ def main():
         proc = subprocess.Popen([exe, '--input-script', a.launch], cwd=os.path.dirname(exe), stdout=log,
                                 stderr=subprocess.STDOUT)
         pid = proc.pid
+        with open(os.path.join(a.out, 'pid.txt'), 'w') as f:   # for tools attaching to this run
+            f.write(str(pid))
         launched = time.time()
         time.sleep(4)
     else:

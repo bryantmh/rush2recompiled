@@ -13,6 +13,7 @@
 #include <fstream>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <map>
 #include <numeric>
 #include <set>
@@ -1329,7 +1330,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         };
         if (!is_sky && follow.on) {
             // follow: along the axis at the speed (ft/s), the distance (ft) from its placement, speeding up and
-            // slowing down at the acceleration (ft/sÂ², [I]: none = a steady speed).
+            // slowing down at the acceleration (ft/s², [I]: none = a steady speed).
             Mover mv{ in.o->name + "_" + std::to_string(movers.size()), &lod, local, in.pos };
             double v = std::abs(follow.speed), D = follow.dist, acc = follow.accel;
             V3 dir = follow.axis * (follow.speed < 0 ? -1.0 : 1.0);
@@ -1536,6 +1537,77 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         V3 up = cross(ft.pts[1] - ft.pts[0], ft.pts[2] - ft.pts[0]);
         if (up[1] <= 0) up = up * -1.0;     // footprints face up
         col_polys.push_back({ ft.flags, { ft.pts[0], ft.pts[1], ft.pts[2] }, up, ft.seg });
+    }
+    {
+        // Low rails: Rush 2 holds a car at a wall only by its body points, which ride 3.5 ft over the road
+        // (docs/arcade2049.md#wall-heights-n64-port-raised-them), where the arcade's wheels take walls too. A wall whose
+        // top is 3 to 4 ft over the road in front of it (Marina's train deck rails, 3.4 ft, and the rails of the ramp up
+        // to it, 3.5-4 ft) is raised to 5 ft, its upper corners moved up within its own plane: raised only to 3.5 ft, the
+        // body points still passed over the deck rail now and then.
+        constexpr double low = 3.0, high = 4.0, raised = 5.0, ahead = 1.5, cell = 16.0;
+        std::map<std::pair<int, int>, std::vector<const ColPoly*>> floors;
+        for (const ColPoly& cp : col_polys) {
+            if ((cp.flags & 0xF) > 2 || unit(cp.normal)[1] < 0.7) continue;
+            double x0 = 1e18, x1 = -1e18, z0 = 1e18, z1 = -1e18;
+            for (const V3& p : cp.pts) x0 = std::min(x0, p[0]), x1 = std::max(x1, p[0]), z0 = std::min(z0, p[2]), z1 = std::max(z1, p[2]);
+            for (int gx = int(std::floor(x0 / cell)); gx <= int(std::floor(x1 / cell)); gx++) {
+                for (int gz = int(std::floor(z0 / cell)); gz <= int(std::floor(z1 / cell)); gz++) floors[{ gx, gz }].push_back(&cp);
+            }
+        }
+        // The highest floor under (x, z) between lo and hi, or NaN.
+        auto floor_at = [&](double x, double z, double lo, double hi) {
+            double best = std::numeric_limits<double>::quiet_NaN();
+            auto it = floors.find({ int(std::floor(x / cell)), int(std::floor(z / cell)) });
+            if (it == floors.end()) return best;
+            for (const ColPoly* f : it->second) {
+                const auto& P = f->pts;
+                double sign = 0;
+                bool inside = true;
+                for (size_t i = 0; i < P.size() && inside; i++) {
+                    const V3& a = P[i];
+                    const V3& b = P[(i + 1) % P.size()];
+                    double c = (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0]);
+                    if (std::abs(c) < 1e-9) continue;
+                    if (sign == 0) sign = c;
+                    else if ((c > 0) != (sign > 0)) inside = false;
+                }
+                if (!inside) continue;
+                V3 n = unit(f->normal);
+                double y = P[0][1] - ((x - P[0][0]) * n[0] + (z - P[0][2]) * n[2]) / n[1];
+                if (y >= lo && y <= hi && !(y <= best)) best = y;
+            }
+            return best;
+        };
+        int walls_raised = 0;
+        for (ColPoly& cp : col_polys) {
+            int ty = cp.flags & 0xF;
+            V3 n = unit(cp.normal);
+            if ((ty != 5 && ty != 6) || std::abs(n[1]) > 0.7 || cp.pts.size() < 3) continue;
+            double bottom = 1e18;
+            for (const V3& p : cp.pts) bottom = std::min(bottom, p[1]);
+            V3 up = unit(V3{ 0, 1, 0 } - n * n[1]);         // up along the wall's face
+            double h = std::hypot(n[0], n[2]);
+            // Each corner by its own height over the road: on a sloped rail the two top corners differ by feet. A wall with
+            // any corner 3 to 4 ft up has all its upper corners (2 ft up or more) raised, so a rail doesn't end up tilted.
+            std::vector<double> over(cp.pts.size(), std::numeric_limits<double>::quiet_NaN());
+            bool low_wall = false;
+            for (size_t i = 0; i < cp.pts.size(); i++) {
+                const V3& p = cp.pts[i];
+                double road = floor_at(p[0] + n[0] / h * ahead, p[2] + n[2] / h * ahead, bottom - 1.0, p[1]);
+                if (std::isnan(road)) continue;
+                over[i] = p[1] - road;
+                low_wall |= over[i] >= low && over[i] < high;
+            }
+            if (!low_wall) continue;
+            for (size_t i = 0; i < cp.pts.size(); i++) {
+                if (!(over[i] >= 2.0 && over[i] < raised)) continue;
+                cp.pts[i] = cp.pts[i] + up * ((raised - over[i]) / up[1]);
+            }
+            walls_raised++;
+        }
+        if (walls_raised) {
+            report.push_back(std::to_string(walls_raised) + " low walls (3-4 ft over the road) raised to 5 ft");
+        }
     }
     std::map<std::string, ColMesh> by_type;
     std::vector<Tri2D> road2d;
