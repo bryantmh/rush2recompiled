@@ -1572,12 +1572,12 @@ text = "    rush2_track49_movers_probe(rdram, ctx);"
 [[patches.hook]]
 func = "collision_poly_extract_8006F704"
 before_vram = 0x8006F85C
-text = "    rush2_ghost_leaf_filter(rdram, ctx, (uint32_t)ctx->r29 + 0xA4, (uint32_t)MEM_W(0x138, ctx->r29));"
+text = "    rush2_ghost_leaf_filter(rdram, ctx, rush2_collision_leaf_list_at(1), (uint32_t)MEM_W(0x138, ctx->r29));"
 
 [[patches.hook]]
 func = "car_wall_collision_query_8006FC94"
 before_vram = 0x8006FDB4
-text = "    rush2_ghost_leaf_filter(rdram, ctx, (uint32_t)ctx->r29 + 0xF4, (uint32_t)ctx->r17);"
+text = "    rush2_ghost_leaf_filter(rdram, ctx, rush2_collision_leaf_list_at(2), (uint32_t)ctx->r17);"
 
 [[patches.hook]]
 func = "collision_poly_extract_8006F704"
@@ -1594,6 +1594,48 @@ text = "    rush2_track49_movers_pads(rdram, ctx); rush2_csphys_wheel_forces(rdr
 func = "collision_file_load_800814B0"
 before_vram = 0x80081550
 text = "    rush2_track49_collision_load(rdram, ctx);"
+
+# The four leaf queries' polygon lists, moved off their u16[36] stack buffers so a leaf can hold 255 polygons
+# (rush2_collision_leaf_list, src/rush2049/track2049_collision.cpp; include/collision_polys.h leaf_lists).
+[[patches.hook]]
+func = "collision_ground_query_8006CF00"
+before_vram = 0x8006D000
+text = "    rush2_collision_leaf_list(ctx, &ctx->r5, 0x94, 0);"
+
+[[patches.hook]]
+func = "collision_ground_query_8006CF00"
+before_vram = 0x8006D034
+text = "    rush2_collision_leaf_list(ctx, &ctx->r7, 0x94, 0);"
+
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006F828
+text = "    rush2_collision_leaf_list(ctx, &ctx->r5, 0xA4, 1);"
+
+[[patches.hook]]
+func = "collision_poly_extract_8006F704"
+before_vram = 0x8006F874
+text = "    rush2_collision_leaf_list(ctx, &ctx->r3, 0xA4, 1);"
+
+[[patches.hook]]
+func = "car_wall_collision_query_8006FC94"
+before_vram = 0x8006FD9C
+text = "    rush2_collision_leaf_list(ctx, &ctx->r5, 0xF4, 2);"
+
+[[patches.hook]]
+func = "car_wall_collision_query_8006FC94"
+before_vram = 0x8006FDDC
+text = "    rush2_collision_leaf_list(ctx, &ctx->r30, 0xF4, 2);"
+
+[[patches.hook]]
+func = "collision_ground_query_basis_8008BDC0"
+before_vram = 0x8008BFA0
+text = "    rush2_collision_leaf_list(ctx, &ctx->r5, 0x108, 3);"
+
+[[patches.hook]]
+func = "collision_ground_query_basis_8008BDC0"
+before_vram = 0x8008BFE0
+text = "    rush2_collision_leaf_list(ctx, &ctx->r21, 0x108, 3);"
 
 # ... and a custom track's leaves past 8,191 polygons: plain u16 polygon numbers (root NODE +2 bit 5).
 [[patches.hook]]

@@ -42,8 +42,16 @@ namespace rush2::track_mod {
 
     // A [movers.<name>] entry: how MOVE_<name> plays its animation.
     struct MoverSettings {
-        std::string mode = "loop";      // loop, pingpong or ride (plays forward while a car is on it, then returns)
+        std::string mode = "loop";      // loop, pingpong, ride (plays forward while a car is on it, then returns),
+                                        // once (forward once, then stays) or door (opens forward, closes back)
         std::string races = "both";     // both, forward or backward: the races it is there in
+        // Events (docs/custom_tracks.md#moving-objects): "time <seconds>", "trigger <name> [lap <n>]", "odd_lap",
+        // "even_lap", "final_lap". start: what starts a loop, pingpong or once (none: the race start); open / close: a
+        // door's.
+        std::vector<std::string> start, open, close;
+        float open_delay = -1.0f;       // door: opens again this many seconds after closing (< 0: stays closed)
+        float close_delay = -1.0f;      // door: closes again this many seconds after opening (< 0: stays open)
+        bool open_at_start = false;     // door: starts open (at its animation's end)
     };
 
     // The stock skies track.toml's sky can name (docs/custom_tracks.md#sky): `clouds` is Rush 2's cloud dome, the

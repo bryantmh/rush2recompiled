@@ -112,8 +112,9 @@ def road_half_width(tris2d, point, tangent, height, reach=25.0):
 
 
 MAX_EDGE = 2500.0            # ft: longer scenery triangle edges are split (the converter draws none over 4000 ft)
-MAX_LEAF = 36                # the game's collision queries hold 36 polygons per index cell (track_mod_convert.cpp)
-NEAR_FULL = 24               # cells past this get their exactly flat neighbours joined (relieve_crowding)
+MAX_LEAF = 255               # the game's collision queries hold 255 polygons per index cell (include/collision_polys.h;
+                             # 36 until 2026-10-20, when relieve_crowding and cut_tips moved corners to fit)
+NEAR_FULL = 240              # cells past this get their exactly flat neighbours joined (relieve_crowding)
 FLAT = 0.001                 # ft: neighbours this flat are joined without moving anything
 CELL = 4.0                   # ft: the converter's smallest cell
 
@@ -262,8 +263,18 @@ def drop_copies(polys, report):
     return out
 
 
-APEX_POLYS = 24             # a corner shared by this many polygons is a cone tip (cut_tips)
+APEX_POLYS = 240            # a corner shared by this many polygons is a cone tip (cut_tips; 24 under the old 36)
 TIP_CUT = 12.0               # ft across x/z: where a cone tip is cut off
+
+
+def col_class(f):
+    """What keeps two roaddat polygons apart when they are joined: the surface type and the covered bits (flags bits
+    30-31, Rush 2's POLY info 0x4000 / 0x8000: covered levels 1 and 2, the cars drawn darker as in its tunnels)."""
+    return (f & 0xF) | (f & 0xC0000000)
+
+
+def covered_level(f):
+    return 2 if f & 0x80000000 else 1 if f & 0x40000000 else 0
 
 
 def cut_tips(polys, report):
@@ -285,7 +296,7 @@ def cut_tips(polys, report):
         ids = at[c]
         if len(ids) < APEX_POLYS:
             continue
-        if any(i in touched or polys[i][0] & 0xF != polys[ids[0]][0] & 0xF or len(polys[i][1]) >= 8 for i in ids):
+        if any(i in touched or col_class(polys[i][0]) != col_class(polys[ids[0]][0]) or len(polys[i][1]) >= 8 for i in ids):
             continue
         r = TIP_CUT
         for i in ids:
@@ -351,7 +362,7 @@ def relieve_crowding(polys, report, tolerance=1.0):
                 edges[frozenset((pts[k], pts[(k + 1) % len(pts)]))].append(i)
         cands = []
         for e, ps in edges.items():
-            if len(ps) != 2 or polys[ps[0]][0] & 0xF != polys[ps[1]][0] & 0xF or not (set(ps) & crowd):
+            if len(ps) != 2 or col_class(polys[ps[0]][0]) != col_class(polys[ps[1]][0]) or not (set(ps) & crowd):
                 continue
             a, b = ps
             A = np.array(polys[a][1])
@@ -450,7 +461,7 @@ def spline_road(t, polys, report):
             c = part.representative_point()
             h, tt, u = C.seg_surface(segs[k], nxt(k), [(c.x, facet_y(pts, normal, c.x, c.y), c.y)])
             if abs(h[0]) < SPLINE_FIT and -0.01 <= tt[0] <= 1.01:
-                pieces[(k, flags & 0xFF)].append(part)
+                pieces[(k, (flags & 0xFF) | (flags & 0xC0000000))].append(part)
                 rest = rest.difference(bands[k])
         for left in getattr(rest, 'geoms', [rest]):
             if left.geom_type == 'Polygon' and left.area > 0.05:
@@ -568,10 +579,102 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         return count
 
     billboards = 0
-    movers = []     # (name, [(lod, local points)], world position, key times, rotations or None, scales or None)
+
+    def object_collision(lod, P, road, wall):
+        """An object's collision (dobs `collision`): its model's triangles at the points P (world, or a mover's own
+        frame), up-facing ones road and the rest walls, each kept on its drawn side (glTF space)."""
+        for a, b, c, _ in lod.tris:
+            if max(a, b, c) >= len(P):
+                continue
+            gl = [np.array(to_gltf(P[k]), float) for k in (a, c, b)]     # the drawn winding
+            n = np.cross(gl[1] - gl[0], gl[2] - gl[0])
+            if np.linalg.norm(n) < 1e-9:
+                continue
+            n = n / np.linalg.norm(n)
+            verts, nrms, tris = road if n[1] > 0.7 else wall
+            base = len(verts)
+            verts += [tuple(x) for x in gl]
+            nrms += [tuple(n)] * 3
+            tris.append((base, base + 1, base + 2))
+
+    def box_mesh(corner, top, sides=None):
+        """A box (8 glTF-space corners, bit 0/1/2 = the high end of axis 0/1/2) as 12 outward triangles: up-facing faces
+        into top, the rest into sides (into top when there is none)."""
+        mid = np.mean(corner, axis=0)
+        for f in ((2, 6, 7, 3), (0, 1, 5, 4), (0, 4, 6, 2), (1, 3, 7, 5), (0, 2, 3, 1), (4, 5, 7, 6)):
+            q = [np.array(corner[k], float) for k in f]
+            n = np.cross(q[1] - q[0], q[2] - q[0])
+            if np.linalg.norm(n) < 1e-12:
+                continue
+            if np.dot(n, (q[0] + q[2]) * 0.5 - mid) < 0:
+                q[1], q[3], n = q[3], q[1], -n
+            n = n / np.linalg.norm(n)
+            verts, nrms, tris = top if n[1] > 0.7 or sides is None else sides
+            base = len(verts)
+            verts += [tuple(x) for x in q]
+            nrms += [tuple(n)] * 4
+            tris += [(base, base + 1, base + 2), (base, base + 2, base + 3)]
+
+    def aabb_corners(lo, hi):
+        return [(hi[0] if k & 1 else lo[0], hi[1] if k & 2 else lo[1], hi[2] if k & 4 else lo[2]) for k in range(8)]
+
+    object_road, object_wall = ([], [], []), ([], [], [])
+
+    # Trigger boxes: hidden dobs objects with a `name` (UNITCUBE mostly), which other objects' `when <name>` wait for a
+    # car to drive into; and `when progress <feet>`, a car that far into the race (along the drones' lap, from its first
+    # point [I]), made a box on the lap point at that distance for the car on that lap.
+    trigger_boxes = {}
+    lap_pts = np.array(t.lap(), float)
+    lap_at = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(np.vstack([lap_pts, lap_pts[:1]]), axis=0), axis=1))])
+    lap_length = float(lap_at[-1])
+    placed_all = list(instances(t, report))
+    for o, M, pos, script in placed_all:
+        words = [s.split() for s in script if s.split()]
+        tname = next((w[1].upper() for w in words if w[0].lower() == 'name' and len(w) > 1), None)
+        if tname and any(w[0].lower() == 'hide' for w in words) and o.lods[0].verts:
+            V = np.array([v[0] for v in o.lods[0].verts], float) @ M + pos
+            trigger_boxes[tname] = (V.min(axis=0), V.max(axis=0))
+    unknown_events, used_triggers = set(), set()
+
+    def mod_event(w):
+        """An arcade event (mg1, progress 14000, 3, oddlap, finishswap) as a track.toml event, or None."""
+        if not w:
+            return None
+        a = w[0].lower()
+        if a == 'progress' and len(w) > 1 and lap_length > 0:
+            d = float(w[1])
+            lap = int(math.floor(d / lap_length)) + 1
+            into = d - (lap - 1) * lap_length
+            i = int(np.searchsorted(lap_at, into, side='right'))
+            i = (i - 1) % len(lap_pts) if i else 0
+            name = 'PROGRESS_' + w[1]
+            c = lap_pts[i]
+            trigger_boxes[name] = (c - (70, 40, 70), c + (70, 40, 70))
+            used_triggers.add(name)
+            return 'trigger %s lap %d' % (name, lap)
+        if a and all(ch.isdigit() or ch == '.' for ch in a):
+            return 'time ' + w[0]                 # seconds into the race [I]
+        if a in ('oddlap', 'evenlap', 'finishswap'):
+            return {'oddlap': 'odd_lap', 'evenlap': 'even_lap', 'finishswap': 'final_lap'}[a]   # finishswap [I]
+        if w[0].upper() in trigger_boxes:
+            used_triggers.add(w[0].upper())
+            return 'trigger ' + w[0].upper()
+        unknown_events.add(w[0])
+        return None
+
+    def toml_list(v):
+        return '[' + ', '.join('"%s"' % e for e in v) + ']'
+
+    def toml_number(v):
+        s = '%g' % v
+        return s if ('.' in s or 'e' in s) else s + '.0'
+
+    # (name, [(lod, local points)], world position, key times, rotations or None, scales or None, translations or None,
+    #  extras: card, collision, M, settings)
+    movers = []
     still = []
     placed_props = defaultdict(int)
-    for o, M, pos, script in instances(t, report):
+    for o, M, pos, script in placed_all:
         words = {s.split()[0].lower() for s in script}
         lod = o.lods[0]
         L = np.array([v[0] for v in lod.verts], float)
@@ -580,10 +683,60 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
             # collectibles, a different thing).
             still.append('%s (a coin pickup: left out)' % o.name)
             continue
+        # The script's motion and events (docs/arcade2049.md#dobsrom-dynamic-objects): follow<axis> <speed> <distance>
+        # [<acceleration>] moves it along its own axis; start / open / close take a `when <event>` on the same line or
+        # the next `when` line.
+        follow = None
+        start_ev, open_ev, close_ev = [], [], []
+        collision = 'collision' in words
+        first_close, seen_door = False, False
+        open_delay = close_delay = -1.0
+        pending = None
+        for s in script:
+            w = s.split()
+            if not w or w[0].startswith('#'):
+                continue
+            a = w[0].lower()
+            if a.startswith('follow') and len(a) >= 7 and len(w) >= 3:
+                axis = np.array({'x': (1, 0, 0), 'y': (0, 0, 1), 'z': (0, 1, 0)}[a[-1]], float) @ M
+                if np.linalg.norm(axis) > 0:
+                    axis = axis / np.linalg.norm(axis) * (-1.0 if '-' in a else 1.0)
+                    speed, dist = float(w[1]), float(w[2])
+                    if speed and dist > 0:
+                        follow = (axis, speed, dist, float(w[3]) if len(w) > 3 else 0.0)
+                continue
+            if a == 'start':
+                low = [x.lower() for x in w]
+                if 'when' in low:
+                    e = mod_event(w[low.index('when') + 1:])
+                    if e:
+                        start_ev.append(e)
+                    pending = None
+                else:
+                    pending = start_ev
+            elif a in ('open', 'close') and len(w) > 1:
+                if w[1].lower() == 'delay' and len(w) > 2:
+                    if a == 'open':
+                        open_delay = float(w[2])
+                    else:
+                        close_delay = float(w[2])
+                elif w[1].lower() == 'when':
+                    # The first event line says where it starts: a close first means it starts open.
+                    if not seen_door:
+                        first_close, seen_door = a == 'close', True
+                    e = mod_event(w[2:])
+                    if e:
+                        (open_ev if a == 'open' else close_ev).append(e)
+            elif a == 'when' and pending is not None:
+                e = mod_event(w[1:])
+                if e:
+                    pending.append(e)
+                pending = None
+        door = bool(open_ev or close_ev)
         # bounce: knocked flying (PROP_KNOCK_, the construction horses and cones). Each in its own frame at its
         # placement.
         kind = 'KNOCK' if 'bounce' in words else None
-        if kind or 'frontface' in words:
+        if kind or ('frontface' in words and follow is None):
             local = L @ M
             prims = defaultdict(lambda: ([], [], [], [], []))
             add_tris(prims, lod, local, 0.0)
@@ -608,7 +761,14 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
                 placed_props[kind] += 1
             continue
         if 'hide' in words:
-            still.append(o.name + ' (hidden until a script shows it: left out)')
+            # Hidden: a trigger box (above) or a sound's position; never drawn.
+            if not any(s.lower().startswith('name ') for s in script):
+                still.append(o.name + " (hidden: a sound's position; the arcade's sounds aren't converted)")
+            continue
+        if o.name.upper() == 'UNITCUBE':
+            # The unit cube marks volumes (soundbox: where a sound plays); it is never drawn (on Marina a 495 ft blue
+            # block over the road).
+            still.append("UNITCUBE (a sound volume: not drawn; the arcade's sounds aren't converted)")
             continue
         V = L @ M + pos
         # The bay's water sheets reach 10,700 ft out, past what the game draws (2,000 ft): scenery for the near part
@@ -622,6 +782,62 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
             add_tris(sky, lod, V, 0.0)
         spin = [s.split() for s in script if s.lower().startswith(('spinx', 'spiny', 'spinz'))]
         flip = [s.split() for s in script if s.lower().startswith('flipbook')]
+
+        def settings(free_mode):
+            """How a moving object plays: open / close events make a door (it starts open when its first event is a
+            close), a start event waits for it, the rest go back and forth (follow) or loop (spin)."""
+            if door:
+                s = 'mode = "door"\n'
+                if open_ev:
+                    s += 'open = %s\n' % toml_list(open_ev)
+                if close_ev:
+                    s += 'close = %s\n' % toml_list(close_ev)
+                if open_delay >= 0:
+                    s += 'open_delay = %s\n' % toml_number(open_delay)
+                if close_delay >= 0:
+                    s += 'close_delay = %s\n' % toml_number(close_delay)
+                if first_close:
+                    s += 'open_at_start = true\n'
+                return s
+            s = 'mode = "%s"\n' % free_mode
+            if start_ev:
+                s += 'start = %s\n' % toml_list(start_ev)
+            return s
+
+        if not is_sky and follow is not None:
+            # follow: along the axis at the speed (ft/s), the distance (ft) from its placement, speeding up and slowing
+            # down at the acceleration (ft/s², [I]: none = a steady speed).
+            axis, speed, D, acc = follow
+            v, direction = abs(speed), axis * (-1.0 if speed < 0 else 1.0)
+            times, offsets = [], []
+
+            def key(tt, s):
+                times.append(tt)
+                offsets.append(direction * s)
+            if acc <= 0:
+                key(0.0, 0.0)
+                key(D / v, D)
+            else:
+                ta = v / acc
+                da = 0.5 * acc * ta * ta
+                if 2 * da > D:
+                    ta = math.sqrt(D / acc)
+                    da, v = D / 2, acc * ta
+                tc = (D - 2 * da) / v
+                for k in range(7):
+                    tt = ta * k / 6
+                    key(tt, 0.5 * acc * tt * tt)
+                if tc > 1e-6:
+                    key(ta + tc, da + v * tc)
+                for k in range(1, 7):
+                    tt = ta * k / 6
+                    key(ta + tc + tt, D - da + v * tt - 0.5 * acc * tt * tt)
+            movers.append(('%s_%d' % (o.name, len(movers)), [(lod, L @ M)], pos, times, None, None,
+                           [tuple(to_gltf(pos + d)) for d in offsets],
+                           dict(card='frontface' in words, collision=(2 if 'frontface' in words else 1) if collision else 0,
+                                M=M, settings=settings('pingpong'))))
+            tri_count += len(lod.tris)
+            continue
         if not is_sky and spin:
             # spin<axis> <degrees per second> [I]: a looping MOVE_ turn about the object's origin, about the
             # object's own axis as its placement matrix turns it (GS_PLANEARC: planes 2,500 ft out on a tilted arm
@@ -638,10 +854,16 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
                     times.append(period * k / 4)
                     quats.append([axis[0] * math.sin(a / 2), axis[1] * math.sin(a / 2), axis[2] * math.sin(a / 2),
                                   math.cos(a / 2)])
-                movers.append(('%s_%d' % (o.name, len(movers)), [(lod, L @ M)], pos, times, quats, None))
+                movers.append(('%s_%d' % (o.name, len(movers)), [(lod, L @ M)], pos, times, quats, None, None,
+                               dict(card=False, collision=1 if collision else 0, M=M,
+                                    settings=settings('loop') if start_ev else '')))
                 tri_count += len(lod.tris)
                 continue
-        if not is_sky and flip and len(flip[0]) > 1 and float(flip[0][1]) > 0:
+        fps = float(flip[0][1]) if flip and len(flip[0]) > 1 else 0.0
+        # An event flipbook (negative rate: breaking glass and signs, the finish sign) plays once when its start event
+        # comes, then keeps its last frame.
+        event_book = fps < 0 and bool(start_ev)
+        if not is_sky and (fps > 0 or event_book):
             # flipbook <frames per second>: frames <name>_1..n, each a MOVE_ object at full size only in its slot
             # (0.001 otherwise: a rest pose of 0 can't be undone), one after the other, looping.
             base = o.name.rsplit('_', 1)[0] if o.name.rsplit('_', 1)[-1].isdigit() else o.name
@@ -649,8 +871,9 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
             while base + '_%d' % (len(frames) + 1) in t.by_name:
                 frames.append(t.by_name[base + '_%d' % (len(frames) + 1)])
             if len(frames) > 1:
-                fps = float(flip[0][1])
-                period, eps = len(frames) / fps, 0.002
+                rate = abs(fps)
+                period, eps = len(frames) / rate, 0.002
+                last = len(frames) - 1
                 # One pivot for the whole book, its frames' geometry center on a whole foot: their vertices then round
                 # to the scenery's 1/16 ft grid and their edges meet the walls around them (BLINK3's placement is
                 # the world origin, 1,000 ft away, and left hairline cracks). Shared, the frame shown has the matrix
@@ -659,37 +882,92 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
                 pivot = np.round(np.concatenate([np.array([v[0] for v in fr.lods[0].verts], float) @ M
                                                  for fr in frames]).mean(axis=0) + pos)
                 for j, fr in enumerate(frames):
-                    s0, s1 = j / fps, (j + 1) / fps
+                    s0, s1 = j / rate, (j + 1) / rate
                     keys = [(0.0, j == 0)]
                     if j:
                         keys += [(s0 - eps, False), (s0, True)]
-                    keys += [(s1 - eps, True), (s1, False)]
-                    # Every frame's keys end on key 0's pose so the loop closes in exactly `period` (an open loop
-                    # adds 0.001 s back to key 0; the first frame drifted out of step and every frame of the
-                    # blinkers, which carry their walls, was hidden at times).
-                    if j == 0:
-                        keys += [(period - eps, False), (period, True)]
-                    elif s1 < period - eps:
-                        keys.append((period, False))
+                    if event_book:
+                        # Played once: the last frame stays.
+                        keys += [(period, True)] if j == last else [(s1 - eps, True), (s1, False), (period, False)]
+                    else:
+                        keys += [(s1 - eps, True), (s1, False)]
+                        # Every frame's keys end on key 0's pose so the loop closes in exactly `period` (an open loop
+                        # adds 0.001 s back to key 0; the first frame drifted out of step and every frame of the
+                        # blinkers, which carry their walls, was hidden at times).
+                        if j == 0:
+                            keys += [(period - eps, False), (period, True)]
+                        elif s1 < period - eps:
+                            keys.append((period, False))
+                    keys = [k for i, k in enumerate(keys) if i == 0 or k[0] > keys[i - 1][0]]
                     frv = np.array([v[0] for v in fr.lods[0].verts], float) @ M
                     movers.append(('%s_%d' % (fr.name, len(movers)), [(fr.lods[0], frv + pos - pivot)], pivot,
-                                   [k[0] for k in keys], None, [[1.0] * 3 if k[1] else [0.001] * 3 for k in keys]))
+                                   [k[0] for k in keys], None, [[1.0] * 3 if k[1] else [0.001] * 3 for k in keys], None,
+                                   dict(card=False, collision=0, M=M,
+                                        settings='mode = "once"\nstart = %s\n' % toml_list(start_ev) if event_book else '')))
                     tri_count += len(fr.lods[0].tris)
                 continue
         if flip or spin:
-            still.append(o.name + (' (sky: it stays still)' if is_sky else ' (an event flipbook: its first frame)'))
+            still.append(o.name + (' (sky: it stays still)' if is_sky else ' (a flipbook with no event: its first frame)'))
+        if collision and not is_sky:
+            object_collision(lod, V, object_road, object_wall)
         n = add_tris(sky if is_sky else scenery, lod, V, 0.0 if is_sky else MAX_EDGE)
         tri_count += 0 if is_sky else n
     g.textured_mesh('TRACK', [(m,) + v for m, v in scenery.items()])
-    for mover_name, parts, pos, times, quats, scales in movers:
+    mover_toml = ''
+    moving_collision = 0
+    for mover_name, parts, pos, times, quats, scales, translations, ex in movers:
         prims = defaultdict(lambda: ([], [], [], [], []))
         for lod, local in parts:
             add_tris(prims, lod, local, 0.0)
-        node = g.textured_mesh('MOVE_' + mover_name, [(m,) + v for m, v in prims.items()],
-                               trs=(list(to_gltf(pos)), [0, 0, 0, 1], [1, 1, 1]))
-        g.animate(mover_name, node, times, rotation=quats, scale=scales)
+        prims = [(m,) + v for m, v in prims.items()]
+        if ex['card']:
+            # A moving card: drawn turned to the camera (billboard = true), facing glTF +z as BILLBOARD_ cards do.
+            nz = sum(n[2] for _, _, nrms, _, _, _ in prims for n in nrms)
+            if nz < 0:
+                prims = [(m, [(-x, y, -z) for x, y, z in vs], [(-x, y, -z) for x, y, z in ns], uv, col, tr)
+                         for m, vs, ns, uv, col, tr in prims]
+        node = g.textured_mesh('MOVE_' + mover_name, prims, trs=(list(to_gltf(pos)), [0, 0, 0, 1], [1, 1, 1]))
+        if ex['card']:
+            g.js['nodes'][node]['extras'] = {'billboard': True}
+        g.animate(mover_name, node, times, translation=translations, rotation=quats, scale=scales)
+        if ex['collision']:
+            # Its collision moves with it: COL_ meshes under MOVE_, in its frame.
+            road, wall = ([], [], []), ([], [], [])
+            lod, local = parts[0]
+            if ex['collision'] == 2:
+                q = np.array([to_gltf(p) for p in local], float)
+                lo, hi = q.min(axis=0), q.max(axis=0)
+                half = max(hi[0] - lo[0], hi[2] - lo[2]) / 2
+                cx, cz = (lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2
+                box_mesh(aabb_corners((cx - half, lo[1], cz - half), (cx + half, hi[1], cz + half)), road, wall)
+            else:
+                object_collision(lod, np.array([v[0] for v in lod.verts], float) @ ex['M'], road, wall)
+            for part, surf in ((road, 'ROAD'), (wall, 'WALL')):
+                if part[2]:
+                    g.mesh('COL_%s_%s' % (surf, mover_name), part[0], part[1], part[2], parent=node)
+            moving_collision += 1
+        if ex['settings']:
+            mover_toml += '\n[movers.%s]\n%s' % (mover_name, ex['settings'])
     if movers:
-        report.append('%d moving objects (MOVE_): spinning lights and lighthouse beams, flipbook frames' % len(movers))
+        report.append('%d moving objects (MOVE_): spinning and sliding objects, trains, doors and flipbook frames; %d '
+                      'with collision' % (len(movers), moving_collision))
+    if moving_collision > 31:
+        report.append("more than 31 moving objects with collision: the game keeps the first 31's")
+    for name in sorted(trigger_boxes):
+        if name not in used_triggers:
+            continue
+        lo, hi = trigger_boxes[name]
+        a, b = to_gltf(lo), to_gltf(hi)
+        m = ([], [], [])
+        box_mesh(aabb_corners((min(a[0], b[0]), a[1], a[2]), (max(a[0], b[0]), b[1], b[2])), m)
+        g.mesh('TRIGGER_' + name, m[0], m[1], m[2])
+    # Objects that don't move but have collision (a parked trolley, a fire truck).
+    if object_road[2]:
+        g.mesh('COL_ROAD_objects', *object_road)
+    if object_wall[2]:
+        g.mesh('COL_WALL_objects', *object_wall)
+    for e in sorted(unknown_events):
+        report.append('event "%s" isn\'t known: left out' % e)
     for s in sorted(set(still)):
         report.append('still: ' + s)
     if sky:
@@ -727,7 +1005,8 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
             # The converter's front (game space) is -(v1-v0)x(v2-v0); keep it on the polygon's normal side.
             if np.dot(np.cross(np.subtract(tri[1], tri[0]), np.subtract(tri[2], tri[0])), normal) > 0:
                 tri[1], tri[2] = tri[2], tri[1]
-            verts, nrms, tris, segv = by_type[surface]
+            cover = covered_level(flags)
+            verts, nrms, tris, segv = by_type['%s_covered%d' % (surface, cover) if cover else surface]
             base = len(verts)
             verts += [to_gltf(p) for p in tri]
             nrms += [(-normal[0], normal[1], normal[2])] * 3
@@ -765,7 +1044,10 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
     if sheets:
         report.append('water: %d collision triangles from the water sheets' % sheets)
     for surface, (verts, nrms, tris, segv) in sorted(by_type.items()):
-        g.mesh('COL_%s_arcade' % surface, verts, nrms, tris, attrs={'_SEGMENT': segv} if max(segv) >= 0 else None)
+        node = g.mesh('COL_%s_arcade' % surface, verts, nrms, tris, attrs={'_SEGMENT': segv} if max(segv) >= 0 else None)
+        # Covered polygons (roaddat flags 0x40000000 / 0x80000000) keep Rush 2's covered level: covered = 1 or 2.
+        if '_covered' in surface:
+            g.js['nodes'][node]['extras'] = {'covered': int(surface.rsplit('_covered', 1)[1])}
     # The spline road's segments, as the game reads them (unused fields of some records are NaN in the arcade data).
     g.empty('ROAD_SPLINES')
     g.js['nodes'][-1]['extras'] = {'segments': [[v if math.isfinite(v) else 0.0 for v in r] for r in seg_records]}
@@ -920,6 +1202,8 @@ def build(track, out_dir, track_id, name, mod_id, finish_at=None, logo_text=None
         if preview:
             round_preview(preview).save(os.path.join(folder, 'preview.png'))
             f.write('preview = "preview.png"\n')
+        # How the moving objects play: their dobs scripts' events (docs/arcade2049.md#dobsrom-dynamic-objects).
+        f.write(mover_toml)
     # The name banner in Rush 2049's lettering, as the 2049 tracks' own (tools/build_banners.py).
     import banner_font
     banner_font.render_fit(logo_text or name, 'rush2049').convert('RGBA').save(

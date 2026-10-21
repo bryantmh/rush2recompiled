@@ -149,7 +149,8 @@ int a49::Glb::empty(const std::string& name, const std::optional<std::array<doub
 }
 
 void a49::Glb::animate(const std::string& name, int node_index, const std::vector<double>& times,
-                       const std::vector<std::array<double, 4>>* rotation, const std::vector<V3>* scale) {
+                       const std::vector<std::array<double, 4>>* rotation, const std::vector<V3>* scale,
+                       const std::vector<V3>* translation) {
     json anim = { { "name", name }, { "channels", json::array() }, { "samplers", json::array() } };
     int t = accessor_f(std::vector<float>(times.begin(), times.end()), "SCALAR", 1, 0, true);
     auto channel = [&](const char* path, std::vector<float> values, const char* kind, int width) {
@@ -164,8 +165,17 @@ void a49::Glb::animate(const std::string& name, int node_index, const std::vecto
         channel("rotation", v, "VEC4", 4);
     }
     if (scale) channel("scale", flat3(*scale), "VEC3", 3);
+    if (translation) channel("translation", flat3(*translation), "VEC3", 3);
     if (!js.contains("animations")) js["animations"] = json::array();
     js["animations"].push_back(anim);
+}
+
+void a49::Glb::set_parent(int child, int parent) {
+    auto& roots = js["scenes"][0]["nodes"];
+    for (size_t i = 0; i < roots.size(); i++) {
+        if (roots[i] == child) { roots.erase(i); break; }
+    }
+    js["nodes"][parent]["children"].push_back(child);
 }
 
 std::vector<uint8_t> a49::Glb::bytes() {

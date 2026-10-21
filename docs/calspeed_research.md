@@ -1014,8 +1014,8 @@ well and still flip. [V]
 
 ### CS Physics: California Speed's world
 
-The Games tab's **CS Physics** option (`calspeed_physics` in games.json; Rush 2, the default, or California Speed
-(test)) is the other way round from the road hold port above: on California Speed's tracks the world runs as
+The dev switch `RUSH2_CS_PHYSICS=CalSpeed` (not in the menu; until 2026-10-20 it was a Games tab option, `calspeed_physics`
+in games.json, which the user never asked for and never had on; a leftover games.json key is ignored) is the other way round from the road hold port above: on California Speed's tracks the world runs as
 California Speed's does, its computer cars drive its cars on its own values, and every other car is converted to that
 world instead (src/calspeed/calspeed_physics.cpp, walls and missed wheel in src/calspeed/calspeed_walls.cpp). Added
 2026-10-19 as a test: it replaces the default only if it races better (tools/calspeed/sim_wrecks.py `--hold cs`,

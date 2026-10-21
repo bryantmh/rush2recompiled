@@ -2016,7 +2016,7 @@ rush2 = 0x8006CCEC
 rush1 = [0x8007A0C4]
 link = "same-code"
 area = "collision"
-ref = "docs/rush2049_research/collision.md#leaf-lists-v"
+ref = "docs/rush2049_research/collision.md#leaf-list-buffers-port-only-v"
 
 [[func]]
 vram = 0x800AED64

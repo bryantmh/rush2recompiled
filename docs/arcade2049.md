@@ -21,8 +21,10 @@ builds both mods from the arcade data with `src/arcade2049/`, a C++ port of `tra
 (a loose folder of the same id, the Python install, is replaced). It takes about 2.5 s for Alcatraz, 32 s for every
 track (see Alcatraz Only below). Each mod.json carries
 `"rush2_arcade": {"key", "data"}`: the hash of the input files, the shipped assets and the build. At launch
-(`start_refresh`, from the launcher) an installed mod whose key changed is built again once from that folder, keeping
-whether it was on. Afterwards `rush2::car_mods::reload` and `rush2::track2049::mods_changed` make the car select and
+(`start_refresh`, from the launcher, on a worker thread) an installed mod whose key changed is built again once from
+that folder, keeping whether it was on, so a new build or new arcade data never needs the button. If that folder is
+gone, it builds from wherever the button would look (`data_dir`: ProjectR's folder); a loose (Python) install is left
+alone. Afterwards `rush2::car_mods::reload` and `rush2::track2049::mods_changed` make the car select and
 track select read the new files without a restart; `mods_changed` also has the custom track list read again
 (`rush2::track_mod::rescan`): it was kept by the enabled mods and their file names, which a rebuild keeps, so until
 2026-10-19 tracks added by a rebuild (Alcatraz Only turned off) showed only after a restart.
@@ -123,11 +125,32 @@ commands and what the converter makes of them:
 | `frontface` | a card turned to the camera | `BILLBOARD_` |
 | `bounce`, `box x y z`, `point x y z` | knocked when hit (box or point hit shape) | `PROP_KNOCK_` |
 | `coin` | a score pickup, not Rush 2049's hidden coins | left out (mods have no collectibles) |
-| `spinx`/`spinz <deg/s>` | turns about its own x / upright axis, as its matrix turns it **[I]** (degrees per second fits the lighthouse and police lights) | looping `MOVE_` |
-| `flipbook <fps>` | steps through `<name>_1..n` at that rate; negative: on an event | one `MOVE_` per frame, shown by scale steps |
+| `spinx`/`spinz <deg/s>` | turns about its own x / upright axis, as its matrix turns it **[I]** (degrees per second fits the lighthouse and police lights) | looping `MOVE_` (with its collision and `start` if it has them) |
+| `flipbook <fps>` | steps through `<name>_1..n` at that rate; negative: once, on its start event (breaking glass, the finish sign) | one `MOVE_` per frame, shown by scale steps; an event flipbook is `mode = "once"` with its `start` |
 | `alpha 0` / `alpha 1` | blending mode (not decoded) | the texture's own alpha |
 | `sound`, `soundsphere <name> <range> <volume>` | object and ambient sounds | left out |
-| `followz`, `hide`, `start when finishswap` | scripted moves and events | left out / first frame |
+| `followx`/`followy`/`followz <speed> <distance> [<acceleration>]` (`follow-z`: the negative axis) | slides along its own axis (the script's x, y, z are world x, z, y) at `speed` ft/s for `distance` ft, easing in and out at `acceleration` ft/s² **[I]**: the Marina trolley's 300 ft, the stunt ramp's 110 ft | `MOVE_` with keys along the axis (6 per ramp), `mode = "pingpong"` (back and forth) or a door |
+| `start when <event>` (or `start` then a `when <event>` line) | the motion waits for the event | `start = "<event>"` |
+| `open when <event>`, `close when <event>`, `open delay N`, `close delay N` | a door: plays forward on open, back on close; a delay closes / reopens it by itself N s later | `mode = "door"`, `open`, `close`, `open_delay`, `close_delay`; `open_at_start` when the first event line is a close |
+| `name <X>` with `hide` | a hidden box (UNITCUBE mostly) whose `when X` fires when a car drives into it | `TRIGGER_X` (only when an event uses it) |
+| `collision` | cars hit it (`collision 1` / `2`, the number not decoded) | its full mesh as `COL_ROAD_` (faces with normal y > 0.7) and `COL_WALL_` (the rest), moving with it; a card gets a box |
+| `hide` without a name | a sound's position | left out (listed in the report) |
+| `UNITCUBE` without `hide` | a sound volume (`soundbox`) | left out: the arcade's blue placeholder cube, on Marina a 495 ft blue block over the road |
+
+Events (`when ...`), as the converter reads them:
+
+| Arcade event | Meaning | track.toml event |
+|---|---|---|
+| a trigger name, such as `mg1` | a car drives into the hidden box named `mg1` | `"trigger MG1"` |
+| `progress <feet>` | the leader that far into the race along the drones' lap from its first point **[I]** (Marina's lap is 12,869 ft) | a 140 x 80 x 140 ft box `TRIGGER_PROGRESS_<feet>` on the lap point at that distance, `"trigger PROGRESS_<feet> lap <n>"` |
+| a number, such as `3` | seconds into the race **[I]** | `"time 3"` |
+| `oddlap`, `evenlap` | the leader starts an odd / even lap | `"odd_lap"`, `"even_lap"` |
+| `finishswap` | the last lap starts **[I]** (the finish sign flips to FINAL LAP) | `"final_lap"` |
+
+An event the converter doesn't know is listed in the report and the object plays freely. Marina's timeline, checked
+with `movers_test.exe --script` (docs/custom_tracks.md#for-developers): the button box opens the ramp 17 ft and it
+closes 8 s later, the box itself closes and reopens 8 s later; the train starts on lap 2 and the trolley slides 300 ft
+on lap 2; on the final lap the finish sign swaps, the fences close and the stunt ramp rises 110 ft.
 
 Alcatraz has 100 coin pickups in trails along its shortcuts and jumps (every arcade race track has 100; left out),
 16 cones, 30 construction horses, 68 billboards, 8 spinning objects (lighthouse beams, police lights, three circling planes) and
@@ -150,8 +173,13 @@ leaf), polygons (0x1C: u32 flags, u16 info, s16 m[9] x 16384, u32 vertex-list of
 x, y, z in 1/40 ft), segments (0xA4, the road splines), leaves (u16), vertex lists (u16 count, u16 indices). As on
 N64, a polygon's vertex 0 is its origin and the rest are in its frame: point = v0 + M local, M's columns the local
 axes, minus column 2 the face normal. Flags: the low byte is the N64 surface (0 road, 1 dirt, 5 wall), 0x1000 a
-spline surface, whose vertex list ends with its u16 segment index. Arcade Marina matches the N64 collision to 0.04
-ft. Where more polygons crowd a spot than Rush 2's 36 per collision cell, the converter welds corners and joins flat
+spline surface, whose vertex list ends with its u16 segment index; the high word is Rush 2's POLY info upper bits, bits
+30 / 31 the covered levels 1 / 2 (tunnels: the cars drawn darker, docs/rush2049_research/collision.md#car-lighting),
+kept as `covered` on separate `COL_<SURF>_covered<n>` meshes and never joined across levels. The N64 2049's per-polygon
+light indices (its car shading map) are N64 only: the arcade's info word is 0 there, and `vlut` / `vl_zpath` are
+visibility lists, not lighting. Arcade Marina matches the N64 collision to 0.04
+ft. Where more polygons crowd a spot than a collision cell's 255 (36 before the port moved the
+queries' lists off the stack, docs/rush2049_research/collision.md#leaf-list-buffers-port-only-v), the converter welds corners and joins flat
 neighbors (`relieve_crowding`; on Alcatraz about 130 pairs, corners moved 1.4 ft at most). Before that, both readers'
 converters (`arcade_track.cpp` and `track_mod.py`, the same steps):
 
@@ -160,15 +188,16 @@ converters (`arcade_track.cpp` and `track_mod.py`, the same steps):
   the pairs crowded the seam between two tunnel sections past 36), Metro 4, Civic 1.
 - `drop_copies`: exact copies (surface, corners, facing) are dropped: they change nothing but share each edge four
   ways, so the pair joins never took them (Presidio 119, Marina 165, Haight 131, Metro 103).
-- `cut_tips`: a corner shared by 24 or more polygons all the way round is a cone tip (Haight's pit, 31 steep wedges
-  at 2653, 76, -3305; wedges at an angle can't be joined flat). Each polygon's corner is replaced by the points 12 ft
+- `cut_tips`: a corner shared by 240 or more polygons (24 under the old 36) all the way round is a cone tip (wedges at an angle
+  can't be joined flat). Under the old limit it cut Haight's pit (31 steep wedges at 2653, 76, -3305); at 240 the pit is
+  left as it is. Each polygon's corner is replaced by the points 12 ft
   out across x/z on its two edges (the neighbors sharing an edge get the same point: no cracks) and the hole is
   capped with convex pieces of at most 8 corners over that ring. A fan with a gap over 60 degrees is left alone.
-- Then, where a 4 ft cell holds more than 24, exactly flat neighbors are joined first, nothing moved (Presidio 45): the
+- Then, where a 4 ft cell holds more than 240 (24 under the old 36), exactly flat neighbors are joined first, nothing moved (Presidio 45): the
   game's converter places its cells its own way and splits faces its own way, so it can count a few more than this
   check does.
 
-The custom track converter also splits a cell still past 36 below 4 ft, down to 1 ft (docs/custom_tracks.md), which
+The custom track converter also splits a cell still past 255 below 4 ft, down to 1 ft (docs/custom_tracks.md), which
 Presidio's tunnel portal needed (13 pieces of one flat ring wall where two tunnel sections meet).
 
 The file is a run of such blocks, each starting with its u32 size; the track's collision is the largest (`roaddat()`

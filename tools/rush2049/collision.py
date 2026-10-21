@@ -35,6 +35,8 @@ TYPE_WALL = (5, 6)
 TYPE_DISABLED = 0xF          # 2049 runtime only (func_800B2CB4)
 TAG_2049 = 0x80              # root NODE +2 of a converted file: walk the tree the 2049 way (src/rush2049/track2049_collision.cpp)
 TAG_WIDE = 0x20              # root NODE +2 of a custom track past 8,191 polygons: leaf entries are plain u16 polygon numbers
+TAG_FAR = 0x40               # with TAG_2049, a custom track's leaves past 128 KB: a far child (mask bit 4+q) indexes a u32
+                             # offset table at the leaf section's end, entry k at end - 4 (k + 1) (collision_polys.h)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -187,7 +189,12 @@ class Collision:
             for q in range(4):
                 if n['mask'] & (1 << q):
                     continue
-                off = n['child'][q] | (0x10000 if (n['mask'] >> 4) & (1 << q) else 0)
+                far = (n['mask'] >> 4) & (1 << q)
+                if far and game == R2 and c.nodes[0]['pad'] & TAG_2049 and c.nodes[0]['pad'] & TAG_FAR:
+                    at = len(c.leaf_blob) - 4 * (n['child'][q] + 1)
+                    off = struct.unpack_from('>I', c.leaf_blob, at)[0]
+                else:
+                    off = n['child'][q] | (0x10000 if far else 0)
                 n['leaf'][q] = off
                 if off and off not in c.leaves and off < len(c.leaf_blob):
                     polys, end = decode_leaf(c.leaf_blob, off, wide)
@@ -228,8 +235,10 @@ class Collision:
                 errs.append('leaf 0x%X runs past section' % off)
             if len(polys) != raw[0]:
                 errs.append('leaf 0x%X count mismatch' % off)
-            if self.game == R2 and len(polys) > 36:   # overflows the queries' u16[36] stack buffers (func_8008BDC0)
-                errs.append('leaf 0x%X has %d polygons (the game holds 36)' % (off, len(polys)))
+            # The queries' lists hold 255 (include/collision_polys.h leaf_lists; their u16[36] stack buffers until
+            # 2026-10-20), which the count byte can't pass anyway.
+            if self.game == R2 and len(polys) > 255:
+                errs.append('leaf 0x%X has %d polygons (the game holds 255)' % (off, len(polys)))
             for p in polys:
                 if p >= n_poly:
                     errs.append('leaf 0x%X poly %d out of range' % (off, p))

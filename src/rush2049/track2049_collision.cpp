@@ -39,6 +39,7 @@ namespace {
     constexpr uint32_t poly_table = 0x8011001C;  // Pointer to its POLY records (0x18 bytes).
     constexpr uint32_t vert_table = 0x80110050;  // Pointer to its VERT records (8 bytes).
     constexpr uint32_t vlist_table = 0x80111930; // Pointer to its vertex lists.
+    constexpr uint32_t leaf_table = 0x8011187C;  // Pointer to its leaf section (collision_file_load_800814B0 0x80081544).
 
     bool split_and_cell_off = false;              // Self-test only: Rush 2's split and cell, to count what they miss.
 
@@ -84,7 +85,17 @@ namespace {
         if (!(MEM_BU(3, (int32_t)node) & (0x10 << ((int32_t)q & 3)))) {
             return;
         }
-        if (tag & marker) {
+        if ((tag & marker) && (tag & rush2::collision::far_leaf_tag)) {
+            // A custom track's cell lists past 128 KB: the child is an index into the u32 offsets at the leaf
+            // section's end (rush2::collision::far_leaf_tag), read a byte at a time (the table needn't be aligned).
+            uint32_t base = (uint32_t)MEM_W(0, (int32_t)file_base);
+            uint32_t size = MEM_HU(8, (int32_t)base) | (uint32_t)(tag & 0x1F) << 16;
+            uint32_t at = (uint32_t)MEM_W(0, (int32_t)leaf_table) + size - 4 * (((uint32_t)offset & 0xFFFF) + 1);
+            uint32_t v = 0;
+            for (int k = 0; k < 4; k++) v = v << 8 | MEM_BU(k, (int32_t)at);
+            offset = (int32_t)v;
+        }
+        else if (tag & marker) {
             offset = (int32_t)((uint32_t)offset + 0x10000);
         }
         else if (tag & rush2::calspeed::scenery_collision_tag) {
@@ -143,6 +154,21 @@ extern "C" int rush2_collision_leaf_read_wide(uint8_t* rdram, recomp_context* ct
     ctx->r5 = (int32_t)front;
     ctx->r6 = (int32_t)in;
     return 1;
+}
+
+// The four leaf queries build their polygon list's address twice (`addiu reg, $sp, X`: once for the leaf read, once
+// for the loop over it); after each, the register is pointed at the query's list in spare RDRAM instead
+// (rush2::collision::leaf_lists), whose 256 entries hold any leaf (its count is a byte). Their stack buffers held 36
+// (40 for the wall query), and a longer leaf overwrote the locals after them. Only a register still at the stack
+// buffer is changed: the loop's label follows one of these instructions (0x8008BFE0), and there the register has moved on.
+extern "C" void rush2_collision_leaf_list(recomp_context* ctx, gpr* reg, uint32_t stack_offset, int query) {
+    if ((uint32_t)*reg == (uint32_t)ctx->r29 + stack_offset) {
+        *reg = (gpr)(int32_t)rush2_collision_leaf_list_at(query);
+    }
+}
+
+extern "C" uint32_t rush2_collision_leaf_list_at(int query) {
+    return rush2::collision::leaf_lists + uint32_t(query) * rush2::collision::leaf_list_bytes;
 }
 
 // collision_node_find_8006CD60 at 0x8006CDA8, per node: $v0 = xmin + xmax, $v1 = zmin + zmax, $t4 / $t7 their

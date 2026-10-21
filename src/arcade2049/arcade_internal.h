@@ -180,7 +180,10 @@ namespace rush2::arcade2049 {
                  const std::vector<std::pair<std::string, std::vector<double>>>& attrs = {});
         int empty(const std::string& name, const std::optional<std::array<double, 16>>& matrix = {});
         void animate(const std::string& name, int node, const std::vector<double>& times,
-                     const std::vector<std::array<double, 4>>* rotation, const std::vector<V3>* scale);
+                     const std::vector<std::array<double, 4>>* rotation, const std::vector<V3>* scale,
+                     const std::vector<V3>* translation = nullptr);
+        // Makes `child` (a top-level node) a child of `parent`: its TRS is then in the parent's frame.
+        void set_parent(int child, int parent);
         std::vector<uint8_t> bytes();
 
     private:

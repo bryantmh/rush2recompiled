@@ -16,6 +16,14 @@
 // track_mod_test.exe <track folder> <out>), stepped at fps (default 60) from a few start phases: counts game frames
 // where an object is drawn part-shrunk (scale between 0.01 and 0.99: a flip-book frame caught mid-step) and, per
 // flip-book (frames sharing a pivot), frames where not exactly one of its frames shows.
+//
+//     out\movers_test.exe --script <mover_paths.bin> [laps] [lap seconds]
+//
+// A custom track's scripted moving objects (track.toml start / open / close, the SCRP and TRIG chunks): a race of
+// `laps` laps (default 3) of `lap seconds` (default 40) is simulated at 60 fps, the cars released at 1 s, and every
+// trigger box driven into once a lap (box b at 2 + 0.5 b s into each lap). Each scripted object's moves are printed
+// (when it starts and stops, and how far from its spawn it is then), and every flip-book is checked to show exactly one
+// frame throughout.
 
 #include <array>
 #include <cmath>
@@ -169,7 +177,122 @@ namespace {
     }
 }
 
+namespace {
+    // --script: a custom track's scripted movers through a simulated race (see the header).
+    int run_script(const char* file, int laps, float lap_seconds) {
+        std::vector<uint8_t> data;
+        if (!read_file(file, data)) {
+            printf("Can't read %s\n", file);
+            return 1;
+        }
+        std::vector<Path> paths;
+        std::vector<TriggerBox> boxes;
+        if (!parse_paths(data.data(), data.size(), paths) || !parse_scripts(data.data(), data.size(), paths, boxes)) {
+            printf("Bad paths or scripts\n");
+            return 1;
+        }
+        std::vector<TypeInfo> types;
+        for (const Path& p : paths) {
+            TypeInfo t;
+            t.name = p.name;
+            t.model = p.name;
+            t.flags = ((p.flags & path_wait_trigger) ? 5u << 16 : 0u) | 0x21;
+            types.push_back(t);
+        }
+        Options options;
+        options.custom = true;
+        World w;
+        w.init(paths, types, options);
+        static const char* modes[] = { "plain", "loop", "pingpong", "once", "door" };
+        static const char* kinds[] = { "time", "trigger", "odd_lap", "even_lap", "final_lap" };
+        printf("%zu paths, %zu trigger boxes\n", paths.size(), boxes.size());
+        for (size_t i = 0; i < w.paths().size(); i++) {
+            const Script& sc = w.paths()[i].script;
+            if (sc.mode == Script::plain) continue;
+            printf("  %zu %s %s%s", i, w.paths()[i].name.c_str(), modes[sc.mode], sc.open_at_start ? " (open at start)" : "");
+            const std::vector<ScriptEvent>* lists[3] = { &sc.start, &sc.open, &sc.close };
+            const char* names[3] = { "start", "open", "close" };
+            for (int l = 0; l < 3; l++) {
+                for (const ScriptEvent& e : *lists[l]) {
+                    printf(" %s:%s", names[l], kinds[e.kind]);
+                    if (e.kind == ScriptEvent::time) printf(" %g", e.seconds);
+                    if (e.kind == ScriptEvent::trigger) printf(" box %d lap %d", e.box, e.lap);
+                }
+            }
+            if (sc.open_delay >= 0) printf(" open_delay %g", sc.open_delay);
+            if (sc.close_delay >= 0) printf(" close_delay %g", sc.close_delay);
+            printf("\n");
+        }
+        // Flip-books, by pivot (as --custom).
+        std::map<std::array<float, 3>, std::vector<int>> books;
+        for (int i = 0; i < (int)w.objects().size(); i++) {
+            const auto& nodes = w.paths()[w.objects()[i].path].nodes;
+            for (const PathNode& n : nodes) {
+                if (n.scale[0] < 0.01f) {
+                    books[{ nodes[0].pos[0], nodes[0].pos[1], nodes[0].pos[2] }].push_back(i);
+                    break;
+                }
+            }
+        }
+        std::vector<std::array<float, 3>> spawn, last;
+        for (const Object& o : w.objects()) spawn.push_back({ o.pos[0], o.pos[1], o.pos[2] }), last.push_back(spawn.back());
+        std::vector<int> moving(w.objects().size(), 0), still_for(w.objects().size(), 0);
+        std::vector<float> last_scale(w.objects().size(), 1.0f);
+        const float dt = 1.0f / 60.0f;
+        int steps = int((laps * lap_seconds + 5.0f) / dt), wrong = 0;
+        std::vector<int> lap_of_box(boxes.size(), 0);
+        for (int s = 0; s < steps; s++) {
+            float t = s * dt;
+            bool racing = t >= 1.0f;
+            int lap = racing ? std::min(laps, 1 + int((t - 1.0f) / lap_seconds)) : 1;
+            float into = racing ? t - 1.0f - (lap - 1) * lap_seconds : -1.0f;
+            std::vector<std::vector<int>> entered(boxes.size());
+            for (size_t b = 0; b < boxes.size(); b++) {
+                if (racing && lap_of_box[b] < lap && into >= 2.0f + 0.5f * b) {
+                    lap_of_box[b] = lap;
+                    entered[b].push_back(lap);
+                }
+            }
+            w.set_race(racing, lap, laps, entered);
+            w.update(dt);
+            for (size_t i = 0; i < w.objects().size(); i++) {
+                const Object& o = w.objects()[i];
+                if (w.paths()[o.path].script.mode == Script::plain) continue;
+                float d = 0.0f;
+                for (int k = 0; k < 3; k++) d += (o.pos[k] - last[i][k]) * (o.pos[k] - last[i][k]);
+                float sc = std::sqrt(o.m[0] * o.m[0] + o.m[1] * o.m[1] + o.m[2] * o.m[2]);
+                // Moving, or still for under half a second (a slow mover's 1/32 ft steps come a few frames apart).
+                bool changed = d > 1e-8f || std::fabs(sc - last_scale[i]) > 1e-4f;
+                still_for[i] = changed ? 0 : still_for[i] + 1;
+                bool now = changed || (moving[i] && still_for[i] < 30);
+                if (now != (moving[i] != 0)) {
+                    float off[3];
+                    for (int k = 0; k < 3; k++) off[k] = o.pos[k] - spawn[i][k];
+                    printf("  t=%6.2f lap %d  %zu %s %s at (%.1f, %.1f, %.1f) from its spawn, scale %.3f\n", t, lap, i,
+                           w.paths()[o.path].name.c_str(), now ? "starts" : "stops", off[0], off[1], off[2], sc);
+                    moving[i] = now;
+                }
+                last[i] = { o.pos[0], o.pos[1], o.pos[2] };
+                last_scale[i] = sc;
+            }
+            for (const auto& [pivot, objs] : books) {
+                int shown = 0;
+                for (int i : objs) {
+                    const float* m = w.objects()[i].m;
+                    shown += std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]) >= 0.01f;
+                }
+                wrong += shown != 1;
+            }
+        }
+        printf("flip-books: %zu, steps without exactly one frame shown: %d\n%s\n", books.size(), wrong, wrong ? "FAIL" : "OK");
+        return wrong ? 1 : 0;
+    }
+}
+
 int main(int argc, char** argv) {
+    if (argc > 2 && std::string(argv[1]) == "--script") {
+        return run_script(argv[2], argc > 3 ? atoi(argv[3]) : 3, argc > 4 ? (float)atof(argv[4]) : 40.0f);
+    }
     if (argc > 2 && std::string(argv[1]) == "--custom") {
         return run_custom(argv[2], argc > 3 ? (float)atof(argv[3]) : 20.0f, argc > 4 ? (float)atof(argv[4]) : 60.0f);
     }

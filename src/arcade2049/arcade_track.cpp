@@ -33,9 +33,11 @@ namespace {
     constexpr double sky_radius = 9000.0;      // ft: objects reaching past this from the origin are sky
     constexpr double max_edge = 2500.0;        // ft: longer scenery triangle edges are split
     constexpr double water_edge = 2500.0;      // ft: water collision triangles are split as scenery is
-    constexpr size_t max_leaf = 36;            // the game's collision queries hold 36 polygons per index cell
+    // The game's collision queries hold 255 polygons per index cell (include/collision_polys.h max_leaf_polys; 36
+    // until 2026-10-20, when relieve_crowding and cut_tips below moved corners and cut Haight's cone tip to fit).
+    constexpr size_t max_leaf = 255;
     constexpr double cell_size = 4.0;          // ft: the converter's smallest cell
-    constexpr size_t near_full = 24;           // cells past this get their exactly flat neighbours joined
+    constexpr size_t near_full = 240;          // cells past this get their exactly flat neighbours joined
     constexpr double flat_join = 0.001;        // ft: neighbours this flat are joined without moving anything
     constexpr int spline_window = 30;          // segments either side of a polygon's own that can hold part of it
     constexpr double spline_fit = 1.0;         // ft: a piece is on a segment's surface when its facet is this close
@@ -53,6 +55,10 @@ namespace {
     }
 
     bool starts_with(const std::string& s, const char* p) { return s.rfind(p, 0) == 0; }
+    // What keeps two roaddat polygons apart when they are joined: the surface type and the covered bits (flags bits
+    // 30-31, Rush 2's POLY info 0x4000 / 0x8000: covered levels 1 and 2, the cars drawn darker as in its tunnels).
+    uint32_t col_class(uint32_t f) { return (f & 0xF) | (f & 0xC0000000u); }
+    int covered_level(uint32_t f) { return f & 0x80000000u ? 2 : f & 0x40000000u ? 1 : 0; }
     std::string lower(std::string s) {
         for (char& c : s) c = char(std::tolower((unsigned char)c));
         return s;
@@ -361,7 +367,7 @@ namespace {
                 double h, tt, u;
                 seg_surface(segs[k], nxt(k), { c[0], facet_y(p.pts, p.normal, c[0], c[1]), c[1] }, h, tt, u);
                 if (std::abs(h) < spline_fit && tt >= -0.01 && tt <= 1.01) {
-                    Paths64& to = pieces[{ k, p.flags & 0xFF }];
+                    Paths64& to = pieces[{ k, (p.flags & 0xFF) | (p.flags & 0xC0000000u) }];
                     to.insert(to.end(), part.begin(), part.end());
                     rest = boolean(ClipType::Difference, rest, Paths64{ *bands[k] });
                 }
@@ -601,7 +607,7 @@ namespace {
     // by the points tip_cut ft out (across x/z) along its two edges, the same point for the neighbours sharing an
     // edge (no cracks), and the hole closed with a cap of convex pieces of at most 8 corners over the ring of cuts.
     // A fan with a gap of more than 60 degrees (a corner at the surface's edge) is left alone.
-    constexpr size_t apex_polys = 24;
+    constexpr size_t apex_polys = 240;        // (24 under the old limit of 36: Haight's pit has 31)
     constexpr double tip_cut = 12.0;
 
     // track_mod.py drop_spline_twins: the arcade lists some spline road polygons twice, once with their segment and
@@ -676,7 +682,7 @@ namespace {
         for (const auto& [c, ids] : at) {
             if (ids.size() < apex_polys) continue;
             if (std::any_of(ids.begin(), ids.end(), [&](size_t i) {
-                    return touched.count(i) || (polys[i].flags & 0xF) != (polys[ids[0]].flags & 0xF) ||
+                    return touched.count(i) || col_class(polys[i].flags) != col_class(polys[ids[0]].flags) ||
                            polys[i].pts.size() >= 8;
                 })) continue;
             double r = tip_cut;
@@ -779,7 +785,7 @@ namespace {
             std::vector<Cand> cands;
             for (size_t e = 0; e < edge_polys.size(); e++) {
                 const auto& ps = edge_polys[e];
-                if (ps.size() != 2 || (polys[ps[0]].flags & 0xF) != (polys[ps[1]].flags & 0xF)) continue;
+                if (ps.size() != 2 || col_class(polys[ps[0]].flags) != col_class(polys[ps[1]].flags)) continue;
                 if (!crowd.count(ps[0]) && !crowd.count(ps[1])) continue;
                 size_t a = ps[0], b = ps[1];
                 const auto& A = polys[a].pts;
@@ -1035,6 +1041,117 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
 
     PrimSet scenery, sky;
     int billboards = 0, knocks = 0;
+    // A mesh in glTF space (default material) for collision or a trigger box.
+    struct ColMesh {
+        std::vector<V3> verts, normals;
+        std::vector<std::array<uint32_t, 3>> tris;
+        std::vector<double> segs;
+    };
+    // A box (8 glTF-space corners, bit 0 / 1 / 2 = the high end of axis 0 / 1 / 2) as 12 outward triangles: up-facing
+    // faces into `top`, the rest into `sides` (into `top` too when there is none).
+    auto box_mesh = [&](const std::array<V3, 8>& corner, ColMesh& top, ColMesh* sides) {
+        static const int faces[6][4] = { { 2, 6, 7, 3 }, { 0, 1, 5, 4 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 }, { 0, 2, 3, 1 }, { 4, 5, 7, 6 } };
+        V3 mid{};
+        for (const V3& c : corner) mid = mid + c * 0.125;
+        for (const auto& f : faces) {
+            V3 q[4];
+            for (int k = 0; k < 4; k++) q[k] = corner[f[k]];
+            V3 n = cross(q[1] - q[0], q[2] - q[0]);
+            if (norm(n) < 1e-12) continue;
+            if (dot(n, (q[0] + q[2]) * 0.5 - mid) < 0) std::swap(q[1], q[3]), n = n * -1.0;   // outward
+            n = unit(n);
+            ColMesh* m = n[1] > 0.7 || !sides ? &top : sides;
+            uint32_t base = uint32_t(m->verts.size());
+            for (const V3& p : q) m->verts.push_back(p), m->normals.push_back(n);
+            m->tris.push_back({ base, base + 1, base + 2 });
+            m->tris.push_back({ base, base + 2, base + 3 });
+        }
+    };
+    auto aabb_corners = [](const V3& lo, const V3& hi) {
+        std::array<V3, 8> c;
+        for (int k = 0; k < 8; k++) c[k] = { k & 1 ? hi[0] : lo[0], k & 2 ? hi[1] : lo[1], k & 4 ? hi[2] : lo[2] };
+        return c;
+    };
+    // An object's collision (dobs `collision`) at offset `at` (its world position, or 0 for a mover's own frame): its
+    // model's triangles, up-facing ones road and the rest walls, each kept on its drawn side.
+    auto object_collision = [&](const Lod& lod, const M3& M, const V3& at, ColMesh& road, ColMesh& wall) {
+        std::vector<V3> P;
+        for (const Vertex& v : lod.verts) P.push_back(mul(v.pos, M) + at);
+        for (const auto& tr : lod.tris) {
+            if (tr[0] >= P.size() || tr[1] >= P.size() || tr[2] >= P.size()) continue;
+            V3 gl[3] = { to_gltf(P[tr[0]]), to_gltf(P[tr[2]]), to_gltf(P[tr[1]]) };   // the drawn winding
+            V3 n = cross(gl[1] - gl[0], gl[2] - gl[0]);
+            if (norm(n) < 1e-9) continue;
+            n = unit(n);
+            ColMesh& m = n[1] > 0.7 ? road : wall;
+            uint32_t base = uint32_t(m.verts.size());
+            for (const V3& g : gl) m.verts.push_back(g), m.normals.push_back(n);
+            m.tris.push_back({ base, base + 1, base + 2 });
+        }
+    };
+    ColMesh object_road, object_wall;   // collision of objects that don't move
+
+    // Trigger boxes: hidden dobs objects with a `name` (UNITCUBE mostly), which other objects' `when <name>` wait for
+    // a car to drive into; and `when progress <feet>`, a car that far into the race (along the drones' lap, counted
+    // from its first point [I]), made a box on the lap point at that distance for the car on that lap.
+    std::map<std::string, std::pair<V3, V3>> trigger_boxes;     // name -> game-space bounds
+    std::vector<V3> lap_pts;
+    {
+        const PathTable& t0 = tables[0];
+        size_t n = std::min<size_t>(t0.lap_count, t0.records.size());
+        for (size_t i = 0; i < n; i++) lap_pts.push_back(t0.records[i].pos);
+    }
+    std::vector<double> lap_at{ 0.0 };
+    for (size_t i = 1; i <= lap_pts.size() && lap_pts.size() > 1; i++) {
+        lap_at.push_back(lap_at.back() + norm(lap_pts[i % lap_pts.size()] - lap_pts[i - 1]));
+    }
+    double lap_length = lap_at.back();
+    for (const Instance& in : instances) {
+        bool hide = false;
+        std::string tname;
+        for (const std::string& s : in.script) {
+            auto w = split_words(s);
+            if (w.empty()) continue;
+            if (lower(w[0]) == "hide") hide = true;
+            if (lower(w[0]) == "name" && w.size() > 1) tname = upper(w[1]);
+        }
+        if (!hide || tname.empty() || in.o->lod0.verts.empty()) continue;
+        std::vector<V3> V = placed(in.o->lod0, in.M, in.pos);
+        V3 lo = V[0], hi = V[0];
+        for (const V3& p : V) for (int k = 0; k < 3; k++) lo[k] = std::min(lo[k], p[k]), hi[k] = std::max(hi[k], p[k]);
+        trigger_boxes[tname] = { lo, hi };
+    }
+    std::set<std::string> unknown_events, used_triggers;
+    // An arcade event ("mg1", "progress 14000", "3", "oddlap", "finishswap") as a track.toml event, or "".
+    auto mod_event = [&](const std::vector<std::string>& w) -> std::string {
+        if (w.empty()) return "";
+        std::string a = lower(w[0]);
+        if (a == "progress" && w.size() > 1 && lap_length > 0) {
+            double d = std::strtod(w[1].c_str(), nullptr);
+            int lap = int(std::floor(d / lap_length)) + 1;
+            double into = d - (lap - 1) * lap_length;
+            size_t i = size_t(std::upper_bound(lap_at.begin(), lap_at.end(), into) - lap_at.begin());
+            i = i ? (i - 1) % lap_pts.size() : 0;
+            std::string name = "PROGRESS_" + w[1];
+            V3 c = lap_pts[i];
+            trigger_boxes[name] = { c - V3{ 70, 40, 70 }, c + V3{ 70, 40, 70 } };
+            used_triggers.insert(name);
+            return "trigger " + name + " lap " + std::to_string(lap);
+        }
+        if (!a.empty() && std::all_of(a.begin(), a.end(), [](char c) { return std::isdigit((unsigned char)c) || c == '.'; })) {
+            return "time " + w[0];      // seconds into the race [I]
+        }
+        if (a == "oddlap") return "odd_lap";
+        if (a == "evenlap") return "even_lap";
+        if (a == "finishswap") return "final_lap";     // [I] the finish sign turns as the last lap starts
+        if (trigger_boxes.count(upper(w[0]))) {
+            used_triggers.insert(upper(w[0]));
+            return "trigger " + upper(w[0]);
+        }
+        unknown_events.insert(w[0]);
+        return "";
+    };
+
     struct Mover {
         std::string name;
         const Lod* lod;
@@ -1043,9 +1160,26 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         std::vector<double> times;
         std::vector<std::array<double, 4>> quats;
         std::vector<V3> scales;
+        std::vector<V3> moves;          // offsets from pos (world), per key
+        bool card = false;              // frontface: turned to the camera
+        int collision = 0;              // 1: object_collision, 2: a box round it (a card)
+        M3 M{};                         // its placement matrix and its model's offset in its own frame (collision)
+        V3 offset{};
+        std::string settings;           // its track.toml [movers.<name>] lines
     };
     std::vector<Mover> movers;
     std::set<std::string> still;
+    auto toml_number = [](double v) {
+        char b[32];
+        snprintf(b, sizeof(b), "%g", v);
+        std::string s = b;
+        return s.find_first_of(".e") == std::string::npos ? s + ".0" : s;
+    };
+    auto toml_list = [](const std::vector<std::string>& v) {
+        std::string s = "[";
+        for (size_t i = 0; i < v.size(); i++) s += (i ? ", \"" : "\"") + v[i] + "\"";
+        return s + "]";
+    };
     for (const Instance& in : instances) {
         if (cancelled && cancelled()) return false;
         std::set<std::string> words;
@@ -1060,8 +1194,53 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             still.insert(in.o->name + " (a coin pickup: left out)");
             continue;
         }
+        // The script's motion and events (docs/arcade2049.md#dobsrom-dynamic-objects). follow<axis> <speed> <distance>
+        // [<acceleration>] moves it along its own axis; start / open / close lines take a `when <event>` on the
+        // same line or the next `when` line.
+        struct Follow { V3 axis{}; double speed = 0, dist = 0, accel = 0; bool on = false; } follow;
+        std::vector<std::string> start_ev, open_ev, close_ev;
+        bool has_start = false, collision = words.count("collision") > 0, first_close = false, seen_door = false;
+        double open_delay = -1, close_delay = -1;
+        std::vector<std::string>* pending = nullptr;
+        for (const std::string& s : in.script) {
+            auto w = split_words(s);
+            if (w.empty() || w[0][0] == '#') continue;
+            std::string a = lower(w[0]);
+            if (starts_with(a, "follow") && a.size() >= 7 && w.size() >= 3) {
+                char ax = a.back();
+                V3 axis = ax == 'x' ? V3{ 1, 0, 0 } : ax == 'y' ? V3{ 0, 0, 1 } : V3{ 0, 1, 0 };   // dobs x, y, z = world x, z, y
+                axis = mul(axis, in.M);
+                if (norm(axis) > 0) follow.axis = axis * ((a.find('-') != std::string::npos ? -1.0 : 1.0) / norm(axis));
+                follow.speed = std::strtod(w[1].c_str(), nullptr);
+                follow.dist = std::strtod(w[2].c_str(), nullptr);
+                follow.accel = w.size() > 3 ? std::strtod(w[3].c_str(), nullptr) : 0.0;
+                follow.on = follow.speed != 0 && follow.dist > 0;
+                continue;
+            }
+            auto rest_after = [&](size_t k) { return std::vector<std::string>(w.begin() + std::min(k, w.size()), w.end()); };
+            if (a == "start") {
+                has_start = true;
+                size_t k = 1;
+                while (k < w.size() && lower(w[k]) != "when") k++;
+                if (k < w.size()) { if (auto e = mod_event(rest_after(k + 1)); !e.empty()) start_ev.push_back(e); pending = nullptr; }
+                else pending = &start_ev;
+            }
+            else if ((a == "open" || a == "close") && w.size() > 1) {
+                if (lower(w[1]) == "delay" && w.size() > 2) (a == "open" ? open_delay : close_delay) = std::strtod(w[2].c_str(), nullptr);
+                else if (lower(w[1]) == "when") {
+                    // The first event line says where it starts: a close first means it starts open.
+                    if (!seen_door) first_close = a == "close", seen_door = true;
+                    if (auto e = mod_event(rest_after(2)); !e.empty()) (a == "open" ? open_ev : close_ev).push_back(e);
+                }
+            }
+            else if (a == "when" && pending) {
+                if (auto e = mod_event(rest_after(1)); !e.empty()) pending->push_back(e);
+                pending = nullptr;
+            }
+        }
+        bool door = !open_ev.empty() || !close_ev.empty();
         bool knock = words.count("bounce") > 0, card = words.count("frontface") > 0;
-        if (knock || card) {
+        if (knock || (card && !follow.on)) {
             PrimSet prims;
             add_tris(prims, lod, local, 0.0);
             std::vector<Glb::Prim> list = prims.list();
@@ -1090,7 +1269,15 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             continue;
         }
         if (words.count("hide")) {
-            still.insert(in.o->name + " (hidden until a script shows it: left out)");
+            // Hidden: a trigger box (above) or a sound's position; never drawn.
+            bool named = std::any_of(in.script.begin(), in.script.end(), [](const std::string& s) { return lower(s).rfind("name ", 0) == 0; });
+            if (!named) still.insert(in.o->name + " (hidden: a sound's position; the arcade's sounds aren't converted)");
+            continue;
+        }
+        if (upper(in.o->name) == "UNITCUBE") {
+            // The unit cube marks volumes (soundbox: where a sound plays); it is never drawn (it is the arcade's
+            // blue placeholder cube: on Marina a 495 ft blue block over the road).
+            still.insert("UNITCUBE (a sound volume: not drawn; the arcade's sounds aren't converted)");
             continue;
         }
         std::vector<V3> V = placed(lod, in.M, in.pos);
@@ -1105,6 +1292,49 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             std::string l = lower(s);
             if (starts_with(l, "spinx") || starts_with(l, "spiny") || starts_with(l, "spinz")) spin.push_back(split_words(s));
             if (starts_with(l, "flipbook")) flip.push_back(split_words(s));
+        }
+        // How a moving object plays: open / close events make a door (it starts open when its first line is a close),
+        // a start event waits for it, and the rest go back and forth (follow) or loop (spin).
+        auto settings = [&](const char* free_mode) {
+            std::string s;
+            if (door) {
+                s = "mode = \"door\"\n";
+                if (!open_ev.empty()) s += "open = " + toml_list(open_ev) + "\n";
+                if (!close_ev.empty()) s += "close = " + toml_list(close_ev) + "\n";
+                if (open_delay >= 0) s += "open_delay = " + toml_number(open_delay) + "\n";
+                if (close_delay >= 0) s += "close_delay = " + toml_number(close_delay) + "\n";
+                if (first_close) s += "open_at_start = true\n";
+            }
+            else {
+                s = std::string("mode = \"") + free_mode + "\"\n";
+                if (!start_ev.empty()) s += "start = " + toml_list(start_ev) + "\n";
+            }
+            return s;
+        };
+        if (!is_sky && follow.on) {
+            // follow: along the axis at the speed (ft/s), the distance (ft) from its placement, speeding up and
+            // slowing down at the acceleration (ft/s², [I]: none = a steady speed).
+            Mover mv{ in.o->name + "_" + std::to_string(movers.size()), &lod, local, in.pos };
+            double v = std::abs(follow.speed), D = follow.dist, acc = follow.accel;
+            V3 dir = follow.axis * (follow.speed < 0 ? -1.0 : 1.0);
+            auto key = [&](double t, double s) { mv.times.push_back(t); mv.moves.push_back(dir * s); };
+            if (acc <= 0) key(0, 0), key(D / v, D);
+            else {
+                double ta = v / acc, da = 0.5 * acc * ta * ta;
+                if (2 * da > D) ta = std::sqrt(D / acc), da = D / 2, v = acc * ta;
+                double tc = (D - 2 * da) / v;
+                constexpr int steps = 6;
+                for (int k = 0; k <= steps; k++) { double tt = ta * k / steps; key(tt, 0.5 * acc * tt * tt); }
+                if (tc > 1e-6) key(ta + tc, da + v * tc);
+                for (int k = 1; k <= steps; k++) { double tt = ta * k / steps; key(ta + tc + tt, D - da + v * tt - 0.5 * acc * tt * tt); }
+            }
+            mv.card = card;
+            mv.collision = collision ? (card ? 2 : 1) : 0;
+            mv.M = in.M;
+            mv.settings = settings("pingpong");
+            tri_count += lod.tris.size();
+            movers.push_back(std::move(mv));
+            continue;
         }
         if (!is_sky && !spin.empty()) {
             // spin<axis> <degrees per second>: a looping MOVE_ turn about the object's own axis (the script's x, y,
@@ -1122,12 +1352,19 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
                     mv.times.push_back(period * k / 4);
                     mv.quats.push_back({ axis[0] * std::sin(a / 2), axis[1] * std::sin(a / 2), axis[2] * std::sin(a / 2), std::cos(a / 2) });
                 }
+                mv.collision = collision ? 1 : 0;
+                mv.M = in.M;
+                if (!start_ev.empty()) mv.settings = settings("loop");
                 movers.push_back(std::move(mv));
                 tri_count += lod.tris.size();
                 continue;
             }
         }
-        if (!is_sky && !flip.empty() && flip[0].size() > 1 && std::strtod(flip[0][1].c_str(), nullptr) > 0) {
+        double fps = !flip.empty() && flip[0].size() > 1 ? std::strtod(flip[0][1].c_str(), nullptr) : 0.0;
+        // An event flipbook (negative rate: breaking glass and signs, the finish sign) plays once when its start
+        // event comes, then keeps its last frame.
+        bool event_book = fps < 0 && !start_ev.empty();
+        if (!is_sky && (fps > 0 || event_book)) {
             // flipbook <frames per second>: frames <name>_1..n, each a MOVE_ object at full size only in its slot.
             std::string base = in.o->name;
             size_t us = base.rfind('_');
@@ -1138,8 +1375,9 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             std::vector<const Object*> frames;
             while (const Object* f = t.find(base + "_" + std::to_string(frames.size() + 1))) frames.push_back(f);
             if (frames.size() > 1) {
-                double fps = std::strtod(flip[0][1].c_str(), nullptr);
-                double period = frames.size() / fps, eps = 0.002;
+                double rate = std::abs(fps);
+                double period = frames.size() / rate, eps = 0.002;
+                size_t last = frames.size() - 1;
                 // One pivot for the whole book, on a whole foot (frames share it and one interpolation ID).
                 V3 sum{};
                 size_t count = 0;
@@ -1147,20 +1385,31 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
                 V3 mean = count ? sum * (1.0 / count) : V3{};
                 V3 pivot{ round_even(mean[0] + in.pos[0]), round_even(mean[1] + in.pos[1]), round_even(mean[2] + in.pos[2]) };
                 for (size_t j = 0; j < frames.size(); j++) {
-                    double s0 = j / fps, s1 = (j + 1) / fps;
+                    double s0 = j / rate, s1 = (j + 1) / rate;
                     std::vector<std::pair<double, bool>> keys{ { 0.0, j == 0 } };
                     if (j) keys.push_back({ s0 - eps, false }), keys.push_back({ s0, true });
-                    keys.push_back({ s1 - eps, true });
-                    keys.push_back({ s1, false });
-                    // Every frame's keys end on key 0's pose so the loop closes in exactly `period`.
-                    if (j == 0) keys.push_back({ period - eps, false }), keys.push_back({ period, true });
-                    else if (s1 < period - eps) keys.push_back({ period, false });
+                    if (event_book) {
+                        // Played once: the last frame stays.
+                        if (j == last) keys.push_back({ period, true });
+                        else keys.push_back({ s1 - eps, true }), keys.push_back({ s1, false }), keys.push_back({ period, false });
+                    }
+                    else {
+                        keys.push_back({ s1 - eps, true });
+                        keys.push_back({ s1, false });
+                        // Every frame's keys end on key 0's pose so the loop closes in exactly `period`.
+                        if (j == 0) keys.push_back({ period - eps, false }), keys.push_back({ period, true });
+                        else if (s1 < period - eps) keys.push_back({ period, false });
+                    }
+                    for (size_t k = 1; k < keys.size(); k++) {
+                        if (keys[k].first <= keys[k - 1].first) keys.erase(keys.begin() + long(k--));
+                    }
                     Mover mv{ frames[j]->name + "_" + std::to_string(movers.size()), &frames[j]->lod0, {}, pivot };
                     for (const Vertex& v : frames[j]->lod0.verts) mv.local.push_back(mul(v.pos, in.M) + in.pos - pivot);
                     for (const auto& [time, on] : keys) {
                         mv.times.push_back(time);
                         mv.scales.push_back(on ? V3{ 1, 1, 1 } : V3{ 0.001, 0.001, 0.001 });
                     }
+                    if (event_book) mv.settings = "mode = \"once\"\nstart = " + toml_list(start_ev) + "\n";
                     tri_count += frames[j]->lod0.tris.size();
                     movers.push_back(std::move(mv));
                 }
@@ -1168,23 +1417,79 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             }
         }
         if (!flip.empty() || !spin.empty()) {
-            still.insert(in.o->name + (is_sky ? " (sky: it stays still)" : " (an event flipbook: its first frame)"));
+            still.insert(in.o->name + (is_sky ? " (sky: it stays still)" : " (a flipbook with no event: its first frame)"));
         }
+        if (collision && !is_sky) object_collision(lod, in.M, in.pos, object_road, object_wall);
         size_t n = add_tris(is_sky ? sky : scenery, lod, V, is_sky ? 0.0 : max_edge);
         tri_count += is_sky ? 0 : n;
     }
     g.textured_mesh("TRACK", scenery.list());
+    size_t moving_collision = 0;
+    std::string mover_toml;
     for (const Mover& mv : movers) {
         PrimSet prims;
-        add_tris(prims, *mv.lod, mv.local, 0.0);
+        std::vector<V3> local = mv.local;
+        add_tris(prims, *mv.lod, local, 0.0);
+        std::vector<Glb::Prim> list = prims.list();
+        if (mv.card) {
+            // A moving card: drawn turned to the camera (billboard = true), facing glTF +z as BILLBOARD_ cards do.
+            double nz = 0;
+            for (const auto& p : list) for (const V3& n : p.normals) nz += n[2];
+            if (nz < 0) {
+                for (auto& p : list) {
+                    for (V3& v : p.verts) v = { -v[0], v[1], -v[2] };
+                    for (V3& n : p.normals) n = { -n[0], n[1], -n[2] };
+                }
+            }
+        }
         Glb::Trs trs;
         trs.translation = to_gltf(mv.pos);
-        int node = g.textured_mesh("MOVE_" + mv.name, prims.list(), trs);
-        g.animate(mv.name, node, mv.times, mv.quats.empty() ? nullptr : &mv.quats, mv.scales.empty() ? nullptr : &mv.scales);
+        int node = g.textured_mesh("MOVE_" + mv.name, list, trs);
+        if (mv.card) g.js["nodes"][node]["extras"] = { { "billboard", true } };
+        std::vector<V3> translation;
+        for (const V3& d : mv.moves) translation.push_back(to_gltf(mv.pos + d));
+        g.animate(mv.name, node, mv.times, mv.quats.empty() ? nullptr : &mv.quats, mv.scales.empty() ? nullptr : &mv.scales,
+                  translation.empty() ? nullptr : &translation);
+        if (mv.collision) {
+            // Its collision moves with it: COL_ meshes under MOVE_, in its frame.
+            ColMesh road, wall;
+            if (mv.collision == 2) {
+                V3 lo = to_gltf(local[0]), hi = lo;
+                for (const V3& p : local) {
+                    V3 q = to_gltf(p);
+                    for (int k = 0; k < 3; k++) lo[k] = std::min(lo[k], q[k]), hi[k] = std::max(hi[k], q[k]);
+                }
+                double half = std::max(hi[0] - lo[0], hi[2] - lo[2]) / 2, cx = (lo[0] + hi[0]) / 2, cz = (lo[2] + hi[2]) / 2;
+                box_mesh(aabb_corners({ cx - half, lo[1], cz - half }, { cx + half, hi[1], cz + half }), road, &wall);
+            }
+            else object_collision(*mv.lod, mv.M, mv.offset, road, wall);
+            for (auto* part : { &road, &wall }) {
+                if (part->tris.empty()) continue;
+                int c = g.mesh(std::string(part == &road ? "COL_ROAD_" : "COL_WALL_") + mv.name, part->verts, part->normals, part->tris);
+                g.set_parent(c, node);
+            }
+            moving_collision++;
+        }
+        if (!mv.settings.empty()) mover_toml += "\n[movers." + mv.name + "]\n" + mv.settings;
     }
     if (!movers.empty()) {
-        report.push_back(std::to_string(movers.size()) + " moving objects (MOVE_): spinning lights and lighthouse beams, flipbook frames");
+        report.push_back(std::to_string(movers.size()) + " moving objects (MOVE_): spinning and sliding objects, trains, "
+                         "doors and flipbook frames; " + std::to_string(moving_collision) + " with collision");
     }
+    if (moving_collision > 31) {
+        report.push_back("more than 31 moving objects with collision: the game keeps the first 31's");
+    }
+    for (const auto& [name, box] : trigger_boxes) {
+        if (!used_triggers.count(name)) continue;
+        ColMesh m;
+        V3 a = to_gltf(box.first), b = to_gltf(box.second);
+        box_mesh(aabb_corners({ std::min(a[0], b[0]), a[1], a[2] }, { std::max(a[0], b[0]), b[1], b[2] }), m, nullptr);
+        g.mesh("TRIGGER_" + name, m.verts, m.normals, m.tris);
+    }
+    // Objects that don't move but have collision (a parked trolley, a fire truck).
+    if (!object_road.tris.empty()) g.mesh("COL_ROAD_objects", object_road.verts, object_road.normals, object_road.tris);
+    if (!object_wall.tris.empty()) g.mesh("COL_WALL_objects", object_wall.verts, object_wall.normals, object_wall.tris);
+    for (const std::string& e : unknown_events) report.push_back("event \"" + e + "\" isn't known: left out");
     for (const std::string& s : still) report.push_back("still: " + s);
     if (!sky.empty()) {
         // Drawn without depth in material order: the dome, the far water over it, the land on the water, the clouds.
@@ -1216,11 +1521,6 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         if (up[1] <= 0) up = up * -1.0;     // footprints face up
         col_polys.push_back({ ft.flags, { ft.pts[0], ft.pts[1], ft.pts[2] }, up, ft.seg });
     }
-    struct ColMesh {
-        std::vector<V3> verts, normals;
-        std::vector<std::array<uint32_t, 3>> tris;
-        std::vector<double> segs;
-    };
     std::map<std::string, ColMesh> by_type;
     std::vector<Tri2D> road2d;
     int up_road = 0, road_count = 0;
@@ -1252,7 +1552,8 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
                 road2d.push_back({ { tri[0][0], tri[0][2] }, { tri[1][0], tri[1][2] }, { tri[2][0], tri[2][2] },
                                    (tri[0][1] + tri[1][1] + tri[2][1]) / 3 });
             }
-            add_col_tri(surface, tri, normal, cp.seg);
+            int cover = covered_level(cp.flags);
+            add_col_tri(cover ? std::string(surface) + "_covered" + std::to_string(cover) : std::string(surface), tri, normal, cp.seg);
         }
     }
     for (int ty : unknown_types) report.push_back("collision type " + std::to_string(ty) + ": made WALL");
@@ -1278,9 +1579,13 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     size_t collision_tris = 0;
     for (const auto& [surface, m] : by_type) {
         bool segs = std::any_of(m.segs.begin(), m.segs.end(), [](double s) { return s >= 0; });
-        g.mesh("COL_" + surface + "_arcade", m.verts, m.normals, m.tris,
-               segs ? std::vector<std::pair<std::string, std::vector<double>>>{ { "_SEGMENT", m.segs } }
-                    : std::vector<std::pair<std::string, std::vector<double>>>{});
+        int node = g.mesh("COL_" + surface + "_arcade", m.verts, m.normals, m.tris,
+                          segs ? std::vector<std::pair<std::string, std::vector<double>>>{ { "_SEGMENT", m.segs } }
+                               : std::vector<std::pair<std::string, std::vector<double>>>{});
+        // Covered polygons (roaddat flags 0x40000000 / 0x80000000) keep Rush 2's covered level: covered = 1 or 2.
+        if (size_t c = surface.find("_covered"); c != std::string::npos) {
+            g.js["nodes"][node]["extras"] = { { "covered", std::stoi(surface.substr(c + 8)) } };
+        }
         collision_tris += m.tris.size();
     }
     // The spline road's segments as the game reads them (unused fields of some records are NaN in the arcade data).
@@ -1513,7 +1818,9 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         // Alcatraz is at night; the others keep the custom tracks' default fog.
         std::string(track_id == "alcatraz" ? "[look]\nfog_color = \"#0c1424\"\n\n" : "") +
         "[menu]\nlogo = \"logo.png\"\nafter = \"" + menu_after + "\"\n" +
-        (std::filesystem::exists(assets_dir / (track_id + "_preview.png")) ? "preview = \"preview.png\"\n" : ""));
+        (std::filesystem::exists(assets_dir / (track_id + "_preview.png")) ? "preview = \"preview.png\"\n" : "") +
+        // How the moving objects play: their dobs scripts' events (docs/arcade2049.md#dobsrom-dynamic-objects).
+        mover_toml);
     // The logo and the round preview are shipped pictures (tools/build_banners.py --arcade, tools/arcade2049/track_mod.py
     // --ship-previews).
     for (const char* file : { "logo.png", "preview.png" }) {

@@ -246,7 +246,8 @@ namespace {
     constexpr float gap_tol = 1.0f;       // ft outside a footprint, in the polygon's plane
     constexpr float ledge_step = 0.75f;   // a found surface this far above the wheel's point gives way to one it is on
     constexpr float ledge_rise = 0.1f;    // ... and with none to give way to, the wheel climbs it this much per probe
-    constexpr int32_t sp_list = 0xA4;     // the leaf's polygon indices (u16); their count is noted by the leaf hook
+    // The leaf's polygon indices (u16), their count noted by the leaf hook: the probe's list, moved off its stack (sp+0xA4)
+    // to spare RDRAM by rush2_collision_leaf_list (query 1) so a leaf can hold 255.
     int leaf_count = 0;                   // the current probe's leaf polygon count (0 when it found no leaf)
 
     // A ledge with nothing under it to keep (a sidewalk's or platform's top the wheel's point has fully entered): the
@@ -302,7 +303,7 @@ namespace {
         float tl[3] = {}, tm[9] = {};
         int tindex = 0;
         for (int i = 0; i < leaf_count; i++) {
-            int index = MEM_HU(sp_list + 2 * i, (int32_t)sp);
+            int index = MEM_HU(2 * i, (int32_t)rush2_collision_leaf_list_at(1));
             uint32_t poly = polys + poly_size * (uint32_t)index;
             uint32_t flags = MEM_HU(0, (int32_t)poly);
             if ((flags & 0xF) >= 4) continue;             // walls and the like: floors only

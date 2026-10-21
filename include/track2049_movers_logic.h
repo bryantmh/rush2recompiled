@@ -27,6 +27,50 @@ namespace rush2::track2049::movers {
         uint32_t flags;     // NodeFlags
     };
 
+    // Custom tracks only: what starts, opens or closes a scripted moving object (track.toml [movers.<name>] start /
+    // open / close, docs/custom_tracks.md#moving-objects). Read from the converter's SCRP chunk (parse_scripts).
+    struct ScriptEvent {
+        enum Kind : uint8_t {
+            time,       // `seconds` after the race started (the first car released)
+            trigger,    // a car drove into trigger box `box` (TRIGGER_<name>), on lap `lap` if it isn't 0
+            odd_lap,    // the race leader started lap 1, 3, 5...
+            even_lap,   // the leader started lap 2, 4...
+            final_lap,  // the leader started the last lap
+        };
+        Kind kind = time;
+        int16_t box = -1;           // trigger: its TriggerBox
+        int16_t lap = 0;
+        float seconds = 0.0f;
+    };
+
+    struct Script {
+        enum Mode : uint8_t {
+            plain,      // not scripted: 2049's own stepping (loop, pingpong, ride)
+            loop,       // the animation over and over, from `start`
+            pingpong,   // forward and back, from `start`
+            once,       // forward once from `start`, then stays at its last pose
+            door,       // forward ("opens") on an `open` event, back ("closes") on a `close` event
+        };
+        Mode mode = plain;
+        std::vector<ScriptEvent> start;     // loop, pingpong, once: any one starts it (none: at race start)
+        std::vector<ScriptEvent> open, close;
+        float open_delay = -1.0f;           // door: opens again this long after it closed (< 0: stays)
+        float close_delay = -1.0f;          // door: closes again this long after it opened (< 0: stays)
+        bool open_at_start = false;         // door: starts at its last pose (open)
+        // Runtime.
+        bool started = false;
+        bool placed = false;                // the first scripted update has posed it
+        float clock = 0.0f;                 // seconds into its animation
+        int8_t rate = 0;                    // +1 forward, -1 back, 0 still
+        float wait = -1.0f;                 // door: time left before a delayed open / close
+        std::vector<uint8_t> fired;         // per time event (start, open, close in order): already fired
+    };
+
+    // A TRIGGER_<name> box (game space, axis aligned).
+    struct TriggerBox {
+        float lo[3], hi[3];
+    };
+
     // PTHD header, 36 bytes, plus its nodes.
     struct Path {
         std::string name;   // type name (prefix-matched against the type table)
@@ -36,6 +80,7 @@ namespace rush2::track2049::movers {
         int32_t dyn_id = -1;
         std::vector<PathNode> nodes;
         int follower = -1;  // PTHD +0x20 at runtime: the object restarted last on a 0xC0 path (index into objects)
+        Script script;      // custom tracks: scripted motion (Script::plain = none)
     };
 
     enum PathFlags : uint32_t {
@@ -90,6 +135,11 @@ namespace rush2::track2049::movers {
     // Parses PTHD/PATH from a big-endian 2049 track geometry file (files 101-119). Returns false on bad data; a file
     // without PTHD gives an empty list.
     bool parse_paths(const uint8_t* data, size_t size, std::vector<Path>& out);
+
+    // A custom track's mover file (src/track_mod/track_mod_convert.cpp) also has a SCRP chunk (one script per
+    // path, in path order) and a TRIG chunk (the trigger boxes). Fills paths[i].script and boxes; files without them
+    // leave every path plain. Returns false on bad data.
+    bool parse_scripts(const uint8_t* data, size_t size, std::vector<Path>& paths, std::vector<TriggerBox>& boxes);
 
     // Parses the type table from 2049's decompressed main data (loaded at main_vram = 0x80086A50).
     bool parse_types(const uint8_t* main, size_t size, uint32_t main_vram, std::vector<TypeInfo>& out);
@@ -197,6 +247,11 @@ namespace rush2::track2049::movers {
         // Custom tracks only (Options::custom).
         void hold_triggers();
 
+        // Custom tracks: the race as the scripted movers see it, before update(). racing: a car has been released
+        // (the race clock runs); leader_lap: the furthest car's lap (1 = the first); laps: the race's laps;
+        // entered: per trigger box, the laps (1 = the first) of the cars that drove into it since the last update.
+        void set_race(bool racing, int leader_lap, int laps, const std::vector<std::vector<int>>& entered);
+
         // func_800C1A00: velocity of a ride-on platform group (first PTHD 0x20 object with this group, in spawn
         // order): its node direction x follower speed, negated going backward; zero if none.
         void platform_velocity(int16_t group, float out[3]) const;
@@ -214,6 +269,9 @@ namespace rush2::track2049::movers {
     private:
         void restart(Object& o, int node);
         void step(Object& o, float dt);
+        void pose(Object& o, float dt);
+        void step_scripted(Object& o, float dt);
+        bool fires(Script& s, const std::vector<ScriptEvent>& events, size_t first_time);
         void position(Object& o, float dt);
         void rotation(Object& o);
         bool near_focus(const Object& o, float range2) const;
@@ -229,6 +287,11 @@ namespace rush2::track2049::movers {
         Options options_;
         float focus_[3] = {};
         int body_count_ = 0;
+        // Custom tracks' scripts (set_race).
+        bool racing_ = false;
+        float race_time_ = 0.0f;
+        int leader_lap_ = 0, prev_leader_lap_ = 0, laps_ = 0;
+        std::vector<std::vector<int>> entered_;
     };
 
     // func_800C0294: moves a group vertex (8-byte VERT: s16 x, y, z, u16 fractions) by delta, rounding half away

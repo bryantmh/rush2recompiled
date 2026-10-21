@@ -442,6 +442,68 @@ namespace rush2::track2049::movers {
         return true;
     }
 
+    // SCRP (custom tracks, src/track_mod/track_mod_convert.cpp): count = paths, then per path a 16-byte header (u8
+    // mode, u8 flags (1 = open at start), u8 start, open and close event counts, 3 pad, f32 open delay, f32 close
+    // delay) and its events, 12 bytes each (u8 kind, pad, s16 trigger box, s16 lap, pad, f32 seconds). TRIG: count
+    // boxes of f32 lo[3], hi[3].
+    bool parse_scripts(const uint8_t* data, size_t size, std::vector<Path>& paths, std::vector<TriggerBox>& boxes) {
+        boxes.clear();
+        uint32_t base, count;
+        if (find_chunk(data, size, "TRIG", base, count)) {
+            if ((uint64_t)base + (uint64_t)count * 24 > size) {
+                return false;
+            }
+            for (uint32_t k = 0; k < count; k++) {
+                TriggerBox b;
+                for (int i = 0; i < 3; i++) {
+                    b.lo[i] = bef(data + base + k * 24 + i * 4);
+                    b.hi[i] = bef(data + base + k * 24 + 12 + i * 4);
+                }
+                boxes.push_back(b);
+            }
+        }
+        if (!find_chunk(data, size, "SCRP", base, count)) {
+            return true;
+        }
+        if (count != paths.size()) {
+            return false;
+        }
+        size_t o = base;
+        for (Path& p : paths) {
+            if (o + 16 > size) {
+                return false;
+            }
+            Script s;
+            s.mode = data[o] <= Script::door ? (Script::Mode)data[o] : Script::plain;
+            s.open_at_start = (data[o + 1] & 1) != 0;
+            int counts[3] = { data[o + 2], data[o + 3], data[o + 4] };
+            s.open_delay = bef(data + o + 8);
+            s.close_delay = bef(data + o + 12);
+            o += 16;
+            std::vector<ScriptEvent>* lists[3] = { &s.start, &s.open, &s.close };
+            for (int l = 0; l < 3; l++) {
+                for (int k = 0; k < counts[l]; k++) {
+                    if (o + 12 > size) {
+                        return false;
+                    }
+                    ScriptEvent e;
+                    e.kind = data[o] <= ScriptEvent::final_lap ? (ScriptEvent::Kind)data[o] : ScriptEvent::time;
+                    e.box = be16(data + o + 2);
+                    e.lap = be16(data + o + 4);
+                    e.seconds = bef(data + o + 8);
+                    if (e.kind == ScriptEvent::trigger && (e.box < 0 || e.box >= (int)boxes.size())) {
+                        return false;
+                    }
+                    lists[l]->push_back(e);
+                    o += 12;
+                }
+            }
+            s.fired.assign(s.start.size() + s.open.size() + s.close.size(), 0);
+            p.script = std::move(s);
+        }
+        return true;
+    }
+
     bool parse_types(const uint8_t* main, size_t size, uint32_t main_vram, std::vector<TypeInfo>& out) {
         constexpr uint32_t table = 0x80117530;
         constexpr int rows = 122;
@@ -941,15 +1003,176 @@ namespace rush2::track2049::movers {
         std::memcpy(focus_, pos, sizeof(focus_));
     }
 
+    void World::set_race(bool racing, int leader_lap, int laps, const std::vector<std::vector<int>>& entered) {
+        racing_ = racing;
+        leader_lap_ = leader_lap;
+        laps_ = laps;
+        entered_ = entered;
+    }
+
     void World::update(float dt) {
+        if (racing_) {
+            race_time_ += dt;
+        }
         for (int i : order_) {
             step(objects_[i], dt);
         }
+        prev_leader_lap_ = leader_lap_;
+        entered_.clear();
+    }
+
+    // Whether one of `events` happens this update. A time event happens once (s.fired from index first_time).
+    bool World::fires(Script& s, const std::vector<ScriptEvent>& events, size_t first_time) {
+        bool any = false;
+        bool new_lap = leader_lap_ > 0 && leader_lap_ != prev_leader_lap_;
+        for (size_t k = 0; k < events.size(); k++) {
+            const ScriptEvent& e = events[k];
+            switch (e.kind) {
+            case ScriptEvent::time:
+                if (racing_ && race_time_ >= e.seconds && first_time + k < s.fired.size() && !s.fired[first_time + k]) {
+                    s.fired[first_time + k] = 1;
+                    any = true;
+                }
+                break;
+            case ScriptEvent::trigger:
+                if (e.box >= 0 && e.box < (int)entered_.size()) {
+                    for (int lap : entered_[e.box]) {
+                        any = any || e.lap == 0 || lap == e.lap;
+                    }
+                }
+                break;
+            case ScriptEvent::odd_lap:
+                any = any || (new_lap && (leader_lap_ & 1));
+                break;
+            case ScriptEvent::even_lap:
+                any = any || (new_lap && !(leader_lap_ & 1));
+                break;
+            case ScriptEvent::final_lap:
+                any = any || (new_lap && laps_ > 0 && leader_lap_ == laps_);
+                break;
+            }
+        }
+        return any;
+    }
+
+    // A custom track's scripted mover: its clock (seconds into the animation) runs as the script says, and the
+    // follower is set to the node and time the clock is at, then posed as 2049 poses any object.
+    void World::step_scripted(Object& o, float dt) {
+        Path& p = paths_[o.path];
+        Script& s = p.script;
+        Follower& f = o.f;
+        int count = (int)p.nodes.size();
+        bool loop = s.mode == Script::loop;
+        // The travel: every node for a loop (the last one runs back to the first), else all but the end node.
+        int segs = loop ? count : count - 1;
+        float total = 0.0f;
+        for (int n = 0; n < segs; n++) {
+            total += p.nodes[n].time;
+        }
+        o.sound = Sound::none;
+        if (segs <= 0 || !(total > 0.0f)) {
+            pose(o, dt);
+            return;
+        }
+        size_t first_open = s.start.size(), first_close = first_open + s.open.size();
+        if (!s.placed) {
+            s.placed = true;
+            if (s.mode == Script::door && s.open_at_start) {
+                s.clock = total;
+            }
+        }
+        if (s.mode == Script::door) {
+            bool open = fires(s, s.open, first_open);
+            bool close = fires(s, s.close, first_close);
+            if (open != close) {
+                s.rate = open ? 1 : -1;
+                s.wait = -1.0f;
+            }
+            if (s.wait >= 0.0f) {
+                s.wait -= dt;
+                if (s.wait < 0.0f) {
+                    s.rate = s.clock >= total ? -1 : 1;
+                }
+            }
+            s.clock += (float)s.rate * dt;
+            if (s.rate > 0 && s.clock >= total) {
+                s.clock = total;
+                s.rate = 0;
+                s.wait = s.close_delay;
+            }
+            else if (s.rate < 0 && s.clock <= 0.0f) {
+                s.clock = 0.0f;
+                s.rate = 0;
+                s.wait = s.open_delay;
+            }
+        }
+        else {
+            if (!s.started) {
+                // With no start event it starts with the race (the green light), as a time event does.
+                s.started = s.start.empty() ? racing_ : fires(s, s.start, 0);
+            }
+            bool finished = s.mode == Script::once && s.clock >= total;
+            if (s.started && !finished) {
+                if (s.rate == 0) {
+                    s.rate = 1;
+                }
+                s.clock += (float)s.rate * dt;
+                if (s.mode == Script::loop) {
+                    if (s.clock >= total && (p.flags & path_moves_group)) {
+                        // As 2049's loop wraps (step): the group goes back to its rest copy, so the 1/32 ft
+                        // translations don't drift lap after lap.
+                        GroupOp op = {};
+                        op.kind = GroupOp::restore;
+                        op.group = p.group;
+                        ops_.push_back(op);
+                    }
+                    s.clock = std::fmod(s.clock, total);
+                }
+                else if (s.mode == Script::once) {
+                    if (s.clock >= total) {
+                        s.clock = total;
+                        s.rate = 0;
+                    }
+                }
+                else {
+                    // pingpong: turn round at either end.
+                    if (s.clock >= total) {
+                        s.clock = std::max(0.0f, 2.0f * total - s.clock);
+                        s.rate = -1;
+                    }
+                    else if (s.clock <= 0.0f) {
+                        s.clock = std::min(total, -s.clock);
+                        s.rate = 1;
+                    }
+                }
+            }
+        }
+        float c = s.clock;
+        int n = 0;
+        while (n < segs - 1 && c >= p.nodes[n].time) {
+            c -= p.nodes[n].time;
+            n++;
+        }
+        c = std::min(std::max(c, 0.0f), p.nodes[n].time);
+        f.node = (int16_t)n;
+        if (s.rate < 0) {
+            f.dir = (uint16_t)((f.dir & ~4) | 8);
+            f.t = p.nodes[n].time - c;
+        }
+        else {
+            f.dir = (uint16_t)((f.dir & ~8) | 4);
+            f.t = c;
+        }
+        pose(o, dt);
     }
 
     // func_800C0AC0.
     void World::step(Object& o, float dt) {
         Path& p = paths_[o.path];
+        if (options_.custom && p.script.mode != Script::plain) {
+            step_scripted(o, dt);
+            return;
+        }
         Follower& f = o.f;
         const TypeInfo& t = types_[o.type];
         auto restore = [&]() {
@@ -1111,6 +1334,16 @@ namespace rush2::track2049::movers {
                 }
             }
         } while (!done);
+        pose(o, dt);
+    }
+
+    // func_800C0AC0 from the pose on (split out so the custom tracks' scripted movers, which set the follower's node
+    // and time themselves, pose the same way).
+    void World::pose(Object& o, float dt) {
+        Path& p = paths_[o.path];
+        Follower& f = o.f;
+        const TypeInfo& t = types_[o.type];
+        int count = (int)p.nodes.size();
 
         // Pose. Position and rotation run unless the node turns them off; scale is applied below.
         bool moved = false;
@@ -1218,7 +1451,15 @@ namespace rush2::track2049::movers {
             for (PathNode& n : p.nodes) {
                 s::field(w, n.flags);
             }
+            s::field(w, p.script.started);
+            s::field(w, p.script.placed);
+            s::field(w, p.script.clock);
+            s::field(w, p.script.rate);
+            s::field(w, p.script.wait);
+            s::vector(w, p.script.fired);
         }
+        s::field(w, race_time_);
+        s::field(w, prev_leader_lap_);
         s::vector(w, objects_, [](s::Walker& w, Object& o) {
             s::field(w, o.path);
             s::field(w, o.type);

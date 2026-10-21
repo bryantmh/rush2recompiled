@@ -201,7 +201,7 @@ class Case:
     def __init__(self, name, line, gates, start=0.0, reverse=False, overshoot=0.0, kinks=(), dupes=(), errors=(),
                  warnings=(), allow=(), wrong=(), gaps=(), floors=(), lift=None, heights=(), export='pairs',
                  nopath=False, ribbon=True, visual=True, movers=False, lanes=None, objects=False, splines=False,
-                 note=''):
+                 scripts=False, note=''):
         self.__dict__.update(locals())
         del self.__dict__['self']
 
@@ -407,6 +407,7 @@ def build(c, folder):
         g.empty(gate.name, gate_matrix(pos, d, gate.half))
     toml = build_movers(g, c) if c.movers else ''
     toml += build_objects(g, c) if c.objects else ''
+    toml += build_scripts(g, c) if c.scripts else ''
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, 'track.glb'), 'wb') as f:
         f.write(g.bytes())
@@ -496,7 +497,131 @@ def check(c, folder):
         check_objects(c, out, report, fails, fwd)
     if c.splines:
         check_splines(c, out, report, fails)
+    if c.scripts:
+        check_scripts(c, out, report, fails)
     return fails, notes
+
+
+# --- scripted moving objects, trigger boxes, covered collision (scripts=True) -------------------------------------------
+# A gate box on the road (TRIGGER_GATE) and an unused one, five scripted movers beside the road (a door opened by the
+# gate that closes again 5 s later, a door that starts open, a once that starts 3 s in, a pingpong started by the gate on
+# lap 2 and a loop started by odd laps, which is also a moving billboard with collision), and a covered patch of road
+# (COL_ROAD_tunnel, custom property covered = 1). check_scripts reads the SCRP / TRIG chunks, the billboard's record
+# flag and the covered polygons' info bits.
+def script_defs(c):
+    L = c.line.length
+
+    def beside(s, side=90.0):
+        p, lat = c.line.at(s), c.line.lateral(s)
+        return to_gltf((p[0] + lat[0] * side, p[1], p[2] + lat[2] * side))
+
+    pts = [beside(k * 0.1 * L) for k in (1, 2, 3, 4, 6)]
+    up = lambda p, h: (p[0], p[1] + h, p[2])
+    return [
+        dict(name='door', toml='mode = "door"\nopen = "trigger gate"\nclose_delay = 5\n', mode=4, open_at_start=0,
+             events=[[], [(1, 0, 0)], []], delays=(-1.0, 5.0), at=pts[0], T=[pts[0], up(pts[0], 4)]),
+        dict(name='shut', toml='mode = "door"\nclose = ["trigger GATE", "time 30"]\nopen_at_start = true\nopen_delay = 2.5\n',
+             mode=4, open_at_start=1, events=[[], [], [(1, 0, 0), (0, -1, 30.0)]], delays=(2.5, -1.0), at=pts[1],
+             T=[pts[1], up(pts[1], -4)]),
+        dict(name='drop', toml='mode = "once"\nstart = "time 3"\n', mode=3, open_at_start=0,
+             events=[[(0, -1, 3.0)], [], []], delays=(-1.0, -1.0), at=pts[2], T=[pts[2], up(pts[2], -6)]),
+        dict(name='train', toml='mode = "pingpong"\nstart = "trigger gate lap 2"\n', mode=2, open_at_start=0,
+             events=[[(1, 0, 0)], [], []], lap=2, delays=(-1.0, -1.0), at=pts[3], T=[pts[3], up(pts[3], 3)]),
+        dict(name='card', toml='mode = "loop"\nstart = "odd_lap"\n', mode=1, open_at_start=0,
+             events=[[(2, -1, 0)], [], []], delays=(-1.0, -1.0), at=pts[4], T=[pts[4], up(pts[4], 2), pts[4]],
+             billboard=True),
+    ]
+
+
+def build_scripts(g, c):
+    toml = ''
+    for m in script_defs(c):
+        node = g.empty('MOVE_' + m['name'], trs=(m['at'], (0, 0, 0, 1), (1, 1, 1)))
+        if m.get('billboard'):
+            g.js['nodes'][node]['extras'] = {'billboard': True}
+        verts, nrms, tris = box(2.0, 2.0)
+        g.mesh('MOVEVIS_' + m['name'], verts, nrms, tris, parent=node)
+        g.mesh('COL_WALL_' + m['name'], verts, nrms, tris, parent=node)
+        g.animate('MOVE_%sAction' % m['name'], node, [float(k) * 2 for k in range(len(m['T']))], m['T'], None, None)
+        toml += '\n[movers.%s]\n%s' % (m['name'], m['toml'])
+    # The gate: a box over the road at 5 % of the lap; and one no mover names.
+    for name, s in (('TRIGGER_gate', 0.05), ('TRIGGER_unused', 0.5)):
+        p = c.line.at(s * c.line.length)
+        verts, nrms, tris = box(20.0, 10.0)
+        g.mesh(name, [(v[0] + to_gltf(p)[0], v[1] + to_gltf(p)[1], v[2] + to_gltf(p)[2]) for v in verts], nrms, tris)
+    # A covered patch beside the road: COL_ROAD_tunnel with covered = 1.
+    p = to_gltf(c.line.at(0.7 * c.line.length))
+    verts, nrms, tris = floor(10.0)
+    g.mesh('COL_ROAD_tunnel', [(v[0] + p[0] + 40.0, v[1] + p[1], v[2] + p[2]) for v in verts], nrms, tris)
+    g.js['nodes'][-1]['extras'] = {'covered': 1}
+    return toml
+
+
+def check_scripts(c, out, report, fails):
+    import collision
+    pb = open(os.path.join(out, 'mover_paths.bin'), 'rb').read() if os.path.exists(os.path.join(out, 'mover_paths.bin')) else b''
+    if not pb:
+        fails.append('no mover_paths.bin')
+        return
+    be32 = lambda d, o: struct.unpack_from('>I', d, o)[0]
+    chunks = {}
+    d = be32(pb, 0)
+    while d + 12 <= len(pb) and pb[d:d + 4].isalpha():
+        chunks[pb[d:d + 4].decode()] = (be32(pb, d + 4), be32(pb, d + 8))
+        d += 12
+    if 'SCRP' not in chunks or 'TRIG' not in chunks:
+        fails.append('mover file chunks %s, want PTHD, SCRP and TRIG' % sorted(chunks))
+        return
+    defs = script_defs(c)
+    o, count = chunks['SCRP']
+    if count != len(defs):
+        fails.append('SCRP has %d scripts, want %d' % (count, len(defs)))
+        return
+    for m in defs:
+        mode, flags, n0, n1, n2 = pb[o], pb[o + 1], pb[o + 2], pb[o + 3], pb[o + 4]
+        od, cd = struct.unpack_from('>ff', pb, o + 8)
+        o += 16
+        got = []
+        for n in (n0, n1, n2):
+            evs = []
+            for _ in range(n):
+                kind, box_, lap, secs = pb[o], struct.unpack_from('>h', pb, o + 2)[0], struct.unpack_from('>h', pb, o + 4)[0], \
+                    struct.unpack_from('>f', pb, o + 8)[0]
+                evs.append((kind, box_, round(secs, 3)))
+                if kind == 1 and lap != m.get('lap', 0):
+                    fails.append('movers.%s: trigger lap %d, want %d' % (m['name'], lap, m.get('lap', 0)))
+                o += 12
+            got.append(evs)
+        if mode != m['mode'] or flags != m['open_at_start']:
+            fails.append('movers.%s: script mode %d flags %d, want %d %d' % (m['name'], mode, flags, m['mode'], m['open_at_start']))
+        if got != [[tuple(e) for e in l] for l in m['events']]:
+            fails.append('movers.%s: events %s, want %s' % (m['name'], got, m['events']))
+        if (round(od, 3), round(cd, 3)) != m['delays']:
+            fails.append('movers.%s: delays %s, want %s' % (m['name'], (od, cd), m['delays']))
+    o, count = chunks['TRIG']
+    if count != 2:
+        fails.append('TRIG has %d boxes, want 2' % count)
+    if not re.search(r'TRIGGER_UNUSED isn.t used', report):
+        fails.append('no warning for the unused TRIGGER_unused')
+    # The moving billboard's placement record: node flag 0x8000.
+    placement = open(os.path.join(out, 'placement.bin'), 'rb').read()
+    records = [tuple(map(int, l.split())) for l in open(os.path.join(out, 'mover_records.txt')).read().split('\n') if l.strip()]
+    for j, m in enumerate(defs):
+        rec = [r for r in records if r[0] == j]
+        if not rec:
+            fails.append('MOVE_%s has no placement record' % m['name'])
+            continue
+        flag = be32(placement, 0x18 + rec[0][2] * 0x64 + 0x40)
+        if bool(flag & 0x8000) != bool(m.get('billboard')):
+            fails.append('MOVE_%s record flags %#x (billboard %s)' % (m['name'], flag, bool(m.get('billboard'))))
+    # Covered polygons: info bit 14 set on COL_ROAD_tunnel's, and only there.
+    coll = collision.Collision.parse(open(os.path.join(out, 'collision.bin'), 'rb').read(), collision.R2)
+    covered = [p for p in coll.polys if p['info'] & 0xC000]
+    if not covered or any(p['info'] & 0xC000 != 0x4000 for p in covered):
+        fails.append('covered polygons: %d, info %s, want COL_ROAD_tunnel\'s with 0x4000' %
+                     (len(covered), sorted({hex(p['info'] & 0xC000) for p in covered})))
+    if len(covered) > 2:
+        fails.append('%d covered polygons, want COL_ROAD_tunnel\'s (1 or 2)' % len(covered))
 
 
 # --- moving objects (MOVE_*) ------------------------------------------------------------------------------------------
@@ -928,6 +1053,8 @@ def cases():
     out = [
         Case('oval', o, std(), note='control'),
         Case('movers', o, std(), movers=True, note='MOVE_ objects: loop, ping-pong, ride, parented; poses, moving collision'),
+        Case('scripts', o, std(), scripts=True, warnings=('TRIGGER_UNUSED',),
+             note='scripted MOVE_ objects (door, once, start events), TRIGGER_ boxes, a moving billboard, covered collision'),
         Case('objects', o, std(), objects=True,
              note='BILLBOARD_ (shared models), PROP_ kinds, BLEND late pass, MOVE_ past the vertex reach, _SPEED/_AI_MODE'),
         Case('splines', o, std(), splines=True, note='ROAD_SPLINES + _SEGMENT: SEG section, flag 0x1000, indices'),

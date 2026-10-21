@@ -154,9 +154,33 @@ Rush 2's four (`func_8006CF00`, `func_8006F704`, `func_8006FC94`, `func_8008BDC0
 - California Speed's tracks with their extended scenery (docs/calspeed_research.md#extended-scenery) tag the root
   with bit 6 instead (0x40) and keep Rush 2's walk; on such a file the same fetches read a node mask bit 4 + q as "the
   child is an index into the far-leaf table" (u32 leaf offsets after the vertex lists).
+- **0x80 | 0x40, port only:** a custom track whose leaves pass 128 KB (the arcade Presidio), beyond the tagged form's
+  17-bit offsets, sets both bits. A leaf child's 16-bit field is then an index k into u32 leaf offsets stored backward
+  at the end of the leaf section (entry k at end − 4(k + 1)); the converter indexes every leaf child of such a file.
+  `leaf_offset` in `src/rush2049/track2049_collision.cpp` reads it (the leaf section pointer at 0x8011187C, the u16
+  size at header +8 with the tag's bits 16-20); `rush2::collision::far_leaf_tag`, `collision.py` `TAG_FAR`.
 - Leaves stay at most 29 polygons (file 139), inside the queries' u16[36] stack buffers (`func_8006FC94` has 40).
-- Custom tracks (`src/track_mod/track_mod_convert.cpp`) cap leaves at 36 for the same buffers; up to 255 crashed the
-  stock Alcatraz export in `func_8006FC94`'s query (docs/custom_tracks.md).
+- Custom tracks (`src/track_mod/track_mod_convert.cpp`) capped leaves at 36 for the same buffers until 2026-10-20 (up
+  to 255 crashed the stock Alcatraz export in `func_8006FC94`'s query); the buffers are now moved (below) and leaves go
+  to 255, the u8 count's limit.
+
+### Leaf list buffers (port only) **[V]**
+The four queries copy a leaf into a list on their own stack: `collision_query_8006CF00` u16[36] at sp+0x94,
+`func_8006F704` u16[36] at sp+0xA4, `car_wall_collision_query_8006FC94` u16[40] at sp+0xF4, `func_8008BDC0` u16[36]
+at sp+0x108. Nothing checks the count. Hooks in us.toml (`rush2_collision_leaf_list(ctx, reg, offset, query)`, before
+each query's call to `collision_leaf_read_8006CCEC` and before the loop that reads the list back) point the register
+holding the list at a 0x200-byte list per query in RDRAM at 0x80E1EA00 + query·0x200 (`rush2::collision::leaf_lists`,
+0x80E1EA00-0x80E1F200), only while it still equals sp + offset:
+
+| Query | Copy hook (register) | Read hook (register) |
+|---|---|---|
+| 0 `func_8006CF00` | 0x8006D000 ($a1) | 0x8006D034 ($a3) |
+| 1 `func_8006F704` | 0x8006F828 ($a1) | 0x8006F874 ($v1) |
+| 2 `func_8006FC94` | 0x8006FD9C ($a1) | 0x8006FDDC ($fp) |
+| 3 `func_8008BDC0` | 0x8008BFA0 ($a1) | 0x8008BFE0 ($s5, a loop label) |
+
+The ghost-car leaf filters read the moved lists through `rush2_collision_leaf_list_at(query)`. Every track, stock
+included, takes the moved lists; the stock ones never pass 34 polygons, so a stock race reads the same polygons.
 
 ### POLY, 0x18 bytes **[V layout]**
 

@@ -55,12 +55,14 @@ namespace {
     constexpr int max_checkpoints = 9;          // 10 checkpoint records, the finish line one of them
     constexpr int leaf_limit = 12;              // polygons per quadtree leaf before it splits
     constexpr int min_cell = 32;                // ft: smallest quadtree cell for leaf_limit
-    // The game's collision queries copy a leaf into an unchecked u16[36] stack buffer (func_8006CF00, func_8006F704,
-    // func_8008BDC0; func_8006FC94 has 40): a longer leaf overwrites the callers' locals, e.g. func_8006FC94's saved
-    // point pointer at sp+0x15C, crashing in func_8006C670 (docs/rush2049_research/collision.md). Rush 2's own tracks
-    // reach 34. A leaf past this splits below min_cell until it fits: to 4 ft, then (walls listed only 1 ft out) to
-    // 1 ft where it still doesn't.
-    constexpr int max_leaf = 36;
+    // The game's collision queries copied a leaf into an unchecked u16[36] stack buffer (func_8006CF00, func_8006F704,
+    // func_8008BDC0; func_8006FC94 has 40), and a longer leaf overwrote the callers' locals (func_8006FC94's saved point
+    // pointer at sp+0x15C, crashing in func_8006C670; docs/rush2049_research/collision.md). Their lists are now in spare
+    // RDRAM with room for any leaf (rush2::collision::leaf_lists), whose count is one byte: 255. A leaf past
+    // leaf_limit splits below min_cell while it is past this: to 4 ft, then (walls listed only 1 ft out) to 1 ft.
+    constexpr int max_leaf = rush2::collision::max_leaf_polys;
+    // (Splitting crowded cells toward 36 as well, down to 4 ft, took the arcade Metro and Presidio past the index's
+    // 2 MB of cell lists; a cell of a few hundred polygons costs a lookup microseconds.)
 
     // Render state of Rush 2's own track sections (most common in HAWAII's lists).
     constexpr uint32_t mode_opaque = 0xC8112230;   // fog, then AA z-buffered opaque surface
@@ -105,6 +107,7 @@ namespace {
         return n;
     }
     std::string upper(std::string s) { for (char& c : s) c = char(std::toupper((unsigned char)c)); return s; }
+    std::string lower(std::string s) { for (char& c : s) c = char(std::tolower((unsigned char)c)); return s; }
     bool starts(const std::string& s, const std::string& p) { return s.compare(0, p.size(), p) == 0; }
     // "CHECKPOINT_12" with prefix "CHECKPOINT_" -> 12, else -1.
     int number_after(const std::string& s, const std::string& p) {
@@ -330,6 +333,7 @@ namespace {
         std::string object;
         int group = 0;      // moving object (MOVE_*) it belongs to, 1-31; 0 for the fixed track
         int seg = -1;       // spline road segment (ROAD_SPLINES, the face's _SEGMENT) giving its height; -1 flat
+        uint8_t cover = 0;  // the COL_ mesh's `covered` (1 tunnel, 2 lightly covered): POLY info bits 14-15
     };
 
     constexpr int max_poly_verts = 8;       // stock polygons: 3 and 4 almost always, at most 9
@@ -343,6 +347,7 @@ namespace {
         std::vector<std::array<float, 2>> xz;   // world x/z outline (convex), for the quadtree's cell test
         int group = 0;                      // CollisionTri::group
         int seg = -1;                       // CollisionTri::seg (flag 0x1000 and the vertex list's trailer)
+        uint8_t cover = 0;                  // CollisionTri::cover
         // A moving polygon's x/z boxes (x0, x1, z0, z1) along its whole travel: the cells it is listed in.
         std::vector<std::array<float, 4>> sweep;
     };
@@ -363,7 +368,7 @@ namespace {
         // 294 per track, nearly all tunnel roofs and bridge undersides above other road (tools/stock_track_glb.py).
         // The vertices wind so that, with x along the first edge and y the normal, every later vertex has local z > 0
         // (z = x cross y; every stock polygon does: func_8006C670's edge tests).
-        struct Face { uint16_t flags; Vec3 n; std::vector<Vec3> v; bool dead = false; int group = 0; int seg = -1; };
+        struct Face { uint16_t flags; Vec3 n; std::vector<Vec3> v; bool dead = false; int group = 0; int seg = -1; uint8_t cover = 0; };
         std::vector<Face> faces;
         size_t degenerate = 0;
         auto same = [](const Vec3& a, const Vec3& b) {     // one point at the file's 1/32 ft
@@ -376,7 +381,7 @@ namespace {
             // which has no local frame and collapses to a point (a hole).
             if (length(n) < 0.5f || same(t.v[0], t.v[1]) || same(t.v[1], t.v[2]) || same(t.v[0], t.v[2])) { degenerate++; continue; }
             if (dot(n, t.front) < 0) n = mul(n, -1.0f);       // the face's own front
-            Face f{ t.flags, n, { t.v[0], t.v[1], t.v[2] }, false, t.group, t.seg };
+            Face f{ t.flags, n, { t.v[0], t.v[1], t.v[2] }, false, t.group, t.seg, t.cover };
             if (dot(cross(sub(f.v[1], f.v[0]), sub(f.v[2], f.v[0])), n) > 0) std::swap(f.v[1], f.v[2]);
             faces.push_back(std::move(f));
         }
@@ -411,7 +416,7 @@ namespace {
                     auto it = edge_of.find({ key(q), key(p) });
                     if (it == edge_of.end() || it->second == i) continue;
                     Face& b = faces[it->second];
-                    if (b.dead || b.flags != a.flags || b.group != a.group || b.seg != a.seg || dot(a.n, b.n) < 0.9995f) continue;
+                    if (b.dead || b.flags != a.flags || b.group != a.group || b.seg != a.seg || b.cover != a.cover || dot(a.n, b.n) < 0.9995f) continue;
                     if (a.v.size() + b.v.size() - 2 > size_t(max_poly_verts)) continue;
                     bool flat = true;
                     for (const Vec3& w : b.v) flat = flat && std::fabs(dot(sub(w, a.v[0]), a.n)) < 0.05f;
@@ -446,6 +451,7 @@ namespace {
             p.flags = f.seg >= 0 ? uint16_t(f.flags | 0x1000) : f.flags;   // 0x1000: height from SEG f.seg
             p.group = f.group;
             p.seg = f.seg;
+            p.cover = f.cover;
             const Vec3* rows[3] = { &x, &y, &z };
             float mq[9];
             for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) {
@@ -508,7 +514,7 @@ namespace {
         // Rush 2's way first; when the cell lists pass Rush 2's 64 KB (as Rush 2049's track 3 does), again in the form
         // the port of 2049's tracks reads (src/rush2049/track2049_collision.cpp): splits rounded toward zero, leaf
         // offsets past 16 bits flagged by mask bit 4 + q, and the root node's byte +2 = 0x80 | the size's bits 16-22.
-        struct Node { int16_t parent; uint8_t mask; int16_t b[4]; uint16_t child[4]; };
+        struct Node { int16_t parent; uint8_t mask; int16_t b[4]; uint16_t child[4]; uint32_t leaf[4] = {}; };
         std::vector<Node> nodes;
         std::vector<uint8_t> leaves;
         std::map<std::vector<uint8_t>, uint32_t> leaf_at;
@@ -599,6 +605,7 @@ namespace {
                     biggest = std::max(biggest, sub_list.size());
                     uint32_t off = encode_leaf(sub_list);
                     nodes[me].child[q] = uint16_t(off);
+                    nodes[me].leaf[q] = off;
                     if (off > 0xFFFF) nodes[me].mask |= uint8_t(1 << (4 + q));
                 }
             }
@@ -622,8 +629,35 @@ namespace {
         }
         if (crowded) {
             report.error(std::to_string(crowded_count) + " collision polygons meet near " + fmt_pos(crowded_at) +
-                         ", more than the game's 36 in one spot. Simplify the COL_* meshes there.");
+                         ", more than the game's " + std::to_string(max_leaf) + " in one spot. Simplify the COL_* meshes there.");
             return false;
+        }
+        // Cell lists past the 17-bit offsets (128 KB): the far children (mask bit 4 + q) become indices into a table
+        // of their u32 offsets at the section's end, entry k at end - 4 (k + 1) (rush2::collision::far_leaf_tag).
+        bool far_table = false;
+        if (tagged && !overflow && leaves.size() > 0x10000) {
+            std::map<uint32_t, uint32_t> index_of;
+            std::vector<uint32_t> table;
+            for (Node& n : nodes) {
+                for (int q = 0; q < 4; q++) {
+                    if ((n.mask & (1 << q)) || !(n.mask & (0x10 << q))) continue;
+                    auto [it, added] = index_of.try_emplace(n.leaf[q], uint32_t(table.size()));
+                    if (added) table.push_back(n.leaf[q]);
+                    n.child[q] = uint16_t(it->second);
+                }
+            }
+            far_table = std::any_of(table.begin(), table.end(), [](uint32_t o) { return o > 0x1FFFF; });
+            if (far_table) {
+                if (table.size() > 0x10000 || leaves.size() + 4 * table.size() > 0x1FFFFF) overflow = true;
+                else for (size_t k = table.size(); k-- > 0;) add32(leaves, table[k]);
+            }
+            else {
+                for (Node& n : nodes) {
+                    for (int q = 0; q < 4; q++) {
+                        if (!(n.mask & (1 << q)) && (n.mask & (0x10 << q))) n.child[q] = uint16_t(n.leaf[q]);
+                    }
+                }
+            }
         }
         if (overflow || nodes.size() > 0x7FFF) {
             report.error("The collision is too dense for the game's collision index (over 2 MB of cell lists). "
@@ -657,14 +691,17 @@ namespace {
             const Node& n = nodes[i];
             add16(out, uint16_t(n.parent));
             // The root's byte +2: the tagged form's 0x80 | leaf size bits 16-20, and the wide entries' bit.
-            add8(out, i == 0 ? uint8_t((tagged ? 0x80 | (leaves.size() >> 16) : 0) | (wide ? rush2::collision::wide_leaf_tag : 0)) : 0);
+            add8(out, i == 0 ? uint8_t((tagged ? 0x80 | (leaves.size() >> 16) : 0) | (wide ? rush2::collision::wide_leaf_tag : 0) |
+                                       (far_table ? rush2::collision::far_leaf_tag : 0)) : 0);
             add8(out, n.mask);
             for (int16_t b : n.b) add16(out, uint16_t(b));
             for (uint16_t c : n.child) add16(out, c);
         }
         for (size_t i = 0; i < polys.size(); i++) {
             add16(out, polys[i].flags);
-            add16(out, uint16_t(1 + polys[i].l.size()));   // info: vertex count
+            // info: vertex count, and Rush 2's covered level in bits 14-15 (car state +0x344 = 2 x bit 15 + bit 14: the
+            // cars drawn darker, as in its tunnels; docs/rush2049_research/collision.md#4-poly2-info-upper-bits-the-meaning-changed).
+            add16(out, uint16_t((1 + polys[i].l.size()) | (polys[i].cover == 2 ? 0x8000 : polys[i].cover == 1 ? 0x4000 : 0)));
             for (int16_t m : polys[i].m) add16(out, uint16_t(m));
             add16(out, vlist_at[i]);                  // its run in the vertex list
         }
@@ -1433,9 +1470,37 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
             if (!tbl) { report.error("track.toml: [movers." + name + "] must be a table."); continue; }
             m.mode = (*tbl)["mode"].value_or(m.mode);
             m.races = (*tbl)["races"].value_or(m.races);
-            if (m.mode != "loop" && m.mode != "pingpong" && m.mode != "ride") {
-                report.error("track.toml: movers." + name + ".mode must be \"loop\", \"pingpong\" or \"ride\".");
+            if (m.mode != "loop" && m.mode != "pingpong" && m.mode != "ride" && m.mode != "once" && m.mode != "door") {
+                report.error("track.toml: movers." + name + ".mode must be \"loop\", \"pingpong\", \"ride\", \"once\" or \"door\".");
                 m.mode = "loop";
+            }
+            // start / open / close: one event or a list of them (checked against the TRIGGER_ boxes in convert).
+            auto events = [&](const char* key, std::vector<std::string>& out) {
+                auto v = (*tbl)[key];
+                if (auto s = v.value<std::string>()) out.push_back(*s);
+                else if (auto* arr = v.as_array()) {
+                    for (auto& e : *arr) {
+                        if (auto s = e.value<std::string>()) out.push_back(*s);
+                        else report.error("track.toml: movers." + name + "." + key + " must be text, such as \"time 10\".");
+                    }
+                }
+                else if (v) report.error("track.toml: movers." + name + "." + key + " must be text or a list of text.");
+            };
+            events("start", m.start);
+            events("open", m.open);
+            events("close", m.close);
+            if (auto v = (*tbl)["open_delay"].value<double>()) m.open_delay = float(*v);
+            if (auto v = (*tbl)["close_delay"].value<double>()) m.close_delay = float(*v);
+            m.open_at_start = (*tbl)["open_at_start"].value_or(false);
+            if (m.mode == "door" && !m.start.empty()) {
+                report.warning("track.toml: movers." + name + ": a door uses open and close, not start; start is ignored.");
+            }
+            if (m.mode != "door" && (!m.open.empty() || !m.close.empty() || m.open_at_start || m.open_delay >= 0 || m.close_delay >= 0)) {
+                report.warning("track.toml: movers." + name + ": open, close, open_delay, close_delay and open_at_start "
+                               "are for mode = \"door\"; ignored.");
+            }
+            if (m.mode == "ride" && !m.start.empty()) {
+                report.warning("track.toml: movers." + name + ": a ride starts when a car is on it; start is ignored.");
             }
             if (m.races != "both" && m.races != "forward" && m.races != "backward") {
                 report.error("track.toml: movers." + name + ".races must be \"both\", \"forward\" or \"backward\".");
@@ -1488,6 +1553,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     const bool open_path = p2p || run_in;   // AIPATH_main isn't a loop; gates START, ..., FINISH
     std::vector<std::pair<uint16_t, const rush2::gltf::Node*>> collision_nodes;
     const rush2::gltf::Node* road_splines = nullptr;    // ROAD_SPLINES: the spline road's segment table
+    // TRIGGER_<name>: boxes a car drives into to start, open or close moving objects ([movers] events), game space.
+    struct Trigger { std::string name; Vec3 lo, hi; };
+    std::vector<Trigger> triggers;
     std::set<std::string> seen;
     // Moving objects: every node under an animated MOVE_<name> (the outermost) moves with it.
     std::vector<int> mover_of(scene.nodes.size(), -1);
@@ -1555,6 +1623,26 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             continue;
         }
         if (name == "ROAD_SPLINES") { road_splines = &n; continue; }
+        if (starts(name, "TRIGGER_")) {
+            // Its mesh's bounds, or an Empty's cube (Blender's Cube display, its scale the half sizes).
+            Trigger tr{ upper(name.substr(8)), { 1e30f, 1e30f, 1e30f }, { -1e30f, -1e30f, -1e30f } };
+            auto grow = [&](const Vec3& g) {
+                for (int k = 0; k < 3; k++) tr.lo[k] = std::min(tr.lo[k], g[k]), tr.hi[k] = std::max(tr.hi[k], g[k]);
+            };
+            for (const auto& prim : n.primitives) for (const auto& p : prim.pos) grow(to_game(p));
+            if (!mesh) {
+                for (int c = 0; c < 8; c++) {
+                    grow(to_game(mat4_point(n.world, { c & 1 ? 1.0f : -1.0f, c & 2 ? 1.0f : -1.0f, c & 4 ? 1.0f : -1.0f })));
+                }
+            }
+            if (tr.name.empty()) report.warning(n.name + ": a trigger needs a name after TRIGGER_; ignored.");
+            else if (std::any_of(triggers.begin(), triggers.end(), [&](const Trigger& t) { return t.name == tr.name; })) {
+                report.error("There are two triggers named TRIGGER_" + tr.name + ".");
+            }
+            else triggers.push_back(tr);
+            if (mover >= 0) report.warning(n.name + " is inside " + scene.nodes[mover].name + ": triggers don't move; it stays where it starts.");
+            continue;
+        }
         if (mover >= 0) {
             if (mesh) mover_visual[mover].push_back(&n);
             else if (&n != &scene.nodes[mover] && !n.name.empty()) {
@@ -1727,6 +1815,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         Section section;                        // its model's list
         float unit = 16.0f;                     // model vertex units per ft: under 16 for a mesh past vertex_reach,
                                                 // made up by the path's scale (no collision) as the sky is drawn
+        bool card = false;                      // custom property billboard = true: drawn turned to the camera
     };
     std::vector<Mover> movers;
     std::map<int, int> mover_at;                // MOVE_ node -> movers
@@ -1740,6 +1829,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             m.node = r;
             m.name = base_name(nd.name).substr(5);
             if (auto it = settings.movers.find(m.name); it != settings.movers.end()) m.set = it->second;
+            if (nd.extras.contains("billboard")) {
+                const auto& v = nd.extras["billboard"];
+                m.card = v.is_boolean() ? v.get<bool>() : v.is_number() && v.get<double>() != 0.0;
+            }
             std::vector<const rush2::gltf::Channel*> channels;
             std::string anim;
             int anims = 0;
@@ -1885,6 +1978,14 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         int root = mover_of[size_t(n - scene.nodes.data())];
         const Mover* m = root >= 0 && mover_at.contains(root) ? &movers[mover_at[root]] : nullptr;
         if (root >= 0 && (!m || m->group == 0)) return;
+        // covered = 1 (a tunnel: cars drawn darker) or 2 (lightly covered), a custom property of the COL_ mesh.
+        uint8_t cover = 0;
+        if (n->extras.contains("covered")) {
+            const auto& v = n->extras["covered"];
+            int c = v.is_number() ? int(v.get<double>()) : v.is_boolean() ? int(v.get<bool>()) : -1;
+            if (c >= 0 && c <= 2) cover = uint8_t(c);
+            else report.warning(n->name + ": covered must be 0, 1 (a tunnel) or 2 (lightly covered); ignored.");
+        }
         for (const auto& prim : n->primitives) {
             for (size_t t = 0; t + 2 < prim.tris.size(); t += 3) {
                 CollisionTri c;
@@ -1896,6 +1997,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 // glTF front = counter-clockwise; x negated mirrors it, so the front normal is the game cross's negation.
                 c.front = mul(cross(sub(c.v[1], c.v[0]), sub(c.v[2], c.v[0])), -1.0f);
                 c.flags = flags;
+                c.cover = cover;
                 c.object = n->name;
                 c.group = m ? m->group : 0;
                 if (auto it = prim.attrs.find("_SEGMENT"); it != prim.attrs.end() && !m) {
@@ -3150,6 +3252,17 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             report.error("MOVE_" + m.name + " reaches more than " + fmt_ft(vertex_reach) + " from its origin; " +
                          std::to_string(far) + " of its triangles aren't drawn. Keep a moving object with collision near its origin.");
         }
+        // A moving billboard (billboard = true): Rush 2 draws a camera card at its pose's position only, so the model
+        // keeps the first key's scale and is turned half a turn, as BILLBOARD_ models are (below).
+        if (m.card) {
+            const Vec3& s0 = m.scale[0];
+            for (VisualTri& t : m.tris) {
+                for (int k = 0; k < 3; k++) {
+                    t.p[k] = { -s0[0] * t.p[k][0], s0[1] * t.p[k][1], -s0[2] * t.p[k][2] };
+                    t.n[k] = normalize(Vec3{ -t.n[k][0], t.n[k][1], -t.n[k][2] });
+                }
+            }
+        }
         // A mesh reaching past vertex_reach is stored in coarser units and drawn scaled back up by its path.
         float extent = 0.0f;
         for (const VisualTri& t : m.tris) for (const Vec3& p : t.p) for (float c : p) extent = std::max(extent, std::fabs(c));
@@ -3637,7 +3750,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         Vec3 pos = bb ? bb->pos : mv ? mv->pos[0] : is_finish ? (gates.empty() ? Vec3{} : gates[0].pos) : sections[i].origin;
         for (float f : pos) addf(pl, f);
         bool late = bm ? bm->section.late : !mv && !is_finish && sections[i].late;
-        add32(pl, 0x40 | (late ? late_pass : 0) | (bb && bb->card ? camera_card : 0));
+        add32(pl, 0x40 | (late ? late_pass : 0) | ((bb && bb->card) || (mv && mv->card) ? camera_card : 0));
         if (bb && bb->prop) {
             rush2::track2049::PropRecord r{};
             r.record = int(i);
@@ -3657,8 +3770,88 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
 
     // ---- moving objects' paths: a 2049 file with one PTHD chunk (movers.md; movers::parse_paths reads it) ----
     if (!movers.empty()) {
+        // Scripted movers (start / open / close events, once and door modes): a SCRP chunk with one script per path
+        // and a TRIG chunk with the trigger boxes, read by movers::parse_scripts (track2049_movers_logic.cpp).
+        std::vector<uint8_t> scripts;
+        bool any_script = false;
+        std::set<std::string> used_triggers;
+        auto event_bytes = [&](const Mover& m, const std::string& text, std::vector<uint8_t>& d) {
+            std::istringstream in(text);
+            std::vector<std::string> w;
+            for (std::string x; in >> x;) w.push_back(x);
+            std::string what = w.empty() ? "" : lower(w[0]);
+            int kind = -1, trigger = -1, lap = 0;
+            float seconds = 0.0f;
+            char* end = nullptr;
+            if (what == "time" && w.size() == 2) {
+                seconds = std::strtof(w[1].c_str(), &end);
+                if (end && !*end && seconds >= 0) kind = 0;
+            }
+            else if (what == "trigger" && (w.size() == 2 || (w.size() == 4 && lower(w[2]) == "lap"))) {
+                std::string tn = upper(w[1]);
+                for (size_t i = 0; i < triggers.size(); i++) if (triggers[i].name == tn) trigger = int(i);
+                if (w.size() == 4) lap = int(std::strtol(w[3].c_str(), &end, 10));
+                if (trigger < 0) {
+                    report.error("track.toml: movers." + m.name + ": \"" + text + "\" names no TRIGGER_" + tn + " object.");
+                    return false;
+                }
+                if (w.size() == 4 && (!end || *end || lap < 1)) {
+                    report.error("track.toml: movers." + m.name + ": \"" + text + "\": lap must be a lap number (1 is the first).");
+                    return false;
+                }
+                used_triggers.insert(tn);
+                kind = 1;
+            }
+            else if (w.size() == 1 && what == "odd_lap") kind = 2;
+            else if (w.size() == 1 && what == "even_lap") kind = 3;
+            else if (w.size() == 1 && what == "final_lap") kind = 4;
+            if (kind < 0) {
+                report.error("track.toml: movers." + m.name + ": \"" + text + "\" isn't an event. Use \"time <seconds>\", "
+                             "\"trigger <name>\", \"trigger <name> lap <n>\", \"odd_lap\", \"even_lap\" or \"final_lap\".");
+                return false;
+            }
+            add8(d, uint8_t(kind));
+            add8(d, 0);
+            add16(d, uint16_t(int16_t(trigger)));
+            add16(d, uint16_t(int16_t(lap)));
+            add16(d, 0);
+            addf(d, seconds);
+            return true;
+        };
+        auto scripted = [](const Mover& m) {
+            return m.set.mode == "once" || m.set.mode == "door" || (m.set.mode != "ride" && !m.set.start.empty());
+        };
+        for (const Mover& m : movers) {
+            const auto& st = m.set;
+            bool on = scripted(m);
+            any_script = any_script || on;
+            uint8_t mode = !on ? 0 : st.mode == "loop" ? 1 : st.mode == "pingpong" ? 2 : st.mode == "once" ? 3 : 4;
+            std::vector<uint8_t> ev;
+            int counts[3] = {};
+            const std::vector<std::string>* lists[3] = { &st.start, &st.open, &st.close };
+            for (int l = 0; on && l < 3; l++) {
+                if (mode == 4 ? l == 0 : l > 0) continue;
+                for (const std::string& e : *lists[l]) if (event_bytes(m, e, ev) && counts[l] < 255) counts[l]++;
+            }
+            add8(scripts, mode);
+            add8(scripts, uint8_t(on && mode == 4 && st.open_at_start ? 1 : 0));
+            for (int c : counts) add8(scripts, uint8_t(c));
+            scripts.resize(scripts.size() + 3, 0);
+            addf(scripts, on && mode == 4 ? st.open_delay : -1.0f);
+            addf(scripts, on && mode == 4 ? st.close_delay : -1.0f);
+            scripts.insert(scripts.end(), ev.begin(), ev.end());
+            if (mode == 4 && st.open.empty() && st.close.empty() && st.open_delay < 0 && st.close_delay < 0) {
+                report.warning("track.toml: movers." + m.name + " is a door with no open or close events; it never moves.");
+            }
+        }
+        for (const Trigger& t : triggers) {
+            if (!used_triggers.contains(t.name)) {
+                report.warning("TRIGGER_" + t.name + " isn't used by any [movers] start, open or close; it does nothing.");
+            }
+        }
         std::vector<uint8_t>& pb = out.track.mover_paths;
-        uint32_t headers = 4 + 24;      // directory at 4: PTHD's entry and an empty one ending it
+        // Directory at 4: PTHD's entry, SCRP's and TRIG's (custom tracks), and an empty one ending it.
+        uint32_t headers = 4 + 12 * (any_script || !triggers.empty() ? 4 : 2);
         add32(pb, 4);
         for (char c : std::string("PTHD")) add8(pb, uint8_t(c));
         add32(pb, headers);
@@ -3674,7 +3867,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             bool loop = m.set.mode == "loop";
             size_t keys = m.times.size(), count = loop && m.closed ? keys - 1 : keys;
             uint32_t flags = 0x8000;    // no TRIGGERON/OFF models or sounds
-            flags |= loop ? 0x2 : m.set.mode == "pingpong" ? 0x1 : 0x40 | 0x4000;
+            // A scripted mover's path is a loop's or a pingpong's (its script runs its clock, track2049_movers_logic.cpp
+            // step_scripted); a ride waits for a car on its floor.
+            flags |= loop ? 0x2 : m.set.mode == "pingpong" || scripted(m) ? 0x1 : 0x40 | 0x4000;
             flags |= m.set.races == "forward" ? 0x4 : m.set.races == "backward" ? 0x8 : 0xC;
             if (m.group) flags |= 0x20 | (m.set.races != "both" ? 0x800 : 0);
             add_name(pb, nm);
@@ -3706,6 +3901,23 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             }
         }
         pb.insert(pb.end(), node_bytes.begin(), node_bytes.end());
+        if (any_script || !triggers.empty()) {
+            auto entry = [&](size_t at, const char* tag, uint32_t count) {
+                for (int k = 0; k < 4; k++) pb[at + k] = uint8_t(tag[k]);
+                uint32_t vals[2] = { uint32_t(pb.size()), count };
+                for (int v = 0; v < 2; v++) for (int k = 0; k < 4; k++) pb[at + 4 + v * 4 + k] = uint8_t(vals[v] >> (24 - 8 * k));
+            };
+            entry(16, "SCRP", uint32_t(movers.size()));
+            pb.insert(pb.end(), scripts.begin(), scripts.end());
+            entry(28, "TRIG", uint32_t(triggers.size()));
+            for (const Trigger& t : triggers) {
+                for (float f : t.lo) addf(pb, f);
+                for (float f : t.hi) addf(pb, f);
+            }
+        }
+    }
+    else if (!triggers.empty()) {
+        report.warning("TRIGGER_ objects only start, open or close moving objects (MOVE_), and this track has none; ignored.");
     }
 
     // ---- tables ----

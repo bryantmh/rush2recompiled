@@ -50,7 +50,6 @@ namespace {
     const std::string road_hold_option_id = "calspeed_road_hold";
     const std::string scenery_option_id = "calspeed_scenery";
     const std::string billboards_option_id = "calspeed_billboards";
-    const std::string physics_option_id = "calspeed_physics";
     // The California Speed Road Hold option: off, its tracks have Rush 2's own gravity only.
     std::atomic_bool road_hold_on = true;
     // The California Speed Extended Scenery option (src/calspeed/calspeed_scenery.cpp).
@@ -1004,24 +1003,6 @@ void rush2::calspeed::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             road_hold_on = std::get<bool>(cur_value);
         });
-    config.add_enum_option(
-        physics_option_id,
-        "CS Physics",
-        "How cars drive on California Speed's tracks. "
-        "<recomp-color primary>Rush 2</recomp-color> keeps Rush 2's driving with the CS Road Hold. "
-        "<recomp-color primary>California Speed (test)</recomp-color> runs California Speed's own physics and walls; "
-        "its computer cars drive its cars on its own values, and your car is adjusted to still handle like Rush 2 "
-        "(CS Road Hold isn't used then). Cars still wreck. Takes effect from the next race.",
-        {
-            { rush2::calspeed::physics::Mode::Rush2World, "Rush2", "Rush 2" },
-            { rush2::calspeed::physics::Mode::CalSpeed, "CalSpeed", "California Speed (test)" },
-        },
-        rush2::calspeed::physics::Mode::Rush2World
-    );
-    config.add_option_change_callback(physics_option_id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::calspeed::physics::set_mode(static_cast<rush2::calspeed::physics::Mode>(std::get<uint32_t>(cur_value)));
-        });
     config.add_bool_option(
         scenery_option_id,
         "CS Extended Scenery",
@@ -1066,7 +1047,6 @@ void rush2::calspeed::add_games_section(rush2::ui::OptionsPage* page, std::funct
     page->add_option(rush2::wings::games_config(), cars_option_id);
     page->add_option(rush2::wings::games_config(), drones_option_id);
     page->add_option(rush2::wings::games_config(), road_hold_option_id);
-    page->add_option(rush2::wings::games_config(), physics_option_id);
     page->add_option(rush2::wings::games_config(), scenery_option_id);
     page->add_option(rush2::wings::games_config(), billboards_option_id);
     refresh = [note = heading.note, shown = rush2::calspeed::rom_available()]() mutable {
@@ -1082,8 +1062,11 @@ void rush2::calspeed::load_config() {
     road_hold_on = std::get<bool>(rush2::wings::games_config().get_option_value(road_hold_option_id));
     scenery_on = std::get<bool>(rush2::wings::games_config().get_option_value(scenery_option_id));
     billboards_on = std::get<bool>(rush2::wings::games_config().get_option_value(billboards_option_id));
-    rush2::calspeed::physics::set_mode(static_cast<rush2::calspeed::physics::Mode>(
-        std::get<uint32_t>(rush2::wings::games_config().get_option_value(physics_option_id))));
+    // Dev switch, not in the menu: RUSH2_CS_PHYSICS=CalSpeed races California Speed's tracks on its own physics
+    // (src/calspeed/calspeed_physics.cpp, untested by the user); otherwise they keep Rush 2's with the CS Road Hold.
+    const char* physics_env = std::getenv("RUSH2_CS_PHYSICS");
+    rush2::calspeed::physics::set_mode(physics_env && std::string(physics_env) == "CalSpeed" ?
+        rush2::calspeed::physics::Mode::CalSpeed : rush2::calspeed::physics::Mode::Rush2World);
     std::vector<uint8_t> data;
     std::filesystem::path path = stored_rom_path();
     if (std::filesystem::exists(path)) {

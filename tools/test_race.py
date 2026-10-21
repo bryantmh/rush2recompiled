@@ -6,7 +6,7 @@ got past the race (test aid; docs/menus.md#starting-a-race-without-the-menus).
     python tools/test_race.py TRACK [--cars T,T,...] [--laps N] [--drones N] [--script S] [--seconds S]
                               [--turbo] [--finish S] [--mod NAME] [--out DIR] [--env K=V ...] [--games K=V ...]
                               [--config NAME.K=V ...]
-                              [--shots S,S,...]
+                              [--shots S,S,...] [--records PLACEMENT_BIN]
 
 TRACK `menus` sets no race up: the game boots to the title and the --script drives the menus (as JUST PLAY: the
 data folder has no saved players). Otherwise TRACK is a track select id (0-11 Rush 2, 12-17 Rush 2049, 18-24 SF Rush, 25-28 stunt arenas, 29 obstacle course,
@@ -192,12 +192,16 @@ def main():
                     help='option of another settings file for the run, NAME.K=V (e.g. cheats.unlock_all_parts=true)')
     ap.add_argument('--shots', help='screenshot the game window at these seconds after launch (comma separated) into '
                     'DIR/shot_<seconds>.png; the window is shown for it (RUSH2_SIM_SHOW), without taking the focus')
+    ap.add_argument('--records', help="a custom track's placement.bin: report which of its records moved during the race "
+                    "(race_watch.py --records; moving objects)")
     ap.add_argument('--data', help="the run's data folder (default tmp/test_race/data); give each run that may "
                     "overlap another session's its own")
     a = ap.parse_args()
     if a.data:
         global DATA
         DATA = os.path.abspath(a.data)
+    if a.records and not os.path.isfile(a.records):
+        sys.exit('no placement file %s (the converted track: track_mod_test.exe output)' % a.records)
     mods = prepare_data(a.track, a.mod, a.games, a.config, a.mod_dir)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_SIM_TURBO='1' if a.turbo else '0')
@@ -218,10 +222,13 @@ def main():
     print('track %s, cars %s, mods %s' % (a.track, a.cars, ', '.join(mods) or 'none'), flush=True)
     os.makedirs(a.out, exist_ok=True)
     r = subprocess.run([sys.executable, os.path.join(HERE, 'race_watch.py'), '--launch', script, '--seconds',
-                        str(a.seconds), '--out', a.out] + (['--shots', a.shots] if a.shots else []), env=env, capture_output=True, text=True,
+                        str(a.seconds), '--out', a.out] + (['--shots', a.shots] if a.shots else []) +
+                       (['--records', os.path.abspath(a.records)] if a.records else []), env=env, capture_output=True, text=True,
                        timeout=a.seconds + 60)
     with open(os.path.join(a.out, 'watch.txt'), 'w') as f:
         f.write(r.stdout + r.stderr)
+    if a.records:
+        print(r.stdout.rstrip())
     log = os.path.join(a.out, 'run.log')
     if os.path.exists(log):
         for line in open(log, errors='replace'):

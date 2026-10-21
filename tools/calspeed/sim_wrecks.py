@@ -11,8 +11,8 @@ game exits once every computer car has finished or got stuck; a run still going 
     python tools/calspeed/sim_wrecks.py [--tracks 64-79] [--hold on|off|cs|both|all] [--no-catch-up] [--env K=V ...]
                                         [--tag NAME]
 
---hold: on (CS Road Hold, the default world), off (Rush 2's gravity), cs (the CS Physics option's California Speed
-physics, src/calspeed/calspeed_physics.cpp); both = on and off, all = on, off and cs. --cs-drones races only
+--hold: on (CS Road Hold, the default world), off (Rush 2's gravity), cs (California Speed's own
+physics, src/calspeed/calspeed_physics.cpp, by the RUSH2_CS_PHYSICS=CalSpeed dev switch); both = on and off, all = on, off and cs. --cs-drones races only
 California Speed cars as the computer cars (CS Drones: CS Tracks).
 
 --no-catch-up turns Drone Cheating off (the drones' pace is their lanes' alone); --env passes RUSH2_* switches to the
@@ -55,7 +55,7 @@ def prepare(hold, catch_up=True, cs_drones=False):
                 os.link(src, dst)
             except OSError:
                 shutil.copyfile(src, dst)
-    games = {'on': {}, 'off': {'calspeed_road_hold': False}, 'cs': {'calspeed_physics': 'CalSpeed'}}[hold]
+    games = {'on': {}, 'off': {'calspeed_road_hold': False}, 'cs': {}}[hold]
     if cs_drones:
         games['calspeed_computer_cars'] = 'CalSpeedTracks'
     if games:
@@ -136,6 +136,8 @@ def run(track, hold, catch_up=True, extra_env=None, tag='', cs_drones=False):
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_TEST_TRACK=str(track), RUSH2_RACE_RECORD=rec,
                RUSH2_TEST_CAR='0')
+    if hold == 'cs':
+        env['RUSH2_CS_PHYSICS'] = 'CalSpeed'
     env.update(extra_env or {})
     with open(rec[:-5] + '.log', 'w') as log:
         proc = subprocess.Popen([EXE, '--input-script', SCRIPT], cwd=BUILD, env=env, stdout=log,

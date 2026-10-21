@@ -26,6 +26,7 @@ found and what is wrong (see [Checking your track](#checking-your-track)), so re
 - [Textures](#textures)
 - [Checking your track](#checking-your-track)
 - [Previewing your track](#previewing-your-track)
+- [Everything you can use](#everything-you-can-use)
 - [Size limits](#size-limits)
 - [How custom tracks race](#how-custom-tracks-race)
 - [Not supported yet](#not-supported-yet)
@@ -110,6 +111,10 @@ down is a ceiling (a tunnel roof, a bridge's underside), as in the stock tracks,
 Recalculate Outside if the car falls through a road. Give a wall one face, toward the track: a wall with faces
 on both sides (or two back to back) pushes a car that gets into it out through the far side. Flat neighboring triangles of the same surface are joined into
 the game's larger polygons, as the stock collision is built, so triangulating doesn't cost you anything.
+
+Give a `COL_*` mesh a custom property `covered` (Object Properties > Custom Properties) to shade the cars on it, as
+Rush 2 does in its tunnels: `1` for a tunnel (cars drawn much darker) or `2` for a lightly covered spot such as under
+a bridge or trees. Leave it out, or `0`, for open sky.
 
 ### Custom surfaces
 
@@ -215,6 +220,7 @@ the display size. Move every marker into place: markers left at the origin are r
 | `START` | A point-to-point or run-in track's start line ([Point to point](#point-to-point), [Run-in circuits](#run-in-circuits)). The grid lines up behind it. |
 | `CHECKPOINT_1`, `CHECKPOINT_2`, ... | Checkpoints in lap order, numbered without gaps. At most 9. |
 | `AISPEED_<mph>` | Optional speed cap for the computer cars ([The AI path](#the-ai-path)). |
+| `TRIGGER_<name>` | A box that sets off moving objects when a car drives into it ([Trigger boxes](#trigger-boxes)). A mesh or a cube Empty; not drawn. |
 
 You don't place the starting grid: Rush 2 lines the cars up itself, two per row, rows 20 ft (6 m) apart, back from the
 finish line. Empties named `START_*` are ignored on a race track; arenas use them instead of `FINISH` (see
@@ -304,7 +310,7 @@ sky          = "none"      # a stock sky: see Sky
 cloud_scroll = 0.0         # sky texture scroll speed (the clouds sky)
 sky_parallax = 0.0         # how much the sky shifts as the camera moves (the clouds sky)
 
-[movers.lift]              # a moving object's settings: see Moving objects
+[movers.lift]              # a moving object's settings (and start, open, close...): see Moving objects
 mode  = "ride"
 races = "both"
 
@@ -382,7 +388,7 @@ Lifts, spinning signs, swinging gates and the like are animated in Blender and p
 
 ```toml
 [movers.lift]          # for MOVE_lift
-mode  = "ride"         # "loop" (default), "pingpong" or "ride"
+mode  = "ride"         # "loop" (default), "pingpong", "ride", "once" or "door"
 races = "both"         # "both" (default), "forward" or "backward": the races it is there in
 ```
 
@@ -391,11 +397,67 @@ races = "both"         # "both" (default), "forward" or "backward": the races it
 | `"loop"` | The animation over and over. For a smooth loop make the last key the same pose as the first; otherwise it jumps back to the first pose at the end. |
 | `"pingpong"` | Forward to the end, back to the start, and again. |
 | `"ride"` | Waits at its first pose until a car is on one of its `COL_*` floors, then plays forward to the end and back. For a lift, give it a `COL_ROAD_*` floor. |
+| `"once"` | Plays forward to the end one time and stays there, such as a bridge that falls. Starts at the race start unless it has a `start`. |
+| `"door"` | Sits shut (its first pose) until an `open` event, plays forward to its last pose (open) and stays; a `close` event plays it back. |
 
 Moving floors carry the cars on them (up, down, sideways and turning) and moving walls push them. The animation keeps
 its timing in seconds whatever the frame rate.
 
-Limits:
+### Making it react to the race
+
+Give a moving object events and it waits for them instead of playing from the moment the track loads. An event is
+a short piece of text:
+
+| Event | Happens |
+|---|---|
+| `"time 10"` | 10 seconds after the green light |
+| `"trigger gate"` | A car drives into the box `TRIGGER_gate` (see below) |
+| `"trigger gate lap 2"` | A car on its 2nd lap drives into `TRIGGER_gate` |
+| `"odd_lap"` | The leading car starts lap 1, 3, 5, ... |
+| `"even_lap"` | The leading car starts lap 2, 4, 6, ... |
+| `"final_lap"` | The leading car starts the last lap |
+
+Each setting takes one event or a list of them; any one of a list sets it off.
+
+| Setting | For | What it does |
+|---|---|---|
+| `start = "time 5"` | `loop`, `pingpong`, `once` | Waits at its first pose until the event, then plays as its mode says. Without it, a `once` plays at the race start and a `loop` or `pingpong` plays from the moment the track loads. |
+| `open = ["trigger button", "time 30"]` | `door` | Opens (plays forward) on the event |
+| `close = "final_lap"` | `door` | Closes (plays back) on the event |
+| `open_delay = 8` | `door` | After it has shut, opens again by itself this many seconds later |
+| `close_delay = 8` | `door` | After it has opened, shuts again by itself this many seconds later |
+| `open_at_start = true` | `door` | Starts the race open (at its last pose) instead of shut |
+
+A drawbridge that lifts when the leader starts the final lap, and a ramp a car opens by driving through a box, which
+shuts again 8 seconds later:
+
+```toml
+[movers.bridge]
+mode  = "once"
+start = "final_lap"
+
+[movers.ramp]
+mode = "door"
+open = "trigger button"
+close_delay = 8
+```
+
+### Trigger boxes
+
+A trigger is a box cars set off by driving into it. Make a mesh or an Empty (Display As: Cube) named
+`TRIGGER_<name>`, such as `TRIGGER_button`, and size it over the spot: a mesh's bounds, or the Empty's cube (its scale
+is the half size). It isn't drawn and cars pass through it. Its name is the one events use (`"trigger button"`, upper
+or lower case). Wrecked cars and ghosts don't set it off. A trigger no event names gets a warning, and two with the
+same name are an error. Triggers don't move, even under a `MOVE_` object.
+
+### Moving billboards
+
+Give `MOVE_<name>` a custom property `billboard` set to True (Object Properties > Custom Properties) and its meshes
+turn to face the camera as it moves, like a [billboard](#billboards): smoke, a flag, a flat sign that slides. Model it
+facing Blender's front view (-Y).
+
+### Moving object limits
+
 
 - 31 moving objects with collision (any number without).
 - 2,000 keys per animation. A longer one is sampled at 2,000 evenly spaced times (the report says so).
@@ -654,12 +716,60 @@ Reload. Close the command window to stop it.
 
 How it works inside is in [Track previewer](#track-previewer) and [Race replays](#race-replays).
 
+## Everything you can use
+
+Every name, custom property and setting a track can use, on one page. Each links to where it is explained.
+
+### Object names in Blender
+
+| Name | What |
+|---|---|
+| `COL_ROAD_*`, `COL_DIRT_*`, `COL_GRASS_*`, `COL_WALL_*`, `COL_WATER_*`, `COL_KILL_*`, `COL_<NAME>_*` | Collision: what cars drive on and hit ([Collision surfaces](#collision-surfaces)) |
+| any other mesh | Scenery: drawn, not hit |
+| `FINISH`, `START`, `CHECKPOINT_n` | Start, finish and checkpoints ([Markers](#markers)) |
+| `AISPEED_<mph>` | Speed cap for the computer cars ([The AI path](#the-ai-path)) |
+| `AIPATH_main`, `AIPATH_lane1` to `AIPATH_lane4` | The computer cars' path and lanes ([The AI path](#the-ai-path)) |
+| `TRIGGER_<name>` | A box that sets off moving objects ([Trigger boxes](#trigger-boxes)) |
+| `MOVE_<name>` | A moving object; its children move with it ([Moving objects](#moving-objects)) |
+| `BILLBOARD_<name>` | Turns to face the camera ([Billboards](#billboards)) |
+| `PROP_KNOCK_*`, `PROP_TIP_*` | Knocked flying or tipped over by cars ([Props](#props)) |
+| `SKY` | Your own sky dome ([Your own sky](#your-own-sky)) |
+| `START_1` to `START_4`, `PICKUP_<kind>` | Arenas only ([Stunt and battle arenas](#stunt-and-battle-arenas)) |
+| `ROAD_SPLINES` | Spline road, for converter tools ([Spline road](#spline-road)) |
+
+### Custom properties and attributes
+
+Custom properties are set in Object Properties > Custom Properties; attributes in Object Data Properties >
+Attributes (tick Data > Mesh > Attributes when you export).
+
+| On | Property | Values | What |
+|---|---|---|---|
+| `COL_*` | `covered` | 0, 1, 2 | Shades the cars on it: 1 a tunnel, 2 lightly covered ([Collision surfaces](#collision-surfaces)) |
+| `MOVE_<name>` | `billboard` | True | Its meshes face the camera as it moves ([Moving billboards](#moving-billboards)) |
+| `PROP_*` | `billboard` | True | The prop faces the camera ([Props](#props)) |
+| `AIPATH_main` | `keep_height` | True | The path keeps its height over every gap ([The AI path](#the-ai-path)) |
+| `AIPATH_main`, `AIPATH_lane*` | attributes `_SPEED`, `_AI_MODE` | mph; 2 or 5 | The computer cars' speed and steering point by point ([The AI path](#the-ai-path)) |
+| `COL_*` | attribute `_SEGMENT` | segment number | Spline road, for converter tools ([Spline road](#spline-road)) |
+| `ROAD_SPLINES` | `segments` | lists of numbers | Spline road, for converter tools ([Spline road](#spline-road)) |
+
+### track.toml settings
+
+| Section | Settings | See |
+|---|---|---|
+| `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `smooth_collision`, `smooth_fold` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
+| `[race]` | `start_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
+| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax` | [Sky](#sky) |
+| `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |
+| `[surfaces.<name>]` | `like`, `drag` | [Custom surfaces](#custom-surfaces) |
+| `[audio]` | `music` | [track.toml](#tracktoml) |
+| `[menu]` | `logo`, `preview`, `diorama`, `after` | [Track select art](#track-select-art) |
+
 ## Size limits
 
 | What | Limit | Why |
 |---|---|---|
 | Collision polygons | about 16,000 after flat neighbors are joined (65,535 corners: polygons don't share them, so 16,000 quads or 21,000 triangles) | The game's collision format. Stock tracks use 2,100 to 7,100. |
-| Collision in one spot | 36 polygons within about a foot of any point (walls count within 6 ft where there is room) | The game's collision lookups hold 36. The report names the spot when a track passes it. |
+| Collision in one spot | 255 polygons within about a foot of any point (walls count within 6 ft where there is room) | The game's collision lookups hold 255. The report names the spot when a track passes it. |
 | Track triangles | about 40,000 (rule of thumb) | The whole track is loaded into the game's memory, which it shares with the cars. |
 | Track size | about 10 km (32,000 ft) from the origin in any direction | Positions are stored as 16-bit numbers. |
 | Checkpoints | 9 | The game has 10 gates including the finish line. |
@@ -681,8 +791,8 @@ merges and renames as needed.
 
 ## Not supported yet
 
-- Moving objects that react to the race, such as traffic or a train that waits for the cars: they play on their own
-  clock (a ride only waits for a car on its floor)
+- Traffic that drives the road and reacts to the cars (moving objects follow their animation; they can wait for
+  [events](#making-it-react-to-the-race) but don't steer round cars)
 - Setting the fog distance
 - Surface grip, such as ice or sticky surfaces (Rush 2 only changes slowdown per surface)
 - New sounds, dust or skid marks for custom surfaces
@@ -780,6 +890,33 @@ merges and renames as needed.
   format is version 2 (`track_cache.cpp`: `mover_paths`, `mover_collision`). `tools/track_mod_cases.py`'s `movers`
   case checks the flags, node counts, every key's vertex pose against the glTF (a parented, scaled and turned object
   included), the records and the quadtree coverage.
+- **Scripted moving objects and triggers:** a mover with `mode = "once"` or `"door"`, or a `start` on a loop or
+  pingpong, is scripted. The converter appends two chunks to the mover file's directory (12-byte entries at +4:
+  PTHD per path, then SCRP, TRIG, terminator). SCRP has one record per path in PTHD order: u8 mode (0 not scripted,
+  1 loop, 2 pingpong, 3 once, 4 door), u8 flags (bit 0 open_at_start), u8 counts of start / open / close events,
+  3 pad, f32 open_delay, f32 close_delay (-1 = none), then the events, 12 bytes each: u8 kind (0 time, 1 trigger,
+  2 odd_lap, 3 even_lap, 4 final_lap), pad, s16 box (TRIG index), s16 lap (0 = any), pad, f32 seconds. TRIG holds
+  24-byte boxes (f32 lo[3], hi[3], game space) from `TRIGGER_` nodes (mesh bounds, or an Empty's ±1 cube through its
+  world matrix). A scripted path gets path flag pingpong 0x1 (loop 0x2 for a loop) and no ride flags.
+  `movers::parse_scripts` reads them into `Path::script` and the boxes (`track2049_movers_logic.cpp`), for
+  `light_track` 0 only. Each tick `track2049_movers.cpp` hands `World::set_race` whether the race is on (any active,
+  non-ghost car released: car +0x71C), the leader's lap (max car +0x7FD laps done + 1), the race's laps (0x8010C0E2)
+  and the boxes each car entered this tick with that car's lap (tested in the per-car hook against car +0x224, live
+  cars only: active +0x7E4, not wrecked, not a ghost). `World::step_scripted` runs such a path on a clock in seconds
+  (every node's time is travel except the end node's; a loop counts every node, wrapping with a restore group op as
+  2049's loop does), sets the follower's node / t / dir from it and poses it with the shared `pose()`; time events
+  fire once each, from the green light. The script state is in the online sync. `movers_test.exe --script
+  <mover_paths.bin> [laps] [lap seconds]` simulates a race and prints each scripted object's starts and stops;
+  `track_mod_cases.py`'s `scripts` case checks the chunks, a moving billboard's record flag (0x8000, `camera_card`:
+  `MOVE_` with `billboard`, vertices scaled by key 0 and turned half a turn for the camera basis) and `covered`
+  (polygon info 0x4000 for 1, 0x8000 for 2: Rush 2's covered bits, which set car +0x344 and the tunnel shading).
+  In the game, `RUSH2_MOVERS_LOG=1` prints the setup (paths, scripted ones, each trigger box) and, each tick, changes
+  of the race flag and leader's lap and every box a car enters; `tools/test_race.py TRACK --records
+  <converted>/placement.bin --env RUSH2_MOVERS_LOG=1` adds which records moved (`track_mod_test.exe <track dir> <out>`
+  writes the placement.bin). A car that isn't driven runs out of checkpoint time about 30 s in: add `--drones 3
+  --config cheats.cheat_no_game_timer=true` so the drones run the laps (2026-10-20: Marina A's STVRAMP door, set in a
+  test copy to `trigger PROGRESS_14000`, opened 17 ft in game). A flip-book on `final_lap` swaps at the green light in a
+  one-lap race, before race_watch's first sample, so it shows as unchanged there.
 - **Billboards and props:** each `BILLBOARD_` and `PROP_` node becomes a model in its own frame (`<prefix>B%03u`, or
   `P%03u` for a prop that isn't a billboard), shared by nodes whose triangles are the same in the units the model
   stores (1/16 ft vertices, uv and color to 1/1024), and a top-level placement record after the moving objects, with no
@@ -877,19 +1014,29 @@ merges and renames as needed.
   bit 5 (`rush2::collision::wide_leaf_tag`, either form); `rush2_collision_leaf_read_wide` reads them in place of
   `collision_leaf_read_8006CCEC` (docs/rush2049_research/collision.md#leaf-lists-v). The limit is then the header's
   u16 corner count (65,535; each polygon has its own corners), which past it leaves the last polygons out with an
-  error (until 2026-10-19 the converter cut every track at 8,191 polygons). A leaf holds at most 36 polygons
-  (`max_leaf`): the game's queries copy a
-  leaf into an unchecked u16[36] stack buffer, and a longer one overwrites the callers' locals
-  (docs/rush2049_research/collision.md). With leaves of up to 255 the stock Alcatraz export had cells of 70, and a
+  error (until 2026-10-19 the converter cut every track at 8,191 polygons). A leaf holds at most 255 polygons (`max_leaf` = `rush2::collision::max_leaf_polys`, the u8 leaf count's limit).
+  The game's four leaf queries copy a leaf into an unchecked u16[36] (u16[40] in the wall query) stack buffer, and a
+  longer one overwrote the callers' locals: with leaves of up to 255 the stock Alcatraz export had cells of 70, and a
   computer car's wall query (`car_wall_collision_query_8006FC94`) about 35 s into a race got its saved point pointer
-  (sp+0x15C) overwritten by polygon numbers and crashed in `collision_poly_point_test_8006C670` (until 2026-10-15).
+  (sp+0x15C) overwritten by polygon numbers and crashed in `collision_poly_point_test_8006C670` (until 2026-10-15 the
+  converter held leaves to 36 for it). Since 2026-10-20 hooks in us.toml (`rush2_collision_leaf_list`, before each
+  query's copy and its read loop) point the buffer register at a 0x200-byte list per query at RDRAM 0x80E1EA00
+  (`rush2::collision::leaf_lists`; 0 = `collision_query_8006CF00`, 1 = 0x8006F704, 2 = 0x8006FC94, 3 = 0x8008BDC0),
+  swapping it only while it still holds sp + the buffer's offset, and the ghost leaf filters read the same lists
+  (`rush2_collision_leaf_list_at`) (docs/rush2049_research/collision.md#leaf-list-buffers). Splitting cells toward 36
+  as well took the arcade Metro and Presidio past the 2 MB leaf index, so cells split only past 255.
   A cell lists the polygons whose x/z outline (not box: a long diagonal strip's box covers far more than the strip,
-  and stacked boxes on pipes and terraced slopes crowded single spots past 36) comes within 1 ft of it, walls within
-  6 ft (the wall query reaches 5 ft past the car) unless that crowds the cell past 36. A cell past 36 splits below
-  `min_cell` until it fits, down to 4 ft; past 36 there with walls listed only 1 ft out it splits on, down to 1 ft
+  and stacked boxes on pipes and terraced slopes crowded single spots) comes within 1 ft of it, walls within
+  6 ft (the wall query reaches 5 ft past the car) unless that crowds the cell past 255. A cell past `leaf_limit` (12) splits down to
+  `min_cell` (32 ft); one past 255 splits on below it, down to 4 ft, and past 255 there with walls listed only 1 ft out
+  down to 1 ft
   (until 2026-10-19 the 4 ft cell failed: a polygon passing near a crowded spot no longer counts). One that never fits
   fails with "N collision polygons meet near (x, y, z)", the spot in the author's Blender coordinates.
-  `tools/rush2049/collision.py` validation flags leaves past 36.
+  Past 128 KB of leaves the tagged form's 17-bit child offsets run out (the arcade Presidio): the converter then
+  writes a far-leaf table, u32 leaf offsets stored backward from the leaf section's end (entry k at end - 4(k + 1)),
+  sets `rush2::collision::far_leaf_tag` (0x40) beside 0x80 in the root's byte +2, and a leaf child's 16-bit field is
+  then k. `leaf_offset` in `src/rush2049/track2049_collision.cpp` reads it (California Speed's files use 0x40 without
+  0x80, which keeps its own meaning). `tools/rush2049/collision.py` decodes it (`TAG_FAR`) and flags leaves past 255.
 - **Reading the ribbon:** `read_ribbon` builds the rungs from the mesh's shape, never the order its vertices are
   stored in. Blender's glTF export of a cyclic curve stores the first rung's two vertices twice each (the UV seam: u
   wraps 1 to 0), so pairing stored vertices two at a time read a 0 m first rung and failed every cyclic curve with

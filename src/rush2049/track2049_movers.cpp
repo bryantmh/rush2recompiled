@@ -79,6 +79,9 @@ namespace {
     constexpr uint32_t car_corners = 0xE8;          // 4 x f32[3], car-local
     constexpr uint32_t car_index = 0x7E0;           // s16
     constexpr uint32_t car_active = 0x7E4;          // s16
+    constexpr uint32_t car_release = 0x71C;         // s16: nonzero once the car may drive
+    constexpr uint32_t car_laps_done = 0x7FD;       // s8: laps completed (func_8008F220)
+    constexpr uint32_t race_laps = 0x8010C0E2;      // s16: the race's laps
     constexpr uint32_t car_velocity = 0x218;        // f32[3] world
     constexpr uint32_t car_position = 0x224;        // f32[3] world
     constexpr uint32_t car_matrix = 0x2CC;          // f32[9] physics orientation
@@ -128,6 +131,14 @@ namespace {
     std::vector<bool> mover_poly;   // Per polygon: it belongs to a moving object (a MOVER record).
     std::vector<uint16_t> poly_info;                    // 2049 info word of each collision polygon.
     std::set<int16_t> trigger_groups;
+    // Custom tracks' TRIGGER_<name> boxes (scripted movers): per box, the cars inside it at their last test (bit per
+    // car), and the laps of the cars that drove in since the last tick.
+    std::vector<movers::TriggerBox> trigger_boxes;
+    // RUSH2_MOVERS_LOG=1: a custom track's scripted movers (setup, the race clock and leader's lap, trigger boxes
+    // entered) in the game log, to check a track's events in a run.
+    const bool movers_log = std::getenv("RUSH2_MOVERS_LOG") != nullptr;
+    std::vector<uint8_t> trigger_inside;
+    std::vector<std::vector<int>> trigger_entered;
     std::map<std::string, uint16_t> model_handles;      // Model name -> Rush 2 handle in the track's slot.
     uint32_t tick = 0;
     int contact_poly[max_cars] = { -1, -1, -1, -1, -1, -1, -1, -1 }; // Boost pad / platform polygon under each car.
@@ -347,6 +358,9 @@ namespace {
         for (auto& l : car_lights) l = 0;
         placed.clear();
         trigger_groups.clear();
+        trigger_boxes.clear();
+        trigger_inside.clear();
+        trigger_entered.clear();
         if (collision_2049.empty()) {
             return false;   // a track without moving objects (a custom track without MOVE_ objects)
         }
@@ -358,6 +372,22 @@ namespace {
         if (!movers::parse_paths(geometry_2049.data(), geometry_2049.size(), paths)) {
             fprintf(stderr, "[2049] Moving objects: bad paths\n");
             return false;
+        }
+        if (light_track == 0 && !movers::parse_scripts(geometry_2049.data(), geometry_2049.size(), paths, trigger_boxes)) {
+            fprintf(stderr, "[2049] Moving objects: bad scripts\n");
+            return false;
+        }
+        trigger_inside.assign(trigger_boxes.size(), 0);
+        trigger_entered.assign(trigger_boxes.size(), {});
+        if (movers_log && light_track == 0) {
+            size_t scripted = 0;
+            for (const movers::Path& p : paths) scripted += p.script.mode != movers::Script::plain;
+            printf("[movers] %zu paths, %zu scripted, %zu trigger boxes\n", paths.size(), scripted, trigger_boxes.size());
+            for (size_t b = 0; b < trigger_boxes.size(); b++) {
+                const movers::TriggerBox& t = trigger_boxes[b];
+                printf("[movers]   box %zu: (%.0f, %.0f, %.0f) - (%.0f, %.0f, %.0f)\n", b, t.lo[0], t.lo[1], t.lo[2], t.hi[0],
+                       t.hi[1], t.hi[2]);
+            }
         }
         std::vector<movers::TypeInfo> types;
         if (light_track == 0) {
@@ -715,6 +745,36 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
         for (int i = 0; i < 3; i++) focus[i] = read_f(rdram, car + car_position + i * 4);
         world.set_focus(focus);
     }
+    if (light_track == 0) {
+        // Scripted movers: the race clock runs once a car is released; the leader's lap is the furthest car's.
+        bool racing = false;
+        int leader = 0;
+        for (int i = 0; i < max_cars; i++) {
+            uint32_t c = cars + uint32_t(i) * car_size;
+            if (MEM_H(0, (int32_t)(c + car_active)) == 0 || rush2::ghost::is_ghost_car(i)) {
+                continue;
+            }
+            racing |= MEM_H(0, (int32_t)(c + car_release)) != 0;
+            leader = std::max(leader, (int)MEM_B(0, (int32_t)(c + car_laps_done)) + 1);
+        }
+        if (movers_log) {
+            static bool was_racing = false;
+            static int was_leader = -1;
+            if (racing != was_racing || leader != was_leader) {
+                printf("[movers] tick %u: racing %d, leader on lap %d of %d\n", tick, racing, leader, MEM_H(0, (int32_t)race_laps));
+                was_racing = racing, was_leader = leader;
+                fflush(stdout);  // a test run ends by killing the game: unflushed lines would be lost
+            }
+            for (size_t b = 0; b < trigger_entered.size(); b++) {
+                for (int lap : trigger_entered[b]) {
+                    printf("[movers] tick %u: a car on lap %d entered box %zu\n", tick, lap, b);
+                    fflush(stdout);
+                }
+            }
+        }
+        world.set_race(racing, leader, MEM_H(0, (int32_t)race_laps), trigger_entered);
+        for (auto& e : trigger_entered) e.clear();
+    }
     world.hold_triggers();
     world.update(dt);
     // Objects that turn in place (func_8010E694), on their records' matrices.
@@ -790,6 +850,22 @@ extern "C" void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx) {
     // Ghost cars (src/ghost.cpp) touch nothing but the track: no trigger pads and no moving bodies here, no moving
     // objects' polygons (rush2_ghost_leaf_filter), props (props_car), cars or subway trains (src/ghost.cpp).
     bool ghost = rush2::ghost::is_ghost_car(index);
+    // TRIGGER_<name> boxes (custom tracks): a car whose position comes into one fires its events on the next tick.
+    if (!trigger_boxes.empty()) {
+        float pos[3];
+        for (int i = 0; i < 3; i++) pos[i] = read_f(rdram, car + car_position + i * 4);
+        bool live = !wrecked && !ghost && MEM_H(0, (int32_t)(car + car_active)) != 0;
+        uint8_t bit = uint8_t(1u << index);
+        for (size_t b = 0; b < trigger_boxes.size(); b++) {
+            const movers::TriggerBox& box = trigger_boxes[b];
+            bool in = live;
+            for (int i = 0; i < 3; i++) in = in && pos[i] >= box.lo[i] && pos[i] <= box.hi[i];
+            if (in && !(trigger_inside[b] & bit)) {
+                trigger_entered[b].push_back((int)MEM_B(0, (int32_t)(car + car_laps_done)) + 1);
+            }
+            trigger_inside[b] = in ? uint8_t(trigger_inside[b] | bit) : uint8_t(trigger_inside[b] & ~bit);
+        }
+    }
     // Trigger pads (0x8010C2E4): a wheel's polygon tagged 0x20 with the pad's group in bits 11-15.
     for (int16_t group : trigger_groups) {
         bool on = false;
@@ -885,6 +961,8 @@ void rush2::track2049::movers_online_sync(rush2::online::sync::Walker& w) {
         return;
     }
     world.online_sync(w);
+    s::vector(w, trigger_inside);
+    s::vector(w, trigger_entered, [](s::Walker& w, std::vector<int>& laps) { s::vector(w, laps); });
     uint8_t* rdram = w.rdram;
     uint32_t polys = (uint32_t)MEM_W(0, (int32_t)poly_table), verts = (uint32_t)MEM_W(0, (int32_t)vert_table);
     if (polys == 0 || verts == 0) {

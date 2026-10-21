@@ -328,16 +328,15 @@ void a49::start_refresh() {
         if (!data.empty()) start(data, false);
         return;
     }
-    // The check reads the installed mods and hashes their inputs: off the launcher's thread.
+    // The check reads the installed mods and hashes their inputs: off the launcher's thread. A game-built mod is
+    // rebuilt from the folder it was built from, or wherever data_dir finds the arcade files if that one moved.
     std::thread([]() {
-        std::filesystem::path data;
+        bool built_by_game = false;
         for (const char* id : { track_mod_id, car_mod_id }) {
             Installed have = installed(id);
-            if (have.rtz && !have.data.empty() && is_data_dir(have.data)) {
-                data = have.data;
-                break;
-            }
+            built_by_game = built_by_game || (have.rtz && !have.key.empty());
         }
+        std::filesystem::path data = built_by_game ? data_dir() : std::filesystem::path();
         if (!data.empty()) start(data, true);
     }).detach();
 }
