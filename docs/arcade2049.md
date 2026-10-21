@@ -134,7 +134,7 @@ commands and what the converter makes of them:
 | `frontface` | a card turned to the camera | `BILLBOARD_` |
 | `bounce`, `box x y z`, `point x y z` | knocked when hit (box or point hit shape) | `PROP_KNOCK_` |
 | `coin` | a score pickup, not Rush 2049's hidden coins | left out (mods have no collectibles) |
-| `spinx`/`spinz <deg/s>` | turns about its own x / upright axis, as its matrix turns it **[I]** (degrees per second fits the lighthouse and police lights) | looping `MOVE_` (with its collision and `start` if it has them) |
+| `spinx`/`spinz <deg/s>` | turns about its own x / upright axis, as its matrix turns it **[I]** (degrees per second fits the lighthouse and police lights); a positive rate is right-handed in dobs.rom's (x, z, y) axes, left-handed in world axes (every plane's pointed nose leads that way; the converter turned them right-handed in world until 2026-10-21 and they flew tail first) | looping `MOVE_` (with its collision and `start` if it has them) |
 | `flipbook <fps>` | steps through `<name>_1..n` at that rate; negative: once, on its start event (breaking glass, the finish sign) | one `MOVE_` per frame, shown by scale steps; an event flipbook is `mode = "once"` with its `start` |
 | `alpha 0` / `alpha 1` | blending mode (not decoded) | the texture's own alpha |
 | `sound`, `soundsphere <name> <range> <volume>` | object and ambient sounds | left out |

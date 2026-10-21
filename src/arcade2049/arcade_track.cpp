@@ -1002,8 +1002,10 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         return V;
     };
 
-    // Every placed object: worlds.rom instances, then dobs.rom objects (their placements are (x, z, y) of world and
-    // their matrices' rows where the object's axes go: P M P with P swapping y and z).
+    // Every placed object: worlds.rom instances, then dobs.rom objects. dobs placements are (x, z, y) of world; the
+    // objects are modelled in world axes. The matrix's rows are where the object's axes go (points are row vectors,
+    // p M; here P M P with P swapping y and z): the three GS_PLANEARC flyby arms only keep their planes in the air
+    // (140-2,000 ft up) this way; transposed, their circles go 550 ft underground.
     struct Instance {
         const Object* o;
         M3 M;
@@ -1354,8 +1356,13 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             continue;
         }
         if (!is_sky && !spin.empty()) {
-            // spin<axis> <degrees per second>: a looping MOVE_ turn about the object's own axis (the script's x, y,
-            // z are world x, z, y; the x mirror flips the axis's x and reverses the turn).
+            // spin<axis> <degrees per second> [I]: a looping MOVE_ turn about the object's origin, about the
+            // object's own axis as its placement matrix turns it (GS_PLANEARC: planes 2,500 ft out on a tilted arm
+            // spin about its x; about world x they only rolled in place). The script's x, y, z are world x, z, y
+            // (to_world_dobs), and the x mirror (to_gltf) flips the axis's x. A positive rate turns right-handed in
+            // dobs.rom's own (x, z, y) axes, so left-handed in world axes (the y/z swap is a mirror) and right-handed
+            // again in glTF: every arcade plane (Alcatraz GS_PLANEARC, TRACK3 PLANEARC / PLANE2) has its pointed nose
+            // on the side a left-handed world turn moves it to; turned the other way they flew tail first.
             char ax = char(std::tolower((unsigned char)spin[0][0].back()));
             V3 axis = ax == 'x' ? V3{ 1, 0, 0 } : ax == 'y' ? V3{ 0, 0, 1 } : V3{ 0, 1, 0 };
             axis = mul(axis, in.M);
@@ -1365,7 +1372,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
                 double period = 360.0 / std::abs(rate);
                 Mover mv{ in.o->name + "_" + std::to_string(movers.size()), &lod, local, in.pos };
                 for (int k = 0; k < 5; k++) {
-                    double a = -std::copysign(1.0, rate) * 3.14159265358979323846 * k / 2;
+                    double a = std::copysign(1.0, rate) * 3.14159265358979323846 * k / 2;
                     mv.times.push_back(period * k / 4);
                     mv.quats.push_back({ axis[0] * std::sin(a / 2), axis[1] * std::sin(a / 2), axis[2] * std::sin(a / 2), std::cos(a / 2) });
                 }
