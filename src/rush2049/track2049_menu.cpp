@@ -1575,8 +1575,8 @@ extern "C" void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx
 }
 
 // func_800A7DCC after it generated a circuit's races (tracks 0-6). With added tracks available, or only some courses
-// chosen for the circuit (src/circuit.cpp), the tracks are picked again from the chosen ones among Rush 2's 7 and the
-// added tracks, custom tracks included (all of them if none is chosen), with Rush 2's rules: no track twice in a row, at most 4 times in all,
+// chosen for the circuit (src/circuit.cpp), the tracks are picked again from the chosen ones among Rush 2's 7, CRASH and
+// PIPE (8 and 9, once unlocked; Rush 2's circuits never have them) and the added tracks, custom tracks included (all of them if none is chosen), with Rush 2's rules: no track twice in a row, at most 4 times in all,
 // and no track in the same direction twice.
 extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     {
@@ -1585,6 +1585,8 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     }
     std::vector<int> all, pool;
     for (int t = 0; t < circuit_stock_tracks; t++) all.push_back(t);
+    all.push_back(8);   // CRASH
+    if (rush2::unlocks::track_open(rdram, 9, MEM_BU(0, (int32_t)pipe_unlocked) != 0)) all.push_back(9);
     for (int t = first_menu_id; t < circuit_tracks; t++) {
         if (entry_available(t) && !is_stunt_course(t) && rush2::unlocks::track_open(rdram, t)) all.push_back(t);
     }
@@ -1622,6 +1624,15 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
         previous = t;
         MEM_B(0, (int32_t)race) = uint8_t(t);
         MEM_B(0, (int32_t)(race + 1)) = uint8_t(dir);
+    }
+    // The races, once per circuit (the generator runs on every visit to the circuit screen).
+    static std::string logged;
+    std::string races;
+    for (int i = 0; i <= last; i++) races += " " + std::to_string(MEM_B(0, (int32_t)(circuit_races + i * 4)));
+    if (races != logged) {
+        logged = races;
+        printf("[circuit] Tracks:%s\n", races.c_str());
+        std::fflush(stdout);
     }
 }
 

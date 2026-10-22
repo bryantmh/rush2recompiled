@@ -14,13 +14,13 @@
 // The places of each race are kept in 3 bits a race (11 bytes a car), room for 29; the standings loops already stop at
 // the races finished. Rush 2's circuit codes (func_800B2BCC) still hold 28-race circuits.
 //
-// The courses a circuit picks from are chosen per track (Rush 2's 0-6, Rush 2049's 12-17, SF Rush's 18-24, California
-// Speed's 64-79); the
+// The courses a circuit picks from are chosen per track (Rush 2's 0-6, CRASH 8 and PIPE 9, Rush 2049's 12-17, SF Rush's
+// 18-24, California Speed's 64-79; CRASH and PIPE start off, as Rush 2's circuits never have them); the
 // generator hook (rush2_track49_circuit, src/rush2049/track2049_menu.cpp) draws from the chosen ones that are
 // available. A circuit keeps the length and courses it started with: the start (end of func_800B2A58) records them
 // against its seed in the saves file's "circuits" section. A circuit with no record (started before this setting
-// existed, or entered as a code) is 28 races over every course but California Speed's (added later: a circuit in
-// progress keeps its races).
+// existed, or entered as a code) is 28 races over every course but California Speed's, CRASH and PIPE (added later: a
+// circuit in progress keeps its races).
 //
 // Custom tracks (src/track_mod/, track select ids 38-63) are chosen by their folder, since their ids follow the enabled
 // mods: the choices keep the folders turned off (so a newly installed track is in), and a circuit records the folders it
@@ -78,17 +78,27 @@ namespace {
         int first;
         int count;
     };
+    // Rush 2's: tracks 0-6, CRASH (8) and PIPE (9); HALFPIPE (7) is a stunt bowl, never a course.
+    constexpr int halfpipe_track = 7;
+    constexpr int crash_track = 8;
+    constexpr int pipe_track = 9;
     constexpr Game games[] = {
-        { "Rush 2", 0, 7 },
+        { "Rush 2", 0, 10 },
         { "Rush 2049", rush2::track2049::first_menu_id, rush2::track2049::track_count },
         { "SF Rush", rush2::track1::first_menu_id, rush2::track1::track_count },
         { "California Speed", rush2::calspeed::first_menu_id, rush2::calspeed::track_count },
     };
     // Rush 2's full track names (0x800C4C40).
-    const char* const rush2_names[7] = { "Las Vegas", "Lower Manhattan", "Honolulu", "Upper Manhattan", "Alcatraz",
-                                         "Los Angeles", "Seattle" };
+    const char* const rush2_names[10] = { "Las Vegas", "Lower Manhattan", "Honolulu", "Upper Manhattan", "Alcatraz",
+                                          "Los Angeles", "Seattle", "Halfpipe", "Crash", "Pipe" };
+
+    // Courses a circuit leaves out until they're turned on.
+    bool off_by_default(int t) {
+        return t == crash_track || t == pipe_track;
+    }
 
     bool is_course(int t) {
+        if (t == halfpipe_track) return false;
         for (const Game& g : games) {
             if (t >= g.first && t < g.first + g.count) return true;
         }
@@ -96,7 +106,7 @@ namespace {
     }
 
     std::string course_name(int t) {
-        if (t < 7) return rush2_names[t];
+        if (t < 10) return rush2_names[t];
         if (t < rush2::track1::first_menu_id) return rush2::track2049::track_names[t - rush2::track2049::first_menu_id];
         if (t >= rush2::calspeed::first_menu_id) return rush2::calspeed::track_names[t - rush2::calspeed::first_menu_id];
         return rush2::track1::track_names[t - rush2::track1::first_menu_id];
@@ -119,10 +129,12 @@ namespace {
     };
 
     // What a circuit was started with, and the car player 1 raced each race in (by race index).
-    // A circuit with no record: every course a circuit could pick before California Speed's were added.
+    // A circuit with no record: every course a circuit could pick before California Speed's, CRASH and PIPE were added.
     std::bitset<course_ids> before_calspeed() {
         std::bitset<course_ids> b;
-        for (int t = 0; t < rush2::calspeed::first_menu_id; t++) b.set(size_t(t));
+        for (int t = 0; t < rush2::calspeed::first_menu_id; t++) {
+            if (!off_by_default(t)) b.set(size_t(t));
+        }
         return b;
     }
 
@@ -289,9 +301,9 @@ bool rush2::circuit::course_chosen(uint8_t* rdram, int t) {
 void rush2::circuit::init_config() {
     circuit_config.add_number_option(length_id, "Circuit Length", "", 1, stock_length, 1, 0, false, stock_length, true);
     for (int t = 0; t < course_ids; t++) {
-        next_courses[t].store(true);
+        next_courses[t].store(!off_by_default(t));
         if (is_course(t)) {
-            circuit_config.add_bool_option(option_id(t), course_name(t), "", true, true);
+            circuit_config.add_bool_option(option_id(t), course_name(t), "", !off_by_default(t), true);
         }
     }
     circuit_config.add_string_option(mods_off_id, "Custom Tracks Left Out", "", "", true);
@@ -711,6 +723,7 @@ namespace {
     const char* const courses_description =
         "Picks the courses circuits are made from. The toggles at the top turn all of a game's courses, or all the "
         "modded courses, on or off. "
+        "Crash and Pipe start off. "
         "A course that isn't unlocked yet is skipped, and with none on, every course is used. "
         "Applies to the next circuit you start; a circuit in progress keeps its own courses.";
 
@@ -723,7 +736,7 @@ namespace {
 
     bool all_on(const Game& g) {
         for (int t = g.first; t < g.first + g.count; t++) {
-            if (!next_courses[t].load()) return false;
+            if (is_course(t) && !next_courses[t].load()) return false;
         }
         return true;
     }
@@ -903,7 +916,9 @@ namespace {
                 Toggle* toggle = add_toggle_line(all, std::string("All ") + games[g].name + " Courses", true,
                                                  all_on(games[g]));
                 toggle->add_checked_callback([this, g](bool on) {
-                    for (int t = games[g].first; t < games[g].first + games[g].count; t++) set_course(t, on);
+                    for (int t = games[g].first; t < games[g].first + games[g].count; t++) {
+                        if (is_course(t)) set_course(t, on);
+                    }
                     circuit_config.save_config();
                     refresh();
                 });
@@ -928,6 +943,7 @@ namespace {
                 block->set_as_navigation_container(NavigationType::Vertical);
                 context.create_element<Label>(block, games[g].name, theme::Typography::LabelSM);
                 for (int t = games[g].first; t < games[g].first + games[g].count; t++) {
+                    if (!is_course(t)) continue;
                     Toggle* toggle = add_toggle_line(block, course_name(t), false, next_courses[t].load());
                     toggle->add_checked_callback([this, t](bool on) {
                         set_course(t, on);

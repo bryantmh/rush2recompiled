@@ -533,10 +533,12 @@ in 0x800D3E40): `+2` races finished, `+4` random seed, `+8` the cars' places, 3 
 ### Circuit length and courses (port) [V]
 
 The General tab's Circuit Length select (4 to 28 races) and Circuit Courses section (a toggle per course of Rush 2
-0-6, Rush 2049 12-17 and SF Rush 18-24, and one per game for all of them) are in src/circuit.cpp. A circuit keeps
+0-6, CRASH 8 and PIPE 9, Rush 2049 12-17 and SF Rush 18-24, and one per game for all of them) are in src/circuit.cpp.
+CRASH and PIPE start off, since Rush 2's own circuits only draw tracks 0-6; PIPE is only drawn once it is unlocked
+(0x800E7D50 or the UNLOCKS shop), and HALFPIPE (7) is never a course. A circuit keeps
 what was chosen when it started: the hook at the end of `func_800B2A58` (0x800B2BBC) records the length and courses
 against the block's seed in the saves file's "circuits" section; a circuit with no record is 28 races over every
-course. Rush 2 compares the length 28 in six places, each hooked to use the circuit's length L:
+course but CRASH, PIPE and California Speed's. Rush 2 compares the length 28 in six places, each hooked to use the circuit's length L:
 
 | Where | Test | Hook |
 |---|---|---|

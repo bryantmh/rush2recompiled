@@ -27,7 +27,6 @@ General:
 8) Higher drone difficulty levels
 10) Add an option to disable hood bob in hood view.
 11) The ability to save/load vehicle tuning setups by name
-12) Add an option to not hide front wheels when in hood view for Formula, Dragster, and Formula 1. (Not sure if wheel positions align with the hood models though). 
 
 California Speed:
 1) Post-race records on point-to-point tracks: average lap and best lap are the same one-lap time (the whole run);

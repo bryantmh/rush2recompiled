@@ -29,7 +29,7 @@ runs a screen through its jump table.
 | Screen | What |
 | --- | --- |
 | 0 | Start Game (the race-type menu, below) |
-| 1 | Select Player (the profile list; A picks one, then the track select). The list is JUST PLAY, CREATE PLAYER, then the saved players, with the cursor on the first saved player, so test runs press up twice: `8:START,11:A,12.5:DU,13.2:DU,14:A` reaches the track select as JUST PLAY. |
+| 1 | Select Player (the profile list; A picks one, then the track select). The list is JUST PLAY, CREATE PLAYER, then the saved players, with the cursor on the first saved player, so test runs press up twice: `8:START,11:A,12.5:DU,13.2:DU,14:A` reaches the track select as JUST PLAY. With no saved players (a fresh RUSH2_DATA_DIR) the cursor is on CREATE PLAYER: one up. A circuit then opens the circuit menu (CONTINUE CIRCUIT, ENTER CODE, NEW CIRCUIT, CIRCUIT REVIEW) with the cursor on ENTER CODE when no circuit is in progress, so a sim run starts a new circuit with `14:START,18:DD,19:A,22:DU,23:A,26:DD,27:A` and is on race 1's track select by 31 s. |
 | 0xD | Controller Pak manager: never shown, any switch to it is redirected (docs/game_fixes.md#no-controller-pak-manager) |
 | 0xE | Boot logos (then the title) |
 | 0x10 | Title screen (START goes on to Start Game) |

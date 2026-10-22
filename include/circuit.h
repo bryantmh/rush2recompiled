@@ -18,7 +18,8 @@ namespace rush2::ui {
 // next circuit.
 namespace rush2::circuit {
     constexpr int stock_length = 28;    // Rush 2's circuit: 28 races.
-    // Track select ids a circuit can pick from: Rush 2 0-6, 2049 12-17, SF Rush 18-24, California Speed 64-79.
+    // Track select ids a circuit can pick from: Rush 2 0-6, CRASH 8 and PIPE 9 (off by default), 2049 12-17, SF Rush
+    // 18-24, California Speed 64-79.
     constexpr int course_ids = 80;
 
     // Registers the hidden choices (circuit.json). Call before recompui::config::finalize().
