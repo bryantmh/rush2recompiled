@@ -1014,8 +1014,13 @@ well and still flip. [V]
 
 ### CS Physics: California Speed's world
 
-The dev switch `RUSH2_CS_PHYSICS=CalSpeed` (not in the menu; until 2026-10-20 it was a Games tab option, `calspeed_physics`
-in games.json, which the user never asked for and never had on; a leftover games.json key is ignored) is the other way round from the road hold port above: on California Speed's tracks the world runs as
+The Games tab's **CS Physics** option (`calspeed_physics_mode` in games.json, 2026-10-21, user's design): Full CS
+(this section), Partial (default: Rush 2's physics with the road hold above) and Full Rush 2 (road hold off). It
+replaced the CS Road Hold toggle (`calspeed_road_hold`, kept unshown: off migrates once to Full Rush 2). The key
+`calspeed_physics` held a 2026-10-19 test option whose `Rush2` meant the road hold, so the new option has its own key
+and a leftover one is ignored. A player's California Speed car runs native under Full CS (converted, it fishtailed on
+every hill and landing; native it doesn't, the user's drive 2026-10-21); a Rush 2, 2049 or mod model is still
+converted. Full CS is the other way round from the road hold port above: on California Speed's tracks the world runs as
 California Speed's does, its computer cars drive its cars on its own values, and every other car is converted to that
 world instead (src/calspeed/calspeed_physics.cpp, walls and missed wheel in src/calspeed/calspeed_walls.cpp). Added
 2026-10-19 as a test: it replaces the default only if it races better (tools/calspeed/sim_wrecks.py `--hold cs`,
@@ -1091,10 +1096,12 @@ Where Rush 2's rules meet California Speed's world (found in the sims, 2026-10-1
   src/surface_fx.cpp), so the tunnel glue reads California Speed's own, kept per wheel (`source_material`). Before
   that the glue never ran: computer cars left the hump's crest at 170 ft/s, flew 4 s and came down through the
   tunnel floor.
-- **Smooth collision** (src/smooth_collision.cpp) stands aside: its ledge rule (a floor more than 0.75 ft above the
-  wheel gives way to the road under it, climbed at 0.1 ft a probe) let cars at California Speed's 250 ft/s sink
-  through the ramp up to California's crest onto the ground under it and fall off its end. California Speed's probe
-  takes the highest floor holding the point, as Rush 2's own.
+- **Smooth collision** (src/smooth_collision.cpp) runs here too since 2026-10-21 (the user's request: without it the
+  player's car got the same crack and ledge kicks as the old physics before smooth collision). It stood aside before
+  because its ledge rule (a floor more than 0.75 ft above the wheel gives way to the road under it, climbed at 0.1 ft
+  a probe) let cars at California Speed's 250 ft/s sink through the ramp up to California's crest onto the ground
+  under it and fall off its end; check that ramp when testing this mode. California Speed's own probe takes the
+  highest floor holding the point, as Rush 2's.
 - **Resets.** Rush 2's `race_stuck_wrongway_update_8008CDA4` resets a computer car (wreck state 2) with the flag
   +0x810, below the fall floor, or under 25 ft/s for 6 s (12 s for some); these stay. Most of the remaining Santa
   Cruz wrecks are these, around its lane's 213 -> 117 mph step at (-18000, -690, 5700).
@@ -1113,7 +1120,24 @@ Roles (`rush2_csphys_init_begin` at the entry of `car_init_setup_8008DBA0`, the 
 - **Converted**: every other car (players, Rush 2 / 2049 / mod cars the computer drives): its own values, its
   descriptor copy's springs and anti-roll (+0x18-+0x2C) x 2.28 and dampers (+0x30-+0x4C) x sqrt 2.28, the tire load /
   2.28 (no 1100 cap): the world holds it down at 1 + 4 x 0.32 = 2.28 g on the road, so it sits, rolls and grips as at
-  Rush 2's 1 g. It keeps Rush 2's velocities (reverse) and gearbox.
+  Rush 2's 1 g. It keeps Rush 2's velocities (reverse) and gearbox, and Rush 2's own lift (any wheel offset past
+  0.5 ft) in place of `func_800901E0` (the lift by the four offsets' mean past 0.35 ft and a human's pitch levelling).
+  That lift took load off all four tires at once, and a converted car's load is uncapped, so its light rear let go:
+  the user's fishtails on San Francisco's downhill (2026-10-21). A native's load (about 2580 lb a wheel) sits over its
+  1100 lb cap, so it never felt it. San Francisco sims, slides past 25 degrees at over 60 ft/s (sim_wrecks.py counts
+  them): converted cars 16 with it, 5-10 without, 4 on Rush 2's physics; native cars 0.
+
+Test aid: `RUSH2_CSPHYS_SKIP=<letters>` leaves California Speed rules out for converted cars (r pitch/roll rate
+zeroing, a rear drive force averaging, h road hold, u hill push, t lifted-wheel torque, d drag term), to find which
+one a behavior comes from. On San Francisco: a and u change nothing, t is noise, r and h make slides worse.
+`RUSH2_CSPHYS_SLIDES=<file>` records a player's converted car: whenever it starts to slide (more than 15 degrees off
+its heading above 40 ft/s) the 240 physics steps before and 120 after go to the file (steering, throttle, brake, yaw
+rate, slip, and per wheel compression, surface/material, tire load, forces along and across). The sims can't drive
+a player's car, and the user's swerves came from steering the computer cars never do.
+
+Tire load cap: Rush 2 caps a wheel's load at the car's weight (`car_wheel_force_loop_8006ABB0` at 0x8006AD30; the
+uncapped load stays at 0x34($sp)) before the converted car's / 2.28, so its tires topped out at 0.44 of its weight a
+wheel (0.25 at rest). A converted car's is capped at weight x 2.28 instead (2026-10-21), Rush 2's cap after the scale.
 
 ### Brake lights turn California Speed grays red
 

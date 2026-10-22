@@ -228,9 +228,8 @@ namespace {
 
     bool wanted(uint8_t* rdram) {
         if (!enabled) return false;
-        // California Speed's physics (CS Physics option) take its own probe: the highest floor holding the point, as
-        // Rush 2's own (src/calspeed/calspeed_physics.cpp). The race's cars took their roles at their setup.
-        if (rush2::calspeed::racing(rdram)) return !rush2::calspeed::physics::active(rdram, 0x800F5470);
+        // California Speed's tracks, with either physics (src/calspeed/calspeed_physics.cpp).
+        if (rush2::calspeed::racing(rdram)) return true;
         // A custom track's: its track.toml smooth_collision (the author's opt-out).
         return rush2::track2049::mod_smooth_collision(rdram);
     }

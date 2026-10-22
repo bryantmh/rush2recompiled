@@ -43,3 +43,5 @@ The race HUD's placement is the layout engine's rules (src/hud_layout.cpp, docs/
 When running the game, turn the sound all the way down so it doesn't interrupt the computer's user
 
 Stutters are unacceptable. If something you add or modify has a large frametime stutter, you have implemented it incorrectly. Adding a cache that still stutters on first load is not a valid fix.
+
+A build is ready for me to test the moment it links: I watch and launch it without waiting for a message. So whatever a change sits behind (environment variables, settings, test switches, dev modes) is switched on in my own setup BEFORE the build starts, never after it, and you say what you switched on. A change I have to enable myself, or that I can't reach on a normal launch, isn't done

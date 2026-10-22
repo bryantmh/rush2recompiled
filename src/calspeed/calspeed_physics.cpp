@@ -17,8 +17,8 @@
 // - velocities (func_8008FFFC): a creep to 6.25 ft/s off the brake, 400 ft/s cap (its forward-only clamp left out:
 //   the cars reverse as Rush 2's do);
 // - orientation (func_80090540, func_800901E0): pitch and roll rates zeroed every step, the car lifted so its wheels'
-//   mean compression is at most 0.35 ft (Rush 2: any one past 0.5), a human's car pitched level with its wheels, the
-//   body points pushed out on the low side once it rolls past 0.3, and on the tunnel loop (both rear wheels on
+//   mean compression is at most 0.35 ft (Rush 2: any one past 0.5) and a human's car pitched level with its wheels
+//   (California Speed's own cars only: converted cars keep Rush 2's lift, see orient_end), the body points pushed out on the low side once it rolls past 0.3, and on the tunnel loop (both rear wheels on
 //   material 6) the car stood square to the road under it;
 // - gearbox (func_8008E5C4): shifts held back by road speed.
 // The AI driver, the steering terms, the drivetrain, the tire model and the wheel probe are the same code in both. The
@@ -182,6 +182,66 @@ namespace {
         return cars[s].role;
     }
 
+    // Test aid, RUSH2_CSPHYS_SKIP=<letters>: California Speed's rules left out for converted cars, to find which one
+    // a behavior comes from: r the pitch and roll rates' zeroing (p the pitch rate's alone: on a player's car its
+    // pitch momentum flipped the car on San Francisco's landings, 3 times in 40 s against none), a the rear drive forces' averaging, h the road hold,
+    // u the hill push, t the lifted-wheel torque, d the drag's drive term.
+    bool skip(uint8_t* rdram, uint32_t car, char rule) {
+        static const char* env = getenv("RUSH2_CSPHYS_SKIP");
+        return env != nullptr && strchr(env, rule) != nullptr && role(rdram, car) == Role::Converted;
+    }
+
+    // Test aid, RUSH2_CSPHYS_SLIDES=<file>: a player's car's physics steps kept for the last 2 s, written to
+    // the file with the next second whenever the car starts to slide (its velocity more than 15 degrees off its heading
+    // above 40 ft/s, after under 8): steering, throttle, brake, yaw rate, slip, and per wheel the compression, surface
+    // type, material, road polygon (+0x594), the tire's load and its forces along and across, and the car's position
+    // (slide_step, tire_load, tire_grip).
+    struct SlideStep {
+        float t, speed, slip, yaw, steer, throttle, brake, pos[3];
+        float comp[4], load[4], along[4], across[4];
+        int surface[4];
+        int material[4];
+        int poly[4];
+    };
+    constexpr int slide_keep = 240, slide_after = 120;
+    struct SlideLog {
+        FILE* file = nullptr;
+        SlideStep ring[slide_keep] = {};
+        SlideStep cur = {};
+        int count = 0, after = 0, events = 0;
+        bool sliding = false;
+    };
+    SlideLog* slide_log(uint8_t* rdram, uint32_t car) {
+        static const char* path = getenv("RUSH2_CSPHYS_SLIDES");
+        static SlideLog log;
+        if (path == nullptr || slot_of(car) < 0 || role(rdram, car) == Role::Off ||
+            (int8_t)MEM_B(0, (int32_t)(car + car_human)) != 2) {
+            return nullptr;
+        }
+        if (log.file == nullptr) {
+            log.file = fopen(path, "a");
+            if (log.file == nullptr) return nullptr;
+            fprintf(log.file, "# t speed slip(deg, + = sliding right) yaw steer thr brk | per wheel FL FR RL RR: "
+                              "comp surface/material load along across poly | x y z\n");
+        }
+        return &log;
+    }
+    int tire_wheel(uint32_t car, uint32_t tire) {
+        constexpr uint32_t car_tires_at = 0x424, tire_bytes = 0x5C;
+        int i = int((tire - car - car_tires_at) / tire_bytes);
+        return i >= 0 && i < 4 ? i : -1;
+    }
+    void slide_write(SlideLog& log, const SlideStep& s) {
+        fprintf(log.file, "%.3f %.0f %+.1f %+.2f %+.2f %.2f %.2f |", s.t, s.speed, s.slip, s.yaw, s.steer, s.throttle,
+                s.brake);
+        for (int i = 0; i < 4; i++) {
+            fprintf(log.file, " %.2f %d/%d %.0f %.0f %.0f %d", s.comp[i], s.surface[i], s.material[i], s.load[i],
+                    s.along[i], s.across[i], s.poly[i]);
+        }
+        fprintf(log.file, " | %.1f %.1f %.1f", s.pos[0], s.pos[1], s.pos[2]);
+        fputc('\n', log.file);
+    }
+
     void restore_swaps(uint8_t* rdram) {
         for (int i = swap_count - 1; i >= 0; i--) MEM_W(0, (int32_t)swaps[i].at) = swaps[i].old;
         swap_count = 0;
@@ -245,9 +305,10 @@ extern "C" void rush2_csphys_init_begin(uint8_t* rdram, recomp_context* ctx) {
     st = CarState{};
     if (!rush2::calspeed::physics::race_mode() || !rush2::calspeed::racing(rdram)) return;
     int type = MEM_BU(0, (int32_t)(car + car_type));
-    bool human = (int8_t)MEM_B(0, (int32_t)(car + car_human)) == 2;
     st.role = Role::Converted;
-    if (human || !ct::is_calspeed(type)) return;
+    // A player's California Speed car runs native too (CS Physics Full CS): converted (Rush 2's tires on springs x
+    // world_g) it fishtailed on every hill and landing of San Francisco, native it doesn't (user, 2026-10-21).
+    if (!ct::is_calspeed(type)) return;
     int n = type - ct::first_calspeed;
     rush2::calspeed::NativeCar v;
     uint32_t desc = native_descs + uint32_t(s) * ct::desc_size;
@@ -375,7 +436,7 @@ void rush2::calspeed::physics::ground_contact_end(uint8_t* rdram, uint32_t car) 
 // California Speed's -1, -1 and -0.7 (0x800D7350-58), with no track byte. v is the drag's speed (+0x3C less the
 // slope's part, Rush 2's own unless the car is wrecked or in its no-drag mode).
 void rush2::calspeed::physics::wheel_forces_end(uint8_t* rdram, uint32_t car) {
-    if (role(rdram, car) == Role::Off) return;
+    if (role(rdram, car) == Role::Off || skip(rdram, car, 'd')) return;
     constexpr uint32_t track_byte = 0x8010D3A6;
     constexpr uint32_t k_rear1 = 0x800CF784, k_rear2 = 0x800CF788;   // Rush 2's constants for track byte 2
     int slot = MEM_H(0, (int32_t)(car + 0x7E0));
@@ -405,7 +466,10 @@ void rush2::calspeed::physics::wheel_forces_end(uint8_t* rdram, uint32_t car) {
 
 // car_wheel_force_loop_8006ABB0 at 0x8006AD4C ($a2 = the wheel's load for car_tire_model, $a0 = the car): a native car's
 // capped at 1100 lb (func_800B8F68's first step), a converted car's / world_g (Rush 2's grip under California Speed's
-// heavier hold). Returns true when it ran.
+// heavier hold). Rush 2 has just capped the load at the car's weight (+0x5AC, 0x8006AD30; the uncapped load stays at
+// 0x34($sp)); a converted car's is capped at weight x world_g instead, so that after / world_g its tires top out at the
+// car's weight as Rush 2's do. Capped at the weight itself they topped out at 0.44 of it a wheel (0.25 at rest), so
+// every load spike of a quick swerve or a polygon edge's damper kick cost grip. Returns true when it ran.
 bool rush2::calspeed::physics::tire_load(uint8_t* rdram, recomp_context* ctx) {
     uint32_t car = (uint32_t)ctx->r4;
     Role r = role(rdram, car);
@@ -413,9 +477,17 @@ bool rush2::calspeed::physics::tire_load(uint8_t* rdram, recomp_context* ctx) {
     uint32_t bits = (uint32_t)ctx->r6;
     float load;
     memcpy(&load, &bits, 4);
+    if (r == Role::Converted) {
+        float weight = f32(rdram, car + car_weight);
+        if (load >= weight) load = std::min(f32(rdram, (uint32_t)ctx->r29 + 0x34), weight * world_g);
+    }
     load = r == Role::Native ? std::min(load, 1100.0f) : load / world_g;
     bits = fbits(load);
     ctx->r6 = (uint64_t)(int64_t)(int32_t)bits;
+    if (SlideLog* log = slide_log(rdram, car)) {
+        int i = tire_wheel(car, (uint32_t)ctx->r8);
+        if (i >= 0) log->cur.load[i] = load;
+    }
     return true;
 }
 
@@ -427,7 +499,16 @@ bool rush2::calspeed::physics::tire_grip(uint8_t* rdram, recomp_context* ctx) {
     uint32_t car = (uint32_t)ctx->r4;
     Role r = role(rdram, car);
     if (r == Role::Off) return false;
-    if (r != Role::Native) return true;
+    if (r != Role::Native) {
+        if (SlideLog* log = slide_log(rdram, car)) {
+            int i = tire_wheel(car, (uint32_t)ctx->r8);
+            if (i >= 0) {
+                log->cur.along[i] = f32(rdram, (uint32_t)ctx->r29 + 0x40);
+                log->cur.across[i] = f32(rdram, (uint32_t)ctx->r29 + 0x44);
+            }
+        }
+        return true;
+    }
     const CarState& st = cars[slot_of(car)];
     uint32_t sp = (uint32_t)ctx->r29;
     float along = f32(rdram, sp + 0x40) * st.grip_long, across = f32(rdram, sp + 0x44) * st.grip_lateral;
@@ -435,6 +516,13 @@ bool rush2::calspeed::physics::tire_grip(uint8_t* rdram, recomp_context* ctx) {
     put_f32(rdram, sp + 0x44, across);
     ctx->f18.fl = along;
     ctx->f8.fl = across;
+    if (SlideLog* log = slide_log(rdram, car)) {
+        int i = tire_wheel(car, (uint32_t)ctx->r8);
+        if (i >= 0) {
+            log->cur.along[i] = along;
+            log->cur.across[i] = across;
+        }
+    }
     return true;
 }
 
@@ -447,13 +535,16 @@ bool rush2::calspeed::physics::tire_grip(uint8_t* rdram, recomp_context* ctx) {
 bool rush2::calspeed::physics::force_sum(uint8_t* rdram, uint32_t car) {
     if (role(rdram, car) == Role::Off) return false;
     const CarState& st = cars[slot_of(car)];
-    float rear = (f32(rdram, car + car_wheel_force + 0x18 + 8) + f32(rdram, car + car_wheel_force + 0x24 + 8)) * 0.5f;
-    put_f32(rdram, car + car_wheel_force + 0x18 + 8, rear);
-    put_f32(rdram, car + car_wheel_force + 0x24 + 8, rear);
+    if (!skip(rdram, car, 'a')) {
+        float rear = (f32(rdram, car + car_wheel_force + 0x18 + 8) + f32(rdram, car + car_wheel_force + 0x24 + 8)) * 0.5f;
+        put_f32(rdram, car + car_wheel_force + 0x18 + 8, rear);
+        put_f32(rdram, car + car_wheel_force + 0x24 + 8, rear);
+    }
     bool lifted = false;
     for (int i = 0; i < 4; i++) lifted |= f32(rdram, car + car_compression + 4 * i) < -1.0f;
     float weight = f32(rdram, car + car_weight), sum = 0.0f;
     for (int i = 0; i < 4; i++) sum += st.hold[i];
+    if (skip(rdram, car, 'h')) sum = 0.0f;
     float push[3] = { 0.0f, -weight * sum, 0.0f };
     if (lifted) {
         float world[3] = { 0.0f, -weight * sum, 0.0f };
@@ -464,7 +555,7 @@ bool rush2::calspeed::physics::force_sum(uint8_t* rdram, uint32_t car) {
     for (int k = 0; k < 3; k++) f[k] += push[k];
     if (f32(rdram, car + car_matrix + 0x1C) > 0.55f && f32(rdram, car + car_throttle) != 0.0f && (st.mph4 >> 2) < 25 &&
         !st.wall[0] && !st.wall[1]) {
-        f[2] += 1200.0f;
+        if (!skip(rdram, car, 'u')) f[2] += 1200.0f;
     }
     put3(rdram, car + car_force, f);
     return true;
@@ -474,7 +565,7 @@ bool rush2::calspeed::physics::force_sum(uint8_t* rdram, uint32_t car) {
 // (func_8008FC1C), unless all four wheels are in the air: for each wheel at -0.1 ft or more out, F = gravity (+0x200)
 // x -2 x (compression + 0.1) at its descriptor position with y zeroed, the torque F x r as the game takes its torques.
 void rush2::calspeed::physics::torque_end(uint8_t* rdram, uint32_t car) {
-    if (role(rdram, car) == Role::Off) return;
+    if (role(rdram, car) == Role::Off || skip(rdram, car, 't')) return;
     bool air = true;
     for (int i = 0; i < 4; i++) air &= MEM_W(0, (int32_t)(car + car_surface + 4 * i)) == 8;
     if (air) return;
@@ -584,7 +675,7 @@ void rush2::calspeed::physics::orient_begin(uint8_t* rdram, uint32_t car) {
     }
     for (int i = 0; i < 4; i++) {
         st.rest[i] = f32(rdram, car + car_rest + 4 * i);
-        if (st.rest[i] > 0.5f) put_f32(rdram, car + car_rest + 4 * i, 0.5f);
+        if (st.rest[i] > 0.5f && st.role == Role::Native) put_f32(rdram, car + car_rest + 4 * i, 0.5f);
     }
 }
 
@@ -593,11 +684,16 @@ void rush2::calspeed::physics::orient_begin(uint8_t* rdram, uint32_t car) {
 // lifted by their mean past 0.35 ft (each offset lowered by it), a human's car first pitched toward level with its
 // axles (at most 0.15 rad a second); the wheel and body points again from the moved car, the body points on the low
 // side pushed out by 3 x (|roll| - 0.3) once the car rolls past 0.3; and the rear wheels' road speed for the next step.
+// A converted car keeps Rush 2's own lift (any offset past 0.5 ft) in place of func_800901E0's (the lift and a human's
+// pitch levelling): its tires' load is the springs' / world_g, uncapped, so each lift by the mean offset took grip off
+// all four wheels at once, and the light rear let go (San Francisco in a sim: 16 slides past 25 degrees a race on
+// converted computer cars with it, 5 without, 4 on Rush 2's physics; California Speed's own cars, their load capped at
+// 1100 lb of about 2580, never felt it: 0).
 void rush2::calspeed::physics::orient_end(uint8_t* rdram, uint32_t car) {
     if (role(rdram, car) == Role::Off) return;
     CarState& st = cars[slot_of(car)];
-    put_f32(rdram, car + car_angular, 0.0f);
-    put_f32(rdram, car + car_angular + 8, 0.0f);
+    if (!skip(rdram, car, 'r') && !skip(rdram, car, 'p')) put_f32(rdram, car + car_angular, 0.0f);
+    if (!skip(rdram, car, 'r')) put_f32(rdram, car + car_angular + 8, 0.0f);
     float d[4], total = 0.0f, front = 0.0f, rear = 0.0f;
     for (int i = 0; i < 4; i++) {
         put_f32(rdram, car + car_rest + 4 * i, st.rest[i]);
@@ -607,7 +703,8 @@ void rush2::calspeed::physics::orient_end(uint8_t* rdram, uint32_t car) {
     }
     uint32_t desc = (uint32_t)MEM_W(0, (int32_t)(car + car_desc));
     uint32_t m = car + car_matrix;
-    if ((int8_t)MEM_B(0, (int32_t)(car + car_human)) == 2) {
+    bool own_lift = st.role == Role::Native;
+    if (own_lift && (int8_t)MEM_B(0, (int32_t)(car + car_human)) == 2) {
         float f = front * 0.5f, r = rear * 0.5f, most = f32(rdram, car + car_dt) * 0.15f;
         float zf = f32(rdram, desc + desc_wheels + 8), zr = f32(rdram, desc + desc_wheels + 0x18 + 8);
         float diff = 0.0f, a = 0.0f;
@@ -639,7 +736,7 @@ void rush2::calspeed::physics::orient_end(uint8_t* rdram, uint32_t car) {
     }
     float pos[3];
     get3(rdram, car + car_position, pos);
-    if (total > 0.0f) {
+    if (total > 0.0f && own_lift) {
         float lift = total * 0.25f;
         for (int i = 0; i < 4; i++) put_f32(rdram, car + car_rest + 4 * i, f32(rdram, car + car_rest + 4 * i) - lift);
         float up[3] = { 0.0f, lift, 0.0f }, w[3];
@@ -670,6 +767,43 @@ void rush2::calspeed::physics::orient_end(uint8_t* rdram, uint32_t car) {
     double mph4 = (double)(f32(rdram, t2 + 0x48) * f32(rdram, t2) + f32(rdram, t3 + 0x48) * f32(rdram, t3)) * 0.5 *
                   2.727272727272727;
     st.mph4 = (int16_t)(int32_t)mph4;
+    if (SlideLog* log = slide_log(rdram, car)) {
+        SlideStep& c = log->cur;
+        float vx = f32(rdram, car + car_velocity), vz = f32(rdram, car + car_velocity + 8);
+        c.t = f32(rdram, car + car_clock);
+        c.speed = f32(rdram, car + car_speed);
+        c.slip = std::atan2(vx, std::fabs(vz)) * 57.29578f;
+        c.yaw = f32(rdram, car + car_angular + 4);
+        c.steer = f32(rdram, car + 0x728);
+        c.throttle = f32(rdram, car + car_throttle);
+        c.brake = f32(rdram, car + car_brake);
+        for (int i = 0; i < 4; i++) {
+            c.comp[i] = f32(rdram, car + car_compression + 4 * i);
+            c.surface[i] = MEM_W(0, (int32_t)(car + car_surface + 4 * i));
+            c.material[i] = st.probe_material[i];
+            c.poly[i] = (int16_t)MEM_H(0, (int32_t)(car + 0x594 + 2 * i));
+        }
+        get3(rdram, car + car_position, c.pos);
+        if (log->after > 0) {
+            slide_write(*log, c);
+            if (--log->after == 0) fflush(log->file);
+        }
+        bool start = !log->sliding && c.speed > 40.0f && std::fabs(c.slip) > 15.0f;
+        if (std::fabs(c.slip) < 8.0f) log->sliding = false;
+        if (start) {
+            log->sliding = true;
+            float pos[3];
+            get3(rdram, car + car_position, pos);
+            fprintf(log->file, "## slide %d at (%.0f %.0f %.0f), %d steps before:\n", ++log->events, pos[0], pos[1],
+                    pos[2], std::min(log->count, slide_keep));
+            for (int k = std::max(0, log->count - slide_keep); k < log->count; k++) slide_write(*log, log->ring[k % slide_keep]);
+            fprintf(log->file, "## the slide's start, then %d steps after:\n", slide_after);
+            slide_write(*log, c);
+            log->after = slide_after;
+        }
+        log->ring[log->count++ % slide_keep] = c;
+        c = SlideStep{};
+    }
     // RUSH2_CSPHYS_LOG=<physics car>: its drivetrain every 15 steps.
     static const int log_car = getenv("RUSH2_CSPHYS_LOG") ? atoi(getenv("RUSH2_CSPHYS_LOG")) : -1;
     static int log_step = 0;
