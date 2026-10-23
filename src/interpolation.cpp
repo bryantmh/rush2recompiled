@@ -407,6 +407,8 @@ extern "C" {
 // func_8007C624 entry. $a0 = view index. Detects camera cuts.
 void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx) {
     cur_view = (uint32_t)ctx->r4 % max_views;
+    // LOOK BACK turns the camera now, so the cut detection below sees the drawn camera.
+    rush2::look_back_draw_view(rdram, (int)cur_view);
     depth = -1;
 
     uint32_t cam = camera_array + cur_view * 0x40;

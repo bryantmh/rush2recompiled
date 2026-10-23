@@ -32,8 +32,15 @@ namespace rush2 {
     void set_hide_respawning_cars(bool enabled);
     // Hood View Front Wheels (src/game_fixes.cpp): the open-wheel cars show their front wheels in the hood camera.
     void set_hood_front_wheels(bool enabled);
-    // Attract Camera (src/camera.cpp): the VIEW button also reaches the attract demo's high chase camera.
+    // Chase Camera (src/camera.cpp): the VIEW button also reaches the attract demo's high chase camera.
     void set_attract_camera(bool enabled);
+    // Look Back (src/camera.cpp): the LOOK BACK button and its Controller Setup row.
+    void set_look_back(bool enabled);
+    bool look_back_enabled();
+    // LOOK BACK turns a view's camera only while the frame is drawn (src/camera.cpp): before the view is drawn, and back
+    // after the frame's views and HUD.
+    void look_back_draw_view(uint8_t* rdram, int view);
+    void look_back_draw_end(uint8_t* rdram);
     // Car model fixes (src/game_fixes.cpp): replaces the ROCKET's asset with its windshield unpainted, the FORMULA's
     // with its wishbones mirrored and the STALLION's with its spoiler centered. Call at boot.
     void fix_car_models(uint8_t* rdram);

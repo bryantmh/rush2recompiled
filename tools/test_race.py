@@ -100,6 +100,9 @@ def prepare_data(track, extra_mods, games=(), configs=(), mod_dirs=(), user_sett
         for n in USER_SETTINGS:
             if os.path.exists(os.path.join(BUILD, n)):
                 shutil.copyfile(os.path.join(BUILD, n), os.path.join(DATA, n))
+        # A test window never opens fullscreen over the user's desktop, whatever their own window mode is.
+        if os.path.exists(os.path.join(DATA, 'graphics.json')):
+            set_options('graphics', ['wm_option=Windowed'])
     if games:
         set_options('games', games)
     for entry in configs:

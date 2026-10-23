@@ -262,7 +262,6 @@ void rush2_track49_stunt_option_t8(uint8_t* rdram, recomp_context* ctx);
 void rush2_battle_hide_stunt_panel(uint8_t* rdram, recomp_context* ctx);
 void rush2_battle_time_left_cheat(uint8_t* rdram, recomp_context* ctx);
 // func_8007C27C entry (a view's visibility, before the view is drawn): the battle HUD's 3D models of that view.
-void rush2_controls_menu_first_row(uint8_t* rdram, recomp_context* ctx);
 void rush2_battle_view(uint8_t* rdram, recomp_context* ctx);
 void rush2_battle_ram(uint8_t* rdram, recomp_context* ctx);
 void rush2_battle_race_steer(uint8_t* rdram, recomp_context* ctx);
@@ -396,6 +395,9 @@ void rush2_controls_menu_text_players(uint8_t* rdram, recomp_context* ctx);
 void rush2_controls_menu_title(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_paused(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_labels(uint8_t* rdram, recomp_context* ctx);
+void rush2_controls_menu_box(uint8_t* rdram, recomp_context* ctx);
+void rush2_controls_menu_title_y(uint8_t* rdram, recomp_context* ctx);
+void rush2_controls_menu_first_row(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx);
 
 // California Speed tracks: cars under the course and the road hold (src/calspeed/calspeed_rom.cpp).
@@ -554,7 +556,8 @@ int rush2_online_hud_views(uint8_t* rdram, int views);
 void rush2_online_hud_time_digits(uint8_t* rdram, int player);
 uint32_t rush2_online_view_record(uint8_t* rdram, int view, uint32_t record);
 
-// Attract Camera and LOOK BACK (src/camera.cpp).
+// Chase Camera and LOOK BACK (src/camera.cpp).
+void rush2_attract_camera_view(uint8_t* rdram, recomp_context* ctx);
 void rush2_attract_camera_cycle(uint8_t* rdram, recomp_context* ctx);
 void rush2_look_back(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_engine_start(uint8_t* rdram, recomp_context* ctx);

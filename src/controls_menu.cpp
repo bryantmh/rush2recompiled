@@ -22,8 +22,9 @@
 // More rows are added under the game's nine: LOOK BACK (src/camera.cpp) always, WINGS with wings enabled (Games tab),
 // and FIRE and DROP WEAPON (the battle arenas' weapon buttons, src/rush2049/battle.cpp) when the Rush 2049 tracks are
 // available. The text callback's label table (0x800C4B08) is copied with their labels appended, an instruction patch
-// lets its label loop run up to 13 rows, and the rows are moved closer together (15, 14 or 13 pixels apart instead of
-// 17) so everything fits in the panel. Which rows are there is decided when the screen opens (menu_rows).
+// lets its label loop run up to 13 rows, the rows are moved closer together (15, 14 or 13 pixels apart instead of 17)
+// and the panel boxes end 8 pixels lower (us.toml) so everything fits in the panel. Which rows are there is decided
+// when the screen opens (menu_rows).
 //
 // Leaving: from the main menu the screen pops the menu stack itself (as func_800AD7E4 does); from the pause menu,
 // func_800AFD44 leaves once rush2_controls_menu_pause_exit says so.
@@ -124,13 +125,10 @@ namespace {
     constexpr int text_normal = 1;
     constexpr int text_selected = 0x14;
 
-    // Layout (in the game's 320x240 screen). Labels are right-aligned at label_right[player]; rows start at
-    // first_row_y (2 lower in the pause menu).
+    // Layout (in the game's 320x240 screen). Labels are right-aligned at label_right[player]; the rows' y is layout().
     constexpr int label_right[num_players] = { 0x6F - 7, 0xFD - 7 };
     // Middle of each player's panel box (its frame spans x 26-152 and 168-294); the footer is centered on it.
     constexpr int panel_center[num_players] = { 89, 231 };
-    constexpr int first_row_y = 0x78 - 0x4A;
-    constexpr int first_row_y_paused = 0x78 - 0x48;
     constexpr int original_row_spacing = 17;
     constexpr int original_rows = 9;
     constexpr int max_rows = 13;
@@ -210,15 +208,69 @@ namespace {
         return menu_rows.empty() ? original_rows : (int)menu_rows.size();
     }
 
-    // The rows' spacing: the panel holds nine rows 17 pixels apart. With more than ten the rows also start higher
-    // (row_lift), which leaves room for 14 pixels a row, or 13 for thirteen rows.
-    int row_spacing() {
-        int rows = row_count();
-        return rows <= 9 ? original_row_spacing : rows <= 11 ? 15 : rows <= 12 ? 14 : 13;
+    // The screen's vertical layout, from its row count (the game's nine rows 17 apart under a fixed box). In the pause
+    // menu each player's box (y box_top..box_bottom) is sized to its contents and centered on the screen: the title
+    // (printed only when paused) title_margin below the box's top, the rows title_gap under it, the footer one spacing
+    // under the last row and the box's bottom title_margin under the footer's text. In the main menu the frame images
+    // are fixed (header y 10-42, footer plates y 212-229): the rows and the footer under them are centered between
+    // them (the plates' bars run through their middle, so nothing is printed on them). The button icons reach 4 above a row's y and 10 below it.
+    struct Layout {
+        int box_top, box_bottom, title_y, first_row, spacing, footer_y;
+    };
+    constexpr int screen_h = 240;
+    constexpr int clip_top = 10;       // The game clips 2D drawing to y 10-230.
+    constexpr int clip_bottom = 230;
+    constexpr int text_h = 7;          // The font's capitals.
+    constexpr int title_margin = 6;
+    constexpr int title_gap = 16;      // Title to first row: the icons' top 4 below the title's text.
+    constexpr int menu_rows_top = 42;  // Main menu: between the header and the footer plates.
+    constexpr int menu_rows_bottom = 211;
+
+    Layout layout(bool paused, int rows) {
+        Layout l{};
+        if (paused) {
+            // The tallest spacing up to the game's 17 that fits the box inside the clip.
+            int fixed = title_margin + title_gap + text_h + title_margin;
+            l.spacing = std::min(original_row_spacing, (clip_bottom - clip_top - fixed) / rows);
+            int height = fixed + rows * l.spacing;
+            l.box_top = (screen_h - height) / 2;
+            l.box_bottom = l.box_top + height;
+            l.title_y = l.box_top + title_margin;
+            l.first_row = l.title_y + title_gap;
+            l.footer_y = l.first_row + rows * l.spacing;
+        }
+        else {
+            // From the first row's icons to the footer's text, as the game's nine rows and footer filled it.
+            int room = menu_rows_bottom - menu_rows_top;
+            l.spacing = std::min(original_row_spacing, (room + glyph_y_offset - text_h) / rows);
+            int span = rows * l.spacing - glyph_y_offset + text_h;
+            l.first_row = menu_rows_top - glyph_y_offset + (room - span) / 2;
+            l.footer_y = l.first_row + rows * l.spacing;
+        }
+        return l;
     }
 
-    int row_lift() {
-        return row_count() > 10 ? 9 : 0;
+    Layout current_layout(uint8_t* rdram) {
+        return layout(MEM_W(0, (int32_t)game_mode) != 0, row_count());
+    }
+
+    // The screen's rows: the game's nine, LOOK BACK when that option is on, WINGS when wings are, and FIRE and DROP
+    // WEAPON whenever the battle arenas can be played (Rush 2049 tracks available), from either menu.
+    void latch_rows() {
+        menu_rows.clear();
+        for (int a = 0; a < original_rows; a++) {
+            menu_rows.push_back(Action(a));
+        }
+        if (rush2::look_back_enabled()) {
+            menu_rows.push_back(Action::LookBack);
+        }
+        if (rush2::wings::enabled()) {
+            menu_rows.push_back(Action::Wings);
+        }
+        if (rush2::track2049::available()) {
+            menu_rows.push_back(Action::Fire);
+            menu_rows.push_back(Action::DropWeapon);
+        }
     }
 
     Action row_action(int row) {
@@ -671,9 +723,9 @@ namespace {
     }
 
     void draw_player(uint8_t* rdram, recomp_context* ctx, GlyphList& list, int panel, int port) {
-        bool paused = MEM_W(0, (int32_t)game_mode) != 0;
-        int y0 = (paused ? first_row_y_paused : first_row_y) - row_lift();
-        int spacing = row_spacing();
+        Layout l = current_layout(rdram);
+        int y0 = l.first_row;
+        int spacing = l.spacing;
         // Rows closer than the icons are tall draw them a little smaller.
         bool small = spacing < 15;
         int rows = row_count();
@@ -716,7 +768,7 @@ namespace {
         }
 
         // SAVE  RESET  CANCEL, centered under the rows where the game printed "L+R: DEFAULTS".
-        int footer_y = y0 + spacing * rows + 3;
+        int footer_y = l.footer_y;
         const uint32_t items[] = { strings.save, strings.reset, strings.cancel };
         int widths[3];
         int total = footer_gap * 2;
@@ -801,19 +853,7 @@ extern "C" void rush2_controls_frame(uint8_t* rdram, recomp_context* ctx) {
 // func_800AD7E4, before the widget list is created ($a2 = table; the count in $a3 is set here, its instruction is
 // patched out). The screen is opening.
 extern "C" void rush2_controls_menu_widgets(uint8_t* rdram, recomp_context* ctx) {
-    menu_rows.clear();
-    for (int a = 0; a < original_rows; a++) {
-        menu_rows.push_back(Action(a));
-    }
-    menu_rows.push_back(Action::LookBack);
-    if (rush2::wings::enabled()) {
-        menu_rows.push_back(Action::Wings);
-    }
-    // The weapon buttons: whenever the battle arenas can be played (Rush 2049 tracks available), from either menu.
-    if (rush2::track2049::available()) {
-        menu_rows.push_back(Action::Fire);
-        menu_rows.push_back(Action::DropWeapon);
-    }
+    latch_rows();
     build_label_table(rdram);
     if (new_widget_table == 0) {
         build_widget_table(rdram);
@@ -897,9 +937,23 @@ extern "C" void rush2_controls_menu_title(uint8_t* rdram, recomp_context* ctx) {
     ctx->r7 = (int32_t)ctx->r7 + first_player(rdram);
 }
 
-// func_800B6134 at 0x800B64D8, once a player's first row position is in $s2.
+// func_800AD7E4 in the pause menu, before each player's box is made by hud_multi_widget_menu_setup_80093B38 ($a1 = top,
+// $a3 = bottom; the game's were 0x14 and 0xDC). The rows are latched here, as the boxes are made before the widgets.
+extern "C" void rush2_controls_menu_box(uint8_t* rdram, recomp_context* ctx) {
+    latch_rows();
+    Layout l = layout(true, row_count());
+    ctx->r5 = l.box_top;
+    ctx->r7 = l.box_bottom;
+}
+
+// func_800B6134 before it prints a panel's "PLAYER %d CONTROLS" title (pause menu only; $a1 = y, the game's 0x1B).
+extern "C" void rush2_controls_menu_title_y(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r5 = current_layout(rdram).title_y;
+}
+
+// func_800B6134 at 0x800B64D8, once a player's first row position is in $s2: the layout's.
 extern "C" void rush2_controls_menu_first_row(uint8_t* rdram, recomp_context* ctx) {
-    ctx->r18 = (int32_t)ctx->r18 - row_lift();
+    ctx->r18 = current_layout(rdram).first_row;
 }
 
 // func_800B6134, at the end of each label row, after the row counter ($s3) was incremented and before the loop
@@ -909,5 +963,5 @@ extern "C" void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx) 
     if ((int32_t)ctx->r19 >= row_count()) {
         ctx->r19 = max_rows;
     }
-    ctx->r18 = (int32_t)ctx->r18 - (original_row_spacing - row_spacing());
+    ctx->r18 = (int32_t)ctx->r18 - (original_row_spacing - current_layout(rdram).spacing);
 }

@@ -1934,6 +1934,7 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
         }
     }
     rush2::players4::draw_join_hint(rdram, ctx);
+    rush2::look_back_draw_end(rdram);
 }
 
 // func_800B9D48, around its printf of the laps-left number at ($a0, $a1). The text sits on the track map (above its

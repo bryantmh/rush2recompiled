@@ -117,6 +117,24 @@ How a select is rebuilt after a change, as the game rebuilds it between visits:
   the menus read only enabled ports' presses (menu buttons 0x8011962A pressed, 0x80125A68 repeat). Online the
   records have no port, so leaving the race turns the menus' ports back on (docs/online.md#race-end).
 
+## Controller Setup screen
+
+menu_screen_controller_setup_800AD7E4 runs it, menu_controller_setup_rows_text_800B6134 prints its text; src/controls_menu.cpp
+runs and draws it. Its rows are the game's nine, then LOOK BACK (Gameplay option Look Back), WINGS (Games option Wings)
+and FIRE / DROP WEAPON (Rush 2049 tracks available): 9 to 13, latched when the screen opens.
+
+- Reaching it: main menu `START`, `DU` (SETUP, the last row), `A`, `DD`, `A`, about 4 s after the front end is up
+  (`tools/test_race.py menus --script "13:START:0.3,16:DU:0.3,17.5:A:0.3,19:DD:0.3,20:A:0.3"`, up at 22 s); pause menu
+  `START`, `DD`, `DD`, `A` once the race runs (`tools/test_race.py 0 --cars 7,7 --script
+  "20:START:0.3,21.5:DD:0.3,22.5:DD:0.3,23.5:A:0.3"`, up at 25 s). `--games wings=false --games rush2049_tracks=false`
+  and `--config general.look_back=false` give the shorter lists.
+- Layout (`layout()`): in the pause menu each player's box (hud_multi_widget_menu_setup_80093B38, the game's y 20-220,
+  hooked at 0x800AD910 / 0x800AD948) is sized to the rows and centered: title 6 below its top (hook at 0x800B6470), the
+  first row 16 under the title, the footer one spacing under the last row, the box's bottom 6 under the footer; the
+  spacing is the game's 17 or less so the box fits the 2D clip (y 10-230). In the main menu the frame images are fixed
+  (header y 10-42, footer plates y 212-229, their bars through the middle): the rows and footer are centered between
+  them, 17 apart or less. Rows under 15 apart draw the button icons 12 pixels tall instead of 14.
+
 ## Starting a race without the menus
 
 A test that only needs a race shouldn't script the menus at all: `RUSH2_TEST_RACE=<track select id or custom track

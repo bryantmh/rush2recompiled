@@ -574,6 +574,18 @@ func = "menu_screen_controller_setup_800AD7E4"
 before_vram = 0x800ADA80
 text = "    if (rush2_controls_menu_update(rdram, ctx)) goto L_800AE0A4;"
 
+# The pause menu's panel boxes (hud_multi_widget_menu_setup_80093B38, top in $a1, bottom in $a3; the game's y 20-220)
+# are sized to the screen's rows and centered (src/controls_menu.cpp layout()).
+[[patches.hook]]
+func = "menu_screen_controller_setup_800AD7E4"
+before_vram = 0x800AD910
+text = "    rush2_controls_menu_box(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_controller_setup_800AD7E4"
+before_vram = 0x800AD948
+text = "    rush2_controls_menu_box(rdram, ctx);"
+
 # The pause menu opens (func_800AFD44 at 0x800AFE14): $s6 = the player who pressed START (or whose controller was
 # unplugged). src/players4.cpp keeps it, so the Controller Setup screen shows that player's panel.
 [[patches.hook]]
@@ -604,14 +616,19 @@ func = "menu_controller_setup_rows_text_800B6134"
 before_vram = 0x800B6424
 text = "    rush2_controls_menu_title(rdram, ctx);"
 
-# With more than ten rows the first one starts higher ($s2 = its y, just set).
+# The pause menu's "PLAYER %d CONTROLS" title ($a1 = y) sits at the top of the resized box.
+[[patches.hook]]
+func = "menu_controller_setup_rows_text_800B6134"
+before_vram = 0x800B6470
+text = "    rush2_controls_menu_title_y(rdram, ctx);"
+
+# Up to thirteen label rows (the game's nine, LOOK BACK, WINGS, FIRE, DROP WEAPON); the hook ends the loop after the
+# screen's rows and makes the step the layout's spacing. The first row's y ($s2, just set) is the layout's.
 [[patches.hook]]
 func = "menu_controller_setup_rows_text_800B6134"
 before_vram = 0x800B64D8
 text = "    rush2_controls_menu_first_row(rdram, ctx);"
 
-# Up to thirteen label rows (the game's nine, LOOK BACK, WINGS, FIRE, DROP WEAPON); the hook ends the loop after the
-# screen's rows and moves them closer together when there are more than nine.
 [[patches.instruction]]
 func = "menu_controller_setup_rows_text_800B6134"
 vram = 0x800B6560
@@ -8818,19 +8835,6 @@ func = "race_preload_car_assets_800A37F4"
 before_vram = 0x800A417C
 text = "    rush2_car49_asset(rdram, ctx, &ctx->r4);"
 
-[[patches.hook]]
-func = "save_set_field_590_800975BC"
-before_vram = 0x800975BC
-text = "    rush2_car49_record(rdram, ctx);"
-
-[[patches.hook]]
-func = "save_set_field_58f_80097608"
-before_vram = 0x80097608
-text = "    rush2_car49_record(rdram, ctx);"
-
-[[patches.hook]]
-func = "save_set_field_58e_80097654"
-before_vram = 0x80097654
 # The free heap checks' size table reads (lw 0x74(reg)): the car type's own asset's size (src/rush2049/car2049.cpp).
 [[patches.hook]]
 func = "race_preload_car_assets_800A37F4"
@@ -8852,6 +8856,19 @@ func = "race_preload_car_assets_800A37F4"
 before_vram = 0x800A40DC
 text = "    rush2_car49_asset_size(rdram, ctx, &ctx->r25);"
 
+[[patches.hook]]
+func = "save_set_field_590_800975BC"
+before_vram = 0x800975BC
+text = "    rush2_car49_record(rdram, ctx);"
+
+[[patches.hook]]
+func = "save_set_field_58f_80097608"
+before_vram = 0x80097608
+text = "    rush2_car49_record(rdram, ctx);"
+
+[[patches.hook]]
+func = "save_set_field_58e_80097654"
+before_vram = 0x80097654
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]
@@ -14402,7 +14419,13 @@ func = "cam_update_all_players_8009D9F4"
 before_vram = 0x8009E01C
 text = "    ctx->r10 = (gpr)(int32_t)rush2_online_body_kind(rdram, ctx, (int)(int16_t)ctx->r16, (int)(int32_t)ctx->r10);"
 
-# Attract Camera: VIEW goes on from the far chase camera to the attract demo's high chase camera (src/camera.cpp).
+# Attract Camera: VIEW goes on from the close chase camera to the attract demo's high chase camera, and from it
+# back to the bumper camera (src/camera.cpp).
+[[patches.hook]]
+func = "cam_update_all_players_8009D9F4"
+before_vram = 0x8009DD6C
+text = "    rush2_attract_camera_view(rdram, ctx);"
+
 [[patches.hook]]
 func = "cam_update_all_players_8009D9F4"
 before_vram = 0x8009DE30
