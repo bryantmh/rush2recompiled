@@ -19,8 +19,16 @@ exe = os.path.abspath(os.environ.get('RUSH2_EXE', os.path.join(shots.REPO, 'buil
 log = open(os.environ['RUSH2_LOG'], 'w') if os.environ.get('RUSH2_LOG') else subprocess.DEVNULL
 p = subprocess.Popen([exe], cwd=os.path.dirname(exe), stdout=log, stderr=subprocess.STDOUT)
 try:
-    time.sleep(12)
-    hwnd = shots.find_window(p.pid)
+    # The window shows later on a cold start (an empty shader cache, a new data folder): wait up to a minute for it.
+    hwnd = None
+    for _ in range(60):
+        time.sleep(1)
+        hwnd = shots.find_window(p.pid)
+        if hwnd:
+            break
+    if not hwnd:
+        sys.exit('the game window never showed')
+    time.sleep(8)
     for i, key in enumerate(keys):
         sc = shots.user32.MapVirtualKeyW(VK[key], 0) << 16
         if key in ('RIGHT', 'LEFT', 'UP', 'DOWN'):

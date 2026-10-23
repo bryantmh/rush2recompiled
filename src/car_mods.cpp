@@ -51,6 +51,7 @@
 #include "car_mods.h"
 #include "data_files.h"
 #include "players4.h"
+#include "rush2.h"
 #include "paint_colors.h"
 #include "texture_derive.h"
 #include "texture_upscale.h"
@@ -1206,7 +1207,7 @@ namespace {
         std::lock_guard lock{ livery_tables_mutex };
         for (uint32_t offset : livery_tables) {
             uint32_t at = records - offset;
-            if (at >= 0x80000000u && at < 0x80800000u && (uint32_t)MEM_W(8, (int32_t)at) == offset) return at;
+            if (rush2::in_game_ram(at) && (uint32_t)MEM_W(8, (int32_t)at) == offset) return at;
         }
         return 0;
     }
@@ -1365,7 +1366,7 @@ void rush2::car_mods::paint_livery(uint8_t* rdram, int id) {
         auto own = style > 0 ? livery_parts.find(part) : livery_parts.end();
         for (uint32_t l = 0; l < lods_of(i); l++) {
             uint32_t list = list_of(i, l);
-            if (list < 0x80000000u + 0x400 || list >= 0x80800000u) continue;
+            if (list < 0x80000000u + 0x400 || list >= 0x81000000u) continue;
             uint32_t to = own != livery_parts.end() ? list_of(own->second, std::min(l, lods_of(own->second) - 1)) : 0;
             uint32_t& t = branch_to[list];
             if (to != 0) t = to;

@@ -82,7 +82,7 @@ static void dump_font_tables(uint8_t* rdram) {
         int32_t font = (int32_t)(font_table + id * 0x10);
         uint32_t pages = (uint32_t)MEM_W(0xC, font);
         int page_count = MEM_BU(0x9, font);
-        if (pages < 0x80000000u || pages >= 0x80800000u || page_count == 0 || page_count > 16) {
+        if (!rush2::in_game_ram(pages) || page_count == 0 || page_count > 16) {
             continue;
         }
         fprintf(f, "%s{\"id\":%d,\"pages\":[", first_font ? "" : ",\n", id);
@@ -181,7 +181,7 @@ static void add_small_font_colon(uint8_t* rdram) {
     constexpr int colon_x = 40, colon_y = 12, height = 5;
     int32_t font = (int32_t)font_table;
     uint32_t pages = (uint32_t)MEM_W(0xC, font);
-    if (MEM_BU(0x9, font) != 1 || pages < 0x80000000u || pages >= 0x80800000u) {
+    if (MEM_BU(0x9, font) != 1 || !rush2::in_game_ram(pages)) {
         return;
     }
     int32_t page = (int32_t)pages;

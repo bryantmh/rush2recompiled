@@ -496,7 +496,7 @@ namespace {
     void body_pose(uint8_t* rdram, int i, float pos[3], float m[9]) {
         int body = (int32_t)MEM_W(0, (int32_t)(body_nodes + (uint32_t)i * body_node_stride));
         uint32_t transform = body >= 0 && body < (int)rush2::scene_nodes::capacity ? (uint32_t)MEM_W(4, (int32_t)(nodes + (uint32_t)body * node_size)) : 0;
-        if (transform >= 0x80000000u && transform < 0x80800000u) {
+        if (rush2::in_game_ram(transform)) {
             for (int k = 0; k < 9; k++) m[k] = read_f(rdram, transform + k * 4);
             for (int k = 0; k < 3; k++) pos[k] = read_f(rdram, transform + 0x24 + k * 4);
             if (std::fabs(dot(m, m) - 1.0f) < 0.2f) return;

@@ -1578,7 +1578,7 @@ void rush2::car2049::set_stand_in_mod_car(uint8_t* rdram, int n, const ModCar& s
     build_mod_physics(rdram, n, spec);
     std::string prefix;
     uint32_t name = (uint32_t)MEM_W(0, (int32_t)(name_table + type * 4));
-    for (int i = 0; i < 8 && name >= 0x80000000u && name < 0x80800000u && MEM_B(i, (int32_t)name) != 0; i++) {
+    for (int i = 0; i < 8 && rush2::in_game_ram(name) && MEM_B(i, (int32_t)name) != 0; i++) {
         prefix += (char)MEM_B(i, (int32_t)name);
     }
     std::string logo = mod_logo_name(n);
@@ -1764,7 +1764,7 @@ uint32_t rush2::car2049::physics_hash(uint8_t* rdram, int type, int row, uint32_
     }
     int desc = (uint8_t)MEM_BU(0, (int32_t)(t_desc_index + type));
     uint32_t at = (uint32_t)MEM_W(0, (int32_t)(desc_ptrs + desc * 4));
-    if (at >= 0x80000000u && at + desc_size <= 0x80800000u) {
+    if (at >= 0x80000000u && at + desc_size <= 0x81000000u) {
         // Words that are addresses (the tire curves, +0x68) point at the same data on every machine: their target is
         // in the ROM's tables or build_physics' copies, laid out alike.
         add(at, desc_size);
@@ -1952,6 +1952,17 @@ extern "C" void rush2_car49_asset(uint8_t* rdram, recomp_context* ctx, uint64_t*
     if (type >= rush2::car2049::first_type && type < rush2::car2049::types) {
         *reg = (uint64_t)(int64_t)rush2::car2049::car_asset(type);
     }
+}
+
+// func_800A37F4's free heap checks (a car's model is loaded only if the heap holds its asset + 0x200; else a smaller
+// Rush 2 type's is): they read the size table at $s5 (asset_sizes) + type * 4 + 0x74, asset 0x1D + type, with the
+// type in $v1. reg is that address less 0x74: pointed at the type's own asset's entry. Unmapped, a 2049 type read a
+// track asset's size (type 24: 0x35, the HAWAII slot's geometry, which hosts the custom tracks), so a big custom track
+// (the arcade Presidio) failed the check and the player drove the Pickup.
+extern "C" void rush2_car49_asset_size(uint8_t* rdram, recomp_context* ctx, uint64_t* reg) {
+    uint64_t index = (uint64_t)(int64_t)((int32_t)ctx->r3 + 0x1D);
+    rush2_car49_asset(rdram, ctx, &index);
+    *reg = (uint64_t)(int64_t)(int32_t)((uint32_t)ctx->r21 + (uint32_t)index * 4 - 0x74);
 }
 
 bool rush2::car2049::type_available(int type) {
@@ -3349,7 +3360,7 @@ namespace {
         float m[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
         for (int depth = 0; n >= 0 && n < max_scene_nodes && depth < 16; depth++) {
             uint32_t transform = (uint32_t)MEM_W(4, (int32_t)(scene_node_table + uint32_t(n) * scene_node_size));
-            if (transform >= 0x80000000u && transform < 0x80800000u) {
+            if (rush2::in_game_ram(transform)) {
                 float r[9], p[9];
                 for (int i = 0; i < 9; i++) {
                     uint32_t bits = (uint32_t)MEM_W(i * 4, (int32_t)transform);

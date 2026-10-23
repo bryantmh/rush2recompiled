@@ -21,6 +21,7 @@
 #include <set>
 #include <vector>
 
+#include "rush2.h"
 #include "recomp.h"
 #include "track2049.h"
 
@@ -103,7 +104,7 @@ namespace {
     // texels for a flip-book's G_SETTIMG, the tile size for a scroll's G_SETTILESIZE).
     bool setup(uint8_t* rdram) {
         base = find_geometry(rdram);
-        if (base < 0x80000000 || base >= 0x80800000) {
+        if (!rush2::in_game_ram(base)) {
             printf("[2049] Animated textures: the track geometry isn't loaded\n");
             return false;
         }

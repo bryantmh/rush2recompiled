@@ -338,7 +338,7 @@ namespace {
     constexpr int32_t palette_colors = 0x14;
 
     bool is_rdram(uint32_t address) {
-        return address >= 0x80000000 && address < 0x80800000;
+        return rush2::in_game_ram(address);
     }
 
     // Where a widget's image texels are: pixels, the colors of a color indexed image (RGBA16), format, texel size and

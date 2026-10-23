@@ -54,6 +54,7 @@
 #include "arcade_checkpoints.h"
 #include "data_files.h"
 #include "rush2_hooks.h"
+#include "rush2.h"
 #include "audio2049.h"
 #include "battle_render.h"
 #include "collectibles.h"
@@ -318,7 +319,7 @@ namespace {
                 return "";
             }
             uint32_t record = (uint32_t)MEM_W(0, (int32_t)(slot + 0x24));
-            if (record < 0x80000000 || record >= 0x80800000 || (MEM_BU(0, (int32_t)(record + rec_flags)) & 1) == 0) {
+            if (!rush2::in_game_ram(record) || (MEM_BU(0, (int32_t)(record + rec_flags)) & 1) == 0) {
                 return "";
             }
             return read_name(rdram, record + rec_name, name_size);
@@ -328,7 +329,7 @@ namespace {
             return "";
         }
         uint32_t record = (uint32_t)MEM_W(0, (int32_t)(slot + 0x24));
-        if (record < 0x80000000 || record >= 0x80800000) {
+        if (!rush2::in_game_ram(record)) {
             return "";
         }
         return read_name(rdram, record + rec_name, name_size);
@@ -521,8 +522,7 @@ extern "C" void rush2_collect_frame(uint8_t* rdram, recomp_context* ctx) {
         uint32_t slot = player_slots + (uint32_t)player * player_slot_size;
         uint8_t profile_slot = MEM_BU(0, (int32_t)(slot + 1));
         uint32_t record = (uint32_t)MEM_W(0, (int32_t)(slot + 0x24));
-        if ((int16_t)MEM_H(0, (int32_t)(profile_of_slot + profile_slot * 2)) == -1 || record < 0x80000000 ||
-            record >= 0x80800000) {
+        if ((int16_t)MEM_H(0, (int32_t)(profile_of_slot + profile_slot * 2)) == -1 || !rush2::in_game_ram(record)) {
             continue;
         }
         std::string name = read_name(rdram, record + rec_name, name_size);

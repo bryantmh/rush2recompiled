@@ -37,6 +37,7 @@
 #include "assets.h"
 #include "car_probes.h"
 #include "dl_copy.h"
+#include "rush2.h"
 #include "track2049.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
@@ -340,7 +341,7 @@ bool update(uint8_t* rdram) {
         int node = (int32_t)MEM_W(0, (int32_t)(car_body_nodes + uint32_t(car) * car_body_node_stride));
         if (node < 0 || node >= max_scene_nodes) continue;
         uint32_t transform = (uint32_t)MEM_W(4, (int32_t)(scene_node_table + uint32_t(node) * scene_node_size));
-        if (transform < 0x80000000u || transform >= 0x80800000u) continue;
+        if (!rush2::in_game_ram(transform)) continue;
         float pos[3];
         for (int k = 0; k < 3; k++) {
             uint32_t bits = (uint32_t)MEM_W(0x24 + k * 4, (int32_t)transform);

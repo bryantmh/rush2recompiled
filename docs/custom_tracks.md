@@ -959,6 +959,14 @@ merges and renames as needed.
   func_800BC888 through another pointer are excluded), and the game heap starts at 0x80420000 (`src/assets.cpp`;
   3 MB of it was still free in the arcade Metro's race). Interpolation keeps state for every node and its matrix IDs
   hold 12 bits of node index (`src/interpolation.cpp` node_id).
+- **A big track and the heap:** the arcade Presidio (Rush 2049 Arcade, Alcatraz Only off) fills the heap to about
+  0x80A5EAA0 (`test_race.py --peek 8010C438 --peek 8010C454`: heap low and high). Two things broke there (issue 27).
+  `race_preload_car_assets_800A37F4` loads a car's model only if the free heap holds its asset + 0x200, else a smaller
+  Rush 2 type's. Its checks read the size table at asset 0x1D + type, which for a Rush 2049 type is a track asset
+  (type 24: 0x35, the HAWAII slot's geometry, the custom track itself), so every 2049 car became the Pickup; they are
+  hooked to the type's own asset now (`rush2_car49_asset_size`, src/rush2049/car2049.cpp). And code that checked game
+  pointers against the old 8 MB end (0x80800000) rejected data loaded past it: the pause menu's row images, so SKIP
+  TRACK was blank. Those checks use `rush2::in_game_ram` (include/rush2.h, the full 16 MB) now.
 - **See-through materials:** BLEND triangles get their own sections (the grid cell is keyed by translucency too),
   whose records have the late-pass flag 0x40000 (drawn after the opaque nodes, as Rush 2's own transparent ones). Every
   list draws its translucent materials last with render mode 0xC8104A50 (fog, then AA z-buffered translucent: Rush 2's

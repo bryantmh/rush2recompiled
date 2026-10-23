@@ -12,6 +12,12 @@ namespace rush2 {
     inline const std::u8string program_id = u8"Rush2Recompiled";
     inline const std::string program_name = "Rush 2: Recompiled";
 
+    // Whether a game pointer is in the game's 16 MB of RDRAM (mod memory starts at 0x81000000). The game heap reaches
+    // 0x80AE0000 (src/assets.cpp), so a check against the old 8 MB end rejects data a big track pushes past 0x80800000.
+    inline bool in_game_ram(uint32_t address) {
+        return address >= 0x80000000u && address < 0x81000000u;
+    }
+
     void register_overlays();
 
     // Creates the config menu tabs. Must be called before recomp::start.

@@ -8831,6 +8831,27 @@ text = "    rush2_car49_record(rdram, ctx);"
 [[patches.hook]]
 func = "save_set_field_58e_80097654"
 before_vram = 0x80097654
+# The free heap checks' size table reads (lw 0x74(reg)): the car type's own asset's size (src/rush2049/car2049.cpp).
+[[patches.hook]]
+func = "race_preload_car_assets_800A37F4"
+before_vram = 0x800A3E9C
+text = "    rush2_car49_asset_size(rdram, ctx, &ctx->r14);"
+
+[[patches.hook]]
+func = "race_preload_car_assets_800A37F4"
+before_vram = 0x800A3EE4
+text = "    rush2_car49_asset_size(rdram, ctx, &ctx->r25);"
+
+[[patches.hook]]
+func = "race_preload_car_assets_800A37F4"
+before_vram = 0x800A3F4C
+text = "    rush2_car49_asset_size(rdram, ctx, &ctx->r15);"
+
+[[patches.hook]]
+func = "race_preload_car_assets_800A37F4"
+before_vram = 0x800A40DC
+text = "    rush2_car49_asset_size(rdram, ctx, &ctx->r25);"
+
 text = "    rush2_car49_record(rdram, ctx);"
 
 [[patches.hook]]

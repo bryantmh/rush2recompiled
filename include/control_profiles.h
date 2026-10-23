@@ -63,6 +63,10 @@ namespace rush2::control_profiles {
     // Profiles to choose from: the game's (in pak order, from rush2::collectibles::progress), then ones with saved
     // settings, then "" for players without a profile.
     std::vector<std::string> profiles();
+
+    // The profile last picked in the Controls tab's profile picker, kept across launches; false if none was picked.
+    bool edited_profile(std::string& out);
+    void set_edited_profile(const std::string& profile);
 }
 
 #endif

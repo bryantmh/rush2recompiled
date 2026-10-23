@@ -1,9 +1,11 @@
 // Control and rumble settings per game save profile (include/control_profiles.h).
 //
 // Kept in players.json's "control_profiles" section (include/data_files.h):
-//   { "version": 1, "defaults": {settings}, "profiles": [ { "name": "BOB", "key": "424f42", "settings": {settings} } ] }
+//   { "version": 1, "defaults": {settings}, "profiles": [ { "name": "BOB", "key": "424f42", "settings": {settings} } ],
+//     "edited": "424f42" }
 // A profile is found by its name's bytes in hex ("key"; names can hold bytes JSON strings can't), "" for players
-// without a profile. "defaults" is what a profile starts from until its settings are changed.
+// without a profile. "defaults" is what a profile starts from until its settings are changed. "edited" is the profile
+// last picked in the Controls tab (absent until one is picked), which the tab opens on.
 //
 // Before this, steering, reverse, the stick deadzone and rumble were global options in general.json. The first load
 // (no section yet) reads them from there into "defaults", so every profile starts with what the player had.
@@ -35,6 +37,8 @@ namespace {
     std::map<std::string, Settings> store; // By profile name ("" = no profile).
     std::array<std::string, num_ports> port_profiles; // Game thread writes, under the mutex.
     bool loaded = false;
+    bool has_edited = false;
+    std::string edited; // The Controls tab's picked profile.
 
     std::string hex_of(const std::string& name) {
         static const char digits[] = "0123456789abcdef";
@@ -146,8 +150,11 @@ namespace {
         for (const auto& [name, settings] : store) {
             list.push_back({ { "name", name }, { "key", hex_of(name) }, { "settings", to_json(settings) } });
         }
-        rush2::data_files::write(rush2::data_files::File::Players, section,
-            nlohmann::json{ { "version", 1 }, { "defaults", to_json(defaults) }, { "profiles", list } }.dump());
+        nlohmann::json j{ { "version", 1 }, { "defaults", to_json(defaults) }, { "profiles", list } };
+        if (has_edited) {
+            j["edited"] = hex_of(edited);
+        }
+        rush2::data_files::write(rush2::data_files::File::Players, section, j.dump());
     }
 }
 
@@ -185,6 +192,24 @@ void rush2::control_profiles::load() {
             store[name_of_hex(p["key"].get<std::string>())] = from_json(p["settings"], defaults);
         }
     }
+    has_edited = j.contains("edited") && j["edited"].is_string();
+    edited = has_edited ? name_of_hex(j["edited"].get<std::string>()) : std::string();
+}
+
+bool rush2::control_profiles::edited_profile(std::string& out) {
+    std::lock_guard lock{ mutex };
+    out = edited;
+    return has_edited;
+}
+
+void rush2::control_profiles::set_edited_profile(const std::string& profile) {
+    std::lock_guard lock{ mutex };
+    if (has_edited && edited == profile) {
+        return;
+    }
+    has_edited = true;
+    edited = profile;
+    save_locked();
 }
 
 Settings rush2::control_profiles::get(const std::string& profile) {

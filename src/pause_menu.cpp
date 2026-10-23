@@ -240,7 +240,7 @@ namespace {
     }
 
     bool is_rdram(uint32_t address) {
-        return address >= 0x80000000 && address < 0x80800000;
+        return rush2::in_game_ram(address);
     }
 
     // A row image of the pause list (a CI4 model image, stored upside down: the grey half in rows 0-9, the yellow one

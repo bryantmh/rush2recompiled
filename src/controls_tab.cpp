@@ -63,7 +63,8 @@ namespace {
 
     recomp::config::Config profile_config{ "Controls", "control_profile", false };
     std::string selected;      // UI thread: the profile being edited.
-    bool picked = false;       // The profile was chosen in the picker; until then it's the first profile.
+    bool picked = false;       // The profile was chosen in the picker (this launch or an earlier one, kept by
+                               // rush2::control_profiles::set_edited_profile); until then it's the first profile.
     bool loading = false;      // The rows are being set from a profile, not changed by the player.
 
     double number(const std::string& id) {
@@ -284,6 +285,12 @@ namespace {
                 found = found || p == selected;
             }
             std::string before = selected;
+            // The profile picked in an earlier launch, once the game's profiles (read from the pak) list it.
+            std::string remembered;
+            if (!picked && edited_profile(remembered) && std::find(list.begin(), list.end(), remembered) != list.end()) {
+                selected = remembered;
+                picked = found = true;
+            }
             if (!found || !picked) {
                 selected = list.front(); // The first profile (No profile only when there are none).
                 picked = picked && found;
@@ -315,6 +322,7 @@ namespace {
                 if (i < list.size()) {
                     selected = list[i];
                     picked = true;
+                    set_edited_profile(selected);
                     show_profile(selected);
                 }
             });
