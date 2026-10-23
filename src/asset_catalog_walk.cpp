@@ -3,7 +3,7 @@
 // (tools/asset_catalog_test.cpp).
 //
 // The lists are run as the RSP and RDP would run them: G_DL calls into the texture-load lists, the conditional op
-// (geometry.md 4.1) taken as the game takes it for one player, unmirrored, and every RDP texture command applied to a
+// (geometry.md 4.1) taken as the game takes it for one player, forward, and every RDP texture command applied to a
 // copy of TMEM with RT64's own load code (RDP::loadTileOperation / loadBlockOperation / loadTLUTOperation in
 // lib/rt64/src/hle/rt64_rdp.cpp, minus the byte swap of its RDRAM). At each triangle the render tile is hashed with
 // RT64's TMEMHasher and decoded with decode_tmem, so a texture's hash, image and content key are the ones the game's
@@ -32,7 +32,7 @@ namespace {
     constexpr uint32_t tmem_mask8 = 0xFFF, tmem_mask16 = 0x7FF;
     constexpr uint32_t no_address = 0xFFFFFFFF;
     constexpr uint32_t texel_record = 0x08000000; // Texture record flag: data is texels, not a texture-load list.
-    // Load flags the conditional op tests (geometry.md 4.1): bit 1 one player, bit 3 not mirrored.
+    // Load flags the conditional op tests (geometry.md 4.1): bit 1 one player, bit 3 forward (not backward).
 #ifdef CATALOG_LOAD_FLAGS
     constexpr uint32_t load_flags = CATALOG_LOAD_FLAGS;   // tools/asset_catalog_test.bat: other branch variants.
 #else

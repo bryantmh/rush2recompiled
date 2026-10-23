@@ -115,7 +115,7 @@ menu containers go to `sfrush` / `rush2049`.
 section 2) and runs every LOD's list as the RSP and RDP would:
 
 - **Calls:** `G_DL` into the texture-load lists (push and branch), `G_ENDDL`, the conditional op `E0 01` taken as the
-  game takes it for one player, unmirrored (load flags bits 1 and 3).
+  game takes it for one player, forward (load flags bits 1 and 3).
 - **Texture state:** `G_TEXTURE` (tile, levels, scale), `G_SETOTHERMODE_H` / `G_RDPSETOTHERMODE` (TLUT, texture LOD,
   cycle type), `G_SETCOMBINE`.
   - Defaults per LOD: texturing on, tile 0, scale 1, TLUT RGBA16. The model draw leaves these set (geometry.md 5.3);

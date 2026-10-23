@@ -223,12 +223,12 @@ the track is loaded, and Rush 2 loads the track per race.
 |---|---|---|---|---|
 | 1 | 0x02 | one player | `h 0x8010C3E2 == 1` | `h 0x8014A108 == 1` |
 | 2 | 0x04 | two players | `== 2` | `== 2` |
-| 3 | 0x08 | not mirrored | `b 0x80119848 == 0` | `b 0x80152570 == 0` |
-| 4 | 0x10 | mirrored | `b 0x80119848 != 0` | `b 0x80152570 != 0` |
+| 3 | 0x08 | forward | `b 0x80119848 == 0` | `b 0x80152570 == 0` |
+| 4 | 0x10 | backward | `b 0x80119848 != 0` | `b 0x80152570 != 0` |
 
-- **2049 mirror flag:** 0x80152570 selects AI-path file `0x9E+track` (normal) or `0xB1+track` (mirrored) in
-  `func_800BB9B0` at 0x800BBCC0. So **2049 does ship mirrored AI paths, files 177–182** (note for the AI-path work).
-- **What the data uses:** only conditions 3 and 4, for mirror-only and normal-only geometry (signs, arrows, finish
+- **2049 backward flag:** 0x80152570 selects AI-path file `0x9E+track` (forward) or `0xB1+track` (backward) in
+  `func_800BB9B0` at 0x800BBCC0. So **2049 does ship backward AI paths, files 177–182** (note for the AI-path work).
+- **What the data uses:** only conditions 3 and 4, for backward-only and forward-only geometry (signs, arrows, finish
   banners).
   - Rush 2 tracks 1, 3, 5, 8 and 10 use them.
   - All six 2049 tracks use them (6–56 ops each).

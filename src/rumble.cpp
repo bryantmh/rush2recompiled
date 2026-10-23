@@ -91,11 +91,20 @@ namespace {
     float wall_side[num_ports] = {};
     float wall_intensity[num_ports] = {};
 
+    // u8: the race is mirrored. Mirror mode only flips the picture (and the steering); the physics, and so every side
+    // worked out here, stays unmirrored, so the car's right is the screen's left.
+    constexpr uint32_t mirror_flag = 0x800D0190;
+
     float get_f32(uint8_t* rdram, uint32_t addr) {
         uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
         float value;
         memcpy(&value, &bits, sizeof(value));
         return value;
+    }
+
+    // A side in the physics' frame turned into the side the player sees.
+    float screen_side(uint8_t* rdram, float side) {
+        return MEM_BU(0, (int32_t)mirror_flag) != 0 ? -side : side;
     }
 }
 
@@ -136,7 +145,7 @@ extern "C" void rush2_rumble_wall_contact(uint8_t* rdram, uint32_t car, const fl
     }
     // The normal in the car's frame: x > 0 pushes the car to its right, so the wall is on its left.
     float side_x = m[0] * normal[0] + m[1] * normal[1] + m[2] * normal[2];
-    float side = std::clamp(side_x * grind_side_gain, -1.0f, 1.0f);
+    float side = screen_side(rdram, std::clamp(side_x * grind_side_gain, -1.0f, 1.0f));
     // Speed along the wall: the velocity less its part into the wall.
     float into = velocity[0] * normal[0] + velocity[1] * normal[1] + velocity[2] * normal[2];
     float along = 0.0f;
@@ -188,6 +197,7 @@ extern "C" void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx) {
     float cornering = 0.0f;
     if (std::fabs(lateral) >= min_lateral) {
         cornering = std::clamp(lateral / (std::fabs(lateral) + std::fabs(longitudinal)) * side_gain, -1.0f, 1.0f);
+        cornering = screen_side(rdram, cornering);
     }
     rush2::input::set_rumble_cornering(port, cornering);
     float rise = std::fabs(lateral) - std::fabs(previous_lateral[port]);
@@ -207,6 +217,6 @@ extern "C" void rush2_rumble_impact(uint8_t* rdram, recomp_context* ctx) {
     }
 
     float side = lateral / (std::fabs(lateral) + std::fabs(longitudinal)) * side_gain;
-    side = std::clamp(side, -1.0f, 1.0f);
+    side = screen_side(rdram, std::clamp(side, -1.0f, 1.0f));
     rush2::input::set_rumble_impact(port, side, hard);
 }

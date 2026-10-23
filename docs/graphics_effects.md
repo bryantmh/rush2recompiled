@@ -227,7 +227,7 @@ on Rush 2's twelve stock tracks and prints their spread):
   the model normal times the node's rotation and its parents' (`node_rotation`). The draw is wrapped with ENV = 0 and
   PRIM white (alpha kept): Rush 2's tunnel darkening and Rush 2049's PRIM color are left to the probes.
 - Normals, once per list: every triangle's front normal is added to its three vertices weighted by its angle there,
-  turned around when 0x80119848 (mirror mode: the game swaps every list's winding) is set; vertices at the same place
+  turned around when 0x800D0190 (mirror mode: the game swaps every list's winding) is set; vertices at the same place
   (a panel's edge, split for its texture) share one normal unless they face nearly opposite ways (a thin fin's two
   sides); merging only under 45 degrees left a hard line along the beltline. Summing all faces at a
   position by area first left a car's tail lit like its roof: the big trunk lid outweighed the small rear face.
