@@ -378,6 +378,27 @@ namespace {
         }
         return taken;
     }
+
+    // A spline road polygon (flag 0x1000) holds the wheel on the segment's cubic surface (collision_seg_surface_8006BDA8,
+    // California Speed's 0x800AEE54 the same), which meets the polygon at its corners and bows away between them. The
+    // road drawn is the flat polygons, and on California Speed's coarse spline triangles the cubic sags up to 1.4 ft
+    // under them where the road dips (San Francisco's x 2300-2550, z 1000-1980 and its walled loop, polygons
+    // 7120-7288), so the car sank into the road it showed. The wheel is held on the higher of the two: the height to
+    // the flat face, measured along the spline's normal (the probe's frame row 1), when the face is above the cubic.
+    // California Speed only: a custom track's ROAD_SPLINES road may be drawn finer than its polygons, along the cubic.
+    void spline_on_face(uint8_t* rdram, recomp_context* ctx, uint32_t poly) {
+        float w[16][3], m[9];
+        if (world_vertices(rdram, poly, w, m) < 3) return;
+        uint32_t pointp = (uint32_t)MEM_W(sp_point, (int32_t)ctx->r29), frame = (uint32_t)MEM_W(sp_frame, (int32_t)ctx->r29);
+        float face = 0.0f, dot = 0.0f;
+        for (int a = 0; a < 3; a++) {
+            face += m[3 + a] * (f32(rdram, pointp + 4 * (uint32_t)a) - w[0][a]);
+            dot += m[3 + a] * f32(rdram, frame + 12 + 4 * (uint32_t)a);
+        }
+        if (dot < 0.5f) return;
+        float h = f32(rdram, (uint32_t)ctx->r17 + 4);
+        if (face / dot < h) put_f32(rdram, (uint32_t)ctx->r17 + 4, face / dot);
+    }
 }
 
 // collision_poly_extract_8006F704 at 0x8006F748 (entry, count 0) and 0x8006F860 (the leaf decoded, $t1 = its polygon
@@ -442,6 +463,7 @@ static void smooth_surface(uint8_t* rdram, recomp_context* ctx) {
     }
     const Smooth& s = table.smooth[index];
     if (s.count == 0) {
+        if ((MEM_HU(0, (int32_t)poly) & flag_spline) && rush2::calspeed::racing(rdram)) spline_on_face(rdram, ctx, poly);
         ledge_clamp(rdram, ctx, joined);   // a spline or arc polygon
         return;
     }

@@ -993,6 +993,21 @@ apart: San Francisco's continuous road polygons often miss each other's vertices
 taper to the road at their ends. Checked: test_race 67 with gas held climbs all of them upright (up >= 0.91, the
 ramp's slope); the end-tunnel scenario's bumps match the earlier run and the ramp test never fires there.
 
+Spline sags (2026-10-22): the car sank into San Francisco's road in places. Spline road polygons (flag 0x1000) hold
+the wheel on the segment's cubic surface (`collision_seg_surface_8006BDA8`; California Speed's `cs_wheel_probe`
+0x800AF1EC calls the same formula at 0x800AEE54, so this is the original data's behavior, not a port error). The
+cubic meets each polygon at its corners and bows away between them, while the road drawn is the flat polygons (the
+drawn mesh matches them within 0.03 ft). Where the road dips, the coarse triangles are chords over a sagging curve:
+of SF's 854 spline polygons 124 sag more than 0.25 ft, 46 more than 0.5 ft and 15 more than 1 ft (worst 1.36 ft), at
+the climb at x 2300-2550, z 1000-1980 (segments 67-83) and the hills at x 2370-2520, z -4520..-1800 (segments
+363-429, polygons 7120-7288). On crests the cubic stands up to about 0.2 ft above the face instead. Smooth
+collision's `spline_on_face` now holds a California Speed wheel on the higher of the cubic and the flat face (the
+face's height measured along the cubic's normal), so the car never rides under the road it shows; crests keep the
+cubic. Custom tracks' ROAD_SPLINES roads are left on the cubic, as their drawn road may follow it. Checked
+(tmp/ledge_join/ride.py, tmp/cs_tunnel/run.py "sag climb" "sag hills"): over sags of 0.8-1.1 ft the car's body rides
+0.27-0.36 ft over the drawn road (0.43 on flat road; on the cubic it would be about 0.7 ft under it), and through the
+hills 0.51 ft over the face, 1.26 ft over the cubic.
+
 Trap met on the way: `MEM_W(offset, base)` adds the offset to the (int32) base before widening to the 64-bit address,
 so an offset held in a `uint32_t` constant makes the sum unsigned 32-bit and the access lands 4 GB away (reads zero,
 writes vanish). The first smooth collision build read the POLY slot as 0, never matched the player's car, wrote its
