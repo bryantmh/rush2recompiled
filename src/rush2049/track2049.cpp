@@ -778,11 +778,17 @@ namespace {
     // capped where a Rush 2 car can't hold them, rush2::calspeed::capped_lane_speeds), both through the Car Speeds lane
     // map. The lanes hold `timed` until the race time is worked out (rush2_race_lane_speeds), then `driven`
     // (rush2_track49_race_time). `mph` and `capped` are the file's speeds and their caps, mapped again every race (the
-    // Car Speeds setting can change between two races on the same loaded path).
+    // Car Speeds setting can change between two races on the same loaded path). `partial` is capped for CS Physics
+    // Partial: the computer cars run California Speed's physics (7.6 g of grip, its road hold over crests) and the
+    // player's car its Rush 2 values under it (3.28 g: Rush 2's 2.6 tire grip on California Speed's 1100 lb tire load,
+    // the Rush 2 average car's 108.4 slugs), so its curves are capped at 3.25 g and its crests not at all. Uncapped,
+    // the drones beat the best a player's car could lap 14% more than on Rush 2's circuits; capped, within 2%
+    // (docs/calspeed_research.md#5-paths).
     struct CalSpeedLane {
         uint32_t points = 0;
-        std::vector<uint8_t> mph, capped, timed, driven;
+        std::vector<uint8_t> mph, capped, partial, timed, driven;
     };
+    constexpr double partial_corner_g = 3.25;
     CalSpeedLane calspeed_lanes[4];
 
     bool lane_holds(uint8_t* rdram, uint32_t points, const std::vector<uint8_t>& speeds) {
@@ -821,13 +827,17 @@ namespace {
                     for (int k = 0; k < 3; k++) pos[i][k] = (float)(int16_t)MEM_H(0, (int32_t)(points + i * 8 + k * 2));
                     l.mph[i] = MEM_BU(0, (int32_t)(points + i * 8 + 6));
                 }
-                l.capped = rush2::calspeed::capped_lane_speeds(pos, l.mph, !rush2::calspeed::point_to_point(t));
+                bool loop = !rush2::calspeed::point_to_point(t);
+                l.capped = rush2::calspeed::capped_lane_speeds(pos, l.mph, loop);
+                l.partial = rush2::calspeed::capped_lane_speeds(pos, l.mph, loop, partial_corner_g, 0.0);
                 l.points = points;
             }
             l.timed.resize(count);
             l.driven.resize(count);
-            // California Speed's physics (CS Physics option): its cars hold its own speeds, uncapped.
-            const std::vector<uint8_t>& drive = rush2::calspeed::physics::race_mode() ? l.mph : l.capped;
+            // CS Physics Full CS: California Speed's cars hold its own speeds, uncapped. Partial: `partial`.
+            using rush2::calspeed::physics::Mode;
+            Mode mode = rush2::calspeed::physics::get_mode();
+            const std::vector<uint8_t>& drive = mode == Mode::CalSpeed ? l.mph : mode == Mode::Rushified ? l.partial : l.capped;
             for (uint32_t i = 0; i < count; i++) {
                 l.timed[i] = l.mph[i] ? (uint8_t)std::max(1, rush2::car2049::map_lane_speed(l.mph[i], true)) : 0;
                 l.driven[i] = drive[i] ? (uint8_t)std::max(1, rush2::car2049::map_lane_speed(drive[i], false)) : 0;

@@ -610,6 +610,18 @@ probe is California Speed's own. [V: disassembly; in game]
   from a rollover, before the finish, per minute of race: 0.33 over the 16 tracks against Rush 2's 0.24 (7 tracks);
   the / 1.2 lanes on the five worst tracks 3.08 (now 0.48 there); at 3 g corners twice the 2.5 g count. No drone
   wrecks at speed off its lane. Rollovers (1.20 / min against Rush 2's 0.16) are the road hold's. [V sim]
+- **Driven speeds under CS Physics** (same place): Full CS drives the lanes uncapped, as California Speed does.
+  Partial caps them for its player's car: `capped_lane_speeds` with corners at 3.25 g and crests and dips uncapped
+  (the drones run California Speed's road hold). Its player's car runs Rush 2's tire curves (front grip 2.6) on
+  California Speed's tire load (capped at 1100 lb a wheel, `tire_load`), 3.28 g on the Rush 2 average car (108.4
+  slugs), against the drones' 7.6 g (grip 7.8, 140.4 slugs) and 178 mph top speed against 168 (California Speed's
+  torque scales 1.9 / 1.95 / 2.05 and gears 3.05 / 1.68 / 1.17 / 0.88, the drivetrain model of
+  docs/rush2049_research/cars.md#10-car-speeds-v). Measured offline with tools/calspeed/ai_pace.py (every lane: the
+  drones at lane x 1.05 within their car's top speed, acceleration and grip, against the best lap the player's car
+  could drive on the same lane), drone time over the player's best: Rush 2's circuits 1.022 (1.007-1.045 per track),
+  California Speed's tracks under Full Rush 2 1.032, under Partial uncapped 0.877 (0.76-0.95) and capped 1.006
+  (0.975-1.07). A flat slowdown needed x 0.815 and left the tracks 0.85-1.12; the crest cap at 4 g left San
+  Francisco and San Andreas 1.11. [V model]
 - **Computer cars' resets:** California Speed's reset calls `func_8009DAA8` (0x800A41C4) after placing a car: the
   drone (lane state 0x80151D80 + 0x128 x the car's +0x83A) goes on its own lane's point nearest the reset spot,
   searched between the last and the next checkpoint's crossings (+0x24; +2 in game mode 6), +0x26 = -1, +0x20 the

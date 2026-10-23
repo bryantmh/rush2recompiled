@@ -697,6 +697,26 @@ static void add_hood_wheels_option(recomp::config::Config& config) {
         });
 }
 
+namespace attract_camera_option {
+    const std::string id = "attract_camera";
+}
+
+// Attract Camera: the VIEW button also reaches the attract demo's high chase camera (src/camera.cpp).
+static void add_attract_camera_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        attract_camera_option::id,
+        "Attract Camera",
+        "Adds the high chase camera from the attract demo to the VIEW button's cameras, after the far chase camera. "
+        "Off, as in Rush 2, VIEW cycles four cameras. Takes effect at once, even mid-race.",
+        false
+    );
+
+    config.add_option_change_callback(attract_camera_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::set_attract_camera(std::get<bool>(cur_value));
+        });
+}
+
 namespace catch_up_option {
     const std::string id = "drone_catch_up";
 }
@@ -910,7 +930,7 @@ void rush2::init_config() {
         // so showing one moves nothing in the others.
         create_ordered_tab(general::tab_name, "rush2_general", general::id, 3, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id, hide_respawn_option::id,
-                            hood_wheels_option::id, catch_up_option::id, pause_extras_option::id, rush2::game_filter::option_id() } },
+                            hood_wheels_option::id, attract_camera_option::id, catch_up_option::id, pause_extras_option::id, rush2::game_filter::option_id() } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
             { "Circuits", { circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id }, true },
             { "Ghosts", { ghost_option::id, ghosts_kept_option::id } },
@@ -951,6 +971,7 @@ void rush2::init_config() {
     add_stunt_gear_option(general_config);
     add_hide_respawn_option(general_config);
     add_hood_wheels_option(general_config);
+    add_attract_camera_option(general_config);
     add_catch_up_option(general_config);
     add_pause_extras_option(general_config);
     rush2::game_filter::add_option(general_config);
@@ -1032,6 +1053,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(hide_respawn_option::id)));
     rush2::set_hood_front_wheels(std::get<bool>(
         recompui::config::get_general_config().get_option_value(hood_wheels_option::id)));
+    rush2::set_attract_camera(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(attract_camera_option::id)));
     rush2::npc_cars::set_catch_up(std::get<bool>(
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
     rush2::game_filter::apply(std::get<bool>(

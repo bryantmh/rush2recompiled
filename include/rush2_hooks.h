@@ -552,6 +552,10 @@ int rush2_online_arrow_view(uint8_t* rdram, int view);
 int rush2_online_hud_views(uint8_t* rdram, int views);
 void rush2_online_hud_time_digits(uint8_t* rdram, int player);
 uint32_t rush2_online_view_record(uint8_t* rdram, int view, uint32_t record);
+
+// Attract Camera and LOOK BACK (src/camera.cpp).
+void rush2_attract_camera_cycle(uint8_t* rdram, recomp_context* ctx);
+void rush2_look_back(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_engine_start(uint8_t* rdram, recomp_context* ctx);
 uint32_t rush2_online_engine_car(uint8_t* rdram, int slot, uint32_t physics_car);
 // func_803B7018 at 0x803B7110: the circuit menu set 0x800D3E40 to the profile's circuit block ($t8); a machine

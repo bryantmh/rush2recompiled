@@ -26,6 +26,8 @@ namespace rush2 {
     void set_hide_respawning_cars(bool enabled);
     // Hood View Front Wheels (src/game_fixes.cpp): the open-wheel cars show their front wheels in the hood camera.
     void set_hood_front_wheels(bool enabled);
+    // Attract Camera (src/camera.cpp): the VIEW button also reaches the attract demo's high chase camera.
+    void set_attract_camera(bool enabled);
     // Car model fixes (src/game_fixes.cpp): replaces the ROCKET's asset with its windshield unpainted, the FORMULA's
     // with its wishbones mirrored and the STALLION's with its spoiler centered. Call at boot.
     void fix_car_models(uint8_t* rdram);
@@ -249,10 +251,11 @@ namespace rush2 {
     // Button bindings for driving (src/controls.cpp). In races each player's bound inputs are turned into the game's
     // default N64 layout, which the game's own binding table is locked to; menus use a fixed layout.
     namespace controls {
-        // The rows of the game's Controller Setup screen, in order. Fire and DropWeapon are the battle arenas' weapon
-        // buttons (src/rush2049/battle.cpp): they aren't N64 buttons of the game's layout, and are read with battle_buttons.
+        // The actions of the game's Controller Setup screen. Fire and DropWeapon are the battle arenas' weapon
+        // buttons (src/rush2049/battle.cpp), read with battle_buttons, and LookBack turns the camera around while held
+        // (src/camera.cpp, look_back_held): none of them are N64 buttons of the game's layout.
         enum class Action : uint8_t {
-            Gas, Brake, Steering, ShiftUp, ShiftDown, Reverse, Abort, View, Horn, Wings, Fire, DropWeapon, Count
+            Gas, Brake, Steering, ShiftUp, ShiftDown, Reverse, Abort, View, Horn, Wings, Fire, DropWeapon, LookBack, Count
         };
         constexpr int action_count = static_cast<int>(Action::Count);
 
@@ -298,6 +301,8 @@ namespace rush2 {
         // arrow), which fires a weapon backward (rush2::battle::set_fire_backward).
         constexpr uint8_t battle_fire = 1, battle_drop = 2, battle_back = 4;
         uint8_t battle_buttons(int port);
+        // Whether LOOK BACK is held on a port, as of its last race input.
+        bool look_back_held(int port);
         // True if an input on the port's devices is held (used to wait for releases).
         bool any_input_held(int port);
 

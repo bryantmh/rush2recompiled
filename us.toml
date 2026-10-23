@@ -610,12 +610,12 @@ func = "menu_controller_setup_rows_text_800B6134"
 before_vram = 0x800B64D8
 text = "    rush2_controls_menu_first_row(rdram, ctx);"
 
-# Up to twelve label rows (the game's nine, WINGS, FIRE, DROP WEAPON); the hook ends the loop after the screen's rows
-# and moves them closer together when there are more than nine.
+# Up to thirteen label rows (the game's nine, LOOK BACK, WINGS, FIRE, DROP WEAPON); the hook ends the loop after the
+# screen's rows and moves them closer together when there are more than nine.
 [[patches.instruction]]
 func = "menu_controller_setup_rows_text_800B6134"
 vram = 0x800B6560
-value = 0x2A61000C
+value = 0x2A61000D # slti $at, $s3, 13
 
 [[patches.hook]]
 func = "menu_controller_setup_rows_text_800B6134"
@@ -12123,82 +12123,82 @@ vram = 0x8009B454
 value = 0xE43804E0 # swc1 $f24, 0x7D48($at) -> 802404E0
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B4D0
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B4E0
 value = 0xE42404B0 # swc1 $f4, 0x7CC0($at) -> 802404B0
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B4E8
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B4F0
 value = 0xE42604B0 # swc1 $f6, 0x7CC0($at) -> 802404B0
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B504
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B510
 value = 0xE42804C0 # swc1 $f8, 0x7D10($at) -> 802404C0
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B518
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B524
 value = 0xE42A04C0 # swc1 $f10, 0x7D10($at) -> 802404C0
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B560
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B570
 value = 0xE43004B0 # swc1 $f16, 0x7CC0($at) -> 802404B0
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B57C
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B584
 value = 0xE43204B0 # swc1 $f18, 0x7CC0($at) -> 802404B0
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B590
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B598
 value = 0xE42404C0 # swc1 $f4, 0x7D10($at) -> 802404C0
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B59C
 value = 0x3C018024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_player_hud_scale_update_8009B480"
+func = "cam_set_chase_mode_8009B480"
 vram = 0x8009B5AC
 value = 0xA02B0460 # sb $t3, 0x7BD0($at) -> 80240460
 
@@ -14380,6 +14380,18 @@ text = "    rush2_online_race_views(rdram, ctx);"
 func = "cam_update_all_players_8009D9F4"
 before_vram = 0x8009E01C
 text = "    ctx->r10 = (gpr)(int32_t)rush2_online_body_kind(rdram, ctx, (int)(int16_t)ctx->r16, (int)(int32_t)ctx->r10);"
+
+# Attract Camera: VIEW goes on from the far chase camera to the attract demo's high chase camera (src/camera.cpp).
+[[patches.hook]]
+func = "cam_update_all_players_8009D9F4"
+before_vram = 0x8009DE30
+text = "    rush2_attract_camera_cycle(rdram, ctx);"
+
+# LOOK BACK: the view's camera turned around while its player holds LOOK BACK (src/camera.cpp).
+[[patches.hook]]
+func = "cam_update_all_players_8009D9F4"
+before_vram = 0x8009DE58
+text = "    rush2_look_back(rdram, ctx);"
 
 # Online: this machine's one view takes its player's camera changes (rush2_online_view_record).
 [[patches.hook]]

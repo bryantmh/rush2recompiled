@@ -19,11 +19,11 @@
 // callback, built into objects by func_800604FC) is replaced by one holding only the text callback (func_800B6134),
 // which draws the labels and, through draw(), everything else. The game's "L+R: DEFAULTS" footer text isn't printed.
 //
-// More rows are added under the game's nine: WINGS with wings enabled (Games tab), and FIRE and DROP WEAPON (the
-// battle arenas' weapon buttons, src/rush2049/battle.cpp) when the Rush 2049 tracks are available. The text callback's label
-// table (0x800C4B08) is copied with their labels appended, an instruction patch lets its label loop run up to 12
-// rows, and the rows are moved closer together (15, 14 or 13 pixels apart instead of 17) so everything fits in the
-// panel. Which rows are there is decided when the screen opens (menu_rows).
+// More rows are added under the game's nine: LOOK BACK (src/camera.cpp) always, WINGS with wings enabled (Games tab),
+// and FIRE and DROP WEAPON (the battle arenas' weapon buttons, src/rush2049/battle.cpp) when the Rush 2049 tracks are
+// available. The text callback's label table (0x800C4B08) is copied with their labels appended, an instruction patch
+// lets its label loop run up to 13 rows, and the rows are moved closer together (15, 14 or 13 pixels apart instead of
+// 17) so everything fits in the panel. Which rows are there is decided when the screen opens (menu_rows).
 //
 // Leaving: from the main menu the screen pops the menu stack itself (as func_800AD7E4 does); from the pause menu,
 // func_800AFD44 leaves once rush2_controls_menu_pause_exit says so.
@@ -133,7 +133,7 @@ namespace {
     constexpr int first_row_y_paused = 0x78 - 0x48;
     constexpr int original_row_spacing = 17;
     constexpr int original_rows = 9;
-    constexpr int max_rows = 12;
+    constexpr int max_rows = 13;
     constexpr int glyph_gap = 4;   // Between a label and its glyph.
     constexpr int glyph_w = 16;    // The size of the game's button icons.
     constexpr int glyph_h = 14;
@@ -165,8 +165,8 @@ namespace {
     };
     std::array<PlayerState, num_players> player_states{};
 
-    // The open screen's rows (latched when its widgets are created): the game's nine, then WINGS, FIRE and DROP
-    // WEAPON when they apply.
+    // The open screen's rows (latched when its widgets are created): the game's nine, LOOK BACK, then WINGS, FIRE and
+    // DROP WEAPON when they apply.
     std::vector<Action> menu_rows;
     std::atomic_bool pause_exit_pending = false;
 
@@ -211,10 +211,10 @@ namespace {
     }
 
     // The rows' spacing: the panel holds nine rows 17 pixels apart. With more than ten the rows also start higher
-    // (row_lift), which leaves room for 14 pixels a row.
+    // (row_lift), which leaves room for 14 pixels a row, or 13 for thirteen rows.
     int row_spacing() {
         int rows = row_count();
-        return rows <= 9 ? original_row_spacing : rows <= 11 ? 15 : 14;
+        return rows <= 9 ? original_row_spacing : rows <= 11 ? 15 : rows <= 12 ? 14 : 13;
     }
 
     int row_lift() {
@@ -269,8 +269,9 @@ namespace {
     // The 9 action labels plus "WINGS" (only the US language block is needed; the language index is always 0).
     // The label table of the open screen's rows.
     void build_label_table(uint8_t* rdram) {
-        static uint32_t wings = 0, fire = 0, drop = 0;
+        static uint32_t wings = 0, fire = 0, drop = 0, look = 0;
         if (new_label_table == 0) {
+            look = alloc_string(rdram, "LOOK BACK");
             wings = alloc_string(rdram, "WINGS");
             fire = alloc_string(rdram, "FIRE");
             drop = alloc_string(rdram, "DROP");   // "DROP WEAPON" is wider than the panel's label column
@@ -279,7 +280,8 @@ namespace {
         for (int i = 0; i < (int)menu_rows.size() && i < max_rows; i++) {
             Action a = menu_rows[i];
             int32_t label = a == Action::Wings ? (int32_t)wings : a == Action::Fire ? (int32_t)fire :
-                            a == Action::DropWeapon ? (int32_t)drop : MEM_W(0, (int32_t)(label_table + (int)a * 4));
+                            a == Action::DropWeapon ? (int32_t)drop : a == Action::LookBack ? (int32_t)look :
+                            MEM_W(0, (int32_t)(label_table + (int)a * 4));
             MEM_W(0, (int32_t)(new_label_table + i * 4)) = label;
         }
     }
@@ -803,6 +805,7 @@ extern "C" void rush2_controls_menu_widgets(uint8_t* rdram, recomp_context* ctx)
     for (int a = 0; a < original_rows; a++) {
         menu_rows.push_back(Action(a));
     }
+    menu_rows.push_back(Action::LookBack);
     if (rush2::wings::enabled()) {
         menu_rows.push_back(Action::Wings);
     }
@@ -900,7 +903,7 @@ extern "C" void rush2_controls_menu_first_row(uint8_t* rdram, recomp_context* ct
 }
 
 // func_800B6134, at the end of each label row, after the row counter ($s3) was incremented and before the loop
-// test (patched to 12 rows) and the row step of 17 pixels in $s2. Ends the loop after the screen's rows, and makes
+// test (patched to 13 rows) and the row step of 17 pixels in $s2. Ends the loop after the screen's rows, and makes
 // the step the rows' spacing.
 extern "C" void rush2_wings_menu_label_row(uint8_t* rdram, recomp_context* ctx) {
     if ((int32_t)ctx->r19 >= row_count()) {

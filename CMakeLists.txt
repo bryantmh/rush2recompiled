@@ -208,6 +208,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/paint_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/game_fixes.cpp
+    ${CMAKE_SOURCE_DIR}/src/camera.cpp
     ${CMAKE_SOURCE_DIR}/src/games_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/online_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/online/online_net.cpp

@@ -111,9 +111,11 @@ namespace rush2::calspeed {
     float record_seed(int t);
     // An AI lane's target speeds (true mph, as California Speed's drone code reads them) capped where a Rush 2 car
     // can't hold them: the lane's curve limits the speed and the braking before it (docs/calspeed_research.md#5-paths).
-    // pos: each point's x, y, z; loop: a circuit's lane (its last point leads to its first).
+    // pos: each point's x, y, z; loop: a circuit's lane (its last point leads to its first); corner_g, crest_g: the
+    // most a curve, a crest or a dip may take (crest_g 0: crests and dips not capped).
     std::vector<uint8_t> capped_lane_speeds(const std::vector<std::array<float, 3>>& pos,
-                                            const std::vector<uint8_t>& mph, bool loop);
+                                            const std::vector<uint8_t>& mph, bool loop, double corner_g = 2.5,
+                                            double crest_g = 4.0);
 
     // The Cal Speed track (1-16) raced in the host slot, or 0.
     int race_track();

@@ -6895,15 +6895,6 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
-vram = 0x800D79D0
-name = "view_car_pose"
-type = "struct { u8 pad[0x24]; f32 pos[3]; u8 pad2[0x10]; }[4]"
-desc = "Per view, 0x40 bytes: +0x24 the followed car's position as cam_update_dispatch_8009D02C places its body (raised by 0x800CFD84); the ARROW update (func_80059B9C) measures its distance from it."
-area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
-
-[[var]]
 vram = 0x800D7E30
 name = "hud_laps_left_state"
 type = "u32"
@@ -7663,7 +7654,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800E79D0
 name = "view_cameras"
 type = "u8[4][0x40]"
-desc = "Per view camera, 0x40 bytes: +0 rotation rows (-right, up, forward), +0x24 position. In the track select view 0 sits at (0, 20, 45) pitched 24 degrees down (docs/rush2049_research/menus.md 7.5)."
+desc = "Per view camera, 0x40 bytes: +0 rotation rows (-right, up, forward), +0x24 position, +0x30 ground polygon cache and +0x34 ground-checked position (chase modes 2 and 3). cam_update_dispatch_8009D02C writes it each frame (first the followed car's position raised by 0x800CFD84, then the mode's camera); view setup, visibility, sky, sound and the ARROW size (func_80059B9C) read it; LOOK BACK turns it around (docs/camera.md). In the track select view 0 sits at (0, 20, 45) pitched 24 degrees down (docs/rush2049_research/menus.md 7.5)."
 area = "render"
 status = "inferred"
 ref = "docs/rush2049_research/menus.md#75-in-the-port-the-track-select-preview"

@@ -68,10 +68,13 @@ namespace {
         0x0002, // WINGS: C-left
         0x0000, // FIRE: not an N64 button (rush2::controls::battle_buttons)
         0x0000, // DROP WEAPON: the same
+        0x0000, // LOOK BACK: not an N64 button either (rush2::controls::look_back_held)
     };
 
     // The battle weapon buttons held on each port, as of its last get_race_input.
     std::array<std::atomic<uint8_t>, num_ports> battle_held{};
+    // LOOK BACK held on each port, as of its last get_race_input.
+    std::array<std::atomic<bool>, num_ports> look_held{};
 
     constexpr uint16_t n64_a = 0x8000;
     constexpr uint16_t n64_b = 0x4000;
@@ -120,6 +123,7 @@ namespace {
             set(Action::Wings, button(SDL_CONTROLLER_BUTTON_A));
             set(Action::Fire, button(SDL_CONTROLLER_BUTTON_RIGHTSTICK));
             set(Action::DropWeapon, button(SDL_CONTROLLER_BUTTON_DPAD_DOWN));
+            set(Action::LookBack, button(SDL_CONTROLLER_BUTTON_DPAD_LEFT));
         }
         else {
             set(Action::Gas, key(SDL_SCANCODE_UP));
@@ -134,6 +138,7 @@ namespace {
             set(Action::Wings, key(SDL_SCANCODE_SPACE));
             set(Action::Fire, key(SDL_SCANCODE_LCTRL));
             set(Action::DropWeapon, key(SDL_SCANCODE_G));
+            set(Action::LookBack, key(SDL_SCANCODE_B));
         }
         return b;
     }
@@ -383,7 +388,7 @@ namespace {
     // JSON names for actions and inputs.
     constexpr std::array<const char*, rush2::controls::action_count> action_names = {
         "gas", "brake", "steering", "shift_up", "shift_down", "reverse", "abort", "view", "horn", "wings",
-        "fire", "drop_weapon",
+        "fire", "drop_weapon", "look_back",
     };
     constexpr std::array<const char*, 3> stick_names = { "left", "right", "dpad" };
 
@@ -475,8 +480,9 @@ void rush2::controls::load() {
                 const auto& actions = ports[port][device_name];
                 for (int a = 0; a < action_count; a++) {
                     if (!actions.contains(action_names[a])) {
-                        // An action added since the file was saved (FIRE, DROP WEAPON) keeps its default, unless
-                        // the player already bound that input to another action: then it starts unbound.
+                        // An action added since the file was saved (FIRE, DROP WEAPON, LOOK BACK) keeps its default,
+                        // unless the player already bound that input to another action or steers with the stick or
+                        // D-pad it lies on: then it starts unbound.
                         for (Input& in : bindings[port][device][a]) {
                             for (int other = 0; other < action_count; other++) {
                                 if (other == a || !actions.contains(action_names[other])) {
@@ -488,7 +494,8 @@ void rush2::controls::load() {
                                 }
                                 for (const auto& u : used) {
                                     Input taken{};
-                                    if (in.type != Input::Type::None && input_from_json(u, &taken) && taken == in) {
+                                    if (in.type != Input::Type::None && input_from_json(u, &taken) &&
+                                        (taken == in || (taken.type == Input::Type::Stick && input_steers(in, taken.id)))) {
                                         in = {};
                                     }
                                 }
@@ -685,6 +692,7 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
     *brake_out = brake;
     uint8_t battle = uint8_t((action_held(d, b, Action::Fire) ? battle_fire : 0) |
                              (action_held(d, b, Action::DropWeapon) ? battle_drop : 0));
+    look_held[port] = action_held(d, b, Action::LookBack);
 
     if (button_down(d, SDL_CONTROLLER_BUTTON_START) || key_down(d, SDL_SCANCODE_RETURN)) {
         buttons |= n64_start;
@@ -749,6 +757,10 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
 
 uint8_t rush2::controls::battle_buttons(int port) {
     return port >= 0 && port < num_ports ? battle_held[port].load() : 0;
+}
+
+bool rush2::controls::look_back_held(int port) {
+    return port >= 0 && port < num_ports && look_held[port].load();
 }
 
 void rush2::controls::get_menu_input(int port, uint16_t* buttons_out, float* x_out, float* y_out) {

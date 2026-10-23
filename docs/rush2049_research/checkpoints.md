@@ -28,6 +28,26 @@ the computed start time and extensions are multiplied by the path's lane 0 speed
 is what they would be at Rush 2's lane speeds. Both speeds are in the current Car Speeds mode (cars.md §10): the 2049
 lanes are already / 1.2 (true mph) with Rush 2 speeds, so only paths faster than Rush 2's average still get more time.
 
+### 0.1 Flat lane 0 on Marina and Civic forward (2026-10-21, report: "Civic checkpoints feel really close")
+
+`func_800924E4` times every stretch along **lane 0 only**. Rush 2's four lanes agree to within about 1 s per lap, so
+the choice never mattered there. Some 2049 path files have a lane 0 at one speed everywhere, with no corner slowdown:
+
+| path | lane 0 speeds (raw) | lap time per lane, s (Rush 2 speeds, /1.2) | granted per lap after the 139.3 scale |
+|---|---|---|---|
+| Marina f (158) | 181 everywhere (lanes 2, 3: 180) | 57, 70, 58, 58 | 62 (×1.08) |
+| Civic f (160) | 181 / 190 | 78, 89, 90, 88 | 85 (×1.09) |
+| Haight f (159) | varies (lane 3: 226/247) | 99, 98, 98, 60 | 99 |
+
+Civic forward is granted about 5% less than its real lanes' pace, and Marina forward about 11% less. Civic backward
+(179) has four equal lanes (92 s) and is fine. Presidio b lanes run 186-224 s, which still needs a look: some lanes
+may hold AI stop points.
+
+The arcade Civic (custom track `civic_arcade`, no scale, lane 0 = `AIPATH_lane1`) is granted 87 s per lap, the same
+as `AIPATH_main` and `lane4`. `lane2`/`lane3` lap in 106 s only because they hold a speed-1 AI stop point. Both
+Civics' real lanes average about 137-139 mph (Rush 2 mph), at the fast end of Rush 2's tracks (125-148), on a
+city layout whose lanes were tuned for 2049 cars.
+
 ## 1. Summary (superseded by §0: the 90 / 45 values below are overwritten from the AI lanes; they are NOT the race times)
 
 - **Rush 2 has no per-track checkpoint time.** Every race on every track, a 2049 track in the host slot included,

@@ -1106,7 +1106,7 @@ functions = [
     { name = "cam_chase_position_compute_8009AC74", vram = 0x8009AC74, size = 0x1E0 },
     { name = "cam_update_mode_b_8009AE54", vram = 0x8009AE54, size = 0x32C },
     { name = "race_transform_points_and_search_cars_8009B180", vram = 0x8009B180, size = 0x300 },
-    { name = "race_player_hud_scale_update_8009B480", vram = 0x8009B480, size = 0x130 },
+    { name = "cam_set_chase_mode_8009B480", vram = 0x8009B480, size = 0x130 },
     { name = "cam_update_mode_c_8009B5B0", vram = 0x8009B5B0, size = 0x510 },
     { name = "cam_update_mode_d_8009BAC0", vram = 0x8009BAC0, size = 0xDC },
     { name = "cam_update_mode_orbit_8009BB9C", vram = 0x8009BB9C, size = 0x2F4 },

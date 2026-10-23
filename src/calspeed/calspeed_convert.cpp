@@ -1080,11 +1080,12 @@ float rush2::calspeed::record_seed(int t) {
 // the point before reaches. Points 1000 ft or more apart (a lane jumping back at its end) don't join. The values are
 // the sim's (tools/calspeed/sim_wrecks.py, lane_hold.py; docs/calspeed_research.md#5-paths): Rush 2's drones pull
 // up to about 2.5 g; at 3 g they ran wide and wrecked twice as often, and without the crest cap they flew off crests
-// California Speed's lanes take at 190-200 mph and landed in wrecks.
+// California Speed's lanes take at 190-200 mph and landed in wrecks. Those are the defaults (Rush 2's physics); CS
+// Physics Partial passes its own (track2049.cpp).
 std::vector<uint8_t> rush2::calspeed::capped_lane_speeds(const std::vector<std::array<float, 3>>& pos,
-                                                         const std::vector<uint8_t>& mph, bool loop) {
-    constexpr double corner_g = 2.5, vertical_g = 4.0, brake_ft_s2 = 40.0, reach = 60.0, gap = 1000.0, g = 32.17,
-                     mph_ft_s = 5280.0 / 3600.0;
+                                                         const std::vector<uint8_t>& mph, bool loop, double corner_g,
+                                                         double vertical_g) {
+    constexpr double brake_ft_s2 = 40.0, reach = 60.0, gap = 1000.0, g = 32.17, mph_ft_s = 5280.0 / 3600.0;
     const int n = int(pos.size());
     std::vector<uint8_t> out = mph;
     if (n < 3 || int(mph.size()) != n) return out;
@@ -1120,7 +1121,7 @@ std::vector<uint8_t> rush2::calspeed::capped_lane_speeds(const std::vector<std::
         double radius = ab * bc * ca / (2.0 * area2);
         v[size_t(i)] = std::min(v[size_t(i)], std::sqrt(corner_g * g * radius));
     }
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; vertical_g > 0.0 && i < n; i++) {
         int a = point_at(i, -1), c = point_at(i, 1);
         if (mph[size_t(i)] == 0 || a < 0 || c < 0) continue;
         double before = 0.0, after = 0.0;

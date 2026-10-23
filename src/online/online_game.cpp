@@ -1559,7 +1559,7 @@ extern "C" void car_matrix_copy_and_apply_8009ABDC(uint8_t* rdram, recomp_contex
 extern "C" int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int car, int kind) {
     constexpr int human = 2;
     constexpr uint32_t body_raise = 0x800CFD84;     // f32
-    constexpr uint32_t place_scratch = 0x80E14000;  // A view's 0x40-byte pose block (0x800D79D0 + view x 0x40)
+    constexpr uint32_t place_scratch = 0x80E14000;  // A view's 0x40-byte pose block (0x800E79D0 + view x 0x40)
     if (phase == Phase::Idle || kind != human || car < 0 || car >= race_players) {
         return kind;
     }

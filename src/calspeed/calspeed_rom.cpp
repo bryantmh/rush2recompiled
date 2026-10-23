@@ -1013,7 +1013,7 @@ void rush2::calspeed::init_config() {
         "<recomp-color primary>Full CS</recomp-color> drives them as California Speed does, with its own physics; "
         "a California Speed car handles as in California Speed. "
         "<recomp-color primary>Partial</recomp-color> uses California Speed's physics too, but your car keeps the "
-        "handling it has in Rush 2. "
+        "handling it has in Rush 2, and the computer cars take corners only as fast as your car can. "
         "<recomp-color primary>Full Rush 2</recomp-color> drives them exactly as Rush 2's own tracks. "
         "Changes take effect from the next race.",
         {
