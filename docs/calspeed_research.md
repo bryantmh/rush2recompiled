@@ -983,6 +983,16 @@ nearest the wheel wins, a found surface more than 0.75 ft above the point gives 
 wheel and otherwise is climbed at 0.1 ft per probe; neither applies to a car falling faster than 10 ft/s (car-frame velocity +0x38), so a landing from the hill road keeps its full depth and the floor holds it. Platform corners are then driven over as ledges (a climb and a
 1.9 ft drop off the far edge) rather than launching the car.
 
+Ramps (2026-10-22): the ledge rule also caught ramps. A car driving onto San Francisco's start ramps (the bridge
+approach at (-1250, 10..40, 9700), the jump landing at (-1298, -4, 9340), the climb at (-1230, 76..133, 8030)) or
+California's crest ramp at 150-250 ft/s puts a wheel more than 0.75 ft into the ramp in one step; held at 0.1 ft, the
+suspension barely pushed, the ramp rose through the car and stood it nearly on end. Now each wheel keeps the spot it
+last rested on (its point on the surface, from every probe not held as a ledge), and a found floor whose plane is no
+more than 0.5 ft above that spot is a ramp and keeps its full depth. Neighbors by shared vertices can't tell the two
+apart: San Francisco's continuous road polygons often miss each other's vertices by 1/32 ft, and some platform tops
+taper to the road at their ends. Checked: test_race 67 with gas held climbs all of them upright (up >= 0.91, the
+ramp's slope); the end-tunnel scenario's bumps match the earlier run and the ramp test never fires there.
+
 Trap met on the way: `MEM_W(offset, base)` adds the offset to the (int32) base before widening to the 64-bit address,
 so an offset held in a `uint32_t` constant makes the sum unsigned 32-bit and the access lands 4 GB away (reads zero,
 writes vanish). The first smooth collision build read the POLY slot as 0, never matched the player's car, wrote its
@@ -1015,12 +1025,23 @@ well and still flip. [V]
 ### CS Physics: California Speed's world
 
 The Games tab's **CS Physics** option (`calspeed_physics_mode` in games.json, 2026-10-21, user's design): Full CS
-(this section), Partial (default: Rush 2's physics with the road hold above) and Full Rush 2 (road hold off). It
+(this section), Partial (default) and Full Rush 2 (road hold off). Partial (2026-10-22) is Full CS with a player's car
+on its own Rush 2 values and pitched level faster: the yaw gain, torque scales and gears, preload, mass, inertia,
+springs, anti-roll, dampers, tire curves (no grip factors) and TIRES byte stay the car type's own (a California Speed
+car's rebalanced onto Rush 2's roster), only the slide term (steer base +0x5A0) stays California Speed's; and the
+levelling of a human's car (`orient_end`, func_800901E0's) runs at 2 rad/s instead of 0.15. The slide recorder
+(`RUSH2_CSPHYS_SLIDES`) showed why California Speed's own steering spun a player's car: with the pitch rate zeroed every
+step the levelling is all a car pitches by, so where San Francisco's hill steepens the front bottomed out (1.3 ft), the
+lift held the rear wheels 0.5 ft off the road for up to half a second and the car swung around its front tires; the
+computer cars don't steer hard there. With both, the user's drives had no fishtail. Test aids: `RUSH2_CSPHYS_RUSH=<letters>`
+(y yaw gain, s steer base, c curves, d springs and dampers, e torque and gears, p preload, m mass, i inertia, t TIRES)
+overrides the kept set, `RUSH2_CSPHYS_LEVEL=<rad/s>` the rate. Before 2026-10-22 Partial was Rush 2's physics with the
+road hold above, which now runs only for mod tracks that ask for it. It
 replaced the CS Road Hold toggle (`calspeed_road_hold`, kept unshown: off migrates once to Full Rush 2). The key
 `calspeed_physics` held a 2026-10-19 test option whose `Rush2` meant the road hold, so the new option has its own key
-and a leftover one is ignored. A player's California Speed car runs native under Full CS (converted, it fishtailed on
-every hill and landing; native it doesn't, the user's drive 2026-10-21); a Rush 2, 2049 or mod model is still
-converted. Full CS is the other way round from the road hold port above: on California Speed's tracks the world runs as
+and a leftover one is ignored. Every car runs native under Full CS, whoever drives it and whatever game it comes from
+(2026-10-22): converted, a player's car fishtailed on every hill and landing; native it doesn't (the user's drives
+2026-10-21 with a California Speed car, 2026-10-22 a Rush 2 car still converted did). Full CS is the other way round from the road hold port above: on California Speed's tracks the world runs as
 California Speed's does, its computer cars drive its cars on its own values, and every other car is converted to that
 world instead (src/calspeed/calspeed_physics.cpp, walls and missed wheel in src/calspeed/calspeed_walls.cpp). Added
 2026-10-19 as a test: it replaces the default only if it races better (tools/calspeed/sim_wrecks.py `--hold cs`,
@@ -1100,7 +1121,8 @@ Where Rush 2's rules meet California Speed's world (found in the sims, 2026-10-1
   player's car got the same crack and ledge kicks as the old physics before smooth collision). It stood aside before
   because its ledge rule (a floor more than 0.75 ft above the wheel gives way to the road under it, climbed at 0.1 ft
   a probe) let cars at California Speed's 250 ft/s sink through the ramp up to California's crest onto the ground
-  under it and fall off its end; check that ramp when testing this mode. California Speed's own probe takes the
+  under it and fall off its end; check that ramp when testing this mode. Since 2026-10-22 a floor rising from where
+  the wheel last rested counts as a ramp, not a ledge (see "Ramps" under the subway tunnel fix). California Speed's own probe takes the
   highest floor holding the point, as Rush 2's.
 - **Resets.** Rush 2's `race_stuck_wrongway_update_8008CDA4` resets a computer car (wreck state 2) with the flag
   +0x810, below the fall floor, or under 25 ft/s for 6 s (12 s for some); these stay. Most of the remaining Santa
@@ -1113,11 +1135,20 @@ mode, `--cs-drones` with only California Speed computer cars, `--where` lists ea
 recordings.
 
 Roles (`rush2_csphys_init_begin` at the entry of `car_init_setup_8008DBA0`, the tables put back at 0x8008E01C):
-- **Native**: a computer car driving a California Speed car. The descriptor pointer for the init points at its race
+- **Native**: every car. A California Speed car: the descriptor pointer for the init points at its race
   copy (0x80225000 + slot x 0xEC), built unscaled by `rush2::calspeed::native_car` with California Speed's own tire
   curves at 0x80225C00 + slot x 0x30; steer, yaw damping, preload, mass (x 0x8007D47C), inertia and TIRES 4 come from
-  California Speed's tables (0x8007CF20, 0x8007CF74, 0x8007D034, 0x8007D088, 0x8007D0DC).
-- **Converted**: every other car (players, Rush 2 / 2049 / mod cars the computer drives): its own values, its
+  California Speed's tables (0x8007CF20, 0x8007CF74, 0x8007D034, 0x8007D088, 0x8007D0DC). Any other car (Rush 2,
+  2049, mod): `rush2::calspeed::native_values` undoes the California Speed cars' mapping onto Rush 2's roster
+  ([Rebalance](#rebalance)) on its own values, so a Rush 2 car stands to California Speed's as it does to Rush 2's: the
+  descriptor's springs, dampers, torque scales and gears / the mapping's ratios, its tire curves / theirs (Rush 2's
+  two become California Speed's exactly), yaw damping, preload, mass and inertia likewise, TIRES 4, grip factors 1
+  (its rear grip +0x78 stays). The steer base is moved by the two means' difference (California Speed's 10000 against
+  Rush 2's 543) instead of scaled, so the cars with 0 (SLED, BUGATTI, CONCEPT, GT90) keep the slide term. With a
+  player's options the descriptor copy then gets `rush2_car49_setup_desc`'s changes (slicks, 2049 ENGINE, Car
+  Speeds) as on any track. Sims (2026-10-22, tracks 64-66): the Rush 2 and 2049 computer cars had no wreck, rollover or
+  slide.
+- **Converted**: the fallback when the California Speed cars aren't loaded: its own values, its
   descriptor copy's springs and anti-roll (+0x18-+0x2C) x 2.28 and dampers (+0x30-+0x4C) x sqrt 2.28, the tire load /
   2.28 (no 1100 cap): the world holds it down at 1 + 4 x 0.32 = 2.28 g on the road, so it sits, rolls and grips as at
   Rush 2's 1 g. It keeps Rush 2's velocities (reverse) and gearbox, and Rush 2's own lift (any wheel offset past

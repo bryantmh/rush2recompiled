@@ -178,7 +178,10 @@ and a raised ledge beside the road (a sidewalk, a platform) whose top is a plain
 lifts a wheel that strays under it by its full height in one step. With smooth collision on, a floor face whose
 footprint is within 1 ft of the point counts too, the surface nearest the wheel wins (so a ledge more than 0.75 ft up
 gives way to the road the wheel is on while any road is under it), and a ledge with no road left under the wheel is
-climbed at 0.1 ft per probe instead of jumped onto (a car coming down fast, a landing, keeps the full depth so the floor holds it). A face steeper than the fold angle is never extended past its
+climbed at 0.1 ft per probe instead of jumped onto (a car coming down fast, a landing, keeps the full depth so the floor holds it). A ramp is not a ledge:
+a face whose plane is no more than 0.5 ft above the spot where the wheel last rested on a surface is the road going
+on, and keeps its full depth however deep a fast wheel goes into it in one step (before this, cars sank through
+California Speed San Francisco's start ramps and stood on end). A face steeper than the fold angle is never extended past its
 edge. None of this touches Rush 2's own tracks.
 
 - `[track] smooth_fold = 20`: the fold angle in degrees (0 to 90). An edge whose faces meet at more than this angle

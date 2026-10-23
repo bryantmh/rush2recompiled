@@ -50,18 +50,21 @@ namespace {
     // The old CS Road Hold toggle, kept unshown only to migrate into CS Physics (load_config): off became Full Rush 2.
     const std::string road_hold_option_id = "calspeed_road_hold";
     // Not "calspeed_physics": that key held the 2026-10-19 test option's Rush2/CalSpeed, where Rush2 meant the road hold
-    // (now Partial); old games.json files may still carry it, and it is ignored.
+    // (Partial until 2026-10-22); old games.json files may still carry it, and it is ignored.
     const std::string physics_option_id = "calspeed_physics_mode";
     enum class PhysicsOption : uint32_t { FullCS = 0, Partial = 1, FullRush2 = 2 };
     const std::string scenery_option_id = "calspeed_scenery";
     const std::string billboards_option_id = "calspeed_billboards";
-    // The CS Physics option: Partial (Rush 2's physics with California Speed's road hold) and Full CS (California
-    // Speed's own physics, src/calspeed/calspeed_physics.cpp) hold cars to the road; Full Rush 2 has Rush 2's gravity only.
+    // The CS Physics option: Full CS (California Speed's own physics, src/calspeed/calspeed_physics.cpp) and Partial
+    // (the same, a player's car on its Rush 2 values) hold cars to the road; Full Rush 2 has Rush 2's gravity only. The
+    // road hold (Rush 2's physics with California Speed's road hold, Partial until 2026-10-22) runs while the car
+    // isn't on California Speed's physics (rush2_calspeed_road_hold).
     std::atomic_bool road_hold_on = true;
     void apply_physics_option(PhysicsOption o) {
         road_hold_on = o != PhysicsOption::FullRush2;
-        rush2::calspeed::physics::set_mode(o == PhysicsOption::FullCS ? rush2::calspeed::physics::Mode::CalSpeed :
-                                                                       rush2::calspeed::physics::Mode::Rush2World);
+        using rush2::calspeed::physics::Mode;
+        rush2::calspeed::physics::set_mode(o == PhysicsOption::FullCS ? Mode::CalSpeed :
+                                           o == PhysicsOption::Partial ? Mode::Rushified : Mode::Rush2World);
     }
     // The California Speed Extended Scenery option (src/calspeed/calspeed_scenery.cpp).
     std::atomic_bool scenery_on = true;
@@ -1009,10 +1012,10 @@ void rush2::calspeed::init_config() {
         "How cars drive on California Speed's tracks. "
         "<recomp-color primary>Full CS</recomp-color> drives them as California Speed does, with its own physics; "
         "a California Speed car handles as in California Speed. "
-        "<recomp-color primary>Partial</recomp-color> keeps Rush 2's handling and holds cars to the road over "
-        "California Speed's hills as California Speed does, instead of letting them fly off crests. "
+        "<recomp-color primary>Partial</recomp-color> uses California Speed's physics too, but your car keeps the "
+        "handling it has in Rush 2. "
         "<recomp-color primary>Full Rush 2</recomp-color> drives them exactly as Rush 2's own tracks. "
-        "Full CS takes effect from the next race; the others at once.",
+        "Changes take effect from the next race.",
         {
             { PhysicsOption::FullCS, "FullCS", "Full CS" },
             { PhysicsOption::Partial, "Partial", "Partial" },

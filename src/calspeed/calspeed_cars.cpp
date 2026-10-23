@@ -232,8 +232,10 @@ namespace {
         float curve[2][6];
         float roll[2] = {}; // Rush 2's grip / half track (front, rear): the most a car's grip may be per foot of track
         float steer = 1.0f, yaw = 1.0f, preload = 1.0f, mass = 1.0f, inertia = 1.0f;
+        float steer_means[2] = {}; // the steer base's mean, Rush 2's and California Speed's (native_values)
         int handling = 5;
     };
+    Rebalance mapping; // load_cars' mapping, undone for the other games' cars by native_values
     // The Rush 2 descriptor ranges that are scaled: springs and dampers, torque scales (gears 1, 2, 3+, common map) and
     // gears 1-4.
     constexpr std::pair<uint32_t, uint32_t> scaled_fields[] = { { 0x18, 0x50 }, { 0xB8, 0xC8 }, { 0xD0, 0xE0 } };
@@ -290,6 +292,8 @@ namespace {
             return ratio(a / r2_n, b / car_count);
         };
         r.steer = table(r2_steer, cs_steer, 1.0f);
+        for (int t : r2_types) r.steer_means[0] += at(r2_steer + t * 4) / float(r2_n);
+        for (int n = 0; n < car_count; n++) r.steer_means[1] += w(cs_steer + n * 4) / float(car_count);
         r.yaw = table(r2_yaw_damping, cs_yaw_damping, 1.0f);
         r.preload = table(r2_preload, cs_preload, 1.0f);
         r.mass = table(r2_mass, cs_mass, w(cs_mass_scale));
@@ -374,6 +378,7 @@ namespace {
         }
         for (int n = 0; n < car_count; n++) build_descriptor(rdram, *rom, n, descriptor_of(n));
         Rebalance r = rebalance(rdram, *rom);
+        mapping = r;
         int served = 0;
         for (int n = 0; n < car_count; n++) {
             std::vector<uint8_t> car;
@@ -406,6 +411,38 @@ bool rush2::calspeed::native_car(uint8_t* rdram, int n, uint32_t desc, uint32_t 
     out.tires = 4;
     out.grip_lateral = w(d + 0x6C);
     out.grip_long = w(d + 0x70);
+    return true;
+}
+
+// The inverse of build_physics' mapping. The steer base alone is moved by the means' difference instead of scaled: Rush
+// 2's runs 0-1200 (0 on the SLED, BUGATTI, CONCEPT and GT90, which turn on their tires and yaw gain) against California
+// Speed's 10000 on every car, and as the slide term (func_80069E74: what keeps California Speed's cars from spinning)
+// a scaled 0 would leave those cars none.
+bool rush2::calspeed::native_values(uint8_t* rdram, int type, uint32_t desc, uint32_t curves, NativeCar& out) {
+    if (!cars_loaded || ct::is_calspeed(type)) return false;
+    const Rebalance& r = mapping;
+    auto at = [&](uint32_t a) { return f32_of((uint32_t)MEM_W(0, (int32_t)a)); };
+    auto put = [&](uint32_t a, float f) { MEM_W(0, (int32_t)a) = (int32_t)fbits(f); };
+    auto undo = [](float v, float k) { return k != 0.0f ? v / k : v; };
+    uint32_t from = (uint32_t)MEM_W(0, (int32_t)(ct::desc_ptrs + MEM_BU(0, (int32_t)ct::entry(ct::desc_index, 0, type)) * 4));
+    for (uint32_t o = 0; o < ct::desc_size; o += 4) MEM_W(0, (int32_t)(desc + o)) = MEM_W(0, (int32_t)(from + o));
+    for (auto [lo, hi] : scaled_fields) {
+        for (uint32_t o = lo; o < hi; o += 4) put(desc + o, undo(at(desc + o), r.desc[o / 4]));
+    }
+    // Tire curves (+0x68 per wheel, the fronts' then the rears'): Rush 2's two become California Speed's.
+    for (int i = 0; i < 4; i++) {
+        int c = i < 2 ? 0 : 1;
+        uint32_t src = (uint32_t)MEM_W(0, (int32_t)(from + 0x68 + 4 * i)), dst = curves + c * 0x18;
+        for (int k = 0; k < 6; k++) put(dst + 4 * k, undo(at(src + 4 * k), r.curve[c][k]));
+        MEM_W(0, (int32_t)(desc + 0x68 + 4 * i)) = (int32_t)dst;
+    }
+    out.steer = std::max(0.0f, at(ct::entry(ct::steer_base, 0, type)) + r.steer_means[1] - r.steer_means[0]);
+    out.yaw = undo(at(ct::entry(ct::yaw_damping, 0, type)), r.yaw);
+    out.preload = undo(at(ct::entry(ct::preload, 0, type)), r.preload);
+    out.mass = undo(at(ct::entry(ct::mass, 0, type)), r.mass);
+    out.inertia = undo(at(ct::entry(ct::inertia, 0, type)), r.inertia);
+    out.tires = 4;
+    out.grip_lateral = out.grip_long = 1.0f;
     return true;
 }
 

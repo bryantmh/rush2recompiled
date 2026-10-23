@@ -3871,11 +3871,9 @@ extern "C" void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx) {
     int tires = row_byte(rdram, t_tires, row, type);
     bool slick = (tires == slicks || tires == pro_slicks) && setup49.loaded;
     bool fast = speeds_2049();
-    // California Speed's physics (src/calspeed/calspeed_physics.cpp): a computer car driving a California Speed car
-    // already reads its own descriptor in this copy; every other car gets a copy converted for its heavier road hold.
-    if (rush2::calspeed::physics::native(rdram, car)) {
-        return;
-    }
+    // California Speed's physics (src/calspeed/calspeed_physics.cpp): a native car already reads its California Speed
+    // values from this copy (the options below then change it in place); a converted car gets a copy converted for
+    // the heavier road hold.
     bool cs_converted = rush2::calspeed::physics::converted(rdram, car);
     if (!car49 && !slick && !fast && !cs_converted) {
         return;

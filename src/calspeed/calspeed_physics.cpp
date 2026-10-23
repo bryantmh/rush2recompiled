@@ -24,11 +24,12 @@
 // The AI driver, the steering terms, the drivetrain, the tire model and the wheel probe are the same code in both. The
 // computer cars drive the lanes' true speeds. California Speed has no catch-up (its speed factor +0x858 is 1.0 all
 // race); here the Drone Cheating option decides, as on every other track.
-// Computer cars driving California Speed cars run California Speed's own values (its descriptor, tire curves and
-// per-car tables, unscaled). Every other car (players, and Rush 2 or 2049 cars the computer drives) keeps its usual
-// values with the springs and anti-roll x 2.28, the dampers x sqrt(2.28) and the tire load / 2.28: in a world that
-// holds every car down with 2.28 g on the road, it sits, rolls and grips as it does on Rush 2's tracks. Players also keep
-// Rush 2's velocity rules (reverse) and gearbox. Rush 2's wrecks, respawns and car-to-car collision stay.
+// Every car runs California Speed's values (native): a California Speed car its own (descriptor, tire curves and
+// per-car tables, unscaled), a Rush 2, 2049 or mod car its own mapped back from Rush 2's roster
+// (rush2::calspeed::native_values), so all cars drive alike whoever drives them. Converted (the values kept, springs and
+// anti-roll x 2.28, dampers x sqrt(2.28), tire load / 2.28) is left only as the fallback when the California Speed cars
+// aren't loaded; on a player's car it fishtailed on hills and landings. Rush 2's wrecks, respawns and car-to-car
+// collision stay.
 // Roles are set at car init, so the option takes effect from the next race.
 
 #include <algorithm>
@@ -280,7 +281,7 @@ bool rush2::calspeed::physics::converted(uint8_t* rdram, uint32_t car) {
 }
 
 bool rush2::calspeed::physics::race_mode() {
-    return mode.load() == int(Mode::CalSpeed);
+    return mode.load() == int(Mode::CalSpeed) || mode.load() == int(Mode::Rushified);
 }
 
 // A converted car's descriptor copy (rush2_car49_setup_desc): its springs and anti-roll x world_g, its dampers x the
@@ -293,7 +294,7 @@ void rush2::calspeed::physics::convert_descriptor(uint8_t* rdram, uint32_t desc)
 }
 
 // car_init_setup_8008DBA0's entry ($a0 = the car, its type at +0x7EA and driver at +0x7E8 already set): the car's role,
-// and for a computer car driving a California Speed car its own values put into the tables the init reads (restored at
+// and its California Speed values put into the tables the init reads (restored at
 // its end, rush2_csphys_init_end): its descriptor (built unscaled into the car's descriptor copy, with its tire curves
 // as California Speed has them), steering and yaw bases, preload, mass, inertia and TIRES (4 for every car).
 extern "C" void rush2_csphys_init_begin(uint8_t* rdram, recomp_context* ctx) {
@@ -306,24 +307,56 @@ extern "C" void rush2_csphys_init_begin(uint8_t* rdram, recomp_context* ctx) {
     if (!rush2::calspeed::physics::race_mode() || !rush2::calspeed::racing(rdram)) return;
     int type = MEM_BU(0, (int32_t)(car + car_type));
     st.role = Role::Converted;
-    // A player's California Speed car runs native too (CS Physics Full CS): converted (Rush 2's tires on springs x
-    // world_g) it fishtailed on every hill and landing of San Francisco, native it doesn't (user, 2026-10-21).
-    if (!ct::is_calspeed(type)) return;
-    int n = type - ct::first_calspeed;
+    // Every car runs native, whoever drives it and whatever game it comes from: a California Speed car on its own
+    // values, any other on its values mapped back from Rush 2's roster (native_values). Converted (Rush 2's tires on
+    // springs x world_g), a player's car fishtailed on every hill and landing of San Francisco; native it doesn't
+    // (user, 2026-10-21/22).
     rush2::calspeed::NativeCar v;
-    uint32_t desc = native_descs + uint32_t(s) * ct::desc_size;
-    if (!rush2::calspeed::native_car(rdram, n, desc, native_curves + uint32_t(s) * 0x30, v)) return;
+    uint32_t desc = native_descs + uint32_t(s) * ct::desc_size, curves = native_curves + uint32_t(s) * 0x30;
+    bool got = ct::is_calspeed(type) ? rush2::calspeed::native_car(rdram, type - ct::first_calspeed, desc, curves, v)
+                                     : rush2::calspeed::native_values(rdram, type, desc, curves, v);
+    if (!got) return;
     st.role = Role::Native;
     st.grip_lateral = v.grip_lateral;
     st.grip_long = v.grip_long;
     int index = MEM_BU(0, (int32_t)ct::entry(ct::desc_index, 0, type));
+    // CS Physics Partial: a player's native car keeps these of its Rush 2 values (the type's own tables and descriptor:
+    // a Rush 2 car's own, a California Speed car's rebalanced onto Rush 2's roster) in place of California Speed's;
+    // Partial keeps "yepmidct", all but the slide term, which with the faster levelling (orient_end) drove without a
+    // fishtail where California Speed's values spun (user, 2026-10-22). RUSH2_CSPHYS_RUSH=<letters> overrides the set
+    // in either mode, a test aid:
+    // y the yaw gain (the steering term, func_80069E74 / CS func_8008F0B4: -steering x speed x yaw gain, +0x5A4 / CS
+    //   +0x608, the turn-in Rush 2's steering has and California Speed's lacks),
+    // s the steer base (the slide term +0x5A0: California Speed's 9800 against Rush 2's 0-1200),
+    // c the tire curves (and no grip factors), d the springs, anti-roll and dampers, e the torque scales and gears,
+    // p the preload, m the mass, i the inertia, t the TIRES byte (California Speed's 4 otherwise).
+    // The stick's curve is close in both (CS 80081C7C: squared with its sign, small inputs x 100 / speed above
+    // 100 ft/s; Rush 2 func_80076694: cubed).
+    static const char* rush_env = getenv("RUSH2_CSPHYS_RUSH");
+    const char* keep = rush_env != nullptr ? rush_env : mode.load() == int(Mode::Rushified) ? "yepmidct" : "";
+    bool human = (int8_t)MEM_B(0, (int32_t)(car + car_human)) == 2;
+    auto rush = [&](char k) { return human && strchr(keep, k) != nullptr; };
+    uint32_t own = (uint32_t)MEM_W(0, (int32_t)(ct::desc_ptrs + uint32_t(index) * 4));
+    auto keep_desc = [&](uint32_t lo, uint32_t hi) {
+        for (uint32_t o = lo; o < hi; o += 4) MEM_W(0, (int32_t)(desc + o)) = MEM_W(0, (int32_t)(own + o));
+    };
+    if (rush('c')) {
+        keep_desc(0x68, 0x78);
+        st.grip_lateral = st.grip_long = 1.0f;
+    }
+    if (rush('d')) keep_desc(desc_springs, 0x50);
+    if (rush('e')) {
+        keep_desc(0xB8, 0xC8);
+        keep_desc(0xD0, 0xE0);
+    }
     swap_word(rdram, ct::desc_ptrs + uint32_t(index) * 4, desc);
-    swap_word(rdram, ct::entry(ct::steer_base, 0, type), fbits(v.steer));
-    swap_word(rdram, ct::entry(ct::yaw_damping, 0, type), fbits(v.yaw));
-    swap_word(rdram, ct::entry(ct::preload, 0, type), fbits(v.preload));
-    swap_word(rdram, ct::entry(ct::mass, 0, type), fbits(v.mass));
-    swap_word(rdram, ct::entry(ct::inertia, 0, type), fbits(v.inertia));
-    swap_byte(rdram, ct::entry(ct::tires, 0, type), v.tires);
+    if (!rush('s')) swap_word(rdram, ct::entry(ct::steer_base, 0, type), fbits(v.steer));
+    if (!rush('y')) swap_word(rdram, ct::entry(ct::yaw_damping, 0, type), fbits(v.yaw));
+    if (!rush('p')) swap_word(rdram, ct::entry(ct::preload, 0, type), fbits(v.preload));
+    if (!rush('m')) swap_word(rdram, ct::entry(ct::mass, 0, type), fbits(v.mass));
+    if (!rush('i')) swap_word(rdram, ct::entry(ct::inertia, 0, type), fbits(v.inertia));
+    if (!rush('t')) swap_byte(rdram, ct::entry(ct::tires, 0, type), v.tires);
+    if (human && keep[0] != '\0') printf("[csphys] player car type %d keeps Rush 2's: %s\n", type, keep);
 }
 
 // car_init_setup_8008DBA0 at 0x8008E01C, its end ($s2 = the car): the tables as they were, and the car's crash
@@ -704,8 +737,15 @@ void rush2::calspeed::physics::orient_end(uint8_t* rdram, uint32_t car) {
     uint32_t desc = (uint32_t)MEM_W(0, (int32_t)(car + car_desc));
     uint32_t m = car + car_matrix;
     bool own_lift = st.role == Role::Native;
+    // The levelling's rate: California Speed's 0.15 rad/s, Partial's 2 (RUSH2_CSPHYS_LEVEL=<rad/s> overrides it, a test
+    // aid). With the pitch rate zeroed every step, this is all a player's car pitches by: at 0.15, on San Francisco's
+    // hill the front bottomed out on a slope change (1.3 ft), the levelling took a second to follow, the lift held the
+    // rear wheels 0.5 ft off the road and the car swung around its front tires (most of a drive's slides, 2026-10-22).
+    // The levelling stops at level with the wheels, so the faster rate doesn't overshoot.
+    static const char* level_env = getenv("RUSH2_CSPHYS_LEVEL");
+    float level_rate = level_env != nullptr ? (float)atof(level_env) : mode.load() == int(Mode::Rushified) ? 2.0f : 0.15f;
     if (own_lift && (int8_t)MEM_B(0, (int32_t)(car + car_human)) == 2) {
-        float f = front * 0.5f, r = rear * 0.5f, most = f32(rdram, car + car_dt) * 0.15f;
+        float f = front * 0.5f, r = rear * 0.5f, most = f32(rdram, car + car_dt) * level_rate;
         float zf = f32(rdram, desc + desc_wheels + 8), zr = f32(rdram, desc + desc_wheels + 0x18 + 8);
         float diff = 0.0f, a = 0.0f;
         if (f > 0.0f && r < f) {

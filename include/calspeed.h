@@ -178,18 +178,24 @@ namespace rush2::calspeed {
         float grip_lateral = 1.0f, grip_long = 1.0f;
     };
     bool native_car(uint8_t* rdram, int n, uint32_t desc, uint32_t curves, NativeCar& out);
+    // The same for a car of any other game (Rush 2, 2049, a mod; car `type`): its own values in California Speed's
+    // terms, the California Speed cars' mapping onto Rush 2's roster (Rebalance) undone, so it drives in California
+    // Speed's physics as a California Speed car would. Its descriptor copied to `desc` with the mapped fields and its
+    // tire curves (at `curves`) undone; grip factors 1 (its own rear grip, +0x78, stays in the descriptor).
+    bool native_values(uint8_t* rdram, int type, uint32_t desc, uint32_t curves, NativeCar& out);
 
     // The CS Physics option (Games tab, docs/calspeed_research.md#cs-physics-california-speeds-world): on California
     // Speed's tracks, Rush 2's world (the CS Road Hold port, the default) or California Speed's own physics. A car's
     // role is set when the race sets it up, so a change takes effect from the next race.
     namespace physics {
-        enum class Mode { Rush2World, CalSpeed };
+        enum class Mode { Rush2World, CalSpeed, Rushified };
         void set_mode(Mode m);
         Mode get_mode();
-        bool race_mode();   // the option is California Speed's (whatever the track)
+        bool race_mode();   // the option runs California Speed's physics, Full CS or Partial (whatever the track)
         // California Speed's physics run for this car now (a California Speed track is raced and the car was set up
-        // under the option); native: a computer car driving a California Speed car on its own values; converted:
-        // every other car, on its own values converted for the world.
+        // under the option); native: on California Speed's values (a California Speed car's own, any other car's
+        // mapped back from Rush 2's roster); converted: the fallback when those can't be had, its own values converted
+        // for the world.
         bool active(uint8_t* rdram, uint32_t car);
         bool native(uint8_t* rdram, uint32_t car);
         bool converted(uint8_t* rdram, uint32_t car);
