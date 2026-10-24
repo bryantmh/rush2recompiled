@@ -583,11 +583,17 @@ track select the race left for took no buttons (the softlock after QUIT). Leavin
 `end_race`) sets the menus' records' ports back on (`enable_menu_ports`).
 
 A race that ends early (the host leaves, a desync) leaves as the pause menu's Quit does (`race_end_to_menu_800AAC64`
-with 0x800C1A9C = 0; 1 restarts the race), with 0x800BF31C = 1 so the front end starts over from the boot logos (screen
-0xE) and the title screen instead of the car select (0xF). The front end loop (`menu_frontend_loop_800AE288`) switches
+with 0x800C1A9C = 0; 1 restarts the race), to screen 0xF with 0x800BF31C = 0 as Quit leaves it. It used to set
+0x800BF31C = 1, starting the front end over from the boot logos (screen 0xE): that runs the power-on save load again
+(`save_boot_load_settings_800B3528`, docs/menus.md#no-controllers-marquee), whose pak scan finds no pak. A player's
+profile was gone from the menus after a race given up on, and in a sim run the host's game hung in
+`loading_screen_wait_frame_80088C64`. With 0xF the host is back on Select Player with its profiles
+(`RUSH2_ONLINE_BREAK=600` on the joiner, profiles in both data folders' saves). The front end loop (`menu_frontend_loop_800AE288`) switches
 to the next screen (0x800E7BB4) when it differs from the one up (0x800E7BC4, -1 none).
 
-A race given up on (Resyncs) ends the race but not the lobby: online_net.cpp's `end_race` marks the race over
+A race given up on (Resyncs) ends the race but not the lobby: the host sends every machine Msg::LoadMismatch with the
+reason (without it the others waited for the next frame's inputs for ever: "froze the guest") and online_net.cpp's
+`end_race` marks the race over
 (`racing()` false), the game thread leaves it the same way on the next frame (`race_ended_under_us`), the session goes
 back to the lobby (`race_finished`) and the lobby takes everyone back to the track select as after a race. The host
 stops relaying, comparing hashes and checking loads once the race is over. A player who still hasn't loaded the race 180

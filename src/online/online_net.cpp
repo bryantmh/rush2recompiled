@@ -619,9 +619,18 @@ namespace {
                 if (++failed_checks >= max_failed_checks) {
                     rush2::online::session_log("[online] %s's race can't be held in step (frame %u)\n",
                         slots[differs].name.c_str(), frame);
-                    end_race("The race couldn't be kept in step with " + slots[differs].name + "'s game, which seems "
-                        "to have set it up differently. What differed is in the online folder of each game's data "
-                        "folder.");
+                    // Every machine ends the race (Msg::LoadMismatch ends it with the reason): with only the host's
+                    // ended, the others waited for the next frame's inputs for ever.
+                    std::string reason = "The race couldn't be kept in step with " + slots[differs].name + "'s game, "
+                        "which seems to have set it up differently. What differed is in the online folder of each "
+                        "game's data folder.";
+                    Writer w;
+                    w.u8(uint8_t(Msg::LoadMismatch));
+                    w.str(reason);
+                    for (ENetPeer* p : slot_peers) {
+                        send_packet(p, channel_lobby, w.data);
+                    }
+                    end_race(reason);
                     hashes.clear();
                     return;
                 }
