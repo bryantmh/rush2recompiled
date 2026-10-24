@@ -234,6 +234,14 @@ copies, so the hash and the copy can't drift apart:
   starts instead of being refused.
 - `apply_state` keeps a word that is an RDRAM address on both machines but a different one (a pointer into memory laid
   out differently on that machine; copying it would point at the wrong thing). The hashed state normally holds none.
+  A kept word stays different, so every later check fails again and the race is given up on: the car slots after the
+  race's cars (`race_cars`, Load check) always take the host's words, pointers too. Each holds the car each machine
+  raced there last, whose descriptor pointer (physics car +0: the type's shared descriptor, or its copy at
+  0x80225000 + slot x 0xEC) differs whenever the machines' last races did. A user's 2-player LAN race, started once
+  cars no longer failed the load check, resynced at every check on six such words and ended with "The race couldn't
+  be kept in step". Reproduced with `RUSH2_ONLINE_BREAK=stale` on the joiner and the host's attract demo cars in its
+  slots 2-7 (the Load check's run): 15 resyncs each listing "car 2..7 physics +0x000 ... (an address: kept)", then
+  the user's message. With the fix the same run resyncs once at frame 0 and races to the end in sync.
 - Each machine writes what differed to `online/desync_<date>_<time>.txt` in its data folder (one file per race; the
   host notes the frames it sent its state for): each differing field as "car N physics +0xOFF", "car N race state
   +0xOFF", "player N record +0xOFF", a race global's name (with +0xOFF in the path header) or the seed, with this
@@ -613,7 +621,7 @@ without them.
 | `RUSH2_ONLINE_BOT=SEED`, `RUSH2_ONLINE_BOT_IDLE=F` | Drive (and fire, in a battle) from the frame number (repeatable runs), each of the machine's players with its own seed, after F frames. |
 | `RUSH2_ONLINE_SEED` | A fixed race seed. |
 | `RUSH2_ONLINE_HASHLOG` | Log the state hash every 30 frames. |
-| `RUSH2_ONLINE_BREAK=load` / `track` / `cars` / `noload` / `nudge:F` / `F` | This machine fails a check: a different starting state (a resync at frame 0), a different track fingerprint (the race doesn't start: Load check), car 0's descriptor drag x1.5 (a car set up differently: frame 0 resyncs and it takes the host's, Load check), never loading (dropped after the load timeout), its race seed changed at frame F (a real difference, which a resync repairs), a different state hash from frame F on (resyncs can't fix it: the race is given up on). |
+| `RUSH2_ONLINE_BREAK=load` / `track` / `cars` / `stale` / `noload` / `nudge:F` / `F` | This machine fails a check: a different starting state (a resync at frame 0), a different track fingerprint (the race doesn't start: Load check), car 0's descriptor drag x1.5 (a car set up differently: frame 0 resyncs and it takes the host's, Load check), the slots after the race's cars holding an earlier race's car on its descriptor copy (frame 0 resyncs and they take the host's, Resyncs), never loading (dropped after the load timeout), its race seed changed at frame F (a real difference, which a resync repairs), a different state hash from frame F on (resyncs can't fix it: the race is given up on). |
 | `RUSH2_ONLINE_DRONES=N` | The race's computer car count (the track select's DRONES, menu settings +1), set on every machine: a race with empty car slots. |
 | `RUSH2_TEST_GUEST_UNLOCKS=ID,...` | The guest (JUST PLAY) owns these unlock items for the run (src/unlocks.cpp ids: `engine_4`-`engine_9`, `tires_slicks`, `tires_pro`), never saved: a host racing bought parts. |
 | `RUSH2_ONLINE_MODCARS=none` | This machine reports no mod cars, as one without the mods: its races put stand-ins in the raced mod cars' slots. |
