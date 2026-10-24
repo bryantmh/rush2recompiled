@@ -13,6 +13,7 @@
 namespace rush2::rom2049 {
     class Source;
 }
+namespace rush2::online::sync { class Walker; }
 
 // Rush 2049 cars as Rush 2 car types 23-35 (src/rush2049/car2049.cpp); type 22 is Rush 2's "no car" marker. This file
 // also keeps what every extra type (2049's, California Speed's 36-56 and mod cars 57-72, include/car_types.h) shares:
@@ -150,10 +151,14 @@ namespace rush2::car2049 {
     // Lends slot n to the race (game thread, in the menus): copy_mod_car(from) when from >= 0, else the stand-in.
     // What the slot held is kept; return_mod_slots puts every lent slot back as it was.
     void lend_mod_slot(uint8_t* rdram, int n, int from, const ModCar& spec);
+    // Puts back every lent slot, and the car physics data physics_online_sync took from the host.
     void return_mod_slots(uint8_t* rdram);
     // Online races' setup check (src/online/online_game.cpp): FNV-1a of `h` over what the physics read for a car of
     // `type` in per-type table row `row` (its physics tables' entries, descriptor and box).
     uint32_t physics_hash(uint8_t* rdram, int type, int row, uint32_t h);
+    // An online race's resync part (include/online_sync.h): the physics data each race car runs on (physics_hash's,
+    // its own descriptor and the tire curves it points at), so a car set up differently on a machine takes the host's.
+    void physics_online_sync(rush2::online::sync::Walker& w);
     // Mod car n's spec (its physics, name and look settings) as bytes, empty for an empty slot, and back.
     std::vector<uint8_t> mod_car_spec(int n);
     bool read_mod_car_spec(const std::vector<uint8_t>& bytes, ModCar& out);

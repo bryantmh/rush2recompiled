@@ -43,6 +43,7 @@
 #include "engine2049.h"
 #include "font2049.h"
 #include "online.h"
+#include "online_sync.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
@@ -1619,6 +1620,10 @@ namespace {
         std::map<uint32_t, std::vector<uint8_t>> scuffed;
     };
     LentSlot lent_slots[rush2::car_types::count_mod];
+
+    // The car physics bytes a resync of an online race overwrote with the host's (physics_online_sync), as this machine
+    // had them: put back by return_mod_slots, before the slots' own cars, so the machine's own races run on its own data.
+    std::map<uint32_t, uint8_t> lent_physics;
 }
 
 void rush2::car2049::lend_mod_slot(uint8_t* rdram, int n, int from, const ModCar& spec) {
@@ -1652,6 +1657,10 @@ void rush2::car2049::lend_mod_slot(uint8_t* rdram, int n, int from, const ModCar
 }
 
 void rush2::car2049::return_mod_slots(uint8_t* rdram) {
+    for (const auto& [at, v] : lent_physics) {
+        MEM_B(0, (int32_t)at) = (int8_t)v;
+    }
+    lent_physics.clear();
     for (int n = 0; n < rush2::car_types::count_mod; n++) {
         LentSlot& l = lent_slots[n];
         if (!l.lent) continue;
@@ -1771,6 +1780,77 @@ uint32_t rush2::car2049::physics_hash(uint8_t* rdram, int type, int row, uint32_
     }
     add(boxes + type * 16, 16);
     return h;
+}
+
+namespace {
+    // `size` bytes at `at` through a resync walk: saved, or loaded with the bytes this machine had kept in
+    // lent_physics. An address outside RDRAM (an empty car's null descriptor) walks zeros, so every machine walks the
+    // same length.
+    void walk_physics_bytes(rush2::online::sync::Walker& w, uint32_t at, uint32_t size) {
+        uint8_t* rdram = w.rdram;
+        bool in_rdram = at >= 0x80000000u && at + size <= 0x80800000u;
+        std::vector<uint8_t> b(size);
+        for (uint32_t i = 0; in_rdram && i < size; i++) b[i] = (uint8_t)MEM_BU(0, (int32_t)(at + i));
+        w.bytes(b.data(), size);
+        if (!w.loading() || !in_rdram) return;
+        for (uint32_t i = 0; i < size; i++) {
+            uint8_t now = (uint8_t)MEM_BU(0, (int32_t)(at + i));
+            if (now != b[i]) {
+                lent_physics.try_emplace(at + i, now);
+                MEM_B(0, (int32_t)(at + i)) = (int8_t)b[i];
+            }
+        }
+    }
+}
+
+// Per race car (physics cars 0x800F5470, 0x81C each; the cars' state is loaded before the parts, so a resync reads the
+// host's type and row): physics_hash's table entries (with the type's descriptor index and pointer), the type's
+// descriptor, the car's own (car +0: a copy rush2_car49_setup_desc made, or the type's), the four tire curves that one
+// points at (+0x68, 6 floats each) and the box. car_init_setup_8008DBA0 put what it derived from them in the car's
+// state, which the resync copies too.
+void rush2::car2049::physics_online_sync(rush2::online::sync::Walker& w) {
+    uint8_t* rdram = w.rdram;
+    constexpr uint32_t race_cars = 0x800F5470, race_car_size = 0x81C;
+    constexpr uint32_t physics_tables[] = { types_::desc_index, types_::steer_base, types_::yaw_damping,
+                                            types_::preload, types_::mass, types_::inertia, types_::yaw_inertia,
+                                            types_::weight, types_::engine, types_::torque, types_::drive,
+                                            types_::suspension, types_::tires };
+    // Only the race's cars (players s16 0x8010C3E2 + computer cars s16 0x800D3E90, as online_game.cpp's race_cars): the
+    // slots after them keep what this machine raced last. They walk zeros at null addresses instead, so every machine
+    // walks the same length.
+    int count = std::clamp<int>(MEM_H(0, (int32_t)0x8010C3E2) + MEM_H(0, (int32_t)0x800D3E90), 0, 8);
+    for (int c = 0; c < 8; c++) {
+        uint32_t car = race_cars + c * race_car_size;
+        if (c >= count) {
+            for (const Table& t : tables) {
+                if (std::find(std::begin(physics_tables), std::end(physics_tables), t.old_base) != std::end(physics_tables)) {
+                    walk_physics_bytes(w, 0, (uint32_t)t.size);
+                }
+            }
+            walk_physics_bytes(w, 0, 4 + 2 * desc_size + 4 * 0x18 + 16);
+            continue;
+        }
+        int type = MEM_BU(0x7EA, (int32_t)car);
+        if (type >= new_types) type = 0;
+        int row = MEM_BU(0x7E8, (int32_t)car) == 2 ? MEM_H(0x7E0, (int32_t)car) + 1 : 0;
+        for (const Table& t : tables) {
+            if (std::find(std::begin(physics_tables), std::end(physics_tables), t.old_base) == std::end(physics_tables)) {
+                continue;
+            }
+            walk_physics_bytes(w, types_::entry(t.old_base, row >= 0 && row < new_rows(t) ? row : 0, type),
+                               (uint32_t)t.size);
+        }
+        uint32_t ptr_at = desc_ptrs + (uint8_t)MEM_BU(0, (int32_t)(t_desc_index + type)) * 4;
+        walk_physics_bytes(w, ptr_at, 4);
+        walk_physics_bytes(w, (uint32_t)MEM_W(0, (int32_t)ptr_at), desc_size);
+        uint32_t own = (uint32_t)MEM_W(0, (int32_t)car);
+        walk_physics_bytes(w, own, desc_size);
+        for (int i = 0; i < 4; i++) {
+            bool desc_ok = own >= 0x80000000u && own + desc_size <= 0x80800000u;
+            walk_physics_bytes(w, desc_ok ? (uint32_t)MEM_W(0x68 + 4 * i, (int32_t)own) : 0, 0x18);
+        }
+        walk_physics_bytes(w, boxes + type * 16, 16);
+    }
 }
 
 int rush2::car2049::mod_car_paints(int type) {
@@ -2801,11 +2881,16 @@ const char* rush2::car2049::display_name(int k) {
 // is stored and checked against the cars already chosen: with the 2049 cars available the draw covers them too
 // (types 23-35 after Rush 2's 16), as the Rush 2049 Drones option allows, and California Speed's (36-56) as
 // its CS Drones option allows. On one game's track with that game's "Tracks" setting it covers
-// only that game's cars (13 or 21 types, enough for the 7 drones to differ).
+// only that game's cars (13 or 21 types, enough for the 7 drones to differ). Online every machine draws from the same
+// seed, so the draw covers a game's cars only when every machine of the race has its ROM: one without it drew from a
+// smaller pool, and its computer cars were other cars than the rest's.
 extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
     using rush2::car2049::DroneCars;
-    DroneCars mode49 = cars_available() ? (DroneCars)drone_cars.load() : DroneCars::Off;
-    DroneCars modecs = rush2::calspeed::cars_available() ? rush2::calspeed::drone_cars() : DroneCars::Off;
+    namespace online = rush2::online;
+    DroneCars mode49 = cars_available() && online::game::race_has_game(online::games_rush2049)
+        ? (DroneCars)drone_cars.load() : DroneCars::Off;
+    DroneCars modecs = rush2::calspeed::cars_available() && online::game::race_has_game(online::games_calspeed)
+        ? rush2::calspeed::drone_cars() : DroneCars::Off;
     if (mode49 == DroneCars::Off && modecs == DroneCars::Off) {
         return;
     }
@@ -4020,7 +4105,14 @@ extern "C" void rush2_car49_tires_value(uint8_t* rdram, recomp_context* ctx) {
     ctx->r3 = (uint64_t)(int64_t)value;
 }
 
+// Not in an online race: from its setup on, record `player` and its option row can be another machine's player, whose
+// parts were checked against their own unlocks when they picked them. This machine's purchases under their name would
+// set their bought parts back to stock here only: the setup from a car select that only just came up (online_game.cpp,
+// Phase::WaitMenus) runs carselect_build_list_803B81F0 for player 0, whose row is race player 0's car.
 void rush2::car2049::limit_tires(uint8_t* rdram, int player) {
+    if (rush2::online::game::in_race()) {
+        return;
+    }
     for (int type = 0; type < types; type++) {
         if (type == rush2_types) {
             continue;
@@ -4065,7 +4157,11 @@ extern "C" void rush2_car49_engine_value(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = (uint64_t)value;
 }
 
+// Not in an online race, as limit_tires.
 void rush2::car2049::limit_engines(uint8_t* rdram, int player) {
+    if (rush2::online::game::in_race()) {
+        return;
+    }
     for (int type = first_type; type < end_type; type++) {
         uint32_t at = t_engine + (player + 1) * types + type;
         int value = std::clamp<int>((int8_t)MEM_B(0, (int32_t)at), 0, engine_levels - 1);

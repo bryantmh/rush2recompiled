@@ -428,6 +428,9 @@ namespace {
         for (int i = 0; i < (int)settings.menu.size(); i++) {
             MEM_B(i, (int32_t)menu_settings) = (int8_t)settings.menu[i];
         }
+        if (const char* drones = std::getenv("RUSH2_ONLINE_DRONES")) {  // Test aid: the race's computer car count.
+            MEM_B(1, (int32_t)menu_settings) = (int8_t)std::atoi(drones);
+        }
 
         // Every machine's records start the same: blank but for the button masks (rush2::race_setup::init_record).
         rush2::car2049::clear_guest_side_blocks();
@@ -659,6 +662,7 @@ namespace {
         void (*walk)(sync::Walker&);
     };
     constexpr SyncPart sync_parts[] = {
+        { "the cars' physics data", rush2::car2049::physics_online_sync },
         { "the Rush 2049 wings", rush2::wings::online_sync },
         { "California Speed's physics", rush2::calspeed::physics::online_sync },
         { "SF Rush's buses", rush2::track1::buses_online_sync },
@@ -939,9 +943,17 @@ namespace {
         return h;
     }
 
+    // The cars in the race: the players (num_players, setup_race's race_players) and the computer cars (the race's
+    // drone count, s16 0x800D3E90, src/ghost.cpp's race_drones), the same on every machine. The physics car slots after
+    // them keep whatever this machine raced last (an earlier race, the attract demo), which differs by machine: a 2-car
+    // race with the host's attract demo cars left in slots 2-7 and the joiner's empty failed the old load check.
+    int race_cars(uint8_t* rdram) {
+        return std::clamp<int>(MEM_H(0, (int32_t)num_players) + MEM_H(0, (int32_t)0x800D3E90), 0, 8);
+    }
+
     uint32_t cars_fingerprint(uint8_t* rdram) {
         uint32_t h = 2166136261u;
-        for (int car = 0; car < 8; car++) {
+        for (int car = 0; car < race_cars(rdram); car++) {
             uint32_t physics_car = sync_cars + car * sync_car_size;
             int type = MEM_BU(0x7EA, (int32_t)physics_car);
             bool human = MEM_BU(0x7E8, (int32_t)physics_car) == 2;
@@ -952,9 +964,9 @@ namespace {
     }
 
     // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_BREAK makes this machine fail a check: "load" reports a
-    // different starting state (a resync at frame 0), "track" a different track (the race doesn't start), "noload"
-    // never reports loaded (the host drops the player after its
-    // load timeout), "nudge:F" changes the race seed at frame F (a real difference, which a resync repairs), a frame
+    // different starting state (a resync at frame 0), "track" a different track (the race doesn't start), "cars" car
+    // 0's physics data set up differently (frame 0 resyncs and the car takes the host's), "noload" never reports
+    // loaded (the host drops the player after its load timeout), "nudge:F" changes the race seed at frame F (a real difference, which a resync repairs), a frame
     // number F reports a different state hash from frame F on (resyncs can't fix it: the race is given up on).
     const std::string& break_test() {
         static const std::string spec = std::getenv("RUSH2_ONLINE_BREAK") ? std::getenv("RUSH2_ONLINE_BREAK") : "";
@@ -1313,11 +1325,33 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
             return;
         }
         // The race's first physics frame: every machine reports what it set up, then waits for everyone.
+        if (break_test() == "cars") {
+            // Test aid: car 0's own descriptor gets half again its drag (+0x60), as a car set up differently here.
+            uint32_t desc = (uint32_t)MEM_W(0, (int32_t)sync_cars);
+            if (desc >= 0x80000000u && desc < 0x80800000u) {
+                uint32_t bits = (uint32_t)MEM_W(0x60, (int32_t)desc);
+                float drag;
+                std::memcpy(&drag, &bits, 4);
+                drag *= 1.5f;
+                std::memcpy(&bits, &drag, 4);
+                MEM_W(0x60, (int32_t)desc) = (int32_t)bits;
+            }
+        }
         uint32_t hash = state_hash(rdram);
         uint32_t track = track_fingerprint(rdram);
         uint32_t cars = cars_fingerprint(rdram);
-        rush2::online::session_log("[online] race loaded at frame %u, state %08X, track %08X, cars %08X\n", game_frame, hash,
-            track, cars);
+        rush2::online::session_log("[online] race loaded at frame %u, state %08X, track %08X, cars %08X (%d players, %d "
+            "computer cars)\n", game_frame, hash, track, cars, MEM_H(0, (int32_t)num_players),
+            MEM_H(0, (int32_t)0x800D3E90));
+        // Each car's part of the fingerprint, so two machines' logs show which car was set up differently.
+        for (int car = 0; car < race_cars(rdram); car++) {
+            uint32_t physics_car = sync_cars + car * sync_car_size;
+            int type = MEM_BU(0x7EA, (int32_t)physics_car);
+            bool human = MEM_BU(0x7E8, (int32_t)physics_car) == 2;
+            int row = human ? MEM_H(0x7E0, (int32_t)physics_car) + 1 : 0;
+            rush2::online::session_log("[online]   car %d: type %d, row %d, physics %08X\n", car, type, row,
+                rush2::car2049::physics_hash(rdram, type, row, 2166136261u));
+        }
         dump_full(rdram, "load");
         if (break_test() == "load") {
             hash ^= 1;
@@ -1673,6 +1707,19 @@ bool rush2::online::game::read_local_controller(uint16_t* buttons, float* x, flo
 
 bool rush2::online::game::in_race() {
     return phase != Phase::Idle;
+}
+
+// The race's roster as it started (a dropped player's slot stays used), so every machine answers alike.
+bool rush2::online::game::race_has_game(uint8_t game) {
+    if (phase == Phase::Idle) {
+        return true;
+    }
+    for (const RosterEntry& e : race_roster()) {
+        if (e.used && (e.games & game) == 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 int rush2::online::game::local_race_players() {

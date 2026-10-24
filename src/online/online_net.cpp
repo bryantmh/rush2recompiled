@@ -511,8 +511,10 @@ namespace {
                 }
             }
         }
-        // What each machine set up: the same track and the same car physics, or the race can't be run (a resync copies
-        // the cars' state, not the track or the cars' tables). The host's is the reference: it names who differs.
+        // What each machine set up: the same track, or the race can't be run (a resync copies the race's state, not the
+        // track). The host's is the reference: it names who differs. The cars never stop a race: a resync copies their
+        // physics data too (rush2::car2049::physics_online_sync), and the differing start hash below resyncs frame 0,
+        // so a car set up differently on a machine takes the host's; the cars' fingerprint is only logged.
         int reference_slot = -1;
         for (int i = 0; i < max_players; i++) {
             if (!needs_input(i)) {
@@ -530,15 +532,15 @@ namespace {
             if (!needs_input(i) || race_slots[i].machine == race_slots[reference_slot].machine) {
                 continue;
             }
+            if (loaded_cars[i] != loaded_cars[reference_slot]) {
+                rush2::online::session_log("[online] player %d set the cars up differently (cars %08X, host %08X): "
+                    "they take the host's at the first resync\n", i + 1, loaded_cars[i], loaded_cars[reference_slot]);
+            }
             std::string what;
             if (loaded_track[i] != loaded_track[reference_slot]) {
                 what = "loaded a different track than " + slots[reference_slot].name + "'s (for a custom track: other "
                     "files of it; for another game's track: another copy of that game's ROM). Everyone needs the same "
                     "track files.";
-            }
-            else if (loaded_cars[i] != loaded_cars[reference_slot]) {
-                what = "set the cars up with different physics than " + slots[reference_slot].name + "'s (another ROM, "
-                    "mod or car setting).";
             }
             if (!what.empty()) {
                 std::string reason = "The race couldn't start: " + slots[i].name + "'s game " + what;

@@ -294,6 +294,9 @@ namespace rush2::online {
         bool pedals(int player, float* gas, float* brake);
         // An online race is set up or running on this machine.
         bool in_race();
+        // Whether every machine of the race has the game's ROM (games_* bit), so a race car of that game (a computer
+        // car's random type) can be on every machine. True outside an online race.
+        bool race_has_game(uint8_t game);
         // In an online race: the car type player (car slot) `car` picked, which the race gives their car whatever its
         // profile says (src/rush2049/car2049.cpp, rush2_car49_select_get). False otherwise.
         bool car_type(int car, int* type);

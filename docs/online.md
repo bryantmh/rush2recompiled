@@ -262,9 +262,36 @@ When the race loads, each machine also reports two fingerprints (protocol 8, `re
 data (`track_fingerprint`: the collision file from its header at 0x800D5754 to the end of its VLIST section, which the
 loader doesn't write, so the same track hashes alike wherever it sits) and what each car's physics read
 (`cars_fingerprint`: `rush2::car2049::physics_hash` by the car's type, physics car +0x7EA, and table row). A resync can't
-repair these, so the host ends the race when they differ (Msg::LoadMismatch, `host_check_loaded` in online_net.cpp),
-naming who differs and whether it was the track (another version of a custom track, another copy of a game's ROM) or the
-cars (another ROM, mod or car setting). `RUSH2_ONLINE_BREAK=track` tests it.
+repair the track, so the host ends the race when it differs (Msg::LoadMismatch, `host_check_loaded` in online_net.cpp),
+naming who differs (another version of a custom track, another copy of a game's ROM). `RUSH2_ONLINE_BREAK=track` tests
+it.
+
+The cars never end a race. A resync copies the data each car's physics run on as well
+(`rush2::car2049::physics_online_sync`, the first sync part: physics_hash's table entries with the type's descriptor
+index and pointer, the type's descriptor, the car's own descriptor at car +0, the four tire curves it points at and the
+box), and any difference also differs the start hash, so frame 0 resyncs and the car takes the host's. The host builds
+every player's rows from that player's own profile, so its copy is each player's own choices. The bytes it overwrote
+are kept (`lent_physics`) and put back by `return_mod_slots`, so the machine's own races run on its own data again. The
+cars' fingerprint is only logged: each machine's session log lists every car's type, row and physics hash at the load,
+and the host's names a player whose cars differed.
+
+The fingerprint and the sync part cover only the race's cars: the players (num_players 0x8010C3E2) and the computer
+cars (s16 0x800D3E90), at most 8 (`race_cars`). A user's race ended with the old "set the cars up with different
+physics" error with the same ROMs, mods and settings on both machines: the fingerprint covered all 8 physics car slots,
+and a race with fewer cars leaves the rest holding what each machine raced last. Reproduced with two quick races
+(`RUSH2_ONLINE_DRONES=0`, the host idling 45 s on the title so its attract demo filled slots 2-7, the joiner fresh): the
+host's slots 2-7 held the demo's cars, the joiner's type 0, and the race ended with the user's message. With the count
+the same run loads alike (2 players, 0 computer cars), 51 checks in sync. (`race_car_count` 0x800E79B8 is 0 at the
+load: not the count.) Two other ways the cars could differ were closed too:
+
+- The setup from a car select that only just came up (`Phase::WaitMenus` in online_game.cpp: a player walked back in
+  as the host started) runs `carselect_build_list_803B81F0` for player 0, whose unlock filter (`limit_tires`,
+  `limit_engines`) looked up race player 0's parts in this machine's purchases (another machine's player has no name
+  here, so the guest's) and set bought ones back to stock. The limits now skip an online race
+  (`rush2::online::game::in_race`). The usual start (`start_from_car_select`, every player having picked) doesn't run
+  it: a host 8-Ball on a bought 5.0L HP V6 (`RUSH2_TEST_GUEST_UNLOCKS`) loaded alike on both machines before the fix.
+- The computer cars' random types (`rush2_car49_drone`) include the Rush 2049 and California Speed cars only when every
+  racer has that ROM (`rush2::online::game::race_has_game`), so every machine draws from the same pool.
 
 ## Mod cars
 
@@ -580,7 +607,9 @@ without them.
 | `RUSH2_ONLINE_BOT=SEED`, `RUSH2_ONLINE_BOT_IDLE=F` | Drive (and fire, in a battle) from the frame number (repeatable runs), each of the machine's players with its own seed, after F frames. |
 | `RUSH2_ONLINE_SEED` | A fixed race seed. |
 | `RUSH2_ONLINE_HASHLOG` | Log the state hash every 30 frames. |
-| `RUSH2_ONLINE_BREAK=load` / `track` / `noload` / `nudge:F` / `F` | This machine fails a check: a different starting state (a resync at frame 0), a different track fingerprint (the race doesn't start: Load check), never loading (dropped after the load timeout), its race seed changed at frame F (a real difference, which a resync repairs), a different state hash from frame F on (resyncs can't fix it: the race is given up on). |
+| `RUSH2_ONLINE_BREAK=load` / `track` / `cars` / `noload` / `nudge:F` / `F` | This machine fails a check: a different starting state (a resync at frame 0), a different track fingerprint (the race doesn't start: Load check), car 0's descriptor drag x1.5 (a car set up differently: frame 0 resyncs and it takes the host's, Load check), never loading (dropped after the load timeout), its race seed changed at frame F (a real difference, which a resync repairs), a different state hash from frame F on (resyncs can't fix it: the race is given up on). |
+| `RUSH2_ONLINE_DRONES=N` | The race's computer car count (the track select's DRONES, menu settings +1), set on every machine: a race with empty car slots. |
+| `RUSH2_TEST_GUEST_UNLOCKS=ID,...` | The guest (JUST PLAY) owns these unlock items for the run (src/unlocks.cpp ids: `engine_4`-`engine_9`, `tires_slicks`, `tires_pro`), never saved: a host racing bought parts. |
 | `RUSH2_ONLINE_MODCARS=none` | This machine reports no mod cars, as one without the mods: its races put stand-ins in the raced mod cars' slots. |
 | `RUSH2_ONLINE_TRACE=DIR` | Write the cars' physics before every frame to DIR/cars.bin; `tools/online_trace_diff.py A B` finds the first frame and words that differ. |
 | `RUSH2_ONLINE_DUMP=DIR`, `RUSH2_ONLINE_DUMP_AT=F,...` | Write the cars' physics and the seeds every 30 frames, and all of RDRAM at the load check (full_load.bin) / before frames F (full_F.bin); `tools/ram_diff.py` compares two (a load mismatch: diff full_load.bin over the hashed ranges). |
