@@ -203,6 +203,9 @@ namespace rush2::online {
     uint16_t lobby_port();
     // Why the last host, join or session ended, for the UI; empty if nothing went wrong.
     std::string last_error();
+    // A joined lobby was lost (the host closed it or quit its game, or the connection dropped) since the last call,
+    // not left from the Online tab: true once, with the reason in last_error().
+    bool take_lobby_lost();
     // Status of the host's router port mapping (UPnP), for the UI: router_status() is the full explanation,
     // router_port() what it came to.
     std::string router_status();

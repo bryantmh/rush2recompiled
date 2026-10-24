@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -129,6 +130,11 @@ namespace {
     int pulse = 0;
     std::string notice;            // What the lobby waits for, for the overlay.
     std::string race_waiting;      // In a race: who it waits for (race_notice).
+    // A joiner who lost its lobby (the host closed it or quit its game, or the connection dropped): the reason
+    // (rush2::online::last_error), shown in the overlay for dropped_time once the session is gone.
+    std::string dropped;
+    std::chrono::steady_clock::time_point dropped_at;
+    constexpr auto dropped_time = std::chrono::seconds(8);
 
     // The battle rules the host's track select shows, copied onto this machine's while it follows (they are this
     // machine's saved settings otherwise: put back after).
@@ -675,7 +681,9 @@ namespace {
         }
         std::vector<RosterEntry> r = roster();
         int me = local_slot();
-        std::string text = lobby_name() + "|" + notice;
+        // Offline only to show why the lobby was lost: no lobby to name.
+        std::string title = state() == State::Offline ? std::string("Online") : "Online Lobby: " + lobby_name();
+        std::string text = title + "|" + notice;
         std::string lines[max_players];
         for (int i = 0; i < max_players && i < (int)r.size(); i++) {
             if (r[i].used) {
@@ -688,7 +696,7 @@ namespace {
         if (text != overlay.shown_text) {
             overlay.shown_text = text;
             overlay.context.open();
-            overlay.title->set_text("Online Lobby: " + lobby_name());
+            overlay.title->set_text(title);
             for (int i = 0; i < max_players; i++) {
                 overlay.lines[i]->set_text(lines[i]);
                 overlay.lines[i]->set_display(lines[i].empty() ? recompui::Display::None : recompui::Display::Block);
@@ -756,6 +764,14 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
     set_local_mod_cars(rush2::online::game::mod_car_checks());
     State st = state();
     int gs = state_of(rdram);
+    if (take_lobby_lost()) {
+        dropped = last_error();
+        dropped_at = std::chrono::steady_clock::now();
+        rush2::online::session_log("[lobby] lost the lobby: %s\n", dropped.c_str());
+    }
+    if (st != State::Offline) {
+        dropped.clear();
+    }
     if (st == State::Offline || st == State::Connecting) {
         set_ports(Ports::Off);
         car_chosen = false;
@@ -767,7 +783,10 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         rush2::track2049::set_online_offered(rdram, {});
         host_offered.clear();
         set_profile_name({});
-        update_overlay(false);
+        race_waiting.clear();
+        bool show_dropped = !dropped.empty() && std::chrono::steady_clock::now() - dropped_at < dropped_time;
+        notice = show_dropped ? dropped : std::string();
+        update_overlay(show_dropped);
         return;
     }
     if (st != State::Lobby) {

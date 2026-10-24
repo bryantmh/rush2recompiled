@@ -158,6 +158,7 @@ namespace {
     std::mutex thread_mutex;
     std::thread net_thread;
     std::atomic<bool> net_running = false;
+    std::atomic<bool> lobby_lost = false;  // take_lobby_lost
     ENetHost* enet_host = nullptr;
     ENetPeer* host_peer = nullptr;            // Client: the connection to the host.
     ENetPeer* slot_peers[max_players] = {};   // Host: each client's connection.
@@ -1015,8 +1016,11 @@ namespace {
                                 "forward UDP port " + std::to_string(host_port) + " to their computer.";
                         }
                     }
-                    else if (error_text.empty() || cur_state == State::Lobby) {
-                        error_text = "The host closed the lobby or the connection was lost.";
+                    else {
+                        if (error_text.empty() || cur_state == State::Lobby) {
+                            error_text = "The host closed the lobby or the connection was lost.";
+                        }
+                        lobby_lost = true;
                     }
                     reset_session();
                     net_running = false;
@@ -1265,6 +1269,7 @@ bool rush2::online::join(const std::string& text) {
         e = RosterEntry{};
     }
     error_text.clear();
+    lobby_lost = false;
     clear_race();
     cur_state = State::Connecting;
     connect_started = clock_type::now();
@@ -1330,6 +1335,10 @@ uint16_t rush2::online::lobby_port() {
 std::string rush2::online::last_error() {
     std::lock_guard lock{ state_mutex };
     return error_text;
+}
+
+bool rush2::online::take_lobby_lost() {
+    return lobby_lost.exchange(false);
 }
 
 std::string rush2::online::router_status() {

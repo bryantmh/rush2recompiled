@@ -33,7 +33,10 @@ heading). Port and max players apply the next time you host. The race itself is 
 `src/online/online_lobby.cpp`. The host goes through the game's own menus as for a local race, and every other
 player's game follows it; an overlay (a RecompUI context that takes no input, made at startup in the launcher's init)
 lists the players and what the lobby waits for. The overlay steps aside while a menu or prompt is open
-(`is_context_capturing_input`, `is_prompt_open`), since showing a document focuses it. Each player is shown by the name
+(`is_context_capturing_input`, `is_prompt_open`), since showing a document focuses it. A joiner whose lobby is lost
+(the host closed it or quit its game, or the connection dropped; `take_lobby_lost`, set by the net thread's disconnect
+and not by leaving from the Online tab) gets the overlay for 8 s with the reason (`last_error`), titled "Online", in
+the lobby or in a race. Checked by quitting the host from a `menus:` lobby. Each player is shown by the name
 of the profile they picked on Select Player (`set_profile_name`, from `rush2::collectibles::player_name`), or their
 display name before that or without one.
 
