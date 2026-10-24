@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -249,6 +250,18 @@ namespace {
             return;
         }
         store_loaded = true;
+        // Test aid: RUSH2_TEST_GUEST_UNLOCKS=ID,ID... gives the guest (JUST PLAY) those unlock items for the run, as if
+        // bought in the shop (src/unlocks.cpp's item ids, e.g. engine_9, tires_slicks). Never saved: the guest's are
+        // kept in memory only.
+        if (const char* ids = std::getenv("RUSH2_TEST_GUEST_UNLOCKS")) {
+            std::string list = ids;
+            for (size_t at = 0; at < list.size();) {
+                size_t comma = list.find(',', at);
+                std::string id = list.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+                if (!id.empty()) guest_bought.insert(id);
+                at = comma == std::string::npos ? list.size() : comma + 1;
+            }
+        }
         nlohmann::json j = nlohmann::json::parse(
             rush2::data_files::read(rush2::data_files::File::Saves, store_section), nullptr, false);
         if (j.is_discarded() || !j.contains("profiles") || !j["profiles"].is_array()) {

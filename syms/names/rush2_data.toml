@@ -5645,12 +5645,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D3E90
-name = "menu_race_option_s16"
+name = "race_computer_cars"
 type = "s16"
-desc = "Halfword from menu/boot defaults, read by options text and car-to-player assignment."
-area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+desc = "The race's computer car count (the track select's DRONES; src/ghost.cpp race_drones). Online races' car count is num_players (0x8010C3E2) + this, at most 8 (online_game.cpp race_cars): 0 with DRONES 0 and 7 by default (2 players: 9, capped at 8)."
+area = "race"
+status = "verified"
+ref = "docs/online.md#load-check"
 
 [[var]]
 vram = 0x800D3E92
@@ -7609,10 +7609,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800E79B8
 name = "race_car_count"
 type = "u16"
-desc = "Halfword used by physics tick, drone tick and race setup (likely number of cars in race; low confidence)."
+desc = "Halfword used by physics tick, drone tick and race setup. Not the race's car count at its first physics frame: it reads 0 there in an online race (docs/online.md#load-check); use num_players + race_computer_cars (0x800D3E90)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#load-check"
 
 [[var]]
 vram = 0x800E79BA
