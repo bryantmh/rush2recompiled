@@ -805,11 +805,30 @@ namespace {
         std::fputs(text.c_str(), stderr);
     }
 
+    // The cars in the race: the players (num_players, setup_race's race_players) and the computer cars (the race's
+    // drone count, s16 0x800D3E90, src/ghost.cpp's race_drones), the same on every machine. The physics car slots after
+    // them keep whatever this machine raced last (an earlier race, the attract demo), which differs by machine: a 2-car
+    // race with the host's attract demo cars left in slots 2-7 and the joiner's empty failed the old load check.
+    int race_cars(uint8_t* rdram) {
+        return std::clamp<int>(MEM_H(0, (int32_t)num_players) + MEM_H(0, (int32_t)0x800D3E90), 0, 8);
+    }
+
     // Takes the host's race state (capture_state's bytes) and logs where this machine's differed. A word that is an
     // RDRAM address on both machines but a different one is this machine's own (a pointer into memory laid out
-    // differently here) and is kept: copying the host's would point at the wrong thing.
+    // differently here) and is kept: copying the host's would point at the wrong thing. But not in a car slot after
+    // the race's cars (race_cars), which no car of the race uses: kept there, a leftover car's descriptor (physics car
+    // +0) from each machine's own last race stayed different, every check after the resync failed again and the race
+    // was given up on (a user's 2-player LAN race; RUSH2_ONLINE_BREAK=stale).
     void apply_state(uint8_t* rdram, const std::vector<uint8_t>& state, uint32_t frame) {
         std::vector<SyncRange> ranges = synced_ranges();
+        const uint32_t cars = (uint32_t)race_cars(rdram);
+        auto unused_slot = [cars](uint32_t address) {
+            if (address >= sync_cars && address < sync_cars + 8 * sync_car_size) {
+                return (address - sync_cars) / sync_car_size >= cars;
+            }
+            return address >= car_states && address < car_states + 8 * car_state_size &&
+                (address - car_states) / car_state_size >= cars;
+        };
         size_t total = 0;
         for (const SyncRange& r : ranges) {
             total += r.size;
@@ -851,7 +870,7 @@ namespace {
                         host = (host << 8) | state[at + i + b];
                     }
                     if (mine != host) {
-                        bool kept = is_pointer(mine) && is_pointer(host);
+                        bool kept = is_pointer(mine) && is_pointer(host) && !unused_slot(address);
                         count_area(address);
                         if (differences++ < 200) {
                             char line[160];
@@ -943,13 +962,6 @@ namespace {
         return h;
     }
 
-    // The cars in the race: the players (num_players, setup_race's race_players) and the computer cars (the race's
-    // drone count, s16 0x800D3E90, src/ghost.cpp's race_drones), the same on every machine. The physics car slots after
-    // them keep whatever this machine raced last (an earlier race, the attract demo), which differs by machine: a 2-car
-    // race with the host's attract demo cars left in slots 2-7 and the joiner's empty failed the old load check.
-    int race_cars(uint8_t* rdram) {
-        return std::clamp<int>(MEM_H(0, (int32_t)num_players) + MEM_H(0, (int32_t)0x800D3E90), 0, 8);
-    }
 
     uint32_t cars_fingerprint(uint8_t* rdram) {
         uint32_t h = 2166136261u;
@@ -965,7 +977,9 @@ namespace {
 
     // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_BREAK makes this machine fail a check: "load" reports a
     // different starting state (a resync at frame 0), "track" a different track (the race doesn't start), "cars" car
-    // 0's physics data set up differently (frame 0 resyncs and the car takes the host's), "noload" never reports
+    // 0's physics data set up differently (frame 0 resyncs and the car takes the host's), "stale" the slots after the
+    // race's cars holding an earlier race's car on its descriptor copy (as two machines' different last races leave
+    // them), "noload" never reports
     // loaded (the host drops the player after its load timeout), "nudge:F" changes the race seed at frame F (a real difference, which a resync repairs), a frame
     // number F reports a different state hash from frame F on (resyncs can't fix it: the race is given up on).
     const std::string& break_test() {
@@ -1338,6 +1352,15 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
                 drag *= 1.5f;
                 std::memcpy(&bits, &drag, 4);
                 MEM_W(0x60, (int32_t)desc) = (int32_t)bits;
+            }
+        }
+        if (break_test() == "stale") {
+            // Test aid: the slots after the race's cars hold what an earlier race here left, its car on its own
+            // descriptor copy (car_descs 0x80225000 + slot x 0xEC, rush2_car49_setup_desc).
+            for (int car = race_cars(rdram); car < 8; car++) {
+                uint32_t physics_car = sync_cars + car * sync_car_size;
+                MEM_W(0, (int32_t)physics_car) = (int32_t)(0x80225000u + car * 0xECu);
+                MEM_B(0x7EA, (int32_t)physics_car) = 1;
             }
         }
         uint32_t hash = state_hash(rdram);
