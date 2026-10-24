@@ -38,7 +38,8 @@ runs a screen through its jump table.
 `front_end_from_logos` 0x800BF31C: set, the front end after a race starts over from screen 0xE; clear, from 0xF.
 `front_end_exit` 0x800FAE6C (u8): 2 leaves the front end for the track select, as Select Player does.
 The game itself only reads and clears `front_end_from_logos` (func_8009FD68): its initial value sends the first front
-end through screen 0xE, and nothing in the original game sends it there again. Only our online race exit sets it.
+end through screen 0xE, and nothing in the original game sends it there again. Our online race exit set it until it
+was found to rerun the power-on save load (docs/online.md#race-end); it now leaves it 0, as the pause menu's QUIT does.
 
 ### No-controllers marquee
 

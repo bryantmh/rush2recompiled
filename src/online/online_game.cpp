@@ -1102,8 +1102,7 @@ namespace {
 namespace {
     constexpr uint32_t race_restart_flag = 0x800C1A9C;  // u8: func_800AAC64 restarts the race (0: to the menus)
     // u8: the front end after a race starts over from the boot logos (screen 0xE, then the title screen) rather than at
-    // screen 0xF (func_8009FD68). The players' car select needs the profiles they picked, which an online race (set
-    // up from the title screen too) may not have.
+    // screen 0xF (func_8009FD68). Kept 0 (end_race): screen 0xE runs the power-on save load again.
     constexpr uint32_t front_end_from_logos = 0x800BF31C;
     constexpr int32_t state_post_race = 6;           // func_800A952C: records, lap and race times, name entry
     constexpr int32_t state_car_select = 2;
@@ -1199,7 +1198,11 @@ namespace {
         fixed_frame_time = false;
         if (in_game) {
             MEM_B(0, (int32_t)race_restart_flag) = 0;
-            MEM_B(0, (int32_t)front_end_from_logos) = 1;
+            // To screen 0xF, as the pause menu's QUIT goes (which online races leave by too). Starting over from the
+            // boot logos (screen 0xE) ran the power-on save load again (save_boot_load_settings_800B3528): its pak scan
+            // found no pak, the players' profiles were gone from the menus, and the host's game hung in the loading
+            // screen (loading_screen_wait_frame_80088C64) after a race given up on.
+            MEM_B(0, (int32_t)front_end_from_logos) = 0;
             recomp_context saved = *ctx;
             race_end_to_menu_800AAC64(rdram, ctx);
             *ctx = saved;
