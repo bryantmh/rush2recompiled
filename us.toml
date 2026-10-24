@@ -11676,16 +11676,6 @@ vram = 0x80087954
 value = 0x26D60000 # addiu $s6, $s6, -0x6170 -> 80400000
 
 [[patches.instruction]]
-func = "carselect_build_preview_car_8008813C"
-vram = 0x800887A8
-value = 0x3C018024 # lui -> 8024
-
-[[patches.instruction]]
-func = "carselect_build_preview_car_8008813C"
-vram = 0x800887B0
-value = 0xC42006A4 # lwc1 $f0, -0x380($at) -> 802406A4
-
-[[patches.instruction]]
 func = "memcpy_0x40_wrapper_80088AC8"
 vram = 0x80088AF4
 value = 0x3C018024 # lui -> 8024
@@ -11974,16 +11964,6 @@ value = 0x3C138030 # lui -> 8030
 func = "hud_multi_widget_menu_setup_80093B38"
 vram = 0x80093B70
 value = 0x2673A000 # addiu $s3, $s3, 0x4254 -> 802FA000
-
-[[patches.instruction]]
-func = "car_matrix_copy_and_apply_8009ABDC"
-vram = 0x8009AC00
-value = 0x3C018024 # lui -> 8024
-
-[[patches.instruction]]
-func = "car_matrix_copy_and_apply_8009ABDC"
-vram = 0x8009AC14
-value = 0xC42006A4 # lwc1 $f0, -0x380($at) -> 802406A4
 
 [[patches.instruction]]
 func = "cam_chase_position_compute_8009AC74"

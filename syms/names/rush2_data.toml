@@ -11225,12 +11225,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C43C
-name = "cheat_option_p"
+name = "cheat_frame_scale"
 type = "u8"
-desc = "Byte set by cheat menu and defaults; read by car matrix, car select preview and player-count menu text (low confidence)."
+desc = "Frame Scale cheat (0 off, 1-3): indexes the f32 table 0x800BFC80 (0.6, 1.2, 1.5) that scales the car matrix Y column in car_matrix_copy_and_apply_8009ABDC and the car select preview."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/players4.md#arrays-that-share-an-address-with-a-table"
 
 [[var]]
 vram = 0x8010C43E

@@ -135,6 +135,13 @@ EXCLUDE = {
     # address the straight-line scan carries over from the lui at 0x800BC914.
     '800BC950',
     '800BC954',
+    # The Frame Scale cheat's table (f32 at 0x800BFC80 + cheat byte 0x8010C43C * 4, read by the car select preview
+    # func_8008813C and car_matrix_copy_and_apply_8009ABDC) starts inside the camera array 0x800BFC7C, but entries 1-3
+    # are past its end: moved, they read zeros and flatten the car (issue 34).
+    '800887A8',
+    '800887B0',
+    '8009AC00',
+    '8009AC14',
 }
 
 # Loops that run over a whole moved array stop at its old end, which isn't in the moved range: these sites (vram) get
