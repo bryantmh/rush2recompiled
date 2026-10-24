@@ -57,6 +57,7 @@
 #include "track2049.h"
 #include "track_mod_runtime.h"
 #include "prewarm.h"
+#include "setup.h"
 #include "car_engines.h"
 #include "steam_input_filter.h"
 #include "linux_window.h"
@@ -690,6 +691,16 @@ static void launcher_update(recompui::LauncherMenu*) {
         if (!recomp::is_rom_valid(game_id)) {
             return;
         }
+    }
+    // A fresh install's setup screen first (src/setup.cpp): its other games step can add ROMs the build pass then
+    // builds. The launcher shows again, and comes back here, once it closes.
+    if (rush2::setup::pending()) {
+        static bool queued = false;
+        if (!queued) {
+            queued = true;
+            recompui::queue_ui_task([]() { rush2::setup::open(true); });
+        }
+        return;
     }
     // Every car and track is built before the game starts (src/prewarm.cpp).
     rush2::prewarm::start(game_id);

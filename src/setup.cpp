@@ -4,7 +4,7 @@
 //   { "profile": "original" | "enhanced", "pending": true, "known": [ "general/torque_rebalance", ... ] }
 // "known" lists the rule settings the profile has been applied to. A rule setting added in a later version isn't in
 // it, so the next launch gives it the profile's value: an Original player's new setting starts at Rush 2's behavior,
-// an Enhanced player's at its default. "pending" is set while a fresh install hasn't finished the setup screen.
+// an Enhanced player's at Enhanced's. "pending" is set while a fresh install hasn't finished the setup screen.
 
 #include <algorithm>
 #include <cstdio>
@@ -39,40 +39,75 @@ namespace {
     const std::string section = "setup";
 
     // The configs rule settings live in.
-    enum class Cfg { General, Games, Cheats };
+    enum class Cfg { General, Games, Cheats, Graphics };
+    constexpr int cfg_count = 4;
 
-    // A setting that changes how Rush 2 itself plays, with Rush 2's value. Enhanced is the setting's default. Settings
-    // that only change the content of the other games, the controls, the cameras or the graphics aren't here.
+    // A setting a preset sets: one that changes how Rush 2 itself plays, or which other games' cars race on the other
+    // games' tracks. Settings that only change the other games' content, the controls, the cameras or the graphics
+    // aren't here. group is its column on the Game Rules step (groups below), or -1 for one on the Other Games step
+    // (the Rush 2049 and California Speed settings, which mean nothing before those games are added). keep and change
+    // are what Original and Enhanced do, as their cards list it.
     struct Rule {
         Cfg cfg;
         const char* id;
         ConfigValueVariant original;
+        ConfigValueVariant enhanced;
+        int group;
+        const char* keep = nullptr;
+        const char* change = nullptr;
     };
 
+    const char* const groups[] = { "Cars and Races", "Menus and Circuits", "Graphics" };
+
     const std::vector<Rule>& rules() {
+        using rush2::car2049::DroneCars;
+        constexpr uint32_t own_tracks = static_cast<uint32_t>(DroneCars::Rush2049Tracks);
+        constexpr uint32_t all_tracks = static_cast<uint32_t>(DroneCars::AllTracks);
+        constexpr uint32_t rush2_speeds = static_cast<uint32_t>(rush2::car2049::SpeedMode::Rush2);
         static const std::vector<Rule> list = {
-            { Cfg::General, "accurate_car_stats", false },
-            { Cfg::General, "torque_rebalance", false },
-            { Cfg::General, "stunt_first_gear", false },
-            { Cfg::General, "hide_respawning_cars", false },
-            { Cfg::General, "drone_catch_up", true },
-            { Cfg::General, "pause_menu_extras", false },
-            { Cfg::General, "accurate_circuit_review", false },
-            { Cfg::General, "more_circuit_settings", false },
-            { Cfg::General, "circuit_fixed_difficulty", false },
-            { Cfg::Games, "wings", false },
-            { Cfg::Games, "car_speeds", static_cast<uint32_t>(rush2::car2049::SpeedMode::Rush2) },
-            { Cfg::Games, "stunt_scoring", static_cast<uint32_t>(rush2::stunt2049::Scoring::Rush2) },
-            { Cfg::Games, "rush2049_odometer", false },
-            { Cfg::Cheats, "unlock_system", false },
+            { Cfg::General, "accurate_car_stats", false, true, 0, "Car select stat bars use Rush 2's formulas",
+              "Car select stat bars measured from the real physics" },
+            { Cfg::General, "torque_rebalance", false, true, 0, "Rush 2's TORQUE curves", "Each TORQUE setting has a real use" },
+            { Cfg::General, "stunt_first_gear", false, true, 0, "Respawns start in 2nd gear (manual gearbox)",
+              "Respawns start in 1st gear (manual gearbox)" },
+            { Cfg::General, "hide_respawning_cars", false, true, 0 },
+            { Cfg::General, "drone_catch_up", true, true, 0 },
+            { Cfg::General, "pause_menu_extras", false, true, 1, "Rush 2's pause menu",
+              "Pause menu adds SKIP TRACK, song and collectibles" },
+            { Cfg::General, "accurate_circuit_review", false, true, 1, "Rush 2's tour of its tracks after a circuit",
+              "The end of a circuit shows the tracks you raced" },
+            { Cfg::General, "more_circuit_settings", false, true, 1, "DEATHS only set before a circuit's first race",
+              "Set DIFFICULTY and DEATHS in any circuit race" },
+            { Cfg::General, "circuit_fixed_difficulty", false, false, 1 },
+            { Cfg::Cheats, "unlock_system", false, true, 1, "Cars and tracks unlock as in Rush 2",
+              "Collectibles earn points to buy cars, tracks and parts" },
+            { Cfg::Games, "wings", false, true, -1 },
+            { Cfg::Games, "stunt_scoring", static_cast<uint32_t>(rush2::stunt2049::Scoring::Rush2),
+              static_cast<uint32_t>(rush2::stunt2049::Scoring::Rush2049), -1 },
+            { Cfg::Games, "rush2049_odometer", false, false, -1 },
+            { Cfg::Games, "car_speeds", rush2_speeds, rush2_speeds, -1 },
+            { Cfg::Games, "rush2049_computer_cars", own_tracks, all_tracks, -1 },
+            { Cfg::Games, "calspeed_computer_cars", own_tracks, all_tracks, -1 },
         };
         return list;
     }
+
+    // Shown on the Game Rules step to turn on with either preset, but no preset changes them (they stay off).
+    struct Extra {
+        Cfg cfg;
+        const char* id;
+        int group;
+    };
+    const Extra extras[] = {
+        { Cfg::Graphics, "ambient_occlusion", 2 },
+        { Cfg::Graphics, "car_sheen", 2 },
+    };
 
     recomp::config::Config& config_of(Cfg cfg) {
         switch (cfg) {
             case Cfg::Games: return rush2::wings::games_config();
             case Cfg::Cheats: return recompui::config::get_config("cheats");
+            case Cfg::Graphics: return recompui::config::get_graphics_config();
             default: return recompui::config::get_general_config();
         }
     }
@@ -87,22 +122,23 @@ namespace {
     }
 
     std::string key_of(const Rule& r) {
-        static const char* const names[] = { "general", "games", "cheats" };
+        static const char* const names[] = { "general", "games", "cheats", "graphics" };
         return std::string(names[(int)r.cfg]) + "/" + r.id;
     }
 
-    const recomp::config::ConfigOption* option_of(const Rule& r) {
-        const auto& schema = config_of(r.cfg).get_config_schema();
-        auto it = schema.options_by_id.find(r.id);
-        return it == schema.options_by_id.end() ? nullptr : &schema.options[it->second];
-    }
-
-    ConfigValueVariant default_of(const recomp::config::ConfigOption& option) {
-        return std::visit([](const auto& v) -> ConfigValueVariant { return v.default_value; }, option.variant);
+    bool registered(Cfg cfg, const char* id) {
+        return config_of(cfg).get_config_schema().options_by_id.contains(id);
     }
 
     ConfigValueVariant value_for(const Rule& r, Profile p) {
-        return p == Profile::Original ? r.original : default_of(*option_of(r));
+        return p == Profile::Original ? r.original : r.enhanced;
+    }
+
+    // Saves every config the setup screen's options are in (the menu's tabs save theirs when they close).
+    void save_all() {
+        for (int c = 0; c < cfg_count; c++) {
+            save((Cfg)c);
+        }
     }
 
     Profile profile = Profile::Enhanced;
@@ -119,7 +155,7 @@ namespace {
 
     bool matches(Profile p) {
         for (const Rule& r : rules()) {
-            if (option_of(r) != nullptr && config_of(r.cfg).get_option_value(r.id) != value_for(r, p)) {
+            if (registered(r.cfg, r.id) && config_of(r.cfg).get_option_value(r.id) != value_for(r, p)) {
                 return false;
             }
         }
@@ -129,34 +165,24 @@ namespace {
     // Sets every rule setting to the preset's value, each through its config so it takes effect as its description
     // says, and saves them.
     void apply(Profile p) {
-        bool changed[3] = {};
+        bool changed[cfg_count] = {};
         for (const Rule& r : rules()) {
-            if (option_of(r) == nullptr) continue;
+            if (!registered(r.cfg, r.id)) continue;
             ConfigValueVariant v = value_for(r, p);
             if (config_of(r.cfg).get_option_value(r.id) != v) {
                 config_of(r.cfg).update_option_value(r.id, v);
                 changed[(int)r.cfg] = true;
             }
         }
-        for (int c = 0; c < 3; c++) {
+        for (int c = 0; c < cfg_count; c++) {
             if (changed[c]) save((Cfg)c);
         }
         profile = p;
         write_state();
     }
 
-    // The names of the settings a preset changes from the other's value, for the setup screen's descriptions.
-    std::string differing_names() {
-        std::string out;
-        for (const Rule& r : rules()) {
-            const recomp::config::ConfigOption* option = option_of(r);
-            if (option == nullptr || r.original == default_of(*option)) continue;
-            out += (out.empty() ? "" : ", ") + option->name;
-        }
-        return out;
-    }
-
-    // The setup screen: step 0 picks the game rules, step 1 is the Games tab's page (the other games' ROMs).
+    // The setup screen: step 0 picks the game rules (two cards, then their settings to customize), step 1 is the Games
+    // tab's page (the other games' ROMs).
     class SetupModal : public recompui::Modal {
     public:
         SetupModal(recompui::ResourceId rid, recompui::Document* parent, recompui::ContextId context)
@@ -170,14 +196,24 @@ namespace {
             right->set_gap(8.0f);
             back_button = context.create_element<Button>(right, "Back", ButtonStyle::Secondary, ButtonSize::Medium);
             back_button->add_pressed_callback([this]() { go_back(); });
-            done_button = context.create_element<Button>(right, "Done", ButtonStyle::Primary, ButtonSize::Medium);
-            done_button->add_pressed_callback([this]() { close(); });
+            next_button = context.create_element<Button>(right, "Next", ButtonStyle::Primary, ButtonSize::Medium);
+            next_button->add_pressed_callback([this]() {
+                if (shown_step == 0) {
+                    save_all();
+                    wanted_step = 1;
+                }
+                else {
+                    close();
+                }
+            });
             set_menu_action_callback(MenuAction::Back, [this]() { go_back(); }, "Back");
+            set_menu_action_callback(MenuAction::Toggle, [this]() { toggle(); }, "Close");
             queue_update(); // Modal::process_event queues the next one each frame.
         }
 
         void start(bool first) {
             first_launch = first;
+            picked = !first;
             wanted_step = 0;
             shown_step = -1;
         }
@@ -186,10 +222,15 @@ namespace {
         std::string_view get_type_name() override { return "Rush2SetupModal"; }
 
         void process_event(const recompui::Event& e) override {
-            // Built here rather than in a button's callback, which would delete the button it runs in.
-            if (e.type == recompui::EventType::Update && is_open && wanted_step != shown_step) {
-                shown_step = wanted_step;
-                build_step();
+            if (e.type == recompui::EventType::Update && is_open) {
+                // Built here rather than in a button's callback, which would delete the button it runs in.
+                if (wanted_step != shown_step) {
+                    shown_step = wanted_step;
+                    build_step();
+                }
+                if (shown_step == 0) {
+                    update_cards();
+                }
             }
             Modal::process_event(e);
         }
@@ -197,14 +238,36 @@ namespace {
     private:
         recompui::Label* title = nullptr;
         recompui::Button* back_button = nullptr;
-        recompui::Button* done_button = nullptr;
+        recompui::Button* next_button = nullptr;
+        recompui::Button* cards[2] = {};
+        recompui::Element* customize = nullptr;
+        recompui::Label* customize_note = nullptr;
+        std::string shown_rules;
+        bool customize_shown = false;
         bool first_launch = false;
+        bool picked = false;    // the settings to customize show once a card is picked (at once from the menu)
         int wanted_step = 0;
         int shown_step = -1;
 
+        // Escape or Start: on a first launch's Game Rules step it goes on to the other games (where the ROMs are added)
+        // rather than closing the screen past them.
+        bool toggle_is_next() const {
+            return first_launch && shown_step == 0;
+        }
+
+        void toggle() {
+            if (toggle_is_next()) {
+                save_all();
+                wanted_step = 1;
+            }
+            else {
+                close();
+            }
+        }
+
         void go_back() {
             if (wanted_step == 1) {
-                rush2::wings::save_config();
+                save_all();
                 wanted_step = 0;
             }
             else {
@@ -212,22 +275,21 @@ namespace {
             }
         }
 
-        void choose(Profile p) {
+        void pick(Profile p) {
+            std::string name = p == Profile::Original ? "Original" : "Enhanced";
             if (first_launch || rush2::setup::rules_name() != "Custom") {
                 apply(p);
-                wanted_step = 1;
+                picked = true;
                 return;
             }
-            std::string name = p == Profile::Original ? "Original" : "Enhanced";
             recompui::open_choice_prompt(
-                "Use " + name + " game rules?",
-                "Your own changes to the game rule settings are replaced. Controls, graphics, saves, unlocks and the "
-                "other games' tracks and cars are kept.",
+                "Use " + name + "?",
+                "This replaces your changes to the settings below. Controls, graphics, saves and unlocks are kept.",
                 "Use " + name,
                 "Cancel",
                 [this, p]() {
                     apply(p);
-                    wanted_step = 1;
+                    picked = true;
                 },
                 []() {},
                 recompui::ButtonStyle::Success,
@@ -235,48 +297,133 @@ namespace {
                 true);
         }
 
+        // A preset's card, all one button: its name, one line on what it is and what it does for each setting.
+        recompui::Button* add_card(recompui::Element* parent, Profile p) {
+            using namespace recompui;
+            ContextId context = modal_root_context;
+            bool original = p == Profile::Original;
+            auto* card = context.create_element<Button>(parent, "", ButtonStyle::Secondary);
+            // Laid out as a card rather than as the button's one centered line.
+            card->set_flex_direction(FlexDirection::Column);
+            card->set_align_items(AlignItems::FlexStart);
+            card->set_justify_content(JustifyContent::FlexStart);
+            card->set_width(560.0f);
+            card->set_height(340.0f);
+            card->set_min_height(340.0f);
+            card->set_max_height(340.0f);
+            card->set_padding(20.0f);
+            card->set_padding_left(24.0f);
+            card->set_padding_right(24.0f);
+            card->set_border_radius(theme::border::radius_lg);
+            context.create_element<Label>(card, original ? "Original" : "Enhanced", theme::Typography::Header2);
+            auto* summary = context.create_element<Label>(card,
+                original ? "Rush 2 exactly as it played on the N64:" : "Rush 2 with these changes:", theme::Typography::Body);
+            summary->set_margin_top(8.0f);
+            summary->set_color(theme::color::Text);
+            Element* list = context.create_element<Element>(card, 0, "div", false);
+            list->set_margin_top(8.0f);
+            for (const Rule& r : rules()) {
+                const char* text = original ? r.keep : r.change;
+                if (text == nullptr) continue;
+                auto* line = context.create_element<Label>(list, std::string("\xE2\x80\xA2 ") + text, theme::Typography::Body);
+                line->set_color(theme::color::TextDim);
+                line->set_display(Display::Block);
+            }
+            card->add_pressed_callback([this, p]() { pick(p); });
+            return card;
+        }
+
+        // Marks the card matching the settings and shows the settings once one is picked.
+        void update_cards() {
+            using namespace recompui;
+            std::string now = rush2::setup::rules_name();
+            if (now == shown_rules && customize_shown == picked) return;
+            shown_rules = now;
+            customize_shown = picked;
+            for (int i = 0; i < 2; i++) {
+                bool on = now == (i == 0 ? "Original" : "Enhanced");
+                cards[i]->apply_button_style(on ? ButtonStyle::Primary : ButtonStyle::Secondary);
+            }
+            customize->set_display(picked ? Display::Block : Display::None);
+            customize_note->set_text(now == "Custom" ? "Customized" : "As " + now);
+        }
+
         void build_step() {
             using namespace recompui;
             ContextId context = modal_root_context;
             body->clear_children();
             back_button->set_display(shown_step == 1 ? Display::Flex : Display::None);
-            done_button->set_text(shown_step == 1 ? "Done" : "Skip");
+            next_button->set_text(shown_step == 1 ? "Done" : "Next");
+            set_menu_action_callback(MenuAction::Toggle, [this]() { toggle(); }, toggle_is_next() ? "Next" : "Close");
             if (shown_step == 1) {
                 title->set_text("Setup: Other Games (optional)");
                 rush2::games::create_page(context, body);
-                done_button->focus();
+                next_button->focus();
                 return;
             }
             title->set_text("Setup: Game Rules");
-            const std::string names = differing_names();
-            auto* page = context.create_element<rush2::ui::OptionsPage>(body,
-                "Pick how Rush 2 plays. Either choice keeps the tracks and cars added from other games, and the "
-                "controls and graphics settings.<br/><br/>Every setting can still be changed one by one in the General, "
-                "Games and Progress tabs, and <recomp-color primary>Run Setup Again</recomp-color> on the General tab "
-                "comes back here.");
-            page->add_heading("Preset", first_launch ? "" : "Now: " + rush2::setup::rules_name());
-            auto add_choice = [&](const std::string& label, const std::string& description, std::function<void()> pressed) {
-                Element* row = page->add_row(description);
-                auto* button = context.create_element<Button>(row, label, ButtonStyle::Secondary);
-                button->add_pressed_callback(std::move(pressed));
-                return button;
-            };
-            Button* original = add_choice("Original",
-                "<recomp-color primary>Original</recomp-color> plays by Rush 2's own rules, as on the N64. Turns off: " +
-                names + ".", [this]() { choose(Profile::Original); });
-            Button* enhanced = add_choice("Enhanced",
-                "<recomp-color primary>Enhanced</recomp-color> adds the recompiled version's changes to how Rush 2 "
-                "plays: " + names + ".", [this]() { choose(Profile::Enhanced); });
-            Button* keep = nullptr;
-            if (!first_launch) {
-                keep = add_choice("Keep Current", "Leaves the game rule settings as they are (" +
-                    rush2::setup::rules_name() + ") and goes on to the other games.", [this]() { wanted_step = 1; });
+            shown_rules.clear();
+            customize_shown = false;
+
+            Element* page = context.create_element<Element>(body, 0, "div", false);
+            page->set_display(Display::Block);
+            page->set_position(Position::Relative);
+            page->set_width(100.0f, Unit::Percent);
+            page->set_height(100.0f, Unit::Percent);
+            page->set_as_navigation_container(NavigationType::Vertical);
+
+            Element* row = context.create_element<Element>(page, 0, "div", false);
+            row->set_position(Position::Absolute);
+            row->set_top(24.0f);
+            row->set_left(0.0f);
+            row->set_right(0.0f);
+            row->set_display(Display::Flex);
+            row->set_flex_direction(FlexDirection::Row);
+            row->set_justify_content(JustifyContent::Center);
+            row->set_gap(32.0f);
+            row->set_as_navigation_container(NavigationType::Horizontal);
+            cards[0] = add_card(row, Profile::Original);
+            cards[1] = add_card(row, Profile::Enhanced);
+            auto* kept = context.create_element<Label>(page,
+                "Both keep your controls and graphics settings. The other games' settings follow on the next page.",
+                theme::Typography::Body);
+            kept->set_position(Position::Absolute);
+            kept->set_top(380.0f);
+            kept->set_left(0.0f);
+            kept->set_right(0.0f);
+            kept->set_text_align(TextAlign::Center);
+            kept->set_color(theme::color::TextDim);
+
+            // The preset's settings, to turn on or off one by one.
+            customize = context.create_element<Element>(page, 0, "div", false);
+            customize->set_position(Position::Absolute);
+            customize->set_top(424.0f);
+            customize->set_left(0.0f);
+            customize->set_right(0.0f);
+            customize->set_bottom(0.0f);
+            customize->set_border_top_width(1.0f);
+            customize->set_border_top_color(theme::color::Border);
+            customize->set_display(Display::None);
+            auto* options = context.create_element<rush2::ui::OptionsPage>(customize,
+                "Turn any of these on or off to customize the choice. Graphics stay off unless you turn them on. All of "
+                "them are also in the General, Graphics and Progress tabs.", 3);
+            for (int g = 0; g < 3; g++) {
+                if (g > 0) options->next_column();
+                rush2::ui::OptionsPage::Heading heading = options->add_heading(groups[g]);
+                if (g == 0) customize_note = heading.note;
+                for (const Rule& r : rules()) {
+                    if (r.group == g && registered(r.cfg, r.id)) {
+                        options->add_option(config_of(r.cfg), r.id);
+                    }
+                }
+                for (const Extra& x : extras) {
+                    if (x.group == g && registered(x.cfg, x.id)) {
+                        options->add_option(config_of(x.cfg), x.id);
+                    }
+                }
             }
-            Button* focus = profile == Profile::Original ? original : enhanced;
-            if (keep != nullptr && rush2::setup::rules_name() == "Custom") {
-                focus = keep;
-            }
-            focus->focus();
+            update_cards();
+            cards[profile == Profile::Original ? 0 : 1]->focus();
         }
     };
 
@@ -304,10 +451,11 @@ void rush2::setup::load(bool fresh_install) {
         is_pending = fresh_install && (!rush2::sim::active() || getenv("RUSH2_TEST_FIRST_BOOT") != nullptr);
     }
 
-    // Rule settings new since the profile was last applied take the profile's value.
-    bool changed[3] = {};
+    // Rule settings new since the profile was last applied take the profile's value. A fresh install starts on
+    // Enhanced's values, which the setup screen then changes.
+    bool changed[cfg_count] = {};
     for (const Rule& r : rules()) {
-        if (option_of(r) == nullptr) {
+        if (!registered(r.cfg, r.id)) {
             fprintf(stderr, "[setup] rule setting %s isn't registered\n", key_of(r).c_str());
             continue;
         }
@@ -315,12 +463,12 @@ void rush2::setup::load(bool fresh_install) {
         if (std::find(known.begin(), known.end(), key) != known.end()) continue;
         known.push_back(key);
         ConfigValueVariant v = value_for(r, profile);
-        if (j.is_object() && config_of(r.cfg).get_option_value(r.id) != v) {
+        if ((j.is_object() || is_pending) && config_of(r.cfg).get_option_value(r.id) != v) {
             config_of(r.cfg).update_option_value(r.id, v);
             changed[(int)r.cfg] = true;
         }
     }
-    for (int c = 0; c < 3; c++) {
+    for (int c = 0; c < cfg_count; c++) {
         if (changed[c]) save((Cfg)c);
     }
     write_state();
@@ -343,7 +491,7 @@ void rush2::setup::open(bool first_launch) {
         modal = context.create_element<SetupModal>(context.get_root_element(), context);
         context.close();
         modal->set_on_close_callback([]() {
-            rush2::wings::save_config();
+            save_all();
             if (is_pending) {
                 // The launcher, shown again now that no menu is, goes on to the game.
                 is_pending = false;

@@ -210,6 +210,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/game_fixes.cpp
     ${CMAKE_SOURCE_DIR}/src/camera.cpp
     ${CMAKE_SOURCE_DIR}/src/games_tab.cpp
+    ${CMAKE_SOURCE_DIR}/src/setup.cpp
     ${CMAKE_SOURCE_DIR}/src/online_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/online/online_net.cpp
     ${CMAKE_SOURCE_DIR}/src/online/online_discovery.cpp

@@ -129,7 +129,7 @@ namespace {
     std::string rom_status_text() {
         return rush2::calspeed::rom_available()
             ? "ROM found."
-            : "Needs a California Speed (USA) ROM for its tracks and cars.";
+            : "Needs a California Speed (USA) ROM.";
     }
 
     void update_rom_ui() {

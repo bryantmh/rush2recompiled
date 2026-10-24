@@ -1,20 +1,29 @@
 """Tests the launcher's Locate ROM on a first boot (Windows): opens the file picker, cancels it, picks a file that isn't
-a ROM (the error box), then the Rush 2 ROM, after which the launcher goes straight on to the build pass and the game. Never touches the player's
+a ROM (the error box), then the Rush 2 ROM, after which the setup screen (src/setup.cpp) picks the game rules and
+closes from its other games step, and the launcher goes on to the build pass and the game. Never touches the player's
 data: it runs as a silent simulation in its own empty data folder with the ROM import skipped (RUSH2_TEST_FIRST_BOOT,
 docs/menus.md#launcher-on-a-first-boot). Screenshots and the game's log go to OUT_DIR.
 
-Usage: python tools/first_boot_test.py OUT_DIR [ROM]     ROM defaults to build/rush2.n64.us.z64
+Usage: python tools/first_boot_test.py OUT_DIR [ROM] [--rules original|enhanced]
+ROM defaults to build/rush2.n64.us.z64; --rules (default enhanced) is the setup screen's choice, checked in the saved
+settings.
 Each dialog step prints whether it's owned by the game window and whether the game window is hung; exit code 1 on any
 failure.
 """
-import ctypes, ctypes.wintypes as wt, os, shutil, subprocess, sys, time
+import ctypes, ctypes.wintypes as wt, json, os, shutil, subprocess, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'rush1'))
 import shots
 
 u = shots.user32
 u.GetWindow.restype = wt.HWND
-out = os.path.abspath(sys.argv[1])
-rom = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(shots.REPO, 'build', 'rush2.n64.us.z64'))
+args = sys.argv[1:]
+rules = 'enhanced'
+if '--rules' in args:
+    i = args.index('--rules')
+    rules = args[i + 1]
+    del args[i:i + 2]
+out = os.path.abspath(args[0])
+rom = os.path.abspath(args[1] if len(args) > 1 else os.path.join(shots.REPO, 'build', 'rush2.n64.us.z64'))
 data = os.path.join(out, 'data')
 shutil.rmtree(out, ignore_errors=True)
 os.makedirs(data)
@@ -25,12 +34,30 @@ WM_COMMAND, IDOK, IDCANCEL = 0x111, 1, 2
 failures = []
 
 
-def press_enter(hwnd):
-    sc = u.MapVirtualKeyW(0x0D, 0) << 16
-    u.PostMessageW(hwnd, 0x100, 0x0D, sc | 1)
+def press_key(hwnd, vk, ext=0):
+    sc = u.MapVirtualKeyW(vk, 0) << 16 | ext
+    u.PostMessageW(hwnd, 0x100, vk, sc | 1)
     time.sleep(0.1)
-    u.PostMessageW(hwnd, 0x101, 0x0D, sc | 0xC0000001)
+    u.PostMessageW(hwnd, 0x101, vk, sc | 0xC0000001)
     time.sleep(1.2)
+
+
+def press_enter(hwnd):
+    press_key(hwnd, 0x0D)
+
+
+def setup_section():
+    try:
+        return json.load(open(os.path.join(data, 'players.json'))).get('setup')
+    except (OSError, ValueError):
+        return None
+
+
+def option(config, key):
+    try:
+        return json.load(open(os.path.join(data, config + '.json')))[key]
+    except (OSError, ValueError, KeyError):
+        return None
 
 
 def title(h):
@@ -92,7 +119,10 @@ try:
     game = shots.find_window(p.pid)
     shots.capture(game, os.path.join(out, '0_launcher.png'))
 
-    press_enter(game)   # Locate ROM has the focus.
+    # Locate ROM is focused, or the first key press focuses it: press again if the picker didn't open.
+    press_enter(game)
+    if not [h for h in windows(p.pid, '#32770') if title(h) == 'Open']:
+        press_enter(game)
     d = wait_dialog(p.pid, game, True, 'picker')
     if d:
         u.PostMessageW(d, WM_COMMAND, IDCANCEL, 0)
@@ -114,12 +144,52 @@ try:
                 wait_gone(p.pid, e)
         time.sleep(1.5)
 
-    shots.capture(game, os.path.join(out, '1_after.png'))
     if not any(f.endswith('.z64') for f in os.listdir(data)):
         print('ROM not stored in the data folder', flush=True)
         failures.append('stored ROM')
+
+    # The setup screen: Game Rules with Enhanced's card button focused (Original's is to its left); picking one shows
+    # its settings, UP reaches Next, then the other games step opens with Done focused.
+    time.sleep(1.5)
+    shots.capture(game, os.path.join(out, '1_setup_rules.png'))
+    s = setup_section()
+    print('setup section before choosing:', s, flush=True)
+    if not s or not s.get('pending'):
+        failures.append('setup pending')
+    if rules == 'original':
+        press_key(game, 0x25, 1 << 24)   # left
+    press_enter(game)
+    time.sleep(1.0)
+    shots.capture(game, os.path.join(out, '2_setup_picked.png'))
+    if rules == 'original':
+        press_key(game, 0x26, 1 << 24)   # up, to Next
+        press_enter(game)
+    else:
+        press_key(game, 0x1B)            # Escape, which is Next on a first launch's Game Rules step
+    time.sleep(1.0)
+    shots.capture(game, os.path.join(out, '2_setup_games.png'))
+    press_enter(game)                    # Done
+    time.sleep(3.0)
+    s = setup_section()
+    print('setup section after Done:', s, flush=True)
+    if not s or s.get('pending') or s.get('profile') != rules:
+        failures.append('setup profile')
+    enhanced = rules == 'enhanced'
+    checks = (('general', 'torque_rebalance', enhanced), ('general', 'stunt_first_gear', enhanced),
+              ('general', 'pause_menu_extras', enhanced), ('cheats', 'unlock_system', enhanced),
+              ('games', 'wings', enhanced), ('games', 'stunt_scoring', 'Rush2049' if enhanced else 'Rush2'),
+              ('games', 'rush2049_computer_cars', 'AllTracks' if enhanced else 'Rush2049Tracks'),
+              ('games', 'calspeed_computer_cars', 'AllTracks' if enhanced else 'CalSpeedTracks'),
+              ('graphics', 'ambient_occlusion', 'Off'))
+    for config, key, want in checks:
+        v = option(config, key)
+        print('%s.%s = %s' % (config, key, v), flush=True)
+        if v != want:
+            failures.append('%s.%s' % (config, key))
+    shots.capture(game, os.path.join(out, '3_after.png'))
 finally:
     p.terminate()
 
-print('FAILED: ' + ', '.join(failures) if failures else 'OK (check 1_after.png shows the game or the build progress screen, never Start Game)')
+print('FAILED: ' + ', '.join(failures) if failures else 'OK (check 1_setup_rules.png and 2_setup_games.png show the setup '
+      'screen, and 3_after.png the game or the build progress screen, never Start Game)')
 sys.exit(1 if failures else 0)

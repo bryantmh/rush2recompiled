@@ -34,6 +34,7 @@
 #include "game_filter.h"
 #include "car2049.h"
 #include "car_probes.h"
+#include "setup.h"
 
 // Adds every option of the config that the page doesn't have yet, in the config's order (hidden ones stay hidden).
 static void add_remaining_options(rush2::ui::OptionsPage* page, recomp::config::Config& config, const std::vector<std::string>& added) {
@@ -67,7 +68,9 @@ static void create_ordered_tab(const std::string& name, const std::string& tab_i
                 if (new_column) {
                     page->next_column();
                 }
-                page->add_heading(heading);
+                if (!heading.empty()) {
+                    page->add_heading(heading);
+                }
                 for (const std::string& id : ids) {
                     page->add_option(config, id);
                     added.push_back(id);
@@ -746,7 +749,7 @@ namespace catch_up_option {
 static void add_catch_up_option(recomp::config::Config& config) {
     config.add_bool_option(
         catch_up_option::id,
-        "Disable Drone Cheating",
+        "Drone Cheating",
         "The computer cars speed up when they fall behind the cars around them and ease off when they pull ahead, as "
         "in Rush 2. Off, their pace comes only from DIFFICULTY and their place in the race, not from how far they "
         "are from the other cars. Takes effect at once, even mid-race.",
@@ -944,6 +947,8 @@ void rush2::init_config() {
     // and Graphics tabs are replaced by ones that order their options under headings (added first: the menu opens
     // on the first tab, hidden or not), and its Controls tab by ours (src/controls_tab.cpp) and the game's own
     // Controller Setup screen.
+    // A fresh install starts on the setup screen (src/setup.cpp); finalize() writes general.json.
+    bool fresh_install = !std::filesystem::exists(recomp_dir / (recompui::config::general::id + ".json"));
     rush2::control_profiles::load(); // Before finalize() saves general.json without the options it moves in from.
     {
         namespace general = recompui::config::general;
@@ -951,17 +956,29 @@ void rush2::init_config() {
         // so showing one moves nothing in the others.
         create_ordered_tab(general::tab_name, "rush2_general", general::id, 3, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id, hide_respawn_option::id,
-                            hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, pause_extras_option::id, rush2::game_filter::option_id() } },
+                            hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, pause_extras_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
             { "Circuits", { circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id }, true },
-            { "Ghosts", { ghost_option::id, ghosts_kept_option::id } },
-            { "Opponents", {} },
+            { "Other", { ghost_option::id, ghosts_kept_option::id, rush2::game_filter::option_id() } },
+            { "", {} },     // Run Setup Again, under the rest without a heading
         }, nullptr, {
+            { "", [](rush2::ui::OptionsPage* page) {
+                recompui::Element* row = page->add_row(
+                    "Opens the screen the game started on the first time: pick Original or Enhanced game rules again "
+                    "(now " + rush2::setup::rules_name() + "), and add the other games' ROMs.");
+                auto* button = recompui::get_current_context().create_element<recompui::Button>(row, "Run Setup Again",
+                                                                                               recompui::ButtonStyle::Secondary);
+                button->add_pressed_callback([]() {
+                    if (recompui::config::close()) {
+                        recompui::queue_ui_task([]() { rush2::setup::open(false); });
+                    }
+                });
+            } },
             { "Circuits", [](rush2::ui::OptionsPage* page) {
                 rush2::circuit::add_section(page->get_list(), [page](const std::string& text) { return page->text_shower(text); },
                                             page->expand_panel());
             } },
-            { "Opponents", [](rush2::ui::OptionsPage* page) {
+            { "Other", [](rush2::ui::OptionsPage* page) {
                 rush2::npc_cars::add_section(page->get_list(), page->text_shower(rush2::npc_cars::description),
                                              page->expand_panel());
             } },
@@ -1102,6 +1119,7 @@ void rush2::init_config() {
     rush2::calspeed::load_config();
     rush2::arcade2049::load_config();
     rush2::music::load_config();
+    rush2::setup::load(fresh_install);
     // Last: the lobby compares the settings of the configs loaded above.
     rush2::online_tab::load_config();
 }

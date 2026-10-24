@@ -8,6 +8,11 @@
 
 #include "control_profiles.h"
 
+namespace recompui {
+    class ContextId;
+    class Element;
+}
+
 namespace rush2 {
     inline const std::u8string program_id = u8"Rush2Recompiled";
     inline const std::string program_name = "Rush 2: Recompiled";
@@ -339,6 +344,8 @@ namespace rush2 {
     // Games tab: the Rush 2049 and SF Rush ROMs and what they add (src/games_tab.cpp).
     namespace games {
         void create_tab();
+        // The tab's page, for the setup screen's other games step (src/setup.cpp).
+        void create_page(recompui::ContextId context, recompui::Element* parent);
     }
 }
 
