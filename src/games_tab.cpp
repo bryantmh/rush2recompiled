@@ -126,6 +126,10 @@ namespace {
     };
 }
 
+void rush2::games::create_page(recompui::ContextId context, recompui::Element* parent) {
+    context.create_element<GamesPage>(parent);
+}
+
 void rush2::games::create_tab() {
     rush2::wings::init_config();
     rush2::track1::init_config();
@@ -133,9 +137,7 @@ void rush2::games::create_tab() {
     rush2::arcade2049::init_config();
     add_battle_options();
     recompui::config::create_tab(tab_name, tab_id,
-        [](ContextId context, Element* parent) {
-            context.create_element<GamesPage>(parent);
-        },
+        rush2::games::create_page,
         nullptr,
         [](TabCloseContext) {
             // Both games' options are one config.

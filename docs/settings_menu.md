@@ -21,12 +21,52 @@ focused is one of those changes.
 - **Show/Hide lists** (General's AI Opponents and Circuit Courses): their lists open in the page's spare last column
   (`OptionsPage::expand_panel`, `rush2::ui::ExpandPanel`), one at a time, so opening one never makes its own column
   grow, scroll or move. The sections keep only their heading row in the second column.
-- **Column order:** General: Gameplay, System | Circuits, Ghosts, Opponents | (the open list). Graphics: Display |
+- **Column order:** General: Gameplay, System | Circuits, Other (ghosts, Game Filter, AI Opponents), Run Setup Again | (the open list). A section with an empty heading adds no heading row. Graphics: Display |
   Quality, Effects | Textures, Your Own Upscales. Games: Rush 2049 | San Francisco Rush, Rush 2049 Arcade |
   California Speed (its options are named "CS ..." to fit).
 - **List** (Controls, Online): `OptionsPage` without columns. Options are listed down the left and the description
   is on the right.
 - **Cheats** (`src/cheats.cpp`) and **Sound** (`src/music.cpp`) build their own columns with the same placement.
+
+## Setup
+
+`src/setup.cpp` (`include/setup.h`). A fresh install (no `general.json` before the configs load) opens the setup screen
+from the launcher once a valid ROM is stored, before the launch build pass (`launcher_update` in `src/main.cpp` waits on
+`rush2::setup::pending()`). The General tab's **Run Setup Again** (the last row of its second column) closes the menu, opens the same screen,
+and the menu opens again when it closes. It is a plain `recompui::Modal` in its own context, opened from a UI task
+(`recompui::queue_ui_task`, so no other context is open). Its steps are rebuilt in the modal's Update event, never in a
+button callback, which would delete the button it runs in.
+
+- **Game Rules**: two cards side by side, Original and Enhanced, each one whole button. Each lists what it does for every setting whose two
+  values differ (the `keep` and `change` texts in `rules()`), and has a button that picks it. Once one is picked (at once
+  when opened from the menu), the rule settings show below in columns (`groups`) as ordinary options to turn on or
+  off, with Ambient Occlusion and Car Sheen (`extras`: offered here, never changed by a preset). The card matching the settings is outlined; neither is when they match neither (Custom). Picking a card from
+  Custom asks first. Next (header) goes on. On a first launch Escape or Start is Next too (the footer says so), so it
+  can't skip the ROMs page; from the menu it closes.
+- **Other Games (optional)**: the Games tab's page itself (`rush2::games::create_page`), with Back and Done.
+
+**Presets.** The `rules()` table in `src/setup.cpp` lists every setting that changes how Rush 2 itself plays, with
+its Original (Rush 2's) and Enhanced value. It also lists which other games' cars race on whose tracks (Original: each
+game's on its own). The Rush 2049 and California Speed ones (`group` -1: Wings, Stunt Scoring, Odometer, Car Speeds,
+the drone settings) aren't on the Game Rules step, which comes before those games are added. The preset still sets them,
+and the Other Games step shows them. A fresh install starts on Enhanced's values. Settings that only change the other
+games' content, the controls, the cameras or the graphics aren't in it. Settings are never split per game. The screen's
+cards list the table's `keep`/`change` texts and the customize columns its settings, so both stay current. A new setting that
+changes base Rush 2 goes into `rules()` with both values, its column, and, if its default differs from Rush 2's, a
+short `keep` and `change` line for the cards.
+
+**Profile.** It is kept in players.json's `setup` section: `profile` (`original`/`enhanced`), `known` (the rule
+settings the profile has been applied to) and `pending` (a first launch that hasn't closed the screen). At startup
+(`rush2::setup::load`, after every config is loaded), a rule setting missing from `known` takes the profile's value. So
+an Original player's settings added in later versions start at Rush 2's behavior. An install from before this had no
+section. It gets none of the screen: its profile is Original if its settings match Original, otherwise Enhanced, and its
+settings are left as they are. Custom is shown, not stored: the settings match neither preset.
+
+Testing: `tools/first_boot_test.py OUT_DIR [--rules original|enhanced]` goes through Locate ROM, the setup screen and
+into the game in a sim's own data folder, then checks the stored profile and settings. In the menu,
+`tools/menu_shot.py` with `ESC,DOWN,RIGHT` and 8 `DOWN` lands on Run Setup Again. Run it with `RUSH2_SIM=1 RUSH2_SIM_TURBO=0
+RUSH2_SIM_SHOW=1 RUSH2_DATA_DIR=<that folder>` so it doesn't touch the player's settings. Sim runs without
+`RUSH2_TEST_FIRST_BOOT` never show the screen.
 
 ## Layout cost
 

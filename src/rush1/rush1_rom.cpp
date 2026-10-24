@@ -98,7 +98,7 @@ namespace {
     std::string rom_status_text() {
         return rush2::track1::rom_available()
             ? "ROM found."
-            : "Needs a San Francisco Rush (USA) ROM for its tracks.";
+            : "Needs a San Francisco Rush (USA) ROM.";
     }
 
     void update_rom_ui() {

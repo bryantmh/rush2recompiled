@@ -155,7 +155,7 @@ namespace {
         }
         auto rom = rush2::wings::get_rom();
         if (rom == nullptr) {
-            return "Needs a San Francisco Rush 2049 (USA) N64 ROM or Dreamcast disc for its tracks, cars and wings.";
+            return "Needs a San Francisco Rush 2049 (USA) N64 ROM or Dreamcast disc.";
         }
         return rom->is_dreamcast() ? "Using the Dreamcast disc (experimental: some content untested)."
                                    : "Using the N64 ROM.";
