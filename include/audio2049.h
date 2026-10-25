@@ -29,6 +29,13 @@ namespace rush2::audio2049 {
     // songs (src/rush2049dc/audio2049_dc.cpp), which then answer every call below in the same N64 terms.
     bool load(std::shared_ptr<const rush2::rom2049::Source> source);
     bool loaded();
+    // Loads the other source's songs beside the one load() took (the N64 ROM's MusyX songs beside a disc, or a disc's
+    // streamed songs beside the N64 ROM), for the Sound tab's Rush 2049 Soundtrack. Sound effects stay the first
+    // source's. load() drops them again.
+    bool load_music(std::shared_ptr<const rush2::rom2049::Source> source);
+    // Whether song can play: songs 0-11 need the N64's songs loaded (or, from a disc alone, the disc's song for it),
+    // disc_songs + n a disc's.
+    bool song_loaded(int song);
 
     // The 2049 track id (0-18) being raced, or -1. A Dreamcast disc has its own song for every track: a song that
     // the N64 plays on this track then plays the disc's song for it.
@@ -45,9 +52,12 @@ namespace rush2::audio2049 {
     // course) with its default "per track" music option: the N64's (0x8010FFD4), or from a Dreamcast disc
     // disc_songs + its song for the track (0x8C0BA76C). -1 if there's none (the disc picks one at random).
     int track_song(int track);
+    // The N64's song for track t (without a disc loaded too), and the disc's (-1 without a disc's songs loaded).
+    int n64_track_song(int track);
+    int disc_track_song(int track);
 
     // Starts song 0-11 (or a disc's disc_songs + n) from the top, stopping the current one at once. Out-of-range ids
-    // stop the music.
+    // stop the music. Songs 0-11 play the N64's when its songs are loaded, else the disc's song standing for them.
     void play_song(int song);
     // Stops the song; with a fade, ramps the song's volume to zero over fade_seconds first (notes keep playing their
     // releases). song_playing() stays true until the song has stopped.

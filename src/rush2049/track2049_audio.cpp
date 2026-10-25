@@ -73,6 +73,30 @@ namespace {
         return f;
     }
 
+    // The source whose other source's songs were loaded beside it (the Sound tab's Rush 2049 Soundtrack), and
+    // whether that load still runs. Under load_mutex.
+    std::shared_ptr<const rush2::rom2049::Source> music_for;
+    std::atomic<bool> loading_music = false;
+
+    // Loads the other source's songs on a worker thread, once per source, when the Soundtrack asks for them.
+    void load_other_music(const std::shared_ptr<const rush2::rom2049::Source>& rom) {
+        bool n64, disc;
+        rush2::music::rush2049_soundtracks(n64, disc);
+        bool other_disc = !rom->is_dreamcast();
+        if (!(other_disc ? disc : n64) || music_for == rom || loading_music) {
+            return;
+        }
+        music_for = rom;
+        loading_music = true;
+        std::thread([other_disc]() {
+            auto other = rush2::wings::open_source(other_disc);
+            if (other == nullptr || !audio::load_music(other)) {
+                fprintf(stderr, "[2049] Couldn't load the %s songs\n", other_disc ? "Dreamcast disc's" : "N64 ROM's");
+            }
+            loading_music = false;
+        }).detach();
+    }
+
     // Loads the sound banks from the 2049 ROM on a worker thread, once per ROM.
     bool ready() {
         auto rom = rush2::wings::get_rom();
@@ -92,6 +116,9 @@ namespace {
                 loaded = ok;
                 loading = false;
             }).detach();
+        }
+        if (loaded && !loading && loaded_rom == rom) {
+            load_other_music(rom);
         }
         return loaded;
     }

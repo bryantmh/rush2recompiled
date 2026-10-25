@@ -22,7 +22,8 @@ position +0x34) every 0.37 s for --seconds of the race and prints the ones whose
 how far: moving objects that should turn or travel but don't show up as never changing.
 --peek ADDR (repeatable, hex) instead prints the u32 at each RDRAM address during the race, smallest and largest seen
 over --seconds (scene_node_table_count 0x800FAE58: how full the scene node table at 0x80400000 is (include/scene_nodes.h)); --peek-always
-samples in every game state too (a race that crashes while it loads never reaches the race state).
+samples in every game state too (a race that crashes while it loads never reaches the race state); --peek-changes
+instead prints a line, timed from launch, each time one of them changes (menu and attract timelines).
 --pos (with --trace) adds the car's positions, rounded to a foot: physics +0x224, car state +0 (where a computer car's
 body node is put, cam_update_all_players_8009D9F4) and the body node's own (node +0xF0 of the table at 0x80400000, 0x38 each, its
 matrix +4, position +0x24; nhid = its hidden flag 0x400), logging a line whenever one moves.
@@ -250,6 +251,20 @@ def peek(rd, addrs, seconds, proc, always=False):
         print('0x%08X: ' % a + ('min %d, max %d (%d samples)' % (min(vs), max(vs), len(vs)) if vs else 'no race samples'))
 
 
+def peek_changes(rd, addrs, seconds, proc, launched):
+    """Polls u32 words at addrs in every game state and prints a line, timed from launch, whenever one changes."""
+    last, t0 = {}, time.time()
+    while time.time() - t0 < seconds and not (proc and proc.poll() is not None):
+        for a in addrs:
+            v = rd.block(a, 4)
+            if v:
+                v = struct.unpack('<I', v)[0]
+                if last.get(a) != v:
+                    print('%7.2f  0x%08X = 0x%08X' % (time.time() - launched, a, v), flush=True)
+                    last[a] = v
+        time.sleep(0.02)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--pid', type=int)
@@ -264,6 +279,8 @@ def main():
     ap.add_argument('--pos', action='store_true', help="with --trace: also log the car's positions")
     ap.add_argument('--peek', action='append', type=lambda v: int(v, 16), help='print this u32 during the race')
     ap.add_argument('--peek-always', action='store_true', help='with --peek: sample in every game state, not just racing')
+    ap.add_argument('--peek-changes', action='store_true', help='with --peek: print every change (timed from launch, '
+                    'every game state) instead of the range')
     ap.add_argument('--wreck-at', type=float, help='with --trace: wreck that car this many seconds into the race')
     ap.add_argument('--shots', help='screenshot the window at these seconds after launch (comma separated) into '
                     'DIR/shot_<seconds>.png; a simulation run needs RUSH2_SIM_SHOW=1 to show its window')
@@ -310,6 +327,11 @@ def main():
     if not rd or not rd.base:
         print('RDRAM not found')
         return 1
+    if a.peek and a.peek_changes:
+        peek_changes(rd, a.peek, a.seconds, proc, launched)
+        if proc and proc.poll() is None:
+            proc.terminate()
+        return 0
     if a.peek:
         peek(rd, a.peek, a.seconds, proc, a.peek_always)
         if proc and proc.poll() is None:

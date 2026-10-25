@@ -623,7 +623,8 @@ void rush2::input::set_rdram(uint8_t* rdram) {
 }
 
 // Test aid: RUSH2_TEST_VPAD="<seconds>:<input>[:<hold seconds>],..." attaches a virtual game controller (SDL's) and
-// presses its inputs at those times after launch: A B X Y BACK START LS RS LB RB UP DOWN LEFT RIGHT (buttons), RT LT
+// presses its inputs at those times after the first input poll (about 4 s after launch, so 4 s later than an
+// --input-script press of the same time): A B X Y BACK START LS RS LB RB UP DOWN LEFT RIGHT (buttons), RT LT
 // (the triggers, fully) and SL SR SU SD (the left stick fully left, right, up or down); a press holds 0.15 s unless given. Unlike
 // --input-script it goes through everything a real controller does: claiming a port, its bindings and control
 // profile, SDL's controller reads, and SDL's focus rule (with Background Input off an unfocused window sees none of

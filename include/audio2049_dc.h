@@ -13,8 +13,9 @@
 // for the same calls as the N64's MusyX data. src/rush2049/audio2049.cpp hands every call here while a disc is loaded; the
 // calls take N64 sound effect and song numbers, as everywhere else in the port.
 namespace rush2::audio2049::dc {
-    // Reads the disc's sound banks (decoding every sample) and its tables. Songs are read when they start.
-    bool load(std::shared_ptr<const rush2::rom2049::Source> source);
+    // Reads the disc's sound banks (decoding every sample) and its tables. Songs are read when they start. Without
+    // effects only the song tables are read, for the disc's songs beside the N64 ROM's sound effects.
+    bool load(std::shared_ptr<const rush2::rom2049::Source> source, bool effects = true);
     void unload();
     bool active();
 

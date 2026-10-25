@@ -15061,10 +15061,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x803C905C
 name = "title_setup_byte"
 type = "u8"
-desc = "Byte kept by title screen setup (low confidence)."
+desc = "Set by func_803B0270 (the title screen, front end screen 0xF) once its setup has run, cleared when it leaves; the game calls the function every frame the screen is up, so 1 marks every frame but the first. src/players4.cpp rush2_title_screen_setup starts the title START carry-over window only while it is 0."
 area = "menu"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/players4.md#controllers-and-joining"
 
 [[var]]
 vram = 0x803C9088

@@ -309,7 +309,7 @@ namespace {
     }
 }
 
-bool rush2::audio2049::dc::load(std::shared_ptr<const Source> source) {
+bool rush2::audio2049::dc::load(std::shared_ptr<const Source> source, bool effects) {
     auto s = std::make_unique<State>();
     s->source = source;
     std::vector<uint8_t> exe;
@@ -327,13 +327,13 @@ bool rush2::audio2049::dc::load(std::shared_ptr<const Source> source) {
     if (attenuation_table - exe_base + 256 > exe.size()) return false;
     memcpy(s->attenuation.data(), &exe[attenuation_table - exe_base], 256);
     int banks = 0;
-    for (int b = 0; b < bank_count; b++) {
+    for (int b = 0; b < bank_count && effects; b++) {
         uint32_t a = bank_table + b * 0x24, first = 0, last = 0;
         if (!exe_word(exe, a + 0x14, first) || !exe_word(exe, a + 0x18, last)) return false;
         // unused1.kat and unused2.kat aren't on the disc.
         banks += load_bank(*source, exe_string(exe, a), (int)first, (int)last, *s);
     }
-    if (banks == 0) return false;
+    if (effects && banks == 0) return false;
     std::lock_guard lock{ mutex };
     st = std::move(s);
     return true;

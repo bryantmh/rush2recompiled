@@ -30,6 +30,11 @@ namespace rush2::wings {
     // The Rush 2049 data: the N64 (USA) ROM or the Dreamcast (USA) disc the player provided, or null if neither.
     std::shared_ptr<const rush2::rom2049::Source> get_rom();
     bool rom_available();
+    // Whether both the N64 ROM and the Dreamcast disc are in the app folder (the Games tab's Rush 2049 Source).
+    bool both_sources();
+    // The N64 ROM or the Dreamcast disc (disc), opened from the app folder unless it's the one in use; null if it
+    // isn't there. Reads the ROM from disk: not for the game thread. For the Sound tab's Rush 2049 Soundtrack.
+    std::shared_ptr<const rush2::rom2049::Source> open_source(bool disc);
     // The height of a Rush 2 car type's body (0-21; world units, from the car models), 3.5 for any other type.
     float body_height(int type);
     // True when the Wings option is on and the Rush 2049 ROM is available.
