@@ -1022,8 +1022,15 @@ namespace {
 
 // func_803B0270 (menu_title_screen_setup), at its start: the title screen comes up, at boot or backing out of the main
 // menu. Every player leaves (the Controls tab shows each controller as Ready) until START is pressed on it.
+// The game calls it every frame the screen (the Midway logo, 0xF) is up: $a0 nonzero, with the set-up flag
+// 0x803C905C clear only on the first frame. Only that frame starts the carry-over window; restarting it every frame
+// gave player 1 to the first port with a device on every START over the logo, and the controller that pressed it
+// then joined as player 2 in the main menu (bug #32).
 void rush2_title_screen_setup(uint8_t* rdram, recomp_context* ctx) {
-    title_setup_ms = now_ms();
+    constexpr uint32_t set_up = 0x803C905C; // u8: the screen's setup has run
+    if ((ctx->r4 & 0xFF) != 0 && MEM_BU(0, (int32_t)set_up) == 0) {
+        title_setup_ms = now_ms();
+    }
     rush2::input::set_at_title(true);
 }
 
@@ -1034,11 +1041,15 @@ void rush2_title_screen_setup(uint8_t* rdram, recomp_context* ctx) {
 // or the keyboard.
 void rush2_players4_title_port(uint8_t* rdram, recomp_context* ctx) {
     rush2::input::set_at_title(false);
-    if (now_ms() - title_setup_ms.load() >= title_carry_over_ms && rush2::input::port_has_device((int)ctx->r16)) {
+    bool carried_over = now_ms() - title_setup_ms.load() < title_carry_over_ms;
+    if (!carried_over && rush2::input::port_has_device((int)ctx->r16)) {
         return;
     }
     for (int port = 0; port < ports; port++) {
         if (rush2::input::port_has_device(port)) {
+            printf("[players4] START on port %d %s: player 1 is port %d\n", (int)ctx->r16 + 1,
+                   carried_over ? "carried over from the screen before" : "with no device", port + 1);
+            fflush(stdout);
             ctx->r16 = port;
             ctx->r17 = port * 2;
             return;

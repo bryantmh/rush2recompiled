@@ -26,6 +26,9 @@ namespace rush2::music {
         std::string song, game, course;
     };
     bool now_playing(NowPlaying& out);
+    // Which Rush 2049 songs races and menus may play (the Sound tab's Rush 2049 Soundtrack): the N64 ROM's, the
+    // Dreamcast disc's or both. Without both installed, the Rush 2049 source's alone.
+    void rush2049_soundtracks(bool& n64, bool& disc);
 }
 
 namespace rush2::track1 {

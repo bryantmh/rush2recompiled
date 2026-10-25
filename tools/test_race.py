@@ -207,6 +207,8 @@ def main():
                     "(race_watch.py --records; moving objects)")
     ap.add_argument('--peek', action='append', default=[], help='an RDRAM u32 (hex) to print the smallest and largest of '
                     'during the race (race_watch.py --peek, repeatable; e.g. heap pointers 8010C438 8010C454)')
+    ap.add_argument('--peek-changes', action='store_true', help='with --peek: print each change, timed from launch, '
+                    'in every game state (race_watch.py --peek-changes)')
     ap.add_argument('--user-settings', action='store_true', help="copy build/'s graphics, general, cheats, circuit "
                     "and opponent settings in (profiling what the player sees: MSAA, SSAO and the like change RT64's "
                     "work); the saves and sound settings stay the run's own")
@@ -244,7 +246,7 @@ def main():
     r = subprocess.run([sys.executable, os.path.join(HERE, 'race_watch.py'), '--launch', script, '--seconds',
                         str(a.seconds), '--out', a.out] + (['--shots', a.shots] if a.shots else []) +
                        (['--records', os.path.abspath(a.records)] if a.records else []) +
-                       [v for p in a.peek for v in ('--peek', p)] +
+                       [v for p in a.peek for v in ('--peek', p)] + (['--peek-changes'] if a.peek_changes else []) +
                        (['--exe', a.exe] if a.exe else []), env=env, capture_output=True, text=True,
                        timeout=a.seconds + 60)
     with open(os.path.join(a.out, 'watch.txt'), 'w') as f:

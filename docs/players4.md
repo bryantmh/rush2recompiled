@@ -8,7 +8,11 @@ tools/players4/relocate.py.
 
 There is no fixed controller-to-player mapping. src/input.cpp gives each enabled controller the first free N64 port
 when it presses a button (the Controls tab only enables or disables them; the keyboard is one more controller). The game then makes whoever presses START a player: player 1 on the title screen
-(func_800A6B58, hooked so player 1 is the first port with a device), player 2 with func_80093E08, players 3 and 4 by
+(func_800A6B58, hooked: the port that pressed START, except for a START within 500 ms of the title screen
+(0xF, the Midway logo) first coming up, which was pressed for the race results, or one from a port with no device;
+then player 1 is the first port with a device. The game calls func_803B0270 every frame the screen is up, so
+`rush2_title_screen_setup` starts that window only on its first frame, when the set-up flag 0x803C905C is clear;
+restarting it every frame made every START over the Midway logo pick the first port, bug #32), player 2 with func_80093E08, players 3 and 4 by
 src/players4.cpp's `update_joining` on Select Player. Old players.json files (a pinned controller per player) are
 migrated at startup: only whether the keyboard is on carries over.
 

@@ -110,7 +110,7 @@ The disc has no MusyX. `src/rush2049dc/audio2049_dc.cpp` plays it behind the sam
   18 obstacle; -1 random of 18), the same index as the N64's 0x8010FFD4. The disc has a song for every track where
   the N64 shares 8; `audio2049::set_track` tells the backend the track, and an N64 song becomes the disc's song for
   that track (else for the first track the N64 plays it on; menu song 6 is Select.rom). `audio2049::disc_songs + n`
-  plays disc song n directly; the Sound tab (src/music.cpp) lists all 20 by name while the disc is the source, and
+  plays disc song n directly; the Sound tab (src/music.cpp) lists all 20 by name while the disc's soundtrack is in use (see Both soundtracks below), and
   `audio2049::track_song` gives a course's original song (disc table 0x8C0BA76C, or the N64's 0x8010FFD4). Song 9
   (`Speed.str`) is on no track. `.STR` header: u32 1, rate,
   bits, block bytes (0x4000), blocks, data bytes, channels (2), end block, loop block; PCM16 blocks per channel.
@@ -120,6 +120,12 @@ The disc has no MusyX. `src/rush2049dc/audio2049_dc.cpp` plays it behind the sam
   song sounds within about 10 ms of the request (`dc_test audio` prints the time).
 - Levels: the streams play at their mastered level (about -10 dBFS RMS), close to the N64 songs after the port's
   boosts; `audio2049_dc.cpp` divides those boosts back out.
+- Both soundtracks: with the N64 ROM and the disc both installed, the Sound tab's Rush 2049 Soundtrack (Same as
+  Source, N64, Dreamcast, Both) picks whose songs play. The other source's songs load beside the first's on a worker
+  (`audio2049::load_music`: the MusyX engine from the ROM beside a disc, or `dc::load(source, false)`, the disc's song
+  tables without its effect banks, beside the ROM); effects stay the Games tab source's. `play_song` sends
+  `disc_songs + n` to the disc player and 0-11 to MusyX when it's loaded, stopping the other player's song.
+  `n64_track_song` / `disc_track_song` give each soundtrack's course song; with Both, Original plays one of the two.
 
 ## Texture sizes vs the N64 [V]
 

@@ -60,6 +60,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -681,6 +682,9 @@ namespace {
 
     std::mutex engine_mutex;
     Engine* eng = nullptr; // allocated at load
+    // Whether load() took a disc: its effects play then. The MusyX engine (eng) may still hold the N64's songs
+    // beside it (load_music), as the disc player may hold a disc's songs beside the N64's.
+    std::atomic<bool> dc_primary = false;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Utilities
@@ -3051,8 +3055,8 @@ namespace {
 }
 
 namespace rush2::audio2049 {
-    bool load(const std::vector<uint8_t>& rom) {
-        dc::unload();
+    // Parses the N64 ROM's sound data into a fresh MusyX engine, replacing any loaded before.
+    static bool load_engine(const std::vector<uint8_t>& rom) {
         auto fresh = std::make_unique<Engine>();
         if (!parse(rom, fresh->data)) {
             return false;
@@ -3062,6 +3066,12 @@ namespace rush2::audio2049 {
         eng = fresh.release();
         reset_engine();
         return true;
+    }
+
+    bool load(const std::vector<uint8_t>& rom) {
+        dc::unload();
+        dc_primary = false;
+        return load_engine(rom);
     }
 
     bool load(std::shared_ptr<const rush2::rom2049::Source> source) {
@@ -3074,10 +3084,29 @@ namespace rush2::audio2049 {
         if (!dc::load(source)) {
             return false;
         }
+        dc_primary = true;
         std::lock_guard lock{ engine_mutex };
         delete eng;
         eng = nullptr;
         return true;
+    }
+
+    bool load_music(std::shared_ptr<const rush2::rom2049::Source> source) {
+        if (source == nullptr) {
+            return false;
+        }
+        if (const std::vector<uint8_t>* rom = source->n64_rom()) {
+            return dc_primary ? load_engine(*rom) : loaded();
+        }
+        return dc_primary ? dc::active() : dc::load(source, false);
+    }
+
+    bool song_loaded(int song) {
+        if (song >= disc_songs) {
+            return dc::active();
+        }
+        std::lock_guard lock{ engine_mutex };
+        return song >= 0 && song < song_count && eng != nullptr && eng->data.ok;
     }
 
     void set_track(int track_id) {
@@ -3089,7 +3118,7 @@ namespace rush2::audio2049 {
     }
 
     bool loaded() {
-        if (dc::active()) {
+        if (dc_primary && dc::active()) {
             return true;
         }
         std::lock_guard lock{ engine_mutex };
@@ -3097,33 +3126,41 @@ namespace rush2::audio2049 {
     }
 
     int track_song(int track) {
-        if (dc::active()) {
-            return dc::track_song(track);
-        }
+        return dc_primary ? dc::track_song(track) : n64_track_song(track);
+    }
+
+    int n64_track_song(int track) {
         return track >= 0 && track < 19 ? track_songs[track] : -1;
     }
 
+    int disc_track_song(int track) {
+        return dc::track_song(track);
+    }
+
     void play_song(int song) {
-        if (dc::active()) {
+        // The disc player takes its own songs, and the N64's numbers while the N64's songs aren't loaded; each
+        // player's song stops when the other starts one.
+        bool disc;
+        {
+            std::lock_guard lock{ engine_mutex };
+            disc = song >= disc_songs || eng == nullptr;
+            if (eng != nullptr) {
+                seq_stop();
+                if (!disc && song >= 0 && song < song_count) {
+                    seq_start(song);
+                }
+            }
+        }
+        if (disc) {
             dc::play_song(song);
-            return;
         }
-        std::lock_guard lock{ engine_mutex };
-        if (eng == nullptr) {
-            return;
+        else {
+            dc::stop_song(0.0f);
         }
-        seq_stop();
-        if (song < 0 || song >= song_count) {
-            return;
-        }
-        seq_start(song);
     }
 
     void stop_song(float fade_seconds) {
-        if (dc::active()) {
-            dc::stop_song(fade_seconds);
-            return;
-        }
+        dc::stop_song(fade_seconds);
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || !eng->seq.active) {
             return;
@@ -3137,15 +3174,15 @@ namespace rush2::audio2049 {
     }
 
     bool song_playing() {
-        if (dc::active()) {
-            return dc::song_playing();
+        if (dc::song_playing()) {
+            return true;
         }
         std::lock_guard lock{ engine_mutex };
         return eng != nullptr && eng->seq.active;
     }
 
     int current_song() {
-        if (dc::active()) {
+        if (dc::song_playing()) {
             return dc::current_song();
         }
         std::lock_guard lock{ engine_mutex };
@@ -3153,7 +3190,7 @@ namespace rush2::audio2049 {
     }
 
     int sfx_start(int id, float volume, float pan, float pitch, float surround) {
-        if (dc::active()) {
+        if (dc_primary) {
             return dc::sfx_start(id, volume, pan, pitch, surround);
         }
         std::lock_guard lock{ engine_mutex };
@@ -3173,7 +3210,7 @@ namespace rush2::audio2049 {
     }
 
     void sfx_update(int handle, float volume, float pan, float pitch, float surround) {
-        if (dc::active()) {
+        if (dc_primary) {
             dc::sfx_update(handle, volume, pan, pitch, surround);
             return;
         }
@@ -3187,7 +3224,7 @@ namespace rush2::audio2049 {
     }
 
     void sfx_stop(int handle) {
-        if (dc::active()) {
+        if (dc_primary) {
             dc::sfx_stop(handle);
             return;
         }
@@ -3199,7 +3236,7 @@ namespace rush2::audio2049 {
     }
 
     bool sfx_active(int handle) {
-        if (dc::active()) {
+        if (dc_primary) {
             return dc::sfx_active(handle);
         }
         std::lock_guard lock{ engine_mutex };
@@ -3212,7 +3249,7 @@ namespace rush2::audio2049 {
     }
 
     void sfx_stop_all() {
-        if (dc::active()) {
+        if (dc_primary) {
             dc::sfx_stop_all();
             return;
         }
@@ -3231,10 +3268,8 @@ namespace rush2::audio2049 {
     }
 
     void mix(float* out, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain) {
-        if (dc::active()) {
-            dc::mix(out, frames, sample_rate, music_gain, sfx_gain);
-            return;
-        }
+        // Both players: the disc's (its effects when it's the source, or its songs beside the N64's) and MusyX.
+        dc::mix(out, frames, sample_rate, music_gain, sfx_gain);
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || !eng->data.ok || sample_rate == 0) {
             return;
@@ -3305,7 +3340,7 @@ namespace rush2::audio2049 {
 
     Stats stats() {
         Stats st;
-        if (dc::active()) {
+        if (dc_primary) {
             dc::stats(st);
             return st;
         }

@@ -161,6 +161,8 @@ namespace {
                                    : "Using the N64 ROM.";
     }
 
+    std::atomic_bool both_stored = false;   // both_sources_stored() as update_rom_ui last found it.
+
     bool both_sources_stored() {
         std::error_code ec;
         return std::filesystem::exists(stored_rom_path(), ec) && std::filesystem::exists(stored_pack_path(), ec);
@@ -214,7 +216,8 @@ namespace {
 
     void update_rom_ui() {
         bool disabled = !rush2::wings::rom_available();
-        wings_config.update_option_disabled(source_option_id, importing || !both_sources_stored());
+        both_stored = both_sources_stored();
+        wings_config.update_option_disabled(source_option_id, importing || !both_stored);
         wings_config.update_option_disabled(wings_option_id, disabled);
         wings_config.update_option_disabled(tracks_option_id, disabled);
         wings_config.update_option_disabled(cars_option_id, disabled);
@@ -331,6 +334,18 @@ std::shared_ptr<const rush2::rom2049::Source> rush2::wings::get_rom() {
 bool rush2::wings::rom_available() {
     std::lock_guard lock{ rom_mutex };
     return rom_data != nullptr;
+}
+
+bool rush2::wings::both_sources() {
+    return both_stored && !importing;
+}
+
+std::shared_ptr<const rush2::rom2049::Source> rush2::wings::open_source(bool disc) {
+    auto rom = get_rom();
+    if (rom != nullptr && rom->is_dreamcast() == disc) {
+        return rom;
+    }
+    return disc ? open_stored_pack() : open_stored_rom();
 }
 
 bool rush2::wings::enabled() {
