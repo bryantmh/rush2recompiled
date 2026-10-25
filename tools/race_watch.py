@@ -254,6 +254,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--pid', type=int)
     ap.add_argument('--launch')
+    ap.add_argument('--exe', help='with --launch: run this game exe instead of build/Rush2Recompiled.exe (a release '
+                    "build such as .release/build's, to compare with the local build)")
     ap.add_argument('--seconds', type=float, default=360)
     ap.add_argument('--path')
     ap.add_argument('--out', default=os.path.join(REPO, 'tmp', 'race_watch'))
@@ -287,7 +289,7 @@ def main():
             take_shots()
             time.sleep(0.05)
     if a.launch:
-        exe = os.path.join(REPO, 'build', 'Rush2Recompiled.exe')
+        exe = os.path.abspath(a.exe) if a.exe else os.path.join(REPO, 'build', 'Rush2Recompiled.exe')
         log = open(os.path.join(a.out, 'run.log'), 'w')
         proc = subprocess.Popen([exe, '--input-script', a.launch], cwd=os.path.dirname(exe), stdout=log,
                                 stderr=subprocess.STDOUT)

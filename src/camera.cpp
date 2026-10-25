@@ -69,8 +69,9 @@ namespace {
     std::atomic<bool> look_back = true;
 
     // What LOOK BACK changes in a view's camera block: the axes (+0x0-0x23), the position (+0x24-0x2F) and the
-    // ground-checked position (+0x34-0x3F).
-    constexpr uint32_t kept_words[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15 };
+    // ground-checked position (+0x34-0x3F). Signed: an unsigned MEM_W offset makes the address unsigned, so it isn't
+    // sign-extended and lands 4 GB past RDRAM (issue 33: a crash wherever that isn't mapped, as with Vulkan).
+    constexpr int32_t kept_words[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15 };
     // Per view: whether its player looks back this frame (set by the camera update, for the car state and camera mode
     // it updated), and while the frame is drawn, the block as the game left it.
     struct LookBack {
