@@ -6,7 +6,7 @@ got past the race (test aid; docs/menus.md#starting-a-race-without-the-menus).
     python tools/test_race.py TRACK [--cars T,T,...] [--laps N] [--drones N] [--script S] [--seconds S]
                               [--turbo] [--finish S] [--mod NAME] [--out DIR] [--env K=V ...] [--games K=V ...]
                               [--config NAME.K=V ...]
-                              [--shots S,S,...] [--records PLACEMENT_BIN] [--user-settings] [--show]
+                              [--shots S,S,...] [--records PLACEMENT_BIN] [--user-settings] [--show] [--exe EXE]
 
 TRACK `menus` sets no race up: the game boots to the title and the --script drives the menus (as JUST PLAY: the
 data folder has no saved players). Otherwise TRACK is a track select id (0-11 Rush 2, 12-17 Rush 2049, 18-24 SF Rush, 25-28 stunt arenas, 29 obstacle course,
@@ -212,6 +212,8 @@ def main():
                     "work); the saves and sound settings stay the run's own")
     ap.add_argument('--show', action='store_true', help='show the window (RUSH2_SIM_SHOW, without taking the focus): '
                     'a hidden window presents differently, so profile with it shown')
+    ap.add_argument('--exe', help="run this game exe instead of build/'s (e.g. .release/build/Rush2Recompiled.exe, "
+                    'the Release build players get, for crashes the local build doesn\'t show)')
     ap.add_argument('--data', help="the run's data folder (default tmp/test_race/data); give each run that may "
                     "overlap another session's its own")
     a = ap.parse_args()
@@ -242,7 +244,8 @@ def main():
     r = subprocess.run([sys.executable, os.path.join(HERE, 'race_watch.py'), '--launch', script, '--seconds',
                         str(a.seconds), '--out', a.out] + (['--shots', a.shots] if a.shots else []) +
                        (['--records', os.path.abspath(a.records)] if a.records else []) +
-                       [v for p in a.peek for v in ('--peek', p)], env=env, capture_output=True, text=True,
+                       [v for p in a.peek for v in ('--peek', p)] +
+                       (['--exe', a.exe] if a.exe else []), env=env, capture_output=True, text=True,
                        timeout=a.seconds + 60)
     with open(os.path.join(a.out, 'watch.txt'), 'w') as f:
         f.write(r.stdout + r.stderr)
