@@ -944,7 +944,8 @@ body rates and torque every 20 ms, then anomalies by route point) is the trace t
 California Speed's ground contact `func_800A58A4` (Rush 2 `car_ground_contact_800703EC`) counts the wheels whose
 probe found road; a wheel that found none keeps its last compression, travel and polygon when 3 or more did, and is put
 1000 ft under the road (clamped to -3) only when fewer did. Rush 2 puts every missed wheel at -3 (its `0x800CA27C`
-"no polygon" matrix), so one wheel probing past a polygon edge became an instant full unload of that corner (a kick).
+"no polygon" matrix) only above world y 197; below it a missed wheel reads +3 (see "Wall climbing" under CS Physics, fixed),
+so one wheel probing past a polygon edge became an instant full unload or full load of that corner (a kick).
 Ported as `rush2_calspeed_ground_contact_enter`/`_leave` (hooks at the entry of `car_ground_contact_800703EC` and at
 0x80070680 before its wheel-speed clamp; src/calspeed/calspeed_walls.cpp): the four wheels' +0x5BC/+0x5CC/+0x5DC/
 +0x5EC, type +0x5FC, halves +0x60C/+0x614/+0x61C, polygon matrix +0x2F0 and contact point +0x230 are saved on entry
@@ -1196,6 +1197,50 @@ a player's car, and the user's swerves came from steering the computer cars neve
 Tire load cap: Rush 2 caps a wheel's load at the car's weight (`car_wheel_force_loop_8006ABB0` at 0x8006AD30; the
 uncapped load stays at 0x34($sp)) before the converted car's / 2.28, so its tires topped out at 0.44 of its weight a
 wheel (0.25 at rest). A converted car's is capped at weight x 2.28 instead (2026-10-21), Rush 2's cap after the scale.
+
+#### Wall climbing: a missed wheel reads as fully compressed (fixed 2026-10-27)
+
+Report: with CS Physics, cars drive up walls (video: Yosemite, a left-hander whose outside is the 320 ft type 5 wall,
+polygons 329-334, x -2006..-1755, z 394..588, y -904..-580, its foot on road polygons 1016-1022 at y -904..-936).
+Reproduced in a sim (Partial, car 0 put on the road there at 235 ft/s, 25 degrees into the wall): the car climbs from
+y -904 to past +160 in 3 s. Cause, from the per-step log:
+
+- Rush 2's wheel probe `collision_poly_extract_8006F704` has no "air" result. When no polygon holds the wheel's point
+  (0x8006FBD0) it stores surface type 1, material 1, the identity frame `0x800CA27C` and a height of the wheel's
+  world y - 200 (0x8006FBFC-0x8006FC10). `car_ground_contact_800703EC` takes compression = offset +0x5CC - height
+  (0x8007058C), clamps it to +-3, and sets type 8 only when it is below 0. So a missed wheel is airborne (-3, type 8)
+  only above world y 197; below that it is fully compressed (+3) and stays type 1 (dirt). Every California Speed track
+  is 89-100% below y 197 (Yosemite -1000..444), and so are Rush 2's own (82-100%), so this is stock Rush 2 behavior
+  that its closed tracks rarely reach.
+- California Speed's ground contact `func_800A58A4` handles a miss itself (its probe returns 0): -1000 clamped to -3
+  with fewer than 3 hits, last step's values with 3. The port assumes Rush 2's miss is already -3/type 8 (the comment
+  in src/calspeed/calspeed_walls.cpp and the section above), so on these tracks `keep_missed_wheels` never fires (it
+  looks for type 8 and -3) and a car with 2 wheels past a wall's plane gets +3 on both instead of -3.
+- Against the wall the two wall-side wheels poke past the wall's plane (0.3 ft behind it), where no floor polygon holds
+  them: +3 each, so Rush 2's springs at full compression push along the car's up axis, the road hold factor of a
+  wheel past 0.5 ft (0.82 - compression = -2.18) turns the hold into about 8 g along the car's up axis, and the tires
+  get full load on "dirt" (the dust in the video). Rolled against the wall, the car's up axis points up and out, so
+  it rides up the face. Smooth collision's crack fill is not the cause (RUSH2_SMOOTH_COLLISION=0 climbs the same).
+
+Also found while comparing `func_800B0A04` with `apply_hit` (src/calspeed/calspeed_walls.cpp): California Speed's push
+out of a wall is 2.5 x 1/dt x (1 - |forward . normal|) (`lui 0x4020` at 0x800B0D20); the port used 8.
+
+Fix (src/calspeed/calspeed_walls.cpp, both CS Physics modes): the probe's miss path notes the wheel
+(`rush2_calspeed_probe_miss`, the hook at 0x8006FBD0 after smooth collision's gap fill), and after the wheel loop
+California Speed's rule is applied to those wheels: with 3 hits the missed wheel keeps last step's values (unless it
+was already off the road), otherwise it is off the road as Rush 2 has a wheel with no road under it (compression -3,
+travel 1000, offset 0, type and material 8, travel speed from the change clamped to 40). The wall push is 2.5. Full
+Rush 2 is unchanged (stock Rush 2 behavior).
+
+Test aids: `RUSH2_CS_PLACE="x,y,z,dx,dz,speed,at"` puts the player's car (physics car 0) at a spot, heading (dx, dz)
+at speed ft/s, once its clock passes `at`, and logs it each step for 8 s ([csplace]; src/calspeed/calspeed_physics.cpp).
+`RUSH2_CS_OLD_MISS=1` runs the port as it was before the fix. The report's spot:
+`tools/test_race.py 74 --games calspeed_physics_mode=Partial --env RUSH2_CS_PLACE=-1874,-904,470,0.502,-0.863,235,1`.
+Results there (highest y reached from the start at -904): before the fix +160 (Partial) and +248 (with
+RUSH2_CS_OLD_MISS); fixed, -904 in Partial and Full CS at 25 degrees and 160 mph, and in Partial at 10 and 45 degrees
+and at 45 degrees and 20 mph (the car slides along the wall, or stops against it, and drives on). Computer-car sims
+(`sim_wrecks.py --hold on`, San Francisco, Santa Cruz, Yosemite), old against fixed: wrecks 1/1, 0/0, 0/0, rollovers
+0 in all, slides 2/5, 6/1, 5/2, every car finished.
 
 ### Brake lights turn California Speed grays red
 

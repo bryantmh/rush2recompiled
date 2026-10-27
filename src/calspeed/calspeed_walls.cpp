@@ -70,7 +70,10 @@ namespace {
     constexpr float along_gain = 0.006f;            // 0x3BC49BA6: x 10000 / mass / dt, against the velocity along a wall
     constexpr float along_gain_other = 0.015f;      // 0x3C75C28F: the same for a hit on a polygon that isn't a wall
     constexpr float into_gain = 0.1f;               // of the along gain, against the velocity into the wall
-    constexpr float out_push = 8.0f;                // x 1/dt x (1 - |forward . normal|) out of the wall
+    constexpr float out_push = 2.5f;                // 0x800B0D20: x 1/dt x (1 - |forward . normal|) out of the wall
+    // Test aid, RUSH2_CS_OLD_MISS=1: the port as it was before 2026-10-27 (missed wheels left as Rush 2 reads them, the
+    // push out of a wall 8), to compare sims against.
+    const bool old_miss = getenv("RUSH2_CS_OLD_MISS") != nullptr;
 
     struct Hit {
         uint32_t poly = 0;   // POLY record, 0 = none
@@ -170,7 +173,7 @@ namespace {
         float inv_dt = f32(rdram, car + car_inv_dt), per_mass = 10000.0f / f32(rdram, car + car_mass);
         float along = per_mass * inv_dt * (type >= 4 && type <= 9 ? along_gain : along_gain_other);
         float facing = car_m[6] * normal[0] + car_m[7] * normal[1] + car_m[8] * normal[2];
-        double out = (double)(inv_dt * out_push) * (1.0 - std::fabs((double)facing));
+        double out = (double)(inv_dt * (old_miss ? 8.0f : out_push)) * (1.0 - std::fabs((double)facing));
         float fl[3] = { -vl[0] * along, (float)((double)(-vl[1] * per_mass * inv_dt * into_gain) + out), -vl[2] * along };
         float fw[3], fc[3];
         mul_t(m, fl, fw);
@@ -364,16 +367,22 @@ extern "C" int rush2_calspeed_wall_collision(uint8_t* rdram, recomp_context* ctx
 
 // California Speed's rule for a wheel that finds no road (docs/calspeed_research.md#a-missed-wheel-keeps-its-compression).
 //
-// Rush 2's car_ground_contact_800703EC probes each wheel on its own: a wheel whose probe finds no polygon gets a
-// surface 200 ft below (collision_poly_extract_8006F704's miss path), a compression of -3 and surface type 8, as if it
-// hung over nothing. California Speed's func_800A58A4 counts the wheels whose probe hit first, and only when fewer than
-// three did does a missed wheel get the far surface (-1000 ft, clamped to -3); with three or more hits a missed wheel
-// keeps last step's compression, surface type and polygon, as if the road were still under it. Its probe misses now
-// and then on any course (a wheel over a seam, or a polygon the planar window turns down on a steep bank), and on the
-// loop of its San Francisco course a single miss would otherwise flip the road hold to world-down and peel the car off
-// the wall. Here the car's wheel fields are saved at the entry of car_ground_contact and, after its wheel loop, every
-// missed wheel (the miss path's polygon matrix, type 8, compression -3) is put back when three or more wheels hit; its
-// compression speed is 0, the compression being unchanged, as California Speed's would be.
+// Rush 2's car_ground_contact_800703EC probes each wheel on its own. A wheel whose probe finds no polygon
+// (collision_poly_extract_8006F704's miss path, 0x8006FBD0) gets surface type 1 and a height of its world y - 200
+// (0x8006FBFC), so it reads as off the road (compression -3, type 8) only above world y 197; below that, which is
+// nearly all of every California Speed course, it reads as fully compressed (+3) on dirt. Against a wall the wheels
+// that poke past its plane read so, Rush 2's springs and the road hold (factor 0.82 - 3 per wheel) push the car along
+// its up axis, and it drives up the wall (docs/calspeed_research.md#wall-climbing-a-missed-wheel-reads-as-fully-compressed-fixed-2026-10-27).
+// California Speed's func_800A58A4 counts the wheels whose probe hit first, and only when fewer than three did does a
+// missed wheel get the far surface (-1000 ft, clamped to -3); with three or more hits a missed wheel keeps last
+// step's compression, surface type and polygon, as if the road were still under it. Its probe misses now and then on
+// any course (a wheel over a seam, or a polygon the planar window turns down on a steep bank), and on the loop of its
+// San Francisco course a single miss would otherwise flip the road hold to world-down and peel the car off the wall.
+// Here the miss path notes each missed wheel (rush2_calspeed_probe_miss), the car's wheel fields are saved at the
+// entry of car_ground_contact, and after its wheel loop a missed wheel is put back with three hits (its compression
+// speed 0, the compression being unchanged, as California Speed's would be) and otherwise put off the road as Rush 2
+// does a wheel with no road under it: compression -3, travel 1000, offset 0, type and material 8, its travel speed
+// from the change clamped to 40.
 namespace {
     constexpr uint32_t physics_cars = 0x800F5470, physics_car_size = 0x81C;
     constexpr int max_cars = 8;
@@ -388,6 +397,7 @@ namespace {
         uint32_t point[4][3];     // +0x230 + 12 i, the contact point
     };
     WheelState saved[max_cars];
+    bool probe_missed[max_cars][4];   // this step's probe found no polygon for the wheel
 
     int car_index(uint32_t car) {
         if (car < physics_cars || (car - physics_cars) % physics_car_size != 0) return -1;
@@ -395,15 +405,9 @@ namespace {
         return i < uint32_t(max_cars) ? int(i) : -1;
     }
 
-    bool missed(uint8_t* rdram, int32_t car, int i) {
-        if (MEM_W(0x5FC + 4 * i, car) != 8) return false;
-        uint32_t c = MEM_W(0x5BC + 4 * i, car);
-        if (c != 0xC0400000u) return false;  // -3.0f
-        for (int k = 0; k < 9; k++) {
-            if (MEM_W(0x2F0 + 0x24 * i + 4 * k, car) != MEM_W(4 * k, miss_matrix)) return false;
-        }
-        return true;
-    }
+    // California Speed's off-the-road wheel: its surface 1000 ft away (func_800A58A4), so travel +0x5DC = 1000 and
+    // the compression clamped to -3.
+    constexpr float off_travel = 1000.0f;
 }
 
 extern "C" void rush2_calspeed_ground_contact_enter(uint8_t* rdram, recomp_context* ctx) {
@@ -413,6 +417,7 @@ extern "C" void rush2_calspeed_ground_contact_enter(uint8_t* rdram, recomp_conte
     if (n < 0) return;
     int32_t car = int32_t(ctx->r4);
     WheelState& s = saved[n];
+    for (bool& m : probe_missed[n]) m = false;
     for (int i = 0; i < 4; i++) {
         for (int k = 0; k < 4; k++) s.words[i][k] = MEM_W(0x5BC + 0x10 * k + 4 * i, car);
         s.type[i] = MEM_W(0x5FC + 4 * i, car);
@@ -426,11 +431,21 @@ namespace {
     void keep_missed_wheels(uint8_t* rdram, int n, int32_t car);
 }
 
+// collision_poly_extract_8006F704 at 0x8006FBD0, no polygon held the wheel's point (and smooth collision found none
+// within its gap): the wheel (0x14C($sp)) of the car (0x138($sp)) missed.
+extern "C" void rush2_calspeed_probe_miss(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t car = (uint32_t)MEM_W(0x138, ctx->r29);
+    int wheel = (int)MEM_W(0x14C, ctx->r29);
+    int n = car_index(car);
+    if (n < 0 || wheel < 0 || wheel > 3 || !rush2::calspeed::physics::active(rdram, car)) return;
+    probe_missed[n][wheel] = true;
+}
+
 extern "C" void rush2_calspeed_ground_contact_leave(uint8_t* rdram, recomp_context* ctx) {
     if (!rush2::calspeed::physics::active(rdram, uint32_t(ctx->r17))) return;
     int n = car_index(uint32_t(ctx->r17));
     if (n < 0) return;
-    keep_missed_wheels(rdram, n, int32_t(ctx->r17));
+    if (!old_miss) keep_missed_wheels(rdram, n, int32_t(ctx->r17));
     rush2::calspeed::physics::ground_contact_end(rdram, uint32_t(ctx->r17));
 }
 
@@ -440,7 +455,7 @@ void keep_missed_wheels(uint8_t* rdram, int n, int32_t car) {
     int hits = 0;
     bool miss[4];
     for (int i = 0; i < 4; i++) {
-        miss[i] = missed(rdram, car, i);
+        miss[i] = probe_missed[n][i];
         hits += !miss[i];
     }
     static const bool diag = getenv("RUSH2_CS_GROUND_DIAG") != nullptr;
@@ -454,12 +469,23 @@ void keep_missed_wheels(uint8_t* rdram, int n, int32_t car) {
                    f32(rdram, miss_matrix + 12), f32(rdram, miss_matrix + 16), f32(rdram, miss_matrix + 20), int(miss[i]));
         }
     }
-    if (hits < 3 || hits == 4) return;
+    if (hits == 4) return;
     static const bool log = getenv("RUSH2_CS_WALL_LOG") != nullptr;
     const WheelState& s = saved[n];
     for (int i = 0; i < 4; i++) {
         if (!miss[i]) continue;
-        if (s.type[i] == 8 && s.words[i][0] == 0xC0400000u) continue;  // was already off the road: stays so
+        // Fewer than three hits, or already off the road last step: off the road.
+        if (hits < 3 || (s.type[i] == 8 && s.words[i][0] == 0xC0400000u)) {
+            union { uint32_t u; float f; } old = { s.words[i][2] };
+            float speed = std::clamp((off_travel - old.f) * f32(rdram, car + 0x63C), -40.0f, 40.0f);
+            put_f32(rdram, car + 0x5BC + 4 * i, -3.0f);
+            put_f32(rdram, car + 0x5CC + 4 * i, 0.0f);
+            put_f32(rdram, car + 0x5DC + 4 * i, off_travel);
+            put_f32(rdram, car + 0x5EC + 4 * i, speed);
+            MEM_W(0x5FC + 4 * i, car) = 8;
+            MEM_H(0x60C + 2 * i, car) = 8;
+            continue;
+        }
         for (int k = 0; k < 4; k++) MEM_W(0x5BC + 0x10 * k + 4 * i, car) = s.words[i][k];
         MEM_W(0x5EC + 4 * i, car) = 0;
         MEM_W(0x5FC + 4 * i, car) = s.type[i];

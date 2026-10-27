@@ -416,6 +416,7 @@ void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
 int rush2_calspeed_wall_collision(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_ground_contact_enter(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_ground_contact_leave(uint8_t* rdram, recomp_context* ctx);
+void rush2_calspeed_probe_miss(uint8_t* rdram, recomp_context* ctx);
 void rush2_csphys_init_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_csphys_init_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_csphys_probe(uint8_t* rdram, recomp_context* ctx);
