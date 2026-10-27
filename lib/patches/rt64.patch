@@ -1,8 +1,17 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 79dfc38..358e97b 100644
+index 79dfc38..6527f6c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -531,6 +531,7 @@ build_compute_shader(rt64 "src/shaders/RSPModifyCS.hlsl")
+@@ -504,6 +504,8 @@ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/
+ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSSpecConstantMS.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D MULTISAMPLING")
+ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSSpecConstantFlat.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D VERTEX_FLAT_COLOR")
+ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSSpecConstantFlatMS.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D VERTEX_FLAT_COLOR" "-D MULTISAMPLING")
++build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSSpecConstantMSNoCvg.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D MULTISAMPLING" "-D NO_COVERAGE")
++build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSSpecConstantFlatMSNoCvg.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D VERTEX_FLAT_COLOR" "-D MULTISAMPLING" "-D NO_COVERAGE")
+ build_vertex_shader( rt64 "src/shaders/RasterVS.hlsl" "src/shaders/RasterVSDynamic.hlsl" "-D DYNAMIC_RENDER_PARAMS")
+ build_vertex_shader_spec_constants( rt64 "src/shaders/RasterVS.hlsl" "src/shaders/RasterVSSpecConstant.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS")
+ build_vertex_shader_spec_constants( rt64 "src/shaders/RasterVS.hlsl" "src/shaders/RasterVSSpecConstantFlat.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D VERTEX_FLAT_COLOR")
+@@ -531,6 +533,7 @@ build_compute_shader(rt64 "src/shaders/RSPModifyCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPProcessCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPWorldCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPSmoothNormalCS.hlsl")
@@ -10,7 +19,7 @@ index 79dfc38..358e97b 100644
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl" "src/shaders/RSPVertexTestZCSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/RtCopyColorToDepthPS.hlsl")
-@@ -550,7 +551,13 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
+@@ -550,7 +553,13 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
  build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/VideoInterfacePSPixel.hlsl" "-D PIXEL_ANTIALIASING")
  build_vertex_shader( rt64 "src/shaders/FullScreenVS.hlsl")
  build_vertex_shader( rt64 "src/shaders/Im3DVS.hlsl")
@@ -1846,10 +1855,43 @@ index f2eee70..a0b4bdc 100644
  
              struct {
 diff --git a/src/render/rt64_raster_shader.cpp b/src/render/rt64_raster_shader.cpp
-index 721a01e..9ecd2d1 100644
+index 721a01e..3fb62bb 100644
 --- a/src/render/rt64_raster_shader.cpp
 +++ b/src/render/rt64_raster_shader.cpp
-@@ -85,7 +85,7 @@ namespace RT64 {
+@@ -13,6 +13,8 @@
+ #include "shaders/RasterPSSpecConstantMS.hlsl.spirv.h"
+ #include "shaders/RasterPSSpecConstantFlat.hlsl.spirv.h"
+ #include "shaders/RasterPSSpecConstantFlatMS.hlsl.spirv.h"
++#include "shaders/RasterPSSpecConstantMSNoCvg.hlsl.spirv.h"
++#include "shaders/RasterPSSpecConstantFlatMSNoCvg.hlsl.spirv.h"
+ #include "shaders/RasterVSDynamic.hlsl.spirv.h"
+ #include "shaders/RasterVSSpecConstant.hlsl.spirv.h"
+ #include "shaders/RasterVSSpecConstantFlat.hlsl.spirv.h"
+@@ -36,6 +38,8 @@
+ #   include "shaders/RasterPSSpecConstantMS.hlsl.metal.h"
+ #   include "shaders/RasterPSSpecConstantFlat.hlsl.metal.h"
+ #   include "shaders/RasterPSSpecConstantFlatMS.hlsl.metal.h"
++#   include "shaders/RasterPSSpecConstantMSNoCvg.hlsl.metal.h"
++#   include "shaders/RasterPSSpecConstantFlatMSNoCvg.hlsl.metal.h"
+ #   include "shaders/RasterVSDynamic.hlsl.metal.h"
+ #   include "shaders/RasterVSSpecConstant.hlsl.metal.h"
+ #   include "shaders/RasterVSSpecConstantFlat.hlsl.metal.h"
+@@ -74,18 +78,22 @@ namespace RT64 {
+         rasterPSMS.parse(RasterPSSpecConstantMSBlobSPIRV, std::size(RasterPSSpecConstantMSBlobSPIRV));
+         rasterPSFlat.parse(RasterPSSpecConstantFlatBlobSPIRV, std::size(RasterPSSpecConstantFlatBlobSPIRV));
+         rasterPSFlatMS.parse(RasterPSSpecConstantFlatMSBlobSPIRV, std::size(RasterPSSpecConstantFlatMSBlobSPIRV));
++        rasterPSMSNoCvg.parse(RasterPSSpecConstantMSNoCvgBlobSPIRV, std::size(RasterPSSpecConstantMSNoCvgBlobSPIRV));
++        rasterPSFlatMSNoCvg.parse(RasterPSSpecConstantFlatMSNoCvgBlobSPIRV, std::size(RasterPSSpecConstantFlatMSNoCvgBlobSPIRV));
+         assert(!rasterVS.empty());
+         assert(!rasterVSFlat.empty());
+         assert(!rasterPS.empty());
+         assert(!rasterPSMS.empty());
+         assert(!rasterPSFlat.empty());
+         assert(!rasterPSFlatMS.empty());
++        assert(!rasterPSMSNoCvg.empty());
++        assert(!rasterPSFlatMSNoCvg.empty());
+     }
+ 
      // RasterShader
  
      RasterShader::RasterShader(RenderDevice *device, const ShaderDescription &desc, const RenderPipelineLayout *pipelineLayout, RenderShaderFormat shaderFormat, const RenderMultisampling &multisampling, 
@@ -1858,7 +1900,58 @@ index 721a01e..9ecd2d1 100644
      {
          assert(device != nullptr);
  
-@@ -176,6 +176,11 @@ namespace RT64 {
+@@ -93,6 +101,8 @@ namespace RT64 {
+         this->desc = desc;
+         
+         const bool useMSAA = (multisampling.sampleCount > 1);
++        // A blended draw's shader leaves out the coverage output (see RasterPS.hlsl).
++        const bool noCoverage = usesBlendedPipeline(desc);
+         std::unique_ptr<RenderShader> vertexShader;
+         std::unique_ptr<RenderShader> pixelShader;
+ #ifdef __APPLE__
+@@ -106,10 +116,10 @@ namespace RT64 {
+ 
+             // Pick the correct SPIR-V based on the configuration.
+             if (desc.flags.smoothShade) {
+-                PS = useMSAA ? &optimizerCacheSPIRV->rasterPSMS : &optimizerCacheSPIRV->rasterPS;
++                PS = useMSAA ? (noCoverage ? &optimizerCacheSPIRV->rasterPSMSNoCvg : &optimizerCacheSPIRV->rasterPSMS) : &optimizerCacheSPIRV->rasterPS;
+             }
+             else {
+-                PS = useMSAA ? &optimizerCacheSPIRV->rasterPSFlatMS : &optimizerCacheSPIRV->rasterPSFlat;
++                PS = useMSAA ? (noCoverage ? &optimizerCacheSPIRV->rasterPSFlatMSNoCvg : &optimizerCacheSPIRV->rasterPSFlatMS) : &optimizerCacheSPIRV->rasterPSFlat;
+             }
+ 
+             thread_local std::vector<respv::SpecConstant> specConstants;
+@@ -155,12 +165,24 @@ namespace RT64 {
+ 
+             // Pick the correct MSL based on the configuration.
+             if (desc.flags.smoothShade) {
+-                PSBlob = useMSAA ? RasterPSSpecConstantMSBlobMSL : RasterPSSpecConstantBlobMSL;
+-                PSBlobSize = uint32_t(useMSAA ? std::size(RasterPSSpecConstantMSBlobMSL) : std::size(RasterPSSpecConstantBlobMSL));
++                if (useMSAA && noCoverage) {
++                    PSBlob = RasterPSSpecConstantMSNoCvgBlobMSL;
++                    PSBlobSize = uint32_t(std::size(RasterPSSpecConstantMSNoCvgBlobMSL));
++                }
++                else {
++                    PSBlob = useMSAA ? RasterPSSpecConstantMSBlobMSL : RasterPSSpecConstantBlobMSL;
++                    PSBlobSize = uint32_t(useMSAA ? std::size(RasterPSSpecConstantMSBlobMSL) : std::size(RasterPSSpecConstantBlobMSL));
++                }
+             }
+             else {
+-                PSBlob = useMSAA ? RasterPSSpecConstantFlatMSBlobMSL : RasterPSSpecConstantFlatBlobMSL;
+-                PSBlobSize = uint32_t(useMSAA ? std::size(RasterPSSpecConstantFlatMSBlobMSL) : std::size(RasterPSSpecConstantFlatBlobMSL));
++                if (useMSAA && noCoverage) {
++                    PSBlob = RasterPSSpecConstantFlatMSNoCvgBlobMSL;
++                    PSBlobSize = uint32_t(std::size(RasterPSSpecConstantFlatMSNoCvgBlobMSL));
++                }
++                else {
++                    PSBlob = useMSAA ? RasterPSSpecConstantFlatMSBlobMSL : RasterPSSpecConstantFlatBlobMSL;
++                    PSBlobSize = uint32_t(useMSAA ? std::size(RasterPSSpecConstantFlatMSBlobMSL) : std::size(RasterPSSpecConstantFlatBlobMSL));
++                }
+             }
+ 
+             vertexShader = device->createShader(VSBlob, VSBlobSize, "VSMain", shaderFormat);
+@@ -176,6 +198,11 @@ namespace RT64 {
              assert(false && "This platform does not support METAL shaders.");
  #       endif
          }
@@ -1870,7 +1963,7 @@ index 721a01e..9ecd2d1 100644
          else {
  #       if defined(_WIN32)
              RasterShaderText shaderText = generateShaderText(desc, useMSAA);
-@@ -205,6 +210,12 @@ namespace RT64 {
+@@ -205,6 +232,12 @@ namespace RT64 {
  
              vertexShader = device->createShader(blobVS->GetBufferPointer(), blobVS->GetBufferSize(), "VSMain", shaderFormat);
              pixelShader = device->createShader(blobPS->GetBufferPointer(), blobPS->GetBufferSize(), "PSMain", shaderFormat);
@@ -1883,14 +1976,27 @@ index 721a01e..9ecd2d1 100644
  
              // Blobs can be discarded once the shaders are created.
              blobVSLibraries[0]->Release();
-@@ -241,6 +252,37 @@ namespace RT64 {
+@@ -225,7 +258,7 @@ namespace RT64 {
+         creation.pipelineLayout = pipelineLayout;
+         creation.vertexShader = vertexShader.get();
+         creation.pixelShader = pixelShader.get();
+-        creation.alphaBlend = !copyMode && interop::Blender::usesAlphaBlend(desc.otherMode);
++        creation.alphaBlend = usesBlendedPipeline(desc);
+         creation.culling = !copyMode && desc.flags.culling;
+         creation.zCmp = !copyMode && desc.otherMode.zCmp() && (desc.otherMode.zMode() != ZMODE_DEC);
+         creation.zUpd = !copyMode && desc.otherMode.zUpd();
+@@ -241,6 +274,42 @@ namespace RT64 {
  
      RasterShader::~RasterShader() { }
  
++    bool RasterShader::usesBlendedPipeline(const ShaderDescription &desc) {
++        return (desc.otherMode.cycleType() != G_CYC_COPY) && interop::Blender::usesAlphaBlend(desc.otherMode);
++    }
++
 +    uint64_t RasterShader::diskCacheKey(RenderShaderFormat shaderFormat, bool useMSAA) {
 +        // Bump when the way a description becomes shader text changes (ShaderDescription::toShader,
 +        // generateShaderText) without the libraries changing.
-+        const uint64_t TextVersion = 1;
++        const uint64_t TextVersion = 2;
 +        XXH3_state_t *state = XXH3_createState();
 +        XXH3_64bits_reset(state);
 +        XXH3_64bits_update(state, &TextVersion, sizeof(TextVersion));
@@ -1912,6 +2018,7 @@ index 721a01e..9ecd2d1 100644
 +            XXH3_64bits_update(state, RasterVSSpecConstantBlobSPIRV, sizeof(RasterVSSpecConstantBlobSPIRV));
 +            XXH3_64bits_update(state, RasterPSSpecConstantBlobSPIRV, sizeof(RasterPSSpecConstantBlobSPIRV));
 +            XXH3_64bits_update(state, RasterPSSpecConstantMSBlobSPIRV, sizeof(RasterPSSpecConstantMSBlobSPIRV));
++            XXH3_64bits_update(state, RasterPSSpecConstantMSNoCvgBlobSPIRV, sizeof(RasterPSSpecConstantMSNoCvgBlobSPIRV));
 +        }
 +        const uint64_t key = XXH3_64bits_digest(state);
 +        XXH3_freeState(state);
@@ -1921,7 +2028,7 @@ index 721a01e..9ecd2d1 100644
      RasterShaderText RasterShader::generateShaderText(const ShaderDescription &desc, bool multisampling) {
          const std::string renderParamsCode = desc.toShader();
  
-@@ -275,7 +317,7 @@ namespace RT64 {
+@@ -275,7 +344,7 @@ namespace RT64 {
          pss << std::string_view(RenderParamsText, sizeof(RenderParamsText));
          pss << "RenderParams getRenderParams() {" + renderParamsCode + "; return rp; }";
          pss <<
@@ -1930,15 +2037,25 @@ index 721a01e..9ecd2d1 100644
              "[shader(\"pixel\")]"
              "void PSMain("
              "  in float4 vertexPosition : SV_POSITION"
-@@ -289,6 +331,7 @@ namespace RT64 {
+@@ -288,8 +357,15 @@ namespace RT64 {
+ 
          pss <<
              ", out float4 pixelColor : SV_TARGET0"
-             ", out float4 pixelAlpha : SV_TARGET1"
-+            ", out uint pixelCoverage : SV_Coverage"
-             ") {";
+-            ", out float4 pixelAlpha : SV_TARGET1"
+-            ") {";
++            ", out float4 pixelAlpha : SV_TARGET1";
++
++        // The coverage only matters with more than one sample, and never for a blended draw (see RasterPS.hlsl).
++        const bool writesCoverage = multisampling && !usesBlendedPipeline(desc);
++        if (writesCoverage) {
++            pss << ", out uint pixelCoverage : SV_Coverage";
++        }
++
++        pss << ") {";
  
          if (desc.flags.smoothShade) {
-@@ -298,9 +341,11 @@ namespace RT64 {
+             pss << "float4 vertexFlatColor = vertexSmoothColor;";
+@@ -298,10 +374,16 @@ namespace RT64 {
          pss <<
              "   float4 resultColor;"
              "   float4 resultAlpha;"
@@ -1946,13 +2063,20 @@ index 721a01e..9ecd2d1 100644
 +            "   uint resultCoverage;"
 +            "   if (!RasterPS(getRenderParams(), vertexPosition, vertexUV, vertexSmoothColor, vertexFlatColor, false, resultColor, resultAlpha, resultCoverage)) discard;"
              "   pixelColor = resultColor;"
-             "   pixelAlpha = resultAlpha;"
-+            "   pixelCoverage = resultCoverage;"
-             "}";
+-            "   pixelAlpha = resultAlpha;"
+-            "}";
++            "   pixelAlpha = resultAlpha;";
++
++        if (writesCoverage) {
++            pss << "   pixelCoverage = resultCoverage;";
++        }
++
++        pss << "}";
  
          return { vss.str(), pss.str() };
+     }
 diff --git a/src/render/rt64_raster_shader.h b/src/render/rt64_raster_shader.h
-index 3b991ff..938f6a7 100644
+index 3b991ff..8ced9e5 100644
 --- a/src/render/rt64_raster_shader.h
 +++ b/src/render/rt64_raster_shader.h
 @@ -7,6 +7,7 @@
@@ -1963,7 +2087,16 @@ index 3b991ff..938f6a7 100644
  #include <mutex>
  #include <thread>
  
-@@ -60,13 +61,28 @@ namespace RT64 {
+@@ -35,6 +36,8 @@ namespace RT64 {
+         respv::Shader rasterPSFlatDepthMS;
+         respv::Shader rasterPSFlat;
+         respv::Shader rasterPSFlatMS;
++        respv::Shader rasterPSMSNoCvg;
++        respv::Shader rasterPSFlatMSNoCvg;
+ 
+         void initialize();
+     };
+@@ -60,16 +63,32 @@ namespace RT64 {
          std::string pixelShader;
      };
  
@@ -1993,6 +2126,10 @@ index 3b991ff..938f6a7 100644
  
          ~RasterShader();
          static RasterShaderText generateShaderText(const ShaderDescription &desc, bool multisampling);
++        static bool usesBlendedPipeline(const ShaderDescription &desc);
+         static std::unique_ptr<RenderPipeline> createPipeline(const PipelineCreation &c);
+         static RenderMultisampling generateMultisamplingPattern(uint32_t sampleCount, bool sampleLocationsSupported);
+     };
 diff --git a/src/render/rt64_raster_shader_cache.cpp b/src/render/rt64_raster_shader_cache.cpp
 index bf7b669..e08e4ce 100644
 --- a/src/render/rt64_raster_shader_cache.cpp
@@ -4409,7 +4546,7 @@ index 0000000..83595fb
 +    oCubeNormal = iCubeNormal.xyz;
 +}
 diff --git a/src/shaders/RasterPS.hlsl b/src/shaders/RasterPS.hlsl
-index e7895c3..5f2454e 100644
+index e7895c3..d107485 100644
 --- a/src/shaders/RasterPS.hlsl
 +++ b/src/shaders/RasterPS.hlsl
 @@ -46,7 +46,7 @@ float sampleBackgroundDepth(int2 pixelPos, uint sampleCount) {
@@ -4505,15 +4642,20 @@ index e7895c3..5f2454e 100644
          if (alphaCompareValue < nextRand(randomSeed)) {
              return false;
          }
-@@ -292,6 +340,7 @@ void PSMain(
+@@ -292,6 +340,12 @@ void PSMain(
  #endif
      , [[vk::location(0)]] [[vk::index(0)]] out float4 pixelColor : SV_TARGET0
      , [[vk::location(0)]] [[vk::index(1)]] out float4 pixelAlpha : SV_TARGET1
++// The coverage only matters with more than one sample, and never for a blended draw (NO_COVERAGE), where the cutout
++// in RasterPS doesn't apply. Intel's Gen9 drivers drop random pixels when a shader writes it alongside the second
++// output of dual source blending, which speckles every translucent draw.
++#if defined(MULTISAMPLING) && !defined(NO_COVERAGE)
 +    , out uint pixelCoverage : SV_Coverage
++#endif
  )
  {
  #if !defined(DYNAMIC_RENDER_PARAMS)
-@@ -303,11 +352,13 @@ void PSMain(
+@@ -303,11 +357,15 @@ void PSMain(
      float4 resultColor;
      float4 resultAlpha;
      float resultDepth;
@@ -4525,7 +4667,9 @@ index e7895c3..5f2454e 100644
  
      pixelColor = resultColor;
      pixelAlpha = resultAlpha;
++#if defined(MULTISAMPLING) && !defined(NO_COVERAGE)
 +    pixelCoverage = resultCoverage;
++#endif
  }
  #endif
 \ No newline at end of file
