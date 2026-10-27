@@ -805,12 +805,11 @@ namespace {
         std::fputs(text.c_str(), stderr);
     }
 
-    // The cars in the race: the players (num_players, setup_race's race_players) and the computer cars (the race's
-    // drone count, s16 0x800D3E90, src/ghost.cpp's race_drones), the same on every machine. The physics car slots after
-    // them keep whatever this machine raced last (an earlier race, the attract demo), which differs by machine: a 2-car
-    // race with the host's attract demo cars left in slots 2-7 and the joiner's empty failed the old load check.
+    // The cars in the race (rush2::online::game::race_car_count): the physics car slots after them keep whatever this
+    // machine raced last (an earlier race, the attract demo), which differs by machine: a 2-car race with the host's
+    // attract demo cars left in slots 2-7 and the joiner's empty failed the old load check.
     int race_cars(uint8_t* rdram) {
-        return std::clamp<int>(MEM_H(0, (int32_t)num_players) + MEM_H(0, (int32_t)0x800D3E90), 0, 8);
+        return rush2::online::game::race_car_count(rdram);
     }
 
     // Takes the host's race state (capture_state's bytes) and logs where this machine's differed. A word that is an
@@ -1733,6 +1732,16 @@ bool rush2::online::game::read_local_controller(uint16_t* buttons, float* x, flo
 
 bool rush2::online::game::in_race() {
     return phase != Phase::Idle;
+}
+
+// The race's car count as race_assign_cars_to_players_800A580C set it (s16 0x8010C158) at the race start, before the
+// first physics frame: the players (num_players 0x8010C3E2) and the computer cars (0x800D3E90, the track select's
+// DRONES), but no more than 4 computer cars with 2 or more players, and 8 cars in all. Counting DRONES as it stands, a
+// 2-player race with DRONES 7 (6 cars) counted 8: slots 6 and 7, leftovers from each machine's last race, failed the
+// load check and every hash after the resync (their kept descriptor addresses), and a user's race was given up on.
+int rush2::online::game::race_car_count(uint8_t* rdram) {
+    constexpr uint32_t race_total_cars = 0x8010C158;  // s16
+    return std::clamp<int>(MEM_H(0, (int32_t)race_total_cars), 0, 8);
 }
 
 // The race's roster as it started (a dropped player's slot stays used), so every machine answers alike.

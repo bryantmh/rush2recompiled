@@ -5647,7 +5647,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D3E90
 name = "race_computer_cars"
 type = "s16"
-desc = "The race's computer car count (the track select's DRONES; src/ghost.cpp race_drones). Online races' car count is num_players (0x8010C3E2) + this, at most 8 (online_game.cpp race_cars): 0 with DRONES 0 and 7 by default (2 players: 9, capped at 8)."
+desc = "The race's computer car count (the track select's DRONES, 7 by default; src/ghost.cpp race_drones). Not the race's: with 2 or more players race_assign_cars_to_players_800A580C races no more than 4 (race_total_cars 0x8010C158)."
 area = "race"
 status = "verified"
 ref = "docs/online.md#load-check"
@@ -10460,12 +10460,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C158
-name = "race_human_player_mask"
-type = "u16"
-desc = "Halfword set by car-to-player assignment, read by HUD (minimap, position, radar, respawn) and race results (likely player/slot info; low confidence)."
+name = "race_total_cars"
+type = "s16"
+desc = "The race's car count, set by race_assign_cars_to_players_800A580C at the race start: players (0x8010C3E2) + computer cars (0x800D3E90), no more than 4 computer cars with 2 or more players, 8 in all; car slots past it get no car (kind 9 at car table +8). Read by the HUD (race position total, minimap, radar) and online (rush2::online::game::race_car_count)."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/online.md#load-check"
 
 [[var]]
 vram = 0x8010C15A
