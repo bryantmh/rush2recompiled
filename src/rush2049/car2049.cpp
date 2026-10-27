@@ -1815,10 +1815,9 @@ void rush2::car2049::physics_online_sync(rush2::online::sync::Walker& w) {
                                             types_::preload, types_::mass, types_::inertia, types_::yaw_inertia,
                                             types_::weight, types_::engine, types_::torque, types_::drive,
                                             types_::suspension, types_::tires };
-    // Only the race's cars (players s16 0x8010C3E2 + computer cars s16 0x800D3E90, as online_game.cpp's race_cars): the
-    // slots after them keep what this machine raced last. They walk zeros at null addresses instead, so every machine
-    // walks the same length.
-    int count = std::clamp<int>(MEM_H(0, (int32_t)0x8010C3E2) + MEM_H(0, (int32_t)0x800D3E90), 0, 8);
+    // Only the race's cars (rush2::online::game::race_car_count): the slots after them keep what this machine raced
+    // last. They walk zeros at null addresses instead, so every machine walks the same length.
+    int count = rush2::online::game::race_car_count(rdram);
     for (int c = 0; c < 8; c++) {
         uint32_t car = race_cars + c * race_car_size;
         if (c >= count) {

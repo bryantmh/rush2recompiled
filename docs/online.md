@@ -286,14 +286,31 @@ are kept (`lent_physics`) and put back by `return_mod_slots`, so the machine's o
 cars' fingerprint is only logged: each machine's session log lists every car's type, row and physics hash at the load,
 and the host's names a player whose cars differed.
 
-The fingerprint and the sync part cover only the race's cars: the players (num_players 0x8010C3E2) and the computer
-cars (s16 0x800D3E90), at most 8 (`race_cars`). A user's race ended with the old "set the cars up with different
+The fingerprint and the sync part cover only the race's cars (`rush2::online::game::race_car_count`): the count
+`race_assign_cars_to_players_800A580C` stores at s16 0x8010C158 at the race start, before the first physics frame. It is
+the players (num_players 0x8010C3E2) and the computer cars (s16 0x800D3E90, the track select's DRONES), but no more
+than 4 computer cars with 2 or more players, and 8 cars in all: every slot past it is marked "no car" (kind 9 at car
+table entry +8). A user's race ended with the old "set the cars up with different
 physics" error with the same ROMs, mods and settings on both machines: the fingerprint covered all 8 physics car slots,
 and a race with fewer cars leaves the rest holding what each machine raced last. Reproduced with two quick races
 (`RUSH2_ONLINE_DRONES=0`, the host idling 45 s on the title so its attract demo filled slots 2-7, the joiner fresh): the
 host's slots 2-7 held the demo's cars, the joiner's type 0, and the race ended with the user's message. With the count
 the same run loads alike (2 players, 0 computer cars), 51 checks in sync. (`race_car_count` 0x800E79B8 is 0 at the
-load: not the count.) Two other ways the cars could differ were closed too:
+load: not the count.)
+
+The count used to be num_players + DRONES, at most 8, without the cap. A 2-player race with DRONES 7 (the default) has
+6 cars, but counted 8: slots 6 and 7, each machine's leftovers, failed the load check ("player 2 set the cars up
+differently") and went into the hash. The frame 0 resync then kept their descriptor, wheel surface (+0x380-0x38C) and
+gear map (+0x3FC) addresses as each machine's own (Resyncs), so every check after it failed on those 10 words and the
+race was given up on after 15 resyncs. Nothing moved those cars (no race car is in those slots), which is why the rest
+of them stayed equal after the resync. Reproduced on track 5 with `RUSH2_ONLINE_DRONES=7` on both, the host idling 50 s on
+the title (its attract demo filling slots 6 and 7, then `54:START`) and `RUSH2_ONLINE_BREAK=stale` on the joiner (its
+own leftovers there): with the old count, "set the cars up differently", resyncs at frames 0, 2, 32 ... 392 each
+keeping "car 6/7 physics +0x000 ... (an address: kept)", and the give-up at frame 420, as the user's logs; with the
+game's count, the same cars on both, one resync at frame 0 (the leftovers are in the raw state; nothing kept) and
+none after.
+
+Two other ways the cars could differ were closed too:
 
 - The setup from a car select that only just came up (`Phase::WaitMenus` in online_game.cpp: a player walked back in
   as the host started) runs `carselect_build_list_803B81F0` for player 0, whose unlock filter (`limit_tires`,
