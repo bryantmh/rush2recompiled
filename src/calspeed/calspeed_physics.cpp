@@ -186,10 +186,12 @@ namespace {
     // Test aid, RUSH2_CSPHYS_SKIP=<letters>: California Speed's rules left out for converted cars, to find which one
     // a behavior comes from: r the pitch and roll rates' zeroing (p the pitch rate's alone: on a player's car its
     // pitch momentum flipped the car on San Francisco's landings, 3 times in 40 s against none), a the rear drive forces' averaging, h the road hold,
-    // u the hill push, t the lifted-wheel torque, d the drag's drive term.
+    // u the hill push, t the lifted-wheel torque, d the drag's drive term, l the lift by the wheels' mean offset past
+    // 0.35 ft (orient_end). With * in the letters they apply to every car, native ones too.
     bool skip(uint8_t* rdram, uint32_t car, char rule) {
         static const char* env = getenv("RUSH2_CSPHYS_SKIP");
-        return env != nullptr && strchr(env, rule) != nullptr && role(rdram, car) == Role::Converted;
+        return env != nullptr && strchr(env, rule) != nullptr &&
+               (role(rdram, car) == Role::Converted || strchr(env, '*') != nullptr);
     }
 
     // Test aid, RUSH2_CSPHYS_SLIDES=<file>: a player's car's physics steps kept for the last 2 s, written to
@@ -812,7 +814,7 @@ void rush2::calspeed::physics::orient_end(uint8_t* rdram, uint32_t car) {
     }
     float pos[3];
     get3(rdram, car + car_position, pos);
-    if (total > 0.0f && own_lift) {
+    if (total > 0.0f && own_lift && !skip(rdram, car, 'l')) {
         float lift = total * 0.25f;
         for (int i = 0; i < 4; i++) put_f32(rdram, car + car_rest + 4 * i, f32(rdram, car + car_rest + 4 * i) - lift);
         float up[3] = { 0.0f, lift, 0.0f }, w[3];

@@ -163,7 +163,9 @@ other games' tracks (tools/arcade2049 uses it), not for modelling by hand.
 
 Every custom track's road gets a smooth tilt without any work by its author (src/smooth_collision.cpp; California
 Speed's converted tracks get the same). Each vertex of the drivable `COL_*` faces (surface types road, dirt, grass
-and the like; not walls) takes the mean normal of the faces that meet at its position, leaving out neighbors that
+and the like; not walls) takes the mean normal of the faces that meet at its position, each weighted by how near it
+lies to the face's own plane (falling to nothing at the fold angle: the weight is the 4th power of how far it is from
+the fold toward flat, so a face 17 degrees off under a 20 degree fold counts 0.6%), leaving out neighbors that
 fold away by more than the fold angle, and under a wheel the game blends the face's corner normals, so the tilt the
 suspension and tires see changes smoothly across a face edge instead of jumping. Two faces that share an edge blend
 the same two corners along it, so there is no jump at the edge. Heights are not changed: a car rests on exactly the
