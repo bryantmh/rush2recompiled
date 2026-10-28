@@ -106,6 +106,8 @@ itself. `track2049.cpp` keeps `0x800C5D2C[host]` = 0.
   (`((w1 + base) & 0xFFFFFF) | (w1 & 0x0F000000)`, R2 `func_80077B38`).
 - **Differences:** runs in split screen without the 2049 Expansion-Pak condition; scroll positions restart from the
   table each race (2049 keeps them in RAM across races).
+- **California Speed tracks** use the same runtime: their scrolls arrive as 2049 scrolls and their palette cycles as
+  `TexPalette` records, run as California Speed's 0x800B989C (docs/calspeed_research.md, "Animated textures").
 
 ## 5. Test results
 

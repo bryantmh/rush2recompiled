@@ -56,6 +56,9 @@ namespace {
     constexpr uint32_t pvs_counts = 0x800C4C80;     // u8 per track.
     constexpr uint32_t pvs_tables = 0x800C0680;     // 16 bytes per region, the tracks' tables back to back.
     constexpr int max_regions = 128;                // The host's visibility table (rush2::track2049) holds 128.
+    constexpr uint32_t tex_anim_lists = 0x800BF86C; // Ptr per track: animated texture records (0x14 bytes, name 0 ends).
+    constexpr uint32_t kind3_colors = 0x800BF450;   // The 15 colors palette kind 3 sets.
+    constexpr uint32_t kind4_colors = 0x800BF430;   // The 15 colors palette kind 4 sets.
 
     // Track select names of the banners (asset 3) and landmarks (asset 6), per track.
     constexpr const char* banner_names[rush2::calspeed::track_count] = { "MONTEREY", "SV", "HWY1", "SANFRANSICO", "CV",
@@ -111,6 +114,12 @@ namespace {
 
     uint8_t main_byte(const Bytes& rom, uint32_t vram) {
         return uint8_t(rush2::calspeed::main_word(rom, vram & ~3u) >> (24 - 8 * (vram & 3)));
+    }
+
+    std::string main_string(const Bytes& rom, uint32_t vram) {
+        std::string s;
+        for (char c; s.size() < 32 && (c = char(main_byte(rom, vram + uint32_t(s.size())))) != 0;) s += c;
+        return s;
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -700,6 +709,66 @@ namespace {
         return pick;
     }
 
+    // Animated textures (docs/calspeed_research.md "Animated textures"): the track's list from 0x800BF86C, which
+    // California Speed's 0x800B989C runs each frame (set up by 0x800B979C, which looks the names up in the loaded
+    // geometry). Scrolls (kinds 10-13) become Rush 2049 scrolls with the same motion; palette cycles (kinds 0-6) run
+    // as California Speed's. Kinds 1 (does nothing) and 7-9 (traffic light patterns no track lists) are left out, as
+    // is a record whose texture or palette isn't in the geometry.
+    rush2::track2049::TexAnims tex_anims(const Bytes& rom, int t, const Bytes& geometry) {
+        rush2::track2049::TexAnims out;
+        for (int b = 0; b < 2; b++) {
+            for (int i = 0; i < 15; i++) {
+                uint32_t a = (b == 0 ? kind3_colors : kind4_colors) + uint32_t(i) * 2;
+                out.blink[b].push_back(uint16_t(main_byte(rom, a) << 8 | main_byte(rom, a + 1)));
+            }
+        }
+        auto s16 = [&](uint32_t a) { return int16_t(main_byte(rom, a) << 8 | main_byte(rom, a + 1)); };
+        uint32_t list = rush2::calspeed::main_word(rom, tex_anim_lists + uint32_t(t) * 4);
+        for (uint32_t r = list; list != 0 && rush2::calspeed::main_word(rom, r) != 0; r += 0x14) {
+            std::string name = main_string(rom, rush2::calspeed::main_word(rom, r));
+            int16_t first = s16(r + 4), last = s16(r + 6);
+            int8_t step = int8_t(main_byte(rom, r + 8)), period = int8_t(main_byte(rom, r + 0xA));
+            uint8_t kind = main_byte(rom, r + 9);
+            if (kind >= 10 && kind <= 13) {
+                // 10: s, position -= step; 11: t, +=; 12: t, -=; 13: s, +=. The position is the tile origin itself
+                // (0x8008A960 takes it unshifted), moved once a frame when the vblank timer has run out (reset to
+                // the period). As a 2049 scroll (origin = position / 4, moved speed per vblank, frames of 2 vblanks,
+                // every `rate` frames): position x 4, speed 2 x the move, rate = frames the period lasts.
+                rush2::track2049::TexScroll s;
+                s.target = name;
+                s.t = kind == 11 || kind == 12;
+                s.tile_sizes = rush2::track2049::texture_tile_sizes(geometry, name, s.t);
+                int move = (kind == 10 || kind == 12) ? -step : step;
+                if (s.tile_sizes.empty() || last <= 0 || last > 0x1FFF) continue;
+                s.position = int16_t(first * 4);
+                s.wrap = int16_t(last * 4);
+                s.speed = int8_t(move * 2);
+                s.rate = int16_t(std::max(1, (period + 1) / 2));
+                out.scrolls.push_back(std::move(s));
+            }
+            else if (kind == 0 || (kind >= 2 && kind <= 6)) {
+                rush2::track2049::TexPalette p;
+                p.target = name;
+                p.data = rush2::track2049::palette_colors(geometry, name);
+                p.first = first;
+                p.last = last;
+                p.step = step;
+                p.kind = kind;
+                p.period = period;
+                int gap = last - first + step + 1;
+                int end = kind == 3 || kind == 4 ? first + 14 : kind == 5 ? last + gap : kind == 6 ? last + 2 * gap : last;
+                if (p.data == 0 || first < 0 || last < first || end > 255 || p.data + size_t(end + 1) * 2 > geometry.size()) {
+                    continue;
+                }
+                for (int i = 0; i <= end; i++) {
+                    p.colors.push_back(uint16_t(geometry[p.data + i * 2] << 8 | geometry[p.data + i * 2 + 1]));
+                }
+                out.palettes.push_back(std::move(p));
+            }
+        }
+        return out;
+    }
+
     bool convert(const Bytes& rom, int t, const std::string& prefix, const std::set<std::string>& shared_models,
                  bool scenery, bool billboards, rush2::calspeed::Converted& out) {
         rush2::track2049::ConvertedTrack& track = out.track;
@@ -790,7 +859,7 @@ namespace {
         track.pickup_records.clear();
         track.pool_records.clear();
         track.solid_triangles.clear();
-        track.tex_anims = {};
+        track.tex_anims = tex_anims(rom, t, track.geometry);
         track.mover_paths.clear();
         track.mover_collision.clear();
         return true;

@@ -42,6 +42,47 @@ All in the main data, Rush 2's layouts (`src/calspeed/calspeed_convert.cpp`):
 | 0x80094CB4 | RGB per track: fog colour |
 | 0x800C4C80 | u8 per track: visibility region count |
 | 0x800C0680 | 16-byte region masks, the tracks' tables back to back |
+| 0x800BF86C | ptr per track: animated texture list (below) |
+
+### Animated textures
+
+California Speed animates track textures with its copy of Rush 2's palette-cycle/scroll update (R2
+`func_8008A9C8`, docs/rush2049_research/texanim.md section 3) with its own kind numbers:
+
+- Set-up 0x800B979C (Rush 2's 0x8008AF48): list per track from 0x800BF86C indexed by the track id at 0x800E779C
+  (default list 0x800BF844 when called with 0). Records are 0x14 bytes: +0 texture name, +4 s16 first/position, +6 s16
+  last/limit, +8 s8 step, +9 kind, +A s8 period, +C s16 timer, +10 data. Data = the texture's load list (texture
+  lookup 0x800CA2A8, record +0x18) for kind >= 10, else the palette's colors (palette lookup 0x800CA3F8, +0x14).
+- Update 0x800B989C (Rush 2's 0x8008A9C8), each frame: timer -= the frame's vblanks (0x8001FF64); when it is <= 0,
+  timer = period and the kind runs (jump table 0x800DC218, 14 kinds):
+  - 0: rotate palette entries first..last up (the last moves to first). 1: nothing. 2: rotate down.
+  - 3 / 4: set entries first..first+14 to the 15 colors at 0x800BF450 (dark red) / 0x800BF430 (bright red), then
+    switch to the other kind: a blink.
+  - 5: swap first..last with the run gap = last - first + step + 1 on. 6: rotate three runs gap apart.
+  - 7-9: traffic light patterns (fixed colors, kind chain, timer 500), in no track's list.
+  - 10: s, position -= step. 11: t, +=. 12: t, -=. 13: s, +=. The position wraps into [0, limit) and goes to
+    0x8008A960 (Rush 2's 0x8008A804) unshifted as the tile origin of every G_SETTILESIZE of the load list (halved per
+    smaller mipmap tile).
+
+`tools/calspeed/texanim.py` lists every track's records. [V]
+
+Yosemite's waterfalls (`YH2OFALC`, 64 x 32) scroll in t by 6 a frame (1.5 texels), wrapping at 128 (the texture's 32
+texels; kind 12, step -6, period 1); Fuji, California and San Andreas use the same texture. Also animated: water
+(WATER is a palette rotation; WATER72/WATER8 scroll) on Monterey, Highway 1, Santa Cruz, San Diego, Mojave, Fuji and
+California; lava (Mt. Shasta, California); Silicon Valley's LEDs (LED1/LED2 blink in turn) and spray-paint messages;
+arrows (ARWS); Mojave's UFO lights and GLOW; San Andreas's LIGHT2. San Francisco, Clover, Los Angeles and Oval have
+none. [V]
+
+**Port:** `tex_anims` in `src/calspeed/calspeed_convert.cpp` reads the track's list and the two blink color sets
+(`ConvertedTrack::tex_anims`, cached with the track), and `src/rush2049/track2049_texanim.cpp` runs them on the
+loaded geometry with the Rush 2049 tracks' animations. Scrolls become 2049 scrolls with the same motion (position and
+limit x 4, speed = 2 x the move, rate = (period + 1) / 2 frames, since 2049 moves `speed` per vblank and shifts the
+position right by 2). Palette cycles run kinds 0 and 2-6 as above on the palette's colors in the loaded geometry
+(`TexPalette`); kinds 1 and 7-9 are left out. Both run in 30 fps frames of 2 vblanks, as the 2049 animations do.
+A record whose texture has no load list (flag 0x08000000: Silicon Valley's ARWS) is left out; in California Speed
+it would write into texels. The log line `[2049] Animated textures: ... palette cycles` says they started; setup
+checks every patch site against the converted data first. [V: Yosemite 1 scroll, Silicon Valley 3 scrolls and 2
+palette cycles, Monterey 2 scrolls and 1 palette cycle, in game]
 
 ## 3. Conversion for the host slot
 

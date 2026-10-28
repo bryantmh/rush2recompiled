@@ -132,6 +132,18 @@ area = "car"
 ref = "docs/calspeed_research.md#the-end-of-a-point-to-point-race"
 
 [[func]]
+vram = 0x8008A960
+name = "texanim_set_tile_origin"
+sig = "void texanim_set_tile_origin(Gfx *list, s32 s, s32 t, s32 lrs, s32 lrt)"
+desc = "Walks a texture-load list to G_ENDDL and sets uls (s >= 0) / ult (t >= 0) of every G_SETTILESIZE, halved per smaller mipmap tile; position used unshifted (as Rush 2's)."
+consts = "0xF2 = G_SETTILESIZE; 0xDF = G_ENDDL"
+status = "verified"
+ported = true
+rush2 = 0x8008A804
+area = "render"
+ref = "docs/calspeed_research.md#animated-textures"
+
+[[func]]
 vram = 0x8008E5C4
 name = "cs_car_auto_shift"
 sig = "void cs_car_auto_shift(Car *car)"
@@ -483,6 +495,30 @@ rush2 = 0x8006A2FC
 link = "role"
 area = "car"
 ref = "docs/calspeed_research.md#road-hold"
+
+[[func]]
+vram = 0x800B979C
+name = "texanim_setup"
+sig = "void texanim_setup(u8 track_list)"
+desc = "Race-start set-up of animated textures: list from 0x800BF86C[track id 0x800E779C] (a0 != 0) or the default list 0x800BF844; record +0x10 = texture load list (texture lookup 0x800CA2A8, +0x18) for kind >= 10, else palette colors (palette lookup 0x800CA3F8, +0x14)."
+consts = "0x14 = record size; 10 = first scroll kind"
+status = "verified"
+ported = true
+rush2 = 0x8008AF48
+area = "render"
+ref = "docs/calspeed_research.md#animated-textures"
+
+[[func]]
+vram = 0x800B989C
+name = "texanim_update"
+sig = "void texanim_update(u8 track_list)"
+desc = "Per-frame animated textures: per record s16 timer +0xC -= vblank count 0x8001FF64; when <= 0 timer = s8 period +0xA and kind +9 runs (jump table 0x800DC218): 0 rotate palette up, 1 nothing, 2 rotate down, 3/4 set 15 colors 0x800BF450/0x800BF430 and switch to the other, 5 swap runs, 6 rotate three runs, 7-9 traffic light patterns, 10/13 scroll s by -/+step, 11/12 scroll t by +/-step (wrap at +6) via 0x8008A960."
+consts = "14 = kind count; 0x14 = record size"
+status = "verified"
+ported = true
+rush2 = 0x8008A9C8
+area = "render"
+ref = "docs/calspeed_research.md#animated-textures"
 
 [[func]]
 vram = 0x800BA7CC
