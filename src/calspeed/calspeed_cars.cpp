@@ -364,6 +364,12 @@ namespace {
         }
     }
 
+    // Every car's descriptor (build_descriptor) and the mapping onto Rush 2's roster from them.
+    Rebalance map_cars(uint8_t* rdram, const std::vector<uint8_t>& rom) {
+        for (int n = 0; n < car_count; n++) build_descriptor(rdram, rom, n, descriptor_of(n));
+        return rebalance(rdram, rom);
+    }
+
     void load_cars(uint8_t* rdram, const std::shared_ptr<const std::vector<uint8_t>>& rom) {
         loaded_rom = rom;
         loaded_from = rom.get();
@@ -376,8 +382,7 @@ namespace {
             fprintf(stderr, "[CalSpeed] Couldn't read CARPALETTE: no California Speed cars\n");
             return;
         }
-        for (int n = 0; n < car_count; n++) build_descriptor(rdram, *rom, n, descriptor_of(n));
-        Rebalance r = rebalance(rdram, *rom);
+        Rebalance r = map_cars(rdram, *rom);
         mapping = r;
         int served = 0;
         for (int n = 0; n < car_count; n++) {
@@ -481,6 +486,14 @@ void rush2::calspeed::prepare_cars(const std::vector<uint8_t>& rom) {
     }
     rush2::calspeed::name_logos(rom);
     rush2::track_cache::preload_blob("calspeed_name_logos");
+}
+
+bool rush2::calspeed::build_physics_image(uint8_t* rdram, const std::vector<uint8_t>& rom) {
+    std::vector<uint8_t> palette;
+    if (!cars_option.load(std::memory_order_relaxed) || !load_palette(rom, palette)) return false;
+    Rebalance r = map_cars(rdram, rom);
+    for (int n = 0; n < car_count; n++) build_physics(rdram, rom, n, r);
+    return true;
 }
 
 void rush2::calspeed::init_cars(uint8_t* rdram) {

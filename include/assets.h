@@ -34,6 +34,10 @@ namespace rush2::assets {
     bool rom_original(int index, std::vector<uint8_t>& out);
     // That table's ROM offset of asset `index` (0 when the ROM isn't there yet).
     uint32_t rom_offset(int index);
+    // Rush 2's code and data as the boot puts them in RDRAM, into a zeroed memory image of its own (`rdram`, at least
+    // up to the address read): the first segment at 0x80000400 and the main segment inflated at 0x800539E0. For
+    // running the game's own code before the game starts (rush2::car2049::prepare_bar_ranges). False without the ROM.
+    bool boot_image(uint8_t* rdram);
     // The asset as the game loads it now: a replacement's bytes and spans, else Rush 2's own. Callable from any thread
     // once the game has loaded an asset (it reads the asset table from that load's RDRAM). False if there is none.
     bool read_current(int index, std::vector<uint8_t>& out, std::vector<Span>& spans);
