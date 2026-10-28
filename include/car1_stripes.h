@@ -18,6 +18,9 @@ namespace rush2::car1stripes {
     // Whether car type `type` offers the SF Rush stripe: the option is on, the car has a Rush 1 decal and the Rush 1
     // ROM is there (the decal itself is built on first use).
     bool offered(int type);
+    // Builds every car's decal (or reads it from the disk cache, stripe_cache) before the game starts: the launch's
+    // build pass (src/prewarm.cpp), with the Rush 1 ROM in.
+    void prepare();
     // Whether car type `type` can be painted with it now, building (or loading) its decal: game thread.
     bool available(uint8_t* rdram, int type);
 

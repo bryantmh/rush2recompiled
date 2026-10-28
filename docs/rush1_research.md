@@ -510,7 +510,9 @@ previews; `tools/rush1/cartex.py` (car files, meshes, palettes).
   (a suffix test missed panel 4, the roof, on every car). `RUSH2_CAR1_DUMP=<dir>` writes the built panels
   (`<car>_<n>.bin`) and logs every stamp call (panel, size, whether a decal matched).
 - Built decals are cached in `<app folder>/stripe_cache/<CAR>.bin`, keyed on a hash of the three input files and the
-  executable's size and modification time, so each car is built once per ROM and build, not every boot.
+  executable's size and modification time, so each car is built once per ROM and build, not every boot. The launch's
+  build pass builds or reads every car's (`rush2::car1stripes::prepare`, docs/prewarm.md#what-is-built; Rush 2's files
+  from the ROM, `rush2::assets::rom_original`), so the car select never builds one.
 - Gotcha: RDRAM is word-swapped on the host; write bytes with MEM_B, never through the alloc pointer.
 
 Texture packs: each decal is dumped alone and its upscale is laid over the body's, like a stripe tile (docs/texture_upscaling.md "SF Rush decals").

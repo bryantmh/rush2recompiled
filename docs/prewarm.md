@@ -17,7 +17,10 @@ loads it again when it starts) and runs, each on a thread of its own at normal p
   (`rush2::track_mod::prepare`, which also keeps their menu art);
 - the Rush 2049 cars and part models of the source in use (`rush2::car2049::prepare`);
 - California Speed's cars and name logos (`rush2::calspeed::prepare_cars`);
+- the Accurate Car Stats bars' ranges (`rush2::car2049::prepare_bar_ranges`, below);
 - SF Rush's tracks (`rush2::track1::prepare`, which also keeps their lap times for the records screen's seeds);
+- the SF Rush car stripes' decals (`rush2::car1stripes::prepare`, into `stripe_cache`, docs/rush1_research.md section
+  11), with the Rush 1 ROM in;
 - Rush 2049's races, obstacle course, stunt and battle arenas and California Speed's tracks as its Extended Scenery and
   Billboard Trees options are set (`rush2::track2049::prepare`);
 
@@ -60,10 +63,22 @@ game starts. `RUSH2_TEST_BUILD_SCREEN=S` keeps the screen up S seconds after the
 
 ### Accurate Car Stats ranges
 
-The one build that needs the game running: the car bars' ranges drive the game's physics on the game thread
-(`rush2::car2049::prepare_bars`, a slice a frame). During the boot logos, title screen and attract demo the slice is
-10 ms instead of 6, so after a new build they're done about 4 s into the logos. With 20 ms every logo frame came late
-(54 ms game frames); with 10 ms the launch-to-race run had no game frame over 45 ms.
+The bars' ranges drive the game's own car physics (car_init_setup_8008DBA0, car_drivetrain_800712EC,
+car_tire_model_8006A2FC, car_steering_yaw_terms_80069E74 and the port's hooks in them; no OS, sound or indirect calls)
+through every selectable car's setups. `prepare_bar_ranges` runs them in the pass on a 12 MB memory image of its own,
+made as the boot makes the game's: Rush 2's code and data (`rush2::assets::boot_image`: ROM 0x1000 at 0x80000400, the
+main segment inflated at 0x800539E0, which holds every table and constant the test reads), then the parts of
+`rush2_heap_init` the test car reads (`init_tables`, `init_physics`, `rush2::calspeed::build_physics_image`; not the
+cars' models or the mods, which the ranges leave out). The stack is at 0x80300000 in the image. The result goes to the
+disk cache (`car_bar_ranges_*`) under the key the boot's `plan_ranges` makes from the real RDRAM (the stock rows of
+every type but the mod cars, whose rows the mods set at boot), so the game only reads it. Measured 2026-10-27: the
+same key and the same eight values from the image as from the game's memory; 3.0 s in a new build's pass, beside the
+tracks' 6 s, so the pass took no longer.
+
+The per-frame slices (`rush2::car2049::prepare_bars`, 10 ms on the logos, title and attract demo, 6 ms in the menus)
+are left for a menu change of the inputs (Car Speeds, the 2049 cars or their source, Torque Rebalance, Accurate Car
+Stats turned on). Before the pass made them, a car select reached before the slices finished (logos skipped on a new
+build) ran the rest in one frame (`find_ranges`): a black screen of a second or more.
 
 ## The game and the background on the same entry
 

@@ -198,7 +198,10 @@ namespace rush2::car2049 {
     // The "Accurate Car Stats" option (General tab): the car select's bars come from the race physics (on) or from Rush
     // 2's own formulas (off).
     void set_accurate_bars(bool on);
-    // Works out the Accurate Car Stats bars' ranges ahead of the car select, from the main loop (each frame).
+    // Works out the Accurate Car Stats bars' ranges into the disk cache before the game starts, on a memory image of
+    // its own (the launch's build pass, src/prewarm.cpp). Any thread; the ROMs loaded.
+    void prepare_bar_ranges();
+    // Works them out again after a menu change of their inputs, from the main loop (each frame).
     void prepare_bars(uint8_t* rdram, recomp_context* ctx);
     // The "Torque Rebalance" option (General tab): raises the HIGH torque curve's top end and lowers LOW's, so HIGH
     // trades launch for top speed (on), or keeps Rush 2's curves (off).

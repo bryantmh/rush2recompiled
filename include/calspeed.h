@@ -169,6 +169,10 @@ namespace rush2::calspeed {
     // Converts the cars and name logos into the disk cache (those not there yet) and reads them into memory, so
     // init_cars only installs them. Any thread (src/prewarm.cpp, at launch).
     void prepare_cars(const std::vector<uint8_t>& rom);
+    // The cars' physics alone (descriptors, type table entries, boxes) as init_cars builds them, with no assets or
+    // logos, into a memory image of its own before the game starts (rush2::car2049::prepare_bar_ranges, after
+    // rush2::car2049::init_physics on it). Whether the cars will be available (cars_available) once the boot loads them.
+    bool build_physics_image(uint8_t* rdram, const std::vector<uint8_t>& rom);
     // California Speed car n's own physics values, unscaled, for a computer car running California Speed's physics
     // (src/calspeed/calspeed_physics.cpp): its descriptor built into `desc` (Rush 2's layout) with its two tire curves
     // as California Speed has them at `curves` (12 floats), its per-type table values, and its descriptor's two grip

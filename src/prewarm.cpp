@@ -4,8 +4,8 @@
 // disk cache (src/track_cache.cpp):
 // - At launch, before the game starts (build_pass, behind the launcher's progress screen), all at once: the arcade
 //   mods rebuilt when out of date, then the car mods' plan and the custom tracks; the Rush 2049 cars and part models;
-//   California Speed's cars and name logos; SF Rush's tracks; Rush 2049's and California Speed's tracks; then the
-//   track select's art container. A track the disk holds for this build is skipped by its key alone, so a launch with
+//   California Speed's cars and name logos; the Accurate Car Stats bars' ranges; SF Rush's tracks and car stripes;
+//   Rush 2049's and California Speed's tracks; then the track select's art container. A track the disk holds for this build is skipped by its key alone, so a launch with
 //   everything built takes a moment. The game starts when it's over, so the boot only installs and no menu or race
 //   start waits on a build.
 // - Then, about once a second in the background, whatever a change in the menus needs: another Rush 2049 source or
@@ -44,6 +44,7 @@
 #include "recomp.h"
 
 #include "calspeed.h"
+#include "car1_stripes.h"
 #include "car2049.h"
 #include "arcade2049.h"
 #include "car_mods.h"
@@ -174,10 +175,12 @@ namespace {
         {
             std::lock_guard lock{ progress_mutex };
             jobs = { { "Rush 2049 arcade mods", 1.5 }, { "Car mods", 0.3 }, { "Custom tracks", 2.4 },
-                     { "Rush 2049 and California Speed tracks", 3.3 }, { "Track select art", 0.2 } };
+                     { "Rush 2049 and California Speed tracks", 3.3 }, { "Track select art", 0.2 },
+                     { "Car stats", 1.5 } };
             if (r49 != nullptr) jobs.push_back({ "Rush 2049 cars", 1.0 });
             if (cs != nullptr) jobs.push_back({ "California Speed cars", 0.5 });
             if (sf_rush) jobs.push_back({ "SF Rush tracks", 1.0 });
+            if (r1 != nullptr) jobs.push_back({ "SF Rush car stripes", 0.3 });
             // This computer's own times, from the last launch each job had work to do.
             for (Job& j : jobs) {
                 auto it = learned.find(j.label);
@@ -195,8 +198,12 @@ namespace {
         });
         if (r49 != nullptr) spawn(L"Prewarm 2049 Cars", [r49] { job("Rush 2049 cars", [&] { rush2::car2049::prepare(*r49); }); });
         if (cs != nullptr) spawn(L"Prewarm CS Cars", [cs] { job("California Speed cars", [&] { rush2::calspeed::prepare_cars(*cs); }); });
+        spawn(L"Prewarm Car Stats", [] { job("Car stats", [] { rush2::car2049::prepare_bar_ranges(); }); });
         if (sf_rush) {
             spawn(L"Prewarm SF Rush", [r1] { job("SF Rush tracks", [&] { rush2::track1::prepare(*r1); }); });
+        }
+        if (r1 != nullptr) {
+            spawn(L"Prewarm Stripes", [] { job("SF Rush car stripes", [] { rush2::car1stripes::prepare(); }); });
         }
         spawn(L"Prewarm Tracks", [] { job("Rush 2049 and California Speed tracks", [] { rush2::track2049::prepare(); }); });
         for (std::thread& t : threads) t.join();

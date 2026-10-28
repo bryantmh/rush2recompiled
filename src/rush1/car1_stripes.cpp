@@ -216,8 +216,10 @@ namespace {
         return n >= 1 && n <= 6 ? n : 0;
     }
 
-    // Builds car c's decal, or loads it from the cache (building takes a few tens of milliseconds per car).
-    bool ensure(uint8_t* rdram, int c) {
+    // Builds car c's decal, or loads it from the cache (building takes a few tens of milliseconds per car). No game
+    // memory (Rush 2's files from its ROM, rush2::assets::rom_original): the launch's build pass makes every car's
+    // (rush2::car1stripes::prepare), so the game finds them built.
+    bool ensure(int c) {
         CarState& s = states[c];
         if (s.built) {
             return s.ok;
@@ -239,10 +241,10 @@ namespace {
         else if (!rush2::track1::read_asset(*rom1, car.rush1_asset, r1)) {
             failed = "reading the Rush 1 car file";
         }
-        else if (!rush2::assets::read_original(rdram, first_car_asset + car.rush2_type, r2)) {
+        else if (!rush2::assets::rom_original(first_car_asset + car.rush2_type, r2)) {
             failed = "reading the Rush 2 car file";
         }
-        else if (!rush2::assets::read_original(rdram, stripe_asset, stripes)) {
+        else if (!rush2::assets::rom_original(stripe_asset, stripes)) {
             failed = "reading Rush 2's stripe tiles";
         }
         else if (rush2::car1decals::build(c, r1, r2, stripes, s.pattern, &why)) {
@@ -277,7 +279,7 @@ namespace {
     // Whether car type `type` offers the SF Rush stripe now.
     bool eligible(uint8_t* rdram, int type) {
         int c = car_of(type);
-        return c >= 0 && option_enabled.load(std::memory_order_relaxed) && ensure(rdram, c);
+        return c >= 0 && option_enabled.load(std::memory_order_relaxed) && ensure(c);
     }
 
     // Car select, the STRIPE row: the value before the game's change and the new one.
@@ -285,6 +287,15 @@ namespace {
     bool stripe_text_row = false;
 
     bool paint_sf_rush = false;     // func_8008582C's loop is on the SF Rush value
+}
+
+void rush2::car1stripes::prepare() {
+    if (rush2::track1::get_rom() == nullptr) {
+        return;
+    }
+    for (int c = 0; c < rush2::car1decals::car_count; c++) {
+        ensure(c);
+    }
 }
 
 void rush2::car1stripes::set_option(bool enabled) {
@@ -399,7 +410,7 @@ extern "C" void rush2_car1_paint_stamp(uint8_t* rdram, recomp_context* ctx) {
     uint32_t sp = (uint32_t)ctx->r29;
     int type = (int16_t)MEM_H(0, (int32_t)(sp + 0xCE));
     int c = car_of(type);
-    if (c < 0 || !ensure(rdram, c)) {
+    if (c < 0 || !ensure(c)) {
         return;
     }
     // The panel texture's record: the name ends _D<stage>_<n> or _D<stage>_<n>_4 (the quarter-size mip). The D1

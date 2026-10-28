@@ -4623,7 +4623,7 @@ namespace {
     // those changes).
     struct TestCache {
         bool fast = false, with49 = false, withcs = false, rebalanced = false, valid = false;
-        const void* source = nullptr;
+        const rush2::rom2049::Source* source = nullptr;
         std::map<std::tuple<int, int, int, int, int, float>, TestResult> straight, handling;
         bool ranged = false;
         TestResult lo, hi;
@@ -4640,7 +4640,7 @@ namespace {
     TestCache& cache() {
         bool fast = speeds_2049(), with49 = cars_available(), rebalanced = torque_rebalance.load();
         bool withcs = rush2::calspeed::cars_available();
-        const void* source = cars_source.get();
+        const rush2::rom2049::Source* source = cars_source.get();
         TestCache& c = test_cache;
         if (!c.valid || c.fast != fast || c.with49 != with49 || c.withcs != withcs || c.rebalanced != rebalanced ||
             c.source != source) {
@@ -4657,10 +4657,10 @@ namespace {
 
     // ACCELERATION and TOP SPEED don't read SUSPENSION, and of TIRES only the off-road sets' and slicks' pavement drag
     // and rear grip (values 9-12).
-    TestResult straight_of(TestCar& car, TestSetup s) {
+    TestResult straight_of(TestCache& c, TestCar& car, TestSetup s) {
         s.susp = 0;
         s.tires = s.tires >= 9 ? s.tires : 0;
-        auto& results = cache().straight;
+        auto& results = c.straight;
         auto found = results.find(s.key());
         if (found != results.end()) {
             return found->second;
@@ -4671,8 +4671,8 @@ namespace {
         return r;
     }
 
-    TestResult handling_of(TestCar& car, const TestSetup& s) {
-        auto& results = cache().handling;
+    TestResult handling_of(TestCache& c, TestCar& car, const TestSetup& s) {
+        auto& results = c.handling;
         auto found = results.find(s.key());
         if (found != results.end()) {
             return found->second;
@@ -4683,8 +4683,12 @@ namespace {
         return r;
     }
 
-    bool selectable(int type) {
-        return rush2::car2049::type_available(type);
+    // Whether a range counts car type `type` (as rush2::car2049::type_available, for c's 2049 and California Speed
+    // cars). Mod cars are left out: the bars of Rush 2's and the other games' cars don't move with the mods turned on.
+    bool selectable(const TestCache& c, int type) {
+        if (type < 0 || type >= rush2::car_types::first_mod || type == rush2_types) return false;
+        if (type < rush2_types) return true;
+        return rush2::car_types::is_2049(type) ? c.with49 : c.withcs;
     }
 
     // Player row `row`'s options on `type`.
@@ -4708,9 +4712,9 @@ namespace {
     }
 
     // The TIRES values a car offers: Rush 2's eleven, and the two slicks while the 2049 cars are on.
-    std::vector<int> tire_values() {
+    std::vector<int> tire_values(const TestCache& c) {
         std::vector<int> values;
-        for (int v = 0; v < (cars_available() && setup49.loaded ? pro_slicks + 1 : rush2_tires); v++) {
+        for (int v = 0; v < (c.with49 && setup49.loaded ? pro_slicks + 1 : rush2_tires); v++) {
             values.push_back(v);
         }
         return values;
@@ -4729,16 +4733,17 @@ namespace {
         c.planned = true;
         // The ranges are kept on disk (src/track_cache.cpp, which also keys on the build), so they're worked out once
         // rather than in every session. The rest of the key is what the results depend on beyond the build: Car Speeds,
-        // the 2049 cars and their source, Torque Rebalance and every car's stock row.
+        // the 2049 cars and their source, Torque Rebalance and the stock row of every car but the mod cars (whose rows
+        // the mods set at boot, after the launch's build pass worked the ranges out: prepare_bar_ranges).
         std::vector<uint8_t> inputs;
         auto add = [&inputs](const void* p, size_t n) {
             inputs.insert(inputs.end(), (const uint8_t*)p, (const uint8_t*)p + n);
         };
-        uint64_t source = cars_source != nullptr ? cars_source->cache_key() : 0;
-        int flags[] = { c.fast, c.with49, c.rebalanced, (int)tire_values().size(), c.withcs };
+        uint64_t source = c.source != nullptr ? c.source->cache_key() : 0;
+        int flags[] = { c.fast, c.with49, c.rebalanced, (int)tire_values(c).size(), c.withcs };
         add(&source, sizeof(source));
         add(flags, sizeof(flags));
-        for (int type = 0; type < types; type++) {
+        for (int type = 0; type < rush2::car_types::first_mod; type++) {
             int row[] = { row_byte(rdram, t_tires, 0, type), row_byte(rdram, t_susp, 0, type),
                           row_byte(rdram, t_torque, 0, type), row_byte(rdram, t_engine, 0, type) };
             float weight = f32_at(rdram, t_weight + type * 4);
@@ -4756,14 +4761,13 @@ namespace {
             c.ranged = true;
             return;
         }
-        // Mod cars are left out: the bars of Rush 2's and the other games' cars don't move with the mods turned on.
         for (int type = 0; type < types; type++) {
-            if (!selectable(type) || rush2::car_types::is_mod(type)) {
+            if (!selectable(c, type)) {
                 continue;
             }
             bool car49 = is_2049(type);
             TestSetup stock = setup_of(rdram, type, 0);
-            std::vector<int> tires = tire_values();
+            std::vector<int> tires = tire_values(c);
             for (float weight : { 0.0f, 1.0f }) {
                 for (int torque = 0; torque < 3; torque++) {
                     for (int power : { 0, 1 }) {
@@ -4805,10 +4809,10 @@ namespace {
                 return;
             }
             if (c.done < c.plan_straight.size()) {
-                straight_of(car, c.plan_straight[c.done]);
+                straight_of(c, car, c.plan_straight[c.done]);
             }
             else {
-                handling_of(car, c.plan_handling[c.done - c.plan_straight.size()]);
+                handling_of(c, car, c.plan_handling[c.done - c.plan_straight.size()]);
             }
             c.done++;
         }
@@ -4820,12 +4824,12 @@ namespace {
             hi = std::max(hi, v);
         };
         for (const TestSetup& s : c.plan_straight) {
-            TestResult r = straight_of(car, s);
+            TestResult r = straight_of(c, car, s);
             widen(r.accel, c.lo.accel, c.hi.accel);
             widen(r.top, c.lo.top, c.hi.top);
         }
         for (const TestSetup& s : c.plan_handling) {
-            TestResult r = handling_of(car, s);
+            TestResult r = handling_of(c, car, s);
             widen(r.slide, c.lo.slide, c.hi.slide);
             widen(r.control, c.lo.control, c.hi.control);
         }
@@ -4865,8 +4869,8 @@ namespace {
         TestCar car(rdram, ctx);
         find_ranges(rdram, car);
         TestSetup s = setup_of(rdram, type, row);
-        TestResult straight = straight_of(car, s), handling = handling_of(car, s);
-        const TestCache& c = cache();
+        TestCache& c = cache();
+        TestResult straight = straight_of(c, car, s), handling = handling_of(c, car, s);
         return { bar(straight.accel, c.lo.accel, c.hi.accel), bar(straight.top, c.lo.top, c.hi.top),
                  bar(handling.control, c.lo.control, c.hi.control), ratio_bar(handling.slide, c.lo.slide, c.hi.slide) };
     }
@@ -4876,15 +4880,51 @@ void rush2::car2049::set_accurate_bars(bool on) {
     accurate_bars = on;
 }
 
-// The top of the main loop, once per frame (rush2_cheats_frame). Working out the bars' ranges drives every selectable
-// car through every option that sets a bar's ends, about a second of work, which the first car select (or the unlock
-// system's shop, which runs the car select's setup) would otherwise stall on. It runs here instead, a slice a frame
-// so no frame stalls, while the game is in the menus, track select or car select (game state 0x8010C0D0 0-2: no race
-// is using the test car's slot): from the first frame after boot, and again in the menus after Car Speeds, the 2049
-// cars or Torque Rebalance change. The boot logos, title screen and attract demo draw almost nothing, so there the
-// slice is 10 ms instead of 6 (20 ms made every logo frame late): after a new build the ranges are done about 4 s
-// into the logos, long before a car select (one reached before they finish does the rest at once, find_ranges). The
-// ranges are cached on disk (plan_ranges), so this only runs after a new build or a change of those inputs.
+// The launch's build pass (src/prewarm.cpp, before the game starts): working out the bars' ranges drives every
+// selectable car through every option that sets a bar's ends, a second or more of work, which the first car select
+// would otherwise stall on. It runs the game's physics on a memory image of its own, made as the boot makes the one
+// the game reads: Rush 2's code and data (rush2::assets::boot_image), then what rush2_heap_init builds that the test
+// car reads (the type tables, the 2049 cars' and California Speed's physics; not their models or the mods, which the
+// ranges leave out). The ranges go to the disk cache, where the boot's plan_ranges finds them under the same key.
+void rush2::car2049::prepare_bar_ranges() {
+    if (!accurate_bars.load(std::memory_order_relaxed)) {
+        return;
+    }
+    // Up to the 2D display lists and the interpolation buffers (src/assets.cpp's memory map), as the game's RDRAM.
+    std::vector<uint8_t> image(0x00C00000);
+    uint8_t* rdram = image.data();
+    if (!rush2::assets::boot_image(rdram)) {
+        return;
+    }
+    init_tables(rdram);
+    init_physics(rdram);
+    auto cs = rush2::calspeed::get_rom();
+    auto source = rush2::wings::get_rom();    // what the boot's load_cars builds the 2049 cars from (cars_source)
+    TestCache c;
+    c.source = source.get();
+    c.fast = speeds_2049();
+    c.with49 = cars_available();
+    c.withcs = cs != nullptr && rush2::calspeed::build_physics_image(rdram, *cs);
+    c.rebalanced = torque_rebalance.load();
+    c.valid = true;
+    plan_ranges(rdram, c);
+    if (!c.ranged) {
+        // The functions' frames from 0x80300000 down: free in the image (the type tables end at 0x80238000).
+        recomp_context ctx{};
+        ctx.r29 = (uint64_t)(int64_t)(int32_t)0x80300000;
+        ctx.f_odd = &ctx.f0.u32h;
+        TestCar car(rdram, &ctx);
+        run_ranges(car, c, std::nullopt);
+    }
+    rush2::track_cache::preload_blob(c.name);
+}
+
+// The top of the main loop, once per frame (rush2_cheats_frame). After a launch the ranges come from the disk cache
+// (prepare_bar_ranges made them); this works them out only after Car Speeds, the 2049 cars or Torque Rebalance change
+// in the menus, a slice a frame so no frame stalls, while the game is in the menus, track select or car select (game
+// state 0x8010C0D0 0-2: no race is using the test car's slot). On the boot logos, title screen and attract demo,
+// which draw almost nothing, the slice is 10 ms instead of 6 (20 ms made every logo frame late). A car select reached
+// before they finish does the rest at once (find_ranges).
 void rush2::car2049::prepare_bars(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t game_state = 0x8010C0D0;
     if (!accurate_bars.load(std::memory_order_relaxed) || cache().ranged) {
@@ -4937,7 +4977,7 @@ extern "C" void rush2_car49_bars_begin(uint8_t* rdram, recomp_context* ctx) {
         TestSetup chosen = setup_of(rdram, type, row), stock = chosen;
         chosen.engine = stock.engine = 0;
         stock.torque = row_byte(rdram, t_torque, 0, type);
-        TestResult with_chosen = straight_of(car, chosen), with_stock = straight_of(car, stock);
+        TestResult with_chosen = straight_of(cache(), car, chosen), with_stock = straight_of(cache(), car, stock);
         if (with_stock.accel > 0.0f && with_stock.top > 0.0f) {
             accel = with_chosen.accel / with_stock.accel;
             top = with_chosen.top / with_stock.top;
@@ -4981,7 +5021,7 @@ extern "C" void rush2_car49_bars_end(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     int type = (int8_t)MEM_B(0, (int32_t)(bar_types + player));
-    if (type < 0 || type >= types || !selectable(type)) {
+    if (type < 0 || type >= types || !rush2::car2049::type_available(type)) {
         return;
     }
     std::array<float, 4> bars = accurate_bar_values(rdram, ctx, type, player + 1);
