@@ -23,6 +23,7 @@
 #include "elements/ui_modal.h"
 
 #include "car2049.h"
+#include "control_profiles.h"
 #include "data_files.h"
 #include "options_page.h"
 #include "rush2.h"
@@ -55,12 +56,16 @@ namespace {
         int group;
         const char* keep = nullptr;
         const char* change = nullptr;
+        // An install from before the rule keeps its value rather than taking the profile's (the option starts from
+        // what the player already had).
+        bool existing_keep = false;
     };
 
     const char* const groups[] = { "Cars and Races", "Menus and Circuits", "Graphics" };
 
     const std::vector<Rule>& rules() {
         using rush2::car2049::DroneCars;
+        using rush2::control_profiles::SteeringResponse;
         constexpr uint32_t own_tracks = static_cast<uint32_t>(DroneCars::Rush2049Tracks);
         constexpr uint32_t all_tracks = static_cast<uint32_t>(DroneCars::AllTracks);
         constexpr uint32_t rush2_speeds = static_cast<uint32_t>(rush2::car2049::SpeedMode::Rush2);
@@ -72,6 +77,8 @@ namespace {
               "Respawns start in 1st gear (manual gearbox)" },
             { Cfg::General, "hide_respawning_cars", false, true, 0 },
             { Cfg::General, "drone_catch_up", true, true, 0 },
+            { Cfg::General, "default_steering", static_cast<uint32_t>(SteeringResponse::Original),
+              static_cast<uint32_t>(SteeringResponse::Linear), 0, nullptr, nullptr, true },
             { Cfg::General, "pause_menu_extras", false, true, 1, "Rush 2's pause menu",
               "Pause menu adds SKIP TRACK, song and collectibles" },
             { Cfg::General, "accurate_circuit_review", false, true, 1, "Rush 2's tour of its tracks after a circuit",
@@ -308,9 +315,9 @@ namespace {
             card->set_align_items(AlignItems::FlexStart);
             card->set_justify_content(JustifyContent::FlexStart);
             card->set_width(560.0f);
-            card->set_height(340.0f);
-            card->set_min_height(340.0f);
-            card->set_max_height(340.0f);
+            card->set_height(280.0f);
+            card->set_min_height(280.0f);
+            card->set_max_height(280.0f);
             card->set_padding(20.0f);
             card->set_padding_left(24.0f);
             card->set_padding_right(24.0f);
@@ -388,7 +395,7 @@ namespace {
                 "Both keep your controls and graphics settings. The other games' settings follow on the next page.",
                 theme::Typography::Body);
             kept->set_position(Position::Absolute);
-            kept->set_top(380.0f);
+            kept->set_top(320.0f);
             kept->set_left(0.0f);
             kept->set_right(0.0f);
             kept->set_text_align(TextAlign::Center);
@@ -397,7 +404,7 @@ namespace {
             // The preset's settings, to turn on or off one by one.
             customize = context.create_element<Element>(page, 0, "div", false);
             customize->set_position(Position::Absolute);
-            customize->set_top(424.0f);
+            customize->set_top(364.0f);
             customize->set_left(0.0f);
             customize->set_right(0.0f);
             customize->set_bottom(0.0f);
@@ -462,6 +469,7 @@ void rush2::setup::load(bool fresh_install) {
         std::string key = key_of(r);
         if (std::find(known.begin(), known.end(), key) != known.end()) continue;
         known.push_back(key);
+        if (r.existing_keep && !is_pending) continue;
         ConfigValueVariant v = value_for(r, profile);
         if ((j.is_object() || is_pending) && config_of(r.cfg).get_option_value(r.id) != v) {
             config_of(r.cfg).update_option_value(r.id, v);
