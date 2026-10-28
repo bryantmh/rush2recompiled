@@ -33,17 +33,18 @@
 
 namespace {
     constexpr char magic[4] = { 'R', '2', 'T', 'C' };
-    constexpr uint32_t format_version = 2;
+    constexpr uint32_t format_version = 3;
     enum class Kind : uint32_t { Rush1 = 1, Rush2049 = 2, Blob = 3 };
 
     // A field added to a converted track struct has to be added to write()/read() below; then update these sizes (as
     // MSVC lays the structs out; other standard libraries size their members differently).
 #ifdef _MSC_VER
     static_assert(sizeof(rush2::track1::ConvertedTrack) == 392, "update track_cache.cpp for ConvertedTrack (track1)");
-    static_assert(sizeof(rush2::track2049::ConvertedTrack) == 440, "update track_cache.cpp for ConvertedTrack (2049)");
+    static_assert(sizeof(rush2::track2049::ConvertedTrack) == 512, "update track_cache.cpp for ConvertedTrack (2049)");
     static_assert(sizeof(rush2::track1::ConvertedTrack::Timing) == 64, "update track_cache.cpp for Timing");
     static_assert(sizeof(rush2::track2049::TexFlipbook) == 72, "update track_cache.cpp for TexFlipbook");
     static_assert(sizeof(rush2::track2049::TexScroll) == 72, "update track_cache.cpp for TexScroll");
+    static_assert(sizeof(rush2::track2049::TexPalette) == 72, "update track_cache.cpp for TexPalette");
 #endif
 
     std::filesystem::path cache_dir() {
@@ -320,6 +321,18 @@ namespace {
             w.pod(s.speed);
             w.pod(s.rate);
         }
+        w.pod((uint32_t)t.tex_anims.palettes.size());
+        for (const auto& p : t.tex_anims.palettes) {
+            w.str(p.target);
+            w.pod(p.data);
+            w.pods(p.colors);
+            w.pod(p.first);
+            w.pod(p.last);
+            w.pod(p.step);
+            w.pod(p.kind);
+            w.pod(p.period);
+        }
+        for (const auto& b : t.tex_anims.blink) w.pods(b);
         w.pods(t.mover_paths);
         w.pods(t.mover_collision);
     }
@@ -360,6 +373,18 @@ namespace {
             r.pod(s.speed);
             r.pod(s.rate);
         }
+        t.tex_anims.palettes.resize(r.count(1));
+        for (auto& p : t.tex_anims.palettes) {
+            r.str(p.target);
+            r.pod(p.data);
+            r.pods(p.colors);
+            r.pod(p.first);
+            r.pod(p.last);
+            r.pod(p.step);
+            r.pod(p.kind);
+            r.pod(p.period);
+        }
+        for (auto& b : t.tex_anims.blink) r.pods(b);
         r.pods(t.mover_paths);
         r.pods(t.mover_collision);
     }

@@ -2505,19 +2505,17 @@ namespace {
         list = u32(main, scroll_lists_vram - main_vram + (size_t)(k - 1) * 4);
         for (size_t o = list - main_vram; list != 0 && u32(main, o) != 0; o += 0x14) {
             uint8_t kind = u8(main, o + 9);
-            TextureRecord t;
             rush2::track2049::TexScroll s;
             s.target = main_string(main, u32(main, o));
-            if ((kind != 9 && kind != 10) || !find_texture(g, s.target, t) || (t.flags & texture_direct)) {
-                continue;
-            }
-            for (uint32_t c : load_list_commands(g, t.data, 0xF2)) {
-                s.tile_sizes.push_back({ c, u32(g, c + 4) });
-            }
-            if (s.tile_sizes.empty()) {
+            if (kind != 9 && kind != 10) {
                 continue;
             }
             s.t = kind == 10;
+            int size = 0;
+            s.tile_sizes = rush2::track2049::texture_tile_sizes(g, s.target, s.t, &size);
+            if (s.tile_sizes.empty()) {
+                continue;
+            }
             s.position = s16(main, o + 4);
             s.wrap = s16(main, o + 6);
             s.speed = (int8_t)u8(main, o + 8);
@@ -2525,7 +2523,7 @@ namespace {
             // The wrap is the texture's size (16 units a texel). A Dreamcast source's textures are scaled down from the
             // disc's, which its records count in: the wrap becomes this texture's size, the speed (or, where that isn't
             // a whole number, the rate) in proportion, so the texture moves by the same fraction of itself.
-            int size = (s.t ? t.h : t.w) * 16;
+            size *= 16;
             if (size > 0 && s.wrap > size && s.wrap % size == 0) {
                 int factor = s.wrap / size;
                 s.wrap = (int16_t)size;
@@ -2556,6 +2554,35 @@ std::set<std::string> rush2::track2049::model_names(const std::vector<uint8_t>& 
         out.insert(cstr(d, h[1] + (size_t)i * 0x18, 16));
     }
     return out;
+}
+
+std::vector<rush2::track2049::TexTileSize> rush2::track2049::texture_tile_sizes(const std::vector<uint8_t>& g,
+                                                                                const std::string& name, bool t,
+                                                                                int* size) {
+    std::vector<TexTileSize> out;
+    TextureRecord r;
+    if (!find_texture(g, name, r) || (r.flags & texture_direct)) {
+        return out;
+    }
+    for (uint32_t c : load_list_commands(g, r.data, 0xF2)) {
+        out.push_back({ c, u32(g, c + 4) });
+    }
+    if (size) {
+        *size = t ? r.h : r.w;
+    }
+    return out;
+}
+
+uint32_t rush2::track2049::palette_colors(const std::vector<uint8_t>& g, const std::string& name) {
+    // Palette table header[3], count header[6], 0x18-byte records: name[16], u32, u32 colors.
+    uint32_t table = u32(g, 12), count = u32(g, 24);
+    for (uint32_t i = 0; i < count; i++) {
+        size_t r = table + (size_t)i * 0x18;
+        if (first15(cstr(g, r, 16)) == first15(name)) {
+            return u32(g, r + 0x14);
+        }
+    }
+    return 0;
 }
 
 bool rush2::track2049::rush2_lz_decompress(const uint8_t* src, size_t src_size, std::vector<uint8_t>& out) {

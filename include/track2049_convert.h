@@ -85,9 +85,25 @@ namespace rush2::track2049 {
         int16_t rate = 1;              // +0xA, update interval in 1/30 s.
     };
 
+    // A palette cycle (California Speed main 0x800B989C, kinds 0-6, docs/calspeed_research.md "Animated textures"):
+    // every `period` vblanks the colors `first`..`last` of the target's palette are rotated, swapped or set.
+    struct TexPalette {
+        std::string target;
+        uint32_t data = 0;             // Offset of the palette's colors (palette record +0x14).
+        std::vector<uint16_t> colors;  // The colors as converted, entry 0 to the last one the cycle touches.
+        int16_t first = 0;             // +4
+        int16_t last = 0;              // +6
+        int8_t step = 0;               // +8: kinds 5 and 6, the gap between the swapped runs.
+        uint8_t kind = 0;              // +9: 0 rotate up, 2 down, 3/4 blink (set `blink` 0 / 1, then the other), 5 swap
+                                       // two runs, 6 rotate three.
+        int8_t period = 0;             // +0xA, in vblanks.
+    };
+
     struct TexAnims {
         std::vector<TexFlipbook> flipbooks;
         std::vector<TexScroll> scrolls;
+        std::vector<TexPalette> palettes;
+        std::vector<uint16_t> blink[2];   // The 15 colors palette kinds 3 and 4 set.
     };
 
     struct ConvertedTrack {
@@ -170,6 +186,12 @@ namespace rush2::track2049 {
 
     // Names in a Rush 2 model container's name table, or an empty set if it isn't one.
     std::set<std::string> model_names(const std::vector<uint8_t>& rush2_container);
+    // A converted Rush 2 container's G_SETTILESIZE commands in the texture-load list of texture `name` (empty when it
+    // has none, or its record points at texels); a scroll's patch sites. size: the texture's height (t) or width.
+    std::vector<TexTileSize> texture_tile_sizes(const std::vector<uint8_t>& geometry, const std::string& name, bool t,
+                                                int* size = nullptr);
+    // The offset of palette `name`'s colors (its record +0x14) in a converted Rush 2 container, or 0.
+    uint32_t palette_colors(const std::vector<uint8_t>& geometry, const std::string& name);
 
     // Rush 2's LZ decompressor (func_80003C6C): like Rush 2049's, but match positions are absolute in a 4KB ring
     // buffer. Returns false on truncated data.
