@@ -1014,12 +1014,68 @@ drawn mesh matches them within 0.03 ft). Where the road dips, the coarse triangl
 of SF's 854 spline polygons 124 sag more than 0.25 ft, 46 more than 0.5 ft and 15 more than 1 ft (worst 1.36 ft), at
 the climb at x 2300-2550, z 1000-1980 (segments 67-83) and the hills at x 2370-2520, z -4520..-1800 (segments
 363-429, polygons 7120-7288). On crests the cubic stands up to about 0.2 ft above the face instead. Smooth
-collision's `spline_on_face` now holds a California Speed wheel on the higher of the cubic and the flat face (the
+collision's `spline_on_face` held (until 2026-10-27, see "Spline lift" below) a California Speed wheel on the higher of the cubic and the flat face (the
 face's height measured along the cubic's normal), so the car never rides under the road it shows; crests keep the
 cubic. Custom tracks' ROAD_SPLINES roads are left on the cubic, as their drawn road may follow it. Checked
 (tmp/ledge_join/ride.py, tmp/cs_tunnel/run.py "sag climb" "sag hills"): over sags of 0.8-1.1 ft the car's body rides
 0.27-0.36 ft over the drawn road (0.43 on flat road; on the cubic it would be about 0.7 ft under it), and through the
 hills 0.51 ft over the face, 1.26 ft over the cubic.
+
+Spline lift (2026-10-27, replaces the higher-of-the-two rule): the user found every California Speed track with
+spline roads bumpy around turns, Clover worst. The higher of cubic and face switched the wheel between the two at
+every triangle, so it rode the faces' creases wherever a face stood above the cubic. Each spline segment is one quad
+(two triangles) about 92 ft long, and on turns the faces stand up to 2.4 ft above the cubic (Clover: 112 of its 310
+spline polygons more than 0.5 ft, 60 more than 1 ft; Mojave, Highway 1, Monterey, Yosemite next). The drawn road is
+the same triangles (stock track glb against the collision: median 0.05 ft apart, 1.1-1.6 drawn triangles per
+collision triangle), so driving on the drawn mesh is the faces again. The road's vertical kicks at 120 ft/s along
+lines on the spline road (second difference over 2 ft): faces 16-43 g peaks, higher of the two 14-23 g, cubic 1.7-5 g
+(San Francisco's cubic itself 10 g). `spline_lift` in src/smooth_collision.cpp keeps the cubic and raises it by a
+lift that changes smoothly: `build_lifts` takes, per segment and quarter of its width, the most the faces stand above
+the cubic (9 x 9 samples a triangle), gives each segment end a node per u -0.5, 0 .. 1.5 holding the most of the
+cells either side, and blends the nodes with smoothstep along and across. A segment's polygons span u -0.5 to 1.5
+(its half-width parameter +0x54 covers the middle half: 55% of Clover's spline road lies outside u 0-1); the first
+build banded u 0-1 only. In the last 0.1 of u each side (u below -0.4, above 1.4, about 3 ft; from -0.25 it brought the faces' creases back where Clover's computer cars drive the inside of its turns) the wheel goes over
+to the polygon's own face, which meets the flat floor beside the road: there the lifted cubic stood up to 0.8 ft off
+it, a step whenever a car cut a corner (Clover segments 52-55). A segment end joining road with no spline gets
+no lift, since a step there would be a bump; the car sinks into the drawn road near those joins (up to about 1.1 ft,
+on about 1% of the spline road). Prototype and numbers: tmp/cs_bumpy/lift.py (Clover: peaks 4.6 g against 22.8,
+hover over the drawn road median 0.32 ft, 95% 1.16, most 3 ft). In game the table matches the prototype (Clover 155
+of 162 segments, most 2.37 ft) and takes 0.3 ms to build. `RUSH2_SPLINE_FACE=1` runs the old rule (`spline_on_face`)
+for comparisons.
+
+Crease fillets (2026-10-27): the user found the lift alone "a little better". A trace of a computer car's wheels
+(`RUSH2_SMOOTH_TRACE=<car address>`: every probe's road point, polygon flags and height; tools/calspeed/road_trace.py)
+showed the rest on Clover's flat floor polygons (41% of its driving line): about 128 ft across, meeting at
+creases of 3-7 degrees, under the 20 degree fold, so smooth collision turned the wheel's frame smoothly but its height
+still changed slope in one step (at California Speed's 300 ft/s a 3 degree crease is a 15 ft/s jump in the wheel's
+vertical speed). Kicks over 10 g on 10% of flat steps, against 0.4% on Silicon Valley (no spline road, finer floor)
+under the same physics, and Full Rush 2 physics on Clover 8%: the road, not CS Physics. `crease_fillet` rounds each
+crease with the quadratic fillet between the two planes, the plane across found by position (a 64 ft cell index of
+the floor), since the road isn't watertight (vertices 1/32 ft apart, T-junctions): bending the triangles toward
+per-vertex normals (Phong tessellation) was tried and left steps of up to 1 ft along such edges, worse than before.
+Reach 15 ft (10, 20, 25, 30 were worse offline: tmp/cs_bumpy/fillet.py on the traced path). In game: flat-road kicks
+over 10 g 10.0% -> 2.4%, the wheels' height swing 0.098 -> 0.068 ft, its 3.8 Hz peak gone. California Speed's
+tracks only (custom tracks keep the flat height). `RUSH2_SMOOTH_FILLET=0` turns them off for comparisons. Also tried:
+smoothing each wheel's road height over distance (a tire envelope): no effect below the 5 ft a car covers per physics
+step, and at 16 ft only 4.4% -> 3.0% of kicks with the road a few tenths off.
+
+The bump every few seconds (2026-10-27, after the fillets): the user still felt "a subtle bump up and down every few
+seconds on most of" Clover in a player's car (Partial). Placing the car on Clover's longest straight
+(`RUSH2_CS_PLACE=-1265,31.6,269,-0.999,0.053,150,2`, flat polygons, x -1270 to -1790) showed it: at polygon edges where
+the road's slope changes by only 0.2-0.35 degrees the rear suspension went from 0.37 to 0.05 ft over half a second
+and back. Not the levelling rate (0.15-2 rad/s the same), not the fillets; with smooth collision off it was gone. The
+corner normals were plain means of every floor face under the fold: at (-1488, 5, 245) the road's corner shared two
+16-17 degree shoulder faces, which tilted its normal 8.3 degrees; the wheel's frame tilted with it, and under
+throttle the drive force along that frame lifted the rear. Two changes: (1) every smooth-collision track's corner
+normals weight each neighbor by the 4th power of (cos angle - cos fold) / (1 - cos fold) (coplanar 1, a 10 degree
+tunnel facet 0.31, a 17 degree shoulder 0.006; squared still left 1.3 degrees there and 0.2 ft dips);
+`RUSH2_SMOOTH_WEIGHT=0` brings back equal weights. San Francisco's subway tunnel rides the same either way. (2) On
+California Speed's tracks the wheel's frame is the filleted surface's own normal (the face's slope plus the
+fillets'), and the height is taken to that surface: the blended corner normals lean across a whole 128 ft polygon
+while the fillets bend only 15 ft of it, so mid-polygon the frame leaned off the flat road under it. After both, on the
+straight the rear never drops below 0.29 ft; on Clover's spot near (-262, -18, 222) the rear's swing went 0.088 ->
+0.025 ft. The trace now prints each wheel's compression (+0x5CC) too. Computer cars (California Speed's stiffer
+springs) never showed the dips, which is why the computer-car traces looked clean.
 
 Trap met on the way: `MEM_W(offset, base)` adds the offset to the (int32) base before widening to the 64-bit address,
 so an offset held in a `uint32_t` constant makes the sum unsigned 32-bit and the access lands 4 GB away (reads zero,
