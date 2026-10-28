@@ -224,6 +224,20 @@ void rush2::control_profiles::set(const std::string& profile, const Settings& se
     save_locked();
 }
 
+SteeringResponse rush2::control_profiles::default_steering() {
+    std::lock_guard lock{ mutex };
+    return defaults.steering;
+}
+
+void rush2::control_profiles::set_default_steering(SteeringResponse steering) {
+    std::lock_guard lock{ mutex };
+    if (defaults.steering == steering) {
+        return;
+    }
+    defaults.steering = steering;
+    save_locked();
+}
+
 void rush2::control_profiles::update_ports(uint8_t* rdram) {
     std::array<std::string, num_ports> names;
     for (int port = 0; port < num_ports; port++) {

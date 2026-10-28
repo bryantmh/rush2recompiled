@@ -52,6 +52,10 @@ namespace rush2::control_profiles {
     Settings get(const std::string& profile);
     // Changes and saves a profile's settings.
     void set(const std::string& profile, const Settings& settings);
+    // The steering profiles start from until their settings are changed, set by the General tab's New Profile Steering
+    // (a setup screen rule, src/config.cpp). Setting it saves it.
+    SteeringResponse default_steering();
+    void set_default_steering(SteeringResponse steering);
 
     // Game thread, every frame: which profile each port's player uses.
     void update_ports(uint8_t* rdram);

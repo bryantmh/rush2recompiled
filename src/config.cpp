@@ -34,6 +34,7 @@
 #include "game_filter.h"
 #include "car2049.h"
 #include "car_probes.h"
+#include "control_profiles.h"
 #include "setup.h"
 
 // Adds every option of the config that the page doesn't have yet, in the config's order (hidden ones stay hidden).
@@ -680,6 +681,37 @@ static void add_hide_respawn_option(recomp::config::Config& config) {
         });
 }
 
+namespace default_steering_option {
+    const std::string id = "default_steering";
+}
+
+// The Steering Response a game save profile starts with until it's changed in the Controls tab
+// (src/control_profiles.cpp). Its default is what the profiles already started with, so an install from before the
+// option keeps it.
+static void add_default_steering_option(recomp::config::Config& config) {
+    using rush2::control_profiles::SteeringResponse;
+    config.add_enum_option(
+        default_steering_option::id,
+        "New Profile Steering",
+        "The Steering Response players start with, until they change it in the Controls tab. "
+        "<recomp-color primary>Original</recomp-color> matches the original game: barely any steering near the "
+        "center of the stick, sharp turning near the edge. "
+        "<recomp-color primary>Balanced</recomp-color> steers more near the center. "
+        "<recomp-color primary>Linear</recomp-color> steers as far as the stick is pushed.",
+        {
+            { SteeringResponse::Original, "Original", "Original" },
+            { SteeringResponse::Balanced, "Balanced", "Balanced" },
+            { SteeringResponse::Linear, "Linear", "Linear" },
+        },
+        rush2::control_profiles::default_steering()
+    );
+
+    config.add_option_change_callback(default_steering_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::control_profiles::set_default_steering(static_cast<SteeringResponse>(std::get<uint32_t>(cur_value)));
+        });
+}
+
 namespace hood_wheels_option {
     const std::string id = "hood_front_wheels";
 }
@@ -956,7 +988,7 @@ void rush2::init_config() {
         // so showing one moves nothing in the others.
         create_ordered_tab(general::tab_name, "rush2_general", general::id, 3, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id, hide_respawn_option::id,
-                            hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, pause_extras_option::id } },
+                            default_steering_option::id, hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, pause_extras_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
             { "Circuits", { circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id }, true },
             { "Other", { ghost_option::id, ghosts_kept_option::id, rush2::game_filter::option_id() } },
@@ -1008,6 +1040,7 @@ void rush2::init_config() {
     add_torque_option(general_config);
     add_stunt_gear_option(general_config);
     add_hide_respawn_option(general_config);
+    add_default_steering_option(general_config);
     add_hood_wheels_option(general_config);
     add_attract_camera_option(general_config);
     add_look_back_option(general_config);
@@ -1090,6 +1123,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(stunt_gear_option::id)));
     rush2::set_hide_respawning_cars(std::get<bool>(
         recompui::config::get_general_config().get_option_value(hide_respawn_option::id)));
+    rush2::control_profiles::set_default_steering(static_cast<rush2::control_profiles::SteeringResponse>(std::get<uint32_t>(
+        recompui::config::get_general_config().get_option_value(default_steering_option::id))));
     rush2::set_hood_front_wheels(std::get<bool>(
         recompui::config::get_general_config().get_option_value(hood_wheels_option::id)));
     rush2::set_attract_camera(std::get<bool>(
