@@ -14459,6 +14459,56 @@ func = "hud_widget_cb_tach_needle_800B7E88"
 before_vram = 0x800B7E9C
 text = "    ctx->r14 = (gpr)(int32_t)rush2_online_hud_views(rdram, (int)(int32_t)ctx->r14);"
 
+# Online: HUD elements that pick a car by their view's player number index this machine's player's car instead, after
+# their view checks (rush2_online_hud_car). The race position: $a2 the player, from here on only the car's.
+[[patches.hook]]
+func = "hud_widget_cb_race_position_800BA608"
+before_vram = 0x800BA6A4
+text = "    ctx->r6 = (gpr)(int32_t)rush2_online_hud_car(rdram, (int)(int32_t)ctx->r6);"
+
+# WRONG WAY: $t0 the player's car state ($t6 the player); $t1 and $v1, its per-view arrays, keep the view.
+[[patches.hook]]
+func = "hud_widget_cb_lap_banner_800BA868"
+before_vram = 0x800BA8B4
+text = "    ctx->r8 = (gpr)(int32_t)((int32_t)ctx->r8 + (rush2_online_hud_car(rdram, (int)(int32_t)ctx->r14) - (int)(int32_t)ctx->r14) * 0x354);"
+
+# The radar's center: the viewing car's state ($t6 = [$sp + 0x5C], the view, which still places the radar).
+[[patches.hook]]
+func = "hud_widget_cb_radar_dots_800B8CC8"
+before_vram = 0x800B8E54
+text = "    ctx->r14 = (gpr)(int32_t)rush2_online_hud_car(rdram, (int)(int32_t)ctx->r14);"
+
+# The finish place: $v1 the player from here on only picks the car ($t9 = $v1 << 2, set in the branch's delay slot);
+# the place widget's shown byte ($a3) stays the view's.
+[[patches.hook]]
+func = "hud_widget_cb_finish_place_800B5A90"
+before_vram = 0x800B5B08
+text = "    ctx->r3 = (gpr)(int32_t)rush2_online_hud_car(rdram, (int)(int32_t)ctx->r3); ctx->r25 = (gpr)(int32_t)((int32_t)ctx->r3 << 2);"
+
+# The checkpoint split: its time ($t9 = player << 2, $t6 the player) and digits ($t1 past the view checks).
+[[patches.hook]]
+func = "hud_widget_cb_lap_time_800B9978"
+before_vram = 0x800B99A4
+text = "    ctx->r25 = (gpr)(int32_t)(rush2_online_hud_car(rdram, (int)(int32_t)ctx->r14) << 2);"
+
+[[patches.hook]]
+func = "hud_widget_cb_lap_time_800B9978"
+before_vram = 0x800B9A80
+text = "    ctx->r9 = (gpr)(int32_t)rush2_online_hud_car(rdram, (int)(int32_t)ctx->r9);"
+
+# The IT badge: the player's record +0x21 ($t9 the player, from the parameter).
+[[patches.hook]]
+func = "hud_widget_cb_it_badge_800B9CC0"
+before_vram = 0x800B9D0C
+text = "    ctx->r25 = (gpr)(int32_t)rush2_online_hud_car(rdram, (int)(int32_t)ctx->r25);"
+
+# Online: the race over screen's START (the menus' presses, $t6) is every race player's lockstep presses
+# (rush2_online_race_over_presses), so every machine goes on to the post-race on the same frame.
+[[patches.hook]]
+func = "race_start_timer_800AE670"
+before_vram = 0x800AF0C8
+text = "    ctx->r14 = (gpr)(int32_t)rush2_online_race_over_presses(rdram, (uint16_t)ctx->r14);"
+
 # Online: the per-player sound effects count the same players on every machine (rush2_online_sim_players_begin).
 [[patches.hook]]
 func = "car_sound_update_all_80067358"

@@ -3656,27 +3656,27 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C25E8
-name = "postrace_name_byte_a"
+name = "postrace_start_taken"
 type = "u8"
-desc = "Byte shared by guest name entry and postrace_records_update. (low confidence)"
+desc = "The post-race's last START was taken: menu_title_start_pressed_800A6B58's return (0x800AA890), cleared at its start. On leaving, set means front_end_next_screen 0x800E7BB4 = 0 and sound 0x59; clear (a post-race with nothing to record) leaves the next screen as it was, so the front end opens the title screen."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C25EC
-name = "postrace_state_byte_0"
+name = "postrace_started"
 type = "u8"
-desc = "Byte used by postrace_records_update. (low confidence)"
+desc = "Post-race started: postrace_records_update_800A952C's first call (0 here) sets it and initializes the post-race (0x800A9584), later calls skip to 0x800AA00C; cleared when it leaves (0x800AA03C)."
 area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800C25F0
-name = "postrace_state_byte_1"
+name = "postrace_done"
 type = "u8"
-desc = "Byte used by postrace_records_update. (low confidence)"
+desc = "Post-race done: set to 1 by its first call (0x800A9590) and again after its last START (0x800AA87C); only a race with something to record clears it in between. While set, the next call leaves the post-race (0x800AA020: race_cleanup_players, one player, game state 0) and clears it. A stunt match with nothing to record leaves the frame after it starts."
 area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -8302,7 +8302,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800E7D18
 name = "menu_player_select_index"
 type = "u8"
-desc = "Byte set by options setup, post-race records and defaults; read by select-player, start game and title start (likely current profile index; low confidence)."
+desc = "Set to 1 by the post-race of a circuit race (0x800A962C, race type 0x8010C3E8 = 1); with it set, menu_title_start_pressed_800A6B58 gives players 0..n-1 their ports from 0x800BF314 at once instead of waiting for START. Also set by options setup and defaults; read by select-player and start game."
 area = "menu"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"

@@ -123,4 +123,13 @@ frame. Racing frames were 6-9 ms `send_dl` with and without it. The upload wait 
 The specialized shaders RT64 compiles are kept on disk (`rt64_shaders_<format>.bin` in the same folder,
 `RasterShaderCache` in the RT64 patch) and all built at launch, so a race no longer compiles them on first use.
 
+Only one running game writes that file. It holds an OS lock on `<file>.lock` for as long as it runs, and a second
+copy of the game started alongside (two-instance online tests, tools/online_test.py) only reads it. Without the lock
+both games appended at once: their buffered writes interleaved, and because two games in the same lockstep race compile
+the same shaders in the same order, the mixed file still parsed. One record kept its sizes but carried a pixel shader
+whose bytes restarted 4096 bytes in, so D3D12 failed to make its pipeline, and every later launch crashed in
+`SetPipelineState(null)` when that shader drew (online Stunt arena, 2026-10-30). The loader now checks each DXIL record's
+container and drops a damaged record and everything after it. `python tools/shader_cache_check.py <file>` reports damaged
+and duplicate records, and `--extract N` writes record N's shaders out for `dxc -dumpbin`.
+
 Still open: the pacing after a hitch, and a track's first race (no texture list yet).

@@ -103,6 +103,7 @@ namespace {
     int8_t stick_range[max_players][2];
     uint16_t previous_held[max_players];  // Each player's held buttons last frame, for the frame's presses.
     uint16_t pending_pressed[max_players];  // Last frame's presses, for the next frame start (rush2_online_record_presses).
+    uint16_t race_presses = 0;  // Every race player's presses this lockstep frame (rush2_online_race_over_presses).
 
     // Where this machine's player gets their input (main.cpp's controller callback, which also plays input scripts).
     bool (*input_source)(int, uint16_t*, float*, float*) = nullptr;
@@ -979,7 +980,10 @@ namespace {
     // 0's physics data set up differently (frame 0 resyncs and the car takes the host's), "stale" the slots after the
     // race's cars holding an earlier race's car on its descriptor copy (as two machines' different last races leave
     // them), "noload" never reports
-    // loaded (the host drops the player after its load timeout), "nudge:F" changes the race seed at frame F (a real difference, which a resync repairs), a frame
+    // loaded (the host drops the player after its load timeout), "hudview" the HUD's view-numbered elements showing
+    // the car of that number (a joiner sees the host's place), "localstart" the race over screen going on at this
+    // machine's own START, pressed at once (as before the fix), "racestart" this machine's player holding START on the
+    // race over screen (through the lockstep, as the fix takes it), "nudge:F" changes the race seed at frame F (a real difference, which a resync repairs), a frame
     // number F reports a different state hash from frame F on (resyncs can't fix it: the race is given up on).
     const std::string& break_test() {
         static const std::string spec = std::getenv("RUSH2_ONLINE_BREAK") ? std::getenv("RUSH2_ONLINE_BREAK") : "";
@@ -1117,7 +1121,9 @@ namespace {
     // u8: the front end after a race starts over from the boot logos (screen 0xE, then the title screen) rather than at
     // screen 0xF (func_8009FD68). Kept 0 (end_race): screen 0xE runs the power-on save load again.
     constexpr uint32_t front_end_from_logos = 0x800BF31C;
+    constexpr int32_t state_race_over = 5;           // Every player's place and GAME OVER, then the post-race
     constexpr int32_t state_post_race = 6;           // func_800A952C: records, lap and race times, name entry
+    constexpr uint16_t start_button = 0x1000;
     constexpr int32_t state_car_select = 2;
     constexpr int32_t state_front_end = 0;           // The pause menu's QUIT (func_800AAC64) goes back to it.
 
@@ -1138,6 +1144,29 @@ namespace {
                 MEM_B(0, (int32_t)(input_port_state + port)) = 1;
             }
         }
+    }
+
+    // The menus' players as leaving the race left them (records 0 and 1's ports, the player and view counts), for
+    // restore_menu_players. A post-race with nothing to record (a stunt match without a qualifying score) ends at once,
+    // without its last START (menu_title_start_pressed_800A6B58 from postrace_records_update_800A952C at 0x800AA880,
+    // which gives the players their ports back), and the front end opens the title screen, whose setup
+    // (menu_car_select_run_803AE55C at 0x803AE5F4) makes it one player, sets records 0 and 1 to port 5 and turns every
+    // port off. Offline the player's START on the title puts them back; online the lobby goes past the title to the
+    // track select, where no port was on: every machine's menus took no buttons (the lock after a stunt match).
+    struct MenuPlayers {
+        bool saved = false;
+        int8_t ports[2] = {};
+        int16_t players = 0;
+        int16_t views = 0;
+    } menu_players;
+
+    void save_menu_players(uint8_t* rdram) {
+        for (int p = 0; p < 2; p++) {
+            menu_players.ports[p] = MEM_B(record_port, (int32_t)(player_records + p * player_record_size));
+        }
+        menu_players.players = MEM_H(0, (int32_t)num_players);
+        menu_players.views = MEM_H(0, (int32_t)num_views);
+        menu_players.saved = true;
     }
 
     // The race is over (game state 6, or the front end after the pause menu's QUIT): the machines part. The post-race
@@ -1201,6 +1230,7 @@ namespace {
         MEM_W(0, (int32_t)race_saved_players) = std::min(local_count, 2);
         rush2::car2049::clear_guest_side_blocks();
         enable_menu_ports(rdram);
+        save_menu_players(rdram);
         phase = Phase::Idle;
     }
 
@@ -1236,6 +1266,7 @@ namespace {
         MEM_W(0, (int32_t)race_saved_players) = std::min(local_count, 2);
         rush2::car2049::clear_guest_side_blocks();
         enable_menu_ports(rdram);
+        save_menu_players(rdram);
         phase = Phase::Idle;
     }
 
@@ -1302,7 +1333,7 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         rush2::online::session_log("[online] race %s at frame %u\n", now_state == state_front_end ? "quit" : "over",
             race_frame);
         finish_race_locally(rdram, now_state == state_front_end);
-        race_finished();
+        race_finished(race_frame);
         rush2::online::game::race_over();
         return;
     }
@@ -1416,6 +1447,10 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
             local.brake = uint8_t(std::lround(std::clamp(brake, 0.0f, 1.0f) * 255.0f));
             local.battle = rush2::controls::battle_buttons(i);
         }
+        // Test aid: RUSH2_ONLINE_BREAK=racestart, this machine's player holds START on the race over screen.
+        if (break_test() == "racestart" && MEM_W(0, (int32_t)game_state) == state_race_over) {
+            local.buttons |= start_button;
+        }
     }
     submit_local_input(race_frame + input_delay(), locals);
     Wait got;
@@ -1497,6 +1532,7 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     // The buttons each player pressed this frame (+2, and +6, the menus' repeat). Online records have no port, so the
     // frame start (func_80080788) clears them before the gear shifts and the like read them (func_80080524): it gets
     // them back there next frame (rush2_online_record_presses), and the rest of this frame has them now.
+    race_presses = 0;
     for (int p = 0; p < race_players; p++) {
         int32_t record = (int32_t)(player_records + p * player_record_size);
         uint16_t held = held_buttons(frame_inputs[p]);
@@ -1505,6 +1541,7 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
         MEM_H(record_repeat, record) = (int16_t)pressed;
         pending_pressed[p] = pressed;
         previous_held[p] = held;
+        race_presses |= pressed;
     }
 
     // Two physics ticks, each with its input step, unless the race is paused (the pause menu clears the flag, as it
@@ -1524,6 +1561,17 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
             MEM_H(record_pressed, record) = (int16_t)pending_pressed[p];
             MEM_H(record_repeat, record) = (int16_t)pending_pressed[p];
         }
+    }
+
+    // Test aid (docs/online.md#test-aids): RUSH2_ONLINE_CLOCK=F:S sets the time left (race_time_float) to S seconds at
+    // race frame F, after the start countdown (which counts down in the same float), to reach a stunt match's end
+    // quickly. Set it on every machine, or the others differ and take the host's state in a resync.
+    static const char* clock = std::getenv("RUSH2_ONLINE_CLOCK");
+    if (clock != nullptr && std::strchr(clock, ':') != nullptr && race_frame == (uint32_t)std::atoi(clock)) {
+        float seconds = (float)std::atof(std::strchr(clock, ':') + 1);
+        uint32_t bits;
+        std::memcpy(&bits, &seconds, 4);
+        MEM_W(0, (int32_t)0x8010C204) = (int32_t)bits;
     }
 
     // Every 30 frames the machines compare their states (online_net.cpp ends the race if they differ).
@@ -1717,6 +1765,21 @@ extern "C" int rush2_online_pause_start_only(uint8_t* rdram, recomp_context* ctx
     return lockstep ? 1 : 0;
 }
 
+// The race over screen (game state 5, race_start_timer_800AE670 at 0x800AF0C4) goes on to the post-race (state 6) after
+// a moment, or at once on START, and with the stunt mode's option 0x8010C169 only on START. Its START is the menus'
+// presses (0x8010C43E, player_join_init_all_80080788: this machine's controllers), so one machine's START took it to the
+// post-race frames before the others and the machines left the lockstep on different frames (RUSH2_ONLINE_BREAK=
+// localstart on a stunt match's joiner: it left at frame 1269, the host at 1374, which waited for its inputs until the
+// joiner's Finished message). Online it takes every race player's presses of the lockstep frame instead, the same on
+// every machine (racestart: both left at 1270).
+extern "C" uint16_t rush2_online_race_over_presses(uint8_t* rdram, uint16_t presses) {
+    // Test aid: RUSH2_ONLINE_BREAK=localstart takes this machine's own presses, as before the fix, with START pressed.
+    if (break_test() == "localstart") {
+        return presses | start_button;
+    }
+    return lockstep ? race_presses : presses;
+}
+
 // The race setup (func_800A5ADC at 0x800A5FD0) has just set the view count to the player count, for the split screen
 // it sets up next (func_80054BB0): online each machine has a view per player of its own (at the race start and at a
 // RESTART).
@@ -1732,6 +1795,19 @@ bool rush2::online::game::read_local_controller(uint16_t* buttons, float* x, flo
 
 bool rush2::online::game::in_race() {
     return phase != Phase::Idle;
+}
+
+void rush2::online::game::restore_menu_players(uint8_t* rdram) {
+    if (!menu_players.saved || phase != Phase::Idle) {
+        return;
+    }
+    menu_players.saved = false;
+    for (int p = 0; p < 2; p++) {
+        MEM_B(record_port, (int32_t)(player_records + p * player_record_size)) = menu_players.ports[p];
+    }
+    MEM_H(0, (int32_t)num_players) = menu_players.players;
+    MEM_H(0, (int32_t)num_views) = menu_players.views;
+    enable_menu_ports(rdram);
 }
 
 // The race's car count as race_assign_cars_to_players_800A580C set it (s16 0x8010C158) at the race start, before the
@@ -2155,6 +2231,23 @@ void rush2::online::game::hud_built(uint8_t* rdram) {
 
 extern "C" int rush2_online_hud_views(uint8_t* rdram, int views) {
     return phase == Phase::Idle ? views : local_player + local_count;
+}
+
+// Other HUD elements also pick a car by their player number (view i's elements are player i's) rather than through the
+// player's record, and online view i's car is this machine's player i's, local_player + i: the race position
+// (hud_widget_cb_race_position_800BA608, car state +0xE9/+0xEA), WRONG WAY (hud_widget_cb_lap_banner_800BA868, car
+// state +0x34C), the radar's center (hud_widget_cb_radar_dots_800B8CC8), the finish place
+// (hud_widget_cb_finish_place_800B5A90), the checkpoint split (hud_widget_cb_lap_time_800B9978, the per-car split time
+// 0x800D35E8 and digits 0x800D39B8 race_checkpoint_time_display_8008EFF4 writes) and the IT badge
+// (hud_widget_cb_it_badge_800B9CC0, record +0x21). A joiner's HUD showed the host's place and the host's WRONG WAY.
+// Their parameters keep the view (what places and hides them, and the per-view arrays they write): hooks after their
+// view checks turn the view into the car where they index a car (us.toml).
+extern "C" int rush2_online_hud_car(uint8_t* rdram, int view) {
+    // Test aid: RUSH2_ONLINE_BREAK=hudview keeps the view as the car, as before the fix.
+    if (phase == Phase::Idle || view < 0 || view >= local_count || break_test() == "hudview") {
+        return view;
+    }
+    return local_player + view;
 }
 
 // Just after hud_widget_cb_race_time_display_800B7B1C formatted player `player`'s race time (its element's parameter,

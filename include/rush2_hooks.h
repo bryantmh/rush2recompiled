@@ -554,6 +554,8 @@ int rush2_online_wheels_shown(uint8_t* rdram, uint32_t physics_car, int view, in
 uint32_t rush2_online_arrow_views(uint8_t* rdram, int car, uint32_t flags);
 int rush2_online_arrow_view(uint8_t* rdram, int view);
 int rush2_online_hud_views(uint8_t* rdram, int views);
+int rush2_online_hud_car(uint8_t* rdram, int view);
+uint16_t rush2_online_race_over_presses(uint8_t* rdram, uint16_t presses);
 void rush2_online_hud_time_digits(uint8_t* rdram, int player);
 uint32_t rush2_online_view_record(uint8_t* rdram, int view, uint32_t record);
 
