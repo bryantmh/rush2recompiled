@@ -2131,14 +2131,25 @@ index 3b991ff..8ced9e5 100644
          static RenderMultisampling generateMultisamplingPattern(uint32_t sampleCount, bool sampleLocationsSupported);
      };
 diff --git a/src/render/rt64_raster_shader_cache.cpp b/src/render/rt64_raster_shader_cache.cpp
-index bf7b669..e08e4ce 100644
+index bf7b669..7e3f4a1 100644
 --- a/src/render/rt64_raster_shader_cache.cpp
 +++ b/src/render/rt64_raster_shader_cache.cpp
-@@ -6,9 +6,24 @@
+@@ -6,9 +6,91 @@
  
  #include "common/rt64_thread.h"
  
 +#include <cstdio>
++
++#ifdef _WIN32
++#   ifndef NOMINMAX
++#       define NOMINMAX
++#   endif
++#   include <Windows.h>
++#else
++#   include <fcntl.h>
++#   include <sys/file.h>
++#   include <unistd.h>
++#endif
 +
  #define ENABLE_OPTIMIZED_SHADER_GENERATION
  
@@ -2151,6 +2162,62 @@ index bf7b669..e08e4ce 100644
 +    static const uint32_t DiskFileVersion = 1;
 +    static const uint32_t DiskBlobLimit = 16 * 1024 * 1024;
 +
++    // Rush 2 recomp: an OS lock on the file at path that one process at a time can hold, dropped when the process
++    // ends however it ends; -1 when another process holds it.
++    static intptr_t acquireDiskLock(const std::filesystem::path &path) {
++#   ifdef _WIN32
++        HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
++        return (handle == INVALID_HANDLE_VALUE) ? -1 : intptr_t(handle);
++#   else
++        const int fd = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
++        if (fd < 0) {
++            return -1;
++        }
++
++        if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
++            close(fd);
++            return -1;
++        }
++
++        return fd;
++#   endif
++    }
++
++    // Rush 2 recomp: whether a DXIL container's header and part table fit inside it. A record two processes wrote over
++    // each other keeps its sizes but not its contents, and D3D12 fails to make a pipeline from it.
++    static bool validDXILContainer(const std::vector<uint8_t> &blob) {
++        auto read32 = [&](size_t offset) {
++            uint32_t value;
++            memcpy(&value, blob.data() + offset, sizeof(value));
++            return value;
++        };
++
++        if ((blob.size() < 32) || (memcmp(blob.data(), "DXBC", 4) != 0) || (read32(24) != blob.size())) {
++            return false;
++        }
++
++        const uint32_t partCount = read32(28);
++        if ((32 + size_t(partCount) * 4) > blob.size()) {
++            return false;
++        }
++
++        for (uint32_t i = 0; i < partCount; i++) {
++            const size_t partOffset = read32(32 + i * 4);
++            if (((partOffset + 8) > blob.size()) || ((partOffset + 8 + read32(partOffset + 4)) > blob.size())) {
++                return false;
++            }
++
++            for (size_t c = 0; c < 4; c++) {
++                const uint8_t ch = blob[partOffset + c];
++                if (!(((ch >= 'A') && (ch <= 'Z')) || ((ch >= '0') && (ch <= '9')))) {
++                    return false;
++                }
++            }
++        }
++
++        return true;
++    }
++
 +    void RasterShaderCache::setDiskCacheDirectory(const std::filesystem::path &directory) {
 +        const std::scoped_lock lock(DiskCacheDirectoryMutex);
 +        DiskCacheDirectory = directory;
@@ -2159,7 +2226,7 @@ index bf7b669..e08e4ce 100644
      // RasterShaderCache::CompilationThread
      
      RasterShaderCache::CompilationThread::CompilationThread(RasterShaderCache *shaderCache) {
-@@ -38,13 +53,15 @@ namespace RT64 {
+@@ -38,13 +120,15 @@ namespace RT64 {
          while (threadRunning) {
              ShaderDescription shaderDesc;
              bool fromPriorityQueue = false;
@@ -2176,7 +2243,7 @@ index bf7b669..e08e4ce 100644
                  });
  
                  shaderCache->descQueueActiveCount++;
-@@ -53,6 +70,29 @@ namespace RT64 {
+@@ -53,6 +137,29 @@ namespace RT64 {
                      shaderCache->descQueue.pop();
                      fromPriorityQueue = true;
                  }
@@ -2206,7 +2273,7 @@ index bf7b669..e08e4ce 100644
              }
              
              // Compile the shader at the top of the queue.
-@@ -60,12 +100,15 @@ namespace RT64 {
+@@ -60,12 +167,15 @@ namespace RT64 {
                  assert((shaderCache->shaderUber != nullptr) && "Ubershader should've been created by the time a new shader is submitted to the cache.");
                  const RenderPipelineLayout *uberPipelineLayout = shaderCache->shaderUber->pipelineLayout.get();
                  const RenderMultisampling multisampling = shaderCache->multisampling;
@@ -2223,15 +2290,17 @@ index bf7b669..e08e4ce 100644
              }
          }
      }
-@@ -92,6 +135,7 @@ namespace RT64 {
+@@ -92,7 +202,9 @@ namespace RT64 {
      }
  
      RasterShaderCache::~RasterShaderCache() {
 +        stopDiskLoader();
          compilationThreads.clear();
++        releaseDiskLock();
      }
  
-@@ -109,6 +153,179 @@ namespace RT64 {
+     void RasterShaderCache::setup(RenderDevice *device, RenderShaderFormat shaderFormat, const ShaderLibrary *shaderLibrary, const RenderMultisampling &multisampling) {
+@@ -109,6 +221,218 @@ namespace RT64 {
          if (shaderFormat == RenderShaderFormat::SPIRV) {
              optimizerCacheSPIRV.initialize();
          }
@@ -2243,7 +2312,10 @@ index bf7b669..e08e4ce 100644
 +            diskFile.close();
 +            diskHashes.clear();
 +            diskPending.clear();
++            diskReadOnly = false;
 +        }
++
++        releaseDiskLock();
 +
 +        std::filesystem::path directory;
 +        {
@@ -2272,10 +2344,23 @@ index bf7b669..e08e4ce 100644
 +        }
 +    }
 +
++    void RasterShaderCache::releaseDiskLock() {
++        const std::scoped_lock lock(diskMutex);
++        if (diskLock != -1) {
++#       ifdef _WIN32
++            CloseHandle(HANDLE(diskLock));
++#       else
++            close(int(diskLock));
++#       endif
++            diskLock = -1;
++        }
++    }
++
 +    void RasterShaderCache::loadDiskCache(std::filesystem::path path, uint64_t key) {
 +        Thread::setCurrentThreadName("RT64 Shader Disk");
 +
-+        // Read every whole record; a launch that ended while writing one leaves a partial record at the end.
++        // Read every whole record; a launch that ended while writing one leaves a partial record at the end. A DXIL record
++        // whose shaders are malformed ends the file there too.
 +        std::vector<DiskJob> jobs;
 +        uint64_t validSize = 0;
 +        bool headerValid = false;
@@ -2312,6 +2397,13 @@ index bf7b669..e08e4ce 100644
 +                        break;
 +                    }
 +
++                    if ((shaderFormat == RenderShaderFormat::DXIL) && !job.blobs.empty() &&
++                        (!validDXILContainer(job.blobs.vertexShader) || !validDXILContainer(job.blobs.pixelShader)))
++                    {
++                        fprintf(stderr, "[rt64] shader cache: record %zu of %s is damaged, dropping it and the rest of the file\n", jobs.size(), path.filename().string().c_str());
++                        break;
++                    }
++
 +                    validSize = uint64_t(file.tellg());
 +                    jobs.emplace_back(std::move(job));
 +                }
@@ -2322,22 +2414,34 @@ index bf7b669..e08e4ce 100644
 +            return;
 +        }
 +
-+        // Open the file for appending: cut a partial record off the end, or start it over for another build.
++        // Open the file for appending: cut a partial record off the end, or start it over for another build. Only with
++        // the file's lock: a game already running with it writes it, and this one only reads it.
 +        std::error_code ec;
 +        std::filesystem::create_directories(path.parent_path(), ec);
-+        if (headerValid) {
-+            if (std::filesystem::file_size(path, ec) != validSize) {
-+                std::filesystem::resize_file(path, validSize, ec);
-+            }
-+        }
-+        else {
++        std::filesystem::path lockPath = path;
++        lockPath += ".lock";
++        const intptr_t lockHandle = acquireDiskLock(lockPath);
++        const bool writable = (lockHandle != -1);
++        if (!headerValid) {
 +            jobs.clear();
++        }
++        else if (writable && (std::filesystem::file_size(path, ec) != validSize)) {
++            std::filesystem::resize_file(path, validSize, ec);
++        }
++
++        if (!writable) {
++            fprintf(stderr, "[rt64] shader cache: %s is in use by another running game, reading it only\n", path.filename().string().c_str());
 +        }
 +
 +        std::vector<DiskJob> pending;
 +        {
 +            const std::scoped_lock lock(diskMutex);
-+            if (headerValid) {
++            diskLock = lockHandle;
++            if (!writable) {
++                diskReadOnly = true;
++                diskPending.clear();
++            }
++            else if (headerValid) {
 +                diskFile.open(path, std::ios::binary | std::ios::app);
 +            }
 +            else {
@@ -2386,6 +2490,10 @@ index bf7b669..e08e4ce 100644
 +
 +    void RasterShaderCache::storeDiskCache(const ShaderDescription &desc, const RasterShaderBlobs &blobs) {
 +        const std::scoped_lock lock(diskMutex);
++        if (diskReadOnly) {
++            return;
++        }
++
 +        if (!diskFile.is_open()) {
 +            // The file is still being read: kept for the loader to write once it has the file open.
 +            if (diskLoader != nullptr) {
@@ -2411,7 +2519,7 @@ index bf7b669..e08e4ce 100644
      }
  
      void RasterShaderCache::submit(const ShaderDescription &desc) {
-@@ -135,9 +352,11 @@ namespace RT64 {
+@@ -135,9 +459,11 @@ namespace RT64 {
      }
      
      void RasterShaderCache::waitForAll() {
@@ -2424,7 +2532,7 @@ index bf7b669..e08e4ce 100644
  
          bool keepWaiting = false;
 diff --git a/src/render/rt64_raster_shader_cache.h b/src/render/rt64_raster_shader_cache.h
-index 5c40c18..794f565 100644
+index 5c40c18..2e33dae 100644
 --- a/src/render/rt64_raster_shader_cache.h
 +++ b/src/render/rt64_raster_shader_cache.h
 @@ -5,6 +5,7 @@
@@ -2462,7 +2570,7 @@ index 5c40c18..794f565 100644
          std::mutex descQueueMutex;
          int32_t descQueueActiveCount = 0;
          std::condition_variable descQueueChanged;
-@@ -45,7 +54,21 @@ namespace RT64 {
+@@ -45,7 +54,26 @@ namespace RT64 {
          std::unique_ptr<ShaderCompiler> shaderCompiler;
          RenderMultisampling multisampling;
          bool usesHDR = false;
@@ -2472,8 +2580,13 @@ index 5c40c18..794f565 100644
 +        // set with setDiskCacheDirectory (its description and, for DXIL, the compiled shaders), and setup() reads that
 +        // file back on a thread of its own and builds all of its shaders in the background, so a later launch has
 +        // them ready before the game draws with them instead of compiling them again on first use.
++        // Only one running game writes a cache file (diskLock, an OS lock on "<file>.lock" the system drops when the
++        // process ends): two games appending to it at once interleave their records into shaders that fail to load.
++        // Another game running at the same time reads the file but leaves it alone (diskReadOnly).
 +        std::mutex diskMutex;
 +        std::ofstream diskFile;
++        intptr_t diskLock = -1;
++        bool diskReadOnly = false;
 +        std::unordered_set<uint64_t> diskHashes;
 +        std::unique_ptr<std::thread> diskLoader;
 +        std::atomic<bool> diskLoaderCancel = false;
@@ -2485,11 +2598,12 @@ index 5c40c18..794f565 100644
          RasterShaderCache(uint32_t threadCount, uint32_t ubershaderThreadCount);
          ~RasterShaderCache();
          void setup(RenderDevice *device, RenderShaderFormat shaderFormat, const ShaderLibrary *shaderLibrary, const RenderMultisampling &multisampling);
-@@ -55,5 +78,8 @@ namespace RT64 {
+@@ -55,5 +83,9 @@ namespace RT64 {
          RasterShader *getGPUShader(const ShaderDescription &desc);
          RasterShaderUber *getGPUShaderUber() const;
          uint32_t shaderCount();
 +        void stopDiskLoader();
++        void releaseDiskLock();
 +        void loadDiskCache(std::filesystem::path path, uint64_t key);
 +        void storeDiskCache(const ShaderDescription &desc, const RasterShaderBlobs &blobs);
      };

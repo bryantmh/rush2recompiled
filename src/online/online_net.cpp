@@ -130,6 +130,8 @@ namespace {
     std::map<uint32_t, std::array<PlayerInput, max_players>> frames;
     std::map<uint32_t, uint8_t> frame_flags;              // frame_resync
     std::map<uint32_t, std::vector<uint8_t>> snapshots;   // Client: the host's race state for a resync frame.
+    // Client: the race ended on the host before this frame (Msg::RaceOver): a frame from it on never comes.
+    uint32_t host_end_frame = UINT32_MAX;
     clock_type::time_point waiting_since;
     bool waiting = false;
     // A message every machine shows for a while (a resync), and when it came.
@@ -144,6 +146,8 @@ namespace {
     uint32_t loaded_hash[max_players];
     uint32_t loaded_track[max_players];   // report_loaded's setup check
     uint32_t loaded_cars[max_players];
+    // The race ended on the slot's machine before this frame (Msg::Finished): its input isn't waited for from it on.
+    uint32_t gone_from[max_players];
     std::map<uint32_t, std::array<std::optional<uint32_t>, max_players>> hashes;
     // Resyncs: the frame to mark (none: UINT32_MAX), the first frame whose hashes count (older ones were taken before
     // the last resync), consecutive checks that differed and the resyncs this race.
@@ -312,6 +316,7 @@ namespace {
         frames.clear();
         frame_flags.clear();
         snapshots.clear();
+        host_end_frame = UINT32_MAX;
         resync_frame = UINT32_MAX;
         hashes_from = 0;
         failed_checks = 0;
@@ -324,6 +329,7 @@ namespace {
             loaded_hash[i] = 0;
             loaded_track[i] = 0;
             loaded_cars[i] = 0;
+            gone_from[i] = UINT32_MAX;
         }
         hashes.clear();
         next_broadcast = 0;
@@ -414,9 +420,12 @@ namespace {
         return -1;
     }
 
-    // Host: the slots whose input a frame needs: used, still connected, human.
+    // Host: the slots whose input a frame needs: used, still connected, human, and (with a frame) still racing then.
     bool needs_input(int slot) {
         return race_slots[slot].used && slots[slot].connected;
+    }
+    bool needs_input(int slot, uint32_t frame) {
+        return needs_input(slot) && frame < gone_from[slot];
     }
 
     // Host, in a race: disconnects machine `machine` (by its first slot); its players' cars coast from the next frame.
@@ -442,7 +451,7 @@ namespace {
             std::array<PlayerInput, max_players> inputs{};
             bool complete = true;
             for (int i = 0; i < max_players && complete; i++) {
-                if (f < delay || !needs_input(i)) {
+                if (f < delay || !needs_input(i, f)) {
                     continue;
                 }
                 auto it = pending[i].find(f);
@@ -485,7 +494,7 @@ namespace {
         if (clock_type::now() - last_progress > slow_player_drop) {
             for (int i = 0; i < max_players; i++) {
                 int machine = slots[i].machine;
-                if (machine != my_slot && needs_input(i) && pending[i].find(next_broadcast) == pending[i].end() &&
+                if (machine != my_slot && needs_input(i, next_broadcast) && pending[i].find(next_broadcast) == pending[i].end() &&
                     slot_peers[machine] != nullptr) {
                     drop_machine(machine);
                     rush2::online::session_log("[online] dropped player %d (no input for frame %u)\n", i + 1, next_broadcast);
@@ -597,7 +606,7 @@ namespace {
             std::optional<uint32_t> reference;
             int differs = -1;
             for (int i = 0; i < max_players; i++) {
-                if (!needs_input(i)) {
+                if (!needs_input(i, it->first)) {
                     continue;
                 }
                 if (!per_slot[i]) {
@@ -813,6 +822,22 @@ namespace {
                     }
                 }
                 break;
+            case Msg::Finished:
+                // The race ended on that machine (its game went on to the post-race or quit) before the host's did:
+                // the frames from then on don't wait for its players' input (their cars coast, as a dropped player's),
+                // instead of the race stalling until they're dropped.
+                if (slot >= 0 && (cur_state == State::Racing || cur_state == State::Loading)) {
+                    uint32_t frame = r.u32();
+                    if (!r.bad) {
+                        for (int i = 0; i < max_players; i++) {
+                            if (race_slots[i].used && race_slots[i].machine == slot) {
+                                gone_from[i] = std::min(gone_from[i], std::max(frame, next_broadcast));
+                            }
+                        }
+                        rush2::online::session_log("[online] player %d's race ended before frame %u\n", slot + 1, frame);
+                    }
+                }
+                break;
             case Msg::Hash:
                 if (slot >= 0 && cur_state == State::Racing) {
                     uint32_t frame = r.u32();
@@ -854,9 +879,14 @@ namespace {
                 error_text = r.str();
                 rush2::online::session_log("[online] rejected: %s\n", error_text.c_str());
                 break;
-            case Msg::Roster:
-                r.roster(slots);
+            case Msg::Roster: {
+                RosterEntry entries[max_players];
+                r.roster(entries);
+                if (!r.bad) {
+                    std::copy(std::begin(entries), std::end(entries), std::begin(slots));
+                }
                 break;
+            }
             case Msg::Settings: {
                 RaceSettings s = r.settings();
                 if (!r.bad) {
@@ -929,7 +959,7 @@ namespace {
             }
             case Msg::Snapshot: {
                 uint32_t f = r.u32();
-                std::vector<uint8_t> state = r.bytes();
+                std::vector<uint8_t> state = r.long_bytes();
                 if (!r.bad && (cur_state == State::Racing || cur_state == State::Loading)) {
                     snapshots[f] = std::move(state);
                     inputs_cv.notify_all();
@@ -940,6 +970,14 @@ namespace {
                 std::string text = r.str();
                 if (!r.bad) {
                     show_notice(text);
+                }
+                break;
+            }
+            case Msg::RaceOver: {
+                uint32_t f = r.u32();
+                if (!r.bad && (cur_state == State::Racing || cur_state == State::Loading)) {
+                    host_end_frame = f;
+                    inputs_cv.notify_all();
                 }
                 break;
             }
@@ -1717,6 +1755,14 @@ rush2::online::Wait rush2::online::wait_frame_inputs(uint32_t frame, PlayerInput
             waiting = false;
             return Wait::Ready;
         }
+        if (frame >= host_end_frame) {
+            // The host's race ended before this frame: it never comes. This machine's race went on past the host's
+            // (it shouldn't: the race ends on the same frame everywhere), so it ends here instead of waiting for ever.
+            error_text = "The race ended on the host's game first.";
+            race_over = true;
+            waiting = false;
+            return Wait::Ended;
+        }
         if (!waiting) {
             waiting = true;
             waiting_since = started;
@@ -1797,13 +1843,25 @@ void rush2::online::report_loaded(uint32_t hash, uint32_t track, uint32_t cars) 
     }
 }
 
-void rush2::online::race_finished() {
+void rush2::online::race_finished(uint32_t end_frame) {
     std::lock_guard lock{ state_mutex };
     if (cur_state != State::Loading && cur_state != State::Racing) {
         return;
     }
+    // The game ended the race itself before frame end_frame: the others hear of it, in order after the frames before
+    // it (the inputs' channel). Every machine's race normally ends on the same frame; if one's went on, it isn't left
+    // waiting for frames that never come (a joiner) or holding the race up until it's dropped (the host's wait).
+    if (end_frame != UINT32_MAX && !race_over) {
+        Writer w;
+        w.u8(uint8_t(hosting ? Msg::RaceOver : Msg::Finished));
+        w.u32(end_frame);
+        queue(hosting ? to_all : to_host, channel_inputs, w.data);
+    }
     clear_race();
     cur_state = State::Lobby;
+    // The host's menu state from before the race (its car select) is stale: a joiner whose post-race ended first went
+    // on to the car select by it. The host publishes again once its own post-race is over.
+    have_host_menu = false;
     // Everyone goes through the menus again (their progress comes back as their games get there).
     for (RosterEntry& e : slots) {
         e.progress = uint8_t(Progress::Lobby);
@@ -1838,7 +1896,7 @@ std::string rush2::online::race_status() {
     if (hosting) {
         std::string names = machine_names(my_slot, [](int i) {
             // A machine's input comes in one message: its first player stands for it.
-            return needs_input(i) && pending[i].find(next_broadcast) == pending[i].end();
+            return needs_input(i, next_broadcast) && pending[i].find(next_broadcast) == pending[i].end();
         });
         if (!names.empty()) {
             auto left = std::chrono::duration_cast<std::chrono::seconds>(slow_player_drop - (now - last_progress));
@@ -1857,7 +1915,7 @@ void rush2::online::send_snapshot(uint32_t frame, const std::vector<uint8_t>& st
     Writer w;
     w.u8(uint8_t(Msg::Snapshot));
     w.u32(frame);
-    w.bytes(state);
+    w.long_bytes(state);
     queue(to_all, channel_inputs, w.data);
 }
 
@@ -1873,6 +1931,11 @@ rush2::online::Wait rush2::online::wait_snapshot(uint32_t frame, std::vector<uin
             *out = std::move(it->second);
             snapshots.erase(snapshots.begin(), std::next(it));
             return Wait::Ready;
+        }
+        if (frame >= host_end_frame) {
+            error_text = "The race ended on the host's game first.";
+            race_over = true;
+            return Wait::Ended;
         }
         if (clock_type::now() - started >= std::chrono::milliseconds(timeout_ms)) {
             return Wait::Timeout;

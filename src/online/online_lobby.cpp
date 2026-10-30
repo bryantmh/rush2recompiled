@@ -123,6 +123,7 @@ namespace {
     bool start_sent = false;       // Host: asked for the race to start.
     bool allow_back = false;       // Backing out of the car select is how this machine follows the host back.
     bool after_race = false;       // Back to the track select once the post-race is done.
+    bool awaiting_host_menu = false;  // Joiner, after a race: the host hasn't published its menus since.
     // Host: why its race couldn't start (start_race's error), published for every machine (MenuState::start_error).
     std::string start_problem;
     int frames_in_state = 0;
@@ -483,13 +484,23 @@ namespace {
 
     void joiner_frame(uint8_t* rdram) {
         MenuState hm;
-        if (!host_menu(&hm)) {
+        bool have = host_menu(&hm);
+        if (!have) {
             hm.phase = MenuPhase::Lobby;
         }
         int gs = state_of(rdram);
         int screen = screen_of(rdram);
         std::vector<RosterEntry> r = roster();
         std::string host = r.empty() || r[0].name.empty() ? "the host" : r[0].name;
+        awaiting_host_menu = awaiting_host_menu && !have;
+        if (awaiting_host_menu) {
+            // After a race, until the host's menus are heard from again (its post-race may still be up): what it
+            // published before the race (its car select) would walk this machine into its car select.
+            set_ports(Ports::Blocked);
+            set_progress(gs == 1 ? Progress::TrackSelect : Progress::Lobby);
+            notice = "Waiting for " + host + "...";
+            return;
+        }
         StartKind kind = StartKind(hm.settings.start_kind);
         allow_back = false;
         if (gs != 2) {
@@ -777,6 +788,7 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         car_chosen = false;
         start_sent = false;
         after_race = false;
+        awaiting_host_menu = false;
         stop_following_rules();
         rush2::online::game::follow_circuit(rdram, {});
         rush2::track2049::set_all_tracks_open(false);
@@ -843,6 +855,8 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
             return;
         }
         after_race = false;
+        // The title screen the front end went through turned this machine's players' ports off.
+        rush2::online::game::restore_menu_players(rdram);
     }
     if (is_host()) {
         host_frame(rdram);
@@ -876,6 +890,7 @@ void rush2::online::game::race_notice(const std::string& text) {
 
 void rush2::online::game::race_over() {
     after_race = true;
+    awaiting_host_menu = !is_host();
     car_chosen = false;
     start_sent = false;
 }
