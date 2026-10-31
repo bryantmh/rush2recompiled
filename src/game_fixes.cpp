@@ -183,15 +183,30 @@ extern "C" void rush2_fix_engines_after_timeout(uint8_t* rdram, recomp_context* 
     MEM_B(0, (int32_t)engines_off) = 0;
 }
 
-// func_8009E180 entry: $a0 = respawn case, $a1 = car. A finished car out of deaths respawns instead of being ranked out.
-extern "C" void rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx) {
+// func_8009E180 entry: $a0 = respawn case, $a1 = car. A finished car out of deaths goes out as the game's own block does
+// (0x8009E1F4-0x8009E284) without its call to race_car_finish, which ranked it again behind every finisher. Returns
+// whether that was done (the function returns at once). docs/game_fixes.md#finish-place-and-deaths
+extern "C" void race_end_audio_cmds_8008C820(uint8_t* rdram, recomp_context* ctx);
+
+extern "C" int rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t deaths_on = 0x8010BC98;      // s8: the track select's DEATHS
     int car = (int16_t)ctx->r5;
-    if ((int16_t)ctx->r4 != respawn_out_of_deaths || car < 0 || car >= 8) {
-        return;
+    if ((int16_t)ctx->r4 != respawn_out_of_deaths || car < 0 || car >= 8 || MEM_BU(0, (int32_t)deaths_on) == 0) {
+        return 0;
     }
-    if (MEM_B(0, (int32_t)(car_states + car * 0x354 + 0xEA)) == 1) {
-        ctx->r4 = 1;
+    int32_t state = (int32_t)(car_states + car * 0x354);
+    if (MEM_B(0xEA, state) != 1 || MEM_B(0x343, state) != 0) {
+        return 0;
     }
+    int32_t physics = (int32_t)(car_base + car * car_size);
+    MEM_B(0x343, state) = 1;
+    MEM_B(0x648, physics) = 0;
+    MEM_H(0x71C, physics) = 1;
+    recomp_context saved = *ctx;
+    ctx->r4 = car;
+    race_end_audio_cmds_8008C820(rdram, ctx);
+    *ctx = saved;
+    return 1;
 }
 
 // cam_update_all_players_8009D9F4 at 0x8009E028 (for each active computer car with a body node): $v0 = physics car,

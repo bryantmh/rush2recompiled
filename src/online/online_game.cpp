@@ -224,6 +224,9 @@ namespace {
     // (finish_race_locally): the post-race's camera update still follows the race's cars.
     uint8_t menu_view_cars[4] = {};
     bool menu_view_cars_pending = false;
+    // The post-race after an online race (finish_race_locally, not after QUIT) still shows the raced cars, so the
+    // drawing hooks keep this machine's views on its own cars while it is up (drawing_race).
+    bool post_race_scene = false;
     int saved_battle_points = 0;
     int saved_battle_minutes = 0;
     bool saved_race_battle = false;
@@ -1179,6 +1182,7 @@ namespace {
     // entry as after a local race. After QUIT the cars go back to the menus' too.
     void finish_race_locally(uint8_t* rdram, bool quit) {
         lockstep = false;
+        post_race_scene = !quit;
         fixed_frame_time = false;
         rush2::battle::set_online_seed(0);
         rush2::battle::set_points_to_win(saved_battle_points);
@@ -1249,6 +1253,18 @@ namespace {
         phase = Phase::Idle;
     }
 
+    // Whether the drawing hooks map this machine's views to its own players' cars: in the race, and on the post-race
+    // after it, which still shows the raced cars (the race's player count and this machine's players stay as raced).
+    // Back on the race's local mapping there, the other players' car bodies stayed where they were while their shadows
+    // moved on (rush2_online_body_kind), and a joiner's view 0 took car 0's HUD and over-car arrow, the host's.
+    // Test aid: RUSH2_ONLINE_BREAK=postrace draws the post-race the old way.
+    bool drawing_race(uint8_t* rdram) {
+        if (phase != Phase::Idle) {
+            return true;
+        }
+        return post_race_scene && MEM_W(0, (int32_t)game_state) == state_post_race && break_test() != "postrace";
+    }
+
     // Leaves the online race for the menus, as the pause menu's Quit does (func_800AFD44 at 0x800B0040), and puts back
     // the menus' records, cars and settings. Run at the top of the game thread's frame, where the pause step runs.
     void end_race(uint8_t* rdram, recomp_context* ctx, bool in_game) {
@@ -1316,6 +1332,10 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     rush2::ram_watch::frame(rdram, game_frame);
     rush2::online::update();
     test_aid(rdram);
+    // Off the online race's post-race, the drawing hooks are the game's again (a later local race's post-race too).
+    if (post_race_scene && MEM_W(0, (int32_t)game_state) != state_post_race) {
+        post_race_scene = false;
+    }
 
     State st = state();
     if (phase == Phase::Idle && st == State::Loading) {
@@ -1689,11 +1709,13 @@ extern "C" int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int c
     constexpr int human = 2;
     constexpr uint32_t body_raise = 0x800CFD84;     // f32
     constexpr uint32_t place_scratch = 0x80E14000;  // A view's 0x40-byte pose block (0x800E79D0 + view x 0x40)
-    if (phase == Phase::Idle || kind != human || car < 0 || car >= race_players) {
+    if (!drawing_race(rdram) || kind != human || car < 0 || car >= race_players) {
         return kind;
     }
     uint32_t state = car_states + car * car_state_size;
-    if (MEM_B(0x347, (int32_t)state) >= 0) {
+    // The post-race has two views at most (finish_race_locally): players 3 and 4's cars aren't placed by a view there.
+    int view = MEM_B(0x347, (int32_t)state);
+    if (view >= 0 && view < MEM_H(0, (int32_t)num_views)) {
         return kind;
     }
     float y, raise;
@@ -1722,7 +1744,7 @@ extern "C" int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int c
 // Online a human car without a view shows its wheels, as the computer cars' are.
 extern "C" int rush2_online_wheels_shown(uint8_t* rdram, uint32_t physics_car, int view, int shown) {
     constexpr int human = 2;
-    if (phase == Phase::Idle || view >= 0 || MEM_B(0x7E8, (int32_t)physics_car) != human) {
+    if (!drawing_race(rdram) || view >= 0 || MEM_B(0x7E8, (int32_t)physics_car) != human) {
         return shown;
     }
     return 1;
@@ -1756,7 +1778,7 @@ extern "C" uint32_t rush2_online_arrow_views(uint8_t* rdram, int car, uint32_t f
 
 // $a1 = car ^ 1, the other player's view.
 extern "C" int rush2_online_arrow_view(uint8_t* rdram, int view) {
-    if (phase == Phase::Idle) {
+    if (!drawing_race(rdram)) {
         return view;
     }
     int car = view ^ 1;
@@ -2266,7 +2288,7 @@ extern "C" int rush2_online_hud_views(uint8_t* rdram, int views) {
 // view checks turn the view into the car where they index a car (us.toml).
 extern "C" int rush2_online_hud_car(uint8_t* rdram, int view) {
     // Test aid: RUSH2_ONLINE_BREAK=hudview keeps the view as the car, as before the fix.
-    if (phase == Phase::Idle || view < 0 || view >= local_count || break_test() == "hudview") {
+    if (!drawing_race(rdram) || view < 0 || view >= local_count || break_test() == "hudview") {
         return view;
     }
     return local_player + view;

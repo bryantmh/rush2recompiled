@@ -9309,8 +9309,8 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 [[var]]
 vram = 0x800FAEA0
 name = "music_bank_ptr"
-type = "u32"
-desc = "Word set by audio bank init, read by music loader thread (low confidence)."
+type = "ALSeq *"
+desc = "The music's sequence (ALSeq*, 0x804686E0 in a race; base the 0x10000-byte song buffer at +8, 0x80427CF0; the sequence player at +0x14, 0x80463380). Set by the audio bank init, read by the music loader thread."
 area = "audio"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -9613,6 +9613,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800FF3C8
+name = "music_loop_start_marker"
+type = "ALSeqMarker"
+desc = "The race music's loop start marker (the sequence player's loopStart, player at 0x80463380 +0x7C; loopEnd 0x8010BBE0, loop count -1). Right after the game's 200 world polygons and the engine rpm 0x800FF3C0: polygons past 200 overwrote it (now moved, include/world_polygons.h)."
+area = "audio"
+status = "verified"
+ref = "docs/players4.md#sky-in-split-screen"
+
+[[var]]
 vram = 0x801080C8
 name = "hud_highscore_entry_param"
 type = "u32"
@@ -9629,6 +9638,15 @@ desc = "Float written by engine pitch law, never read (low confidence)."
 area = "audio"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x8010BBE0
+name = "music_loop_end_marker"
+type = "ALSeqMarker"
+desc = "The race music's loop end marker (the sequence player's loopEnd, +0x80)."
+area = "audio"
+status = "verified"
+ref = "docs/players4.md#sky-in-split-screen"
 
 [[var]]
 vram = 0x8010BC98

@@ -816,7 +816,7 @@ func = "asset_lz_decompress_80077F84"
 before_vram = 0x80077F84
 text = "    if (rush2_asset_decompress(rdram, ctx)) return;"
 
-# Game heap moved to 0x80420000-0x80AE0000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
+# Game heap moved to 0x80420000-0x80ACA000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
 # resets the heap and func_800A62C0 loads the menu overlay, both of which set the heap top.
 [[patches.hook]]
 func = "mem_boot_layout_heap_800AF3B0"
@@ -826,42 +826,42 @@ text = "    rush2_heap_init(rdram, ctx);"
 [[patches.instruction]]
 func = "mem_boot_layout_heap_800AF3B0"
 vram = 0x800AF41C
-value = 0x3C0C80AE # lui $t4, 0x80AE
+value = 0x3C0C80AC # lui $t4, 0x80AC
 
 [[patches.instruction]]
 func = "mem_boot_layout_heap_800AF3B0"
 vram = 0x800AF428
-value = 0x358C0000 # ori $t4, $t4, 0
+value = 0x358CA000 # ori $t4, $t4, 0xA000
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBC0
-value = 0x3C1880AE # lui $t8, 0x80AE
+value = 0x3C1880AC # lui $t8, 0x80AC
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBCC
-value = 0x37180000 # ori $t8, $t8, 0
+value = 0x3718A000 # ori $t8, $t8, 0xA000
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBDC
-value = 0x3C0E80AE # lui $t6, 0x80AE
+value = 0x3C0E80AC # lui $t6, 0x80AC
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBE8
-value = 0x35CE0000 # ori $t6, $t6, 0
+value = 0x35CEA000 # ori $t6, $t6, 0xA000
 
 [[patches.instruction]]
 func = "overlay_load_800A62C0"
 vram = 0x800A62E8
-value = 0x3C1880AE # lui $t8, 0x80AE
+value = 0x3C1880AC # lui $t8, 0x80AC
 
 [[patches.instruction]]
 func = "overlay_load_800A62C0"
 vram = 0x800A62EC
-value = 0x37180000 # ori $t8, $t8, 0
+value = 0x3718A000 # ori $t8, $t8, 0xA000
 
 # Rush 2049 tracks (src/rush2049/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the
 # visible sections for the camera's region, func_800A45A8 builds the sky.
@@ -9447,6 +9447,26 @@ vram = 0x80053ACC
 value = 0x273901F0 # addiu $t9, $t9, 0x1888 -> 802401F0
 
 [[patches.instruction]]
+func = "polygon_create_80054010"
+vram = 0x80054048
+value = 0x3C0480AD # lui -> 80AD
+
+[[patches.instruction]]
+func = "polygon_create_80054010"
+vram = 0x8005404C
+value = 0x2484A000 # addiu $a0, $a0, -0x5100 -> 80ACA000
+
+[[patches.instruction]]
+func = "polygon_create_80054010"
+vram = 0x8005407C
+value = 0x3C1980AD # lui -> 80AD
+
+[[patches.instruction]]
+func = "polygon_create_80054010"
+vram = 0x80054080
+value = 0x2739A000 # addiu $t9, $t9, -0x5100 -> 80ACA000
+
+[[patches.instruction]]
 func = "flags_clear_bit_0x80_ret_800540F8"
 vram = 0x80054100
 value = 0x3C0F802F # lui -> 802F
@@ -11005,6 +11025,16 @@ value = 0x3C0F8040 # lui -> 8040
 func = "view_fog_setup_8007C624"
 vram = 0x8007CF80
 value = 0x25EF0000 # addiu $t7, $t7, -0x6170 -> 80400000
+
+[[patches.instruction]]
+func = "view_fog_setup_8007C624"
+vram = 0x8007CFBC
+value = 0x3C1E80AD # lui -> 80AD
+
+[[patches.instruction]]
+func = "view_fog_setup_8007C624"
+vram = 0x8007CFCC
+value = 0x27DEA000 # addiu $fp, $fp, -0x5100 -> 80ACA000
 
 [[patches.instruction]]
 func = "view_fog_setup_8007C624"
@@ -14260,7 +14290,7 @@ value = 0x28410082 # slti at, v0, 0x28 -> 0x82: clear every group of the copy
 [[patches.hook]]
 func = "race_car_finish_or_respawn_handle_8009E180"
 before_vram = 0x8009E180
-text = "    rush2_fix_finish_place(rdram, ctx); rush2_calspeed_demo_start(rdram, ctx);"
+text = "    if (rush2_fix_finish_place(rdram, ctx)) return; rush2_calspeed_demo_start(rdram, ctx);"
 
 # Hide Respawning Cars (option): a computer car is hidden through its respawn glide instead of sitting whole in its
 # fire (src/game_fixes.cpp).

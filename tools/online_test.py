@@ -10,6 +10,7 @@ Each --instance is "name|environment variables (space separated NAME=VALUE)|inpu
 --input-script takes it, may be empty). Instances start in order, --stagger seconds apart (default 3), all from the
 same exe (RUSH2_EXE, default build/Rush2Recompiled.exe) in its folder. Times count from the first launch. Writes
 OUT_DIR/<name>.log (the game's console) and OUT_DIR/<name>_<time>.png, then closes the instances it started (by PID).
+The run is muted: the exe folder's sound.json has main_volume 0 while it runs, and its content is put back after.
 --hold "name:START-END:KEY" holds a key on that instance's window from START to END seconds (posted key messages,
 repeated like a held key, so they reach the game's keyboard input without focus): the real keyboard path the
 --input-script presses skip (port assignment, bindings, control profile). Keys: UP DOWN LEFT RIGHT ENTER SPACE E Q
@@ -38,6 +39,15 @@ os.makedirs(args.out, exist_ok=True)
 exe = os.path.abspath(os.environ.get('RUSH2_EXE', os.path.join(shots.REPO, 'build', 'Rush2Recompiled.exe')))
 times = [float(t) for t in args.times.split(',')]
 procs = []
+# Every run is silent (CLAUDE.md): the instances play on the exe folder's sound.json, so its main_volume is 0 for the
+# run and the file's exact content goes back after.
+sound_path = os.path.join(os.path.dirname(exe), 'sound.json')
+sound_text = open(sound_path, newline='').read() if os.path.exists(sound_path) else None
+if sound_text is not None:
+    import re
+    with open(sound_path, 'w', newline='') as f:
+        f.write(re.sub(r'("main_volume":\s*)[0-9.]+', r'\g<1>0', sound_text))
+    assert '"main_volume": 0' in open(sound_path).read(), 'could not mute ' + sound_path
 start = time.time()
 try:
     for i, spec in enumerate(args.instance):
@@ -166,3 +176,6 @@ finally:
             p.wait(10)
         except Exception:
             p.kill()
+    if sound_text is not None:
+        with open(sound_path, 'w', newline='') as f:
+            f.write(sound_text)

@@ -48,8 +48,21 @@ car finished (+0xEA, time +0xEC) and sorts every finished car by time, but gives
 whether the car had already finished, so a car that crossed the line and then wrecked was re-ranked into the last
 place left.
 
-The fix, a hook at the entry of func_8009E180 (`rush2_fix_finish_place`), changes case 2 to case 1 (a plain respawn,
-which shares the case 2 path apart from the out of deaths block) when the car state's +0xEA is already 1.
+The fix, a hook at the entry of func_8009E180 (`rush2_fix_finish_place`), runs that out of deaths block for a car
+whose +0xEA is already 1 without its race_car_finish call: +0x343 = 1, car +0x648 = 0, car +0x71C = 1,
+`race_end_audio_cmds_8008C820(car)`, and the function returns. The car then goes out as any dead car does
+(physics_car_tick_80075880 stops it and sets +0x343 = 2).
+
+It first turned case 2 into case 1, a plain respawn. With DEATHS on that respawn never happens:
+`respawn_place_car_80090A40` returns at once (0x80090AA4) while DEATHS is on, car +0x6C4 is non-zero and +0x6D0 is 0,
+so the car was never put back and its crash flag +0x648 stayed set. Every 3.5 s `race_wreck_respawn_wait_8008E40C`
+ended the wreck (+0x342 1 -> 2, race_frame_update_800A3050 calls func_8009E180 with case 2, +0x342 = 0) and the next
+frame the still-set flag started a new one. The race over test (`race_start_timer_800AE670`: once the out of time
+flag 0x800FAE98 is set, `race_check_time_threshold_8009A19C` waits for every human car under 5 ft/s, then
+`race_query_by_index_8008CC48` for players 1 and 2's cars to be settled, +0x342 0 and +0x648 0) never passed, and the
+race never ended.
+Found in an 8 player online stress test (tools/online_matrix.py, SF Rush track 18, DEATHS on, a car finished
+mid-wreck); offline it hangs the same way when a player wrecks after the finish line with DEATHS on.
 
 Other readers of 0x8010BC98, not changed: car_wreck_trigger_8006E1A8 (0x8006E270), save_commit_settings_to_pak
 (0x800A8C84), record_stats_race_end (0x800A946C), race_update_player_slot_state (0x800AB11C), hud_widget_cb_simple_reset

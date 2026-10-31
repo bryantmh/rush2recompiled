@@ -496,7 +496,7 @@ void rush2_breakable_groups_s3(uint8_t* rdram, recomp_context* ctx);
 void rush2_breakable_groups_s6(uint8_t* rdram, recomp_context* ctx);
 void rush2_breakable_groups_t8(uint8_t* rdram, recomp_context* ctx);
 void rush2_breakable_groups_a2(uint8_t* rdram, recomp_context* ctx);
-void rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx);
+int rush2_fix_finish_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_drone_glide_node(uint8_t* rdram, recomp_context* ctx);
 void rush2_fix_drone_glide_hide(uint8_t* rdram, recomp_context* ctx);
 void rush2_stunt_respawn_gear(uint8_t* rdram, recomp_context* ctx);

@@ -136,7 +136,14 @@ obstacle course (no sky model).
   0x80125B68 (sky model matrix node), 0x80125B90 (24 dome polygon pointers per view, stride 0x60), 0x80125C58,
   0x80125C68, 0x80125C78 (camera x) and 0x800D0168 (camera z). tools/players4/relocate.py moves them to four-view
   copies; `func_800A12A4` (clears them) and `render_sky_cloud_scroll_8008918C` (moves them each frame) follow.
-- **Dome.** Each view gets its own 24 world polygons (flags 0x2200 | view bit), 96 of the pool's 200 with four views.
+- **Dome.** Each view gets its own 24 world polygons (flags 0x2200 | view bit), 96 with four views. The game's pool
+  (0x800FAF00, 0x58 each, `polygon_create_80054010` with no bound) had room for 200 before the engine rpm (0x800FF3C0)
+  and the music's loop start marker (0x800FF3C8; the loop end marker is 0x8010BBE0); four domes, the arrows over the other players' cars (src/arrows.cpp)
+  and the game's own made 241 on an SF Rush track in an 8 player online race with four players on one machine, and the
+  extra polygons' vertices replaced the loop marker: at the song's next loop the sequence player jumped to a garbage
+  address and the audio thread crashed (`al_seq_read_var_length_80009278`, a full dump showed the marker holding vertex
+  positions). The pool is moved to 0x80ACA000 with room for 1,024 (tools/players4/relocate.py PLACED,
+  include/world_polygons.h; the game heap's top lowered to 0x80ACA000, src/assets.cpp).
   `rush2_players4_poly_mask` lets views 2 and 3 draw views 0 and 1's world polygons, but not the dome's pieces (flag
   0x2000 at a far primitive depth), which are centered on their own view's camera.
 - **Dome fade.** With the FOG option below 2, `render_sky_cloud_scroll_8008918C` takes (2000 - far) x 0.512 - fog

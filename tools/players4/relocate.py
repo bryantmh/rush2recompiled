@@ -113,6 +113,13 @@ PLACED = [
     # text_state_stack_a (0x800E7C50) and crashed its race start. The copy at the bottom of the game heap's old range
     # (the heap now starts at 0x80420000, src/assets.cpp) holds 2,340 (include/scene_nodes.h).
     (0x800D9E90, 0x800E7950, 0x80400000, 0x20000, 'scene nodes, 0x38 each (scene_node_create_8007F6DC)'),
+    # The world polygons (0x58 each, polygon_create_80054010 takes the first free one with no bound): 200 fit before the
+    # engine rpm (0x800FF3C0) and the music's loop start marker (0x800FF3C8). Four views' sky domes (24 pieces each), the
+    # arrows over the other players' cars (src/arrows.cpp) and the game's own made 241 on a sky track: the extra ones
+    # wrote vertices over the loop marker, and the song's next loop sent the sequence player to a garbage address (an
+    # online crash on a machine with 4 players). The copy below the 2D display lists (the game heap's top lowered to
+    # 0x80ACA000, src/assets.cpp) holds 1,024 (include/world_polygons.h).
+    (0x800FAF00, 0x800FF3C0, 0x80ACA000, 0x16000, 'world polygons, 0x58 each (polygon_create_80054010)'),
 ]
 
 # Functions that read the number of players (D_8010C3E2) clamped to 2 instead (rush2::players4::clamped_players):

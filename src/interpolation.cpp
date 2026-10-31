@@ -28,6 +28,7 @@
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
 #include "scene_nodes.h"
+#include "world_polygons.h"
 
 namespace {
     // Game addresses.
@@ -36,8 +37,8 @@ namespace {
     constexpr uint32_t max_nodes = rush2::scene_nodes::capacity; // node_id holds 12 bits of index
     static_assert(max_nodes <= 0x1000);
     constexpr uint32_t camera_array = 0x800E79D0; // Per-view cameras, 0x40 bytes each.
-    constexpr uint32_t poly_array = 0x800FAF00;   // World-space polygons, 0x58 bytes each.
-    constexpr uint32_t poly_size = 0x58;
+    constexpr uint32_t poly_array = rush2::world_polygons::table;   // World-space polygons, 0x58 bytes each.
+    constexpr uint32_t poly_size = rush2::world_polygons::size;
     constexpr uint32_t max_polys = 4096;
     constexpr uint32_t main_dl_head = 0x80022FD8;
     constexpr uint32_t max_views = 4;

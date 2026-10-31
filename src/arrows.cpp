@@ -22,7 +22,7 @@
 // The edge arrows are 2049's 2 units across, 10 pi / the field of view ahead of the camera: a twentieth of the
 // view's width. docs/rush2049_research/battle.md section 6.1 has the arithmetic.
 //
-// Rush 2's world polygons are the same system as 2049's (0x800FAF00, 0x58 each: +0 vertex count, +2 flags, +4
+// Rush 2's world polygons are the same system as 2049's (include/world_polygons.h, 0x58 each: +0 vertex count, +2 flags, +4
 // texture, +6 primitive depth, then 0x14 per vertex: position x 16, texture coordinates, color; func_80054010 makes
 // one, func_8007C624 draws those with its view's bit). The image is Rush 2's own ARROW, in its effects container.
 
@@ -39,6 +39,7 @@
 #include "paint_colors.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
+#include "world_polygons.h"
 
 namespace {
     constexpr uint32_t cars = 0x800F5470;                 // 0x81C each
@@ -55,11 +56,11 @@ namespace {
     constexpr uint32_t view_tilt_angle = 0x800CF9DC;      // f32
     constexpr int max_cars = 8;
 
-    constexpr uint32_t polygons = 0x800FAF00;
+    constexpr uint32_t polygons = rush2::world_polygons::table;
     constexpr int polygon_size = 0x58;
-    constexpr uint32_t polygon_count = 0x800FAEF0;        // s32: slots in use
-    constexpr uint32_t polygon_high = 0x800FAEF4;         // s32: the most slots used
-    constexpr int polygon_limit = 1000;
+    constexpr uint32_t polygon_count = rush2::world_polygons::count;
+    constexpr uint32_t polygon_high = rush2::world_polygons::high;
+    constexpr int polygon_limit = rush2::world_polygons::capacity;
     constexpr uint32_t texture_tables = 0x80119220;       // per model container: its texture records (0x20 each), count
     constexpr uint32_t texture_table_count = 0x800D5788;  // u8
     constexpr uint16_t polygon_hidden = 0x8000;
