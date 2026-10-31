@@ -1167,6 +1167,10 @@ void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx) {
                     memcpy(&bits, &time, sizeof(bits));
                     std::fprintf(stderr, "[players4] test finish: car %d at clock %.2f\n", car, clock - race_start);
                     call(rdram, ctx, race_car_finish_8008E8EC, car, (int32_t)bits);
+                    // The post-race records a time (and runs the name entry) only for a player whose lap count, the
+                    // per-player byte at 0x802407F0 (moved from 0x800C2274), is the race's laps (0x8010C0E2,
+                    // postrace_records_update_800A952C at 0x800A9840): the finish also completes the laps.
+                    MEM_B(player, (int32_t)0x802407F0) = (int8_t)MEM_H(0, (int32_t)0x8010C0E2);
                     break;
                 }
             }

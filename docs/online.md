@@ -663,6 +663,21 @@ Msg::RaceOver with its frame, and a client waiting for a frame from it on stops 
 first." (`host_end_frame`) and goes back to the lobby as after a race given up on. In the `localstart` run above the
 host logged "player 2's race ended before frame 1269" and finished its own race over screen.
 
+The views' cars (0x80240380, moved from 0x800E7B9C) stay as raced through the post-race, like the car table, and get
+the menus' values back once the front end is up (`menu_view_cars`, at the frame `return_mod_slots` runs). Behind the
+post-race the race scene keeps running: `postrace_records_update_800A952C` calls `race_run_full_800A63A0`, whose camera
+update (`cam_update_all_players_8009D9F4`) runs `cam_update_dispatch_8009D02C` for the car each view follows, and that
+writes the car's view camera at 0x800E79D0 + car state +0x347 x 0x40. Leaving the race used to put the menus' view cars
+back at once, so a joiner's view 0 followed car 0, the host's, which has no view on the joiner (+0x347 = -1): its camera
+went to 0x800E7990-0x800E79CF, and its y position's top half landed on `race_car_count` (0x800E79B8, 4 -> 0x41F8 on Los
+Angeles). The physics thread, still ticking the cars (`physics_tick_drones_80075C3C`), then took car numbers from past
+the end of its list and crashed in `car_auto_shift_800711F4` on a car pointer far outside the eight (a player's report,
+2026-10-31: "it crashes the connected player after every race ... at the What's your name? screen"; the host never
+crashed, its view 0 following its own car). Reproduced through the lobby's menus as JUST PLAY on both (track 5,
+`RUSH2_TEST_FINISH=15`, `RUSH2_RAM_WATCH=0x800E79B8:2` on the joiner; a cdb `ba w2` on rdram + 0xE79B8, set from
+`race_start_timer_800AE670`'s $rcx, named the writer): the joiner crashed on the post-race's first frame; now its
+post-race shows its own car and both go back to the track select.
+
 A race that ends early (the host leaves, a desync) leaves as the pause menu's Quit does (`race_end_to_menu_800AAC64`
 with 0x800C1A9C = 0; 1 restarts the race), to screen 0xF with 0x800BF31C = 0 as Quit leaves it. It used to set
 0x800BF31C = 1, starting the front end over from the boot logos (screen 0xE): that runs the power-on save load again
@@ -689,7 +704,7 @@ without them.
 | `RUSH2_ONLINE_TEST=menus:host` / `menus:join:ADDRESS` | Only host or join, for going through the menus (with `--input-script`). |
 | `RUSH2_ONLINE_NAME`, `RUSH2_ONLINE_TRACK`, `RUSH2_ONLINE_RACE_TYPE` | Name; a quick race's track select id and race type. |
 | `RUSH2_ONLINE_LOCAL=N`, `RUSH2_ONLINE_CARS=T,T,...` | A quick race's players on this machine (split screen; `host:N` counts every machine's players) and their car types. |
-| `RUSH2_TEST_FINISH=S` | Finishes the players' cars S seconds of game clock into the race (src/players4.cpp), for the race end. |
+| `RUSH2_TEST_FINISH=S` | Finishes the players' cars S seconds of game clock into the race (src/players4.cpp), for the race end. It also sets each player's lap count (0x802407F0 + player) to the race's laps, which the post-race needs before it records a time (`postrace_records_update_800A952C` at 0x800A9840); without that it ended at once with nothing to record. |
 | `RUSH2_ONLINE_FAKE=K` | The host fills K more slots with players who aren't there (no input). |
 | `RUSH2_ONLINE_BOT=SEED`, `RUSH2_ONLINE_BOT_IDLE=F` | Drive (and fire, in a battle) from the frame number (repeatable runs), each of the machine's players with its own seed, after F frames. |
 | `RUSH2_ONLINE_SEED` | A fixed race seed. |

@@ -7609,7 +7609,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800E79B8
 name = "race_car_count"
 type = "u16"
-desc = "Halfword used by physics tick, drone tick and race setup. Not the race's car count at its first physics frame: it reads 0 there in an online race (docs/online.md#load-check); use num_players + race_computer_cars (0x800D3E90)."
+desc = "Halfword used by physics tick, drone tick and race setup. Not the race's car count at its first physics frame: it reads 0 there in an online race (docs/online.md#load-check); use num_players + race_computer_cars (0x800D3E90). Sits inside view -1's camera block (0x800E79D0 - 0x40 + 0x28): a camera update for a car with no view (+0x347 = -1) overwrote it, and the physics thread crashed (docs/online.md#race-end)."
 area = "race"
 status = "inferred"
 ref = "docs/online.md#load-check"
@@ -7924,10 +7924,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800E7B9C
 name = "race_stunt_slot_flag"
 type = "u8"
-desc = "Byte set by race_setup_player_slot, read by stunt car setup (low confidence)."
+desc = "Byte set by race_setup_player_slot, read by stunt car setup (low confidence). | u8 per view: the car the view follows, moved by players4 to 0x80240380 (src/players4.cpp); cam_update_all_players_8009D9F4 runs cam_update_dispatch_8009D02C for that car, which writes the camera of the car's own view (+0x347). Online it stays as raced through the post-race (docs/online.md#race-end)."
 area = "race"
 status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+ref = "docs/online.md#race-end"
 
 [[var]]
 vram = 0x800E7B9D

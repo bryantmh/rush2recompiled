@@ -220,6 +220,10 @@ namespace {
         { 0x80240380, 4 },
     };
     std::vector<uint8_t> menu_snapshot;
+    // The menus' view cars (view_cars), kept from the snapshot after a race over until the front end is back up
+    // (finish_race_locally): the post-race's camera update still follows the race's cars.
+    uint8_t menu_view_cars[4] = {};
+    bool menu_view_cars_pending = false;
     int saved_battle_points = 0;
     int saved_battle_minutes = 0;
     bool saved_race_battle = false;
@@ -1184,8 +1188,19 @@ namespace {
             size_t at = 0;
             for (const SavedRange& r : saved_ranges) {
                 for (uint32_t i = 0; i < r.size; i++, at++) {
-                    // The car table stays as raced: the post-race shows the cars.
-                    if (quit || r.address != car_table) {
+                    // The car table stays as raced: the post-race shows the cars. So do the views' cars until the front
+                    // end is up: the post-race's camera update (cam_update_all_players_8009D9F4) still runs over the
+                    // views, and cam_update_dispatch_8009D02C writes the followed car's view camera (0x800E79D0 + car
+                    // state +0x347 x 0x40). With the menus' view 0 following car 0, a joiner's view followed the host's
+                    // car, which has no view on it (-1): its camera went to 0x800E7990-0x800E79CF, over
+                    // race_car_count (0x800E79B8), and the physics thread, still ticking the cars behind the post-race
+                    // (physics_tick_drones_80075C3C), ticked car slots past the eight and crashed (a joiner's crash
+                    // after every race, at the name entry).
+                    if (!quit && r.address == view_cars) {
+                        menu_view_cars[i] = menu_snapshot[at];
+                        menu_view_cars_pending = true;
+                    }
+                    else if (quit || r.address != car_table) {
                         MEM_B(0, (int32_t)(r.address + i)) = (int8_t)menu_snapshot[at];
                     }
                 }
@@ -1325,6 +1340,13 @@ extern "C" void rush2_online_frame(uint8_t* rdram, recomp_context* ctx) {
     // Back in the menus after an online race: the mod car slots it lent get this machine's own cars back.
     if (phase == Phase::Idle && (now_state == state_front_end || now_state == 1)) {
         rush2::car2049::return_mod_slots(rdram);
+        // And the views' cars the post-race kept (finish_race_locally).
+        if (menu_view_cars_pending) {
+            menu_view_cars_pending = false;
+            for (int i = 0; i < 4; i++) {
+                MEM_B(i, (int32_t)view_cars) = (int8_t)menu_view_cars[i];
+            }
+        }
     }
     if (phase == Phase::Running && (now_state == state_post_race || now_state == state_front_end)) {
         // Race over, or QUIT from the pause menu: every machine gets here on the same frame and leaves the lockstep.
