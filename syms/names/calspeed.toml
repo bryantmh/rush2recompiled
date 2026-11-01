@@ -617,6 +617,35 @@ area = "render"
 ref = "docs/calspeed_research.md#wheel-effects"
 
 [[func]]
+vram = 0x800BFCD0
+name = "pvs_debug_walk_children"
+desc = "Called by func_800BFD6C for each record when bit 0x2000 of 0x80134838 is set: walks the record's children (+0x44 next) calling func_800C885C with the camera offset; debug aid, as in Rush 2."
+status = "inferred"
+area = "render"
+ref = "docs/calspeed_research.md#visibility-regions"
+
+[[func]]
+vram = 0x800BFD6C
+name = "pvs_choose_camera_region"
+sig = "void pvs_choose_camera_region(void *record, f32 *camera, s32 *region, f32 *best, s32 *ordinal, s32 *node)"
+desc = "Camera visibility region: walks the top-level placement chain from *0x8014FD40; a record whose box (+0x4C min, +0x58 max, relative to +0x34 pos) holds the camera on all three axes scores sqrt(dx^2+dz^2) (+ dy - bottom when dy > 0.75 x top), least wins; *region = its chain ordinal, *node = its record index. Rush 2's pvs_choose_camera_region_8007C06C has no top test. Ported in rush2_track49_pvs (calspeed_camera_region)."
+consts = "0.75 = share of the box top above which the height over the bottom adds to the score; 0x64 = placement record size; 0x2000 = debug child walk bit of 0x80134838"
+status = "verified"
+ported = true
+rush2 = 0x8007C06C
+area = "render"
+ref = "docs/calspeed_research.md#visibility-regions"
+
+[[func]]
+vram = 0x800BFF98
+name = "pvs_apply"
+desc = "Per-view visibility: picks the camera's region (func_800BFD6C) and its 16-byte section mask from the track's table (0x800C0680, counts u8 0x800C4C80, jump table on the track id 0x800E779C); no region uses 0x800C4C90."
+status = "inferred"
+rush2 = 0x8007C27C
+area = "render"
+ref = "docs/calspeed_research.md#visibility-regions"
+
+[[func]]
 vram = 0x800C8A68
 name = "cs_mat3_rotate_angles"
 sig = "void cs_mat3_rotate_angles(Mat3 *m, f32 *angles)"

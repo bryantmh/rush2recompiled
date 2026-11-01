@@ -118,6 +118,29 @@ palette cycles, Monterey 2 scrolls and 1 palette cycle, in game]
   go down to -306, and its cars were put back every 7.5 s onto road still under the floor. On California Speed's tracks
   the floor is 300 ft below the racing line's lowest point (`rush2_calspeed_fall_floor`). [V: sim]
 
+### Visibility regions
+
+California Speed's visibility (`func_800BFF98`, Rush 2's `pvs_apply_8007C27C`) picks the camera's region with
+`func_800BFD6C`, which is Rush 2's `pvs_choose_camera_region_8007C06C` with one more test: the camera must be inside
+the top-level record's box on all three axes (`bottom <= dy <= top`); Rush 2 tests the bottom and not the top. The
+score is the same (`sqrt(dx^2 + dz^2)`, plus `dy - bottom` when `dy` is over 0.75 x top; least wins), the region is
+the record's place in the top-level chain, and -1 (no box holds the camera) draws everything (its table at
+0x800C4C90). Both carry the same debug walk of the records' children under bit 0x2000 of a global (California Speed
+0x80134838, `func_800BFCD0`). With Rush 2's rule, a camera over a low section's box can take that section's region:
+at the original Draw Distance Santa Cruz's bridge took region 55, whose mask hides 116 of the track's 117 sections,
+and only the sky and the extended scenery's sea were drawn (GitHub issue 36). On California Speed's tracks
+`rush2_track49_pvs` (src/rush2049/track2049.cpp, `calspeed_camera_region`) chooses the region with California Speed's
+rule from the camera position recorded at the start of `pvs_apply_8007C27C` (`rush2::track1::pvs_camera_position`).
+The longer Draw Distances widen whichever mask is chosen (src/draw_distance.cpp).
+
+`python tools/calspeed/pvs_check.py [TRACK...] [--runs]` compares the two rules along each track's AI lanes offline.
+Points where Rush 2's region hides the camera's own section, Rush 2's rule against California Speed's: Monterey 264
+/ 0, San Francisco 146 / 27, Santa Cruz 657 / 30, San Diego 492 / 43, Los Angeles 2 / 0, Mt. Shasta 4 / 0, Mojave 12 /
+65, Oval 45 / 0, California 22 / 0, San Andreas 18 / 0 (the ones left under California Speed's rule are sections
+their own region hides, the distant stand-ins of src/draw_distance.cpp). `--runs` lists the lanes' bad stretches with
+a spot and heading for `RUSH2_CS_PLACE`. [V: Santa Cruz at (-13199, -697, 2073), original Draw Distance: sea and sky
+only with Rush 2's rule, the bridge and buildings with California Speed's]
+
 ### Extended scenery
 
 California Speed built its tracks only as far as its camera looked. A point-to-point track's road stops a few feet

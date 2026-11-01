@@ -124,6 +124,8 @@ namespace rush2::track1 {
     // func_8007C27C at 0x8007C480: the section mask for the camera's region. Returns true if it handled it, with
     // table = its region mask table.
     bool pvs(uint8_t* rdram, uint32_t sp, uint32_t& table);
+    // The camera position (vec3 f32 in RDRAM) of the view func_8007C27C is working on, 0 before the first.
+    uint32_t pvs_camera_position();
     // Seed time in seconds for the record tables of track k (1-7): Rush 1's own (0x800D157C), else lane 1's lap time,
     // or 0 if unknown.
     float record_seed(int k, bool backward);

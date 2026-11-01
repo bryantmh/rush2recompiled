@@ -691,6 +691,45 @@ void rush2::track2049::reset_race_objects() {
     texanim_reset();
 }
 
+// California Speed's camera region (func_800BFD6C, called from its visibility func_800BFF98), which differs from
+// Rush 2's pvs_choose_camera_region_8007C06C in one test: the camera must be under the record's box top too, where
+// Rush 2 only tests the bottom. The score is Rush 2's: sqrt(dx^2 + dz^2), plus dy - bottom when dy is over 0.75 x
+// top; the least wins, the region being the record's place in the top-level chain. With Rush 2's test a camera over a
+// low section's box could take that section's region, whose mask hides nearly everything else (Santa Cruz: region 55
+// hides 116 of 117 sections, the world vanished leaving sky and sea; tools/calspeed/pvs_check.py). -1 = none.
+static int32_t calspeed_camera_region(uint8_t* rdram) {
+    constexpr uint32_t records = 0x8010C15C;   // Placement record base (track_placement_state).
+    uint32_t base = (uint32_t)MEM_W(0, (int32_t)records);
+    uint32_t camera = rush2::track1::pvs_camera_position();
+    if (base == 0 || camera == 0) return -1;
+    auto f = [&](uint32_t addr) {
+        uint32_t w = (uint32_t)MEM_W(0, (int32_t)addr);
+        float v;
+        memcpy(&v, &w, 4);
+        return v;
+    };
+    float cam[3] = { f(camera), f(camera + 4), f(camera + 8) };
+    int32_t region = -1;
+    float best = 0.0f;
+    uint32_t rec = base;
+    for (int k = 0; k < 1024; k++) {
+        float dx = cam[0] - f(rec + 0x34), dy = cam[1] - f(rec + 0x38), dz = cam[2] - f(rec + 0x3C);
+        if (f(rec + 0x4C) <= dx && dx <= f(rec + 0x58) && f(rec + 0x50) <= dy && dy <= f(rec + 0x5C) &&
+            f(rec + 0x54) <= dz && dz <= f(rec + 0x60)) {
+            float score = std::sqrt(dx * dx + dz * dz);
+            if (f(rec + 0x5C) * 0.75f < dy) score += dy - f(rec + 0x50);
+            if (region < 0 || score < best) {
+                best = score;
+                region = k;
+            }
+        }
+        int16_t next = (int16_t)MEM_H(0, (int32_t)(rec + 0x44));
+        if (next < 0) break;
+        rec = base + (uint32_t)next * 0x64;
+    }
+    return region;
+}
+
 // func_8007C27C at 0x8007C480: 0x5C($sp) = the section mask chosen for the camera's region 0x78($sp) (-1 = none,
 // which uses the all-visible default).
 extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
@@ -702,6 +741,13 @@ extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
     if (!rush2::track1::pvs(rdram, sp, table)) {
         if (hosting(rdram)) {
             int32_t region = (int32_t)MEM_W(0, (int32_t)(sp + 0x78));
+            if (is_cs_k(loaded_track)) {
+                region = calspeed_camera_region(rdram);
+                if (region < 0 || region >= track.pvs_count) {
+                    constexpr uint32_t all_visible_mask = 0x800CA1B8;
+                    MEM_W(0, (int32_t)(sp + 0x5C)) = all_visible_mask;
+                }
+            }
             if (region >= 0 && region < track.pvs_count) {
                 MEM_W(0, (int32_t)(sp + 0x5C)) = pvs_table + region * 16;
             }

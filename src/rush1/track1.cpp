@@ -439,6 +439,10 @@ bool rush2::track1::pvs(uint8_t* rdram, uint32_t sp, uint32_t& table) {
     return true;
 }
 
+uint32_t rush2::track1::pvs_camera_position() {
+    return pvs_camera;
+}
+
 // Start of func_8007C27C (the section mask for a view): $a1 = the camera position.
 extern "C" void rush2_track1_pvs_camera(uint8_t* rdram, recomp_context* ctx) {
     pvs_camera = (uint32_t)ctx->r5;
