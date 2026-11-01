@@ -847,17 +847,26 @@ namespace {
     // the fog color's alpha. Rush 2's car modes fog in cycle 1 (P = fog, A = shade alpha); other modes get the
     // blend in both cycles. The blender then no longer uses the pixel's own alpha, so alpha compare (threshold
     // against the blend color's alpha, set by draw_model) keeps the shape of textures cut out by their alpha: a
-    // ghost's sparks against a wall are such quads (without it they drew as solid yellow squares).
+    // ghost's sparks against a wall are such quads (without it they drew as solid yellow squares). Only modes that
+    // cut out by alpha get it (their own alpha compare, coverage times alpha as in G_RM_TEX_EDGE, or a blend by the
+    // pixel's alpha): an opaque mode's alpha is meaningless (Rush 2's car bodies, C8112230, have low alpha on their
+    // windows and dark parts, which alpha compare cut away). Overlay layers that blend by the pixel's alpha onto the
+    // surface under them (decal z mode: the cars' sheen and decal layers, C8104E50: IN * IN_A + MEM * 1-A) are left
+    // as they are, drawn over the translucent body as over the solid one: at a flat fog alpha their clear parts drew
+    // as blotches (issue 38). Surfaces drawn with such a blend (Rush 2049's car bodies, C8104A70) do get the fog alpha.
     uint32_t translucent_mode(uint32_t rm) {
         constexpr uint32_t cycle2 = (0u << 28) | (1u << 24) | (1u << 20) | (0u << 16);   // IN * FOG_A + MEM * 1-A
         constexpr uint32_t cycle1 = (0u << 30) | (1u << 26) | (1u << 22) | (0u << 18);
         constexpr uint32_t AA_EN = 0x8, Z_CMP = 0x10, Z_UPD = 0x20, IM_RD = 0x40, CVG_DST_FULL = 0x200;
-        constexpr uint32_t ZMODE_MASK = 0xC00, ZMODE_XLU = 0x800, ZMODE_DEC = 0xC00, FORCE_BL = 0x4000;
+        constexpr uint32_t ZMODE_MASK = 0xC00, ZMODE_XLU = 0x800, ZMODE_DEC = 0xC00, CVG_X_ALPHA = 0x1000;
+        constexpr uint32_t FORCE_BL = 0x4000;
         constexpr uint32_t ac_threshold = 1;    // G_AC_THRESHOLD
+        bool own_blend = (rm & FORCE_BL) != 0 && (rm >> 24 & 3) == 0 && (rm >> 20 & 3) == 1;  // A = IN_A, M = MEM
+        if (own_blend && (rm & ZMODE_MASK) == ZMODE_DEC) return rm;
         uint32_t blender = (rm >> 30) == 3 ? (rm & 0xCCCC0000) | cycle2 : cycle1 | cycle2;
         uint32_t zmode = (rm & ZMODE_MASK) == ZMODE_DEC ? ZMODE_DEC : ZMODE_XLU;
         uint32_t flags = (rm & (AA_EN | Z_CMP | Z_UPD)) | IM_RD | CVG_DST_FULL | zmode | FORCE_BL;
-        uint32_t alpha_compare = (rm & 0x3) != 0 ? (rm & 0x3) : ac_threshold;
+        uint32_t alpha_compare = (rm & 0x3) != 0 ? (rm & 0x3) : own_blend || (rm & CVG_X_ALPHA) != 0 ? ac_threshold : 0;
         return blender | flags | (rm & 0x4) | alpha_compare;
     }
 

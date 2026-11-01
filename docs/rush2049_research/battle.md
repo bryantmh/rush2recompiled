@@ -292,7 +292,11 @@ Main code. **[V]** unless marked.
   muzzle, and on their first frame stretch from it: a bullet goes 66 a tick, farther than its tracer is long.
 - **Invisibility**: `rush2::ghost::set_faded` (src/ghost.cpp, the ghosts' model hook): the car's own view draws the
   whole car translucent, as a ghost; the other views don't draw it (2049 fades it to nothing there), and its shadow
-  polygon (car state +0x20C) is hidden in them. The arrow to it is faint (alpha 0x20).
+  polygon (car state +0x20C) is hidden in them. The arrow to it is faint (alpha 0x20). The ghost's render modes
+  (`translucent_mode` in src/ghost.cpp) blend opaque surfaces and Rush 2049's alpha-blended bodies by a flat alpha,
+  cut out by alpha only where the original mode did (an opaque body's windows and dark parts carry low alpha, and
+  cutting there showed the road through them), and leave the sheen and decal layers (decal z mode, blended by their
+  own alpha) as they are: at the flat alpha their clear parts drew as white blotches (GitHub issue 38).
 - **Teams** (2049 `0x8012E67C`): not chosen here; each player is a team of their own (blue, red, yellow, green by
   player, `rush2::battle::team_of`). Cars of a team don't damage each other; the coin and the arrows take the team's
   color.
