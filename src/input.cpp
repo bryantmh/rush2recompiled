@@ -598,6 +598,14 @@ void rush2::input::set_keyboard_enabled(bool enabled) {
     save_players();
 }
 
+bool rush2::input::in_race_layout() {
+    return in_race();
+}
+
+uint8_t* rush2::input::get_rdram() {
+    return game_rdram.load();
+}
+
 bool rush2::input::port_has_playstation_controller(int port) {
     SDL_GameController* controller = get_connected_controller(get_port_controller(port));
     if (controller == nullptr) {

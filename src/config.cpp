@@ -32,15 +32,21 @@
 #include "wings.h"
 #include "ghost.h"
 #include "game_filter.h"
+#include "touch_controls.h"
 #include "car2049.h"
 #include "car_probes.h"
 #include "control_profiles.h"
 #include "setup.h"
 
+// Options of the general config shown in another tab, not the General tab: Touch Controls (the Controls tab).
+static bool shown_in_other_tab(const std::string& id) {
+    return id == rush2::touch::option_id();
+}
+
 // Adds every option of the config that the page doesn't have yet, in the config's order (hidden ones stay hidden).
 static void add_remaining_options(rush2::ui::OptionsPage* page, recomp::config::Config& config, const std::vector<std::string>& added) {
     for (const auto& option : config.get_config_schema().options) {
-        if (std::find(added.begin(), added.end(), option.id) == added.end()) {
+        if (std::find(added.begin(), added.end(), option.id) == added.end() && !shown_in_other_tab(option.id)) {
             page->add_option(config, option.id);
         }
     }
@@ -1047,6 +1053,7 @@ void rush2::init_config() {
     add_catch_up_option(general_config);
     add_pause_extras_option(general_config);
     rush2::game_filter::add_option(general_config);
+    rush2::touch::add_option(general_config);
     add_circuit_review_option(general_config);
     add_more_circuit_option(general_config);
     add_circuit_fixed_difficulty_option(general_config);
@@ -1135,6 +1142,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
     rush2::game_filter::apply(std::get<bool>(
         recompui::config::get_general_config().get_option_value(rush2::game_filter::option_id())));
+    rush2::touch::apply(static_cast<rush2::touch::Mode>(std::get<uint32_t>(
+        recompui::config::get_general_config().get_option_value(rush2::touch::option_id()))));
     recompui::Modal::set_transparent_background(std::get<bool>(
         recompui::config::get_general_config().get_option_value(menu_background_option::id)));
     rush2::pause_menu::set_enabled(std::get<bool>(

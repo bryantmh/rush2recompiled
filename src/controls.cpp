@@ -39,6 +39,7 @@
 #include "recompinput/input_state.h"
 
 #include "rush2.h"
+#include "touch_controls.h"
 
 using rush2::controls::Action;
 using rush2::controls::Device;
@@ -644,6 +645,9 @@ bool rush2::controls::update_listen(int port) {
 }
 
 bool rush2::controls::any_input_held(int port) {
+    if (port == rush2::touch::port && rush2::touch::held().any()) {
+        return true;
+    }
     PortDevices d = get_devices(port);
     if (d.controller != nullptr) {
         for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++) {
@@ -686,13 +690,25 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
     // Pedals press their button as soon as they leave the deadzone; the game then sees their pressure.
     float gas = pedal_value(d, b, Action::Gas);
     float brake = pedal_value(d, b, Action::Brake);
+    // The touch controls (include/touch_controls.h) hold actions, not inputs: a held button is its action, and a
+    // pedal is pressed fully.
+    rush2::touch::Held touch = port == rush2::touch::port ? rush2::touch::held() : rush2::touch::Held{};
+    auto touch_held = [&touch](Action a) { return (touch.actions & (1u << static_cast<int>(a))) != 0; };
+    for (int a = 0; a < action_count; a++) {
+        if (touch_held(static_cast<Action>(a))) {
+            buttons |= action_buttons[a];
+        }
+    }
+    gas = touch_held(Action::Gas) ? 1.0f : gas;
+    brake = touch_held(Action::Brake) ? 1.0f : brake;
+    buttons |= touch.buttons;
     buttons |= gas > 0.0f ? action_buttons[static_cast<int>(Action::Gas)] : 0;
     buttons |= brake > 0.0f ? action_buttons[static_cast<int>(Action::Brake)] : 0;
     *gas_out = gas;
     *brake_out = brake;
-    uint8_t battle = uint8_t((action_held(d, b, Action::Fire) ? battle_fire : 0) |
-                             (action_held(d, b, Action::DropWeapon) ? battle_drop : 0));
-    look_held[port] = action_held(d, b, Action::LookBack);
+    uint8_t battle = uint8_t((action_held(d, b, Action::Fire) || touch_held(Action::Fire) ? battle_fire : 0) |
+                             (action_held(d, b, Action::DropWeapon) || touch_held(Action::DropWeapon) ? battle_drop : 0));
+    look_held[port] = action_held(d, b, Action::LookBack) || touch_held(Action::LookBack);
 
     if (button_down(d, SDL_CONTROLLER_BUTTON_START) || key_down(d, SDL_SCANCODE_RETURN)) {
         buttons |= n64_start;
@@ -745,6 +761,8 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
         const Slots& keys = b[static_cast<int>(Device::Keyboard)][static_cast<int>(Action::Steering)];
         x += input_value(d, keys[1]) - input_value(d, keys[0]);
     }
+    x += std::copysign(std::pow(std::fabs(touch.x), steering_exponent), touch.x);
+    y += touch.y;
 
     // The steering stick held back (up is positive here) aims a weapon behind the car.
     bool back = y <= -0.5f || key_down(d, SDL_SCANCODE_DOWN);
@@ -824,6 +842,10 @@ void rush2::controls::get_menu_input(int port, uint16_t* buttons_out, float* x_o
         }
         x += key_down(d, SDL_SCANCODE_D) - key_down(d, SDL_SCANCODE_A);
         y += key_down(d, SDL_SCANCODE_W) - key_down(d, SDL_SCANCODE_S);
+    }
+
+    if (port == rush2::touch::port) {
+        buttons |= rush2::touch::held().buttons;
     }
 
     *buttons_out = buttons;

@@ -190,6 +190,10 @@ namespace rush2 {
         // is back to no player, and whoever presses START next becomes player 1 (src/players4.cpp).
         void set_at_title(bool at_title);
         bool get_n64_input(int port, uint16_t* buttons, float* x, float* y);
+        // The ports get the race layout now (racing, the countdown or the race intro, not paused), not the menus'.
+        bool in_race_layout();
+        // The game's RDRAM, or null before the game set it.
+        uint8_t* get_rdram();
         // Scripted presses (--input-script) of GAS (A) or BRAKE (B) count as fully pressed pedals.
         void press_pedals(int port, uint16_t buttons);
         // How far GAS and BRAKE were pressed (0-1) in the input get_n64_input last gave for a port.

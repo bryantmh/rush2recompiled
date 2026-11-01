@@ -1,6 +1,6 @@
 // Controls tab: which controllers and the keyboard may play (src/input.cpp), the 2 player split screen layout
-// (src/splitscreen.cpp), and below a profile picker each game save profile's steering, stick and rumble settings
-// (src/control_profiles.cpp), with buttons that play each rumble effect.
+// (src/splitscreen.cpp), the touch controls (src/touch_controls.cpp), and below a profile picker each game save
+// profile's steering, stick and rumble settings (src/control_profiles.cpp), with buttons that play each rumble effect.
 //
 // Controllers aren't given to players here: in the game, whoever presses START becomes the next player. Each
 // controller (connected, or disabled and remembered) and the keyboard has a toggle that enables it. The controller list
@@ -28,6 +28,7 @@
 #include "options_page.h"
 #include "rush2.h"
 #include "online.h"
+#include "touch_controls.h"
 
 namespace {
     using namespace recompui;
@@ -205,6 +206,9 @@ namespace {
             layouts->add_index_changed_callback([](uint32_t index) {
                 rush2::splitscreen::set_layout_option(index == 1 ? Layout::SideBySide : Layout::TopBottom);
             });
+
+            add_heading("Touch Controls");
+            add_option(recompui::config::get_general_config(), rush2::touch::option_id());
 
             // The online name is this machine's, not a profile's: above the profile picker and the sections it sets.
             add_heading("Online", "", "How other players see you in online races (the Online tab).");

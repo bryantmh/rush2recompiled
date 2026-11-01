@@ -56,6 +56,7 @@
 #include "wings.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
+#include "touch_controls.h"
 #include "prewarm.h"
 #include "setup.h"
 #include "car_engines.h"
@@ -216,6 +217,7 @@ void update_gfx(void*) {
     std::lock_guard lock{ rush2::input::sdl_device_mutex() };
     show_cursor_on_escape_menu();
     recompinput::handle_events();
+    rush2::touch::update();
 }
 
 // Audio
@@ -513,8 +515,9 @@ static void parse_input_script(const std::string& script) {
 
 static bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     // A simulation run takes only the script's presses, on a player 1 that is always connected (src/sim_run.cpp), and
-    // the test virtual pad's (RUSH2_TEST_VPAD).
-    bool script_only = rush2::sim::active() && !rush2::input::is_test_vpad_port(controller_num);
+    // the test virtual pad's (RUSH2_TEST_VPAD) and the test touches' (RUSH2_TEST_TOUCH).
+    bool script_only = rush2::sim::active() && !rush2::input::is_test_vpad_port(controller_num) &&
+        !(rush2::touch::test_active() && controller_num == rush2::touch::port);
     bool ret = script_only ? controller_num == 0 : rush2::input::get_n64_input(controller_num, buttons, x, y);
     if (script_only) {
         *buttons = 0;

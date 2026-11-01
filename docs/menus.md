@@ -176,6 +176,19 @@ more for the pause menu. The scripted presses skip the controller path (port cla
 otherwise ignore controllers, but a stick never claims a port, so press a button first (`2:LS,3:SU:10`). Bindings for
 the run go in with `--config 'players.bindings={"players":[{"controller":{"gas":{"axis":"-lefty"}}}]}'`.
 
+### Touch controls
+
+The on-screen touch controls (src/touch_controls.cpp, Controls tab > Touch Controls, Auto by default) are tested with
+`RUSH2_TEST_TOUCH="<seconds>:<x>,<y>[><x2>,<y2>][:<hold>];..."`: fingers at fractions of the window's width and height,
+sliding to x2,y2 over the first half of the hold, timed from the first frame of the window (about 1 s after launch).
+They go through SDL's event queue and the same filter as a touchscreen's, and a `tools/test_race.py` run reads port 1
+while it's set. Controls are placed in dp (the window is 1080 dp tall): x = dp from the left / (1080 * width / height),
+or 1 - dp from the right / that. At 16:9 (the shown sim window, 1600x900): GAS `0.917,0.824`, the stick
+`0.12,0.8>0.22,0.8` (steers right), PAUSE `0.245,0.046`; in the menu layout D-pad down `0.12,0.870`, MENU
+`0.057,0.039`. A tap where there's no button still shows the controls in Auto. Checked with
+`python tools/test_race.py 0 --seconds 26 --script 60:CU:0.1 --shots 13.5,17.5,19.5,22.5 --env "RUSH2_TEST_TOUCH=12:0.917,0.824:3;16:0.245,0.046;18.5:0.12,0.870;21:0.057,0.039"`
+(the race starts 5-15 s in: GAS drives, PAUSE pauses, the D-pad moves the pause menu's cursor, MENU opens the settings).
+
 A recipe that reaches an online race through every menu (tools/online_test.py, the joiner launched 42 s after the
 host; `RUSH2_ONLINE_PORT` keeps it off a lobby already open on this machine):
 
