@@ -78,6 +78,16 @@ void rush2::race_setup::init_record(uint8_t* rdram, int player, uint8_t port, ui
     MEM_B(record_range + 1, record) = default_range;
 }
 
+bool rush2::race_setup::port_automatic(uint8_t* rdram, uint8_t port) {
+    for (int player = 0; player < 8; player++) {
+        int32_t record = (int32_t)(player_records + player * player_record_size);
+        if (MEM_BU(record_port, record) == port) {
+            return MEM_BU(record_automatic, record) != 0;
+        }
+    }
+    return true;
+}
+
 void rush2::race_setup::fill_player_rows(uint8_t* rdram, recomp_context* ctx, int players) {
     namespace ct = rush2::car_types;
     constexpr int types = ct::types;

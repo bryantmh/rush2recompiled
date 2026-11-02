@@ -179,8 +179,9 @@ the run go in with `--config 'players.bindings={"players":[{"controller":{"gas":
 ### Touch controls
 
 The on-screen touch controls (src/touch_controls.cpp, Controls tab > Touch Controls, Auto by default) are tested with
-`RUSH2_TEST_TOUCH="<seconds>:<x>,<y>[><x2>,<y2>][:<hold>];..."`: fingers at fractions of the window's width and height,
-sliding to x2,y2 over the first half of the hold, timed from the first frame of the window (about 1 s after launch).
+`RUSH2_TEST_TOUCH="[m]<seconds>:<x>,<y>[><x2>,<y2>][:<hold>];..."`: fingers at fractions of the window's width and height,
+sliding to x2,y2 over the first half of the hold, timed from the first frame of the window (about 1 s after launch);
+an entry starting with `m` is the mouse's left button instead.
 They go through SDL's event queue and the same filter as a touchscreen's, and a `tools/test_race.py` run reads port 1
 while it's set. Controls are placed in dp (the window is 1080 dp tall): x = dp from the left / (1080 * width / height),
 or 1 - dp from the right / that. At 16:9 (the shown sim window, 1600x900): GAS `0.917,0.824`, the stick
@@ -188,6 +189,26 @@ or 1 - dp from the right / that. At 16:9 (the shown sim window, 1600x900): GAS `
 `0.057,0.039`. A tap where there's no button still shows the controls in Auto. Checked with
 `python tools/test_race.py 0 --seconds 26 --script 60:CU:0.1 --shots 13.5,17.5,19.5,22.5 --env "RUSH2_TEST_TOUCH=12:0.917,0.824:3;16:0.245,0.046;18.5:0.12,0.870;21:0.057,0.039"`
 (the race starts 5-15 s in: GAS drives, PAUSE pauses, the D-pad moves the pause menu's cursor, MENU opens the settings).
+
+The SHIFT buttons show only when player 1's TRANSMISSION is manual (the player record's +0x20 for the record on port 1,
+`rush2::race_setup::port_automatic`), so a test that presses them picks a manual car first.
+
+Steam Deck Game Mode (gamescope, `GAMESCOPE_WAYLAND_DISPLAY` set): by default Steam turns the touchscreen into a mouse
+and the game gets no finger events at all. gamescope takes its touch mode from the `STEAM_TOUCH_CLICK_MODE` property of
+its X displays' root windows (4 = passthrough, real fingers; Steam sets 1, left click, unless the game's Steam Input
+layout has Touchscreen Native Support), so while the touch controls aren't Off and the game has focus it sets 4 on its
+own display and `:0` itself (`gamescope_touch`, rechecked twice a second) and puts Steam's value back when they're Off,
+focus leaves (the Steam menu) or the game quits. If that fails, the left mouse button is still taken as one finger
+under gamescope (`mouse_as_finger`), even while the controls are hidden (it shows them in Auto). Elsewhere the left
+button is a finger only while the controls are on screen, so they can be clicked.
+
+In this settings UI's menus and the launcher (and with the option Off) a finger is a mouse (`menu_touch`): a tap
+clicks, a drag up or down scrolls as a mouse wheel (one step per 45 dp) and a drag sideways holds the button (sliders).
+SDL's own touch mouse events (`SDL_TOUCH_MOUSEID`) are always dropped.
+
+The fingers tick player 1's controller through `rush2::input::touch_tick` (two frames on the motors over the rumble,
+scaled by the profile's rumble strength): landing on a button or the stick, and the stick leaving its center and
+reaching its rim.
 
 A recipe that reaches an online race through every menu (tools/online_test.py, the joiner launched 42 s after the
 host; `RUSH2_ONLINE_PORT` keeps it off a lobby already open on this machine):

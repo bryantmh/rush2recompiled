@@ -134,6 +134,11 @@ namespace {
     // Wall grinding's side and intensity, set every physics tick by src/rumble.cpp (set_rumble_grinding).
     std::atomic<float> rumble_grind_side[num_slots] = {};
     std::atomic<float> rumble_grind_intensity[num_slots] = {};
+    // A touch controls tick asked for (touch_tick), taken by update_rumble; then its level and the frames it has left.
+    std::atomic<float> touch_tick_asked[num_slots] = {};
+    std::array<float, num_slots> touch_tick_level{};
+    std::array<int, num_slots> touch_tick_frames{};
+    constexpr int touch_tick_length = 2;
     // VI thread only: the grinding's smoothed level and side.
     std::array<float, num_slots> grind_level{};
     std::array<float, num_slots> grind_side{};
@@ -886,6 +891,12 @@ void rush2::input::set_rumble_cornering(int port, float side) {
     }
 }
 
+void rush2::input::touch_tick(int port, float level) {
+    if (port >= 0 && port < num_ports) {
+        touch_tick_asked[port].store(level, std::memory_order_relaxed);
+    }
+}
+
 void rush2::input::set_rumble_grinding(int port, float side, float intensity) {
     if (port >= 0 && port < num_ports) {
         rumble_grind_side[port].store(side, std::memory_order_relaxed);
@@ -1273,6 +1284,18 @@ void rush2::input::update_rumble() {
             cur_rumble[slot] = std::max(cur_rumble[slot] * 0.92f - 0.01f, 0.0f);
         }
 
+        // A touch controls tick plays on the motors for a couple of frames, over the rest.
+        float tick_asked = touch_tick_asked[slot].exchange(0.0f, std::memory_order_relaxed);
+        if (tick_asked > 0.0f) {
+            touch_tick_level[slot] = tick_asked;
+            touch_tick_frames[slot] = touch_tick_length;
+        }
+        uint16_t tick = 0;
+        if (touch_tick_frames[slot] > 0) {
+            touch_tick_frames[slot]--;
+            tick = (uint16_t)(std::clamp(touch_tick_level[slot] * rumble_strength, 0.0f, 1.0f) * 0xFFFF);
+        }
+
         SDL_GameController* controller = controllers[slot];
         if (controller == nullptr) {
             stop_slot_haptics(slot);
@@ -1296,6 +1319,8 @@ void rush2::input::update_rumble() {
         }
         // A rumble call that failed is tried again after a while rather than every frame.
         auto rumble = [&](uint16_t low, uint16_t high) {
+            low = std::max(low, tick);
+            high = std::max(high, tick);
             if (rumble_retry[slot] > 0) {
                 rumble_retry[slot]--;
             }

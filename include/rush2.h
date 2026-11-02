@@ -222,6 +222,9 @@ namespace rush2 {
         // True once after a race ends, a pause or a change out of Directional: the impact hook's previous tick is stale.
         bool take_rumble_impact_reset(int port);
         void set_rumble(int port, bool on);
+        // A short tick on the port's controller motors for the on-screen touch controls (include/touch_controls.h),
+        // `level` 0 to 1, laid over whatever rumble is playing. Scaled by the port's rumble strength.
+        void touch_tick(int port, float level);
         void update_rumble();
 
         // Remembers rdram so input reads can tell races from menus. Called from a game thread hook every frame.

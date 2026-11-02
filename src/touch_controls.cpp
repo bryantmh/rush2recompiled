@@ -6,9 +6,13 @@
 // which floats: it centers where the finger lands anywhere in the left half of the screen below the top quarter. What
 // the fingers hold is read by src/controls.cpp, merged into port 1's race or menu input.
 //
-// SDL also turns the first finger into mouse events (SDL_TOUCH_MOUSEID). While the game has the touchscreen those are
-// dropped, or each touch would switch this settings UI to the mouse and show the cursor under the thumb. With one of
-// its menus up (or the option Off) they pass, and the touchscreen clicks the menus like a mouse.
+// SDL also turns the first finger into mouse events (SDL_TOUCH_MOUSEID). Those are always dropped: while the game has
+// the touchscreen they'd switch this settings UI to the mouse and show the cursor under the thumb, and with one of its
+// menus up (or the option Off) menu_touch makes a finger into a mouse that also scrolls and drags.
+//
+// The fingers tick player 1's controller (rush2::input::touch_tick): landing on a button or the stick, and the stick
+// leaving its center and reaching its rim. In Steam's Game Mode the game asks gamescope for native touch while it runs
+// (gamescope_touch below).
 //
 // The overlay is a recompui context that never takes input, laid out in dp: recompui scales 1 dp to 1/1080 of the
 // window's height, so the screen is 1080 dp tall and 1080 * width / height dp wide, and a finger's normalized position
@@ -32,6 +36,7 @@
 #include "SDL.h"
 #else
 #include "SDL2/SDL.h"
+#include <dlfcn.h>
 #endif
 
 #include "recompui/recompui.h"
@@ -41,6 +46,7 @@
 #include "ultramodern/ultramodern.hpp"
 
 #include "battle.h"
+#include "race_setup.h"
 #include "rush2.h"
 #include "touch_controls.h"
 
@@ -72,7 +78,7 @@ namespace {
     enum class Layout { Race, Menu };
     enum class Kind { Action, Button, Menu };
     enum class HAnchor { Left, Right, Center };
-    enum class Only { Always, Battle, LookBack };
+    enum class Only { Always, Battle, LookBack, Manual };
 
     // One button. cx is the distance of its center from its horizontal anchor (Center: from the middle, + right), cy
     // from the bottom (top_anchored: from the top), all in dp. Square ones are circles, the others pills.
@@ -99,8 +105,8 @@ namespace {
         // Race: the right thumb's pedals and the buttons above and left of them.
         { Layout::Race, Kind::Action, act(Action::Gas), "GAS", HAnchor::Right, 160, 190, 220, 220 },
         { Layout::Race, Kind::Action, act(Action::Brake), "BRAKE", HAnchor::Right, 400, 130, 170, 170 },
-        { Layout::Race, Kind::Action, act(Action::ShiftUp), "SHIFT ▲", HAnchor::Right, 390, 330, 110, 110 },
-        { Layout::Race, Kind::Action, act(Action::ShiftDown), "SHIFT ▼", HAnchor::Right, 520, 260, 110, 110 },
+        { Layout::Race, Kind::Action, act(Action::ShiftUp), "SHIFT ▲", HAnchor::Right, 390, 330, 110, 110, false, Only::Manual },
+        { Layout::Race, Kind::Action, act(Action::ShiftDown), "SHIFT ▼", HAnchor::Right, 520, 260, 110, 110, false, Only::Manual },
         { Layout::Race, Kind::Action, act(Action::View), "VIEW", HAnchor::Right, 400, 470, 110, 110 },
         { Layout::Race, Kind::Action, act(Action::Wings), "WINGS", HAnchor::Right, 530, 400, 110, 110 },
         { Layout::Race, Kind::Action, act(Action::Fire), "FIRE", HAnchor::Right, 660, 170, 130, 130, false, Only::Battle },
@@ -134,7 +140,14 @@ namespace {
     constexpr float stick_rest_x = 230.0f;
     constexpr float stick_rest_y = 220.0f;
     // Under this much of the stick's travel it reads 0.
-    constexpr float stick_deadzone = 0.08f;
+    constexpr float stick_deadzone = 0.03f;
+    // The stick's ticks on player 1's controller (rush2::input::touch_tick): a finger landing on a button or the stick,
+    // the stick leaving its center and reaching its rim.
+    constexpr float press_tick = 0.5f;
+    constexpr float grab_tick = 0.35f;
+    constexpr float leave_center_tick = 0.2f;
+    constexpr float rim_tick = 0.4f;
+    constexpr float rim = 0.97f;
     // Where a finger can land to steer: the left half of the screen, below the top quarter.
     constexpr float stick_zone_width = 0.5f;
     constexpr float stick_zone_top = 0.25f;
@@ -163,15 +176,17 @@ namespace {
     Layout layout = Layout::Menu;
     bool battle_on = false;
     bool look_back = false;
+    bool manual = false;        // Player 1 shifts gears (TRANSMISSION manual): the SHIFT buttons show.
     bool touched = false;       // Auto: touched since a controller or the keyboard was last used.
     float stick_cx = 0.0f, stick_cy = 0.0f;   // The held stick's center, dp from the left and the top.
     float stick_x = 0.0f, stick_y = 0.0f;     // Its knob, -1 to 1 each way (y down).
+    int stick_zone = 0;         // Where the knob is, for the ticks: 0 in the deadzone, 1 out of it, 2 at the rim.
     rush2::touch::Held held_state;
     bool dirty = true;          // The overlay needs redrawing.
 
     bool shown(const Control& c) {
         return c.layout == layout && (c.only == Only::Always || (c.only == Only::Battle && battle_on) ||
-            (c.only == Only::LookBack && look_back));
+            (c.only == Only::LookBack && look_back) || (c.only == Only::Manual && manual));
     }
 
     // A control's center in dp from the screen's left and top, on a screen `width` dp wide.
@@ -212,6 +227,13 @@ namespace {
         }
         stick_x = dx;
         stick_y = dy;
+        // A tick as the knob leaves the center and as it reaches the rim, like a stick's notches.
+        len = std::min(len, 1.0f);
+        int zone = len >= rim ? 2 : len >= stick_deadzone ? 1 : 0;
+        if (zone > stick_zone) {
+            rush2::input::touch_tick(rush2::touch::port, zone == 2 ? rim_tick : leave_center_tick);
+        }
+        stick_zone = zone;
     }
 
     // Under touch_mutex: what the fingers hold now.
@@ -259,9 +281,151 @@ namespace {
     constexpr SDL_TouchID test_touch_id = 0x52325443;
     std::atomic_bool test_touch = false;
 
+    // The mouse's left button is a finger too (one at a time) while the controls are on screen, so they can be clicked.
+    // Steam's Game Mode (gamescope) also turns touchscreen taps into the left button unless the game's controller layout
+    // has Touchscreen Native Support on, so the game never sees a finger: under gamescope the left button is a finger
+    // even while the controls are hidden, and shows them in Auto (steering and the pedals together need native touch).
+    const bool under_gamescope = std::getenv("GAMESCOPE_WAYLAND_DISPLAY") != nullptr;
+    constexpr SDL_TouchID mouse_touch_id = 0x52324D53;
+    constexpr SDL_FingerID mouse_finger_id = 0x7FFF0000;
+    bool mouse_down = false;    // The event filter's: the left button went down on the game as a finger.
+    std::atomic_bool overlay_on_screen = false;     // Main thread (update) to the event filter.
+
+    // While the game doesn't have the touchscreen (this settings UI's menus, the launcher, or the option Off), one finger
+    // is a mouse: a tap clicks, a drag up or down scrolls (as a mouse wheel: RmlUi doesn't scroll on a drag) and a drag
+    // sideways holds the button (sliders). SDL's own mouse events from touches (SDL_TOUCH_MOUSEID) are dropped instead:
+    // they only click, and recompui skips a move within 100 px of the cursor after a controller was used, so the click
+    // landed where the cursor had been.
+    enum class Gesture { None, Pending, Drag, Scroll };
+    struct MenuFinger {
+        SDL_FingerID id = 0;
+        Gesture gesture = Gesture::None;
+        Uint32 window = 0;
+        int x0 = 0, y0 = 0;     // Where it landed, in window pixels.
+        float scrolled_y = 0;   // Scroll: where the last wheel step was taken, in window pixels.
+    };
+    std::mutex menu_mutex;
+    MenuFinger menu_finger;
+    // How far a finger moves before a tap becomes a drag, and how far a scroll moves per wheel step, in dp.
+    constexpr float tap_slop = 16.0f;
+    constexpr float scroll_step = 45.0f;
+
+    SDL_Event mouse_motion(Uint32 window, int x, int y, bool held) {
+        SDL_Event m{};
+        m.motion.type = SDL_MOUSEMOTION;
+        m.motion.windowID = window;
+        m.motion.state = held ? SDL_BUTTON_LMASK : 0;
+        m.motion.x = x;
+        m.motion.y = y;
+        return m;
+    }
+
+    SDL_Event mouse_button(Uint32 window, int x, int y, bool down) {
+        SDL_Event b{};
+        b.button.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+        b.button.windowID = window;
+        b.button.button = SDL_BUTTON_LEFT;
+        b.button.state = down ? SDL_PRESSED : SDL_RELEASED;
+        b.button.clicks = 1;
+        b.button.x = x;
+        b.button.y = y;
+        return b;
+    }
+
+    // Whether a finger is the menus' (handled here, pushing mouse events).
+    bool menu_touch(const SDL_TouchFingerEvent& e) {
+        std::vector<SDL_Event> out;
+        {
+            std::lock_guard lock{ menu_mutex };
+            MenuFinger& m = menu_finger;
+            bool mine = m.gesture != Gesture::None && m.id == e.fingerId;
+            if (!mine) {
+                // A new finger is the menus' only while the game doesn't have the touchscreen, and one at a time.
+                if (e.type != SDL_FINGERDOWN || game_owns_touch.load()) {
+                    return !game_owns_touch.load();
+                }
+                if (m.gesture != Gesture::None) {
+                    return true;
+                }
+            }
+            SDL_Window* window = SDL_GetWindowFromID(e.windowID);
+            int w = 0, h = 0;
+            if (window != nullptr) {
+                SDL_GetWindowSize(window, &w, &h);
+            }
+            if (w <= 0 || h <= 0) {
+                return true;
+            }
+            int x = (int)(e.x * w);
+            int y = (int)(e.y * h);
+            float px_per_dp = h / screen_dp;
+            if (e.type == SDL_FINGERDOWN) {
+                m = MenuFinger{ e.fingerId, Gesture::Pending, e.windowID, x, y, (float)y };
+                // Off the window first, so the move to the finger is more than 100 px and recompui takes it.
+                out.push_back(mouse_motion(m.window, -10000, -10000, false));
+                out.push_back(mouse_motion(m.window, x, y, false));
+            }
+            else if (e.type == SDL_FINGERMOTION) {
+                float dx = (float)(x - m.x0), dy = (float)(y - m.y0);
+                if (m.gesture == Gesture::Pending && std::sqrt(dx * dx + dy * dy) > tap_slop * px_per_dp) {
+                    if (std::fabs(dy) >= std::fabs(dx)) {
+                        m.gesture = Gesture::Scroll;
+                    }
+                    else {
+                        m.gesture = Gesture::Drag;
+                        out.push_back(mouse_button(m.window, m.x0, m.y0, true));
+                    }
+                }
+                if (m.gesture == Gesture::Drag) {
+                    out.push_back(mouse_motion(m.window, x, y, true));
+                }
+                else if (m.gesture == Gesture::Scroll) {
+                    // The page follows the finger: dragging down shows what's above (a wheel turned up).
+                    float step = scroll_step * px_per_dp;
+                    while (std::fabs(y - m.scrolled_y) >= step) {
+                        int dir = y > m.scrolled_y ? 1 : -1;
+                        SDL_Event wheel{};
+                        wheel.wheel.type = SDL_MOUSEWHEEL;
+                        wheel.wheel.windowID = m.window;
+                        wheel.wheel.y = dir;
+                        wheel.wheel.preciseY = (float)dir;
+                        wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+                        out.push_back(wheel);
+                        m.scrolled_y += dir * step;
+                    }
+                }
+            }
+            else {
+                if (m.gesture == Gesture::Pending) {
+                    out.push_back(mouse_button(m.window, m.x0, m.y0, true));
+                    out.push_back(mouse_button(m.window, m.x0, m.y0, false));
+                }
+                else if (m.gesture == Gesture::Drag) {
+                    out.push_back(mouse_button(m.window, x, y, false));
+                }
+                m.gesture = Gesture::None;
+            }
+        }
+        for (SDL_Event& ev : out) {
+            // A wheel event goes straight to this UI's queue: pushed through SDL's (SDL 2.32's on SDL 3), its steps
+            // came out as its mouseY.
+            if (ev.type == SDL_MOUSEWHEEL) {
+                recompui::queue_event(ev);
+            }
+            else {
+                SDL_PushEvent(&ev);
+            }
+        }
+        return true;
+    }
+
     void on_finger(const SDL_TouchFingerEvent& e) {
         // Only touchscreens: a trackpad's fingers (macOS sends them as touches too) move the mouse.
-        if (SDL_GetTouchDeviceType(e.touchId) != SDL_TOUCH_DEVICE_DIRECT && e.touchId != test_touch_id) {
+        if (SDL_GetTouchDeviceType(e.touchId) != SDL_TOUCH_DEVICE_DIRECT && e.touchId != test_touch_id &&
+            e.touchId != mouse_touch_id) {
+            return;
+        }
+        if (e.touchId != mouse_touch_id && menu_touch(e)) {
             return;
         }
         std::lock_guard lock{ touch_mutex };
@@ -276,6 +440,9 @@ namespace {
             }
             touched = true;
             Finger f{ e.fingerId, hit(x, y, width) };
+            if (f.control >= 0) {
+                rush2::input::touch_tick(rush2::touch::port, press_tick);
+            }
             if (f.control >= 0 && touch_buttons[f.control].kind == Kind::Menu) {
                 open_menu();
                 f.control = no_control;
@@ -283,12 +450,14 @@ namespace {
             bool stick_free = std::none_of(fingers.begin(), fingers.end(), [](const Finger& o) { return o.control == stick_control; });
             if (f.control == no_control && layout == Layout::Race && stick_free && x < width * stick_zone_width &&
                 y > screen_dp * stick_zone_top) {
-                // The stick centers under the finger, kept whole on screen.
-                float r = stick_size / 2.0f;
-                stick_cx = std::clamp(x, r, width - r);
-                stick_cy = std::clamp(y, r, screen_dp - r);
+                // The stick centers under the finger, even by an edge (drawn partly off screen): moved inward, it
+                // would start off center and need a long slide back before steering the other way.
+                stick_cx = x;
+                stick_cy = y;
+                stick_zone = 0;
                 f.control = stick_control;
                 set_stick(x, y);
+                rush2::input::touch_tick(rush2::touch::port, grab_tick);
             }
             if (found != fingers.end()) {
                 *found = f;
@@ -311,6 +480,7 @@ namespace {
                 int over = hit(x, y, width);
                 if (over >= 0 && over != found->control && touch_buttons[over].kind != Kind::Menu) {
                     found->control = over;
+                    rush2::input::touch_tick(rush2::touch::port, press_tick);
                     update_held();
                 }
             }
@@ -334,6 +504,55 @@ namespace {
         }
     }
 
+    // The left button under gamescope as a finger (`type` SDL_FINGERDOWN, MOTION or UP) at x, y in the window.
+    void mouse_finger(Uint32 type, Uint32 window_id, int x, int y) {
+        SDL_Window* window = SDL_GetWindowFromID(window_id);
+        int w = 0, h = 0;
+        if (window != nullptr) {
+            SDL_GetWindowSize(window, &w, &h);
+        }
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        SDL_TouchFingerEvent f{};
+        f.type = type;
+        f.touchId = mouse_touch_id;
+        f.fingerId = mouse_finger_id;
+        f.x = (float)x / w;
+        f.y = (float)y / h;
+        f.pressure = type == SDL_FINGERUP ? 0.0f : 1.0f;
+        f.windowID = window_id;
+        on_finger(f);
+    }
+
+    // Whether a mouse event is the left button taken as a finger (then dropped).
+    bool mouse_as_finger(const SDL_Event* e) {
+        if (e->type == SDL_MOUSEMOTION) {
+            if (e->motion.which == SDL_TOUCH_MOUSEID || !mouse_down) {
+                return false;
+            }
+            mouse_finger(SDL_FINGERMOTION, e->motion.windowID, e->motion.x, e->motion.y);
+            return true;
+        }
+        if (e->button.which == SDL_TOUCH_MOUSEID || e->button.button != SDL_BUTTON_LEFT) {
+            return false;
+        }
+        if (e->type == SDL_MOUSEBUTTONDOWN) {
+            if (!game_owns_touch.load() || !(under_gamescope || overlay_on_screen.load())) {
+                return false;
+            }
+            mouse_down = true;
+            mouse_finger(SDL_FINGERDOWN, e->button.windowID, e->button.x, e->button.y);
+            return true;
+        }
+        if (!mouse_down) {
+            return false;
+        }
+        mouse_down = false;
+        mouse_finger(SDL_FINGERUP, e->button.windowID, e->button.x, e->button.y);
+        return true;
+    }
+
     int SDLCALL event_filter(void*, SDL_Event* e) {
         switch (e->type) {
             case SDL_FINGERDOWN:
@@ -341,13 +560,17 @@ namespace {
             case SDL_FINGERUP:
                 on_finger(e->tfinger);
                 break;
+            // SDL's mouse events from touches never pass: the game's fingers are the controls' and the menus' are
+            // made into mouse events by menu_touch.
             case SDL_MOUSEMOTION:
-                return !(e->motion.which == SDL_TOUCH_MOUSEID && game_owns_touch.load());
+                if (mouse_as_finger(e)) return 0;
+                return e->motion.which != SDL_TOUCH_MOUSEID;
             case SDL_MOUSEBUTTONDOWN:
             case SDL_MOUSEBUTTONUP:
-                return !(e->button.which == SDL_TOUCH_MOUSEID && game_owns_touch.load());
+                if (mouse_as_finger(e)) return 0;
+                return e->button.which != SDL_TOUCH_MOUSEID;
             case SDL_MOUSEWHEEL:
-                return !(e->wheel.which == SDL_TOUCH_MOUSEID && game_owns_touch.load());
+                return e->wheel.which != SDL_TOUCH_MOUSEID;
             case SDL_KEYDOWN:
                 if (!e->key.repeat) on_device_used();
                 break;
@@ -361,10 +584,139 @@ namespace {
         return 1;
     }
 
+    // Steam's Game Mode: gamescope sends touches to a game as fingers only in its Passthrough touch mode, which it takes
+    // from the STEAM_TOUCH_CLICK_MODE property of its X displays' root windows (gamescope's TouchClickModes: 0 hover,
+    // 1 left click, 2 right, 3 middle, 4 passthrough, 5 disabled, 6 trackpad). Steam sets it when a game takes focus,
+    // from the game's controller layout (Touchscreen Native Support), and otherwise leaves a click. So while the touch
+    // controls aren't Off and the game's window has focus, the game sets passthrough itself, checking twice a second in
+    // case Steam set it back; when they're turned Off, the window loses focus (the Steam menu) or the game quits, it puts
+    // back the mode Steam set. Xlib is loaded at run time, so the AppImage needs no new library.
+    std::atomic_bool native_touch_wanted = false;   // Main thread (update) to the thread below.
+#ifdef __linux__
+    namespace gamescope_touch {
+        using Display = void;
+        using XID = unsigned long;
+        constexpr long passthrough = 4;
+        constexpr long left_click = 1;
+        constexpr XID xa_cardinal = 6;
+        constexpr int prop_mode_replace = 0;
+
+        Display* (*open_display)(const char*);
+        XID (*default_root)(Display*);
+        XID (*intern_atom)(Display*, const char*, int);
+        int (*get_property)(Display*, XID, XID, long, long, int, XID, XID*, int*, unsigned long*, unsigned long*,
+                            unsigned char**);
+        int (*change_property)(Display*, XID, XID, XID, int, int, const unsigned char*, int);
+        int (*flush)(Display*);
+        int (*x_free)(void*);
+
+        struct Connection {
+            Display* display;
+            XID root, atom;
+        };
+        std::mutex mutex;
+        std::vector<Connection> connections;
+        bool set_by_us = false;
+        bool stopped = false;           // The game is quitting: Steam's mode is back for good.
+        long steam_mode = left_click;   // What Steam last set, put back when the game lets go.
+
+        // The mode on a display, or -1 when it has none.
+        long read_mode(const Connection& c) {
+            XID type = 0;
+            int format = 0;
+            unsigned long count = 0, after = 0;
+            unsigned char* data = nullptr;
+            long mode = -1;
+            if (get_property(c.display, c.root, c.atom, 0, 1, 0, xa_cardinal, &type, &format, &count, &after, &data) == 0 &&
+                data != nullptr && format == 32 && count == 1) {
+                mode = *(const long*)data;
+            }
+            if (data != nullptr) {
+                x_free(data);
+            }
+            return mode;
+        }
+
+        void write_mode(const Connection& c, long mode) {
+            change_property(c.display, c.root, c.atom, xa_cardinal, 32, prop_mode_replace, (const unsigned char*)&mode, 1);
+            flush(c.display);
+        }
+
+        // Sets passthrough on every display (want), or puts Steam's mode back if the game set it.
+        void apply(bool want, bool stop = false) {
+            std::lock_guard lock{ mutex };
+            if (stopped) {
+                return;
+            }
+            stopped = stop;
+            if (want && !stop) {
+                for (const Connection& c : connections) {
+                    long mode = read_mode(c);
+                    if (mode != passthrough) {
+                        if (mode >= 0) {
+                            steam_mode = mode;
+                        }
+                        write_mode(c, passthrough);
+                    }
+                }
+                set_by_us = true;
+            }
+            else if (set_by_us) {
+                for (const Connection& c : connections) {
+                    write_mode(c, steam_mode);
+                }
+                set_by_us = false;
+            }
+        }
+
+        // Under gamescope: opens its displays (the game's and Steam's, :0) and keeps the mode set while it's wanted.
+        void start() {
+            void* x11 = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL);
+            if (x11 == nullptr) {
+                return;
+            }
+            open_display = (decltype(open_display))dlsym(x11, "XOpenDisplay");
+            default_root = (decltype(default_root))dlsym(x11, "XDefaultRootWindow");
+            intern_atom = (decltype(intern_atom))dlsym(x11, "XInternAtom");
+            get_property = (decltype(get_property))dlsym(x11, "XGetWindowProperty");
+            change_property = (decltype(change_property))dlsym(x11, "XChangeProperty");
+            flush = (decltype(flush))dlsym(x11, "XFlush");
+            x_free = (decltype(x_free))dlsym(x11, "XFree");
+            if (!open_display || !default_root || !intern_atom || !get_property || !change_property || !flush || !x_free) {
+                return;
+            }
+            std::vector<std::string> names;
+            if (const char* display = std::getenv("DISPLAY")) {
+                names.push_back(display);
+            }
+            if (std::find(names.begin(), names.end(), ":0") == names.end()) {
+                names.push_back(":0");
+            }
+            for (const std::string& name : names) {
+                if (Display* d = open_display(name.c_str())) {
+                    connections.push_back({ d, default_root(d), intern_atom(d, "STEAM_TOUCH_CLICK_MODE", 0) });
+                }
+            }
+            if (connections.empty()) {
+                return;
+            }
+            printf("[Touch] gamescope: native touch while the touch controls are on (%zu displays)\n", connections.size());
+            std::atexit([]() { apply(false, true); });
+            std::thread([]() {
+                for (;;) {
+                    apply(native_touch_wanted.load());
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                }
+            }).detach();
+        }
+    }
+#endif
+
     // Test aid: RUSH2_TEST_TOUCH="<seconds>:<x>,<y>[><x2>,<y2>][:<hold seconds>];..." touches the screen at those
     // times after launch (the first update, as the window opens), at x, y as fractions of the window's width and
-    // height; with >x2,y2 the finger slides there over the first half of the hold (default 0.15 s). The fingers go
-    // through SDL's queue and the event filter like a touchscreen's. A simulation run (RUSH2_SIM) reads port 1 while
+    // height; with >x2,y2 the finger slides there over the first half of the hold (default 0.15 s). An entry starting
+    // with m ("m<seconds>:...") is the mouse's left button instead. The fingers go through SDL's queue and the event
+    // filter like a touchscreen's. A simulation run (RUSH2_SIM) reads port 1 while
     // it's set, as it does the test pad's. Example, GAS held from 8 s for 6 s and steering right from 9 s at 16:9:
     // RUSH2_TEST_TOUCH="8:0.917,0.824:6;9:0.12,0.8>0.2,0.8:4".
     void start_test_touch() {
@@ -375,6 +727,7 @@ namespace {
         struct Touch {
             double time, duration = 0.15;
             float x, y, x2, y2;
+            bool mouse = false;
         };
         std::vector<Touch> touches;
         std::string text = spec;
@@ -385,6 +738,10 @@ namespace {
             pos = end == std::string::npos ? text.size() : end + 1;
             Touch t{};
             t.duration = 0.15;
+            t.mouse = !entry.empty() && entry[0] == 'm';
+            if (t.mouse) {
+                entry.erase(0, 1);
+            }
             char slide = 0;
             int n = std::sscanf(entry.c_str(), "%lf:%f,%f%c", &t.time, &t.x, &t.y, &slide);
             if (n < 3) {
@@ -410,20 +767,43 @@ namespace {
                 double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - launch).count();
                 // The game's window: the largest one.
                 Uint32 window_id = 0;
-                int area = 0;
+                int area = 0, width = 0, height = 0;
                 for (Uint32 id = 1; id < 16; id++) {
                     SDL_Window* w = SDL_GetWindowFromID(id);
                     int ww = 0, wh = 0;
                     if (w != nullptr) SDL_GetWindowSize(w, &ww, &wh);
-                    if (ww * wh > area) { area = ww * wh; window_id = id; }
+                    if (ww * wh > area) { area = ww * wh; window_id = id; width = ww; height = wh; }
                 }
                 for (size_t i = 0; i < touches.size(); i++) {
                     const Touch& t = touches[i];
                     bool on = now >= t.time && now < t.time + t.duration;
                     float k = t.duration > 0.0 ? std::min(1.0, (now - t.time) / (t.duration / 2.0)) : 1.0f;
                     SDL_Event e{};
-                    e.tfinger.type = !down[i] && on ? SDL_FINGERDOWN : down[i] && on ? SDL_FINGERMOTION : SDL_FINGERUP;
                     if (!down[i] && !on) continue;
+                    if (t.mouse) {
+                        int x = (int)((on ? t.x + (t.x2 - t.x) * k : t.x2) * width);
+                        int y = (int)((on ? t.y + (t.y2 - t.y) * k : t.y2) * height);
+                        if (down[i] && on) {
+                            e.motion.type = SDL_MOUSEMOTION;
+                            e.motion.windowID = window_id;
+                            e.motion.state = SDL_BUTTON_LMASK;
+                            e.motion.x = x;
+                            e.motion.y = y;
+                        }
+                        else {
+                            e.button.type = on ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+                            e.button.windowID = window_id;
+                            e.button.button = SDL_BUTTON_LEFT;
+                            e.button.state = on ? SDL_PRESSED : SDL_RELEASED;
+                            e.button.clicks = 1;
+                            e.button.x = x;
+                            e.button.y = y;
+                        }
+                        SDL_PushEvent(&e);
+                        down[i] = on;
+                        continue;
+                    }
+                    e.tfinger.type = !down[i] && on ? SDL_FINGERDOWN : down[i] && on ? SDL_FINGERMOTION : SDL_FINGERUP;
                     e.tfinger.touchId = test_touch_id;
                     e.tfinger.fingerId = (SDL_FingerID)i + 1;
                     e.tfinger.x = on ? t.x + (t.x2 - t.x) * k : t.x2;
@@ -487,6 +867,9 @@ namespace {
         overlay.knob = make_circle(context, root, knob_size, knob_size);
         overlay.knob->set_background_color(knob_color);
         overlay.knob->set_border_width(0.0f);
+        // Hidden until the race layout shows them (draw), or the menus would have them in the top left corner.
+        overlay.stick->set_display(Display::None);
+        overlay.knob->set_display(Display::None);
 
         for (const Control& c : touch_buttons) {
             Element* e = make_circle(context, root, c.w, c.h_dp);
@@ -563,7 +946,8 @@ void rush2::touch::add_option(recomp::config::Config& config) {
         "controller or the keyboard is used. "
         "<recomp-color primary>On</recomp-color> always shows them. "
         "<recomp-color primary>Off</recomp-color> never does. "
-        "They control player 1, along with player 1's controller. Takes effect at once.",
+        "They control player 1, along with player 1's controller, which ticks as they're pressed. They can also be "
+        "clicked with the mouse. Takes effect at once.",
         {
             { Mode::Auto, "Auto", "Auto" },
             { Mode::On, "On", "On" },
@@ -600,7 +984,13 @@ void rush2::touch::update() {
         filter_installed = true;
         SDL_SetEventFilter(event_filter, nullptr);
         start_test_touch();
+#ifdef __linux__
+        if (under_gamescope) {
+            gamescope_touch::start();
+        }
+#endif
     }
+    native_touch_wanted = mode.load() != Mode::Off && SDL_GetKeyboardFocus() != nullptr;
     if (!ultramodern::is_game_started()) {
         return;
     }
@@ -615,6 +1005,7 @@ void rush2::touch::update() {
     uint8_t* rdram = rush2::input::get_rdram();
     bool battle_now = now == Layout::Race && rdram != nullptr && rush2::battle::active(rdram);
     bool look_now = rush2::look_back_enabled();
+    bool manual_now = now == Layout::Race && rdram != nullptr && !rush2::race_setup::port_automatic(rdram, rush2::touch::port);
 
     std::vector<bool> held(touch_buttons.size(), false);
     std::vector<bool> show(touch_buttons.size(), false);
@@ -622,12 +1013,13 @@ void rush2::touch::update() {
     float cx, cy, kx, ky;
     {
         std::lock_guard lock{ touch_mutex };
-        if (now != layout || battle_now != battle_on || look_now != look_back) {
+        if (now != layout || battle_now != battle_on || look_now != look_back || manual_now != manual) {
             // The fingers down stay on nothing until lifted: the controls under them are gone or mean something else.
             for (Finger& f : fingers) f.control = no_control;
             layout = now;
             battle_on = battle_now;
             look_back = look_now;
+            manual = manual_now;
             stick_x = stick_y = 0.0f;
             update_held();
         }
@@ -665,5 +1057,6 @@ void rush2::touch::update() {
             recompui::hide_context(overlay.context);
         }
         overlay.visible = visible;
+        overlay_on_screen = visible;
     }
 }

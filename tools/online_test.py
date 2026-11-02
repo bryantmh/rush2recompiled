@@ -18,6 +18,8 @@ ESC F15 BACK TAB (ESC opens the recomp menu, F15 moves its focus to the tab bar;
 --key "name:T:KEY[,KEY...]" taps the keys on that instance's window at T seconds (0.7 s apart).
 --close "name:T" asks that instance's window to close at T seconds (WM_CLOSE; in a race the game asks first, so follow
 with --key "name:T+1:LEFT,ENTER") and prints how long it takes to exit, for a slow or crashing close.
+--kill "name:T" terminates that instance at T seconds (its own PID), as if its game crashed: the other machines see a
+player vanish mid-race and drop them after the connection timeout.
 """
 import argparse, os, subprocess, sys, time
 
@@ -32,6 +34,7 @@ ap.add_argument('--stagger', type=float, default=3.0)
 ap.add_argument('--hold', action='append', default=[])
 ap.add_argument('--key', action='append', default=[])
 ap.add_argument('--close', action='append', default=[])
+ap.add_argument('--kill', action='append', default=[])
 ap.add_argument('--log-focus', action='store_true', help='print whenever the foreground window changes owner')
 args = ap.parse_args()
 
@@ -98,6 +101,9 @@ try:
     for c in args.close:
         name, t = c.split(':')
         events.append((float(t), name, None))
+    for c in args.kill:
+        name, t = c.split(':')
+        events.append((float(t), name, 'KILL'))
     events.sort(key=lambda e: e[0])
     closing = {}  # name -> time the close was sent
 
@@ -106,6 +112,11 @@ try:
         while events and events[0][0] <= now:
             _, name, key = events.pop(0)
             p = dict(procs).get(name)
+            if key == 'KILL':
+                if p is not None and p.poll() is None:
+                    p.kill()
+                    print('%.1f s: killed %s' % (now, name))
+                continue
             hwnd = shots.find_window(p.pid) if p is not None and p.poll() is None else None
             if hwnd is None:
                 continue

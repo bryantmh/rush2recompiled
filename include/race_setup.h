@@ -19,6 +19,10 @@ namespace rush2::race_setup {
     // profile pointer (+0x24) is left 0 for the caller.
     void init_record(uint8_t* rdram, int player, uint8_t port, uint8_t automatic);
 
+    // Whether the first player on controller `port` (by the records' +0x1) has an automatic TRANSMISSION (+0x20).
+    // True when no record has the port.
+    bool port_automatic(uint8_t* rdram, uint8_t port);
+
     // Fills the car type tables' player rows (0x80200000, row p + 1 for player p, include/car_types.h) for players
     // 0 to players - 1 from the profile in each one's record (+0x24), as the car select does for its own players
     // (carselect_build_list_803B81F0 at 0x803B8B10-0x803B8F7C): the car's settings, colors, rims and wheel scales.
