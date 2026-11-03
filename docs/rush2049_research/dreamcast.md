@@ -60,8 +60,12 @@ translucent let later objects show through tree cards, and translucent with dept
 a per-batch shift, subdivided where the span overflows); conditionals become `E0010003/4`. The layout keeps 8 bytes
 between IMAG, TXLD and OBHD: `merge_models` (src/rush2049/track2049_convert.cpp) maps an address equal to a chunk's end into
 that chunk, so a load list starting where the texels end was relocated into the texels (the first track crash).
-Files with fixed RDRAM windows (battle HUD 61, 63, weapons 76) are fitted by dropping texture levels until they're
-no bigger than the N64's (`fixed_window_files`); every other file keeps each texture as big as TMEM takes. Object names differ in places: `tools/rush2049/dc_names.py` pairs them
+Files with fixed RDRAM windows (HUD 61 and 62, battle HUD 63, weapons 76: src/rush2049/battle_render.cpp's
+`model_files`) are fitted by dropping texture levels until they're no bigger than the N64's (`fixed_window_files`);
+every other file keeps each texture as big as TMEM takes. One file over its window fails `battle_render::ready()` and
+loses every battle model (weapons, kill coin, health frame): 62 was missing from the list until 2026-11-02. Fitting
+63 shrinks HEALTHBG to 4 x 8, so the battle health bar on a disc is drawn from its full-size image
+(`battle_render::image`) at the N64's 64 x 8, not as a Rush 2 HUD widget (which can't draw RGBA). Object names differ in places: `tools/rush2049/dc_names.py` pairs them
 (`src/rush2049dc/rush2049_dc_names.inc`).
 
 Collision (`TRACKnROAD`): little-endian header, SEG, NODE, POLY, VERT and MOVER records; the VLIST and LEAF byte

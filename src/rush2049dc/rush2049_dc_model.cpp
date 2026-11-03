@@ -88,10 +88,11 @@ namespace {
 #include "rush2049_dc_names.inc"
     };
 
-    // Sizes of the non-track N64 files. The game loads only the battle HUD (61, 63) and weapons (76) into fixed RDRAM
-    // windows, so only those made files are held to the N64's size; the rest (cars: src/rush2049/car2049.cpp grows the slot)
-    // keep every texture as big as TMEM takes, and the full-size images come from the texture pack either way.
-    constexpr int fixed_window_files[] = { 61, 63, 76 };
+    // Sizes of the non-track N64 files. The HUD (61, 62), battle HUD (63) and weapons (76) are loaded into fixed RDRAM
+    // windows (src/rush2049/battle_render.cpp; one too big loses every battle model), so only those made files are held
+    // to the N64's size; the rest (cars: src/rush2049/car2049.cpp grows the slot) keep every texture as big as TMEM
+    // takes, and the full-size images come from the texture pack either way.
+    constexpr int fixed_window_files[] = { 61, 62, 63, 76 };
     struct FileSize {
         int file;
         uint32_t bytes;

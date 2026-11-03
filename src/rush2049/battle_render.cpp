@@ -337,9 +337,39 @@ bool rush2::battle_render::image(uint8_t* rdram, const char* name, uint32_t* add
             int width = (file[rec + 16] << 8) | file[rec + 17], height = (file[rec + 18] << 8) | file[rec + 19];
             int palette = (int16_t)((file[rec + 22] << 8) | file[rec + 23]);
             size_t texels = imag.offset + be32(file, rec + 24);
-            // A Dreamcast source's image: RGBA texels behind a load list.
+            // A Dreamcast source's image: RGBA texels behind a load list. The converter shrinks file 63's textures to
+            // the N64 file's size (HEALTHBG to 4 x 8), so the disc's full-size image is used, halved until it fits.
             std::vector<std::array<uint8_t, 4>> rgba;
-            if (palette < 0 && rush2::rom2049::list_image(file, imag.offset, (uint32_t)rec, rgba, width, height)) {
+            bool full = false;
+            if (palette < 0) {
+                for (const rush2::rom2049::SourceTexture& t : loaded_rom->file_textures(image_file)) {
+                    std::vector<uint8_t> pixels;
+                    int fw = 0, fh = 0;
+                    if (t.name != name || !loaded_rom->source_image(t, pixels, fw, fh) || fw <= 0 || fh <= 0) continue;
+                    while (fw * fh * 2 > (int)(image_end - cursor) && fw > 1 && fh > 1) {
+                        std::vector<uint8_t> half((size_t)(fw / 2) * (fh / 2) * 4);
+                        for (int y = 0; y < fh / 2; y++) {
+                            for (int x = 0; x < fw / 2; x++) {
+                                for (int c = 0; c < 4; c++) {
+                                    int sum = 0;
+                                    for (int k = 0; k < 4; k++) sum += pixels[((size_t)(y * 2 + k / 2) * fw + x * 2 + k % 2) * 4 + c];
+                                    half[((size_t)y * (fw / 2) + x) * 4 + c] = (uint8_t)((sum + 2) / 4);
+                                }
+                            }
+                        }
+                        pixels = std::move(half);
+                        fw /= 2;
+                        fh /= 2;
+                    }
+                    rgba.resize((size_t)fw * fh);
+                    for (size_t p = 0; p < rgba.size(); p++) rgba[p] = { pixels[p * 4], pixels[p * 4 + 1], pixels[p * 4 + 2], pixels[p * 4 + 3] };
+                    width = fw;
+                    height = fh;
+                    full = true;
+                    break;
+                }
+            }
+            if (palette < 0 && (full || rush2::rom2049::list_image(file, imag.offset, (uint32_t)rec, rgba, width, height))) {
                 uint32_t bytes = (uint32_t)(width * height * 2);
                 if (cursor + bytes > image_end) break;
                 for (int t = 0; t < width * height; t++) {

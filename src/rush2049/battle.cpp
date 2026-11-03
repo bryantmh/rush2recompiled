@@ -1333,6 +1333,10 @@ namespace {
             mode = Mode::none;
             return;
         }
+        // The health frame decoded now, at the race's setup: a Dreamcast source reads its full-size image from the disc.
+        uint32_t frame_image = 0;
+        int frame_w = 0, frame_h = 0;
+        rush2::battle_render::image(rdram, "HEALTHBG", &frame_image, &frame_w, &frame_h);
         for (int p = 0; p < 4; p++) {
             for (int first : { hud_weapon_slot_first, hud_powerup_slot_first, hud_coin_slot_first }) {
                 slots[first + p].view = p;
@@ -2961,14 +2965,16 @@ namespace {
         }
     }
 
-    // The Weapons cheat's bar, the battle's (update_hud): HEALTHBG with the green fill in its 56 x 4 window.
+    // The Weapons cheat's bar, the battle's (update_hud): HEALTHBG with the green fill in its 56 x 4 window. The frame
+    // is drawn at its N64 size (64 x 8) whatever its texels' (a Dreamcast source's differ).
     void draw_cheat_bar(uint8_t* rdram, const Layout& l, float fraction) {
         if (!l.show_bar) return;
         uint32_t image = 0;
         int w = 0, h = 0;
         if (!rush2::battle_render::image(rdram, "HEALTHBG", &image, &w, &h)) return;
+        constexpr float frame_w = 64.0f, frame_h = 8.0f;
         float x = std::round(l.bar_x), y = std::round(l.bar_y);
-        rush2::hud::draw_image(rdram, image, w, h, x, y, x + (float)w * l.bar_sx, y + (float)h * l.bar_sy, l.bar_anchor);
+        rush2::hud::draw_image(rdram, image, w, h, x, y, x + frame_w * l.bar_sx, y + frame_h * l.bar_sy, l.bar_anchor);
         float x0 = x + std::round(4.0f * l.bar_sx), y0 = y + std::round(2.0f * l.bar_sy);
         float width = std::round(std::clamp(fraction, 0.0f, 1.0f) * 56.0f * l.bar_sx);
         rush2::hud::draw_rect(rdram, x0, y0, x0 + width, y0 + std::round(4.0f * l.bar_sy), 0x008000FF, l.bar_anchor);
@@ -3005,8 +3011,10 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
     static const char frame_name[] = "HEALTHBG";
     for (int c = 0; c < (int)sizeof(frame_name); c++) MEM_B(c, (int32_t)hud_names) = (int8_t)frame_name[c];
     // Only the Rush 2049 arenas' converter merges HEALTHBG into the arena's images: a custom arena's bar (no widgets
-    // here) is drawn as the Weapons cheat's, from Rush 2049's HUD file (hud_draw).
-    bool frame_widgets = rush2::track_mod::race_track() < 0;
+    // here) is drawn as the Weapons cheat's, from Rush 2049's HUD file (hud_draw). So is a Dreamcast source's: its
+    // HEALTHBG is RGBA with no palette, which Rush 2's 2D widgets can't draw (only the stray first texels showed).
+    auto rom = rush2::wings::get_rom();
+    bool frame_widgets = rush2::track_mod::race_track() < 0 && (rom == nullptr || !rom->is_dreamcast());
     for (int p = 0; p < players && frame_widgets; p++) {
         uint32_t entry = hud_entries + (uint32_t)p * entry_size;
         make_entry(rdram, entry, hud_names, 0, 0);
