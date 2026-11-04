@@ -135,6 +135,9 @@ namespace rush2::upscale {
     struct PackTexture {
         std::string path; // Relative path of the image in the pack, with its extension.
         std::vector<uint64_t> hashes;
+        // RT64's shift (ReplacementShift): "half" for upscales, "center" for images the game's textures were scaled
+        // down from (the Dreamcast pack), whose texels line up with the game's at their middles.
+        const char* shift = "half";
     };
     // The pack's rt64.json.
     std::string pack_database(const std::vector<PackTexture>& textures);

@@ -513,6 +513,11 @@ namespace {
         for (const ImageInfo& info : images) {
             bool mine = upscaled.count(info.key) != 0;
             upscale::PackTexture t;
+            // The converted files sample each scaled-down texture where the disc samples its image (half a texel in
+            // from the disc's coordinate, rush2049_dc_model.cpp make()); RT64's usual half shift would put the image
+            // half one of its texels off that, enough to pull the far edge of a wrapping texture into the seams
+            // between a car's panels (docs/rush2049_research/dreamcast.md, Replacement texel centers).
+            t.shift = "center";
             for (const auto& [hash, shrunk] : info.hashes) {
                 if (shrunk || mine) t.hashes.push_back(hash);
             }

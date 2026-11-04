@@ -176,6 +176,24 @@ w x h, no TLUT). Checked in game on track 1: every scaled-down texture drawn had
 
 The upscaler leaves the pack's textures alone (`in_texture_pack`), and the textures drawn with a matched disc image.
 
+### Replacement texel centers [V]
+
+The disc samples texel i of a `w`-wide image at `u * w = i + 0.5`; the converter writes `s = u * w * 32 - 16` (half a
+texel in, `make()` in rush2049_dc_model.cpp), which is the same place on the N64's texel grid (texel i at `s = i`).
+For a texture scaled down by `k`, RT64 samples the pack image at `(s + 0.5) * k` with the shift "half" it gives
+upscales, and filters there the RDP's way (texel i at a whole coordinate): half a disc texel off where the disc
+samples it. A car's side is several wrapping textures side by side (the 8-Ball's `C12_SDE01`-`08`, 64 x 32, drawn
+from 32 x 16) whose UVs stop 0.2-0.6 texels short of each edge, so that half texel pulled the opposite edge into
+every seam: a thin dark line along each panel join (issue #47's screenshot). Sheen, SSAO and MSAA made no difference;
+an offline render of the disc's mesh and textures with the RDP filter at `u * w - 0.5` has no lines, at `u * w` the
+same lines as the game.
+
+The pack's rt64.json gives its textures the shift "center" (an RT64 shift added in lib/patches/rt64.patch,
+`ReplacementShift::Center`, tile flag `centered`): `(s + 0.5) * k - 0.5`, the middle of each N64 texel's block of the
+image, which is exactly where the disc samples for any `k` (and for a player's upscale of a disc image). RT64's
+hardware-sampler paths (mipmaps) already put "half" there and take "center" plus half a texel. Other packs, the
+upscaler's and the N64-source matches' live replacements keep "half".
+
 ### Matching N64 textures [V]
 
 The N64's Rush 2049 textures are the disc's art redrawn in 16 or 256 colors, at a quarter or less of the texels and
