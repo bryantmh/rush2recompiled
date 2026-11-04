@@ -43,6 +43,7 @@ void rush2_hud_build_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_finish_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_finish_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx);
+void rush2_hud_texture_found(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_box_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_box_part(uint8_t* rdram, recomp_context* ctx);
 void rush2_hud_entry_created(uint8_t* rdram, recomp_context* ctx);

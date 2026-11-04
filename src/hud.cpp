@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -55,6 +56,7 @@
 #include "pause_menu.h"
 #include "stunt2049.h"
 #include "track2049.h"
+#include "texture_origin.h"
 
 #include "recompui/recompui.h"
 #include "ultramodern/config.hpp"
@@ -1020,6 +1022,44 @@ void rush2_hud_widget_created(uint8_t* rdram, recomp_context* ctx) {
         slot_identity[slot] = catalog::Identity{};
         slot_reported[slot] = false;
         slots_dirty = true;
+    }
+}
+
+// hud_widget_load_texture_80060340 just after its texture_find_by_name_800601F8 call ($v0 the texture record, the
+// widget at $sp + 0x20, its handle (slot << 10 | index) at +0xC). The lookup searches the model containers from slot 0
+// up and the race track's is slot 0, so a track texture named like a HUD image hides the HUD's: Rush 2049's Haight
+// has a 32 x 64 road sign WRONGWAY, and the race HUD drew it as WRONG WAY. Rush 2's own tracks have no such name
+// clash with the race HUD, so for a race HUD widget whose match is another game's data, the first later container
+// with a Rush 2 texture of the same name is used.
+void rush2_hud_texture_found(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t texture_tables = 0x80119220;     // per container: records (0x20 bytes each, name first), count
+    constexpr uint32_t container_count = 0x800D5788;    // u8
+    uint32_t record = (uint32_t)ctx->r2;
+    if (!building_hud || record == 0 || rush2::origin::at(record) == rush2::origin::Game::Rush2) {
+        return;
+    }
+    int32_t widget = MEM_W(0x20, (int32_t)ctx->r29);
+    int slot = (uint16_t)MEM_H(0xC, widget) >> 10;
+    int count = MEM_BU(0, (int32_t)container_count);
+    auto same_name = [&](uint32_t other) {
+        for (int c = 0; c < 16; c++) {
+            char a = (char)MEM_B(c, (int32_t)record), b = (char)MEM_B(c, (int32_t)other);
+            if (std::toupper((unsigned char)a) != std::toupper((unsigned char)b)) return false;
+            if (a == 0) return true;
+        }
+        return true;
+    };
+    for (int s = slot + 1; s < count && s < 32; s++) {
+        uint32_t records = (uint32_t)MEM_W(0, (int32_t)(texture_tables + s * 8));
+        int n = MEM_W(4, (int32_t)(texture_tables + s * 8));
+        for (int i = 0; records != 0 && i < n && i < 0x400; i++) {
+            uint32_t other = records + (uint32_t)i * 0x20;
+            if (same_name(other) && rush2::origin::at(other) == rush2::origin::Game::Rush2) {
+                ctx->r2 = (gpr)(int32_t)other;
+                MEM_H(0xC, widget) = (int16_t)((s << 10) | i);
+                return;
+            }
+        }
     }
 }
 

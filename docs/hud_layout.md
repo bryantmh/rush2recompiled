@@ -275,6 +275,21 @@ French, German: 1STPLACE, BONUSTIME4, ENDPLAC1, ENDPLACE, GAMEOVER, GEAR, WRONGW
 `height - 1 - y` (0x8007EF6C-0x8007EFD0); source rectangles are top down. Format 5 (the big digits) is the game's
 own: an intensity the draw tints with the primitive color, texels of 0 transparent.
 
+### Image name clashes with the track
+
+A widget finds its image by name: `hud_widget_load_texture_80060340` calls `texture_find_by_name_800601F8` over every
+loaded model container from slot 0 up (texture tables at 0x80119220, 8 bytes per slot: records, count; slot count
+u8 0x800D5788), and the race track's container is slot 0. Rush 2's own tracks have no texture named like a race HUD
+image, but converted tracks can: Rush 2049's Haight has a 32 x 64 road sign texture WRONGWAY (between VICTORIA2NDWIN
+and YELCURV4), and the race HUD drew that sign's texels as the WRONG WAY banner (a 32 x 64 strip of garbage at
+(88,50)), with Rush 2's 144 x 22 WRONGWAY (slot 8, the language asset) loaded but unused. A hook after the lookup
+(0x800603C8, `rush2_hud_texture_found` in src/hud.cpp) handles race HUD widgets only (`building_hud`): when the match is
+another game's data (`rush2::origin::at`, so Rush 2049 N64/Dreamcast and SF Rush tracks), the first later container
+holding a Rush 2 texture of the same name is used instead, and the widget's handle (+0xC, slot << 10 | index) points at
+it. Found by reading the live game's RAM (`tools/live_ram.py PID --dump FILE`): the WRONG WAY widget's image record was
+in the track's table. Stock Rush 2 clashes (FLAG in asset 0x1A, FINISH in 0x39) are Rush 2 data, so they are left as
+the game resolves them.
+
 ### Roles
 
 | Role | Parts | Can appear (the game's HUD setting, the race) |

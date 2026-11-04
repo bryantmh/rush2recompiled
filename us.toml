@@ -279,6 +279,13 @@ func = "highscore_screen_800606A8"
 before_vram = 0x8006077C
 text = "    rush2_hud_highscore_create_end(rdram, ctx);"
 
+# A race HUD widget's texture lookup: a converted track's texture named like a HUD image (Haight's WRONGWAY sign) no
+# longer stands in for the HUD's own (src/hud.cpp rush2_hud_texture_found).
+[[patches.hook]]
+func = "hud_widget_load_texture_80060340"
+before_vram = 0x800603C8
+text = "    rush2_hud_texture_found(rdram, ctx);"
+
 # Widget initialized: $v1 = slot, $a0 = widget.
 [[patches.hook]]
 func = "hud_widget_alloc_800541F8"

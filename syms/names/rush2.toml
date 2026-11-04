@@ -5093,11 +5093,11 @@ ref = "docs/rush2049_research/geometry.md#24-texture-record-0x20-and-palette-rec
 vram = 0x80060340
 name = "hud_widget_load_texture"
 sig = "void hud_widget_load_texture(Widget *w)"
-desc = "Looks up texture by name (texture_find_by_name) and stores its width/height (+0x10/+0x12) into widget fields 0xC/0x14/0x16; sets widget fields 0,4,8. Doesn't check the lookup: a name missing from the containers reads through a null record (the track select's logo callback crashed on a 2049 logo the menu container lacked)."
-status = "inferred"
+desc = "Looks up texture by name (texture_find_by_name) and stores its width/height (+0x10/+0x12) into widget fields 0xC/0x14/0x16; sets widget fields 0,4,8. Doesn't check the lookup: a name missing from the containers reads through a null record (the track select's logo callback crashed on a 2049 logo the menu container lacked). Searches containers 0..n-1 (texture_find_by_name a2=0, a3=count-1), so the race track's slot 0 wins a name clash; patched in us.toml (0x800603C8, rush2_hud_texture_found) so a converted track's texture (Haight's WRONGWAY sign) never replaces a race HUD image."
+status = "verified"
 rush2049 = [0x800B362C]
 area = "ui"
-ref = "docs/rush2049_research/dreamcast.md#track-select-art-from-the-disc-v"
+ref = "docs/hud_layout.md#image-name-clashes-with-the-track"
 
 [[func]]
 vram = 0x80060418
