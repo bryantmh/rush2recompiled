@@ -88,8 +88,10 @@ re-rolls 5. [V]
 Disc song: the Dreamcast `.STR` that the N64 song arranges. Matched by tempo and by time-aligned chroma: 60 s of the
 N64 render (`audio_build.bat --song N`) slid over the whole decoded stream, mean frame correlation 0.54-0.87 for the
 match against 0.26-0.43 for every other stream. Songs 4, 7 and 8 have no clear counterpart (best 0.36, 0.48, 0.49 with
-runners-up within 0.03; 8 sits closest to Noon and Sunset). The Sound tab (src/music.cpp) names the matched N64 songs
-after their disc song and keeps a number for the rest. [I]
+runners-up within 0.03; 8 sits closest to Noon and Sunset). These matches are weak (the lowest match is barely above
+the best non-match, and song 0's 32 bpm is likely a misread tempo), so they only hint that the N64 song arranges
+that disc song. [I] The ROM names no songs; the Sound tab (src/music.cpp) names each N64 song after the first track
+that plays it: Marina, Haight, Civic, Metro, Mission, Presidio, Stunt 1 (song 8) and Stunt 3 (song 9).
 
 Song n is played with `sndSeqPlay(group n, song n, data, NULL)`: no start volume or fade, all tracks on, speed 1
 (func_800979A0; group/song pair table 0x8011F070). A new song only starts once the old one was stopped. [V]
