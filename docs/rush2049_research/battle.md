@@ -399,8 +399,9 @@ race, and on every race with More Circuit Settings.
 - **Time**: half as much again. `rush2_track49_race_time` (`path_load_derive_80093048` at 0x80093298, after the game
   worked out the start time, path header copy +0 at 0x8010BCE8, and each checkpoint's extensions +0x1E / +0x20 from
   the AI lanes; Rush 1 and 2049 tracks set theirs there too) multiplies them by 1.5 when
-  `rush2::battle::race_battle_applies` (the row on, the Rush 2049 tracks there, not stunt mode, a battle arena or a
-  ghost race). Seen: the test track's start time 38 -> 57 s with the row on, unchanged with it off.
+  `rush2::battle::race_battle_applies` (the row on, the Rush 2049 tracks there, not stunt mode, a battle arena, a
+  ghost race or the attract demo, 0x800FAE6C: the Weapons cheat skips the demo too, issue #45: the demo car's held
+  weapon stayed on the title; `rush2_battle_render_view` also drops every placed model in game states 0-2). Seen: the test track's start time 38 -> 57 s with the row on, unchanged with it off.
 - **Missile** (3 per pickup, as 2049): faster than the arenas' so it can catch a car at full speed. It starts at the
   car's speed + 165 ft/s and settles at 360 ft/s (245 mph; 2049's settles at 100) (its gap shrinking by 2x its size per second,
   about halved every 0.35 s), and turns speed / 100 times 2049's rate (the same turning circle), each step stopping at the target's

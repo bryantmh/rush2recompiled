@@ -122,6 +122,7 @@ namespace {
     constexpr uint32_t cameras = 0x800E79D0;         // Per view, 0x40 bytes: rows +0 right, +0xC up, +0x18 forward; +0x24 position.
     constexpr uint32_t game_state = 0x8010C0D0;      // 0-2 the menus, track select and car select; 3 and up a race
     constexpr uint32_t race_type = 0x8010C3E8;       // s32: 1 circuit, 2 stunt mode
+    constexpr uint32_t attract_demo = 0x800FAE6C;    // u8: nonzero while the attract demo runs (docs/camera.md)
 
     // Car fields.
     constexpr uint32_t car_force = 0x11C;            // f32[3] external force, car-local, cleared each step
@@ -2343,7 +2344,7 @@ int rush2::battle::time_limit_seconds() {
 
 bool rush2::battle::race_battle_applies(uint8_t* rdram) {
     return race_option && rush2::track2049::available() && MEM_W(0, (int32_t)race_type) != 2 && !rush2::ghost::chosen() &&
-           !rush2::track2049::battle_arena_race(rdram);
+           !rush2::track2049::battle_arena_race(rdram) && MEM_BU(0, (int32_t)attract_demo) == 0;
 }
 
 void rush2::battle::set_fire_backward(bool on) {
@@ -2561,8 +2562,10 @@ void rush2::battle::tick(uint8_t* rdram, float dt, recomp_context* ctx) {
     // reset, when its track is loaded).
     if (state == 10 && last_state != 10) setup_pending = true;
     last_state = state;
-    // The Weapons cheat needs the Rush 2049 tracks (the Cheats tab grays it out without them).
-    bool cheat = cheat_option != 0 && rush2::track2049::available() && (state == 3 || state == 10);
+    // The Weapons cheat needs the Rush 2049 tracks (the Cheats tab grays it out without them). Neither it nor the
+    // BATTLE row arms the attract demo, which takes no player's settings.
+    bool demo = MEM_BU(0, (int32_t)attract_demo) != 0;
+    bool cheat = cheat_option != 0 && rush2::track2049::available() && (state == 3 || state == 10) && !demo;
     // The BATTLE row: a race (not stunt mode, 0x8010C3E8 == 2, nor a ghost race), with the Rush 2049 tracks too.
     bool race = rush2::battle::race_battle_applies(rdram) && (state == 3 || state == 10);
     Mode want = battle_race(rdram) ? Mode::arena : race ? Mode::race : cheat ? Mode::cheat : Mode::none;

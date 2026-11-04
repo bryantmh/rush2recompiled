@@ -62,6 +62,7 @@ namespace {
     uint32_t side_cursor = side_start;
 
     constexpr uint32_t cameras = 0x800E79D0;         // Per view, 0x40: +0x24 position
+    constexpr uint32_t game_state = 0x8010C0D0;      // 0-2 the menus, track select and car select; 3 and up a race
     constexpr uint32_t main_dl_head = 0x80022FD8;
     constexpr uint32_t lighting_cache = 0x800E7DE1;  // func_8007AA48: nonzero while G_LIGHTING is on.
     constexpr uint32_t palette_cache = 0x80111954;   // func_80078190: palette last loaded into TMEM, 0 for none.
@@ -512,6 +513,12 @@ void rush2::battle_render::clear() {
 // func_8007C624's exit: the placed models of the view just drawn.
 extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
     std::lock_guard lock{ mutex };
+    // The menus draw 3D views too (the title's logo). Their users place these models from a race's ticks, which stop
+    // when it ends, so a race left for the menus (the attract demo going back to the title) would keep its last ones.
+    if ((int32_t)MEM_W(0, (int32_t)game_state) < 3) {
+        for (Item& it : items) it.on = false;
+        return;
+    }
     uint32_t view = 0, gen = 0, root = 0, projection = 0, lookat = 0;
     rush2_interp_get_generation(&view, &gen);
     if (!loaded || !rush2_interp_view_matrices(view, &root, &projection, &lookat)) return;
