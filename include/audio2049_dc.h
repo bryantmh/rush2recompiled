@@ -31,9 +31,11 @@ namespace rush2::audio2049::dc {
     void sfx_stop(int handle);
     bool sfx_active(int handle);
     void sfx_stop_all();
+    void sfx_set_engine(int handle);
     bool sfx_samples(int id, std::vector<int16_t>& pcm, uint32_t& rate);
 
-    void mix(float* interleaved_stereo, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain);
+    void mix(float* interleaved_stereo, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain,
+             float engine_gain);
     void stats(Stats& out);
 }
 

@@ -78,6 +78,7 @@ namespace {
         float pitch = 1.0f;
         bool releasing = false;
         float release = 1.0f;
+        bool engine = false;   // a car engine: mixed at the engine gain (sfx_set_engine)
     };
 
     struct Song {
@@ -462,6 +463,12 @@ void rush2::audio2049::dc::sfx_stop_all() {
     for (Voice& v : st->voices) v = Voice{};
 }
 
+void rush2::audio2049::dc::sfx_set_engine(int handle) {
+    std::lock_guard lock{ mutex };
+    if (!st) return;
+    if (Voice* v = voice_by_handle(*st, handle)) v->engine = true;
+}
+
 bool rush2::audio2049::dc::sfx_samples(int id, std::vector<int16_t>& pcm, uint32_t& rate) {
     std::lock_guard lock{ mutex };
     int dc = dc_sound(id);
@@ -473,14 +480,15 @@ bool rush2::audio2049::dc::sfx_samples(int id, std::vector<int16_t>& pcm, uint32
     return !pcm.empty();
 }
 
-void rush2::audio2049::dc::mix(float* out, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain) {
+void rush2::audio2049::dc::mix(float* out, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain,
+                               float engine_gain) {
     std::lock_guard lock{ mutex };
     if (!st || sample_rate == 0) return;
     const float dt = 1.0f / (float)sample_rate;
     // Effects.
-    float fx = sfx_gain * sfx_scale / 32768.0f;
     for (Voice& v : st->voices) {
         if (v.s == nullptr) continue;
+        float fx = (v.engine ? engine_gain : sfx_gain) * sfx_scale / 32768.0f;
         const Sample& s = *v.s;
         size_t n = s.pcm.size();
         double step = (double)s.rate * v.pitch / sample_rate;

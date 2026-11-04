@@ -678,6 +678,7 @@ namespace {
         uint32_t notes_started = 0, notes_dropped = 0, loops = 0;
         uint16_t channel_notes[16]{};
         u32 last_sfx_vid = no_id;
+        std::vector<u32> engine_vids; // effects marked as car engines (sfx_set_engine), mixed at the engine gain
     };
 
     std::mutex engine_mutex;
@@ -2988,13 +2989,19 @@ namespace {
         return true;
     }
 
-    void render(float* out, u32 n, float music_gain, float sfx_gain) {
+    float voice_gain(const HwVoice& h, float music_gain, float sfx_gain, float engine_gain) {
+        if (!h.fx) return music_gain;
+        const auto& e = eng->engine_vids;
+        return !e.empty() && std::find(e.begin(), e.end(), h.owner) != e.end() ? engine_gain : sfx_gain;
+    }
+
+    void render(float* out, u32 n, float music_gain, float sfx_gain, float engine_gain) {
         for (int i = 0; i < voice_num; i++) {
             HwVoice& h = eng->hw[i];
             if (!h.active || h.starting || h.smp == nullptr || h.smp->pcm.empty()) {
                 continue;
             }
-            float g = h.fx ? sfx_gain : music_gain;
+            float g = voice_gain(h, music_gain, sfx_gain, engine_gain);
             if (!render_voice(h, out, n, eng->ms_pos, eng->ms_len, g, true)) {
                 hw_deactivate(i, true, false);
             }
@@ -3002,7 +3009,7 @@ namespace {
         for (size_t k = 0; k < eng->tails.size();) {
             Tail& t = eng->tails[k];
             u32 m = std::min(n, t.left);
-            float g = t.v.fx ? sfx_gain : music_gain;
+            float g = voice_gain(t.v, music_gain, sfx_gain, engine_gain);
             bool alive = render_voice(t.v, out, m, 0, 1, g, false, t.gain_l, t.gain_r, t.left, t.total);
             t.left -= m;
             if (!alive || t.left == 0) {
@@ -3267,9 +3274,27 @@ namespace rush2::audio2049 {
         }
     }
 
-    void mix(float* out, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain) {
+    void sfx_set_engine(int handle) {
+        if (dc_primary) {
+            dc::sfx_set_engine(handle);
+            return;
+        }
+        std::lock_guard lock{ engine_mutex };
+        if (eng == nullptr || handle < 0) {
+            return;
+        }
+        // Forget the engines that have ended (each engine layer restart adds one).
+        auto& e = eng->engine_vids;
+        e.erase(std::remove_if(e.begin(), e.end(), [](u32 vid) {
+            int i = int(vid & 0xFF) % voice_num;
+            return !(eng->sv[i].vid == vid || (eng->hw[i].active && eng->hw[i].owner == vid));
+        }), e.end());
+        e.push_back(u32(handle));
+    }
+
+    void mix(float* out, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain, float engine_gain) {
         // Both players: the disc's (its effects when it's the source, or its songs beside the N64's) and MusyX.
-        dc::mix(out, frames, sample_rate, music_gain, sfx_gain);
+        dc::mix(out, frames, sample_rate, music_gain, sfx_gain, engine_gain);
         std::lock_guard lock{ engine_mutex };
         if (eng == nullptr || !eng->data.ok || sample_rate == 0) {
             return;
@@ -3291,7 +3316,7 @@ namespace rush2::audio2049 {
                 continue;
             }
             u32 n = u32(std::min<size_t>(eng->ms_left, frames - done));
-            render(out + done * 2, n, music_gain, sfx_gain);
+            render(out + done * 2, n, music_gain, sfx_gain, engine_gain);
             done += n;
             eng->ms_left -= n;
             eng->ms_pos += n;

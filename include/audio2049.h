@@ -81,10 +81,13 @@ namespace rush2::audio2049 {
     bool sfx_active(int handle);
     // Stops every effect at once (no release).
     void sfx_stop_all();
+    // Marks a playing effect as a car engine: it is mixed at engine_gain (Rush 2's ENGINE volume) instead of sfx_gain.
+    void sfx_set_engine(int handle);
 
     // Adds interleaved stereo audio at sample_rate into the buffer (does not clear it). Music voices are scaled by
-    // music_gain and effect voices by sfx_gain.
-    void mix(float* interleaved_stereo, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain);
+    // music_gain, engine effects (sfx_set_engine) by engine_gain and other effect voices by sfx_gain.
+    void mix(float* interleaved_stereo, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain,
+             float engine_gain);
 
     // Rush 2049's 3D emitter law for one listener (func_80098AE4): the volume, pan and surround it would pass to
     // sfx_update for an emitter at `emitter` heard by a listener at `listener` (Rush 2049 uses the player car's

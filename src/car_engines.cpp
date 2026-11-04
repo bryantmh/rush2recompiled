@@ -257,6 +257,7 @@ namespace {
             }
             if (h < 0 || !audio::sfx_active(h)) {
                 h = audio::sfx_start(mix[l].sound, e.volume, e.pan, mix[l].pitch, e.surround);
+                audio::sfx_set_engine(h);   // on the ENGINE volume, as Rush 2's engines
             }
             else {
                 audio::sfx_update(h, e.volume, e.pan, mix[l].pitch, e.surround);

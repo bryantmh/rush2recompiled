@@ -6,7 +6,9 @@
 //   pitch  = 1 + (rpm - base) / span, clamped to 0-2,
 //   volume = v0 below rpm point 0, v0 -> v1 -> v2 linearly up to point 2, v2 above,
 // times the load factor 0.85 + (load + 200) / 900 x 0.15 (car +0x404, the engine torque). The local player's own car
-// plays at that volume x (0.8 - 0.05 x players), without position; other cars are 3D emitters at 0.75 of it. Outside
+// plays at that volume x (0.8 - 0.05 x players), without position; other cars are 3D emitters at 0.75 of it. Here
+// the engines are mixed at Rush 2's ENGINE volume (0x800D577A, audio2049::sfx_set_engine), not its SFX volume, as Rush
+// 2's own engines are (issue #49: a 2049 car's engine ignored the ENGINE slider). Outside
 // races (0x801174B4 without 0x400000) other cars' rpm is held at 890, and they also get a random sound 98-100.
 //
 // Rush 2 plays an engine only per local player slot (src/engine_preview.cpp has its details: func_8008C61C starts
@@ -81,6 +83,7 @@ namespace {
             int& h = e.handles[l];
             if (h < 0 || !audio::sfx_active(h)) {
                 h = audio::sfx_start(mix[l].sound, volume, 0.0f, mix[l].pitch);
+                audio::sfx_set_engine(h);   // on the ENGINE volume, as Rush 2's engines
                 fprintf(stderr, "[2049] Engine level %d layer %d: sound 0x%02X (handle %d)\n", level + 1, l, mix[l].sound, h);
             }
             else {

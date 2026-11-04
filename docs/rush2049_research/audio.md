@@ -260,6 +260,11 @@ func_800E0050 (from func_800E05F0, every other frame) updates each layer from rp
 - the local player's car: volume x (0.8 - 0.05 x players), pitch and volume sent only when they change;
 - other cars: volume x 0.75 as the emitter's maximum volume (func_800BF2B8), at the car's position (+0x22C).
 
+In the port the engine layers are mixed at Rush 2's ENGINE volume (s8 0-40 at 0x800D577A), not its SFX volume
+(0x800D5774), as Rush 2 plays its own engines: `audio2049::sfx_set_engine` marks each layer's handle, and the mixers
+(MusyX by the hardware voice's owner, the disc player per voice) give marked voices the engine gain
+(`update_gains`, src/rush2049/track2049_audio.cpp). Issue #49.
+
 Outside races (0x801174B4 without 0x400000) other cars' rpm is held at 890, and they also play a random sound
 0x62-0x64 (1 in 5 per update, range 400, volume 0.8) [I: the race bit's meaning].
 
