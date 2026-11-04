@@ -928,7 +928,8 @@ extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
 // each checkpoint's lap-1 and later-lap extensions (+0x1E/+0x20) are the time to drive each stretch at the speeds of
 // the path's AI lanes. Some of Rush 2049's lanes run faster than Rush 2's average even after the Car Speeds lane map
 // (rush2_race_lane_speeds), so the times are scaled by how much faster this path's first lane is than Rush 2's lanes
-// on average in the same Car Speeds mode (docs/rush2049_research/checkpoints.md).
+// on average in the same Car Speeds mode, and each stretch gets the time of its slowest lane where lane 0 is faster
+// than the others (docs/rush2049_research/checkpoints.md).
 static void path_race_time(uint8_t* rdram) {
     constexpr uint32_t header = 0x8010BCE8;       // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
     constexpr uint32_t path_pointer = 0x800D575C; // The loaded path file.
@@ -1000,18 +1001,51 @@ static void path_race_time(uint8_t* rdram) {
     if (time <= 0.0) {
         return;
     }
-    float scale = float(length / time) / (rush2_lane_speed * rush2::car2049::rush2_lane_scale());
-    if (scale <= 1.0f) {
-        return;
-    }
-    auto scale_field = [&](uint32_t addr) {
-        int16_t v = (int16_t)MEM_H(0, (int32_t)addr);
-        MEM_H(0, (int32_t)addr) = (int16_t)std::lround(v * scale);
+    float scale = std::max(1.0f, float(length / time) / (rush2_lane_speed * rush2::car2049::rush2_lane_scale()));
+    // func_800924E4 times each stretch (checkpoint i's crossing to the next one's, the extension stored at i) along
+    // lane 0 only. Rush 2's four lanes agree to within about a second a lap, but some Rush 2049 lanes 0 hold one speed
+    // all the way round with no slowing for corners (Marina forward: 181 everywhere, its lane 1 laps 22% slower), so
+    // each stretch gets the time of its slowest lane (checkpoints.md#01-flat-lane-0-on-marina-and-civic-forward).
+    // Lane speeds here are already through the Car Speeds map (rush2_race_lane_speeds), as func_800924E4 read them.
+    int loop_cp = (int16_t)MEM_H(0, (int32_t)(header + 2));
+    auto lane_stretch = [&](int l, int from_cp, int to_cp) -> double {
+        uint32_t pts = (uint32_t)MEM_W(0, (int32_t)(lane_points + l * 4));
+        int n = MEM_HU(0, (int32_t)(lane_counts + l * 2));
+        int a = (int16_t)MEM_H(0, (int32_t)(header + 0xC + from_cp * 0x50 + 0x22 + (l + 1) * 2));
+        int b = (int16_t)MEM_H(0, (int32_t)(header + 0xC + to_cp * 0x50 + 0x22 + (l + 1) * 2));
+        if (pts == 0 || n <= 1 || n > 4096 || a < 0 || a >= n || b < 0 || b >= n) return 0.0;
+        double t = 0.0;
+        for (int i = a; i != b; i = (i + 1) % n) {
+            uint32_t p = pts + i * 8, q = pts + ((i + 1) % n) * 8;
+            double dx = (int16_t)MEM_H(0, (int32_t)q) - (int16_t)MEM_H(0, (int32_t)p);
+            double dy = (int16_t)MEM_H(0, (int32_t)(q + 2)) - (int16_t)MEM_H(0, (int32_t)(p + 2));
+            double dz = (int16_t)MEM_H(0, (int32_t)(q + 4)) - (int16_t)MEM_H(0, (int32_t)(p + 4));
+            int speed = MEM_BU(0, (int32_t)(p + 6));
+            if (speed > 0) t += std::sqrt(dx * dx + dy * dy + dz * dz) / speed;
+        }
+        return t;
     };
-    scale_field(header);
+    double lap0 = 0.0, lap_slowest = 0.0;
+    std::vector<float> stretch_scale(count, scale);
     for (int i = 0; i < count; i++) {
-        scale_field(header + 0xC + i * 0x50 + 0x1E);
-        scale_field(header + 0xC + i * 0x50 + 0x20);
+        int next = i + 1 < count ? i + 1 : loop_cp;
+        if (next < 0 || next >= count) continue;
+        double t0 = lane_stretch(0, i, next), slowest = t0;
+        for (int l = 1; l < 4; l++) slowest = std::max(slowest, lane_stretch(l, i, next));
+        lap0 += t0;
+        lap_slowest += slowest;
+        if (t0 > 0.0) stretch_scale[i] = std::max(scale, float(slowest / t0));
+    }
+    float start_scale = lap0 > 0.0 ? std::max(scale, float(lap_slowest / lap0)) : scale;
+    auto scale_field = [&](uint32_t addr, float s) {
+        if (s <= 1.0f) return;
+        int16_t v = (int16_t)MEM_H(0, (int32_t)addr);
+        MEM_H(0, (int32_t)addr) = (int16_t)std::lround(v * s);
+    };
+    scale_field(header, start_scale);
+    for (int i = 0; i < count; i++) {
+        scale_field(header + 0xC + i * 0x50 + 0x1E, stretch_scale[i]);
+        scale_field(header + 0xC + i * 0x50 + 0x20, stretch_scale[i]);
     }
 }
 

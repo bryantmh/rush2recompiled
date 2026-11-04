@@ -43,6 +43,27 @@ Civic forward is granted about 5% less than its real lanes' pace, and Marina for
 (179) has four equal lanes (92 s) and is fine. Presidio b lanes run 186-224 s, which still needs a look: some lanes
 may hold AI stop points.
 
+**Fix (2026-11-03, report: "Marina doesn't have long enough checkpoints"):** `path_race_time`
+(`src/rush2049/track2049.cpp`) now gives each stretch the time of its **slowest** lane: it walks every lane between
+the header copy's lane crossings (checkpoint +0x22 slots 1-4) at the mapped lane speeds, and each checkpoint's
+extensions are multiplied by max(the 139.3 scale, slowest lane ÷ lane 0) for that stretch; the start time by the same
+ratio over the whole lap. Rush 2's own paths are untouched (2049 tracks only), and where a path's lanes agree nothing
+changes. The average of the lanes was rejected: Marina f's three flat lanes pull it to 61 s, below the 62 s the 139.3
+scale already gave. Per lap before the difficulty factor, Rush 2 speeds:
+
+| path | forward | backward |
+|---|---|---|
+| Marina | 58 → 66 (+14%) | 0 |
+| Haight | 0 | 0 |
+| Civic | 82 → 90 (+10%) | 0 |
+| Metro | 114 → 132 (+16%) | 120 → 124 (+3%) |
+| Mission | 92 → 99 (+8%) | 0 |
+| Presidio | 214 → 216 (+1%) | 206 → 257 (+25%: lanes 1-3 hold a 26-28 mph stretch lane 0 skips) |
+
+Grip was checked too: capped to 3.3 g (what Rush 2's circuit lanes ask for) with 40 ft/s² braking, 2049 lanes lose
+2-5% a lap, Rush 2's circuits about 1% and its Alcatraz and LA about 6%, so the lanes' corner speeds aren't the
+shortfall. Scripts: `tmp/stretch_times.py`, `tmp/lane_g.py` (one-off).
+
 The arcade Civic (custom track `civic_arcade`, no scale, lane 0 = `AIPATH_lane1`) is granted 87 s per lap, the same
 as `AIPATH_main` and `lane4`. `lane2`/`lane3` lap in 106 s only because they hold a speed-1 AI stop point. Both
 Civics' real lanes average about 137-139 mph (Rush 2 mph), at the fast end of Rush 2's tracks (125-148), on a
