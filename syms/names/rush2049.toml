@@ -1789,6 +1789,13 @@ area = "other"
 ref = "docs/rush2049_research/movers.md#6-effects-on-cars-v-unless-marked"
 
 [[func]]
+vram = 0x800A6244
+desc = "Projects a world position (a1) through view a2 to screen coordinates (s16 x, y at the 5th argument); func_800FEE04 places its title and row texts with it."
+status = "inferred"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
+
+[[func]]
 vram = 0x800A7480
 desc = "2049 per-track fog / clear color setup (table 0x80114658, 3 bytes x 20); twin of Rush 2 func_80054DCC."
 status = "verified"
@@ -2213,6 +2220,14 @@ area = "ui"
 ref = "docs/rush2049_research/stunts.md#5-the-hud"
 
 [[func]]
+vram = 0x800B3D18
+name = "font_tables_load"
+desc = "Points the font state at the current font's glyph table (0x801497F0 header, 0x80149800 records from +0x10, 12 bytes each, count header byte 12), sets each record's first word to its kerning row (after the records, count bytes a row) when header byte 10 is set, fills the char-to-record map 0x80149878 (s16, -1 none) and copies header bytes 4 and 8 to 0x80149B60 and 0x80149B70."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
+
+[[func]]
 vram = 0x800B3F50
 name = "text_line_height"
 sig = "s16 text_line_height(void)"
@@ -2224,9 +2239,10 @@ ref = "docs/rush2049_research/stunts.md#5-the-hud"
 [[func]]
 vram = 0x800B3FA4
 name = "text_width"
-desc = "Width in pixels of string a0 in the current font (a1 = -1: whole string)"
+desc = "Width of string a0 in the current font (a1 = -1: whole string): each glyph adds x1 - x0 + 1 + the gap (header byte 8, 0x80149B70), a space header byte 7; with kerning (header byte 10) kern[this record][previous record] is taken off unless the previous is record 0 or a space; the last gap is taken off the total."
 status = "inferred"
-ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800B4200
@@ -2297,9 +2313,10 @@ ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 [[func]]
 vram = 0x800B71D4
 name = "text_draw"
-desc = "Draws string a2 at (a0, a1) in the current font, with the current horizontal (0x80118E20) and vertical (0x80118E24) alignment"
+desc = "Draws string a2 at (a0, a1) in the current font. Horizontal alignment 0x80118E20 (1 centers, 2 right-aligns, by text_width_800B3FA4); vertical 0x80118E24 (1 moves y up by half the glyph table's ascent + descent, header bytes 2 and 3, truncated toward zero; 4 by all of it). Stores x/y at 0x80149D92/0x80149D9E and draws with func_800B6BEC."
 status = "inferred"
-ref = "docs/functions/rush2049_other.md#rush-2049-other-functions"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800B74A0

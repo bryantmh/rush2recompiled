@@ -15,7 +15,8 @@
 // reads each row at double S to reach the high nibble of every CI8 texel).
 //
 // Set RUSH2_DUMP_FONT_TABLES=<path> to dump the font tables the pack is built from (see dump_font_tables), and
-// RUSH2_DUMP_IMAGES=<path> to dump every 2D image the game loads (see dump_image_load).
+// RUSH2_DUMP_IMAGES=<path> to dump every 2D image the game loads (see dump_image_load). RUSH2_FONT_PACK=<path> installs
+// another build of the pack for a test run.
 
 #include <atomic>
 #include <cstdint>
@@ -266,6 +267,10 @@ void rush2_font_load_end(uint8_t* rdram, recomp_context* ctx) {
 
 void rush2::install_font_pack() {
     std::filesystem::path source = recompui::file::get_program_path() / "assets" / font_pack_filename;
+    // Test runs: RUSH2_FONT_PACK=<path> installs that pack instead (tools/build_font_pack.py variants).
+    if (const char* test_pack = std::getenv("RUSH2_FONT_PACK"); test_pack != nullptr && test_pack[0] != '\0') {
+        source = test_pack;
+    }
     std::filesystem::path mods_dir = recomp::mods::get_mods_directory();
     std::filesystem::path dest = mods_dir / font_pack_filename;
 

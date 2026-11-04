@@ -216,11 +216,11 @@ func = "menu_text_cb_start_game_labels_803C364C"
 before_vram = 0x803C3818
 text = "    rush2_menus49_row(rdram, ctx, 0);"
 
-# Start Game (its other table).
+# The option lists (menu_screen_options_list_803B17A8: SETUP and its submenus).
 [[patches.hook]]
 func = "menu_text_cb_start_game_alt_803C3334"
 before_vram = 0x803C34FC
-text = "    rush2_menus49_row(rdram, ctx, 0);"
+text = "    rush2_menus49_row(rdram, ctx, 3);"
 
 # the circuit menu.
 [[patches.hook]]
@@ -238,12 +238,6 @@ text = "    rush2_menus49_row(rdram, ctx, 2);"
 [[patches.hook]]
 func = "records_text_draw_page_a_803BFD54"
 before_vram = 0x803C0260
-text = "    rush2_menus49_row(rdram, ctx, 2);"
-
-# the saved players.
-[[patches.hook]]
-func = "menu_text_cb_profile_list_803C2E2C"
-before_vram = 0x803C3090
 text = "    rush2_menus49_row(rdram, ctx, 2);"
 
 [[patches.hook]]

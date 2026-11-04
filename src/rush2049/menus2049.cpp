@@ -57,6 +57,7 @@
 #include "rt64_extended_gbi.h"
 
 extern "C" void text_measure_string_800732AC(uint8_t* rdram, recomp_context* ctx);
+extern "C" void text_print_string_800734E0(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
     // Rush 2.
@@ -78,6 +79,17 @@ namespace {
     constexpr uint32_t main_dl_cursor = 0x80022FD8;   // the frame's display list
     constexpr uint32_t dl_2d_cursor = 0x80125ABC;     // the 2D display list
     constexpr int flash_style = 0x14;
+    constexpr int16_t home_screen = 0;                // front_end_screen: Start Game
+    constexpr int16_t select_player_screen = 1;
+    constexpr int32_t header_bottom = 42;             // the header plates' band, y 10-42 (docs/menus.md)
+    // 2049's title node (func_800D71D0, entry 11 of 0x801102B4): BUTTON_S2G1 textured BUTTON_TITLE at (0, 115, 200),
+    // turned rotX(-pi/2) (0x801241C0) to face the camera; func_800FEE04 prints the title in font 13 (AERO-PLAIN16),
+    // style 1, centered on the node's projection (160, 28) with vertical mode 1.
+    constexpr int title_model = 2;
+    constexpr float title_z = 200.0f, title_y = 115.0f;
+    constexpr int title_cx = 160, title_cy = 28;       // 120 - 115 * 160 / 200
+    constexpr int home_cx = 160;                       // 2049's menu lists are centered (x = 0)
+    constexpr uint32_t start_game_frame_callback = 0x803C3560; // the Start Game panel and HALFBOTBAR (menu_widget_handler_font6_menu_bytes)
     // TMEM caches the game's own draws trust: the 2D image last loaded (func_80055F78 skips loading it again) and the
     // palette last loaded (func_80078190). Both are cleared after a draw here loads textures.
     constexpr uint32_t last_2d_image = 0x80119638;
@@ -89,8 +101,11 @@ namespace {
     constexpr int frame_slots = 4;                    // per-frame matrices and vertices, rotated
 
     constexpr int rush2_fonts[3] = { 8, 9, 10 };
-    constexpr int fonts_2049[3] = { 12, 11, 10 };     // AERO-PLAIN7, AERO-PLAIN10, 4BAERO-PLAIN12
+    constexpr int fonts_2049[4] = { 12, 11, 10, 13 }; // AERO-PLAIN7, AERO-PLAIN10, 4BAERO-PLAIN12; AERO-PLAIN16 titles
+    constexpr int title_font = 10;                    // Rush 2's header titles are printed in font 10
     constexpr int button_models = 9;                  // BUTTON_S0G1..S8G1
+    constexpr uint32_t button_bytes = 128 + 512;      // a button's two matrices, then its display list
+    constexpr uint32_t group_ids = 0x4D000000;        // RT64 matrix group IDs: | generation << 12 | list << 8 | row
 
     // 2049 constants (docs/rush2049_research/menus.md section 11).
     constexpr float pi = 3.14159265f;
@@ -120,12 +135,14 @@ namespace {
         uint32_t frame_slot_size = 0;
         int frame_slot_buttons = 0;
         uint32_t empty_dl = 0, empty_string = 0, viewport = 0;
-        struct FontInfo { uint32_t ranges = 0; int range_count = 0; int space = 0; int cap = 0; } fonts[3];
-        Texture sfx, bg_a, bg_b, button[2];
+        struct FontInfo { uint32_t ranges = 0; int range_count = 0; int space = 0; int cap = 0; int half_height = 0; }
+            fonts[4];                                 // Rush 2's fonts 8, 9, 10, then the title font
+        Texture sfx, bg_a, bg_b, button[2], title;
         struct Model { uint32_t dl = 0; float half_width = 0; } models[button_models];
     };
 
-    std::atomic_bool option = false;
+    std::atomic_int option_mode = 0;                 // rush2::menus2049::Mode
+    bool layout = false;                              // Style and Layout, while the menus are up (game thread)
     std::mutex art_mutex;
     std::shared_ptr<const Art> built;                 // set by the build thread
     std::shared_ptr<const rush2::rom2049::Source> built_from;
@@ -149,12 +166,15 @@ namespace {
     int row_list = -1;                                // the list the next text_print_string prints a row of
     int slot_buttons = 0;
     bool forced_font = false;                         // before_print changed the font for one print
+    bool record_forced = false;                       // and font 10's record to the title font's
+    uint8_t saved_record[16] = {};
+    uint32_t plate_frame = 0;                         // the frame a header plate was last replaced
     int8_t saved_font[3] = {};                        // the font, height and letter spacing it changed
 
-    struct Row { float angle = 0.0f; uint32_t frame = 0; };
+    struct Row { float angle = 0.0f; uint32_t frame = 0; uint32_t gen = 0; int model = -1; float scale = 0.0f; };
     std::map<uint32_t, Row> rows;
-    struct List { float width = 0.0f, last_width = 0.0f; int normal_font = 0; int pitch = 16; int prev_y = keep_position; int min_dy = 0; int rows = 0; };
-    std::array<List, 3> lists;                        // 0 Start Game, 1 the circuit menu, 2 Select Player
+    struct List { float width = 0.0f; int normal_font = 0; int pitch = 16; int prev_y = keep_position; int min_dy = 0; int rows = 0; };
+    std::array<List, 4> lists;                        // 0 Start Game, 1 the circuit menu, 2 Select Player, 3 SETUP
 
     float read_f32(uint8_t* rdram, uint32_t addr) {
         uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
@@ -362,9 +382,13 @@ namespace {
         }
         info.ranges = b.add(table.data(), table.size());
         info.range_count = count;
-        info.space = f.space + f.gap;
+        // A space adds header byte 7 alone (func_800B3FA4), as Rush 2's measurer and drawer add byte 5; a glyph adds
+        // its width plus the gap (byte 8, 1 in every menu font), as Rush 2 adds its font's spacing (byte 6, 1 in fonts 8-10).
+        info.space = f.space;
         auto a = f.glyphs.find('A');
         info.cap = a != f.glyphs.end() ? a->second.y1 - a->second.y0 + 1 : f.line_height;
+        // func_800B71D4's vertical centering: half the ascent and descent, truncated toward zero.
+        info.half_height = (f.ascent + f.descent) / 2;
 
         // The dump: a page per sheet with the characters packed on it (not lower case, which shares the capitals').
         dump += "\"pages\":[";
@@ -399,10 +423,11 @@ namespace {
         static const uint8_t vp[16] = { 0x02, 0x80, 0x01, 0xE0, 0x01, 0xFF, 0, 0, 0x02, 0x80, 0x01, 0xE0, 0x01, 0xFF, 0, 0 };
         out->viewport = b.add(vp, 16);
         std::string dump = "[\n";
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             auto f = rush2::font2049::load(rom, fonts_2049[i]);
             char head[64];
-            snprintf(head, sizeof(head), "%s{\"id\":\"rush2049_menu_%d\",", i ? ",\n" : "", rush2_fonts[i]);
+            if (i < 3) snprintf(head, sizeof(head), "%s{\"id\":\"rush2049_menu_%d\",", i ? ",\n" : "", rush2_fonts[i]);
+            else snprintf(head, sizeof(head), ",\n{\"id\":\"rush2049_menu_title\",");
             dump += head;
             if (!f || !build_font(b, *f, out->fonts[i], dump)) {
                 fprintf(stderr, "[menus2049] Rush 2049 font %d couldn't be read\n", fonts_2049[i]);
@@ -425,7 +450,7 @@ namespace {
         Container c(file);
         bool ok = c.texture(b, "BACKGROUND_SFX", out->sfx) && c.texture(b, "BACKGROUND_A", out->bg_a) &&
                   c.texture(b, "BACKGROUND_B", out->bg_b) && c.texture(b, "BUTTON", out->button[0]) &&
-                  c.texture(b, "BUTTON_SELECT", out->button[1]);
+                  c.texture(b, "BUTTON_SELECT", out->button[1]) && c.texture(b, "BUTTON_TITLE", out->title);
         for (int k = 0; ok && k < button_models; k++) {
             char name[16];
             snprintf(name, sizeof(name), "BUTTON_S%dG1", k);
@@ -435,11 +460,12 @@ namespace {
             fprintf(stderr, "[menus2049] Rush 2049's menu art couldn't be read\n");
             return nullptr;
         }
-        // Per frame: the swirl's projection, modelview and 16 vertices, then a projection and modelview a button.
+        // Per frame: the swirl's projection, modelview and 16 vertices, then for each button its projection,
+        // modelview and display list.
         out->frame_area = b.add(nullptr, 0, 64);
         uint32_t left = region_end - out->frame_area;
         out->frame_slot_size = left / frame_slots / 64 * 64;
-        out->frame_slot_buttons = (int)((out->frame_slot_size - 128 - 256) / 128);
+        out->frame_slot_buttons = (int)((out->frame_slot_size - 128 - 256) / button_bytes);
         if (out->frame_slot_buttons < 12) {
             fprintf(stderr, "[menus2049] No room for the menu buttons (%u bytes left)\n", left);
             return nullptr;
@@ -730,20 +756,19 @@ namespace {
         MEM_W(0, (int32_t)palette_cache) = 0;
     }
 
-    // A 2049 button at row center (cx, cy), at `scale` of 2049's size, turned by angle.
-    void draw_button(uint8_t* rdram, int model, float cx, float cy, float scale, float angle) {
-        if (slot_buttons >= art->frame_slot_buttons || MEM_W(0, (int32_t)dl_2d_cursor) == 0) return;
-        uint32_t m = slot_base() + 128 + 256 + (uint32_t)slot_buttons * 128;
-        slot_buttons++;
+    // A 2049 button at row center (cx, cy), at `scale` of 2049's size, turned by angle: its matrices and display list
+    // at m (a button slot), the matrices in RT64 group `id` so frame interpolation pairs the same row's button.
+    void draw_button(uint8_t* rdram, uint32_t m, uint32_t id, int model, float cx, float cy, float scale, float angle,
+                     float z = button_z, const Texture* texture = nullptr) {
         // 2049's node: rotX(angle - pi/2) (func_800B5898: y' = y cos - z sin, z' = y sin + z cos), at the point
         // of z = 300 that its camera sees at (cx, cy).
         float r = angle - pi / 2.0f, cs = std::cos(r), sn = std::sin(r);
-        float px = (cx - 160.0f) / 160.0f * button_z, py = (120.0f - cy) / 160.0f * button_z;
+        float px = (cx - 160.0f) / 160.0f * z, py = (120.0f - cy) / 160.0f * z;
         M4 view{};
         view[0][0] = 1.0f;
         view[1][1] = cs; view[1][2] = sn;
         view[2][1] = -sn; view[2][2] = cs;
-        view[3][0] = px * 16.0f; view[3][1] = py * 16.0f; view[3][2] = button_z * 16.0f; view[3][3] = 1.0f;
+        view[3][0] = px * 16.0f; view[3][1] = py * 16.0f; view[3][2] = z * 16.0f; view[3][3] = 1.0f;
         // Then scaled about (cx, cy) on the screen, its depth kept in front of the 3D views' (squeezed to the near
         // end of the depth range) while ordering its own faces.
         float ncx = (cx - 160.0f) / 160.0f, ncy = (120.0f - cy) / 120.0f;
@@ -761,6 +786,17 @@ namespace {
         EX(gEXPushGeometryMode);
         EX(gEXPushProjectionMatrix);
         EX(gEXPushViewport);
+        {
+            GfxCommand g[4]{};
+            gEXMatrixGroupSimple(&g[0], id, G_EX_PUSH, 1 /* projection */,
+                G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_SKIP,
+                G_EX_COMPONENT_SKIP, G_EX_ORDER_LINEAR, G_EX_EDIT_NONE, G_EX_COMPONENT_SKIP, G_EX_COMPONENT_SKIP);
+            gEXMatrixGroup(&g[2], id, G_EX_INTERPOLATE_DECOMPOSE, G_EX_PUSH, 0 /* modelview */,
+                G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE,
+                G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_INTERPOLATE, G_EX_COMPONENT_SKIP, G_EX_COMPONENT_SKIP,
+                G_EX_ORDER_LINEAR, G_EX_EDIT_NONE, G_EX_ASPECT_AUTO, G_EX_COMPONENT_SKIP, G_EX_COMPONENT_SKIP);
+            c.add(g, 4);
+        }
         c(0xE7000000, 0);
         c(0xDC080008, phys(art->viewport));
         c(0xDA380007, phys(m));
@@ -770,19 +806,62 @@ namespace {
         c(0xEF000000 | om_persp | om_tlut_rgba16 | om_bilerp | om_tc_filt | om_no_dither, rm_blend_z);
         // 2049's button (FC127E03 FF0FF3FF): TEXEL0 x SHADE x PRIM, alpha TEXEL0 x PRIM, PRIM the node's white.
         combine(c, cc_texel0, cc_zero_a, cc_shade, cc_zero_d, ac_zero, ac_zero, ac_zero, ac_texel0);
-        load_ci(c, art->button[angle > pi / 2.0f ? 1 : 0]);
+        load_ci(c, texture != nullptr ? *texture : art->button[angle > pi / 2.0f ? 1 : 0]);
         c(0xDE000000, phys(art->models[model].dl));
         c(0xE7000000, 0);
         c(0xD8380002, 64);
+        {
+            GfxCommand g[2]{};
+            gEXPopMatrixGroup(&g[0], 0 /* modelview */);
+            gEXPopMatrixGroup(&g[1], 1 /* projection */);
+            c.add(g, 2);
+        }
         EX(gEXPopViewport);
         EX(gEXPopProjectionMatrix);
         EX(gEXPopGeometryMode);
         EX(gEXPopCombineMode);
         EX(gEXPopOtherMode);
-        write_cmds(rdram, dl_2d_cursor, c);
+        c(0xDF000000, 0);                             // G_ENDDL
+        if (c.v.size() * 8 > button_bytes - 128) return;
+        uint32_t dl = m + 128;
+        for (const auto& [w0, w1] : c.v) {
+            MEM_W(0, (int32_t)dl) = (int32_t)w0;
+            MEM_W(4, (int32_t)dl) = (int32_t)w1;
+            dl += 8;
+        }
+    }
+
+    // The rows' buttons are drawn once the frame's 2D display list is complete (finish_buttons), when every row of
+    // each list is known, so a list's first frame is laid out like the rest: a row leaves a call to its button's
+    // display list in the 2D list, at its place between the texts, filled in then.
+    struct Pending { int list; uint32_t key; float cx, cy, angle; uint32_t slot; };
+    std::vector<Pending> pending;
+
+    // A button slot called from the 2D display list here (its display list empty until it is drawn), or 0.
+    uint32_t place_slot(uint8_t* rdram) {
+        int32_t cursor = MEM_W(0, (int32_t)dl_2d_cursor);
+        if (slot_buttons >= art->frame_slot_buttons || cursor == 0) return 0;
+        uint32_t m = slot_base() + 128 + 256 + (uint32_t)slot_buttons * button_bytes;
+        slot_buttons++;
+        MEM_W(0, (int32_t)(m + 128)) = (int32_t)0xDF000000;
+        MEM_W(4, (int32_t)(m + 128)) = 0;
+        MEM_W(0, cursor) = (int32_t)0xDE000000;                // G_DL
+        MEM_W(4, cursor) = (int32_t)phys(m + 128);
+        MEM_W(0, (int32_t)dl_2d_cursor) = cursor + 8;
+        // The game's next image and palette loads must not be skipped: the button loads its own between them.
         MEM_W(0, (int32_t)last_2d_image) = 0;
         MEM_W(0, (int32_t)palette_cache) = 0;
+        return m;
     }
+
+    void queue_button(uint8_t* rdram, int list, uint32_t key, float cx, float cy, float angle) {
+        if (uint32_t m = place_slot(rdram)) pending.push_back({ list, key, cx, cy, angle, m });
+    }
+
+    // Style and Layout: a row of the home screen (Start Game), printed once its list's buttons are laid out
+    // (list_end), left-aligned at 2049's inset from its button's end.
+    struct RowText { uint32_t str; int32_t y; uint32_t fg, bg; int font; };
+    std::vector<RowText> row_texts;
 
     void set_colors(uint8_t* rdram, uint32_t fg, uint32_t bg) {
         for (int k = 0; k < 4; k++) {
@@ -862,9 +941,31 @@ namespace {
         return w;
     }
 
+    // A string's width in Rush 2 font `font` (its number and letter spacing set for the measure, then put back).
+    int32_t measure_in(uint8_t* rdram, recomp_context* ctx, int32_t str, int font) {
+        int8_t saved[3] = { MEM_B(0, (int32_t)font_byte), MEM_B(0, (int32_t)font_height), MEM_B(0, (int32_t)letter_spacing) };
+        MEM_B(0, (int32_t)font_byte) = (int8_t)font;
+        MEM_B(0, (int32_t)font_height) = MEM_B(font * 16 + 4, (int32_t)font_table);
+        MEM_B(0, (int32_t)letter_spacing) = MEM_B(font * 16 + 6, (int32_t)font_table);
+        int32_t w = measure(rdram, ctx, str);
+        MEM_B(0, (int32_t)font_byte) = saved[0];
+        MEM_B(0, (int32_t)font_height) = saved[1];
+        MEM_B(0, (int32_t)letter_spacing) = saved[2];
+        return w;
+    }
+
+    bool is_home_screen(uint8_t* rdram) {
+        return MEM_W(0, (int32_t)game_state) == 0 && MEM_H(0, (int32_t)front_end_screen) == home_screen;
+    }
+
     // Puts back the font before_print changed for the row under the cursor, once that row is printed: at the next
     // print, the next font select (text_select_font_80088C24 entry) or the next frame.
     void restore_font(uint8_t* rdram) {
+        if (record_forced) {
+            record_forced = false;
+            int32_t rec = (int32_t)(font_table + title_font * 0x10);
+            for (int k = 0; k < 16; k++) MEM_B(k, rec) = (int8_t)saved_record[k];
+        }
         if (!forced_font) return;
         forced_font = false;
         MEM_B(0, (int32_t)font_byte) = saved_font[0];
@@ -873,8 +974,8 @@ namespace {
     }
 }
 
-void rush2::menus2049::set_option(bool on) {
-    option = on;
+void rush2::menus2049::set_option(Mode mode) {
+    option_mode = (int)mode;
 }
 
 void rush2::menus2049::source_changed() {
@@ -887,13 +988,63 @@ uint32_t rush2::menus2049::model_list(uint8_t* rdram, uint32_t dl, bool menu_bac
     return art->empty_dl;
 }
 
+void rush2::menus2049::finish_buttons(uint8_t* rdram) {
+    if (pending.empty() || art == nullptr) return;
+    // Each list's layout from this frame's rows: 2049's row spacing (40 units at z = 300) scaled to the list's, its
+    // buttons the narrowest model that holds the widest row with 2049's inset at each end.
+    for (List& l : lists) {
+        if (l.min_dy > 0) l.pitch = l.min_dy;
+    }
+    for (const Pending& p : pending) {
+        const List& l = lists[p.list];
+        float scale = (float)l.pitch / (row_units * 160.0f / button_z);
+        float need = (l.width / 2.0f / scale + text_inset) * button_z / 160.0f;
+        int model = button_models - 1;
+        for (int k = 0; k < button_models; k++) {
+            if (art->models[k].half_width >= need) { model = k; break; }
+        }
+        Row& r = rows[p.key];
+        // A new layout (another screen in the same list) isn't interpolated from the old one.
+        if (r.model != model || std::abs(r.scale - scale) > 0.001f) r.gen++;
+        r.model = model;
+        r.scale = scale;
+        uint32_t id = group_ids | (r.gen & 0xFFF) << 12 | (p.key & 0xFFF);
+        draw_button(rdram, p.slot, id, model, p.cx, p.cy, scale, p.angle);
+    }
+    pending.clear();
+}
+
 void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     if (!active) return;
     restore_font(rdram);
     int list = row_list;
     row_list = -1;
     int font = MEM_BU(0, (int32_t)font_byte);
-    if (list < 0 || (font != 8 && font != 9) || MEM_BU(0, (int32_t)ctx->r6) == 0) return;
+    if (MEM_BU(0, (int32_t)ctx->r6) == 0) return;
+
+    // Style and Layout: the header's title (font 10 in the plates' band, on a frame whose plates were replaced)
+    // goes on 2049's title button, in 2049's title font, as func_800FEE04 places it.
+    if (list < 0 && layout && font == title_font && plate_frame != 0 && frame_counter - plate_frame <= 1) {
+        int32_t y = (int16_t)ctx->r5;
+        if (y == keep_position) y = MEM_H(0, (int32_t)text_y);
+        if (y >= 0 && y < header_bottom) {
+            int32_t rec = (int32_t)(font_table + title_font * 0x10);
+            for (int k = 0; k < 16; k++) saved_record[k] = (uint8_t)MEM_B(k, rec);
+            record_forced = true;
+            const Art::FontInfo& t = art->fonts[3];
+            MEM_B(5, rec) = (int8_t)t.space;
+            MEM_B(9, rec) = (int8_t)t.range_count;
+            MEM_W(0xC, rec) = (int32_t)t.ranges;
+            int32_t width = measure(rdram, ctx, (int32_t)ctx->r6);
+            int32_t x = title_cx - (int32_t)((uint32_t)width >> 1);
+            int justify = MEM_W(0, (int32_t)text_justify);
+            ctx->r4 = justify == 1 ? x + width / 2 : justify == 2 ? x + width : x;
+            ctx->r5 = title_cy - t.half_height;
+            set_colors(rdram, text_white, shadow_white);
+        }
+        return;
+    }
+    if (list < 0 || (font != 8 && font != 9)) return;
 
     // The row's center as the game places it, in the font it chose.
     int32_t str = (int32_t)ctx->r6;
@@ -911,6 +1062,15 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     // the same center.
     List& l = lists[list];
     bool selected = last_style == flash_style;
+    // A row too wide for 2049's widest button (at the list's row spacing) keeps Rush 2's look: no button.
+    {
+        int32_t own = selected && l.normal_font != 0 && l.normal_font != font ? measure_in(rdram, ctx, str, l.normal_font)
+                                                                              : width;
+        float scale = (float)l.pitch / (row_units * 160.0f / button_z);
+        if (((float)own / 2.0f / scale + text_inset) * button_z / 160.0f > art->models[button_models - 1].half_width) {
+            return;
+        }
+    }
     if (!selected) l.normal_font = font;
     else if (l.normal_font != 0 && l.normal_font != font) {
         forced_font = true;
@@ -939,6 +1099,7 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     Row& r = rows[key];
     if (r.frame + 1 < frame_counter) {
         r.angle = selected ? pi : 0.0f;               // a row that wasn't up last frame starts settled
+        r.gen++;                                      // and isn't paired with its old button by interpolation
     }
     else if (r.frame != frame_counter) {
         // func_800D6914: toward pi under the cursor, toward 0 elsewhere.
@@ -947,23 +1108,102 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     }
     r.frame = frame_counter;
 
-    // The button: 2049's row spacing (40 units at z = 300) scaled to this list's, its width the smallest model that
-    // holds the list's widest row with 2049's inset at each end.
-    float scale = (float)l.pitch / (row_units * 160.0f / button_z);
-    float widest = std::max(l.last_width, l.width);
-    float need = (widest / 2.0f / scale + text_inset) * button_z / 160.0f;
-    int model = button_models - 1;
-    for (int k = 0; k < button_models; k++) {
-        if (art->models[k].half_width >= need) { model = k; break; }
-    }
-    draw_button(rdram, model, cx, cy, scale, r.angle);
+    // Style and Layout on the home screen: the list centered like 2049's, its rows (in the list's own font, as with
+    // Style) printed at the end of the frame's widgets once the list's widest row is known (list_end).
+    bool home = layout && list == 0 && is_home_screen(rdram);
+    if (home) cx = (float)home_cx;
+    queue_button(rdram, list, key, cx, cy, r.angle);
 
     // The text: style 1 while the blue side shows, the pulse once the yellow side does, none near edge-on.
     if (r.angle > pi / 2.0f) set_pulse(rdram);
     else set_colors(rdram, text_white, shadow_white);
-    if (r.angle > text_hidden_min && r.angle < text_hidden_max) {
+    bool hidden = r.angle > text_hidden_min && r.angle < text_hidden_max;
+    if (home) {
+        if (!hidden) {
+            int32_t top = (int32_t)std::lround(cy - (float)art->fonts[font == 8 ? 0 : 1].cap / 2.0f);
+            uint32_t fg = 0, bg = 0;
+            for (int k = 0; k < 4; k++) {
+                fg = fg << 8 | MEM_BU(k, (int32_t)text_fg);
+                bg = bg << 8 | MEM_BU(k, (int32_t)text_bg);
+            }
+            row_texts.push_back({ (uint32_t)str, top, fg, bg, font });
+        }
         ctx->r6 = (int32_t)art->empty_string;
     }
+    else if (hidden) {
+        ctx->r6 = (int32_t)art->empty_string;
+    }
+}
+
+bool rush2::menus2049::skip_widget(uint8_t* rdram, const char* name, uint32_t callback, bool hidden) {
+    if (!active || !layout || hidden) return false;
+    static const char* const left_plates[] = { "STARTTITLELEFT", "TITLELEFT", "PAKSCRTITLEL", "CRSCRTITLEL", "AUDIOTITLEL" };
+    static const char* const right_plates[] = { "STARTTITLERIGHT", "TITLERIGHT", "PAKSCRTITLER", "CRSCRTITLER", "AUDIOTITLER" };
+    bool select_player = MEM_W(0, (int32_t)game_state) == 0 && MEM_H(0, (int32_t)front_end_screen) == select_player_screen;
+    if (!select_player) {
+        for (const char* n : left_plates) {
+            if (strcmp(name, n) != 0) continue;
+            // 2049's title button in place of the header's left plate.
+            if (uint32_t m = place_slot(rdram)) {
+                draw_button(rdram, m, group_ids | 0xFFF, title_model, (float)title_cx, (float)title_cy, 1.0f, 0.0f,
+                            title_z, &art->title);
+            }
+            plate_frame = frame_counter;
+            return true;
+        }
+        for (const char* n : right_plates) {
+            if (strcmp(name, n) == 0) return true;
+        }
+    }
+    // The home screen's panel and bottom bar: 2049's home screen is its buttons on the background.
+    return callback == start_game_frame_callback && is_home_screen(rdram);
+}
+
+void rush2::menus2049::list_end(uint8_t* rdram, recomp_context* ctx) {
+    if (!active) {
+        row_texts.clear();
+        return;
+    }
+    finish_buttons(rdram);
+    if (row_texts.empty()) return;
+    // The last row's one-print font change (the selected row's, when it is the list's last) is settled first: put
+    // back by the first print below, it would print that row in the selected row's larger font.
+    restore_font(rdram);
+    // The home screen's rows, left-aligned 2049's inset in from their buttons' left end (func_800FEE04 prints at the
+    // button's center less 0x37 on its S3 buttons: 19.7 pixels in, at 2049's size).
+    const List& l = lists[0];
+    float scale = (float)l.pitch / (row_units * 160.0f / button_z);
+    float half = 0.0f;
+    for (const auto& [key, r] : rows) {
+        if ((key >> 8) == 0 && r.frame == frame_counter && r.model >= 0) {
+            half = art->models[r.model].half_width * 160.0f / button_z * scale;
+            break;
+        }
+    }
+    int32_t x = (int32_t)std::lround((float)home_cx - half + text_inset * scale);
+    recomp_context saved = *ctx;
+    int8_t font_state[3] = { MEM_B(0, (int32_t)font_byte), MEM_B(0, (int32_t)font_height), MEM_B(0, (int32_t)letter_spacing) };
+    int32_t justify = MEM_W(0, (int32_t)text_justify);
+    uint32_t colors[2] = { (uint32_t)MEM_W(0, (int32_t)text_fg), (uint32_t)MEM_W(0, (int32_t)text_bg) };
+    MEM_W(0, (int32_t)text_justify) = 0;
+    for (const RowText& t : row_texts) {
+        MEM_B(0, (int32_t)font_byte) = (int8_t)t.font;
+        MEM_B(0, (int32_t)font_height) = MEM_B(t.font * 16 + 4, (int32_t)font_table);
+        MEM_B(0, (int32_t)letter_spacing) = MEM_B(t.font * 16 + 6, (int32_t)font_table);
+        set_colors(rdram, t.fg, t.bg);
+        ctx->r4 = x;
+        ctx->r5 = t.y;
+        ctx->r6 = (int32_t)t.str;
+        text_print_string_800734E0(rdram, ctx);
+    }
+    row_texts.clear();
+    MEM_B(0, (int32_t)font_byte) = font_state[0];
+    MEM_B(0, (int32_t)font_height) = font_state[1];
+    MEM_B(0, (int32_t)letter_spacing) = font_state[2];
+    MEM_W(0, (int32_t)text_justify) = justify;
+    MEM_W(0, (int32_t)text_fg) = (int32_t)colors[0];
+    MEM_W(0, (int32_t)text_bg) = (int32_t)colors[1];
+    *ctx = saved;
 }
 
 extern "C" {
@@ -975,15 +1215,16 @@ void rush2_menus49_frame(uint8_t* rdram, recomp_context* ctx) {
     slot_buttons = 0;
     float dt = read_f32(rdram, frame_dt);
     pulse_time += dt;
+    pending.clear();
+    row_texts.clear();
     for (List& l : lists) {
-        l.last_width = l.width;
         l.width = 0.0f;
-        if (l.min_dy > 0) l.pitch = l.min_dy;
         l.min_dy = 0;
         l.prev_y = keep_position;
         l.rows = 0;
     }
 
+    bool option = option_mode.load() != (int)rush2::menus2049::Mode::Off;
     if (option && rush2::wings::rom_available()) {
         std::shared_ptr<const Art> ready;
         bool stale;
@@ -1006,7 +1247,11 @@ void rush2_menus49_frame(uint8_t* rdram, recomp_context* ctx) {
         swap_styles(rdram, active);
         if (!active) rows.clear();
     }
-    if (!active) return;
+    if (!active) {
+        layout = false;
+        return;
+    }
+    layout = option_mode.load() == (int)rush2::menus2049::Mode::Layout;
 
     // func_800FC9F8: each vertex's texture coordinates move 0.2 texture widths a second, truncated a frame.
     if (!sfx_started) {

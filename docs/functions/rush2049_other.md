@@ -23,9 +23,7 @@ Names and signatures marked inferred are educated guesses from the code.
 | 8009EA68 | `math_mat_rot_xy_from_angle_8009EA68` | `void math_mat_rot_xy_from_angle(s32 a0, f32 *m)` | Rotates matrix rows about z. \| Rotation about z. |  | verified |
 | 800A61B0 | `matrix_world_to_local_800A61B0` |  | MUL: world to local transform o[i] = M[i][2]*v2 + (v0*M[i][0] + v1*M[i][1]). |  | verified |
 | 800AD650 | `func_800AD650` |  | Decodes an s16 x 2^-14. |  | verified |
-| 800B3FA4 | `text_width_800B3FA4` |  | Width in pixels of string a0 in the current font (a1 = -1: whole string) |  | inferred |
 | 800B4200 | `font_select_800B4200` |  | Selects the current text font n (0-15) from $s2: loads atlas file 22+n and glyph table file 38+n, stores the index at 0x80149780 |  | inferred |
-| 800B71D4 | `text_draw_800B71D4` |  | Draws string a2 at (a0, a1) in the current font, with the current horizontal (0x80118E20) and vertical (0x80118E24) alignment |  | inferred |
 | 800BF780 | `func_800BF780` |  | Matrix product out = B x A (element A[6+j]*B[i][2] + (B[i][0]*A[j] + B[i][1]*A[3+j])). \| Matrix multiply out = b x a (row-major, summed in 2049's order). |  | verified |
 | 800BFBE8 | `quat_to_matrix_800BFBE8` |  | quat_to_matrix(m, q, a2): s = 2 without normalization (a2 = 0 uses s = 2/\|q\|^2). \| Quaternion to matrix (a2 = 1: unit quaternion, scale 2). |  | verified |
 | 800BFD8C | `quat_interp_800BFD8C` |  | quat_interp(t, q0, q1, out): t<0.001 -> q0; t>0.999 -> q1; slerp when dot < 0.98 else componentwise lerp. \| Quaternion slerp with acos/sin below a 0.98 cosine, a wrapping per-component lerp above it. |  | verified |

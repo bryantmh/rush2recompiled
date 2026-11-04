@@ -13,6 +13,8 @@ game's own pixels are packed.
                                                                   (src/rush2049/menus2049.cpp) from their dump.
   python tools/build_font_pack.py trace-hud <texture dump dir>...  Redraw the HUD images listed in hud.json.
   python tools/build_font_pack.py pack                            Rasterize the SVGs and write the .rtz.
+  python tools/build_font_pack.py preview <font_tables.json> <out.png> [font id...]
+                                                                  Each sheet's original above its redraw.
   python tools/build_font_pack.py images <image dump> <out dir>   Write every dumped 2D image as <RT64 hash>.png.
   python tools/build_font_pack.py check <svg>                     List glyphs whose outline is cut off by their cell
                                                                   (overhang left, right, top, bottom in texels).
@@ -26,6 +28,10 @@ pages: the sheet's pixels and the rectangle of every character in it. The Rush 2
 Stunt HUD's, src/rush2049/stunt2049.cpp) are read from the 2049 ROM instead (rom2049_tables) and kept in
 tools/font_pack/svg_2049; their ids in fonts.json are "rush2049_<font>". The HUD images come from RT64 texture dumps
 (<hash>.v5.tmem and .tile.json, from the RT64 debugger's texture dumper in developer mode).
+
+Fonts with "style": "drawn" are hand-drawn outlines (tools/font_pack/<"design">.py) fitted to each font's texels (see
+Drawn fonts): Rush 2049's AERO menu lettering, whose rounded and sharp corners no vector font matches and whose 7-16
+pixel glyphs are too small to trace.
 
 Regular fonts: every glyph is a full-intensity core with a dim one-texel halo around it, which the game's color
 combiner turns into the text's outline. Each character is replaced by the same character from Inter
@@ -236,6 +242,440 @@ def parse_path(d):
         elif cmd == 'Z' and len(points) >= 3:
             polygons.append(np.array(points))
     return polygons
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Drawn fonts
+#
+# Fonts with "style": "drawn" are hand-drawn outlines (tools/font_pack/<"design">.py, GLYPHS) fitted to each font's
+# texels. A drawing's numbers are its edges: every x or y written the same in a glyph is one edge, every rounded corner
+# has its radii along both edges, every stroke its width, and the corners' curvature (the cubic handles' length) is one
+# number per glyph. The fit first places the drawing on the cell (scale and offset), then moves those numbers by least
+# squares until the drawing's exact area coverage of each texel, times the font's full intensity, matches the original
+# texel. A pull back toward the placed drawing keeps texels that say little (tiny fonts) from bending the shape.
+
+DRAWN_K = 0.55          # Cubic handle length (fraction of the corner radius) a corner starts from; 0.55 is circular.
+DRAWN_STEPS = 8         # Line segments per corner curve while fitting.
+DRAWN_PULL = 0.05       # Default pull toward the placed drawing, per texel moved, against one texel's intensity error.
+
+
+def _drawn_kernels():
+    import numba
+
+    @numba.njit(cache=True)
+    def line(acc, w, h, x0, y0, x1, y1):
+        # Exact signed area accumulation of one edge (font-rs's rasterizer).
+        if y0 == y1:
+            return
+        d = 1.0
+        if y0 > y1:
+            d = -1.0
+            x0, y0, x1, y1 = x1, y1, x0, y0
+        dxdy = (x1 - x0) / (y1 - y0)
+        x = x0
+        if y0 < 0.0:
+            x -= y0 * dxdy
+        start = max(int(np.floor(y0)), 0)
+        end = min(h, int(np.ceil(y1)))
+        for y in range(start, end):
+            row = y * w
+            dy = min(y + 1.0, y1) - max(float(y), y0)
+            xnext = x + dxdy * dy
+            dd = dy * d
+            if x < xnext:
+                xa, xb = x, xnext
+            else:
+                xa, xb = xnext, x
+            xa = min(max(xa, 0.0), w - 2.001)
+            xb = min(max(xb, 0.0), w - 2.001)
+            x0f = np.floor(xa)
+            x0i = int(x0f)
+            x1c = np.ceil(xb)
+            x1i = int(x1c)
+            if x1i <= x0i + 1:
+                xmf = 0.5 * (xa + xb) - x0f
+                acc[row + x0i] += dd - dd * xmf
+                acc[row + x0i + 1] += dd * xmf
+            else:
+                s = 1.0 / (xb - xa)
+                xf = xa - x0f
+                a0 = 0.5 * s * (1.0 - xf) ** 2
+                x1f = xb - x1c + 1.0
+                am = 0.5 * s * x1f ** 2
+                acc[row + x0i] += dd * a0
+                if x1i == x0i + 2:
+                    acc[row + x0i + 1] += dd * (1.0 - a0 - am)
+                else:
+                    a1 = s * (1.5 - xf)
+                    acc[row + x0i + 1] += dd * (a1 - a0)
+                    for xi in range(x0i + 2, x1i - 1):
+                        acc[row + xi] += dd * s
+                    a2 = a1 + (x1i - x0i - 3) * s
+                    acc[row + x1i - 1] += dd * (1.0 - a2 - am)
+                acc[row + x1i] += dd * am
+            x = xnext
+
+    @numba.njit(cache=True)
+    def coverage(points, starts, w, h):
+        acc = np.zeros(w * h + w + 2)
+        for c in range(len(starts) - 1):
+            a, b = starts[c], starts[c + 1]
+            for i in range(a, b):
+                j = i + 1 if i + 1 < b else a
+                line(acc, w, h, points[i, 0], points[i, 1], points[j, 0], points[j, 1])
+        out = np.empty(w * h)
+        total = 0.0
+        for i in range(w * h):
+            total += acc[i]
+            # Filled contours turn positive (their sum is -1 inside), counters negative: a counter cuts only ink.
+            out[i] = min(1.0, max(0.0, -total))
+        return out.reshape(h, w)
+
+    return coverage
+
+
+_DRAWN_COVERAGE = []
+
+
+def drawn_coverage(contours, width, height, pad=4):
+    """Exact coverage (0-1) of each texel of a width x height cell by contours in cell coordinates (nonzero winding;
+    holes run the other way)."""
+    if not _DRAWN_COVERAGE:
+        _DRAWN_COVERAGE.append(_drawn_kernels())
+    if not contours:
+        return np.zeros((height, width))
+    points = np.ascontiguousarray(np.concatenate(contours) + pad, dtype=np.float64)
+    starts = np.cumsum([0] + [len(c) for c in contours]).astype(np.int64)
+    full = _DRAWN_COVERAGE[0](points, starts, width + 2 * pad + 2, height + 2 * pad)
+    return full[pad:pad + height, pad:pad + width]
+
+
+def signed_area(points):
+    x, y = points[:, 0], points[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+
+class DrawnGlyph:
+    """One hand-drawn glyph (see "Drawn fonts") and the numbers the fit moves: its x edges, y edges, corner radii,
+    stroke widths and corner curvature, in that order in the parameter vector."""
+
+    def __init__(self, shapes):
+        self.shapes = shapes
+        xs, ys = {}, {}
+
+        def key(table, v):
+            return table.setdefault(round(float(v), 6), len(table))
+
+        self.refs = []      # Per shape: per point (x index, y index, radius indices or None); strokes add a width.
+        radii, widths = [], []
+        for shape in shapes:
+            if shape[0] in 'ph':
+                refs = []
+                for x, y, r in shape[1]:
+                    ra, rb = r if isinstance(r, tuple) else (r, r)
+                    rr = None
+                    if ra or rb:
+                        rr = (len(radii), len(radii) + 1)
+                        radii += [ra, rb]
+                    refs.append((key(xs, x), key(ys, y), rr))
+            else:
+                refs = [(key(xs, x), key(ys, y), None) for x, y in shape[1]]
+                refs.append(len(widths))
+                widths.append(shape[2])
+            self.refs.append(refs)
+        self.nx, self.ny, self.nr, self.nw = len(xs), len(ys), len(radii), len(widths)
+        self.initial = np.array(list(xs) + list(ys) + radii + widths + [DRAWN_K], float)
+        # Each contour's turning direction as drawn. A fit that shrinks a counter the cell doesn't have (the 7-pixel
+        # A) can turn it inside out, which would fill instead of cut: a contour turning the other way is dropped.
+        self.turns = None
+        self.turns = self.contour_turns(self.initial)
+
+    def contour_turns(self, p):
+        return [np.sign(signed_area(pts)) for pts in self.outline(p, (1.0, 0.0, 1.0, 0.0), raw=True)]
+
+    def stroke_edges(self):
+        """The x and y edges (indices) strokes use."""
+        xs, ys = set(), set()
+        for shape, refs in zip(self.shapes, self.refs):
+            if shape[0] == 's':
+                xs |= {r[0] for r in refs[:-1]}
+                ys |= {r[1] for r in refs[:-1]}
+        return sorted(xs), sorted(ys)
+
+    def own_edges(self):
+        """Per shape, the x and y edges (indices) no other shape uses."""
+        def used(refs):
+            pts = refs[:-1] if isinstance(refs[-1], int) else refs
+            return {r[0] for r in pts}, {r[1] for r in pts}
+        sets = [used(refs) for refs in self.refs]
+        out = []
+        for i, (xs, ys) in enumerate(sets):
+            other_x = set().union(*(s[0] for j, s in enumerate(sets) if j != i))
+            other_y = set().union(*(s[1] for j, s in enumerate(sets) if j != i))
+            out.append((sorted(xs - other_x), sorted(ys - other_y)))
+        return out
+
+    def split(self, p):
+        i = self.nx
+        j = i + self.ny
+        k = j + self.nr
+        m = k + self.nw
+        return p[:i], p[i:j], p[j:k], p[k:m], p[m]
+
+    def outline(self, p, transform, steps=DRAWN_STEPS, raw=False):
+        """Contours for parameters p, each (points, segments): the points flattened, the segments the exact path
+        (('L', end) and ('C', control, control, end)), oriented so holes cancel. transform = (sx, ox, sy, oy) maps
+        the drawing's coordinates to the cell's."""
+        px, py, pr, pw, k = self.split(p)
+        sx, ox, sy, oy = transform
+
+        def place(pt):
+            return np.array([ox + sx * pt[0], oy + sy * pt[1]])
+
+        contours = []
+        index = -1
+        for shape, refs in zip(self.shapes, self.refs):
+            if shape[0] not in 'ph':
+                if raw:
+                    continue
+                contours += stroke_outline([np.array([px[xi], py[yi]]) for xi, yi, _ in refs[:-1]],
+                                           pw[refs[-1]], shape[3], place)
+                continue
+            corners = [np.array([px[xi], py[yi]]) for xi, yi, _ in refs]
+            n = len(corners)
+            pts, segs = [], []
+            for i, (_, _, rr) in enumerate(refs):
+                v = corners[i]
+                if rr is None:
+                    pts.append(place(v))
+                    segs.append(('L', place(v)))
+                    continue
+                prev, nxt = corners[i - 1], corners[(i + 1) % n]
+                lin, lout = np.hypot(*(prev - v)), np.hypot(*(nxt - v))
+                # Two rounded corners share an edge half each.
+                ra = min(max(pr[rr[0]], 0.0), 0.5 * lin if refs[i - 1][2] else lin)
+                rb = min(max(pr[rr[1]], 0.0), 0.5 * lout if refs[(i + 1) % n][2] else lout)
+                a = v + (prev - v) / max(lin, 1e-9) * ra
+                b = v + (nxt - v) / max(lout, 1e-9) * rb
+                c1, c2 = a + (v - a) * k, b + (v - b) * k
+                ctrl = [place(q) for q in (a, c1, c2, b)]
+                for t in np.linspace(0, 1, steps + 1):
+                    pts.append((1 - t) ** 3 * ctrl[0] + 3 * (1 - t) ** 2 * t * ctrl[1] +
+                               3 * (1 - t) * t ** 2 * ctrl[2] + t ** 3 * ctrl[3])
+                segs.append(('L', ctrl[0]))
+                segs.append(('C', ctrl[1], ctrl[2], ctrl[3]))
+            pts = np.array(pts)
+            index += 1
+            if raw:
+                contours.append(pts)
+                continue
+            if self.turns is not None and np.sign(signed_area(pts)) != self.turns[index]:
+                continue
+            want = 1 if shape[0] == 'p' else -1
+            if np.sign(signed_area(pts)) != want:
+                pts, segs = pts[::-1], reverse_segments(segs)
+            contours.append((pts, segs))
+        return contours
+
+    def svg(self, p, transform):
+        contours = self.outline(p, transform)
+        filled = [pts.astype(np.float32) for pts, _ in contours if signed_area(pts) > 0]
+        commands = []
+        for pts, segs in contours:
+            # A counter outside every filled contour would fill under the nonzero rule: left out.
+            if signed_area(pts) < 0:
+                center = tuple(float(v) for v in pts.mean(axis=0))
+                if not any(cv2.pointPolygonTest(f, center, False) >= 0 for f in filled):
+                    continue
+            for i, seg in enumerate(segs):
+                commands.append(('M' if i == 0 else seg[0]) + ' '.join(fmt(q) for q in seg[1:]))
+            commands.append('Z')
+        return ' '.join(commands)
+
+
+def reverse_segments(segs):
+    """The same closed path of L/C segments traversed the other way."""
+    ends = [seg[-1] for seg in segs]
+    out = []
+    for i in range(len(segs) - 1, -1, -1):
+        start = ends[i - 1]
+        if segs[i][0] == 'C':
+            out.append(('C', segs[i][2], segs[i][1], start))
+        else:
+            out.append(('L', start))
+    # The reversed path starts where the original's last segment ended.
+    return [('L', ends[-1])] + out
+
+
+def stroke_outline(points, width, cap, place):
+    """Contours of a stroke of a width along a polyline (closed when it ends where it starts): the polyline offset by
+    half the width on each side, joined with miters, its ends cut across the stroke (cap 'p') or level (cap 'h')."""
+    closed = np.allclose(points[0], points[-1])
+    pts = np.array(points[:-1] if closed else points, float)
+    n = len(pts)
+    half = max(width, 0.05) / 2
+
+    def normal(a, b):
+        d = b - a
+        length = max(np.hypot(*d), 1e-9)
+        return np.array([-d[1], d[0]]) / length, d / length
+
+    left, right = [], []
+    for i in range(n):
+        if closed or 0 < i < n - 1:
+            n1, _ = normal(pts[i - 1], pts[i])
+            n2, _ = normal(pts[i], pts[(i + 1) % n])
+            m = n1 + n2
+            m /= max(np.hypot(*m), 1e-9)
+            reach = min(half / max(np.dot(m, n1), 0.25), 4 * half)
+            left.append(pts[i] + m * reach)
+            right.append(pts[i] - m * reach)
+            continue
+        nn, d = normal(pts[0], pts[1]) if i == 0 else normal(pts[i - 1], pts[i])
+        if cap == 'h' and abs(d[1]) > 0.2:
+            # Along each offset line to the end point's level.
+            lq, rq = pts[i] + nn * half, pts[i] - nn * half
+            left.append(lq + d * (pts[i][1] - lq[1]) / d[1])
+            right.append(rq + d * (pts[i][1] - rq[1]) / d[1])
+        else:
+            left.append(pts[i] + nn * half)
+            right.append(pts[i] - nn * half)
+    left = [place(q) for q in left]
+    right = [place(q) for q in right]
+    rings = [np.array(left), np.array(right)] if closed else [np.array(left + right[::-1])]
+    rings.sort(key=lambda r: -abs(signed_area(r)))
+    out = []
+    for ring, want in zip(rings, (1, -1)):
+        if np.sign(signed_area(ring)) != want:
+            ring = ring[::-1]
+        out.append((ring, [('L', q) for q in ring]))
+    return out
+
+
+def ink_edges(profile):
+    """Where ink starts and ends along a coverage profile (0-1 per texel): the first and last inked texels, less the
+    part of each the ink doesn't cover."""
+    inked = np.nonzero(profile > 0.04)[0]
+    if len(inked) == 0:
+        return None
+    a, b = inked[0], inked[-1]
+    return a + 1 - profile[a], b + profile[b]
+
+
+def fit_drawn_glyph(glyph, cell, level_y, pull, native=False):
+    """Fits a drawn glyph to a cell's coverage (0-1 per texel). level_y = (sy, oy): the font's cap scale and the
+    cell row its cap top sits on. A native drawing is in the cell's own texels already. Returns (parameters,
+    transform, rms error in intensity fractions)."""
+    from scipy.optimize import least_squares
+    height, width = cell.shape
+    sy, oy = level_y
+    p0 = glyph.initial.copy()
+    design = np.concatenate([pts for pts, _ in glyph.outline(p0, (1.0, 0.0, 1.0, 0.0))])
+    edges = ink_edges(cell.max(axis=0))
+    dl, dr = design[:, 0].min(), design[:, 0].max()
+    sx = (edges[1] - edges[0]) / max(dr - dl, 0.5) if edges else sy
+    transform = np.array([sx, (edges[0] if edges else 0.0) - sx * dl, sy, oy])
+    if native:
+        transform = np.array([1.0, 0.0, 1.0, 0.0])
+
+    def coverage_of(p, t):
+        return drawn_coverage([pts for pts, _ in glyph.outline(p, t)], width, height)
+
+    def placed_error(p, t):
+        return float(np.sum((coverage_of(p, t) - cell) ** 2))
+
+    # Coarse searches first: a shape lying on blank texels has no gradient to follow. The whole glyph by half texels,
+    # then each separate piece (a colon's dots, a ? and its dot) by its own edges, the ones no other piece shares.
+    shifts = np.arange(-2.0, 2.01, 0.5)
+    transform = min((transform + (0, dx, 0, dy) for dx in shifts for dy in shifts),
+                    key=lambda t: placed_error(p0, t))
+    transform = least_squares(lambda t: (coverage_of(p0, t) - cell).ravel(), transform, diff_step=1e-3).x
+    if len(glyph.shapes) > 1:
+        for own_x, own_y in glyph.own_edges():
+            best, best_error = p0, placed_error(p0, transform)
+            for dx in np.arange(-3.0, 3.01, 0.5) if own_x else (0.0,):
+                for dy in np.arange(-3.0, 3.01, 0.5) if own_y else (0.0,):
+                    p = p0.copy()
+                    p[own_x] += dx / transform[0]
+                    p[[glyph.nx + i for i in own_y]] += dy / transform[2]
+                    e = placed_error(p, transform)
+                    if e < best_error - 1e-9:
+                        best, best_error = p, e
+            p0 = best
+    scale = np.concatenate([np.full(glyph.nx, transform[0]), np.full(glyph.ny, transform[2]),
+                            np.full(glyph.nr + glyph.nw, 0.5 * (transform[0] + transform[2])), [4.0]])
+    # A stroke's points are many and close together: held firmer, or a small cell bends the stroke into lumps.
+    stroke_x, stroke_y = glyph.stroke_edges()
+    scale[stroke_x] *= 4
+    scale[[glyph.nx + i for i in stroke_y]] *= 4
+    lower = np.concatenate([np.full(glyph.nx + glyph.ny, -np.inf), np.zeros(glyph.nr), np.full(glyph.nw, 0.2),
+                            [0.2]])
+    upper = np.concatenate([np.full(glyph.nx + glyph.ny, np.inf), np.full(glyph.nr + glyph.nw, 20.0), [1.0]])
+
+    def error(p):
+        return np.concatenate([(coverage_of(p, transform) - cell).ravel(), pull * (p - p0) * scale])
+
+    p = least_squares(error, np.clip(p0, lower + 1e-6, upper - 1e-6), bounds=(lower, upper), diff_step=1e-4).x
+    return p, transform, float(np.sqrt(np.mean((coverage_of(p, transform) - cell) ** 2)))
+
+
+def drawn_levels(font, cells, full):
+    """The font's cap scale and its cap top's row in a glyph rectangle, from its H (or I): the drawings' caps run from
+    y = 0 to 11, the true edges 0.15 beyond."""
+    for char in 'HI':
+        if char in cells:
+            (x0, y0, x1, y1), sheet = cells[char]
+            edges = ink_edges((sheet[y0:y1, x0:x1] / full).max(axis=1))
+            if edges:
+                sy = (edges[1] - edges[0]) / 11.3
+                return sy, edges[0] + 0.15 * sy
+    sys.exit(f'{font["name"]}: no H or I to measure the caps from')
+
+
+def drawn_design(name):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, os.path.join(PACK_DIR, name + '.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def drawn_elements(font_id, font, sheet_list, only=None):
+    """Each sheet's glyph elements for a drawn font, fitted to its texels, and a summary of the fit. The design's
+    NATIVE drawings for the font (by its id in fonts.json) replace its shared ones."""
+    design = drawn_design(font['design'])
+    glyphs = design.GLYPHS
+    natives = getattr(design, 'NATIVE', {}).get(font_id, {})
+    full = max(float(sheet.max()) for _, sheet in sheet_list)
+    cells = {}
+    for page, sheet in sheet_list:
+        for code, x0, y0, x1, y1 in glyph_cells(page, font):
+            if 32 < code < 127:
+                cells[chr(code)] = ((x0, y0, x1, y1), sheet)
+    levels = drawn_levels(font, cells, full)
+    pull = font.get('pull', DRAWN_PULL)
+    per_sheet, errors = [], []
+    for page, sheet in sheet_list:
+        elements = []
+        for code, x0, y0, x1, y1 in glyph_cells(page, font):
+            char = chr(code) if 32 < code < 127 else None
+            if (char not in glyphs and char not in natives) or (only and char not in only):
+                continue
+            cell = sheet[y0:y1, x0:x1] / full
+            if not cell.any():
+                continue
+            glyph = DrawnGlyph(natives.get(char) or glyphs[char])
+            p, transform, rms = fit_drawn_glyph(glyph, cell, levels, pull, char in natives)
+            errors.append((rms, char))
+            d = re.sub(r'(-?[\d.]+),(-?[\d.]+)', lambda m: fmt((float(m.group(1)) + x0, float(m.group(2)) + y0)),
+                       glyph.svg(p, transform))
+            elements.append({'d': d, 'rule': 'nonzero', 'fill': full, 'stroke': 0.0, 'halo': 0.0,
+                             'clip': (x0, y0, x1, y1)})
+        per_sheet.append(elements)
+    errors.sort(reverse=True)
+    worst = ' '.join(f'{c}:{e * full:.2f}' for e, c in errors[:8])
+    mean = float(np.sqrt(np.mean([e * e for e, _ in errors]))) * full if errors else 0.0
+    return per_sheet, f'drawn ({font["design"]}), rms error {mean:.2f} of {full:.0f} levels, worst {worst}'
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1310,12 +1750,16 @@ def trace(table_path, tables=None, svg_dir=SVG_DIR):
     for old in glob.glob(os.path.join(svg_dir, '*.svg')):
         os.remove(old)
 
-    for font in fonts.values():
+    for font_id, font in fonts.items():
         font_sheets = [(h, page) for h, (f, page) in sheets.items() if f is font]
         if not font_sheets:
             continue
         sheet_list = [(page, decode_sheet(page)) for _, page in font_sheets]
-        if font['style'] == 'block':
+        if font['style'] == 'drawn':
+            # Hand-drawn outlines (Rush 2049's AERO menu lettering), fitted to each font's texels.
+            elements, detail = drawn_elements(font_id, font, sheet_list)
+            per_sheet = [(h, page, e) for (h, _), (page, _), e in zip(font_sheets, sheet_list, elements)]
+        elif font['style'] == 'block':
             collected = collect_cells(font, sheet_list, block_char)
             style = fit_block_style(font, collected)
             per_sheet = [(h, page, block_elements(style, sheet, block_cells, traced_cells, uncovered))
@@ -1340,6 +1784,29 @@ def trace(table_path, tables=None, svg_dir=SVG_DIR):
             print(f'{hash_name} {font["name"]} {page["w"]}x{page["h"]}: {detail}')
 
 
+def preview(tables_path, out_path, ids):
+    """Each sheet of the given fonts (all when none are named) from a font tables dump, its original texels above its
+    redraw (the SVG rasterized as the pack does), into one PNG: to compare a redraw with the original by eye."""
+    tables = json.load(open(tables_path))
+    rows = []
+    for table in tables:
+        if ids and table['id'] not in ids:
+            continue
+        for page in table['pages']:
+            path = None
+            for d in (SVG_DIR, SVG_2049_DIR, SVG_2049_MENU_DIR):
+                if os.path.exists(os.path.join(d, rt64_hash(page) + '.svg')):
+                    path = os.path.join(d, rt64_hash(page) + '.svg')
+            if path is None:
+                continue
+            width, height, elements = parse_svg(open(path).read())
+            image = cv2.resize(render(width, height, elements, SCALE * SUPERSAMPLE), (width * SCALE, height * SCALE),
+                               interpolation=cv2.INTER_AREA)
+            original = cv2.resize(decode_sheet(page), (width * SCALE, height * SCALE), interpolation=cv2.INTER_NEAREST)
+            rows += [np.clip(original * 17, 0, 255).astype(np.uint8), np.clip(np.round(image * 17), 0, 255).astype(np.uint8)]
+    cv2.imwrite(out_path, np.vstack(rows))
+
+
 def pack():
     svgs = sorted(glob.glob(os.path.join(SVG_DIR, '*.svg')) + glob.glob(os.path.join(SVG_2049_DIR, '*.svg')) +
                   glob.glob(os.path.join(SVG_2049_MENU_DIR, '*.svg')))
@@ -1358,7 +1825,10 @@ def pack():
             ok, png = cv2.imencode('.png', np.dstack([value] * 4))
             assert ok
             rtz.writestr(zipfile.ZipInfo(f'fonts/{hash_name}.png', stamp), png.tobytes(), zipfile.ZIP_DEFLATED)
-            # No half-texel shift: the redraw is aligned to the cells, and shifting would sample the neighbors.
+            # No shift: the game draws its text point-sampled, each texel over [i, i + 1) of its cell, which is where
+            # each redraw block sits. Measured in game against the original sheets (an 8x block upscale lands on them
+            # exactly); "center", right for filtered 3D textures, moved every glyph about 0.35 texel up and left,
+            # clipping its first row and column.
             textures.append({'path': f'fonts/{hash_name}', 'hashes': {'rt64': hash_name}, 'operation': 'preload',
                              'shift': 'none'})
         for folder, svg_dir in (('hud', HUD_SVG_DIR), ('menu', MENU_SVG_DIR), ('battle', BATTLE_SVG_DIR)):
@@ -1462,6 +1932,8 @@ if __name__ == '__main__':
         trace(sys.argv[2])
     elif len(sys.argv) == 2 and sys.argv[1] == 'trace-2049':
         trace(None, rom2049_tables(), SVG_2049_DIR)
+    elif len(sys.argv) >= 4 and sys.argv[1] == 'preview':
+        preview(sys.argv[2], sys.argv[3], sys.argv[4:])
     elif len(sys.argv) == 3 and sys.argv[1] == 'trace-2049-menus':
         trace(sys.argv[2], None, SVG_2049_MENU_DIR)
     elif len(sys.argv) >= 3 and sys.argv[1] == 'trace-hud':

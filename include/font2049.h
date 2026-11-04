@@ -1,6 +1,7 @@
 #ifndef __FONT2049_H__
 #define __FONT2049_H__
 
+#include <array>
 #include <map>
 #include <optional>
 #include <vector>
@@ -21,6 +22,15 @@ namespace rush2::font2049 {
         // From the glyph table's header: a line's height (byte 5), a space's width (byte 7) and the gap between
         // characters (byte 8; func_800B3E50 copies it to 0x80149B70, which func_800B3FA4 adds after each character).
         int line_height = 0, space = 0, gap = 1;
+        // Bytes 2 and 3: the ascent and descent; func_800B71D4 centers a line on y by half their sum (vertical mode 1).
+        int ascent = 0, descent = 0;
+        // Kerning (header byte 10 set): a row of `count` bytes per glyph record after the records; func_800B3FA4 and
+        // the drawer take kern[this glyph's record][the previous glyph's record] off a character's advance, unless the
+        // previous glyph is record 0 or a space came between. record[c] is character c's record (-1 none).
+        int count = 0;
+        bool kerning = false;
+        std::vector<uint8_t> kern;
+        std::array<int16_t, 256> record{};
     };
 
     // Font n of the N64 source (std::nullopt for a Dreamcast source or a file that doesn't parse).

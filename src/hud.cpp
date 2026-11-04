@@ -1806,6 +1806,13 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
         map_pending = true;
         map_start = MEM_W(0, (int32_t)dl_2d_cursor);
     }
+    // Rush 2049 Menus' Style and Layout: header plates and the home screen's frame give way to 2049's
+    // (src/rush2049/menus2049.cpp). The loop skips a widget whose hidden byte, loaded into $t7, is set.
+    if (slot < max_widgets && rush2::menus2049::skip_widget(rdram, slot_identity[slot].name, slot_identity[slot].callback,
+                                                            MEM_B(widget_hidden, widget) != 0)) {
+        ctx->r15 = 1;
+        return;
+    }
     if (slot >= max_widgets || MEM_B(widget_hidden, widget) != 0) {
         return;
     }
@@ -1933,6 +1940,7 @@ void rush2_hud_2d_list_start(uint8_t* rdram, recomp_context* ctx) {
 
 // func_800B39AC at its return (0x800B3A18): $v0 = the start of the frame's list.
 void rush2_hud_2d_list_end(uint8_t* rdram, recomp_context* ctx) {
+    rush2::menus2049::finish_buttons(rdram);
     ctx->r2 = (int32_t)(dl_2d_buffers + (uint32_t)MEM_W(0, (int32_t)dl_2d_frame) * dl_2d_buffer_size);
 }
 
@@ -1946,6 +1954,7 @@ void rush2_hud_draw_end(uint8_t* rdram, recomp_context* ctx) {
     in_hud_callback = false;
     finish_half(rdram);
     finish_map(rdram);
+    rush2::menus2049::list_end(rdram, ctx);
     rush2::battle::hud_draw(rdram, ctx);
     rush2::odometer2049::update(rdram);
     for (int p = 0; p < 4; p++) {

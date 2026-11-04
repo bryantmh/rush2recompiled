@@ -30,6 +30,7 @@
 #include "setup.h"
 #include "sim_run.h"
 #include "stunt2049.h"
+#include "menus2049.h"
 #include "wings.h"
 #include "wings_internal.h"
 
@@ -92,7 +93,8 @@ namespace {
             { Cfg::Games, "stunt_scoring", static_cast<uint32_t>(rush2::stunt2049::Scoring::Rush2),
               static_cast<uint32_t>(rush2::stunt2049::Scoring::Rush2049), -1 },
             { Cfg::Games, "rush2049_odometer", false, false, -1 },
-            { Cfg::Games, "rush2049_menus", false, false, -1 },
+            { Cfg::Games, "rush2049_menus", static_cast<uint32_t>(rush2::menus2049::Mode::Off),
+              static_cast<uint32_t>(rush2::menus2049::Mode::Off), -1 },
             { Cfg::Games, "car_speeds", rush2_speeds, rush2_speeds, -1 },
             { Cfg::Games, "rush2049_computer_cars", own_tracks, all_tracks, -1 },
             { Cfg::Games, "calspeed_computer_cars", own_tracks, all_tracks, -1 },

@@ -26,6 +26,8 @@ std::optional<rush2::font2049::Font> rush2::font2049::load(const rush2::rom2049:
     font.line_height = table[5];
     font.space = table[7];
     font.gap = table[8];
+    font.ascent = table[2];
+    font.descent = table[3];
     uint32_t imag = 0, txhd = 0, txhd_n = 0;
     for (size_t o = be32(atlas, 0); o + 12 <= atlas.size(); o += 12) {
         if (memcmp(&atlas[o], "IMAG", 4) == 0) imag = be32(atlas, o + 4);
@@ -48,11 +50,23 @@ std::optional<rush2::font2049::Font> rush2::font2049::load(const rush2::rom2049:
         }
         font.pages.push_back(std::move(p));
     }
-    for (size_t o = 20; o + 12 <= table.size(); o += 12) {
+    // func_800B3D18: the header is 0x10 bytes and byte 12 the record count; a record is a word (the kerning row's
+    // address once loaded), then char, page, x0, y0, x1, y1.
+    font.count = table[12];
+    font.record.fill(-1);
+    for (int i = 0; i < font.count; i++) {
+        size_t o = 0x14 + size_t(i) * 12;
+        if (o + 8 > table.size()) break;
         Font::Glyph g{ table[o + 1], table[o + 2], table[o + 3], table[o + 4], table[o + 5] };
         if (table[o] == 0 || g.page >= int(font.pages.size()) || g.x1 < g.x0 || g.y1 < g.y0 ||
             g.x1 >= font.pages[g.page].w || g.y1 >= font.pages[g.page].h) continue;
         font.glyphs[char(table[o])] = g;
+        font.record[table[o]] = int16_t(i);
+    }
+    size_t rows = 0x10 + size_t(font.count) * 12;
+    if (table[10] != 0 && rows + size_t(font.count) * font.count <= table.size()) {
+        font.kerning = true;
+        font.kern.assign(table.begin() + rows, table.begin() + rows + size_t(font.count) * font.count);
     }
     if (font.glyphs.count('A') == 0 && font.glyphs.count('0') == 0) return std::nullopt;
     return font;

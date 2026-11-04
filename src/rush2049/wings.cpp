@@ -499,17 +499,32 @@ void rush2::wings::init_config() {
             rush2::stunt2049::set_scoring(static_cast<rush2::stunt2049::Scoring>(std::get<uint32_t>(cur_value)));
         });
 
-    wings_config.add_bool_option(
+    wings_config.add_enum_option(
         menus_option_id,
         "Rush 2049 Menus",
-        "Gives the menus Rush 2049's lettering and text colors, its swirling circuit-board background, and its "
-        "menu buttons, which flip over to their yellow side for the item you're on. Takes effect at once. "
-        "Requires a Rush 2049 (USA) N64 ROM.",
-        false
+        "Dresses the menus as Rush 2049's. "
+        "<recomp-color primary>Style</recomp-color> gives them Rush 2049's lettering and text colors, its swirling "
+        "circuit-board background, and its menu buttons, which flip over to their yellow side for the item you're on. "
+        "<recomp-color primary>Style and Layout</recomp-color> also puts each screen's title on Rush 2049's title bar "
+        "and lays out the main menu like Rush 2049's. Takes effect at once. Requires a Rush 2049 (USA) N64 ROM.",
+        {
+            { rush2::menus2049::Mode::Off, "Off", "Off" },
+            { rush2::menus2049::Mode::Style, "Style", "Style" },
+            { rush2::menus2049::Mode::Layout, "Layout", "Style and Layout" },
+        },
+        rush2::menus2049::Mode::Off
     );
+    // Saved while the option was on or off (true / false): on is Style.
+    wings_config.on_json_parse_option(menus_option_id, [](const nlohmann::json& value) -> recomp::config::ConfigValueVariant {
+        if (value.is_boolean()) return (uint32_t)(value.get<bool>() ? rush2::menus2049::Mode::Style : rush2::menus2049::Mode::Off);
+        std::string name = value.is_string() ? value.get<std::string>() : "";
+        if (name == "Style") return (uint32_t)rush2::menus2049::Mode::Style;
+        if (name == "Layout") return (uint32_t)rush2::menus2049::Mode::Layout;
+        return (uint32_t)rush2::menus2049::Mode::Off;
+    });
     wings_config.add_option_change_callback(menus_option_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::menus2049::set_option(std::get<bool>(cur_value));
+            rush2::menus2049::set_option((rush2::menus2049::Mode)std::get<uint32_t>(cur_value));
         });
 }
 

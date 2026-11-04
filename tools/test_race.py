@@ -217,6 +217,8 @@ def main():
                     'a hidden window presents differently, so profile with it shown')
     ap.add_argument('--exe', help="run this game exe instead of build/'s (e.g. .release/build/Rush2Recompiled.exe, "
                     'the Release build players get, for crashes the local build doesn\'t show)')
+    ap.add_argument('--saves', help="copy this folder's files into the run's saves folder (a COPY of a profile "
+                    "save, for screens that need saved players; never point it at build/saves itself)")
     ap.add_argument('--data', help="the run's data folder (default tmp/test_race/data); give each run that may "
                     "overlap another session's its own")
     a = ap.parse_args()
@@ -226,6 +228,11 @@ def main():
     if a.records and not os.path.isfile(a.records):
         sys.exit('no placement file %s (the converted track: track_mod_test.exe output)' % a.records)
     mods = prepare_data(a.track, a.mod, a.games, a.config, a.mod_dir, a.user_settings, a.no_mod)
+    if a.saves:
+        os.makedirs(os.path.join(DATA, 'saves'), exist_ok=True)
+        for n in os.listdir(a.saves):
+            if os.path.isfile(os.path.join(a.saves, n)):
+                shutil.copyfile(os.path.join(a.saves, n), os.path.join(DATA, 'saves', n))
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_SIM_TURBO='1' if a.turbo else '0')
     if a.track != 'menus':

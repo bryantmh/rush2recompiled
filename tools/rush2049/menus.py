@@ -106,7 +106,12 @@ def screen_lists():
 def widgets():
     for fn, a, n in screen_lists():
         print('%s  list %08X  %d widgets' % (fn, a, n))
-        for o, arg, tex, x, y, cb in widgets_at(a, n):
+        try:
+            ws = widgets_at(a, n)
+        except struct.error:
+            print('    (not in the ROM image: filled at run time)')
+            continue
+        for o, arg, tex, x, y, cb in ws:
             print('    %08X arg=%08X %-16s (%3d,%3d) cb=%08X' % (o, arg, tex, x, y, cb))
 
 

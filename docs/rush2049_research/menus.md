@@ -707,4 +707,60 @@ loader, `widget`: the 2D widget draw, `flip`: an offline render of a button turn
   sites (us.toml): Start Game `menu_text_cb_start_game_labels_803C364C` 0x803C3818 and
   `menu_text_cb_start_game_alt_803C3334` 0x803C34FC; the circuit menu `menu_text_cb_name_entry_screen_803BD718`
   0x803BDDC4; Select Player `records_text_draw_page_a_803BFD54` 0x803C01B8 (JUST PLAY) and 0x803C0260 (CREATE
-  PLAYER) and `menu_text_cb_profile_list_803C2E2C` 0x803C3090 (the saved players).
+  PLAYER). The profile list's highlighted pair (`menu_text_cb_profile_list_803C2E2C` 0x803C3090: VIEW RECORDS FOR or
+  UNLOCKS FOR above the player's name, two prints on two lines) keeps Rush 2's look: one button can't hold it.
+
+### 11.4 Title bar and text layout
+
+- The title is node 11 of `func_800D71D0`'s node table (0x801102B4, 0x40 bytes a node: +0 the model's index in
+  0x80110290, +4 its node, +0xC a 3 x 3 rotation, +0x30 the position): model 2 (BUTTON_S2G1, 240 units wide) at
+  (0, 115, 200), turned rotX(-pi/2) (0x801241C0) to face the camera, its texture BUTTON_TITLE (0x8011F6FC). Through
+  the 90 degree menu camera it is centered at (160, 28), 192 pixels wide. Nodes 9 and 10 (the B and A balls, models 4
+  and 6) sit at (-75.1, 55.2, 100) and (-87.1, 55.2, 100); the port leaves them out, as the user asked.
+- `func_800FEE04` prints the title in font 13 (AERO-PLAIN16), style 1, at the node's projection (`func_800A6244`):
+  x less half its width (`text_width_800B3FA4`), with justification 0x80118E20 = 0 and vertical mode 0x80118E24 = 1.
+- `text_draw_800B71D4`'s vertical mode 1 moves y up by half the font's ascent plus descent (glyph table header bytes
+  2 and 3, truncated toward zero); mode 4 by all of it. Its horizontal mode 1 centers, 2 right-aligns.
+- `text_width_800B3FA4` adds (x1 - x0 + 1) + the gap (header byte 8, 0x80149B70) a glyph and header byte 7 a space,
+  then takes the last gap off. With header byte 10 set it also takes kern[this glyph][previous glyph] off, a row of
+  `count` bytes per record after the records (`func_800B3D18` points each record's first word at its row); a previous
+  glyph of record 0, or a space, isn't kerned. None of the menu fonts (10-13) has kerning; fonts 0 and 5-9 do.
+  Rush 2's measurer and drawer add (x1 - x0 + 1) + 0x800D3E92 (byte 6 of the font record, 1 in fonts 8-10) a glyph
+  and byte 5 a space, so the port's records carry 2049's space width in byte 5 and keep byte 6.
+- The glyph table: a 0x10-byte header (byte 12 the record count), then 12-byte records (a word, then char, page, x0,
+  y0, x1, y1), then the kerning rows. `font2049::load` reads exactly `count` records.
+
+### 11.5 Style and Layout (port)
+
+The option's second setting (`Mode::Layout`) also lays the screens out like 2049's, except Select Player:
+
+- Header: the left and right header plates (STARTTITLELEFT/RIGHT, TITLELEFT/RIGHT, PAKSCRTITLEL/R, CRSCRTITLEL/R,
+  AUDIOTITLEL/R, matched by the layout entry name hud.cpp records for each widget) are skipped in the widget draw loop
+  (`gfx_draw_frame_views_8007D9DC` at 0x8007EAD8: `$t7`, the widget's hidden byte, set), and 2049's title button is
+  drawn where the left one was. The screen's title, a font 10 print in the header band (y 0-42) on such a frame, is
+  printed in AERO-PLAIN16 at 2049's place: font 10's record points at the title font for that one print.
+- Home screen (Start Game, front_end_screen 0): its panel and HALFBOTBAR (layout entries with the callback
+  0x803C3560) are skipped, the buttons are centered on x 160, and the rows are printed left-aligned 19.7 pixels (at
+  2049's size) in from the buttons' left end, in the list's own font (as with Style).
+  They are printed once the frame's widgets are drawn (`rush2_hud_draw_end`), when the list's widest row is known.
+- A row too wide for BUTTON_S8G1 at its list's row spacing gets no button and keeps Rush 2's look.
+- Buttons are drawn at the end of the frame's widgets (or the 2D list's end) from that frame's rows: each row leaves
+  a G_DL to its button's display list in the 2D list. Each button's matrices are an RT64 matrix group
+  (0x4D000000 | generation << 12 | list << 8 | row), with a new generation when a row appears or its layout changes,
+  so frame interpolation never sweeps a button from another screen's place.
+
+### 11.6 High-resolution lettering (port)
+
+The HD font pack (`tools/build_font_pack.py`, style "drawn") redraws the four menu font sheets
+(AERO-PLAIN7, AERO-PLAIN10, 4BAERO-PLAIN12, AERO-PLAIN16; fonts.json ids `rush2049_menu_8/9/10/title`) from one
+hand drawing of AERO, `tools/font_pack/aero_glyphs.py`, made over the title font's texels. The lettering is straight
+stems and bars with flat tops and bottoms (S included), straight diagonals with sharp joins (A, K, M, N, V-Z), and
+rounded corners only where 2049 rounds them: C, E, G, O, 6 and 9 from the top edge over about 3 texels and down the
+side over 5, the B, D, P, R and digit bowls nearly circular with a radius of 2.5. Per font, the packer fits the
+drawing to the sheet's texels: its shared edges, corner radii, stroke widths and corner curvature are moved by least
+squares until its exact area coverage matches each texel (title 0.38 of 13 levels rms, below the sheet's own 4-bit
+rounding). AERO-PLAIN7 (the rows' font) is held firmly to the drawing (fonts.json "pull" 0.5) so its 5-texel glyphs
+keep AERO's shapes rather than their pixel steps. Glyphs a size draws its own way (AERO-PLAIN10's Q, each size's @,
+AERO-PLAIN7's flagged 1, A and pixel symbols) are drawn per font in `NATIVE`. The game draws its text point-sampled (each texel over [i, i + 1) of its cell), so the sheets are
+replaced with no shift: an 8x block upscale of the original sheets lands on them exactly in game, while RT64's
+center shift (right for filtered 3D textures like the cars') moved every glyph about 0.35 texel up and left.
