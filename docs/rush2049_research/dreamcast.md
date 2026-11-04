@@ -186,13 +186,17 @@ textures) whose thumbnail brightness correlates 0.5 or more, the image box-avera
 Pearson correlation of brightness over texels opaque in both must be 0.84 or more, the texture's brightness spread 6 or
 more (flat ones can't be told), at most a fifth of texels opaque in one and clear in the other (the N64's cutouts are
 hard where the disc's fade: trees differ in 9-16%), the average colors within 40 a channel, and for an N64 I or IA
-texture (tinted by the draw) a gray image. The best correlation wins.
+texture (tinted by the draw) a gray image. The best correlation wins. A texture from a car's model (its asset tagged
+a car by `rush2::origin::car_at`, src/assets.cpp) only matches images from the disc's car files (`CARn`, `CARnPJm`),
+and any other texture only the rest: a car's painted panel is mostly flat shading, and by structure alone the Locust
+LX's side matched TRACK1's STATE02 (a window over trees) at 0.861 and DM3's CONCRETE2_SNOW at 0.864 (issue #46, the
+side drawn as a green and white picture).
 
 Measured on Marina (N64 source, `RUSH2_TEXTURE_DUMP`, tmp tools comparing dump/rush2049 with dump/rush2049dc): true
 pairs reach 0.84 (building fronts and walls 0.98+, the road 0.93, trees 0.87-0.93, recropped vents 0.85); the
 nearest lookalikes are 0.82 and below. 146 of the 425 Rush 2049 textures drawn match; the rest have no disc image of
 the same picture (different art, or a part of a larger image, which a whole-image comparison doesn't find). Results
-are kept in `matches_v4` (N64 content key, image key or 0).
+are kept in `matches_v5` (N64 content key, image key or 0); loading deletes `matches_v4`, an older matcher's.
 
 A matched image larger than the texture is drawn as it is. One the same size (the road: 64 x 64 on both, full color
 on the disc) is upscaled in the texture's place when upscaling is on (its own upscaler entry, `disc_upscale`).

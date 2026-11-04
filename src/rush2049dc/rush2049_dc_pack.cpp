@@ -60,7 +60,8 @@ using rush2::rom2049::dc::TextureMode;
 
 namespace {
     constexpr const char* format = "v3"; // of the folder's files; a new one rebuilds it
-    constexpr const char* matches_file = "matches_v4"; // named for the matcher that made them
+    constexpr const char* matches_file = "matches_v5"; // named for the matcher that made them
+    constexpr const char* old_matches_files[] = { "matches_v4" }; // older matchers' results, deleted when loading
     constexpr int thumb_size = 8;
     constexpr size_t thumb_bytes = thumb_size * thumb_size * 4;
     constexpr uint8_t flag_shrunk = 1, flag_job = 2, flag_damaged = 4;
@@ -245,6 +246,13 @@ namespace {
     std::set<uint64_t> upscaled;          // keys with an installed upscale
     uint64_t upscale_generation = 0;
 
+    // An image from one of the disc's car files (CARn, CARnPJm). A car's painted panels look like a scenery photo
+    // or a wall by structure alone (issue #46: the Locust LX's side matched TRACK1's STATE02 and DM3's
+    // CONCRETE2_SNOW), so cars and the rest only match their own kind.
+    bool car_image(const ImageInfo& info) {
+        return info.file.size() > 3 && info.file.compare(0, 3, "CAR") == 0 && info.file[3] >= '0' && info.file[3] <= '9';
+    }
+
     void set_renderer_pack(bool on) {
         if (on) {
             pack_set = true;
@@ -381,6 +389,10 @@ namespace {
             by_key[info.key] = images.size();
             for (const auto& [hash, shrunk] : info.hashes) by_hash.emplace(hash, info.key);
             images.push_back(std::move(info));
+        }
+        for (const char* old : old_matches_files) {
+            std::error_code old_ec;
+            std::filesystem::remove(pack_dir() / old, old_ec); // matched again by this matcher, once each
         }
         std::vector<uint8_t> m = upscale::read_file(pack_dir() / matches_file);
         for (size_t i = 0; i + 16 <= m.size(); i += 16) {
@@ -546,7 +558,7 @@ bool rush2::rom2049::dc::in_texture_pack(uint64_t hash) {
     return mode == TextureMode::Disc && pack_set && pack_hashes.count(hash) != 0;
 }
 
-Match rush2::rom2049::dc::match(const upscale::Image& n64, uint64_t n64_key, bool intensity, uint64_t& image_key) {
+Match rush2::rom2049::dc::match(const upscale::Image& n64, uint64_t n64_key, bool intensity, bool car, uint64_t& image_key) {
     image_key = 0;
     // Candidates, picked with the lock held; the images are compared without it.
     struct Candidate {
@@ -563,7 +575,8 @@ Match rush2::rom2049::dc::match(const upscale::Image& n64, uint64_t n64_key, boo
             uint8_t thumb[thumb_bytes];
             make_thumb(n64, thumb);
             for (const ImageInfo& info : images) {
-                if ((info.flags & (flag_job | flag_damaged)) || info.w < n64.width || info.h < n64.height) {
+                if ((info.flags & (flag_job | flag_damaged)) || info.w < n64.width || info.h < n64.height ||
+                    car_image(info) != car) {
                     continue;
                 }
                 float r = thumb_correlation(thumb, info.thumb);

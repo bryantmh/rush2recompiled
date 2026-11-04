@@ -167,6 +167,7 @@ namespace {
         uint64_t index_key = 0;     // A paletted texture's index_key, else 0.
         rush2::origin::Game origin = rush2::origin::Game::Rush2; // Where it was first loaded from.
         uint8_t fmt = 0;            // The tile's G_IM_FMT.
+        bool car = false;           // Loaded from a car's model (rush2::origin::car_at).
         DcState dc = DcState::Unknown; // N64 Dreamcast Textures: whether a disc image is drawn in its place.
         uint64_t dc_image = 0;
         bool disc_upscale = false;  // Upscales a matched disc image for the N64 textures in hashes.
@@ -520,6 +521,7 @@ namespace {
                 entry.edge_t = edge_of(tile.cmt, tile.maskt);
                 entry.ui = ui_keys.count(key) != 0 || !world;
                 entry.origin = rush2::origin::at(j.address);
+                entry.car = rush2::origin::car_at(j.address);
                 entry.fmt = tile.fmt;
                 if (j.tlut != 0) {
                     entry.index_key = index_key(indices, j.width, j.height, tile.siz);
@@ -858,7 +860,8 @@ namespace {
                         if (dc_names && game == rush2::origin::Game::Rush2049 && mip == std::string::npos) {
                             uint64_t image_key = 0;
                             bool intensity = t.fmt == 3 || t.fmt == 4;
-                            if (rush2::rom2049::dc::match(t.image, t.key, intensity, image_key) == rush2::rom2049::dc::Match::Found) {
+                            bool car = e.path.rfind("cars/", 0) == 0;
+                            if (rush2::rom2049::dc::match(t.image, t.key, intensity, car, image_key) == rush2::rom2049::dc::Match::Found) {
                                 std::string disc = rush2::rom2049::dc::image_name(image_key);
                                 if (!disc.empty()) {
                                     name = disc;
@@ -1429,7 +1432,7 @@ namespace {
         // Worker: asks rush2::rom2049::dc::match about the textures waiting for it.
         void run_matches() {
             std::vector<std::pair<uint64_t, Image>> todo;
-            std::vector<bool> todo_intensity;
+            std::vector<bool> todo_intensity, todo_car;
             uint64_t for_generation;
             {
                 std::unique_lock lock(mutex);
@@ -1442,12 +1445,13 @@ namespace {
                     if (it != entries.end() && it->second.dc == DcState::Pending) {
                         todo.emplace_back(key, it->second.image);
                     todo_intensity.push_back(intensity(it->second));
+                    todo_car.push_back(it->second.car);
                     }
                 }
             }
             for (size_t i = 0; i < todo.size(); i++) {
                 uint64_t image = 0;
-                auto result = rush2::rom2049::dc::match(todo[i].second, todo[i].first, todo_intensity[i], image);
+                auto result = rush2::rom2049::dc::match(todo[i].second, todo[i].first, todo_intensity[i], todo_car[i], image);
                 // A disc image no larger than the texture is upscaled like it would have been (unless the player
                 // upscaled it themselves): its own entry, made here, off the lock.
                 Image disc;

@@ -18,6 +18,7 @@ namespace {
     struct Range {
         uint32_t end;
         rush2::origin::Game game;
+        bool car = false;
     };
 
     std::mutex mutex;
@@ -34,10 +35,10 @@ namespace {
             Range r = it->second;
             it = ranges.erase(it);
             if (r_start < start) {
-                ranges[r_start] = { start, r.game };
+                ranges[r_start] = { start, r.game, r.car };
             }
             if (r.end > end) {
-                ranges[end] = { r.end, r.game };
+                ranges[end] = { r.end, r.game, r.car };
                 break;
             }
         }
@@ -53,15 +54,15 @@ const char* rush2::origin::folder(Game game) {
     }
 }
 
-void rush2::origin::tag(uint32_t address, uint32_t size, Game game) {
+void rush2::origin::tag(uint32_t address, uint32_t size, Game game, bool car) {
     uint32_t start = address & address_mask, end = start + size;
     if (size == 0) {
         return;
     }
     std::lock_guard lock{ mutex };
     cut(start, end);
-    if (game != Game::Rush2) {
-        ranges[start] = { end, game };
+    if (game != Game::Rush2 || car) {
+        ranges[start] = { end, game, car };
     }
 }
 
@@ -74,4 +75,15 @@ rush2::origin::Game rush2::origin::at(uint32_t address) {
     }
     --it;
     return a < it->second.end ? it->second.game : Game::Rush2;
+}
+
+bool rush2::origin::car_at(uint32_t address) {
+    uint32_t a = address & address_mask;
+    std::lock_guard lock{ mutex };
+    auto it = ranges.upper_bound(a);
+    if (it == ranges.begin()) {
+        return false;
+    }
+    --it;
+    return a < it->second.end && it->second.car;
 }

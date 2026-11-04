@@ -55,7 +55,9 @@ namespace rush2::rom2049::dc {
     // an I or IA texture, which only takes a gray image), at least its size. NotReady while the images are still
     // being built. Called off the display list thread: it can take a few milliseconds.
     enum class Match { NotReady, None, Found };
-    Match match(const rush2::upscale::Image& n64, uint64_t n64_key, bool intensity, uint64_t& image_key);
+    // car: the texture is a car model's, which only a car's image (from the disc's CARn files) can match, and only
+    // such a texture can match one.
+    Match match(const rush2::upscale::Image& n64, uint64_t n64_key, bool intensity, bool car, uint64_t& image_key);
     // Whether the player installed an upscale of the image (drawn as it is, never upscaled again).
     bool upscaled_by_player(uint64_t image_key);
     // A disc image's DDS (the player's upscale of it if they installed one) and a key naming its contents.
