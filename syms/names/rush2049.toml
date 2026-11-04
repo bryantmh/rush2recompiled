@@ -3879,7 +3879,7 @@ ref = "docs/rush2049_research/menus.md#73-per-frame-func_8038a820"
 vram = 0x8038AA8C
 name = "battle_mount_update"
 sig = "void battle_mount_update(Object *obj, s16 unload)"
-desc = "Battle overlay. Per-car callback of the weapon mounted on a car: swaps the model for the weapon held (ids 0xD8-0xDF of table 0x801427C0, hidden for the gun), places it at 0x803943A4[weapon][car model], and runs the cannon's and gatling's barrel and muzzle flash parts."
+desc = "Battle overlay. Per-car callback of the weapon mounted on a car: swaps the model for the weapon held (ids 0xD8-0xDF of table 0x801427C0, hidden for the gun), places it at 0x803943A4[weapon][car model], and runs the cannon's and gatling's barrel and muzzle flash parts. Hides it in its driver's own view (+0x35C) while that player's camera mode +0x35D is 0 or 1 (bumper, hood)."
 consts = "0x9C = bytes per weapon in the mount table (13 car models x vec3); 8 = the default gun"
 status = "verified"
 ported = true

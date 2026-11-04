@@ -1973,6 +1973,18 @@ namespace {
         effects.erase(std::remove_if(effects.begin(), effects.end(), [](const Effect& e) { return !e.live; }), effects.end());
     }
 
+    // The view a car's weapon is kept out of: its driver's own, in the cameras it would block. func_8038AA8C hides it
+    // there in 2049's camera modes 0 and 1 (+0x35D < 2: the bumper and hood cameras; func_8008AE8C(node, 1, 1 << the
+    // car's view +0x35C)), as Rush 2's modes 0 and 1 (car state +0x348, docs/camera.md) are. Rush 2's close chase
+    // camera (mode 3, about 1 ft up and 12 behind) also looks straight through the mine, held 5-6 ft behind the car at
+    // 1.4-2 ft up (table 0x803943A4), so the mine is kept out of it too; the roof weapons and the ram stay in view.
+    int mount_hidden_view(uint8_t* rdram, int i, int weapon) {
+        int view = (int8_t)MEM_B(0, (int32_t)(state_at(i) + 0x347));
+        int camera = (int8_t)MEM_B(0, (int32_t)(state_at(i) + 0x348));
+        if (view < 0 || view >= 4) return -1;
+        return camera == 0 || camera == 1 || (camera == 3 && weapon == mine) ? view : -1;
+    }
+
     // func_8038AA8C: the weapon a car holds sits on it at the weapon's offset for its car model, turned with the car.
     // The gun shows nothing. A mine is held behind the car until it is let go. Called before each view is drawn, when
     // the cars' bodies have the frame's poses.
@@ -1990,6 +2002,7 @@ namespace {
                 offset_point(c, m, local, pos);
                 color_slot(slot, plain_color);
                 place_slot(rdram, slot, mount_models[f.weapon], m, pos);
+                rush2::battle_render::hide_in_view(slot, mount_hidden_view(rdram, i, f.weapon));
             }
             // func_8038F938: the shield's globe grows to the car model's size, holds, then shrinks.
             int shield_slot = shield_slot_first + i;

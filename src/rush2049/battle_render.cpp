@@ -101,6 +101,7 @@ namespace {
         float m[9] = {}, pos[3] = {};
         uint32_t rgba = 0xFFFFFFFF;
         int view = -1;
+        int hidden_view = -1;   // a view it isn't drawn in (hide_in_view), -1 none
         bool attached = false;
         bool billboard = false;
         float push = 0.0f;
@@ -505,6 +506,11 @@ void rush2::battle_render::hide(int slot) {
     if (slot >= 0 && slot < max_slots) items[slot].on = false;
 }
 
+void rush2::battle_render::hide_in_view(int slot, int view) {
+    std::lock_guard lock{ mutex };
+    if (slot >= 0 && slot < max_slots) items[slot].hidden_view = view;
+}
+
 void rush2::battle_render::clear() {
     std::lock_guard lock{ mutex };
     for (Item& it : items) it.on = false;
@@ -524,7 +530,7 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
     if (!loaded || !rush2_interp_view_matrices(view, &root, &projection, &lookat)) return;
     int count = 0, attached = 0;
     for (const Item& it : items) {
-        if (it.on && (it.view < 0 || it.view == (int)view)) {
+        if (it.on && (it.view < 0 || it.view == (int)view) && it.hidden_view != (int)view) {
             count++;
             attached += it.attached;
         }
@@ -558,7 +564,7 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
         for (int order = 0; order < rush2::battle_render::max_slots * 2; order++) {
             int slot = order % rush2::battle_render::max_slots;
             const Item& it = items[slot];
-            if (!it.on || (it.view >= 0 && it.view != (int)view) || it.attached != (pass == 1)) continue;
+            if (!it.on || (it.view >= 0 && it.view != (int)view) || it.hidden_view == (int)view || it.attached != (pass == 1)) continue;
             if (it.last != (order >= rush2::battle_render::max_slots)) continue;
             float m[4][4] = {};
             float rel[3] = { it.pos[0] - cam[0], it.pos[1] - cam[1], it.pos[2] - cam[2] };

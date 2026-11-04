@@ -94,6 +94,10 @@ weapon: 0x5C, 0x57, 0x5A, 0x58, 0x5B, 0x5D, 0x5E, 0x5F, 0x59 (`func_800B61A8(sou
 - **Where a shot starts**: the car's position + (`0x803943A4[weapon][car model]` + `0x80394B08[weapon]`) in the car's
   frame (x right, y up, z forward). The first table (8 weapons x 13 car models x vec3) is also where the weapon's model
   sits on the car (`func_8038AA8C`, which also swaps the model: ids 0xD8-0xDF of table `0x801427C0`, hidden for the gun).
+  In its driver's own view the weapon is hidden while that player's camera mode (draw state +0x35D) is 0 or 1, the
+  bumper and hood cameras (`func_8008AE8C(node, 1, 1 << +0x35C)`, +0x35C the car's view); every other view, and the
+  chase cameras, show it. The port does the same with Rush 2's modes 0 and 1 (car state +0x348), and also keeps the
+  mine out of Rush 2's close chase camera (mode 3), which looks straight through it (`mount_hidden_view`).
   The gun uses the second table alone, (0, 1.5, 2.0).
 - **Aim** (`func_8038F568`): the nearest car ahead within 2000 with |x| <= z / 2 and |y| <= z in the car's frame; the aim
   yaw and pitch move 0.01 rad a step toward `atan2(x, z)` and `atan2(y, z)` (toward 0 with no target).

@@ -33,6 +33,9 @@ namespace rush2::battle_render {
     void place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view = -1, bool attached = false,
                bool billboard = false, float push = 0.0f, bool last = false);
     void hide(int slot);
+    // Keeps a placed slot out of one view (-1: drawn in all its views again), without ending its interpolation the
+    // way hiding and placing it again would: a car's own weapon in its driver's close cameras.
+    void hide_in_view(int slot, int view);
     // A 2D image of Rush 2049's HUD file (HEALTHBG) as RGBA16 texels in RDRAM. False if it isn't there.
     bool image(uint8_t* rdram, const char* name, uint32_t* address, int* w, int* h);
     void clear();
