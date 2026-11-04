@@ -658,3 +658,53 @@ them in font 11. The port's car select logos (car2049.cpp `draw_select_logo`) le
 (`load_aero_font`: the coverage of each glyph set at its own size, a texel apart, scaled up 1.25 or to fit the
 128 x 32 slot), shaded and outlined like Rush 2's logos; the old 5x7 font is the fallback when the font can't be read
 (a Dreamcast source). [V in game]
+
+## 11. Menu look: text colors, background and buttons [V]
+
+What the port's Rush 2049 Menus option (Games tab, `rush2049_menus`, src/rush2049/menus2049.cpp) takes from 2049.
+`tools/rush2049/menu49.py` reads the same art and runs 2049's own code on it under Unicorn (`texload`: the texture
+loader, `widget`: the 2D widget draw, `flip`: an offline render of a button turning).
+
+### 11.1 Text colors and the pulse
+
+- Style table 0x80118E34 (8 bytes a style: text RGBA, shadow RGBA). Menu text is style 1 (0xE6E6E6, shadow 0x3C3C3C).
+- The row under the cursor is style 0x16, whose color `func_800947F0` / `func_800B74C0` blend each frame from
+  0x801146C0 (black) to 0x801146BC (0xE0E000) by f = tri(frac(2t)) * 2 (a triangle wave, period 0.5 s); the port
+  writes y = trunc(224 * f) into Rush 2's text color 0x800D3E38 for its flashing style 0x14, shadow 0x3C3C3C.
+- `func_800FEE04` (the options rows) picks style 1 or 0x16 per row and never changes the font, so the selected row
+  is lettered like the others. Rush 2 prints its selected row in the other menu font (8 <-> 9); the port prints it
+  in the list's own font, centered where Rush 2 centered it, switching the font (0x800D402C, 0x800D3E60, 0x800D3E92,
+  as `text_select_font_80088C24` sets them) for that one print and restoring it at the next font select.
+
+### 11.2 Background
+
+- `func_800B8374`: four camera-space quads from the table 0x80114264 + variant * 0xE0 (variant = the view count
+  0x80151AD0), meeting at the screen center at z = 1025 (0x801391E4), vertex color 0x0000C0 (0x8011464C), texture
+  BACKGROUND_SFX (64 x 64 CI4, file 54). Combine TEXEL0 x SHADE, alpha TEXEL0 x PRIM.
+- `func_800FC9F8` scrolls their texture coordinates 0.2 texture widths a second (0x80114274 / 0x80114278), truncated
+  each frame.
+- The board BACKGROUND_A + BACKGROUND_B (320 x 220 together, CI8) is drawn over it at (0, 0) by the widget draw
+  `func_800A04C4`: copy mode, alpha compare (transparent traces show the swirl), point sampled, rows bottom up (the
+  images are stored flipped), loaded in 2 KB strips by `func_80099BFC`.
+- Views: `func_800A5744` / `func_800A5908`, fov at 0x80154188 = 90 in the menus, near 2.5, far 2000 (x 16 for
+  guPerspective). `func_8009F058` calls the texture loader `func_80099BFC` (0x8009FF04-0x8009FF60) when a
+  polygon's texture changes; `polygon_set_8008C074` sets the UV corners.
+- The port: the board covers 220 of Rush 2's 240 lines, so below it (and past 4:3 on the sides) the board is drawn
+  again mirrored about its edge, so the traces run on unbroken, as Rush 2's own background is extended.
+
+### 11.3 Buttons
+
+- `func_800D71D0` sets up the menu: node color D_80110660 = 0xFFFFFFFF, models from the table 0x80110290 (S3, S1, S2,
+  CURSOR, AB, ...): BUTTON_S0G1..S8G1 in file 54, 160 to 480 units wide, drawn by `model_draw` `func_8009C8F0`
+  at z = 300.
+- `func_800D6914` turns each row: rotX(angle - pi/2) (`func_800B5898`; sin / cos 0x80008730 / 0x800088F0), the angle
+  moving 4 pi a second (0x801241B4) to pi for the row under the cursor and back to 0 for the others. Up to pi/2 the
+  texture is BUTTON, past it BUTTON_SELECT (yellow).
+- `func_800FEE04` hides a row's text while the angle is between 40 degrees (0x80124834) and 140 degrees
+  (0x80124830), and places it 0x37 pixels in from the button's end.
+- 2049's rows are 40 units apart at z = 300 (21.3 pixels); the port scales each button to the Rush 2 list's row
+  pitch and picks the narrowest model that holds the list's widest row. Rows get buttons at these Rush 2 print
+  sites (us.toml): Start Game `menu_text_cb_start_game_labels_803C364C` 0x803C3818 and
+  `menu_text_cb_start_game_alt_803C3334` 0x803C34FC; the circuit menu `menu_text_cb_name_entry_screen_803BD718`
+  0x803BDDC4; Select Player `records_text_draw_page_a_803BFD54` 0x803C01B8 (JUST PLAY) and 0x803C0260 (CREATE
+  PLAYER) and `menu_text_cb_profile_list_803C2E2C` 0x803C3090 (the saved players).

@@ -52,6 +52,7 @@
 #include "battle.h"
 #include "car_mods.h"
 #include "online.h"
+#include "menus2049.h"
 #include "odometer2049.h"
 #include "pause_menu.h"
 #include "stunt2049.h"
@@ -1858,6 +1859,8 @@ void rush2_hud_draw_widget(uint8_t* rdram, recomp_context* ctx) {
 // func_800734E0 entry (prints a string at ($a0, $a1), justified around $a0). Anchors text printed by HUD callback
 // widgets, and moves it side by side.
 void rush2_hud_print(uint8_t* rdram, recomp_context* ctx) {
+    // Rush 2049 Menus' buttons behind the menu lists' rows, and its text colors (src/rush2049/menus2049.cpp).
+    rush2::menus2049::before_print(rdram, ctx);
     // The stunt panel's text (func_800B7654, which prints every player's in a loop with the player in $s6; players 3 and
     // 4's at player 2's place): moved with the player's own box (the one the text is over: the trick name's on the
     // left, the scores' on the right) and drawn at its scale. The text is drawn at once (the callback sets the text

@@ -1365,6 +1365,14 @@ area = "car"
 ref = "docs/rush2049_research/cars.md#damaged-hood-v"
 
 [[func]]
+vram = 0x800947F0
+name = "menu_pulse_update"
+desc = "Menu highlight pulse: blends style 0x16's color each frame from 0x801146C0 (black) to 0x801146BC (0xE0E000) by a triangle wave of period 0.5 s."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
+
+[[func]]
 vram = 0x80094888
 desc = "Generic flip-book update: timer -= dt; at <= 0 frame++, timer = 1/16; at frame >= 7 stop (type flag 0x1000) or remove (0x2000) or loop. | Update of CACTUS: 7-frame flip-book (CACTUSG2-G8) at 1/16 s per frame, keeps the last frame."
 status = "verified"
@@ -1679,6 +1687,14 @@ area = "render"
 ref = "docs/rush2049_research/geometry.md#54-culling-and-visibility-summary"
 
 [[func]]
+vram = 0x800A04C4
+name = "widget_draw"
+desc = "2D widget draw: copy mode, point sampled, alpha compare; images drawn rows bottom up (stored flipped) in 2 KB strips. Draws the menu circuit board BACKGROUND_A/B at (0,0)."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
+
+[[func]]
 vram = 0x800A1910
 name = "save_record_pack_name"
 sig = "s32 save_record_pack_name(s32 a0, u8 *name, s32 a2)"
@@ -1744,6 +1760,13 @@ desc = "Fills a view struct (0x8017A510 + view * 0x48): size and center, the fie
 status = "verified"
 area = "render"
 ref = "docs/rush2049_research/battle.md#61-arrows-to-the-other-cars"
+
+[[func]]
+vram = 0x800A5908
+desc = "Menu view setup after view_set_fov_800A5744: near 2.5, far 2000 (x16 for guPerspective), fov 0x80154188 = 90 in the menus."
+status = "inferred"
+area = "render"
+ref = "docs/functions/rush2049_render.md#rush-2049-render-functions"
 
 [[func]]
 vram = 0x800A6094
@@ -2233,6 +2256,14 @@ area = "util"
 ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
+vram = 0x800B5898
+name = "mtx_rotate_x"
+desc = "Rotation about x: y' = y cos - z sin, z' = y sin + z cos (sin/cos 0x80008730/0x800088F0)."
+status = "inferred"
+area = "util"
+ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
+
+[[func]]
 vram = 0x800B669C
 name = "text_set_align"
 sig = "void text_set_align(s32 h, s32 v)"
@@ -2279,6 +2310,21 @@ consts = "0x16 = blended color"
 status = "verified"
 area = "ui"
 ref = "docs/rush2049_research/stunts.md#5-the-hud"
+
+[[func]]
+vram = 0x800B74C0
+desc = "Called by the menu pulse (func_800947F0): writes the blended pulse color into the style table 0x80118E34."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
+
+[[func]]
+vram = 0x800B8374
+name = "menu_background_sfx_draw"
+desc = "Menu background swirl: four camera-space quads (table 0x80114264 + view count 0x80151AD0 * 0xE0) meeting at the screen center at z 1025, color 0x0000C0, texture BACKGROUND_SFX (file 54)."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x800B9284
@@ -3133,6 +3179,22 @@ area = "audio"
 ref = "docs/rush2049_research/audio.md#4-volume-calibration"
 
 [[func]]
+vram = 0x800D6914
+name = "menu_button_flip"
+desc = "Turns each menu row's button: rotX(angle - pi/2), angle moving 4 pi/s (0x801241B4) to pi under the cursor and back to 0 elsewhere; BUTTON texture up to pi/2, BUTTON_SELECT past it."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
+
+[[func]]
+vram = 0x800D71D0
+name = "menu_setup"
+desc = "Menu setup: node color D_80110660 = 0xFFFFFFFF, button models from table 0x80110290 (S3, S1, S2, CURSOR, AB, ...; BUTTON_S0G1..S8G1 in file 54)."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
+
+[[func]]
 vram = 0x800D7E90
 name = "controls_apply_config"
 sig = "void controls_apply_config(s32 use_default, void *a2)"
@@ -3637,6 +3699,14 @@ area = "race"
 ref = "docs/rush2049_research/movers.md#1-globals-and-timing"
 
 [[func]]
+vram = 0x800FC9F8
+name = "menu_background_sfx_scroll"
+desc = "Scrolls the swirl quads' texture coordinates 0.2 texture widths a second (0x80114274/8), truncated each frame."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
+
+[[func]]
 vram = 0x800FD464
 desc = "2049 frame function; calls func_800FBF88 (game step) then func_800F733C, func_800B0868."
 status = "verified"
@@ -3697,6 +3767,14 @@ desc = "Plays a sound at a position: func_800FEA00(id, car, pos, 2)."
 status = "inferred"
 area = "audio"
 ref = "docs/rush2049_research/placement.md#7-knock-over-props-v"
+
+[[func]]
+vram = 0x800FEE04
+name = "options_rows_text"
+desc = "Options menu row text: style 1, or 0x16 for the row under the cursor (font unchanged); hidden while the button is 40-140 degrees (0x80124834/0x80124830); placed 0x37 px in from the button end."
+status = "inferred"
+area = "ui"
+ref = "docs/functions/rush2049_ui.md#rush-2049-ui-functions"
 
 [[func]]
 vram = 0x80103D28

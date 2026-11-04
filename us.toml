@@ -191,6 +191,66 @@ before_vram = 0x80054D8C
 text = "    rush2_split_views_end(rdram, ctx);"
 
 # The frame setup's black line between the stacked views (G_FILLRECT at $v1 when $v0, the split flag, is set).
+# Rush 2049 Menus (src/rush2049/menus2049.cpp): after the frame's clear and border (once per game frame), the fonts,
+# colors and the menu background (drawn at the start of the frame's display list, before the 3D views).
+[[patches.hook]]
+func = "gfx_frame_setup_800B45B4"
+before_vram = 0x800B4A20
+text = "    rush2_menus49_frame(rdram, ctx);"
+
+# Rush 2049 Menus: the style text_select_style selects ($a0) and, at its exit, Rush 2049's highlight color for style 0x14.
+[[patches.hook]]
+func = "text_select_style_800737E4"
+before_vram = 0x800737E4
+text = "    rush2_menus49_style_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "text_select_style_800737E4"
+before_vram = 0x80073FB0
+text = "    rush2_menus49_style_end(rdram, ctx);"
+
+# Rush 2049 Menus: the text_print_string calls that print menu list rows, whose rows get Rush 2049's buttons.
+# Start Game.
+[[patches.hook]]
+func = "menu_text_cb_start_game_labels_803C364C"
+before_vram = 0x803C3818
+text = "    rush2_menus49_row(rdram, ctx, 0);"
+
+# Start Game (its other table).
+[[patches.hook]]
+func = "menu_text_cb_start_game_alt_803C3334"
+before_vram = 0x803C34FC
+text = "    rush2_menus49_row(rdram, ctx, 0);"
+
+# the circuit menu.
+[[patches.hook]]
+func = "menu_text_cb_name_entry_screen_803BD718"
+before_vram = 0x803BDDC4
+text = "    rush2_menus49_row(rdram, ctx, 1);"
+
+# Select Player's JUST PLAY.
+[[patches.hook]]
+func = "records_text_draw_page_a_803BFD54"
+before_vram = 0x803C01B8
+text = "    rush2_menus49_row(rdram, ctx, 2);"
+
+# Select Player's CREATE PLAYER.
+[[patches.hook]]
+func = "records_text_draw_page_a_803BFD54"
+before_vram = 0x803C0260
+text = "    rush2_menus49_row(rdram, ctx, 2);"
+
+# the saved players.
+[[patches.hook]]
+func = "menu_text_cb_profile_list_803C2E2C"
+before_vram = 0x803C3090
+text = "    rush2_menus49_row(rdram, ctx, 2);"
+
+[[patches.hook]]
+func = "text_select_font_80088C24"
+before_vram = 0x80088C24
+text = "    rush2_menus49_font(rdram, ctx);"
+
 [[patches.hook]]
 func = "gfx_frame_setup_800B45B4"
 before_vram = 0x800B4A0C
@@ -823,7 +883,7 @@ func = "asset_lz_decompress_80077F84"
 before_vram = 0x80077F84
 text = "    if (rush2_asset_decompress(rdram, ctx)) return;"
 
-# Game heap moved to 0x80420000-0x80ACA000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
+# Game heap moved to 0x80420000-0x80AA0000 (src/assets.cpp). func_800AF3B0 lays out memory at boot; func_8009FB40
 # resets the heap and func_800A62C0 loads the menu overlay, both of which set the heap top.
 [[patches.hook]]
 func = "mem_boot_layout_heap_800AF3B0"
@@ -833,42 +893,42 @@ text = "    rush2_heap_init(rdram, ctx);"
 [[patches.instruction]]
 func = "mem_boot_layout_heap_800AF3B0"
 vram = 0x800AF41C
-value = 0x3C0C80AC # lui $t4, 0x80AC
+value = 0x3C0C80AA # lui $t4, 0x80AA
 
 [[patches.instruction]]
 func = "mem_boot_layout_heap_800AF3B0"
 vram = 0x800AF428
-value = 0x358CA000 # ori $t4, $t4, 0xA000
+value = 0x358C0000 # ori $t4, $t4, 0
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBC0
-value = 0x3C1880AC # lui $t8, 0x80AC
+value = 0x3C1880AA # lui $t8, 0x80AA
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBCC
-value = 0x3718A000 # ori $t8, $t8, 0xA000
+value = 0x37180000 # ori $t8, $t8, 0
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBDC
-value = 0x3C0E80AC # lui $t6, 0x80AC
+value = 0x3C0E80AA # lui $t6, 0x80AA
 
 [[patches.instruction]]
 func = "mem_reset_heap_and_scene_8009FB40"
 vram = 0x8009FBE8
-value = 0x35CEA000 # ori $t6, $t6, 0xA000
+value = 0x35CE0000 # ori $t6, $t6, 0
 
 [[patches.instruction]]
 func = "overlay_load_800A62C0"
 vram = 0x800A62E8
-value = 0x3C1880AC # lui $t8, 0x80AC
+value = 0x3C1880AA # lui $t8, 0x80AA
 
 [[patches.instruction]]
 func = "overlay_load_800A62C0"
 vram = 0x800A62EC
-value = 0x3718A000 # ori $t8, $t8, 0xA000
+value = 0x37180000 # ori $t8, $t8, 0
 
 # Rush 2049 tracks (src/rush2049/track2049.cpp): func_800A4C98 queues the race's track files, func_8007C27C picks the
 # visible sections for the camera's region, func_800A45A8 builds the sky.

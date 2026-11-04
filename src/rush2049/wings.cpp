@@ -40,6 +40,7 @@
 #include "texture_upscale.h"
 #include "odometer2049.h"
 #include "stunt2049.h"
+#include "menus2049.h"
 
 namespace {
     const std::string config_id = "games";
@@ -50,6 +51,7 @@ namespace {
     const std::string speeds_option_id = "car_speeds";
     const std::string odometer_option_id = "rush2049_odometer";
     const std::string stunt_option_id = "stunt_scoring";
+    const std::string menus_option_id = "rush2049_menus";
     const std::string source_option_id = "rush2049_source";
     const char* rom_file_name = "rush2049.z64";
 
@@ -147,6 +149,7 @@ namespace {
         rush2::rom2049::dc::set_texture_sources(rom, disc_stored ? stored_pack_path() : std::filesystem::path());
         rush2::upscale::set_dreamcast_option_state(rom != nullptr && rom->is_dreamcast(), disc_stored);
         rush2::wings::on_rom_changed();
+        rush2::menus2049::source_changed();
     }
 
     std::string rom_status_text() {
@@ -495,6 +498,19 @@ void rush2::wings::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::stunt2049::set_scoring(static_cast<rush2::stunt2049::Scoring>(std::get<uint32_t>(cur_value)));
         });
+
+    wings_config.add_bool_option(
+        menus_option_id,
+        "Rush 2049 Menus",
+        "Gives the menus Rush 2049's lettering and text colors, its swirling circuit-board background, and its "
+        "menu buttons, which flip over to their yellow side for the item you're on. Takes effect at once. "
+        "Requires a Rush 2049 (USA) N64 ROM.",
+        false
+    );
+    wings_config.add_option_change_callback(menus_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::menus2049::set_option(std::get<bool>(cur_value));
+        });
 }
 
 void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
@@ -504,7 +520,7 @@ void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function
     button->set_flex_shrink(0.0f);  // Beside a long title in a narrow column, the title wraps instead.
     button->add_pressed_callback(select_rom);
     for (const std::string& id : { source_option_id, wings_option_id, tracks_option_id, cars_option_id, drones_option_id,
-                                    speeds_option_id, odometer_option_id, stunt_option_id }) {
+                                    speeds_option_id, odometer_option_id, stunt_option_id, menus_option_id }) {
         page->add_option(wings_config, id);
     }
     refresh = [note = heading.note, shown = rom_status_text()]() mutable {

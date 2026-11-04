@@ -8,6 +8,9 @@ game's own pixels are packed.
   python tools/build_font_pack.py trace <font_tables.json>        Redraw every font sheet as an SVG.
   python tools/build_font_pack.py trace-2049                      Redraw the Rush 2049 font sheets the game draws
                                                                   (ROM2049_FONTS; RUSH2049_ROM = the 2049 ROM).
+  python tools/build_font_pack.py trace-2049-menus <menu_fonts.json>
+                                                                  Redraw the Rush 2049 Menus font sheets
+                                                                  (src/rush2049/menus2049.cpp) from their dump.
   python tools/build_font_pack.py trace-hud <texture dump dir>...  Redraw the HUD images listed in hud.json.
   python tools/build_font_pack.py pack                            Rasterize the SVGs and write the .rtz.
   python tools/build_font_pack.py images <image dump> <out dir>   Write every dumped 2D image as <RT64 hash>.png.
@@ -80,6 +83,10 @@ MENU_SVG_DIR = os.path.join(PACK_DIR, 'menu_svg')
 BATTLE_SVG_DIR = os.path.join(PACK_DIR, 'battle_svg')
 # Rush 2049's font sheets (trace-2049), drawn by src/hud.cpp draw_i4_part as I4 sheets like the game's own.
 SVG_2049_DIR = os.path.join(PACK_DIR, 'svg_2049')
+# The Rush 2049 Menus option's font sheets (trace-2049-menus): Rush 2049's menu fonts repacked into Rush 2 font
+# sheets by src/rush2049/menus2049.cpp, which writes them in the font table format with RUSH2_DUMP_MENU_FONTS=<path>
+# (ids rush2049_menu_<Rush 2 font> in fonts.json).
+SVG_2049_MENU_DIR = os.path.join(PACK_DIR, 'svg_2049_menu')
 # Rush 2049 fonts the game draws: 4BAERO-PLAIN12 and AERO-PLAIN7 (include/font2049.h).
 ROM2049_FONTS = (10, 12)
 VECTOR_FONT = os.path.join(ROOT, 'assets', 'InterVariable.ttf')
@@ -1334,7 +1341,8 @@ def trace(table_path, tables=None, svg_dir=SVG_DIR):
 
 
 def pack():
-    svgs = sorted(glob.glob(os.path.join(SVG_DIR, '*.svg')) + glob.glob(os.path.join(SVG_2049_DIR, '*.svg')))
+    svgs = sorted(glob.glob(os.path.join(SVG_DIR, '*.svg')) + glob.glob(os.path.join(SVG_2049_DIR, '*.svg')) +
+                  glob.glob(os.path.join(SVG_2049_MENU_DIR, '*.svg')))
     if not svgs:
         sys.exit('No SVGs in ' + SVG_DIR)
     textures = []
@@ -1454,6 +1462,8 @@ if __name__ == '__main__':
         trace(sys.argv[2])
     elif len(sys.argv) == 2 and sys.argv[1] == 'trace-2049':
         trace(None, rom2049_tables(), SVG_2049_DIR)
+    elif len(sys.argv) == 3 and sys.argv[1] == 'trace-2049-menus':
+        trace(sys.argv[2], None, SVG_2049_MENU_DIR)
     elif len(sys.argv) >= 3 and sys.argv[1] == 'trace-hud':
         trace_hud(sys.argv[2:])
     elif len(sys.argv) == 2 and sys.argv[1] == 'pack':

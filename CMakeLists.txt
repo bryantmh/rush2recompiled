@@ -278,6 +278,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush2049/battle_render.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/odometer.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/font2049.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/menus2049.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/stunt2049.cpp
     ${CMAKE_SOURCE_DIR}/src/arrows.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_audio.cpp
