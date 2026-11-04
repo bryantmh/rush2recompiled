@@ -144,8 +144,8 @@ GLYPHS.update({char: medium(shapes) for char, shapes in {
     '"': [box(0.73, 0.47, 2.53, 3.53), box(3.47, 0.47, 5.27, 3.53)],
     '#': [('p', [(1.85, 0, 0), (3.05, 0, 0), (1.55, 9, 0), (0.35, 9, 0)]),
           ('p', [(4.65, 0, 0), (5.85, 0, 0), (4.35, 9, 0), (3.15, 9, 0)]),
-          ('p', [(0.3, 2.3, 0), (6.4, 2.3, 0), (6.3, 3.7, 0), (0.2, 3.7, 0)]),
-          ('p', [(0.2, 5.0, 0), (6.3, 5.0, 0), (6.2, 6.7, 0), (0.1, 6.7, 0)])],
+          # The bars: one width, their ends level with each other (shared edges, so the fit keeps them so).
+          box(0.2, 2.2, 6.3, 3.7), box(0.2, 5.2, 6.3, 6.7)],
     '$': [('s', [(5.2, 3.2), (4.7, 1.7), (3.2, 1.3), (1.8, 1.6), (1.2, 2.8), (1.9, 4.3), (3.3, 5.0), (4.8, 5.8),
                  (5.6, 7.2), (4.9, 8.6), (3.4, 9.1), (1.9, 8.8), (1.0, 7.6)], 1.6, 'hs'),
           box(3.0, 0.0, 3.9, 10.7)],
@@ -226,4 +226,5 @@ NATIVE = {'8': {
 for _char in 'abcdefghijklmnopqrstuvwxyz023456789@&$%?W':   # not 1: the reference's has a foot, Rush 2's none
     GLYPHS[_char] = [('f', _char)]
 GLYPHS.update({chr(25): [('f', '™')], chr(26): [('f', '©')], chr(27): [('f', '®')],
-               chr(29): [('f', 'Ç')], chr(30): [('f', '¿')]})
+               chr(30): [('f', '¿')]})
+# Ç stays the font's own C with the drawn cedilla: Arimo's cedilla hangs past the cell and was cut off.

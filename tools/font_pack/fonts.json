@@ -1,9 +1,9 @@
 {
     "0": { "name": "Tiny", "style": "block", "inclusive": true },
-    "1": { "name": "Pixel", "style": "block", "inclusive": true },
-    "5": { "name": "Block", "style": "block", "gap": 0.75 },
+    "1": { "name": "Pixel", "style": "block", "inclusive": true, "trace": [34, 37], "segment_rows": [14, 33] },
+    "5": { "name": "Block", "style": "segment" },
     "8": { "name": "Small", "style": "drawn", "design": "rush2_glyphs" },
-    "9": { "name": "Medium", "style": "drawn", "design": "rush2_glyphs" },
+    "9": { "name": "Medium", "style": "drawn", "design": "rush2_glyphs", "extra": { "0c0eb67d14c2cbd2": { "™": [6, 0, 17, 7] } } },
     "10": { "name": "Large", "style": "drawn", "design": "rush2_glyphs" },
     "11": { "name": "Large digits", "style": "drawn", "design": "rush2_glyphs" },
     "rush2049_10": { "name": "Rush 2049 4BAERO-PLAIN12", "style": "drawn", "design": "aero_glyphs", "inclusive": true },

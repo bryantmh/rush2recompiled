@@ -45,13 +45,20 @@ ink box, and the halo's intensity and width are fitted by least squares so the r
 texels, matches the original. (The Rush 2 fonts were drawn this way once; their dim "halo" was really anti-aliasing,
 and keeping it inside the ink box made every letter a texel short.)
 
-Squared fonts (the tiny, pixel and segmented ones) are too small to trace or match to a vector font, so they're drawn
-from a hand-made squared font (BLOCK_GLYPHS): each character's strokes swept by a rectangular pen measured from the
-original, with the halo fitted the same way.
+Squared fonts (Tiny and Pixel) are too small to trace or match to a vector font, so they're drawn from a hand-made
+squared font (BLOCK_GLYPHS): each character's strokes swept by a rectangular pen measured from the original, with the
+halo fitted the same way. Their characters BLOCK_GLYPHS lacks ((c), (R), TM) or a font lists under "trace" are the pen
+swept along their own texels (texel_sweep_polygons), straight through diagonal steps.
 
-Characters neither set covers (the game's cursor, block, diamond and (c)/(r) shapes), and ink on a sheet that no
-character uses, are traced instead: bicubic upsampling, a contour between the core and halo levels, simplification,
-and sharp corners kept while gentle turns become curves (all corners for squared fonts).
+The Block font (5, style "segment") is a segment display: 1-texel segments apart at the corners with a dim glow. Its
+characters are drawn on one segment layout (SEGMENTS: an 8's seven, two center verticals, half and full crosses, V's
+point), each segment the same tapered bar (display_segment), the lit ones read from the texels (segment_layout) or
+set by SEGMENT_OVERRIDES ($, *, @, ', !, ^, Z); the glow is a halo. Characters off the layout (parentheses, braces, =)
+keep their texel runs as pointed segments. Pixel's sheet carries a copy of Block's texels below its characters, read at
+Pixel's width (its "segment_rows"), redrawn the same way.
+
+Ink on a sheet that no character uses is traced: bicubic upsampling, a contour between the core and halo levels,
+simplification, and sharp corners kept while gentle turns become curves (all corners for squared fonts).
 
 HUD images: see the HUD images section. Menu images (the blinking selection arrows): see the Image dumps section.
 
@@ -700,6 +707,13 @@ def fit_drawn_glyph(glyph, cell, level_y, pull, native=False):
 
     if reference and not native:
         t_bounds = ([0.7 * sy, -np.inf, 0.9 * sy, -np.inf], [1.15 * sy, np.inf, 1.1 * sy, np.inf])
+        # A reference glyph taller than the cell at the caps' size (Arimo's @ rises past the caps and drops below
+        # the baseline; Rush 2's is cap high) shrinks to fit the cell, centered in it, rather than being clipped.
+        dt, db = design[:, 1].min(), design[:, 1].max()
+        if (db - dt) * 0.9 * sy > height:
+            sy = 0.97 * height / (db - dt)
+            oy = height / 2 - sy * (dt + db) / 2
+            t_bounds = ([0.7 * sy, -np.inf, 0.9 * sy, -np.inf], [1.15 * sy, np.inf, sy, np.inf])
         # The narrowing by a coarse search first, centered on the original's ink.
         middle = (edges[0] + edges[1]) / 2 if edges else width / 2
         transform = min((np.array([f * sy, middle - f * sy * (dl + dr) / 2, sy, oy])
@@ -1028,9 +1042,28 @@ def drawn_elements(font_id, font, sheet_list, only=None):
             # texel, so a glyph shows one column and row past its listed cell (free sheet texels, drawn_region).
             elements.append({'d': d, 'rule': 'nonzero', 'fill': full, 'stroke': 0.0, 'halo': 0.0,
                              'clip': (x0, y0, rx1, ry1)})
-        # Ink no character's cell holds (other code might draw it): traced, as the other styles do.
+        # Ink no character's cell holds (other code might draw it): traced, as the other styles do, except marks a
+        # font names under "extra" ({sheet hash: {char: [x0, y0, x1, y1]}}: Medium's free-standing TM), which are
+        # drawn as the design draws that character (or fit_rom2049_character's symbols when it doesn't).
         if not only:
-            elements += traced_dim(sheet, uncovered_regions(page, sheet, font))
+            extra = font.get('extra', {}).get(rt64_hash(page), {})
+            for char, (ex0, ey0, ex1, ey1) in extra.items():
+                cell = sheet[ey0:ey1, ex0:ex1] / full
+                code = {v: k for k, v in SPECIAL_CHARACTERS.items()}.get(char, ord(char))
+                shapes = natives.get(chr(code)) or glyphs.get(chr(code))
+                if shapes:      # the design's own drawing of it (Rush 2's TM: the reference font's)
+                    glyph = DrawnGlyph(shapes)
+                    p, transform, rms = fit_drawn_glyph(glyph, cell, levels, pull, chr(code) in natives)
+                    d = glyph.svg(p, transform)
+                else:
+                    d, rms = fit_rom2049_character(char, cell, {}, levels, pull, glyphs)
+                errors.append((rms, char))
+                d = re.sub(r'(-?[\d.]+),(-?[\d.]+)', lambda m: fmt((float(m.group(1)) + ex0, float(m.group(2)) + ey0)), d)
+                elements.append({'d': d, 'rule': 'nonzero', 'fill': full, 'stroke': 0.0, 'halo': 0.0,
+                                 'clip': (ex0, ey0, ex1, ey1)})
+            elements += traced_dim(sheet, [r for r in uncovered_regions(page, sheet, font)
+                                           if not any(r[0] < e[2] and e[0] < r[2] and r[1] < e[3] and e[1] < r[3]
+                                                      for e in extra.values())])
         per_sheet.append(elements)
     errors.sort(reverse=True)
     worst = ' '.join(f'{c}:{e * full:.2f}' for e, c in errors[:8])
@@ -1421,7 +1454,6 @@ def block_polygons(char, box, pen, gap):
     lo_y, hi_y = y0 + ph / 2, y1 - ph / 2
     def to_texels(u, v):
         return np.array([lo_x + (u / width if width else 0) * (hi_x - lo_x), lo_y + v / 4 * (hi_y - lo_y)])
-    corners = np.array([[-pw / 2, -ph / 2], [pw / 2, -ph / 2], [pw / 2, ph / 2], [-pw / 2, ph / 2]])
     polygons = []
     for stroke in strokes.split(';'):
         points = [to_texels(*map(float, p.split(','))) for p in stroke.split()]
@@ -1430,11 +1462,52 @@ def block_polygons(char, box, pen, gap):
             if gap and length > 0:
                 step = (b - a) / length * min(gap, length / 2)
                 a, b = a + step, b - step
-            hull = cv2.convexHull(np.concatenate([a + corners, b + corners]).astype(np.float32)).reshape(-1, 2)
-            x, y = hull[:, 0], hull[:, 1]
-            if np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)) < 0:
-                hull = hull[::-1]  # One winding direction, so overlapping strokes unite under the nonzero rule.
-            polygons.append(hull.astype(np.float64))
+            polygons.append(pen_sweep(a, b, pen))
+    return polygons
+
+
+def pen_sweep(a, b, pen):
+    """The area a rectangular pen of pen = (width, height) texels covers moving from a to b, wound one way so
+    overlapping sweeps unite under the nonzero rule."""
+    pw, ph = pen
+    corners = np.array([[-pw / 2, -ph / 2], [pw / 2, -ph / 2], [pw / 2, ph / 2], [-pw / 2, ph / 2]])
+    hull = cv2.convexHull(np.concatenate([a + corners, b + corners]).astype(np.float32)).reshape(-1, 2)
+    x, y = hull[:, 0], hull[:, 1]
+    if np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)) < 0:
+        hull = hull[::-1]
+    return hull.astype(np.float64)
+
+
+def texel_sweep_polygons(lit, origin, pen):
+    """A pixel glyph (lit: its stroke texels) as the font's pen swept along them: through each horizontal and vertical
+    run, and from texel to texel where two touch only at a corner (a diagonal step), so slants come out straight
+    instead of stepped. origin is the cell's top left on the sheet."""
+    ox, oy = origin
+    h, w = lit.shape
+    center = lambda x, y: np.array([ox + x + 0.5, oy + y + 0.5])
+    polygons, covered = [], np.zeros_like(lit)
+    for y in range(h):
+        for x in range(w):
+            if not lit[y, x]:
+                continue
+            if x + 1 < w and lit[y, x + 1] and (x == 0 or not lit[y, x - 1]):    # a row's run starts here
+                end = x
+                while end + 1 < w and lit[y, end + 1]:
+                    end += 1
+                polygons.append(pen_sweep(center(x, y), center(end, y), pen))
+                covered[y, x:end + 1] = True
+            if y + 1 < h and lit[y + 1, x] and (y == 0 or not lit[y - 1, x]):    # a column's run starts here
+                end = y
+                while end + 1 < h and lit[end + 1, x]:
+                    end += 1
+                polygons.append(pen_sweep(center(x, y), center(x, end), pen))
+                covered[y:end + 1, x] = True
+            for dx in (-1, 1):
+                if y + 1 < h and 0 <= x + dx < w and lit[y + 1, x + dx] and not lit[y, x + dx] and not lit[y + 1, x]:
+                    polygons.append(pen_sweep(center(x, y), center(x + dx, y + 1), pen))
+                    covered[y, x] = covered[y + 1, x + dx] = True
+    for y, x in zip(*np.nonzero(lit & ~covered)):
+        polygons.append(pen_sweep(center(x, y), center(x, y), pen))
     return polygons
 
 
@@ -1527,10 +1600,193 @@ def fit_block_style(font, collected):
     return best
 
 
+# The Block font's segment layout, in a glyph's texels (x 0-4, y 0-8 from the cell's top left plus one: its glow ring
+# takes the cell's outer texels). Segments run between nodes at x 0, 2, 4 and y 0, 4, 8: the seven of an 8 (its
+# middle split, as G lights only the right half), two center verticals, the half crosses (corner to center: K, M, X,
+# Y, W), the full crosses (corner to the far middle: N) and V's point (middle to bottom center). Each is
+# (node, node, the texels it lights in the original).
+SEGMENTS = {
+    'a': ((0, 0), (4, 0), [(1, 0), (2, 0), (3, 0)]),
+    'd': ((0, 8), (4, 8), [(1, 8), (2, 8), (3, 8)]),
+    'g1': ((0, 4), (2, 4), [(1, 4)]),
+    'g2': ((2, 4), (4, 4), [(3, 4)]),
+    'f': ((0, 0), (0, 4), [(0, 1), (0, 2), (0, 3)]),
+    'b': ((4, 0), (4, 4), [(4, 1), (4, 2), (4, 3)]),
+    'e': ((0, 4), (0, 8), [(0, 5), (0, 6), (0, 7)]),
+    'c': ((4, 4), (4, 8), [(4, 5), (4, 6), (4, 7)]),
+    'h': ((2, 0), (2, 4), [(2, 1), (2, 2), (2, 3)]),
+    'j': ((2, 4), (2, 8), [(2, 5), (2, 6), (2, 7)]),
+    'ul': ((0, 0), (2, 4), [(1, 2), (2, 3)]),
+    'ur': ((4, 0), (2, 4), [(3, 2), (2, 3)]),
+    'll': ((2, 4), (0, 8), [(2, 5), (1, 6)]),
+    'lr': ((2, 4), (4, 8), [(2, 5), (3, 6)]),
+    'ux': ((0, 0), (4, 4), [(1, 1), (2, 2), (3, 3)]),
+    'uy': ((4, 0), (0, 4), [(3, 1), (2, 2), (1, 3)]),
+    'lx': ((0, 4), (4, 8), [(1, 5), (2, 6), (3, 7)]),
+    'ly': ((4, 4), (0, 8), [(3, 5), (2, 6), (1, 7)]),
+    'vl': ((0, 4), (2, 8), [(1, 6), (2, 7)]),
+    'vr': ((4, 4), (2, 8), [(3, 6), (2, 7)]),
+}
+
+
+def segment_layout(lit):
+    """The SEGMENTS a glyph's lit texels (9 x 5 from its top left) light, and how many lit texels they leave
+    unexplained (a glyph off the layout: parentheses and the like)."""
+    on = [name for name, (_, _, texels) in SEGMENTS.items() if texels and all(lit[y, x] for x, y in texels)]
+    explained = np.zeros_like(lit)
+    for name in on:
+        a, b, texels = SEGMENTS[name]
+        for x, y in texels + [a, b]:
+            explained[y, x] = True
+    return on, int((lit & ~explained).sum())
+
+
+# Characters whose texels don't follow the layout, drawn on it the way segment displays draw them ('dotX,Y' is a
+# square dot on that texel). The rest off the layout (parentheses, braces, =) keep their texel runs.
+SEGMENT_OVERRIDES = {
+    '$': ['a', 'f', 'g1', 'g2', 'c', 'd', 'h', 'j'],
+    '*': ['g1', 'g2', 'h', 'j', 'ul', 'ur', 'll', 'lr'],
+    '@': ['a', 'b', 'd', 'e', 'f', 'g2', 'hl'],
+    'Z': ['a', 'ur', 'll', 'd'],     # its lower left a diagonal, not the original's vertical
+    "'": ['h'],
+    '!': ['h', 'dot2,8'],
+    '^': ['al', 'ar'],
+}
+# Drawn only by override or merge: ^'s two strokes, and the whole middle (g1 and g2 both lit).
+SEGMENTS.update({'al': ((2, 0), (0, 4), []), 'ar': ((2, 0), (4, 4), []), 'g': ((0, 4), (4, 4), []),
+                 'hl': ((2, 2), (2, 4), [])})      # and @'s stub: the upper center vertical's lower half
+
+
+def display_segment(a, b, width=1.0, gap=0.12):
+    """A display segment from node a to node b (texel units): a bar of the width with its ends pointed at 45 degrees,
+    the tips a gap short of the nodes, so segments meeting at a node touch only at their points. Diagonals stop
+    further short, clear of the bars' points."""
+    d = b - a
+    length = np.hypot(*d)
+    u = d / length
+    n = np.array([-u[1], u[0]])
+    hw = width / 2
+    if abs(u[0]) > 1e-6 and abs(u[1]) > 1e-6:
+        gap = 0.55
+    ta, tb = a + u * gap, b - u * gap
+    sa, sb = ta + u * hw, tb - u * hw
+    return np.array([ta, sa + n * hw, sb + n * hw, tb, sb - n * hw, sa - n * hw])
+
+
+def segment_elements(sheet, rect, cells=None):
+    """A segment-display font's redraw over rect (x0, y0, x1, y1) of its sheet, from its texels: Rush 2's Block font
+    (5) lights 1-texel segments, apart at the corners, at full intensity with a dim 1-texel glow round them. Vertical
+    runs of lit texels become vertical segments and horizontal runs (of what's left) horizontal ones, both pointed at
+    the ends as display segments are; texels left over are diagonal segments (K, M, N, X...), stroked through their
+    centers, or dots. The glow is the element's halo at the sheet's dim level."""
+    x0, y0, x1, y1 = rect
+    area = sheet[y0:y1, x0:x1]
+    full = float(area.max())
+    if full <= 0:
+        return []
+    lit = area >= 0.75 * full
+    dim = area[(area > 0) & ~lit]
+    glow = float(np.median(dim)) if dim.size else 0.0
+    polygons = []
+    # Characters on the segment layout: its segments, all one shape. Their texels are then taken out of what the
+    # texel runs below redraw.
+    for code, cx, cy in cells or []:
+        gx, gy = cx + 1 - x0, cy + 1 - y0
+        glyph = lit[gy:gy + 9, gx:gx + 5]
+        if glyph.shape != (9, 5) or not glyph.any():
+            continue
+        char = chr(code) if 32 < code < 127 else None
+        on, unexplained = segment_layout(glyph)
+        if char in SEGMENT_OVERRIDES:
+            on = SEGMENT_OVERRIDES[char]
+        elif not on or unexplained > 4:
+            continue
+        if 'g1' in on and 'g2' in on:       # the whole middle: one segment, as an 8's; the halves are for G
+            on = [n for n in on if n not in ('g1', 'g2')] + ['g']
+        for name in on:
+            if name.startswith('dot'):
+                x, y = (int(v) for v in name[3:].split(','))
+                polygons.append(np.array([(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)], float) + (gx, gy))
+            else:
+                a, b, _ = SEGMENTS[name]
+                polygons.append(display_segment(np.array(a) + (gx + 0.5, gy + 0.5), np.array(b) + (gx + 0.5, gy + 0.5)))
+        lit[cy - y0:cy - y0 + 11, cx - x0:cx - x0 + 7] = False
+
+    def bar(ax, ay, bx, by):
+        """A segment over texels (ax, ay)..(bx, by) inclusive, along x or y, pointed at both ends."""
+        if ay == by:
+            return np.array([(ax, ay + 0.5), (ax + 0.5, ay), (bx + 0.5, ay), (bx + 1, ay + 0.5), (bx + 0.5, ay + 1),
+                             (ax + 0.5, ay + 1)], float)
+        return np.array([(ax + 0.5, ay), (ax + 1, ay + 0.5), (ax + 1, by + 0.5), (ax + 0.5, by + 1), (ax, by + 0.5),
+                         (ax, ay + 0.5)], float)
+
+    used = np.zeros_like(lit)
+    for axis in (0, 1):                          # vertical runs first: a diagonal's foot is no horizontal segment
+        free = lit & ~used
+        lines = free.T if axis == 0 else free
+        for i, line in enumerate(lines):
+            j = 0
+            while j < len(line):
+                if not line[j]:
+                    j += 1
+                    continue
+                k = j
+                while k + 1 < len(line) and line[k + 1]:
+                    k += 1
+                if k > j:
+                    polygons.append(bar(i, j, i, k) if axis == 0 else bar(j, i, k, i))
+                    if axis == 0:
+                        used[j:k + 1, i] = True
+                    else:
+                        used[i, j:k + 1] = True
+                j = k + 1
+    rest = (lit & ~used).astype(np.uint8)
+    count, labels = cv2.connectedComponents(rest, connectivity=8)
+    for n in range(1, count):
+        ys, xs = np.nonzero(labels == n)
+        points = list(zip(xs, ys))
+        if len(points) == 1:
+            x, y = points[0]
+            polygons.append(np.array([(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)], float))
+            continue
+        # A chain: walked from an end, each step to a diagonal neighbor.
+        left = set(points)
+        ends = [p for p in points if sum((p[0] + dx, p[1] + dy) in left for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                                         if dx or dy) == 1]
+        path = [ends[0] if ends else points[0]]
+        left.discard(path[0])
+        while left:
+            p = path[-1]
+            near = [q for q in left if max(abs(q[0] - p[0]), abs(q[1] - p[1])) == 1]
+            if not near:
+                break
+            path.append(near[0])
+            left.discard(near[0])
+        centers = [np.array([x + 0.5, y + 0.5]) for x, y in path]
+        # Out to the end texels' far corners.
+        for i, j in ((0, 1), (-1, -2)):
+            d = centers[i] - centers[j]
+            centers[i] = centers[i] + d / np.hypot(*d) * 0.35
+        polygons += [ring for ring, _ in stroke_outline(centers, 1.0, 'p', lambda q: q)]
+        for x, y in left:
+            polygons.append(np.array([(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)], float))
+    polygons = [(p if signed_area(p) > 0 else p[::-1]) + (x0, y0) for p in polygons]
+    return [clear_element(rect), {'d': polygons_path(polygons), 'rule': 'nonzero', 'fill': full, 'stroke': glow,
+                                  'halo': 1.0 if glow else 0.0, 'clip': rect}]
+
+
 def block_elements(style, sheet, block_cells, traced_cells, uncovered):
     look = {'fill': style['fill'], 'stroke': style['stroke'], 'halo': style['halo']}
     elements = traced_elements(style, sheet, uncovered, squared=True)
-    elements += traced_elements(style, sheet, traced_cells, squared=True, clear=True)
+    # Cells no skeleton draws (the (R), (C) and TM, and characters a font lists under "trace"): the pen swept along
+    # their own texels, the font's strokes, where a trace rounded them into blobs.
+    for rect in traced_cells:
+        x0, y0, x1, y1 = rect
+        lit = sheet[y0:y1, x0:x1] >= style['fill'] / 2
+        elements.append(clear_element(rect))
+        if lit.any():
+            polygons = texel_sweep_polygons(lit, (x0, y0), style['pen'])
+            elements.append(dict(look, d=polygons_path(polygons), rule='nonzero', clip=rect))
     for char, rect, box in block_boxes(block_cells, style['layout'], style['halo']):
         polygons = block_polygons(char, box, style['pen'], style['gap'])
         elements += [clear_element(rect), dict(look, d=polygons_path(polygons), rule='nonzero', clip=rect)]
@@ -2089,7 +2345,7 @@ def rom2049_tables():
 
 
 def trace(table_path, tables=None, svg_dir=SVG_DIR):
-    fonts = json.load(open(FONT_LIST))
+    fonts = json.load(open(FONT_LIST, encoding='utf-8'))
     if tables is None:
         tables = json.load(open(table_path))
 
@@ -2122,10 +2378,25 @@ def trace(table_path, tables=None, svg_dir=SVG_DIR):
             # Hand-drawn outlines (Rush 2049's AERO menu lettering), fitted to each font's texels.
             elements, detail = drawn_elements(font_id, font, sheet_list)
             per_sheet = [(h, page, e) for (h, _), (page, _), e in zip(font_sheets, sheet_list, elements)]
+        elif font['style'] == 'segment':
+            # A segment display font: redrawn from its lit texels over the whole sheet (segment_elements).
+            per_sheet = [(h, page, segment_elements(sheet, (0, 0, page['w'], page['h']),
+                                                    [(c, x, y) for c, x, y, _, _ in glyph_cells(page, font)]))
+                         for (h, _), (page, sheet) in zip(font_sheets, sheet_list)]
+            detail = 'segments'
         elif font['style'] == 'block':
             collected = collect_cells(font, sheet_list, block_char)
             style = fit_block_style(font, collected)
-            per_sheet = [(h, page, block_elements(style, sheet, block_cells, traced_cells, uncovered))
+            # "segment_rows": a band of the sheet below the characters holding segment-display letters (Pixel's
+            # sheet carries a copy of the Block font's), redrawn as segments rather than traced.
+            band = font.get('segment_rows')
+
+            def outside(r):
+                return not band or r[3] <= band[0] or r[1] >= band[1]
+            per_sheet = [(h, page, block_elements(style, sheet, block_cells, traced_cells,
+                                                  [r for r in uncovered if outside(r)]) +
+                          (segment_elements(sheet, (0, band[0], page['w'], min(band[1], page['h'])))
+                           if band and band[0] < page['h'] else []))
                          for (h, _), (page, sheet, block_cells, traced_cells, uncovered)
                          in zip(font_sheets, collected)]
             detail = (f'block pen {style["pen"]}, gap {style["gap"]}, '
@@ -2153,7 +2424,7 @@ def preview(tables_path, out_path, ids):
     tables = json.load(open(tables_path))
     rows = []
     for table in tables:
-        if ids and table['id'] not in ids:
+        if ids and str(table['id']) not in ids:
             continue
         for page in table['pages']:
             path = None
@@ -2167,6 +2438,11 @@ def preview(tables_path, out_path, ids):
                                interpolation=cv2.INTER_AREA)
             original = cv2.resize(decode_sheet(page), (width * SCALE, height * SCALE), interpolation=cv2.INTER_NEAREST)
             rows += [np.clip(original * 17, 0, 255).astype(np.uint8), np.clip(np.round(image * 17), 0, 255).astype(np.uint8)]
+    if not rows:
+        sys.exit('No redrawn sheets for ' + ' '.join(ids))
+    width = max(r.shape[1] for r in rows)   # sheets differ in width: padded, with a gap under each pair
+    rows = [np.pad(r, ((0, 16 if i % 2 else 2), (0, width - r.shape[1])), constant_values=40)
+            for i, r in enumerate(rows)]
     cv2.imwrite(out_path, np.vstack(rows))
 
 

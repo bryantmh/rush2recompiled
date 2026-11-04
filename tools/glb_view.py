@@ -85,7 +85,11 @@ def triangles(gltf, bin_, keep, scene=0):
                 at = prim['attributes']
                 p = accessor(gltf, bin_, at['POSITION'])
                 uv = accessor(gltf, bin_, at['TEXCOORD_0'])
-                col = accessor(gltf, bin_, at['COLOR_0'])
+                col = (accessor(gltf, bin_, at['COLOR_0']) if 'COLOR_0' in at
+                       else np.ones((len(p), 4), np.float32))
+                if 'indices' in prim:       # indexed meshes (exports, converters): expand to a triangle list
+                    idx = accessor(gltf, bin_, prim['indices']).astype(np.int64).ravel()
+                    p, uv, col = p[idx], uv[idx], col[idx]
                 mat = gltf['materials'][prim['material']]
                 tex = mat['pbrMetallicRoughness'].get('baseColorTexture', {}).get('index', -1)
                 parts.append((p, uv, col, tex))

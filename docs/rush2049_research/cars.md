@@ -269,6 +269,13 @@ grip), DURABILITY (record byte / 100: the weight). The 2049 cars keep Rush 2's l
   TRANSMISSION, TIRE RIMS, HORN, TORQUE and the tire sizes keep Rush 2's effect; STRIPE has nothing to draw on a 2049
   body and is hidden. A Dreamcast disc's car has paint jobs in place of the three colors: one STYLE row (see Car select
   rows). 2049's WINGS are the Rush 2049 tab's wings; TEAM and SHEEN have no Rush 2 counterpart.
+- **WINGS is never locked, but style 3 is stunt-only** [V]. The setup overlay (ROM 0xB5C534, vram 0x8038A400) copies
+  the setup items into the race rows at 0x803A17E8-0x803A1960: ENGINE, TIRES and FRAME are each walked down until
+  their unlock accessor allows them (func_800F7604, func_800F75D0, func_800F75B0; docs/unlocks_plan.md §1.4), but
+  WINGS (item 4, 0x803A1924) has no unlock check. Instead, unless the game type 0x8014A110 is 4 (STUNT), a value of
+  2 or more is cut to 1 (0x803A1928-0x803A1954). So any player can use any wings, and races, circuits, battles and
+  the obstacle course fly with style 1 or 2 (gravity x1.0 / x0.8); only stunt arenas get style 3 (gravity x0.5).
+  The port (src/rush2049/wings_state.cpp, style_of) doesn't apply that limit yet.
 - **TIRE SIZE F / R** (wheel model scale only, func_8005A598; no physics): Rush 2's per-type scale tables 0x800C0A6C /
   0x800C0B74 (relocated to 0x802006E8 / 0x802009B8, 5 rows) get 2049's own row-0 scales 0x801112DC / 0x801113E0: 1.0
   for every car except the Venom (rear 1.1) and the Crusher (1.4). The car select keeps a player's sizes in record
