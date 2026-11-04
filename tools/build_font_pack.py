@@ -30,17 +30,20 @@ tools/font_pack/svg_2049; their ids in fonts.json are "rush2049_<font>". The HUD
 (<hash>.v5.tmem and .tile.json, from the RT64 debugger's texture dumper in developer mode).
 
 Fonts with "style": "drawn" are hand-drawn outlines (tools/font_pack/<"design">.py) fitted to each font's texels (see
-Drawn fonts): Rush 2049's AERO menu lettering, whose rounded and sharp corners no vector font matches and whose 7-16
-pixel glyphs are too small to trace.
+Drawn fonts): Rush 2's own lettering (rush2_glyphs.py: Small, Medium, Large and Large digits) and Rush 2049's AERO menu
+lettering (aero_glyphs.py). A drawing's hard shapes (Rush 2's lowercase, digits and rounder symbols) can come from a
+reference font instead (tools/font_pack/reference/Arimo.ttf, SIL Open Font License, the metric twin of Helvetica, whose
+bold Rush 2's lettering is), fitted the same way. The sheets are plain anti-aliased coverage, no outline. Text is drawn
+in copy mode, whose rectangles include their lower right texel, so a glyph shows one column and row past the cell its
+table lists: each redraw is clipped to that full region, or round bottoms and right edges are cut flat.
 
-Regular fonts: every glyph is a full-intensity core with a dim one-texel halo around it, which the game's color
-combiner turns into the text's outline. Each character is replaced by the same character from Inter
-(assets/InterVariable.ttf, SIL Open Font License), close to the Helvetica-style originals, drawn as an SVG path with
-the core as its fill and the halo as an outer stroke, clipped to the character's cell so nothing spills into its
-neighbors. Per font, the Inter weight, how far the outlines sit inside each glyph's ink box, and the halo's intensity
-and width are fitted by least squares so the redrawn sheet, averaged back down to texels, matches the original. The
-halo always stays inside the ink box: the game draws exactly each character's cell, which the ink often fills, so a
-halo reaching past it is cut off flat.
+Fonts with "style": "vector" (the Rush 2049 Stunt HUD's, read from the 2049 ROM): every glyph is a full-intensity core
+with a dim one-texel halo around it. Each character is replaced by the same character from Inter
+(assets/InterVariable.ttf, SIL Open Font License), drawn as an SVG path with the core as its fill and the halo as an
+outer stroke, clipped to the character's cell. Per font, the Inter weight, how far the outlines sit inside each glyph's
+ink box, and the halo's intensity and width are fitted by least squares so the redrawn sheet, averaged back down to
+texels, matches the original. (The Rush 2 fonts were drawn this way once; their dim "halo" was really anti-aliasing,
+and keeping it inside the ink box made every letter a texel short.)
 
 Squared fonts (the tiny, pixel and segmented ones) are too small to trace or match to a vector font, so they're drawn
 from a hand-made squared font (BLOCK_GLYPHS): each character's strokes swept by a rectangular pen measured from the
@@ -378,6 +381,10 @@ class DrawnGlyph:
                         rr = (len(radii), len(radii) + 1)
                         radii += [ra, rb]
                     refs.append((key(xs, x), key(ys, y), rr))
+            elif shape[0] == 'f':
+                # A reference font's glyph: its boldness (0.2-1, weight 460-700) is fitted like a stroke's width.
+                refs = ('f', len(widths))
+                widths.append(shape[2] if len(shape) > 2 else 1.0)
             else:
                 refs = [(key(xs, x), key(ys, y), None) for x, y in shape[1]]
                 refs.append(len(widths))
@@ -405,6 +412,8 @@ class DrawnGlyph:
     def own_edges(self):
         """Per shape, the x and y edges (indices) no other shape uses."""
         def used(refs):
+            if refs[0] == 'f':
+                return set(), set()
             pts = refs[:-1] if isinstance(refs[-1], int) else refs
             return {r[0] for r in pts}, {r[1] for r in pts}
         sets = [used(refs) for refs in self.refs]
@@ -435,6 +444,10 @@ class DrawnGlyph:
         contours = []
         index = -1
         for shape, refs in zip(self.shapes, self.refs):
+            if shape[0] == 'f':
+                if not raw:
+                    contours += reference_outline(shape[1], pw[refs[1]], place)
+                continue
             if shape[0] not in 'ph':
                 if raw:
                     continue
@@ -507,11 +520,34 @@ def reverse_segments(segs):
     return [('L', ends[-1])] + out
 
 
+def smooth_polyline(points, closed, steps=6):
+    """A Catmull-Rom curve through points, as a polyline of steps segments per span."""
+    pts = np.array(points, float)
+    n = len(pts)
+    if n < 3:
+        return pts
+    ext = np.vstack([pts[-1:], pts, pts[:2]]) if closed else np.vstack([2 * pts[0] - pts[1], pts, 2 * pts[-1] - pts[-2]])
+    spans = n if closed else n - 1
+    out = []
+    for i in range(spans):
+        p0, p1, p2, p3 = ext[i], ext[i + 1], ext[i + 2], ext[i + 3]
+        for t in np.linspace(0, 1, steps, endpoint=False):
+            t2, t3 = t * t, t * t * t
+            out.append(0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+                              (3 * p1 - p0 - 3 * p2 + p3) * t3))
+    if not closed:
+        out.append(pts[-1])
+    return np.array(out)
+
+
 def stroke_outline(points, width, cap, place):
     """Contours of a stroke of a width along a polyline (closed when it ends where it starts): the polyline offset by
-    half the width on each side, joined with miters, its ends cut across the stroke (cap 'p') or level (cap 'h')."""
+    half the width on each side, joined with miters, its ends cut across the stroke (cap 'p') or level (cap 'h'). A cap
+    ending in 's' makes the polyline a smooth curve through its points."""
     closed = np.allclose(points[0], points[-1])
     pts = np.array(points[:-1] if closed else points, float)
+    if cap.endswith('s'):
+        pts = smooth_polyline(pts, closed)
     n = len(pts)
     half = max(width, 0.05) / 2
 
@@ -532,7 +568,7 @@ def stroke_outline(points, width, cap, place):
             right.append(pts[i] - m * reach)
             continue
         nn, d = normal(pts[0], pts[1]) if i == 0 else normal(pts[i - 1], pts[i])
-        if cap == 'h' and abs(d[1]) > 0.2:
+        if cap[0] == 'h' and abs(d[1]) > 0.2:
             # Along each offset line to the end point's level.
             lq, rq = pts[i] + nn * half, pts[i] - nn * half
             left.append(lq + d * (pts[i][1] - lq[1]) / d[1])
@@ -550,6 +586,67 @@ def stroke_outline(points, width, cap, place):
             ring = ring[::-1]
         out.append((ring, [('L', q) for q in ring]))
     return out
+
+
+REFERENCE_FONT = os.path.join(PACK_DIR, 'reference', 'Arimo.ttf')
+DRAWN_CAP = [(-0.15, 11.15)]    # The design being fitted's cap top and bottom (drawn_elements sets it).
+_REFERENCE = {}
+
+
+class FlattenPen(BasePen):
+    """A glyph's contours as polylines (curves cut into DRAWN_STEPS lines)."""
+
+    def __init__(self, glyph_set):
+        super().__init__(glyph_set)
+        self.contours = []
+
+    def _moveTo(self, pt):
+        self.contours.append([pt])
+
+    def _lineTo(self, pt):
+        self.contours[-1].append(pt)
+
+    def _qCurveToOne(self, p1, p2):
+        p0 = self.contours[-1][-1]
+        for t in np.linspace(0, 1, DRAWN_STEPS + 1)[1:]:
+            self.contours[-1].append(tuple((1 - t) ** 2 * np.array(p0) + 2 * (1 - t) * t * np.array(p1) +
+                                           t * t * np.array(p2)))
+
+    def _curveToOne(self, p1, p2, p3):
+        p0 = self.contours[-1][-1]
+        for t in np.linspace(0, 1, DRAWN_STEPS + 1)[1:]:
+            self.contours[-1].append(tuple((1 - t) ** 3 * np.array(p0) + 3 * (1 - t) ** 2 * t * np.array(p1) +
+                                           3 * (1 - t) * t * t * np.array(p2) + t ** 3 * np.array(p3)))
+
+
+def reference_glyph(char, weight):
+    """The reference font's glyph for char at a weight, as contours in font units (y up), cached."""
+    key = (char, round(weight, 1))
+    if key not in _REFERENCE:
+        if 'font' not in _REFERENCE:
+            _REFERENCE['font'] = TTFont(REFERENCE_FONT)
+            font = _REFERENCE['font']
+            _REFERENCE['cap'] = font['OS/2'].sCapHeight
+        font = _REFERENCE['font']
+        glyphs = font.getGlyphSet(location={'wght': weight})
+        pen = FlattenPen(glyphs)
+        glyphs[font.getBestCmap()[ord(char)]].draw(pen)
+        _REFERENCE[key] = [np.array(c, float) for c in pen.contours if len(c) >= 3]
+    return _REFERENCE[key]
+
+
+def reference_outline(char, boldness, place):
+    """Contours of the reference font's char (Arimo, the metric twin of Helvetica, whose bold Rush 2's lettering
+    is): its cap height made the design's caps, baseline on the caps' bottom, at weight 400 + 300 x boldness."""
+    weight = float(np.clip(400 + 300 * boldness, 400, 700))
+    contours = reference_glyph(char, weight)
+    top, bottom = DRAWN_CAP[0]
+    k = (bottom - top) / _REFERENCE['cap']
+    placed = [np.array([place(np.array([x * k, bottom - y * k])) for x, y in c]) for c in contours]
+    # Filled contours turn positive: the biggest decides which way the font's run.
+    if signed_area(max(placed, key=lambda c: abs(signed_area(c)))) < 0:
+        placed = [c[::-1] for c in placed]
+    return [(c, [('L', q) for q in c]) for c in placed]
 
 
 def ink_edges(profile):
@@ -577,19 +674,45 @@ def fit_drawn_glyph(glyph, cell, level_y, pull, native=False):
     transform = np.array([sx, (edges[0] if edges else 0.0) - sx * dl, sy, oy])
     if native:
         transform = np.array([1.0, 0.0, 1.0, 0.0])
+    # A reference font's glyph keeps close to its proportions: its place, size (within a tenth of the font's caps),
+    # weight and a narrowing to 0.7 (Rush 2's @ is narrower than Helvetica's) are fitted, nothing that bends it.
+    reference = any(shape[0] == 'f' for shape in glyph.shapes)
+    t_bounds = (-np.inf, np.inf)
+    margin = 3
 
     def coverage_of(p, t):
         return drawn_coverage([pts for pts, _ in glyph.outline(p, t)], width, height)
 
+    def residual(p, t):
+        """Texel errors; for a reference glyph also its ink past the drawn region, which the game cuts off, so it
+        fits inside rather than being clipped."""
+        if not reference:
+            return (coverage_of(p, t) - cell).ravel()
+        wide = drawn_coverage([pts + margin for pts, _ in glyph.outline(p, t)], width + 2 * margin,
+                              height + 2 * margin)
+        inside = wide[margin:margin + height, margin:margin + width]
+        outside = wide.copy()
+        outside[margin:margin + height, margin:margin + width] = 0
+        return np.concatenate([(inside - cell).ravel(), 0.7 * outside.ravel()])
+
     def placed_error(p, t):
-        return float(np.sum((coverage_of(p, t) - cell) ** 2))
+        return float(np.sum(residual(p, t) ** 2))
+
+    if reference and not native:
+        t_bounds = ([0.7 * sy, -np.inf, 0.9 * sy, -np.inf], [1.15 * sy, np.inf, 1.1 * sy, np.inf])
+        # The narrowing by a coarse search first, centered on the original's ink.
+        middle = (edges[0] + edges[1]) / 2 if edges else width / 2
+        transform = min((np.array([f * sy, middle - f * sy * (dl + dr) / 2, sy, oy])
+                         for f in (0.7, 0.78, 0.86, 0.94, 1.02, 1.1)), key=lambda t: placed_error(p0, t))
 
     # Coarse searches first: a shape lying on blank texels has no gradient to follow. The whole glyph by half texels,
     # then each separate piece (a colon's dots, a ? and its dot) by its own edges, the ones no other piece shares.
     shifts = np.arange(-2.0, 2.01, 0.5)
     transform = min((transform + (0, dx, 0, dy) for dx in shifts for dy in shifts),
                     key=lambda t: placed_error(p0, t))
-    transform = least_squares(lambda t: (coverage_of(p0, t) - cell).ravel(), transform, diff_step=1e-3).x
+    if reference and not native:
+        transform = np.clip(transform, np.array(t_bounds[0]) + 1e-9, np.array(t_bounds[1]) - 1e-9)
+    transform = least_squares(lambda t: residual(p0, t), transform, diff_step=1e-3, bounds=t_bounds).x
     if len(glyph.shapes) > 1:
         for own_x, own_y in glyph.own_edges():
             best, best_error = p0, placed_error(p0, transform)
@@ -613,23 +736,52 @@ def fit_drawn_glyph(glyph, cell, level_y, pull, native=False):
     upper = np.concatenate([np.full(glyph.nx + glyph.ny, np.inf), np.full(glyph.nr + glyph.nw, 20.0), [1.0]])
 
     def error(p):
-        return np.concatenate([(coverage_of(p, transform) - cell).ravel(), pull * (p - p0) * scale])
+        return np.concatenate([residual(p, transform), pull * (p - p0) * scale])
 
     p = least_squares(error, np.clip(p0, lower + 1e-6, upper - 1e-6), bounds=(lower, upper), diff_step=1e-4).x
     return p, transform, float(np.sqrt(np.mean((coverage_of(p, transform) - cell) ** 2)))
 
 
-def drawn_levels(font, cells, full):
-    """The font's cap scale and its cap top's row in a glyph rectangle, from its H (or I): the drawings' caps run from
-    y = 0 to 11, the true edges 0.15 beyond."""
-    for char in 'HI':
+def drawn_levels(font, cells, full, cap):
+    """The font's cap scale and its cap top's row in a glyph rectangle, from its H (or I, or 1) with the free texels past its
+    cell (drawn_region): cap is where the drawing's caps run, (top, bottom) in its own units."""
+    for char in 'HI1':                                # a digits-only font measures its 1
         if char in cells:
-            (x0, y0, x1, y1), sheet = cells[char]
-            edges = ink_edges((sheet[y0:y1, x0:x1] / full).max(axis=1))
+            (x0, y0, x1, y1), sheet, (rx1, ry1) = cells[char]
+            edges = ink_edges((sheet[y0:ry1, x0:rx1] / full).max(axis=1))
             if edges:
-                sy = (edges[1] - edges[0]) / 11.3
-                return sy, edges[0] + 0.15 * sy
-    sys.exit(f'{font["name"]}: no H or I to measure the caps from')
+                sy = (edges[1] - edges[0]) / (cap[1] - cap[0])
+                return sy, edges[0] - cap[0] * sy
+    sys.exit(f'{font["name"]}: no H, I or 1 to measure the caps from')
+
+
+def drawn_region(page, font, rect):
+    """A glyph cell grown by the texel column right of it and the row below it where no other character's cell takes
+    them. The game draws them (text is drawn in copy mode, whose rectangles include their lower right texel, so a
+    cell listed exclusive shows one more column and row), and they hold the glyph's anti-aliasing there. Returns (x1,
+    y1) of the grown region."""
+    x0, y0, x1, y1 = rect
+    others = [r for _, *r in glyph_cells(page, font) if tuple(r) != tuple(rect)]
+
+    def free(a0, b0, a1, b1):
+        if a1 > page['w'] or b1 > page['h']:
+            return False
+        return not any(a0 < r[2] and r[0] < a1 and b0 < r[3] and r[1] < b1 for r in others)
+
+    rx1 = x1 + 1 if free(x1, y0, x1 + 1, y1) else x1
+    ry1 = y1 + 1 if free(x0, y1, rx1, y1 + 1) else y1
+    return rx1, ry1
+
+
+def traced_dim(sheet, rects):
+    """Traced shapes for a drawn font's shapes no drawing covers, each at its own peak intensity (a dim frame stays
+    dim)."""
+    elements = []
+    for x0, y0, x1, y1 in rects:
+        level = float(sheet[y0:y1, x0:x1].max())
+        if level > 0:
+            elements += traced_elements({'fill': level, 'stroke': 0.0, 'halo': 0.0}, sheet, [(x0, y0, x1, y1)])
+    return elements
 
 
 def drawn_design(name):
@@ -640,37 +792,245 @@ def drawn_design(name):
     return module
 
 
+# Rush 2049's characters past ASCII (its font tables' codes, the same in every font that has them).
+ROM2049_CHARACTERS = {0x80: 'Ä', 0x82: 'Ç', 0x83: 'É', 0x84: 'Ñ', 0x85: 'Ö', 0x86: 'Ü', 0xa1: '°', 0xa8: '®', 0xa9: '©',
+                      0xaa: '™', 0xc0: '¿', 0xc1: '¡', 0xe6: 'Ê', 0xe7: 'Á', 0xe8: 'Ë', 0xe9: 'È', 0xee: 'Ó', 0xef: 'Ô',
+                      0xf2: 'Ú'}
+
+
+def best_shift(base, cell):
+    """The whole-texel move (dx, dy) that lays a base letter's texels over an accented letter's: the ROM's accented
+    letters are the plain letter's texels exactly, with the mark added."""
+    h, w = cell.shape
+    ys, xs = np.nonzero(base > 0.02)
+
+    def error(dx, dy):
+        y, x = ys + dy, xs + dx
+        ok = (y >= 0) & (y < h) & (x >= 0) & (x < w)
+        return (float(np.sum((cell[y[ok], x[ok]] - base[ys[ok], xs[ok]]) ** 2)) +
+                4 * float(np.sum(base[ys[~ok], xs[~ok]] ** 2)))
+    return min(((dx, dy) for dx in range(-3, 4) for dy in range(-4, 5)), key=lambda s: error(*s))
+
+
+def accent_shapes(mark, rest):
+    """Native shapes (cell texels) for a combining mark, started on the ink the base letter leaves (rest)."""
+    from scipy import ndimage
+    labels, count = ndimage.label(rest > 0.25)
+    parts = sorted((s for s in ndimage.find_objects(labels) if s and rest[s].max() >= 0.5), key=lambda s: s[1].start)
+    if not parts:
+        return []
+    if mark == '̈' and len(parts) == 1 and parts[0][1].stop - parts[0][1].start >= 3:
+        # The dots' anti-aliasing joins them: split at the faintest column between them.
+        ys, xs = parts[0]
+        columns = rest[ys, xs].sum(axis=0)
+        cut = xs.start + 1 + int(np.argmin(columns[1:-1]))
+        parts = [(ys, slice(xs.start, cut)), (ys, slice(cut + 1, xs.stop))]
+    if mark == '̈' or len(parts) > 1 and mark != '̂':
+        # Diaeresis (and anything in pieces): a square dot per piece, on the piece's ink center with its ink's area.
+        # Placed, not fitted: the small fonts' dots are a texel apart, and a fit fills the faint gap into a bar.
+        dots = []
+        for ys, xs in parts:
+            ink = rest[ys, xs]
+            area = max(float((ink >= 0.5).sum()), 1.0)      # its solid texels; the anti-aliasing would merge them
+            gy, gx = np.mgrid[ys, xs]
+            cx, cy = float((gx * ink).sum() / ink.sum()) + 0.5, float((gy * ink).sum() / ink.sum()) + 0.5
+            half = min(np.sqrt(area), xs.stop - xs.start + 0.5) / 2
+            dots.append(('p', [(cx - half, cy - half, 0), (cx + half, cy - half, 0), (cx + half, cy + half, 0),
+                               (cx - half, cy + half, 0)]))
+        return dots
+    y0, y1 = min(s[0].start for s in parts), max(s[0].stop for s in parts)
+    x0, x1 = min(s[1].start for s in parts), max(s[1].stop for s in parts)
+    width = float(np.clip(rest[y0:y1, x0:x1].sum() / max(np.hypot(x1 - x0, y1 - y0), 1.0), 0.6, 2.0))
+    hw = width / 2
+    if mark == '́':        # acute
+        return [('s', [(x0 + hw, y1 - hw * 0.5), (x1 - hw, y0 + hw * 0.5)], width, 'h')]
+    if mark == '̀':        # grave
+        return [('s', [(x0 + hw, y0 + hw * 0.5), (x1 - hw, y1 - hw * 0.5)], width, 'h')]
+    if mark == '̂':        # circumflex
+        mid = (x0 + x1) / 2
+        return [('s', [(x0 + hw, y1 - hw * 0.5), (mid, y0 + hw), (x1 - hw, y1 - hw * 0.5)], width, 'h')]
+    if mark == '̃':        # tilde
+        top, bottom = y0 + hw, y1 - hw
+        return [('s', [(x0 + hw, bottom), (x0 + (x1 - x0) * 0.33, top), (x0 + (x1 - x0) * 0.67, bottom),
+                       (x1 - hw, top)], width, 'ps')]
+    if mark == '̧':        # cedilla: a short tail down and to the left, as 2049 draws it
+        return [('s', [(x1 - hw, y0 + hw * 0.5), (x0 + hw, y1 - hw * 0.5)], max(width, 1.2), 'h')]
+    return []
+
+
+def symbol_shapes(letter, cols, rows):
+    """(R) or (C) as native shapes: a ring over the ink's extent (cols, rows: its left/right and top/bottom edges)
+    round the design's letter scaled to half the ring's height."""
+    (left, right), (top, bottom) = cols, rows
+    cx, cy, rx, ry = (left + right) / 2, (top + bottom) / 2, (right - left) / 2, (bottom - top) / 2
+    width = max(0.6, 0.12 * (rx + ry))
+    angles = np.linspace(0, 2 * np.pi, 9)
+    ring = [(cx + (rx - width / 2) * np.cos(a), cy + (ry - width / 2) * np.sin(a)) for a in angles]
+    cap_top, cap_bottom = DRAWN_CAP[0]
+    k = 0.5 * 2 * ry / (cap_bottom - cap_top)
+    xs = [pt[0] for shape in letter if shape[0] != 'f' for pt in shape[1]]
+    ox = cx - k * (min(xs) + max(xs)) / 2
+    oy = cy - k * (cap_top + cap_bottom) / 2
+    return [('s', ring, width, 'ps')] + map_shapes(letter, k, ox, k, oy)
+
+
+def map_shapes(shapes, kx, ox, ky, oy):
+    """Drawn shapes moved by x' = ox + kx x, y' = oy + ky y (both k negative turns them over)."""
+    k = (abs(kx) + abs(ky)) / 2
+
+    def one(shape):
+        if shape[0] in 'ph':
+            return (shape[0], [(ox + kx * x, oy + ky * y, tuple(k * v for v in r) if isinstance(r, tuple) else k * r)
+                               for x, y, r in shape[1]])
+        return (shape[0], [(ox + kx * x, oy + ky * y) for x, y in shape[1]], k * shape[2], shape[3])
+    return [one(s) for s in shapes if s[0] != 'f']
+
+
+def turned_shapes(letter, cols, rows):
+    """A design letter turned upside down onto the ink's extent (cols, rows: left/right, top/bottom edges)."""
+    cap_top, cap_bottom = DRAWN_CAP[0]
+    xs = [pt[0] for shape in letter if shape[0] != 'f' for pt in shape[1]]
+    ky = -(rows[1] - rows[0]) / (cap_bottom - cap_top)
+    kx = ky * 1.0
+    # The ink's middle on the design's middle, turned.
+    ox = (cols[0] + cols[1]) / 2 - kx * (min(xs) + max(xs)) / 2
+    oy = (rows[0] + rows[1]) / 2 - ky * (cap_top + cap_bottom) / 2
+    return map_shapes(letter, kx, ox, ky, oy)
+
+
+def fit_rom2049_character(char, cell, fitted, levels, pull, design_glyphs):
+    """(SVG path in cell coordinates, rms error) for one of 2049's characters past ASCII. An accented letter is the
+    base letter's own fitted drawing, moved to where the ROM's texels put it, and its mark fitted to the texels the
+    letter leaves; the symbols (and the base letter when it has no fit) are the reference font's."""
+    import unicodedata
+    parts = unicodedata.normalize('NFD', char)
+    if len(parts) == 2 and parts[0] in fitted:
+        glyph, p, transform, base = fitted[parts[0]]
+        dx, dy = best_shift(base, cell)
+        moved = transform + (0, dx, 0, dy)
+        placed = np.zeros_like(cell)
+        h, w = cell.shape
+        ys, xs = np.nonzero(base)
+        y, x = ys + dy, xs + dx
+        ok = (y >= 0) & (y < h) & (x >= 0) & (x < w)
+        placed[y[ok], x[ok]] = base[ys[ok], xs[ok]]
+        # The mark's ink: texels the letter doesn't touch (its edges' anti-aliasing differs a little).
+        rest = np.where(placed < 0.1, cell, 0.0)
+        # Marks sit above or below the letter: ink beside it (a grown edge column's texel) is no mark.
+        letter_rows = np.nonzero(placed.max(axis=1) >= 0.25)[0]
+        if len(letter_rows):
+            rest[letter_rows[0] + 1:letter_rows[-1]] = 0
+        contours = [pts for pts, _ in glyph.outline(p, moved)]
+        d = glyph.svg(p, moved)
+        shapes = accent_shapes(parts[1], rest)
+        if shapes:
+            mark = DrawnGlyph(shapes)
+            # Placed on the mark's ink, not fitted: a mark is a few texels, and a fit shrinks or slides it off.
+            q, t = mark.initial, (1.0, 0.0, 1.0, 0.0)
+            contours += [pts for pts, _ in mark.outline(q, t)]
+            d += ' ' + mark.svg(q, t)
+        rms = float(np.sqrt(np.mean((np.clip(drawn_coverage(contours, w, h), 0, 1) - cell) ** 2)))
+        return d, rms
+    if char in '®©' and ('R' if char == '®' else 'C') in design_glyphs:
+        # A ring round the font's own letter, both in the cell's texels.
+        cols, rows = ink_edges(cell.max(axis=0)), ink_edges(cell.max(axis=1))
+        if cols and rows:
+            glyph = DrawnGlyph(symbol_shapes(design_glyphs['R' if char == '®' else 'C'], cols, rows))
+            p, transform, rms = fit_drawn_glyph(glyph, cell, levels, pull, native=True)
+            return glyph.svg(p, transform), rms
+    if char == '™' and 'T' in design_glyphs and 'M' in design_glyphs:
+        # The font's own T and M, small, over the ink's extent.
+        cols, rows = ink_edges(cell.max(axis=0)), ink_edges(cell.max(axis=1))
+        if cols and rows:
+            cap_top, cap_bottom = DRAWN_CAP[0]
+            k = (rows[1] - rows[0]) / (cap_bottom - cap_top)
+            shapes, x = [], cols[0]
+            for letter in (design_glyphs['T'], design_glyphs['M']):
+                xs = [pt[0] for shape in letter if shape[0] != 'f' for pt in shape[1]]
+                shapes += map_shapes(letter, k, x - k * min(xs), k, rows[0] - k * cap_top)
+                x += k * (max(xs) - min(xs)) + 0.5
+            # Squeezed or spread to the ink's width.
+            sx = (cols[1] - cols[0]) / max(x - 0.5 - cols[0], 0.5)
+            glyph = DrawnGlyph(map_shapes(shapes, sx, cols[0] * (1 - sx), 1.0, 0.0))
+            p, transform, rms = fit_drawn_glyph(glyph, cell, levels, pull, native=True)
+            return glyph.svg(p, transform), rms
+    if char in '¿¡' and ('?' if char == '¿' else '!') in design_glyphs:
+        # The font's own ? and ! turned over.
+        cols, rows = ink_edges(cell.max(axis=0)), ink_edges(cell.max(axis=1))
+        if cols and rows:
+            glyph = DrawnGlyph(turned_shapes(design_glyphs['?' if char == '¿' else '!'], cols, rows))
+            p, transform, rms = fit_drawn_glyph(glyph, cell, levels, pull, native=True)
+            return glyph.svg(p, transform), rms
+    glyph = DrawnGlyph([('f', char)])
+    p, transform, rms = fit_drawn_glyph(glyph, cell, levels, pull)
+    return glyph.svg(p, transform), rms
+
+
 def drawn_elements(font_id, font, sheet_list, only=None):
     """Each sheet's glyph elements for a drawn font, fitted to its texels, and a summary of the fit. The design's
     NATIVE drawings for the font (by its id in fonts.json) replace its shared ones."""
     design = drawn_design(font['design'])
     glyphs = design.GLYPHS
+    DRAWN_CAP[0] = getattr(design, 'CAP', (-0.15, 11.15))
     natives = getattr(design, 'NATIVE', {}).get(font_id, {})
     full = max(float(sheet.max()) for _, sheet in sheet_list)
     cells = {}
     for page, sheet in sheet_list:
         for code, x0, y0, x1, y1 in glyph_cells(page, font):
             if 32 < code < 127:
-                cells[chr(code)] = ((x0, y0, x1, y1), sheet)
-    levels = drawn_levels(font, cells, full)
+                cells[chr(code)] = ((x0, y0, x1, y1), sheet, drawn_region(page, font, (x0, y0, x1, y1)))
+    levels = drawn_levels(font, cells, full, DRAWN_CAP[0])
     pull = font.get('pull', DRAWN_PULL)
     per_sheet, errors = [], []
+    fitted = {}     # Each letter's fit (glyph, parameters, transform, texels), for its accented forms.
+    rom2049 = font_id.startswith('rush2049')
     for page, sheet in sheet_list:
         elements = []
-        for code, x0, y0, x1, y1 in glyph_cells(page, font):
-            char = chr(code) if 32 < code < 127 else None
-            if (char not in glyphs and char not in natives) or (only and char not in only):
+        # 2049's accented letters after the plain ones, which they're built from.
+        for code, x0, y0, x1, y1 in sorted(glyph_cells(page, font), key=lambda c: rom2049 and c[0] in ROM2049_CHARACTERS):
+            if rom2049 and code in ROM2049_CHARACTERS:
+                char = ROM2049_CHARACTERS[code]
+                if only and char not in only:
+                    continue
+                rx1, ry1 = drawn_region(page, font, (x0, y0, x1, y1))
+                cell = sheet[y0:ry1, x0:rx1] / full
+                d, rms = fit_rom2049_character(char, cell, fitted, levels, pull, glyphs)
+                if rms * full > 2.0 and char in '°®©™¿¡':
+                    # No drawing fits the symbol (font 12's (R) and (C) are solid boxes with the letter cut out):
+                    # traced. Letters are always drawn: their base is the letter's own fit.
+                    elements += traced_dim(sheet, [(x0, y0, rx1, ry1)])
+                    print(f'  {font["name"]} {char}: drawn rms {rms * full:.2f}, traced instead')
+                    continue
+                errors.append((rms, char))
+                d = re.sub(r'(-?[\d.]+),(-?[\d.]+)', lambda m: fmt((float(m.group(1)) + x0, float(m.group(2)) + y0)), d)
+                elements.append({'d': d, 'rule': 'nonzero', 'fill': full, 'stroke': 0.0, 'halo': 0.0,
+                                 'clip': (x0, y0, rx1, ry1)})
                 continue
-            cell = sheet[y0:y1, x0:x1] / full
+            char = chr(code) if code != 32 and code < 127 else None  # with the special characters below 32
+            if only and (char is None or char not in only):
+                continue
+            if char not in glyphs and char not in natives:
+                # Shapes no drawing covers (the cursor, (c), (r), TM): traced from their own texels.
+                rx1, ry1 = drawn_region(page, font, (x0, y0, x1, y1))
+                elements += traced_dim(sheet, [(x0, y0, rx1, ry1)])
+                continue
+            rx1, ry1 = drawn_region(page, font, (x0, y0, x1, y1))
+            cell = sheet[y0:ry1, x0:rx1] / full
             if not cell.any():
                 continue
             glyph = DrawnGlyph(natives.get(char) or glyphs[char])
             p, transform, rms = fit_drawn_glyph(glyph, cell, levels, pull, char in natives)
             errors.append((rms, char))
+            fitted[char] = (glyph, p, transform, cell)
             d = re.sub(r'(-?[\d.]+),(-?[\d.]+)', lambda m: fmt((float(m.group(1)) + x0, float(m.group(2)) + y0)),
                        glyph.svg(p, transform))
+            # Clipped to what the game draws: text is drawn in copy mode, whose rectangles include their lower right
+            # texel, so a glyph shows one column and row past its listed cell (free sheet texels, drawn_region).
             elements.append({'d': d, 'rule': 'nonzero', 'fill': full, 'stroke': 0.0, 'halo': 0.0,
-                             'clip': (x0, y0, x1, y1)})
+                             'clip': (x0, y0, rx1, ry1)})
+        # Ink no character's cell holds (other code might draw it): traced, as the other styles do.
+        if not only:
+            elements += traced_dim(sheet, uncovered_regions(page, sheet, font))
         per_sheet.append(elements)
     errors.sort(reverse=True)
     worst = ' '.join(f'{c}:{e * full:.2f}' for e, c in errors[:8])
@@ -1715,11 +2075,14 @@ def rom2049_tables():
         for index, image in enumerate(images):
             values = np.array(image, np.uint8) // 17
             packed = (values[:, 0::2] << 4) | values[:, 1::2]
-            glyphs = [[0, 0, 0, 0] for _ in range(128)]
+            # Every character, the accented ones past 127 too: they're packed between the others, and a sheet whose
+            # table left them out would show their texels as free space (drawn_region).
+            last = max([ord(c) for c in cells] + [127])
+            glyphs = [[0, 0, 0, 0] for _ in range(last + 1)]
             for char, (page, x0, y0, x1, y1) in cells.items():
-                if page == index and ord(char) < 128:
+                if page == index:
                     glyphs[ord(char)] = [x0, y0, x1, y1]
-            pages.append({'first': 0, 'last': 127, 'w': image.width, 'h': image.height, 'glyphs': glyphs,
+            pages.append({'first': 0, 'last': last, 'w': image.width, 'h': image.height, 'glyphs': glyphs,
                           'pixels': packed.tobytes().hex()})
         tables.append({'id': f'rush2049_{n}', 'pages': pages})
     return tables

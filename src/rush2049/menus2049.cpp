@@ -79,6 +79,7 @@ namespace {
     constexpr uint32_t main_dl_cursor = 0x80022FD8;   // the frame's display list
     constexpr uint32_t dl_2d_cursor = 0x80125ABC;     // the 2D display list
     constexpr int flash_style = 0x14;
+    constexpr int first_gray_style = 2, last_gray_style = 4; // Rush 2's grays: 0xA0, 0x78, 0x50 (style 1 is 0xE6)
     constexpr int16_t home_screen = 0;                // front_end_screen: Start Game
     constexpr int16_t select_player_screen = 1;
     constexpr int32_t header_bottom = 42;             // the header plates' band, y 10-42 (docs/menus.md)
@@ -1114,8 +1115,11 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     if (home) cx = (float)home_cx;
     queue_button(rdram, list, key, cx, cy, r.angle);
 
-    // The text: style 1 while the blue side shows, the pulse once the yellow side does, none near edge-on.
+    // The text: style 1 while the blue side shows, the pulse once the yellow side does, none near edge-on. A row the
+    // game greys out (Rush 2's gray styles 2-4: the circuit menu's ENTER CODE or CONTINUE CIRCUIT when they can't be
+    // picked, func_803B6C18) stays gray in 2049's gray; 2049's own lists have no disabled rows.
     if (r.angle > pi / 2.0f) set_pulse(rdram);
+    else if (last_style >= first_gray_style && last_style <= last_gray_style) set_colors(rdram, text_gray, shadow_gray);
     else set_colors(rdram, text_white, shadow_white);
     bool hidden = r.angle > text_hidden_min && r.angle < text_hidden_max;
     if (home) {

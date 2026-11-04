@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 8" width="1024" height="64">
   <title>Rush 2049 Menus 4BAERO-PLAIN12: ~-~ (a881e76cc5c2a1dd)</title>
   <defs>
-    <clipPath id="c0"><rect x="0" y="1" width="7" height="7"/></clipPath>
+    <clipPath id="c0"><rect x="0" y="1" width="8" height="7"/></clipPath>
   </defs>
   <rect width="128" height="8" fill="#000"/>
-  <path fill="rgb(221,221,221)" fill-rule="nonzero" clip-path="url(#c0)" d="M0.323,8.252 L-0.109,4.868 L2.017,4.043 L3.427,4.671 L4.905,5.701 L5.649,5.179 L5.484,4.029 L6.726,4.029 L7.059,6.344 L4.906,7.853 L3.030,6.545 L1.996,6.085 L1.315,6.349 L1.558,8.252 Z"/>
+  <path fill="rgb(221,221,221)" fill-rule="nonzero" clip-path="url(#c0)" d="M0.325,8.251 L-0.110,4.867 L2.018,4.044 L3.427,4.671 L4.904,5.700 L5.650,5.177 L5.486,4.026 L6.724,4.026 L7.054,6.346 L4.905,7.853 L3.032,6.547 L1.997,6.087 L1.313,6.351 L1.557,8.251 Z"/>
 </svg>

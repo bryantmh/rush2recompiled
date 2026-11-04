@@ -675,6 +675,10 @@ loader, `widget`: the 2D widget draw, `flip`: an offline render of a button turn
   is lettered like the others. Rush 2 prints its selected row in the other menu font (8 <-> 9); the port prints it
   in the list's own font, centered where Rush 2 centered it, switching the font (0x800D402C, 0x800D3E60, 0x800D3E92,
   as `text_select_font_80088C24` sets them) for that one print and restoring it at the next font select.
+- 2049's lists have no disabled rows: the only reader of the node color D_80110660 is the menu setup, and
+  `func_800FEE04` only picks style 1 or 0x16. Rush 2 greys a row it can't pick (the circuit menu,
+  `menu_text_cb_name_entry_screen_803BD718` 0x803BDD54: style 1 when `func_803B6C18(row)` allows it, else style 4),
+  and the port keeps such rows (Rush 2's gray styles 2-4) in 2049's gray 0xA0A0A0 (shadow 0x282828).
 
 ### 11.2 Background
 
@@ -764,3 +768,14 @@ keep AERO's shapes rather than their pixel steps. Glyphs a size draws its own wa
 AERO-PLAIN7's flagged 1, A and pixel symbols) are drawn per font in `NATIVE`. The game draws its text point-sampled (each texel over [i, i + 1) of its cell), so the sheets are
 replaced with no shift: an 8x block upscale of the original sheets lands on them exactly in game, while RT64's
 center shift (right for filtered 3D textures like the cars') moved every glyph about 0.35 texel up and left.
+
+The Stunt HUD's two ROM fonts (AERO-PLAIN7 and 4BAERO-PLAIN12 from the 2049 ROM, fonts.json `rush2049_10/12`) use the
+same drawing. Their tables also hold 2049's characters past ASCII (`ROM2049_CHARACTERS`: 0x80 Ä, 0x82 Ç, 0x83 É, 0x84
+Ñ, 0x85 Ö, 0x86 Ü, 0xA1 °, 0xA8 ®, 0xA9 ©, 0xAA ™, 0xC0 ¿, 0xC1 ¡, 0xE6 Ê, 0xE7 Á, 0xE8 Ë, 0xE9 È, 0xEE Ó, 0xEF Ô, 0xF2
+Ú), and the sheets list them so their texels aren't taken for free space. 2049's accented letters are the plain
+letter's texels exactly with the mark added, so each is drawn as that letter's own fitted drawing, moved by the
+whole-texel shift that lays its texels over the accented cell, plus its mark placed on the ink the letter leaves
+(dots square on each dot's center with its solid texels' area; acute, grave, circumflex, tilde and cedilla as
+strokes over the mark's extent; placed, not fitted, since a fit fills the 1-texel gap between small dots). ® and ©
+are a fitted ring round the font's own R and C, ™ its T and M, ¿ and ¡ its ? and ! turned over. Where none of those
+fits within 2 levels rms (AERO-PLAIN7's ° and its © box with the letter cut out) the cell is traced.

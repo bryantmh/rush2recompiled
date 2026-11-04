@@ -215,3 +215,7 @@ NATIVE = {
               ('s', [(6.85, 10.0), (6.85, 6.5), (3.5, 6.5), (3.5, 10.5), (9.4, 10.5)], 1.2, 'p')],
     },
 }
+
+# The Rush 2049 Stunt HUD's sheets (build_font_pack.py trace-2049, read from the 2049 ROM) are the same fonts.
+NATIVE['rush2049_12'] = NATIVE['rush2049_menu_8']     # AERO-PLAIN7
+NATIVE['rush2049_10'] = NATIVE['rush2049_menu_10']    # 4BAERO-PLAIN12
