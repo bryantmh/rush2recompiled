@@ -18,7 +18,8 @@
 // taken modulo the car's jobs: rush2::car2049::paint_jobs) in place of the three color rows and STRIPE; an N64 ROM's
 // car has three paint ramps, so it keeps its three colors (STRIPE COLOR named TERTIARY COLOR) without STRIPE; a mod
 // car (docs/car_mods.md#new-cars) has its color schemes as STYLE, as a Dreamcast car, or else no stripes and only the
-// MAIN / ACCENT COLOR rows its textures take. The
+// MAIN / ACCENT COLOR rows its textures take. A car with liveries (docs/car_mods.md#liveries) gets a STYLE row under
+// CAR, except a paint-job car, whose STYLE row lists its liveries after its jobs. The
 // whole list is kept when func_803B81F0 builds it (once per visit) and each panel's list is put in its place before
 // anything reads it: func_803B9478's per-slot loop (0x803B951C, slot $s7), func_803BC048's (0x803BC0C8, slot $s2)
 // and the row widgets' callbacks (their slot from the widget's +0x2C).
@@ -71,8 +72,9 @@ namespace {
     constexpr uint32_t tertiary_label = 0x80300E10;   // "TERTIARY COLOR"
     constexpr uint32_t style_label_ptr = 0x80300E20;  // char* to each
     constexpr uint32_t tertiary_label_ptr = 0x80300E24;
-    constexpr uint32_t job_names = 0x80300E30;        // "STYLE 1" .. "STYLE 16", 16 bytes each
-    constexpr int max_jobs = 16;
+    // A STYLE row's value text: 16 bytes for each panel (2) and row (the paint job STYLE, the livery STYLE), written
+    // when the value is drawn. 0x80300F40 on is the battle rows' (docs/rush2049_research/battle.md).
+    constexpr uint32_t job_names = 0x80300E30;
 
     void write_string(uint8_t* rdram, uint32_t addr, const std::string& s) {
         for (size_t i = 0; i <= s.size(); i++) {
@@ -90,9 +92,13 @@ namespace {
         write_string(rdram, tertiary_label, "TERTIARY COLOR");
         MEM_W(0, (int32_t)style_label_ptr) = (int32_t)style_label;
         MEM_W(0, (int32_t)tertiary_label_ptr) = (int32_t)tertiary_label;
-        for (int s = 0; s < max_jobs; s++) {
-            write_string(rdram, job_names + s * 16, "STYLE " + std::to_string(s + 1));
-        }
+    }
+
+    // Writes "STYLE <style + 1>" into the value text of panel slot's row (livery: the livery STYLE row) and returns it.
+    uint32_t style_value(uint8_t* rdram, int slot, bool livery, int style) {
+        uint32_t at = job_names + (uint32_t)((slot & 1) * 2 + (livery ? 1 : 0)) * 16;
+        write_string(rdram, at, "STYLE " + std::to_string(std::clamp(style, 0, 98) + 1));
+        return at;
     }
 
     // The whole option list as func_803B81F0 built it, and the slot whose list is in place.
@@ -139,9 +145,10 @@ namespace {
         current_slot = slot;
         Rows rows = slot_rows(rdram, slot);
         int paints = rows == Rows::Mod ? rush2::car2049::mod_car_paints(slot_car(rdram, slot)) : 3;
-        // A car with liveries: STYLE under CAR, and a livery (drawn as authored) has no color rows.
+        // A car with liveries: STYLE under CAR, and a livery (drawn as authored) has no color rows. A car with paint
+        // jobs lists its liveries after them on its one STYLE row (jobs_and_liveries) instead.
         int type = slot_car(rdram, slot);
-        bool liveries = rush2::car_mods::livery_count(type) > 0;
+        bool liveries = rush2::car_mods::livery_count(type) > 0 && rows != Rows::Jobs;
         bool livery = liveries && rush2::car_mods::livery_style(rdram, slot_profile(rdram, slot), type) > 0;
         int count = 0;
         for (int i = 0; i < base_count && count < max_options; i++) {
@@ -270,11 +277,31 @@ extern "C" void rush2_wings_car_step(uint8_t* rdram, recomp_context* ctx) {
     }
     if ((int32_t)ctx->r15 == option_main && step != 0 && slot_rows(rdram, slot) == Rows::Jobs) {
         // STYLE: the game adds the step to the MAIN COLOR byte and wraps it at 32; set it so the sum wraps at the jobs.
+        // The car's liveries follow its jobs on the row: STYLE jobs + n is livery n, which keeps the byte.
         int type = slot_car(rdram, slot);
         int jobs = rush2::car2049::paint_jobs(type);
+        int liveries = rush2::car_mods::livery_count(type);
+        uint32_t profile = slot_profile(rdram, slot);
+        int livery = liveries > 0 ? rush2::car_mods::livery_style(rdram, profile, type) : 0;
         uint32_t at = main_colour + slot * rush2::car2049::types + type;
         int job = ((int8_t)MEM_B(0, (int32_t)at) % jobs + jobs) % jobs;
-        MEM_B(0, (int32_t)at) = (int8_t)((job + step + jobs) % jobs - step);
+        int total = jobs + liveries;
+        int next = ((livery > 0 ? jobs + livery - 1 : job) + step + total) % total;
+        if (next < jobs) {
+            MEM_B(0, (int32_t)at) = (int8_t)(next - step);
+        }
+        else {
+            MEM_B(0, (int32_t)at) = (int8_t)(job - step);
+        }
+        if (liveries > 0) {
+            int style = next < jobs ? 0 : next - jobs + 1;
+            if (style != livery) {
+                rush2::car_mods::set_livery_style(rdram, profile, type, style);
+                for (int panel = 0; panel < 2; panel++) {
+                    rush2::car_mods::paint_livery(rdram, panel * rush2::car2049::types + type);
+                }
+            }
+        }
         return;
     }
     if ((int32_t)ctx->r15 != option_wings || step == 0) {
@@ -317,16 +344,18 @@ extern "C" void rush2_wings_car_value(uint8_t* rdram, recomp_context* ctx) {
     if (id == option_livery) {
         write_strings(rdram);
         int type = slot_car(rdram, slot);
-        int style = std::clamp(rush2::car_mods::livery_style(rdram, slot_profile(rdram, slot), type), 0, max_jobs - 1);
-        ctx->r16 = (uint64_t)(int64_t)(int32_t)(job_names + style * 16);
+        int style = rush2::car_mods::livery_style(rdram, slot_profile(rdram, slot), type);
+        ctx->r16 = (uint64_t)(int64_t)(int32_t)style_value(rdram, slot, true, style);
         return;
     }
     if (id == option_main && slot_rows(rdram, slot) == Rows::Jobs) {
         write_strings(rdram);
         int type = slot_car(rdram, slot);
-        int jobs = std::min(rush2::car2049::paint_jobs(type), max_jobs);
+        int jobs = rush2::car2049::paint_jobs(type);
         int job = ((int8_t)MEM_B(0, (int32_t)(main_colour + slot * rush2::car2049::types + type)) % jobs + jobs) % jobs;
-        ctx->r16 = (uint64_t)(int64_t)(int32_t)(job_names + job * 16);
+        int livery = rush2::car_mods::livery_count(type) > 0
+            ? rush2::car_mods::livery_style(rdram, slot_profile(rdram, slot), type) : 0;
+        ctx->r16 = (uint64_t)(int64_t)(int32_t)style_value(rdram, slot, false, livery > 0 ? jobs + livery - 1 : job);
         return;
     }
     if (id != option_wings) {

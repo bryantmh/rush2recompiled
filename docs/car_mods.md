@@ -361,7 +361,10 @@ The car select gets a STYLE row under CAR: STYLE 1 is the car as it is, STYLE 2 
 picked, the MAIN COLOR, ACCENT COLOR, STRIPE and STRIPE COLOR rows are hidden. The choice is per player profile and
 car, kept in the saves' `"liveries"` section (`{"<profile record address>": {"<car type>": style}}`, STYLE 1 not
 stored), apart from the car's paint and stripe bytes, so a car that has stripes keeps them for STYLE 1. Computer cars
-always use STYLE 1. Turning the mod on or off applies the next time the game is in the menus. A livery body is a
+always use STYLE 1. A car that already has a STYLE row (a Dreamcast disc's Rush 2049 car, with its paint jobs) gets no
+second row: its liveries follow its paint jobs on that row, so with 7 jobs STYLE 8 is the first livery (and the stored
+style stays the livery's own number, 1 for the first). Turning the mod on or off applies the next time the game is in
+the menus. A livery body is a
 one-body car's, as a [new car](#new-cars)'s: it gets Rush 2's sheen layers made from it (following Graphics > Car
 Sheen as a new car's do, Cube Map included) and takes the car's panel damage as a 2049 car's body does: it dents,
 folds its hood, and each damaged panel's textures turn to scuffed copies (with RT64's replacements, the livery's
@@ -391,7 +394,8 @@ type: two players choose in panels 0 and 1, a single player's car shows in panel
 1), and the profile is the choosing player's record +0x24. In a race the id is the car 0-7, a human's type at physics
 car 0x800F5470 + id x 0x81C +0x7EA (+0x7E8 == 2) and its profile from the player record whose +0 is the car. The
 STYLE row is option 17 in `src/rush2049/wings_menu.cpp` (`option_livery`); a step repaints both panels' previews of
-the car.
+the car. On a paint-job car `use_slot` leaves option 17 out and `rush2_wings_car_step` walks jobs then liveries on the
+MAIN COLOR (STYLE) row, holding the job byte while a livery is picked.
 
 ## Replacing any model
 
