@@ -1663,6 +1663,7 @@ desc = "2049 placement walk and PVS region search: records 0x68 bytes, nodes 0x4
 status = "inferred"
 rush2 = 0x8007C27C
 rush1 = [0x80064544]
+calspeed = [0x800BFF98]
 link = "role"
 area = "render"
 ref = "docs/rush2049_research/geometry.md#51-scene-nodes-come-from-the-placement-file"
@@ -2446,6 +2447,7 @@ desc = "Scroll patch: walks a load list to G_ENDDL and on each G_SETTILESIZE rep
 status = "verified"
 ported = true
 rush2 = 0x8008A804
+calspeed = [0x8008A960]
 link = "same-code"
 area = "render"
 ref = "docs/rush2049_research/texanim.md#12-scrolls-and-palette-cycles-table-0x8011a840-ptr-per-track-id"
@@ -2457,6 +2459,7 @@ desc = "Per-frame animated texture update (flip-books and scrolls); called from 
 status = "verified"
 ported = true
 rush2 = 0x8008A9C8
+calspeed = [0x800B989C]
 link = "role"
 area = "render"
 ref = "docs/rush2049_research/texanim.md#1-how-rush-2049-does-it-v"
@@ -2475,6 +2478,7 @@ desc = "Race-start set-up of animated textures: flip-book table 0x8011A31C and s
 status = "verified"
 ported = true
 rush2 = 0x8008AF48
+calspeed = [0x800B979C]
 link = "role"
 area = "render"
 ref = "docs/rush2049_research/texanim.md#1-how-rush-2049-does-it-v"
@@ -2791,10 +2795,25 @@ ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
 
 [[func]]
 vram = 0x800C5644
-desc = "2049 surface type/material code compared with Rush 2 func_8006F704/func_8006FC94."
+name = "car_wall_poly_test"
+sig = "void car_wall_poly_test(Car *car, Poly *poly, Hit *hit)"
+desc = "One polygon against the car's body: the four body points (+0x274) and their previous positions (+0x2A4) in the polygon's frame (matrix_world_to_local_800A61B0); a hit goes through func_800C36A0 and the polygon is retested; types 3/4 wreck (func_800C54F0), battle scoring func_803914B4. Inferred the same scheme as California Speed's func_800B0E80 (body quad edges clipped to the polygon)."
 status = "inferred"
 area = "collision"
-ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
+ref = "docs/rush2049_research/collision.md#walls-behind-their-cells"
+
+[[func]]
+vram = 0x800C6404
+name = "car_wall_collision"
+sig = "void car_wall_collision(Car *car)"
+desc = "2049's wall collision, at the start of the ground contact car_ground_contact_800CF06C: the leaves under the four body points (+0x274, stride 0xC; collision_node_find_cached_800ACA9C from +0x3A0, 2049's exact floor), each once, then every polygon of them not flagged 0x4000 (done this call) / 0x2000 or type 0xF through func_800C5644; flags each one 0x4000. Unlike Rush 2's per-point probe, a wall is found from any body point's leaf, so 2049's files list walls only for the cells they cross (role link: Rush 2 car_wall_collision_query_8006FC94)."
+consts = "0x274 = body points, 0x3A0 = cached node, 0x4000 = polygon done this call"
+status = "verified"
+rush2 = 0x8006FC94
+calspeed = [0x800AFAFC, 0x800B1624]
+link = "role"
+area = "collision"
+ref = "docs/rush2049_research/collision.md#quadtree-lookups-v"
 
 [[func]]
 vram = 0x800C6AA0

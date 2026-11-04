@@ -140,6 +140,7 @@ consts = "0xF2 = G_SETTILESIZE; 0xDF = G_ENDDL"
 status = "verified"
 ported = true
 rush2 = 0x8008A804
+rush2049 = [0x800BD104]
 area = "render"
 ref = "docs/calspeed_research.md#animated-textures"
 
@@ -426,6 +427,7 @@ sig = "void cs_body_probe_unused(Car *car, f32 *p, f32 *p2, Mat3 *m)"
 desc = "Rush 2's body probe car_wall_collision_query_8006FC94 as California Speed carries it (the same -5, 3.75, 0.25, 5, -3.5), with the two-point wall rule of func_800AE884; no caller in the main code: the ground contact uses func_800B1624 instead."
 status = "verified"
 rush2 = 0x8006FC94
+rush2049 = [0x800C6404]
 link = "role"
 area = "collision"
 ref = "docs/calspeed_research.md#stacked-roads-the-subway-tunnel"
@@ -469,6 +471,7 @@ desc = "California Speed's wall collision, called by its ground contact func_800
 consts = "0x284 = body points (world), 0x3E4 = leaf query node cache, 0.99 = Rush 2's cell bias"
 status = "verified"
 rush2 = 0x8006FC94
+rush2049 = [0x800C6404]
 link = "role"
 area = "collision"
 ref = "docs/calspeed_research.md#walls-california-speeds-body-collision"
@@ -505,6 +508,7 @@ consts = "0x14 = record size; 10 = first scroll kind"
 status = "verified"
 ported = true
 rush2 = 0x8008AF48
+rush2049 = [0x800BDAA8]
 area = "render"
 ref = "docs/calspeed_research.md#animated-textures"
 
@@ -517,6 +521,7 @@ consts = "14 = kind count; 0x14 = record size"
 status = "verified"
 ported = true
 rush2 = 0x8008A9C8
+rush2049 = [0x800BD2C8]
 area = "render"
 ref = "docs/calspeed_research.md#animated-textures"
 
@@ -642,6 +647,8 @@ name = "pvs_apply"
 desc = "Per-view visibility: picks the camera's region (func_800BFD6C) and its 16-byte section mask from the track's table (0x800C0680, counts u8 0x800C4C80, jump table on the track id 0x800E779C); no region uses 0x800C4C90."
 status = "inferred"
 rush2 = 0x8007C27C
+rush1 = [0x80064544]
+rush2049 = [0x8009EBC0]
 area = "render"
 ref = "docs/calspeed_research.md#visibility-regions"
 

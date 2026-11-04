@@ -6579,8 +6579,9 @@ ref = "docs/rush2049_research/collision.md#5-surface-types-poly-flags--0xf"
 vram = 0x8006FC94
 name = "car_wall_collision_query"
 sig = "void car_wall_collision_query(Car *car, f32 *pos, f32 *out_normal, Mat3 *m, s32 stack0) | Entry hooked on California Speed tracks (rush2_calspeed_wall_collision, src/calspeed/calspeed_walls.cpp): its own wall collision runs for the car on body point 0 and the probe is skipped for all four points (docs/calspeed_research.md#walls-california-speeds-body-collision)."
-desc = "Leaf/polygon query (wall response through body probe func_8006FC64); u16[40] stack buffer (0xF4 -> 0x144), moved to RDRAM 0x80E1EE00 by hooks at 0x8006FD9C/0x8006FDDC so a leaf can hold 255; saved point pointer at sp+0x15C. | Collision query using a saved point pointer at sp+0x15C; reads the car table's driver byte. | Cell = x - 0.99 truncated for negative x (0.99 at 0x800CF7xx/0x800CF8xx). On a converted 2049 course it takes 2049's exact floor and 17-bit leaf offsets (mask bit 4 + q): cell hook at 0x8006FD60 ($t0 = the point), leaf-offset hook at 0x8006FD88 (src/rush2049/track2049_collision.cpp). Rush 2049 stunt scoring: the body push at 0x8006FF60 is Rush 2049's body hit (car +0x7D4 bit 0x100000, func_800C3880), rush2_stunt2049_body_hit."
+desc = "Leaf/polygon query (wall response through body probe func_8006FC64); u16[40] stack buffer (0xF4 -> 0x144), moved to RDRAM 0x80E1EE00 by hooks at 0x8006FD9C/0x8006FDDC so a leaf can hold 255; saved point pointer at sp+0x15C. | Collision query using a saved point pointer at sp+0x15C; reads the car table's driver byte. | Cell = x - 0.99 truncated for negative x (0.99 at 0x800CF7xx/0x800CF8xx). On a converted 2049 course it takes 2049's exact floor and 17-bit leaf offsets (mask bit 4 + q): cell hook at 0x8006FD60 ($t0 = the point), leaf-offset hook at 0x8006FD88 (src/rush2049/track2049_collision.cpp). Rush 2049 stunt scoring: the body push at 0x8006FF60 is Rush 2049's body hit (car +0x7D4 bit 0x100000, func_800C3880), rush2_stunt2049_body_hit. Each body point is tested only against its own cell's leaf (2049's car_wall_collision_800C6404 gathers all four points' leaves), so a wall must be listed for the cells behind it: the 2049 converter adds walls to the leaves within 6 ft (docs/rush2049_research/collision.md#walls-behind-their-cells)."
 status = "verified"
+rush2049 = [0x800C6404]
 calspeed = [0x800AFAFC, 0x800B1624]
 area = "collision"
 ref = "docs/rush2049_research/collision.md#quadtree-lookups-v"
@@ -7461,6 +7462,7 @@ sig = "s32 pvs_choose_camera_region(View *view, Vec3 *cam, s32 *out_region, f32 
 desc = "Finds the camera's region: ordinal of the top-level placement chain record whose box contains the camera. | Rush 2's PVS camera region choice: box bottom <= dy (no top test); score sqrt(dx^2+dz^2), plus dy - bottom when dy is above 0.75 x top; the least score wins."
 consts = "0.75 = top fraction"
 status = "verified"
+calspeed = [0x800BFD6C]
 area = "render"
 ref = "docs/rush2049_research/geometry.md#52-pvs-which-sections-are-drawn"
 
@@ -7474,6 +7476,7 @@ status = "verified"
 ported = true
 rush1 = [0x80064544]
 rush2049 = [0x8009EBC0]
+calspeed = [0x800BFF98]
 area = "render"
 ref = "us.toml"
 
@@ -8905,6 +8908,7 @@ desc = "Scroll kinds 9/10 helper: passes position unshifted."
 consts = "0xFF000FFF/0xFFF000/0xFFF = packed field masks; 9 = scroll kind"
 status = "verified"
 rush2049 = [0x800BD104]
+calspeed = [0x8008A960]
 area = "render"
 ref = "docs/rush2049_research/texanim.md#3-rush-2s-own-mechanism-for-comparison-v"
 
@@ -8915,6 +8919,7 @@ sig = "void track_prop_anim_update(void)"
 desc = "Per-track palette-cycling/scroll list update (kinds < 11 via jump table 0x800CFB6C, s16 timer +0xC, s8 period +0xA, vblank count 0x8002301C); rotates palette entries without null check."
 status = "verified"
 rush2049 = [0x800BD2C8]
+calspeed = [0x800B989C]
 area = "track"
 ref = "docs/rush2049_research/placement.md#15-hard-coded-names-and-failure-safety"
 
@@ -8925,6 +8930,7 @@ sig = "void track_prop_anim_setup(void)"
 desc = "Per-track palette-cycling/scroll list set-up via 0x800C5D2C (tracks 0, 1, 3, 5, 11); missing texture leaves entry +0x10 unchanged."
 status = "verified"
 rush2049 = [0x800BDAA8]
+calspeed = [0x800B979C]
 area = "track"
 ref = "docs/rush2049_research/placement.md#15-hard-coded-names-and-failure-safety"
 

@@ -2758,6 +2758,7 @@ desc = "Visibility region choice and section mask: the top-level record whose bo
 status = "verified"
 rush2 = 0x8007C27C
 rush2049 = [0x8009EBC0]
+calspeed = [0x800BFF98]
 link = "role"
 area = "track"
 ref = "docs/rush1_research.md#4-visibility-v"

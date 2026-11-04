@@ -48,6 +48,7 @@
 #include <unordered_set>
 
 #include "assets.h"
+#include "collision_polys.h"
 #include "car2049.h"
 #include "rush2049_rom.h"
 #include "track2049_convert.h"
@@ -1958,6 +1959,147 @@ namespace {
         }
     }
 
+    // A polygon's vertices in the world: vertex 0 is its world origin and the rest are in its local frame, whose axes
+    // are the rows of its matrix (row 1 is the normal). VERT: s16 x, y, z and 5 fraction bits each in a u16.
+    std::vector<std::array<double, 3>> world_polygon(const Collision& c, const CPoly& p) {
+        auto vertex = [&](int k, double* out) {
+            const uint8_t* r = c.verts.at((size_t)k);
+            int16_t x = (int16_t)((r[0] << 8) | r[1]), y = (int16_t)((r[2] << 8) | r[3]), z = (int16_t)((r[4] << 8) | r[5]);
+            uint16_t f = (uint16_t)((r[6] << 8) | r[7]);
+            out[0] = (x * 32 + ((f >> 10) & 31)) / 32.0;
+            out[1] = (y * 32 + ((f >> 5) & 31)) / 32.0;
+            out[2] = (z * 32 + (f & 31)) / 32.0;
+        };
+        std::vector<std::array<double, 3>> w(p.verts.size());
+        if (w.empty()) {
+            return w;
+        }
+        vertex(p.verts[0], w[0].data());
+        for (size_t i = 1; i < p.verts.size(); i++) {
+            double l[3];
+            vertex(p.verts[i], l);
+            for (int a = 0; a < 3; a++) {
+                w[i][a] = w[0][a];
+                for (int r = 0; r < 3; r++) {
+                    w[i][a] += l[r] * p.matrix[3 * r + a] / 16384.0;
+                }
+            }
+        }
+        return w;
+    }
+
+    // Rush 2049 lists a wall only in the leaves of the cells its outline crosses. That is enough for 2049, whose wall
+    // collision (func_800C6404, per polygon func_800C5644) gathers the leaves under all four body points and tests the
+    // body's outline against every wall in them, so a wall the car is crossing is found from the corner still in front.
+    // Rush 2's body probe (car_wall_collision_query_8006FC94) tests each body point only against its own cell's leaf,
+    // so a wall lying on a cell line, or a point that has crossed one, loses it and the car goes through: Metro's wall
+    // at x 5460 under the hilltop (polygon 4321, GitHub issue 37) is listed for x >= 5460 only, its front, and every
+    // car that reached it drove on into the void. Each wall is added to every leaf whose points lie within
+    // rush2::collision::wall_cell_reach of it, as Rush 2's own files and the custom track converter list walls
+    // (docs/rush2049_research/collision.md#walls-behind-their-cells). 2049's tree is kept: a leaf quadrant's points are
+    // its parent's quadrant cut at the node's middle lines (rounded toward zero, func_800AC9BC; the descent never
+    // checks a node's box), the root's box limiting them all. A list past the queries' max_leaf_polys takes walls
+    // within 1 ft, then keeps 2049's own.
+    void reach_walls(Collision& c) {
+        constexpr float bucket = 32.0f;
+        struct Wall {
+            int poly;
+            std::vector<std::array<float, 2>> xz;
+        };
+        std::vector<Wall> walls;
+        std::unordered_map<int64_t, std::vector<int>> grid;   // 32 ft buckets of the walls' outlines, with the reach
+        auto key = [](int bx, int bz) { return ((int64_t)bx << 32) ^ (uint32_t)bz; };
+        for (size_t i = 0; i < c.polys.size(); i++) {
+            const CPoly& p = c.polys[i];
+            int type = p.flags & 0xF;
+            if ((type != 5 && type != 6) || p.verts.size() < 3) {
+                continue;
+            }
+            Wall w{ (int)i, {} };
+            float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
+            for (const auto& v : world_polygon(c, p)) {
+                w.xz.push_back({ (float)v[0], (float)v[2] });
+                x0 = std::min(x0, (float)v[0]); x1 = std::max(x1, (float)v[0]);
+                z0 = std::min(z0, (float)v[2]); z1 = std::max(z1, (float)v[2]);
+            }
+            float m = rush2::collision::wall_cell_reach;
+            for (int bx = (int)std::floor((x0 - m) / bucket); bx <= (int)std::floor((x1 + m) / bucket); bx++) {
+                for (int bz = (int)std::floor((z0 - m) / bucket); bz <= (int)std::floor((z1 + m) / bucket); bz++) {
+                    grid[key(bx, bz)].push_back((int)walls.size());
+                }
+            }
+            walls.push_back(std::move(w));
+        }
+        if (walls.empty() || c.nodes.empty()) {
+            return;
+        }
+        uint32_t next_key = 0x40000000;   // c.leaves keys of the new lists, past any offset in the file
+        std::function<void(int, float, float, float, float, int)> walk = [&](int ni, float x0, float x1, float z0,
+                                                                              float z1, int depth) {
+            if (depth > 64) {
+                fail("collision: quadtree too deep");
+            }
+            CNode& n = c.nodes[(size_t)ni];
+            int mx = (n.bounds[0] + n.bounds[1]) / 2, mz = (n.bounds[2] + n.bounds[3]) / 2;   // toward zero
+            for (int q = 0; q < 4; q++) {
+                // q = (x >= mx) + 2 (z < mz), on the cell (2049's exact floor of the point).
+                float qx0 = (q & 1) ? std::max(x0, (float)mx) : x0, qx1 = (q & 1) ? x1 : std::min(x1, (float)mx);
+                float qz0 = (q & 2) ? z0 : std::max(z0, (float)mz), qz1 = (q & 2) ? std::min(z1, (float)mz) : z1;
+                if (qx0 >= qx1 || qz0 >= qz1) {
+                    continue;
+                }
+                if (n.mask & (1 << q)) {
+                    if (n.child[q] != 0 && n.child[q] < c.nodes.size()) {
+                        walk((int)n.child[q], qx0, qx1, qz0, qz1, depth + 1);
+                    }
+                    continue;
+                }
+                std::vector<int> base;
+                if (n.leaf[q]) {
+                    base = c.leaves.at(n.leaf[q]).polys;
+                }
+                auto with_reach = [&](float m) {
+                    std::vector<int> list = base;
+                    std::unordered_set<int> seen(base.begin(), base.end());
+                    // Points of the cells [qx0, qx1) are within m of a wall meeting the box widened by m.
+                    float rx0 = qx0 - m, rx1 = qx1 + m, rz0 = qz0 - m, rz1 = qz1 + m;
+                    for (int bx = (int)std::floor(rx0 / bucket); bx <= (int)std::floor(rx1 / bucket); bx++) {
+                        for (int bz = (int)std::floor(rz0 / bucket); bz <= (int)std::floor(rz1 / bucket); bz++) {
+                            auto it = grid.find(key(bx, bz));
+                            if (it == grid.end()) {
+                                continue;
+                            }
+                            for (int wi : it->second) {
+                                const Wall& w = walls[(size_t)wi];
+                                if (!seen.contains(w.poly) &&
+                                    rush2::collision::outline_meets_box(w.xz, rx0, rx1, rz0, rz1)) {
+                                    seen.insert(w.poly);
+                                    list.push_back(w.poly);
+                                }
+                            }
+                        }
+                    }
+                    return list;
+                };
+                std::vector<int> list = with_reach(rush2::collision::wall_cell_reach);
+                if ((int)list.size() > rush2::collision::max_leaf_polys) {
+                    list = with_reach(1.0f);
+                }
+                if (list.size() == base.size() || (int)list.size() > rush2::collision::max_leaf_polys) {
+                    continue;
+                }
+                std::sort(list.begin(), list.end());
+                CLeaf leaf;
+                leaf.polys = list;
+                leaf.raw = c.intern(encode_leaf(list));
+                c.leaves[next_key] = std::move(leaf);
+                n.leaf[q] = next_key++;
+            }
+        };
+        const CNode& root = c.nodes[0];
+        walk(0, root.bounds[0], root.bounds[1], root.bounds[2], root.bounds[3], 0);
+    }
+
     // 2049 POLY+2 word -> Rush 2's: bits 14/15 (Rush 2's tunnel level) come only from 2049's covered bit 8; bits 4/5
     // (2049 conveyor/platform) and their parameter in bits 11-15 are dropped.
     uint16_t convert_info(uint16_t info) {
@@ -2041,6 +2183,11 @@ namespace {
                 child[q] = n.child[q];
                 if (!(n.mask & (1 << q))) {
                     child[q] = n.leaf[q] ? (uint32_t)remap.at(n.leaf[q]) : 0;
+                    if (child[q] > 0x1FFFF) {
+                        // The u16 child and mask bit 4 + q hold 17 bits (track 3, the largest, is 118 KB with
+                        // reach_walls' walls).
+                        fail("collision: leaf offset " + hex(child[q]) + " past 17 bits");
+                    }
                     if (child[q] > 0xFFFF) {
                         mask |= 0x10 << q;
                     }
@@ -2086,6 +2233,7 @@ namespace {
                 fail("collision: source polygon already disabled (type 0xF)");
             }
         }
+        reach_walls(c);
         return build_collision_rush2(c);
     }
 
@@ -2193,32 +2341,13 @@ namespace {
         constexpr double min_normal_y = 0.25;
         Collision c;
         parse_collision49(collision_2049, c);
-        auto vertex = [&](int k, double* out) {
-            const uint8_t* r = c.verts.at((size_t)k);
-            int16_t x = (int16_t)((r[0] << 8) | r[1]), y = (int16_t)((r[2] << 8) | r[3]), z = (int16_t)((r[4] << 8) | r[5]);
-            uint16_t f = (uint16_t)((r[6] << 8) | r[7]);
-            out[0] = (x * 32 + ((f >> 10) & 31)) / 32.0;
-            out[1] = (y * 32 + ((f >> 5) & 31)) / 32.0;
-            out[2] = (z * 32 + (f & 31)) / 32.0;
-        };
         std::vector<FloorTriangle> tris;
         for (const CPoly& p : c.polys) {
             int type = p.flags & 0xF;
             if (p.verts.size() < 3 || type == 5 || type == 6 || p.matrix[4] / 16384.0 < min_normal_y) {
                 continue;
             }
-            std::vector<std::array<double, 3>> w(p.verts.size());
-            vertex(p.verts[0], w[0].data());
-            for (size_t i = 1; i < p.verts.size(); i++) {
-                double l[3];
-                vertex(p.verts[i], l);
-                for (int a = 0; a < 3; a++) {
-                    w[i][a] = w[0][a];
-                    for (int r = 0; r < 3; r++) {
-                        w[i][a] += l[r] * p.matrix[3 * r + a] / 16384.0;
-                    }
-                }
-            }
+            std::vector<std::array<double, 3>> w = world_polygon(c, p);
             for (size_t i = 1; i + 1 < w.size(); i++) {
                 FloorTriangle t;
                 for (int a = 0; a < 3; a++) {
@@ -2244,31 +2373,12 @@ namespace {
         Collision local;
         Collision& c = parsed ? *parsed : local;
         parse_collision49(collision_2049, c);
-        auto vertex = [&](int k, double* out) {
-            const uint8_t* r = c.verts.at((size_t)k);
-            int16_t x = (int16_t)((r[0] << 8) | r[1]), y = (int16_t)((r[2] << 8) | r[3]), z = (int16_t)((r[4] << 8) | r[5]);
-            uint16_t f = (uint16_t)((r[6] << 8) | r[7]);
-            out[0] = (x * 32 + ((f >> 10) & 31)) / 32.0;
-            out[1] = (y * 32 + ((f >> 5) & 31)) / 32.0;
-            out[2] = (z * 32 + (f & 31)) / 32.0;
-        };
         std::vector<float> out;
         for (const CPoly& p : c.polys) {
             if (p.verts.size() < 3 || (p.flags & 0xF) == 0xF) {
                 continue;
             }
-            std::vector<std::array<double, 3>> w(p.verts.size());
-            vertex(p.verts[0], w[0].data());
-            for (size_t i = 1; i < p.verts.size(); i++) {
-                double l[3];
-                vertex(p.verts[i], l);
-                for (int a = 0; a < 3; a++) {
-                    w[i][a] = w[0][a];
-                    for (int r = 0; r < 3; r++) {
-                        w[i][a] += l[r] * p.matrix[3 * r + a] / 16384.0;
-                    }
-                }
-            }
+            std::vector<std::array<double, 3>> w = world_polygon(c, p);
             for (size_t i = 1; i + 1 < w.size(); i++) {
                 for (size_t k : { (size_t)0, i, i + 1 }) {
                     for (int a = 0; a < 3; a++) {

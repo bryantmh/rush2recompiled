@@ -548,6 +548,44 @@ def wall_gaps(c, rules):
     return gaps
 
 
+def wall_back_gaps(c, rules, depths=(0.5, 1.5, 2.5, 3.5, 4.5), step=1.0, height=3.0):
+    """Walls Rush 2's body probe loses once a body point is behind them: {poly: [(x, z, depth)]} for points behind
+    the face (depths ft along the horizontal normal, every `step` ft along the face at `height` ft over its foot)
+    whose cell's leaf doesn't list the wall. Rush 2's probe (car_wall_collision_query_8006FC94) tests each body point
+    only against the walls of its own cell's leaf and takes a wall from 5 ft behind its plane to 3.75 ft in front, so
+    a wall listed only for the cells on its front side stops nothing that has crossed it
+    (docs/rush2049_research/collision.md#walls-behind-their-cells)."""
+    import math
+    out = {}
+    for pi, p in enumerate(c.polys):
+        if (p['flags'] & 0xF) not in TYPE_WALL:
+            continue
+        n = [v / 16384 for v in p['matrix'][3:6]]
+        h = math.hypot(n[0], n[2])
+        if abs(n[1]) > 0.2:
+            continue        # upright walls only: a sloped face's plan isn't the strip sampled here
+        nx, nz = n[0] / h, n[2] / h
+        w = world_polygon(c, p)
+        foot = min(v[1] for v in w)
+        if max(v[1] for v in w) - foot < height:
+            continue
+        # The face's horizontal extent along the wall at the sample height: the polygon's corners projected.
+        ax, az = -nz, nx
+        s = [v[0] * ax + v[2] * az for v in w]
+        d0 = w[0][0] * nx + w[0][2] * nz
+        lo, hi = min(s) + 0.25, max(s) - 0.25
+        t = lo
+        while t <= hi:
+            for d in depths:
+                x = ax * t + nx * (d0 - d)
+                z = az * t + nz * (d0 - d)
+                leaf = leaf_for_cell(c, cell(x, rules), cell(z, rules), rules)
+                if leaf is not None and pi not in leaf:
+                    out.setdefault(pi, []).append((x, z, d))
+            t += step
+    return out
+
+
 def lookup_check(src, out, samples=200000):
     """Cells (every wall cell, then random ones over the root) whose leaf differs between the 2049 file walked the
     2049 way and the converted file walked as the recomp's hooks do for a tagged file. Returns the mismatch count."""

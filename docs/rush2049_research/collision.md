@@ -21,7 +21,9 @@ self-check (`python collision.py` from `tools/rush2049`).
   - a re-purposed polygon `info` word
   - the sections in a different order
 - **Converter result.** `convert()` turns all 19 2049 files into valid Rush 2 files.
-  - All 19 are semantically identical to the source for everything Rush 2 reads, quadtree included.
+  - All 19 are semantically identical to the source for everything Rush 2 reads, quadtree included. The game's
+    converter (src/rush2049/track2049_convert.cpp) then also lists each wall in the leaves within 6 ft of it, for
+    Rush 2's body probe: see Walls behind their cells below.
   - The recomp walks a converted file's quadtree the 2049 way (split rounding, query cell, 17-bit leaf offsets): see
     Quadtree lookups below. Rush 2's own walk misses walls on 2049's data.
 - **Lost without code support:**
@@ -144,7 +146,8 @@ Rush 2's four (`func_8006CF00`, `func_8006F704`, `func_8006FC94`, `func_8008BDC0
   - The four queries, after their cell (0x8006CFBC, 0x8006F7D0, 0x8006FD60, 0x8008BF78): 2049's exact floor.
   - Their leaf fetches (0x8006CFEC, 0x8006F820, 0x8006FD88, 0x8008BFAC): + 0x10000 for mask bit 4 + q.
 - `collision.py` `lookup_check` walks each converted file as the hooks do and the 2049 file as 2049 does, over every
-  wall cell and 200 000 random cells: the leaves are the same for all 19 files.
+  wall cell and 200 000 random cells: the leaves are the same for all 19 files (`convert()`'s; the game's converter
+  adds walls to them, Walls behind their cells).
 - In game, `RUSH2_TEST_COLLISION=1` probes every floor polygon with `func_8006CF00` under both walks on the race's first
   tick and logs the difference. Track 6: 956 894 probes, 727 floors found only with 2049's walk, none lost. Track 3
   (17-bit offsets): 444 found, 6 that 2049's leaf answers with a surface nearer in height (its leaf lists the floor:
@@ -181,6 +184,55 @@ holding the list at a 0x200-byte list per query in RDRAM at 0x80E1EA00 + query·
 
 The ghost-car leaf filters read the moved lists through `rush2_collision_leaf_list_at(query)`. Every track, stock
 included, takes the moved lists; the stock ones never pass 34 polygons, so a stock race reads the same polygons.
+
+### Walls behind their cells
+
+**[V: code, data and in game; 2049's per-polygon test I]** (GitHub issue 37: Metro, cars through a wall near the
+second corner and into the void, also reported from Redvox57's stream.)
+
+The two games find walls differently, and 2049's leaves are built for its own way:
+- **Rush 2** (`car_wall_collision_query_8006FC94`, called once per body point): each of the four body points
+  (car +0x260) is tested only against the walls of **its own cell's leaf**, and takes a wall when it projects inside
+  the polygon along its normal and lies from 5 ft behind the plane to 3.75 ft in front.
+- **2049** (`car_wall_collision_800C6404`, at the start of the ground contact `func_800CF06C`): gathers the leaves
+  under all four body points (car +0x274, 2049's offsets), each once, and runs every polygon of them (not flagged
+  0x4000 / 0x2000 / type 0xF) through `func_800C5644`, which tests the four body points and their previous positions
+  (+0x2A4) against that one polygon and applies a hit through `func_800C36A0` [I: the same scheme as California
+  Speed's `func_800B1624` / `func_800B0E80`, docs/calspeed_research.md#walls-california-speeds-body-collision]. A
+  wall the car is crossing is found from any corner whose leaf lists it.
+
+2049's builder lists a wall only for the cells its outline crosses, and a wall lying on a cell line only for the cells
+on its + side (x >= line): that is the front for some walls and the back for others. Rush 2's own builder lists walls
+2-3 ft past them on both sides (gaps behind upright walls only grow past 3 ft). Counted with `collision.py`
+`wall_back_gaps` (upright walls with a cell 0.5-4.5 ft behind the face whose leaf lacks them; in brackets, within
+1.5 ft):
+
+| | Marina | Haight | Civic | Metro | Mission | Presidio | Rush 2 Vegas / LA / Seattle |
+|---|---|---|---|---|---|---|---|
+| 2049 file | 588 (280) | 766 (351) | 1004 (509) | 462 (212) | 615 (253) | 320 (111) | 56 (1) / 113 (6) / 186 (3) |
+| converted, 2026-11-03 | 3 (1) | 18 (13) | 47 (29) | 1 (0) | 1 (1) | 0 | |
+
+With Rush 2's probe, a wall whose leaves sit on its front side holds only until a body point crosses it: the point's
+next cell doesn't list it and the car drives on. Metro's polygon 4321 (the face of the raised block at x 5460, z -817
+to -780, y 140-200, left of the road just before the second corner) is listed for x >= 5460 only, its front; in game
+(`tools/wall_hold_test.py`, 120 ft/s at 50°) the car went straight through it, under the block and into the void,
+the issue's screenshots. The hill's right wall 4342 (x 5540, listed on its back side) held.
+
+**Port:** `reach_walls` in src/rush2049/track2049_convert.cpp (every 2049 track, arena and course, both sources)
+keeps 2049's tree and adds each wall (types 5, 6) to every leaf whose points lie within
+`rush2::collision::wall_cell_reach` (6 ft) of its x/z outline, the rule the custom track converter uses
+(`outline_meets_box`, include/collision_polys.h). A leaf quadrant's points are its parent's quadrant cut at the node's
+middle lines (2049's rounding toward zero; the descent never checks a node's box), within the root's box. A list
+past 255 takes walls within 1 ft, then keeps 2049's own (none does: the biggest is 41, stunt arena 4). Leaf sections
+grow 1-38% (Civic 99,492 -> 118,429 bytes, under the form's 17-bit offsets; `build_collision_rush2` fails past
+them). No converted 2049 track has back-to-back wall pairs (`tools/arcade2049/wall_twins.py`), which listing walls
+behind themselves would turn into push-throughs. In game after the change: Metro's 4321, 4342, the inside corner's
+bevel 4338, 4147 and 4316 held at 120 and 180 ft/s at 20°, 50°, 75° and 90° (`wall_hold_test.py --back 20`; at
+the default 8 ft a long car hitting nearly head-on is already through the face before sampling starts).
+
+Tools: `collision.py` `wall_back_gaps`; `tools/rush2049/edge_gaps.py` (lane-side probes, `--map` top-down PNGs of
+floors, walls and lanes, `--flood` a floor flood fill from the lanes stopped by walls at body height; its
+crossing test trips on seams where walls meet at whole-foot corners, so treat its leaks as leads, not findings).
 
 ### POLY, 0x18 bytes **[V layout]**
 
@@ -318,7 +370,8 @@ The same in both games: compare `func_8006F704`/`func_8006FC94` with `func_800C6
 ## 6. What converts losslessly
 
 - **Copied as-is:** SEG, NODE (2049's tree, tagged: see Quadtree lookups), POLY flags, matrices, VERT, polygon vertex
-  lists (re-encoded, same offsets) and leaf lists.
+  lists (re-encoded, same offsets) and leaf lists, to which each wall is added for the cells within 6 ft of it
+  (Walls behind their cells).
 - **Checks:** the self-check re-parses each output, validates every index and compares it with the source.
 - **File 141 (2049 track 3):** the leaf section is 99 492 bytes (0x184A4), past 16-bit offsets. It is kept whole,
   with 2049's 17-bit offsets (see Quadtree lookups).

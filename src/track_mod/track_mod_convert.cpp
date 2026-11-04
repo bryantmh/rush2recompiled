@@ -543,30 +543,17 @@ namespace {
             // Inclusive and a foot wide: the game's cell is floor(x) (and x - 0.99 for negatives). Walls also reach
             // the wall query's 5 ft (func_8006FC94's 0x144($sp)) past the cell, so a car at its edge still meets them
             // (the stock files list polygons well past their cells), unless that crowds a cell past max_leaf.
-            float m = wide && ((p.flags & 0xF) == 5 || (p.flags & 0xF) == 6) ? 6.0f : 1.0f;
+            float m = wide && ((p.flags & 0xF) == 5 || (p.flags & 0xF) == 6) ? rush2::collision::wall_cell_reach : 1.0f;
             float rx0 = float(x0) - m, rx1 = float(x1) + m, rz0 = float(z0) - m, rz1 = float(z1) + m;
             if (p.x1 < rx0 || p.x0 > rx1 || p.z1 < rz0 || p.z0 > rz1) return false;
             if (!p.sweep.empty()) {
                 for (const auto& b : p.sweep) if (!(b[1] < rx0 || b[0] > rx1 || b[3] < rz0 || b[2] > rz1)) return true;
                 return false;
             }
-            // The polygon itself, not just its box (separating axes of its x/z outline): a long diagonal strip's box
-            // covers far more cells than the strip, and the stacked boxes of a pipe or a terraced slope would
-            // otherwise crowd one cell past max_leaf where the stock files, which list polygons this way, stay under.
-            const auto& o = p.xz;
-            for (size_t k = 0; k < o.size(); k++) {
-                const auto &a = o[k], &b = o[(k + 1) % o.size()];
-                float nx = b[1] - a[1], nz = a[0] - b[0];
-                if (nx * nx + nz * nz < 1e-8f) continue;
-                float pmin = 1e30f, pmax = -1e30f;
-                for (const auto& w : o) { float d = nx * w[0] + nz * w[1]; pmin = std::min(pmin, d); pmax = std::max(pmax, d); }
-                float rmin = 1e30f, rmax = -1e30f;
-                for (float cx : { rx0, rx1 }) for (float cz : { rz0, rz1 }) {
-                    float d = nx * cx + nz * cz; rmin = std::min(rmin, d); rmax = std::max(rmax, d);
-                }
-                if (rmax < pmin - 1e-3f || rmin > pmax + 1e-3f) return false;
-            }
-            return true;
+            // The polygon itself, not just its box: a long diagonal strip's box covers far more cells than the strip,
+            // and the stacked boxes of a pipe or a terraced slope would otherwise crowd one cell past max_leaf where
+            // the stock files, which list polygons this way, stay under.
+            return rush2::collision::outline_meets_box(p.xz, rx0, rx1, rz0, rz1);
         };
         size_t biggest = 0;
         std::function<int(int, int, int, int, int, const std::vector<int>&)> make_node =

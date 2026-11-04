@@ -55,7 +55,9 @@ def main():
     ap.add_argument('--wall', required=True)
     ap.add_argument('--angle', type=float, default=25.0)
     ap.add_argument('--speed', type=float, default=70.0)
-    ap.add_argument('--back', type=float, default=8.0)
+    ap.add_argument('--back', type=float, default=8.0,
+                    help='ft in front of the face to drop the car; use 20 or more for steep --angle at high --speed, '
+                         'or a long car is already through the face before sampling starts (reads as PASSED THROUGH)')
     ap.add_argument('--secs', type=float, default=1.5)
     ap.add_argument('--after', type=float, default=2.0, help='seconds of racing before the first drop')
     ap.add_argument('--out')
