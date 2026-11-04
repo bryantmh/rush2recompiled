@@ -416,6 +416,19 @@ namespace {
         return true;
     }
 
+    // ---- brake light lists ---------------------------------------------------------------------------------------
+    // Brake lights are lamps laid over the body's tail lights, and the arcade's BRAKE textures are soft glows (alpha 0
+    // and near black around a red core): drawn with the body's opaque render mode they were dark boxes. Their lists
+    // draw blended instead: the body's fog cycle kept and G_RM_ZB_XLU_SURF2 after it (a mode without the fog cycle:
+    // G_RM_ZB_XLU_SURF in both), alpha the texture's own (the full-size replacement's) through G_CC_MODULATEIDECALA
+    // (a fogged list's shade alpha is the fog), unlit (G_LIGHTING cleared) with white vertices, full bright.
+    uint32_t brake_render_mode(uint32_t body) {
+        return (body >> 30) == 3 ? (body & 0xCCCC0000u) | 0x00104A50u : 0x00504A50u;
+    }
+    constexpr uint32_t brake_combine[2] = { 0xFC127FFFu, 0xFFFFF238u }; // (G_CC_MODULATEIDECALA, G_CC_PASS2)
+    constexpr uint32_t clear_lighting[2] = { 0xD9FDFFFFu, 0u };         // G_GEOMETRYMODE, F3DEX2's G_LIGHTING 0x20000
+    constexpr uint32_t set_lighting[2] = { 0xD9FFFFFFu, 0x00020000u };
+
     // ---- the car container ---------------------------------------------------------------------------------------
     // One LOD's FRAME1 list and its vertices (appended to d): per stand-in its texture load, then the triangles, 32
     // vertices per G_VTX. With several color schemes, each scheme's triangles are a block between two scheme markers
@@ -430,9 +443,18 @@ namespace {
         std::vector<std::pair<uint32_t, uint32_t>> list; // commands; a G_VTX's w1 is relative to the vertices
         std::vector<size_t> vtx_commands;
         auto cmd = [&](uint32_t w0, uint32_t w1) { list.emplace_back(w0, w1); };
-        // Render mode and combiner as Rush 2's car panels set them (PICKUPD0_TOP1).
-        cmd(0xE200001C, 0xC8112230);
-        cmd(0xFC1216AC, 0xF0FFFE38);
+        // Render mode and combiner as Rush 2's car panels set them (PICKUPD0_TOP1); a brake light list's blended.
+        constexpr uint32_t body_mode = 0xC8112230, body_combine[2] = { 0xFC1216AC, 0xF0FFFE38 };
+        const bool brake = brake_scheme >= 0;
+        if (brake) {
+            cmd(clear_lighting[0], clear_lighting[1]);
+            cmd(0xE200001C, brake_render_mode(body_mode));
+            cmd(brake_combine[0], brake_combine[1]);
+        }
+        else {
+            cmd(0xE200001C, body_mode);
+            cmd(body_combine[0], body_combine[1]);
+        }
         const float light[3] = { 0.30f, 0.80f, 0.52f };
         int schemes = 1;
         for (const Part& part : model.parts) schemes = std::max(schemes, part.scheme + 1);
@@ -465,7 +487,7 @@ namespace {
                                                int16_t(std::clamp(std::lround(p[2]), -32767l, 32767l)) };
                             radius = std::max(radius, std::sqrt(float(xyz[0]) * xyz[0] + float(xyz[1]) * xyz[1] + float(xyz[2]) * xyz[2]));
                             float shade = 0.72f + 0.28f * std::max(0.0f, -nn[0] * light[0] + nn[1] * light[1] + nn[2] * light[2]);
-                            uint8_t c = uint8_t(std::clamp(shade * 255.0f, 0.0f, 255.0f));
+                            uint8_t c = brake ? 0xFF : uint8_t(std::clamp(shade * 255.0f, 0.0f, 255.0f));
                             // The N64 puts texel i's center at coordinate i (Rush 2's panels run 0 to width - 1), glTF at
                             // i + 0.5: without the half texel, every sample lands half a stand-in texel (16 texels of a
                             // 1024-wide image) off, into the gaps between the image's islands.
@@ -524,6 +546,10 @@ namespace {
                 for (auto [w0, w1] : rush2::car2049::brake_switch((*brake_lists)[scheme])) cmd(w0, w1);
             }
             if (schemes > 1 && brake_scheme < 0) cmd(0, rush2::car2049::scheme_marker(scheme, true));
+        }
+        if (brake) { // the body's mode back for what its list draws after the call
+            cmd(0xE200001C, body_mode);
+            cmd(body_combine[0], body_combine[1]);
         }
         cmd(0xDF000000, 0);
         // The last vertex ends the chain.
@@ -835,20 +861,31 @@ namespace {
     }
 
     // loads: each stand-in's texture-load list, called (G_DL) in place of loading it in the list (a livery's, whose
-    // loads car2049's add_damage_textures inlines per panel).
+    // loads car2049's add_damage_textures inlines per panel). brake: a livery's brake lights, blended, unlit and full
+    // bright (brake_render_mode; lit is ignored), its end setting the model's mode back.
     uint32_t emit_model(std::vector<uint8_t>& d, const ModelMod& mm, const std::vector<uint32_t>& texels,
-                        const ListState& st, bool lit, float& radius, const std::vector<uint32_t>* loads = nullptr) {
+                        const ListState& st, bool lit, float& radius, const std::vector<uint32_t>* loads = nullptr,
+                        bool brake = false) {
         std::vector<uint8_t> vertices;
         std::vector<std::pair<uint32_t, uint32_t>> list;
         std::vector<size_t> vtx_commands;
         auto cmd = [&](uint32_t w0, uint32_t w1) { list.emplace_back(w0, w1); };
+        if (brake) lit = false;
         cmd(0xE3001001, 0x00000000);            // no TLUT: true color
         cmd(0xE3000F00, 0x00000000);            // no mipmaps
         // The model's own render mode (blending, z, fog) and textured combiner, always textured: its list may start on
         // an untextured part (ALCATRAZTRACK: G_TEXTURE off, a shade-only combiner) and switch further on. Without a
         // textured combiner: TEXEL0 x SHADE (color and alpha), the second cycle passing it on.
-        if (st.has_mode) cmd(st.mode[0], st.mode[1]);
-        cmd(st.has_combine ? st.combine[0] : 0xFC1219FF, st.has_combine ? st.combine[1] : 0xFFFFFE38);
+        const uint32_t combine[2] = { st.has_combine ? st.combine[0] : 0xFC1219FF, st.has_combine ? st.combine[1] : 0xFFFFFE38 };
+        if (brake) {
+            cmd(clear_lighting[0], clear_lighting[1]);
+            cmd(0xE200001C, brake_render_mode(st.has_mode ? st.mode[1] : 0xC8112230));
+            cmd(brake_combine[0], brake_combine[1]);
+        }
+        else {
+            if (st.has_mode) cmd(st.mode[0], st.mode[1]);
+            cmd(combine[0], combine[1]);
+        }
         cmd(0xD7000002, 0xFFFFFFFF);            // G_TEXTURE on, tile 0, scale 1
         const float light[3] = { 0.30f, 0.80f, 0.52f };
         const Model& model = *mm.model;
@@ -881,6 +918,9 @@ namespace {
                             float n3[3] = { -nn[0], nn[1], nn[2] };
                             for (int k = 0; k < 3; k++) rgba[k] = uint8_t(int8_t(std::clamp(std::lround(n3[k] * 127.0f), -127l, 127l)));
                             rgba[3] = 255;
+                        }
+                        else if (brake) {
+                            rgba[0] = rgba[1] = rgba[2] = rgba[3] = 255;
                         }
                         else if (!part.col.empty()) {
                             for (int k = 0; k < 4; k++) rgba[k] = uint8_t(std::clamp(part.col[v][k] * 255.0f + 0.5f, 0.0f, 255.0f));
@@ -937,6 +977,10 @@ namespace {
                 }
                 flush();
             }
+        }
+        if (brake) { // the model's mode back for what its list draws after the call
+            if (st.has_mode) cmd(st.mode[0], st.mode[1]);
+            cmd(combine[0], combine[1]);
         }
         cmd(0xE3001001, 0x00008000); // the TLUT mode Rush 2's lists leave set (RGBA16)
         cmd(0xDF000000, 0);
@@ -1143,8 +1187,8 @@ namespace {
                 std::vector<uint32_t> brake_texels;
                 for (const TrueColor& s : mm.brake->stand_ins) brake_texels.push_back(place(s).first);
                 float brake_radius = 0.0f;
-                brake_list = emit_model(out, *mm.brake, brake_texels, st, lod_lit[0], brake_radius);
-                const bool brake_lit[1] = { lod_lit[0] };
+                brake_list = emit_model(out, *mm.brake, brake_texels, st, false, brake_radius, nullptr, true);
+                const bool brake_lit[1] = { false }; // white vertex colors, not normals
                 add_model(prefix + "BRK", 1, &brake_list, brake_lit, brake_radius / 16.0f);
             }
             // Each LOD its own list: the loader rebases a list once per LOD that names it.
@@ -1158,6 +1202,11 @@ namespace {
                     for (auto [w0, w1] : rush2::car2049::brake_switch(brake_list)) {
                         add32(out, w0);
                         add32(out, w1);
+                    }
+                    // The brake list draws unlit: a lit LOD's lighting back after it (a no-op while not braking).
+                    if (lod_lit[l]) {
+                        add32(out, set_lighting[0]);
+                        add32(out, set_lighting[1]);
                     }
                     add32(out, 0xDF000000);
                     add32(out, 0);

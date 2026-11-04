@@ -360,6 +360,12 @@ switches off for it and on again after. A livery's brake list loads its textures
 relocator doesn't enter a called load list. `rush2_calspeed_brake_lights` (the func_800599A0 hook) keeps each car's
 braking for a car whose `Paint` or shown livery has lights (`Paint::lights`) and still lets Rush 2 write its palette.
 
+A brake list draws blended, unlit and full bright (`brake_render_mode`, src/car_mods.cpp): the arcade's BRAKE textures
+are soft glows, alpha 0 and near black around a red core, which the body's opaque render mode drew as dark boxes. The
+list clears G_LIGHTING, sets the body's fog cycle with G_RM_ZB_XLU_SURF2 after it and G_CC_MODULATEIDECALA (the
+texture's alpha, from its full-size replacement; a fogged list's shade alpha is the fog), draws white vertices, and
+ends by setting the body's mode and combiner back; a lit livery LOD sets G_LIGHTING again after its switch.
+
 Test aid: `RUSH2_TEST_LIVERY=<style>` shows that STYLE on every car with liveries (JUST PLAY has no profile to keep one
 in): `tools/test_race.py 0 --cars 28 --env RUSH2_TEST_LIVERY=1 --script "14:A:5,19.2:B:3" --shots 18.8,19.6` brakes
 the Bruiser in the arcade's first Cuda livery.
